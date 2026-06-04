@@ -30,8 +30,10 @@ public static class ReadTools
             string formid,
         [Description("Optional. Read THIS plugin's version of the record instead of the load-order winner (a filename, e.g. 'Requiem.esp'). Useful to inspect a specific override.")]
             string? plugin = null,
-        [Description("Optional. Dotted field paths to read (e.g. 'BasicStats.Damage', 'Name', 'Keywords'). Omit to dump every modeled field one level deep.")]
+        [Description("Optional. Dotted field paths to read (e.g. 'BasicStats.Damage', 'Name', 'Keywords'). Index into a list/dict element with BRACKETS, e.g. 'Effects[0].Data.Magnitude' or 'VirtualMachineAdapter.Aliases[0].Scripts[0].Properties[5].Name' — a bare '.0' is read as a field name, not an index. Omit to dump every modeled field one level deep (pass depth= to expand list/dict contents).")]
             string[]? fields = null,
+        [Description("Optional. Expansion depth for list/dict/substruct CONTENTS (default 1 = one level, a container shown as just a count like '[List: 22 item(s)]'). depth=2 enumerates each element with its index + an identity, e.g. 'VirtualMachineAdapter.Aliases[0].Scripts[0].Properties[5] = [ScriptObjectProperty] Name=DAK_HorseBuyPerk' — so you can SEE indices/contents without probing each [i]. Higher depth opens deeper. Pair with a fields= path to expand only that subtree; on a whole-record dump it expands every container (bounded, with an explicit truncation note).")]
+            int depth = 1,
         [Description("When true, also return the ordered list of every plugin that touches this record (winner last) and the winner-relative field diff for each.")]
             bool conflict_tree = false,
         [Description("Optional. Max characters before the diff is cut with an explicit notice (never silent). 0 = the server default (~80k). Raise to see a very deep conflict tree in full.")]
@@ -42,7 +44,7 @@ public static class ReadTools
         try { fk = FormKey.Factory(formid.Trim()); }
         catch (Exception ex) { return $"error: bad FormID '{formid}': {ex.Message}. Expected 'XXXXXX:Plugin.esp', e.g. '0F1AC1:Skyrim.esm'."; }
 
-        var outcome = svc.ResolveRead(fk, plugin, fields, conflict_tree);
+        var outcome = svc.ResolveRead(fk, plugin, fields, conflict_tree, depth <= 0 ? 1 : depth);
         return Wire.RenderRecord(svc, outcome, fields, conflict_tree, max_chars);
     }
 
@@ -58,8 +60,10 @@ public static class ReadTools
         LoadOrderService svc,
         [Description("The FormIDs to read, each 'XXXXXX:Plugin.esp'. Resolved in order; results are returned in the same order.")]
             string[] formids,
-        [Description("Optional. Dotted field paths to read for EVERY record (e.g. 'Name', 'BasicStats.Damage'). Omit to dump every modeled field one level deep per record.")]
+        [Description("Optional. Dotted field paths to read for EVERY record (e.g. 'Name', 'BasicStats.Damage'); index a list/dict element with BRACKETS, e.g. 'Effects[0].Data.Magnitude'. Omit to dump every modeled field one level deep per record.")]
             string[]? fields = null,
+        [Description("Optional. Expansion depth for list/dict/substruct CONTENTS per record (default 1). depth=2 enumerates each container's elements with index + identity (see housecarl_read_record). Bounded per record with an explicit truncation note.")]
+            int depth = 1,
         [Description("When true, include each record's touching-plugin list (winner last) + winner-relative field diff.")]
             bool conflict_tree = false,
         [Description("Optional. Max characters before the response stops with an explicit 'rendered X of N' notice. 0 = the server default (~80k).")]
@@ -67,7 +71,7 @@ public static class ReadTools
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
         if (formids is null || formids.Length == 0) return "error: formids is empty. Pass one or more 'XXXXXX:Plugin.esp' FormIDs.";
-        var outcomes = svc.ResolveBatch(formids, fields, conflict_tree);
+        var outcomes = svc.ResolveBatch(formids, fields, conflict_tree, depth <= 0 ? 1 : depth);
         return Wire.RenderBatch(svc, outcomes, fields, conflict_tree, max_chars);
     }
 
@@ -129,7 +133,7 @@ static class Wire
     {
         if (o.Error is not null) return "error: " + o.Error;
         var sb = new StringBuilder();
-        AppendRecord(sb, o);
+        AppendRecord(sb, o, Cap(maxChars));
         if (conflictTree) AppendConflictTree(sb, svc, o, fields, Cap(maxChars));
         return sb.ToString().TrimEnd('\n');
     }
@@ -152,7 +156,7 @@ static class Wire
             }
             sb.Append('\n');
             if (o.Error is not null) sb.Append("error: ").Append(o.Error).Append('\n');
-            else { AppendRecord(sb, o); if (conflictTree) AppendConflictTree(sb, svc, o, fields, cap); }
+            else { AppendRecord(sb, o, cap); if (conflictTree) AppendConflictTree(sb, svc, o, fields, cap); }
             rendered++;
         }
         return sb.ToString().TrimEnd('\n');
@@ -185,7 +189,7 @@ static class Wire
                 var o = svc.ResolveRead(fk, null, fields, conflictTree);
                 sb.Append('\n');
                 if (o.Error is not null) sb.Append(fk).Append(": error: ").Append(o.Error).Append('\n');
-                else { AppendRecord(sb, o); if (conflictTree) AppendConflictTree(sb, svc, o, fields, cap); }
+                else { AppendRecord(sb, o, cap); if (conflictTree) AppendConflictTree(sb, svc, o, fields, cap); }
             }
             else
             {
@@ -202,7 +206,7 @@ static class Wire
 
     // ---- shared building blocks ---------------------------------------------------------------------
 
-    static void AppendRecord(StringBuilder sb, ReadOutcome o)
+    static void AppendRecord(StringBuilder sb, ReadOutcome o, int cap)
     {
         var r = o.Record!;
         sb.Append("type=").Append(r.Type)
@@ -211,8 +215,18 @@ static class Wire
           .Append("  winner=").Append(o.WinnerPlugin)
           .Append("  override_depth=").Append(o.OverrideDepth).Append('\n');
         sb.Append("fields (from ").Append(o.SourcePlugin).Append("):\n");
-        foreach (var f in r.Fields)
+        for (int i = 0; i < r.Fields.Count; i++)
+        {
+            if (sb.Length >= cap)                                          // depth= can produce many lines — cap them (Q3)
+            {
+                sb.Append("  ... [truncated: showing ").Append(i).Append(" of ").Append(r.Fields.Count)
+                  .Append(" field lines at max_chars=").Append(cap)
+                  .Append("; narrow with fields=, lower depth=, or raise max_chars]\n");
+                break;
+            }
+            var f = r.Fields[i];
             sb.Append("  ").Append(f.Path).Append(" = ").Append(f.HasValue ? f.Token : f.Note).Append('\n');
+        }
     }
 
     /// <summary>The conflict tree: the ordered touching-plugin list, then (when >1 plugin touches) the

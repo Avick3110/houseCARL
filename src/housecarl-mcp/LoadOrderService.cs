@@ -302,7 +302,7 @@ public sealed class LoadOrderService : IDisposable
     /// named <paramref name="plugin"/>'s version; with <paramref name="conflictTree"/> also returns the ordered
     /// touching-plugin list. Honest, recoverable errors (Q3): not-in-order, plugin-doesn't-touch, fetch
     /// inconsistency — never a silent empty result.</summary>
-    public ReadOutcome ResolveRead(FormKey fk, string? plugin, IReadOnlyList<string>? fields, bool conflictTree)
+    public ReadOutcome ResolveRead(FormKey fk, string? plugin, IReadOnlyList<string>? fields, bool conflictTree, int depth = 1)
     {
         var resolver = Resolver;
         var winner = resolver.ResolveWinner(fk);
@@ -317,7 +317,7 @@ public sealed class LoadOrderService : IDisposable
                 ? $"Winner '{winner.Value.WinnerPlugin}' did not yield {fk} on fetch — a load-order inconsistency."
                 : $"Plugin '{plugin}' does not define {fk} (it does not touch this record). The winner is '{winner.Value.WinnerPlugin}'.");
 
-        var record = ReadEngine.ReadFields(rec, fields);                  // materialise while the session (overlay) is open
+        var record = ReadEngine.ReadFields(rec, fields, depth);           // materialise while the session (overlay) is open
         var touching = conflictTree ? resolver.TouchingPlugins(fk) : null;
         return new ReadOutcome(fk, record, source, winner.Value.WinnerPlugin, winner.Value.OverrideDepth, touching, null);
     }
@@ -359,7 +359,7 @@ public sealed class LoadOrderService : IDisposable
     /// <summary>Resolve+read many records in one call (housecarl_batch_record_detail). Each formid runs the same
     /// <see cref="ResolveRead"/> path, so a bad/absent formid yields a per-item recoverable error (Q3) without
     /// failing the batch. Returns one <see cref="ReadOutcome"/> per input, in order.</summary>
-    public IReadOnlyList<ReadOutcome> ResolveBatch(IReadOnlyList<string> formids, IReadOnlyList<string>? fields, bool conflictTree)
+    public IReadOnlyList<ReadOutcome> ResolveBatch(IReadOnlyList<string> formids, IReadOnlyList<string>? fields, bool conflictTree, int depth = 1)
     {
         var outcomes = new List<ReadOutcome>(formids.Count);
         foreach (var raw in formids)
@@ -367,7 +367,7 @@ public sealed class LoadOrderService : IDisposable
             FormKey fk;
             try { fk = FormKey.Factory(raw.Trim()); }
             catch (Exception ex) { outcomes.Add(ReadOutcome.Fail(default, $"bad FormID '{raw}': {ex.Message}")); continue; }
-            outcomes.Add(ResolveRead(fk, null, fields, conflictTree));
+            outcomes.Add(ResolveRead(fk, null, fields, conflictTree, depth));
         }
         return outcomes;
     }

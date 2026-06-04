@@ -32,7 +32,7 @@ public static class WriteTools
         LoadOrderService svc,
         [Description("The record's FormID as 'XXXXXX:Plugin.esp' (6 hex digits, the defining master's filename).")]
             string formid,
-        [Description("Dotted field path to edit, e.g. 'BasicStats.Damage', 'Name', 'Keywords'.")]
+        [Description("Dotted field path to edit, e.g. 'BasicStats.Damage', 'Name', 'Keywords'. Step into a list/dict element MID-PATH with brackets, e.g. 'Effects[0].Data.Magnitude' or 'VirtualMachineAdapter.Aliases[0].Scripts[0].Properties'. At the LEAF, edit a collection element with verb + key (SetAtIndex/Remove by index, Set/Remove by dict key) — not brackets.")]
             string field_path,
         [Description("The value, coerced to the field's type: a number, an enum name (e.g. 'OneHanded'), or a FormID 'XXXXXX:Plugin.esp' for a reference. Omit only for Remove.")]
             string? value = null,
@@ -221,7 +221,7 @@ public sealed record BulkOp
     [JsonPropertyName("formid"), Description("The record's FormID 'XXXXXX:Plugin.esp'.")]
     public string? Formid { get; init; }
 
-    [JsonPropertyName("field_path"), Description("Dotted field path, e.g. 'BasicStats.Damage' or 'Entries'.")]
+    [JsonPropertyName("field_path"), Description("Dotted field path, e.g. 'BasicStats.Damage' or 'Entries'. Step into a list/dict element mid-path with brackets, e.g. 'Effects[0].Data.Magnitude'; at the LEAF use verb + key, not brackets.")]
     public string? FieldPath { get; init; }
 
     [JsonPropertyName("verb"), Description("Set (default) | Add | Remove | SetAtIndex | ReplaceAll | Merge.")]
