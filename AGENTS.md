@@ -60,7 +60,7 @@ Reviewing a change to houseCARL — human's or agent's — check, in priority or
 3. **No silent workarounds** — a stumbling block should have been *surfaced* (`CLAUDE.md §4`),
    not patched around in a way that trades away something that was supposed to hold.
 4. **Writes stay non-destructive** — changes go to a new plugin; originals untouched; masters
-   are derived from the FormIDs actually referenced, never hand-specified.
+   are derived from the FormIDs actually referenced (plus the Skyrim.esm + Update.esm baseline every plugin carries, as the Creation Kit does), never hand-specified.
 5. **Atomic & focused** — one logical change; the diff does what the message says, nothing extra.
 6. **Correctness over performance** — where they conflict, correctness wins; perf concerns are
    raised factually, not as blockers.
