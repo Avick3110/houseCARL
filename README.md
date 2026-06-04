@@ -71,15 +71,9 @@ descriptor — see the script header for details.
 
 ## Usage
 
-Talk to it. For example:
+Talk to it.
 
-- "What does the Dragonbane record look like across my load order?"
-- "Make a patch that gives every iron weapon +5 damage."
-- "Distribute a Frost Resistance ability to all Nords with SPID."
-- "Which plugins override the IronSword record, and who wins?"
-
-houseCARL writes each patch as its own MO2 mod folder; enable it in MO2 like any other mod, then review it
-in xEdit if you like before playing.
+houseCARL writes each patch as its own MO2 mod folder (refresh mo2 required)
 
 ## How it works
 
