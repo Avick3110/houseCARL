@@ -1,0 +1,82 @@
+# houseCARL — .gitignore
+# C# / .NET / Visual Studio conventions.
+
+## Build output
+[Bb]in/
+[Oo]bj/
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+
+## Visual Studio / Rider / VS Code
+.vs/
+.idea/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+*.DotSettings.user
+*.vsidx
+
+## NuGet
+*.nupkg
+*.snupkg
+packages/
+.nuget/
+
+## Test / coverage results
+[Tt]est[Rr]esult*/
+*.trx
+*.coverage
+*.coveragexml
+
+## OS cruft
+Thumbs.db
+desktop.ini
+.DS_Store
+
+## Logs / temp
+*.log
+*.tmp
+
+## Generator output — deterministically reproducible via `dotnet run --project src/housecarl-generator`.
+## Recipe is committed (the generator source); its output is not. Step 3 decides where the
+## shipped corpus lives; until then it's regenerated on demand.
+generated/
+
+## Write-engine proof output — patch .esp files emitted by the npc-skills / oracle dev modes.
+## Reproducible on demand; the engine + oracle source is committed, the emitted plugins are not.
+write-output/
+
+## Assembled plugin — the shippable tree built by scripts/build-plugin.ps1 (publish output +
+## corpus.json + bundled skills + the plugin/ files). A build ARTIFACT, reproducible on demand;
+## the plugin SOURCE lives in plugin/ (tracked). Never source-of-truth.
+dist/
+
+## Shippable release zip(s) - release/houseCARL-<ver>.zip, packed from dist/ by
+## scripts/build-plugin.ps1. (Already matched by the [Rr]elease/ rule above; listed for intent.)
+## Build artifact, reproducible on demand; never source-of-truth.
+release/
+
+## Agent worktrees — transient git worktrees created under .claude/worktrees/ by parallel sessions.
+## Each is an isolated checkout of a claude/<name> branch; never source-of-truth, removed once merged.
+.claude/worktrees/
+
+## Scheduled-task lock — a per-process runtime lock the harness writes (carries a session id + pid).
+## Transient, never source-of-truth; like the worktrees above, it must never enter a commit.
+.claude/scheduled_tasks.lock
+
+## Internal dev workspace — PRFAQ corpus, plans, session handoffs, review audits, references, and
+## spike code. houseCARL's private working area, carved from the public repo at GitHub go-live
+## (Aaron 2026-06-04); it never publishes. This whole-dir rule subsumes the former
+## dev/references/Skypatcher/ and dev/plans/GITHUB_GOLIVE_RESEARCH_2026-06-04.md entries.
+dev/
+
+## Per-user runtime config written beside the server (houseCARL.user.json) — it carries the MO2
+## instance path the product saves via housecarl_set_mo2_instance. The *.user rule above does NOT
+## match *.user.json, so this safety net keeps a dev run's local config out of the repo.
+*.user.json
+houseCARL.user.json

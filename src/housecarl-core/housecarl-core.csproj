@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    houseCARL shared core (MCP-server step §8.2 — fork §6-B LOCKED: shared class library).
+    The PROVEN read/write engines, extracted out of the dev harness so BOTH consumers call the
+    SAME core: housecarl-generator (the byte-proof harness) and housecarl-mcp (the product server).
+    Correctness transfers by construction — the harness's write-proof/read-proof oracles run
+    against this exact code (see InternalsVisibleTo.cs).
+
+    §8.2 moved the files VERBATIM ("move whole, tidy later" — Aaron 2026-06-01). §8.4 does the tidy:
+    the namespace is now `HousecarlCore` (matches the assembly; the misleading `HousecarlGenerator`
+    is gone), and the duplicated corpus loaders are consolidated onto `CorpusRulebook.Load`/`LoadCorpus`
+    + the configurable `CorpusRulebook.CorpusPath` (the server, launched by MO2 from an arbitrary CWD,
+    sets that path at startup — the old hardcoded "generated/corpus.json" couldn't survive the move).
+    The clean (params)->(result) cleave lands per-tool as the server wires each one (the server is the
+    real consumer that shapes the API); the proven cores it cleaves from already exist here.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>HousecarlCore</RootNamespace>
+    <AssemblyName>housecarl-core</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The reflection target the extracted cores bind against. Pinned 0.53.1 (spike-proven), matching both consumers. -->
+    <PackageReference Include="Mutagen.Bethesda.Skyrim" Version="0.53.1" />
+  </ItemGroup>
+
+</Project>

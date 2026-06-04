@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "housecarl": {
+      "type": "stdio",
+      "command": "${CLAUDE_PLUGIN_ROOT}/server/housecarl-mcp.exe",
+      "args": [],
+      "env": {
+        "HouseCarl__Mo2InstanceDir": "${user_config.mo2_instance_dir}",
+        "HOUSECARL_DATA_DIR": "${CLAUDE_PLUGIN_DATA}"
+      }
+    }
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "name": "housecarl-local",
+  "owner": {
+    "name": "Avick3110"
+  },
+  "plugins": [
+    {
+      "name": "housecarl",
+      "source": "./housecarl",
+      "description": "houseCARL - data-layer access to your Skyrim SE load order, in plain English."
+    }
+  ]
+}

@@ -1,0 +1,34 @@
+{
+  "skill": "mutagen-reference",
+  "method": "Manual-validation fallback per HOUSECARL_SKILL_AUTHORING.md §6.5 (run_loop.py uses select() and is broken on Windows, §6.4). Independent fan-out of fresh-context agents, one per query, each judging only the description + one query. Verdicts adjudicated from each agent's reasoning (raw verdict tokens were noisy: a live-skill meta-contamination in the first pass and a verdict/reason mismatch in the clean re-run).",
+  "gate": { "recall_threshold": 0.80, "specificity_threshold": 0.50 },
+  "result": {
+    "recall": "9/10 = 0.90",
+    "specificity": "10/10 = 1.00",
+    "passed": true,
+    "lone_miss": "q9 (\"what does ALCH map to\") — read by one judge as a pure name-lookup rather than a schema request; borderline query; left as-is rather than overfit the description to it"
+  },
+  "evals": [
+    {"id": 1,  "query": "what fields can I actually edit on an ARMO record? figuring out what's safe to override in my armor patch", "should_trigger": true,  "verdict": "trigger"},
+    {"id": 2,  "query": "building a patch for my modlist, need to bump armor rating + add a keyword to a bunch of armors — what's the field name for armor rating and is it writable", "should_trigger": true,  "verdict": "trigger"},
+    {"id": 3,  "query": "what are the legal values for the Aggression field on an NPC? want to set a follower to aggressive", "should_trigger": true,  "verdict": "trigger"},
+    {"id": 4,  "query": "does the weapon record have a field for crit damage and what type is it", "should_trigger": true,  "verdict": "trigger"},
+    {"id": 5,  "query": "im trying to set a magic effect's resist value to an actor value but idk what the valid actor values are called", "should_trigger": true,  "verdict": "trigger"},
+    {"id": 6,  "query": "the MGEF archetype field — i heard it's one of several types, which ones can it be?", "should_trigger": true,  "verdict": "trigger"},
+    {"id": 7,  "query": "before I write this CELL override, what fields does a cell record even have", "should_trigger": true,  "verdict": "trigger"},
+    {"id": 8,  "query": "is the Name field on a book editable or is it computed? renaming a bunch of books in my merge", "should_trigger": true,  "verdict": "trigger"},
+    {"id": 9,  "query": "what does the ALCH record map to in mutagen / what's it actually called there", "should_trigger": true,  "verdict": "skip", "note": "lone miss — judged a name-lookup, not a schema request; borderline"},
+    {"id": 10, "query": "I need every field on the Race record and which ones I can change for my custom race patch", "should_trigger": true,  "verdict": "trigger"},
+
+    {"id": 11, "query": "what's the armor rating value of Steel Armor in Skyrim.esm right now", "should_trigger": false, "verdict": "skip", "note": "instance value read, not schema (map vs territory)"},
+    {"id": 12, "query": "what does the GetActorValue papyrus function return and what params does it take", "should_trigger": false, "verdict": "skip", "note": "papyrus function signature -> papyrus-reference"},
+    {"id": 13, "query": "game crashes when I equip this armor — read the crash log and tell me why", "should_trigger": false, "verdict": "skip", "note": "crash diagnostics"},
+    {"id": 14, "query": "which plugin in my Lorerim order is overriding the steel armor record", "should_trigger": false, "verdict": "skip", "note": "conflict/override-winner investigation"},
+    {"id": 15, "query": "extract the meshes from this BSA — what armor addons are inside", "should_trigger": false, "verdict": "skip", "note": "BSA/asset extraction"},
+    {"id": 16, "query": "explain how leveled lists work in Skyrim for a beginner", "should_trigger": false, "verdict": "skip", "note": "concept explanation"},
+    {"id": 17, "query": "walk me through merging two ESPs that both edit the same leveled lists", "should_trigger": false, "verdict": "skip", "note": "procedure -> leveled-list-patching"},
+    {"id": 18, "query": "is MyPatch.esp in the right load order position", "should_trigger": false, "verdict": "skip", "note": "load order"},
+    {"id": 19, "query": "write a papyrus script that changes an NPC's aggression at runtime", "should_trigger": false, "verdict": "skip", "note": "papyrus scripting"},
+    {"id": 20, "query": "how do I install SKSE for my modlist", "should_trigger": false, "verdict": "skip", "note": "general modding how-to"}
+  ]
+}

@@ -1,0 +1,2127 @@
+using System.Globalization;
+using System.Reflection;
+using System.Security.Cryptography;
+using Mutagen.Bethesda;
+using Mutagen.Bethesda.Plugins;
+using Mutagen.Bethesda.Plugins.Cache;
+using Mutagen.Bethesda.Plugins.Records;
+using Mutagen.Bethesda.Skyrim;
+using Noggog;
+
+namespace HousecarlCore;
+
+/// <summary>
+/// Step 4 — the reflection-driven write engine.
+///
+/// The spike (<c>dev/references/spike/ReflectionWrite.cs</c>) proved the core mechanism
+/// (overlay → GetOrAddAsOverride → reflect property → coerce → SetValue → write-with-masters,
+/// 4/4 byte-identical) but only via <i>typed</i> accessors on <c>Armor</c>. This engine
+/// generalises it to <b>any</b> record group and to <b>nested</b> paths (substruct → dict-by-key),
+/// which is the net-new, highest-risk delta (step-4 plan §2 #1).
+///
+/// Build order (plan §9): generic lifecycle (confirmed via <c>write-api</c>) → path navigation +
+/// Set, driven first to the NPC-skills acceptance target (<c>npc-skills</c>) — the riskiest piece,
+/// proven earliest. Corpus pre-flight validation, the remaining verbs, and the oracle layer follow.
+///
+/// Modes: <c>write-api</c> (discovery), <c>npc-skills</c> (the acceptance proof).
+/// </summary>
+public static class WriteEngine
+{
+    const string DefaultSourcePath =
+        @"C:\Program Files (x86)\Steam\steamapps\common\Skyrim Special Edition\Data\Skyrim.esm";
+
+    // ======================================================================
+    //  THE ACCEPTANCE PROOF — NPC skills by name (plan §3 P-ADDR / §5.1)
+    //  Path (verified against corpus): Npc → PlayerSkills → SkillValues → [OneHanded] = 50.
+    //  This is the dict-set-inside-a-substruct kind — the single thing most likely to surface
+    //  a real navigation problem, so we build it first.
+    // ======================================================================
+    public static int RunNpcSkillsProof(string[] args)
+    {
+        var sourcePath = args.Length > 0 ? args[0] : DefaultSourcePath;
+        if (!File.Exists(sourcePath))
+        {
+            Console.Error.WriteLine($"error: source plugin not found: {sourcePath}");
+            return 1;
+        }
+
+        var outDir = Path.GetFullPath(Path.Combine("write-output", "npc-skills"));
+        if (Directory.Exists(outDir)) Directory.Delete(outDir, recursive: true);
+        Directory.CreateDirectory(outDir);
+        var outPath = Path.Combine(outDir, "HousecarlWriteProof.esp");
+
+        Console.WriteLine($"Source plugin: {sourcePath}");
+        Console.WriteLine($"Output patch:  {outPath}");
+        Console.WriteLine();
+
+        var shaBefore = Sha(sourcePath);
+
+        // --- find a target NPC (typed scan — harness scaffolding; the engine below is generic) ---
+        var sourceMod = SkyrimMod.CreateFromBinaryOverlay(sourcePath, SkyrimRelease.SkyrimSE);
+        INpcGetter? target = null;
+        foreach (var n in sourceMod.Npcs)
+        {
+            if (n.PlayerSkills?.SkillValues is { } sv && sv.ContainsKey(Skill.OneHanded))
+            {
+                target = n;
+                break;
+            }
+        }
+        if (target is null)
+        {
+            Console.Error.WriteLine("error: no NPC with PlayerSkills.SkillValues[OneHanded] found in source");
+            return 1;
+        }
+        var beforeVal = target.PlayerSkills!.SkillValues[Skill.OneHanded];
+        Console.WriteLine($"Target NPC:    {target.FormKey} ({target.EditorID})");
+        Console.WriteLine($"  OneHanded before: {beforeVal}");
+        Console.WriteLine();
+
+        // --- PRE-FLIGHT VALIDATION (plan §3 P-VALIDATE) — the write goes through the rulebook first ---
+        const byte newVal = 50;
+        var rulebook = CorpusRulebook.Load();
+        Console.WriteLine($"Rulebook loaded: {rulebook.TypeCount} types.");
+        var req = new WriteRequest
+        {
+            RecordType = "Npc",
+            Path = new[] { "PlayerSkills", "SkillValues" },
+            Verb = "Set",
+            Key = "OneHanded",
+            Value = newVal.ToString(CultureInfo.InvariantCulture),
+        };
+
+        void Probe(string label, WriteRequest r, bool expectOk)
+        {
+            var msg = rulebook.Validate(r);
+            var ok = msg is null;
+            var mark = ok == expectOk ? "OK" : "!! UNEXPECTED";
+            Console.WriteLine($"  [{mark}] {label} -> {(ok ? "ACCEPT" : "REJECT: " + msg)}");
+        }
+
+        Console.WriteLine("Pre-flight probes (1 accept + 5 fail-loud rejects):");
+        Probe("real write: Npc PlayerSkills.SkillValues[OneHanded]=50", req, expectOk: true);
+        Probe("unknown record type", new() { RecordType = "Bogus", Path = new[] { "X" }, Verb = "Set", Value = "1" }, expectOk: false);
+        Probe("unknown field", new() { RecordType = "Npc", Path = new[] { "Bogus" }, Verb = "Set", Value = "1" }, expectOk: false);
+        Probe("illegal enum key", new() { RecordType = "Npc", Path = new[] { "PlayerSkills", "SkillValues" }, Verb = "Set", Key = "BogusSkill", Value = "50" }, expectOk: false);
+        Probe("wrong verb for cardinality (SetAtIndex on dict)", new() { RecordType = "Npc", Path = new[] { "PlayerSkills", "SkillValues" }, Verb = "SetAtIndex", Key = "0", Value = "50" }, expectOk: false);
+        Probe("value out of range (Byte=999)", new() { RecordType = "Npc", Path = new[] { "PlayerSkills", "SkillValues" }, Verb = "Set", Key = "OneHanded", Value = "999" }, expectOk: false);
+        Probe("identity reject: Npc.FormKey", new() { RecordType = "Npc", Path = new[] { "FormKey" }, Verb = "Set", Value = "123456:Skyrim.esm" }, expectOk: false);
+        Probe("substruct-whole reject: Npc.PlayerSkills (navigate-in)", new() { RecordType = "Npc", Path = new[] { "PlayerSkills" }, Verb = "Set", Value = "x" }, expectOk: false);
+        Probe("TranslatedString accept: Npc.Name=Bob", new() { RecordType = "Npc", Path = new[] { "Name" }, Verb = "Set", Value = "Bob" }, expectOk: true);
+        Console.WriteLine();
+
+        // Q3: refuse to mutate if the real request does not pass pre-flight.
+        if (rulebook.Validate(req) is { } reject)
+        {
+            Console.Error.WriteLine($"FAIL: real write rejected by pre-flight: {reject}");
+            return 1;
+        }
+
+        // --- THE ENGINE PATH (fully generic — resolves group from the record's runtime type) ---
+        var patchMod = new SkyrimMod(new ModKey("HousecarlWriteProof", ModType.Plugin), SkyrimRelease.SkyrimSE);
+        var patchRecord = GenericGetOrAddAsOverride(patchMod, target);
+        ApplyVerb(patchRecord, req);
+
+        WritePatch(patchMod, sourceMod, outPath);
+        Console.WriteLine($"Wrote patch ({new FileInfo(outPath).Length} bytes).");
+        Console.WriteLine();
+
+        // --- verify: re-open the patch, read the value back ---
+        var patchBack = SkyrimMod.CreateFromBinaryOverlay(outPath, SkyrimRelease.SkyrimSE);
+        if (!patchBack.Npcs.TryGetValue(target.FormKey, out var patchedNpc))
+        {
+            Console.Error.WriteLine("FAIL: patched NPC not found in written patch");
+            return 1;
+        }
+        var afterVal = patchedNpc.PlayerSkills?.SkillValues?.GetValueOrDefault(Skill.OneHanded);
+        Console.WriteLine($"  OneHanded after (read back from patch): {afterVal}");
+
+        var shaAfter = Sha(sourcePath);
+        var sourceUnchanged = shaBefore == shaAfter;
+        Console.WriteLine($"  Source unchanged: {(sourceUnchanged ? "YES" : "NO")}");
+        Console.WriteLine();
+
+        var pass = afterVal == newVal && sourceUnchanged;
+        Console.WriteLine(pass
+            ? "=== PASS: nested dict-in-substruct Set landed; original untouched ==="
+            : "=== FAIL ===");
+        return pass ? 0 : 1;
+    }
+
+    // ======================================================================
+    //  WAVE 2 — generic real-patch dev harness (concrete edits -> a real .esp).
+    //  The embryo of the eventual MCP housecarl_set_field tool: take a concrete request
+    //  (source plugin, record type, record id, one-or-more field edits), drive each through
+    //  the SAME pre-flight (CorpusRulebook) + engine (GetOrAddAsOverride/ApplyVerb) +
+    //  write-with-masters path the proofs use, emit ONE real reviewable .esp carrying all
+    //  the edits, leave the source byte-for-byte untouched. Aaron then xEdit-verifies.
+    //  Cross-master serialization (follow-up #3) fails LOUD here — never silently wrong (Q3).
+    //
+    //  Single edit (flags):
+    //    patch --source "<plugin>" --type Armor --editorid ArmorIronCuirass \
+    //          --path ArmorRating --verb Set --value 30 [--key <dictKey/listIdx>]
+    //  Multiple edits into one patch (repeatable --op "Verb|path|key|value", key/value optional):
+    //    patch --source "<plugin>" --type Weapon --formkey 0F1AC1:Skyrim.esm \
+    //          --op "Set|BasicStats.Damage||20" --op "SetAtIndex|Keywords|0|01E71F:Skyrim.esm"
+    //  Locate with EITHER --editorid OR --formkey (012E46:Skyrim.esm). [--name <patch>] [--out <path>]
+    //  Sibling `show` resolves a record + prints its fields/keywords (read-to-plan).
+    // ======================================================================
+    public static int RunPatch(string[] args)
+    {
+        var f = ParseFlags(args);
+        var source = f.GetValueOrDefault("source");
+        var type = f.GetValueOrDefault("type");
+        if (source is null) { Console.Error.WriteLine("error: missing required --source"); return 1; }
+        if (type is null) { Console.Error.WriteLine("error: missing required --type"); return 1; }
+        if (!File.Exists(source)) { Console.Error.WriteLine($"error: source plugin not found: {source}"); return 1; }
+
+        var editorid = f.GetValueOrDefault("editorid");
+        var formkeyRaw = f.GetValueOrDefault("formkey");
+        if (editorid is null && formkeyRaw is null) { Console.Error.WriteLine("error: locate the record with --editorid <EDID> or --formkey <id:Master.esm>"); return 1; }
+
+        static string Label(WriteRequest r) =>
+            $"{r.Verb} {string.Join('.', r.Path)}{(r.Key is not null ? "[" + r.Key + "]" : "")}{(r.Value is not null ? " = " + r.Value : "")}";
+
+        // Collect the edit(s): one-or-more repeatable --op "Verb|path|key|value" (key/value optional),
+        // else the single-edit --path/--verb/--value/--key form. All edits target the same record below.
+        var reqs = new List<WriteRequest>();
+        var opStrings = new List<string>();
+        for (int i = 0; i < args.Length - 1; i++)
+            if (string.Equals(args[i], "--op", StringComparison.OrdinalIgnoreCase)) opStrings.Add(args[i + 1]);
+
+        if (opStrings.Count > 0)
+        {
+            foreach (var s in opStrings)
+            {
+                var parts = s.Split('|');
+                if (parts.Length < 2 || parts[1].Trim().Length == 0) { Console.Error.WriteLine($"error: --op '{s}' must be Verb|path[|key[|value]]"); return 1; }
+                var v = parts[0].Trim();
+                var p = parts[1].Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                var k = parts.Length > 2 && parts[2].Length > 0 ? parts[2] : null;
+                var val = parts.Length > 3 && parts[3].Length > 0 ? parts[3] : null;
+                if ((v is "Set" or "Add" or "SetAtIndex") && val is null) { Console.Error.WriteLine($"error: --op '{s}': verb '{v}' needs a value (Verb|path|key|value)."); return 1; }
+                reqs.Add(new WriteRequest { RecordType = type, Path = p, Verb = v, Key = k, Value = val });
+            }
+        }
+        else
+        {
+            var pathRaw = f.GetValueOrDefault("path");
+            if (pathRaw is null) { Console.Error.WriteLine("error: give --path (single edit) or one-or-more --op (multi edit)"); return 1; }
+            var verb = f.GetValueOrDefault("verb") ?? "Set";
+            var value = f.GetValueOrDefault("value");
+            if ((verb is "Set" or "Add" or "SetAtIndex") && value is null) { Console.Error.WriteLine($"error: --value is required for verb '{verb}'."); return 1; }
+            reqs.Add(new WriteRequest
+            {
+                RecordType = type,
+                Path = pathRaw.Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
+                Verb = verb,
+                Key = f.GetValueOrDefault("key"),
+                Value = value,
+            });
+        }
+
+        var name = f.GetValueOrDefault("name") ?? "houseCARL_Patch";
+        var outPath = f.GetValueOrDefault("out");
+        if (outPath is null)
+        {
+            var outDir = Path.GetFullPath(Path.Combine("write-output", "patch"));
+            if (Directory.Exists(outDir)) Directory.Delete(outDir, recursive: true);
+            Directory.CreateDirectory(outDir);
+            outPath = Path.Combine(outDir, name + ".esp");
+        }
+        else
+        {
+            outPath = Path.GetFullPath(outPath);
+            Directory.CreateDirectory(Path.GetDirectoryName(outPath)!);
+        }
+        // WritePatch ties the output filename to the patch ModKey; keep them in lockstep.
+        name = Path.GetFileNameWithoutExtension(outPath);
+
+        Console.WriteLine($"Source plugin: {source}");
+        Console.WriteLine($"Target:        {type} {(editorid is not null ? "EDID=" + editorid : "FormKey=" + formkeyRaw)}");
+        Console.WriteLine($"Output patch:  {outPath}  (ModKey {name}.esp)");
+        Console.WriteLine($"Edits ({reqs.Count}):");
+        foreach (var r in reqs) Console.WriteLine($"    {Label(r)}");
+        Console.WriteLine();
+
+        var shaBefore = Sha(source);
+        var sourceMod = SkyrimMod.CreateFromBinaryOverlay(source, SkyrimRelease.SkyrimSE);
+
+        // Resolve the getter interface for the named type — absent => a real coverage gap, never guessed (Q3).
+        var iface = typeof(SkyrimMod).Assembly.GetType("Mutagen.Bethesda.Skyrim.I" + type + "Getter");
+        if (iface is null)
+        {
+            Console.Error.WriteLine($"error: unknown record type '{type}' — no I{type}Getter in the Mutagen corpus. If Mutagen models it under another name, surface that; never guess.");
+            return 1;
+        }
+
+        FormKey? wantFk = null;
+        if (formkeyRaw is not null)
+        {
+            try { wantFk = FormKey.Factory(formkeyRaw); }
+            catch (Exception ex) { Console.Error.WriteLine($"error: --formkey '{formkeyRaw}' is not a valid FormKey (expected like 012E46:Skyrim.esm): {ex.Message}"); return 1; }
+        }
+
+        var target = sourceMod.EnumerateMajorRecords()
+            .FirstOrDefault(r => iface.IsInstanceOfType(r)
+                && (wantFk is { } fk ? r.FormKey == fk
+                    : string.Equals(r.EditorID, editorid, StringComparison.OrdinalIgnoreCase)));
+        if (target is null)
+        {
+            Console.Error.WriteLine($"error: no {type} with {(editorid is not null ? "EditorID '" + editorid + "'" : "FormKey " + formkeyRaw)} in {Path.GetFileName(source)}.");
+            return 1;
+        }
+        Console.WriteLine($"Resolved:      {target.FormKey} ({target.EditorID ?? "<no editorid>"})");
+        foreach (var r in reqs)
+            Console.WriteLine($"  before: {string.Join('.', r.Path)}{(r.Key is not null ? "[" + r.Key + "]" : "")} = {ReadLeafDisplay(target, r.Path, r.Key)}");
+        Console.WriteLine();
+
+        // PRE-FLIGHT every edit (Q3): the writes go through the corpus rulebook first; refuse if ANY rejects, no mutation.
+        var rulebook = CorpusRulebook.Load();
+        var rejects = new List<string>();
+        foreach (var r in reqs) if (rulebook.Validate(r) is { } msg) rejects.Add($"{Label(r)} -> {msg}");
+        if (rejects.Count > 0)
+        {
+            Console.Error.WriteLine("REJECTED by pre-flight (no mutation performed):");
+            foreach (var rj in rejects) Console.Error.WriteLine($"  - {rj}");
+            return 1;
+        }
+        Console.WriteLine($"Pre-flight:    ACCEPT (all {reqs.Count})");
+
+        // ENGINE: one override of the record, then apply every edit to it.
+        // Nested-group targets (Cell/Placed*/INFO/Navmesh/Landscape) reconstruct their parent chain from the
+        // source's link cache; flat-group targets ignore it. One resolution path serves both (wave 3).
+        var sourceCache = sourceMod.ToImmutableLinkCache();
+        var patchMod = new SkyrimMod(new ModKey(name, ModType.Plugin), SkyrimRelease.SkyrimSE);
+        IMajorRecord patchRecord;
+        try { patchRecord = GenericGetOrAddAsOverride(patchMod, target, sourceCache); }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"error: could not override {type} {target.FormKey} — {ex.Message}");
+            return 1;
+        }
+        foreach (var r in reqs) ApplyVerb(patchRecord, r);
+
+        // WRITE with masters. Cross-master records (#3) fail LOUD here — named, never a silent wrong patch.
+        try { WritePatch(patchMod, sourceMod, outPath); }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine();
+            Console.Error.WriteLine($"CROSS-MASTER LIMITATION (follow-up #3): could not serialize the patch — {ex.GetType().Name}: {ex.Message}");
+            Console.Error.WriteLine("A referenced record lives in a master beyond the single source plugin; the current write path knows only one. Pick a single-master target for now, or this needs the cross-master write path (MCP wave).");
+            return 2;
+        }
+        Console.WriteLine($"Wrote patch ({new FileInfo(outPath).Length} bytes).");
+
+        // Re-open the patch: surface its masters (cross-master cleanliness) + read every edited field back.
+        var patchBack = SkyrimMod.CreateFromBinaryOverlay(outPath, SkyrimRelease.SkyrimSE);
+        var masters = patchBack.ModHeader.MasterReferences.Select(m => m.Master.ToString()).ToList();
+        Console.WriteLine($"  masters: {(masters.Count == 0 ? "(none)" : string.Join(", ", masters))}");
+        var patched = patchBack.EnumerateMajorRecords().FirstOrDefault(r => r.FormKey == target.FormKey);
+        if (patched is null) { Console.Error.WriteLine("FAIL: edited record not found in the written patch."); return 1; }
+        foreach (var r in reqs)
+            Console.WriteLine($"  after:  {string.Join('.', r.Path)}{(r.Key is not null ? "[" + r.Key + "]" : "")} = {ReadLeafDisplay(patched, r.Path, r.Key)}");
+
+        var sourceUnchanged = shaBefore == Sha(source);
+        Console.WriteLine($"  source unchanged: {(sourceUnchanged ? "YES" : "NO")}");
+        Console.WriteLine();
+
+        Console.WriteLine(sourceUnchanged
+            ? $"=== PATCH WRITTEN — open {Path.GetFileName(outPath)} in xEdit and confirm the {reqs.Count} edit(s) above. Original untouched. ==="
+            : "=== FAIL: source changed ===");
+        return sourceUnchanged ? 0 : 1;
+    }
+
+    /// <summary>Minimal <c>--flag value</c> parser (bare <c>--flag</c> => "true").</summary>
+    internal static Dictionary<string, string> ParseFlags(string[] args)
+    {
+        var d = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        for (int i = 0; i < args.Length; i++)
+        {
+            if (!args[i].StartsWith("--")) continue;
+            var k = args[i][2..];
+            d[k] = (i + 1 < args.Length && !args[i + 1].StartsWith("--")) ? args[++i] : "true";
+        }
+        return d;
+    }
+
+    /// <summary>Best-effort read of a leaf for before/after display (xEdit is the authority on correctness).</summary>
+    static string ReadLeafDisplay(object rec, string[] path, string? key)
+    {
+        try
+        {
+            object? current = rec;
+            for (int i = 0; i < path.Length - 1; i++)
+            {
+                var (segName, segKey) = ParseSegment(path[i]);
+                var p = ResolveProperty(current!.GetType(), segName);
+                if (p is null) return $"(no field {segName})";
+                if (segKey is null)
+                {
+                    current = p.GetValue(current);
+                    if (current is null) return "(absent substruct)";
+                }
+                else current = StepIntoElement(current, p, segName, segKey); // collnav (wave 1) — best-effort display
+            }
+            var (leafName, _) = ParseSegment(path[^1]);
+            var leaf = ResolveProperty(current!.GetType(), leafName);
+            if (leaf is null) return $"(no field {leafName})";
+            var val = leaf.GetValue(current);
+            if (val is null) return "(null)";
+            static string Fmt(object? o) =>
+                o is null ? "(null)" : o is IFormLinkGetter fl ? fl.FormKey.ToString() : o.ToString() ?? "(null)";
+            if (key is not null)
+            {
+                if (val is System.Collections.IDictionary dd)
+                {
+                    foreach (System.Collections.DictionaryEntry e in dd)
+                        if (string.Equals(e.Key?.ToString(), key, StringComparison.OrdinalIgnoreCase))
+                            return Fmt(e.Value);
+                    return $"(no key {key})";
+                }
+                // Mutagen's ExtendedList<T> is IList<T> but not non-generic IList — enumerate to the index.
+                if (int.TryParse(key, out var idx) && val is System.Collections.IEnumerable seq)
+                {
+                    int j = 0;
+                    foreach (var item in seq) if (j++ == idx) return Fmt(item);
+                    return "(index oob)";
+                }
+                return "(keyed leaf — inspect in xEdit)";
+            }
+            return Fmt(val);
+        }
+        catch (Exception ex) { return $"(unreadable: {ex.Message})"; }
+    }
+
+    // ----------------------------------------------------------------------
+    //  Read-to-plan: resolve a record and print what's needed to author a
+    //  correct write — its FormKey/EditorID, requested --path values, and its
+    //  Keywords resolved to editorids (so material keywords + their list index
+    //  are visible). Not the read PRODUCT; the minimum read to ground a write.
+    //  Reuses the same resolve path as `patch`.
+    //    dotnet run --project src/housecarl-generator show \
+    //      --source "<plugin>" [--type Weapon] --formkey 0F1AC1:Skyrim.esm \
+    //      [--path BasicStats.Damage] [--path BasicStats.Value]
+    // ----------------------------------------------------------------------
+    public static int RunShow(string[] args)
+    {
+        var f = ParseFlags(args);
+        var source = f.GetValueOrDefault("source");
+        if (source is null) { Console.Error.WriteLine("error: --source is required"); return 1; }
+        if (!File.Exists(source)) { Console.Error.WriteLine($"error: source plugin not found: {source}"); return 1; }
+        var type = f.GetValueOrDefault("type");
+        var editorid = f.GetValueOrDefault("editorid");
+        var formkeyRaw = f.GetValueOrDefault("formkey");
+        if (editorid is null && formkeyRaw is null) { Console.Error.WriteLine("error: locate the record with --editorid or --formkey"); return 1; }
+
+        var paths = new List<string>();
+        for (int i = 0; i < args.Length - 1; i++)
+            if (string.Equals(args[i], "--path", StringComparison.OrdinalIgnoreCase)) paths.Add(args[i + 1]);
+
+        var sourceMod = SkyrimMod.CreateFromBinaryOverlay(source, SkyrimRelease.SkyrimSE);
+        Type? iface = type is null ? null : typeof(SkyrimMod).Assembly.GetType("Mutagen.Bethesda.Skyrim.I" + type + "Getter");
+        if (type is not null && iface is null) { Console.Error.WriteLine($"error: unknown record type '{type}'"); return 1; }
+        FormKey? wantFk = null;
+        if (formkeyRaw is not null) { try { wantFk = FormKey.Factory(formkeyRaw); } catch (Exception ex) { Console.Error.WriteLine($"error: bad --formkey '{formkeyRaw}': {ex.Message}"); return 1; } }
+
+        var target = sourceMod.EnumerateMajorRecords()
+            .FirstOrDefault(r => (iface is null || iface.IsInstanceOfType(r))
+                && (wantFk is { } fk ? r.FormKey == fk : string.Equals(r.EditorID, editorid, StringComparison.OrdinalIgnoreCase)));
+        if (target is null) { Console.Error.WriteLine($"error: not found in {Path.GetFileName(source)}"); return 1; }
+
+        var typeName = RecordNaming.StripGetterInterface(PrimaryGetter(target.GetType())?.Name ?? "I?Getter");
+        Console.WriteLine($"{typeName}  {target.FormKey}  ({target.EditorID ?? "<no editorid>"})");
+        foreach (var p in paths)
+            Console.WriteLine($"  {p} = {ReadLeafDisplay(target, p.Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries), null)}");
+
+        var kwProp = ResolveProperty(target.GetType(), "Keywords");
+        if (kwProp?.GetValue(target) is System.Collections.IEnumerable kws)
+        {
+            var map = new Dictionary<FormKey, string?>();
+            foreach (var k in sourceMod.Keywords) map[k.FormKey] = k.EditorID;
+            Console.WriteLine("  Keywords:");
+            int i = 0;
+            foreach (var e in kws)
+            {
+                var fk = (e as IFormLinkGetter)?.FormKey;
+                var edid = fk is { } v && map.TryGetValue(v, out var n) ? (n ?? "(no edid)") : "(other master / unresolved)";
+                Console.WriteLine($"    [{i}] {fk}  {edid}");
+                i++;
+            }
+        }
+        return 0;
+    }
+
+    // ======================================================================
+    //  WAVE 4 — condition-target write demonstration (condition-patch).
+    //  The xEdit lock for the FLOI capability: locate a real FORM-mode condition target in a source plugin,
+    //  RE-TARGET it to a different real form THROUGH THE ENGINE (pre-flight rooted at the arm + ApplyVerb -> SetFloi),
+    //  and emit ONE reviewable single-master .esp. Aaron opens it in xEdit and confirms the condition now points at
+    //  the new target; the original stays byte-for-byte untouched (Q3). The write is ARM-ROOTED — the same engine
+    //  entry BuildStruct's nested Sets use; reaching arm sub-fields from a record-root path is the broader arm-breadth
+    //  nav surface (reconciles at the final completion sweep), deliberately not this wave.
+    //    dotnet run --project src/housecarl-generator condition-patch \
+    //        [--source "<plugin>"] [--target XXXXXX:Plugin.esp] [--out <path>] [--name <patch>]
+    // ======================================================================
+    public static int RunConditionPatch(string[] args)
+    {
+        var f = ParseFlags(args);
+        var source = f.GetValueOrDefault("source") ?? DefaultSourcePath;
+        if (!File.Exists(source)) { Console.Error.WriteLine($"error: source plugin not found: {source}"); return 1; }
+
+        var shaBefore = Sha(source);
+        var sourceMod = SkyrimMod.CreateFromBinaryOverlay(source, SkyrimRelease.SkyrimSE);
+        var cache = sourceMod.ToImmutableLinkCache();
+
+        // Scan for the first FORM-mode condition target (UseAliases=UsePackageData=false, a populated FormKey) —
+        // form mode reads cleanest in xEdit (a real object). Record its owner + condition field + index + arm + prop.
+        IMajorRecordGetter? owner = null;
+        string condField = ""; int condIndex = -1; string armCatalog = "", floiProp = "";
+        FormKey oldTarget = default; Type? linkedT = null;
+        foreach (var rec in sourceMod.EnumerateMajorRecords())
+        {
+            foreach (var (cond, field, idx) in ConditionsOf(rec))
+            {
+                var data = cond.GetType().GetProperty("Data")?.GetValue(cond);
+                if (data is null) continue;
+                if ((bool)(data.GetType().GetProperty("UseAliases")?.GetValue(data) ?? false)) continue;
+                if ((bool)(data.GetType().GetProperty("UsePackageData")?.GetValue(data) ?? false)) continue;
+                foreach (var fp in data.GetType().GetProperties(BindingFlags.Public | BindingFlags.Instance))
+                {
+                    if (!IsFormLinkOrIndex(fp.PropertyType)) continue;
+                    if (ReadFloiFormKey(fp.GetValue(data)) is not { } got || got.IsNull) continue;
+                    owner = rec; condField = field; condIndex = idx;
+                    armCatalog = RecordNaming.StripOverlay(data.GetType().Name); floiProp = fp.Name; oldTarget = got;
+                    linkedT = fp.PropertyType.GetGenericArguments().FirstOrDefault();
+                    break;
+                }
+                if (owner is not null) break;
+            }
+            if (owner is not null) break;
+        }
+        if (owner is null) { Console.Error.WriteLine($"error: no populated form-mode condition target found in {Path.GetFileName(source)}."); return 1; }
+
+        // New target: --target, else the first real record of the linked type that differs from the current one (so
+        // xEdit resolves it to a sensible same-type name), else the Player ref as a last resort.
+        var newTarget = f.GetValueOrDefault("target") ?? PickSameTypeTarget(sourceMod, linkedT, oldTarget) ?? "000014:Skyrim.esm";
+
+        var name = f.GetValueOrDefault("name") ?? "houseCARL_ConditionPatch";
+        var outPath = f.GetValueOrDefault("out");
+        if (outPath is null)
+        {
+            var outDir = Path.GetFullPath(Path.Combine("write-output", "condition-patch"));
+            if (Directory.Exists(outDir)) Directory.Delete(outDir, recursive: true);
+            Directory.CreateDirectory(outDir);
+            outPath = Path.Combine(outDir, name + ".esp");
+        }
+        else { outPath = Path.GetFullPath(outPath); Directory.CreateDirectory(Path.GetDirectoryName(outPath)!); }
+        name = Path.GetFileNameWithoutExtension(outPath);   // WritePatch ties the output filename to the patch ModKey
+
+        var ownerCatalog = RecordNaming.StripGetterInterface(PrimaryGetter(owner.GetType())?.Name ?? "I?Getter");
+        Console.WriteLine($"Source plugin: {source}");
+        Console.WriteLine($"Output patch:  {outPath}  (ModKey {name}.esp)");
+        Console.WriteLine($"Condition:     {ownerCatalog} {owner.FormKey} ({owner.EditorID ?? "<no editorid>"}) . {condField}[{condIndex}] . {armCatalog}.{floiProp}");
+        Console.WriteLine($"Re-target:     {oldTarget}  ->  {newTarget}   (form mode)");
+        Console.WriteLine();
+
+        // PRE-FLIGHT rooted at the arm catalog — proves the rulebook now ACCEPTS an FLOI target; refuse if rejected (Q3).
+        var req = new WriteRequest { RecordType = armCatalog, Path = new[] { floiProp }, Verb = "Set", Value = newTarget };
+        var rulebook = CorpusRulebook.Load();
+        if (rulebook.Validate(req) is { } reject) { Console.Error.WriteLine($"FAIL: pre-flight rejected the condition-target write: {reject}"); return 1; }
+        Console.WriteLine("Pre-flight:    ACCEPT");
+
+        // ENGINE: override the owner, navigate to the mutable arm, drive ApplyVerb -> SetFloi, write with masters.
+        var patchMod = new SkyrimMod(new ModKey(name, ModType.Plugin), SkyrimRelease.SkyrimSE);
+        IMajorRecord ov;
+        try { ov = GenericGetOrAddAsOverride(patchMod, owner, cache); }
+        catch (Exception ex) { Console.Error.WriteLine($"error: could not override {ownerCatalog} {owner.FormKey} — {ex.Message}"); return 1; }
+        object arm;
+        try { arm = NavigateToConditionArm(ov, condField, condIndex); }
+        catch (Exception ex) { Console.Error.WriteLine($"error: could not navigate to the condition arm — {ex.Message}"); return 1; }
+        ApplyVerb(arm, req);
+
+        try { WritePatch(patchMod, sourceMod, outPath); }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"CROSS-MASTER LIMITATION: could not serialize — {ex.GetType().Name}: {ex.Message}");
+            Console.Error.WriteLine("Pick a single-master record, or this needs the cross-master write path (MCP wave).");
+            return 2;
+        }
+        Console.WriteLine($"Wrote patch ({new FileInfo(outPath).Length} bytes).");
+
+        // Reopen + read the new target back off the written patch; confirm masters + source untouched.
+        var back = SkyrimMod.CreateFromBinaryOverlay(outPath, SkyrimRelease.SkyrimSE);
+        var masters = back.ModHeader.MasterReferences.Select(m => m.Master.ToString()).ToList();
+        var patched = back.EnumerateMajorRecords().FirstOrDefault(r => r.FormKey == owner.FormKey);
+        FormKey? readBack = null;
+        if (patched is not null)
+            foreach (var (cond, _, idx) in ConditionsOf(patched))
+                if (idx == condIndex)
+                {
+                    var d = cond.GetType().GetProperty("Data")?.GetValue(cond);
+                    readBack = ReadFloiFormKey(d is null ? null : d.GetType().GetProperty(floiProp)?.GetValue(d));
+                    break;
+                }
+
+        var sourceUnchanged = shaBefore == Sha(source);
+        Console.WriteLine($"  masters: {(masters.Count == 0 ? "(none)" : string.Join(", ", masters))}");
+        Console.WriteLine($"  target read back from patch: {readBack?.ToString() ?? "(unread)"}");
+        Console.WriteLine($"  source unchanged: {(sourceUnchanged ? "YES" : "NO")}");
+        Console.WriteLine();
+
+        var ok = sourceUnchanged && readBack is { } rb && !rb.IsNull;
+        Console.WriteLine(ok
+            ? $"=== CONDITION PATCH WRITTEN — open {Path.GetFileName(outPath)} in xEdit: {ownerCatalog} {owner.FormKey}, condition #{condIndex}, confirm the target is now {newTarget}. Original untouched. ==="
+            : "=== FAIL — see above ===");
+        return ok ? 0 : 1;
+    }
+
+    /// <summary>Yield (condition, owning-field-name, index) for every condition on a record — conditions live in a
+    /// list property whose element is IConditionGetter (the same shape the wave-4 scout used).</summary>
+    internal static IEnumerable<(IConditionGetter cond, string field, int index)> ConditionsOf(IMajorRecordGetter rec)
+    {
+        foreach (var p in rec.GetType().GetProperties(BindingFlags.Public | BindingFlags.Instance))
+        {
+            if (p.GetIndexParameters().Length != 0) continue;
+            object? coll; try { coll = p.GetValue(rec); } catch { continue; }
+            if (coll is not System.Collections.IEnumerable e || coll is string) continue;
+            int i = 0;
+            foreach (var item in e) { if (item is IConditionGetter c) yield return (c, p.Name, i); i++; }
+        }
+    }
+
+    /// <summary>Read the form-mode FormKey off a live FormLinkOrIndex via its <c>.Link</c> (an IFormLinkGetter);
+    /// null when unset or in index mode.</summary>
+    internal static FormKey? ReadFloiFormKey(object? floi)
+    {
+        if (floi is null) return null;
+        var link = floi.GetType().GetProperty("Link")?.GetValue(floi);
+        return link is IFormLinkGetter fl && !fl.FormKey.IsNull ? fl.FormKey : (FormKey?)null;
+    }
+
+    /// <summary>Navigate a mutable override to the mutable ConditionData arm at <paramref name="field"/>[<paramref name="index"/>].Data.
+    /// Enumerates to the index (Mutagen's ExtendedList is not reliably non-generic IList); the yielded element is the
+    /// in-list reference, so mutating its arm mutates the override.</summary>
+    internal static object NavigateToConditionArm(IMajorRecord ov, string field, int index)
+    {
+        var list = ResolveProperty(ov.GetType(), field)?.GetValue(ov)
+            ?? throw new InvalidOperationException($"No condition list '{field}' on the override.");
+        int i = 0; object? cond = null;
+        foreach (var item in (System.Collections.IEnumerable)list) { if (i++ == index) { cond = item; break; } }
+        if (cond is null) throw new InvalidOperationException($"Condition #{index} not found in '{field}'.");
+        return cond.GetType().GetProperty("Data")?.GetValue(cond)
+            ?? throw new InvalidOperationException($"Condition #{index} has no Data arm.");
+    }
+
+    /// <summary>Pick a real record of the FLOI's linked type (so xEdit resolves the new target to a sensible same-type
+    /// name) whose FormKey differs from the current target; null if the type can't be sampled here.</summary>
+    static string? PickSameTypeTarget(ISkyrimModGetter mod, Type? linkedGetter, FormKey current)
+    {
+        if (linkedGetter is null) return null;
+        foreach (var rec in mod.EnumerateMajorRecords())
+            if (linkedGetter.IsInstanceOfType(rec) && rec.FormKey != current && !rec.FormKey.IsNull)
+                return rec.FormKey.ToString();
+        return null;
+    }
+
+    // ======================================================================
+    //  GENERIC PATCH-MOD LIFECYCLE  (plan §4.1; step-1 confirm done via write-api)
+    // ======================================================================
+
+    /// <summary>True iff <paramref name="source"/> lives in a NESTED group (no flat <c>SkyrimGroup&lt;T&gt;</c>) and so
+    /// needs the source link cache to reconstruct its parent chain when overridden (Cell / the Placed* family / INFO /
+    /// Navmesh / Landscape). Lets the write cleave build the COSTLY per-overlay link cache ONLY for nested records and
+    /// never for the flat common case (<see cref="LoadOrderResolver.LinkCacheFor"/> is seconds + GBs). Mirrors
+    /// <see cref="TryResolveGroup"/>'s flat test off the SAME <see cref="EnumerateFlatGroups"/> enumeration (no drift),
+    /// without needing a patch mod in hand.</summary>
+    public static bool RecordNeedsSourceCache(IMajorRecordGetter source)
+    {
+        foreach (var (_, _, getterIface) in EnumerateFlatGroups(typeof(SkyrimMod)))
+            if (getterIface.IsInstanceOfType(source)) return false;
+        return true;
+    }
+
+    /// <summary>
+    /// Generic <c>GetOrAddAsOverride</c>. Flat-group records (the common case) resolve by matching the
+    /// <c>SkyrimGroup&lt;T&gt;</c> whose <c>T</c> carries the record's getter interface, then invoking the
+    /// <c>GetOrAddAsOverrideMixIns</c> extension reflectively. Records in a NESTED group (Cell / the Placed*
+    /// family / NavigationMesh / Landscape / DialogResponses-INFO — no flat <c>SkyrimGroup&lt;T&gt;</c>) fall
+    /// through to <see cref="NestedGetOrAddAsOverride"/>, which resolves the record's context by FormKey from
+    /// <paramref name="sourceLinkCache"/> and reconstructs its parent chain in the patch. The flat-vs-nested
+    /// decision is ONE point — does a flat group match? — by construction; everything downstream of resolution
+    /// (<see cref="ApplyVerb"/>, coercion, absent-materialization) is the SAME settable-record path for both
+    /// (wave 3; mechanism scouted + proven by NestedProbe). <paramref name="sourceLinkCache"/> is optional and
+    /// unused for flat records, so existing flat-only callers are unaffected; a nested record without it fails loud.
+    /// </summary>
+    public static IMajorRecord GenericGetOrAddAsOverride(
+        SkyrimMod patchMod, IMajorRecordGetter source, ILinkCache? sourceLinkCache = null)
+    {
+        if (TryResolveGroup(patchMod, source, out var group, out var tMajor, out var tMajorGetter))
+        {
+            var open = OverrideMethod();
+            var closed = open.MakeGenericMethod(tMajor!, tMajorGetter!);
+            return (IMajorRecord)closed.Invoke(null, new object[] { group!, source })!;
+        }
+        // No flat SkyrimGroup<T> matched ⇒ a nested-group record (by construction) — take the nested path.
+        return NestedGetOrAddAsOverride(patchMod, source, sourceLinkCache);
+    }
+
+    /// <summary>Find the mod's <c>SkyrimGroup&lt;T&gt;</c> property whose T carries the record's getter interface.
+    /// Returns false (rather than throwing) when none matches — that IS the by-construction nested-group test, so
+    /// <see cref="GenericGetOrAddAsOverride"/> can then take the nested path. The single flat-vs-nested decision.</summary>
+    static bool TryResolveGroup(SkyrimMod mod, IMajorRecordGetter source,
+        out object? group, out Type? tMajor, out Type? tMajorGetter)
+    {
+        foreach (var (p, tm, getterIface) in EnumerateFlatGroups(mod.GetType()))
+            if (getterIface.IsInstanceOfType(source))
+            {
+                group = p.GetValue(mod)!; tMajor = tm; tMajorGetter = getterIface;
+                return true;
+            }
+        group = null; tMajor = null; tMajorGetter = null;
+        return false;
+    }
+
+    /// <summary>
+    /// Resolve an override for a record stored in a NESTED group — records with no top-level
+    /// <c>SkyrimGroup&lt;T&gt;</c>, so <see cref="TryResolveGroup"/> can't reach them. Resolves the record's
+    /// CONTEXT by FormKey from the source link cache (the context knows the parent chain), then
+    /// <c>GetOrAddAsOverride</c> reconstructs that chain in the patch mod and returns a settable override root —
+    /// fed straight into the SAME <see cref="ApplyVerb"/> path as a flat record. Proven end-to-end by the wave-3
+    /// scout (<c>NestedProbe</c>) across every distinct nested container shape against vanilla Skyrim.esm, source
+    /// byte-untouched.
+    ///
+    /// By FormKey, NOT typed <c>EnumerateMajorRecordContexts&lt;T,TG&gt;</c>: the latter throws
+    /// InvalidCastException on the sparse placed subtypes (a sibling cast to the wrong <c>IPlaced*Getter</c>);
+    /// by-FormKey <c>ResolveContext</c> is unaffected (scout §6.1). The MethodInfo is re-resolved off the LIVE
+    /// (closed-generic) cache — an open-generic definition can't be invoked on the closed instance.
+    /// </summary>
+    static IMajorRecord NestedGetOrAddAsOverride(SkyrimMod patchMod, IMajorRecordGetter source, ILinkCache? sourceLinkCache)
+    {
+        if (sourceLinkCache is null)
+            throw new InvalidOperationException(
+                $"Record {source.FormKey} ({source.GetType().Name}) is in a nested group (no flat SkyrimGroup<T>) " +
+                "and needs the source link cache to reconstruct its parent chain — pass sourceLinkCache " +
+                "(sourceMod.ToImmutableLinkCache()) to GenericGetOrAddAsOverride. Surfaced, not guessed (Q3).");
+
+        var getterIface = PrimaryGetter(source.GetType())
+            ?? throw new InvalidOperationException($"No getter interface for nested record {source.GetType().Name}.");
+        var setterName = RecordNaming.GetterToSetterInterface(getterIface.Name);   // INpcGetter -> INpc (the settable interface, NOT the catalog name)
+        var setterIface = getterIface.Assembly.GetType((getterIface.Namespace ?? "Mutagen.Bethesda.Skyrim") + "." + setterName)
+            ?? throw new InvalidOperationException($"No setter interface {setterName} for nested record {getterIface.Name}.");
+
+        // ResolveContext<TSetter,TGetter>(FormKey, [ResolveTarget]) off the live cache. A trailing ResolveTarget
+        // (Winner/Origin) is immaterial on a single-mod cache; BuildResolveArgs supplies its default.
+        var resolveCtx = sourceLinkCache.GetType().GetMethods(BindingFlags.Public | BindingFlags.Instance)
+            .FirstOrDefault(m => m.Name == "ResolveContext" && m.IsGenericMethodDefinition
+                && m.GetGenericArguments().Length == 2 && m.GetParameters().Length >= 1
+                && m.GetParameters()[0].ParameterType == typeof(FormKey))
+            ?? throw new InvalidOperationException("No ResolveContext<TSetter,TGetter>(FormKey,...) on the source link cache.");
+
+        // Mutagen's non-Try ResolveContext THROWS on a miss, so MethodInfo.Invoke wraps it in a
+        // TargetInvocationException — catch and rethrow a clear, FormKey-named fail-closed message (the prior
+        // "returned null" guard was a dead branch; the throw-on-miss path is proven by write-proof Phase 8).
+        // The null-guard remains in case some resolve path returns null instead of throwing.
+        object? ctx;
+        try
+        {
+            ctx = resolveCtx.MakeGenericMethod(setterIface, getterIface)
+                      .Invoke(sourceLinkCache, BuildResolveArgs(resolveCtx, source.FormKey));
+        }
+        catch (TargetInvocationException tie)
+        {
+            throw new InvalidOperationException(
+                $"Nested record {source.FormKey} ({source.GetType().Name}) not found in the source cache — " +
+                "cannot reconstruct its parent chain (fail-closed, Q3).", tie.InnerException ?? tie);
+        }
+        if (ctx is null)
+            throw new InvalidOperationException(
+                $"ResolveContext returned null for nested record {source.FormKey} — not found in the source cache.");
+
+        var goao = ctx.GetType().GetMethods(BindingFlags.Public | BindingFlags.Instance)
+            .FirstOrDefault(m => m.Name == "GetOrAddAsOverride" && m.GetParameters().Length == 1
+                && m.GetParameters()[0].ParameterType.IsInstanceOfType(patchMod))
+            ?? throw new InvalidOperationException($"Nested context for {source.FormKey} has no GetOrAddAsOverride(mod).");
+
+        return (IMajorRecord)goao.Invoke(ctx, new object[] { patchMod })!;
+    }
+
+    /// <summary>Args for <c>ResolveContext&lt;T,TG&gt;(FormKey, [ResolveTarget])</c>: the FormKey, then any trailing
+    /// parameter (the ResolveTarget enum — immaterial single-master) by its declared default or a zero value.</summary>
+    static object?[] BuildResolveArgs(MethodInfo m, FormKey fk)
+    {
+        var ps = m.GetParameters();
+        var argv = new object?[ps.Length];
+        argv[0] = fk;
+        for (int i = 1; i < ps.Length; i++)
+            argv[i] = ps[i].HasDefaultValue ? ps[i].DefaultValue
+                : ps[i].ParameterType.IsValueType ? System.Activator.CreateInstance(ps[i].ParameterType) : null;
+        return argv;
+    }
+
+    /// <summary>
+    /// The single source of truth for "which records live in a flat <c>SkyrimGroup&lt;T&gt;</c> on the mod" —
+    /// the records the generic lifecycle can <c>GetOrAddAsOverride</c>. <see cref="ResolveGroup"/> (the engine's
+    /// per-write record resolution) and the write census (reachability classification) both derive from this one
+    /// enumeration, so they can never disagree about what is group-reachable. The Loqui convention gives each
+    /// concrete <c>Npc</c> the getter interface <c>INpcGetter</c>; records stored in NESTED groups (Cell under a
+    /// cell-block, placed refs under a cell, INFO under a topic) have no top-level <c>SkyrimGroup&lt;T&gt;</c> and
+    /// are therefore absent here — a real, surfaced reachability gap, never silently treated as covered.
+    /// </summary>
+    internal static IEnumerable<(PropertyInfo prop, Type tMajor, Type getterIface)> EnumerateFlatGroups(Type modType)
+    {
+        foreach (var p in modType.GetProperties(BindingFlags.Public | BindingFlags.Instance))
+        {
+            var pt = p.PropertyType;
+            if (!pt.IsGenericType || pt.GetGenericTypeDefinition() != typeof(SkyrimGroup<>)) continue;
+            var tMajor = pt.GetGenericArguments()[0];
+            var getterIface = tMajor.GetInterface("I" + tMajor.Name + "Getter");
+            if (getterIface is not null) yield return (p, tMajor, getterIface);
+        }
+    }
+
+    // ======================================================================
+    //  CREATE front-end (capability arc — the last build). The sibling of
+    //  GenericGetOrAddAsOverride: where that OVERRIDES an existing record into
+    //  the patch, this ALLOCATES a brand-new one. Both resolve their group from
+    //  the SAME EnumerateFlatGroups enumeration, so the create surface IS the
+    //  flat-group surface BY CONSTRUCTION — every concrete flat record type is
+    //  createable, nothing else is silently treated as covered (CLAUDE.md §3).
+    // ======================================================================
+
+    /// <summary>Can a brand-new record of <paramref name="typeName"/> (a catalog name, e.g. "Keyword") be created by the
+    /// generic flat-group dispatch? True iff a flat <c>SkyrimGroup&lt;T&gt;</c> models it AND its T is concrete. The two
+    /// false cases are the named loud-fail boundaries (Q3 — surfaced, never a silent wrong create): NO flat group ⇒ a
+    /// nested/placed record (Cell/Placed*/INFO/Navmesh/Landscape) that needs parent context, OR an abstract-group subtype;
+    /// an ABSTRACT T (Global) ⇒ needs a concrete subtype. <paramref name="reason"/> carries the user-facing explanation
+    /// when false. Mod-instance-free (walks <c>typeof(SkyrimMod)</c>), so it serves the pre-flight before any patch exists.</summary>
+    public static bool CanCreateType(string typeName, out string? reason)
+    {
+        foreach (var (_, tm, _) in EnumerateFlatGroups(typeof(SkyrimMod)))
+            if (string.Equals(tm.Name, typeName, StringComparison.OrdinalIgnoreCase))
+            {
+                if (tm.IsAbstract)
+                {
+                    reason = $"'{typeName}' is an abstract record type (e.g. Global, whose concrete subtypes are " +
+                             "GlobalFloat / GlobalInt / GlobalShort) — create a concrete subtype instead. Abstract-type " +
+                             "create is a named follow-up, not yet supported.";
+                    return false;
+                }
+                reason = null;
+                return true;
+            }
+        reason = $"'{typeName}' has no top-level group, so it can't be created directly — it's a nested/placed record " +
+                 "(a cell, a placed object/NPC, a dialogue line, navmesh or terrain, which needs parent context like which " +
+                 "cell it goes in), or a subtype of an abstract group (like Global → GlobalFloat). Both are named follow-ups. " +
+                 "Flat top-level records — keywords, spells, perks, magic effects, factions, armor, weapons, leveled lists, … — create fine.";
+        return false;
+    }
+
+    /// <summary>The CREATE front-end: allocate a brand-new record of <paramref name="typeName"/> in <paramref name="patchMod"/>
+    /// via the flat group's <c>AddNew</c>, returning a settable root fed into the SAME <see cref="ApplyVerb"/> path as an
+    /// override. AddNew allocates a fresh LOCAL FormID (the new plugin's own 0x800+ ESP range, incrementing — measured by
+    /// create-probe C2); the new record's master is the patch itself. <paramref name="editorId"/> sets the EditorID via the
+    /// <c>AddNew(string)</c> overload (null uses the no-arg, engine-assigned one). Throws loud (Q3) on the two boundaries via
+    /// <see cref="CanCreateType"/> — callers pre-flight with that, so a throw here means the surface changed under us.</summary>
+    public static IMajorRecord GenericAddNew(SkyrimMod patchMod, string typeName, string? editorId)
+    {
+        if (!CanCreateType(typeName, out var reason)) throw new InvalidOperationException(reason);
+        object? group = null; Type? tMajor = null;
+        foreach (var (prop, tm, _) in EnumerateFlatGroups(patchMod.GetType()))
+            if (string.Equals(tm.Name, typeName, StringComparison.OrdinalIgnoreCase)) { group = prop.GetValue(patchMod); tMajor = tm; break; }
+        return InvokeAddNew(group!, tMajor!, editorId);   // CanCreateType guaranteed a concrete flat group exists
+    }
+
+    /// <summary>Invoke Mutagen's <c>AddNew</c> on a flat group instance. <c>AddNew</c> is NOT a plain instance method on
+    /// <c>SkyrimGroup&lt;T&gt;</c> (a direct GetMethod misses it — measured by create-probe C1): like
+    /// <c>GetOrAddAsOverride</c> it's a GENERIC EXTENSION (IGroupMixIns) in a Mutagen static class, so it's located the same
+    /// way <see cref="OverrideMethod"/> finds its method, closed with the group's T, and the receiver is verified to accept
+    /// the live group before invoke (Q3). Iterates candidates (no commit-to-first cache) so a wrong-shaped AddNew overload
+    /// can't shadow the right one — the proven create-probe resolver.</summary>
+    static IMajorRecord InvokeAddNew(object group, Type tMajor, string? editorId)
+    {
+        bool withEdid = editorId is not null;
+        foreach (var asm in AppDomain.CurrentDomain.GetAssemblies().Where(a => (a.GetName().Name ?? "").StartsWith("Mutagen")))
+            foreach (var t in SafeTypes(asm).Where(t => t is { IsAbstract: true, IsSealed: true }))
+                foreach (var open in t.GetMethods(BindingFlags.Public | BindingFlags.Static)
+                             .Where(m => m.Name == "AddNew" && m.IsGenericMethodDefinition && m.GetGenericArguments().Length == 1))
+                {
+                    if (open.GetParameters().Length != (withEdid ? 2 : 1)) continue;
+                    if (withEdid && open.GetParameters()[1].ParameterType != typeof(string)) continue;
+                    MethodInfo closed;
+                    try { closed = open.MakeGenericMethod(tMajor); } catch { continue; }   // T didn't satisfy the constraints
+                    if (!closed.GetParameters()[0].ParameterType.IsInstanceOfType(group)) continue;   // receiver must accept this group
+                    return (IMajorRecord)closed.Invoke(null, withEdid ? new object[] { group, editorId! } : new object[] { group })!;
+                }
+        throw new InvalidOperationException(
+            $"Could not locate an AddNew({(withEdid ? "string" : "")}) extension accepting {group.GetType().Name} in the Mutagen assemblies.");
+    }
+
+    static MethodInfo? _overrideMethod;
+    /// <summary>The 2-arg <c>GetOrAddAsOverride&lt;TMajor,TMajorGetter&gt;(IGroup&lt;TMajor&gt;, TMajorGetter)</c> extension.</summary>
+    static MethodInfo OverrideMethod()
+    {
+        if (_overrideMethod is not null) return _overrideMethod;
+        foreach (var asm in AppDomain.CurrentDomain.GetAssemblies()
+                     .Where(a => (a.GetName().Name ?? "").StartsWith("Mutagen")))
+        {
+            foreach (var t in SafeTypes(asm).Where(t => t is { IsAbstract: true, IsSealed: true }))
+            {
+                var m = t.GetMethods(BindingFlags.Public | BindingFlags.Static).FirstOrDefault(m =>
+                    m.Name == "GetOrAddAsOverride" &&
+                    m.IsGenericMethodDefinition &&
+                    m.GetGenericArguments().Length == 2 &&
+                    m.GetParameters().Length == 2);
+                if (m is not null) return _overrideMethod = m;
+            }
+        }
+        throw new InvalidOperationException("Could not locate GetOrAddAsOverride extension in Mutagen assemblies.");
+    }
+
+    /// <summary>Port of the spike's WritePatch — already generic. Ties output filename to ModKey. The single-known-
+    /// master case (the standalone harness opens ONE source plugin); delegates to the multi-master overload with a
+    /// one-element set, so both paths share one BeginWrite incantation + filename check.</summary>
+    internal static void WritePatch(SkyrimMod patchMod, ISkyrimModGetter sourceMod, string outputPath)
+        => WritePatch(patchMod, new[] { sourceMod }, outputPath);
+
+    /// <summary>
+    /// Multi-master WritePatch — the MCP-wave capability the single-source standalone harness could not reach.
+    /// Hands the serializer the FULL set of known masters (the whole load order's overlays, via the resolver), so a
+    /// patch record that references forms across SEVERAL plugins serializes with every needed master in its header.
+    /// Mutagen syncs the header master list to what the records ACTUALLY reference, so offering the whole order is
+    /// correct AND lean — only the referenced masters land (the write-proof's byte-identity-vs-native across phases
+    /// 3/4/6/7/9/11, all run with the full <c>allMasters</c> set, is the standing proof of this). A referenced master
+    /// absent from <paramref name="knownMasters"/> still fails loud (Q3) — never a silent wrong patch. This is what
+    /// makes a cross-master merge patch (e.g. a leveled list pulling entries from several mods) writable; the
+    /// single-master overload above is the degenerate one-master case.
+    /// </summary>
+    /// <remarks>Every written plugin force-includes <see cref="BaselineMasters"/> (Skyrim.esm + Update.esm) — see the chain below.</remarks>
+    internal static void WritePatch(SkyrimMod patchMod, IReadOnlyList<ISkyrimModGetter> knownMasters, string outputPath)
+    {
+        var expected = patchMod.ModKey.FileName.String;
+        var actual = Path.GetFileName(outputPath);
+        if (!string.Equals(expected, actual, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException(
+                $"Output filename '{actual}' must match patch ModKey filename '{expected}'.");
+        Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
+        // Hand Mutagen the FULL load order (every overlay, priority order) so it can resolve + ORDER every referenced
+        // master. WithLoadOrderFromHeaderMasters() can't serve a freshly-built cross-master patch: the header doesn't
+        // yet list the masters the new references need, so its master-sort throws MissingModException. WithLoadOrder
+        // gives the real order to sort against; the master LIST stays lean — Mutagen derives it from the records'
+        // actual FormLinks (only-referenced), the load order only resolves + orders them. A referenced master absent
+        // from the set still fails loud (Q3).
+        //
+        // BASELINE MASTERS (Aaron 2026-06-02): every Skyrim plugin MUST carry Skyrim.esm + Update.esm — exactly what the
+        // Creation Kit stamps on every plugin ("if ck stamps both then we should too"). A masterless plugin (e.g. a
+        // self-contained CREATED record references nothing, so the derived set is empty) is malformed by convention.
+        // WithExtraIncludedMasters force-includes them ON TOP of the derived set: a no-op for any already referenced
+        // (idempotent — no duplicate, bytes unchanged, so the existing byte-identity proofs are unaffected), and the fix
+        // when absent (proven: master-probe M2/M3). FILTERED to baselines actually IN the load order — both ship with SE
+        // so in any real order both are forced (matching the CK); the filter only keeps a degenerate order (or a minimal
+        // single-master test harness) from throwing on an unresolvable extra master. The master LIST stays otherwise lean.
+        var ordered = knownMasters as ISkyrimModGetter[] ?? knownMasters.ToArray();
+        var baseline = BaselineMasters.Where(bm => ordered.Any(km => km.ModKey == bm)).ToArray();
+        patchMod.BeginWrite
+            .ToPath(outputPath)
+            .WithLoadOrder(ordered)
+            .WithExtraIncludedMasters(baseline)
+            .Write();
+    }
+
+    /// <summary>The base-game masters EVERY Skyrim plugin must carry — Skyrim.esm + Update.esm, exactly what the Creation
+    /// Kit stamps on every plugin (Aaron 2026-06-02: "if ck stamps both then we should too"). Force-included on every
+    /// <see cref="WritePatch(SkyrimMod, IReadOnlyList{ISkyrimModGetter},string)"/> via WithExtraIncludedMasters so even a
+    /// self-contained created record yields a valid, conventionally-mastered plugin. Both ship with SE → always present in
+    /// the order, so this never fails; the load order sorts them (Skyrim.esm before Update.esm). Proven by master-probe.</summary>
+    static readonly ModKey[] BaselineMasters = { new("Skyrim", ModType.Master), new("Update", ModType.Master) };
+
+    // ======================================================================
+    //  PATH NAVIGATION + VERBS  (plan §4.2 / §3 P-VERBS; the highest-risk delta)
+    // ======================================================================
+
+    /// <summary>
+    /// Parse one path segment into (field name, optional collection key/index). <c>Effects[0]</c> →
+    /// ("Effects","0"); <c>Foo</c> → ("Foo", null). Brackets carry MID-PATH collection navigation only — this is
+    /// the boundary parse from the textual path skin to the engine's typed per-hop form (the user-facing wire
+    /// format proper is a later MCP-API decision, kept out of the engine). Fails LOUD on a malformed bracket
+    /// (Q3 — a silent misparse could retarget a write). The leaf uses <see cref="WriteRequest.Key"/>, never a
+    /// bracket; both <see cref="ApplyVerb"/> and the rulebook reject a bracketed LEAF segment.
+    /// </summary>
+    internal static (string name, string? key) ParseSegment(string segment)
+    {
+        var open = segment.IndexOf('[');
+        if (open < 0)
+        {
+            if (segment.Contains(']'))
+                throw new InvalidOperationException($"Malformed path segment '{segment}': ']' without a matching '['.");
+            return (segment, null);
+        }
+        if (!segment.EndsWith("]", StringComparison.Ordinal))
+            throw new InvalidOperationException($"Malformed path segment '{segment}': '[' must be closed by ']' at the segment end.");
+        var name = segment[..open];
+        var key = segment[(open + 1)..^1];
+        if (name.Length == 0) throw new InvalidOperationException($"Malformed path segment '{segment}': no field name before '['.");
+        if (key.Length == 0) throw new InvalidOperationException($"Malformed path segment '{segment}': empty index/key in '[]'.");
+        if (key.Contains('[') || key.Contains(']'))
+            throw new InvalidOperationException($"Malformed path segment '{segment}': nested or extra brackets.");
+        return (name, key);
+    }
+
+    /// <summary>
+    /// Walk <c>req.Path</c> from the record root, then apply <c>req.Verb</c> at the leaf. A plain hop descends a
+    /// substruct (materializing an absent one); a bracketed hop (<c>Effects[0]</c>) steps INTO a collection
+    /// element (wave-1 collection-nav). Dispatch at the leaf is on its <i>runtime</i> shape (dict / list /
+    /// scalar), so execution stays corpus-independent: the corpus drives pre-flight (<see cref="CorpusRulebook"/>),
+    /// reflection drives the write.
+    /// </summary>
+    public static void ApplyVerb(object record, WriteRequest req)
+    {
+        object current = record;
+        for (int i = 0; i < req.Path.Length - 1; i++)
+        {
+            var (segName, segKey) = ParseSegment(req.Path[i]);
+            var p = ResolveProperty(current.GetType(), segName)
+                ?? throw new InvalidOperationException($"No property '{segName}' on {current.GetType().Name}");
+            // No bracket → descend a substruct. Writable-by-construction: an ABSENT intermediate optional substruct
+            // (null) is materialized so a field inside it can be set — "set a field in a data block the record lacks"
+            // must work, not throw. Multi-level absent chains materialize one hop at a time. (Other half of approach A.)
+            // A bracket (Effects[0]) → step INTO that collection element and keep descending (wave-1 collection-nav).
+            current = segKey is null
+                ? (p.GetValue(current) ?? MaterializeSubstruct(current, p, segName))
+                : StepIntoElement(current, p, segName, segKey);
+        }
+        var (leafName, leafKey) = ParseSegment(req.Path[^1]);
+        if (leafKey is not null)
+            throw new InvalidOperationException(
+                $"Path segment '{req.Path[^1]}' brackets a collection element at the LEAF. Brackets navigate mid-path " +
+                "only; to operate on a list/dict element at the leaf, use the verb + Key (SetAtIndex/Remove by index, " +
+                "or Set/Remove by dict key).");
+        var leaf = ResolveProperty(current.GetType(), leafName)
+            ?? throw new InvalidOperationException($"No property '{leafName}' on {current.GetType().Name}");
+
+        // Whole-value-coercible leaves (Color, MemorySlice blobs, AssetLink paths, …) are Set wholesale even when
+        // the runtime type also implements IList/IDict — coercion owns them, not the collection verbs.
+        if (CanCoerce(leaf.PropertyType)) { ApplyScalarVerb(current, leaf, req); return; }
+
+        var dictIface = ClosedInterface(leaf.PropertyType, typeof(IDictionary<,>));
+        if (dictIface is not null) { ApplyDictVerb(current, leaf, dictIface, req); return; }
+
+        var listIface = ClosedInterface(leaf.PropertyType, typeof(IList<>));
+        if (listIface is not null) { ApplyListVerb(current, leaf, listIface, req); return; }
+
+        ApplyScalarVerb(current, leaf, req);
+    }
+
+    static void ApplyScalarVerb(object parent, PropertyInfo prop, WriteRequest req)
+    {
+        if (!prop.CanWrite) throw new InvalidOperationException($"Property '{prop.Name}' is not writable");
+        if (req.Verb == "Set" && req.Struct is not null) { prop.SetValue(parent, BuildStruct(req.Struct)); return; }
+
+        // Parent-aware FormLinkOrIndex (condition-data targets, wave 4): the concrete ctor needs the owning ARM
+        // (parent) as its discriminator-flag source, so an FLOI cannot go through the parentless Coerce path. The
+        // engine auto-infers form-vs-index from the value and sets the arm's flag to match (Aaron 2026-05-31; scout
+        // §E.1). Recognised by the generic definition (IsFormLinkOrIndex) — no per-record-type wiring.
+        if (req.Verb == "Set" && IsFormLinkOrIndex(prop.PropertyType)) { SetFloi(parent, prop, req.Value!); return; }
+
+        switch (req.Verb)
+        {
+            case "Set":
+                prop.SetValue(parent, Coerce(req.Value!, prop.PropertyType));
+                break;
+            case "Remove": // clear a nullable scalar / substruct / formlink / polymorphic
+                prop.SetValue(parent, null);
+                break;
+            default:
+                throw new InvalidOperationException($"Verb '{req.Verb}' is not valid on scalar/substruct '{prop.Name}'.");
+        }
+    }
+
+    /// <summary>
+    /// Build a modeled struct FROM PARTS — the ONE composition primitive (wave-1 half B), generalizing the prior
+    /// BuildArm. Resolve the concrete type, instantiate it (parameterless, or via positional <see cref="StructSpec.CtorArgs"/>
+    /// for discriminator-/composition-ctor types), apply the flat <see cref="StructSpec.Fields"/> (a coerced Set-leaf
+    /// each), then apply the general nested <see cref="StructSpec.Sets"/> THROUGH <see cref="ApplyVerb"/> itself — so
+    /// nested sub-structs, struct-element Adds, and lists are handled by the same proven path, and a built struct can
+    /// never miss a field kind the engine already handles. Used for: a polymorphic-arm Set, and a struct-element Add.
+    /// </summary>
+    static object BuildStruct(StructSpec spec)
+    {
+        var type = ResolveStructType(spec.Type);
+        var instance = Instantiate(type, spec.CtorArgs);
+        foreach (var (name, val) in spec.Fields ?? new())
+        {
+            var p = ResolveProperty(type, name)
+                ?? throw new InvalidOperationException($"No field '{name}' on '{spec.Type}'");
+            if (!p.CanWrite) throw new InvalidOperationException($"Field '{name}' on '{spec.Type}' is not writable");
+            p.SetValue(instance, Coerce(val, p.PropertyType));
+        }
+        foreach (var req in spec.Sets ?? new())
+            ApplyVerb(instance, req);     // general nested writes — reuse the verb engine; recurses on struct-element Adds
+        return instance;
+    }
+
+    /// <summary>Resolve a struct catalog name to its concrete settable type. Most modeled structs live in
+    /// <c>Mutagen.Bethesda.Skyrim</c>, but some (e.g. <c>MasterReference</c>, a header sub-element) live in the core
+    /// <c>Mutagen.Bethesda.Plugins</c> assembly — so fall back to a by-simple-name search across ALL Mutagen
+    /// assemblies (the same cross-assembly resolution <see cref="ConcreteOf"/> uses for generic interfaces). Recognised
+    /// by name, not a hand-listed set of types; fails LOUD if Mutagen models no such concrete class (Q3). The by-name
+    /// fallback intentionally omits an assignability filter (unlike <see cref="ConcreteOf"/>'s interface branch): the
+    /// input is a generator-emitted CATALOG name, not a runtime interface, so there is no target type to constrain
+    /// against — a wrong/colliding type is caught loud downstream by Instantiate + the per-field ResolveProperty.</summary>
+    static Type ResolveStructType(string name) =>
+        typeof(SkyrimMod).Assembly.GetType("Mutagen.Bethesda.Skyrim." + name)
+        ?? AppDomain.CurrentDomain.GetAssemblies().Where(a => (a.GetName().Name ?? "").StartsWith("Mutagen"))
+            .SelectMany(SafeTypes).FirstOrDefault(t => t is { IsClass: true, IsAbstract: false } && t.Name == name)
+        ?? throw new InvalidOperationException(
+            $"Unknown struct type '{name}' — no concrete class in Mutagen.Bethesda.Skyrim nor any Mutagen assembly. " +
+            "If Mutagen models it under another name, surface that; never guess.");
+
+    /// <summary>Instantiate a concrete type for build-from-parts. Order: explicit positional ctor args (discriminator
+    /// arm like <c>MagicEffectArchetype(TypeEnum)</c>, or composition parts) → parameterless ctor (the common case) →
+    /// composition build (no parameterless ctor + no explicit args).</summary>
+    static object Instantiate(Type t, string[]? ctorArgs)
+    {
+        if (ctorArgs is not null)
+        {
+            var ctor = t.GetConstructors().FirstOrDefault(c => c.GetParameters().Length == ctorArgs.Length)
+                ?? throw new InvalidOperationException(
+                    $"{t.Name}: no constructor taking {ctorArgs.Length} arg(s). Ctors: {CtorList(t)}");
+            var ps = ctor.GetParameters();
+            return ctor.Invoke(ps.Select((p, i) => Coerce(ctorArgs[i], p.ParameterType)).ToArray());
+        }
+        var paramless = t.GetConstructor(Type.EmptyTypes);
+        if (paramless is not null) return paramless.Invoke(null);
+        return InstantiateComposition(t);
+    }
+
+    /// <summary>A composition type has NO parameterless ctor — it is built only from its parts. Recognised by its
+    /// generic definition (the engine's normal type-recognition, like IList&lt;&gt;/FormLink&lt;&gt; — NOT a hand-listed
+    /// set of record types, which the cornerstone forbids):
+    /// <list type="bullet">
+    /// <item><c>GenderedItem&lt;T&gt;</c> — a male/female pair whose BOTH halves are mutable (corpus: Male/Female
+    /// writable). Materialize with <c>default(T)</c> parts — 0 for a value T, null for a ref T — and let navigation
+    /// populate them; a null ref half is then materialized on demand if navigated into, matching an absent half
+    /// EXACTLY. Byte-proven by write-proof Phase 4.</item>
+    /// <item><c>Array2d&lt;T&gt;</c> — a terrain grid (on Cell/Landscape: VertexHeightMap/VertexNormals/VertexColors,
+    /// CellMaxHeightData). Its cells are reached through a 2D indexer (<c>grid[x,y]</c>), NOT named members, so they sit
+    /// BELOW the reflectable-member granularity houseCARL's surface is built from: an indexer-shaped Mutagen-modeling
+    /// residual (named like the PEX delta — Aaron 2026-06-01), NOT a wave deferral. Materialize-from-absent has no public
+    /// ctor + needs grid dimensions: a NAMED residual (loud throw), never a wrong 0×0 shell.</item>
+    /// </list></summary>
+    static object InstantiateComposition(Type t)
+    {
+        var concrete = ConcreteOf(t) ?? t;     // the declared type is usually the getter interface (IGenderedItem<T>) — map to the concrete class
+        var defName = (concrete.IsGenericType ? concrete.GetGenericTypeDefinition() : concrete).Name;
+        if (defName.StartsWith("GenderedItem", StringComparison.Ordinal))
+        {
+            // GenderedItem<T>(T male, T female) — default(T) per part: 0 for a value T, null for a ref T (a null ref
+            // half is then materialized on demand if navigated into, matching an absent half exactly).
+            var ctor = concrete.GetConstructors().Where(c => c.GetParameters().Length > 0)
+                .OrderBy(c => c.GetParameters().Length).First();
+            var args = ctor.GetParameters().Select(p => DefaultOf(p.ParameterType)).ToArray();
+            return ctor.Invoke(args);
+        }
+        throw new CompositionRequiredException(t.Name, t);   // Array2d<T> (indexer-shaped Mutagen residual, named like PEX) + any unknown composition — named, loud (Q3)
+    }
+
+    static object? DefaultOf(Type t) => t.IsValueType ? System.Activator.CreateInstance(t) : null;
+
+    /// <summary>Map a (possibly getter/interface) type to the concrete settable class the engine can instantiate: a
+    /// generic interface <c>IFoo&lt;T&gt;</c> → concrete <c>Foo&lt;T&gt;</c> (GenderedItem/Array2d live in
+    /// Mutagen.Bethesda.Plugins, across assemblies); a simple interface <c>IFoo</c> → <c>Foo</c>; an already-concrete
+    /// class passes through. Returns null when no concrete class resolves. Shared by composition materialization and
+    /// the substruct-probe diagnostic so they can never disagree about interface→concrete.</summary>
+    internal static Type? ConcreteOf(Type t)
+    {
+        if (t is { IsInterface: true, IsGenericType: true })
+        {
+            var openDef = t.GetGenericTypeDefinition();
+            var implDef = AppDomain.CurrentDomain.GetAssemblies()
+                .Where(a => (a.GetName().Name ?? "").StartsWith("Mutagen")).SelectMany(SafeTypes)
+                .FirstOrDefault(x => x is { IsClass: true, IsAbstract: false, IsGenericTypeDefinition: true }
+                    && x.GetInterfaces().Any(i => i.IsGenericType && i.GetGenericTypeDefinition() == openDef));
+            if (implDef is not null) { try { return implDef.MakeGenericType(t.GetGenericArguments()); } catch { } }
+        }
+        if (t is { IsInterface: true })
+        {
+            var simple = RecordNaming.StripInterfaceToConcrete(t.Name);   // INpcGetter->Npc, and the non-Getter IFoo->Foo case
+            var asm = typeof(SkyrimMod).Assembly;
+            var impl = asm.GetType("Mutagen.Bethesda.Skyrim." + simple)
+                       ?? SafeTypes(asm).FirstOrDefault(x => x.IsClass && !x.IsAbstract && x.Name == simple && t.IsAssignableFrom(x));
+            if (impl is { IsClass: true, IsAbstract: false }) return impl;
+        }
+        if (t is { IsClass: true, IsAbstract: false }) return t;
+        return null;
+    }
+
+    /// <summary>True iff a collection's ELEMENT type is WHOLE-COERCIBLE — set as one value (a path string), not built
+    /// from parts: an <c>AssetLink&lt;T&gt;</c> texture/model/sound path, etc. Tries the coercion recogniser on the
+    /// resolved element type (mapping a getter interface to its concrete), AND recognises the AssetLink family by its
+    /// catalog name as a robust fallback — the cross-assembly nested-generic getter AQ (IAssetLinkGetter&lt;T&gt;) does
+    /// not resolve via <c>Type.GetType</c>, so the name check is what actually fires for AssetLink elements. Used by
+    /// BOTH the rulebook and the proof to keep "is this a build-from-parts struct element" decisions identical.</summary>
+    internal static bool IsWholeCoercibleElement(string? elementRef, string? elementAq)
+    {
+        if (elementAq is not null && ResolveType(elementAq) is { } rt && CanCoerce(ConcreteOf(rt) ?? rt)) return true;
+        return elementRef is not null && elementRef.StartsWith("AssetLink", StringComparison.Ordinal);
+    }
+
+    static void ApplyDictVerb(object parent, PropertyInfo prop, Type dictIface, WriteRequest req)
+    {
+        // Writable-by-construction: an ABSENT optional dict (null) is materialized so a first entry can be set.
+        // Remove on an absent dict is a no-op (nothing to remove) — it must NOT create an empty dict.
+        var dict = prop.GetValue(parent);
+        if (dict is null)
+        {
+            if (req.Verb == "Remove") return;
+            dict = MaterializeCollection(parent, prop);
+        }
+        var kType = dictIface.GetGenericArguments()[0];
+        var vType = dictIface.GetGenericArguments()[1];
+        var dt = dict.GetType();
+        var setItem = Indexer(dt).GetSetMethod()!;
+        void Set(string k, string v) => setItem.Invoke(dict, new[] { Coerce(k, kType), Coerce(v, vType) });
+
+        switch (req.Verb)
+        {
+            case "Set":
+                Set(req.Key!, req.Value!);
+                break;
+            case "Add": // distinct from Set: throws on duplicate key (Mutagen semantics)
+                dt.GetMethod("Add", new[] { kType, vType })!
+                    .Invoke(dict, new[] { Coerce(req.Key!, kType), Coerce(req.Value!, vType) });
+                break;
+            case "Remove":
+                dt.GetMethod("Remove", new[] { kType })!.Invoke(dict, new[] { Coerce(req.Key!, kType) });
+                break;
+            case "ReplaceAll":
+                dt.GetMethod("Clear")!.Invoke(dict, null);
+                foreach (var kv in req.Entries ?? new()) Set(kv.Key, kv.Value);
+                break;
+            case "Merge":
+                foreach (var kv in req.Entries ?? new()) Set(kv.Key, kv.Value);
+                break;
+            default:
+                throw new InvalidOperationException($"Verb '{req.Verb}' is not valid on dict '{prop.Name}'.");
+        }
+    }
+
+    static void ApplyListVerb(object parent, PropertyInfo prop, Type listIface, WriteRequest req)
+    {
+        // Writable-by-construction: an ABSENT optional list (null) is materialized so a first element can be
+        // added — "add a keyword to a record that has none" must work, not throw. Remove on an absent list is a
+        // no-op (nothing to remove) — it must NOT create an empty list (which would alter the serialized bytes).
+        var list = prop.GetValue(parent);
+        if (list is null)
+        {
+            if (req.Verb == "Remove") return;
+            list = MaterializeCollection(parent, prop);
+        }
+        var elem = listIface.GetGenericArguments()[0];
+        var lt = list.GetType();
+        switch (req.Verb)
+        {
+            case "Add":
+                // struct-element list (modeled-struct elements) → build the new element FROM PARTS (wave-1 half B);
+                // coercible-element list → coerce the plain value as before. ResolveProperty/AddMethod handle the rest.
+                AddMethod(lt, elem).Invoke(list,
+                    new[] { req.Struct is not null ? BuildStruct(req.Struct) : Coerce(req.Value!, elem) });
+                break;
+            case "SetAtIndex":
+                Indexer(lt).GetSetMethod()!.Invoke(list,
+                    new[] { (object)int.Parse(req.Key!, CultureInfo.InvariantCulture), Coerce(req.Value!, elem) });
+                break;
+            case "Remove":
+                if (req.Key is not null)
+                    lt.GetMethod("RemoveAt", new[] { typeof(int) })!
+                        .Invoke(list, new object[] { int.Parse(req.Key, CultureInfo.InvariantCulture) });
+                else
+                    lt.GetMethod("Remove", new[] { elem })!.Invoke(list, new[] { Coerce(req.Value!, elem) });
+                break;
+            case "ReplaceAll":
+                lt.GetMethod("Clear")!.Invoke(list, null);
+                var add = AddMethod(lt, elem);
+                foreach (var v in req.Values ?? Array.Empty<string>()) add.Invoke(list, new[] { Coerce(v, elem) });
+                break;
+            default:
+                throw new InvalidOperationException($"Verb '{req.Verb}' is not valid on list '{prop.Name}'.");
+        }
+    }
+
+    /// <summary>Materialize an absent (null) optional collection so a first element/entry can be added. Instantiates
+    /// the property's declared concrete collection type (Mutagen's settable ExtendedList&lt;T&gt; / dictionary) and
+    /// assigns it. Fails LOUD if the property is not settable or the type has no usable constructor — never a silent
+    /// skip. (Byte-identity of init-then-add vs a natively-populated record is proven by write-proof Phase 3.)</summary>
+    static object MaterializeCollection(object parent, PropertyInfo prop)
+    {
+        if (!prop.CanWrite)
+            throw new InvalidOperationException($"Collection '{prop.Name}' is absent and not settable — cannot materialize.");
+        var made = System.Activator.CreateInstance(prop.PropertyType)
+            ?? throw new InvalidOperationException($"Could not instantiate collection type {prop.PropertyType.Name} for '{prop.Name}'.");
+        prop.SetValue(parent, made);
+        return made;
+    }
+
+    /// <summary>Materialize an absent (null) intermediate optional substruct so a field inside it can be set —
+    /// paralleling <see cref="MaterializeCollection"/>. Delegates to <see cref="Instantiate"/>: a parameterless ctor
+    /// for the common case, OR composition build-from-parts (wave-1 half B) for a no-parameterless-ctor type —
+    /// <c>GenderedItem&lt;T&gt;</c> materializes with default(T) parts (both halves mutable, so navigation then
+    /// populates them). A still-unbuildable composition (<c>Array2d&lt;T&gt;</c> terrain grids — an indexer-shaped Mutagen residual, named like PEX; or any unknown) FAILS
+    /// LOUD (<see cref="CompositionRequiredException"/>, re-stamped with the path segment): a real write into it
+    /// surfaces as an explicit, named deferral, never a silent wrong result (Q3). Composition is recognised BY TYPE,
+    /// derived from Mutagen's model — never a hand-listed set of record types.</summary>
+    static object MaterializeSubstruct(object parent, PropertyInfo prop, string segment)
+    {
+        if (!prop.CanWrite)
+            throw new InvalidOperationException($"Absent substruct '{segment}' ({Pretty(prop.PropertyType)}) is not settable — cannot materialize.");
+        object made;
+        try { made = Instantiate(prop.PropertyType, null); }
+        catch (CompositionRequiredException) { throw new CompositionRequiredException(segment, prop.PropertyType); }  // re-stamp with the path segment
+        prop.SetValue(parent, made);
+        return made;
+    }
+
+    /// <summary>
+    /// Collection-nav (wave 1): step INTO a list/dict element mid-path so a sub-field can be edited
+    /// (e.g. <c>Effects[0].Data.Magnitude</c>). List → index by int (Mutagen's ExtendedList&lt;T&gt; is
+    /// IList&lt;T&gt; but not the non-generic IList — enumerate to the index); dict → coerce the key to its key
+    /// type and look it up. The element is a navigable STRUCT (record-elements are the nested-group wave). Fails
+    /// LOUD (Q3) on an absent collection (add an element first — composition, half B), a bad/out-of-bounds index,
+    /// or a missing key — never a silent wrong target.
+    /// </summary>
+    internal static object StepIntoElement(object parent, PropertyInfo prop, string name, string key)
+    {
+        var coll = prop.GetValue(parent)
+            ?? throw new InvalidOperationException(
+                $"Cannot navigate into '{name}[{key}]': the collection is absent (null). Add an element first " +
+                "(element composition — wave 1 half B), then navigate into it.");
+
+        // Recognise BOTH the mutable and read-only collection interfaces: the write path navigates the concrete
+        // mutable list/dict, but a read (show / before-display) navigates a getter overlay exposing IReadOnly*.
+        var dictIface = ClosedInterface(prop.PropertyType, typeof(IDictionary<,>))
+                     ?? ClosedInterface(prop.PropertyType, typeof(IReadOnlyDictionary<,>));
+        if (dictIface is not null)
+        {
+            var kType = dictIface.GetGenericArguments()[0];
+            var keyObj = Coerce(key, kType);
+            var dt = coll.GetType();
+            var contains = dt.GetMethod("ContainsKey", new[] { kType });
+            if (contains is not null && contains.Invoke(coll, new[] { keyObj }) is false)
+                throw new InvalidOperationException($"No entry with key '{key}' in dict '{name}'.");
+            var idxer = dt.GetProperties(BindingFlags.Public | BindingFlags.Instance)
+                .FirstOrDefault(p => p.GetIndexParameters().Length == 1 && p.CanRead)
+                ?? throw new InvalidOperationException($"No readable indexer on dict '{name}' ({dt.Name}).");
+            return idxer.GetValue(coll, new object[] { keyObj! })
+                ?? throw new InvalidOperationException($"Entry '{name}[{key}]' is null.");
+        }
+
+        var listIface = ClosedInterface(prop.PropertyType, typeof(IList<>))
+                     ?? ClosedInterface(prop.PropertyType, typeof(IReadOnlyList<>));
+        if (listIface is not null)
+        {
+            if (!int.TryParse(key, NumberStyles.Integer, CultureInfo.InvariantCulture, out var idx) || idx < 0)
+                throw new InvalidOperationException($"List '{name}' must be indexed by a non-negative integer; got '{key}'.");
+            int j = 0;
+            foreach (var item in (System.Collections.IEnumerable)coll)
+                if (j++ == idx)
+                    return item ?? throw new InvalidOperationException($"Element '{name}[{idx}]' is null.");
+            throw new InvalidOperationException($"Index {idx} out of bounds for list '{name}' (has {j} element(s)).");
+        }
+
+        throw new InvalidOperationException($"'{name}' is not a navigable collection (no [read-only] IList/IDictionary).");
+    }
+
+    static PropertyInfo Indexer(Type t) =>
+        t.GetProperties(BindingFlags.Public | BindingFlags.Instance)
+            .FirstOrDefault(p => p.GetIndexParameters().Length == 1 && p.CanWrite)
+        ?? throw new InvalidOperationException($"No writable single-arg indexer on {t.Name}");
+
+    static MethodInfo AddMethod(Type listType, Type elem) =>
+        listType.GetMethod("Add", new[] { elem })
+        ?? listType.GetMethods(BindingFlags.Public | BindingFlags.Instance).FirstOrDefault(m =>
+            m.Name == "Add" && m.GetParameters().Length == 1 && m.GetParameters()[0].ParameterType.IsAssignableFrom(elem))
+        ?? throw new InvalidOperationException($"No compatible Add on {listType.Name} for element {elem.Name}");
+
+    internal static Type? ClosedInterface(Type type, Type openGeneric)
+    {
+        if (type.IsGenericType && type.GetGenericTypeDefinition() == openGeneric) return type;
+        return type.GetInterfaces().FirstOrDefault(i => i.IsGenericType && i.GetGenericTypeDefinition() == openGeneric);
+    }
+
+    // ======================================================================
+    //  COERCION  (string -> typed value)
+    //
+    //  Recognition is SHARED between Coerce (convert) and CanCoerce (recognise-only,
+    //  used by pre-flight + the coerce-audit guard) through the Try* family methods:
+    //  each returns true iff `u` is in its family, and — when `text` is non-null — also
+    //  emits the coerced value. Passing text=null makes them pure recognisers, so the
+    //  two surfaces CANNOT drift on which types are coercible.
+    //
+    //  TryValueType is the corpus-derived value-type surface (Color, Percent, P3*, …):
+    //  `coerce-audit` enumerates every writable scalar/enum/value/formlink leaf (+ list/
+    //  dict elements) in corpus.json and asserts each resolves to a coercible type — so
+    //  coverage is complete BY CONSTRUCTION, not by a hand-kept list.
+    // ======================================================================
+
+    /// <summary>Turn a string into a value of <paramref name="targetType"/>, or throw fail-loud.</summary>
+    static object? Coerce(string text, Type targetType)
+    {
+        var u = Nullable.GetUnderlyingType(targetType) ?? targetType;
+        if (TryPrimitive(text, u, out var r) || TryEnum(text, u, out r)
+            || TryFormLink(text, u, out r) || TryValueType(text, u, out r))
+            return r;
+        throw new InvalidOperationException(
+            $"No coercion rule for {targetType.FullName} (value={text}). If Mutagen models this as a writable " +
+            "value type, it is a real coercion gap to add (extend TryValueType) — surface it via coerce-audit, never guess.");
+    }
+
+    /// <summary>Recognition-only mirror of <see cref="Coerce"/>: does a coercion rule exist for this type?
+    /// Shares the Try* recognisers, so it can never disagree with Coerce about what is coercible.</summary>
+    internal static bool CanCoerce(Type targetType)
+    {
+        var u = Nullable.GetUnderlyingType(targetType) ?? targetType;
+        return TryPrimitive(null, u, out _) || TryEnum(null, u, out _)
+            || TryFormLink(null, u, out _) || TryValueType(null, u, out _);
+    }
+
+    // -- coercion families. text==null => recognise only (result stays null). --
+
+    static bool TryPrimitive(string? text, Type u, out object? result)
+    {
+        result = null;
+        if (u == typeof(string)) { if (text != null) result = text; return true; }
+        if (u == typeof(bool)) { if (text != null) result = bool.Parse(text); return true; }
+        if (u == typeof(int)) { if (text != null) result = int.Parse(text, CultureInfo.InvariantCulture); return true; }
+        if (u == typeof(uint)) { if (text != null) result = ParseUInt(text); return true; }
+        if (u == typeof(short)) { if (text != null) result = short.Parse(text, CultureInfo.InvariantCulture); return true; }
+        if (u == typeof(ushort)) { if (text != null) result = ushort.Parse(text, CultureInfo.InvariantCulture); return true; }
+        if (u == typeof(long)) { if (text != null) result = long.Parse(text, CultureInfo.InvariantCulture); return true; }
+        if (u == typeof(ulong)) { if (text != null) result = ulong.Parse(text, CultureInfo.InvariantCulture); return true; }
+        if (u == typeof(float)) { if (text != null) result = float.Parse(text, CultureInfo.InvariantCulture); return true; }
+        if (u == typeof(double)) { if (text != null) result = double.Parse(text, CultureInfo.InvariantCulture); return true; }
+        if (u == typeof(byte)) { if (text != null) result = byte.Parse(text, CultureInfo.InvariantCulture); return true; }
+        if (u == typeof(sbyte)) { if (text != null) result = sbyte.Parse(text, CultureInfo.InvariantCulture); return true; }
+        return false;
+    }
+
+    static uint ParseUInt(string text) =>
+        text.StartsWith("0x", StringComparison.OrdinalIgnoreCase)
+            ? uint.Parse(text[2..], NumberStyles.HexNumber)
+            : uint.Parse(text, CultureInfo.InvariantCulture);
+
+    static bool TryEnum(string? text, Type u, out object? result)
+    {
+        result = null;
+        if (!u.IsEnum) return false;
+        if (text != null) result = Enum.Parse(u, text, ignoreCase: true);
+        return true;
+    }
+
+    /// <summary>FormLink families — build the matching concrete (nullable vs not) from a "FORMID:ModName.esp" key.
+    /// Mutagen distinguishes IFormLink&lt;T&gt; (required) from IFormLinkNullable&lt;T&gt; (optional); the wrong
+    /// concrete won't assign to the property, so the target type decides which we construct.</summary>
+    static bool TryFormLink(string? text, Type u, out object? result)
+    {
+        result = null;
+        if (!u.IsGenericType) return false;
+        var def = u.GetGenericTypeDefinition();
+        var targetGetter = u.GetGenericArguments()[0];
+        if (def == typeof(IFormLinkNullable<>) || def == typeof(IFormLinkNullableGetter<>) || def == typeof(FormLinkNullable<>))
+        {
+            if (text != null)
+                result = System.Activator.CreateInstance(typeof(FormLinkNullable<>).MakeGenericType(targetGetter), FormKey.Factory(text));
+            return true;
+        }
+        if (def == typeof(FormLink<>) || def == typeof(IFormLink<>) || def == typeof(IFormLinkGetter<>))
+        {
+            if (text != null)
+                result = System.Activator.CreateInstance(typeof(FormLink<>).MakeGenericType(targetGetter), FormKey.Factory(text));
+            return true;
+        }
+        // IFormLinkOrIndex<T> (condition-data targets) is NOT coercible here: its ctor needs the owning arm as a
+        // discriminator-flag source, which the parentless Coerce path lacks. It is handled by the parent-aware
+        // SetFloi branch in ApplyScalarVerb (wave 4), recognised via IsFormLinkOrIndex. (Was a tracked deferral.)
+        return false;
+    }
+
+    // ======================================================================
+    //  FORMLINKORINDEX — condition-data targets (wave 4). A FormLinkOrIndex<T> holds EITHER a real FormID (form
+    //  mode) OR a numeric quest-alias / package-data index (index mode); the owning *ConditionData arm's
+    //  UseAliases/UsePackageData bools decide which serialises. The concrete ctor takes the arm as that flag source
+    //  (scout Phase A), so this lives OUTSIDE Coerce (which has no parent) — a parent-aware branch in
+    //  ApplyScalarVerb. IsFormLinkOrIndex is the ONE predicate the engine write, the pre-flight (CorpusRulebook),
+    //  and coerce-audit all share, so they cannot drift on which leaves are FLOI.
+    // ======================================================================
+
+    /// <summary>True iff <paramref name="t"/> (nullable-unwrapped) is a Mutagen <c>FormLinkOrIndex&lt;T&gt;</c>
+    /// family type (the mutable, getter, or concrete form). Recognised by its generic definition — like the engine
+    /// already recognises IFormLink&lt;&gt;/IList&lt;&gt;/GenderedItem&lt;&gt; — so coverage is by construction, never
+    /// a per-record-type hand-list.</summary>
+    internal static bool IsFormLinkOrIndex(Type t)
+    {
+        var u = Nullable.GetUnderlyingType(t) ?? t;
+        if (!u.IsGenericType) return false;
+        var n = u.GetGenericTypeDefinition().Name;
+        return n.StartsWith("IFormLinkOrIndex", StringComparison.Ordinal)
+            || n.StartsWith("FormLinkOrIndex", StringComparison.Ordinal);
+    }
+
+    /// <summary>How a condition target serialises: a real FormID, or a numeric index read as a quest alias or a
+    /// package-data index. The arm's UseAliases/UsePackageData bools carry this on disk.</summary>
+    internal enum FloiMode { Form, IndexAlias, IndexPackData }
+
+    /// <summary>Classify a condition-target VALUE into its mode + payload, auto-inferred from the value alone
+    /// (Aaron 2026-05-31; scout §E.1): a <c>FORMID:Plugin.esp</c> is form mode; explicit <c>alias N</c> /
+    /// <c>packdata N</c> is the named index mode; a bare integer is index mode defaulting to alias (the common index
+    /// case). Throws fail-loud on anything else (Q3 — never guessed/wrong four bytes).</summary>
+    static (FloiMode mode, FormKey key, uint index) ClassifyFloiValue(string value)
+    {
+        var v = (value ?? "").Trim();
+        if (v.Length == 0) throw new InvalidOperationException("Empty condition-target value.");
+        if (TryIndexPrefix(v, "alias", out var ai)) return (FloiMode.IndexAlias, default, ai);
+        if (TryIndexPrefix(v, "packdata", out var pi)) return (FloiMode.IndexPackData, default, pi);
+        if (v.Contains(':')) return (FloiMode.Form, FormKey.Factory(v), 0u);   // FormKey.Factory throws on a malformed id
+        return (FloiMode.IndexAlias, default, ParseUInt(v));                    // bare integer -> index (default alias); throws if not a uint
+    }
+
+    static bool TryIndexPrefix(string v, string prefix, out uint index)
+    {
+        index = 0;
+        if (!v.StartsWith(prefix + " ", StringComparison.OrdinalIgnoreCase)) return false;
+        index = ParseUInt(v[(prefix.Length + 1)..].Trim());
+        return true;
+    }
+
+    /// <summary>Non-throwing mirror of <see cref="ClassifyFloiValue"/> for pre-flight — does this value name a legal
+    /// condition target? — so the rulebook and the engine agree on what a valid FLOI value is.</summary>
+    internal static bool TryClassifyFloiValue(string value)
+    {
+        try { ClassifyFloiValue(value); return true; }
+        catch { return false; }
+    }
+
+    /// <summary>Set a condition-data <c>FormLinkOrIndex&lt;T&gt;</c> target from a value, auto-inferring the mode and
+    /// setting the owning arm's discriminator to match. The concrete ctor (scout Phase A) takes the arm as the flag
+    /// source: <c>(arm, FormKey)</c> [form] or <c>(arm, uint)</c> [index]. Fail-loud if the parent is not a
+    /// flag-bearing arm, the value is unclassifiable, or the ctor is absent (Q3).</summary>
+    static void SetFloi(object arm, PropertyInfo prop, string value)
+    {
+        if (arm is not IFormLinkOrIndexFlagGetter)
+            throw new InvalidOperationException(
+                $"'{prop.Name}' is a FormLinkOrIndex target but its parent {arm.GetType().Name} is not a condition-data " +
+                "arm (no UseAliases/UsePackageData discriminator) — cannot set (surfaced, not guessed; Q3).");
+
+        var (mode, key, index) = ClassifyFloiValue(value);   // throws fail-loud on an unclassifiable value
+
+        // The concrete closed FormLinkOrIndex<T>: prefer the live instance's runtime type, else map the declared
+        // interface to its concrete (IFormLinkOrIndex<T> -> FormLinkOrIndex<T>) via the shared ConcreteOf.
+        var concrete = prop.GetValue(arm)?.GetType()
+            ?? ConcreteOf(Nullable.GetUnderlyingType(prop.PropertyType) ?? prop.PropertyType)
+            ?? throw new InvalidOperationException($"No concrete FormLinkOrIndex type for {Pretty(prop.PropertyType)}.");
+
+        // Set the arm's discriminator to match the inferred mode: form = both off; index = the matching flag on.
+        SetArmFlag(arm, "UseAliases", mode == FloiMode.IndexAlias);
+        SetArmFlag(arm, "UsePackageData", mode == FloiMode.IndexPackData);
+
+        // Construct via the discovered (arm, FormKey)/(arm, uint) ctor and assign.
+        var payloadType = mode == FloiMode.Form ? typeof(FormKey) : typeof(uint);
+        var arg = mode == FloiMode.Form ? (object)key : index;
+        var ctor = concrete.GetConstructors().FirstOrDefault(c =>
+                c.GetParameters() is { Length: 2 } p
+                && typeof(IFormLinkOrIndexFlagGetter).IsAssignableFrom(p[0].ParameterType)
+                && p[1].ParameterType == payloadType)
+            ?? throw new InvalidOperationException(
+                $"{Pretty(concrete)}: no (IFormLinkOrIndexFlagGetter, {payloadType.Name}) constructor — SURFACE. Ctors: {CtorList(concrete)}");
+        prop.SetValue(arm, ctor.Invoke(new[] { arm, arg }));
+    }
+
+    /// <summary>Set one of the arm's discriminator bools (UseAliases / UsePackageData) through the engine's writable-
+    /// property resolution. Fail-loud if absent or get-only (a real condition arm always carries both; Q3).</summary>
+    static void SetArmFlag(object arm, string flagName, bool value)
+    {
+        var p = ResolveProperty(arm.GetType(), flagName)
+            ?? throw new InvalidOperationException($"Condition arm {arm.GetType().Name} has no '{flagName}' discriminator field.");
+        if (!p.CanWrite) throw new InvalidOperationException($"Discriminator '{flagName}' on {arm.GetType().Name} is not writable.");
+        p.SetValue(arm, value);
+    }
+
+    /// <summary>The corpus-derived value-type family (coerce-audit enumerates exactly these): Color, Percent,
+    /// Noggog point structs (P2*/P3*), MemorySlice&lt;byte&gt; blobs, AssetLink paths, ModKey/FormKey, and the
+    /// PEX-metadata leftovers (DateTime/Char/String[]). Construction is reflection-robust (ctor / static factory /
+    /// implicit op) so it targets whatever surface Mutagen/Noggog expose. Extend HERE when the audit surfaces a
+    /// new writable value type; the audit keeps this complete by construction.</summary>
+    static bool TryValueType(string? text, Type u, out object? result)
+    {
+        result = null;
+
+        // System.Drawing.Color — "R,G,B" or "R,G,B,A" (bytes 0-255).
+        if (u == typeof(System.Drawing.Color)) { if (text != null) result = ParseColor(text); return true; }
+
+        // Time/date value types — Climate sun times (TimeOnly) + PEX-file metadata (DateTime).
+        if (u == typeof(DateTime)) { if (text != null) result = DateTime.Parse(text, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind); return true; }
+        if (u == typeof(TimeOnly)) { if (text != null) result = TimeOnly.Parse(text, CultureInfo.InvariantCulture); return true; }
+        // PEX-file metadata leftovers (Char / delimited String[]).
+        if (u == typeof(char)) { if (text != null) result = char.Parse(text); return true; }
+        if (u == typeof(string[])) { if (text != null) result = text.Length == 0 ? Array.Empty<string>() : text.Split(','); return true; }
+
+        // Mutagen value types: FormKey/ModKey (non-identity content uses, e.g. MasterReference.Master) + the 4-char RecordType.
+        if (u == typeof(FormKey)) { if (text != null) result = FormKey.Factory(text); return true; }
+        if (u == typeof(ModKey)) { if (text != null) result = ConstructFromString(u, text); return true; }
+        if (u == typeof(RecordType)) { if (text != null) result = ConstructFromString(u, text); return true; }
+
+        // Mutagen TranslatedString — set the whole localized string from a plain string (the common "set a name /
+        // description" case), via the SAME implicit conversion `record.Name = "x"` uses, so it serialises identically.
+        // (Modeled as a substruct in the corpus; recognising it here also makes ApplyVerb Set it wholesale.)
+        if (u.FullName == "Mutagen.Bethesda.Strings.TranslatedString")
+        {
+            if (text != null) result = ImplicitFromString(u, text);
+            return true;
+        }
+
+        // Noggog.Percent — a [0..1] fraction (single-component ctor).
+        if (u.FullName == "Noggog.Percent") { if (text != null) result = ConstructByCtor(u, new[] { text }); return true; }
+
+        // Noggog point structs P2*/P3* — comma-separated components, each coerced to its ctor param type.
+        if (u.Namespace == "Noggog" && (u.Name.StartsWith("P2") || u.Name.StartsWith("P3")))
+        {
+            if (text != null) result = ConstructByCtor(u, text.Split(','));
+            return true;
+        }
+
+        // Noggog (ReadOnly)MemorySlice<byte> — raw blob as a hex string.
+        if (u.IsGenericType
+            && (u.GetGenericTypeDefinition() == typeof(MemorySlice<>) || u.GetGenericTypeDefinition() == typeof(ReadOnlyMemorySlice<>))
+            && u.GetGenericArguments()[0] == typeof(byte))
+        {
+            if (text != null) result = ConstructFromValue(u, Convert.FromHexString(text));
+            return true;
+        }
+
+        // Mutagen AssetLink<T> — a path string (texture / model / behavior / …).
+        if (u.IsGenericType && u.GetGenericTypeDefinition() == typeof(Mutagen.Bethesda.Plugins.Assets.AssetLink<>))
+        {
+            if (text != null) result = ConstructFromString(u, text);
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>Parse "R,G,B" (alpha 255) or "R,G,B,A" (bytes 0-255) into a <see cref="System.Drawing.Color"/>.</summary>
+    static object ParseColor(string text)
+    {
+        var p = text.Split(',').Select(s => byte.Parse(s.Trim(), CultureInfo.InvariantCulture)).ToArray();
+        return p.Length switch
+        {
+            3 => System.Drawing.Color.FromArgb(p[0], p[1], p[2]),
+            4 => System.Drawing.Color.FromArgb(p[3], p[0], p[1], p[2]), // R,G,B,A -> FromArgb(a,r,g,b)
+            _ => throw new InvalidOperationException($"Color expects 'R,G,B' or 'R,G,B,A' bytes; got '{text}'."),
+        };
+    }
+
+    /// <summary>Construct a multi-component value struct (Percent / P2* / P3*) by splitting into ctor params and coercing each.</summary>
+    static object ConstructByCtor(Type t, string[] parts)
+    {
+        var ctor = t.GetConstructors()
+            .FirstOrDefault(c => c.GetParameters().Length == parts.Length)
+            ?? throw new InvalidOperationException(
+                $"{t.Name}: no public ctor taking {parts.Length} component(s). Ctors: {CtorList(t)}");
+        var ps = ctor.GetParameters();
+        var argv = new object?[ps.Length];
+        for (int i = 0; i < ps.Length; i++) argv[i] = Coerce(parts[i].Trim(), ps[i].ParameterType);
+        return ctor.Invoke(argv);
+    }
+
+    static object ConstructFromString(Type t, string s) => ConstructFromArg(t, s, typeof(string));
+    static object ConstructFromValue(Type t, object v) => ConstructFromArg(t, v, v.GetType());
+
+    /// <summary>Build <paramref name="t"/> from a single argument via the first matching ctor, static factory, or implicit operator.</summary>
+    static object ConstructFromArg(Type t, object arg, Type argType)
+    {
+        var ctor = t.GetConstructors().FirstOrDefault(c =>
+            c.GetParameters().Length == 1 && c.GetParameters()[0].ParameterType.IsAssignableFrom(argType));
+        if (ctor is not null) return ctor.Invoke(new[] { arg });
+
+        var statics = t.GetMethods(BindingFlags.Public | BindingFlags.Static)
+            .Where(m => m.ReturnType == t && m.GetParameters().Length == 1 && m.GetParameters()[0].ParameterType.IsAssignableFrom(argType));
+        var fac = statics.FirstOrDefault(m => m.Name is not ("op_Implicit" or "op_Explicit")) ?? statics.FirstOrDefault();
+        if (fac is not null) return fac.Invoke(null, new[] { arg })!;
+
+        throw new InvalidOperationException(
+            $"{t.Name}: no ctor / static factory / implicit op accepting {argType.Name}. Ctors: {CtorList(t)}");
+    }
+
+    static string CtorList(Type t) =>
+        string.Join(" | ", t.GetConstructors().Select(c => $"({string.Join(", ", c.GetParameters().Select(p => Pretty(p.ParameterType)))})"));
+
+    /// <summary>Build <paramref name="t"/> from a string via its implicit string operator (preferred, so the result
+    /// matches `field = "x"` byte-for-byte), falling back to a ctor / factory.</summary>
+    static object ImplicitFromString(Type t, string s)
+    {
+        var op = t.GetMethods(BindingFlags.Public | BindingFlags.Static).FirstOrDefault(m =>
+            m.Name == "op_Implicit" && m.ReturnType == t
+            && m.GetParameters().Length == 1 && m.GetParameters()[0].ParameterType == typeof(string));
+        return op is not null ? op.Invoke(null, new object[] { s })! : ConstructFromString(t, s);
+    }
+
+    /// <summary>Non-throwing coercion, for the rulebook's pre-flight value check.</summary>
+    internal static bool TryCoerce(string text, Type type, out object? result)
+    {
+        try { result = Coerce(text, type); return true; }
+        catch { result = null; return false; }
+    }
+
+    /// <summary>Resolve a runtime type from an assembly-qualified name (corpus AQ fields).</summary>
+    internal static Type? ResolveType(string assemblyQualifiedName)
+    {
+        try { return Type.GetType(assemblyQualifiedName); }
+        catch { return null; }
+    }
+
+    // ======================================================================
+    //  SHARED REFLECTION HELPERS
+    // ======================================================================
+    internal static PropertyInfo? ResolveProperty(Type type, string name)
+    {
+        var candidates = new List<PropertyInfo>();
+        var seen = new HashSet<Type>();
+        var queue = new Queue<Type>();
+        queue.Enqueue(type);
+        foreach (var i in type.GetInterfaces()) queue.Enqueue(i);
+        while (queue.Count > 0)
+        {
+            var t = queue.Dequeue();
+            if (!seen.Add(t)) continue;
+            var p = t.GetProperty(name, BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly);
+            if (p is not null) candidates.Add(p);
+        }
+        return candidates.OrderByDescending(p => p.CanWrite).FirstOrDefault();
+    }
+
+    /// <summary>Set a member to null through the SAME settability resolution the engine writes through
+    /// (<see cref="ResolveProperty"/> — prefers the writable declaration across the type's interfaces). Returns
+    /// false when the member resolves only to a get-only property (a Mutagen always-present collection/substruct
+    /// that is never absent), so an absent-materialization proof can skip it cleanly. Shared by the proof's clear
+    /// helpers so they clear state through the engine's settability definition, not a divergent GetProperty()
+    /// (baseline review S3).</summary>
+    internal static bool TrySetMemberToNull(object parent, string member)
+    {
+        var prop = ResolveProperty(parent.GetType(), member);
+        if (prop is null || !prop.CanWrite) return false;
+        prop.SetValue(parent, null);
+        return true;
+    }
+
+    internal static Type? PrimaryGetter(Type recordRuntimeType) =>
+        recordRuntimeType.GetInterfaces()
+            .Where(i => typeof(IMajorRecordGetter).IsAssignableFrom(i) && i != typeof(IMajorRecordGetter) && i.Name.EndsWith("Getter"))
+            .OrderByDescending(i => i.GetInterfaces().Length)
+            .FirstOrDefault();
+
+    static string Sha(string path)
+    {
+        using var sha = SHA256.Create();
+        using var stream = File.OpenRead(path);
+        return Convert.ToHexString(sha.ComputeHash(stream));
+    }
+
+    // ======================================================================
+    //  COERCE-AUDIT  (coerce-audit) — completeness guard for the value-type surface.
+    //
+    //  By construction: walks every WRITABLE leaf in corpus.json, resolves the CLR type a
+    //  Set/Add must coerce to (scalar/enum/value/formlink field types; scalar list/dict
+    //  element types), and asserts CanCoerce holds for each. Any uncoercible type is the
+    //  exact, deduplicated gap to add to TryValueType — derived from Mutagen's own model,
+    //  never guessed. Also flags AQ names that fail to resolve. Q3: report, never silent-skip.
+    // ======================================================================
+    public static int RunCoerceAudit(string[] args)
+    {
+        var corpusPath = args.Length > 0 ? args[0] : CorpusRulebook.CorpusPath;
+        Corpus corpus;
+        try { corpus = CorpusRulebook.LoadCorpus(corpusPath); }
+        catch (Exception ex) { Console.Error.WriteLine($"error: {ex.Message}"); return 1; }
+
+        var uncoercible = new SortedDictionary<string, (int count, List<string> examples)>(StringComparer.Ordinal);
+        var typeErased = new SortedDictionary<string, (int count, List<string> examples)>(StringComparer.Ordinal);
+        var ownedRecord = new SortedDictionary<string, (int count, List<string> examples)>(StringComparer.Ordinal);
+        var unresolved = new SortedDictionary<string, (int count, List<string> examples)>(StringComparer.Ordinal);
+        var substructWhole = new SortedDictionary<string, bool>(StringComparer.Ordinal); // type -> coercible-as-whole
+        int hardTargets = 0, navOrBuild = 0, floiHandled = 0;
+
+        static void Bump(SortedDictionary<string, (int, List<string>)> bag, string key, string example)
+        {
+            var e = bag.TryGetValue(key, out var v) ? v : (0, new List<string>());
+            e.Item1++;
+            if (e.Item2.Count < 4) e.Item2.Add(example);
+            bag[key] = e;
+        }
+
+        foreach (var ts in corpus.Types.Values)
+        foreach (var f in ts.Fields)
+        {
+            if (!f.Writable) continue;
+            if (f.IsIdentity) continue; // record identity (FormKey/ModKey) -> flat-reject upstream, never coerced
+            var site = $"{ts.Name}({ts.Kind}).{f.Name}";
+
+            string? aq;
+            switch (f.Cardinality)
+            {
+                case "scalar":
+                case "enum":
+                case "value":
+                case "formlink":
+                    aq = f.MutableTypeAssemblyQualified ?? f.GetterTypeAssemblyQualified;
+                    break;
+                case "list":
+                case "dict":
+                    // scalar/enum/formlink elements are coercion targets; struct elements (ElementTypeRef) are build-cases.
+                    if (f.ElementTypeRef is null && f.ElementTypeAssemblyQualified is { } eaq) aq = eaq;
+                    else { navOrBuild++; continue; }
+                    break;
+                case "substruct":
+                {
+                    // navigate-into; record whole-coercibility (the TranslatedString-style case) but don't gate on it.
+                    var saq = f.MutableTypeAssemblyQualified ?? f.GetterTypeAssemblyQualified;
+                    if (ResolveType(saq) is { } sst) substructWhole[sst.FullName ?? saq] = CanCoerce(sst);
+                    navOrBuild++;
+                    continue;
+                }
+                default: // polymorphic, etc. -> arm-build, not scalar coercion
+                    navOrBuild++;
+                    continue;
+            }
+
+            if (string.IsNullOrEmpty(aq)) { navOrBuild++; continue; }
+            hardTargets++;
+            var rt = ResolveType(aq);
+            if (rt is null) { Bump(unresolved, aq, site); continue; }
+            // FormLinkOrIndex condition targets are now WRITABLE via the parent-aware SetFloi branch (wave 4) — they
+            // pass the gate like any coercible leaf, counted positively below (was the 156-site deferred bucket).
+            if (IsFormLinkOrIndex(rt)) { floiHandled++; continue; }
+            if (!CanCoerce(rt))
+            {
+                var u = Nullable.GetUnderlyingType(rt) ?? rt;
+                var ex = $"{site} [{f.Cardinality}]";
+                // Partition by PRINCIPLE (not a hand-list). Each deferred bucket names its own WIRE-WHEN trigger in
+                // the report below, so a future stage picks it up at the right time instead of forgetting it.
+                if (u == typeof(object)) Bump(typeErased, u.FullName ?? u.Name, ex);
+                else if (corpus.Types.TryGetValue(u.Name, out var ut) && ut.Kind == "record") Bump(ownedRecord, u.FullName ?? u.Name, ex);
+                else Bump(uncoercible, u.FullName ?? u.Name, ex);
+            }
+        }
+
+        Console.WriteLine($"=== coerce-audit over {corpus.TotalTypes} types ===");
+        Console.WriteLine($"Hard coercion targets (writable scalar/enum/value/formlink leaves + scalar list/dict elements): {hardTargets}");
+        Console.WriteLine($"Navigate/build leaves skipped (substruct/polymorphic/struct-element): {navOrBuild}");
+        Console.WriteLine();
+
+        if (unresolved.Count > 0)
+        {
+            Console.WriteLine($"!! {unresolved.Count} assembly-qualified type name(s) FAILED to resolve (corpus/runtime mismatch):");
+            foreach (var (k, v) in unresolved)
+                Console.WriteLine($"   {v.count,5}x  {k}\n            e.g. {string.Join(", ", v.examples)}");
+            Console.WriteLine();
+        }
+
+        void Dump(string header, SortedDictionary<string, (int count, List<string> examples)> bag)
+        {
+            var sites = bag.Values.Sum(v => v.count);
+            Console.WriteLine($"{header}: {bag.Count} distinct, {sites} field-site(s)" + (bag.Count == 0 ? "." : ":"));
+            foreach (var (k, v) in bag.OrderByDescending(kv => kv.Value.count))
+                Console.WriteLine($"   {v.count,5}x  {k}\n            e.g. {string.Join("; ", v.examples)}");
+        }
+
+        if (uncoercible.Count == 0)
+            Console.WriteLine("UNCOERCIBLE value types (real gaps): none — every coercible writable value-leaf is covered.");
+        else
+            Dump("UNCOERCIBLE value types (REAL GAPS — extend TryValueType)", uncoercible);
+        Console.WriteLine();
+
+        // Expected non-coercible-from-string (honest loud reject, NOT a gap). Each names its WIRE-WHEN trigger so a
+        // future stage plumbs it in at the right time. Surfaced here every run; never silently skipped.
+        Dump("DEFERRED — type-erased `object` condition params. WIRE-WHEN: a typed-value wire format exists (the value " +
+             "carries its own type), i.e. the step-8 MCP API", typeErased);
+        Console.WriteLine();
+        Console.WriteLine($"HANDLED (wave 4) — FormLinkOrIndex condition targets, via the parent-aware SetFloi branch " +
+                          $"(auto-infers form-vs-index from the value): {floiHandled} site(s) — was the deferred bucket.");
+        Console.WriteLine();
+        Dump("DEFERRED — owned-child records (whole-record assignment, not a string). WIRE-WHEN: record creation/composition lands", ownedRecord);
+        Console.WriteLine();
+
+        var coercibleSubstructs = substructWhole.Where(kv => kv.Value).Select(kv => kv.Key).ToList();
+        Console.WriteLine("Substruct types coercible-as-whole (informational — e.g. TranslatedString): " +
+                          (coercibleSubstructs.Count == 0 ? "none" : string.Join(", ", coercibleSubstructs)));
+        Console.WriteLine();
+
+        var honestReject = typeErased.Values.Sum(v => v.count) + ownedRecord.Values.Sum(v => v.count);
+        var pass = uncoercible.Count == 0 && unresolved.Count == 0;
+        Console.WriteLine(pass
+            ? $"=== PASS: coercion surface complete by construction ({honestReject} site(s) honestly non-coercible, reported above) ==="
+            : "=== INCOMPLETE: extend TryValueType with the REAL GAPS above, then re-run ===");
+        return pass ? 0 : 1;
+    }
+
+    // ======================================================================
+    //  COERCE-SELFTEST  (coerce-selftest) — proves the value-type CONSTRUCTIONS actually
+    //  build a valid, assignable instance from a sample string (coerce-audit proves only
+    //  RECOGNITION). Diagnoses on failure by dumping the type's ctor surface.
+    // ======================================================================
+    public static int RunCoerceSelftest(string[] args)
+    {
+        var texAsset = typeof(SkyrimMod).Assembly.GetType("Mutagen.Bethesda.Skyrim.Assets.SkyrimTextureAssetType");
+
+        var samples = new List<(string label, Type type, string text)>
+        {
+            ("Color rgb",         typeof(System.Drawing.Color), "255,128,0"),
+            ("Color rgba",        typeof(System.Drawing.Color), "255,128,0,64"),
+            ("DateTime",          typeof(DateTime), "2026-05-30T12:00:00"),
+            ("Char",              typeof(char), "G"),
+            ("String[]",          typeof(string[]), "Foo,Bar"),
+            ("FormKey",           typeof(FormKey), "012E4B:Skyrim.esm"),
+            ("ModKey",            typeof(ModKey), "Skyrim.esm"),
+            ("Percent",           typeof(Noggog.Percent), "0.5"),
+            ("P3Float",           typeof(Noggog.P3Float), "1.5,2.5,3.5"),
+            ("P2Int16",           typeof(Noggog.P2Int16), "4,5"),
+            ("MemorySlice<byte>", typeof(MemorySlice<byte>), "DEADBEEF"),
+            ("ReadOnlyMemSlice",  typeof(ReadOnlyMemorySlice<byte>), "CAFE"),
+            ("RecordType",        typeof(RecordType), "EDID"),
+            ("TimeOnly",          typeof(TimeOnly), "06:30:00"),
+        };
+        if (texAsset is not null)
+            samples.Add(("AssetLink<Texture>", typeof(Mutagen.Bethesda.Plugins.Assets.AssetLink<>).MakeGenericType(texAsset), @"textures\hc\test.dds"));
+
+        int ok = 0;
+        foreach (var (label, type, text) in samples)
+        {
+            try
+            {
+                var v = Coerce(text, type);
+                var assignable = v is not null && type.IsInstanceOfType(v);
+                Console.WriteLine($"  [{(assignable ? "OK" : "??")}] {label,-20} '{text}' -> {v?.GetType().Name ?? "null"}  (= {v})");
+                if (assignable) ok++;
+            }
+            catch (Exception ex)
+            {
+                var inner = ex.InnerException is { } ie ? $" / {ie.GetType().Name}: {ie.Message}" : "";
+                Console.WriteLine($"  [FAIL] {label,-20} '{text}' -> {ex.GetType().Name}: {ex.Message}{inner}");
+            }
+        }
+        Console.WriteLine();
+        Console.WriteLine($"=== coerce-selftest: {ok}/{samples.Count} constructed + assignable ===");
+        return ok == samples.Count ? 0 : 1;
+    }
+
+    // ======================================================================
+    //  BUILD-START API DISCOVERY  (write-api) — kept as a Mutagen-bump guard
+    // ======================================================================
+    public static int RunDiscovery(string[] args)
+    {
+        Console.WriteLine("=== Mutagen assemblies loaded ===");
+        var mutagen = AppDomain.CurrentDomain.GetAssemblies()
+            .Where(a => (a.GetName().Name ?? "").StartsWith("Mutagen"))
+            .OrderBy(a => a.GetName().Name)
+            .ToList();
+        foreach (var a in mutagen)
+            Console.WriteLine($"  {a.GetName().Name} {a.GetName().Version}");
+        Console.WriteLine();
+
+        Console.WriteLine("=== GetOrAddAsOverride (static / extension) ===");
+        foreach (var asm in mutagen)
+            foreach (var t in SafeTypes(asm).Where(t => t is { IsAbstract: true, IsSealed: true }))
+                foreach (var m in t.GetMethods(BindingFlags.Public | BindingFlags.Static)
+                             .Where(m => m.Name == "GetOrAddAsOverride"))
+                    Console.WriteLine($"  {Pretty(t)}.{Sig(m)}");
+        Console.WriteLine();
+
+        var armorsProp = typeof(SkyrimMod).GetProperty("Armors")!;
+        var groupType = armorsProp.PropertyType;
+        Console.WriteLine($"=== SkyrimMod.Armors : {Pretty(groupType)} ===");
+        foreach (var m in groupType.GetMethods(BindingFlags.Public | BindingFlags.Instance)
+                     .Where(m => m.Name is "GetOrAddAsOverride" or "Add" or "Set" or "Remove"))
+            Console.WriteLine($"  (instance) {Sig(m)}");
+        Console.WriteLine();
+
+        Console.WriteLine($"=== SkyrimMod group-typed properties: {CountGroupProps()} total ===");
+        Console.WriteLine("=== discovery complete ===");
+        return 0;
+    }
+
+    /// <summary>Build-start confirm for polymorphic arm-SWAP: how is an arm instantiated, and does it assign?</summary>
+    public static int RunPolyProbe(string[] args)
+    {
+        var asm = typeof(SkyrimMod).Assembly;
+        var archProp = typeof(IMagicEffect).GetProperty("Archetype")!;
+        Console.WriteLine($"IMagicEffect.Archetype : {Pretty(archProp.PropertyType)}  canWrite={archProp.CanWrite}");
+        Console.WriteLine();
+
+        foreach (var name in new[] { "MagicEffectLightArchetype", "MagicEffectArchetype", "MagicEffectSummonCreatureArchetype" })
+        {
+            var t = asm.GetType("Mutagen.Bethesda.Skyrim." + name);
+            if (t is null) { Console.WriteLine($"{name}: TYPE NOT FOUND"); continue; }
+            Console.WriteLine($"{name}:");
+            foreach (var c in t.GetConstructors())
+                Console.WriteLine($"    ctor({string.Join(", ", c.GetParameters().Select(p => $"{Pretty(p.ParameterType)} {p.Name}"))})");
+            object? inst = null;
+            try { inst = System.Activator.CreateInstance(t); Console.WriteLine("    Activator.CreateInstance() -> OK"); }
+            catch (Exception ex) { Console.WriteLine($"    Activator.CreateInstance() -> {ex.GetType().Name}: {ex.InnerException?.Message ?? ex.Message}"); }
+            if (inst is not null)
+            {
+                Console.WriteLine($"    assignable to Archetype: {archProp.PropertyType.IsInstanceOfType(inst)}");
+                var wf = inst.GetType().GetProperties(BindingFlags.Public | BindingFlags.Instance)
+                    .Where(p => p.CanWrite && p.GetIndexParameters().Length == 0).Select(p => $"{p.Name}:{Pretty(p.PropertyType)}").Take(10);
+                Console.WriteLine($"    writable fields: {string.Join(", ", wf)}");
+            }
+        }
+        Console.WriteLine();
+
+        var src = args.Length > 0 ? args[0] : DefaultSourcePath;
+        var mod = SkyrimMod.CreateFromBinaryOverlay(src, SkyrimRelease.SkyrimSE);
+        foreach (var m in mod.MagicEffects)
+            if (m.Archetype is not null) { Console.WriteLine($"sample MGEF {m.FormKey} archetype concrete: {m.Archetype.GetType().Name}"); break; }
+        return 0;
+    }
+
+    /// <summary>
+    /// Characterization probe (substruct-probe): enumerate every NAVIGATE-INTO substruct field — substruct
+    /// cardinality, non-record TypeRef, not whole-coercible (TranslatedString-style) — and report, per distinct
+    /// target type, how many field-sites are NULLABLE (so the substruct can be absent and would need materializing)
+    /// and whether the concrete class has a parameterless ctor. The no-paramless-ctor targets are the "tricky
+    /// shapes" the absent-collection handoff flagged: the ones absent-substruct materialization must handle beyond a
+    /// plain Activator.CreateInstance. Pure corpus + reflection, no plugins — answers "do we need a plugin to prove
+    /// this?" and sizes the engine-fix design BEFORE building it.
+    /// </summary>
+    public static int RunSubstructProbe(string[] args)
+    {
+        var corpusPath = args.Length > 0 ? args[0] : CorpusRulebook.CorpusPath;
+        Corpus corpus;
+        try { corpus = CorpusRulebook.LoadCorpus(corpusPath); }
+        catch (Exception ex) { Console.Error.WriteLine($"error: {ex.Message}"); return 1; }
+        var asm = typeof(SkyrimMod).Assembly;
+
+        bool IsRecord(string n) => corpus.Types.TryGetValue(n, out var t) && t.Kind == "record";
+
+        // distinct navigate-into substruct target -> (total sites, nullable sites, sample owner.field, representative AQ)
+        var navInto = new SortedDictionary<string, (int sites, int nullableSites, string sample, string? aq)>(StringComparer.Ordinal);
+        int wholeCoercible = 0, recordSubstructs = 0;
+        foreach (var ts in corpus.Types.Values)
+        foreach (var f in ts.Fields)
+        {
+            if (f.Cardinality != "substruct" || f.TypeRef is not { } tr) continue;
+            if (IsRecord(tr)) { recordSubstructs++; continue; }        // owned child record — a reference, never navigated into
+            var saq = f.MutableTypeAssemblyQualified ?? f.GetterTypeAssemblyQualified;
+            if (ResolveType(saq) is { } st && CanCoerce(st)) { wholeCoercible++; continue; } // TranslatedString-style — set wholesale
+            (int sites, int nullableSites, string sample, string? aq) e =
+                navInto.TryGetValue(tr, out var v) ? v : (0, 0, $"{ts.Name}.{f.Name}", (string?)null);
+            navInto[tr] = (e.sites + 1, e.nullableSites + (f.Nullable ? 1 : 0), e.sample, e.aq ?? saq);
+        }
+
+        Console.WriteLine($"=== substruct-probe over {corpus.TotalTypes} types ===");
+        Console.WriteLine($"Navigate-into substruct target types (non-record, non-whole-coercible): {navInto.Count} distinct");
+        Console.WriteLine($"  (skipped: {wholeCoercible} whole-coercible substruct site(s); {recordSubstructs} record-substruct site(s))");
+        Console.WriteLine();
+
+        int resolved = 0, paramless = 0, trickyInScope = 0, trickyGetOnly = 0, unresolved = 0;
+        var trickyList = new List<string>();
+        foreach (var (name, info) in navInto)
+        {
+            var concrete = ResolveConcreteSubstruct(asm, name, info.aq);
+            var settable = SampleSettable(asm, info.sample);     // can the sample owner-field be null (absent), i.e. in materialization scope?
+            if (concrete is null) { unresolved++; Console.WriteLine($"  [UNRESOLVED]        {name,-44} sites={info.sites}  e.g. {info.sample}"); continue; }
+            resolved++;
+            if (concrete.GetConstructor(Type.EmptyTypes) is not null) { paramless++; continue; }
+            // No parameterless ctor. If the owner-field is GET-ONLY it is always-present (never absent) -> out of materialization scope.
+            var ctors = string.Join(" | ", concrete.GetConstructors()
+                .Select(c => "(" + string.Join(", ", c.GetParameters().Select(p => $"{Pretty(p.ParameterType)} {p.Name}")) + ")"));
+            var scope = settable switch { false => "GET-ONLY (always present, out of scope)", true => "SETTABLE (can be absent -> needs composition)", _ => "settable?=unknown" };
+            if (settable == false) trickyGetOnly++; else { trickyInScope++; trickyList.Add(name); }
+            Console.WriteLine($"  [NO PARAMLESS CTOR] {Pretty(concrete),-40} {scope,-44} ctors: {(ctors.Length == 0 ? "(none public)" : ctors)}  e.g. {info.sample}");
+        }
+
+        Console.WriteLine();
+        Console.WriteLine($"Resolved concrete: {resolved}/{navInto.Count} (unresolved {unresolved}).");
+        Console.WriteLine($"  parameterless ctor (simple Activator materialization suffices): {paramless}");
+        Console.WriteLine($"  NO paramless ctor, GET-ONLY owner field (always present, never absent — out of scope): {trickyGetOnly}");
+        Console.WriteLine($"  NO paramless ctor, SETTABLE owner field (real composition gap — must be NAMED + deferred): {trickyInScope}" + (trickyList.Count > 0 ? " -> " + string.Join(", ", trickyList.Distinct()) : ""));
+        Console.WriteLine();
+        Console.WriteLine(trickyInScope == 0 && unresolved == 0
+            ? "=== substruct-probe: every ABSENT-ABLE navigate-into substruct has a parameterless ctor — simple materialization suffices (the no-ctor cases are all get-only/always-present) ==="
+            : $"=== substruct-probe: {trickyInScope} settable no-ctor target(s) are a composition gap to NAME; {unresolved} unresolved — see above ===");
+        return 0;
+    }
+
+    /// <summary>Resolve the concrete owner type of a "Owner.Field" sample and report whether that field is settable
+    /// (CanWrite) — i.e. whether the substruct can be null/absent (materialization scope) vs get-only/always-present.</summary>
+    static bool? SampleSettable(Assembly asm, string sample)
+    {
+        int dot = sample.LastIndexOf('.');
+        if (dot <= 0) return null;
+        var owner = ResolveConcreteSubstruct(asm, sample[..dot], null);
+        if (owner is null) return null;
+        return ResolveProperty(owner, sample[(dot + 1)..])?.CanWrite;
+    }
+
+    /// <summary>Resolve the concrete settable class for a substruct target (the type the engine instantiates to
+    /// materialize an absent one). Resolve the declared runtime type from the field's AQ first (handles CLOSED
+    /// GENERICS like GenderedItem&lt;ArmorModel&gt;); map a mutable/getter interface to its concrete impl; fall back
+    /// to a same-name non-abstract class. Returns the concrete (or the resolved type if already a usable class).</summary>
+    static Type? ResolveConcreteSubstruct(Assembly asm, string catalogName, string? aq)
+    {
+        var t = aq is null ? null : ResolveType(aq);
+        if (t is not null && ConcreteOf(t) is { } c) return c;          // interface→concrete (incl. closed generics) via the shared mapper
+        var direct = asm.GetType("Mutagen.Bethesda.Skyrim." + catalogName);
+        if (direct is { IsClass: true, IsAbstract: false }) return direct;
+        return SafeTypes(asm).FirstOrDefault(x => x.IsClass && !x.IsAbstract && x.Name == catalogName) ?? t ?? direct;
+    }
+
+    static int CountGroupProps() =>
+        typeof(SkyrimMod).GetProperties(BindingFlags.Public | BindingFlags.Instance)
+            .Count(p => Pretty(p.PropertyType).Contains("Group"));
+
+    static IEnumerable<Type> SafeTypes(Assembly a)
+    {
+        try { return a.GetTypes(); }
+        catch (ReflectionTypeLoadException ex) { return ex.Types.Where(t => t is not null)!; }
+    }
+
+    static string Sig(MethodInfo m)
+    {
+        var gen = m.IsGenericMethodDefinition
+            ? "<" + string.Join(",", m.GetGenericArguments().Select(g => g.Name)) + ">"
+            : "";
+        var ps = string.Join(", ", m.GetParameters().Select(p => $"{Pretty(p.ParameterType)} {p.Name}"));
+        return $"{m.Name}{gen}({ps}) -> {Pretty(m.ReturnType)}";
+    }
+
+    static string Pretty(Type t)
+    {
+        if (t.IsByRef) return Pretty(t.GetElementType()!) + "&";
+        if (t.IsGenericType)
+        {
+            var name = t.Name;
+            var tick = name.IndexOf('`');
+            if (tick > 0) name = name[..tick];
+            return $"{name}<{string.Join(", ", t.GetGenericArguments().Select(Pretty))}>";
+        }
+        return t.Name;
+    }
+}
+
+/// <summary>Thrown when a write needs to MATERIALIZE an absent substruct whose concrete type has no parameterless
+/// constructor — Mutagen's composition types (GenderedItem&lt;T&gt; male/female pairs, Array2d&lt;T&gt; grids) that
+/// can only be built from their parts. This is the absent-substruct COMPOSITION deferral: a real, named gap that
+/// rides the composition wave (wave 1) with the struct-element collections, never a silent skip (Q3). It is an
+/// <see cref="InvalidOperationException"/> so existing fail-loud handlers still catch it, while a proof/instrument
+/// can catch it SPECIFICALLY to tally the deferral by construction (no hand-listing of the composition types).</summary>
+public sealed class CompositionRequiredException : InvalidOperationException
+{
+    public string Segment { get; }
+    public Type SubstructType { get; }
+    public CompositionRequiredException(string segment, Type substructType)
+        : base($"Absent substruct '{segment}' of type {substructType.Name} has no parameterless constructor — it is a " +
+               "COMPOSITION type (e.g. GenderedItem<T> / Array2d<T>) buildable only from its parts. Deferred to the " +
+               "composition wave (wave 1); surfaced as a named deferral, never synthesized to a wrong value.")
+    {
+        Segment = segment;
+        SubstructType = substructType;
+    }
+}

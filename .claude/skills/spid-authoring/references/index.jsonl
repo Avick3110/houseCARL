@@ -1,0 +1,28 @@
+{"topic": "Spell", "kind": "form-type", "sig": "SPEL, LVSP", "file": "form-types.md", "aliases": ["LeveledSpell", "ability", "power"]}
+{"topic": "Perk", "kind": "form-type", "sig": "PERK", "file": "form-types.md"}
+{"topic": "Item", "kind": "form-type", "sig": "ALCH, AMMO, ARMO, BOOK, INGR, KEYM, LVLI, MISC, SCRL, SLGM, WEAP", "file": "form-types.md", "aliases": ["weapon", "armor", "potion", "gear", "gold", "arrows", "count"]}
+{"topic": "Shout", "kind": "form-type", "sig": "SHOU", "file": "form-types.md"}
+{"topic": "Package", "kind": "form-type", "sig": "PACK, FLST", "file": "form-types.md", "aliases": ["AI package", "patrol", "travel", "package index", "package list"]}
+{"topic": "Keyword", "kind": "form-type", "sig": "KYWD", "file": "form-types.md", "note": "can be created dynamically", "aliases": ["dynamic keyword", "tag"]}
+{"topic": "Outfit", "kind": "form-type", "sig": "OTFT", "file": "form-types.md"}
+{"topic": "SleepOutfit", "kind": "form-type", "sig": "OTFT", "file": "form-types.md", "note": "cannot be inferred — name the type explicitly"}
+{"topic": "Faction", "kind": "form-type", "sig": "FACT", "file": "form-types.md"}
+{"topic": "Skin", "kind": "form-type", "sig": "ARMO", "file": "form-types.md", "note": "cannot be inferred — name the type explicitly", "aliases": ["worn armor", "body"]}
+{"topic": "String Filter", "kind": "filter", "section": 1, "file": "filters.md", "aliases": ["name", "editorid", "keyword match", "ActorType", "race keyword", "template", "partial *", "exclude -", "combine +"]}
+{"topic": "Form Filter", "kind": "filter", "section": 2, "file": "filters.md", "aliases": ["race", "faction", "class", "combat style", "outfit", "perk", "voice type", "known spell", "skin", "editor location", "actor", "plugin name", "formlist"]}
+{"topic": "Level Filter", "kind": "filter", "section": 3, "file": "filters.md", "aliases": ["level", "skill", "skill weight", "leveled distribution", "min max range"]}
+{"topic": "Trait Filter", "kind": "filter", "section": 4, "file": "filters.md", "aliases": ["female", "male", "unique", "summonable", "child", "leveled", "teammate", "dead", "gender"]}
+{"topic": "line syntax", "kind": "grammar", "file": "grammar-core.md", "aliases": ["pipe sections", "FormType", "FormOrEditorID", "NONE", "blank section"]}
+{"topic": "file discovery & load order", "kind": "grammar", "file": "grammar-core.md", "aliases": ["_DISTR", "Data folder", "alphabetical", "comments", "semicolon"]}
+{"topic": "input normalization", "kind": "grammar", "file": "grammar-core.md", "aliases": ["whitespace", "xEdit paste", "space hyphen space", "leading zeros", "0x"]}
+{"topic": "referencing a form", "kind": "grammar", "file": "grammar-core.md", "aliases": ["FormID", "EditorID", "suffix tilde", "0x123~Plugin.esp"]}
+{"topic": "filter combination logic", "kind": "grammar", "file": "grammar-core.md", "aliases": ["AND", "OR", "exclusion", "multiple lines", "multiplicative", "additive"]}
+{"topic": "type inferring", "kind": "grammar", "file": "grammar-core.md", "aliases": ["generic Form", "infer", "Form ="]}
+{"topic": "Count or Package Index", "kind": "grammar", "file": "grammar-core.md", "aliases": ["item count", "range", "package index", "package list type"]}
+{"topic": "Chance", "kind": "grammar", "file": "grammar-core.md", "aliases": ["chance", "percent", "deterministic", "!"]}
+{"topic": "templated NPCs", "kind": "grammar", "file": "grammar-core.md", "aliases": ["template", "base template", "leveled NPC", "reachable", "descendants"]}
+{"topic": "skill indices", "kind": "value-table", "file": "value-tables.md", "aliases": ["skill index", "one-handed", "destruction", "0-17", "skill level filter"]}
+{"topic": "trait letter codes", "kind": "value-table", "file": "value-tables.md", "aliases": ["F", "M", "U", "S", "C", "L", "T", "D", "teammate letter"]}
+{"topic": "package list types", "kind": "value-table", "file": "value-tables.md", "aliases": ["DPLT", "SPOR", "OCOR", "GWOR", "ECOR", "0-4"]}
+{"topic": "distribution order", "kind": "value-table", "file": "value-tables.md", "aliases": ["per-type order", "keyword topo-sort", "lazy", "cell load"]}
+{"topic": "default values", "kind": "value-table", "file": "value-tables.md", "aliases": ["default count", "default chance", "default index"]}

@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    houseCARL desktop setup utility (no CLI, no GUI). A double-click installer that makes houseCARL
+    work in the Claude DESKTOP app, which - unlike the terminal CLI - does NOT auto-start a plugin's
+    bundled MCP server. It:
+      [1] copies the bundled plugin into ~/.claude/skills/housecarl/  -> desktop auto-loads its skills
+      [2] registers the MCP server in ~/.claude.json -> mcpServers     -> desktop spawns it per session
+    The ~/.claude.json edit is targeted + backup-first + case-duplicate-safe (that file can hold keys
+    differing only by case - Windows path history - which case-insensitive parsers reject). Ships in
+    the package root beside the 'housecarl' plugin folder. The MO2 folder is set later, in chat, on
+    first use (houseCARL self-configures via housecarl_set_mo2_instance) - so this utility needs no UI.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>HousecarlSetup</RootNamespace>
+    <AssemblyName>houseCARL-Setup</AssemblyName>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+</Project>

@@ -1,0 +1,277 @@
+using System.ComponentModel;
+using System.Text;
+using System.Text.Json.Serialization;
+using ModelContextProtocol.Server;
+using HousecarlCore;
+
+namespace HousecarlMcp;
+
+/// <summary>
+/// houseCARL write tools (§8.4 Beat C). Both ride the PROVEN public write cleave (<see cref="WritePatchBuilder.Apply"/>)
+/// through <see cref="LoadOrderService.ApplyEdits"/>: resolve each record's load-order WINNER, override it into a NEW
+/// patch plugin, pre-flight EVERY edit through the corpus rulebook, apply the generic verbs, and serialize ONCE with the
+/// full master set (cross-master merges included). Originals are never written. Output model (Aaron-locked): one
+/// complete .esp per call; <c>into=</c> extends an existing patch (the multi-session accumulation lever).
+/// </summary>
+[McpServerToolType]
+public static class WriteTools
+{
+    [McpServerTool(Name = "housecarl_set_field", Title = "Edit one record field"),
+     Description(
+         "Edit ONE field of one record and write the change to a NEW patch plugin (originals untouched). Resolves the " +
+         "record's load-order WINNER and overrides it. field_path is dotted (e.g. 'BasicStats.Damage', 'Name'); value is " +
+         "coerced to the field's real type — a number, an enum name, or a FormID 'XXXXXX:Plugin.esp' for a reference. verb " +
+         "defaults to Set; for collections use Add / Remove / SetAtIndex / ReplaceAll (key = a dict key or list index; " +
+         "values = the whole new list for ReplaceAll). By default writes a fresh patch named patch_name; pass " +
+         "into='<an existing patch's filename>' to ADD this edit to that patch instead (accumulate across calls and " +
+         "sessions). Pre-flight rejects an illegal edit with the reason and writes nothing (Q3). Returns the patch path, " +
+         "its masters, and the value read back. Does NOT compose modeled structs (leveled-list entries, polymorphic " +
+         "fields) or edit a dict via Merge — use housecarl_bulk_apply for those, or for many edits in one patch. Read " +
+         "first with housecarl_read_record.")]
+    public static string SetField(
+        LoadOrderService svc,
+        [Description("The record's FormID as 'XXXXXX:Plugin.esp' (6 hex digits, the defining master's filename).")]
+            string formid,
+        [Description("Dotted field path to edit, e.g. 'BasicStats.Damage', 'Name', 'Keywords'.")]
+            string field_path,
+        [Description("The value, coerced to the field's type: a number, an enum name (e.g. 'OneHanded'), or a FormID 'XXXXXX:Plugin.esp' for a reference. Omit only for Remove.")]
+            string? value = null,
+        [Description("Set (default) | Add | Remove | SetAtIndex | ReplaceAll. Set edits a scalar (or a dict element with key=); Add/Remove/SetAtIndex/ReplaceAll edit a collection.")]
+            string verb = "Set",
+        [Description("Optional. The dict key or list index at the leaf (for a dict Set, a SetAtIndex/Remove on a list, etc.).")]
+            string? key = null,
+        [Description("Optional. The whole new list contents for ReplaceAll on a list (each coerced).")]
+            string[]? values = null,
+        [Description("Optional. Base filename for the new patch (default 'houseCARL_Patch'); auto-suffixed if taken so a prior patch is never overwritten. Ignored if into= is given.")]
+            string patch_name = "houseCARL_Patch",
+        [Description("Optional. Filename of an existing patch (from a prior call) to EXTEND with this edit instead of writing a fresh one — the way to accumulate edits into one patch across calls/sessions.")]
+            string? into = null)
+    {
+        if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
+        var op = new BulkOp
+        {
+            Formid = formid, FieldPath = field_path, Verb = verb, Value = value, Key = key, Values = values,
+        };
+        return Render(svc.ApplyEdits(new[] { op }, patch_name, into));
+    }
+
+    [McpServerTool(Name = "housecarl_bulk_apply", Title = "Apply many edits in one patch"),
+     Description(
+         "Apply MANY edits in ONE patch plugin (originals untouched) — the batch form of housecarl_set_field, and the way " +
+         "to COMPOSE modeled structs. Each operation is {formid, field_path, verb, value?, key?, values?, entries?, " +
+         "compose?}: scalar/collection verbs work as in set_field; entries (a key→value map) drives a dict Merge or " +
+         "ReplaceAll; compose builds a modeled struct for an Add (a leveled-list entry, an effect) or a polymorphic Set " +
+         "(an arm) — e.g. merge a weapon into a leveled list with verb=Add, field_path='Entries', " +
+         "compose={type:'LeveledItemEntry', sets:[{path:'Data.Level',value:'1'},{path:'Data.Count',value:'1'}," +
+         "{path:'Data.Reference',value:'<weapon FormID>'}]}. All edits land in ONE reviewable .esp; the patch spans " +
+         "masters automatically when edits reference forms across several plugins (cross-master merge). ALL-OR-NOTHING " +
+         "(Q3): if ANY operation is malformed or fails pre-flight, the whole call is refused with per-op reasons and " +
+         "nothing is written — no partial patches. By default writes a fresh patch named patch_name; pass into= to extend " +
+         "an existing one. Returns the patch path, masters, and per-op read-back.")]
+    public static string BulkApply(
+        LoadOrderService svc,
+        [Description("The edits to apply, all into one patch. Each: {formid, field_path, verb, value?, key?, values?, entries?, compose?}.")]
+            BulkOp[] operations,
+        [Description("Optional. Base filename for the new patch (default 'houseCARL_Patch'); auto-suffixed if taken. Ignored if into= is given.")]
+            string patch_name = "houseCARL_Patch",
+        [Description("Optional. Filename of an existing patch to EXTEND with these edits instead of writing a fresh one (accumulate across calls/sessions).")]
+            string? into = null)
+    {
+        if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
+        if (operations is null || operations.Length == 0)
+            return "error: operations is empty. Pass one or more {formid, field_path, verb, ...} edits.";
+        return Render(svc.ApplyEdits(operations, patch_name, into));
+    }
+
+    [McpServerTool(Name = "housecarl_remove_record", Title = "Remove a whole record from a patch"),
+     Description(
+         "Remove a WHOLE record from a houseCARL patch — a literal drop-from-plugin (NOT a flag-as-deleted stub). The " +
+         "companion to the edit tools: where set_field/bulk_apply ADD an override into a patch, this drops one OUT of it. " +
+         "Only works on a record the patch ITSELF carries — one houseCARL created, or an override the patch accumulated " +
+         "via a prior set_field/bulk_apply into=patch. You CANNOT remove a record that lives in a master/another mod; you " +
+         "can only drop THIS patch's override of it, which makes the load-order winner revert (the patch stops touching " +
+         "that record). patch is REQUIRED and names an existing houseCARL-owned patch (the same name you pass to into=); " +
+         "removal targets a patch that already carries the record. Refuses loud and writes nothing (Q3) if the patch does " +
+         "not carry the FormID. Unused masters are pruned automatically — if the removed record held the patch's last " +
+         "reference to a master, that master drops from the header on the re-write. Reaches records in ANY group (incl. " +
+         "cells, placed references, dialog, navmesh). Returns what was removed, the patch's remaining masters, and how " +
+         "many records remain. To remove a list ENTRY (a keyword, an item) rather than a whole record, use set_field with " +
+         "verb=Remove instead.")]
+    public static string RemoveRecord(
+        LoadOrderService svc,
+        [Description("The record's FormID as 'XXXXXX:Plugin.esp' — the record to drop from the patch.")]
+            string formid,
+        [Description("Filename of the houseCARL patch to remove the record from (e.g. 'MyMerge.esp' or 'MyMerge') — must be a patch houseCARL created that carries this record.")]
+            string patch)
+    {
+        if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
+        return RenderRemoval(svc.RemoveRecords(new[] { formid }, patch));
+    }
+
+    [McpServerTool(Name = "housecarl_create_record", Title = "Create a brand-new record"),
+     Description(
+         "Create a BRAND-NEW record (a new FormID) of record_type in a NEW patch plugin (originals untouched) — the " +
+         "net-new authoring tool, the companion to set_field/bulk_apply (which edit EXISTING records). Use it to author a " +
+         "new keyword, spell, perk, magic effect, faction, armor, weapon, leveled list... — any flat top-level record. " +
+         "record_type is a catalog name ('Keyword', 'Spell', 'LeveledItem') or a 4-char signature ('KYWD'). editorid is " +
+         "REQUIRED — the EditorID the record is referenced by (in SkyPatcher/SPID, in xEdit); choose a clear, prefixed name. " +
+         "operations set the new record's fields, the SAME shape as bulk_apply ops but WITHOUT a formid (the new record's " +
+         "FormID is auto-allocated, in the patch's own 0x800+ range, and returned to you) — e.g. " +
+         "operations=[{field_path:'Name', value:'My Spell'}, {field_path:'EffectList', verb:'Add', compose:{...}}]. The new " +
+         "FormID is reported back; to make ANOTHER record reference it, call this or set_field again with into='<this patch>' " +
+         "using that FormID. By default writes a fresh patch named patch_name; into= extends an existing houseCARL patch " +
+         "(accumulate across calls/sessions). ALL-OR-NOTHING (Q3): the whole call is refused with a reason and nothing is " +
+         "written if the type can't be created (nested/placed records — cells, placed objects, dialogue — need parent " +
+         "context, a follow-up; abstract types like Global need a concrete subtype), if editorid is missing, or if any field " +
+         "op is illegal. Returns the new record's FormID + editorid, the patch path, and its (derived) masters.")]
+    public static string CreateRecord(
+        LoadOrderService svc,
+        [Description("The kind of record to create: a catalog name ('Keyword', 'Spell', 'Weapon', 'LeveledItem') or a 4-char signature ('KYWD'). Flat top-level records only.")]
+            string record_type,
+        [Description("REQUIRED. The EditorID for the new record — how it's referenced (in SkyPatcher/SPID/xEdit). Choose a clear, prefixed name.")]
+            string editorid,
+        [Description("Optional. The new record's fields, same shape as bulk_apply ops but with NO formid: {field_path, verb?, value?, key?, values?, entries?, compose?}. Omit to create a bare record (just type + editorid).")]
+            BulkOp[]? operations = null,
+        [Description("Optional. Base filename for the new patch (default 'houseCARL_Patch'); auto-suffixed if taken. Ignored if into= is given.")]
+            string patch_name = "houseCARL_Patch",
+        [Description("Optional. Filename of an existing houseCARL patch to add this new record to instead of writing a fresh one (accumulate across calls/sessions).")]
+            string? into = null)
+    {
+        if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
+        return RenderCreate(svc.CreateRecords(record_type, editorid, operations ?? Array.Empty<BulkOp>(), patch_name, into));
+    }
+
+    /// <summary>Compact, parseable confirmation (rulebook: short mutation confirmation + the IDs needed for follow-up).
+    /// On refusal, the full reason (every malformed/rejected op) so the caller can fix and retry.</summary>
+    static string Render(WritePatchBuilder.PatchOutcome o)
+    {
+        if (!o.Success) return "error: " + o.Error;
+        var file = Path.GetFileName(o.OutputPath);
+        var modFolder = Path.GetFileName(Path.GetDirectoryName(o.OutputPath) ?? "");
+        var sb = new StringBuilder();
+        sb.Append(o.Extended ? "extended " : "wrote ").Append(file)
+          .Append(o.Extended ? " (existing patch grown; " : " (new patch; ").Append(o.Bytes).Append(" bytes)\n");
+        sb.Append("mod folder: ").Append(modFolder)
+          .Append(o.Extended ? "\n" : "  — enable + sort it in MO2 to use the patch\n");
+        sb.Append("masters: ").Append(o.Masters.Count == 0 ? "(none)" : string.Join(", ", o.Masters)).Append('\n');
+        sb.Append(o.Ops.Count).Append(o.Ops.Count == 1 ? " edit:\n" : " edits:\n");
+        foreach (var op in o.Ops)
+            sb.Append("  ").Append(op.RecordType).Append(' ').Append(op.Target).Append("  ").Append(op.Label)
+              .Append(op.After is not null ? "  -> " + op.After : "  -> applied").Append('\n');
+        sb.Append("to add more edits to THIS patch, pass into=\"").Append(file).Append("\".");
+        return sb.ToString();
+    }
+
+    /// <summary>Confirmation for housecarl_remove_record: what was dropped, the patch's now-lean masters, and how many
+    /// records remain (0 ⇒ inert). On refusal, the named reason (Q3) so the caller can fix and retry.</summary>
+    static string RenderRemoval(WritePatchBuilder.RemovalOutcome o)
+    {
+        if (!o.Success) return "error: " + o.Error;
+        var file = Path.GetFileName(o.OutputPath);
+        var modFolder = Path.GetFileName(Path.GetDirectoryName(o.OutputPath) ?? "");
+        var sb = new StringBuilder();
+        sb.Append("removed ").Append(o.Removed.Count).Append(o.Removed.Count == 1 ? " record from " : " records from ")
+          .Append(file).Append(" (").Append(o.Bytes).Append(" bytes; ")
+          .Append(o.RemainingRecords).Append(o.RemainingRecords == 1 ? " record remains)\n" : " records remain)\n");
+        sb.Append("mod folder: ").Append(modFolder).Append('\n');
+        foreach (var r in o.Removed)
+            sb.Append("  - ").Append(r.RecordType).Append(' ').Append(r.Target).Append("  ")
+              .Append(r.EditorId ?? "<no editorid>").Append('\n');
+        sb.Append("masters: ").Append(o.Masters.Count == 0 ? "(none)" : string.Join(", ", o.Masters)).Append('\n');
+        sb.Append(o.RemainingRecords == 0
+            ? "this patch now carries no records — it's inert; disable or delete the mod folder in MO2 if you don't need it."
+            : "re-sort in MO2 if dropping this override changes a conflict winner.");
+        return sb.ToString();
+    }
+
+    /// <summary>Confirmation for housecarl_create_record: the new record's ALLOCATED FormID + editorid + type (the FormID
+    /// is the key output — the caller references the new record by it), the patch path + its (derived) masters, and the
+    /// fields applied. On refusal, the named reason (Q3) so the caller can fix and retry.</summary>
+    static string RenderCreate(WritePatchBuilder.CreateOutcome o)
+    {
+        if (!o.Success) return "error: " + o.Error;
+        var file = Path.GetFileName(o.OutputPath);
+        var modFolder = Path.GetFileName(Path.GetDirectoryName(o.OutputPath) ?? "");
+        var sb = new StringBuilder();
+        sb.Append(o.Extended ? "extended " : "wrote ").Append(file)
+          .Append(o.Extended ? " (existing patch grown; " : " (new patch; ").Append(o.Bytes).Append(" bytes)\n");
+        sb.Append("mod folder: ").Append(modFolder)
+          .Append(o.Extended ? "\n" : "  — enable + sort it in MO2 to use the patch\n");
+        sb.Append("masters: ").Append(o.Masters.Count == 0 ? "(none)" : string.Join(", ", o.Masters)).Append('\n');
+        sb.Append("created ").Append(o.Created.Count).Append(o.Created.Count == 1 ? " record:\n" : " records:\n");
+        foreach (var c in o.Created)
+        {
+            sb.Append("  ").Append(c.RecordType).Append(' ').Append(c.FormKey).Append("  ").Append(c.EditorId).Append('\n');
+            foreach (var op in c.Ops)
+                sb.Append("      ").Append(op.Label).Append(op.After is not null ? "  -> " + op.After : "  -> applied").Append('\n');
+        }
+        sb.Append("the new FormID above is how you reference this record (SkyPatcher/SPID, or a follow-up edit). ")
+          .Append("To add more to THIS patch, pass into=\"").Append(file).Append("\".");
+        return sb.ToString();
+    }
+}
+
+// ---- wire DTOs (the operation shape for bulk_apply; set_field builds one internally) ----------------------
+
+/// <summary>One edit operation off the wire. RecordType is NOT supplied — the cleave derives it from the resolved
+/// winner's runtime type. Mirrors <see cref="WritePatchBuilder.PatchEdit"/> with string FormID + dotted path +
+/// optional composition.</summary>
+public sealed record BulkOp
+{
+    [JsonPropertyName("formid"), Description("The record's FormID 'XXXXXX:Plugin.esp'.")]
+    public string? Formid { get; init; }
+
+    [JsonPropertyName("field_path"), Description("Dotted field path, e.g. 'BasicStats.Damage' or 'Entries'.")]
+    public string? FieldPath { get; init; }
+
+    [JsonPropertyName("verb"), Description("Set (default) | Add | Remove | SetAtIndex | ReplaceAll | Merge.")]
+    public string Verb { get; init; } = "Set";
+
+    [JsonPropertyName("value"), Description("The value (coerced to the field's type). Omit for Remove / ReplaceAll / Merge / compose.")]
+    public string? Value { get; init; }
+
+    [JsonPropertyName("key"), Description("Dict key or list index at the leaf.")]
+    public string? Key { get; init; }
+
+    [JsonPropertyName("values"), Description("The whole new list for a list ReplaceAll.")]
+    public string[]? Values { get; init; }
+
+    [JsonPropertyName("entries"), Description("Key→value pairs for a dict Merge or dict ReplaceAll.")]
+    public Dictionary<string, string>? Entries { get; init; }
+
+    [JsonPropertyName("compose"), Description("Build a modeled struct: an arm for a polymorphic Set, or the element for a struct-element Add (e.g. a leveled-list entry).")]
+    public StructInput? Compose { get; init; }
+}
+
+/// <summary>A modeled struct built from parts (wire shape of <see cref="StructSpec"/>): the concrete type, optional
+/// flat coercible sub-fields, optional positional ctor args, and nested edits applied to the built struct.</summary>
+public sealed record StructInput
+{
+    [JsonPropertyName("type"), Description("The concrete catalog type to build (arm type for a polymorphic Set, or the collection's element type for an Add, e.g. 'LeveledItemEntry').")]
+    public string? Type { get; init; }
+
+    [JsonPropertyName("fields"), Description("Flat coercible sub-fields set directly on the struct: name → value.")]
+    public Dictionary<string, string>? Fields { get; init; }
+
+    [JsonPropertyName("ctor_args"), Description("Positional constructor args, for struct types that require them.")]
+    public string[]? CtorArgs { get; init; }
+
+    [JsonPropertyName("sets"), Description("Nested edits applied to the built struct (paths rooted at it), e.g. {path:'Data.Reference', value:'<FormID>'}.")]
+    public NestedSet[]? Sets { get; init; }
+}
+
+/// <summary>One nested edit inside a <see cref="StructInput"/> (a path+verb+value rooted at the struct being built).</summary>
+public sealed record NestedSet
+{
+    [JsonPropertyName("path"), Description("Dotted path within the struct, e.g. 'Data.Level'.")]
+    public string? Path { get; init; }
+
+    [JsonPropertyName("verb"), Description("Set (default) | Add | Remove | SetAtIndex.")]
+    public string Verb { get; init; } = "Set";
+
+    [JsonPropertyName("value"), Description("The value (coerced).")]
+    public string? Value { get; init; }
+
+    [JsonPropertyName("key"), Description("Dict key or list index, if the nested target is a collection.")]
+    public string? Key { get; init; }
+}

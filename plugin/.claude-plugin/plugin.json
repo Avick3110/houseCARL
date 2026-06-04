@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+  "name": "housecarl",
+  "displayName": "houseCARL",
+  "version": "1.0.0",
+  "description": "Comprehensive data-layer access to your Skyrim SE load order — read any record, author patches into a new plugin, and look up record schemas, Papyrus signatures, and distributor grammars — in plain English.",
+  "author": { "name": "Avick3110" },
+  "homepage": "https://github.com/Avick3110/houseCARL",
+  "repository": "https://github.com/Avick3110/houseCARL",
+  "license": "GPL-3.0-only",
+  "keywords": ["skyrim", "modding", "mod-organizer-2", "mutagen", "xedit", "papyrus"],
+  "mcpServers": "./.mcp.json",
+  "userConfig": {
+    "mo2_instance_dir": {
+      "type": "directory",
+      "title": "MO2 instance folder",
+      "description": "The folder containing ModOrganizer.ini for your modlist (houseCARL derives everything from this).",
+      "required": true
+    }
+  }
+}

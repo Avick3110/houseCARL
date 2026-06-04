@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>HousecarlGenerator</RootNamespace>
+    <AssemblyName>housecarl-generator</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Reflection target. Pinned to match housecarl-mcp (spike-proven 0.53.1). -->
+    <PackageReference Include="Mutagen.Bethesda.Skyrim" Version="0.53.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\housecarl-core\housecarl-core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- §8.4 tidy: the core's namespace is now HousecarlCore (was HousecarlGenerator). One global
+         using keeps every harness file referencing the proven engines unqualified, as before the
+         rename — the files themselves stay in `namespace HousecarlGenerator` (this IS the generator). -->
+    <Using Include="HousecarlCore" />
+  </ItemGroup>
+
+</Project>

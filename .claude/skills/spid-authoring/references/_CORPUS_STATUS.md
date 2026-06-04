@@ -1,0 +1,104 @@
+# SPID reference corpus — status & provenance
+
+Build-time record for the `spid-authoring` reference corpus. Reading order for a session picking this
+up: this file → `grammar-core.md` → `form-types.md` / `filters.md` → `value-tables.md`.
+
+## What this is
+
+The bundled grammar reference for the `spid-authoring` skill (part of the 5-skill Skyrim
+distributor-framework cluster — sibling to `skypatcher-authoring`). It documents SPID's `_DISTR.ini`
+distribution grammar — the line syntax, every form type, every filter section and modifier, the
+count/index/chance fields, and the runtime ordering — reconstructed into a consistent, lookup-friendly
+form. The eventual `SKILL.md` (not yet authored — see "Layering") drives lookups against it.
+
+Unlike SkyPatcher (one grammar *per record type*, hence a `records/` dir), SPID has **one grammar**
+that applies across 10 form types. So the corpus is shaped as: `grammar-core` (the line + mechanics) +
+`form-types` (what you distribute) + `filters` (whom you target) + `value-tables` (the flat enums) —
+mirroring the sibling's `grammar-core` + `value-tables` spine, with form-types/filters standing in for
+the per-record files.
+
+## Source & version
+
+- **Mod:** Spell Perk Item Distributor (SPID) by powerofthree (powerof3) — Nexus SE #36869.
+  **Version: 7.3.0** (release 2026-05-09).
+- **Primary source:** the single canonical article **"SPID: The Complete Reference"**
+  (`nexusmods.com/skyrimspecialedition/articles/6617`), which covers the entire grammar end-to-end.
+- **Raw capture lives at** `dev/references/SPID/`:
+  - `_extracted/spid-complete-reference-6617.md` — the **verbatim article text** (source of truth).
+    Captured 2026-06-02 via Claude in Chrome (Nexus 403s automated fetches; the browser path beats
+    Cloudflare). All 32 collapsed `bbc_spoiler` example blocks were force-revealed before extraction,
+    so every worked example is included.
+  - `source-notes.md` — the **MIT-source cross-check** (`powerof3/Spell-Perk-Item-Distributor`,
+    branch `master`), used to resolve what the article shows only by example. Grammar facts only; no
+    code vendored.
+
+## Coverage
+
+| | |
+|---|---|
+| Grammar sections in the article | **fully documented** (load/order, distribution timing+order, line syntax, form types, type inferring, all 4 filter sections + modifiers, count/index, chance + deterministic, templated NPCs) |
+| Distributable form types | **10 / 10** (`form-types.md`) |
+| Filter sections | **4 / 4** (`filters.md`) |
+| Flat enums | skill indices, trait letters, package-list types, form signatures, distribution order, defaults (`value-tables.md`) |
+| **Gaps** | **none in the article's scope.** Two article-*silent* details (comment syntax, whitespace tolerance) were resolved from source — see Confidence. |
+
+## Confidence
+
+- **High.** Content reconstructed from the author's own "Complete Reference" article; every worked
+  example is preserved verbatim from the source (examples are the highest-value, copy-paste-ready
+  content). Form/filter signatures match the article's xEdit-signature tables.
+- **Source-resolved beyond the article** (the no-guesswork wins, all in `source-notes.md`):
+  - **Trait letter for Player's Teammate = `T`** — the article shows trait letters only by example and
+    never states this one. Confirmed from `TraitsFilterComponentParser`.
+  - **`-F` ≡ `M`, `-M` ≡ `F`** (binary-sex aliasing) — not in the article.
+  - **Whitespace around `|` and `,` is stripped**, **`" - "` ⇒ `~`** (xEdit paste form), and FormID
+    zero-padding is forgiven — from `sanitize()`.
+  - **Chance `!`** deterministic flag and **Level `w`** weight prefix — confirmed in the parsers.
+- **One residual confidence caveat:** comment syntax. SPID parses configs via **CSimpleIniA**
+  (source-confirmed); the **`;`** line-comment character is CSimpleIni's documented *library default*
+  rather than a SPID line of code we read. Stated in the corpus as "standard INI `;` comments (via
+  CSimpleIniA)" — grounded, not invented, but a notch below the byte-confirmed facts.
+- **Known article quirk** (preserved + flagged, not corrected): the skill-index section says
+  "17 skills" but lists indices 0–17 (18 rows). Valid indices are 0–17; the "17" is an author slip.
+
+## Source-repo cross-check
+
+`powerof3/Spell-Perk-Item-Distributor` (GitHub, `master`, **MIT License**) was read for grammar facts
+only — no code vendored. Files consulted (all `SPID/src/`): `LookupConfigs.cpp` (`sanitize()`, parser
+chain), `LookupConfigs.h` (`TraitsFilterComponentParser`, `ChanceComponentParser`,
+`LevelFiltersComponentParser`), `Defs.h` (`Traits` struct). MIT (unlike SkyPatcher's unlicensed repo)
+would permit vendoring, but the corpus documents grammar, it doesn't embed source.
+
+## Structure
+
+```
+references/
+├── _CORPUS_STATUS.md   ← this file
+├── grammar-core.md     ← what SPID is, file discovery + load/distribution order, the line syntax,
+│                          input normalization, filter-combination logic, type inferring,
+│                          CountOrPackageIndex, Chance + deterministic, templated-NPC reachability
+├── form-types.md       ← the 10 distributable form types + signatures + special cases
+├── filters.md          ← the 4 filter sections (String / Form / Level / Trait) in depth
+├── value-tables.md     ← flat enums (skill indices, trait letters, package-list types, signatures, …)
+└── index.jsonl         ← lookup routing — NOT YET GENERATED (see Layering; deferred with the sibling)
+```
+
+## Layering (build plan)
+
+- **Layer 1 (this corpus) — DONE pending review.** The five reference files above. Built only after
+  the complete reference was in hand (article captured + source cross-checked) — the project's
+  no-guesswork gate.
+- **Layer 2 — not started.** `SKILL.md` (the lookup + bundled-or-warn playbook, modeled on
+  `papyrus-reference`, authored via the `skill-authoring` specialist), `index.jsonl` (routing format
+  designed alongside SKILL.md, kept consistent with the `skypatcher-authoring` sibling),
+  `evals/` (trigger + author-output eval sets per HOUSECARL_SKILL_AUTHORING.md §6.4/§6.5 — run the
+  anonymized, relevance-framed agent fan-out), and the final §8 reviewer walk. Author Layer 2 only
+  after Aaron reviews Layer 1.
+
+## Cluster note
+
+`spid-authoring` is one of the 5 distributor skills. Cross-tool divergences to carry into the routing
+skill + SKILL.md: SPID's FormID is **suffix-tilde** `0x123~Plugin.esp` (SkyPatcher is prefix-pipe);
+SPID files are **flat `Data/*_DISTR.ini`** (SkyPatcher uses per-type subfolders); SPID **distributes
+forms to NPCs** (SkyPatcher modifies records in place). SPID and KID share an author (powerofthree) and
+grammar idioms — coordinate idiom wording with `kid-authoring` when that skill is built.

@@ -1,0 +1,120 @@
+# houseCARL
+
+**Comprehensive, data-layer access to your Skyrim Special Edition load order — in plain English, through Claude or Codex.**
+
+houseCARL runs a local MCP server with [Mutagen](https://github.com/Mutagen-Modding/Mutagen) — the
+Bethesda-format library — kept warm in memory, giving your AI assistant direct access to every plugin
+record across your Mod Organizer 2 load order, at the **true load-order winner**, with the full conflict
+tree on request. You describe what you want in plain English; houseCARL does the mechanical work and
+writes results into a **new** plugin you review and enable in MO2 — your originals are never touched.
+
+Coverage is **reflection-driven**: a build-time generator walks Mutagen's record interfaces and emits
+houseCARL's schema automatically, so the set of record types houseCARL understands *is* the set Mutagen
+models — by construction, not a hand-maintained subset.
+
+## What it can do
+
+- **Read any record** at the true load-order winner, with the full conflict tree on request — plus batch
+  record detail and cross-plugin queries.
+- **Author patches** — set / add / remove fields, edit leveled lists and containers, retune records,
+  re-target conditions — emitted as a new MO2 mod folder (`houseCARL - <name>`).
+- **Create new records** (new FormIDs) and **remove** records or individual entries; unused masters are
+  cleaned automatically.
+- **Look things up and author distributor files** through bundled, namespaced skills: record schemas
+  (every type Mutagen models), Papyrus / SKSE signatures, and SkyPatcher / SPID / KID distributor
+  grammars.
+
+## Requirements
+
+- **Windows.**
+- **.NET 9 — the [ASP.NET Core Runtime 9.0](https://dotnet.microsoft.com/download/dotnet/9.0).** houseCARL
+  ships framework-dependent (the runtime is not bundled), and the server needs the ASP.NET Core shared
+  framework — the plain ".NET Runtime" or "Desktop Runtime" is **not** sufficient. Install the
+  **ASP.NET Core Runtime** (it includes the base .NET runtime).
+- **[Mod Organizer 2](https://www.modorganizer.org/)** with a modlist. houseCARL reads the instance's
+  profile files statically — **MO2 does not need to be running.**
+- **An AI host:** [Claude Code](https://claude.com/claude-code) (v2.1.143 or newer) **or** OpenAI Codex.
+
+## Install
+
+### Download — recommended (modders)
+
+1. Download **`houseCARL-1.0.0.zip`** from the [latest release](https://github.com/Avick3110/houseCARL/releases).
+2. Unzip it and run **`houseCARL-Setup.exe`**.
+3. Pick your host — **`[1] Claude Code`**, **`[2] Codex`**, or **`[3] Both`**. The installer wires
+   everything up:
+   - **Claude** → installs the skills to `~/.claude/skills/housecarl/` and registers the server in
+     `~/.claude.json` (both the Claude Code CLI and the desktop app read these). Persistent — no
+     per-session flag.
+   - **Codex** → installs the server under `%LOCALAPPDATA%\houseCARL\server\`, installs the skills (with a
+     `$housecarl` umbrella entry point) under `~/.agents/skills/`, and registers the server in
+     `~/.codex/config.toml`.
+4. Fully restart your host (quit and reopen the Claude desktop app / restart every Codex session), then
+   tell houseCARL your **MO2 instance folder** — the one containing `ModOrganizer.ini`. It prompts you on
+   first use; you can switch instances anytime by asking it to set a new one.
+
+### Build from source (developers / verifiers)
+
+Requires the **.NET 9 SDK** (not just the runtime), Windows, and PowerShell.
+
+```powershell
+git clone https://github.com/Avick3110/houseCARL.git
+cd houseCARL
+./scripts/build-plugin.ps1
+```
+
+The script regenerates the reflection rulebook, publishes the server framework-dependent (trimming **off**
+— houseCARL is reflection-driven, so trimming would strip types and silently lose coverage), bundles the
+skills, builds the setup utility, and packs `release/houseCARL-1.0.0.zip`. Install the output with
+`houseCARL-Setup.exe`, `claude --plugin-dir ./dist/housecarl`, or the bundled local-marketplace
+descriptor — see the script header for details.
+
+## Usage
+
+Talk to it. For example:
+
+- "What does the Dragonbane record look like across my load order?"
+- "Make a patch that gives every iron weapon +5 damage."
+- "Distribute a Frost Resistance ability to all Nords with SPID."
+- "Which plugins override the IronSword record, and who wins?"
+
+houseCARL writes each patch as its own MO2 mod folder; enable it in MO2 like any other mod, then review it
+in xEdit if you like before playing.
+
+## How it works
+
+houseCARL is a single C# process running an MCP server, with Mutagen kept warm for both reading and
+writing. Reads use Mutagen's lazy binary overlay — records parse on access, so the load order isn't held
+fully in memory. Writes go through a small set of generic op verbs over the same reflection layer, always
+into a new plugin. The active load order is read **statically** from your MO2 profile's `loadorder.txt` /
+`modlist.txt` / `plugins.txt` (no USVFS, no live MO2 hooking) and refreshes automatically on the next tool
+call via cheap mtime checks. No plugin file handles are held at rest, so MO2 and xEdit can move or delete
+plugins freely while houseCARL is running.
+
+## Bundled skills
+
+Namespaced under `/housecarl:` in Claude (and reachable via `$housecarl` in Codex):
+
+- **`mutagen-reference`** — every record type's schema (fields, types, writability, enums, polymorphic
+  arms), generated by reflection over Mutagen.
+- **`papyrus-reference`** — Papyrus + SKSE function signatures (vanilla Skyrim, SKSE, and ~45 popular
+  SKSE-plugin sources), from [BellCube's papyrus-index](https://github.com/BellCubeDev/papyrus-index).
+- **`skypatcher-authoring`**, **`spid-authoring`**, **`kid-authoring`** — author SkyPatcher INI,
+  SPID `_DISTR.ini`, and KID `_KID.ini` distributor files from a grammar reference rather than invented
+  syntax.
+
+## License
+
+houseCARL is licensed **GPL-3.0-only** — see [LICENSE](LICENSE). This is required by Mutagen (GPL-3.0-only,
+no linking exception), which houseCARL is built on and bundles. Every third-party component and its license
+is listed in [THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt), along with the corresponding-source
+pointers.
+
+## Credits
+
+- **[Mutagen](https://github.com/Mutagen-Modding/Mutagen)** by Noggog — the Bethesda-format library
+  houseCARL is built on.
+- **[papyrus-index](https://github.com/BellCubeDev/papyrus-index)** by **BellCube** — the source corpus
+  for the bundled `papyrus-reference` skill. Thank you.
+- The **SkyPatcher** author, **powerof3** (SPID), and the **KID** author — whose public documentation the
+  distributor-authoring grammar facts were drawn from.

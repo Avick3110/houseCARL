@@ -1,0 +1,35 @@
+{
+  "skill": "skypatcher-authoring",
+  "method": "HOUSECARL_SKILL_AUTHORING.md §6.5 manual validation (run_loop.py uses select(), broken on Windows per §6.4). Empirical step = independent fan-out of 20 fresh-context Sonnet agents, one per query, each shown a neutral menu of 8 skill descriptions (skypatcher-authoring among realistic siblings: crash-diagnostics, conflict-resolution, esp-patching, form-distribution[SPID/KID/CID], modding-basics, mutagen-reference, papyrus-reference) + one query, asked which ONE skill to load + reasoning. The skill-under-test was not flagged (anonymized). Verdicts read from each agent's reasoning + pick. q01's first agent broke format and executed the task (produced a correct SkyPatcher patch — strong implicit trigger); re-run gave a clean verdict. Run 2026-06-02.",
+  "gate": { "recall_threshold": 0.80, "specificity_threshold": 0.50 },
+  "result": {
+    "recall": "10/10 = 1.00",
+    "specificity": "10/10 = 1.00",
+    "passed": true,
+    "notes": "All 10 should-trigger fired skypatcher-authoring, incl. the two implicit cases (q04, q09) that never say 'skypatcher'. All 10 should-not correctly routed elsewhere, incl. the hardest near-miss q20 ('install skypatcher in MO2' → modding-basics, not the authoring skill). Every manual_predicted_trigger matched the measured verdict.",
+    "peer_review": "Author + 20 independent fresh-context agents (exceeds §6.5's 'one peer reviewer checks 3 random'). Aaron may spot-check any query."
+  },
+  "evals": [
+    {"id": 1,  "query": "make a skypatcher ini that bumps the iron sword's damage to 15 and adds a sharpness keyword", "should_trigger": true, "manual_predicted_trigger": true, "verdict": "trigger", "note": "first agent executed (wrote a correct SkyPatcher patch) instead of classifying; re-run = clean LOAD skypatcher-authoring"},
+    {"id": 2,  "query": "i want to rebalance all the daedric armor in my load order with skypatcher, give it like +20 armor rating", "should_trigger": true, "manual_predicted_trigger": true, "verdict": "trigger"},
+    {"id": 3,  "query": "how do i filter NPCs by faction in skypatcher and bump their health", "should_trigger": true, "manual_predicted_trigger": true, "verdict": "trigger"},
+    {"id": 4,  "query": "need to add an entry to the bandit leveled loot list at runtime without making an esp", "should_trigger": true, "manual_predicted_trigger": true, "verdict": "trigger", "note": "implicit — agent weighed CID vs SkyPatcher, chose skypatcher-authoring ('edit a leveled list')"},
+    {"id": 5,  "query": "what's the skypatcher operation to change a potion's effect magnitude", "should_trigger": true, "manual_predicted_trigger": true, "verdict": "trigger"},
+    {"id": 6,  "query": "write me a patch to disable that crate outside whiterun's gates, the JKs Skyrim one — skypatcher", "should_trigger": true, "manual_predicted_trigger": true, "verdict": "trigger"},
+    {"id": 7,  "query": "can skypatcher unlevel encounter zones? want bleak falls barrow set to min level 20", "should_trigger": true, "manual_predicted_trigger": true, "verdict": "trigger"},
+    {"id": 8,  "query": "my skypatcher armor.ini doesn't seem to do anything in game, can you check the syntax", "should_trigger": true, "manual_predicted_trigger": true, "verdict": "trigger"},
+    {"id": 9,  "query": "rebalance every two-handed weapon's swing speed with a runtime ini patch, no plugin", "should_trigger": true, "manual_predicted_trigger": true, "verdict": "trigger", "note": "implicit — no 'skypatcher' word; agent recognized runtime no-ESP record edit = SkyPatcher"},
+    {"id": 10, "query": "which subfolder does a skypatcher spell patch go in, and what filters can i use for spells", "should_trigger": true, "manual_predicted_trigger": true, "verdict": "trigger"},
+
+    {"id": 11, "query": "distribute this fire cloak spell to all bandit NPCs with SPID", "should_trigger": false, "manual_predicted_trigger": false, "verdict": "skip", "routed_to": "form-distribution"},
+    {"id": 12, "query": "add the VendorItemJewelry keyword to all my rings using KID", "should_trigger": false, "manual_predicted_trigger": false, "verdict": "skip", "routed_to": "form-distribution"},
+    {"id": 13, "query": "what fields does the WEAP record have in xedit and which ones are writable", "should_trigger": false, "manual_predicted_trigger": false, "verdict": "skip", "routed_to": "mutagen-reference"},
+    {"id": 14, "query": "my game ctd's when i equip the steel plate armor, read the crash log and tell me why", "should_trigger": false, "manual_predicted_trigger": false, "verdict": "skip", "routed_to": "crash-diagnostics"},
+    {"id": 15, "query": "which plugin in my lorerim load order is winning the override on the iron sword", "should_trigger": false, "manual_predicted_trigger": false, "verdict": "skip", "routed_to": "conflict-resolution"},
+    {"id": 16, "query": "write a papyrus script that buffs the player's carry weight when they enter a city", "should_trigger": false, "manual_predicted_trigger": false, "verdict": "skip", "routed_to": "papyrus-reference"},
+    {"id": 17, "query": "merge these two esps that both edit the same leveled lists into one patch plugin", "should_trigger": false, "manual_predicted_trigger": false, "verdict": "skip", "routed_to": "esp-patching"},
+    {"id": 18, "query": "how do i add gold to a merchant's chest in the creation kit", "should_trigger": false, "manual_predicted_trigger": false, "verdict": "skip", "routed_to": "modding-basics"},
+    {"id": 19, "query": "explain how leveled lists work in skyrim, i'm new to modding", "should_trigger": false, "manual_predicted_trigger": false, "verdict": "skip", "routed_to": "modding-basics"},
+    {"id": 20, "query": "how do i install skypatcher and its requirements in MO2", "should_trigger": false, "manual_predicted_trigger": false, "verdict": "skip", "routed_to": "modding-basics", "note": "hardest near-miss — names SkyPatcher but is install; correctly did NOT fire the authoring skill"}
+  ]
+}

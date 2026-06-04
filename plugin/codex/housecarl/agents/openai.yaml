@@ -1,0 +1,14 @@
+# Codex skill metadata for the houseCARL umbrella skill (schema reviewed by Codex, 2026-06-04).
+interface:
+  display_name: "houseCARL"
+  short_description: "Skyrim SE / MO2 data-layer modding."
+  default_prompt: "Use $housecarl to inspect or patch my Skyrim load order with the houseCARL MCP server."
+
+policy:
+  allow_implicit_invocation: true
+
+dependencies:
+  tools:
+    - type: "mcp"
+      value: "housecarl"
+      description: "houseCARL MCP server registered as [mcp_servers.housecarl] in ~/.codex/config.toml."

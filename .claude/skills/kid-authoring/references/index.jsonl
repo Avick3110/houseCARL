@@ -1,0 +1,31 @@
+{"topic": "line syntax", "kind": "grammar", "file": "grammar-core.md", "aliases": ["pipe sections", "Keyword =", "5 sections", "blank section", "NONE", "format", "positional"]}
+{"topic": "file discovery & parsing", "kind": "grammar", "file": "grammar-core.md", "aliases": ["_KID", "Data folder", "filename", "no section headers", "CSimpleIni", "comments", "semicolon", "alphabetical", "multi-key"]}
+{"topic": "keyword identifier", "kind": "grammar", "file": "grammar-core.md", "aliases": ["EditorID", "FormID", "0x123~Plugin.esp", "suffix tilde", "dynamic keyword creation", "GetKeywordString", "custom tag"]}
+{"topic": "chance", "kind": "grammar", "file": "grammar-core.md", "aliases": ["chance", "percent", "probability", "default 100"]}
+{"topic": "ExclusiveGroup", "kind": "grammar", "file": "grammar-core.md", "aliases": ["exclusive group", "mutually exclusive keywords", "ExclusiveGroup ="]}
+{"topic": "distribution timing", "kind": "grammar", "file": "grammar-core.md", "aliases": ["startup", "load time", "log file", "po3_KeywordItemDistributor.log"]}
+{"topic": "cross-tool routing", "kind": "grammar", "file": "grammar-core.md", "aliases": ["KID vs SPID", "items vs NPCs", "CID", "SkyPatcher", "which tool"]}
+{"topic": "item types", "kind": "types", "file": "types.md", "aliases": ["Armor", "Weapon", "Ammo", "Magic Effect", "Potion", "Scroll", "Location", "Ingredient", "Book", "Misc Item", "Key", "Soul Gem", "Spell", "Activator", "Flora", "Furniture", "Race", "Talking Activator", "Enchantment", "type string", "signature", "ARMO", "WEAP", "MGEF", "19 types"]}
+{"topic": "string filters", "kind": "filter", "section": 2, "file": "filters.md", "aliases": ["name", "item name", "archetype", "actor value", "nif path", "model path", "mesh"]}
+{"topic": "form filters", "kind": "filter", "section": 2, "file": "filters.md", "aliases": ["FormID", "EditorID", "plugin name", "all items in a mod", "enchantment", "projectile", "music type", "equip slot", "formlist", "associated form"]}
+{"topic": "pattern matching modifiers", "kind": "filter", "section": 2, "file": "filters.md", "aliases": ["+", "-", "*", "requirements", "exclusions", "wildcards", "matches", "AND", "OR", "NOT", "evaluation order"]}
+{"topic": "armor traits", "kind": "trait", "file": "traits.md", "aliases": ["AR", "armor rating", "weight", "body slot", "30-61", "HEAVY", "LIGHT", "CLOTHING", "enchanted", "templated", "E", "T"]}
+{"topic": "weapon traits", "kind": "trait", "file": "traits.md", "aliases": ["damage", "weapon type", "OneHandSword", "TwoHandAxe", "Bow", "Staff", "Crossbow", "D()", "animation type"]}
+{"topic": "ammo traits", "kind": "trait", "file": "traits.md", "aliases": ["bolt", "B", "arrow", "damage"]}
+{"topic": "magic effect traits", "kind": "trait", "file": "traits.md", "aliases": ["hostile", "H", "delivery", "casting type", "resistance", "R()", "DISPEL", "school", "skill range"]}
+{"topic": "potion traits", "kind": "trait", "file": "traits.md", "aliases": ["poison", "food", "P", "F"]}
+{"topic": "ingredient traits", "kind": "trait", "file": "traits.md", "aliases": ["food", "F"]}
+{"topic": "book traits", "kind": "trait", "file": "traits.md", "aliases": ["teaches spell", "teaches skill", "S", "AV", "actor value"]}
+{"topic": "soul gem traits", "kind": "trait", "file": "traits.md", "aliases": ["BLACK", "SOUL", "GEM", "soul size", "capacity"]}
+{"topic": "spell/enchantment/scroll traits", "kind": "trait", "file": "traits.md", "aliases": ["spell type", "ST", "delivery", "casting", "hostile", "school", "shared traits"]}
+{"topic": "furniture traits", "kind": "trait", "file": "traits.md", "aliases": ["furniture type", "bench type", "BT", "use skill", "US", "T()"]}
+{"topic": "effect archetypes", "kind": "value-table", "file": "value-tables.md", "aliases": ["archetype", "Absorb", "Paralysis", "ValueMod", "BoundWeapon", "magic effect archetype"]}
+{"topic": "spell types", "kind": "value-table", "file": "value-tables.md", "aliases": ["ST", "Ability", "Power", "LesserPower", "0-13"]}
+{"topic": "magic schools", "kind": "value-table", "file": "value-tables.md", "aliases": ["Destruction", "Alteration", "Conjuration", "18-22", "school number"]}
+{"topic": "skill actor values", "kind": "value-table", "file": "value-tables.md", "aliases": ["skill index", "OneHanded", "Archery", "Marksman", "Enchanting", "6-23", "AV number"]}
+{"topic": "delivery & casting types", "kind": "value-table", "file": "value-tables.md", "aliases": ["D", "CT", "Aimed", "Concentration", "Self", "Touch", "Fire and Forget", "delivery", "casting"]}
+{"topic": "resistances", "kind": "value-table", "file": "value-tables.md", "aliases": ["R", "FireResist", "MagicResist", "FrostResist", "39-45", "resist value"]}
+{"topic": "soul sizes", "kind": "value-table", "file": "value-tables.md", "aliases": ["Petty", "Lesser", "Common", "Greater", "Grand", "1-5", "SOUL", "GEM"]}
+{"topic": "furniture & bench types", "kind": "value-table", "file": "value-tables.md", "aliases": ["Perch", "Lean", "Sit", "Sleep", "Alchemy bench", "Enchanting bench", "BT", "0-3", "1-7"]}
+{"topic": "body slots", "kind": "value-table", "file": "value-tables.md", "aliases": ["slot", "30-61", "33 hands", "32 body", "37 feet", "biped slot"]}
+{"topic": "defaults", "kind": "value-table", "file": "value-tables.md", "aliases": ["default chance", "blank section", "NONE"]}

@@ -1,0 +1,61 @@
+========================================================================
+ houseCARL  v{{VERSION}}  --  START HERE
+========================================================================
+
+houseCARL gives Claude direct, plain-English access to your Skyrim SE
+load order: read any record, author patches, build SkyPatcher / SPID
+files, and look up record schemas and Papyrus signatures. Your original
+plugins are NEVER touched -- every change goes into a new Mod Organizer 2
+mod that you review and enable yourself.
+
+
+INSTALL  (about 30 seconds, no command line)
+------------------------------------------------------------------------
+
+  1.  Double-click   houseCARL-Setup.exe   in this folder.
+      Let it finish. It adds houseCARL to Claude (the skills + the
+      local server) -- it does not touch your game or your mods.
+
+  2.  FULLY restart Claude.
+      Close and reopen the Claude desktop app, or restart the `claude`
+      terminal. This is the step people forget -- Claude only picks up
+      houseCARL after a restart.
+
+  3.  Point houseCARL at your modlist. In Claude, say (with YOUR path):
+
+          set my houseCARL MO2 instance to  D:\Modding\MO2
+
+      Use the folder that contains your  ModOrganizer.ini.
+      (Or just ask houseCARL to do something, and it will walk you
+      through choosing the folder.)
+
+  4.  Try it:
+
+          "what does my Skyrim load order look like?"
+          "make a patch that gives every iron weapon +5 damage"
+          "which plugins override the IronSword record, and who wins?"
+
+
+REQUIREMENTS
+------------------------------------------------------------------------
+  - Windows (x64).
+  - .NET 9 -- the ASP.NET Core Runtime 9.0 (NOT just the base ".NET
+    Runtime" or "Desktop Runtime"; the server needs the ASP.NET Core
+    one, which includes the base runtime). The runtime, not the SDK.
+        https://dotnet.microsoft.com/download/dotnet/9.0
+        or:  winget install Microsoft.DotNet.AspNetCore.9
+  - A recent Claude Code / Claude desktop app  (v2.1.143 or newer).
+  - Mod Organizer 2 with a modlist.  MO2 does NOT need to be running.
+
+
+WHAT'S IN HERE
+------------------------------------------------------------------------
+  houseCARL-Setup.exe   the installer you double-click
+  housecarl\            the plugin itself (server + skills + rulebook)
+  housecarl\README.md   full README, more usage examples, and credits
+  housecarl\LICENSE     GPL-3.0-only  (+ THIRD-PARTY-NOTICES.txt)
+
+Prefer the terminal? The "housecarl" folder is also a normal Claude Code
+plugin -- see housecarl\README.md. Otherwise just use the installer above.
+
+========================================================================
