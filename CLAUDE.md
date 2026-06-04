@@ -84,6 +84,7 @@ Carried from the retrospective pivot (full doc in the corpus). How a session beh
 7. **Q3 — no silent failure** — never a silent wrong answer, never a silently degraded mode. If a tool is compromised or you can't do the thing, say so plainly with what you checked and what to try next.
 8. **Atomic, focused commits** — one logical change per commit.
 9. **No silent workarounds** — §4 generalized to any decision that trades away something that was supposed to hold, PRFAQ or not.
+10. **Worktree & merge discipline — commit freely on a branch, land on `main` only on Aaron's go.** Work done in a git worktree (`.claude/worktrees/<name>/`) commits to that worktree's branch as needed — local and reversible. Landing those commits on `main` (fast-forward or merge) is a separate, outward-facing act that needs **Aaron's explicit go each time** — never automatic. The same gate covers any commit that edits this operating manual or other self-governing config: surface it, don't self-commit.
 
 ---
 
