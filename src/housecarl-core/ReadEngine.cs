@@ -210,13 +210,21 @@ public static class ReadEngine
     static readonly string[] IdentityFieldNames = { "Name", "EditorID", "Title" };
 
     /// <summary>Emit one target path, expanding container/substruct contents up to <paramref name="depth"/>
-    /// levels. A miss surfaces the same bracket-aware note the leaf read uses.</summary>
+    /// levels. A miss surfaces the same bracket-aware note the leaf read uses. The body is wrapped in the same
+    /// per-field fault isolation depth-1 <see cref="ReadLeaf"/> gives (Q3): a throw while navigating OR expanding
+    /// this one target (an unparseable nested getter, an enumerator that faults mid-list, an ambiguous identity
+    /// reflection) names itself "(unreadable …)" and never escapes the record read — so one bad field can't crash
+    /// a whole-record depth dump. Lines already emitted before a mid-expansion fault are real reads and are kept.</summary>
     static void EmitWithDepth(object record, string path, int depth, List<FieldValue> sink, ref int budget)
     {
-        var seg = path.Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        var nav = NavigateValue(record, seg);
-        if (!nav.ok) { Emit(sink, ref budget, new FieldValue(path, false, null, nav.note)); return; }
-        Expand(nav.val, nav.type, nav.parent, path, depth, sink, ref budget);
+        try
+        {
+            var seg = path.Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            var nav = NavigateValue(record, seg);
+            if (!nav.ok) { Emit(sink, ref budget, new FieldValue(path, false, null, nav.note)); return; }
+            Expand(nav.val, nav.type, nav.parent, path, depth, sink, ref budget);
+        }
+        catch (Exception ex) { Emit(sink, ref budget, new FieldValue(path, false, null, $"(unreadable: {ex.Message})")); }
     }
 
     /// <summary>Recursively emit <paramref name="val"/> at <paramref name="path"/>: a value leaf → its token;
