@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Plugins.Records;
 
@@ -34,7 +33,7 @@ public sealed class LoadOrderService : IDisposable
     string _profileDir;
     string _profileName;                           // the active profile (instance mode: from selected_profile)
     bool _configured;                              // false ⇒ tools return the trained prompt instead of resolving
-    readonly string _userConfigPath;               // where housecarl_set_mo2_instance persists the chosen instance dir
+    readonly UserConfigStore _store;               // the sole owner of houseCARL.user.json (MO2 instance dir + tool paths)
     readonly int _maxPlugins;
     readonly object _gate = new();
     LoadOrderResolver? _resolver;
@@ -44,7 +43,7 @@ public sealed class LoadOrderService : IDisposable
     DateTime _iniReadUtc = DateTime.MinValue;      // when ModOrganizer.ini was last read (instance-mode profile-switch baseline)
     IReadOnlyList<string> _resolvedPaths = Array.Empty<string>();   // ordered paths the current snapshot was built from (the cheap "did the order actually change?" check)
 
-    LoadOrderService(string? instanceDir, string dataDir, string modsDir, string profileDir, bool configured, int maxPlugins, string userConfigPath)
+    LoadOrderService(string? instanceDir, string dataDir, string modsDir, string profileDir, bool configured, int maxPlugins, UserConfigStore store)
     {
         _instanceDir = instanceDir;
         _dataDir = dataDir;
@@ -53,20 +52,20 @@ public sealed class LoadOrderService : IDisposable
         _profileName = profileDir.Length > 0 ? Path.GetFileName(profileDir.TrimEnd('\\', '/')) : "";
         _configured = configured;
         _maxPlugins = maxPlugins;
-        _userConfigPath = userConfigPath;
+        _store = store;
     }
 
     /// <summary>INSTANCE mode (product default): derive the load-order roots + active profile from ONE MO2 instance folder
     /// (lazily, on the first build). A null/blank <paramref name="instanceDir"/> ⇒ UNCONFIGURED (boots; tools prompt for the
     /// path). The instance is re-read on a profile switch, so a mid-session switch is followed.</summary>
-    public static LoadOrderService WithInstance(string? instanceDir, int maxPlugins, string userConfigPath)
+    public static LoadOrderService WithInstance(string? instanceDir, int maxPlugins, UserConfigStore store)
         => new(string.IsNullOrWhiteSpace(instanceDir) ? null : instanceDir.Trim(),
-               "", "", "", configured: !string.IsNullOrWhiteSpace(instanceDir), maxPlugins, userConfigPath);
+               "", "", "", configured: !string.IsNullOrWhiteSpace(instanceDir), maxPlugins, store);
 
     /// <summary>EXPLICIT mode (dev / non-portable override): the three roots are configured directly; no ModOrganizer.ini is
     /// read and no profile-switch watch runs (the paths are fixed for the process lifetime).</summary>
-    public static LoadOrderService WithExplicitPaths(string dataDir, string modsDir, string profileDir, int maxPlugins, string userConfigPath)
-        => new(null, dataDir, modsDir, profileDir, configured: true, maxPlugins, userConfigPath);
+    public static LoadOrderService WithExplicitPaths(string dataDir, string modsDir, string profileDir, int maxPlugins, UserConfigStore store)
+        => new(null, dataDir, modsDir, profileDir, configured: true, maxPlugins, store);
 
     /// <summary>Non-fatal warnings from the last order build (Q3) — e.g. a plugin the load order lists that no enabled
     /// mod provides (stale profile files). Surfaced, never swallowed. Empty until the resolver first builds.</summary>
@@ -237,6 +236,19 @@ public sealed class LoadOrderService : IDisposable
     /// name); "" when unconfigured. For the status surface.</summary>
     public string ProfileName { get { lock (_gate) { return _profileName; } } }
 
+    /// <summary>The resolved MO2 instance's Skyrim game root (ModOrganizer.ini gamePath), derived CHEAPLY (reads the ini,
+    /// does NOT force the ~10s load-order index build) — for the tool bridge's compiler auto-detect, which probes
+    /// &lt;game&gt;\Papyrus Compiler\PapyrusCompiler.exe. Null in explicit/unconfigured mode, or if the instance can't be
+    /// read right now (the bridge then just prompts the user for the path). Never throws (Q3).</summary>
+    public string? TryGetGamePath()
+    {
+        lock (_gate)
+        {
+            if (_instanceDir is null) return null;
+            return Mo2Instance.TryResolve(_instanceDir, out var p) && p is not null ? p.GamePath : null;
+        }
+    }
+
     /// <summary>Point houseCARL at an MO2 instance folder — first-run setup AND switching between instances ("jump around").
     /// VALIDATES it (<see cref="Mo2Instance.Resolve"/> throws a clear Q3 message if it isn't usable — nothing is changed or
     /// persisted on failure), then re-points the live service (derives the roots + active profile, drops the cached resolver
@@ -260,26 +272,12 @@ public sealed class LoadOrderService : IDisposable
         return (paths, persisted, persistError);
     }
 
-    /// <summary>Persist the chosen instance dir to the user config JSON so the next boot finds it. Best-effort + HONEST
-    /// (Q3): a write failure (e.g. a read-only install dir) is reported, not swallowed — the session still works, but the
-    /// user is told the choice won't survive a restart.</summary>
+    /// <summary>Persist the chosen instance dir through the shared <see cref="UserConfigStore"/> (read-modify-write), so it
+    /// survives a restart AND coexists with any saved tool paths — the store never clobbers the other concern's field.
+    /// Best-effort + HONEST (Q3): a write failure (e.g. a read-only data dir) is reported, not swallowed — the session
+    /// still works, but the user is told the choice won't survive a restart.</summary>
     (bool ok, string? error) PersistInstanceDir(string instanceDir)
-    {
-        try
-        {
-            var dir = Path.GetDirectoryName(_userConfigPath);   // the data dir (${CLAUDE_PLUGIN_DATA}) may not exist on the first save
-            if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
-            File.WriteAllText(_userConfigPath, JsonSerializer.Serialize(new UserConfig { Mo2InstanceDir = instanceDir }, UserConfigJson));
-            return (true, null);
-        }
-        catch (Exception ex) { return (false, ex.Message); }
-    }
-
-    static readonly JsonSerializerOptions UserConfigJson = new() { WriteIndented = true };
-
-    /// <summary>The on-disk user config shape (houseCARL.user.json) — the one user-set value houseCARL persists itself,
-    /// separate from the shipped appsettings.json. Read at boot (Program.cs), written by <see cref="SetInstance"/>.</summary>
-    public sealed class UserConfig { public string? Mo2InstanceDir { get; set; } }
+        => _store.Update(c => c.Mo2InstanceDir = instanceDir);
 
     /// <summary>The trained prompt shown while unconfigured: tells houseCARL to ask the user which MO2 instance to use (not
     /// silently pick among several) and call the setup tool. Tools RETURN this (so the client SEES it) via <see cref="ConfigPromptOrNull"/>; the <see cref="Resolver"/>

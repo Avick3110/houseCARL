@@ -1,4 +1,3 @@
-using System.Text.Json;
 using HousecarlMcp;
 using ModelContextProtocol.Protocol;
 
@@ -77,12 +76,11 @@ static (LoadOrderService svc, bool explicitMode, string? instanceDir, string ins
     var pluginDataDir = Environment.GetEnvironmentVariable("HOUSECARL_DATA_DIR");
     var userConfigDir = string.IsNullOrWhiteSpace(pluginDataDir) ? AppContext.BaseDirectory : pluginDataDir;
     var userConfigPath = Path.Combine(userConfigDir, "houseCARL.user.json");
-    string? userInstanceDir = null;
-    if (File.Exists(userConfigPath))
-    {
-        try { userInstanceDir = JsonSerializer.Deserialize<LoadOrderService.UserConfig>(File.ReadAllText(userConfigPath))?.Mo2InstanceDir; }
-        catch { /* corrupt user config → ignore; fall through */ }
-    }
+    // ONE owner of houseCARL.user.json (UserConfigStore): the MO2 instance dir AND the external-tool paths share the file,
+    // so neither writer clobbers the other (read-modify-write). Tolerant read (corrupt/missing → blank, never crashes — Q3).
+    var store = new UserConfigStore(userConfigPath);
+    services.AddSingleton(store);
+    string? userInstanceDir = store.Load().Mo2InstanceDir;
 
     // PRECEDENCE (§6d): the saved user config (houseCARL.user.json, written by housecarl_set_mo2_instance at RUNTIME) wins
     // over Mo2InstanceDir (the userConfig install-dialog value / appsettings) — the runtime switch beats the install default.
@@ -96,13 +94,18 @@ static (LoadOrderService svc, bool explicitMode, string? instanceDir, string ins
         && !string.IsNullOrWhiteSpace(dataDir) && !string.IsNullOrWhiteSpace(modsDir) && !string.IsNullOrWhiteSpace(profileDir);
 
     LoadOrderService svc = explicitMode
-        ? LoadOrderService.WithExplicitPaths(dataDir!, modsDir!, profileDir!, maxPlugins, userConfigPath)
-        : LoadOrderService.WithInstance(instanceDir, maxPlugins, userConfigPath);
+        ? LoadOrderService.WithExplicitPaths(dataDir!, modsDir!, profileDir!, maxPlugins, store)
+        : LoadOrderService.WithInstance(instanceDir, maxPlugins, store);
     services.AddSingleton(svc);
+
+    // The external-tool bridge (compile / BSA / log access): one resolver over the shared user config, given a cheap
+    // accessor for the MO2 instance's Skyrim game root (the compiler auto-detect probe). Riders inject it as it lands.
+    services.AddSingleton(new ToolPathResolver(store, () => svc.TryGetGamePath()));
+
     return (svc, explicitMode, instanceDir, instanceSource);
 }
 
-// The MCP server registration — server identity + instructions + the 9 attribute-registered tools. ONLY the
+// The MCP server registration — server identity + instructions + the 10 attribute-registered tools. ONLY the
 // transport line differs between modes (the whole point of the stdio/http split); everything else is shared.
 static void AddMcp(IServiceCollection services, bool stdio)
 {
