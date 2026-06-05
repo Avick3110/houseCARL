@@ -104,7 +104,7 @@ static (LoadOrderService svc, bool explicitMode, string? instanceDir, string ins
     return (svc, explicitMode, instanceDir, instanceSource);
 }
 
-// The MCP server registration — server identity + instructions + the 11 attribute-registered tools. ONLY the
+// The MCP server registration — server identity + instructions + the 14 attribute-registered tools. ONLY the
 // transport line differs between modes (the whole point of the stdio/http split); everything else is shared.
 static void AddMcp(IServiceCollection services, bool stdio)
 {

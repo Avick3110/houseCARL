@@ -1,0 +1,71 @@
+using HousecarlCore;
+
+namespace HousecarlGenerator;
+
+/// <summary>
+/// BSA-rider proof (EXTERNAL_TOOL_BRIDGE_PLAN step 3). Drives the shipped <see cref="BsaArchive"/> against the REAL BSArch
+/// on a REAL archive: list → unpack → pack → re-list, asserting the round-trip preserves the file count (the plan's proof
+/// gate). The list step also exercises the "Files: N + last-N-lines" parser against real output. Skipped (not failed) if
+/// BSArch or the test archive isn't present; override both via args.
+///
+/// Run: dotnet run --project src/housecarl-generator bsa-probe ["&lt;BSArch.exe&gt;"] ["&lt;test.bsa&gt;"]
+/// </summary>
+internal static class BsaProbe
+{
+    const string DefaultBsarch = @"E:\Skyrim Modding\Tools\xEdit.4.1.5f\BSArch.exe";
+    const string DefaultBsa = @"E:\Skyrim Modding\ARR 2.0\Stock Game\Data\MarketplaceTextures.bsa";
+
+    public static int Run(string[] args)
+    {
+        Console.WriteLine("================================================================");
+        Console.WriteLine(" BSA riders — step 3: list → unpack → pack → re-list round-trip (real BSArch)");
+        Console.WriteLine("================================================================");
+        Console.WriteLine();
+        int fail = 0;
+        void Check(bool c, string label) { Console.WriteLine((c ? "  PASS  " : "  FAIL  ") + label); if (!c) fail++; }
+
+        var bsarch = args.Length > 0 ? args[0] : DefaultBsarch;
+        var bsa = args.Length > 1 ? args[1] : DefaultBsa;
+        if (!File.Exists(bsarch)) { Console.WriteLine($"  SKIP  no BSArch at '{bsarch}' (pass its path as arg 1)"); return 0; }
+        if (!File.Exists(bsa)) { Console.WriteLine($"  SKIP  no test archive at '{bsa}' (pass one as arg 2)"); return 0; }
+
+        var work = Path.Combine(Environment.CurrentDirectory, ".bsa-probe");
+        var unpacked = Path.Combine(work, "unpacked");
+        var repacked = Path.Combine(work, "repacked.bsa");
+        try
+        {
+            Directory.CreateDirectory(work);
+
+            // 1) LIST the original (exercises the parser on real output)
+            var orig = BsaArchive.List(bsarch, bsa);
+            Check(orig.Ran && orig.Success, "list: ran + Success");
+            Check(orig.DeclaredCount > 0 && orig.Files.Count == orig.DeclaredCount,
+                  $"list: file count matches declared ({orig.Files.Count}/{orig.DeclaredCount})");
+            Check(orig.Format is not null && orig.Format.Contains("Skyrim", StringComparison.OrdinalIgnoreCase),
+                  $"list: format parsed ('{orig.Format}')");
+            if (orig.Files.Count > 0) Console.WriteLine("         e.g. " + orig.Files[0]);
+
+            // 2) UNPACK
+            var up = BsaArchive.Unpack(bsarch, bsa, unpacked);
+            Check(up.Ran && up.Success, "unpack: ran + dest has files");
+            int onDisk = Directory.Exists(unpacked) ? Directory.GetFiles(unpacked, "*", SearchOption.AllDirectories).Length : 0;
+            Check(onDisk == orig.DeclaredCount, $"unpack: files on disk == declared ({onDisk}/{orig.DeclaredCount})");
+
+            // 3) PACK back (Skyrim SE, uncompressed)
+            var pk = BsaArchive.Pack(bsarch, unpacked, repacked, BsaArchive.FormatFlag("sse"), compress: false);
+            Check(pk.Ran && pk.Success, "pack: ran + .bsa written");
+            Check(File.Exists(repacked) && new FileInfo(repacked).Length > 0, "pack: output .bsa exists, non-empty");
+
+            // 4) RE-LIST the repacked archive — round-trip preserves the file count
+            var round = BsaArchive.List(bsarch, repacked);
+            Check(round.Ran && round.Success, "re-list: ran + Success");
+            Check(round.DeclaredCount == orig.DeclaredCount,
+                  $"round-trip preserves file count ({round.DeclaredCount} == {orig.DeclaredCount})");
+        }
+        finally { try { Directory.Delete(work, recursive: true); } catch { /* in-dir scratch; non-fatal */ } }
+
+        Console.WriteLine();
+        Console.WriteLine(fail == 0 ? "================ ALL PASS ================" : $"================ {fail} CHECK(S) FAILED ================");
+        return fail == 0 ? 0 : 1;
+    }
+}

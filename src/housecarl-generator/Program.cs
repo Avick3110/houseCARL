@@ -120,6 +120,9 @@ if (args.Length > 0 && args[0] == "tool-bridge") return ToolBridgeProbe.Run(args
 // External-tool bridge (step 2) proof: the compile rider's stderr parser + a real .psc → .pex against the CK compiler.
 if (args.Length > 0 && args[0] == "compile-probe") return CompileProbe.Run(args[1..]);
 
+// External-tool bridge (step 3) proof: the BSA riders' list→unpack→pack→re-list round-trip against real BSArch.
+if (args.Length > 0 && args[0] == "bsa-probe") return BsaProbe.Run(args[1..]);
+
 var outputDir = Path.GetFullPath(args.Length > 0 ? args[0] : "generated");
 // The slim reference tree ships INSIDE the skill (tracked); corpus.json + summary stay in generated/.
 // Default assumes the generator is run from the repo root (as `dotnet run --project src/housecarl-generator`).

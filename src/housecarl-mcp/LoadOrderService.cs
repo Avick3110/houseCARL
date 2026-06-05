@@ -686,44 +686,51 @@ public sealed class LoadOrderService : IDisposable
         return Path.Combine(newFolder, plugin);
     }
 
-    /// <summary>Resolve the <c>Scripts\</c> output folder for a COMPILED .pex under the folder-per-patch model — the compile
-    /// rider's analogue of <see cref="ResolveOutputPath"/>. A fresh houseCARL mod folder (marker-stamped) or
-    /// <paramref name="into"/> an existing houseCARL-owned one; the .pex lands in its <c>Scripts\</c> subfolder (where MO2
-    /// deploys compiled Papyrus into the game's Data\Scripts). ORIGINALS UNTOUCHED (Q3): refuses a folder houseCARL didn't
-    /// create. Derives ModsDir CHEAPLY (reads ModOrganizer.ini; no ~10s index build). Throws the trained prompt when
-    /// unconfigured. Reuses the same ownership/marker helpers as the .esp write path.</summary>
-    public string ResolveCompiledScriptFolder(string? patchName, string? into)
+    /// <summary>Resolve a houseCARL-owned MOD FOLDER under ModsDir for a NON-.esp output (compiled scripts, a packed .bsa,
+    /// extracted loose files) — the folder-per-patch model generalised beyond the .esp write path. A fresh marker-stamped
+    /// folder (<paramref name="defaultStem"/> names it when patchName is blank; auto-suffixed so a prior one is never
+    /// clobbered) or <paramref name="into"/> an existing houseCARL-owned one. ORIGINALS UNTOUCHED (Q3): refuses a folder
+    /// houseCARL didn't create. Derives ModsDir CHEAPLY (reads ModOrganizer.ini; NO ~10s index build). Throws the trained
+    /// prompt when unconfigured. Reuses the same ownership/marker helpers as the .esp write path.</summary>
+    public string ResolvePatchModFolder(string? patchName, string? into, string defaultStem)
     {
         lock (_gate)
         {
             if (!_configured) throw NotConfigured();
             EnsurePathsDerived();                          // cheap: derive ModsDir from the instance, NO resolver build
             if (!Directory.Exists(_modsDir))
-                throw new InvalidOperationException($"cannot write the compiled script: ModsDir '{_modsDir}' does not exist.");
+                throw new InvalidOperationException($"cannot write: ModsDir '{_modsDir}' does not exist.");
 
-            string folder;
             if (!string.IsNullOrWhiteSpace(into))
             {
                 var stem = PatchStem(into);
-                folder = Path.Combine(_modsDir, ModFolderName(stem));
+                var folder = Path.Combine(_modsDir, ModFolderName(stem));
                 if (!Directory.Exists(folder))
                     throw new InvalidOperationException(
                         $"cannot extend: no houseCARL patch named '{stem}' (mod folder '{ModFolderName(stem)}' not found). Omit into= to create it fresh.");
                 if (!IsHouseCarlOwned(folder))
                     throw new InvalidOperationException(
                         $"cannot extend: mod folder '{ModFolderName(stem)}' was NOT created by houseCARL (no marker) — refusing to write into a folder houseCARL doesn't own (Q3).");
+                return folder;
             }
-            else
-            {
-                var stem = UniqueStem(PatchStem(string.IsNullOrWhiteSpace(patchName) ? "houseCARL_Scripts" : patchName!));
-                folder = Path.Combine(_modsDir, ModFolderName(stem));
-                Directory.CreateDirectory(folder);
-                WriteOwnerMeta(folder, "(compiled scripts)");   // ownership marker; a script-only mod has no .esp
-            }
-            var scripts = Path.Combine(folder, "Scripts");
-            Directory.CreateDirectory(scripts);
-            return scripts;
+
+            var newStem = UniqueStem(PatchStem(string.IsNullOrWhiteSpace(patchName) ? defaultStem : patchName!));
+            var newFolder = Path.Combine(_modsDir, ModFolderName(newStem));
+            Directory.CreateDirectory(newFolder);
+            WriteOwnerMeta(newFolder, "(houseCARL output)");   // ownership marker; this folder may hold scripts / a .bsa / loose files, not an .esp
+            return newFolder;
         }
+    }
+
+    /// <summary>The <c>Scripts\</c> output folder for a COMPILED .pex (the compile rider) — a houseCARL mod folder via
+    /// <see cref="ResolvePatchModFolder"/> plus its <c>Scripts\</c> subfolder, where MO2 deploys compiled Papyrus into the
+    /// game's Data\Scripts.</summary>
+    public string ResolveCompiledScriptFolder(string? patchName, string? into)
+    {
+        var folder = ResolvePatchModFolder(patchName, into, "houseCARL_Scripts");
+        var scripts = Path.Combine(folder, "Scripts");
+        Directory.CreateDirectory(scripts);
+        return scripts;
     }
 
     /// <summary>The MO2 mod-folder name for a patch stem. The "houseCARL - " prefix groups our patches in MO2's left
