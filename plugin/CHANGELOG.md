@@ -4,6 +4,17 @@ All notable changes to houseCARL are documented here. Versioning is [semantic](h
 the `version` in `.claude-plugin/plugin.json` is bumped on each release, so installed users update only
 when it changes.
 
+## 1.0.1 — 2026-06-05
+
+- **Descendable reads:** `housecarl_read_record` / `housecarl_batch_record_detail` gain a `depth`
+  parameter. `depth=1` (default) is unchanged; `depth>=2` enumerates the contents of lists,
+  dictionaries, and sub-structs — each element shown with its index and an identity (e.g.
+  `VirtualMachineAdapter.Scripts[0].Properties[5] = [ScriptObjectProperty] Name=...`) — so nested
+  elements and their indices are visible in one call instead of probing each `[i]` by hand.
+- **Bracket-grammar discoverability:** reading a collection with a dot-index (e.g. `Aliases.0`) now
+  returns an actionable hint to use brackets (`Aliases[0]`); bracket indexing is documented in the
+  read/write tool descriptions.
+
 ## 1.0.0 — 2026-06-03
 
 Initial release.
