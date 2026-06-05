@@ -101,28 +101,26 @@ public static class ToolBridge
     }
 
     /// <summary>Auto-detect a canonical home for a dependency, so the user is only asked when houseCARL genuinely can't find
-    /// it. <paramref name="skyrimGamePath"/> is the resolved MO2 instance's game root, when known (for the compiler under
-    /// &lt;game&gt;\Papyrus Compiler). Returns the first EXISTING canonical path, or null (→ the prompt). BSArch has no
-    /// canonical home, so it's always null. (GOG/other game-dir variants are a later refinement — flagged in the plan.)</summary>
-    public static string? Probe(ToolDependency dep, string? skyrimGamePath)
+    /// it. Returns the first EXISTING canonical path, or null (→ the forcing prompt). The log folders live under the user's
+    /// Documents (probed here); the compiler and BSArch have no reliable cheap home, so they prompt — see the per-arm notes.</summary>
+    public static string? Probe(ToolDependency dep)
     {
         switch (dep)
         {
-            case ToolDependency.PapyrusCompiler:
-                if (!string.IsNullOrWhiteSpace(skyrimGamePath))
-                {
-                    var exe = Path.Combine(skyrimGamePath!, "Papyrus Compiler", "PapyrusCompiler.exe");
-                    if (File.Exists(exe)) return exe;
-                }
-                return null;
             case ToolDependency.PapyrusLogs:
                 return FirstExistingDir(Path.Combine(MyGames, "Logs", "Script"));
             case ToolDependency.CrashLogs:
                 return FirstExistingDir(
-                    Path.Combine(MyGames, "SKSE", "Crashlogs"),         // Crash Logger SSE
+                    Path.Combine(MyGames, "SKSE", "Crashlogs"),          // Crash Logger SSE
                     Path.Combine(MyGames, "NetScriptFramework", "Crash")); // .NET Script Framework
+            // PapyrusCompiler: NO reliable canonical home to probe. The CK's compiler ships ONLY with the vanilla Steam
+            // install — NOT the MO2/Wabbajack "Stock Game" copy the load order points at (confirmed 2026-06-05) — and the
+            // Steam library can sit on any drive. Auto-detecting it = Steam registry + libraryfolders.vdf discovery (a noted
+            // future enhancement); until then the forcing prompt is the reliable path, and once the user supplies the .exe
+            // the compile rider derives the matching vanilla sources + flags from the compiler's own game dir.
+            // Bsarch: user-downloaded, no canonical home either.
             default:
-                return null;   // bsarch — user-downloaded, no canonical home
+                return null;
         }
     }
 

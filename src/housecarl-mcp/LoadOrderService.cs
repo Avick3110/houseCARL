@@ -236,19 +236,6 @@ public sealed class LoadOrderService : IDisposable
     /// name); "" when unconfigured. For the status surface.</summary>
     public string ProfileName { get { lock (_gate) { return _profileName; } } }
 
-    /// <summary>The resolved MO2 instance's Skyrim game root (ModOrganizer.ini gamePath), derived CHEAPLY (reads the ini,
-    /// does NOT force the ~10s load-order index build) — for the tool bridge's compiler auto-detect, which probes
-    /// &lt;game&gt;\Papyrus Compiler\PapyrusCompiler.exe. Null in explicit/unconfigured mode, or if the instance can't be
-    /// read right now (the bridge then just prompts the user for the path). Never throws (Q3).</summary>
-    public string? TryGetGamePath()
-    {
-        lock (_gate)
-        {
-            if (_instanceDir is null) return null;
-            return Mo2Instance.TryResolve(_instanceDir, out var p) && p is not null ? p.GamePath : null;
-        }
-    }
-
     /// <summary>Point houseCARL at an MO2 instance folder — first-run setup AND switching between instances ("jump around").
     /// VALIDATES it (<see cref="Mo2Instance.Resolve"/> throws a clear Q3 message if it isn't usable — nothing is changed or
     /// persisted on failure), then re-points the live service (derives the roots + active profile, drops the cached resolver
@@ -697,6 +684,46 @@ public sealed class LoadOrderService : IDisposable
         var plugin = freeStem + ".esp";
         WriteOwnerMeta(newFolder, plugin);
         return Path.Combine(newFolder, plugin);
+    }
+
+    /// <summary>Resolve the <c>Scripts\</c> output folder for a COMPILED .pex under the folder-per-patch model — the compile
+    /// rider's analogue of <see cref="ResolveOutputPath"/>. A fresh houseCARL mod folder (marker-stamped) or
+    /// <paramref name="into"/> an existing houseCARL-owned one; the .pex lands in its <c>Scripts\</c> subfolder (where MO2
+    /// deploys compiled Papyrus into the game's Data\Scripts). ORIGINALS UNTOUCHED (Q3): refuses a folder houseCARL didn't
+    /// create. Derives ModsDir CHEAPLY (reads ModOrganizer.ini; no ~10s index build). Throws the trained prompt when
+    /// unconfigured. Reuses the same ownership/marker helpers as the .esp write path.</summary>
+    public string ResolveCompiledScriptFolder(string? patchName, string? into)
+    {
+        lock (_gate)
+        {
+            if (!_configured) throw NotConfigured();
+            EnsurePathsDerived();                          // cheap: derive ModsDir from the instance, NO resolver build
+            if (!Directory.Exists(_modsDir))
+                throw new InvalidOperationException($"cannot write the compiled script: ModsDir '{_modsDir}' does not exist.");
+
+            string folder;
+            if (!string.IsNullOrWhiteSpace(into))
+            {
+                var stem = PatchStem(into);
+                folder = Path.Combine(_modsDir, ModFolderName(stem));
+                if (!Directory.Exists(folder))
+                    throw new InvalidOperationException(
+                        $"cannot extend: no houseCARL patch named '{stem}' (mod folder '{ModFolderName(stem)}' not found). Omit into= to create it fresh.");
+                if (!IsHouseCarlOwned(folder))
+                    throw new InvalidOperationException(
+                        $"cannot extend: mod folder '{ModFolderName(stem)}' was NOT created by houseCARL (no marker) — refusing to write into a folder houseCARL doesn't own (Q3).");
+            }
+            else
+            {
+                var stem = UniqueStem(PatchStem(string.IsNullOrWhiteSpace(patchName) ? "houseCARL_Scripts" : patchName!));
+                folder = Path.Combine(_modsDir, ModFolderName(stem));
+                Directory.CreateDirectory(folder);
+                WriteOwnerMeta(folder, "(compiled scripts)");   // ownership marker; a script-only mod has no .esp
+            }
+            var scripts = Path.Combine(folder, "Scripts");
+            Directory.CreateDirectory(scripts);
+            return scripts;
+        }
     }
 
     /// <summary>The MO2 mod-folder name for a patch stem. The "houseCARL - " prefix groups our patches in MO2's left

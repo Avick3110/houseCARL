@@ -97,19 +97,10 @@ public static class ToolBridgeProbe
 
         // ---------------------------------------------------------------- 5) AUTO-DETECT
         Console.WriteLine();
-        Console.WriteLine("--- 5: ToolBridge.Probe — compiler hits under a synthetic game root; bsarch has no home ---");
-        var game = Path.Combine(Path.GetTempPath(), "fakegame-" + Guid.NewGuid().ToString("N"));
-        var compDir = Path.Combine(game, "Papyrus Compiler");
-        Directory.CreateDirectory(compDir);
-        var compExe = Path.Combine(compDir, "PapyrusCompiler.exe");
-        File.WriteAllText(compExe, "stub");
-        try
-        {
-            Check(ToolBridge.Probe(ToolDependency.PapyrusCompiler, game) == compExe, "compiler probe finds <game>\\Papyrus Compiler\\PapyrusCompiler.exe");
-            Check(ToolBridge.Probe(ToolDependency.PapyrusCompiler, Path.Combine(game, "nope")) is null, "compiler probe misses when absent");
-            Check(ToolBridge.Probe(ToolDependency.Bsarch, game) is null, "bsarch has no canonical home (always prompts)");
-        }
-        finally { try { Directory.Delete(game, recursive: true); } catch { /* non-fatal */ } }
+        Console.WriteLine("--- 5: ToolBridge.Probe — compiler + bsarch have no cheap canonical home (prompt) ---");
+        Check(ToolBridge.Probe(ToolDependency.PapyrusCompiler) is null, "compiler has no probe home (prompts; the CK lives in the separate Steam install)");
+        Check(ToolBridge.Probe(ToolDependency.Bsarch) is null, "bsarch has no canonical home (always prompts)");
+        // (papyrus_logs / crash_logs probe the user's Documents — environment-dependent, so not asserted here.)
 
         Console.WriteLine();
         Console.WriteLine(fail == 0

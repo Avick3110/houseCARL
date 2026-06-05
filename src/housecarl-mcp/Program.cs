@@ -98,14 +98,13 @@ static (LoadOrderService svc, bool explicitMode, string? instanceDir, string ins
         : LoadOrderService.WithInstance(instanceDir, maxPlugins, store);
     services.AddSingleton(svc);
 
-    // The external-tool bridge (compile / BSA / log access): one resolver over the shared user config, given a cheap
-    // accessor for the MO2 instance's Skyrim game root (the compiler auto-detect probe). Riders inject it as it lands.
-    services.AddSingleton(new ToolPathResolver(store, () => svc.TryGetGamePath()));
+    // The external-tool bridge (compile / BSA / log access): one resolver over the shared user config. Riders inject it.
+    services.AddSingleton(new ToolPathResolver(store));
 
     return (svc, explicitMode, instanceDir, instanceSource);
 }
 
-// The MCP server registration — server identity + instructions + the 10 attribute-registered tools. ONLY the
+// The MCP server registration — server identity + instructions + the 11 attribute-registered tools. ONLY the
 // transport line differs between modes (the whole point of the stdio/http split); everything else is shared.
 static void AddMcp(IServiceCollection services, bool stdio)
 {

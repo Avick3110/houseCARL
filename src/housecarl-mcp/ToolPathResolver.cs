@@ -16,13 +16,8 @@ namespace HousecarlMcp;
 public sealed class ToolPathResolver
 {
     readonly UserConfigStore _store;
-    readonly Func<string?> _gamePath;   // the resolved MO2 instance's Skyrim game root, when cheaply known (for compiler auto-detect); null otherwise
 
-    public ToolPathResolver(UserConfigStore store, Func<string?> gamePath)
-    {
-        _store = store;
-        _gamePath = gamePath;
-    }
+    public ToolPathResolver(UserConfigStore store) => _store = store;
 
     /// <summary>The path the user SAVED for a dependency, or null if unset. Pure read (no probe, no persist) — for a status
     /// surface or a "what's configured" question.</summary>
@@ -40,7 +35,7 @@ public sealed class ToolPathResolver
         var saved = Saved(dep);
         if (saved is not null && ToolBridge.Validate(dep, saved).ok) return saved;
 
-        var found = ToolBridge.Probe(dep, _gamePath());
+        var found = ToolBridge.Probe(dep);
         if (found is not null) Save(dep, found);   // persist the auto-detected home so we only probe once
         return found;
     }
