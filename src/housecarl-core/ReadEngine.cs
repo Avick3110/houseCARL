@@ -244,12 +244,21 @@ public static class ReadEngine
         if (!Emit(sink, ref budget, new FieldValue(path, false, null, ElementSummary(val)))) return;
         if (depth <= 1) return;
 
-        if (val is System.Collections.IDictionary dict)
+        // Classify dict-vs-list the SAME way the navigation does (StepIntoElement) — by the GENERIC dictionary
+        // interfaces via ClosedInterface, not a separate non-generic System.Collections.IDictionary cast — so the
+        // browse view and the read/write path can't drift (a getter dict need not expose the non-generic interface).
+        // A generic dict enumerates as KeyValuePair<,>; Key/Value come off each pair.
+        if (WriteEngine.ClosedInterface(val.GetType(), typeof(IDictionary<,>)) is not null
+            || WriteEngine.ClosedInterface(val.GetType(), typeof(IReadOnlyDictionary<,>)) is not null)
         {
-            foreach (System.Collections.DictionaryEntry e in dict)
+            foreach (var entry in (System.Collections.IEnumerable)val)
             {
                 if (budget < 0) return;
-                Expand(e.Value, e.Value?.GetType() ?? typeof(object), dict, $"{path}[{e.Key}]", depth - 1, sink, ref budget);
+                if (entry is null) continue;
+                var et = entry.GetType();
+                var key = et.GetProperty("Key", BindingFlags.Public | BindingFlags.Instance)?.GetValue(entry);
+                var ev = et.GetProperty("Value", BindingFlags.Public | BindingFlags.Instance)?.GetValue(entry);
+                Expand(ev, ev?.GetType() ?? typeof(object), val, $"{path}[{key}]", depth - 1, sink, ref budget);
             }
         }
         else if (val is System.Collections.IEnumerable seq and not string)
