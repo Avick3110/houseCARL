@@ -89,16 +89,16 @@ public static class CompileTools
         {
             sb.Append("compile OK: ").Append(r.ObjectName).Append(".psc → ").Append(r.PexPath).Append('\n');
             sb.Append("the .pex is in a houseCARL patch-mod folder — enable it in MO2 to use it.");
-            if (r.Diagnostics.Count > 0)   // .pex produced but the compiler still emitted notes → treat as warnings
+            if (r.Diagnostics.Count > 0)   // a .pex WAS produced but the compiler emitted notes → surface them as warnings
             {
-                sb.Append('\n').Append(r.Diagnostics.Count).Append(" warning(s):");
+                sb.Append('\n').Append(r.Diagnostics.Count).Append(" warning(s) (the .pex compiled anyway):");
                 foreach (var d in r.Diagnostics) sb.Append("\n  ").Append(d);
             }
             return sb.ToString();
         }
 
-        // failed — no .pex
-        sb.Append("compile FAILED: ").Append(r.ObjectName).Append(".psc — no .pex written.");
+        // failed — this run wrote no .pex (a previous build, if any, is left untouched for the user to keep or delete)
+        sb.Append("compile FAILED: ").Append(r.ObjectName).Append(".psc — no new .pex produced (any previous build is left unchanged).");
         if (r.Diagnostics.Count > 0)
         {
             sb.Append('\n').Append(r.Diagnostics.Count).Append(" error(s):");
