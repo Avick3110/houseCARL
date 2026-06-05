@@ -98,21 +98,13 @@ public static class ReadEngine
         var typeName = RecordNaming.StripGetterInterface(WriteEngine.PrimaryGetter(target.GetType())?.Name ?? "I?Getter");
         Console.WriteLine($"{typeName}  {target.FormKey}  ({target.EditorID ?? "<no editorid>"})");
 
-        if (paths.Count > 0)
-        {
-            foreach (var p in paths)
-            {
-                var seg = p.Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-                Console.WriteLine($"  {p} = {ReadLeaf(target, seg)}");
-            }
-            return 0;
-        }
-
-        // Whole-record dump (one level): every modeled field, fault-isolated per field. The CORPUS is the
-        // authoritative modeled-field set (infra-free by construction — it's what the read-proof drives); fall
-        // back to reflection (Loqui-filtered) only when the corpus isn't built.
-        foreach (var name in ModeledFieldNames(typeName, target.GetType()))
-            Console.WriteLine($"  {name} = {ReadLeaf(target, new[] { name })}");
+        // --depth N (default 1): depth>=2 expands list/dict/substruct contents (descendable reads). With
+        // --path it expands those targets; without, the whole-record dump. Routes through the SAME ReadFields
+        // the MCP read tools call, so the harness and the product stay in lockstep.
+        var depth = int.TryParse(f.GetValueOrDefault("depth"), out var dN) && dN > 0 ? dN : 1;
+        var rf = ReadFields(target, paths.Count > 0 ? paths : null, depth);
+        foreach (var fv in rf.Fields)
+            Console.WriteLine($"  {fv.Path} = {(fv.HasValue ? fv.Token : fv.Note)}");
         return 0;
     }
 
@@ -122,16 +114,27 @@ public static class ReadEngine
     /// proven internal <see cref="ReadLeaf"/> (the round-trip oracle drives it), so the server's reads inherit the
     /// read-proof by construction. Per-leaf fault isolation (Q3): an unreadable field names itself in its
     /// <see cref="FieldValue.Note"/>, never throws out of the record read.</summary>
-    public static RecordFields ReadFields(IMajorRecordGetter record, IReadOnlyList<string>? paths = null)
+    public static RecordFields ReadFields(IMajorRecordGetter record, IReadOnlyList<string>? paths = null, int depth = 1)
     {
         var typeName = RecordNaming.StripGetterInterface(WriteEngine.PrimaryGetter(record.GetType())?.Name ?? "I?Getter");
         var targets = paths is { Count: > 0 } ? (IEnumerable<string>)paths : ModeledFieldNames(typeName, record.GetType());
         var fields = new List<FieldValue>();
-        foreach (var p in targets)
+        if (depth <= 1)
         {
-            var seg = p.Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-            var r = ReadLeaf(record, seg);
-            fields.Add(new FieldValue(p, r.HasValue, r.HasValue ? r.Token : null, r.HasValue ? null : r.Note));
+            // depth 1 (default) — UNCHANGED one-level read: the proven get_field/dump path the round-trip
+            // oracle drives (ReadLeaf). Descendable expansion (depth>=2) is an additive sibling below, so
+            // the oracle-critical leaf path is never touched.
+            foreach (var p in targets)
+            {
+                var seg = p.Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                var r = ReadLeaf(record, seg);
+                fields.Add(new FieldValue(p, r.HasValue, r.HasValue ? r.Token : null, r.HasValue ? null : r.Note));
+            }
+        }
+        else
+        {
+            int budget = MaxExpandNodes;
+            foreach (var p in targets) EmitWithDepth(record, p, depth, fields, ref budget);
         }
         return new RecordFields(typeName, record.FormKey.ToString(), record.EditorID, fields);
     }
@@ -154,7 +157,7 @@ public static class ReadEngine
             {
                 var (segName, segKey) = WriteEngine.ParseSegment(path[i]);
                 var p = WriteEngine.ResolveProperty(current!.GetType(), segName);
-                if (p is null) return LeafRead.None($"(no field {segName})");
+                if (p is null) return LeafRead.None(NoFieldNote(current, segName, i > 0 ? WriteEngine.ParseSegment(path[i - 1]).name : null));
                 current = segKey is null
                     ? p.GetValue(current)                                  // descend a substruct (read-only)
                     : WriteEngine.StepIntoElement(current, p, segName, segKey); // collnav (handles IReadOnly*)
@@ -163,7 +166,7 @@ public static class ReadEngine
 
             var (leafName, leafKey) = WriteEngine.ParseSegment(path[^1]);
             var leaf = WriteEngine.ResolveProperty(current!.GetType(), leafName);
-            if (leaf is null) return LeafRead.None($"(no field {leafName})");
+            if (leaf is null) return LeafRead.None(NoFieldNote(current, leafName, path.Length >= 2 ? WriteEngine.ParseSegment(path[^2]).name : null));
             if (leafKey is not null)
             {
                 // The leaf brackets a collection element (Keywords[0]) — step in and emit the element.
@@ -173,6 +176,211 @@ public static class ReadEngine
             return EmitToken(leaf.GetValue(current), leaf.PropertyType, current);
         }
         catch (Exception ex) { return LeafRead.None($"(unreadable: {ex.Message})"); }
+    }
+
+    /// <summary>A "no such field" note that, when the owner is a collection, points the caller at bracket
+    /// indexing — the common <c>.0</c>-vs-<c>[0]</c> confusion (the read analog of the write pre-flight's
+    /// bracket hint in <c>CorpusRulebook</c>). Brackets are how you step into a list/dict element mid-path;
+    /// a bare dotted <c>.0</c> is parsed as a field name and dead-ends here.</summary>
+    static string NoFieldNote(object owner, string segName, string? precedingField)
+    {
+        bool ownerIsCollection = owner is System.Collections.IDictionary
+            || (owner is System.Collections.IEnumerable && owner is not string);
+        if (ownerIsCollection)
+        {
+            var pf = precedingField ?? "<field>";
+            return $"(no field '{segName}': '{pf}' is a list/dict — index an element with brackets, " +
+                   $"e.g. '{pf}[{segName}]', not '{pf}.{segName}')";
+        }
+        return $"(no field {segName})";
+    }
+
+    // ======================================================================
+    //  DESCENDABLE READS (depth>=2) — enumerate list/dict/substruct CONTENTS so element indices and
+    //  sub-fields are discoverable without hand-probing each [i]. Additive: navigation reuses the same
+    //  engine walk (ParseSegment/ResolveProperty/StepIntoElement) and EmitToken as the leaf path, but the
+    //  proven depth-1 ReadLeaf is untouched. Bounded by MaxExpandNodes (Q3 — explicit truncation note).
+    // ======================================================================
+
+    /// <summary>Max FieldValue lines one descendable read will GENERATE (separate from the renderer's char
+    /// cap) — a guard so depth-expanding a huge container can't build a runaway result. Over it, a single
+    /// truncation note is emitted (Q3 — bounded, never silent).</summary>
+    internal const int MaxExpandNodes = 2000;
+
+    static readonly string[] IdentityFieldNames = { "Name", "EditorID", "Title" };
+
+    /// <summary>Emit one target path, expanding container/substruct contents up to <paramref name="depth"/>
+    /// levels. A miss surfaces the same bracket-aware note the leaf read uses. The body is wrapped in the same
+    /// per-field fault isolation depth-1 <see cref="ReadLeaf"/> gives (Q3): a throw while navigating OR expanding
+    /// this one target (an unparseable nested getter, an enumerator that faults mid-list, an ambiguous identity
+    /// reflection) names itself "(unreadable …)" and never escapes the record read — so one bad field can't crash
+    /// a whole-record depth dump. Lines already emitted before a mid-expansion fault are real reads and are kept.</summary>
+    static void EmitWithDepth(object record, string path, int depth, List<FieldValue> sink, ref int budget)
+    {
+        try
+        {
+            var seg = path.Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            var nav = NavigateValue(record, seg);
+            if (!nav.ok) { Emit(sink, ref budget, new FieldValue(path, false, null, nav.note)); return; }
+            Expand(nav.val, nav.type, nav.parent, path, depth, sink, ref budget);
+        }
+        catch (Exception ex) { Emit(sink, ref budget, new FieldValue(path, false, null, $"(unreadable: {ex.Message})")); }
+    }
+
+    /// <summary>Recursively emit <paramref name="val"/> at <paramref name="path"/>: a value leaf → its token;
+    /// a link → its note (not opened); a container/substruct → an identity-enriched summary line, then (while
+    /// depth allows) one child line per element (bracketed) or sub-field (dotted), each recursed at depth-1.</summary>
+    static void Expand(object? val, Type declaredType, object parent, string path, int depth, List<FieldValue> sink, ref int budget)
+    {
+        if (budget < 0) return;
+        var leaf = EmitToken(val, declaredType, parent);
+        if (leaf.HasValue) { Emit(sink, ref budget, new FieldValue(path, true, leaf.Token, null)); return; }
+        if (val is null) { Emit(sink, ref budget, new FieldValue(path, false, null, leaf.Note)); return; }
+        // a link (incl. a null FormKey, or an FLOI) is a note, not an openable container/substruct.
+        if (val is IFormLinkGetter || WriteEngine.IsFormLinkOrIndex(Nullable.GetUnderlyingType(declaredType) ?? declaredType))
+        { Emit(sink, ref budget, new FieldValue(path, false, null, leaf.Note)); return; }
+
+        // a container or substruct — summarise (with an element identity where we can), then maybe open it.
+        if (!Emit(sink, ref budget, new FieldValue(path, false, null, ElementSummary(val)))) return;
+        if (depth <= 1) return;
+
+        // Classify dict-vs-list the SAME way the navigation does (StepIntoElement) — by the GENERIC dictionary
+        // interfaces via ClosedInterface, not a separate non-generic System.Collections.IDictionary cast — so the
+        // browse view and the read/write path can't drift (a getter dict need not expose the non-generic interface).
+        // A generic dict enumerates as KeyValuePair<,>; Key/Value come off each pair.
+        if (WriteEngine.ClosedInterface(val.GetType(), typeof(IDictionary<,>)) is not null
+            || WriteEngine.ClosedInterface(val.GetType(), typeof(IReadOnlyDictionary<,>)) is not null)
+        {
+            foreach (var entry in (System.Collections.IEnumerable)val)
+            {
+                if (budget < 0) return;
+                if (entry is null) continue;
+                var et = entry.GetType();
+                var key = et.GetProperty("Key", BindingFlags.Public | BindingFlags.Instance)?.GetValue(entry);
+                var ev = et.GetProperty("Value", BindingFlags.Public | BindingFlags.Instance)?.GetValue(entry);
+                Expand(ev, ev?.GetType() ?? typeof(object), val, $"{path}[{key}]", depth - 1, sink, ref budget);
+            }
+        }
+        else if (val is System.Collections.IEnumerable seq and not string)
+        {
+            int i = 0;
+            foreach (var item in seq)
+            {
+                if (budget < 0) return;
+                Expand(item, item?.GetType() ?? typeof(object), val, $"{path}[{i}]", depth - 1, sink, ref budget);
+                i++;
+            }
+        }
+        else
+        {
+            // substruct — open its modeled (Loqui-filtered) fields. Reflection, not the corpus: display-only,
+            // and substructs aren't corpus-keyed by a name we hold here.
+            foreach (var fname in ReflectedFieldNames(val.GetType()))
+            {
+                if (budget < 0) return;
+                var prop = WriteEngine.ResolveProperty(val.GetType(), fname);
+                object? fv; try { fv = prop?.GetValue(val); } catch { continue; }
+                Expand(fv, prop?.PropertyType ?? typeof(object), val, $"{path}.{fname}", depth - 1, sink, ref budget);
+            }
+        }
+    }
+
+    /// <summary>Append a line, decrementing the generation budget; at exhaustion emit ONE truncation note and
+    /// stop (returns false thereafter so callers unwind). Q3: the cut is named, never silent.</summary>
+    static bool Emit(List<FieldValue> sink, ref int budget, FieldValue fv)
+    {
+        if (budget < 0) return false;
+        if (budget == 0)
+        {
+            sink.Add(new FieldValue("…", false, null,
+                $"(expansion truncated at {MaxExpandNodes} lines — narrow with a field path or a lower depth)"));
+            budget = -1;
+            return false;
+        }
+        sink.Add(fv); budget--; return true;
+    }
+
+    /// <summary>Navigate a path READ-ONLY to its target, returning the live value object (+ declared type +
+    /// owning parent) for recursion, or a miss note. Same walk as <see cref="ReadLeaf"/> but yields the object
+    /// instead of a token, so the expander can descend into it. Fault-isolated (Q3).</summary>
+    static (bool ok, object? val, Type type, object parent, string? note) NavigateValue(object record, string[] path)
+    {
+        try
+        {
+            object current = record;
+            for (int i = 0; i < path.Length - 1; i++)
+            {
+                var (segName, segKey) = WriteEngine.ParseSegment(path[i]);
+                var p = WriteEngine.ResolveProperty(current.GetType(), segName);
+                if (p is null) return (false, null, typeof(object), current,
+                    NoFieldNote(current, segName, i > 0 ? WriteEngine.ParseSegment(path[i - 1]).name : null));
+                var next = segKey is null ? p.GetValue(current) : WriteEngine.StepIntoElement(current, p, segName, segKey);
+                if (next is null) return (false, null, typeof(object), record, AbsentNote);
+                current = next;
+            }
+            var (leafName, leafKey) = WriteEngine.ParseSegment(path[^1]);
+            var leaf = WriteEngine.ResolveProperty(current.GetType(), leafName);
+            if (leaf is null) return (false, null, typeof(object), current,
+                NoFieldNote(current, leafName, path.Length >= 2 ? WriteEngine.ParseSegment(path[^2]).name : null));
+            if (leafKey is not null)
+            {
+                var elem = WriteEngine.StepIntoElement(current, leaf, leafName, leafKey);
+                return (true, elem, elem.GetType(), current, null);
+            }
+            return (true, leaf.GetValue(current), leaf.PropertyType, current, null);
+        }
+        catch (Exception ex) { return (false, null, typeof(object), record, $"(unreadable: {ex.Message})"); }
+    }
+
+    /// <summary>A compact summary for a container/struct value: for a collection, the count form
+    /// (<see cref="SummariseContainer"/>); for a struct, <c>[TypeName]</c> plus a representative identity
+    /// field (Name/EditorID/Title) where present — so a list line like
+    /// <c>Properties[5] = [ScriptObjectProperty] Name=DAK_HorseBuyPerk</c> reveals which element is which.</summary>
+    static string ElementSummary(object val)
+    {
+        if (val is System.Collections.IEnumerable && val is not string) return SummariseContainer(val);
+        var t = val.GetType();
+        var typeName = RecordNaming.StripGetterInterface(RecordNaming.StripOverlay(t.Name));
+        foreach (var idName in IdentityFieldNames)
+        {
+            var p = t.GetProperty(idName, BindingFlags.Public | BindingFlags.Instance);
+            if (p is null || p.GetIndexParameters().Length != 0) continue;
+            object? iv; try { iv = p.GetValue(val); } catch { continue; }
+            var s = iv switch { null => null, string str => str, IFormLinkGetter fl => fl.FormKey.ToString(), _ => iv.ToString() };
+            if (!string.IsNullOrEmpty(s)) return $"[{typeName}] {idName}={s}";
+        }
+        return $"[{typeName}]";
+    }
+
+    /// <summary>Public-instance modeled field names off a runtime type (Loqui infra filtered) — the reflection
+    /// sibling of <see cref="ModeledFieldNames"/> for substructs (which aren't corpus-keyed by a name we hold
+    /// here). Best-effort, display-only.</summary>
+    static IEnumerable<string> ReflectedFieldNames(Type runtimeType)
+    {
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var primary = WriteEngine.PrimaryGetter(runtimeType);
+        var ifaces = new List<Type>();
+        if (primary is not null) { ifaces.Add(primary); ifaces.AddRange(primary.GetInterfaces()); }
+        else { ifaces.Add(runtimeType); ifaces.AddRange(runtimeType.GetInterfaces()); }
+        foreach (var iface in ifaces)
+            foreach (var p in iface.GetProperties(BindingFlags.Public | BindingFlags.Instance))
+                if (p.GetIndexParameters().Length == 0
+                    && p.DeclaringType?.Namespace?.StartsWith("Loqui", StringComparison.Ordinal) != true
+                    && !IsInfrastructure(p)
+                    && seen.Add(p.Name))
+                    yield return p.Name;
+    }
+
+    /// <summary>Drop Loqui/Mutagen plumbing members that aren't real data fields — the translation/registration
+    /// properties the corpus omits but raw reflection surfaces (e.g. a substruct's <c>BinaryWriteTranslator</c>).
+    /// Keeps reflective substruct expansion as clean as the corpus-driven whole-record dump.</summary>
+    static bool IsInfrastructure(PropertyInfo p)
+    {
+        if (p.Name is "BinaryWriteTranslator" or "Registration" or "StaticRegistration"
+            or "CommonInstance" or "CommonSetterInstance" or "CommonSetterTranslationInstance") return true;
+        var tn = p.PropertyType.Name;
+        return tn.Contains("BinaryWriteTranslat", StringComparison.Ordinal)
+            || tn.EndsWith("BinaryTranslation", StringComparison.Ordinal);
     }
 
     // ======================================================================
