@@ -61,6 +61,15 @@ internal static class BsaProbe
             Check(round.Ran && round.Success, "re-list: ran + Success");
             Check(round.DeclaredCount == orig.DeclaredCount,
                   $"round-trip preserves file count ({round.DeclaredCount} == {orig.DeclaredCount})");
+
+            // 5) NON-DESTRUCTIVE PACK (Aaron 2026-06-06): a FAILED pack must NOT overwrite an existing archive. We have a
+            //    good `repacked` from the round-trip; attempt a pack from a non-existent source to the SAME path and assert
+            //    the prior archive survives byte-for-byte (the original is touched only by a clean, successful compaction).
+            var beforeLen = new FileInfo(repacked).Length;
+            var failPack = BsaArchive.Pack(bsarch, Path.Combine(work, "no-such-source"), repacked, BsaArchive.FormatFlag("sse"), compress: false);
+            Check(!failPack.Success, "non-destructive: a pack from a missing source reports failure");
+            Check(File.Exists(repacked) && new FileInfo(repacked).Length == beforeLen,
+                  "non-destructive: the PRIOR archive is left intact after a failed pack");
         }
         finally { try { Directory.Delete(work, recursive: true); } catch { /* in-dir scratch; non-fatal */ } }
 

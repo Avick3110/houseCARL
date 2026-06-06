@@ -66,17 +66,36 @@ public static class BsaArchive
     }
 
     /// <summary>Pack <paramref name="srcFolder"/> into a .bsa at <paramref name="archive"/> with the given format flag
-    /// (e.g. "-sse") and optional compression. Deletes a stale target first so the success check (the .bsa exists, non-empty)
-    /// is honest. NOTE the caller must surface BSArch's caveat: a COMPRESSED archive breaks any sounds/voices it contains.</summary>
+    /// (e.g. "-sse") and optional compression. NON-DESTRUCTIVE (Aaron 2026-06-06): an existing archive at the target is
+    /// NEVER overwritten unless this run successfully packs a new one — BSArch writes to a houseCARL-internal temp beside
+    /// the target, and only a clean pack (temp exists, non-empty) is moved over the target; any failure (BSArch error,
+    /// timeout, empty output) deletes the temp and leaves the prior .bsa untouched. NOTE the caller must surface BSArch's
+    /// caveat: a COMPRESSED archive breaks any sounds/voices it contains.</summary>
     public static BsaResult Pack(string bsarchExe, string srcFolder, string archive, string formatFlag, bool compress, int timeoutMs = 600_000)
     {
-        try { if (File.Exists(archive)) File.Delete(archive); } catch { /* best-effort so the success check is honest */ }
-        var args = new List<string> { "pack", srcFolder, archive, formatFlag, "-mt" };
+        // Pack to a scratch sibling (keeps the .bsa extension so BSArch is happy); the real target is touched only on success.
+        var dir = Path.GetDirectoryName(archive) ?? Environment.CurrentDirectory;
+        var tmp = Path.Combine(dir, Path.GetFileNameWithoutExtension(archive) + ".houseCARL-tmp.bsa");
+        try { if (File.Exists(tmp)) File.Delete(tmp); } catch { /* stale internal scratch; best-effort */ }
+
+        var args = new List<string> { "pack", srcFolder, tmp, formatFlag, "-mt" };
         if (compress) args.Add("-z");
         var run = Run(bsarchExe, args, timeoutMs);
-        if (run.runError is not null) return new BsaResult(false, (run.stdout + run.stderr).Trim(), run.runError);
-        bool ok = File.Exists(archive) && new FileInfo(archive).Length > 0;
-        return new BsaResult(ok, (run.stdout + "\n" + run.stderr).Trim(), null);
+
+        bool packed = run.runError is null && File.Exists(tmp) && new FileInfo(tmp).Length > 0;
+        if (!packed)   // BSArch couldn't run, or produced no/empty output — leave any prior archive untouched
+        {
+            try { if (File.Exists(tmp)) File.Delete(tmp); } catch { /* best-effort */ }
+            return new BsaResult(false, (run.stdout + "\n" + run.stderr).Trim(), run.runError);
+        }
+
+        try { File.Move(tmp, archive, overwrite: true); }   // success → atomically replace the target (same volume = rename)
+        catch (Exception ex)
+        {
+            try { if (File.Exists(tmp)) File.Delete(tmp); } catch { /* best-effort */ }
+            return new BsaResult(false, (run.stdout + "\n" + run.stderr + $"\ncould not place the packed archive at '{archive}': {ex.Message}").Trim(), null);
+        }
+        return new BsaResult(File.Exists(archive) && new FileInfo(archive).Length > 0, (run.stdout + "\n" + run.stderr).Trim(), null);
     }
 
     /// <summary>Map a houseCARL format token to a BSArch flag. Default/unknown → -sse (Skyrim Special Edition, the target).</summary>
