@@ -112,5 +112,5 @@ pointers.
   houseCARL is built on.
 - **[papyrus-index](https://github.com/BellCubeDev/papyrus-index)** by **BellCube** — the source corpus
   for the bundled `papyrus-reference` skill. Thank you.
-- The **SkyPatcher** author, **powerof3** (SPID), and the **KID** author — whose public documentation the
+- **Zzyxzz** (SkyPatcher) and **powerofthree** (SPID and KID) — whose public documentation the
   distributor-authoring grammar facts were drawn from.
