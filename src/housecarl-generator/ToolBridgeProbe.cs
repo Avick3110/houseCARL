@@ -14,6 +14,9 @@ namespace HousecarlGenerator;
 ///   4. <see cref="ToolBridge.TryParse"/> — wire names round-trip; junk is rejected.
 ///   5. <see cref="ToolBridge.Probe"/> — the compiler probe hits a synthetic &lt;game&gt;\Papyrus Compiler\PapyrusCompiler.exe
 ///      and misses when absent; BSArch has no canonical home (always null).
+///   6. <see cref="ToolBridge.Inspect"/> — the status-surface resolve (housecarl_load_order_status' log-folder section): a
+///      saved+valid path → Saved; an invalid/absent one with no canonical home → Unset; PURE (takes the saved path,
+///      persists nothing — a ReadOnly status read never mutates config).
 ///
 /// The cross-restart persistence + live-server forcing-function proof is the Aaron-empirical follow-up (needs his install).
 /// Run: dotnet run --project src/housecarl-generator tool-bridge
@@ -101,6 +104,32 @@ public static class ToolBridgeProbe
         Check(ToolBridge.Probe(ToolDependency.PapyrusCompiler) is null, "compiler has no probe home (prompts; the CK lives in the separate Steam install)");
         Check(ToolBridge.Probe(ToolDependency.Bsarch) is null, "bsarch has no canonical home (always prompts)");
         // (papyrus_logs / crash_logs probe the user's Documents — environment-dependent, so not asserted here.)
+
+        // ---------------------------------------------------------------- 6) INSPECT (status surface: saved → auto-detect → unset, PURE)
+        Console.WriteLine();
+        Console.WriteLine("--- 6: ToolBridge.Inspect — status-surface resolve (saved/auto-detected/unset), persists NOTHING ---");
+        var realExe = Path.Combine(Path.GetTempPath(), "bsarch.inspect." + Guid.NewGuid().ToString("N") + ".exe");
+        var realDir = Path.Combine(Path.GetTempPath(), "logs.inspect." + Guid.NewGuid().ToString("N"));
+        File.WriteAllText(realExe, "stub"); Directory.CreateDirectory(realDir);
+        try
+        {
+            var savedExe = ToolBridge.Inspect(ToolDependency.Bsarch, realExe);
+            Check(savedExe.source == ToolPathSource.Saved && savedExe.path == realExe, "a saved + valid exe path resolves as Saved");
+
+            var savedDir = ToolBridge.Inspect(ToolDependency.PapyrusLogs, realDir);
+            Check(savedDir.source == ToolPathSource.Saved && savedDir.path == realDir, "a saved + valid log dir resolves as Saved");
+
+            // Bsarch has NO canonical probe home, so an invalid/absent saved path falls through to Unset deterministically
+            // (a LOG dep would probe the user's Documents here — environment-dependent — so Bsarch is used for the assertion).
+            var ghost2 = Path.Combine(Path.GetTempPath(), "ghost-" + Guid.NewGuid().ToString("N") + ".exe");
+            Check(ToolBridge.Inspect(ToolDependency.Bsarch, ghost2).source == ToolPathSource.Unset,
+                  "an invalid saved path + no probe home → Unset (falls through, like the runtime resolver)");
+            Check(ToolBridge.Inspect(ToolDependency.Bsarch, null).source == ToolPathSource.Unset,
+                  "no saved path + no probe home → Unset");
+            // PURE by construction: Inspect is static, takes the saved path as an arg, and has no store to write — the
+            // runtime ToolPathResolver owns persistence, so a ReadOnly status read can never mutate config.
+        }
+        finally { try { File.Delete(realExe); Directory.Delete(realDir); } catch { /* non-fatal */ } }
 
         Console.WriteLine();
         Console.WriteLine(fail == 0
