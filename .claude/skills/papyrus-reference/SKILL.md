@@ -13,7 +13,7 @@ This skill covers the **API surface** — function signatures and docs. Reading 
 
 ## First step
 
-When you encounter a Papyrus function call you need to verify, or when authoring a `.psc`, open the function index at `references/index.jsonl`. The index is JSONL — one entry per line — and resolves an unqualified function name to the per-script reference file that documents it AND the 1-indexed `line_start`/`line_end` range of the entry block within that file. The file is grep-friendly, so a `name:"FunctionName"` substring scan narrows quickly.
+When you encounter a Papyrus function call you need to verify, or when authoring a `.psc`, open the function index at `references/index.jsonl`. The index is JSONL — one entry per line — and resolves an unqualified function name to the per-script reference file that documents it AND the 1-indexed `line_start`/`line_end` range of the entry block within that file. The index is grep-friendly: the entries are compact JSON (no spaces after colons), so match the **full quoted token** `"name":"FunctionName"` — a spaced pattern like `"name": "…"` matches nothing.
 
 Once you have the matching index entry, do **NOT** read the whole reference file — use the entry's `line_start`/`line_end` to read just the entry block via your file-reading tool's line-range (offset/limit) capability. The whole-file load is typically 10-300 KB; the targeted block read is 200-1500 bytes. Don't bulk-load the index either; it is ~1.5 MB and that defeats the per-session token economics. Use targeted reads throughout.
 
@@ -21,7 +21,7 @@ Once you have the matching index entry, do **NOT** read the whole reference file
 
 1. **Identify the unqualified function name** from the call site — for `Self.GetActorValue("Health")` the name is `GetActorValue`; for `StringUtil.Substring(str, 0, 4)` the name is `Substring`.
 
-2. **Look up the name in `references/index.jsonl`.** Match the `name` field. There are three result shapes:
+2. **Look up the name in `references/index.jsonl`.** Match the **full quoted token** — `"name":"<FunctionName>"`, closing quote included — so the hit is exact and field-scoped. The index is **compact JSON** (no spaces after colons), so a spaced pattern like `"name": "…"`, or one missing the leading quote like `name:"…"`, matches **zero lines** even for a function that is present — a false "absent" indistinguishable from a true miss. If a lookup you expect to hit returns nothing, validate the pattern against a guaranteed-present token first (`"name":"OnInit"` resolves to several entries); only trust a zero-result as "not in the corpus" once the method itself is proven. There are three result shapes:
 
    - **Single match.** Pull the entry's `file`, `line_start`, and `line_end`. Confirm signature (return type, parameter types, default values), flags (`Native` / `Global` / `Hidden` / `BetaOnly` / `DebugOnly`), and doc-comment if present via the block read in step 3.
    - **Multiple matches across sources.** Use the source qualifier from the call site to disambiguate. For unqualified calls inside a script body, disambiguation hinges on the calling script's `extends` chain — `Self.GetActorValue(...)` inside a script extending `Actor` resolves to `Actor#GetActorValue`. For global calls, the `Script.Function` qualifier in the source is authoritative: `StringUtil.Substring` resolves to the entry whose `qualified` field is `StringUtil.Substring`.
@@ -55,12 +55,12 @@ When the bundled index has no match for the requested function:
 
 ## Function index
 
-The index lives at `references/index.jsonl`. Per-entry shape:
+The index lives at `references/index.jsonl`. Entries are **compact JSON** — one per line, no spaces after colons (match with a full quoted token like `"name":"GetActorValue"`, never a spaced `"name": "…"`). Per-entry shape:
 
 ```json
-{"name": "GetActorValue", "qualified": "Actor#GetActorValue", "source": "vanilla", "file": "references/vanilla/Actor.md", "kind": "instance-method", "line_start": 1284, "line_end": 1296}
-{"name": "Substring", "qualified": "StringUtil.Substring", "source": "skse", "file": "references/skse/StringUtil.md", "kind": "global", "line_start": 412, "line_end": 426}
-{"name": "PushString", "qualified": "PapyrusUtil.PushString", "source": "papyrusutil", "file": "references/papyrusutil.md", "kind": "global", "requires_plugin": "PapyrusUtilSE.dll", "line_start": 1872, "line_end": 1885}
+{"name":"GetActorValue","qualified":"Actor#GetActorValue","source":"vanilla","file":"references/vanilla/Actor.md","kind":"instance-method","line_start":721,"line_end":732}
+{"name":"Substring","qualified":"StringUtil.Substring","source":"skse","file":"references/skse/StringUtil.md","kind":"global","line_start":131,"line_end":145}
+{"name":"PushString","qualified":"PapyrusUtil.PushString","source":"papyrusutil","file":"references/papyrusutil.md","kind":"global","requires_plugin":"PapyrusUtilSE.dll","line_start":2610,"line_end":2622}
 ```
 
 Fields:
@@ -88,6 +88,8 @@ The corpus ships in three tiers. All bundled entries are present in `references/
 ## Common mistakes
 
 - **Inventing a function signature when the bundled index has no match.** Surface the explicit warning instead. If the user pushes back ("just guess"), explain that a wrong signature can cause silent runtime misbehavior or false-positive bug reports, and ask them to confirm via CK or source before proceeding.
+
+- **Writing the index grep with spaces after colons, or dropping the leading quote.** Entries are compact JSON — `"name":"Dispel"`, never `"name": "Dispel"`. A spaced pattern (`"name": "`) or a quote-dropped one (`name:"`) matches **zero lines** for functions that are present, and that format-induced zero-match is indistinguishable from a true "not in corpus" — so it silently routes a present function into the bundled-or-warn path, the exact failure this skill exists to prevent. Match the full compact token (`"name":"Dispel"`); when an expected hit returns empty, suspect the pattern before the corpus.
 
 - **Looking up by qualified name when only unqualified is provided.** The index's `name` field is unqualified — `Substring`, not `StringUtil.Substring`. Use `name` for the primary lookup and `qualified` only for disambiguation when multiple entries share a `name`.
 
