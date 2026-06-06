@@ -4,6 +4,18 @@ All notable changes to houseCARL are documented here. Versioning is [semantic](h
 the `version` in `.claude-plugin/plugin.json` is bumped on each release, so installed users update only
 when it changes.
 
+## 1.1.2 — 2026-06-06
+
+Fixes a silent lookup failure in the Papyrus reference skill, and ships the corrected third-party credits.
+
+- **Papyrus reference lookup fix:** the `papyrus-reference` skill documented its function-index grep with a
+  format that no longer matched the shipped index, so a lookup written from the docs matched zero lines even
+  for functions that are present — silently reporting a real function as "not in the corpus", the exact
+  failure the skill exists to prevent. The doc now matches the compact index, uses a full-quoted-token match,
+  and adds a self-check that validates the search against a known-present token before trusting an empty result.
+- **Corrected attribution:** the bundled third-party notices now credit the distributor-grammar authors by
+  name — Zzyxzz (SkyPatcher) and powerofthree (SPID + KID) — and list the KID-authoring skill.
+
 ## 1.1.1 — 2026-06-06
 
 houseCARL now points you at your logs — completing the external-tool bridge.
