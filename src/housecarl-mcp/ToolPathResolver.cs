@@ -27,6 +27,12 @@ public sealed class ToolPathResolver
         return paths is not null && paths.TryGetValue(ToolBridge.Info(dep).Key, out var p) ? p : null;
     }
 
+    /// <summary>For a status / diagnostic surface (housecarl_load_order_status' log-folder section): where a dependency
+    /// resolves right now — saved-and-valid → auto-detected canonical home → unset — WITHOUT persisting (unlike
+    /// <see cref="Resolve"/>), so a ReadOnly status read never writes config. Thin wrapper over the pure
+    /// <see cref="ToolBridge.Inspect"/>, supplying the user's saved path.</summary>
+    public (string? path, ToolPathSource source) Inspect(ToolDependency dep) => ToolBridge.Inspect(dep, Saved(dep));
+
     /// <summary>Resolve a dependency to a usable path: saved → else auto-detect (persist on hit) → else null. A saved path
     /// that no longer validates (tool moved/uninstalled) is treated as unset, so it re-detects or re-prompts rather than
     /// failing opaquely downstream.</summary>

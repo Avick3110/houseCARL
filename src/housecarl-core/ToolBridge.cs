@@ -16,6 +16,11 @@ public enum ToolDependency
     CrashLogs,
 }
 
+/// <summary>How a tool path resolved for a status / diagnostic surface (<see cref="ToolBridge.Inspect"/>): the user SAVED it
+/// (and it still validates), houseCARL AUTO-DETECTED a canonical home, or it's UNSET — no save and no probe hit, so a rider
+/// would fire the trained missing-dependency prompt.</summary>
+public enum ToolPathSource { Saved, AutoDetected, Unset }
+
 /// <summary>Per-dependency metadata: the wire key the user/tool names it by, a human display, whether the path is a
 /// DIRECTORY (a log root) or an .exe FILE, the expected exe stem (a sanity-check the path is the right tool), the one-line
 /// "what it's for", and where to get it (shown in the missing-dependency prompt).</summary>
@@ -122,6 +127,21 @@ public static class ToolBridge
             default:
                 return null;
         }
+    }
+
+    /// <summary>For a status / "what's configured" surface: where a dependency RESOLVES right now, WITHOUT the persist
+    /// side-effect of the runtime resolver (<see cref="ToolPathResolver.Resolve"/>, which saves an auto-detected home so it
+    /// probes once). Given the user's <paramref name="savedPath"/> (or null), returns the path + HOW it resolved: a saved
+    /// path that still VALIDATES wins (Saved); else an auto-detect <see cref="Probe"/> of the canonical home (AutoDetected);
+    /// else none (Unset — a rider would fire the forcing prompt). PURE (no file write), so a ReadOnly status read never
+    /// mutates config, and it mirrors what a rider's resolve would find — so "where the logs are" in status is the truth a
+    /// Read would hit. A saved path that no longer validates falls through (tool moved / folder deleted), same as the
+    /// runtime resolver.</summary>
+    public static (string? path, ToolPathSource source) Inspect(ToolDependency dep, string? savedPath)
+    {
+        if (savedPath is not null && Validate(dep, savedPath).ok) return (savedPath, ToolPathSource.Saved);
+        var found = Probe(dep);
+        return found is not null ? (found, ToolPathSource.AutoDetected) : (null, ToolPathSource.Unset);
     }
 
     static string MyGames => Path.Combine(

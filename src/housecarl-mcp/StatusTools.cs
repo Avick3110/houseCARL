@@ -24,9 +24,12 @@ public static class StatusTools
          "each call when the profile changed — no restart needed (a 'refresh still pending' note appears only in the rare " +
          "case MO2 was mid-write). Pass lookup= a mod folder name (e.g. 'Requiem " +
          "Lite 2') or a plugin filename (e.g. 'Requiem.esp') to ask whether houseCARL sees that one as enabled/disabled " +
-         "(mod) or active/inactive/implicit (plugin). Does NOT modify anything.")]
+         "(mod) or active/inactive/implicit (plugin). Also reports the resolved Papyrus script-log and SKSE crash-log " +
+         "FOLDERS — where to Read logs for triage/diagnosis (auto-detected, or as set via housecarl_set_tool_path). " +
+         "Does NOT modify anything.")]
     public static string LoadOrderStatus(
         LoadOrderService svc,
+        ToolPathResolver tools,
         [Description("Optional. A mod folder name or plugin filename to look up. Omit for the whole-profile summary.")]
             string? lookup = null,
         [Description("Optional. Max characters before name lists are cut with an explicit notice. 0 = the server default (~80k).")]
@@ -34,7 +37,8 @@ public static class StatusTools
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
         var data = svc.StatusData();
-        return StatusWire.Render(data, lookup, max_chars > 0 ? max_chars : 80_000);
+        var logs = StatusWire.LogFolders(tools);                 // resolved Papyrus/crash log dirs (pure — no persist)
+        return StatusWire.Render(data, logs, lookup, max_chars > 0 ? max_chars : 80_000);
     }
 }
 
@@ -43,7 +47,7 @@ public static class StatusTools
 /// explicit cut notice (Q3 — never silent truncation). lookup= switches to a single mod/plugin verdict.</summary>
 static class StatusWire
 {
-    public static string Render(LoadOrderStatusData d, string? lookup, int cap)
+    public static string Render(LoadOrderStatusData d, IReadOnlyList<LogFolderView> logs, string? lookup, int cap)
     {
         var c = d.Composition;
         int checkedActive = c.ActivePluginNames.Count;
@@ -70,6 +74,8 @@ static class StatusWire
             return sb.ToString().TrimEnd('\n');
         }
 
+        AppendLogs(sb, logs);   // fixed-tiny — before the cap-bounded name lists, so a long modlist can't truncate it away
+
         AppendList(sb, "disabled mods", c.DisabledMods, cap);
         AppendList(sb, "inactive plugins", c.InactivePluginNames, cap);
         AppendList(sb, "implicit masters / CC", c.ImplicitPluginNames, cap);
@@ -85,6 +91,39 @@ static class StatusWire
             }
         }
         return sb.ToString().TrimEnd('\n');
+    }
+
+    /// <summary>Build the log-folder views for the status surface: where papyrus_logs + crash_logs resolve (saved →
+    /// auto-detected → unset), PURE (no persist — a ReadOnly status read mutates nothing). These two are the only tool deps
+    /// surfaced here because they have NO wrapping tool — the AI must be TOLD where to Read them; the compiler / BSArch deps
+    /// instead surface through their riders' forcing prompts when called.</summary>
+    public static IReadOnlyList<LogFolderView> LogFolders(ToolPathResolver tools)
+    {
+        var views = new List<LogFolderView>(2);
+        foreach (var dep in new[] { ToolDependency.PapyrusLogs, ToolDependency.CrashLogs })
+        {
+            var (path, source) = tools.Inspect(dep);
+            views.Add(new LogFolderView(ToolBridge.Info(dep).Key, path, source));
+        }
+        return views;
+    }
+
+    /// <summary>The external LOG FOLDERS section: where houseCARL resolves the Papyrus script-log + SKSE crash-log dirs.
+    /// Logs have no wrapping tool, so this tells the AI WHERE to Read them; an unset one names the housecarl_set_tool_path
+    /// call to point at it. Fixed-tiny (2 entries) and rendered before the cap-bounded name lists, so a long modlist with a
+    /// small max_chars can never truncate the log paths away (Q3).</summary>
+    static void AppendLogs(StringBuilder sb, IReadOnlyList<LogFolderView> logs)
+    {
+        sb.Append("\nlog folders (Read the .log files directly — logs have no wrapping tool):\n");
+        foreach (var l in logs)
+        {
+            sb.Append("  ").Append(l.Key).Append(": ").Append(l.Source switch
+            {
+                ToolPathSource.Saved        => l.Path + "  (configured)",
+                ToolPathSource.AutoDetected => l.Path + "  (auto-detected)",
+                _                           => $"not set — call housecarl_set_tool_path(tool='{l.Key}', path='<folder>') to point houseCARL at it",
+            }).Append('\n');
+        }
     }
 
     static void AppendList(StringBuilder sb, string label, IReadOnlyList<string> names, int cap)
@@ -131,3 +170,8 @@ static class StatusWire
         return false;
     }
 }
+
+/// <summary>One external LOG FOLDER for the status surface: its wire key (papyrus_logs / crash_logs — the
+/// housecarl_set_tool_path token), where it resolved (null if unset), and HOW (<see cref="ToolPathSource"/>). The AI reads
+/// the .log files at <see cref="Path"/> with its normal Read tool — logs are the one bridge dep with no wrapping tool.</summary>
+public sealed record LogFolderView(string Key, string? Path, ToolPathSource Source);
