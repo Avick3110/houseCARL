@@ -4,6 +4,16 @@ All notable changes to houseCARL are documented here. Versioning is [semantic](h
 the `version` in `.claude-plugin/plugin.json` is bumped on each release, so installed users update only
 when it changes.
 
+## 1.1.1 — 2026-06-06
+
+houseCARL now points you at your logs — completing the external-tool bridge.
+
+- **Log folders in status:** `housecarl_load_order_status` now surfaces the resolved Papyrus script-log and
+  SKSE crash-log folders, so houseCARL knows where to read them when you ask about a Papyrus error or a
+  crash. Set a folder explicitly with `housecarl_set_tool_path` (`papyrus_logs` / `crash_logs`); when one is
+  unset, houseCARL auto-detects the default location and says so, or tells you exactly how to point it at
+  yours. Logs are the one bridge dependency with no wrapping tool — you Read the `.log` files directly.
+
 ## 1.1.0 — 2026-06-06
 
 houseCARL now drives the external modding toolchain, not just the data layer.
