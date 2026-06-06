@@ -61,7 +61,7 @@ dist/
 ## Build artifact, reproducible on demand; never source-of-truth.
 release/
 
-## Agent worktrees — transient git worktrees created under .claude/worktrees/ by parallel sessions.
+## Agent worktrees — transient git worktrees created under .claude/worktrees/ by Claude sessions (solo or parallel).
 ## Each is an isolated checkout of a claude/<name> branch; never source-of-truth, removed once merged.
 .claude/worktrees/
 
