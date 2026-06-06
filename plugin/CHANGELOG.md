@@ -4,6 +4,20 @@ All notable changes to houseCARL are documented here. Versioning is [semantic](h
 the `version` in `.claude-plugin/plugin.json` is bumped on each release, so installed users update only
 when it changes.
 
+## 1.1.0 — 2026-06-06
+
+houseCARL now drives the external modding toolchain, not just the data layer.
+
+- **Tool bridge:** `housecarl_set_tool_path` registers — and auto-detects — the external tools houseCARL
+  wraps. When a tool a command needs isn't set, houseCARL fails loud with the exact path it wants, rather
+  than silently doing nothing.
+- **Papyrus compile:** `housecarl_compile_script` compiles a `.psc` through the Creation Kit's
+  `PapyrusCompiler.exe`. Compiler warnings are non-fatal, and the recompile is non-destructive — the
+  existing `.pex` is overwritten only when the compile succeeds.
+- **BSA archives:** `housecarl_bsa_list`, `housecarl_bsa_extract`, and `housecarl_bsa_repack` wrap BSArch
+  to inspect, extract from, and repack `.bsa` archives. Repack is non-destructive — the target archive is
+  replaced only when the pack succeeds.
+
 ## 1.0.1 — 2026-06-05
 
 - **Descendable reads:** `housecarl_read_record` / `housecarl_batch_record_detail` gain a `depth`

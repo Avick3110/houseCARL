@@ -2,7 +2,7 @@
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "housecarl",
   "displayName": "houseCARL",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "Comprehensive data-layer access to your Skyrim SE load order — read any record, author patches into a new plugin, and look up record schemas, Papyrus signatures, and distributor grammars — in plain English.",
   "author": { "name": "Avick3110" },
   "homepage": "https://github.com/Avick3110/houseCARL",

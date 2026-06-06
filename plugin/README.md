@@ -15,6 +15,8 @@ It can:
   re-target conditions — emitted as a new MO2 mod folder (`houseCARL - <name>`).
 - **Create new records** (new FormIDs) and **remove** records or individual entries; unused masters are
   cleaned automatically.
+- **Drive the external toolchain** — compile Papyrus scripts through the Creation Kit's compiler, and
+  list / extract / repack BSA archives via BSArch; each tool's path is auto-detected or set once.
 - Look up **record schemas** (every type Mutagen models) and **Papyrus / SKSE signatures**, and author
   **SkyPatcher**, **SPID**, and **KID** distributor files — through bundled, namespaced skills
   (`/housecarl:mutagen-reference`, `/housecarl:papyrus-reference`, `/housecarl:skypatcher-authoring`,

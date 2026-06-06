@@ -20,6 +20,8 @@ models — by construction, not a hand-maintained subset.
   re-target conditions — emitted as a new MO2 mod folder (`houseCARL - <name>`).
 - **Create new records** (new FormIDs) and **remove** records or individual entries; unused masters are
   cleaned automatically.
+- **Drive the external toolchain** — compile Papyrus scripts through the Creation Kit's compiler, and
+  list / extract / repack BSA archives via BSArch; each tool's path is auto-detected or set once.
 - **Look things up and author distributor files** through bundled, namespaced skills: record schemas
   (every type Mutagen models), Papyrus / SKSE signatures, and SkyPatcher / SPID / KID distributor
   grammars.
@@ -39,7 +41,7 @@ models — by construction, not a hand-maintained subset.
 
 ### Download — recommended (modders)
 
-1. Download **`houseCARL-1.0.0.zip`** from the [latest release](https://github.com/Avick3110/houseCARL/releases).
+1. Download **`houseCARL-1.1.0.zip`** from the [latest release](https://github.com/Avick3110/houseCARL/releases).
 2. Unzip it and run **`houseCARL-Setup.exe`**.
 3. Pick your host — **`[1] Claude Code`**, **`[2] Codex`**, or **`[3] Both`**. The installer wires
    everything up:
@@ -65,7 +67,7 @@ cd houseCARL
 
 The script regenerates the reflection rulebook, publishes the server framework-dependent (trimming **off**
 — houseCARL is reflection-driven, so trimming would strip types and silently lose coverage), bundles the
-skills, builds the setup utility, and packs `release/houseCARL-1.0.0.zip`. Install the output with
+skills, builds the setup utility, and packs `release/houseCARL-1.1.0.zip`. Install the output with
 `houseCARL-Setup.exe`, `claude --plugin-dir ./dist/housecarl`, or the bundled local-marketplace
 descriptor — see the script header for details.
 
