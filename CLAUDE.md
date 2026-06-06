@@ -84,7 +84,7 @@ Carried from the retrospective pivot (full doc in the corpus). How a session beh
 7. **Q3 — no silent failure** — never a silent wrong answer, never a silently degraded mode. If a tool is compromised or you can't do the thing, say so plainly with what you checked and what to try next.
 8. **Atomic, focused commits** — one logical change per commit.
 9. **No silent workarounds** — §4 generalized to any decision that trades away something that was supposed to hold, PRFAQ or not.
-10. **Worktree & merge discipline — commit freely on a branch, land on `main` only on Aaron's go.** Work done in a git worktree (`.claude/worktrees/<name>/`) commits to that worktree's branch as needed — local and reversible. Landing those commits on `main` (fast-forward or merge) is a separate, outward-facing act that needs **Aaron's explicit go each time** — never automatic. The same gate covers any commit that edits this operating manual or other self-governing config: surface it, don't self-commit.
+10. **Worktree & merge discipline — start every change in a worktree; land on `main` only on Aaron's go.** Before any change that will commit, check your branch (`git branch --show-current`) and state it up front; if you're on `main`, create a worktree (`.claude/worktrees/<name>/`, branch `claude/<name>`) FIRST — solo sessions included, not just parallel ones. The main repo folder stays on `main`, read-only except for landing reviewed branches into. Commit freely on the worktree branch — local and reversible. Landing on `main` — via push → open PR → independent review → **Aaron's explicit go each time** → FF merge → delete branch — is a separate, outward-facing act, never automatic. The same gate covers any commit that edits this operating manual or other self-governing config: surface it, don't self-commit.
 
 ---
 
@@ -109,6 +109,7 @@ Tool-surface skills (`esp-patching`, `mod-dissection`, `bsa-archives`, `crash-di
 ## 8. What NOT to do
 
 - **Don't reconstruct context from prior sessions.** Assume nothing; read the docs (§2). Memory supplements, it doesn't substitute.
+- **Don't work on `main`.** Every change that will commit starts in a worktree (`.claude/worktrees/<name>/`); the main repo folder is read-only except for landing reviewed branches (§5 #10). Check your branch at the start — booting onto `main` and editing there is the recurring drift this rule exists to stop.
 - **Don't treat coverage as a subset.** §3. Tempted to ship "the common record types"? Stop and read §4.
 - **Don't silently work around a block.** §4. Surfacing costs minutes; the alternative is why we rebuilt.
 - **Don't edit the foundation corpus (`dev/PRFAQ/`) or other ARCHIVE docs.** Immutable record of why decisions were made. New docs supersede; old ones stay as written (typo-fix excepted). Doc classes (LIVING vs ARCHIVE) are defined in `standards/HOUSECARL_DOC_HYGIENE.md`.
