@@ -1,0 +1,38 @@
+# houseCARL CI — a green/red gate on every push to main and every pull request.
+# What it does, in plain terms: a fresh Windows machine on GitHub's servers compiles
+# houseCARL and runs its re-runnable proof probes. Green = it builds and the core logic
+# passes; red = something broke. The probes self-SKIP the parts that need external tools
+# (the Creation Kit's Papyrus compiler, BSArch) which aren't installed on the runner, so
+# they stay a reliable gate without those tools present.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-and-probe:
+    name: build + probes
+    runs-on: windows-latest   # houseCARL is a Windows-only (Skyrim SE) product — match that
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v4
+
+      - name: Set up .NET 9
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Build the whole solution (Release)
+        run: dotnet build housecarl.sln --configuration Release
+
+      # Each probe returns 0 (pass) / non-zero (fail); a failure fails the job.
+      - name: Probe — external-tool bridge (pure logic; runs fully)
+        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- tool-bridge
+
+      - name: Probe — compile rider (stderr parser; compile layer skips without the CK compiler)
+        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- compile-probe
+
+      - name: Probe — BSA riders (skips without BSArch)
+        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- bsa-probe
