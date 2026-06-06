@@ -1,0 +1,15 @@
+# houseCARL line-ending policy.
+#
+# The repo is developed on Windows (git's core.autocrlf default is `true`), but several files are
+# GENERATED with Unix (LF) endings — notably the by-construction skill reference corpora under
+# .claude/skills/*/references/*.jsonl. With no rule, autocrlf flags those LF files as "modified" on
+# every checkout (it expects CRLF on disk, finds LF) even though their content is byte-identical —
+# cosmetic churn that clutters `git status` and invites accidental re-commits of nothing.
+#
+# Pin the generated data formats to LF so git stops trying to convert them. This matches how the
+# generator emits them and keeps them stable across platforms. We deliberately do NOT add a global
+# `* text=auto` rule — that would renormalize unrelated files in one noisy pass; this targeted rule
+# fixes the demonstrated churn with no side effects. Source files keep git's normal handling.
+
+# Generated reference corpora (mutagen-reference / papyrus-reference) — emitted LF, kept LF.
+*.jsonl text eol=lf
