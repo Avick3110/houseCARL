@@ -70,5 +70,5 @@ no linking exception), which houseCARL bundles. Every third-party component and 
   houseCARL is built on.
 - **[papyrus-index](https://github.com/BellCubeDev/papyrus-index)** by **BellCube** — the source corpus for
   the bundled `papyrus-reference` skill. Thank you.
-- The **SkyPatcher** author and **powerof3** (SPID) — the public documentation behind the
+- **Zzyxzz** (SkyPatcher) and **powerofthree** (SPID and KID) — the public documentation behind the
   distributor-authoring skills.

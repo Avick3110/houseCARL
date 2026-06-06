@@ -138,11 +138,11 @@ Bundled skill reference content
       the same GPL-3.0-only terms as the rest of the Mutagen surface above. (The
       server's corpus.json rulebook is the same generated derivative.)
 
-  skypatcher-authoring / spid-authoring
+  skypatcher-authoring / spid-authoring / kid-authoring
       Original grammar-reference prose describing the (uncopyrightable)
-      SkyPatcher and SPID configuration grammars; no upstream source is vendored.
-      With thanks to the SkyPatcher author and to powerof3 (SPID, MIT), whose
-      public documentation the grammar facts were drawn from.
+      SkyPatcher, SPID, and KID configuration grammars; no upstream source is
+      vendored. With thanks to Zzyxzz (SkyPatcher) and to powerofthree (SPID and
+      KID, MIT), whose public documentation the grammar facts were drawn from.
 
 
 ===============================================================================
