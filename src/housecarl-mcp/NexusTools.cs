@@ -67,9 +67,8 @@ public static class NexusTools
             string mod,
         CancellationToken ct = default)
     {
-        if (!TryParseModId(mod, out int modId))
-            return $"error: couldn't read a mod id from '{mod}'. Pass a numeric Nexus mod id (e.g. 12604) or a Skyrim SE "
-                + "mod URL (e.g. https://www.nexusmods.com/skyrimspecialedition/mods/12604).";
+        var (modId, parseError) = ResolveModId(mod);
+        if (parseError is not null) return "error: " + parseError;
 
         var (ok, error, detail) = await nexus.GetModAsync(modId, ct);
         if (!ok) return "error: " + error;
@@ -87,15 +86,33 @@ public static class NexusTools
         _ => null,
     };
 
-    /// <summary>Accept a bare numeric id or any URL containing '/mods/&lt;n&gt;'.</summary>
-    static bool TryParseModId(string s, out int modId)
+    /// <summary>Resolve the user's input to an SSE mod id. Accepts a bare numeric id or a Nexus mod URL. A Nexus URL for a
+    /// DIFFERENT game (fallout4, skyrim, starfield, …) is REJECTED with a clear message rather than silently resolving to a
+    /// same-numbered Skyrim SE mod (Q3: never a confidently-wrong answer). Returns (modId, error) — exactly one is set.</summary>
+    static (int modId, string? error) ResolveModId(string s)
     {
         s = s.Trim();
-        if (int.TryParse(s, out modId) && modId > 0) return true;
-        var m = Regex.Match(s, @"/mods/(\d+)", RegexOptions.IgnoreCase);
-        if (m.Success && int.TryParse(m.Groups[1].Value, out modId) && modId > 0) return true;
-        modId = 0;
-        return false;
+        if (int.TryParse(s, out var id) && id > 0) return (id, null);
+
+        // A Nexus mod URL carries the game domain right before /mods/<n> (optionally behind a 'games/' segment).
+        var url = Regex.Match(s, @"nexusmods\.com/(?:games/)?([^/]+)/mods/(\d+)", RegexOptions.IgnoreCase);
+        if (url.Success)
+        {
+            var game = url.Groups[1].Value.ToLowerInvariant();
+            if (game != "skyrimspecialedition")
+                return (0, $"that's a '{game}' Nexus URL — houseCARL is Skyrim Special Edition only. (Id {url.Groups[2].Value} "
+                    + "on SSE would be a different mod, so I won't guess.) Pass an SSE mod id or a skyrimspecialedition URL.");
+            if (!int.TryParse(url.Groups[2].Value, out var mid) || mid <= 0)
+                return (0, $"'{url.Groups[2].Value}' isn't a valid mod id.");
+            return (mid, null);
+        }
+
+        // Fallback: a bare '/mods/<n>' with no identifiable game (a partial paste) — treat as an SSE id.
+        var loose = Regex.Match(s, @"/mods/(\d+)", RegexOptions.IgnoreCase);
+        if (loose.Success && int.TryParse(loose.Groups[1].Value, out id) && id > 0) return (id, null);
+
+        return (0, $"couldn't read a mod id from '{s}'. Pass a numeric Nexus mod id (e.g. 12604) or a Skyrim SE mod URL "
+            + "(e.g. https://www.nexusmods.com/skyrimspecialedition/mods/12604).");
     }
 }
 
