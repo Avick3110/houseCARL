@@ -6,8 +6,8 @@ namespace HousecarlMcp;
 
 /// <summary>
 /// houseCARL's read-only bridge to the Nexus Mods public v2 GraphQL API (the QOL "smooth out Nexus" layer). It exists
-/// so houseCARL can answer Nexus questions — search the catalog, look up a mod's version/requirements/files — DIRECTLY
-/// instead of driving a browser to scrape a rendered page. It is deliberately:
+/// so houseCARL can answer Nexus questions — search the catalog, look up a mod's version/requirements/newest MAIN file
+/// — DIRECTLY instead of driving a browser to scrape a rendered page. It is deliberately:
 ///   • READ-ONLY — search + mod lookup; it never downloads, installs, endorses, or mutates anything. A download stays
 ///     the user's mod manager's job (the nxm "Mod Manager Download" handoff), exactly as before.
 ///   • KEYLESS — the v2 GraphQL read surface (search/mod/modFiles/requirements) is public and anonymous, so there is no
