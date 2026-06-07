@@ -60,12 +60,20 @@ public static class NexusTools
          "category, last-updated date, summary, whether direct download is disabled (manager-only), its Nexus " +
          "REQUIREMENTS (each required mod's name + id + notes, off-site deps flagged), and its newest MAIN file's " +
          "version — the accurate 'latest version', because a mod's own version header can lag its newest file. " +
-         "READ-ONLY and needs an internet connection (local tools unaffected offline). Does NOT download or install — " +
+         "Pass description=true to ALSO get the mod's full page write-up (what it does, how it works, usage, " +
+         "compatibility/conflict notes), cleaned of Nexus markup to plain text — off by default because it can run " +
+         "several KB. READ-ONLY and needs an internet connection (local tools unaffected offline). Does NOT download or install — " +
          "use your mod manager's 'Mod Manager Download' for that. To find a mod by name first, use housecarl_nexus_search.")]
     public static async Task<string> NexusMod(
         NexusClient nexus,
         [Description("The mod to look up: a numeric Nexus mod id (e.g. 12604) or a full mod URL (e.g. https://www.nexusmods.com/skyrimspecialedition/mods/12604).")]
             string mod,
+        [Description("Optional. When true, also include the mod's FULL page description — the long write-up of what it " +
+            "does, how it works, usage, and compatibility/conflict notes — cleaned of Nexus BBCode/HTML markup to plain " +
+            "text (capped, with an explicit marker if truncated). Default false: the lookup returns the compact summary, " +
+            "requirements, and latest version only, because the full description can run several KB. Set true when you " +
+            "need the detail, e.g. comparing two mods or understanding how one works.")]
+            bool description = false,
         CancellationToken ct = default)
     {
         var (modId, parseError) = ResolveModId(mod);
@@ -73,7 +81,7 @@ public static class NexusTools
 
         var (ok, error, detail) = await nexus.GetModAsync(modId, ct);
         if (!ok) return "error: " + error;
-        return Render.Mod(detail!);
+        return Render.Mod(detail!, description);
     }
 
     /// <summary>Map a friendly sort word to a ModsSort field name; null if unrecognised (the tool reports it — Q3).</summary>
@@ -123,6 +131,12 @@ static class Render
 {
     const string ModUrlBase = "https://www.nexusmods.com/skyrimspecialedition/mods/";
 
+    /// <summary>Max characters of CLEANED description text to emit (≈1.5k tokens — enough for a typical full description,
+    /// measured against real mod pages). Generous because the full description is opt-in, but bounded so a giant page
+    /// can't dominate the response; an over-length body is cut at a word boundary with an explicit marker (Q3 — never a
+    /// silent truncation, like <see cref="OneLine"/>).</summary>
+    const int DescriptionCap = 6000;
+
     public static string Search(string term, string? category, string sort, NexusSearchResult r)
     {
         var sb = new StringBuilder();
@@ -149,7 +163,7 @@ static class Render
         return sb.ToString();
     }
 
-    public static string Mod(NexusModDetail m)
+    public static string Mod(NexusModDetail m, bool includeDescription = false)
     {
         var sb = new StringBuilder();
         sb.Append(m.Name).Append("  [id ").Append(m.ModId).Append(']');
@@ -185,6 +199,15 @@ static class Render
         }
         else sb.Append("\n\nno Nexus requirements listed.");
 
+        // Full description is opt-in (it can run several KB of BBCode/HTML). When asked, clean it to plain text; if the
+        // page genuinely has none, SAY so rather than silently omitting (Q3 — an empty section reads as a missing one).
+        if (includeDescription)
+        {
+            var body = string.IsNullOrWhiteSpace(m.Description) ? null : StripMarkup(m.Description!, DescriptionCap);
+            sb.Append("\n\n── description ──\n")
+              .Append(string.IsNullOrEmpty(body) ? "(this mod's page has no description text.)" : body);
+        }
+
         sb.Append("\n\n").Append(ModUrlBase).Append(m.ModId);
         return sb.ToString();
     }
@@ -195,6 +218,54 @@ static class Render
         s = s.Replace('\r', ' ').Replace('\n', ' ').Trim();
         while (s.Contains("  ")) s = s.Replace("  ", " ");
         return s.Length <= n ? s : s[..n].TrimEnd() + "…";
+    }
+
+    /// <summary>Turn a Nexus description (BBCode interleaved with HTML — e.g. "[size=5][b]…[/b][/size]&lt;br /&gt;") into
+    /// readable plain text: drop image/video embeds wholesale (their inner text is a bare URL — noise as prose), unwrap
+    /// [url=…]label[/url] to its label, turn list markers and HTML block/break tags into newlines, strip every remaining
+    /// BBCode and HTML tag (keeping inner text), decode the handful of HTML entities that actually appear, collapse
+    /// runaway whitespace, and cap the result with an explicit truncation marker (Q3 — never a silent cut).</summary>
+    static string StripMarkup(string raw, int cap)
+    {
+        const RegexOptions IC = RegexOptions.IgnoreCase;
+        var s = raw;
+
+        // Embeds: remove tag AND inner content (a URL/id is meaningless as prose). [img]…[/img], [youtube]…[/youtube], …
+        s = Regex.Replace(s, @"\[(img|youtube|video|media|embed)\b[^\]]*\].*?\[/\1\]", " ", IC | RegexOptions.Singleline);
+        // Links: keep the human label, drop the target. [url=…]label[/url] or [url]label[/url].
+        s = Regex.Replace(s, @"\[url\b[^\]]*\](.*?)\[/url\]", "$1", IC | RegexOptions.Singleline);
+        // List items: [*] opens an item (→ bullet); some BBCode dialects also emit a [/*] close (→ drop). Neither is
+        // letter-led, so the general tag strip below won't catch them — handle both here. (Real mod pages use both forms.)
+        s = Regex.Replace(s, @"\[\*\]", "\n• ", IC);
+        s = Regex.Replace(s, @"\[/\*\]", "", IC);
+        // Every remaining BBCode tag: [tag], [tag=value], [/tag] — keep inner text.
+        s = Regex.Replace(s, @"\[/?[a-z][a-z0-9]*(=[^\]]*)?\]", "", IC);
+
+        // HTML: line breaks and block boundaries → newlines, then strip all other tags.
+        s = Regex.Replace(s, @"<\s*br\s*/?>", "\n", IC);
+        s = Regex.Replace(s, @"<\s*/?\s*(p|div|li|ul|ol|h[1-6]|tr|table)\b[^>]*>", "\n", IC);
+        s = Regex.Replace(s, @"<[^>]+>", "", RegexOptions.Singleline);
+
+        // Entities that actually show up in Nexus descriptions.
+        s = s.Replace("&amp;", "&").Replace("&lt;", "<").Replace("&gt;", ">").Replace("&quot;", "\"")
+             .Replace("&#39;", "'").Replace("&apos;", "'").Replace("&nbsp;", " ");
+
+        // Whitespace: normalise newlines, collapse space runs, trim line edges, cap blank-line runs.
+        s = s.Replace("\r\n", "\n").Replace('\r', '\n');
+        s = Regex.Replace(s, @"[ \t]+", " ");
+        s = Regex.Replace(s, @" *\n *", "\n");
+        s = Regex.Replace(s, @"\n{3,}", "\n\n");
+        s = s.Trim();
+
+        // Cap with an explicit marker, backing up to a nearby word boundary so we don't cut mid-word.
+        if (s.Length > cap)
+        {
+            var cut = s[..cap];
+            var sp = cut.LastIndexOf(' ');
+            if (sp > cap - 200) cut = cut[..sp];
+            s = cut.TrimEnd() + "\n…(description truncated — full text on the mod page.)";
+        }
+        return s;
     }
 
     /// <summary>ISO-8601 datetime → just the date (yyyy-MM-dd).</summary>
