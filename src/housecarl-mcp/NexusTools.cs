@@ -8,9 +8,10 @@ namespace HousecarlMcp;
 /// <summary>
 /// houseCARL's Nexus Mods read tools — the QOL layer that lets houseCARL answer Nexus questions DIRECTLY instead of
 /// spinning up a browser to scrape a mod page. Two read-only tools over <see cref="NexusClient"/> (the public v2 GraphQL
-/// read API, keyless): search the catalog, and look up one mod's detail + requirements + files. Neither downloads or
-/// installs — that stays the mod manager's nxm handoff. Both need an internet connection and fail LOUD/clean when there
-/// isn't one (Q3); they do NOT touch the MO2 instance, so they work even when houseCARL has no load order configured.
+/// read API, keyless): search the catalog, and look up one mod's detail + requirements + newest MAIN file (the accurate
+/// latest version). Neither downloads or installs — that stays the mod manager's nxm handoff. Both need an internet
+/// connection and fail LOUD/clean when there isn't one (Q3); they do NOT touch the MO2 instance, so they work even when
+/// houseCARL has no load order configured.
 /// </summary>
 [McpServerToolType]
 public static class NexusTools
@@ -24,8 +25,8 @@ public static class NexusTools
          "category=, capped at limit= (default 10, max 50). READ-ONLY and needs an internet connection — houseCARL's " +
          "local load-order tools are unaffected if offline. Does NOT download or install anything: to install a result, " +
          "open its page and use Nexus's 'Mod Manager Download' button as usual — houseCARL reads Nexus, your mod manager " +
-         "does the download. For full details (requirements, files, accurate latest version) of one result, pass its id " +
-         "to housecarl_nexus_mod.")]
+         "does the download. For full details (requirements and the newest MAIN file — the accurate latest version) of " +
+         "one result, pass its id to housecarl_nexus_mod.")]
     public static async Task<string> NexusSearch(
         NexusClient nexus,
         [Description("Words to search for in mod names, e.g. 'archery overhaul' or 'true storms'. Matched as a wildcard against Skyrim SE mod names.")]
@@ -144,7 +145,7 @@ static class Render
             sb.Append("\n  ").Append(ModUrlBase).Append(h.ModId);
         }
         sb.Append("\n\n(To install one: open its page and use Nexus's \"Mod Manager Download\" — houseCARL reads Nexus, ")
-          .Append("your mod manager does the download. Pass an id to housecarl_nexus_mod for requirements + files.)");
+          .Append("your mod manager does the download. Pass an id to housecarl_nexus_mod for requirements + latest version.)");
         return sb.ToString();
     }
 
