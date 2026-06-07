@@ -1,0 +1,212 @@
+using System.Net;
+using System.Net.Http.Json;
+using System.Text.Json;
+
+namespace HousecarlMcp;
+
+/// <summary>
+/// houseCARL's read-only bridge to the Nexus Mods public v2 GraphQL API (the QOL "smooth out Nexus" layer). It exists
+/// so houseCARL can answer Nexus questions — search the catalog, look up a mod's version/requirements/files — DIRECTLY
+/// instead of driving a browser to scrape a rendered page. It is deliberately:
+///   • READ-ONLY — search + mod lookup; it never downloads, installs, endorses, or mutates anything. A download stays
+///     the user's mod manager's job (the nxm "Mod Manager Download" handoff), exactly as before.
+///   • KEYLESS — the v2 GraphQL read surface (search/mod/modFiles/requirements) is public and anonymous, so there is no
+///     API key to configure (and a personal key in a public app is AUP-"unacceptable" anyway). One fewer onboarding step.
+///   • OFFLINE-SAFE (Q3) — every failure mode (no connection, timeout, HTTP error, rate-limit, malformed body, GraphQL
+///     error) is RETURNED as a plain message, never thrown. houseCARL's local (load-order) tools never depend on this and
+///     keep working with no internet.
+/// It lives in housecarl-mcp, NOT housecarl-core: core is the proven, deterministic, OFFLINE Mutagen engine and stays
+/// network-free. This is the server's first and only outbound network dependency, isolated here.
+/// Registered as a typed HttpClient (Program.cs, services.AddHttpClient&lt;NexusClient&gt;) so its lifetime/timeout are managed.
+/// </summary>
+public sealed class NexusClient
+{
+    /// <summary>Skyrim Special Edition's Nexus game id (domainName 'skyrimspecialedition'). houseCARL is SSE-only, so every
+    /// query is scoped to this — the user never types a game id.</summary>
+    public const int SkyrimSeGameId = 1704;
+
+    const string Endpoint = "https://api.nexusmods.com/v2/graphql";
+
+    readonly HttpClient _http;
+
+    // PropertyNamingPolicy=null: GraphQL field/variable names are case-sensitive (gameId, modId, categoryName,
+    // direction). We author them exactly and must NOT let a camelCase policy rewrite them.
+    static readonly JsonSerializerOptions Json = new() { PropertyNamingPolicy = null };
+
+    public NexusClient(HttpClient http) => _http = http;
+
+    // ──────────────────────────────────────────────────────────────────────────────────────────────────────────
+    //  Public API — both return (ok, error, payload). ok==false ⇒ error is a user-facing message and payload is null.
+    // ──────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+    /// <summary>Search Skyrim SE mods by a wildcard name term, sorted DESC by <paramref name="sortField"/> (a ModsSort
+    /// field name), optionally narrowed to a category name, capped at <paramref name="count"/>.</summary>
+    public async Task<(bool ok, string? error, NexusSearchResult? result)> SearchAsync(
+        string term, string? category, string sortField, int count, CancellationToken ct)
+    {
+        var filter = new Dictionary<string, object>
+        {
+            ["gameId"] = new[] { new { value = SkyrimSeGameId.ToString(), op = "EQUALS" } },
+            ["name"] = new[] { new { value = term, op = "WILDCARD" } },
+        };
+        if (!string.IsNullOrWhiteSpace(category))
+            filter["categoryName"] = new[] { new { value = category!, op = "EQUALS" } };
+
+        // sort is [{ <field>: { direction: DESC } }] — a single-key object, so build it from a dictionary.
+        var sort = new[] { new Dictionary<string, object> { [sortField] = new { direction = "DESC" } } };
+
+        var (ok, error, data) = await PostAsync(SearchQuery, new { filter, sort, count }, ct);
+        if (!ok) return (false, error, null);
+
+        var mods = data.GetProperty("mods");
+        var hits = new List<NexusSearchHit>();
+        foreach (var n in mods.GetProperty("nodes").EnumerateArray())
+            hits.Add(new NexusSearchHit(
+                Int(n, "modId"), Str(n, "name") ?? "", Str(n, "version"), Str(n, "author"),
+                Int(n, "endorsements"), Int(n, "downloads"), Str(n, "updatedAt"),
+                Bool(n, "adultContent"), Str(n, "summary"), Str(n, "category")));
+        return (true, null, new NexusSearchResult(Int(mods, "totalCount"), hits));
+    }
+
+    /// <summary>Fetch one mod's full detail + its files, in a SINGLE request (mod + modFiles are separate root fields
+    /// queried together). A non-existent modId comes back as a GraphQL error (mod is non-null in the schema), surfaced
+    /// via ok==false.</summary>
+    public async Task<(bool ok, string? error, NexusModDetail? mod)> GetModAsync(int modId, CancellationToken ct)
+    {
+        var (ok, error, data) = await PostAsync(
+            ModQuery, new { modId = modId.ToString(), gameId = SkyrimSeGameId.ToString() }, ct);
+        if (!ok) return (false, error, null);
+
+        var m = data.GetProperty("mod");
+
+        var reqs = new List<NexusRequirement>();
+        if (m.TryGetProperty("modRequirements", out var mr) && mr.ValueKind == JsonValueKind.Object
+            && mr.TryGetProperty("nexusRequirements", out var nr) && nr.ValueKind == JsonValueKind.Object
+            && nr.TryGetProperty("nodes", out var nodes) && nodes.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var r in nodes.EnumerateArray())
+                reqs.Add(new NexusRequirement(
+                    Str(r, "modId") ?? "", Str(r, "modName") ?? "", Str(r, "url"),
+                    Str(r, "notes"), Bool(r, "externalRequirement")));
+        }
+
+        var files = new List<NexusFile>();
+        if (data.TryGetProperty("modFiles", out var mf) && mf.ValueKind == JsonValueKind.Array)
+            foreach (var f in mf.EnumerateArray())
+                files.Add(new NexusFile(
+                    Int(f, "fileId"), Str(f, "name") ?? "", Str(f, "version"),
+                    Str(f, "category") ?? "", Long(f, "date"), Str(f, "description")));
+
+        return (true, null, new NexusModDetail(
+            Int(m, "modId"), Str(m, "name") ?? "", Str(m, "version"), Str(m, "summary"), Str(m, "description"),
+            Str(m, "author"), Str(m, "category") ?? "", Int(m, "endorsements"), Int(m, "downloads"),
+            Str(m, "updatedAt"), Str(m, "createdAt"), Bool(m, "adultContent"), Str(m, "status") ?? "",
+            Bool(m, "directDownloadEnabled"), reqs, files));
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────────────────────────────────────
+    //  Core POST — the ONE place an exception can come from a Nexus call, so the ONE place Q3 turns every failure into
+    //  a returned message. Returns the GraphQL `data` element (cloned to outlive the JsonDocument) on success.
+    // ──────────────────────────────────────────────────────────────────────────────────────────────────────────
+    async Task<(bool ok, string? error, JsonElement data)> PostAsync(string query, object variables, CancellationToken ct)
+    {
+        HttpResponseMessage resp;
+        string body;
+        try
+        {
+            using var req = new HttpRequestMessage(HttpMethod.Post, Endpoint)
+            {
+                Content = JsonContent.Create(new { query, variables }, options: Json),
+            };
+            resp = await _http.SendAsync(req, ct);
+            body = await resp.Content.ReadAsStringAsync(ct);
+        }
+        catch (TaskCanceledException) when (!ct.IsCancellationRequested)
+        {
+            return (false, "the Nexus Mods request timed out. Check your connection and try again — houseCARL's local "
+                + "(load-order) tools are unaffected.", default);
+        }
+        catch (OperationCanceledException) { return (false, "the Nexus Mods request was cancelled.", default); }
+        catch (HttpRequestException ex)
+        {
+            return (false, $"couldn't reach Nexus Mods ({ex.Message}). The Nexus tools need an internet connection; "
+                + "houseCARL's local tools work offline.", default);
+        }
+
+        if ((int)resp.StatusCode == 429)
+            return (false, "Nexus Mods is rate-limiting the connection (HTTP 429). Wait a moment and try again.", default);
+        if (!resp.IsSuccessStatusCode)
+            return (false, $"Nexus Mods returned HTTP {(int)resp.StatusCode} ({resp.ReasonPhrase}).", default);
+
+        JsonDocument doc;
+        try { doc = JsonDocument.Parse(body); }
+        catch (Exception ex) { return (false, $"Nexus Mods returned an unreadable response ({ex.Message}).", default); }
+
+        using (doc)
+        {
+            var root = doc.RootElement;
+            if (root.TryGetProperty("errors", out var errs) && errs.ValueKind == JsonValueKind.Array && errs.GetArrayLength() > 0)
+            {
+                var msgs = errs.EnumerateArray()
+                    .Select(e => e.TryGetProperty("message", out var mm) ? mm.GetString() : null)
+                    .Where(s => !string.IsNullOrWhiteSpace(s));
+                return (false, "Nexus Mods query error: " + string.Join("; ", msgs), default);
+            }
+            if (!root.TryGetProperty("data", out var dataEl) || dataEl.ValueKind != JsonValueKind.Object)
+                return (false, "Nexus Mods returned no data.", default);
+            return (true, null, dataEl.Clone());   // Clone: survive the using-dispose of doc.
+        }
+    }
+
+    // ── tolerant JsonElement readers (a missing/typed-wrong field reads as null/0/false, never throws — Q3) ──
+    static string? Str(JsonElement e, string p) => e.TryGetProperty(p, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
+    static int Int(JsonElement e, string p) => e.TryGetProperty(p, out var v) && v.ValueKind == JsonValueKind.Number && v.TryGetInt32(out var i) ? i : 0;
+    static long Long(JsonElement e, string p) => e.TryGetProperty(p, out var v) && v.ValueKind == JsonValueKind.Number && v.TryGetInt64(out var l) ? l : 0;
+    static bool Bool(JsonElement e, string p) => e.TryGetProperty(p, out var v) && v.ValueKind == JsonValueKind.True;
+
+    // ── GraphQL documents (variable-based ⇒ user input is never string-concatenated into the query) ──
+    const string SearchQuery =
+        @"query Search($filter: ModsFilter!, $sort: [ModsSort!], $count: Int!) {
+            mods(filter: $filter, sort: $sort, count: $count) {
+              totalCount
+              nodes { modId name version author endorsements downloads updatedAt adultContent summary category }
+            }
+          }";
+
+    const string ModQuery =
+        @"query ModDetail($modId: ID!, $gameId: ID!) {
+            mod(modId: $modId, gameId: $gameId) {
+              modId name version summary description author category endorsements downloads
+              updatedAt createdAt adultContent status directDownloadEnabled
+              modRequirements { nexusRequirements { nodes { modId modName url notes externalRequirement } } }
+            }
+            modFiles(modId: $modId, gameId: $gameId) {
+              fileId name version category date description
+            }
+          }";
+}
+
+// ── result shapes (records ⇒ immutable, value-equal; the tools render these to text) ──
+
+/// <summary>One row of a search result.</summary>
+public sealed record NexusSearchHit(
+    int ModId, string Name, string? Version, string? Author, int Endorsements, int Downloads,
+    string? UpdatedAt, bool AdultContent, string? Summary, string? Category);
+
+/// <summary>A search response: the true total match count plus the (capped) page of hits.</summary>
+public sealed record NexusSearchResult(int TotalCount, IReadOnlyList<NexusSearchHit> Hits);
+
+/// <summary>One Nexus requirement of a mod. <paramref name="ExternalRequirement"/> ⇒ an off-Nexus dependency (ModId/Url
+/// point off-site); otherwise ModId is the required mod's numeric id on Nexus.</summary>
+public sealed record NexusRequirement(string ModId, string ModName, string? Url, string? Notes, bool ExternalRequirement);
+
+/// <summary>One uploaded file of a mod. <paramref name="Category"/> is MAIN / OPTIONAL / OLD_VERSION / ARCHIVED / …;
+/// <paramref name="Date"/> is a unix-seconds timestamp.</summary>
+public sealed record NexusFile(int FileId, string Name, string? Version, string Category, long Date, string? Description);
+
+/// <summary>Full detail for one mod plus its files. Note: <paramref name="Version"/> is the mod's version HEADER, which
+/// can lag the newest MAIN file — the accurate "latest version" is the most recent MAIN entry in <paramref name="Files"/>.</summary>
+public sealed record NexusModDetail(
+    int ModId, string Name, string? Version, string? Summary, string? Description, string? Author, string Category,
+    int Endorsements, int Downloads, string? UpdatedAt, string? CreatedAt, bool AdultContent, string Status,
+    bool DirectDownloadEnabled, IReadOnlyList<NexusRequirement> NexusRequirements, IReadOnlyList<NexusFile> Files);

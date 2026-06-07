@@ -101,10 +101,20 @@ static (LoadOrderService svc, bool explicitMode, string? instanceDir, string ins
     // The external-tool bridge (compile / BSA / log access): one resolver over the shared user config. Riders inject it.
     services.AddSingleton(new ToolPathResolver(store));
 
+    // The Nexus Mods read bridge (QOL: answer Nexus questions directly instead of driving a browser). A typed HttpClient
+    // so its timeout/lifetime are managed; KEYLESS (the public v2 GraphQL read surface needs no API key). This is
+    // houseCARL's ONLY outbound network dependency — every failure is handled inside NexusClient (Q3), and the local
+    // load-order tools never touch it, so they keep working with no internet.
+    services.AddHttpClient<NexusClient>(c =>
+    {
+        c.Timeout = TimeSpan.FromSeconds(20);
+        c.DefaultRequestHeaders.UserAgent.ParseAdd("houseCARL (+https://github.com/Avick3110/houseCARL)");
+    });
+
     return (svc, explicitMode, instanceDir, instanceSource);
 }
 
-// The MCP server registration — server identity + instructions + the 14 attribute-registered tools. ONLY the
+// The MCP server registration — server identity + instructions + the 16 attribute-registered tools. ONLY the
 // transport line differs between modes (the whole point of the stdio/http split); everything else is shared.
 static void AddMcp(IServiceCollection services, bool stdio)
 {
