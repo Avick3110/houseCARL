@@ -1,0 +1,152 @@
+{
+  "skill_name": "papyrus-optimization",
+  "_validation_method": "Manual prediction per HOUSECARL_SKILL_AUTHORING.md §6.5 at authoring time (empirical run_loop.py unavailable: absent from this repo and no non-Windows env). `manual_predicted_trigger` is the author's cold-read prediction. VALIDATED 2026-06-07 via houseCARL's native cold-read fan-out (fresh agents shown the full skill menu, judging blind): 10/10 recall + 10/10 specificity, satisfying the §6.3 gate and the §6.5 independent cold-read check. Outcome correctness (§6.6) signed off by Aaron + Heisen on 11 real load-order scripts. Detailed run-records kept in the private dev corpus.",
+  "_predicted_recall": "10/10 should-trigger predicted to fire (100%)",
+  "_predicted_specificity": "10/10 should-not-trigger predicted to abstain (100%) — optimistic; author prediction trends high, see flagged near-miss risks",
+  "_specificity_risks_to_watch": [
+    "snt-new-script-authoring", "snt-compile-psc", "snt-fps-enb", "snt-keyword-function", "snt-spid-authoring"
+  ],
+  "evals": [
+    {
+      "id": "st-onupdate-framerate",
+      "query": "can you look at this OnUpdate script and tell me if it's gonna tank my framerate",
+      "should_trigger": true,
+      "manual_predicted_trigger": true,
+      "rationale": "Review of an OnUpdate script for performance — core use case."
+    },
+    {
+      "id": "st-stackdumps-which-script",
+      "query": "my papyrus log is full of stack dumps after i added that follower mod, which script is the problem",
+      "should_trigger": true,
+      "manual_predicted_trigger": true,
+      "rationale": "Modder-vocabulary symptom (stack dumps, papyrus log) — the rubric is what identifies the heavy script. Description lists 'stack dumps' and 'Papyrus log spam'."
+    },
+    {
+      "id": "st-review-named-psc",
+      "query": "review _lp_bardplayhornscript.psc for me — is it written well?",
+      "should_trigger": true,
+      "manual_predicted_trigger": true,
+      "rationale": "Explicit .psc review request with a real filename."
+    },
+    {
+      "id": "st-tight-registerforupdate",
+      "query": "I've got a RegisterForUpdate(0.1) in my ability script, is that bad?",
+      "should_trigger": true,
+      "manual_predicted_trigger": true,
+      "rationale": "Questions a tight RegisterForUpdate — named in the description."
+    },
+    {
+      "id": "st-cloak-scan-lag",
+      "query": "how do i make this cloak spell that scans nearby actors less laggy",
+      "should_trigger": true,
+      "manual_predicted_trigger": true,
+      "rationale": "Cloak-scan performance — named in the description."
+    },
+    {
+      "id": "st-getplayer-every-frame",
+      "query": "is calling Game.GetPlayer() every frame in my OnUpdate a problem?",
+      "should_trigger": true,
+      "manual_predicted_trigger": true,
+      "rationale": "Uncached Game.GetPlayer() in a loop — named in the description."
+    },
+    {
+      "id": "st-wait-save-bloat",
+      "query": "this mod's script keeps Utility.Wait looping and i think it's causing save bloat, can you check",
+      "should_trigger": true,
+      "manual_predicted_trigger": true,
+      "rationale": "Utility.Wait chains + save-bloat — both named in the description."
+    },
+    {
+      "id": "st-acceptable-interval",
+      "query": "what's a safe update interval for a hunger/thirst needs script, every second too aggressive?",
+      "should_trigger": true,
+      "manual_predicted_trigger": true,
+      "rationale": "Whether an update interval is acceptable — named in the description."
+    },
+    {
+      "id": "st-optimize-survival-script",
+      "query": "optimize this papyrus script, it's part of my survival mod and feels heavy",
+      "should_trigger": true,
+      "manual_predicted_trigger": true,
+      "rationale": "Optimize a .psc that feels heavy — core action-first use case."
+    },
+    {
+      "id": "st-flag-broken-or-tighter",
+      "query": "can you go through my quest script and flag anything broken or that could be tighter",
+      "should_trigger": true,
+      "manual_predicted_trigger": true,
+      "rationale": "Classify broken vs optimizable — the rubric's whole purpose."
+    },
+
+    {
+      "id": "snt-getplayer-signature",
+      "query": "what does Game.GetPlayer() return and what are its parameters?",
+      "should_trigger": false,
+      "manual_predicted_trigger": false,
+      "rationale": "Near-miss: mentions Game.GetPlayer() but wants a signature → papyrus-reference, not optimization."
+    },
+    {
+      "id": "snt-new-script-authoring",
+      "query": "write me a brand-new papyrus script that gives the player a sword on game start",
+      "should_trigger": false,
+      "manual_predicted_trigger": false,
+      "rationale": "Near-miss / RISK: greenfield authoring, no review/optimize ask. Description is review-and-optimize-shaped; trivial enough Claude handles directly. Watch — could mis-fire on 'papyrus script'."
+    },
+    {
+      "id": "snt-ctd-crashlog",
+      "query": "my game crashes to desktop when i enter Whiterun, here's my crash log",
+      "should_trigger": false,
+      "manual_predicted_trigger": false,
+      "rationale": "Near-miss: crash diagnosis → crash-diagnostics, not script optimization."
+    },
+    {
+      "id": "snt-kid-keyword-distribution",
+      "query": "add the keyword WeapMaterialEbony to all the iron daggers in my load order",
+      "should_trigger": false,
+      "manual_predicted_trigger": false,
+      "rationale": "Near-miss: 'load order' + keywords, but it's KID/SkyPatcher authoring, not a script review."
+    },
+    {
+      "id": "snt-compile-psc",
+      "query": "how do i compile this .psc into a .pex? what's the import path?",
+      "should_trigger": false,
+      "manual_predicted_trigger": false,
+      "rationale": "Near-miss / RISK: mentions .psc but it's compilation/tooling, not review/optimize. Watch the .psc keyword."
+    },
+    {
+      "id": "snt-esl-esp-flag",
+      "query": "what's the difference between an ESL and an ESP flag for my plugin?",
+      "should_trigger": false,
+      "manual_predicted_trigger": false,
+      "rationale": "Plugin flags, unrelated to scripts."
+    },
+    {
+      "id": "snt-skypatcher-not-applying",
+      "query": "this SkyPatcher ini i wrote isn't applying, can you see why",
+      "should_trigger": false,
+      "manual_predicted_trigger": false,
+      "rationale": "Near-miss: 'review my file that isn't working', but it's a SkyPatcher INI → skypatcher-authoring, not .psc."
+    },
+    {
+      "id": "snt-fps-enb",
+      "query": "my fps drops to 20 in cities, what enb settings or mods should i change?",
+      "should_trigger": false,
+      "manual_predicted_trigger": false,
+      "rationale": "Near-miss / RISK: performance/fps complaint, but graphics/ENB, not Papyrus. Watch the 'fps drops' overlap with script-lag vocabulary."
+    },
+    {
+      "id": "snt-keyword-function",
+      "query": "is there a function to check if an actor has a specific keyword in papyrus?",
+      "should_trigger": false,
+      "manual_predicted_trigger": false,
+      "rationale": "Near-miss / RISK: papyrus + function lookup → papyrus-reference. Watch the papyrus overlap."
+    },
+    {
+      "id": "snt-spid-authoring",
+      "query": "explain how SPID distribution works, i want to give all bandits a spell",
+      "should_trigger": false,
+      "manual_predicted_trigger": false,
+      "rationale": "Near-miss / RISK: optimization skill names SPID as a cloak alternative, but user wants to author SPID → spid-authoring."
+    }
+  ]
+}
