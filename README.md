@@ -23,11 +23,11 @@ models — by construction, not a hand-maintained subset.
 - **Drive the external toolchain** — compile Papyrus scripts through the Creation Kit's compiler, and
   list / extract / repack BSA archives via BSArch; each tool's path is auto-detected or set once.
 - **Look mods up on Nexus** — search the Skyrim SE catalogue and pull any mod's version, requirements,
-  files, and *true* latest release straight from Nexus Mods, without opening a browser. Read-only: it finds
+  and *true* latest release straight from Nexus Mods, without opening a browser. Read-only: it finds
   and informs; downloading stays your mod manager's "Mod Manager Download" handoff.
-- **Look things up and author distributor files** through bundled, namespaced skills: record schemas
-  (every type Mutagen models), Papyrus / SKSE signatures, and SkyPatcher / SPID / KID distributor
-  grammars.
+- **Look things up, author distributor files, and review scripts** through bundled, namespaced skills:
+  record schemas (every type Mutagen models), Papyrus / SKSE signatures, SkyPatcher / SPID / KID
+  distributor grammars, and Papyrus performance review.
 
 ## Requirements
 
@@ -106,6 +106,9 @@ Namespaced under `/housecarl:` in Claude (and reachable via `$housecarl` in Code
 - **`skypatcher-authoring`**, **`spid-authoring`**, **`kid-authoring`** — author SkyPatcher INI,
   SPID `_DISTR.ini`, and KID `_KID.ini` distributor files from a grammar reference rather than invented
   syntax.
+- **`papyrus-optimization`** — review a Papyrus script for performance: classify each part broken /
+  suboptimal / clean, explain what makes it heavy, and give the fix. The cost-and-habits complement to
+  `papyrus-reference`, and houseCARL's first community-contributed skill (DrHeisen).
 
 ## License
 
@@ -122,3 +125,5 @@ pointers.
   for the bundled `papyrus-reference` skill. Thank you.
 - **Zzyxzz** (SkyPatcher) and **powerofthree** (SPID and KID) — whose public documentation the
   distributor-authoring grammar facts were drawn from.
+- **DrHeisen** — contributed the `papyrus-optimization` skill, houseCARL's first community-contributed
+  skill: a Papyrus performance reviewer. Thank you.

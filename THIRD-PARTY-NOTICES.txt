@@ -144,6 +144,14 @@ Bundled skill reference content
       vendored. With thanks to Zzyxzz (SkyPatcher) and to powerofthree (SPID and
       KID, MIT), whose public documentation the grammar facts were drawn from.
 
+  papyrus-optimization
+      A Papyrus performance-review skill (original reference prose plus the
+      review workflow, describing Papyrus cost patterns and their fixes),
+      contributed to houseCARL by DrHeisen. It is an original community
+      contribution, conveyed as part of this GPL-3.0-only combined work under
+      the same terms. With thanks to DrHeisen - houseCARL's first
+      community-contributed skill.
+
 
 ===============================================================================
 The MIT License   (applies to the MIT components listed above)
