@@ -41,7 +41,7 @@ models — by construction, not a hand-maintained subset.
 
 ### Download — recommended (modders)
 
-1. Download **`houseCARL-1.1.2.zip`** from the [latest release](https://github.com/Avick3110/houseCARL/releases).
+1. Download **`houseCARL-1.1.3.zip`** from the [latest release](https://github.com/Avick3110/houseCARL/releases).
 2. Unzip it and run **`houseCARL-Setup.exe`**.
 3. Pick your host — **`[1] Claude Code`**, **`[2] Codex`**, or **`[3] Both`**. The installer wires
    everything up:
@@ -67,7 +67,7 @@ cd houseCARL
 
 The script regenerates the reflection rulebook, publishes the server framework-dependent (trimming **off**
 — houseCARL is reflection-driven, so trimming would strip types and silently lose coverage), bundles the
-skills, builds the setup utility, and packs `release/houseCARL-1.1.2.zip`. Install the output with
+skills, builds the setup utility, and packs `release/houseCARL-1.1.3.zip`. Install the output with
 `houseCARL-Setup.exe`, `claude --plugin-dir ./dist/housecarl`, or the bundled local-marketplace
 descriptor — see the script header for details.
 
