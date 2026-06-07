@@ -22,6 +22,9 @@ models — by construction, not a hand-maintained subset.
   cleaned automatically.
 - **Drive the external toolchain** — compile Papyrus scripts through the Creation Kit's compiler, and
   list / extract / repack BSA archives via BSArch; each tool's path is auto-detected or set once.
+- **Look mods up on Nexus** — search the Skyrim SE catalogue and pull any mod's version, requirements,
+  files, and *true* latest release straight from Nexus Mods, without opening a browser. Read-only: it finds
+  and informs; downloading stays your mod manager's "Mod Manager Download" handoff.
 - **Look things up and author distributor files** through bundled, namespaced skills: record schemas
   (every type Mutagen models), Papyrus / SKSE signatures, and SkyPatcher / SPID / KID distributor
   grammars.
@@ -86,6 +89,11 @@ into a new plugin. The active load order is read **statically** from your MO2 pr
 `modlist.txt` / `plugins.txt` (no USVFS, no live MO2 hooking) and refreshes automatically on the next tool
 call via cheap mtime checks. No plugin file handles are held at rest, so MO2 and xEdit can move or delete
 plugins freely while houseCARL is running.
+
+The only outbound network use is the read-only **Nexus Mods lookups** (catalogue search + mod detail).
+They're **keyless** — the public Nexus catalogue API needs no account or API key — and offline-tolerant: if
+there's no connection they say so plainly and every local capability keeps working. houseCARL reads Nexus;
+it never downloads or installs (that stays your mod manager's `nxm` "Mod Manager Download" handoff).
 
 ## Bundled skills
 

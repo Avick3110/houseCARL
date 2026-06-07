@@ -17,6 +17,8 @@ It can:
   cleaned automatically.
 - **Drive the external toolchain** — compile Papyrus scripts through the Creation Kit's compiler, and
   list / extract / repack BSA archives via BSArch; each tool's path is auto-detected or set once.
+- **Look mods up on Nexus** — search the Skyrim SE catalogue and read any mod's version, requirements, and
+  files straight from Nexus Mods, no browser needed. Read-only; downloading stays your mod manager's job.
 - Look up **record schemas** (every type Mutagen models) and **Papyrus / SKSE signatures**, and author
   **SkyPatcher**, **SPID**, and **KID** distributor files — through bundled, namespaced skills
   (`/housecarl:mutagen-reference`, `/housecarl:papyrus-reference`, `/housecarl:skypatcher-authoring`,
@@ -54,6 +56,7 @@ Talk to it. For example:
 - "Make a patch that gives every iron weapon +5 damage."
 - "Distribute a Frost Resistance ability to all Nords with SPID."
 - "Which plugins override the IronSword record, and who wins?"
+- "Search Nexus for the most-endorsed archery overhauls — what's the top one's latest version and requirements?"
 
 houseCARL writes each patch as its own MO2 mod folder; enable it in MO2 like any other mod, then review it
 in xEdit if you like before playing.
