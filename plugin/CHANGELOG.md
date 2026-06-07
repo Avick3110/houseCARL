@@ -4,7 +4,7 @@ All notable changes to houseCARL are documented here. Versioning is [semantic](h
 the `version` in `.claude-plugin/plugin.json` is bumped on each release, so installed users update only
 when it changes.
 
-## Unreleased
+## 1.2.0 — 2026-06-07
 
 houseCARL reads Nexus Mods directly, and gains a community-contributed Papyrus performance reviewer.
 
