@@ -69,6 +69,11 @@ release/
 ## Transient, never source-of-truth; like the worktrees above, it must never enter a commit.
 .claude/scheduled_tasks.lock
 
+## Skill eval RUN-RECORDS — per-run validation outputs (trigger / outcome results) under a skill's
+## evals/. The eval SET (eval_set.json) is committed; run-records are dev-local, and the detailed
+## ones can carry a tester's private load-order data, so they live in dev/ (private), never here.
+.claude/skills/*/evals/*-RESULTS.md
+
 ## Internal dev workspace — PRFAQ corpus, plans, session handoffs, review audits, references, and
 ## spike code. houseCARL's private working area, carved from the public repo at GitHub go-live
 ## (Aaron 2026-06-04); it never publishes. This whole-dir rule subsumes the former
