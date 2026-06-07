@@ -135,6 +135,14 @@ public sealed class LoadOrderResolver : IDisposable
         /// near-handle-free; a tracked optimization, not done here.]</summary>
         public IReadOnlyList<ISkyrimModGetter> AllMasters()
         {
+            // Excluded plugins (BuildIndex couldn't fully parse) are INTENTIONALLY retained here — NOT filtered by
+            // _excluded. A clean plugin can override a record whose ORIGIN master is an excluded one, and that master
+            // must still appear in the patch's output header for FormID resolution; dropping it would corrupt the
+            // header. Safe: Overlay() opens lazily (no parse, no enumeration → no throw), and the serializer parses a
+            // master's bodies ONLY when the patch references them — and an excluded plugin's OWN records can't be
+            // referenced (they're unreadable). So this is the one read-path that touches excluded plugins on purpose,
+            // and it cannot re-throw. (If a future change enumerates or link-caches over this full set, it must
+            // re-introduce the _excluded skip — the per-read "single choke point" is BuildIndex, not this method.)
             var arr = new ISkyrimModGetter[_r._paths.Length];
             for (int i = 0; i < arr.Length; i++) arr[i] = Overlay(i);
             return arr;
@@ -274,6 +282,10 @@ public sealed class LoadOrderResolver : IDisposable
     static string Concise(Exception ex)
     {
         var s = ex.ToString();
+        // "\n   at " is the en-US stack-frame prefix; on a localized runtime it won't match and the whole ToString()
+        // (stack included) gets flattened + capped instead — noisier, never WRONG, and the RecordException "which
+        // record" context is front-loaded in ToString() so it survives the 300-char cap either way. (Windows/en-US
+        // product → acceptable; reading the exception's record-identity properties would be the locale-proof upgrade.)
         int at = s.IndexOf("\n   at ", StringComparison.Ordinal);
         var head = (at >= 0 ? s.Substring(0, at) : s).Replace("\r", "").Replace("\n", " | ").Trim();
         return head.Length > 300 ? head.Substring(0, 300) + "…" : head;

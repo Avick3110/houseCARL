@@ -66,7 +66,7 @@ static class Mo2OrderHarness
         Console.WriteLine($"  plugins={resolver.PluginCount}  records={resolver.RecordCount}  conflicts={resolver.ConflictCount}  maxDepth={resolver.MaxDepth}");
         if (resolver.LoadFailures.Count > 0)
         {
-            Console.WriteLine($"  overlay-open failures: {resolver.LoadFailures.Count} (first 5):");
+            Console.WriteLine($"  excluded plugins (open OR parse failure): {resolver.LoadFailures.Count} (first 5):");
             foreach (var f in resolver.LoadFailures.Take(5)) Console.WriteLine($"    - {f}");
         }
 
