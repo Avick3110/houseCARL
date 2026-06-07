@@ -52,15 +52,22 @@ public sealed class NexusClient
         if (!string.IsNullOrWhiteSpace(category))
             filter["categoryName"] = new[] { new { value = category!, op = "EQUALS" } };
 
-        // sort is [{ <field>: { direction: DESC } }] — a single-key object, so build it from a dictionary.
-        var sort = new[] { new Dictionary<string, object> { [sortField] = new { direction = "DESC" } } };
+        // sort is [{ <field>: { direction } }] — a single-key object, so build it from a dictionary. Name sorts
+        // ASCending (A-Z, what "by name" means); every other field DESCending (most endorsements/downloads/recent first).
+        var direction = sortField == "name" ? "ASC" : "DESC";
+        var sort = new[] { new Dictionary<string, object> { [sortField] = new { direction } } };
 
         var (ok, error, data) = await PostAsync(SearchQuery, new { filter, sort, count }, ct);
         if (!ok) return (false, error, null);
 
-        var mods = data.GetProperty("mods");
+        // Guard the root navigation: a 200 with an unexpected shape must STILL return cleanly, not throw (the class
+        // contract is "every failure mode is returned, never thrown"). GetProperty would throw on a missing field.
+        if (!data.TryGetProperty("mods", out var mods) || mods.ValueKind != JsonValueKind.Object
+            || !mods.TryGetProperty("nodes", out var nodeList) || nodeList.ValueKind != JsonValueKind.Array)
+            return (false, "Nexus Mods returned an unexpected response shape (no 'mods' results).", null);
+
         var hits = new List<NexusSearchHit>();
-        foreach (var n in mods.GetProperty("nodes").EnumerateArray())
+        foreach (var n in nodeList.EnumerateArray())
             hits.Add(new NexusSearchHit(
                 Int(n, "modId"), Str(n, "name") ?? "", Str(n, "version"), Str(n, "author"),
                 Int(n, "endorsements"), Int(n, "downloads"), Str(n, "updatedAt"),
@@ -77,7 +84,9 @@ public sealed class NexusClient
             ModQuery, new { modId = modId.ToString(), gameId = SkyrimSeGameId.ToString() }, ct);
         if (!ok) return (false, error, null);
 
-        var m = data.GetProperty("mod");
+        // Guard the root navigation (see SearchAsync) — a missing 'mod' on a 200 returns cleanly, never throws.
+        if (!data.TryGetProperty("mod", out var m) || m.ValueKind != JsonValueKind.Object)
+            return (false, "Nexus Mods returned an unexpected response shape (no 'mod').", null);
 
         var reqs = new List<NexusRequirement>();
         if (m.TryGetProperty("modRequirements", out var mr) && mr.ValueKind == JsonValueKind.Object
@@ -110,16 +119,21 @@ public sealed class NexusClient
     // ──────────────────────────────────────────────────────────────────────────────────────────────────────────
     async Task<(bool ok, string? error, JsonElement data)> PostAsync(string query, object variables, CancellationToken ct)
     {
-        HttpResponseMessage resp;
         string body;
+        int status;
+        string? reason;
+        bool success;
         try
         {
             using var req = new HttpRequestMessage(HttpMethod.Post, Endpoint)
             {
                 Content = JsonContent.Create(new { query, variables }, options: Json),
             };
-            resp = await _http.SendAsync(req, ct);
+            using var resp = await _http.SendAsync(req, ct);
             body = await resp.Content.ReadAsStringAsync(ct);
+            status = (int)resp.StatusCode;
+            reason = resp.ReasonPhrase;
+            success = resp.IsSuccessStatusCode;
         }
         catch (TaskCanceledException) when (!ct.IsCancellationRequested)
         {
@@ -133,10 +147,10 @@ public sealed class NexusClient
                 + "houseCARL's local tools work offline.", default);
         }
 
-        if ((int)resp.StatusCode == 429)
+        if (status == 429)
             return (false, "Nexus Mods is rate-limiting the connection (HTTP 429). Wait a moment and try again.", default);
-        if (!resp.IsSuccessStatusCode)
-            return (false, $"Nexus Mods returned HTTP {(int)resp.StatusCode} ({resp.ReasonPhrase}).", default);
+        if (!success)
+            return (false, $"Nexus Mods returned HTTP {status} ({reason}).", default);
 
         JsonDocument doc;
         try { doc = JsonDocument.Parse(body); }
@@ -161,7 +175,13 @@ public sealed class NexusClient
     // ── tolerant JsonElement readers (a missing/typed-wrong field reads as null/0/false, never throws — Q3) ──
     static string? Str(JsonElement e, string p) => e.TryGetProperty(p, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
     static int Int(JsonElement e, string p) => e.TryGetProperty(p, out var v) && v.ValueKind == JsonValueKind.Number && v.TryGetInt32(out var i) ? i : 0;
-    static long Long(JsonElement e, string p) => e.TryGetProperty(p, out var v) && v.ValueKind == JsonValueKind.Number && v.TryGetInt64(out var l) ? l : 0;
+    static long Long(JsonElement e, string p)
+    {
+        if (!e.TryGetProperty(p, out var v)) return 0;
+        if (v.ValueKind == JsonValueKind.Number && v.TryGetInt64(out var l)) return l;
+        if (v.ValueKind == JsonValueKind.String && long.TryParse(v.GetString(), out var s)) return s;   // tolerate date-as-string
+        return 0;
+    }
     static bool Bool(JsonElement e, string p) => e.TryGetProperty(p, out var v) && v.ValueKind == JsonValueKind.True;
 
     // ── GraphQL documents (variable-based ⇒ user input is never string-concatenated into the query) ──
