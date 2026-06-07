@@ -44,7 +44,7 @@ public static class ResolveHarness
         Console.WriteLine($"   (§8.1 floor was ~28 MB managed → index alone ≈ held managed − floor; target was ~165–185 MB total)");
         if (resolver.LoadFailures.Count > 0)
         {
-            Console.WriteLine($"   !! {resolver.LoadFailures.Count} overlay(s) FAILED to open (surfaced, not skipped — Q3):");
+            Console.WriteLine($"   !! {resolver.LoadFailures.Count} plugin(s) EXCLUDED — open OR parse failure (surfaced, not skipped — Q3):");
             foreach (var f in resolver.LoadFailures.Take(10)) Console.WriteLine($"        {f}");
         }
 
