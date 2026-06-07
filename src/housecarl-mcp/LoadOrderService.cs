@@ -127,10 +127,10 @@ public sealed class LoadOrderService : IDisposable
     /// changed since that build (Q3 — never present a stale picture as current). Forces the lazy resolver build.</summary>
     public LoadOrderStatusData StatusData()
     {
-        var r = Resolver;                                          // force build/refresh → resolved count + warnings
+        var r = Resolver;                                          // force build/refresh → resolved count + warnings + exclusions
         var comp = Mo2LoadOrder.ReadComposition(_profileDir);      // FRESH composition (always current)
         return new LoadOrderStatusData(
-            comp, _orderWarnings, r.PluginCount, _maxPlugins, ProfileNewerThan(_orderBuiltUtc), _profileDir);
+            comp, _orderWarnings, r.PluginCount, _maxPlugins, ProfileNewerThan(_orderBuiltUtc), _profileDir, r.ExcludedPlugins);
     }
 
     /// <summary>True if any of the three MO2 profile files has a newer mtime than the resolver's last build — i.e. the
@@ -290,9 +290,21 @@ public sealed class LoadOrderService : IDisposable
     public ReadOutcome ResolveRead(FormKey fk, string? plugin, IReadOnlyList<string>? fields, bool conflictTree, int depth = 1)
     {
         var resolver = Resolver;
+
+        // An explicitly-requested plugin that was EXCLUDED this session (unparseable/unopenable) → say so (Q3),
+        // rather than fall through to a misleading "does not define this record".
+        if (plugin is not null && resolver.ExcludedPlugins.TryGetValue(plugin, out var pWhy))
+            return ReadOutcome.Fail(fk, $"Plugin '{plugin}' was excluded from this session: {pWhy}");
+
         var winner = resolver.ResolveWinner(fk);
         if (winner is null)
+        {
+            // If the record's defining plugin was excluded, that's WHY it's missing — name it (Q3), not a bare "not present".
+            var defining = fk.ModKey.FileName.ToString();
+            if (resolver.ExcludedPlugins.TryGetValue(defining, out var dWhy))
+                return ReadOutcome.Fail(fk, $"FormID {fk} is not resolvable: its plugin '{defining}' was excluded from this session: {dWhy}");
             return ReadOutcome.Fail(fk, $"FormID {fk} is not present in the load order ({resolver.PluginCount} plugins).");
+        }
 
         var source = plugin ?? winner.Value.WinnerPlugin;
         using var session = resolver.OpenSession();                       // opens the source plugin; disposed at return (Option B)
@@ -889,11 +901,14 @@ public sealed record ConflictNodeView(string Plugin, RecordFields Record);
 /// <summary>The data behind housecarl_load_order_status. <see cref="Composition"/> is the fresh enabled/disabled picture;
 /// <see cref="ResolvedPluginCount"/> + <see cref="Warnings"/> are the resolver's actual last-build state;
 /// <see cref="ProfileChanged"/> is true only when a refresh was attempted but is still pending (e.g. MO2 was mid-write) —
-/// houseCARL re-reads automatically on the next tool call; no restart.</summary>
+/// houseCARL re-reads automatically on the next tool call; no restart. <see cref="ExcludedPlugins"/> (name → reason) are
+/// plugins dropped from the index this build (unopenable, or carrying a record Mutagen can't parse) — surfaced so the
+/// user can fix/remove them (Q3).</summary>
 public sealed record LoadOrderStatusData(
     Mo2Composition Composition,
     IReadOnlyList<string> Warnings,
     int ResolvedPluginCount,
     int MaxPlugins,
     bool ProfileChanged,
-    string ProfileDir);
+    string ProfileDir,
+    IReadOnlyDictionary<string, string> ExcludedPlugins);
