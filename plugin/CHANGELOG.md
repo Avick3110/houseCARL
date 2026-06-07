@@ -4,6 +4,21 @@ All notable changes to houseCARL are documented here. Versioning is [semantic](h
 the `version` in `.claude-plugin/plugin.json` is bumped on each release, so installed users update only
 when it changes.
 
+## Unreleased
+
+houseCARL reads Nexus Mods directly, and gains a community-contributed Papyrus performance reviewer.
+
+- **Nexus Mods lookups:** two keyless, read-only tools — `housecarl_nexus_search` (search the Skyrim SE
+  catalogue) and `housecarl_nexus_mod` (one mod's version, requirements, and *true* latest release — its
+  newest MAIN file, since a mod's own version header can lag) — answer Nexus questions directly through
+  the public Nexus catalogue API: no browser, no
+  account, no API key. Read-only — houseCARL finds and informs; downloading stays your mod manager's
+  "Mod Manager Download" handoff. Offline-tolerant: with no connection it says so plainly and every
+  local capability keeps working.
+- **`papyrus-optimization` skill:** a bundled Papyrus performance reviewer — classify each part of a
+  `.psc` as broken / suboptimal / clean, explain what makes it heavy, and give the fix (event-driven,
+  caching, states, native offload). houseCARL's first community-contributed skill, by DrHeisen.
+
 ## 1.1.3 — 2026-06-07
 
 Hardens houseCARL against a malformed plugin that could otherwise make every command fail.

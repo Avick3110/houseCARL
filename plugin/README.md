@@ -17,12 +17,14 @@ It can:
   cleaned automatically.
 - **Drive the external toolchain** — compile Papyrus scripts through the Creation Kit's compiler, and
   list / extract / repack BSA archives via BSArch; each tool's path is auto-detected or set once.
-- **Look mods up on Nexus** — search the Skyrim SE catalogue and read any mod's version, requirements, and
-  files straight from Nexus Mods, no browser needed. Read-only; downloading stays your mod manager's job.
-- Look up **record schemas** (every type Mutagen models) and **Papyrus / SKSE signatures**, and author
-  **SkyPatcher**, **SPID**, and **KID** distributor files — through bundled, namespaced skills
-  (`/housecarl:mutagen-reference`, `/housecarl:papyrus-reference`, `/housecarl:skypatcher-authoring`,
-  `/housecarl:spid-authoring`, `/housecarl:kid-authoring`).
+- **Look mods up on Nexus** — search the Skyrim SE catalogue and read any mod's version, requirements,
+  and latest release straight from Nexus Mods, no browser needed. Read-only; downloading stays your mod
+  manager's job.
+- Look up **record schemas** (every type Mutagen models) and **Papyrus / SKSE signatures**, author
+  **SkyPatcher**, **SPID**, and **KID** distributor files, and **review Papyrus scripts for
+  performance** — through bundled, namespaced skills (`/housecarl:mutagen-reference`,
+  `/housecarl:papyrus-reference`, `/housecarl:skypatcher-authoring`, `/housecarl:spid-authoring`,
+  `/housecarl:kid-authoring`, `/housecarl:papyrus-optimization`).
 
 Coverage is **reflection-driven**: the set of record types houseCARL understands *is* the set Mutagen
 models, by construction — not a hand-maintained subset.
@@ -75,3 +77,5 @@ no linking exception), which houseCARL bundles. Every third-party component and 
   the bundled `papyrus-reference` skill. Thank you.
 - **Zzyxzz** (SkyPatcher) and **powerofthree** (SPID and KID) — the public documentation behind the
   distributor-authoring skills.
+- **DrHeisen** — contributed the `papyrus-optimization` skill, houseCARL's first community-contributed
+  skill: a Papyrus performance reviewer. Thank you.
