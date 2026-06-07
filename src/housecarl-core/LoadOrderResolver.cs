@@ -39,8 +39,15 @@ namespace HousecarlCore;
 //  MEMBERSHIP are order-independent and correct now; winner IDENTITY is only as correct as the injected order
 //  — pinning the true active order (plugins.txt / MO2 USVFS) + xEdit-verifying it is the §8.5 gate, not this class.
 //
-//  Q3 (no silent failure): per-plugin open failures during the index build are COLLECTED and surfaced
-//  (LoadFailures), never skipped silently; a body the index says exists but the plugin can't yield throws.
+//  Q3 (no silent failure): a plugin the index build cannot fully read — it won't OPEN, or it contains a
+//  record Mutagen cannot PARSE (a strict-validation throw mid-enumeration; the common real case is a
+//  malformed subrecord an upstream ESP ships and the game engine ignores) — is EXCLUDED wholesale and the
+//  reason is COLLECTED + surfaced (LoadFailures / ExcludedPlugins → load_order_status), never skipped
+//  silently. ONE such record used to kill the whole build (bricking EVERY tool call, since all resolve
+//  through this index); now it costs only its own plugin. The throw is non-resumable, so we can't skip just
+//  the bad record (Mutagen 0.53.1: the group enumerator can't advance past it) — exclusion is per-PLUGIN,
+//  and atomic (a partially-read plugin never half-populates the index). A body the index says exists but the
+//  plugin can't yield still throws (a real inconsistency, named).
 // ======================================================================
 
 /// <summary>One plugin's version of a record in a conflict tree (the body is fetched on demand, not held).</summary>
@@ -69,10 +76,19 @@ public sealed class LoadOrderResolver : IDisposable
 
     Dictionary<FormKey, (int winner, int count)> _index;   // ALL keys — winner + depth, O(1)
     Dictionary<FormKey, int[]> _overriders;                // MULTI keys only — ordered touching overlay indices
-    List<string> _loadFailures = new();                    // per-plugin open failures from the last index build (Q3)
+    List<string> _loadFailures = new();                    // per-plugin index-build failures (open OR parse), surfaced (Q3)
+    HashSet<int> _excluded = new();                        // overlay indices excluded this build — never re-touched by any path
+    Dictionary<string, string> _excludedPlugins = new(StringComparer.OrdinalIgnoreCase); // excluded plugin name → reason (Q3)
 
-    /// <summary>Overlay-open failures from the last index build — surfaced, never silently skipped (Q3).</summary>
+    /// <summary>Per-plugin index-build failures (couldn't open, or contains a record Mutagen can't parse) — each
+    /// excluded plugin named with its reason, surfaced never silently skipped (Q3). Same content as
+    /// <see cref="ExcludedPlugins"/>, formatted "name: reason" for log/harness display.</summary>
     public IReadOnlyList<string> LoadFailures => _loadFailures;
+
+    /// <summary>Plugins EXCLUDED from this build (name → why): unopenable, or carrying a record Mutagen can't parse.
+    /// Their records are not in the index and no path will re-touch them; load_order_status reports them so the user
+    /// can fix/remove the upstream plugin (Q3 — the exclusion is visible, not silent).</summary>
+    public IReadOnlyDictionary<string, string> ExcludedPlugins => _excludedPlugins;
 
     public int PluginCount => _paths.Length;
     public int RecordCount => _index.Count;            // distinct FormKeys across the order
@@ -174,47 +190,93 @@ public sealed class LoadOrderResolver : IDisposable
     }
 
     /// <summary>Enumerate every plugin once (low→high), ONE AT A TIME (open → enumerate → dispose), building the
-    /// winner/count index for all keys and the ordered overrider list for multi-override keys only. Single pass, no
-    /// all-keys list ever materialized, and at most ONE plugin handle open at any instant (Option B — never the floor).
-    /// A plugin that won't open is recorded in <see cref="LoadFailures"/> and contributes no records (Q3).</summary>
+    /// winner/count index for all keys and the ordered overrider list for multi-override keys only. At most ONE plugin
+    /// handle open at any instant (Option B — never the floor). RESILIENT (Q3): a plugin that won't OPEN, or that
+    /// contains a record Mutagen can't PARSE (a throw mid-enumeration — Mutagen constructs each record's body as it
+    /// enumerates, so a malformed subrecord throws here, NOT lazily on field access), is EXCLUDED wholesale and the
+    /// reason recorded — it no longer takes the whole index down with it. Per plugin it's ATOMIC: records go into a
+    /// per-plugin buffer and fold into the shared index only if the WHOLE plugin enumerated, so a plugin that throws
+    /// part-way never leaves a half-set behind (which would mis-resolve winners for its un-enumerated records).</summary>
     void BuildIndex()
     {
         var index = new Dictionary<FormKey, (int winner, int count)>();
         var overriders = new Dictionary<FormKey, List<int>>();        // multi keys only
         var failures = new List<string>();
+        var excluded = new HashSet<int>();
+        var excludedPlugins = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         int maxDepth = 0;
 
         for (int i = 0; i < _paths.Length; i++)
         {
             ISkyrimModGetter ov;
             try { ov = SkyrimMod.CreateFromBinaryOverlay(_paths[i], SkyrimRelease.SkyrimSE); }
-            catch (Exception ex) { failures.Add($"{_names[i]}: {ex.GetType().Name} {ex.Message}"); continue; }
-            try
+            catch (Exception ex)
             {
-                foreach (var rec in ov.EnumerateMajorRecords())
-                {
-                    var fk = rec.FormKey;
-                    if (!index.TryGetValue(fk, out var e))
-                    {
-                        index[fk] = (i, 1);                                // first sighting — singleton so far, no list
-                    }
-                    else
-                    {
-                        int newCount = e.count + 1;
-                        index[fk] = (i, newCount);                          // higher overlay = new winner
-                        if (newCount == 2) overriders[fk] = new List<int> { e.winner, i };  // 2nd sighting promotes to multi
-                        else overriders[fk].Add(i);                         // 3rd+ extends the list
-                        if (newCount > maxDepth) maxDepth = newCount;
-                    }
-                }
+                Exclude(i, $"could not be opened — {Concise(ex)}", failures, excluded, excludedPlugins);
+                continue;
+            }
+
+            // Buffer the WHOLE plugin's keys first (plugin-atomic). EnumerateMajorRecords() constructs each record
+            // body as it advances, so a record Mutagen rejects (e.g. a malformed PKCU data-count) throws HERE. The
+            // throw is non-resumable, so we can't skip just that record — but catching it lets us EXCLUDE this one
+            // plugin and carry on with every other (vs. the old try/finally, where the throw escaped and killed the
+            // entire index → every tool call failed). The buffer means a partial enumeration is discarded, not merged.
+            var keys = new List<FormKey>();
+            try { foreach (var rec in ov.EnumerateMajorRecords()) keys.Add(rec.FormKey); }
+            catch (Exception ex)
+            {
+                Exclude(i, $"contains a record Mutagen cannot parse, so the whole plugin is excluded from this " +
+                           $"session (its records are not resolvable; every other plugin is unaffected) — read " +
+                           $"{keys.Count} record(s) before the failure: {Concise(ex)}. Fix or remove the upstream " +
+                           "plugin to restore access to it.",
+                        failures, excluded, excludedPlugins);
+                continue;
             }
             finally { (ov as IDisposable)?.Dispose(); }                    // one plugin open at a time — never the whole floor
+
+            foreach (var fk in keys)                                       // fold the COMPLETE plugin into the index
+            {
+                if (!index.TryGetValue(fk, out var e))
+                {
+                    index[fk] = (i, 1);                                    // first sighting — singleton so far, no list
+                }
+                else
+                {
+                    int newCount = e.count + 1;
+                    index[fk] = (i, newCount);                              // higher overlay = new winner
+                    if (newCount == 2) overriders[fk] = new List<int> { e.winner, i };  // 2nd sighting promotes to multi
+                    else overriders[fk].Add(i);                            // 3rd+ extends the list
+                    if (newCount > maxDepth) maxDepth = newCount;
+                }
+            }
         }
 
         _index = index;
         _overriders = overriders.ToDictionary(kv => kv.Key, kv => kv.Value.ToArray());  // trim List overhead → int[]
         MaxDepth = maxDepth;
         _loadFailures = failures;
+        _excluded = excluded;
+        _excludedPlugins = excludedPlugins;
+    }
+
+    /// <summary>Record one plugin's exclusion from the index build (Q3): into the human-readable failure list, the
+    /// fast-skip index set, and the name→reason map the server surfaces in load_order_status.</summary>
+    void Exclude(int i, string reason, List<string> failures, HashSet<int> excluded, Dictionary<string, string> excludedPlugins)
+    {
+        failures.Add($"{_names[i]}: {reason}");
+        excluded.Add(i);
+        excludedPlugins[_names[i]] = reason;
+    }
+
+    /// <summary>One-line essence of an exception for a user-facing reason: the message lines (the Mutagen
+    /// RecordException/SubrecordException family names the offending record + subrecord in its display text) up to the
+    /// stack trace, newlines flattened, bounded. Keeps the WHICH-record context without dumping the whole trace.</summary>
+    static string Concise(Exception ex)
+    {
+        var s = ex.ToString();
+        int at = s.IndexOf("\n   at ", StringComparison.Ordinal);
+        var head = (at >= 0 ? s.Substring(0, at) : s).Replace("\r", "").Replace("\n", " | ").Trim();
+        return head.Length > 300 ? head.Substring(0, 300) + "…" : head;
     }
 
     // ---- Queries -------------------------------------------------------
@@ -261,6 +323,8 @@ public sealed class LoadOrderResolver : IDisposable
     {
         if (!_nameToIdx.TryGetValue(pluginName, out int idx))
             throw new ArgumentException($"plugin not in the load order: {pluginName}");
+        if (_excluded.Contains(idx))
+            throw new ArgumentException($"plugin '{pluginName}' was excluded from this session: {_excludedPlugins[pluginName]}");
         var ov = SkyrimMod.CreateFromBinaryOverlay(_paths[idx], SkyrimRelease.SkyrimSE);
         try
         {
@@ -284,6 +348,7 @@ public sealed class LoadOrderResolver : IDisposable
     public IMajorRecordGetter? GetRecord(OverlaySession session, string pluginName, FormKey fk)
     {
         if (!_nameToIdx.TryGetValue(pluginName, out int idx)) return null;
+        if (_excluded.Contains(idx)) return null;                          // excluded plugin — never re-enumerate it (would re-throw); the service reports the reason via ExcludedPlugins
         foreach (var rec in session.Overlay(idx).EnumerateMajorRecords())
             if (rec.FormKey == fk) return rec;
         return null;
@@ -316,6 +381,7 @@ public sealed class LoadOrderResolver : IDisposable
     {
         for (int i = 0; i < _paths.Length; i++)
         {
+            if (_excluded.Contains(i)) continue;                           // excluded at build (unparseable/unopenable) — wins nothing; never re-touch (would re-throw)
             ISkyrimModGetter ov;
             try { ov = SkyrimMod.CreateFromBinaryOverlay(_paths[i], SkyrimRelease.SkyrimSE); }
             catch { continue; }                                            // an unopenable plugin wins nothing (surfaced at build)
@@ -360,12 +426,14 @@ public sealed class LoadOrderResolver : IDisposable
     IReadOnlyList<int> ScopeIndices(IReadOnlyList<string>? scopePlugins)
     {
         if (scopePlugins is null || scopePlugins.Count == 0)
-            return Enumerable.Range(0, _paths.Length).ToArray();
+            return Enumerable.Range(0, _paths.Length).Where(i => !_excluded.Contains(i)).ToArray();  // whole order, minus excluded
         var idxs = new List<int>(scopePlugins.Count);
         foreach (var name in scopePlugins)
         {
             if (!_nameToIdx.TryGetValue(name, out int i))
                 throw new ArgumentException($"plugin not in the load order: {name}");
+            if (_excluded.Contains(i))                                     // explicitly scoped to an excluded plugin → fail loud with the reason (Q3), don't silently scan nothing
+                throw new ArgumentException($"plugin '{name}' was excluded from this session: {_excludedPlugins[name]}");
             idxs.Add(i);
         }
         return idxs;

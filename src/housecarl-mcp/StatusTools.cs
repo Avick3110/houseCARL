@@ -70,10 +70,11 @@ static class StatusWire
 
         if (lookup is { Length: > 0 })
         {
-            AppendLookup(sb, c, lookup.Trim());
+            AppendLookup(sb, c, d.ExcludedPlugins, lookup.Trim());
             return sb.ToString().TrimEnd('\n');
         }
 
+        AppendExcluded(sb, d.ExcludedPlugins, cap);   // Q3 health alarm — prominent, before the routine name lists
         AppendLogs(sb, logs);   // fixed-tiny — before the cap-bounded name lists, so a long modlist can't truncate it away
 
         AppendList(sb, "disabled mods", c.DisabledMods, cap);
@@ -126,6 +127,24 @@ static class StatusWire
         }
     }
 
+    /// <summary>The EXCLUDED-plugins alarm (Q3): plugins dropped from the index this build — unopenable, or carrying a
+    /// record Mutagen can't parse (a malformed subrecord the game ignores but Mutagen rejects). houseCARL reads NONE of
+    /// an excluded plugin, but EVERY other plugin works — surfaced loud so the user can fix/remove the upstream plugin
+    /// (before this fix, ONE such record bricked every call). Rendered before the routine name lists so a long modlist
+    /// can't truncate it away.</summary>
+    static void AppendExcluded(StringBuilder sb, IReadOnlyDictionary<string, string> excluded, int cap)
+    {
+        if (excluded.Count == 0) return;
+        sb.Append("\n[!] EXCLUDED plugins (").Append(excluded.Count)
+          .Append(") — dropped from the index this session; houseCARL does NOT read these, every OTHER plugin works:\n");
+        int shown = 0;
+        foreach (var kv in excluded)
+        {
+            if (sb.Length >= cap) { sb.Append("  ... [").Append(excluded.Count - shown).Append(" more omitted at max_chars=").Append(cap).Append("]\n"); break; }
+            sb.Append("  - ").Append(kv.Key).Append(": ").Append(kv.Value).Append('\n'); shown++;
+        }
+    }
+
     static void AppendList(StringBuilder sb, string label, IReadOnlyList<string> names, int cap)
     {
         sb.Append('\n').Append(label).Append(" (").Append(names.Count).Append("):");
@@ -139,7 +158,8 @@ static class StatusWire
         }
     }
 
-    static void AppendLookup(StringBuilder sb, HousecarlCore.Mo2Composition c, string name)
+    static void AppendLookup(StringBuilder sb, HousecarlCore.Mo2Composition c,
+                             IReadOnlyDictionary<string, string> excluded, string name)
     {
         sb.Append("\nlookup '").Append(name).Append("':\n");
 
@@ -155,6 +175,11 @@ static class StatusWire
             Contains(c.InactivePluginNames, name) ? "INACTIVE (present but unchecked — houseCARL EXCLUDES it)" :
                                                     "not in the load order (no such plugin in loadorder.txt)";
         sb.Append("  as a plugin: ").Append(asPlugin).Append('\n');
+
+        // An active plugin can still be EXCLUDED from the index (a record Mutagen can't parse) — say so (Q3), so the
+        // "ACTIVE … houseCARL reads/writes it" line above isn't taken as the whole truth.
+        if (excluded.TryGetValue(name, out var why))
+            sb.Append("  [!] EXCLUDED this session: ").Append(why).Append("\n      → houseCARL does NOT read this plugin (every other plugin is unaffected).\n");
     }
 
     static string ProfileName(string profileDir)
