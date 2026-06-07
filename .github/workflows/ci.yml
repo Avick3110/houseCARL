@@ -36,3 +36,8 @@ jobs:
 
       - name: Probe — BSA riders (skips without BSArch)
         run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- bsa-probe
+
+      # Self-contained (synthesizes a malformed-PKCU plugin in code — no external files), so unlike the manual
+      # pkcu-* proofs it runs fully here: a regression guard locking in the "Taste of Death" index-build fix.
+      - name: Probe — PKCU index-build resilience (self-contained regression guard)
+        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- pkcu-regression
