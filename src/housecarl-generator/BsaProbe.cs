@@ -6,14 +6,16 @@ namespace HousecarlGenerator;
 /// BSA-rider proof (EXTERNAL_TOOL_BRIDGE_PLAN step 3). Drives the shipped <see cref="BsaArchive"/> against the REAL BSArch
 /// on a REAL archive: list → unpack → pack → re-list, asserting the round-trip preserves the file count (the plan's proof
 /// gate). The list step also exercises the "Files: N + last-N-lines" parser against real output. Skipped (not failed) if
-/// BSArch or the test archive isn't present; override both via args.
+/// BSArch or the test archive isn't present; provide both via args or the HOUSECARL_BSARCH / HOUSECARL_TEST_BSA env vars.
 ///
 /// Run: dotnet run --project src/housecarl-generator bsa-probe ["&lt;BSArch.exe&gt;"] ["&lt;test.bsa&gt;"]
 /// </summary>
 internal static class BsaProbe
 {
-    const string DefaultBsarch = @"E:\Skyrim Modding\Tools\xEdit.4.1.5f\BSArch.exe";
-    const string DefaultBsa = @"E:\Skyrim Modding\ARR 2.0\Stock Game\Data\MarketplaceTextures.bsa";
+    // No personal paths baked into source: the no-arg defaults come from env vars, so the probe SKIPs
+    // cleanly when neither is set. Pass a BSArch.exe + test .bsa as args, or set the env vars below.
+    static readonly string DefaultBsarch = Environment.GetEnvironmentVariable("HOUSECARL_BSARCH") ?? "";
+    static readonly string DefaultBsa = Environment.GetEnvironmentVariable("HOUSECARL_TEST_BSA") ?? "";
 
     public static int Run(string[] args)
     {
@@ -26,8 +28,8 @@ internal static class BsaProbe
 
         var bsarch = args.Length > 0 ? args[0] : DefaultBsarch;
         var bsa = args.Length > 1 ? args[1] : DefaultBsa;
-        if (!File.Exists(bsarch)) { Console.WriteLine($"  SKIP  no BSArch at '{bsarch}' (pass its path as arg 1)"); return 0; }
-        if (!File.Exists(bsa)) { Console.WriteLine($"  SKIP  no test archive at '{bsa}' (pass one as arg 2)"); return 0; }
+        if (!File.Exists(bsarch)) { Console.WriteLine($"  SKIP  no BSArch at '{bsarch}' (pass its path as arg 1, or set HOUSECARL_BSARCH)"); return 0; }
+        if (!File.Exists(bsa)) { Console.WriteLine($"  SKIP  no test archive at '{bsa}' (pass one as arg 2, or set HOUSECARL_TEST_BSA)"); return 0; }
 
         var work = Path.Combine(Environment.CurrentDirectory, ".bsa-probe");
         var unpacked = Path.Combine(work, "unpacked");
