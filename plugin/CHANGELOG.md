@@ -4,6 +4,17 @@ All notable changes to houseCARL are documented here. Versioning is [semantic](h
 the `version` in `.claude-plugin/plugin.json` is bumped on each release, so installed users update only
 when it changes.
 
+## 1.1.3 — 2026-06-07
+
+Hardens houseCARL against a malformed plugin that could otherwise make every command fail.
+
+- **Resilient load-order indexing:** a single record Mutagen can't parse — for example a malformed package
+  data-input count that an upstream ESP ships and the game engine ignores — used to make *every* houseCARL
+  command fail with a Mutagen error, because the whole-load-order index is built up front and one bad record
+  threw the entire build. houseCARL now isolates the offending plugin: it is excluded from the session and
+  reported in `housecarl_load_order_status` (with the reason why), while every other plugin stays fully
+  readable. Fix or remove the upstream plugin to restore access to it.
+
 ## 1.1.2 — 2026-06-06
 
 Fixes a silent lookup failure in the Papyrus reference skill, and ships the corrected third-party credits.
