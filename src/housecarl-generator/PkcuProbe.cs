@@ -186,6 +186,88 @@ public static class PkcuProbe
         return pass ? 0 : 1;
     }
 
+    /// <summary>CI REGRESSION GUARD (self-contained — no external file/MO2 deps, unlike the manual proofs above, so it
+    /// runs on the CI runner). SYNTHESIZES the malformed-PKCU case in code: writes a clean plugin (a keyword) + a plugin
+    /// with an empty PACK, both masterless (CI has no game files), then flips the PACK's PKCU data-input count from 0 to
+    /// a non-zero value so count≠inputs — the exact mismatch Mutagen throws on mid-enumeration. Asserts the resolver
+    /// EXCLUDES the bad plugin (not fatal) while the clean plugin still resolves. Locks in the "Taste of Death" fix.
+    /// Returns 0 = pass / 1 = fail (the CI gate). Run: dotnet run --project src/housecarl-generator -- pkcu-regression</summary>
+    public static int RunRegression(string[] args)
+    {
+        Console.WriteLine("== PKCU REGRESSION GUARD (self-contained) ==");
+        var dir = Path.Combine(Path.GetTempPath(), "hc_pkcu_regression");
+        try { if (Directory.Exists(dir)) Directory.Delete(dir, recursive: true); } catch { }
+        Directory.CreateDirectory(dir);
+        var cleanPath = Path.Combine(dir, "hcRegClean.esp");
+        var badPath = Path.Combine(dir, "hcRegBad.esp");
+        try
+        {
+            // 1. CLEAN plugin — a keyword we can resolve (masterless: references nothing, so CI needs no game files).
+            var cleanMod = new SkyrimMod(ModKey.FromNameAndExtension("hcRegClean.esp"), SkyrimRelease.SkyrimSE);
+            var kw = cleanMod.Keywords.AddNew();
+            kw.EditorID = "hcRegKeyword";
+            var cleanKwFk = kw.FormKey;
+            cleanMod.BeginWrite.ToPath(cleanPath).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
+
+            // 2. BAD plugin — an empty PACK. Mutagen writes a PKCU counter (count=0) for it; flip count→6 so it claims
+            //    6 data inputs but carries 0 → "Unexpected data count mismatch" thrown when Mutagen constructs the
+            //    overlay during enumeration (the exact bug).
+            var badMod = new SkyrimMod(ModKey.FromNameAndExtension("hcRegBad.esp"), SkyrimRelease.SkyrimSE);
+            var pkg = badMod.Packages.AddNew();
+            pkg.EditorID = "hcRegBadPackage";
+            var pkgFk = pkg.FormKey;
+            badMod.BeginWrite.ToPath(badPath).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
+
+            if (!FlipPkcuCount(badPath, 0x06, out var synthNote)) { Console.WriteLine($"   FAIL (synth): {synthNote}"); return 1; }
+            Console.WriteLine($"   synth: {synthNote}");
+
+            // Sanity: the synthesized bad plugin really does throw on raw enumeration (else the test proves nothing).
+            bool rawThrows = false;
+            try { foreach (var _ in SkyrimMod.CreateFromBinaryOverlay(badPath, SkyrimRelease.SkyrimSE).EnumerateMajorRecords()) { } }
+            catch { rawThrows = true; }
+            if (!rawThrows) { Console.WriteLine("   FAIL (synth): the corrupted plugin did NOT throw on raw enumeration — synthesis is stale, test would be a false PASS."); return 1; }
+
+            // 3. The fix: Build over [clean, bad] must NOT throw; bad excluded; clean still resolves.
+            LoadOrderResolver resolver;
+            try { resolver = LoadOrderResolver.Build(new[] { cleanPath, badPath }); }
+            catch (Exception ex) { Console.WriteLine($"   FAIL (regression!): LoadOrderResolver.Build threw: {ex.GetType().Name}: {Trunc(ex.Message)}"); return 1; }
+
+            bool excluded = resolver.ExcludedPlugins.ContainsKey("hcRegBad.esp");
+            var cleanWin = resolver.ResolveWinner(cleanKwFk);
+            var badWin = resolver.ResolveWinner(pkgFk);
+            Console.WriteLine($"   build OK — {resolver.RecordCount} record(s), {resolver.ExcludedPlugins.Count} excluded");
+            foreach (var kv in resolver.ExcludedPlugins) Console.WriteLine($"   excluded[{kv.Key}]: {Trunc(kv.Value)}");
+            Console.WriteLine($"   clean keyword resolves : {(cleanWin is not null ? "yes -> " + cleanWin.Value.WinnerPlugin : "NO")}");
+            Console.WriteLine($"   bad package resolves   : {(badWin is null ? "no (correct — excluded)" : "YES (wrong)")}");
+            resolver.Dispose();
+
+            bool pass = excluded && cleanWin is not null && badWin is null && resolver.RecordCount > 0;
+            Console.WriteLine(pass ? "   ==> PASS: malformed plugin isolated, clean plugin resolves." : "   ==> FAIL");
+            return pass ? 0 : 1;
+        }
+        catch (Exception ex) { Console.WriteLine($"   FAIL (unexpected): {ex.GetType().Name}: {Trunc(ex.Message)}"); return 1; }
+        finally { try { Directory.Delete(dir, recursive: true); } catch { } }
+    }
+
+    /// <summary>Flip the PKCU data-input count (first DWORD's low byte) in a written plugin to <paramref name="newCount"/>,
+    /// creating a count≠actual-inputs mismatch. Returns false if no PKCU subrecord is present (synthesis assumption broken).</summary>
+    static bool FlipPkcuCount(string path, byte newCount, out string note)
+    {
+        var b = File.ReadAllBytes(path);
+        for (int i = 0; i < b.Length - 6; i++)
+            if (b[i] == 0x50 && b[i + 1] == 0x4B && b[i + 2] == 0x43 && b[i + 3] == 0x55)   // "PKCU"
+            {
+                int dataStart = i + 6;                                                        // 4 tag + 2 length
+                byte old = b[dataStart];
+                b[dataStart] = newCount;
+                File.WriteAllBytes(path, b);
+                note = $"PKCU @ {i}: data-input count {old} -> {newCount} (now claims {newCount} inputs, carries 0)";
+                return true;
+            }
+        note = "no PKCU subrecord found in the synthesized PACK (Mutagen did not emit one for an empty package)";
+        return false;
+    }
+
     static string Sig(MethodInfo m) =>
         $"{m.Name}({string.Join(", ", m.GetParameters().Select(p => $"{p.ParameterType.Name} {p.Name}{(p.IsOptional ? "=opt" : "")}"))})";
 
