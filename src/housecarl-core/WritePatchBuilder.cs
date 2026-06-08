@@ -187,7 +187,9 @@ public static class WritePatchBuilder
 
         // --- Phase 4: serialize ONCE with the FULL known-master set (multi-master). Mutagen keeps the header lean
         //     (only-referenced); a referenced master genuinely absent from the order still fails loud (Q3). ---
-        try { WriteEngine.WritePatch(patchMod, session.AllMasters(), outPath); }
+        // AllMastersExcept (not AllMasters): never map the file we're about to write — were the patch active in the
+        // order, mapping it would lock it against its own overwrite (active-patch self-lock; writelock-probe 2026-06-08).
+        try { WriteEngine.WritePatch(patchMod, session.AllMastersExcept(patchMod.ModKey.FileName.String), outPath); }
         catch (Exception ex)
             { return PatchOutcome.Fail($"serialize failed: {ex.GetType().Name}: {ex.Message}"); }
 
@@ -292,7 +294,9 @@ public static class WritePatchBuilder
 
         // Serialize ONCE with the full known-master set; Mutagen keeps the header lean (only-referenced), so a master
         // orphaned by the removal drops here automatically. A referenced master genuinely absent still fails loud (Q3).
-        try { WriteEngine.WritePatch(patchMod, session.AllMasters(), outPath); }
+        // AllMastersExcept (not AllMasters): never map the file we're about to write — were the patch active in the
+        // order, mapping it would lock it against its own overwrite (active-patch self-lock; writelock-probe 2026-06-08).
+        try { WriteEngine.WritePatch(patchMod, session.AllMastersExcept(patchMod.ModKey.FileName.String), outPath); }
         catch (Exception ex) { return RemovalOutcome.Fail($"serialize after removal failed: {ex.GetType().Name}: {ex.Message}"); }
 
         // Re-open: report the (possibly shrunk) master header + how many records remain (0 ⇒ the patch is now an inert
@@ -396,7 +400,9 @@ public static class WritePatchBuilder
         // --- Phase 4: serialize ONCE with the full known-master set. A created record referencing existing content pulls
         //     its master into the (lean, derived) header; a self-contained one yields a masterless plugin. A referenced
         //     master genuinely absent still fails loud (Q3). ---
-        try { WriteEngine.WritePatch(patchMod, session.AllMasters(), outPath); }
+        // AllMastersExcept (not AllMasters): never map the file we're about to write — were the patch active in the
+        // order, mapping it would lock it against its own overwrite (active-patch self-lock; writelock-probe 2026-06-08).
+        try { WriteEngine.WritePatch(patchMod, session.AllMastersExcept(patchMod.ModKey.FileName.String), outPath); }
         catch (Exception ex) { return CreateOutcome.Fail($"serialize after create failed: {ex.GetType().Name}: {ex.Message}"); }
 
         // --- Phase 5: re-open + report the (derived) master header + bytes. Dispose the overlay so the file isn't left
