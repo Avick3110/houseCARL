@@ -46,3 +46,8 @@ jobs:
       # files), runs fully here: a regression guard locking in the depth-walker reflection-leak fix (HCBR-2026-06-08-01).
       - name: Probe — depth-walker reflection leak (self-contained regression guard)
         run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- depth-leak-guard
+
+      # Self-contained (synthesizes records with known field values — no external files), runs fully here: a regression
+      # guard for the field-value query predicate (cross_plugin_query where=) — matched set == brute-force + the Q3 teeth.
+      - name: Probe — field-value query predicate (self-contained regression guard)
+        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- value-predicate-guard

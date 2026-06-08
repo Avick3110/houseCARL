@@ -378,17 +378,28 @@ public sealed class LoadOrderService : IDisposable
     /// in-hand body and so require type= or plugins= to bound them. Returns pre-built match summaries (capped at
     /// <paramref name="limit"/>, with the true total) or a recoverable Q3 error. Holds nothing.</summary>
     public CrossQueryOutcome CrossQuery(string? type, FormKey? references, string? editoridContains,
-                                        bool conflictsOnly, IReadOnlyList<string>? plugins, int limit)
+                                        bool conflictsOnly, IReadOnlyList<string>? plugins, IReadOnlyList<string>? where, int limit)
     {
         var resolver = Resolver;
         bool hasPlugins = plugins is { Count: > 0 };
         bool hasType = type is not null;
-        bool bodyFilter = references is not null || !string.IsNullOrEmpty(editoridContains);
+        bool hasWhere = where is { Count: > 0 };
+        bool bodyFilter = references is not null || !string.IsNullOrEmpty(editoridContains) || hasWhere;
 
         if (!hasType && !conflictsOnly && !hasPlugins && !bodyFilter)
-            return CrossQueryOutcome.Fail("cross_plugin_query needs at least one of: type=, conflicts_only=true, editorid_contains=, references=, or plugins=.");
+            return CrossQueryOutcome.Fail("cross_plugin_query needs at least one of: type=, conflicts_only=true, editorid_contains=, references=, where=, or plugins=.");
         if (bodyFilter && !hasType && !hasPlugins)
-            return CrossQueryOutcome.Fail("editorid_contains/references is a body scan and must be combined with type= or plugins= to bound it (conflicts_only= alone is not enough — an unbounded body scan over the whole order is refused). A global reverse-reference index is a future capability.");
+            return CrossQueryOutcome.Fail("editorid_contains/references/where is a body scan and must be combined with type= or plugins= to bound it (conflicts_only= alone is not enough — an unbounded body scan over the whole order is refused). A global reverse-reference index is a future capability.");
+
+        // where= → the field-value predicate set. Parsed up front so a malformed predicate refuses the call BEFORE
+        // any scan (Q3). The predicate reuses the read engine's path-walk, so its reach == the read surface's reach.
+        FieldPredicateSet? predicate = null;
+        if (hasWhere)
+        {
+            var (set, perr) = FieldPredicateSet.Parse(where!);
+            if (perr is not null) return CrossQueryOutcome.Fail(perr);
+            predicate = set;
+        }
 
         IReadOnlyList<Type>? types;
         try { types = hasType ? ResolveTypeFilter(type!) : null; }
@@ -417,6 +428,11 @@ public sealed class LoadOrderService : IDisposable
                     if (references is { } target
                         && !(body is IFormLinkContainerGetter flc && flc.EnumerateFormLinks().Any(l => l.FormKey == target)))
                         continue;
+                    if (predicate is not null && !predicate.Matches(body))    // value filter — same in-hand body, no extra fetch
+                    {
+                        if (predicate.FatalError is not null) break;          // numeric op vs non-numeric field — abort + surface (Q3)
+                        continue;
+                    }
                     if (!seen.Add(fk)) continue;                              // de-dup (a FK can recur across scoped plugins)
                     total++;
                     if (keys.Count < limit)                                   // in-hand body → fill the summary for free
@@ -428,6 +444,7 @@ public sealed class LoadOrderService : IDisposable
                 }
             }
             catch (ArgumentException ex) { return CrossQueryOutcome.Fail(ex.Message); } // plugin not in order / unknown type
+            if (predicate?.FatalError is not null) return CrossQueryOutcome.Fail(predicate.FatalError); // typed predicate error — fail fast, named (Q3)
         }
         else                                                                  // conflicts_only alone — index keys only; NO body fetch
         {
@@ -439,7 +456,7 @@ public sealed class LoadOrderService : IDisposable
                 if (keys.Count < limit) keys.Add(fk);
             }
         }
-        return new CrossQueryOutcome(keys, prefilled, total, total > keys.Count, null);
+        return new CrossQueryOutcome(keys, prefilled, total, total > keys.Count, null, predicate?.AccountingNote());
     }
 
     // ---- writes (§8.4 Beat C: housecarl_set_field / housecarl_bulk_apply) -------------------------------
@@ -878,7 +895,8 @@ public sealed record ReadOutcome(
 /// lazily, bounded by max_chars). <see cref="Total"/> is the true match count; <see cref="Capped"/> is true when
 /// Total exceeded what was returned.</summary>
 public sealed record CrossQueryOutcome(
-    IReadOnlyList<FormKey> Keys, IReadOnlyList<RecordSummary>? Prefilled, int Total, bool Capped, string? Error)
+    IReadOnlyList<FormKey> Keys, IReadOnlyList<RecordSummary>? Prefilled, int Total, bool Capped, string? Error,
+    string? PredicateNote = null)
 {
     public static CrossQueryOutcome Fail(string error) => new(Array.Empty<FormKey>(), null, 0, false, error);
 }
