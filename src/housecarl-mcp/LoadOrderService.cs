@@ -406,6 +406,7 @@ public sealed class LoadOrderService : IDisposable
         catch (ArgumentException ex) { return CrossQueryOutcome.Fail(ex.Message); }   // unknown type
 
         var keys = new List<FormKey>();
+        var sources = new List<string?>();                                    // parallel to keys: the plugin whose body matched (null ⇒ winner), so the render displays the SAME body it filtered
         List<RecordSummary>? prefilled = (hasType || hasPlugins) ? new() : null;   // parallel to keys; null = renderer fills lazily
         int total = 0;
 
@@ -417,9 +418,12 @@ public sealed class LoadOrderService : IDisposable
             var seen = new HashSet<FormKey>();
             try
             {
-                var stream = hasPlugins ? resolver.RecordsIn(plugins!, types)  // the scoped plugin's own body
-                                        : resolver.WinnerRecordsOfType(types!); // the load-order winner's body
-                foreach (var (fk, depth, body) in stream)
+                // Carry the SOURCE plugin per record so the render shows the body the scan filtered (not the winner):
+                // plugins= → the scoped plugin's filename; type= → null (⇒ the winner, the WinnerRecordsOfType body).
+                IEnumerable<(FormKey fk, int depth, IMajorRecordGetter body, string? source)> stream =
+                    hasPlugins ? resolver.RecordsIn(plugins!, types).Select(x => (fk: x.fk, depth: x.depth, body: x.body, source: (string?)x.source))  // the scoped plugin's own body
+                               : resolver.WinnerRecordsOfType(types!).Select(x => (fk: x.fk, depth: x.depth, body: x.body, source: (string?)null));    // the load-order winner's body
+                foreach (var (fk, depth, body, source) in stream)
                 {
                     if (conflictsOnly && depth <= 1) continue;
                     if (!string.IsNullOrEmpty(editoridContains)
@@ -438,6 +442,7 @@ public sealed class LoadOrderService : IDisposable
                     if (keys.Count < limit)                                   // in-hand body → fill the summary for free
                     {
                         keys.Add(fk);
+                        sources.Add(source);                                  // the body we filtered IS the body we'll display (null ⇒ winner)
                         prefilled!.Add(new RecordSummary(fk, RecordNaming.StripOverlay(body.GetType().Name), body.EditorID,
                                                          resolver.ResolveWinner(fk)?.WinnerPlugin ?? "?", depth, null));
                     }
@@ -453,10 +458,10 @@ public sealed class LoadOrderService : IDisposable
             foreach (var fk in resolver.ConflictKeys())
             {
                 total++;
-                if (keys.Count < limit) keys.Add(fk);
+                if (keys.Count < limit) { keys.Add(fk); sources.Add(null); }   // no scoped plugin → display the winner
             }
         }
-        return new CrossQueryOutcome(keys, prefilled, total, total > keys.Count, null, predicate?.AccountingNote());
+        return new CrossQueryOutcome(keys, prefilled, total, total > keys.Count, null, predicate?.AccountingNote(), sources);
     }
 
     // ---- writes (§8.4 Beat C: housecarl_set_field / housecarl_bulk_apply) -------------------------------
@@ -892,11 +897,13 @@ public sealed record ReadOutcome(
 /// recoverable, named reason — bad filter combo / unknown type / plugin not in order). Otherwise <see cref="Keys"/>
 /// are the matched FormKeys (at most `limit`); <see cref="Prefilled"/> (parallel to Keys) carries the in-hand
 /// summaries for the type/plugins paths, or is null for the conflicts_only-alone path (the renderer fills those
-/// lazily, bounded by max_chars). <see cref="Total"/> is the true match count; <see cref="Capped"/> is true when
-/// Total exceeded what was returned.</summary>
+/// lazily, bounded by max_chars). <see cref="Sources"/> (parallel to Keys) is the plugin whose body produced each
+/// match — the scoped plugin under plugins=, or null under type=/conflicts_only (⇒ the renderer displays the
+/// winner) — so the detail render shows the SAME body the scan filtered and display never contradicts filter.
+/// <see cref="Total"/> is the true match count; <see cref="Capped"/> is true when Total exceeded what was returned.</summary>
 public sealed record CrossQueryOutcome(
     IReadOnlyList<FormKey> Keys, IReadOnlyList<RecordSummary>? Prefilled, int Total, bool Capped, string? Error,
-    string? PredicateNote = null)
+    string? PredicateNote = null, IReadOnlyList<string?>? Sources = null)
 {
     public static CrossQueryOutcome Fail(string error) => new(Array.Empty<FormKey>(), null, 0, false, error);
 }
