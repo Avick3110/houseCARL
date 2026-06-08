@@ -23,6 +23,10 @@ if (args.Length > 0 && args[0] == "pkcu-scale-proof") return PkcuProbe.RunScaleP
 // Index-build resilience (Nexus bug): SELF-CONTAINED CI regression guard — synthesizes the malformed PKCU, asserts isolation.
 if (args.Length > 0 && args[0] == "pkcu-regression") return PkcuProbe.RunRegression(args[1..]);
 
+// Depth-walker reflection leak (HCBR-2026-06-08-01): SELF-CONTAINED CI regression guard — synthesizes a CTDA
+// condition whose arm carries a System.Type Parameter1Type, asserts a deep read renders it as one opaque token.
+if (args.Length > 0 && args[0] == "depth-leak-guard") return DepthLeakProbe.RunGuard(args[1..]);
+
 // One-shot verify (decision #1): confirm the xEdit 4-char signature reflection path.
 if (args.Length > 0 && args[0] == "sig") return Probe.RunSig();
 

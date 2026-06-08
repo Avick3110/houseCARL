@@ -41,3 +41,8 @@ jobs:
       # pkcu-* proofs it runs fully here: a regression guard locking in the "Taste of Death" index-build fix.
       - name: Probe — PKCU index-build resilience (self-contained regression guard)
         run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- pkcu-regression
+
+      # Self-contained (synthesizes a CTDA condition whose arm carries a System.Type Parameter1Type — no external
+      # files), runs fully here: a regression guard locking in the depth-walker reflection-leak fix (HCBR-2026-06-08-01).
+      - name: Probe — depth-walker reflection leak (self-contained regression guard)
+        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- depth-leak-guard
