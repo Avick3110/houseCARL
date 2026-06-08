@@ -4,6 +4,27 @@ All notable changes to houseCARL are documented here. Versioning is [semantic](h
 the `version` in `.claude-plugin/plugin.json` is bumped on each release, so installed users update only
 when it changes.
 
+## 1.2.1 — 2026-06-08
+
+Adds value-based record querying and a fuller Nexus lookup, and fixes several read and write rough edges.
+
+- **Query by field value:** `housecarl_cross_plugin_query` gains a `where=` filter that matches records
+  by a field's *value*, not just by record type or plugin — e.g. `where="MagicSkill = Destruction"` or
+  `where="BasicStats.Damage >= 50"`. Operators are `=`, `!=`, `>`, `>=`, `<`, `<=`, and `contains`, and
+  multiple `where=` conditions are ANDed. It works on any field you can read (by construction — the
+  filterable set is the readable set); a path that can't resolve fails loud rather than silently matching
+  nothing.
+- **Full Nexus descriptions:** `housecarl_nexus_mod` takes an opt-in `description=true` that returns a
+  mod's full Nexus page write-up — cleaned from the page markup to plain text — instead of only the short
+  catalogue summary.
+- **Write into an active patch:** writing into a patch that is itself active in the load order no longer
+  fails with a file-lock error — houseCARL releases every mapped handle on the target before it saves.
+- **Deep reads of condition-bearing records:** a deep read (`depth` 5+) of a record that carries
+  conditions — a perk, spell, or magic effect — no longer floods the output with .NET reflection
+  internals; the descent now stops at the modeled record content, so the real values stay visible.
+- **Scoped queries show the scoped record:** under a `plugins=` scope, `housecarl_cross_plugin_query`
+  now renders each match from that plugin's own record body rather than the global load-order winner.
+
 ## 1.2.0 — 2026-06-07
 
 houseCARL reads Nexus Mods directly, and gains a community-contributed Papyrus performance reviewer.
