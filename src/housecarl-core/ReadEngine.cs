@@ -275,6 +275,16 @@ public static class ReadEngine
         {
             // substruct — open its modeled (Loqui-filtered) fields. Reflection, not the corpus: display-only,
             // and substructs aren't corpus-keyed by a name we hold here.
+            //
+            // GATE — the expansion boundary is the modeled corpus (cornerstone). Only DESCEND into Mutagen/
+            // Noggog record content; a value that reaches here but is NOT modeled is .NET plumbing — in
+            // practice a System.Type (RuntimeType): a ConditionData arm's Parameter1Type/Parameter2Type are
+            // typed System.Type, and a naive recurse walks .Assembly.DefinedTypes (the whole ~17,900-type
+            // Mutagen assembly), the BaseType→Enum→ValueType chain, StructLayoutAttribute, Module, the cyclic
+            // UnderlyingSystemType — ~50 KB of reflection internals that is never record data (HCBR-2026-06-08-01).
+            // The summary token was already emitted above (e.g. `Parameter1Type = [RuntimeType] Name=ActorValue`,
+            // exactly the clean depth<=4 rendering); we keep it and STOP, regardless of remaining depth budget.
+            if (!IsModeledContent(val.GetType())) return;
             foreach (var fname in ReflectedFieldNames(val.GetType()))
             {
                 if (budget < 0) return;
@@ -381,6 +391,27 @@ public static class ReadEngine
         var tn = p.PropertyType.Name;
         return tn.Contains("BinaryWriteTranslat", StringComparison.Ordinal)
             || tn.EndsWith("BinaryTranslation", StringComparison.Ordinal);
+    }
+
+    /// <summary>True if <paramref name="t"/> is MODELED record content the depth walker may descend into — a
+    /// Mutagen or Noggog type. Everything else that reaches the substruct branch is .NET plumbing: in practice a
+    /// <see cref="System.Type"/>/RuntimeType (a ConditionData arm's <c>Parameter1Type</c>/<c>Parameter2Type</c>),
+    /// or an <see cref="Assembly"/>/<see cref="System.Reflection.Module"/>/<see cref="MemberInfo"/>/<see
+    /// cref="Attribute"/> reached through one. Those carry no record data — descending them leaks the assembly's
+    /// whole type metadata — so the expander renders only their one-line summary token and stops. The modeled
+    /// corpus IS the boundary (cornerstone): a type outside Mutagen's own universe is not ours to expand.
+    /// Reflection objects are also blocked explicitly so the intent reads clearly and stays robust if a non-
+    /// modeled support namespace ever appears.</summary>
+    static bool IsModeledContent(Type t)
+    {
+        if (typeof(MemberInfo).IsAssignableFrom(t)            // Type : MemberInfo — covers Type/RuntimeType, MethodInfo, …
+            || typeof(Assembly).IsAssignableFrom(t)
+            || typeof(System.Reflection.Module).IsAssignableFrom(t)
+            || typeof(Attribute).IsAssignableFrom(t)) return false;
+        var ns = t.Namespace;
+        return ns is not null
+            && (ns.StartsWith("Mutagen.Bethesda", StringComparison.Ordinal)
+                || ns.StartsWith("Noggog", StringComparison.Ordinal));
     }
 
     // ======================================================================
