@@ -57,3 +57,8 @@ jobs:
       # its OWN source plugin (the body the scan filtered), the winner stream with the winner. Locks wishlist #8.
       - name: Probe — winner-vs-source display (self-contained regression guard)
         run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- source-display-guard
+
+      # Self-contained (synthesizes a patch active in its own load order — no external files), runs fully here: a
+      # regression guard locking in the active-patch write self-lock fix (Heisen 2026-06-08, AllMastersExcept).
+      - name: Probe — active-patch write self-lock (self-contained regression guard)
+        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- writelock-guard

@@ -137,6 +137,14 @@ if (args.Length > 0 && args[0] == "handle-probe") return HandleProbe.RunProbe(ar
 // Cleanup-gotcha / Option-B AT-REST proof: drive the REAL product code (resolver Build -> read via session -> create via write path) on temp copies and assert files are renamable at rest (zero handles held).
 if (args.Length > 0 && args[0] == "atrest-probe") return AtRestProbe.RunProbe(args[1..]);
 
+// Active-patch write self-lock (Heisen bug 2026-06-08): EXPLORATORY — map the Windows file-sharing semantics of writing
+// into a patch whose own overlay is held by AllMasters() (direct vs temp+Replace vs release-then-write). Decides the fix.
+if (args.Length > 0 && args[0] == "writelock-probe") return WriteLockProbe.RunProbe(args[1..]);
+
+// Active-patch write self-lock (Heisen bug 2026-06-08): SELF-CONTAINED CI regression guard — drives CreateRecords into an
+// ACTIVE patch + asserts the write succeeds (a control proves the lock still reproduces). RED before the AllMastersExcept fix.
+if (args.Length > 0 && args[0] == "writelock-guard") return WriteLockProbe.RunGuard(args[1..]);
+
 // External-tool bridge (step 1) proof: the pure core pieces housecarl_set_tool_path + the riders ride — shared-config
 // clobber-safety, path validation, the missing-dependency forcing prompt, and canonical-home auto-detect.
 if (args.Length > 0 && args[0] == "tool-bridge") return ToolBridgeProbe.Run(args[1..]);

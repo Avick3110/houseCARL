@@ -132,7 +132,10 @@ public sealed class LoadOrderResolver : IDisposable
         /// with every master resolvable + ordered, a cross-master patch serializes with a lean only-referenced header.
         /// Opened for THIS write only and disposed with the session (Option B). [Tier-1: the full set — byte-identical to
         /// the xEdit-proven write path. A future Tier-2 could open only the patch-referenced masters so even a write stays
-        /// near-handle-free; a tracked optimization, not done here.]</summary>
+        /// near-handle-free; a tracked optimization, not done here.] To write INTO a patch that is itself ACTIVE in the
+        /// order, the write path uses <see cref="AllMastersExcept"/> instead — mapping the write TARGET would lock it
+        /// against its own overwrite (the active-patch self-lock); that exclusion is a CORRECTNESS fix, separate from the
+        /// Tier-2 perf idea above.</summary>
         public IReadOnlyList<ISkyrimModGetter> AllMasters()
         {
             // Excluded plugins (BuildIndex couldn't fully parse) are INTENTIONALLY retained here — NOT filtered by
@@ -146,6 +149,29 @@ public sealed class LoadOrderResolver : IDisposable
             var arr = new ISkyrimModGetter[_r._paths.Length];
             for (int i = 0; i < arr.Length; i++) arr[i] = Overlay(i);
             return arr;
+        }
+
+        /// <summary>Like <see cref="AllMasters"/>, but NEVER opens an overlay on <paramref name="excludeFileName"/> — the
+        /// file the caller is about to serialize to. THE ACTIVE-PATCH WRITE FIX (Heisen bug 2026-06-08): when the write
+        /// target is itself active in the load order (the normal case once a patch is enabled in MO2), opening a
+        /// memory-mapped overlay on it — as <see cref="AllMasters"/> does for EVERY plugin — LOCKS the file against the
+        /// very overwrite that follows. Windows refuses to replace a mapped file (IOException "used by another process"),
+        /// so the all-or-nothing write writes nothing, and the message misdirects diagnosis at MO2/xEdit.
+        ///
+        /// <para>The fix is to never OPEN that overlay: a patch is never its own master, so the target is never NEEDED in
+        /// the resolve set, and SKIPPING its index leaves no handle to collide with the serialize. Proven (writelock-probe
+        /// 2026-06-08): a held overlay locks the target even when it is excluded from the load-order ARGUMENT — it is the
+        /// open handle, not the argument membership, that locks, so the index must be skipped (Overlay never called),
+        /// NOT merely filtered from the returned list. Master derivation is unaffected: only the target itself is dropped,
+        /// and a patch never links to itself, so every master its records DO reference is still opened + ordered. Excluded
+        /// (unparseable) plugins are retained for the same reason <see cref="AllMasters"/> retains them (see above).</para></summary>
+        public IReadOnlyList<ISkyrimModGetter> AllMastersExcept(string excludeFileName)
+        {
+            var list = new List<ISkyrimModGetter>(_r._paths.Length);
+            for (int i = 0; i < _r._paths.Length; i++)
+                if (!string.Equals(_r._names[i], excludeFileName, StringComparison.OrdinalIgnoreCase))
+                    list.Add(Overlay(i));   // SKIP the target's index — never map the file we're about to overwrite
+            return list;
         }
 
         /// <summary>An immutable link cache over ONE named plugin (opened in this session) — built ON DEMAND for the
