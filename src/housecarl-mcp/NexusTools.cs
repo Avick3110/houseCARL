@@ -228,7 +228,12 @@ static class Render
     static string StripMarkup(string raw, int cap)
     {
         const RegexOptions IC = RegexOptions.IgnoreCase;
-        var s = raw;
+        // Bound the input BEFORE any regex: the embed/[url] cleaners use a lazy `.*?` that backtracks O(n²) on many
+        // UNCLOSED openers in untrusted author text — a malformed page could hang the call for seconds (a Q3 degraded-
+        // mode risk; DescriptionCap runs too late to help, it only trims the cleaned OUTPUT). cap*4 leaves ample
+        // headroom (a real description cleans to < cap from far less raw) while capping the worst case to a fraction
+        // of a second.
+        var s = raw.Length > cap * 4 ? raw[..(cap * 4)] : raw;
 
         // Embeds: remove tag AND inner content (a URL/id is meaningless as prose). [img]…[/img], [youtube]…[/youtube], …
         s = Regex.Replace(s, @"\[(img|youtube|video|media|embed)\b[^\]]*\].*?\[/\1\]", " ", IC | RegexOptions.Singleline);
