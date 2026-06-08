@@ -437,7 +437,10 @@ public sealed class LoadOrderService : IDisposable
                         if (predicate.FatalError is not null) break;          // numeric op vs non-numeric field — abort + surface (Q3)
                         continue;
                     }
-                    if (!seen.Add(fk)) continue;                              // de-dup (a FK can recur across scoped plugins)
+                    // De-dup (a FK can recur across scoped plugins). This runs AFTER the filters, so under
+                    // plugins=[A,B] the source recorded for a shared FK is the FIRST scoped plugin (in plugins=
+                    // array order) whose body PASSED the filters — deterministic, and it's the body we'll display.
+                    if (!seen.Add(fk)) continue;
                     total++;
                     if (keys.Count < limit)                                   // in-hand body → fill the summary for free
                     {
