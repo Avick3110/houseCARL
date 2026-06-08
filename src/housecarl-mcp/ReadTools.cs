@@ -81,8 +81,10 @@ public static class ReadTools
          "summary line (FormID, type, editorid, winner, override depth). Filters (combine freely): type= a record " +
          "signature ('WEAP') or catalog name ('Weapon'); conflicts_only=true for records >1 plugin touches; " +
          "editorid_contains= a substring of the EditorID; references= a FormID the record points at (reverse lookup, " +
-         "e.g. 'what uses this keyword'); plugins= limits the scan to records those plugins touch (a bare plugins= is " +
-         "'everything this plugin touches'). At least one filter or plugins= is required. editorid_contains/references " +
+         "e.g. 'what uses this keyword'); where= filters by a field's VALUE (e.g. 'MagicSkill = Destruction', " +
+         "'BasicStats.Damage >= 50' — any scalar field, ANDed); plugins= limits the scan to records those plugins " +
+         "touch (a bare plugins= is 'everything this plugin touches'). At least one filter or plugins= is required. " +
+         "editorid_contains/references/where " +
          "are body scans and MUST be combined with type=, plugins=, or conflicts_only= to bound the work. Pass fields= " +
          "or conflict_tree=true to expand each match from a summary line to full detail. Results cap at limit= matches " +
          "and max_chars; both overruns are reported explicitly (never silent). Does NOT modify anything.")]
@@ -98,6 +100,8 @@ public static class ReadTools
             bool conflicts_only = false,
         [Description("Optional. Plugin filenames to scope the scan to (records those plugins touch). A name not in the load order is an error. Omit to scan the whole order.")]
             string[]? plugins = null,
+        [Description("Optional. Field-VALUE predicates, each \"<path> <op> <value>\" — e.g. 'MagicSkill = Destruction', 'BasicStats.Damage >= 50', 'Archetype.ActorValue = Infamy'. Operators: = != > >= < <= (>/< numeric) and contains (case-insensitive substring); multiple are ANDed. Filters on ANY scalar field the read tools can read (any type, any depth). A body scan — MUST be combined with type= or plugins=. A wrong or container/list path is reported, never a silent '0 matches'.")]
+            string[]? where = null,
         [Description("Optional. Dotted field paths to show for each match (e.g. 'BasicStats.Damage'). Omit for a one-line summary per match.")]
             string[]? fields = null,
         [Description("When true, include each match's touching-plugin list (winner last) + winner-relative field diff.")]
@@ -114,7 +118,7 @@ public static class ReadTools
             try { refFk = FormKey.Factory(references.Trim()); }
             catch (Exception ex) { return $"error: bad references FormID '{references}': {ex.Message}. Expected 'XXXXXX:Plugin.esp'."; }
         }
-        var outcome = svc.CrossQuery(type, refFk, editorid_contains, conflicts_only, plugins, limit <= 0 ? 500 : limit);
+        var outcome = svc.CrossQuery(type, refFk, editorid_contains, conflicts_only, plugins, where, limit <= 0 ? 500 : limit);
         return Wire.RenderCrossQuery(svc, outcome, fields, conflict_tree, max_chars);
     }
 }
@@ -172,6 +176,7 @@ static class Wire
         sb.Append("cross_plugin_query: ").Append(q.Total).Append(q.Total == 1 ? " match" : " matches");
         if (q.Capped) sb.Append(" (showing first ").Append(q.Keys.Count).Append("; raise limit= or narrow to see more)");
         sb.Append('\n');
+        if (q.PredicateNote is not null) sb.Append(q.PredicateNote).Append('\n');   // where= Q3 accounting (wrong-path/no-value surface)
 
         int rendered = 0;
         for (int i = 0; i < q.Keys.Count; i++)
