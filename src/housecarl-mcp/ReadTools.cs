@@ -191,7 +191,7 @@ static class Wire
             var fk = q.Keys[i];
             if (detail)
             {
-                var o = svc.ResolveRead(fk, null, fields, conflictTree);
+                var o = svc.ResolveRead(fk, q.Sources is { } src ? src[i] : null, fields, conflictTree);   // display the body the scan filtered: scoped plugin under plugins=, else winner
                 sb.Append('\n');
                 if (o.Error is not null) sb.Append(fk).Append(": error: ").Append(o.Error).Append('\n');
                 else { AppendRecord(sb, o, cap); if (conflictTree) AppendConflictTree(sb, svc, o, fields, cap); }

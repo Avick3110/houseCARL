@@ -31,6 +31,10 @@ if (args.Length > 0 && args[0] == "depth-leak-guard") return DepthLeakProbe.RunG
 // with known field values, asserts the evaluator's matched set == a brute-force reference + the Q3 teeth.
 if (args.Length > 0 && args[0] == "value-predicate-guard") return ValuePredicateProbe.RunGuard(args[1..]);
 
+// Winner-vs-source display (wishlist #8): SELF-CONTAINED CI regression guard — synthesizes a master + two overrides
+// (B wins) and asserts RecordsIn pairs each yielded body with its OWN source plugin, the winner stream with the winner.
+if (args.Length > 0 && args[0] == "source-display-guard") return SourceDisplayProbe.RunGuard(args[1..]);
+
 // One-shot verify (decision #1): confirm the xEdit 4-char signature reflection path.
 if (args.Length > 0 && args[0] == "sig") return Probe.RunSig();
 

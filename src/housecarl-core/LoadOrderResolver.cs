@@ -411,8 +411,9 @@ public sealed class LoadOrderResolver : IDisposable
     /// <summary>Stream every record contained in the given plugins (optionally only of the given type(s)), each
     /// with that PLUGIN'S body in hand — the plugin-scoped path (the Q4.9 plugin_dump fold + a plugin-content
     /// audit). A FormKey touched by more than one scoped plugin is yielded once per scoped plugin (the SERVICE
-    /// de-dupes). Yields (FormKey, whole-order override-depth, the scoped plugin's body). Holds nothing.</summary>
-    public IEnumerable<(FormKey fk, int depth, IMajorRecordGetter body)> RecordsIn(
+    /// de-dupes). Yields (FormKey, whole-order override-depth, the scoped plugin's body, the scoped plugin's
+    /// filename — so a caller can DISPLAY from the same body it filtered, not the winner). Holds nothing.</summary>
+    public IEnumerable<(FormKey fk, int depth, IMajorRecordGetter body, string source)> RecordsIn(
         IReadOnlyList<string> plugins, IReadOnlyList<Type>? getterTypes)
     {
         foreach (int i in ScopeIndices(plugins))
@@ -427,7 +428,7 @@ public sealed class LoadOrderResolver : IDisposable
                     : getterTypes.SelectMany(t => ov.EnumerateMajorRecords(t, throwIfUnknown: true));
                 foreach (var rec in recs)
                     if (_index.TryGetValue(rec.FormKey, out var e))
-                        yield return (rec.FormKey, e.count, rec);
+                        yield return (rec.FormKey, e.count, rec, _names[i]);   // _names[i] = this scoped plugin's filename (the source body)
             }
             finally { (ov as IDisposable)?.Dispose(); }
         }

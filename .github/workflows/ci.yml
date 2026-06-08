@@ -51,3 +51,9 @@ jobs:
       # guard for the field-value query predicate (cross_plugin_query where=) — matched set == brute-force + the Q3 teeth.
       - name: Probe — field-value query predicate (self-contained regression guard)
         run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- value-predicate-guard
+
+      # Self-contained (synthesizes a master + two overrides on disk — no external files), runs fully here: a regression
+      # guard for the winner-vs-source display fix (cross_plugin_query plugins= scope) — RecordsIn pairs each body with
+      # its OWN source plugin (the body the scan filtered), the winner stream with the winner. Locks wishlist #8.
+      - name: Probe — winner-vs-source display (self-contained regression guard)
+        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- source-display-guard
