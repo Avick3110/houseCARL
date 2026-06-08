@@ -250,6 +250,9 @@ static class Render
         s = s.Replace("&amp;", "&").Replace("&lt;", "<").Replace("&gt;", ">").Replace("&quot;", "\"")
              .Replace("&#39;", "'").Replace("&apos;", "'").Replace("&nbsp;", " ");
 
+        // Strip zero-width / BOM characters authors paste in (they render as stray glyphs); normalise no-break spaces.
+        s = s.Replace("\uFEFF", "").Replace("\u200B", "").Replace("\u200C", "").Replace("\u200D", "").Replace('\u00A0', ' ');
+
         // Whitespace: normalise newlines, collapse space runs, trim line edges, cap blank-line runs.
         s = s.Replace("\r\n", "\n").Replace('\r', '\n');
         s = Regex.Replace(s, @"[ \t]+", " ");
