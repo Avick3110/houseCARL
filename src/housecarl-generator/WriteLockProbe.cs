@@ -279,6 +279,82 @@ public static class WriteLockProbe
     }
 
     /// <summary>
+    /// REAL-DATA proof (PR #24 review residual): the writelock-guard's Apply arm uses a FLAT record (Weapon). This proves
+    /// the same re-edit-own-override case for a NESTED record (a PlacedObject — lives in a Cell, so its override goes
+    /// through Apply's link-cache CONTEXT path, where the parent chain is reconstructed). That is the one place the new
+    /// "ReleaseOverlay disposes the target overlay BEFORE serialize" invariant is least obviously safe: the context path
+    /// builds its link cache OVER the target overlay, then the fix disposes it. If the nested override weren't fully
+    /// deep-copied into the patch mod first, releasing the overlay would break the write.
+    ///
+    /// Needs a real master (Skyrim.esm) for a genuine nested record + parent chain — NOT a CI guard (no game data on the
+    /// runner), the same posture as apply-proof / the nested proofs. Step 1 overrides a real PlacedObject into a fresh Q
+    /// (winner = Skyrim.esm); step 2 re-edits it with Q ACTIVE (winner = Q = target → the nested winner-fetch). GREEN =
+    /// the re-edit succeeds and the new Scale reads back. Revert ReleaseOverlay → step 2 goes RED (teeth on the nested path).
+    /// Run: dotnet run --project src/housecarl-generator writelock-nested-proof ["&lt;Data dir with Skyrim.esm&gt;"]
+    /// </summary>
+    public static int RunNestedProof(string[] args)
+    {
+        Console.WriteLine("=== writelock-nested-proof — Apply re-edit of a NESTED own-override into an active patch (real data) ===");
+        string dataDir = args.Length > 0 ? args[0] : @"E:\Skyrim Modding\ARR 2.0\Stock Game\Data";
+        string skyrim = Path.Combine(dataDir, "Skyrim.esm");
+        if (!File.Exists(skyrim)) { Console.Error.WriteLine($"need Skyrim.esm; not found at {skyrim} (pass the Data dir as arg 1)"); return 1; }
+
+        var tmpDir = Path.Combine(Path.GetTempPath(), "hc-writelock-nested");
+        if (Directory.Exists(tmpDir)) Directory.Delete(tmpDir, recursive: true);
+        Directory.CreateDirectory(tmpDir);
+        var rulebook = CorpusRulebook.Load(GenerateCorpus(tmpDir));
+
+        // a REAL nested record: the first PlacedObject (REFR) in Skyrim.esm — lives in a Cell, so overriding it takes
+        // Apply's source-cache CONTEXT path (RecordNeedsSourceCache == true), the path the review flagged.
+        FormKey refrFk;
+        using (var r0 = LoadOrderResolver.Build(new[] { skyrim }))
+        {
+            refrFk = r0.WinnerRecordsOfType(new[] { typeof(IPlacedObjectGetter) }).Select(x => x.fk).FirstOrDefault();
+            if (refrFk.IsNull) { Console.Error.WriteLine("no PlacedObject found in Skyrim.esm"); return 1; }
+        }
+        Console.WriteLine($"-- real nested record: PlacedObject {refrFk} --");
+        string qPath = Path.Combine(tmpDir, "HcNestedProof.esp");
+
+        // STEP 1 — override it into a FRESH patch Q (winner == Skyrim.esm; the normal nested-override path, Q not yet active)
+        using (var r1 = LoadOrderResolver.Build(new[] { skyrim }))
+        {
+            var o = WritePatchBuilder.Apply(r1, rulebook,
+                new[] { new WritePatchBuilder.PatchEdit { Target = refrFk, Path = new[] { "Scale" }, Verb = "Set", Value = "1.5" } },
+                qPath, extend: false);
+            Console.WriteLine($"   step 1  override into fresh Q (winner=Skyrim.esm) : {(o.Success ? "OK" : "FAIL — " + o.Error)}");
+            if (!o.Success) return 1;
+        }
+
+        // STEP 2 — THE TEST: re-edit the SAME nested record now that Q is ACTIVE (winner == Q == target → nested winner-fetch)
+        bool ok; string err;
+        using (var r2 = LoadOrderResolver.Build(new[] { skyrim, qPath }))
+        {
+            var winner = r2.ResolveWinner(refrFk);
+            var o = WritePatchBuilder.Apply(r2, rulebook,
+                new[] { new WritePatchBuilder.PatchEdit { Target = refrFk, Path = new[] { "Scale" }, Verb = "Set", Value = "2.5" } },
+                qPath, extend: true);
+            ok = o.Success; err = o.Error ?? "ok";
+            Console.WriteLine($"   step 2  re-edit own NESTED override (winner={winner?.WinnerPlugin}) : {(ok ? "OK" : "FAIL — " + err)}");
+        }
+        float? scaleBack = ReadPlacedScale(qPath, refrFk);
+        bool landed = scaleBack.HasValue && Math.Abs(scaleBack.Value - 2.5f) < 0.001f;
+        Console.WriteLine($"   nested edit landed (Scale==2.5) : {(landed ? "PASS" : $"FAIL (scale={scaleBack?.ToString() ?? "null"})")}");
+
+        bool pass = ok && landed;
+        Console.WriteLine($"=== writelock-nested-proof: {(pass ? "PASS — nested re-edit survives ReleaseOverlay-before-serialize" : "FAIL")} ===");
+        try { Directory.Delete(tmpDir, recursive: true); } catch { }
+        return pass ? 0 : 1;
+    }
+
+    static float? ReadPlacedScale(string path, FormKey fk)
+    {
+        ISkyrimModGetter? ov = null;
+        try { ov = SkyrimMod.CreateFromBinaryOverlay(path, SkyrimRelease.SkyrimSE); return ov.EnumerateMajorRecords<IPlacedObjectGetter>().FirstOrDefault(r => r.FormKey == fk)?.Scale; }
+        catch { return null; }
+        finally { (ov as IDisposable)?.Dispose(); }
+    }
+
+    /// <summary>
     /// EXPLORATORY follow-up (PR #24 review, 2026-06-08): the AllMastersExcept fix closes the master-set overlay on the
     /// target, but <see cref="WritePatchBuilder.Apply"/> has a SECOND overlay source — its Phase-1 winner fetch
     /// (<see cref="LoadOrderResolver.GetRecord"/> → <c>session.Overlay(idx)</c> on the WINNER plugin). When you re-edit a

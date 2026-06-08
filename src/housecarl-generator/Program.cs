@@ -149,6 +149,10 @@ if (args.Length > 0 && args[0] == "writelock-guard") return WriteLockProbe.RunGu
 // overlay on the target (when re-editing an own override) that survives AllMastersExcept and still self-locks the serialize.
 if (args.Length > 0 && args[0] == "writelock-apply-probe") return WriteLockProbe.RunApplyResidualProbe(args[1..]);
 
+// Active-patch write self-lock follow-up (PR #24 review #2): REAL-DATA proof that a NESTED record (PlacedObject, via the
+// link-cache context path) survives the re-edit-own-override case under the new "release overlay before serialize" invariant.
+if (args.Length > 0 && args[0] == "writelock-nested-proof") return WriteLockProbe.RunNestedProof(args[1..]);
+
 // External-tool bridge (step 1) proof: the pure core pieces housecarl_set_tool_path + the riders ride — shared-config
 // clobber-safety, path validation, the missing-dependency forcing prompt, and canonical-home auto-detect.
 if (args.Length > 0 && args[0] == "tool-bridge") return ToolBridgeProbe.Run(args[1..]);
