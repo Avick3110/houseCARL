@@ -164,7 +164,12 @@ public sealed class LoadOrderResolver : IDisposable
         /// open handle, not the argument membership, that locks, so the index must be skipped (Overlay never called),
         /// NOT merely filtered from the returned list. Master derivation is unaffected: only the target itself is dropped,
         /// and a patch never links to itself, so every master its records DO reference is still opened + ordered. Excluded
-        /// (unparseable) plugins are retained for the same reason <see cref="AllMasters"/> retains them (see above).</para></summary>
+        /// (unparseable) plugins are retained for the same reason <see cref="AllMasters"/> retains them (see above).</para>
+        ///
+        /// <para>This closes the MASTER-SET source of a target overlay. A write path can hold one from ANOTHER source —
+        /// <see cref="WritePatchBuilder.Apply"/>'s Phase-1 winner fetch, when re-editing a record the active patch itself
+        /// overrides (there the resolved winner IS the target) — which this can't reach; <see cref="ReleaseOverlay"/>
+        /// closes that one before the serialize. Both together = no mapped handle on the target survives the write.</para></summary>
         public IReadOnlyList<ISkyrimModGetter> AllMastersExcept(string excludeFileName)
         {
             var list = new List<ISkyrimModGetter>(_r._paths.Length);
@@ -172,6 +177,24 @@ public sealed class LoadOrderResolver : IDisposable
                 if (!string.Equals(_r._names[i], excludeFileName, StringComparison.OrdinalIgnoreCase))
                     list.Add(Overlay(i));   // SKIP the target's index — never map the file we're about to overwrite
             return list;
+        }
+
+        /// <summary>Dispose and forget any overlay this session holds on <paramref name="fileName"/> — the file the caller
+        /// is about to serialize to. The SECOND half of the active-patch write fix (with <see cref="AllMastersExcept"/>):
+        /// it closes a target overlay opened from a source AllMastersExcept can't reach — notably
+        /// <see cref="WritePatchBuilder.Apply"/>'s Phase-1 winner fetch (<see cref="GetRecord"/> → <see cref="Overlay"/>),
+        /// which, when you re-edit a record the active patch itself overrides, opens an overlay on the target (the winner
+        /// IS the target) that would otherwise still be mapped at serialize and refuse the overwrite (writelock-apply-probe).
+        ///
+        /// <para>SAFE to call before the write: the only consumer of a fetched winner body is
+        /// <see cref="WriteEngine.GenericGetOrAddAsOverride"/>, which DEEP-COPIES it into the patch mod, so releasing the
+        /// source overlay cannot strip content from the patch about to be written (proven: the edited override reads back
+        /// intact after the release). A no-op when no overlay is open on the file — the common case, and Create/Remove,
+        /// which never winner-fetch the target.</para></summary>
+        public void ReleaseOverlay(string fileName)
+        {
+            var hits = _open.Keys.Where(i => string.Equals(_r._names[i], fileName, StringComparison.OrdinalIgnoreCase)).ToList();
+            foreach (var i in hits) { (_open[i] as IDisposable)?.Dispose(); _open.Remove(i); }
         }
 
         /// <summary>An immutable link cache over ONE named plugin (opened in this session) — built ON DEMAND for the

@@ -187,8 +187,11 @@ public static class WritePatchBuilder
 
         // --- Phase 4: serialize ONCE with the FULL known-master set (multi-master). Mutagen keeps the header lean
         //     (only-referenced); a referenced master genuinely absent from the order still fails loud (Q3). ---
-        // AllMastersExcept (not AllMasters): never map the file we're about to write — were the patch active in the
-        // order, mapping it would lock it against its own overwrite (active-patch self-lock; writelock-probe 2026-06-08).
+        // Two-part active-patch self-lock guard (Heisen 2026-06-08 + PR #24 review): no mapped handle on the file we're
+        // about to write may survive to the serialize, from ANY source. ReleaseOverlay closes one we already hold (Apply's
+        // Phase-1 winner fetch, when re-editing the patch's OWN override — there the winner IS the target); AllMastersExcept
+        // keeps the target out of the master set. (writelock-probe / writelock-apply-probe; both halves guarded.)
+        session.ReleaseOverlay(patchMod.ModKey.FileName.String);
         try { WriteEngine.WritePatch(patchMod, session.AllMastersExcept(patchMod.ModKey.FileName.String), outPath); }
         catch (Exception ex)
             { return PatchOutcome.Fail($"serialize failed: {ex.GetType().Name}: {ex.Message}"); }
@@ -294,8 +297,11 @@ public static class WritePatchBuilder
 
         // Serialize ONCE with the full known-master set; Mutagen keeps the header lean (only-referenced), so a master
         // orphaned by the removal drops here automatically. A referenced master genuinely absent still fails loud (Q3).
-        // AllMastersExcept (not AllMasters): never map the file we're about to write — were the patch active in the
-        // order, mapping it would lock it against its own overwrite (active-patch self-lock; writelock-probe 2026-06-08).
+        // Two-part active-patch self-lock guard (Heisen 2026-06-08 + PR #24 review): no mapped handle on the file we're
+        // about to write may survive to the serialize, from ANY source. ReleaseOverlay closes one we already hold (Apply's
+        // Phase-1 winner fetch, when re-editing the patch's OWN override — there the winner IS the target); AllMastersExcept
+        // keeps the target out of the master set. (writelock-probe / writelock-apply-probe; both halves guarded.)
+        session.ReleaseOverlay(patchMod.ModKey.FileName.String);
         try { WriteEngine.WritePatch(patchMod, session.AllMastersExcept(patchMod.ModKey.FileName.String), outPath); }
         catch (Exception ex) { return RemovalOutcome.Fail($"serialize after removal failed: {ex.GetType().Name}: {ex.Message}"); }
 
@@ -400,8 +406,11 @@ public static class WritePatchBuilder
         // --- Phase 4: serialize ONCE with the full known-master set. A created record referencing existing content pulls
         //     its master into the (lean, derived) header; a self-contained one yields a masterless plugin. A referenced
         //     master genuinely absent still fails loud (Q3). ---
-        // AllMastersExcept (not AllMasters): never map the file we're about to write — were the patch active in the
-        // order, mapping it would lock it against its own overwrite (active-patch self-lock; writelock-probe 2026-06-08).
+        // Two-part active-patch self-lock guard (Heisen 2026-06-08 + PR #24 review): no mapped handle on the file we're
+        // about to write may survive to the serialize, from ANY source. ReleaseOverlay closes one we already hold (Apply's
+        // Phase-1 winner fetch, when re-editing the patch's OWN override — there the winner IS the target); AllMastersExcept
+        // keeps the target out of the master set. (writelock-probe / writelock-apply-probe; both halves guarded.)
+        session.ReleaseOverlay(patchMod.ModKey.FileName.String);
         try { WriteEngine.WritePatch(patchMod, session.AllMastersExcept(patchMod.ModKey.FileName.String), outPath); }
         catch (Exception ex) { return CreateOutcome.Fail($"serialize after create failed: {ex.GetType().Name}: {ex.Message}"); }
 

@@ -141,9 +141,13 @@ if (args.Length > 0 && args[0] == "atrest-probe") return AtRestProbe.RunProbe(ar
 // into a patch whose own overlay is held by AllMasters() (direct vs temp+Replace vs release-then-write). Decides the fix.
 if (args.Length > 0 && args[0] == "writelock-probe") return WriteLockProbe.RunProbe(args[1..]);
 
-// Active-patch write self-lock (Heisen bug 2026-06-08): SELF-CONTAINED CI regression guard — drives CreateRecords into an
-// ACTIVE patch + asserts the write succeeds (a control proves the lock still reproduces). RED before the AllMastersExcept fix.
+// Active-patch write self-lock (Heisen bug 2026-06-08): SELF-CONTAINED CI regression guard — drives a real product write
+// (RemoveRecords + the Apply winner-fetch path) into an ACTIVE patch, asserts success (a control proves the lock reproduces).
 if (args.Length > 0 && args[0] == "writelock-guard") return WriteLockProbe.RunGuard(args[1..]);
+
+// Active-patch write self-lock follow-up (PR #24 review): EXPLORATORY — prove Apply's Phase-1 winner-fetch opens a SECOND
+// overlay on the target (when re-editing an own override) that survives AllMastersExcept and still self-locks the serialize.
+if (args.Length > 0 && args[0] == "writelock-apply-probe") return WriteLockProbe.RunApplyResidualProbe(args[1..]);
 
 // External-tool bridge (step 1) proof: the pure core pieces housecarl_set_tool_path + the riders ride — shared-config
 // clobber-safety, path validation, the missing-dependency forcing prompt, and canonical-home auto-detect.
