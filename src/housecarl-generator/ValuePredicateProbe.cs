@@ -26,7 +26,7 @@ public static class ValuePredicateProbe
 {
     /// <summary>One synthesized MagicEffect plus the literals it was BUILT with — the independent ground truth the
     /// evaluator must reproduce (the brute-force oracle reads these fields, never the record).</summary>
-    sealed record Mgef(IMagicEffectGetter Rec, ActorValue MagicSkill, float BaseCost, ActorValue ArchActorValue, FormKey Projectile)
+    sealed record Mgef(IMagicEffectGetter Rec, string Eid, ActorValue MagicSkill, float BaseCost, ActorValue ArchActorValue, FormKey Projectile)
     {
         public FormKey Fk => Rec.FormKey;
     }
@@ -51,10 +51,10 @@ public static class ValuePredicateProbe
         var projY = FormKey.Factory("0FEDCB:hcvalguard.esp");
         var mgefs = new List<Mgef>
         {
-            MakeMgef(mod, ActorValue.Destruction, 0.5f,  ActorValue.Infamy,      projX),
-            MakeMgef(mod, ActorValue.Conjuration, 1.0f,  ActorValue.Conjuration, projY),
-            MakeMgef(mod, ActorValue.Destruction, 2.0f,  ActorValue.Infamy,      projX),
-            MakeMgef(mod, ActorValue.Restoration, 0.5f,  ActorValue.Destruction, projY),
+            MakeMgef(mod, "hcFireDamage",    ActorValue.Destruction, 0.5f,  ActorValue.Infamy,      projX),
+            MakeMgef(mod, "hcConjureFlame",  ActorValue.Conjuration, 1.0f,  ActorValue.Conjuration, projY),
+            MakeMgef(mod, "hcFrostDamage",   ActorValue.Destruction, 2.0f,  ActorValue.Infamy,      projX),
+            MakeMgef(mod, "hcRestoreHealth", ActorValue.Restoration, 0.5f,  ActorValue.Destruction, projY),
         };
         var mgefBodies = mgefs.Select(m => (IMajorRecordGetter)m.Rec).ToList();
 
@@ -116,6 +116,25 @@ public static class ValuePredicateProbe
             Run(new[] { "MagicSkill = Destruction", "BaseCost >= 1.0" }, mgefBodies),
             Expect(mgefs, m => m.MagicSkill == ActorValue.Destruction && m.BaseCost >= 1.0f));
 
+        // 8. contains — case-insensitive substring on a string leaf (EditorID).
+        CheckSet("EditorID contains Frost",
+            Run(new[] { "EditorID contains Frost" }, mgefBodies),
+            Expect(mgefs, m => m.Eid.IndexOf("Frost", StringComparison.OrdinalIgnoreCase) >= 0));
+        CheckSet("EditorID contains frost  (case-insensitive)",
+            Run(new[] { "EditorID contains frost" }, mgefBodies),
+            Expect(mgefs, m => m.Eid.IndexOf("Frost", StringComparison.OrdinalIgnoreCase) >= 0));
+        CheckSet("EditorID contains hc  (all)",
+            Run(new[] { "EditorID contains hc" }, mgefBodies),
+            Expect(mgefs, m => m.Eid.IndexOf("hc", StringComparison.OrdinalIgnoreCase) >= 0));
+
+        // 9. the remaining numeric operators (> and <=), completing the set.
+        CheckSet("BasicStats.Damage > 50",
+            Run(new[] { "BasicStats.Damage > 50" }, weapBodies),
+            Expect(weaps, w => w.Damage > 50));
+        CheckSet("BasicStats.Damage <= 50",
+            Run(new[] { "BasicStats.Damage <= 50" }, weapBodies),
+            Expect(weaps, w => w.Damage <= 50));
+
         // ============================ Q3 TEETH (no silent wrong answer) ============================
         Console.WriteLine();
         Console.WriteLine("-- Q3 teeth --");
@@ -147,6 +166,19 @@ public static class ValuePredicateProbe
             Console.WriteLine($"     fatal: {Trunc(set.FatalError)}");
         }
 
+        // 10b. SOFT no-value note — a path wrong for >half the candidates in a MIXED scan is surfaced softly, even
+        //      though matches are still returned (distinct from the LOUD "no value on ANY" note in test 8/9 above).
+        {
+            var mixed = mgefBodies.Concat(weapBodies).ToList();   // 4 MGEF (no BasicStats) + 3 WEAP
+            var (matched, set) = RunWithSet(new[] { "BasicStats.Damage >= 0" }, mixed);
+            var note = set.AccountingNote();
+            Check("soft note: matched only the weapons (3)", matched.Count == 3);
+            Check("soft note: SOFT (>half no-value), not the loud 'no value on any' note",
+                  note is not null && note.Contains("had no readable value on", StringComparison.Ordinal)
+                  && !note.Contains("yielded no readable value", StringComparison.Ordinal));
+            Console.WriteLine($"     note: {Trunc(note)}");
+        }
+
         // 11. PARSE errors refuse the whole call (before any scan).
         Check("parse: numeric op needs numeric operand ('>= abc')", FieldPredicateSet.Parse(new[] { "BasicStats.Damage >= abc" }).Error is not null);
         Check("parse: missing operator ('MagicSkill')", FieldPredicateSet.Parse(new[] { "MagicSkill" }).Error is not null);
@@ -170,14 +202,15 @@ public static class ValuePredicateProbe
 
     // ---- helpers ---------------------------------------------------------------------------------------------
 
-    static Mgef MakeMgef(SkyrimMod mod, ActorValue skill, float baseCost, ActorValue archAv, FormKey projectile)
+    static Mgef MakeMgef(SkyrimMod mod, string eid, ActorValue skill, float baseCost, ActorValue archAv, FormKey projectile)
     {
         var m = mod.MagicEffects.AddNew();
+        m.EditorID = eid;
         m.MagicSkill = skill;
         m.BaseCost = baseCost;
         m.Archetype = new MagicEffectLightArchetype { ActorValue = archAv };
         m.Projectile.SetTo(projectile);
-        return new Mgef(m, skill, baseCost, archAv, projectile);
+        return new Mgef(m, eid, skill, baseCost, archAv, projectile);
     }
 
     static Weap MakeWeap(SkyrimMod mod, ushort damage)
