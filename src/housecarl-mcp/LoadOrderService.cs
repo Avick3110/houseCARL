@@ -67,6 +67,18 @@ public sealed class LoadOrderService : IDisposable
     public static LoadOrderService WithExplicitPaths(string dataDir, string modsDir, string profileDir, int maxPlugins, UserConfigStore store)
         => new(null, dataDir, modsDir, profileDir, configured: true, maxPlugins, store);
 
+    /// <summary>TEST SEAM (the harness' CI regression guards only): wrap a PREBUILT resolver so a guard can drive
+    /// the service-layer query logic (CrossQuery's scan loop) on synthetic plugins — no MO2 profile, no user config
+    /// on disk. Explicit-mode freshness checks no-op (no ini, empty profile dir); the caller owns the resolver's
+    /// lifetime. Never used by the product.</summary>
+    internal static LoadOrderService ForGuard(LoadOrderResolver resolver, UserConfigStore store)
+    {
+        var svc = new LoadOrderService(null, "", "", "", configured: true, maxPlugins: 0, store);
+        svc._resolver = resolver;
+        svc._orderBuiltUtc = DateTime.UtcNow;
+        return svc;
+    }
+
     /// <summary>Non-fatal warnings from the last order build (Q3) — e.g. a plugin the load order lists that no enabled
     /// mod provides (stale profile files). Surfaced, never swallowed. Empty until the resolver first builds.</summary>
     public IReadOnlyList<string> OrderWarnings => _orderWarnings;
@@ -409,6 +421,8 @@ public sealed class LoadOrderService : IDisposable
         var sources = new List<string?>();                                    // parallel to keys: the plugin whose body matched (null ⇒ winner), so the render displays the SAME body it filtered
         List<RecordSummary>? prefilled = (hasType || hasPlugins) ? new() : null;   // parallel to keys; null = renderer fills lazily
         int total = 0;
+        int unscannable = 0;                                                  // records whose body tests THREW (Mutagen-unparseable content) — excluded + accounted, never silent (Q3)
+        var unscannableSamples = new List<string>();
 
         if (hasType || hasPlugins)                                            // a body-bearing scope: stream + filter in hand
         {
@@ -426,32 +440,49 @@ public sealed class LoadOrderService : IDisposable
                 foreach (var (fk, depth, body, source) in stream)
                 {
                     if (conflictsOnly && depth <= 1) continue;
-                    if (!string.IsNullOrEmpty(editoridContains)
-                        && (body.EditorID is null || body.EditorID.IndexOf(editoridContains, StringComparison.OrdinalIgnoreCase) < 0))
-                        continue;
-                    if (references is { } target
-                        && !(body is IFormLinkContainerGetter flc && flc.EnumerateFormLinks().Any(l => l.FormKey == target)))
-                        continue;
-                    if (predicate is not null && !predicate.Matches(body))    // value filter — same in-hand body, no extra fetch
+                    // PER-RECORD FAULT ISOLATION (HCBR-2026-06-09-03): the body tests lazily parse subrecord
+                    // content (references= walks Effects etc. via Mutagen's EnumerateFormLinks), so ONE record
+                    // Mutagen can't parse used to abort the WHOLE call as an opaque transport error — the
+                    // scan-level twin of the PKCU index-build fix. Such a record is excluded and ACCOUNTED in
+                    // the response (never a silent skip, never a guessed match — Q3).
+                    try
                     {
-                        if (predicate.FatalError is not null) break;          // numeric op vs non-numeric field — abort + surface (Q3)
-                        continue;
+                        if (!string.IsNullOrEmpty(editoridContains)
+                            && (body.EditorID is null || body.EditorID.IndexOf(editoridContains, StringComparison.OrdinalIgnoreCase) < 0))
+                            continue;
+                        if (references is { } target
+                            && !(body is IFormLinkContainerGetter flc && flc.EnumerateFormLinks().Any(l => l.FormKey == target)))
+                            continue;
+                        if (predicate is not null && !predicate.Matches(body))    // value filter — same in-hand body, no extra fetch
+                        {
+                            if (predicate.FatalError is not null) break;          // numeric op vs non-numeric field — abort + surface (Q3)
+                            continue;
+                        }
+                        // De-dup (a FK can recur across scoped plugins). This runs AFTER the filters, so under
+                        // plugins=[A,B] the source recorded for a shared FK is the FIRST scoped plugin (in plugins=
+                        // array order) whose body PASSED the filters — deterministic, and it's the body we'll display.
+                        if (!seen.Add(fk)) continue;
+                        total++;
+                        if (keys.Count < limit)                                   // in-hand body → fill the summary for free
+                        {
+                            keys.Add(fk);
+                            sources.Add(source);                                  // the body we filtered IS the body we'll display (null ⇒ winner)
+                            prefilled!.Add(new RecordSummary(fk, RecordNaming.StripOverlay(body.GetType().Name), body.EditorID,
+                                                             resolver.ResolveWinner(fk)?.WinnerPlugin ?? "?", depth, null));
+                        }
                     }
-                    // De-dup (a FK can recur across scoped plugins). This runs AFTER the filters, so under
-                    // plugins=[A,B] the source recorded for a shared FK is the FIRST scoped plugin (in plugins=
-                    // array order) whose body PASSED the filters — deterministic, and it's the body we'll display.
-                    if (!seen.Add(fk)) continue;
-                    total++;
-                    if (keys.Count < limit)                                   // in-hand body → fill the summary for free
+                    catch (Exception ex)
                     {
-                        keys.Add(fk);
-                        sources.Add(source);                                  // the body we filtered IS the body we'll display (null ⇒ winner)
-                        prefilled!.Add(new RecordSummary(fk, RecordNaming.StripOverlay(body.GetType().Name), body.EditorID,
-                                                         resolver.ResolveWinner(fk)?.WinnerPlugin ?? "?", depth, null));
+                        unscannable++;
+                        if (unscannableSamples.Count < 3)
+                            unscannableSamples.Add($"{fk}{(source is null ? "" : $" in {source}")} — {ex.GetType().Name}: {ex.Message}");
                     }
                 }
             }
             catch (ArgumentException ex) { return CrossQueryOutcome.Fail(ex.Message); } // plugin not in order / unknown type
+            // Anything else escaping the stream itself still gets a NAMED failure — the MCP layer's generic
+            // "An error occurred invoking …" must never be the terminal diagnostic for a data failure (Q3).
+            catch (Exception ex) { return CrossQueryOutcome.Fail($"scan aborted: {ex.GetType().Name}: {ex.Message}"); }
             if (predicate?.FatalError is not null) return CrossQueryOutcome.Fail(predicate.FatalError); // typed predicate error — fail fast, named (Q3)
         }
         else                                                                  // conflicts_only alone — index keys only; NO body fetch
@@ -464,7 +495,14 @@ public sealed class LoadOrderService : IDisposable
                 if (keys.Count < limit) { keys.Add(fk); sources.Add(null); }   // no scoped plugin → display the winner
             }
         }
-        return new CrossQueryOutcome(keys, prefilled, total, total > keys.Count, null, predicate?.AccountingNote(), sources);
+        // Unscannable accounting (Q3): name the count, the first few offenders with Mutagen's reason, and what
+        // a caller can still do — these records are invisible to the body filters, not "0 matches" silence.
+        string? scanNote = unscannable == 0 ? null
+            : $"note: {unscannable} record(s) could not be scanned (Mutagen could not parse their content) and are excluded from the matches: "
+              + string.Join("; ", unscannableSamples)
+              + (unscannable > unscannableSamples.Count ? $"; and {unscannable - unscannableSamples.Count} more" : "")
+              + ". Inspect one with read_record (per-field fault isolation applies).";
+        return new CrossQueryOutcome(keys, prefilled, total, total > keys.Count, null, predicate?.AccountingNote(), sources, scanNote);
     }
 
     // ---- writes (§8.4 Beat C: housecarl_set_field / housecarl_bulk_apply) -------------------------------
@@ -906,7 +944,7 @@ public sealed record ReadOutcome(
 /// <see cref="Total"/> is the true match count; <see cref="Capped"/> is true when Total exceeded what was returned.</summary>
 public sealed record CrossQueryOutcome(
     IReadOnlyList<FormKey> Keys, IReadOnlyList<RecordSummary>? Prefilled, int Total, bool Capped, string? Error,
-    string? PredicateNote = null, IReadOnlyList<string?>? Sources = null)
+    string? PredicateNote = null, IReadOnlyList<string?>? Sources = null, string? ScanNote = null)
 {
     public static CrossQueryOutcome Fail(string error) => new(Array.Empty<FormKey>(), null, 0, false, error);
 }

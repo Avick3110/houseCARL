@@ -62,3 +62,9 @@ jobs:
       # regression guard locking in the active-patch write self-lock fix (Heisen 2026-06-08, AllMastersExcept).
       - name: Probe — active-patch write self-lock (self-contained regression guard)
         run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- writelock-guard
+
+      # Self-contained (synthesizes a corrupted-EPFT perk — no external files), runs fully here AND drives the REAL
+      # service-layer scan (the first CI coverage of the mcp layer): a regression guard locking in the references=
+      # per-record fault isolation + unscannable accounting (HCBR-2026-06-09-03).
+      - name: Probe — references= scan fault isolation (self-contained regression guard)
+        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- perk-refs-guard
