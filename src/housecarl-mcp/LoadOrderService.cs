@@ -331,10 +331,18 @@ public sealed class LoadOrderService : IDisposable
         return new ReadOutcome(fk, record, source, winner.Value.WinnerPlugin, winner.Value.OverrideDepth, touching, null);
     }
 
+    /// <summary>How deep the conflict diff reads each touching body. The diff must compare CONTENT, not the
+    /// depth-1 count summaries that masked equal-count list deltas (HCBR-2026-06-09-01) — deep enough to reach
+    /// every modeled scalar leaf (the walk is bounded by the modeled-corpus boundary + ReadEngine's expansion
+    /// cap, whose truncation sentinel FieldsDiff surfaces as Complete=false).</summary>
+    internal const int ConflictDiffDepth = 16;
+
     /// <summary>The winner's full conflict tree, MATERIALISED — every touching plugin's name + its fields read off its
-    /// own body, in priority order (winner last) — for the field-level diff view. Opens a per-call session, fetches each
-    /// touching body, reads its <paramref name="fields"/> into a plain DTO, then DISPOSES the session (Option B): the
-    /// render layer never touches a live overlay or holds a handle. null if the FormKey isn't in the order.</summary>
+    /// own body, in priority order (winner last) — for the field-level diff view, read DEEP (<see cref="ConflictDiffDepth"/>)
+    /// so the diff compares list/substruct CONTENT, not depth-1 count summaries (HCBR-2026-06-09-01). Opens a per-call
+    /// session, fetches each touching body, reads its <paramref name="fields"/> into a plain DTO, then DISPOSES the
+    /// session (Option B): the render layer never touches a live overlay or holds a handle. null if the FormKey isn't
+    /// in the order.</summary>
     public ConflictTreeView? ResolveTree(FormKey fk, IReadOnlyList<string>? fields)
     {
         var resolver = Resolver;
@@ -343,7 +351,7 @@ public sealed class LoadOrderService : IDisposable
         if (tree is null) return null;
         var nodes = new List<ConflictNodeView>(tree.Nodes.Count);
         foreach (var n in tree.Nodes)
-            nodes.Add(new ConflictNodeView(n.Plugin, ReadEngine.ReadFields(n.Record, fields)));   // materialise while open
+            nodes.Add(new ConflictNodeView(n.Plugin, ReadEngine.ReadFields(n.Record, fields, ConflictDiffDepth)));   // materialise while open
         return new ConflictTreeView(nodes);
     }
 

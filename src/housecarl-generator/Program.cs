@@ -169,6 +169,14 @@ if (args.Length > 0 && args[0] == "perk-refs-guard") return PerkRefsProbe.RunGua
 // over a live MO2 order through the service layer. Manual; needs --mo2 + --corpus (skips without).
 if (args.Length > 0 && args[0] == "perk-refs-proof") return PerkRefsProbe.RunProof(args[1..]);
 
+// Conflict-tree content diff (HCBR-2026-06-09-01): SELF-CONTAINED CI regression guard — synthesizes a master + override
+// with equal-count/reordered/count/scalar list arms, drives the REAL ResolveTree (deep) + FieldsDiff, asserts each arm.
+if (args.Length > 0 && args[0] == "conflict-diff-guard") return ConflictDiffProbe.RunGuard(args[1..]);
+
+// Conflict-tree content diff (HCBR-2026-06-09-01): REAL-DATA proof — the report's exact repro (MM_RelentlessFury's
+// "(identical to winner)" false ITM) over a live MO2 order. Manual; needs --mo2 (skips without).
+if (args.Length > 0 && args[0] == "conflict-diff-proof") return ConflictDiffProbe.RunProof(args[1..]);
+
 // External-tool bridge (step 1) proof: the pure core pieces housecarl_set_tool_path + the riders ride — shared-config
 // clobber-safety, path validation, the missing-dependency forcing prompt, and canonical-home auto-detect.
 if (args.Length > 0 && args[0] == "tool-bridge") return ToolBridgeProbe.Run(args[1..]);
