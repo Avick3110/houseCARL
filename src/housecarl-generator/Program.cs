@@ -27,6 +27,10 @@ if (args.Length > 0 && args[0] == "pkcu-regression") return PkcuProbe.RunRegress
 // condition whose arm carries a System.Type Parameter1Type, asserts a deep read renders it as one opaque token.
 if (args.Length > 0 && args[0] == "depth-leak-guard") return DepthLeakProbe.RunGuard(args[1..]);
 
+// ConditionData form-link parameter read (HCBR-2026-06-09-02): SELF-CONTAINED CI regression guard — synthesizes a
+// COBJ HasPerk gate, asserts the form-mode FLOI renders its FormKey (and alias mode its index) on overlay + mutable.
+if (args.Length > 0 && args[0] == "floi-read-guard") return FloiReadProbe.RunGuard(args[1..]);
+
 // Field-value query predicate (cross_plugin_query where=): SELF-CONTAINED CI regression guard — synthesizes records
 // with known field values, asserts the evaluator's matched set == a brute-force reference + the Q3 teeth.
 if (args.Length > 0 && args[0] == "value-predicate-guard") return ValuePredicateProbe.RunGuard(args[1..]);
