@@ -240,16 +240,21 @@ public static class ReadEngine
         if (val is IFormLinkGetter || WriteEngine.IsFormLinkOrIndex(Nullable.GetUnderlyingType(declaredType) ?? declaredType))
         { Emit(sink, ref budget, new FieldValue(path, false, null, leaf.Note)); return; }
 
-        // a container or substruct — summarise (with an element identity where we can), then maybe open it.
-        if (!Emit(sink, ref budget, new FieldValue(path, false, null, ElementSummary(val)))) return;
-        if (depth <= 1) return;
-
         // Classify dict-vs-list the SAME way the navigation does (StepIntoElement) — by the GENERIC dictionary
         // interfaces via ClosedInterface, not a separate non-generic System.Collections.IDictionary cast — so the
         // browse view and the read/write path can't drift (a getter dict need not expose the non-generic interface).
-        // A generic dict enumerates as KeyValuePair<,>; Key/Value come off each pair.
-        if (WriteEngine.ClosedInterface(val.GetType(), typeof(IDictionary<,>)) is not null
-            || WriteEngine.ClosedInterface(val.GetType(), typeof(IReadOnlyDictionary<,>)) is not null)
+        // A generic dict enumerates as KeyValuePair<,>; Key/Value come off each pair. Classified BEFORE the
+        // summary line so the summary can carry the dict marker ("pair(s)" vs "item(s)") — the in-band signal
+        // FieldsDiff uses to keep numeric-KEYED dicts (Package.Data) out of positional-list comparison, where
+        // a key rebinding would wrongly compare "identical" (PR #28 review).
+        bool isDict = WriteEngine.ClosedInterface(val.GetType(), typeof(IDictionary<,>)) is not null
+                   || WriteEngine.ClosedInterface(val.GetType(), typeof(IReadOnlyDictionary<,>)) is not null;
+
+        // a container or substruct — summarise (with an element identity where we can), then maybe open it.
+        if (!Emit(sink, ref budget, new FieldValue(path, false, null, ElementSummary(val, isDict)))) return;
+        if (depth <= 1) return;
+
+        if (isDict)
         {
             foreach (var entry in (System.Collections.IEnumerable)val)
             {
@@ -346,9 +351,9 @@ public static class ReadEngine
     /// (<see cref="SummariseContainer"/>); for a struct, <c>[TypeName]</c> plus a representative identity
     /// field (Name/EditorID/Title) where present — so a list line like
     /// <c>Properties[5] = [ScriptObjectProperty] Name=DAK_HorseBuyPerk</c> reveals which element is which.</summary>
-    static string ElementSummary(object val)
+    static string ElementSummary(object val, bool isDict = false)
     {
-        if (val is System.Collections.IEnumerable && val is not string) return SummariseContainer(val);
+        if (val is System.Collections.IEnumerable && val is not string) return SummariseContainer(val, isDict);
         var t = val.GetType();
         var typeName = RecordNaming.StripGetterInterface(RecordNaming.StripOverlay(t.Name));
         foreach (var idName in IdentityFieldNames)
@@ -447,8 +452,10 @@ public static class ReadEngine
 
         // Not a single-token VALUE leaf: a substruct / collection / arm container. The oracle never
         // drives these AS leaves — their sub-leaves are driven individually (exactly like write-proof).
-        // Summarise for the read display.
-        return LeafRead.None(SummariseContainer(val));
+        // Summarise for the read display, with the same dict-vs-list marker the depth walk renders.
+        return LeafRead.None(SummariseContainer(val,
+            WriteEngine.ClosedInterface(val.GetType(), typeof(IDictionary<,>)) is not null
+            || WriteEngine.ClosedInterface(val.GetType(), typeof(IReadOnlyDictionary<,>)) is not null));
     }
 
     // -- primitive family (mirror TryPrimitive) --------------------------------
@@ -643,14 +650,16 @@ public static class ReadEngine
     }
 
     /// <summary>A short, non-round-trippable description of a container leaf (substruct / list / dict /
-    /// arm) for the read display. Its sub-leaves are the round-trippable surface.</summary>
-    static string SummariseContainer(object val)
+    /// arm) for the read display. Its sub-leaves are the round-trippable surface. A dict renders
+    /// "N pair(s)" (vs a list's "N item(s)") — display-informative, and the in-band marker FieldsDiff
+    /// uses to keep numeric-keyed dicts out of positional-list comparison (PR #28 review).</summary>
+    static string SummariseContainer(object val, bool isDict = false)
     {
         if (val is System.Collections.IEnumerable en and not string)
         {
             int n = 0;
             foreach (var _ in en) n++;
-            return $"[{RecordNaming.StripGetterInterface(val.GetType().Name)}: {n} item(s)]";
+            return $"[{RecordNaming.StripGetterInterface(val.GetType().Name)}: {n} {(isDict ? "pair(s)" : "item(s)")}]";
         }
         return $"[{RecordNaming.StripGetterInterface(val.GetType().Name)}]";
     }
