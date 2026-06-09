@@ -281,10 +281,16 @@ static class Wire
             var diff = FieldsDiff.Compare(node.Record, winnerNode.Record);
             string line = diff.Deltas.Count > 0
                 ? string.Join("; ", diff.Deltas)
-                  + (diff.Complete ? "" : " [comparison truncated at the expansion cap — the deltas shown are real, but completeness is not guaranteed; narrow with fields=]")
+                  + (diff.Complete ? "" : " [comparison TRUNCATED at the expansion cap — only value mismatches observed on both sides are shown; list contents and one-sided fields were NOT compared; narrow with fields= to fully compare]")
                 : diff.Complete
                     ? "(identical to winner — full modeled content compared, list order ignored)"
                     : "(no differences found, but the comparison was TRUNCATED at the expansion cap — NOT a verified ITM; narrow with fields= to fully compare)";
+            // One node's joined deltas are unbounded (two divergent deep reads can carry thousands); slice
+            // against the remaining char budget with the same explicit notice the other cuts use (Q3).
+            int room = cap - sb.Length;
+            if (line.Length > room)
+                line = string.Concat(line.AsSpan(0, Math.Max(0, room)),
+                    " ... [delta line truncated at max_chars; narrow with fields= or raise max_chars]");
             sb.Append("  ").Append(node.Plugin).Append(": ").Append(line).Append('\n');
         }
     }
