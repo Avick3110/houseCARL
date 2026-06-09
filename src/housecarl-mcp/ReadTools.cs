@@ -261,11 +261,14 @@ static class Wire
         if (tree is null || tree.Nodes.Count <= 1) return;
 
         var winnerNode = tree.Winner;                                       // Nodes[^1] = highest priority = the winner
-        var winnerFields = new Dictionary<string, string?>(StringComparer.Ordinal);
-        foreach (var f in winnerNode.Record.Fields)
-            winnerFields[f.Path] = f.HasValue ? f.Token : f.Note;
 
-        sb.Append("diff (field deltas vs winner ").Append(winnerNode.Plugin).Append("; identical fields omitted):\n");
+        // CONTENT diff (HCBR-2026-06-09-01): each node's DEEP read vs the winner's, compared by FieldsDiff —
+        // scalar leaves exact-path, list contents order-insensitively by whole element. The old depth-1 token
+        // comparison called equal-count lists with different contents "identical to winner" — an affirmative
+        // false ITM that masked a real override regression. "Identical" is now only claimed when the FULL
+        // modeled content compared clean; a truncated comparison says so instead (Q3).
+        sb.Append("diff (field deltas vs winner ").Append(winnerNode.Plugin)
+          .Append("; identical fields omitted; list contents compared order-insensitively):\n");
         for (int n = 0; n < tree.Nodes.Count - 1; n++)                      // every node except the winner
         {
             if (sb.Length >= cap)
@@ -275,18 +278,14 @@ static class Wire
                 return;
             }
             var node = tree.Nodes[n];
-            var deltas = new StringBuilder();
-            foreach (var f in node.Record.Fields)
-            {
-                var theirs = f.HasValue ? f.Token : f.Note;
-                if (winnerFields.TryGetValue(f.Path, out var win) && string.Equals(win, theirs, StringComparison.Ordinal))
-                    continue;                                               // identical to winner — omit
-                if (deltas.Length > 0) deltas.Append("; ");
-                deltas.Append(f.Path).Append('=').Append(theirs);
-                if (winnerFields.TryGetValue(f.Path, out var w2)) deltas.Append(" (winner ").Append(w2).Append(')');
-            }
-            sb.Append("  ").Append(node.Plugin).Append(": ")
-              .Append(deltas.Length > 0 ? deltas.ToString() : "(identical to winner)").Append('\n');
+            var diff = FieldsDiff.Compare(node.Record, winnerNode.Record);
+            string line = diff.Deltas.Count > 0
+                ? string.Join("; ", diff.Deltas)
+                  + (diff.Complete ? "" : " [comparison truncated at the expansion cap — the deltas shown are real, but completeness is not guaranteed; narrow with fields=]")
+                : diff.Complete
+                    ? "(identical to winner — full modeled content compared, list order ignored)"
+                    : "(no differences found, but the comparison was TRUNCATED at the expansion cap — NOT a verified ITM; narrow with fields= to fully compare)";
+            sb.Append("  ").Append(node.Plugin).Append(": ").Append(line).Append('\n');
         }
     }
 }
