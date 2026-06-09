@@ -68,3 +68,9 @@ jobs:
       # per-record fault isolation + unscannable accounting (HCBR-2026-06-09-03).
       - name: Probe — references= scan fault isolation (self-contained regression guard)
         run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- perk-refs-guard
+
+      # Self-contained (synthesizes a master + override with list-content arms — no external files), runs fully here
+      # and drives the REAL ResolveTree (deep) + FieldsDiff: a regression guard locking in the conflict-tree CONTENT
+      # diff — equal-count list deltas reported, reorder ignored, truncation honest (HCBR-2026-06-09-01).
+      - name: Probe — conflict-tree content diff (self-contained regression guard)
+        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- conflict-diff-guard
