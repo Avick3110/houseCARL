@@ -529,8 +529,12 @@ public static class ReadEngine
 
         if (useAliases == false && usePackData == false)
         {
-            if (val is IFormLinkGetter fl) return LeafRead.Value(fl.FormKey.ToString());   // form mode
-            return LeafRead.None("(floi: form mode but no readable FormKey)");
+            // Form mode. The binary overlay's FLOI is NOT itself a link — it carries the link in its
+            // .Link property, the same accessor the write side reads (ReadFloiFormKey, oracle-proven).
+            // A present-but-null link stays a note, matching plain FormLink leaves (HCBR-2026-06-09-02).
+            if (val is IFormLinkGetter fl) return LeafRead.Value(fl.FormKey.ToString());
+            if (WriteEngine.ReadFloiFormKey(val) is { } fk) return LeafRead.Value(fk.ToString());
+            return LeafRead.None($"(floi: form mode, null or unreadable FormKey on {val.GetType().Name})");
         }
 
         // index mode — read the numeric index defensively (FormLinkOrIndex carries it alongside the link).
