@@ -141,6 +141,26 @@ public static class ConflictDiffProbe
         Check("G2: a real numeric-keyed dict renders the 'pair(s)' marker",
               packRead.Fields.Any(fv => fv.Path == "Data" && (fv.Note ?? "").Contains(" pair(s)]", StringComparison.Ordinal)));
 
+        // ---- E3: a root COUNT delta still surfaces under truncation — the root summary lines are real,
+        //      cap-independent reads on both sides (review #2's recovery note). ----
+        var truncC = Fields(("Relations", null, "[ExtendedList`1: 600 item(s)]"),
+                            ("Relations[0]", null, "[Relation]"), ("Relations[0].Target", "AAAAAA:m.esm", null),
+                            ("…", null, "(expansion truncated at 2000 lines — narrow with a field path or a lower depth)"));
+        var truncD = Fields(("Relations", null, "[ExtendedList`1: 601 item(s)]"),
+                            ("Relations[0]", null, "[Relation]"), ("Relations[0].Target", "AAAAAA:m.esm", null),
+                            ("…", null, "(expansion truncated at 2000 lines — narrow with a field path or a lower depth)"));
+        var dE3 = FieldsDiff.Compare(truncC, truncD);
+        Check("E3: truncated comparison still reports a root COUNT delta",
+              dE3 is { Complete: false, Deltas.Count: 1 } && dE3.Deltas[0].StartsWith("Relations=", StringComparison.Ordinal));
+
+        // ---- H: a fields=-BRACKETED read (fields=["Data[3].Name"]) emits no root summary, so the dict
+        //      marker is structurally absent — such roots must fall to EXACT-PATH comparison, not positional
+        //      handling (review #2: a dict key swap compared "identical" through this hole). ----
+        var brackA = Fields(("Data[0].Name", "TopicData", null), ("Data[3].Name", "Repeatable", null));
+        var brackB = Fields(("Data[0].Name", "Repeatable", null), ("Data[3].Name", "TopicData", null));
+        Check("H: bracketed fields= read without a root summary compares exact-path",
+              FieldsDiff.Compare(brackA, brackB) is { Complete: true, Deltas.Count: 2 });
+
         // ---- F: FormKey tokens differing only by hex/master-name CASE are the SAME content (ModKeys are
         //      case-insensitive; each plugin stores a master's filename as written in ITS OWN master list —
         //      seen live as ccBGSSSE001-Fish.esm vs ccbgssse001-fish.esm on the report's PlayerFaction). ----

@@ -283,7 +283,11 @@ static class Wire
                 ? string.Join("; ", diff.Deltas)
                   + (diff.Complete ? "" : " [comparison TRUNCATED at the expansion cap — only value mismatches observed on both sides are shown; list contents and one-sided fields were NOT compared; narrow with fields= to fully compare]")
                 : diff.Complete
-                    ? "(identical to winner — full modeled content compared, list order ignored)"
+                    // The identity claim must not outrun the comparison's scope: a fields=-narrowed diff
+                    // compared ONLY those paths, never the whole record (PR #28 review #2).
+                    ? (fields is { Count: > 0 }
+                        ? "(identical to winner across the requested fields, list order ignored — other fields NOT compared)"
+                        : "(identical to winner — full modeled content compared, list order ignored)")
                     : "(no differences found, but the comparison was TRUNCATED at the expansion cap — NOT a verified ITM; narrow with fields= to fully compare)";
             // One node's joined deltas are unbounded (two divergent deep reads can carry thousands); slice
             // against the remaining char budget with the same explicit notice the other cuts use (Q3).

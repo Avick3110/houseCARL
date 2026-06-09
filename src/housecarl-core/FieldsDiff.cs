@@ -49,13 +49,28 @@ public static class FieldsDiff
         foreach (var (p, _) in wLines) if (ListRoot(p) is { } r) candidates.Add(r);
         var listRoots = new HashSet<string>(StringComparer.Ordinal);
         foreach (var root in candidates)
-            if (!IsDictSummary(tLines, root) && !IsDictSummary(wLines, root)) listRoots.Add(root);
+        {
+            var tSum = RootSummary(tLines, root);
+            var wSum = RootSummary(wLines, root);
+            // No root-summary line on EITHER side ⇒ a fields=-bracketed read (e.g. fields=["Data[3].Name"]):
+            // the dict marker is structurally absent there, so positional handling could absorb a dict key
+            // rebinding — and the user named specific indices/keys anyway, so EXACT-PATH is the natural
+            // semantics. The failure direction flips to over-report (a reordered list under bracketed
+            // fields= shows index-wise deltas), never under-report (PR #28 review #2).
+            bool seen = tSum is not null || wSum is not null;
+            bool dict = (tSum?.Contains(" pair(s)]", StringComparison.Ordinal) ?? false)
+                     || (wSum?.Contains(" pair(s)]", StringComparison.Ordinal) ?? false);
+            if (seen && !dict) listRoots.Add(root);
+        }
 
         var deltas = new List<string>();
 
         // ---- exact-path comparison: scalars, substructs, dict children (bracket = a semantic key) --------
-        var tScalar = ExactPathLines(tLines, listRoots);
-        var wScalar = ExactPathLines(wLines, listRoots);
+        // On a TRUNCATED comparison the list roots' own summary lines join the exact-path set: a root count
+        // token read on BOTH sides is a real, cap-independent read, so a count delta still surfaces even
+        // though element comparison is suppressed (PR #28 review #2, non-blocking note).
+        var tScalar = ExactPathLines(tLines, listRoots, includeListRootSummaries: !complete);
+        var wScalar = ExactPathLines(wLines, listRoots, includeListRootSummaries: !complete);
         foreach (var (path, val) in tScalar)
         {
             if (wScalar.TryGetValue(path, out var wv))
@@ -90,14 +105,13 @@ public static class FieldsDiff
         return new Result(deltas, complete);
     }
 
-    /// <summary>True when the root's own summary line carries the read engine's dict marker ("N pair(s)") —
-    /// the in-band signal that the root's brackets hold semantic KEYS, not positional indices.</summary>
-    static bool IsDictSummary(List<(string path, string val)> lines, string root)
+    /// <summary>The root's own container-summary line ("[Type: N item(s)/pair(s)]"), or null when the read
+    /// never emitted one (a fields=-bracketed read names element paths directly, skipping the root).</summary>
+    static string? RootSummary(List<(string path, string val)> lines, string root)
     {
         foreach (var (path, val) in lines)
-            if (path == root)
-                return val.Contains(" pair(s)]", StringComparison.Ordinal);
-        return false;
+            if (path == root) return val;
+        return null;
     }
 
     /// <summary>The read's lines minus the expansion-cap sentinel; each value is the round-trippable token or,
@@ -137,14 +151,15 @@ public static class FieldsDiff
     /// children and dict-root summaries (a dict bracket is a semantic key — numeric or not — so exact-path is
     /// the correct comparison), excluding only positional-list content and the list roots' own summary lines
     /// (subsumed by the element comparison — including the 0-item side, whose only trace IS its summary).</summary>
-    static Dictionary<string, string> ExactPathLines(List<(string path, string val)> lines, HashSet<string> listRoots)
+    static Dictionary<string, string> ExactPathLines(List<(string path, string val)> lines,
+        HashSet<string> listRoots, bool includeListRootSummaries = false)
     {
         var map = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var (path, val) in lines)
         {
             var root = ListRoot(path);
             bool positionalContent = root is not null && listRoots.Contains(root);
-            if (!positionalContent && !listRoots.Contains(path))
+            if (!positionalContent && (includeListRootSummaries || !listRoots.Contains(path)))
                 map[path] = val;
         }
         return map;
