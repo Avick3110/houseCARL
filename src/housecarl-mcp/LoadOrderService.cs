@@ -497,8 +497,10 @@ public sealed class LoadOrderService : IDisposable
         }
         // Unscannable accounting (Q3): name the count, the first few offenders with Mutagen's reason, and what
         // a caller can still do — these records are invisible to the body filters, not "0 matches" silence.
+        // "instance(s) … where they threw" because under plugins= a FormKey is tested once per scoped plugin:
+        // a copy that throws is skipped while another plugin's copy of the same FK can still match (PR #27 review).
         string? scanNote = unscannable == 0 ? null
-            : $"note: {unscannable} record(s) could not be scanned (Mutagen could not parse their content) and are excluded from the matches: "
+            : $"note: {unscannable} record instance(s) could not be scanned (Mutagen could not parse their content) and were skipped where they threw: "
               + string.Join("; ", unscannableSamples)
               + (unscannable > unscannableSamples.Count ? $"; and {unscannable - unscannableSamples.Count} more" : "")
               + ". Inspect one with read_record (per-field fault isolation applies).";

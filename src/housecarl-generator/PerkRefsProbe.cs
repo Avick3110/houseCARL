@@ -42,15 +42,16 @@ public static class PerkRefsProbe
         var modKey = new ModKey("HcPerkRefsGuard", ModType.Plugin);
         string espPath = Path.Combine(tmpDir, modKey.FileName.String);
 
-        // --- Setup: target perk + a GOOD perk referencing it (NextPerk) + a BAD perk with one entry-point effect,
-        //     whose EPFT (parameter-type flag) byte we corrupt after writing — the exact malformation class the ARR
-        //     sweep found (ParseEffect: "did not have expected parameter type flag"). Single mod, masterless. ---
+        // --- Setup: target perk + a BAD perk with one entry-point effect (whose EPFT parameter-type flag byte we
+        //     corrupt after writing — the exact malformation class the ARR sweep found), THEN a GOOD perk
+        //     referencing the target. Order is load-bearing (PR #27 review): the bad perk gets the LOWER FormID,
+        //     so it enumerates BEFORE the good match — the guard then pins not just "one bad record doesn't kill
+        //     the call" but "the scan CONTINUES past the fault" (a stop-at-first-fault regression silently drops
+        //     every later match — the Q3 class this fix closes; RED re-proven against that simulation). ---
         FormKey targetFk, goodFk, badFk;
         {
             var mod = new SkyrimMod(modKey, SkyrimRelease.SkyrimSE);
             var target = mod.Perks.AddNew(); target.EditorID = "HcPerkRefsGuard_Target"; targetFk = target.FormKey;
-            var good = mod.Perks.AddNew(); good.EditorID = "HcPerkRefsGuard_Good"; goodFk = good.FormKey;
-            good.NextPerk.SetTo(targetFk);
             var bad = mod.Perks.AddNew(); bad.EditorID = "HcPerkRefsGuard_Bad"; badFk = bad.FormKey;
             bad.Effects.Add(new PerkEntryPointModifyActorValue
             {
@@ -59,6 +60,8 @@ public static class PerkRefsProbe
                 Value = 1f,
                 Modification = PerkEntryPointModifyActorValue.ModificationType.AddAVMult,
             });
+            var good = mod.Perks.AddNew(); good.EditorID = "HcPerkRefsGuard_Good"; goodFk = good.FormKey;
+            good.NextPerk.SetTo(targetFk);
             mod.BeginWrite.ToPath(espPath).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
         }
         int corrupted = CorruptEpftBytes(espPath);
@@ -94,7 +97,7 @@ public static class PerkRefsProbe
         bool foundGood = q.Total == 1 && q.Keys.Count == 1 && q.Keys[0] == goodFk;
         bool accounted = q.ScanNote is not null
                          && q.ScanNote.Contains(badFk.ToString(), StringComparison.OrdinalIgnoreCase)
-                         && q.ScanNote.Contains("1 record(s)", StringComparison.Ordinal);
+                         && q.ScanNote.Contains("1 record instance(s)", StringComparison.Ordinal);
 
         Console.WriteLine($"   scan call completed (no escape, no error)          : {(noError ? "PASS" : $"FAIL [{q.Error}]")}");
         Console.WriteLine($"   good referencing perk matched                      : {(foundGood ? "PASS" : $"FAIL (total={q.Total})")}");
