@@ -106,6 +106,41 @@ public static class ConflictDiffProbe
         Check("E: a capped read yields Complete=false (no false 'identical' claim)",
               dE is { Complete: false, Deltas.Count: 0 });
 
+        // ---- E2: a TRUNCATED comparison must not FABRICATE deltas from where the cap fell (PR #28 review):
+        //      one side cut mid-list ⇒ no list or one-sided deltas; a value mismatch observed on BOTH sides
+        //      (read before either cap) still reports. ----
+        var truncA = Fields(("Flags", "A", null), ("Relations", null, "[2 item(s)]"),
+                            ("Relations[0]", null, "[Relation]"), ("Relations[0].Target", "AAAAAA:m.esm", null),
+                            ("…", null, "(expansion truncated at 2000 lines — narrow with a field path or a lower depth)"));
+        var fullB = Fields(("Flags", "B", null), ("Relations", null, "[2 item(s)]"),
+                           ("Relations[0]", null, "[Relation]"), ("Relations[0].Target", "AAAAAA:m.esm", null),
+                           ("Relations[1]", null, "[Relation]"), ("Relations[1].Target", "BBBBBB:m.esm", null));
+        var dE2 = FieldsDiff.Compare(truncA, fullB);
+        Check("E2: truncation fabricates NO list/one-sided deltas; both-sides mismatch kept",
+              dE2 is { Complete: false, Deltas.Count: 1 } && dE2.Deltas[0].StartsWith("Flags=A", StringComparison.Ordinal));
+
+        // ---- G: a numeric-KEYED dict (Package.Data) — the bracket is a semantic KEY: the same values bound
+        //      to swapped keys is a REAL delta, and must not vanish into order-insensitive list handling
+        //      (PR #28 review: pre-fix this compared "identical"). Classified by the engine's in-band
+        //      "pair(s)" marker. ----
+        var dictA = Fields(("Data", null, "[Dictionary`2: 2 pair(s)]"),
+                           ("Data[0]", null, "[PackageDataBool]"), ("Data[0].Name", "TopicData", null),
+                           ("Data[3]", null, "[PackageDataBool]"), ("Data[3].Name", "Repeatable", null));
+        var dictB = Fields(("Data", null, "[Dictionary`2: 2 pair(s)]"),
+                           ("Data[0]", null, "[PackageDataBool]"), ("Data[0].Name", "Repeatable", null),
+                           ("Data[3]", null, "[PackageDataBool]"), ("Data[3].Name", "TopicData", null));
+        Check("G: numeric-keyed dict key rebinding IS a delta (exact-path, not positional)",
+              FieldsDiff.Compare(dictA, dictB) is { Complete: true, Deltas.Count: 2 });
+
+        // ---- G2: the dict marker is REAL — the engine renders a numeric-keyed dict (Package.Data) as
+        //      "pair(s)", the in-band signal arm G's classification rests on. ----
+        var packMod = new SkyrimMod(new ModKey("hcDiffPack", ModType.Plugin), SkyrimRelease.SkyrimSE);
+        var pack = packMod.Packages.AddNew();
+        pack.Data.Add(3, new PackageDataBool { Name = "hcDiffPackDatum" });
+        var packRead = ReadEngine.ReadFields(pack, new[] { "Data" }, 4);
+        Check("G2: a real numeric-keyed dict renders the 'pair(s)' marker",
+              packRead.Fields.Any(fv => fv.Path == "Data" && (fv.Note ?? "").Contains(" pair(s)]", StringComparison.Ordinal)));
+
         // ---- F: FormKey tokens differing only by hex/master-name CASE are the SAME content (ModKeys are
         //      case-insensitive; each plugin stores a master's filename as written in ITS OWN master list —
         //      seen live as ccBGSSSE001-Fish.esm vs ccbgssse001-fish.esm on the report's PlayerFaction). ----

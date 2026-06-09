@@ -10,16 +10,19 @@ namespace HousecarlCore;
 /// could be reported "(identical to winner)" while carrying the very edit that motivated it (the report's
 /// masked USSEP PlayerFaction regression). This module compares DEEP reads (every modeled leaf):
 ///
-///   • scalar / substruct / dict leaves — exact-path token comparison (the old behavior, at full depth;
-///     dict keys like Skills[OneHanded] are semantic identities, so exact-path is correct for them);
+///   • scalar / substruct / dict leaves — exact-path token comparison (the old behavior, at full depth).
+///     Dict brackets are semantic KEYS — non-numeric (Skills[OneHanded]) by spelling, numeric-keyed dicts
+///     (Package.Data) by the read engine's in-band "N pair(s)" container marker — so a key rebinding is a
+///     real delta, never absorbed by positional handling;
 ///   • positional LIST contents — order-INSENSITIVE multiset comparison of whole elements keyed on their
 ///     content (the report's case: USSEP and the winner store the same relations in different orders, so
 ///     an index-wise comparison would over-report; element identity is content-based). Elements present
-///     on only one side are reported with identifying leaf values. Numeric brackets ([0]) mark positional
-///     elements; nested list reordering INSIDE an element is not canonicalised (v1) — it can over-report
-///     as a content delta, never under-report;
+///     on only one side are reported with identifying leaf values. Nested list reordering INSIDE an
+///     element is not canonicalised (v1) — it can over-report as a content delta, never under-report;
 ///   • honesty (Q3) — if either side's deep read hit the expansion cap, <see cref="Result.Complete"/> is
-///     false and the caller must not claim identity beyond what was actually compared.
+///     false: list comparison and one-sided-presence deltas are SUPPRESSED (where the two caps fell would
+///     otherwise fabricate differences), only value mismatches observed on both sides are reported, and
+///     the caller must not claim identity beyond what was actually compared.
 /// </summary>
 public static class FieldsDiff
 {
@@ -34,18 +37,25 @@ public static class FieldsDiff
     {
         var (tLines, tComplete) = CleanLines(theirs);
         var (wLines, wComplete) = CleanLines(winner);
+        bool complete = tComplete && wComplete;
 
-        // Outermost positional-list roots seen on EITHER side (the union, so a 0-item-vs-N-item list is
-        // still compared as elements rather than as its summary token).
-        var roots = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var (p, _) in tLines) if (ListRoot(p) is { } r) roots.Add(r);
-        foreach (var (p, _) in wLines) if (ListRoot(p) is { } r) roots.Add(r);
+        // Numeric-bracket roots seen on EITHER side (the union, so a 0-item-vs-N-item list is still compared
+        // as elements), then split DICT-vs-LIST by the read engine's in-band container marker: a numeric-KEYED
+        // dict (Package.Data) renders "N pair(s)" and is compared by EXACT PATH — its bracket content is a
+        // semantic KEY, so the same values rebound to different keys is a real delta — while a positional
+        // list is compared by element content (PR #28 review finding 2).
+        var candidates = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var (p, _) in tLines) if (ListRoot(p) is { } r) candidates.Add(r);
+        foreach (var (p, _) in wLines) if (ListRoot(p) is { } r) candidates.Add(r);
+        var listRoots = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var root in candidates)
+            if (!IsDictSummary(tLines, root) && !IsDictSummary(wLines, root)) listRoots.Add(root);
 
         var deltas = new List<string>();
 
-        // ---- scalar / substruct / dict leaves: exact-path comparison ------------------------------------
-        var tScalar = ScalarLines(tLines, roots);
-        var wScalar = ScalarLines(wLines, roots);
+        // ---- exact-path comparison: scalars, substructs, dict children (bracket = a semantic key) --------
+        var tScalar = ExactPathLines(tLines, listRoots);
+        var wScalar = ExactPathLines(wLines, listRoots);
         foreach (var (path, val) in tScalar)
         {
             if (wScalar.TryGetValue(path, out var wv))
@@ -53,22 +63,41 @@ public static class FieldsDiff
                 if (!string.Equals(NormalizeForCompare(val), NormalizeForCompare(wv), StringComparison.Ordinal))
                     deltas.Add($"{path}={val} (winner {wv})");
             }
-            else deltas.Add($"{path}={val} (winner has no {path})");   // shape difference (e.g. another ConditionData arm)
+            // One-sided presence is only a delta when BOTH sides were fully read: on a truncated side a
+            // missing line is an artifact of WHERE its cap fell, not of content — reporting it would
+            // FABRICATE a difference (PR #28 review finding 1).
+            else if (complete) deltas.Add($"{path}={val} (winner has no {path})");   // shape difference (e.g. another ConditionData arm)
         }
-        foreach (var (path, wv) in wScalar)
-            if (!tScalar.ContainsKey(path)) deltas.Add($"{path} only in winner: {wv}");
+        if (complete)
+            foreach (var (path, wv) in wScalar)
+                if (!tScalar.ContainsKey(path)) deltas.Add($"{path} only in winner: {wv}");
 
-        // ---- positional lists: order-insensitive whole-element multiset comparison ----------------------
-        foreach (var root in roots.OrderBy(r => r, StringComparer.Ordinal))
+        // ---- positional lists: order-insensitive whole-element multiset comparison. SKIPPED entirely on a
+        //      truncated comparison — a cap landing mid-list fabricates one-sided elements and wrong counts;
+        //      the renderer surfaces the truncation instead (PR #28 review finding 1). --------------------
+        if (complete)
         {
-            var tElems = ElementsOf(tLines, root);
-            var wElems = ElementsOf(wLines, root);
-            var (onlyT, onlyW) = MultisetDiff(tElems, wElems);
-            if (onlyT.Count == 0 && onlyW.Count == 0) continue;        // same contents (possibly reordered) — no delta
-            deltas.Add(DescribeListDelta(root, tElems.Count, wElems.Count, onlyT, onlyW));
+            foreach (var root in listRoots.OrderBy(r => r, StringComparer.Ordinal))
+            {
+                var tElems = ElementsOf(tLines, root);
+                var wElems = ElementsOf(wLines, root);
+                var (onlyT, onlyW) = MultisetDiff(tElems, wElems);
+                if (onlyT.Count == 0 && onlyW.Count == 0) continue;    // same contents (possibly reordered) — no delta
+                deltas.Add(DescribeListDelta(root, tElems.Count, wElems.Count, onlyT, onlyW));
+            }
         }
 
-        return new Result(deltas, tComplete && wComplete);
+        return new Result(deltas, complete);
+    }
+
+    /// <summary>True when the root's own summary line carries the read engine's dict marker ("N pair(s)") —
+    /// the in-band signal that the root's brackets hold semantic KEYS, not positional indices.</summary>
+    static bool IsDictSummary(List<(string path, string val)> lines, string root)
+    {
+        foreach (var (path, val) in lines)
+            if (path == root)
+                return val.Contains(" pair(s)]", StringComparison.Ordinal);
+        return false;
     }
 
     /// <summary>The read's lines minus the expansion-cap sentinel; each value is the round-trippable token or,
@@ -104,15 +133,20 @@ public static class FieldsDiff
         }
     }
 
-    /// <summary>Exact-path map of every line OUTSIDE positional-list content: no numeric bracket in the path,
-    /// and not itself a compared list's root summary line (those are subsumed by the element comparison —
-    /// including the 0-item side, whose only trace IS its summary line).</summary>
-    static Dictionary<string, string> ScalarLines(List<(string path, string val)> lines, HashSet<string> roots)
+    /// <summary>Exact-path map of every line OUTSIDE positional-list content: scalars, substructs, dict
+    /// children and dict-root summaries (a dict bracket is a semantic key — numeric or not — so exact-path is
+    /// the correct comparison), excluding only positional-list content and the list roots' own summary lines
+    /// (subsumed by the element comparison — including the 0-item side, whose only trace IS its summary).</summary>
+    static Dictionary<string, string> ExactPathLines(List<(string path, string val)> lines, HashSet<string> listRoots)
     {
         var map = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var (path, val) in lines)
-            if (ListRoot(path) is null && !roots.Contains(path))
+        {
+            var root = ListRoot(path);
+            bool positionalContent = root is not null && listRoots.Contains(root);
+            if (!positionalContent && !listRoots.Contains(path))
                 map[path] = val;
+        }
         return map;
     }
 
