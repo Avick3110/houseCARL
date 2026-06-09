@@ -17,6 +17,9 @@
 
   <ItemGroup>
     <ProjectReference Include="..\housecarl-core\housecarl-core.csproj" />
+    <!-- The CI regression guards drive the SERVICE-layer scan logic (LoadOrderService.CrossQuery, via the
+         ForGuard seam) — the first CI coverage of the mcp layer (PR #23 follow-up). -->
+    <ProjectReference Include="..\housecarl-mcp\housecarl-mcp.csproj" />
   </ItemGroup>
 
   <ItemGroup>

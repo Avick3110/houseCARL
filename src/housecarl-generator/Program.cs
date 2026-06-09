@@ -157,6 +157,18 @@ if (args.Length > 0 && args[0] == "writelock-apply-probe") return WriteLockProbe
 // link-cache context path) survives the re-edit-own-override case under the new "release overlay before serialize" invariant.
 if (args.Length > 0 && args[0] == "writelock-nested-proof") return WriteLockProbe.RunNestedProof(args[1..]);
 
+// Perk references= crash (HCBR-2026-06-09-03): DIAGNOSIS — run Mutagen's EnumerateFormLinks over every PERK in a
+// real plugin, report which records throw and with what (the evidence the fix is designed from). Skips without Skyrim.esm.
+if (args.Length > 0 && args[0] == "perk-refs-diagnose") return PerkRefsProbe.RunDiagnose(args[1..]);
+
+// Perk references= crash (HCBR-2026-06-09-03): SELF-CONTAINED CI regression guard — synthesizes a corrupted-EPFT perk,
+// drives the REAL service-layer scan (CrossQuery via ForGuard), asserts matches + the unscannable record's accounting.
+if (args.Length > 0 && args[0] == "perk-refs-guard") return PerkRefsProbe.RunGuard(args[1..]);
+
+// Perk references= crash (HCBR-2026-06-09-03): REAL-DATA proof — the report's exact failing call (type=Perk references=)
+// over a live MO2 order through the service layer. Manual; needs --mo2 + --corpus (skips without).
+if (args.Length > 0 && args[0] == "perk-refs-proof") return PerkRefsProbe.RunProof(args[1..]);
+
 // External-tool bridge (step 1) proof: the pure core pieces housecarl_set_tool_path + the riders ride — shared-config
 // clobber-safety, path validation, the missing-dependency forcing prompt, and canonical-home auto-detect.
 if (args.Length > 0 && args[0] == "tool-bridge") return ToolBridgeProbe.Run(args[1..]);
