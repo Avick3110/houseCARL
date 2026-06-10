@@ -14,13 +14,15 @@ on:
 jobs:
   build-and-probe:
     name: build + probes
-    runs-on: windows-latest   # houseCARL is a Windows-only (Skyrim SE) product — match that
+    # TEMPORARY explicit pin: windows-latest redirects to this image on 2026-06-15 — one green
+    # run here proves the job on it ahead of the switch, then this reverts to windows-latest.
+    runs-on: windows-2025-vs2026   # houseCARL is a Windows-only (Skyrim SE) product — match that
     steps:
       - name: Check out the code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up .NET 9
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v5
         with:
           dotnet-version: '9.0.x'
 
