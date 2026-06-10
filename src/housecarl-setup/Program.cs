@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
@@ -31,6 +32,11 @@ internal static class Program
     private const string PluginFolderName = "housecarl"; // plugin dir shipped beside this exe
     private const string McpServerName    = "housecarl"; // server key under mcpServers / [mcp_servers.*]
 
+    // Major version of the runtimes the bundled SERVER needs (keep in sync with housecarl-mcp's
+    // TargetFramework). The default roll-forward policy stays within a major, so "10.x installed"
+    // does not satisfy a net9.0 framework-dependent server.
+    private const string ServerRuntimeMajor = "9";
+
     private enum Target { Claude, Codex, Both }
 
     private static int Main(string[] args)
@@ -44,6 +50,7 @@ internal static class Program
             Console.WriteLine("    --claude   install for Claude Code only");
             Console.WriteLine("    --codex    install for Codex only");
             Console.WriteLine("    --both     install for both");
+            Console.WriteLine("    --skip-runtime-check   skip the .NET runtime preflight (custom DOTNET_ROOT etc.)");
             return 0;
         }
 
@@ -64,6 +71,42 @@ internal static class Program
                 Console.Error.WriteLine("  Looked in: " + pluginSrc);
                 Console.Error.WriteLine("  Keep this program in the same folder as the unzipped 'housecarl' folder, then run it again.");
                 return Finish(1);
+            }
+
+            // ---- server runtime preflight ------------------------------------
+            // The bundled server is framework-dependent net9.0 + ASP.NET Core: it needs BOTH the
+            // base .NET Runtime (Microsoft.NETCore.App) and the ASP.NET Core Runtime
+            // (Microsoft.AspNetCore.App). On Windows those are TWO separate installers, and the
+            // ASP.NET Core one does NOT include the base runtime -- a real-world install trap.
+            // This exe ships self-contained precisely so it still runs on a machine with neither
+            // and can say exactly what's missing, instead of the install "succeeding" into a
+            // server that never starts.
+            if (!args.Contains("--skip-runtime-check"))
+            {
+                List<string> missing = MissingServerRuntimes();
+                if (missing.Count > 0)
+                {
+                    Console.Error.WriteLine("ERROR: the houseCARL server needs .NET runtime(s) that are not installed:");
+                    if (missing.Contains("Microsoft.NETCore.App"))
+                        Console.Error.WriteLine("    - .NET Runtime " + ServerRuntimeMajor + ".x           (Microsoft.NETCore.App)");
+                    if (missing.Contains("Microsoft.AspNetCore.App"))
+                        Console.Error.WriteLine("    - ASP.NET Core Runtime " + ServerRuntimeMajor + ".x   (Microsoft.AspNetCore.App)");
+                    Console.Error.WriteLine();
+                    Console.Error.WriteLine("  Both come from the same page:");
+                    Console.Error.WriteLine("    https://dotnet.microsoft.com/download/dotnet/" + ServerRuntimeMajor + ".0");
+                    Console.Error.WriteLine("  NOTE: they are two separate installers, and the ASP.NET Core Runtime");
+                    Console.Error.WriteLine("  installer does NOT include the base .NET Runtime -- you need both.");
+                    Console.Error.WriteLine("  Or via winget:");
+                    Console.Error.WriteLine("    winget install Microsoft.DotNet.Runtime." + ServerRuntimeMajor);
+                    Console.Error.WriteLine("    winget install Microsoft.DotNet.AspNetCore." + ServerRuntimeMajor);
+                    Console.Error.WriteLine();
+                    Console.Error.WriteLine("  Install the missing runtime(s), then run this setup again. (If you're sure");
+                    Console.Error.WriteLine("  your setup is fine -- e.g. a custom dotnet location -- re-run this setup");
+                    Console.Error.WriteLine("  with --skip-runtime-check.)");
+                    return Finish(1);
+                }
+                Console.WriteLine("[check] .NET Runtime " + ServerRuntimeMajor + " + ASP.NET Core Runtime " + ServerRuntimeMajor + ": found.");
+                Console.WriteLine();
             }
 
             // HOUSECARL_SETUP_HOME overrides the home dir (testing / unusual setups).
@@ -93,6 +136,57 @@ internal static class Program
             Console.Error.WriteLine("  " + ex.Message);
             return Finish(1);
         }
+    }
+
+    // ---- server runtime preflight ------------------------------------------
+
+    /// <summary>
+    /// Which of the server's required shared frameworks are missing at the required major version.
+    /// Asks `dotnet --list-runtimes` first (covers custom install locations on PATH); falls back to
+    /// scanning the default machine-wide install dir, which also covers a console whose PATH predates
+    /// a just-finished runtime install.
+    /// </summary>
+    private static List<string> MissingServerRuntimes()
+    {
+        string[] required = { "Microsoft.NETCore.App", "Microsoft.AspNetCore.App" };
+        HashSet<string> found = new(StringComparer.Ordinal);
+
+        try
+        {
+            ProcessStartInfo psi = new("dotnet", "--list-runtimes")
+            {
+                RedirectStandardOutput = true,
+                RedirectStandardError  = true,
+                UseShellExecute        = false,
+                CreateNoWindow         = true,
+            };
+            using Process? p = Process.Start(psi);
+            if (p is not null)
+            {
+                string output = p.StandardOutput.ReadToEnd();
+                p.WaitForExit(15000);
+                foreach (string line in output.Split('\n'))
+                {
+                    string t = line.Trim();
+                    foreach (string fx in required)
+                        if (t.StartsWith(fx + " " + ServerRuntimeMajor + ".", StringComparison.Ordinal))
+                            found.Add(fx);
+                }
+            }
+        }
+        catch { /* dotnet not on PATH -- the folder scan below still gets a say */ }
+
+        string sharedDir = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "dotnet", "shared");
+        foreach (string fx in required)
+        {
+            if (found.Contains(fx)) continue;
+            string fxDir = Path.Combine(sharedDir, fx);
+            if (Directory.Exists(fxDir) && Directory.GetDirectories(fxDir, ServerRuntimeMajor + ".*").Length > 0)
+                found.Add(fx);
+        }
+
+        return required.Where(fx => !found.Contains(fx)).ToList();
     }
 
     // ---- target selection (flag or interactive prompt) --------------------
