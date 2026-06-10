@@ -129,9 +129,13 @@ if (Test-Path $CodexSrc) { Copy-Item $CodexSrc (Join-Path $PkgRoot 'codex') -Rec
 # ~/.claude/skills/housecarl/ (desktop auto-loads the skills) and registers the MCP server in
 # ~/.claude.json (desktop spawns it per session). It ships in the PACKAGE ROOT (dist\), beside - not
 # inside - the housecarl/ plugin tree, so the leak-check (which scans dist\housecarl only) correctly
-# leaves it out of scope. Single-file, framework-dependent (matches the server's runtime requirement).
+# leaves it out of scope. Single-file, SELF-CONTAINED (trimmed + compressed): setup must run on a
+# machine with no .NET installed at all, so it can preflight-check the two runtimes the
+# framework-dependent SERVER needs (.NET Runtime + ASP.NET Core Runtime - separate installers on
+# Windows) and say exactly which is missing. Trimming is safe HERE (setup uses only the
+# System.Text.Json DOM, no reflection serialization) - the server's trimming ban is untouched.
 Step '7/10' 'Publish the setup utility (houseCARL-Setup.exe) into dist/'
-dotnet publish $SetupProj -c Release -r win-x64 --self-contained false -p:PublishSingleFile=true -p:DebugType=None -p:DebugSymbols=false -o $PkgRoot
+dotnet publish $SetupProj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:PublishTrimmed=true -p:EnableCompressionInSingleFile=true -p:DebugType=None -p:DebugSymbols=false -o $PkgRoot
 if ($LASTEXITCODE -ne 0) { throw "setup-utility publish failed (exit $LASTEXITCODE)" }
 $SetupExe = Join-Path $PkgRoot 'houseCARL-Setup.exe'
 if (-not (Test-Path $SetupExe)) { throw "setup utility not produced at $SetupExe" }
