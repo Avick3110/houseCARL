@@ -14,9 +14,7 @@ on:
 jobs:
   build-and-probe:
     name: build + probes
-    # TEMPORARY explicit pin: windows-latest redirects to this image on 2026-06-15 — one green
-    # run here proves the job on it ahead of the switch, then this reverts to windows-latest.
-    runs-on: windows-2025-vs2026   # houseCARL is a Windows-only (Skyrim SE) product — match that
+    runs-on: windows-latest   # houseCARL is a Windows-only (Skyrim SE) product — match that
     steps:
       - name: Check out the code
         uses: actions/checkout@v6
