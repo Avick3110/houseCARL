@@ -220,6 +220,12 @@ public static class FormIdFloorProbe
     ///   REMOVE  — RemoveRecords of the second created record must keep the persisted counter at its high-water
     ///             (0x802 — no floor regression, no freed-ID reuse).                              RED pre-fix (1→ regress).
     ///   FRESH   — CreateRecords into a FRESH patch still allocates 0x800 (the already-good path, unregressed).
+    ///   LEGACY-CREATE / LEGACY-APPLY — the fix's "patches already on disk with a zeroed counter heal" half (PR #30
+    ///             review): both reuse the CONTROL artifact, a GENUINE zero-counter legacy patch by construction.
+    ///             CREATE into= it must allocate 0x800 — this pins GenericAddNew's floor specifically (every other
+    ///             arm only ever rehydrates an already-healed counter); an override-only Apply extend of a second
+    ///             copy must PERSIST 0x800 with no allocation happening at all — pinning WritePatch's floor
+    ///             independently. Either chokepoint reverted alone goes RED here.
     /// </summary>
     public static int RunGuard(string[] args)
     {
@@ -245,10 +251,11 @@ public static class FormIdFloorProbe
         var rulebook = CorpusRulebook.Load(Path.Combine(genDir, "corpus.json"));
         Console.WriteLine($"-- setup: master {mKey.FileName} with weapon {weapFk}; corpus generated --");
 
-        // --- CONTROL: the raw-Mutagen seed (default params, override-only → NextObjectID 0) still reproduces. ---
+        // --- CONTROL: the raw-Mutagen seed (default params, override-only → NextObjectID 0) still reproduces. The
+        //     artifact doubles as the LEGACY arms' input below — a genuine zero-counter on-disk patch, by construction. ---
         bool controlSeed;
+        string ctlPath = Path.Combine(tmpDir, "control", "HcFidGuardCtl.esp");
         {
-            string ctlPath = Path.Combine(tmpDir, "control", "HcFidGuardCtl.esp");
             Directory.CreateDirectory(Path.GetDirectoryName(ctlPath)!);
             using var mOv = SkyrimMod.CreateFromBinaryOverlay(mPath, SkyrimRelease.SkyrimSE) as IDisposable;
             var mGet = (ISkyrimModGetter)mOv!;
@@ -311,8 +318,39 @@ public static class FormIdFloorProbe
             Console.WriteLine($"   FRESH create stays at 0x800       : {(o.Success ? (freshOk ? $"PASS — {o.Created[0].FormKey}" : $"FAIL — {o.Created[0].FormKey}, counter 0x{ReadDiskNextFormId(qPath):X6}") : $"FAIL — refused: {o.Error}")}");
         }
 
+        // --- LEGACY-CREATE: create INTO the zero-counter CONTROL artifact — the report's exact in-the-wild shape
+        //     (a patch written PRE-FIX). Pins GenericAddNew's floor: WritePatch's floor can't save a record that was
+        //     already allocated at 000000 (it only floors the counter), so this arm goes RED if the allocation-side
+        //     call is reverted, even with the persist-side intact. (PR #30 review.) ---
+        bool legacyCreateOk = false;
+        {
+            string lcPath = Path.Combine(tmpDir, "legacy-create", "HcFidGuardCtl.esp");
+            Directory.CreateDirectory(Path.GetDirectoryName(lcPath)!);
+            File.Copy(ctlPath, lcPath);
+            using var r = LoadOrderResolver.Build(new[] { mPath });
+            var spec = new WritePatchBuilder.CreateSpec { RecordType = "Keyword", EditorId = "HcFidGuardKwL", Edits = Array.Empty<WriteRequest>() };
+            var o = WritePatchBuilder.CreateRecords(r, rulebook, new[] { spec }, lcPath, extend: true);
+            if (o.Success) legacyCreateOk = o.Created[0].FormKey.ID == 0x800 && ReadDiskNextFormId(lcPath) == 0x801;
+            Console.WriteLine($"   LEGACY create heals zero counter  : {(o.Success ? (legacyCreateOk ? $"PASS — {o.Created[0].FormKey}, counter 0x{ReadDiskNextFormId(lcPath):X6}" : $"FAIL — allocated {o.Created[0].FormKey}, counter 0x{ReadDiskNextFormId(lcPath):X6}") : $"FAIL — refused: {o.Error}")}");
+        }
+
+        // --- LEGACY-APPLY: an override-only Apply extend of the zero-counter artifact — NO allocation happens, so
+        //     GenericAddNew never runs; only WritePatch's floor can lift the persisted counter. Goes RED if the
+        //     persist-side call is reverted, even with the allocation-side intact. (PR #30 review.) ---
+        bool legacyApplyOk = false;
+        {
+            string laPath = Path.Combine(tmpDir, "legacy-apply", "HcFidGuardCtl.esp");
+            Directory.CreateDirectory(Path.GetDirectoryName(laPath)!);
+            File.Copy(ctlPath, laPath);
+            using var r = LoadOrderResolver.Build(new[] { mPath });
+            var edit = new WritePatchBuilder.PatchEdit { Target = weapFk, Path = new[] { "BasicStats", "Damage" }, Verb = "Set", Value = "21" };
+            var o = WritePatchBuilder.Apply(r, rulebook, new[] { edit }, laPath, extend: true);
+            if (o.Success) legacyApplyOk = ReadDiskNextFormId(laPath) == 0x800;
+            Console.WriteLine($"   LEGACY apply persists the floor   : {(o.Success ? (legacyApplyOk ? $"PASS — counter 0x{ReadDiskNextFormId(laPath):X6} with zero allocations" : $"FAIL — counter 0x{ReadDiskNextFormId(laPath):X6} (the zero survived the rewrite)") : $"FAIL — Apply refused: {o.Error}")}");
+        }
+
         Console.WriteLine();
-        bool pass = controlSeed && applyOk && applyFloor && create1Ok && create2Ok && removeOk && freshOk;
+        bool pass = controlSeed && applyOk && applyFloor && create1Ok && create2Ok && removeOk && freshOk && legacyCreateOk && legacyApplyOk;
         Console.WriteLine($"=== formid-floor-guard: {(pass ? "PASS" : "FAIL")} ===");
         try { Directory.Delete(tmpDir, recursive: true); } catch { }
         return pass ? 0 : 1;

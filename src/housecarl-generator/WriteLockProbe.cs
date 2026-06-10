@@ -445,7 +445,8 @@ public static class WriteLockProbe
         return mod;
     }
 
-    // The exact serialize incantation WriteEngine.WritePatch uses (BeginWrite → ToPath → WithLoadOrder → Write).
+    // The core serialize incantation WriteEngine.WritePatch uses (BeginWrite → ToPath → WithLoadOrder → Write; the
+    // product path adds WithExtraIncludedMasters + NoNextFormIDProcessing, neither of which touches lock semantics).
     static void Serialize(SkyrimMod mod, ISkyrimModGetter[] masters, string outPath)
         => mod.BeginWrite.ToPath(outPath).WithLoadOrder(masters).Write();
 

@@ -828,6 +828,13 @@ public static class WriteEngine
     {
         if (!CanCreateType(typeName, out var reason)) throw new InvalidOperationException(reason);
         EnsureFormIdFloor(patchMod);   // a counter rehydrated below 0x800 would hand AddNew engine-reserved IDs (HCBR-2026-06-09-04)
+        // Object IDs are 24-bit; a counter past 0xFFFFFF (a tampered header, or a truly full plugin) cannot allocate —
+        // fail loud HERE, at the allocation boundary (Q3), not in EnsureFormIdFloor: a full-but-valid patch must still
+        // SERIALIZE (WritePatch floors the same counter), it just can't grow. (PR #30 review.)
+        if (patchMod.ModHeader.Stats.NextFormID > 0xFFFFFF)
+            throw new InvalidOperationException(
+                $"cannot allocate a new FormID: the patch's NextObjectID counter is 0x{patchMod.ModHeader.Stats.NextFormID:X} — " +
+                "past the 24-bit object-ID ceiling (0xFFFFFF). The plugin is full or its header counter is corrupt.");
         object? group = null; Type? tMajor = null;
         foreach (var (prop, tm, _) in EnumerateFlatGroups(patchMod.GetType()))
             if (string.Equals(tm.Name, typeName, StringComparison.OrdinalIgnoreCase)) { group = prop.GetValue(patchMod); tMajor = tm; break; }
