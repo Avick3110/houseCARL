@@ -97,8 +97,10 @@ internal static class Program
                     Console.Error.WriteLine("  NOTE: they are two separate installers, and the ASP.NET Core Runtime");
                     Console.Error.WriteLine("  installer does NOT include the base .NET Runtime -- you need both.");
                     Console.Error.WriteLine("  Or via winget:");
-                    Console.Error.WriteLine("    winget install Microsoft.DotNet.Runtime." + ServerRuntimeMajor);
-                    Console.Error.WriteLine("    winget install Microsoft.DotNet.AspNetCore." + ServerRuntimeMajor);
+                    if (missing.Contains("Microsoft.NETCore.App"))
+                        Console.Error.WriteLine("    winget install Microsoft.DotNet.Runtime." + ServerRuntimeMajor);
+                    if (missing.Contains("Microsoft.AspNetCore.App"))
+                        Console.Error.WriteLine("    winget install Microsoft.DotNet.AspNetCore." + ServerRuntimeMajor);
                     Console.Error.WriteLine();
                     Console.Error.WriteLine("  Install the missing runtime(s), then run this setup again. (If you're sure");
                     Console.Error.WriteLine("  your setup is fine -- e.g. a custom dotnet location -- re-run this setup");
@@ -163,14 +165,25 @@ internal static class Program
             using Process? p = Process.Start(psi);
             if (p is not null)
             {
-                string output = p.StandardOutput.ReadToEnd();
-                p.WaitForExit(15000);
-                foreach (string line in output.Split('\n'))
+                // Drain stderr asynchronously so a broken dotnet host writing errors can't fill the
+                // pipe and deadlock the stdout read, and bound the whole interaction so a wedged host
+                // can't hang the preflight - on timeout we kill it and fall through to the folder scan.
+                p.ErrorDataReceived += (_, _) => { };
+                p.BeginErrorReadLine();
+                Task<string> stdoutTask = p.StandardOutput.ReadToEndAsync();
+                if (!p.WaitForExit(15000))
                 {
-                    string t = line.Trim();
-                    foreach (string fx in required)
-                        if (t.StartsWith(fx + " " + ServerRuntimeMajor + ".", StringComparison.Ordinal))
-                            found.Add(fx);
+                    try { p.Kill(entireProcessTree: true); } catch { /* already exited */ }
+                }
+                if (stdoutTask.Wait(2000))
+                {
+                    foreach (string line in stdoutTask.Result.Split('\n'))
+                    {
+                        string t = line.Trim();
+                        foreach (string fx in required)
+                            if (t.StartsWith(fx + " " + ServerRuntimeMajor + ".", StringComparison.Ordinal))
+                                found.Add(fx);
+                    }
                 }
             }
         }
@@ -182,7 +195,11 @@ internal static class Program
         {
             if (found.Contains(fx)) continue;
             string fxDir = Path.Combine(sharedDir, fx);
-            if (Directory.Exists(fxDir) && Directory.GetDirectories(fxDir, ServerRuntimeMajor + ".*").Length > 0)
+            // A version folder must actually contain assemblies - an empty 9.x dir left behind by an
+            // aborted install/uninstall must not count as "installed".
+            if (Directory.Exists(fxDir) &&
+                Directory.GetDirectories(fxDir, ServerRuntimeMajor + ".*")
+                    .Any(d => Directory.EnumerateFiles(d, "*.dll").Any()))
                 found.Add(fx);
         }
 
