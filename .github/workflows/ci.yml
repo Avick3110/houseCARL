@@ -79,3 +79,9 @@ jobs:
       # diff — equal-count list deltas reported, reorder ignored, truncation honest (HCBR-2026-06-09-01).
       - name: Probe — conflict-tree content diff (self-contained regression guard)
         run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- conflict-diff-guard
+
+      # Self-contained (synthesizes its own master — no external files) and drives the REAL write paths (Apply-born
+      # patch → CreateRecords into= → RemoveRecords): a regression guard locking in the FormID allocation floor —
+      # object IDs >= 0x800 and a floored persisted counter from every entry path (HCBR-2026-06-09-04).
+      - name: Probe — FormID allocation floor (self-contained regression guard)
+        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- formid-floor-guard

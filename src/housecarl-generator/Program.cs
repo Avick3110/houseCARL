@@ -181,6 +181,10 @@ if (args.Length > 0 && args[0] == "conflict-diff-proof") return ConflictDiffProb
 // the Iterate serialize recompute that seeds 0, CreateFromBinary rehydration, AddNew-from-0) the fix is designed from.
 if (args.Length > 0 && args[0] == "formid-floor-probe") return FormIdFloorProbe.RunProbe(args[1..]);
 
+// FormID allocation floor (HCBR-2026-06-09-04): SELF-CONTAINED CI regression guard — drives the report's exact
+// workflow (Apply-born patch → CreateRecords into=) through the real product paths, asserts the 0x800+ contract.
+if (args.Length > 0 && args[0] == "formid-floor-guard") return FormIdFloorProbe.RunGuard(args[1..]);
+
 // External-tool bridge (step 1) proof: the pure core pieces housecarl_set_tool_path + the riders ride — shared-config
 // clobber-safety, path validation, the missing-dependency forcing prompt, and canonical-home auto-detect.
 if (args.Length > 0 && args[0] == "tool-bridge") return ToolBridgeProbe.Run(args[1..]);

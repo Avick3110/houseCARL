@@ -202,6 +202,122 @@ public static class FormIdFloorProbe
         return 0;
     }
 
+    /// <summary>
+    /// SELF-CONTAINED CI REGRESSION GUARD for the FormID allocation floor (HCBR-2026-06-09-04), in the pattern of
+    /// writelock-guard / pkcu-regression. Drives the REAL product write paths through the report's exact workflow —
+    /// a patch BORN from <see cref="WritePatchBuilder.Apply"/> (the bulk_apply path), then grown with
+    /// <see cref="WritePatchBuilder.CreateRecords"/> <c>into=</c> — and asserts the 0x800+ contract the tool documents.
+    /// Self-contained (synthesizes its own master in TEMP; generates the validator corpus by construction in-process).
+    /// Run: dotnet run --project src/housecarl-generator formid-floor-guard
+    ///
+    /// Arms (ALL required — a GREEN must mean "the fix works", never "the scenario doesn't arise here"):
+    ///   CONTROL — raw Mutagen default-params serialize of an override-only patch persists NextObjectID = 0 (the
+    ///             Iterate recompute, formid-floor-probe S2). Proves the seed still exists upstream; if this stops
+    ///             reproducing, Mutagen changed and the fix may be moot — the guard says so.
+    ///   APPLY   — a patch BORN from Apply (override-only) must persist HEDR.NextObjectID &gt;= 0x800.  RED pre-fix (0).
+    ///   CREATE  — CreateRecords into= that patch must allocate object ID 0x800 (not 0x000000 — THE BUG), and the
+    ///             persisted counter must advance past it; a second create allocates 0x801.       RED pre-fix (0/1).
+    ///   REMOVE  — RemoveRecords of the second created record must keep the persisted counter at its high-water
+    ///             (0x802 — no floor regression, no freed-ID reuse).                              RED pre-fix (1→ regress).
+    ///   FRESH   — CreateRecords into a FRESH patch still allocates 0x800 (the already-good path, unregressed).
+    /// </summary>
+    public static int RunGuard(string[] args)
+    {
+        Console.WriteLine("################  REGRESSION GUARD — FormID allocation floor (HCBR-2026-06-09-04)  ################");
+        Console.WriteLine();
+
+        var tmpDir = Path.Combine(Path.GetTempPath(), "hc-formid-floor-guard");
+        if (Directory.Exists(tmpDir)) Directory.Delete(tmpDir, recursive: true);
+        Directory.CreateDirectory(tmpDir);
+
+        // --- Setup: a master carrying a weapon (the record the patch will override), + the validator corpus. ---
+        var mKey = new ModKey("HcFidGuardMaster", ModType.Master);
+        string mPath = Path.Combine(tmpDir, mKey.FileName.String);
+        FormKey weapFk;
+        {
+            var m = new SkyrimMod(mKey, SkyrimRelease.SkyrimSE);
+            var w = m.Weapons.AddNew(); w.EditorID = "HcFidGuardWeap"; w.BasicStats = new WeaponBasicStats { Damage = 10 };
+            weapFk = w.FormKey;
+            m.BeginWrite.ToPath(mPath).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
+        }
+        var genDir = Path.Combine(tmpDir, "corpus-gen");
+        CorpusGenerator.GenerateAll(genDir, Path.Combine(tmpDir, "corpus-ref"));
+        var rulebook = CorpusRulebook.Load(Path.Combine(genDir, "corpus.json"));
+        Console.WriteLine($"-- setup: master {mKey.FileName} with weapon {weapFk}; corpus generated --");
+
+        // --- CONTROL: the raw-Mutagen seed (default params, override-only → NextObjectID 0) still reproduces. ---
+        bool controlSeed;
+        {
+            string ctlPath = Path.Combine(tmpDir, "control", "HcFidGuardCtl.esp");
+            Directory.CreateDirectory(Path.GetDirectoryName(ctlPath)!);
+            using var mOv = SkyrimMod.CreateFromBinaryOverlay(mPath, SkyrimRelease.SkyrimSE) as IDisposable;
+            var mGet = (ISkyrimModGetter)mOv!;
+            var ctl = new SkyrimMod(new ModKey("HcFidGuardCtl", ModType.Plugin), SkyrimRelease.SkyrimSE);
+            ctl.Weapons.GetOrAddAsOverride(mGet.Weapons.First(x => x.FormKey == weapFk)).BasicStats!.Damage = 99;
+            ctl.BeginWrite.ToPath(ctlPath).WithLoadOrder(new[] { mGet }).Write();
+            uint ctlNext = ReadDiskNextFormId(ctlPath);
+            controlSeed = ctlNext == 0;
+            Console.WriteLine($"   CONTROL (raw Mutagen seed)        : {(controlSeed ? "PASS — default-params override-only persists 0" : $"FAIL — persisted 0x{ctlNext:X6}; Mutagen changed upstream, the fix may be moot")}");
+        }
+
+        string pPath = Path.Combine(tmpDir, "HcFidGuardPatch.esp");
+
+        // --- APPLY: a patch BORN from the real Apply path (= bulk_apply) must persist a floored counter. ---
+        bool applyOk, applyFloor; uint applyNext;
+        using (var r = LoadOrderResolver.Build(new[] { mPath }))
+        {
+            var edit = new WritePatchBuilder.PatchEdit { Target = weapFk, Path = new[] { "BasicStats", "Damage" }, Verb = "Set", Value = "20" };
+            var o = WritePatchBuilder.Apply(r, rulebook, new[] { edit }, pPath, extend: false);
+            applyOk = o.Success;
+            applyNext = applyOk ? ReadDiskNextFormId(pPath) : 0;
+            applyFloor = applyNext >= 0x800;
+            Console.WriteLine($"   APPLY-born patch floored counter  : {(applyOk ? (applyFloor ? $"PASS — persisted 0x{applyNext:X6}" : $"FAIL — persisted 0x{applyNext:X6} (below 0x800; the bug's seed)") : $"FAIL — Apply refused: {o.Error}")}");
+        }
+
+        // --- CREATE: create_record into= the Apply-born patch — THE BUG's exact trigger. ---
+        bool create1Ok = false, create2Ok = false; FormKey fk1 = default, fk2 = default; uint next1 = 0, next2 = 0;
+        using (var r = LoadOrderResolver.Build(new[] { mPath }))
+        {
+            var spec1 = new WritePatchBuilder.CreateSpec { RecordType = "Keyword", EditorId = "HcFidGuardKw1", Edits = Array.Empty<WriteRequest>() };
+            var o1 = WritePatchBuilder.CreateRecords(r, rulebook, new[] { spec1 }, pPath, extend: true);
+            if (o1.Success) { fk1 = o1.Created[0].FormKey; next1 = ReadDiskNextFormId(pPath); create1Ok = fk1.ID == 0x800 && next1 == 0x801; }
+            Console.WriteLine($"   CREATE into= allocates 0x800      : {(o1.Success ? (create1Ok ? $"PASS — {fk1}, counter 0x{next1:X6}" : $"FAIL — allocated {fk1} (object ID 0x{fk1.ID:X6}), counter 0x{next1:X6}") : $"FAIL — refused: {o1.Error}")}");
+
+            var spec2 = new WritePatchBuilder.CreateSpec { RecordType = "Keyword", EditorId = "HcFidGuardKw2", Edits = Array.Empty<WriteRequest>() };
+            var o2 = WritePatchBuilder.CreateRecords(r, rulebook, new[] { spec2 }, pPath, extend: true);
+            if (o2.Success) { fk2 = o2.Created[0].FormKey; next2 = ReadDiskNextFormId(pPath); create2Ok = fk2.ID == 0x801 && next2 == 0x802; }
+            Console.WriteLine($"   second CREATE allocates 0x801     : {(o2.Success ? (create2Ok ? $"PASS — {fk2}, counter 0x{next2:X6}" : $"FAIL — allocated {fk2} (object ID 0x{fk2.ID:X6}), counter 0x{next2:X6}") : $"FAIL — refused: {o2.Error}")}");
+        }
+
+        // --- REMOVE: dropping the second created record must keep the counter at its high-water (no reuse). ---
+        bool removeOk = false; uint nextAfterRemove = 0;
+        if (create2Ok)
+        {
+            using var r = LoadOrderResolver.Build(new[] { mPath });
+            var o = WritePatchBuilder.RemoveRecords(r, new[] { fk2 }, pPath);
+            if (o.Success) { nextAfterRemove = ReadDiskNextFormId(pPath); removeOk = nextAfterRemove == 0x802; }
+            Console.WriteLine($"   REMOVE keeps high-water (0x802)   : {(o.Success ? (removeOk ? $"PASS — counter 0x{nextAfterRemove:X6}" : $"FAIL — counter 0x{nextAfterRemove:X6} (regressed; freed ID would be reused)") : $"FAIL — refused: {o.Error}")}");
+        }
+        else Console.WriteLine("   REMOVE keeps high-water (0x802)   : SKIP — CREATE arm failed upstream");
+
+        // --- FRESH: the already-good path (patch born from CreateRecords) stays at 0x800. ---
+        bool freshOk = false;
+        {
+            string qPath = Path.Combine(tmpDir, "HcFidGuardFresh.esp");
+            using var r = LoadOrderResolver.Build(new[] { mPath });
+            var spec = new WritePatchBuilder.CreateSpec { RecordType = "Keyword", EditorId = "HcFidGuardKwF", Edits = Array.Empty<WriteRequest>() };
+            var o = WritePatchBuilder.CreateRecords(r, rulebook, new[] { spec }, qPath, extend: false);
+            if (o.Success) freshOk = o.Created[0].FormKey.ID == 0x800 && ReadDiskNextFormId(qPath) == 0x801;
+            Console.WriteLine($"   FRESH create stays at 0x800       : {(o.Success ? (freshOk ? $"PASS — {o.Created[0].FormKey}" : $"FAIL — {o.Created[0].FormKey}, counter 0x{ReadDiskNextFormId(qPath):X6}") : $"FAIL — refused: {o.Error}")}");
+        }
+
+        Console.WriteLine();
+        bool pass = controlSeed && applyOk && applyFloor && create1Ok && create2Ok && removeOk && freshOk;
+        Console.WriteLine($"=== formid-floor-guard: {(pass ? "PASS" : "FAIL")} ===");
+        try { Directory.Delete(tmpDir, recursive: true); } catch { }
+        return pass ? 0 : 1;
+    }
+
     /// <summary>Read the persisted HEDR.NextObjectID by reopening the file as a binary overlay (the header parses
     /// on open; equivalent to the bug report's byte inspection, without hand-parsing offsets).</summary>
     static uint ReadDiskNextFormId(string path)
