@@ -820,16 +820,43 @@ public static class WriteEngine
     /// <summary>The CREATE front-end: allocate a brand-new record of <paramref name="typeName"/> in <paramref name="patchMod"/>
     /// via the flat group's <c>AddNew</c>, returning a settable root fed into the SAME <see cref="ApplyVerb"/> path as an
     /// override. AddNew allocates a fresh LOCAL FormID (the new plugin's own 0x800+ ESP range, incrementing — measured by
-    /// create-probe C2); the new record's master is the patch itself. <paramref name="editorId"/> sets the EditorID via the
-    /// <c>AddNew(string)</c> overload (null uses the no-arg, engine-assigned one). Throws loud (Q3) on the two boundaries via
-    /// <see cref="CanCreateType"/> — callers pre-flight with that, so a throw here means the surface changed under us.</summary>
+    /// create-probe C2, with the floor guaranteed by <see cref="EnsureFormIdFloor"/>); the new record's master is the patch
+    /// itself. <paramref name="editorId"/> sets the EditorID via the <c>AddNew(string)</c> overload (null uses the no-arg,
+    /// engine-assigned one). Throws loud (Q3) on the two boundaries via <see cref="CanCreateType"/> — callers pre-flight
+    /// with that, so a throw here means the surface changed under us.</summary>
     public static IMajorRecord GenericAddNew(SkyrimMod patchMod, string typeName, string? editorId)
     {
         if (!CanCreateType(typeName, out var reason)) throw new InvalidOperationException(reason);
+        EnsureFormIdFloor(patchMod);   // a counter rehydrated below 0x800 would hand AddNew engine-reserved IDs (HCBR-2026-06-09-04)
         object? group = null; Type? tMajor = null;
         foreach (var (prop, tm, _) in EnumerateFlatGroups(patchMod.GetType()))
             if (string.Equals(tm.Name, typeName, StringComparison.OrdinalIgnoreCase)) { group = prop.GetValue(patchMod); tMajor = tm; break; }
         return InvokeAddNew(group!, tMajor!, editorId);   // CanCreateType guaranteed a concrete flat group exists
+    }
+
+    /// <summary>
+    /// Raise the patch's FormID allocator counter (<c>HEDR.NextObjectID</c>, in memory <c>ModHeader.Stats.NextFormID</c>)
+    /// to its safe floor: at least 0x800 (object IDs below 0x800 are engine-reserved — and 0x000000 is the NULL-reference
+    /// bit pattern; the CK, ESL compaction, and xEdit checks all assume the 0x800+ floor) AND past every record the patch
+    /// ITSELF already defines (so a tampered/legacy counter can never re-allocate a live ID). Never lowers the counter.
+    ///
+    /// Why this exists (HCBR-2026-06-09-04): Mutagen's serializer keeps the header counter in sync by ITERATION
+    /// (<c>NextFormIDOption.Iterate</c> = max originating FormID present, measured by formid-floor-probe S2) — an
+    /// override-only patch (the bulk_apply/set_field shape) therefore persists <c>NextObjectID = 0</c>, and a later
+    /// extend (<c>into=</c>) rehydrates that 0 straight into the allocator: under header 1.71 Mutagen itself accepts
+    /// the lower range (<c>GetDefaultInitialNextFormID(null)</c> == 0, probe S1), so AddNew happily allocated 000000.
+    /// Called at BOTH chokepoints: <see cref="GenericAddNew"/> (every allocation ≥ 0x800 by construction, healing
+    /// patches already on disk with a zeroed counter) and <see cref="WritePatch(SkyrimMod,IReadOnlyList{ISkyrimModGetter},string)"/>
+    /// (every written patch PERSISTS a floored counter — see the NoNextFormIDProcessing note there).
+    /// </summary>
+    public static void EnsureFormIdFloor(SkyrimMod patchMod)
+    {
+        uint floor = 0x800;
+        foreach (var r in patchMod.EnumerateMajorRecords())
+            if (r.FormKey.ModKey == patchMod.ModKey && r.FormKey.ID >= floor)
+                floor = r.FormKey.ID + 1;
+        if (patchMod.ModHeader.Stats.NextFormID < floor)
+            patchMod.ModHeader.Stats.NextFormID = floor;
     }
 
     /// <summary>Invoke Mutagen's <c>AddNew</c> on a flat group instance. <c>AddNew</c> is NOT a plain instance method on
@@ -921,10 +948,20 @@ public static class WriteEngine
         // single-master test harness) from throwing on an unresolvable extra master. The master LIST stays otherwise lean.
         var ordered = knownMasters as ISkyrimModGetter[] ?? knownMasters.ToArray();
         var baseline = BaselineMasters.Where(bm => ordered.Any(km => km.ModKey == bm)).ToArray();
+        // FORMID FLOOR (HCBR-2026-06-09-04): Mutagen's default NextFormID handling re-derives the persisted
+        // HEDR.NextObjectID by ITERATING originating records (max + 1, or 0 when there are none — formid-floor-probe
+        // S2), so an override-only patch lands on disk with a 0 counter that a later extend rehydrates straight into
+        // the allocator. NoNextFormIDProcessing makes the serializer persist OUR in-memory counter verbatim (probe S5),
+        // and EnsureFormIdFloor guarantees that counter is ≥ 0x800 AND past every record the patch defines — the same
+        // invariant Iterate maintained, plus the floor, minus the regression (a remove no longer shrinks the counter,
+        // so a freed ID is never re-allocated). Every product write funnels through here, so every houseCARL-written
+        // plugin carries a conventional counter regardless of which tool created it.
+        EnsureFormIdFloor(patchMod);
         patchMod.BeginWrite
             .ToPath(outputPath)
             .WithLoadOrder(ordered)
             .WithExtraIncludedMasters(baseline)
+            .NoNextFormIDProcessing()
             .Write();
     }
 
