@@ -4,6 +4,32 @@ All notable changes to houseCARL are documented here. Versioning is [semantic](h
 the `version` in `.claude-plugin/plugin.json` is bumped on each release, so installed users update only
 when it changes.
 
+## 1.2.2 — 2026-06-10
+
+Fixes four issues surfaced auditing a Requiem load order — all in reads and writes, no change to the tool
+set.
+
+- **New records get valid FormIDs:** creating a record in a patch that was first written by a bulk apply
+  could allocate FormIDs starting at `000000` — the null range the game and other tools reject. houseCARL
+  now floors every new-record allocation at `0x800` (the user range Bethesda reserves) from every write
+  path, and persists a floored high-water mark into the patch so later edits and removals never regress it.
+  Patches that already carry a `000000` record stay readable and editable — nothing is auto-renumbered,
+  which would break references.
+- **Conflict diffs compare real content:** the conflict tree's "what differs between these overrides"
+  comparison looked only at top-level field counts, so two overrides that changed the *contents* of a list
+  or struct without changing its length could be reported as identical. The diff now walks the record's
+  full depth — list elements compared order-insensitively, sub-structs and nested values compared by value
+  — so a genuine deep difference is no longer missed, and the output stays honest when a record is too
+  large to fully expand.
+- **One unreadable record no longer breaks a whole query:** a single record Mutagen can't parse — for
+  example a malformed perk an upstream ESP ships — used to abort an *entire* `housecarl_cross_plugin_query`
+  that scans references, returning nothing. houseCARL now isolates the offending record, scans past it, and
+  reports how many records were skipped and why, so the rest of the results come through.
+- **Form-targeted conditions read correctly:** a condition that points at a form — `HasPerk`,
+  `HasMagicEffect`, `GetInFaction`, and the like — used to render a placeholder instead of the form's
+  FormID when read. houseCARL now resolves the target through its link, so those condition payloads show
+  their real FormID.
+
 ## 1.2.1 — 2026-06-08
 
 Adds value-based record querying and a fuller Nexus lookup, and fixes several read and write rough edges.
