@@ -59,8 +59,11 @@ if (-not $Version) { throw "could not read 'version' from $PluginManifest" }
 Write-Host ("Building houseCARL v{0}" -f $Version) -ForegroundColor Green
 
 # ---- 0. clean --------------------------------------------------------------
-Step '0/10' 'Clean dist/housecarl'
-if (Test-Path $DistRoot) { Remove-Item $DistRoot -Recurse -Force }
+# Clean the WHOLE package root, not just dist/housecarl: stale package-root extras (codex/,
+# START-HERE.txt, a previous setup exe) would otherwise survive into the zip - a stale nested
+# codex/codex/ subtree did exactly that at the 1.2.2 build.
+Step '0/10' 'Clean dist/ (package root)'
+if (Test-Path $PkgRoot) { Remove-Item $PkgRoot -Recurse -Force }
 New-Item -ItemType Directory -Path $DistRoot -Force | Out-Null
 
 # ---- 1. regenerate the rulebook (corpus.json + mutagen-reference shards, in sync by construction)
