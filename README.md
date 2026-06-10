@@ -32,13 +32,17 @@ models — by construction, not a hand-maintained subset.
 ## Requirements
 
 - **Windows.**
-- **.NET 9 — the [ASP.NET Core Runtime 9.0](https://dotnet.microsoft.com/download/dotnet/9.0).** houseCARL
-  ships framework-dependent (the runtime is not bundled), and the server needs the ASP.NET Core shared
-  framework — the plain ".NET Runtime" or "Desktop Runtime" is **not** sufficient. Install the
-  **ASP.NET Core Runtime** (it includes the base .NET runtime).
+- **.NET 9 — both the .NET Runtime 9.0 *and* the ASP.NET Core Runtime 9.0**, from the same
+  [download page](https://dotnet.microsoft.com/download/dotnet/9.0). houseCARL ships framework-dependent
+  (the runtime is not bundled), and the server needs the ASP.NET Core shared framework *on top of* the
+  base .NET runtime. On Windows these are **two separate installers** — the ASP.NET Core Runtime
+  installer does **not** include the base .NET Runtime — so install both. The setup utility checks for
+  both and tells you exactly which is missing.
 - **[Mod Organizer 2](https://www.modorganizer.org/)** with a modlist. houseCARL reads the instance's
   profile files statically — **MO2 does not need to be running.**
-- **An AI host:** [Claude Code](https://claude.com/claude-code) (v2.1.143 or newer) **or** OpenAI Codex.
+- **An AI host:** [Claude Code](https://claude.com/claude-code) (v2.1.143 or newer) — either the terminal
+  CLI or the Claude desktop app, which has Claude Code built in (houseCARL runs in Claude Code sessions,
+  not the plain chat) — **or** OpenAI Codex.
 
 ## Install
 

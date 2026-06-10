@@ -39,12 +39,20 @@ INSTALL  (about 30 seconds, no command line)
 REQUIREMENTS
 ------------------------------------------------------------------------
   - Windows (x64).
-  - .NET 9 -- the ASP.NET Core Runtime 9.0 (NOT just the base ".NET
-    Runtime" or "Desktop Runtime"; the server needs the ASP.NET Core
-    one, which includes the base runtime). The runtime, not the SDK.
+  - .NET 9 -- BOTH of these runtimes, from the same download page:
+        1)  .NET Runtime 9.0
+        2)  ASP.NET Core Runtime 9.0
+    They are two separate installers, and the ASP.NET Core one does
+    NOT include the base .NET Runtime -- install both. (The runtimes,
+    not the SDK.)
         https://dotnet.microsoft.com/download/dotnet/9.0
-        or:  winget install Microsoft.DotNet.AspNetCore.9
-  - A recent Claude Code / Claude desktop app  (v2.1.143 or newer).
+        or:  winget install Microsoft.DotNet.Runtime.9
+             winget install Microsoft.DotNet.AspNetCore.9
+    houseCARL-Setup.exe checks for both and tells you which one is
+    missing, so when in doubt just run it.
+  - A recent Claude Code  (v2.1.143 or newer) -- the terminal CLI, or
+    the Claude desktop app (Claude Code is built in; houseCARL runs in
+    Claude Code sessions, not the plain chat).
   - Mod Organizer 2 with a modlist.  MO2 does NOT need to be running.
 
 
