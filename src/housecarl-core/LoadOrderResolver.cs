@@ -16,8 +16,8 @@ namespace HousecarlCore;
 //  SHAPE (Aaron-confirmed 2026-06-01 off the body-fetch probe; handle model proven by handle-probe 2026-06-04):
 //    • Held index — PURE DATA, ZERO file handles — built by enumerating every plugin ONE AT A TIME (low→high
 //      priority: open i → enumerate → DISPOSE → i+1, never all-open-at-once):
-//        - _index    : FormKey → (winnerOverlay, overrideCount)  — ALL keys, the O(1) "what wins" fast path (§8.1).
-//        - _overriders: FormKey → ordered overlay indices         — MULTI-override keys ONLY (the "list of touching
+//        - Index     : FormKey → (winnerOverlay, overrideCount)  — ALL keys, the O(1) "what wins" fast path (§8.1).
+//        - Overriders: FormKey → ordered overlay indices          — MULTI-override keys ONLY (the "list of touching
 //                        plugins" §5.2 calls for; singletons' sole overrider IS the winner, so they need no list).
 //      ~125–185 MB at full-modlist scale (within §5.2's "few hundred MB"); NO record bodies, NO mmap handles held.
 //    • On-demand body fetch = open the plugin, re-enumerate + match the FormKey, then DISPOSE when the work ends.
@@ -156,13 +156,13 @@ public sealed class LoadOrderResolver : IDisposable
         public IReadOnlyList<ISkyrimModGetter> AllMasters()
         {
             // Excluded plugins (BuildIndex couldn't fully parse) are INTENTIONALLY retained here — NOT filtered by
-            // _excluded. A clean plugin can override a record whose ORIGIN master is an excluded one, and that master
+            // the snapshot's Excluded set. A clean plugin can override a record whose ORIGIN master is an excluded one, and that master
             // must still appear in the patch's output header for FormID resolution; dropping it would corrupt the
             // header. Safe: Overlay() opens lazily (no parse, no enumeration → no throw), and the serializer parses a
             // master's bodies ONLY when the patch references them — and an excluded plugin's OWN records can't be
             // referenced (they're unreadable). So this is the one read-path that touches excluded plugins on purpose,
             // and it cannot re-throw. (If a future change enumerates or link-caches over this full set, it must
-            // re-introduce the _excluded skip — the per-read "single choke point" is BuildIndex, not this method.)
+            // re-introduce the Excluded skip — the per-read "single choke point" is BuildIndex, not this method.)
             var arr = new ISkyrimModGetter[_r._paths.Length];
             for (int i = 0; i < arr.Length; i++) arr[i] = Overlay(i);
             return arr;

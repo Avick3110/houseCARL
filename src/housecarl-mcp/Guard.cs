@@ -15,18 +15,22 @@ namespace HousecarlMcp;
 /// </summary>
 internal static class Guard
 {
-    public static string Tool(string tool, Func<string> body)
+    /// <summary>Rethrow ONLY a real request cancellation (the SDK's to finish), mirroring the SDK's own test —
+    /// an OperationCanceledException whose REQUEST token is live (e.g. a TaskCanceledException from an internal
+    /// HttpClient timeout) is a body FAILURE and must be named, or it lands in the SDK generic (review #1
+    /// finding 1). Tools without a CancellationToken parameter pass none, so every body OCE there is named.</summary>
+    public static string Tool(string tool, Func<string> body, CancellationToken ct = default)
     {
         try { return body(); }
-        catch (OperationCanceledException) { throw; }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
         catch (Exception ex) { return Named(tool, ex); }
     }
 
     /// <summary>The async twin (the Nexus tools).</summary>
-    public static async Task<string> Tool(string tool, Func<Task<string>> body)
+    public static async Task<string> Tool(string tool, Func<Task<string>> body, CancellationToken ct = default)
     {
         try { return await body(); }
-        catch (OperationCanceledException) { throw; }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
         catch (Exception ex) { return Named(tool, ex); }
     }
 

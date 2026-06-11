@@ -37,26 +37,33 @@ internal static class ToolCallShim
         // MatchedPrimitive is resolved by the SDK BEFORE filters run; unknown tool names pass through untouched
         // (the SDK's own unknown-tool error is already specific).
         var p = request.Params;
-        if (p is not null && request.MatchedPrimitive is McpServerTool tool)
-        {
-            var schema = tool.ProtocolTool.InputSchema;
-            CoerceObviousShapes(p, schema);
-            if (MissingRequired(p, schema) is { } refusal) return refusal;
-        }
-
+        var received = DescribeArgs(p?.Arguments);   // what the caller ACTUALLY sent — captured before coercion rewrites
+                                                     // the dictionary, so the failure message never shows a coerced shape
+                                                     // as if the caller had sent it (review #1 finding 2)
         try
         {
+            // The shim's own pre-processing runs inside the same safety net as the call (review #1 finding 4):
+            // a throw from coercion/required-check must also come back named, never the SDK generic.
+            if (p is not null && request.MatchedPrimitive is McpServerTool tool)
+            {
+                var schema = tool.ProtocolTool.InputSchema;
+                CoerceObviousShapes(p, schema);
+                if (MissingRequired(p, schema) is { } refusal) return refusal;
+            }
             return await next(request, cancellationToken);
         }
-        // Cancellation belongs to the SDK's own special-casing; McpException is the protocol surface (e.g. the
-        // unknown-tool path) whose handling must stay the SDK's. Everything else below this filter would otherwise
-        // surface as the opaque generic text (Q3's dead end) — name it instead.
-        catch (Exception ex) when (ex is not OperationCanceledException and not McpException)
+        // A REAL request cancellation belongs to the SDK's special-casing — but ONLY a real one (the SDK's own
+        // test): an OperationCanceledException with a live request token (e.g. an internal HttpClient timeout)
+        // would be genericized above, so it gets named here instead (review #1 finding 1). McpException is the
+        // protocol surface (e.g. the unknown-tool path) whose handling must stay the SDK's. Everything else
+        // below this filter would otherwise surface as the opaque generic text (Q3's dead end) — name it.
+        catch (Exception ex) when (ex is not McpException &&
+                                   !(ex is OperationCanceledException && cancellationToken.IsCancellationRequested))
         {
             Console.Error.WriteLine($"[houseCARL] {p?.Name}: exception during tool invocation: {ex}");   // full stack → stderr (the MCP log), never stdout (the protocol channel)
             return NamedError(
                 $"error: {p?.Name}: an argument most likely could not be bound to its declared parameter — " +
-                $"{ex.GetType().Name}: {Guard.Flatten(ex.Message)} Received {DescribeArgs(p?.Arguments)}. Check each " +
+                $"{ex.GetType().Name}: {Guard.Flatten(ex.Message)} Received {received}. Check each " +
                 "argument's TYPE against the tool's schema: array parameters take JSON arrays (a single bare " +
                 "string is auto-wrapped), numbers take numbers, booleans take true/false. Fix the mismatched " +
                 "argument and retry.");
