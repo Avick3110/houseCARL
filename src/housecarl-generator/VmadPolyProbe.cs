@@ -26,18 +26,31 @@ public static class VmadPolyProbe
         var f = WriteEngine.ParseFlags(args);
 
         // CI-safe: corpus.json is GENERATED, not tracked — on a fresh checkout (the CI runner) build it into a
-        // temp dir and point the rulebook there, leaving the working tree untouched. A repo with generated/
-        // already present (local dev) is used as-is.
+        // UNIQUE temp dir (no cross-run sharing/races; PR review) and point the rulebook there, leaving the
+        // working tree untouched; cleaned up on exit. A repo with generated/ already present (local dev) is
+        // used as-is.
+        string? tmp = null;
         if (!File.Exists(CorpusRulebook.CorpusPath))
         {
-            var tmp = Path.Combine(Path.GetTempPath(), "housecarl-vmad-poly-guard");
+            tmp = Path.Combine(Path.GetTempPath(), "housecarl-vmad-poly-guard-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(tmp);
             Console.WriteLine($"corpus.json absent — generating into {tmp} (CI / fresh checkout)…");
             var rc = CorpusGenerator.GenerateAll(Path.Combine(tmp, "generated"), Path.Combine(tmp, "refs"));
             if (rc != 0) { Console.Error.WriteLine("error: corpus generation failed"); return rc; }
             CorpusRulebook.CorpusPath = Path.Combine(tmp, "generated", "corpus.json");
         }
+        try
+        {
+            return RunChecks(f);
+        }
+        finally
+        {
+            if (tmp is not null) { try { Directory.Delete(tmp, recursive: true); } catch { /* temp cleanup is best-effort */ } }
+        }
+    }
 
+    static int RunChecks(Dictionary<string, string> f)
+    {
         var rb = CorpusRulebook.Load();
         int failures = 0;
 
@@ -113,6 +126,29 @@ public static class VmadPolyProbe
         };
         var eErr = rb.Validate(questAlias);
         Check("E: QUST alias-script arm-field path passes pre-flight", eErr is null, eErr);
+
+        // ---- G: a DICT of polymorphic elements (Package.Data) refuses a compose-Add NAMED — the engine's
+        //         dict Add takes a coercible key + value, never a spec (accept-then-throw guard, PR review). ----
+        var dictCompose = new WriteRequest
+        {
+            RecordType = "Package", Path = new[] { "Data" }, Verb = "Add", Key = "0",
+            Struct = new StructSpec { Type = "PackageDataBool", Fields = new() },
+        };
+        var gErr = rb.Validate(dictCompose);
+        Check("G: dict arm-element compose-Add rejects", gErr is not null);
+        Check("G2: …named as a deferred surface, not a generic failure",
+            gErr?.Contains("later surface", StringComparison.OrdinalIgnoreCase) == true, gErr);
+
+        // ---- H: a polymorphic-base whose arms are RECORDS (GameSetting → GameSettingBool/Float/Int/String)
+        //         classifies Record, never Arm — the composition surface must not admit record-group families
+        //         (PR review). ----
+        var corpus = CorpusRulebook.LoadCorpus();
+        var modType = corpus.Types.GetValueOrDefault("SkyrimMod");
+        var gsField = modType?.Fields.FirstOrDefault(x => x.Name == "GameSettings");
+        Check("H: record-family polymorphic base classifies Record (not composable)",
+            gsField is not null && SchemaClassifier.ClassifyElement(gsField, corpus) == ElementKind.Record,
+            gsField is null ? "SkyrimMod.GameSettings not found in corpus"
+                : SchemaClassifier.ClassifyElement(gsField, corpus).ToString());
 
         // ---- F (optional, --source): END-TO-END through the engine's own ApplyVerb on a DeepCopy of a real
         //      scripted record — proving the pre-flight now admits exactly what the runtime can already do. ----
