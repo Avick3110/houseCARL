@@ -842,22 +842,46 @@ public static class WriteEngine
     }
 
     /// <summary>UPSERT front-end for the extend path: like <see cref="GenericAddNew"/>, but if the patch already
-    /// carries a record with the same EditorID (a re-run of the same create against the same <c>into=</c> target),
-    /// the stale copy is REPLACED — removed from its group and re-created FRESH at the SAME FormKey — instead of a
-    /// duplicate being appended. This makes create calls IDEMPOTENT: re-running neither appends a second copy (the
-    /// dup-append failure) nor accumulates list items inside a reused record (re-applying edits to a live record
-    /// would re-Add keyword/effect list entries), and the stable FormKey keeps cross-record links and external
-    /// references (script properties, SKSE framework configs) valid across re-runs. An EditorID collision across
-    /// record TYPES is refused loud (Q3) — that is a real authoring error, not an upsert.
-    /// Returns the record plus whether an existing one was replaced (for caller logging).</summary>
+    /// carries a record IT ITSELF DEFINES with the same EditorID (a re-run of the same create against the same
+    /// <c>into=</c> target), the stale copy is REPLACED — removed from its group and re-created FRESH at the SAME
+    /// FormKey — instead of a duplicate being appended. This makes create calls IDEMPOTENT: re-running neither
+    /// appends a second copy (the dup-append failure) nor accumulates list items inside a reused record (re-applying
+    /// edits to a live record would re-Add keyword/effect list entries), and the stable FormKey keeps cross-record
+    /// links and external references (script properties, SKSE framework configs) valid across re-runs.
+    ///
+    /// Three collisions are refused LOUD (Q3), never absorbed into a replace:
+    ///   - an OVERRIDE the patch carries (another plugin's record, matched by its carried EditorID): replacing it
+    ///     would serialize a blank override that GUTS the original plugin's record — the opposite of
+    ///     originals-untouched. Overrides are edited with set_field/bulk_apply, never re-created.
+    ///   - DUPLICATE residue (2+ same-EditorID records, the pre-fix dup-append bug's own product): which FormKey
+    ///     survives is the caller's call — external references may point at either copy. Named, not guessed.
+    ///   - a cross-TYPE EditorID collision: a real authoring error, surfaced not swallowed.
+    /// Returns the record plus whether an existing one was replaced — the caller MUST surface a replace to the user
+    /// (a replace discards the prior record state, including any set_field edits made since the original create).</summary>
     public static (IMajorRecord Record, bool Replaced) GenericUpsertNew(SkyrimMod patchMod, string typeName, string? editorId)
     {
         if (editorId is not null)
         {
-            var existing = patchMod.EnumerateMajorRecords()
-                .FirstOrDefault(r => string.Equals(r.EditorID, editorId, StringComparison.OrdinalIgnoreCase));
-            if (existing is not null)
+            var matches = patchMod.EnumerateMajorRecords()
+                .Where(r => string.Equals(r.EditorID, editorId, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+            if (matches.Count > 0)
             {
+                // Replace-eligibility guard: ONLY a record this patch itself defines (its own ModKey) may be
+                // replaced. A match on a carried OVERRIDE keeps the foreign FormKey — re-creating "at the same
+                // FormKey" there would emit a field-wiping override of the ORIGINAL plugin's record.
+                var foreign = matches.FirstOrDefault(r => r.FormKey.ModKey != patchMod.ModKey);
+                if (foreign is not null)
+                    throw new InvalidOperationException(
+                        $"create refused: this patch already carries an OVERRIDE of {foreign.FormKey} whose editorid is '{editorId}' — " +
+                        $"re-creating over an override would blank the original plugin's record. Pick a different editorid for the new record, " +
+                        "or edit the override's fields with housecarl_set_field / housecarl_bulk_apply.");
+                if (matches.Count > 1)
+                    throw new InvalidOperationException(
+                        $"create refused: this patch carries {matches.Count} records with editorid '{editorId}' " +
+                        $"({string.Join(", ", matches.Select(m => m.FormKey))}) — duplicate residue from re-running creates on a pre-fix houseCARL. " +
+                        "External references may point at either copy, so which survives is your call: remove the extra(s) with housecarl_remove_record, then re-run.");
+                var existing = matches[0];
                 if (!CanCreateType(typeName, out var reason)) throw new InvalidOperationException(reason);
                 var formKey = existing.FormKey;
                 object? group = null; Type? tMajor = null;
@@ -884,7 +908,15 @@ public static class WriteEngine
     static void InvokeRemove(object group, FormKey formKey)
     {
         var instance = group.GetType().GetMethod("Remove", new[] { typeof(FormKey) });
-        if (instance is not null) { instance.Invoke(group, new object[] { formKey }); return; }
+        if (instance is not null)
+        {
+            var result = instance.Invoke(group, new object[] { formKey });
+            if (result is false)
+                throw new InvalidOperationException(
+                    $"Remove({formKey}) reported nothing removed — the matched record vanished between match and replace " +
+                    "(engine inconsistency, surfaced not swallowed).");
+            return;
+        }
         foreach (var asm in AppDomain.CurrentDomain.GetAssemblies().Where(a => (a.GetName().Name ?? "").StartsWith("Mutagen")))
             foreach (var t in SafeTypes(asm).Where(t => t is { IsAbstract: true, IsSealed: true }))
                 foreach (var m in t.GetMethods(BindingFlags.Public | BindingFlags.Static).Where(m => m.Name == "Remove"))
@@ -1049,38 +1081,23 @@ public static class WriteEngine
         // so a freed ID is never re-allocated). Every product write funnels through here, so every houseCARL-written
         // plugin carries a conventional counter regardless of which tool created it.
         EnsureFormIdFloor(patchMod);
-        // ATOMIC WRITE (Q3): stage + commit. Serializing IN PLACE can tear the plugin (a crash mid-write leaves a
-        // truncated .esp) and loses two races once the patch is enabled in MO2: (a) MO2's folder watcher opens the
-        // half-written file to refresh its plugin list (sharing violation), and (b) on an EXTEND, the caller's own
-        // overlay session may have memory-mapped the target (a winner read against a last-in-order patch opens its
-        // overlay; AllMastersExcept keeps the SERIALIZER from mapping it but cannot un-map a phase-3 read) — and a
-        // memory-mapped file cannot be replaced (deterministic AccessDenied, measured against a live MO2 instance).
-        // Callers that hold a session stage INSIDE it and commit AFTER disposing it; this one-shot overload serves
-        // session-free callers (the standalone harness).
+        // ATOMIC WRITE (Q3): stage + commit. Serializing IN PLACE has two failure shapes once a patch lives in an
+        // MO2 mods folder: a crash mid-serialize leaves a truncated .esp (a torn original), and an external folder
+        // watcher (MO2 refreshing its plugin list) can open a half-written file. Staging into a sibling temp dir and
+        // committing via an atomic same-volume rename means the target path only ever holds the OLD complete file or
+        // the NEW complete file — never a partial one. NOTE: this does NOT relax the PR #24 self-lock guard
+        // (ReleaseOverlay + AllMastersExcept before the serialize): a rename onto a still-mapped target fails exactly
+        // like an in-place write would, so callers must still release every handle they hold on the target first.
+        // Staging buys crash-tear safety and shrinks the external-watcher window; the handle discipline stays
+        // load-bearing.
         var staged = WritePatchStaged(patchMod, ordered, baseline, outputPath);
         CommitStagedPatch(staged, outputPath);
     }
 
     /// <summary>Stage 1 of the atomic write: serialize the patch into a temp SUBDIRECTORY beside the target —
     /// same filename (Mutagen's writer ties filename to ModKey), same parent directory (guarantees same NTFS
-    /// volume so the stage-2 rename is atomic). Read-only with respect to the target file, so it is safe while
-    /// an overlay session still has the target memory-mapped (the extend path). Cleans its temp on serialize
-    /// failure (Q3 — a failed stage leaves no residue). Same filename-check / floor / counter-persistence
-    /// semantics as <see cref="WritePatch(SkyrimMod,IReadOnlyList{ISkyrimModGetter},string)"/>.</summary>
-    internal static string WritePatchStaged(SkyrimMod patchMod, IReadOnlyList<ISkyrimModGetter> knownMasters, string outputPath)
-    {
-        var expected = patchMod.ModKey.FileName.String;
-        var actual = Path.GetFileName(outputPath);
-        if (!string.Equals(expected, actual, StringComparison.OrdinalIgnoreCase))
-            throw new InvalidOperationException(
-                $"Output filename '{actual}' must match patch ModKey filename '{expected}'.");
-        Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
-        var ordered = knownMasters as ISkyrimModGetter[] ?? knownMasters.ToArray();
-        var baseline = BaselineMasters.Where(bm => ordered.Any(km => km.ModKey == bm)).ToArray();
-        EnsureFormIdFloor(patchMod);
-        return WritePatchStaged(patchMod, ordered, baseline, outputPath);
-    }
-
+    /// volume so the stage-2 rename is atomic). Does not open the target file itself. Cleans its temp on serialize
+    /// failure (Q3 — a failed stage leaves no residue).</summary>
     static string WritePatchStaged(SkyrimMod patchMod, ISkyrimModGetter[] ordered, ModKey[] baseline, string outputPath)
     {
         var tmpDir = Path.Combine(Path.GetDirectoryName(outputPath)!, ".housecarl-tmp");
@@ -1104,9 +1121,9 @@ public static class WriteEngine
     }
 
     /// <summary>Stage 2 of the atomic write: rename the staged temp over the target — atomic on the same volume
-    /// (stage 1 guaranteed same-volume placement). Call AFTER disposing any overlay session that may have the
-    /// target mapped. Temp is removed afterward; a cleanup failure never masks the result (Q3).</summary>
-    internal static void CommitStagedPatch(string tmpPath, string outputPath)
+    /// (stage 1 guaranteed same-volume placement). Requires the PR #24 handle discipline to already hold (no handle
+    /// of ours on the target). Temp is removed afterward; a cleanup failure never masks the result (Q3).</summary>
+    static void CommitStagedPatch(string tmpPath, string outputPath)
     {
         try { File.Move(tmpPath, outputPath, overwrite: true); }
         finally { CleanupStaged(tmpPath); }
