@@ -52,6 +52,10 @@ if (args.Length > 0 && args[0] == "snapshot-view-guard") return SnapshotViewProb
 // hands back every touched/created record IN FULL off the written file (the pre-enable verify loop).
 if (args.Length > 0 && args[0] == "verify-loop-guard") return VerifyLoopProbe.RunGuard(args[1..]);
 
+// Polymorphic-element validator surface (#35 — the VMAD write gap): arm-field paths + arm-element composes
+// pass pre-flight; non-arm fields/specs still reject named. --source <Skyrim.esm> adds the end-to-end engine proof.
+if (args.Length > 0 && args[0] == "vmad-poly-guard") return VmadPolyProbe.RunGuard(args[1..]);
+
 // One-shot verify (decision #1): confirm the xEdit 4-char signature reflection path.
 if (args.Length > 0 && args[0] == "sig") return Probe.RunSig();
 
