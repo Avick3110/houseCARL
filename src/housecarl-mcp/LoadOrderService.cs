@@ -320,6 +320,20 @@ public sealed class LoadOrderService : IDisposable
         if (plugin is not null && view.ExcludedPlugins.TryGetValue(plugin, out var pWhy))
             return ReadOutcome.Fail(fk, $"Plugin '{plugin}' was excluded from this session: {pWhy}");
 
+        // An explicitly-requested plugin that is NOT IN THE ORDER AT ALL is its own failure mode (HCBR-2026-06-11-02
+        // wave (a)): GetRecord returns null for it, and falling through would render the FALSE "does not define this
+        // record" — which reads as "my write was lost" and invites re-issuing the ops (duplicate list Adds into the
+        // patch). Name the true condition + the working verify paths instead. Aaron-decided Option A: houseCARL does
+        // NOT read disabled plugins off disk (non-winner content masquerading as load-order truth is the Q3 hazard).
+        if (plugin is not null && !view.ContainsPlugin(plugin))
+            return ReadOutcome.Fail(fk,
+                $"Plugin '{plugin}' is not in the load order ({view.PluginCount} plugins indexed this session) — houseCARL " +
+                "reads load-order truth only and does not open disabled plugins off disk. If this is a freshly written " +
+                "houseCARL patch, it isn't enabled yet: enable + sort it in MO2, then re-read. To verify a write BEFORE " +
+                "enabling, use the write call's own read-back (full_readback=true returns the whole written record). If a " +
+                "prior write into this patch reported success, the edits DID land — do not re-issue them (re-running list " +
+                "Adds would duplicate entries).");
+
         var winner = view.ResolveWinner(fk);
         if (winner is null)
         {

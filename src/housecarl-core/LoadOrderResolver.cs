@@ -386,6 +386,13 @@ public sealed class LoadOrderResolver : IDisposable
         public IReadOnlyList<string> LoadFailures => _s.LoadFailures;
         public IReadOnlyDictionary<string, string> ExcludedPlugins => _s.ExcludedPlugins;
 
+        /// <summary>Whether a plugin filename is in the indexed load order — the same OrdinalIgnoreCase name table
+        /// <see cref="LoadOrderResolver.GetRecord"/> resolves against (fixed for the resolver's lifetime, like
+        /// <see cref="PluginCount"/>). False for a plugin on disk but not enabled/registered — a state the service
+        /// must name DISTINCTLY from "in the order but doesn't define the record", because GetRecord returns null
+        /// for both (HCBR-2026-06-11-02 verify-loop wave (a)).</summary>
+        public bool ContainsPlugin(string pluginName) => _r._nameToIdx.ContainsKey(pluginName);
+
         /// <summary>O(1): the winning plugin + override depth for a FormKey. null if the FormKey isn't in the order.</summary>
         public WinnerInfo? ResolveWinner(FormKey fk)
             => _s.Index.TryGetValue(fk, out var e) ? new WinnerInfo(fk, _r._names[e.winner], e.count) : null;
