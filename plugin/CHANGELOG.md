@@ -4,6 +4,42 @@ All notable changes to houseCARL are documented here. Versioning is [semantic](h
 the `version` in `.claude-plugin/plugin.json` is bumped on each release, so installed users update only
 when it changes.
 
+## 1.2.3 — 2026-06-11
+
+Opens the script-property write surface, adds a write-and-verify loop, and hardens tool-argument handling
+and setup — carrying houseCARL's first outside code contributions (thanks, **WraithFallen**). No change to
+the tool set.
+
+- **Script-property (VMAD) writes work** *(WraithFallen — #35/#38)*: paths and composes that go through a
+  polymorphic field's arms — setting a script property's target object, editing a quest alias's script
+  fields, adding a `ScriptObjectProperty` to a script's property list — now validate against the arm's own
+  schema and write end-to-end. Before, the write pre-flight couldn't see fields that exist only on one arm
+  of a polymorphic type, so those edits were rejected; reads already worked. The surface is generic over
+  every polymorphic family — no per-type wiring — and the cases an arm can't support still fail with a
+  named reason.
+- **Malformed tool arguments coerce or fail by name** *(#36, string-encoded-array case by WraithFallen)*:
+  Claude Code's client sometimes sends an array argument as a plain string or as a JSON-array-in-a-string
+  (`"[\"A.esp\"]"`); both shapes now bind as the array they spell. A missing required argument refuses by
+  name, an uncoercible shape fails with a named reason, and an unexpected error inside any tool now returns
+  a named error — never the SDK's generic text.
+- **Write-and-verify in one step:** the write tools gain an opt-in `full_readback=` that returns every
+  record the write touched or created — in full, read back off the *written file* — so a patch can be
+  verified before it's ever enabled in MO2.
+- **Honest answer for a plugin that isn't in the load order:** a `plugin=` read naming a plugin that isn't
+  in the current order now gets its own named error saying exactly that, instead of the false "does not
+  define this record".
+- **Consistent answers while the load order changes:** each logical operation now reads from one captured
+  index snapshot, so an MO2 change landing mid-query can no longer tear a result (winner, touching list,
+  and counters always come from the same view).
+- **Setup is self-contained and pre-flights the runtimes:** `houseCARL-Setup.exe` no longer needs .NET
+  installed to run, and it checks for *both* required .NET runtimes up front with a specific fix message.
+  The install docs are corrected accordingly — installing the ASP.NET Core Runtime does **not** include the
+  base .NET runtime.
+- **Authoring skills load for reading, not just writing:** the SkyPatcher / SPID / KID skills now also fire
+  when *interpreting or auditing* an existing INI — "what does this `_DISTR.ini` do", "is this NPC
+  affected", "why isn't this line applying" — so those answers come from the bundled grammar references
+  instead of memory.
+
 ## 1.2.2 — 2026-06-10
 
 Fixes four issues surfaced auditing a Requiem load order — all in reads and writes, no change to the tool
