@@ -74,26 +74,43 @@ public sealed class LoadOrderResolver : IDisposable
     readonly Dictionary<string, int> _nameToIdx;       // plugin filename → index (last copy of a duplicate name wins = priority)
     DateTime[] _mtimes;                                // last-write at the last index build, per path (freshness baseline)
 
-    Dictionary<FormKey, (int winner, int count)> _index;   // ALL keys — winner + depth, O(1)
-    Dictionary<FormKey, int[]> _overriders;                // MULTI keys only — ordered touching overlay indices
-    List<string> _loadFailures = new();                    // per-plugin index-build failures (open OR parse), surfaced (Q3)
-    HashSet<int> _excluded = new();                        // overlay indices excluded this build — never re-touched by any path
-    Dictionary<string, string> _excludedPlugins = new(StringComparer.OrdinalIgnoreCase); // excluded plugin name → reason (Q3)
+    /// <summary>One index build's ENTIRE output, swapped in as a SINGLE reference write. The service refreshes the
+    /// index under its own gate, but READERS run outside that gate (concurrent tool calls hold the resolver while a
+    /// sibling call's freshness check may rebuild) — when the per-build state lived in five separate fields, a reader
+    /// could observe a NEW index next to OLD overriders mid-swap (a KeyNotFound on a freshly-multi key, surfaced as an
+    /// opaque transport error pre-Guard). Bundling the build into one immutable snapshot, captured ONCE per operation
+    /// (iterators capture at enumeration start), makes a torn view impossible by construction (HCBR-2026-06-11-01
+    /// hardening). The volatile field gives the swap release/acquire visibility.</summary>
+    sealed class IndexSnapshot
+    {
+        public readonly Dictionary<FormKey, (int winner, int count)> Index;   // ALL keys — winner + depth, O(1)
+        public readonly Dictionary<FormKey, int[]> Overriders;                // MULTI keys only — ordered touching overlay indices
+        public readonly List<string> LoadFailures;                            // per-plugin index-build failures (open OR parse), surfaced (Q3)
+        public readonly HashSet<int> Excluded;                                // overlay indices excluded this build — never re-touched by any path
+        public readonly Dictionary<string, string> ExcludedPlugins;           // excluded plugin name → reason (Q3)
+        public readonly int MaxDepth;
+
+        public IndexSnapshot(Dictionary<FormKey, (int winner, int count)> index, Dictionary<FormKey, int[]> overriders,
+                             List<string> loadFailures, HashSet<int> excluded, Dictionary<string, string> excludedPlugins, int maxDepth)
+        { Index = index; Overriders = overriders; LoadFailures = loadFailures; Excluded = excluded; ExcludedPlugins = excludedPlugins; MaxDepth = maxDepth; }
+    }
+
+    volatile IndexSnapshot _snap;
 
     /// <summary>Per-plugin index-build failures (couldn't open, or contains a record Mutagen can't parse) — each
     /// excluded plugin named with its reason, surfaced never silently skipped (Q3). Same content as
     /// <see cref="ExcludedPlugins"/>, formatted "name: reason" for log/harness display.</summary>
-    public IReadOnlyList<string> LoadFailures => _loadFailures;
+    public IReadOnlyList<string> LoadFailures => _snap.LoadFailures;
 
     /// <summary>Plugins EXCLUDED from this build (name → why): unopenable, or carrying a record Mutagen can't parse.
     /// Their records are not in the index and no path will re-touch them; load_order_status reports them so the user
     /// can fix/remove the upstream plugin (Q3 — the exclusion is visible, not silent).</summary>
-    public IReadOnlyDictionary<string, string> ExcludedPlugins => _excludedPlugins;
+    public IReadOnlyDictionary<string, string> ExcludedPlugins => _snap.ExcludedPlugins;
 
     public int PluginCount => _paths.Length;
-    public int RecordCount => _index.Count;            // distinct FormKeys across the order
-    public int ConflictCount => _overriders.Count;     // FormKeys overridden by >1 plugin
-    public int MaxDepth { get; private set; }
+    public int RecordCount => _snap.Index.Count;            // distinct FormKeys across the order
+    public int ConflictCount => _snap.Overriders.Count;     // FormKeys overridden by >1 plugin
+    public int MaxDepth => _snap.MaxDepth;
 
     /// <summary>Every plugin's filename, in priority order (PURE DATA — no handles). The known-name list the write
     /// harnesses scan to decide which masters are in the order; replaces the old held-overlay ModKey enumeration.</summary>
@@ -214,8 +231,7 @@ public sealed class LoadOrderResolver : IDisposable
     LoadOrderResolver(string[] paths, string[] names, Dictionary<string, int> nameToIdx, DateTime[] mtimes)
     {
         _paths = paths; _names = names; _nameToIdx = nameToIdx; _mtimes = mtimes;
-        _index = new(); _overriders = new();
-        BuildIndex();
+        _snap = BuildIndex();
     }
 
     /// <summary>Take the plugin paths already in priority order and build the index — WITHOUT holding any plugin open
@@ -253,8 +269,10 @@ public sealed class LoadOrderResolver : IDisposable
     /// enumerates, so a malformed subrecord throws here, NOT lazily on field access), is EXCLUDED wholesale and the
     /// reason recorded — it no longer takes the whole index down with it. Per plugin it's ATOMIC: records go into a
     /// per-plugin buffer and fold into the shared index only if the WHOLE plugin enumerated, so a plugin that throws
-    /// part-way never leaves a half-set behind (which would mis-resolve winners for its un-enumerated records).</summary>
-    void BuildIndex()
+    /// part-way never leaves a half-set behind (which would mis-resolve winners for its un-enumerated records).
+    /// Returns the build as ONE immutable <see cref="IndexSnapshot"/> — the caller swaps it in with a single
+    /// reference write, so a concurrent reader only ever sees a complete, internally-consistent build.</summary>
+    IndexSnapshot BuildIndex()
     {
         var index = new Dictionary<FormKey, (int winner, int count)>();
         var overriders = new Dictionary<FormKey, List<int>>();        // multi keys only
@@ -308,12 +326,10 @@ public sealed class LoadOrderResolver : IDisposable
             }
         }
 
-        _index = index;
-        _overriders = overriders.ToDictionary(kv => kv.Key, kv => kv.Value.ToArray());  // trim List overhead → int[]
-        MaxDepth = maxDepth;
-        _loadFailures = failures;
-        _excluded = excluded;
-        _excludedPlugins = excludedPlugins;
+        return new IndexSnapshot(
+            index,
+            overriders.ToDictionary(kv => kv.Key, kv => kv.Value.ToArray()),  // trim List overhead → int[]
+            failures, excluded, excludedPlugins, maxDepth);
     }
 
     /// <summary>Record one plugin's exclusion from the index build (Q3): into the human-readable failure list, the
@@ -344,18 +360,19 @@ public sealed class LoadOrderResolver : IDisposable
 
     /// <summary>O(1): the winning plugin + override depth for a FormKey. null if the FormKey isn't in the order.</summary>
     public WinnerInfo? ResolveWinner(FormKey fk)
-        => _index.TryGetValue(fk, out var e) ? new WinnerInfo(fk, _names[e.winner], e.count) : null;
+        => _snap.Index.TryGetValue(fk, out var e) ? new WinnerInfo(fk, _names[e.winner], e.count) : null;
 
     /// <summary>Every FormKey overridden by more than one plugin (the whole-order conflict set).</summary>
-    public IEnumerable<FormKey> ConflictKeys() => _overriders.Keys;
+    public IEnumerable<FormKey> ConflictKeys() => _snap.Overriders.Keys;
 
     /// <summary>The ordered touching-plugin names for a FormKey (priority order, winner last) — no body fetched.
     /// The atom behind every conflict-status question.</summary>
     public IReadOnlyList<string>? TouchingPlugins(FormKey fk)
     {
-        if (!_index.TryGetValue(fk, out var e)) return null;
+        var s = _snap;                                                 // ONE build — Index and Overriders can't disagree
+        if (!s.Index.TryGetValue(fk, out var e)) return null;
         if (e.count == 1) return new[] { _names[e.winner] };           // singleton: sole overrider = winner
-        return Array.ConvertAll(_overriders[fk], i => _names[i]);
+        return Array.ConvertAll(s.Overriders[fk], i => _names[i]);
     }
 
     /// <summary>The full conflict tree: every touching plugin's body, in priority order (winner last). Bodies are
@@ -363,8 +380,9 @@ public sealed class LoadOrderResolver : IDisposable
     /// materialised them, then disposes them). null if the FormKey isn't in the order.</summary>
     public ConflictTree? ResolveTree(OverlaySession session, FormKey fk)
     {
-        if (!_index.TryGetValue(fk, out var e)) return null;
-        var overlayIdxs = e.count == 1 ? new[] { e.winner } : _overriders[fk];
+        var s = _snap;                                                 // ONE build — Index and Overriders can't disagree
+        if (!s.Index.TryGetValue(fk, out var e)) return null;
+        var overlayIdxs = e.count == 1 ? new[] { e.winner } : s.Overriders[fk];
         var nodes = new ConflictNode[overlayIdxs.Length];
         string? recType = null;
         for (int n = 0; n < overlayIdxs.Length; n++)
@@ -382,18 +400,21 @@ public sealed class LoadOrderResolver : IDisposable
     /// disposes it when the enumeration ends (Option B — self-scoped, one handle); the yielded status is pure data.</summary>
     public IEnumerable<RecordStatus> PluginRecordStatus(string pluginName)
     {
+        var s = _snap;                                                 // ONE build, captured for the whole enumeration
         if (!_nameToIdx.TryGetValue(pluginName, out int idx))
             throw new ArgumentException($"plugin not in the load order: {pluginName}");
-        if (_excluded.Contains(idx))
-            throw new ArgumentException($"plugin '{pluginName}' was excluded from this session: {_excludedPlugins[pluginName]}");
+        if (s.Excluded.Contains(idx))
+            throw new ArgumentException($"plugin '{pluginName}' was excluded from this session: {s.ExcludedPlugins[pluginName]}");
         var ov = SkyrimMod.CreateFromBinaryOverlay(_paths[idx], SkyrimRelease.SkyrimSE);
         try
         {
             foreach (var rec in ov.EnumerateMajorRecords())
             {
                 var fk = rec.FormKey;
-                var e = _index[fk];                                        // present by construction (we enumerated it)
-                var touching = e.count == 1 ? new[] { _names[e.winner] } : Array.ConvertAll(_overriders[fk], i => _names[i]);
+                if (!s.Index.TryGetValue(fk, out var e))               // the FILE outran the snapshot (edited after the build) — name it (Q3)
+                    throw new InvalidOperationException(
+                        $"index staleness: '{pluginName}' yields {fk} which the current index build does not contain — the plugin changed since the index was built; re-run (the next call's freshness check rebuilds).");
+                var touching = e.count == 1 ? new[] { _names[e.winner] } : Array.ConvertAll(s.Overriders[fk], i => _names[i]);
                 yield return new RecordStatus(fk, RecordNaming.StripOverlay(rec.GetType().Name),
                                               PluginWins: e.winner == idx, OverrideDepth: e.count, TouchingPlugins: touching);
             }
@@ -409,7 +430,7 @@ public sealed class LoadOrderResolver : IDisposable
     public IMajorRecordGetter? GetRecord(OverlaySession session, string pluginName, FormKey fk)
     {
         if (!_nameToIdx.TryGetValue(pluginName, out int idx)) return null;
-        if (_excluded.Contains(idx)) return null;                          // excluded plugin — never re-enumerate it (would re-throw); the service reports the reason via ExcludedPlugins
+        if (_snap.Excluded.Contains(idx)) return null;                     // excluded plugin — never re-enumerate it (would re-throw); the service reports the reason via ExcludedPlugins
         foreach (var rec in session.Overlay(idx).EnumerateMajorRecords())
             if (rec.FormKey == fk) return rec;
         return null;
@@ -440,9 +461,10 @@ public sealed class LoadOrderResolver : IDisposable
     /// types are always real).</summary>
     public IEnumerable<(FormKey fk, int depth, IMajorRecordGetter body)> WinnerRecordsOfType(IReadOnlyList<Type> getterTypes)
     {
+        var s = _snap;                                                     // ONE build, captured for the whole scan
         for (int i = 0; i < _paths.Length; i++)
         {
-            if (_excluded.Contains(i)) continue;                           // excluded at build (unparseable/unopenable) — wins nothing; never re-touch (would re-throw)
+            if (s.Excluded.Contains(i)) continue;                          // excluded at build (unparseable/unopenable) — wins nothing; never re-touch (would re-throw)
             ISkyrimModGetter ov;
             try { ov = SkyrimMod.CreateFromBinaryOverlay(_paths[i], SkyrimRelease.SkyrimSE); }
             catch { continue; }                                            // an unopenable plugin wins nothing (surfaced at build)
@@ -450,7 +472,7 @@ public sealed class LoadOrderResolver : IDisposable
             {
                 foreach (var t in getterTypes)
                     foreach (var rec in ov.EnumerateMajorRecords(t, throwIfUnknown: true))
-                        if (_index.TryGetValue(rec.FormKey, out var e) && e.winner == i)   // this overlay's instance wins
+                        if (s.Index.TryGetValue(rec.FormKey, out var e) && e.winner == i)   // this overlay's instance wins
                             yield return (rec.FormKey, e.count, rec);
             }
             finally { (ov as IDisposable)?.Dispose(); }
@@ -465,7 +487,8 @@ public sealed class LoadOrderResolver : IDisposable
     public IEnumerable<(FormKey fk, int depth, IMajorRecordGetter body, string source)> RecordsIn(
         IReadOnlyList<string> plugins, IReadOnlyList<Type>? getterTypes)
     {
-        foreach (int i in ScopeIndices(plugins))
+        var s = _snap;                                                     // ONE build, captured for the whole scan
+        foreach (int i in ScopeIndices(plugins, s))
         {
             ISkyrimModGetter ov;
             try { ov = SkyrimMod.CreateFromBinaryOverlay(_paths[i], SkyrimRelease.SkyrimSE); }
@@ -476,7 +499,7 @@ public sealed class LoadOrderResolver : IDisposable
                     ? ov.EnumerateMajorRecords()
                     : getterTypes.SelectMany(t => ov.EnumerateMajorRecords(t, throwIfUnknown: true));
                 foreach (var rec in recs)
-                    if (_index.TryGetValue(rec.FormKey, out var e))
+                    if (s.Index.TryGetValue(rec.FormKey, out var e))
                         yield return (rec.FormKey, e.count, rec, _names[i]);   // _names[i] = this scoped plugin's filename (the source body)
             }
             finally { (ov as IDisposable)?.Dispose(); }
@@ -484,18 +507,19 @@ public sealed class LoadOrderResolver : IDisposable
     }
 
     /// <summary>Resolve a scope (plugin filenames) to overlay indices; null/empty = the whole order. Throws
-    /// (Q3) on a name not in the order, naming it — never silently scans an empty/partial scope.</summary>
-    IReadOnlyList<int> ScopeIndices(IReadOnlyList<string>? scopePlugins)
+    /// (Q3) on a name not in the order, naming it — never silently scans an empty/partial scope. Works off the
+    /// caller's captured snapshot so scope and scan judge exclusion against the SAME build.</summary>
+    IReadOnlyList<int> ScopeIndices(IReadOnlyList<string>? scopePlugins, IndexSnapshot s)
     {
         if (scopePlugins is null || scopePlugins.Count == 0)
-            return Enumerable.Range(0, _paths.Length).Where(i => !_excluded.Contains(i)).ToArray();  // whole order, minus excluded
+            return Enumerable.Range(0, _paths.Length).Where(i => !s.Excluded.Contains(i)).ToArray();  // whole order, minus excluded
         var idxs = new List<int>(scopePlugins.Count);
         foreach (var name in scopePlugins)
         {
             if (!_nameToIdx.TryGetValue(name, out int i))
                 throw new ArgumentException($"plugin not in the load order: {name}");
-            if (_excluded.Contains(i))                                     // explicitly scoped to an excluded plugin → fail loud with the reason (Q3), don't silently scan nothing
-                throw new ArgumentException($"plugin '{name}' was excluded from this session: {_excludedPlugins[name]}");
+            if (s.Excluded.Contains(i))                                    // explicitly scoped to an excluded plugin → fail loud with the reason (Q3), don't silently scan nothing
+                throw new ArgumentException($"plugin '{name}' was excluded from this session: {s.ExcludedPlugins[name]}");
             idxs.Add(i);
         }
         return idxs;
@@ -515,7 +539,7 @@ public sealed class LoadOrderResolver : IDisposable
         if (!stale) return false;
 
         for (int i = 0; i < _paths.Length; i++) _mtimes[i] = SafeMtime(_paths[i]);
-        BuildIndex();
+        _snap = BuildIndex();                                              // ONE reference write — in-flight readers keep their captured build
         return true;
     }
 
