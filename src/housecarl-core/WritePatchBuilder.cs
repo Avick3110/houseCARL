@@ -101,8 +101,13 @@ public static class WritePatchBuilder
     }
 
     /// <summary>One record created by <see cref="CreateRecords"/> — its freshly-allocated <see cref="FormKey"/> (the
-    /// caller can't predict it; it's the local 0x800+ id), its type + editorid, and the per-field op results.</summary>
-    public sealed record CreatedRecord(FormKey FormKey, string RecordType, string EditorId, IReadOnlyList<OpResult> Ops);
+    /// caller can't predict it; it's the local 0x800+ id), its type + editorid, and the per-field op results.
+    /// <see cref="ReplacedExisting"/> = this create REPLACED a record the patch already defined with the same
+    /// editorid (an into= re-run): same FormKey, prior contents — including any set_field edits made since the
+    /// original create — discarded and rebuilt from this call's spec. MUST be surfaced to the user (Q3 — a replace
+    /// is never silent).</summary>
+    public sealed record CreatedRecord(FormKey FormKey, string RecordType, string EditorId, IReadOnlyList<OpResult> Ops,
+        bool ReplacedExisting = false);
 
     /// <summary>The outcome of a <see cref="CreateRecords"/> call. <see cref="Error"/> non-null ⇒ the whole call was
     /// refused (no file written) with a named, recoverable reason (Q3 — missing editorid, an un-createable type, a rejected
@@ -409,13 +414,15 @@ public static class WritePatchBuilder
         //     swallowed (Q3). All upserts are in-memory until the single WritePatch, so all-or-nothing holds even mid-loop.
         //     UPSERT (idempotency): on the into=/extend path, a re-run of the same create used to APPEND a duplicate of
         //     every record (nothing checked whether the EditorID already existed in the opened patch). GenericUpsertNew
-        //     replaces an existing same-EditorID record FRESH at its same FormKey instead — re-runs are idempotent, list
-        //     fields can't accumulate, and stable FormKeys keep cross-record links + external references valid. ---
+        //     replaces a same-EditorID record THE PATCH ITSELF DEFINES fresh at its same FormKey instead — re-runs are
+        //     idempotent, list fields can't accumulate, and stable FormKeys keep cross-record links + external references
+        //     valid. Collisions it will NOT absorb (carried overrides, duplicate residue, cross-type) refuse loud there;
+        //     every replace that DOES happen is carried on CreatedRecord.ReplacedExisting and rendered to the user. ---
         var created = new List<CreatedRecord>(specs.Count);
         foreach (var s in specs)
         {
-            IMajorRecord rec;
-            try { (rec, _) = WriteEngine.GenericUpsertNew(patchMod, s.RecordType, s.EditorId); }
+            IMajorRecord rec; bool replaced;
+            try { (rec, replaced) = WriteEngine.GenericUpsertNew(patchMod, s.RecordType, s.EditorId); }
             catch (Exception ex) { return CreateOutcome.Fail($"could not create {s.RecordType} '{s.EditorId}': {ex.Message}"); }
 
             var ops = new List<OpResult>(s.Edits.Count);
@@ -429,7 +436,7 @@ public static class WritePatchBuilder
                         $"pre-flight ACCEPTED it but the apply threw — a real inconsistency, surfaced not swallowed (Q3): {ex.GetType().Name}: {ex.Message}");
                 }
             }
-            created.Add(new CreatedRecord(rec.FormKey, s.RecordType, s.EditorId, ops));
+            created.Add(new CreatedRecord(rec.FormKey, s.RecordType, s.EditorId, ops, replaced));
         }
 
         // --- Phase 4: serialize ONCE with the full known-master set. A created record referencing existing content pulls
@@ -441,7 +448,7 @@ public static class WritePatchBuilder
         // keeps the target out of the master set. (writelock-probe / writelock-apply-probe; both halves guarded.)
         session.ReleaseOverlay(patchMod.ModKey.FileName.String);
         try { WriteEngine.WritePatch(patchMod, session.AllMastersExcept(patchMod.ModKey.FileName.String), outPath); }
-        catch (Exception ex) { return CreateOutcome.Fail($"serialize after create failed: {ex.GetType().Name}: {ex.Message}"); }
+        catch (Exception ex) { return CreateOutcome.Fail($"writing the patch after create failed (serialize or commit; the existing file is untouched): {ex.GetType().Name}: {ex.Message}"); }
 
         // --- Phase 5: re-open + report the (derived) master header + bytes — and, on request, each created record's
         //     FULL read-back off that same re-opened file (see Apply's Phase 5). Dispose the overlay so the file isn't

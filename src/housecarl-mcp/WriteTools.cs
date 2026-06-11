@@ -250,10 +250,17 @@ public static class WriteTools
         sb.Append("mod folder: ").Append(modFolder)
           .Append(o.Extended ? "\n" : "  — enable + sort it in MO2 to use the patch\n");
         sb.Append("masters: ").Append(o.Masters.Count == 0 ? "(none)" : string.Join(", ", o.Masters)).Append('\n');
-        sb.Append("created ").Append(o.Created.Count).Append(o.Created.Count == 1 ? " record:\n" : " records:\n");
+        var replacedCount = o.Created.Count(c => c.ReplacedExisting);
+        sb.Append("created ").Append(o.Created.Count).Append(o.Created.Count == 1 ? " record" : " records");
+        if (replacedCount > 0)
+            sb.Append(" (").Append(replacedCount).Append(replacedCount == 1 ? " REPLACED an existing record" : " REPLACED existing records")
+              .Append(" — same FormID kept, prior contents discarded)");
+        sb.Append(":\n");
         foreach (var c in o.Created)
         {
-            sb.Append("  ").Append(c.RecordType).Append(' ').Append(c.FormKey).Append("  ").Append(c.EditorId).Append('\n');
+            sb.Append("  ").Append(c.RecordType).Append(' ').Append(c.FormKey).Append("  ").Append(c.EditorId);
+            if (c.ReplacedExisting) sb.Append("  [REPLACED: this patch already defined this editorid — re-created fresh at the same FormID; prior contents, including any set_field edits since, were discarded]");
+            sb.Append('\n');
             foreach (var op in c.Ops)
                 sb.Append("      ").Append(op.Label).Append(op.After is not null ? "  -> " + op.After : "  -> applied").Append('\n');
         }
