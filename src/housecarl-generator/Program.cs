@@ -202,6 +202,11 @@ if (args.Length > 0 && args[0] == "formid-floor-probe") return FormIdFloorProbe.
 // workflow (Apply-born patch → CreateRecords into=) through the real product paths, asserts the 0x800+ contract.
 if (args.Length > 0 && args[0] == "formid-floor-guard") return FormIdFloorProbe.RunGuard(args[1..]);
 
+// create_record into= upsert + atomic staged write (PR #44, hardened in review): SELF-CONTAINED CI regression
+// guard — re-runs replace loudly in place; override/duplicate/cross-type collisions refuse loud; a blocked commit
+// leaves the old file intact with no temp residue.
+if (args.Length > 0 && args[0] == "upsert-guard") return UpsertGuardProbe.RunGuard(args[1..]);
+
 // External-tool bridge (step 1) proof: the pure core pieces housecarl_set_tool_path + the riders ride — shared-config
 // clobber-safety, path validation, the missing-dependency forcing prompt, and canonical-home auto-detect.
 if (args.Length > 0 && args[0] == "tool-bridge") return ToolBridgeProbe.Run(args[1..]);
