@@ -102,6 +102,21 @@ public static class BindingShimProbe
             failures += Check("B coerce: plugins as bare string binds and runs the tool body",
                 !b.text.Contains(GenericError) && b.text.Contains(ConfigPrompt), b.Describe());
 
+            // -- B2: the VERIFIED live Claude Code shape (#36) — the whole array serialized as a JSON STRING.
+            //    Must parse as the array it spells, bind, and reach the tool body — never the generic error,
+            //    and never a one-element array holding the unparsed text (which would fail later, misleadingly).
+            var b2 = Call(stdin, stdout, 30, "housecarl_cross_plugin_query",
+                """{"type":"CELL","plugins":"[\"Synthetic.esp\",\"Other.esp\"]"}""");
+            failures += Check("B2 coerce: plugins as string-encoded JSON array binds and runs the tool body",
+                !b2.text.Contains(GenericError) && b2.text.Contains(ConfigPrompt), b2.Describe());
+
+            // -- B3: a bare string that merely STARTS with '[' but isn't JSON — must keep the one-element
+            //    wrap (the fall-through), not be rejected by a failed parse.
+            var b3 = Call(stdin, stdout, 31, "housecarl_cross_plugin_query",
+                """{"type":"CELL","plugins":"[Bracketed Name.esp"}""");
+            failures += Check("B3 fall-through: a non-JSON bracket-leading string still wraps and runs",
+                !b3.text.Contains(GenericError) && b3.text.Contains(ConfigPrompt), b3.Describe());
+
             // -- C: control — the documented array shape, unchanged behavior.
             var c = Call(stdin, stdout, 4, "housecarl_cross_plugin_query",
                 """{"type":"CELL","plugins":["Synthetic.esp"]}""");
