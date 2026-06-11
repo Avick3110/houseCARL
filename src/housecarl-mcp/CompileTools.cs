@@ -36,7 +36,7 @@ public static class CompileTools
         [Description("Optional. Base name for the NEW patch-mod folder the .pex lands in (default 'houseCARL_Scripts'); auto-suffixed if taken.")]
             string? patch_name = null,
         [Description("Optional. Filename of an existing houseCARL patch mod to add the .pex into instead of creating a fresh folder (accumulate compiled scripts).")]
-            string? into = null)
+            string? into = null) => Guard.Tool("housecarl_compile_script", () =>
     {
         // 1) MO2 must be configured — the .pex lands under the instance's mods folder.
         if (svc.ConfigPromptOrNull() is { } cfgPrompt) return cfgPrompt;
@@ -78,7 +78,7 @@ public static class CompileTools
         // 6) compile + render.
         var result = HousecarlCore.PapyrusCompile.CompileObject(compilerExe!, objectName, imports, outDir);
         return Render(result, imports);
-    }
+    });
 
     static string Render(HousecarlCore.CompileResult r, IReadOnlyList<string> imports)
     {

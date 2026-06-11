@@ -31,7 +31,7 @@ public static class SetupTools
     public static string SetMo2Instance(
         LoadOrderService svc,
         [Description("Full path to the MO2 instance folder — the one containing ModOrganizer.ini (e.g. a Wabbajack list's install folder).")]
-            string path)
+            string path) => Guard.Tool("housecarl_set_mo2_instance", () =>
     {
         if (string.IsNullOrWhiteSpace(path))
             return "error: no path given. Pass the full path to your MO2 instance folder (the one containing ModOrganizer.ini).";
@@ -41,7 +41,7 @@ public static class SetupTools
         catch (InvalidOperationException ex) { return "error: " + ex.Message; }   // not a usable instance — Q3 reason, nothing changed
 
         return Render(paths, persisted, persistError);
-    }
+    });
 
     [McpServerTool(Name = "housecarl_set_tool_path", Title = "Tell houseCARL where an external tool is"),
      Description(
@@ -59,7 +59,7 @@ public static class SetupTools
         [Description("Which tool: 'papyrus_compiler' (CK PapyrusCompiler.exe), 'bsarch' (BSArch.exe), 'papyrus_logs' (script-log folder), or 'crash_logs' (SKSE crash-log folder).")]
             string tool,
         [Description("Full path to the tool: the .exe FILE for papyrus_compiler/bsarch, or the log DIRECTORY for papyrus_logs/crash_logs.")]
-            string path)
+            string path) => Guard.Tool("housecarl_set_tool_path", () =>
     {
         if (string.IsNullOrWhiteSpace(tool))
             return "error: no tool named. Pass tool= one of: " + ToolBridge.WireKeys + ".";
@@ -79,7 +79,7 @@ public static class SetupTools
             ? "saved to houseCARL.user.json — persists across restarts (coexists with your MO2 instance)."
             : $"NOTE: could not save ({persistError}) — works this session, but you'll need to set it again after a restart.");
         return sb.ToString();
-    }
+    });
 
     /// <summary>Confirmation: the instance + the DERIVED roots + the AUTO-DETECTED profile, a cheap enabled/active summary
     /// (text-file read, no deep index — proof houseCARL found the order), and whether the choice was persisted (Q3: a

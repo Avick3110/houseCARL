@@ -27,7 +27,7 @@ public static class NexusTools
          "open its page and use Nexus's 'Mod Manager Download' button as usual — houseCARL reads Nexus, your mod manager " +
          "does the download. For full details (requirements and the newest MAIN file — the accurate latest version) of " +
          "one result, pass its id to housecarl_nexus_mod.")]
-    public static async Task<string> NexusSearch(
+    public static Task<string> NexusSearch(
         NexusClient nexus,
         [Description("Words to search for in mod names, e.g. 'archery overhaul' or 'true storms'. Matched as a wildcard against Skyrim SE mod names.")]
             string query,
@@ -37,7 +37,7 @@ public static class NexusTools
             string sort = "endorsements",
         [Description("Optional. Max results to return (default 10, max 50).")]
             int limit = 10,
-        CancellationToken ct = default)
+        CancellationToken ct = default) => Guard.Tool("housecarl_nexus_search", async () =>
     {
         if (string.IsNullOrWhiteSpace(query))
             return "error: no search term. Pass query= some words to look for in mod names (e.g. 'archery overhaul').";
@@ -51,7 +51,7 @@ public static class NexusTools
         var (ok, error, result) = await nexus.SearchAsync(query.Trim(), category, sortField, limit, ct);
         if (!ok) return "error: " + error;
         return Render.Search(query.Trim(), category, sort, result!);
-    }
+    });
 
     [McpServerTool(Name = "housecarl_nexus_mod", ReadOnly = true, Title = "Look up a Nexus mod"),
      Description(
@@ -64,7 +64,7 @@ public static class NexusTools
          "compatibility/conflict notes), cleaned of Nexus markup to plain text — off by default because it can run " +
          "several KB. READ-ONLY and needs an internet connection (local tools unaffected offline). Does NOT download or install — " +
          "use your mod manager's 'Mod Manager Download' for that. To find a mod by name first, use housecarl_nexus_search.")]
-    public static async Task<string> NexusMod(
+    public static Task<string> NexusMod(
         NexusClient nexus,
         [Description("The mod to look up: a numeric Nexus mod id (e.g. 12604) or a full mod URL (e.g. https://www.nexusmods.com/skyrimspecialedition/mods/12604).")]
             string mod,
@@ -74,7 +74,7 @@ public static class NexusTools
             "requirements, and latest version only, because the full description can run several KB. Set true when you " +
             "need the detail, e.g. comparing two mods or understanding how one works.")]
             bool description = false,
-        CancellationToken ct = default)
+        CancellationToken ct = default) => Guard.Tool("housecarl_nexus_mod", async () =>
     {
         var (modId, parseError) = ResolveModId(mod);
         if (parseError is not null) return "error: " + parseError;
@@ -82,7 +82,7 @@ public static class NexusTools
         var (ok, error, detail) = await nexus.GetModAsync(modId, ct);
         if (!ok) return "error: " + error;
         return Render.Mod(detail!, description);
-    }
+    });
 
     /// <summary>Map a friendly sort word to a ModsSort field name; null if unrecognised (the tool reports it — Q3).</summary>
     static string? MapSort(string s) => s.Trim().ToLowerInvariant() switch

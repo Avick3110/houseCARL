@@ -45,7 +45,7 @@ public static class WriteTools
         [Description("Optional. Base filename for the new patch (default 'houseCARL_Patch'); auto-suffixed if taken so a prior patch is never overwritten. Ignored if into= is given.")]
             string patch_name = "houseCARL_Patch",
         [Description("Optional. Filename of an existing patch (from a prior call) to EXTEND with this edit instead of writing a fresh one — the way to accumulate edits into one patch across calls/sessions.")]
-            string? into = null)
+            string? into = null) => Guard.Tool("housecarl_set_field", () =>
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
         var op = new BulkOp
@@ -53,7 +53,7 @@ public static class WriteTools
             Formid = formid, FieldPath = field_path, Verb = verb, Value = value, Key = key, Values = values,
         };
         return Render(svc.ApplyEdits(new[] { op }, patch_name, into));
-    }
+    });
 
     [McpServerTool(Name = "housecarl_bulk_apply", Title = "Apply many edits in one patch"),
      Description(
@@ -75,13 +75,13 @@ public static class WriteTools
         [Description("Optional. Base filename for the new patch (default 'houseCARL_Patch'); auto-suffixed if taken. Ignored if into= is given.")]
             string patch_name = "houseCARL_Patch",
         [Description("Optional. Filename of an existing patch to EXTEND with these edits instead of writing a fresh one (accumulate across calls/sessions).")]
-            string? into = null)
+            string? into = null) => Guard.Tool("housecarl_bulk_apply", () =>
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
         if (operations is null || operations.Length == 0)
             return "error: operations is empty. Pass one or more {formid, field_path, verb, ...} edits.";
         return Render(svc.ApplyEdits(operations, patch_name, into));
-    }
+    });
 
     [McpServerTool(Name = "housecarl_remove_record", Title = "Remove a whole record from a patch"),
      Description(
@@ -102,11 +102,11 @@ public static class WriteTools
         [Description("The record's FormID as 'XXXXXX:Plugin.esp' — the record to drop from the patch.")]
             string formid,
         [Description("Filename of the houseCARL patch to remove the record from (e.g. 'MyMerge.esp' or 'MyMerge') — must be a patch houseCARL created that carries this record.")]
-            string patch)
+            string patch) => Guard.Tool("housecarl_remove_record", () =>
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
         return RenderRemoval(svc.RemoveRecords(new[] { formid }, patch));
-    }
+    });
 
     [McpServerTool(Name = "housecarl_create_record", Title = "Create a brand-new record"),
      Description(
@@ -135,11 +135,11 @@ public static class WriteTools
         [Description("Optional. Base filename for the new patch (default 'houseCARL_Patch'); auto-suffixed if taken. Ignored if into= is given.")]
             string patch_name = "houseCARL_Patch",
         [Description("Optional. Filename of an existing houseCARL patch to add this new record to instead of writing a fresh one (accumulate across calls/sessions).")]
-            string? into = null)
+            string? into = null) => Guard.Tool("housecarl_create_record", () =>
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
         return RenderCreate(svc.CreateRecords(record_type, editorid, operations ?? Array.Empty<BulkOp>(), patch_name, into));
-    }
+    });
 
     /// <summary>Compact, parseable confirmation (rulebook: short mutation confirmation + the IDs needed for follow-up).
     /// On refusal, the full reason (every malformed/rejected op) so the caller can fix and retry.</summary>
