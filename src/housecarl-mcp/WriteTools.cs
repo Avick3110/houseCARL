@@ -45,14 +45,18 @@ public static class WriteTools
         [Description("Optional. Base filename for the new patch (default 'houseCARL_Patch'); auto-suffixed if taken so a prior patch is never overwritten. Ignored if into= is given.")]
             string patch_name = "houseCARL_Patch",
         [Description("Optional. Filename of an existing patch (from a prior call) to EXTEND with this edit instead of writing a fresh one — the way to accumulate edits into one patch across calls/sessions.")]
-            string? into = null) => Guard.Tool("housecarl_set_field", () =>
+            string? into = null,
+        [Description("When true, the response ALSO returns the ENTIRE edited record read back from the written patch file on disk (every field, deep — not just the edited leaf). The pre-enable verification: confirm the write landed exactly and nothing else in the record was disturbed, WITHOUT enabling the patch in MO2. (The patch wins nothing until enabled + sorted in MO2 — this read-back is the written file's content, not load-order truth.)")]
+            bool full_readback = false,
+        [Description("Optional. Max characters before the full read-back is cut with an explicit notice (never silent). 0 = the server default (~80k). Only matters with full_readback=true.")]
+            int max_chars = 0) => Guard.Tool("housecarl_set_field", () =>
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
         var op = new BulkOp
         {
             Formid = formid, FieldPath = field_path, Verb = verb, Value = value, Key = key, Values = values,
         };
-        return Render(svc.ApplyEdits(new[] { op }, patch_name, into));
+        return Render(svc.ApplyEdits(new[] { op }, patch_name, into, full_readback), max_chars);
     });
 
     [McpServerTool(Name = "housecarl_bulk_apply", Title = "Apply many edits in one patch"),
@@ -75,12 +79,16 @@ public static class WriteTools
         [Description("Optional. Base filename for the new patch (default 'houseCARL_Patch'); auto-suffixed if taken. Ignored if into= is given.")]
             string patch_name = "houseCARL_Patch",
         [Description("Optional. Filename of an existing patch to EXTEND with these edits instead of writing a fresh one (accumulate across calls/sessions).")]
-            string? into = null) => Guard.Tool("housecarl_bulk_apply", () =>
+            string? into = null,
+        [Description("When true, the response ALSO returns the ENTIRE record(s) this call touched, read back from the written patch file on disk (every field, deep — not just the edited leaves). The pre-enable verification: confirm composed structures (conditions, container entries) landed exactly and nothing else in each record was disturbed, WITHOUT enabling the patch in MO2. (The patch wins nothing until enabled + sorted in MO2 — this read-back is the written file's content, not load-order truth.)")]
+            bool full_readback = false,
+        [Description("Optional. Max characters before the full read-back is cut with an explicit notice (never silent). 0 = the server default (~80k). Only matters with full_readback=true.")]
+            int max_chars = 0) => Guard.Tool("housecarl_bulk_apply", () =>
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
         if (operations is null || operations.Length == 0)
             return "error: operations is empty. Pass one or more {formid, field_path, verb, ...} edits.";
-        return Render(svc.ApplyEdits(operations, patch_name, into));
+        return Render(svc.ApplyEdits(operations, patch_name, into, full_readback), max_chars);
     });
 
     [McpServerTool(Name = "housecarl_remove_record", Title = "Remove a whole record from a patch"),
@@ -135,15 +143,19 @@ public static class WriteTools
         [Description("Optional. Base filename for the new patch (default 'houseCARL_Patch'); auto-suffixed if taken. Ignored if into= is given.")]
             string patch_name = "houseCARL_Patch",
         [Description("Optional. Filename of an existing houseCARL patch to add this new record to instead of writing a fresh one (accumulate across calls/sessions).")]
-            string? into = null) => Guard.Tool("housecarl_create_record", () =>
+            string? into = null,
+        [Description("When true, the response ALSO returns the ENTIRE created record read back from the written patch file on disk (every field, deep — not just the fields you set). The pre-enable verification, WITHOUT enabling the patch in MO2. (The patch wins nothing until enabled + sorted in MO2 — this read-back is the written file's content, not load-order truth.)")]
+            bool full_readback = false,
+        [Description("Optional. Max characters before the full read-back is cut with an explicit notice (never silent). 0 = the server default (~80k). Only matters with full_readback=true.")]
+            int max_chars = 0) => Guard.Tool("housecarl_create_record", () =>
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
-        return RenderCreate(svc.CreateRecords(record_type, editorid, operations ?? Array.Empty<BulkOp>(), patch_name, into));
+        return RenderCreate(svc.CreateRecords(record_type, editorid, operations ?? Array.Empty<BulkOp>(), patch_name, into, full_readback), max_chars);
     });
 
     /// <summary>Compact, parseable confirmation (rulebook: short mutation confirmation + the IDs needed for follow-up).
     /// On refusal, the full reason (every malformed/rejected op) so the caller can fix and retry.</summary>
-    static string Render(WritePatchBuilder.PatchOutcome o)
+    static string Render(WritePatchBuilder.PatchOutcome o, int maxChars = 0)
     {
         if (!o.Success) return "error: " + o.Error;
         var file = Path.GetFileName(o.OutputPath);
@@ -158,8 +170,44 @@ public static class WriteTools
         foreach (var op in o.Ops)
             sb.Append("  ").Append(op.RecordType).Append(' ').Append(op.Target).Append("  ").Append(op.Label)
               .Append(op.After is not null ? "  -> " + op.After : "  -> applied").Append('\n');
+        if (o.ReadBack is { } rb) AppendFullReadback(sb, rb, maxChars);
         sb.Append("to add more edits to THIS patch, pass into=\"").Append(file).Append("\".");
         return sb.ToString();
+    }
+
+    /// <summary>The opt-in full read-back section (HCBR-2026-06-11-02 wave (b)): each touched/created record IN FULL,
+    /// re-read from the written file on disk. Labeled as exactly that — the written file's content, NOT load-order
+    /// truth (the patch wins nothing until enabled in MO2) — so the caller can't mistake it for a winner read.
+    /// Char-budget-bounded with an explicit notice (Q3), same convention as the read tools.</summary>
+    static void AppendFullReadback(StringBuilder sb, IReadOnlyList<WritePatchBuilder.FullReadback> rb, int maxChars)
+    {
+        int cap = maxChars > 0 ? maxChars : Wire.DefaultMaxChars;
+        sb.Append("full read-back — the ENTIRE record(s) as written, re-read from the patch file on disk ")
+          .Append("(the written file's content, NOT load-order truth; the patch wins nothing until enabled + sorted in MO2):\n");
+        for (int i = 0; i < rb.Count; i++)
+        {
+            if (sb.Length >= cap)
+            {
+                sb.Append("  ... [truncated: full read-back rendered ").Append(i).Append(" of ").Append(rb.Count)
+                  .Append(" record(s) at max_chars=").Append(cap)
+                  .Append("; raise max_chars, or enable the patch in MO2 and use housecarl_read_record]\n");
+                return;
+            }
+            var r = rb[i];
+            if (r.Error is not null) { sb.Append("  ").Append(r.Target).Append("  error: ").Append(r.Error).Append('\n'); continue; }
+            var rec = r.Record!;
+            sb.Append("  ").Append(rec.Type).Append(' ').Append(rec.FormKey).Append("  editorid=").Append(rec.EditorId ?? "<none>").Append('\n');
+            foreach (var f in rec.Fields)
+            {
+                if (sb.Length >= cap)
+                {
+                    sb.Append("    ... [truncated: this record's field lines hit max_chars=").Append(cap)
+                      .Append("; raise max_chars, or enable the patch in MO2 and use housecarl_read_record]\n");
+                    return;
+                }
+                sb.Append("    ").Append(f.Path).Append(" = ").Append(f.HasValue ? f.Token : f.Note).Append('\n');
+            }
+        }
     }
 
     /// <summary>Confirmation for housecarl_remove_record: what was dropped, the patch's now-lean masters, and how many
@@ -187,7 +235,7 @@ public static class WriteTools
     /// <summary>Confirmation for housecarl_create_record: the new record's ALLOCATED FormID + editorid + type (the FormID
     /// is the key output — the caller references the new record by it), the patch path + its (derived) masters, and the
     /// fields applied. On refusal, the named reason (Q3) so the caller can fix and retry.</summary>
-    static string RenderCreate(WritePatchBuilder.CreateOutcome o)
+    static string RenderCreate(WritePatchBuilder.CreateOutcome o, int maxChars = 0)
     {
         if (!o.Success) return "error: " + o.Error;
         var file = Path.GetFileName(o.OutputPath);
@@ -205,6 +253,7 @@ public static class WriteTools
             foreach (var op in c.Ops)
                 sb.Append("      ").Append(op.Label).Append(op.After is not null ? "  -> " + op.After : "  -> applied").Append('\n');
         }
+        if (o.ReadBack is { } rb) AppendFullReadback(sb, rb, maxChars);
         sb.Append("the new FormID above is how you reference this record (SkyPatcher/SPID, or a follow-up edit). ")
           .Append("To add more to THIS patch, pass into=\"").Append(file).Append("\".");
         return sb.ToString();

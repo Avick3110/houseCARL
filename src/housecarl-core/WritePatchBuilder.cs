@@ -52,13 +52,23 @@ public static class WritePatchBuilder
     /// <see cref="After"/> is a best-effort read-back of the edited leaf (xEdit remains the authority).</summary>
     public sealed record OpResult(FormKey Target, string RecordType, string Label, bool Applied, string? Error, string? After);
 
+    /// <summary>One record read back IN FULL from the WRITTEN patch file (opt-in — the pre-enable verify loop,
+    /// wishlist #3 re-scoped / HCBR-2026-06-11-02 wave (b)): every modeled field, deep, read off the re-opened
+    /// on-disk file — the same bytes MO2 will load — so the caller can confirm the WHOLE record (untouched fields
+    /// included) landed intact without enabling the patch. <see cref="Error"/> names a record the re-opened file
+    /// failed to yield (a real inconsistency, Q3) — never silently absent.</summary>
+    public sealed record FullReadback(FormKey Target, RecordFields? Record, string? Error);
+
     /// <summary>The call outcome. <see cref="Error"/> non-null ⇒ the whole call was refused (no patch written) with a
     /// named, recoverable reason (Q3). Otherwise the patch at <see cref="OutputPath"/> carries every op; <see cref="Masters"/>
-    /// is its (lean, only-referenced) master header; <see cref="Extended"/> says whether an existing patch was grown.</summary>
+    /// is its (lean, only-referenced) master header; <see cref="Extended"/> says whether an existing patch was grown;
+    /// <see cref="ReadBack"/> is the opt-in full read-back of every record this call touched (null unless requested).</summary>
     public sealed record PatchOutcome(
         bool Success, string? Error, string OutputPath, bool Extended,
         IReadOnlyList<string> Masters, IReadOnlyList<OpResult> Ops, long Bytes)
     {
+        public IReadOnlyList<FullReadback>? ReadBack { get; init; }
+
         public static PatchOutcome Fail(string error) =>
             new(false, error, "", false, Array.Empty<string>(), Array.Empty<OpResult>(), 0);
     }
@@ -97,22 +107,33 @@ public static class WritePatchBuilder
     /// <summary>The outcome of a <see cref="CreateRecords"/> call. <see cref="Error"/> non-null ⇒ the whole call was
     /// refused (no file written) with a named, recoverable reason (Q3 — missing editorid, an un-createable type, a rejected
     /// edit). Otherwise <see cref="Created"/> lists every new record with its allocated FormKey; <see cref="Masters"/> is
-    /// the patch's (lean, derived) header; <see cref="Extended"/> says whether an existing patch was grown.</summary>
+    /// the patch's (lean, derived) header; <see cref="Extended"/> says whether an existing patch was grown;
+    /// <see cref="ReadBack"/> is the opt-in full read-back of every record this call created (null unless requested).</summary>
     public sealed record CreateOutcome(
         bool Success, string? Error, string OutputPath, bool Extended,
         IReadOnlyList<CreatedRecord> Created, IReadOnlyList<string> Masters, long Bytes)
     {
+        public IReadOnlyList<FullReadback>? ReadBack { get; init; }
+
         public static CreateOutcome Fail(string error) =>
             new(false, error, "", false, Array.Empty<CreatedRecord>(), Array.Empty<string>(), 0);
     }
 
+    /// <summary>How deep the full read-back reads each written record — the same rationale as the conflict diff's
+    /// depth: deep enough to reach every modeled scalar leaf (condition payloads included — the report's otherwise
+    /// unverifiable perk gate), bounded by the modeled-corpus boundary + ReadEngine's expansion cap, whose
+    /// truncation sentinel stays an explicit note (Q3).</summary>
+    public const int FullReadbackDepth = 16;
+
     /// <summary>Build/extend a patch from <paramref name="edits"/> and serialize it to <paramref name="outPath"/>.
     /// <paramref name="extend"/>=false writes a fresh patch (the ModKey = the output filename); =true opens the existing
     /// patch at <paramref name="outPath"/> mutably and adds to it (the <c>into=</c> path). All-or-nothing: any
-    /// resolve/pre-flight rejection refuses the whole call with no file written (Q3).</summary>
+    /// resolve/pre-flight rejection refuses the whole call with no file written (Q3). <paramref name="fullReadback"/>
+    /// additionally reads every touched record back IN FULL off the re-opened written file (the pre-enable verify
+    /// loop — see <see cref="FullReadback"/>).</summary>
     public static PatchOutcome Apply(
         LoadOrderResolver resolver, CorpusRulebook rulebook,
-        IReadOnlyList<PatchEdit> edits, string outPath, bool extend)
+        IReadOnlyList<PatchEdit> edits, string outPath, bool extend, bool fullReadback = false)
     {
         if (edits.Count == 0) return PatchOutcome.Fail("no edits supplied.");
 
@@ -196,9 +217,12 @@ public static class WritePatchBuilder
         catch (Exception ex)
             { return PatchOutcome.Fail($"serialize failed: {ex.GetType().Name}: {ex.Message}"); }
 
-        // --- Phase 5: re-open the written patch and report its master header. Dispose the overlay so the patch file
-        //     isn't left mmap'd (a later extend re-opens it; the server writes many over its lifetime). ---
+        // --- Phase 5: re-open the written patch and report its master header — and, on request, each touched
+        //     record's FULL read-back off that same re-opened file (the on-disk bytes, not the in-memory mod — the
+        //     strongest pre-enable confirmation). Dispose the overlay so the patch file isn't left mmap'd (a later
+        //     extend re-opens it; the server writes many over its lifetime). ---
         IReadOnlyList<string> masters = Array.Empty<string>();
+        IReadOnlyList<FullReadback>? readBack = null;
         long bytes = 0;
         ISkyrimModGetter? back = null;
         try
@@ -206,12 +230,13 @@ public static class WritePatchBuilder
             back = SkyrimMod.CreateFromBinaryOverlay(outPath, SkyrimRelease.SkyrimSE);
             masters = back.ModHeader.MasterReferences.Select(m => m.Master.FileName.ToString()).ToList();
             bytes = new FileInfo(outPath).Length;
+            if (fullReadback) readBack = ReadBackInFull(back, resolved.Select(r => r.edit.Target));
         }
         catch (Exception ex)
             { return PatchOutcome.Fail($"patch written but could not be re-opened to confirm masters: {ex.Message}"); }
         finally { (back as IDisposable)?.Dispose(); }
 
-        return new PatchOutcome(true, null, outPath, extend, masters, ops, bytes);
+        return new PatchOutcome(true, null, outPath, extend, masters, ops, bytes) { ReadBack = readBack };
     }
 
     /// <summary>
@@ -336,7 +361,7 @@ public static class WritePatchBuilder
     /// </summary>
     public static CreateOutcome CreateRecords(
         LoadOrderResolver resolver, CorpusRulebook rulebook,
-        IReadOnlyList<CreateSpec> specs, string outPath, bool extend)
+        IReadOnlyList<CreateSpec> specs, string outPath, bool extend, bool fullReadback = false)
     {
         if (specs.Count == 0) return CreateOutcome.Fail("no records to create supplied.");
 
@@ -414,9 +439,11 @@ public static class WritePatchBuilder
         try { WriteEngine.WritePatch(patchMod, session.AllMastersExcept(patchMod.ModKey.FileName.String), outPath); }
         catch (Exception ex) { return CreateOutcome.Fail($"serialize after create failed: {ex.GetType().Name}: {ex.Message}"); }
 
-        // --- Phase 5: re-open + report the (derived) master header + bytes. Dispose the overlay so the file isn't left
-        //     mmap'd (a later into= re-opens it). ---
+        // --- Phase 5: re-open + report the (derived) master header + bytes — and, on request, each created record's
+        //     FULL read-back off that same re-opened file (see Apply's Phase 5). Dispose the overlay so the file isn't
+        //     left mmap'd (a later into= re-opens it). ---
         IReadOnlyList<string> masters = Array.Empty<string>();
+        IReadOnlyList<FullReadback>? readBack = null;
         long bytes = 0;
         ISkyrimModGetter? back = null;
         try
@@ -424,11 +451,37 @@ public static class WritePatchBuilder
             back = SkyrimMod.CreateFromBinaryOverlay(outPath, SkyrimRelease.SkyrimSE);
             masters = back.ModHeader.MasterReferences.Select(m => m.Master.FileName.ToString()).ToList();
             bytes = new FileInfo(outPath).Length;
+            if (fullReadback) readBack = ReadBackInFull(back, created.Select(c => c.FormKey));
         }
         catch (Exception ex) { return CreateOutcome.Fail($"records created + written but the patch could not be re-opened to confirm: {ex.Message}"); }
         finally { (back as IDisposable)?.Dispose(); }
 
-        return new CreateOutcome(true, null, outPath, extend, created, masters, bytes);
+        return new CreateOutcome(true, null, outPath, extend, created, masters, bytes) { ReadBack = readBack };
+    }
+
+    /// <summary>Read each just-written record IN FULL off the re-opened written file — the overlay Phase 5 already
+    /// opens to confirm masters, so no new handle class (opened AFTER the serialize, disposed with Phase 5; the
+    /// active-patch self-lock invariant is untouched). ONE enumeration pass serves every target (flat + nested
+    /// groups — the same walk <see cref="RemoveRecords"/>' present-check relies on); tokens are materialised while
+    /// the overlay is open. A target the file fails to yield is named per-record (Q3), never silently absent.</summary>
+    static IReadOnlyList<FullReadback> ReadBackInFull(ISkyrimModGetter back, IEnumerable<FormKey> targets)
+    {
+        var order = new List<FormKey>();                                   // caller order, de-duped (several ops may hit one record)
+        var want = new HashSet<FormKey>();
+        foreach (var fk in targets) if (want.Add(fk)) order.Add(fk);
+
+        var found = new Dictionary<FormKey, RecordFields>();
+        foreach (var rec in back.EnumerateMajorRecords())
+            if (want.Contains(rec.FormKey) && !found.ContainsKey(rec.FormKey))
+                found[rec.FormKey] = ReadEngine.ReadFields(rec, null, FullReadbackDepth);
+
+        var result = new List<FullReadback>(order.Count);
+        foreach (var fk in order)
+            result.Add(found.TryGetValue(fk, out var rf)
+                ? new FullReadback(fk, rf, null)
+                : new FullReadback(fk, null,
+                    $"the written file did not yield {fk} on re-open — a real inconsistency, surfaced not swallowed (Q3); inspect the patch in xEdit."));
+        return result;
     }
 
     /// <summary>The xEdit-style edit label: <c>Verb path[key] = value</c> (matches <see cref="WriteEngine.RunPatch"/>).</summary>

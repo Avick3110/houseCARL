@@ -540,8 +540,10 @@ public sealed class LoadOrderService : IDisposable
     /// then drives the proven public cleave <see cref="WritePatchBuilder.Apply"/> (resolve winner → derive type → pre-flight
     /// ALL → override → ApplyVerb → multi-master serialize). ALL-OR-NOTHING (Q3): a single malformed op or pre-flight reject
     /// refuses the whole call with no file written. Writes go to a NEW patch by default; <paramref name="into"/> EXTENDS an
-    /// existing houseCARL-owned patch (the multi-session accumulation lever). Returns null-Error outcome on success.</summary>
-    public WritePatchBuilder.PatchOutcome ApplyEdits(IReadOnlyList<BulkOp> ops, string? patchName, string? into)
+    /// existing houseCARL-owned patch (the multi-session accumulation lever). Returns null-Error outcome on success.
+    /// <paramref name="fullReadback"/> additionally reads every touched record back IN FULL off the written file
+    /// (the pre-enable verify loop — wishlist #3 re-scoped / HCBR-2026-06-11-02 wave (b)).</summary>
+    public WritePatchBuilder.PatchOutcome ApplyEdits(IReadOnlyList<BulkOp> ops, string? patchName, string? into, bool fullReadback = false)
     {
         if (ops.Count == 0)
             return WritePatchBuilder.PatchOutcome.Fail("no operations supplied.");
@@ -565,7 +567,7 @@ public sealed class LoadOrderService : IDisposable
         try { outPath = ResolveOutputPath(patchName, into, out extend); }
         catch (Exception ex) { return WritePatchBuilder.PatchOutcome.Fail(ex.Message); }
 
-        return WritePatchBuilder.Apply(resolver, rulebook, edits, outPath, extend);
+        return WritePatchBuilder.Apply(resolver, rulebook, edits, outPath, extend, fullReadback);
     }
 
     /// <summary>Remove WHOLE records a houseCARL patch carries (housecarl_remove_record) — literal drop-from-plugin, the
@@ -614,7 +616,7 @@ public sealed class LoadOrderService : IDisposable
     /// <see cref="WritePatchBuilder.CreateRecords"/> (pre-flight ALL → AddNew → ApplyVerb → multi-master serialize). The new
     /// record's FormID is auto-allocated (local 0x800+) and reported; originals are never touched. FLAT records only — a
     /// nested/placed or abstract-group type fails loud with guidance.</summary>
-    public WritePatchBuilder.CreateOutcome CreateRecords(string recordType, string editorid, IReadOnlyList<BulkOp> operations, string? patchName, string? into)
+    public WritePatchBuilder.CreateOutcome CreateRecords(string recordType, string editorid, IReadOnlyList<BulkOp> operations, string? patchName, string? into, bool fullReadback = false)
     {
         if (string.IsNullOrWhiteSpace(recordType))
             return WritePatchBuilder.CreateOutcome.Fail("record_type is required (a catalog name like 'Keyword'/'Spell'/'Weapon' or a 4-char signature like 'KYWD').");
@@ -654,7 +656,7 @@ public sealed class LoadOrderService : IDisposable
         catch (Exception ex) { return WritePatchBuilder.CreateOutcome.Fail(ex.Message); }
 
         var spec = new WritePatchBuilder.CreateSpec { RecordType = catalogName, EditorId = editorid.Trim(), Edits = edits };
-        return WritePatchBuilder.CreateRecords(resolver, rulebook, new[] { spec }, outPath, extend);
+        return WritePatchBuilder.CreateRecords(resolver, rulebook, new[] { spec }, outPath, extend, fullReadback);
     }
 
     /// <summary>Map a wire field-op to a core <see cref="WriteRequest"/> for CREATE: RecordType is the create type (not
