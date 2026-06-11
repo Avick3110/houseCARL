@@ -104,5 +104,5 @@ jobs:
       # external files), runs fully here: a regression guard locking in the verify-loop wave (HCBR-2026-06-11-02,
       # Option A) — a plugin= read naming a not-in-order plugin gets the TRUE taxonomy (never the false "does not
       # define"), and the write tools' opt-in full read-back returns every touched record IN FULL off the written file.
-      - name: Probe — verify-loop wave: plugin= taxonomy + write-time full read-back (self-contained regression guard)
+      - name: Probe — verify-loop wave, plugin= taxonomy + write-time full read-back (self-contained regression guard)
         run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- verify-loop-guard
