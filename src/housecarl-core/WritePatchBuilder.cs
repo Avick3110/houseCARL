@@ -404,14 +404,18 @@ public static class WritePatchBuilder
         if (!string.Equals(patchMod.ModKey.FileName.String, fileName, StringComparison.OrdinalIgnoreCase))
             return CreateOutcome.Fail($"patch ModKey '{patchMod.ModKey.FileName}' must match output filename '{fileName}'.");
 
-        // --- Phase 3: AddNew each record, then apply its edits. A throw here AFTER pre-flight passed is a real engine
+        // --- Phase 3: UPSERT each record, then apply its edits. A throw here AFTER pre-flight passed is a real engine
         //     inconsistency — fail the WHOLE call (the in-memory patch is discarded; nothing serialized), surfaced not
-        //     swallowed (Q3). All AddNews are in-memory until the single WritePatch, so all-or-nothing holds even mid-loop. ---
+        //     swallowed (Q3). All upserts are in-memory until the single WritePatch, so all-or-nothing holds even mid-loop.
+        //     UPSERT (idempotency): on the into=/extend path, a re-run of the same create used to APPEND a duplicate of
+        //     every record (nothing checked whether the EditorID already existed in the opened patch). GenericUpsertNew
+        //     replaces an existing same-EditorID record FRESH at its same FormKey instead — re-runs are idempotent, list
+        //     fields can't accumulate, and stable FormKeys keep cross-record links + external references valid. ---
         var created = new List<CreatedRecord>(specs.Count);
         foreach (var s in specs)
         {
             IMajorRecord rec;
-            try { rec = WriteEngine.GenericAddNew(patchMod, s.RecordType, s.EditorId); }
+            try { (rec, _) = WriteEngine.GenericUpsertNew(patchMod, s.RecordType, s.EditorId); }
             catch (Exception ex) { return CreateOutcome.Fail($"could not create {s.RecordType} '{s.EditorId}': {ex.Message}"); }
 
             var ops = new List<OpResult>(s.Edits.Count);
