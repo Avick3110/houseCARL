@@ -142,6 +142,7 @@ public static class BindingShimProbe
         finally
         {
             try { if (!proc.HasExited) proc.Kill(entireProcessTree: true); } catch { }
+            try { proc.WaitForExit(5000); } catch { }                   // let the kill land before the delete, or the dir cleanup loses the race
             try { Directory.Delete(dataDir, recursive: true); } catch { }
         }
 
@@ -181,7 +182,8 @@ public static class BindingShimProbe
         while (DateTime.UtcNow < deadline)
         {
             var read = Task.Run(stdout.ReadLine);
-            if (!read.Wait(TimeSpan.FromSeconds(30)) || read.Result is not { } line)
+            var remaining = deadline - DateTime.UtcNow;                 // ONE shared 30s budget — the per-line wait never extends it
+            if (remaining <= TimeSpan.Zero || !read.Wait(remaining) || read.Result is not { } line)
                 break;
             if (line.Length == 0) continue;
             using var doc = JsonDocument.Parse(line);

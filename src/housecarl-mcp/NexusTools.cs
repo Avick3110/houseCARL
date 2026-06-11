@@ -51,7 +51,7 @@ public static class NexusTools
         var (ok, error, result) = await nexus.SearchAsync(query.Trim(), category, sortField, limit, ct);
         if (!ok) return "error: " + error;
         return Render.Search(query.Trim(), category, sort, result!);
-    });
+    }, ct);
 
     [McpServerTool(Name = "housecarl_nexus_mod", ReadOnly = true, Title = "Look up a Nexus mod"),
      Description(
@@ -82,7 +82,7 @@ public static class NexusTools
         var (ok, error, detail) = await nexus.GetModAsync(modId, ct);
         if (!ok) return "error: " + error;
         return Render.Mod(detail!, description);
-    });
+    }, ct);
 
     /// <summary>Map a friendly sort word to a ModsSort field name; null if unrecognised (the tool reports it — Q3).</summary>
     static string? MapSort(string s) => s.Trim().ToLowerInvariant() switch
