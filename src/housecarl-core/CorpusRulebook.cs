@@ -252,7 +252,14 @@ public sealed class CorpusRulebook
         // coercible-element list takes a plain value the engine coerces (proven by the collection waves).
         if (leaf.Cardinality is "list" or "dict" && IsComposableElement(leaf))
         {
-            if (req.Verb == "Add") return StructElementLegality(leaf, req.Struct);
+            // Composition lands through the LIST Add only — the engine's dict Add takes a coercible key + value
+            // and ignores a spec (ApplyDictVerb), so admitting a dict compose here would be accept-then-throw
+            // (PR review). Named deferred surface instead, never a runtime surprise.
+            if (req.Verb == "Add")
+                return leaf.Cardinality == "dict"
+                    ? $"'{leaf.Name}' is a dict of modeled elements ({leaf.ElementTypeRef}); dict-element " +
+                      "composition is a later surface — surfaced here, never accepted and thrown at apply time."
+                    : StructElementLegality(leaf, req.Struct);
             if (req.Verb is "ReplaceAll" or "SetAtIndex")
                 return $"'{leaf.Name}' holds modeled-struct elements ({leaf.ElementTypeRef}); only Add " +
                        "(build-from-parts) composes struct elements — ReplaceAll/SetAtIndex of structs is a later surface.";
@@ -411,7 +418,15 @@ public sealed class CorpusRulebook
         foreach (var armName in owner.Arms!)
         {
             if (armName == owner.Name) continue;                       // the base lists itself as an arm; already checked
-            if (Type(armName) is not { } arm) continue;                 // absent arm entry → other arms still searched
+            if (Type(armName) is not { } arm)
+            {
+                // Arms and the catalog come out of the same reflection walk, so a listed-but-absent arm is a real
+                // corpus defect — surfaced loud (Q3), never skipped: skipping could fake shape-agreement over an
+                // incomplete arm set, or fake "no such field" for a field the missing arm exclusively declares.
+                error = $"Arm '{armName}' of polymorphic-base '{owner.Name}' is listed but ABSENT from the corpus — " +
+                        "corpus.json is stale or incompletely generated; regenerate it (dotnet run --project src/housecarl-generator).";
+                return null;
+            }
             if (arm.Fields.FirstOrDefault(f => f.Name == name) is { } af) hits.Add((arm, af));
         }
         if (hits.Count == 0) return null;
@@ -431,10 +446,16 @@ public sealed class CorpusRulebook
     }
 
     /// <summary>Two arm declarations of the same field name agree iff every navigation/validation-relevant facet
-    /// matches — cardinality, display + referenced types, element type, and writability. Identity by what the
-    /// validator USES, so "agrees" can never silently mean "close enough".</summary>
+    /// matches — cardinality, display + referenced types, element type, writability, AND the assembly-qualified
+    /// CLR types (two arms can share a display name like 'Flags' while binding DIFFERENT enum types; ValueLegality
+    /// validates against the AQ-resolved type, so AQ disagreement means the value would be checked against the
+    /// wrong arm's legal set — PR review). Identity by what the validator USES, so "agrees" can never silently
+    /// mean "close enough".</summary>
     static bool SameShape(FieldSchema a, FieldSchema b) =>
         a.Cardinality == b.Cardinality && a.Type == b.Type && a.TypeRef == b.TypeRef
         && a.ElementType == b.ElementType && a.ElementTypeRef == b.ElementTypeRef
-        && a.Writable == b.Writable && a.Nullable == b.Nullable && a.IsIdentity == b.IsIdentity;
+        && a.Writable == b.Writable && a.Nullable == b.Nullable && a.IsIdentity == b.IsIdentity
+        && a.GetterTypeAssemblyQualified == b.GetterTypeAssemblyQualified
+        && a.MutableTypeAssemblyQualified == b.MutableTypeAssemblyQualified
+        && a.ElementTypeAssemblyQualified == b.ElementTypeAssemblyQualified;
 }

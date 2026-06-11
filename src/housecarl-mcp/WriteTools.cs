@@ -64,7 +64,10 @@ public static class WriteTools
          "Apply MANY edits in ONE patch plugin (originals untouched) — the batch form of housecarl_set_field, and the way " +
          "to COMPOSE modeled structs. Each operation is {formid, field_path, verb, value?, key?, values?, entries?, " +
          "compose?}: scalar/collection verbs work as in set_field; entries (a key→value map) drives a dict Merge or " +
-         "ReplaceAll; compose builds a modeled struct for an Add (a leveled-list entry, an effect) or a polymorphic Set " +
+         "ReplaceAll; compose builds a modeled struct for an Add (a leveled-list entry, an effect — and a POLYMORPHIC " +
+         "list element composes by its concrete arm type, e.g. a VMAD script property: verb=Add, " +
+         "field_path='VirtualMachineAdapter.Scripts[0].Properties', compose={type:'ScriptObjectProperty', " +
+         "fields:{Name:'MyProp', Flags:'Edited', Object:'XXXXXX:Plugin.esp', Alias:'-1'}}) or a polymorphic Set " +
          "(an arm) — e.g. merge a weapon into a leveled list with verb=Add, field_path='Entries', " +
          "compose={type:'LeveledItemEntry', sets:[{path:'Data.Level',value:'1'},{path:'Data.Count',value:'1'}," +
          "{path:'Data.Reference',value:'<weapon FormID>'}]}. All edits land in ONE reviewable .esp; the patch spans " +
@@ -289,7 +292,7 @@ public sealed record BulkOp
     [JsonPropertyName("entries"), Description("Key→value pairs for a dict Merge or dict ReplaceAll.")]
     public Dictionary<string, string>? Entries { get; init; }
 
-    [JsonPropertyName("compose"), Description("Build a modeled struct: an arm for a polymorphic Set, or the element for a struct-element Add (e.g. a leveled-list entry).")]
+    [JsonPropertyName("compose"), Description("Build a modeled struct: an arm for a polymorphic Set, or the element for a struct-element Add (e.g. a leveled-list entry; for a polymorphic list like VMAD Scripts[i].Properties, the element's CONCRETE arm type, e.g. 'ScriptObjectProperty').")]
     public StructInput? Compose { get; init; }
 }
 
@@ -297,7 +300,7 @@ public sealed record BulkOp
 /// flat coercible sub-fields, optional positional ctor args, and nested edits applied to the built struct.</summary>
 public sealed record StructInput
 {
-    [JsonPropertyName("type"), Description("The concrete catalog type to build (arm type for a polymorphic Set, or the collection's element type for an Add, e.g. 'LeveledItemEntry').")]
+    [JsonPropertyName("type"), Description("The concrete catalog type to build (arm type for a polymorphic Set; the collection's element type for an Add, e.g. 'LeveledItemEntry'; or a polymorphic element's concrete ARM, e.g. 'ScriptObjectProperty' into VMAD Properties).")]
     public string? Type { get; init; }
 
     [JsonPropertyName("fields"), Description("Flat coercible sub-fields set directly on the struct: name → value.")]

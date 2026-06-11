@@ -78,9 +78,29 @@ public static class SchemaClassifier
         {
             "struct" => ElementKind.Struct,
             "record" => ElementKind.Record,
-            "arm" or "polymorphic-base" => ElementKind.Arm,
+            "arm" => ElementKind.Arm,
+            "polymorphic-base" => PolyBaseElementKind(er, corpus),
             _ => ElementKind.Unknown,
         };
+    }
+
+    /// <summary>A polymorphic-base element family is ARM (composable by concrete arm type) only when its arms are
+    /// modeled STRUCTS — the VMAD shape (ScriptProperty → ScriptObjectProperty…). A base whose arms are RECORDS
+    /// (GameSetting → GameSettingBool/Float/Int/String, the typed record-group families) lives on the FormKey /
+    /// record axis: its elements are allocated as records, never built from a StructSpec — classify
+    /// <see cref="ElementKind.Record"/> so the composition surface can never admit them (PR review: pre-flight
+    /// accepting a record-family compose was an accept-then-throw). A mixed or unresolvable arm set surfaces as
+    /// <see cref="ElementKind.Unknown"/> — never silently bucketed either way.</summary>
+    static ElementKind PolyBaseElementKind(string baseName, Corpus corpus)
+    {
+        var b = corpus.Types.GetValueOrDefault(baseName);
+        var armKinds = (b?.Arms ?? new())
+            .Where(a => a != baseName)
+            .Select(a => corpus.Types.GetValueOrDefault(a)?.Kind)
+            .Distinct().ToList();
+        if (armKinds.Count > 0 && armKinds.All(k => k is "arm" or "struct" or "polymorphic-base")) return ElementKind.Arm;
+        if (armKinds.Count > 0 && armKinds.All(k => k == "record")) return ElementKind.Record;
+        return ElementKind.Unknown;
     }
 
     /// <summary>True iff the field is a collection whose ELEMENT is a BUILD-FROM-PARTS modeled struct (so Add takes a
