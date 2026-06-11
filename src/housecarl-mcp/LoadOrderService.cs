@@ -129,8 +129,8 @@ public sealed class LoadOrderService : IDisposable
     /// <summary>Whole-order stats (forces the lazy build). For the server's stand-up / health check.</summary>
     public (int plugins, int records, int conflicts, int maxDepth, IReadOnlyList<string> loadFailures) Stats()
     {
-        var r = Resolver;
-        return (r.PluginCount, r.RecordCount, r.ConflictCount, r.MaxDepth, r.LoadFailures);
+        var view = Resolver.Capture();          // ONE build for every counter in the line (HCBR-2026-06-11-02)
+        return (view.PluginCount, view.RecordCount, view.ConflictCount, view.MaxDepth, view.LoadFailures);
     }
 
     /// <summary>Diagnostic snapshot for housecarl_load_order_status: the CURRENT enabled/disabled composition (read fresh
@@ -139,10 +139,10 @@ public sealed class LoadOrderService : IDisposable
     /// changed since that build (Q3 — never present a stale picture as current). Forces the lazy resolver build.</summary>
     public LoadOrderStatusData StatusData()
     {
-        var r = Resolver;                                          // force build/refresh → resolved count + warnings + exclusions
+        var view = Resolver.Capture();                             // force build/refresh; ONE build for count + exclusions (HCBR-2026-06-11-02)
         var comp = Mo2LoadOrder.ReadComposition(_profileDir);      // FRESH composition (always current)
         return new LoadOrderStatusData(
-            comp, _orderWarnings, r.PluginCount, _maxPlugins, ProfileNewerThan(_orderBuiltUtc), _profileDir, r.ExcludedPlugins);
+            comp, _orderWarnings, view.PluginCount, _maxPlugins, ProfileNewerThan(_orderBuiltUtc), _profileDir, view.ExcludedPlugins);
     }
 
     /// <summary>True if any of the three MO2 profile files has a newer mtime than the resolver's last build — i.e. the
@@ -302,20 +302,29 @@ public sealed class LoadOrderService : IDisposable
     public ReadOutcome ResolveRead(FormKey fk, string? plugin, IReadOnlyList<string>? fields, bool conflictTree, int depth = 1)
     {
         var resolver = Resolver;
+        return ResolveRead(resolver, resolver.Capture(), fk, plugin, fields, conflictTree, depth);
+    }
 
+    /// <summary>The read body, answered entirely off ONE captured view (HCBR-2026-06-11-02): excluded-check, winner,
+    /// and touching-plugin list all describe the SAME build — a freshness rebuild landing mid-read can no longer make
+    /// a record's reported winner disagree with its own conflict tree. (The body fetch reads the file on disk through
+    /// the session; a mid-read file edit surfaces as the existing named fetch-inconsistency error, never torn values.)</summary>
+    ReadOutcome ResolveRead(LoadOrderResolver resolver, LoadOrderResolver.IndexView view,
+                            FormKey fk, string? plugin, IReadOnlyList<string>? fields, bool conflictTree, int depth)
+    {
         // An explicitly-requested plugin that was EXCLUDED this session (unparseable/unopenable) → say so (Q3),
         // rather than fall through to a misleading "does not define this record".
-        if (plugin is not null && resolver.ExcludedPlugins.TryGetValue(plugin, out var pWhy))
+        if (plugin is not null && view.ExcludedPlugins.TryGetValue(plugin, out var pWhy))
             return ReadOutcome.Fail(fk, $"Plugin '{plugin}' was excluded from this session: {pWhy}");
 
-        var winner = resolver.ResolveWinner(fk);
+        var winner = view.ResolveWinner(fk);
         if (winner is null)
         {
             // If the record's defining plugin was excluded, that's WHY it's missing — name it (Q3), not a bare "not present".
             var defining = fk.ModKey.FileName.ToString();
-            if (resolver.ExcludedPlugins.TryGetValue(defining, out var dWhy))
+            if (view.ExcludedPlugins.TryGetValue(defining, out var dWhy))
                 return ReadOutcome.Fail(fk, $"FormID {fk} is not resolvable: its plugin '{defining}' was excluded from this session: {dWhy}");
-            return ReadOutcome.Fail(fk, $"FormID {fk} is not present in the load order ({resolver.PluginCount} plugins).");
+            return ReadOutcome.Fail(fk, $"FormID {fk} is not present in the load order ({view.PluginCount} plugins).");
         }
 
         var source = plugin ?? winner.Value.WinnerPlugin;
@@ -327,7 +336,7 @@ public sealed class LoadOrderService : IDisposable
                 : $"Plugin '{plugin}' does not define {fk} (it does not touch this record). The winner is '{winner.Value.WinnerPlugin}'.");
 
         var record = ReadEngine.ReadFields(rec, fields, depth);           // materialise while the session (overlay) is open
-        var touching = conflictTree ? resolver.TouchingPlugins(fk) : null;
+        var touching = conflictTree ? view.TouchingPlugins(fk) : null;
         return new ReadOutcome(fk, record, source, winner.Value.WinnerPlugin, winner.Value.OverrideDepth, touching, null);
     }
 
@@ -360,7 +369,7 @@ public sealed class LoadOrderService : IDisposable
     public RecordSummary ResolveSummary(FormKey fk)
     {
         var resolver = Resolver;
-        var w = resolver.ResolveWinner(fk);
+        var w = resolver.Capture().ResolveWinner(fk);   // one capture per summary (winner + depth from one build)
         if (w is null) return new RecordSummary(fk, "?", null, "?", 0, $"{fk} not in the load order");
         using var session = resolver.OpenSession();
         var body = resolver.GetRecord(session, w.Value.WinnerPlugin, fk);
@@ -378,13 +387,15 @@ public sealed class LoadOrderService : IDisposable
     /// failing the batch. Returns one <see cref="ReadOutcome"/> per input, in order.</summary>
     public IReadOnlyList<ReadOutcome> ResolveBatch(IReadOnlyList<string> formids, IReadOnlyList<string>? fields, bool conflictTree, int depth = 1)
     {
+        var resolver = Resolver;                // build/refresh ONCE for the batch
+        var view = resolver.Capture();          // ONE build for every item — the whole batch is one logical operation (HCBR-2026-06-11-02)
         var outcomes = new List<ReadOutcome>(formids.Count);
         foreach (var raw in formids)
         {
             FormKey fk;
             try { fk = FormKey.Factory(raw.Trim()); }
             catch (Exception ex) { outcomes.Add(ReadOutcome.Fail(default, $"bad FormID '{raw}': {ex.Message}")); continue; }
-            outcomes.Add(ResolveRead(fk, null, fields, conflictTree, depth));
+            outcomes.Add(ResolveRead(resolver, view, fk, null, fields, conflictTree, depth));
         }
         return outcomes;
     }
@@ -401,6 +412,7 @@ public sealed class LoadOrderService : IDisposable
                                         bool conflictsOnly, IReadOnlyList<string>? plugins, IReadOnlyList<string>? where, int limit)
     {
         var resolver = Resolver;
+        var view = resolver.Capture();          // ONE build for the SCAN and every per-match fill it makes (HCBR-2026-06-11-02)
         bool hasPlugins = plugins is { Count: > 0 };
         bool hasType = type is not null;
         bool hasWhere = where is { Count: > 0 };
@@ -443,8 +455,8 @@ public sealed class LoadOrderService : IDisposable
                 // Carry the SOURCE plugin per record so the render shows the body the scan filtered (not the winner):
                 // plugins= → the scoped plugin's filename; type= → null (⇒ the winner, the WinnerRecordsOfType body).
                 IEnumerable<(FormKey fk, int depth, IMajorRecordGetter body, string? source)> stream =
-                    hasPlugins ? resolver.RecordsIn(plugins!, types).Select(x => (fk: x.fk, depth: x.depth, body: x.body, source: (string?)x.source))  // the scoped plugin's own body
-                               : resolver.WinnerRecordsOfType(types!).Select(x => (fk: x.fk, depth: x.depth, body: x.body, source: (string?)null));    // the load-order winner's body
+                    hasPlugins ? view.RecordsIn(plugins!, types).Select(x => (fk: x.fk, depth: x.depth, body: x.body, source: (string?)x.source))  // the scoped plugin's own body
+                               : view.WinnerRecordsOfType(types!).Select(x => (fk: x.fk, depth: x.depth, body: x.body, source: (string?)null));    // the load-order winner's body
                 foreach (var (fk, depth, body, source) in stream)
                 {
                     if (conflictsOnly && depth <= 1) continue;
@@ -475,8 +487,10 @@ public sealed class LoadOrderService : IDisposable
                         {
                             keys.Add(fk);
                             sources.Add(source);                                  // the body we filtered IS the body we'll display (null ⇒ winner)
+                            // winner= off the SAME view the scan runs on — a rebuild landing mid-scan can no longer
+                            // make a row's winner reflect a newer build than the depth beside it (HCBR-2026-06-11-02).
                             prefilled!.Add(new RecordSummary(fk, RecordNaming.StripOverlay(body.GetType().Name), body.EditorID,
-                                                             resolver.ResolveWinner(fk)?.WinnerPlugin ?? "?", depth, null));
+                                                             view.ResolveWinner(fk)?.WinnerPlugin ?? "?", depth, null));
                         }
                     }
                     catch (Exception ex)
@@ -497,7 +511,7 @@ public sealed class LoadOrderService : IDisposable
         {
             // Summaries here would each need a winner-body fetch; leaving them to the renderer (which stops at
             // max_chars) means a big limit with a small max_chars doesn't fetch bodies it will never show.
-            foreach (var fk in resolver.ConflictKeys())
+            foreach (var fk in view.ConflictKeys())
             {
                 total++;
                 if (keys.Count < limit) { keys.Add(fk); sources.Add(null); }   // no scoped plugin → display the winner

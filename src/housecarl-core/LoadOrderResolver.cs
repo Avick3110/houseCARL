@@ -81,7 +81,7 @@ public sealed class LoadOrderResolver : IDisposable
     /// opaque transport error pre-Guard). Bundling the build into one immutable snapshot, captured ONCE per operation
     /// (iterators capture at enumeration start), makes a torn view impossible by construction (HCBR-2026-06-11-01
     /// hardening). The volatile field gives the swap release/acquire visibility.</summary>
-    sealed class IndexSnapshot
+    internal sealed class IndexSnapshot   // internal (not private) so IndexView's ctor can take it; never leaves the assembly
     {
         public readonly Dictionary<FormKey, (int winner, int count)> Index;   // ALL keys — winner + depth, O(1)
         public readonly Dictionary<FormKey, int[]> Overriders;                // MULTI keys only — ordered touching overlay indices
@@ -356,24 +356,78 @@ public sealed class LoadOrderResolver : IDisposable
         return head.Length > 300 ? head.Substring(0, 300) + "…" : head;
     }
 
+    // ---- Snapshot-scoped reads (HCBR-2026-06-11-02: one build per logical operation) --------------------
+
+    /// <summary>Capture the CURRENT build as a pinned read view. The snapshot swap (HCBR-2026-06-11-01 hardening)
+    /// made each individual read internally consistent; this is the cross-VALUE companion: a service method that
+    /// issues SEVERAL resolver reads in one logical operation could still observe TWO adjacent builds if a
+    /// freshness rebuild landed between them — a status line mixing counters from different builds, a record's
+    /// winner disagreeing with its own touching-plugin list, a scan row's winner= reflecting a newer build than
+    /// the scan that produced it. Capture ONCE per logical operation (one service method / one tool call) and
+    /// answer every question in that operation off the SAME view; a rebuild mid-operation then changes nothing
+    /// the operation reports. Pure data over the immutable snapshot — no handles, safe to hold for a call.</summary>
+    public IndexView Capture() => new(this, _snap);
+
+    /// <summary>A read view pinned to ONE captured index build (see <see cref="Capture"/>). Every member answers
+    /// from the SAME build — winner, touching list, counters, and the scan streams can never disagree about which
+    /// build they describe. Bodies are still fetched from the files on disk (Option B holds no bodies), so a
+    /// mid-operation file edit surfaces as the existing named staleness errors, never as torn index values.</summary>
+    public readonly struct IndexView
+    {
+        readonly LoadOrderResolver _r;
+        readonly IndexSnapshot _s;
+        internal IndexView(LoadOrderResolver r, IndexSnapshot s) { _r = r; _s = s; }   // only Capture() constructs
+
+        public int PluginCount => _r._paths.Length;
+        public int RecordCount => _s.Index.Count;               // distinct FormKeys across the order
+        public int ConflictCount => _s.Overriders.Count;        // FormKeys overridden by >1 plugin
+        public int MaxDepth => _s.MaxDepth;
+        public IReadOnlyList<string> LoadFailures => _s.LoadFailures;
+        public IReadOnlyDictionary<string, string> ExcludedPlugins => _s.ExcludedPlugins;
+
+        /// <summary>O(1): the winning plugin + override depth for a FormKey. null if the FormKey isn't in the order.</summary>
+        public WinnerInfo? ResolveWinner(FormKey fk)
+            => _s.Index.TryGetValue(fk, out var e) ? new WinnerInfo(fk, _r._names[e.winner], e.count) : null;
+
+        /// <summary>Every FormKey overridden by more than one plugin (the whole-order conflict set).</summary>
+        public IEnumerable<FormKey> ConflictKeys() => _s.Overriders.Keys;
+
+        /// <summary>The ordered touching-plugin names for a FormKey (priority order, winner last) — no body fetched.
+        /// The atom behind every conflict-status question.</summary>
+        public IReadOnlyList<string>? TouchingPlugins(FormKey fk)
+        {
+            if (!_s.Index.TryGetValue(fk, out var e)) return null;
+            if (e.count == 1) return new[] { _r._names[e.winner] };    // singleton: sole overrider = winner
+            var names = _r._names;                                     // local copy — a struct's lambda can't capture 'this'
+            return Array.ConvertAll(_s.Overriders[fk], i => names[i]);
+        }
+
+        /// <summary>The winner-body scan stream (<see cref="LoadOrderResolver.WinnerRecordsOfType(IReadOnlyList{Type})"/>),
+        /// pinned to THIS view's build — so a caller's per-match winner/depth fills agree with the scan by construction.</summary>
+        public IEnumerable<(FormKey fk, int depth, IMajorRecordGetter body)> WinnerRecordsOfType(IReadOnlyList<Type> getterTypes)
+            => _r.WinnerRecordsOfType(getterTypes, _s);
+
+        /// <summary>The plugin-scoped scan stream (<see cref="LoadOrderResolver.RecordsIn(IReadOnlyList{string}, IReadOnlyList{Type})"/>),
+        /// pinned to THIS view's build.</summary>
+        public IEnumerable<(FormKey fk, int depth, IMajorRecordGetter body, string source)> RecordsIn(
+            IReadOnlyList<string> plugins, IReadOnlyList<Type>? getterTypes)
+            => _r.RecordsIn(plugins, getterTypes, _s);
+    }
+
     // ---- Queries -------------------------------------------------------
+    //  Single-shot conveniences: each delegates to a fresh Capture(), so one call = one build (the pre-existing
+    //  contract). A caller making SEVERAL reads in one logical operation should Capture() once and read off the
+    //  view instead — that's the HCBR-2026-06-11-02 discipline the service layer follows.
 
     /// <summary>O(1): the winning plugin + override depth for a FormKey. null if the FormKey isn't in the order.</summary>
-    public WinnerInfo? ResolveWinner(FormKey fk)
-        => _snap.Index.TryGetValue(fk, out var e) ? new WinnerInfo(fk, _names[e.winner], e.count) : null;
+    public WinnerInfo? ResolveWinner(FormKey fk) => Capture().ResolveWinner(fk);
 
     /// <summary>Every FormKey overridden by more than one plugin (the whole-order conflict set).</summary>
-    public IEnumerable<FormKey> ConflictKeys() => _snap.Overriders.Keys;
+    public IEnumerable<FormKey> ConflictKeys() => Capture().ConflictKeys();
 
     /// <summary>The ordered touching-plugin names for a FormKey (priority order, winner last) — no body fetched.
     /// The atom behind every conflict-status question.</summary>
-    public IReadOnlyList<string>? TouchingPlugins(FormKey fk)
-    {
-        var s = _snap;                                                 // ONE build — Index and Overriders can't disagree
-        if (!s.Index.TryGetValue(fk, out var e)) return null;
-        if (e.count == 1) return new[] { _names[e.winner] };           // singleton: sole overrider = winner
-        return Array.ConvertAll(s.Overriders[fk], i => _names[i]);
-    }
+    public IReadOnlyList<string>? TouchingPlugins(FormKey fk) => Capture().TouchingPlugins(fk);
 
     /// <summary>The full conflict tree: every touching plugin's body, in priority order (winner last). Bodies are
     /// fetched on demand into <paramref name="session"/> (which keeps the touched plugins open until the caller has
@@ -460,8 +514,10 @@ public sealed class LoadOrderResolver : IDisposable
     /// (FormKey, override-depth, winner body). The throw-if-unknown guard is Q3 belt-and-braces (corpus-resolved
     /// types are always real).</summary>
     public IEnumerable<(FormKey fk, int depth, IMajorRecordGetter body)> WinnerRecordsOfType(IReadOnlyList<Type> getterTypes)
+        => WinnerRecordsOfType(getterTypes, _snap);                        // ONE build for the whole scan (captured here, at the call)
+
+    IEnumerable<(FormKey fk, int depth, IMajorRecordGetter body)> WinnerRecordsOfType(IReadOnlyList<Type> getterTypes, IndexSnapshot s)
     {
-        var s = _snap;                                                     // ONE build, captured for the whole scan
         for (int i = 0; i < _paths.Length; i++)
         {
             if (s.Excluded.Contains(i)) continue;                          // excluded at build (unparseable/unopenable) — wins nothing; never re-touch (would re-throw)
@@ -486,8 +542,11 @@ public sealed class LoadOrderResolver : IDisposable
     /// filename — so a caller can DISPLAY from the same body it filtered, not the winner). Holds nothing.</summary>
     public IEnumerable<(FormKey fk, int depth, IMajorRecordGetter body, string source)> RecordsIn(
         IReadOnlyList<string> plugins, IReadOnlyList<Type>? getterTypes)
+        => RecordsIn(plugins, getterTypes, _snap);                         // ONE build for the whole scan (captured here, at the call)
+
+    IEnumerable<(FormKey fk, int depth, IMajorRecordGetter body, string source)> RecordsIn(
+        IReadOnlyList<string> plugins, IReadOnlyList<Type>? getterTypes, IndexSnapshot s)
     {
-        var s = _snap;                                                     // ONE build, captured for the whole scan
         foreach (int i in ScopeIndices(plugins, s))
         {
             ISkyrimModGetter ov;
