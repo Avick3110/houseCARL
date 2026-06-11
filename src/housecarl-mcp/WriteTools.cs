@@ -48,7 +48,7 @@ public static class WriteTools
             string? into = null,
         [Description("When true, the response ALSO returns the ENTIRE edited record read back from the written patch file on disk (every field, deep — not just the edited leaf). The pre-enable verification: confirm the write landed exactly and nothing else in the record was disturbed, WITHOUT enabling the patch in MO2. (The patch wins nothing until enabled + sorted in MO2 — this read-back is the written file's content, not load-order truth.)")]
             bool full_readback = false,
-        [Description("Optional. Max characters before the full read-back is cut with an explicit notice (never silent). 0 = the server default (~80k). Only matters with full_readback=true.")]
+        [Description("Optional. Max characters for the whole response; past it the full read-back section is cut with an explicit notice (never silent). 0 = the server default (~80k). Only matters with full_readback=true.")]
             int max_chars = 0) => Guard.Tool("housecarl_set_field", () =>
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
@@ -82,7 +82,7 @@ public static class WriteTools
             string? into = null,
         [Description("When true, the response ALSO returns the ENTIRE record(s) this call touched, read back from the written patch file on disk (every field, deep — not just the edited leaves). The pre-enable verification: confirm composed structures (conditions, container entries) landed exactly and nothing else in each record was disturbed, WITHOUT enabling the patch in MO2. (The patch wins nothing until enabled + sorted in MO2 — this read-back is the written file's content, not load-order truth.)")]
             bool full_readback = false,
-        [Description("Optional. Max characters before the full read-back is cut with an explicit notice (never silent). 0 = the server default (~80k). Only matters with full_readback=true.")]
+        [Description("Optional. Max characters for the whole response; past it the full read-back section is cut with an explicit notice (never silent). 0 = the server default (~80k). Only matters with full_readback=true.")]
             int max_chars = 0) => Guard.Tool("housecarl_bulk_apply", () =>
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
@@ -146,7 +146,7 @@ public static class WriteTools
             string? into = null,
         [Description("When true, the response ALSO returns the ENTIRE created record read back from the written patch file on disk (every field, deep — not just the fields you set). The pre-enable verification, WITHOUT enabling the patch in MO2. (The patch wins nothing until enabled + sorted in MO2 — this read-back is the written file's content, not load-order truth.)")]
             bool full_readback = false,
-        [Description("Optional. Max characters before the full read-back is cut with an explicit notice (never silent). 0 = the server default (~80k). Only matters with full_readback=true.")]
+        [Description("Optional. Max characters for the whole response; past it the full read-back section is cut with an explicit notice (never silent). 0 = the server default (~80k). Only matters with full_readback=true.")]
             int max_chars = 0) => Guard.Tool("housecarl_create_record", () =>
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
@@ -202,6 +202,7 @@ public static class WriteTools
                 if (sb.Length >= cap)
                 {
                     sb.Append("    ... [truncated: this record's field lines hit max_chars=").Append(cap)
+                      .Append("; ").Append(rb.Count - i - 1).Append(" further record(s) not rendered")
                       .Append("; raise max_chars, or enable the patch in MO2 and use housecarl_read_record]\n");
                     return;
                 }

@@ -463,7 +463,10 @@ public static class WritePatchBuilder
     /// opens to confirm masters, so no new handle class (opened AFTER the serialize, disposed with Phase 5; the
     /// active-patch self-lock invariant is untouched). ONE enumeration pass serves every target (flat + nested
     /// groups — the same walk <see cref="RemoveRecords"/>' present-check relies on); tokens are materialised while
-    /// the overlay is open. A target the file fails to yield is named per-record (Q3), never silently absent.</summary>
+    /// the overlay is open. NEVER throws (PR #40 review #1): the write itself already SUCCEEDED by the time this
+    /// runs (serialize done, masters confirmed), so a read-back failure must not convert the outcome to Fail —
+    /// that would read as "my write was lost" and invite re-issuing the ops (the duplicate-Add trap this read-back
+    /// exists to close). Every degraded path is named per-record on <see cref="FullReadback.Error"/> (Q3).</summary>
     static IReadOnlyList<FullReadback> ReadBackInFull(ISkyrimModGetter back, IEnumerable<FormKey> targets)
     {
         var order = new List<FormKey>();                                   // caller order, de-duped (several ops may hit one record)
@@ -471,16 +474,22 @@ public static class WritePatchBuilder
         foreach (var fk in targets) if (want.Add(fk)) order.Add(fk);
 
         var found = new Dictionary<FormKey, RecordFields>();
-        foreach (var rec in back.EnumerateMajorRecords())
-            if (want.Contains(rec.FormKey) && !found.ContainsKey(rec.FormKey))
-                found[rec.FormKey] = ReadEngine.ReadFields(rec, null, FullReadbackDepth);
+        string? walkError = null;
+        try
+        {
+            foreach (var rec in back.EnumerateMajorRecords())
+                if (want.Contains(rec.FormKey) && !found.ContainsKey(rec.FormKey))
+                    found[rec.FormKey] = ReadEngine.ReadFields(rec, null, FullReadbackDepth);
+        }
+        catch (Exception ex) { walkError = $"the full read-back walk failed: {ex.GetType().Name}: {ex.Message}"; }
 
         var result = new List<FullReadback>(order.Count);
         foreach (var fk in order)
             result.Add(found.TryGetValue(fk, out var rf)
                 ? new FullReadback(fk, rf, null)
-                : new FullReadback(fk, null,
-                    $"the written file did not yield {fk} on re-open — a real inconsistency, surfaced not swallowed (Q3); inspect the patch in xEdit."));
+                : new FullReadback(fk, null, walkError is not null
+                    ? $"{walkError} — the WRITE ITSELF SUCCEEDED (the patch was serialized and re-opened); inspect the patch in xEdit; do not re-issue the ops."
+                    : $"the written file did not yield {fk} on re-open — a real inconsistency, surfaced not swallowed (Q3); inspect the patch in xEdit."));
         return result;
     }
 

@@ -44,7 +44,7 @@ public static class ReadTools
         try { fk = FormKey.Factory(formid.Trim()); }
         catch (Exception ex) { return $"error: bad FormID '{formid}': {ex.Message}. Expected 'XXXXXX:Plugin.esp', e.g. '0F1AC1:Skyrim.esm'."; }
 
-        var outcome = svc.ResolveRead(fk, plugin, fields, conflict_tree, depth <= 0 ? 1 : depth);
+        var outcome = svc.ResolveRead(fk, plugin?.Trim(), fields, conflict_tree, depth <= 0 ? 1 : depth);
         return Wire.RenderRecord(svc, outcome, fields, conflict_tree, max_chars);
     });
 

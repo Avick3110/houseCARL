@@ -327,12 +327,12 @@ public sealed class LoadOrderService : IDisposable
         // NOT read disabled plugins off disk (non-winner content masquerading as load-order truth is the Q3 hazard).
         if (plugin is not null && !view.ContainsPlugin(plugin))
             return ReadOutcome.Fail(fk,
-                $"Plugin '{plugin}' is not in the load order ({view.PluginCount} plugins indexed this session) — houseCARL " +
-                "reads load-order truth only and does not open disabled plugins off disk. If this is a freshly written " +
-                "houseCARL patch, it isn't enabled yet: enable + sort it in MO2, then re-read. To verify a write BEFORE " +
-                "enabling, use the write call's own read-back (full_readback=true returns the whole written record). If a " +
-                "prior write into this patch reported success, the edits DID land — do not re-issue them (re-running list " +
-                "Adds would duplicate entries).");
+                $"Plugin '{plugin}' is not in the load order ({view.PluginCount} plugins; names match the plugin FILENAME " +
+                "incl. .esp/.esm, case-insensitively) — houseCARL reads load-order truth only and does not open disabled " +
+                "plugins off disk. If this is a freshly written houseCARL patch, it isn't enabled yet: enable + sort it in " +
+                "MO2, then re-read. To verify a write BEFORE enabling, use the write call's own read-back " +
+                "(full_readback=true returns the whole written record). If a prior write into this patch reported success, " +
+                "the edits DID land — do not re-issue them (re-running list Adds would duplicate entries).");
 
         var winner = view.ResolveWinner(fk);
         if (winner is null)
