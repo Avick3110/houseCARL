@@ -109,7 +109,8 @@ public sealed class CorpusRulebook
         for (int i = 0; i < req.Path.Length - 1; i++)
         {
             if (!TrySeg(req.Path[i], out var segName, out var segKey, out var segErr)) return segErr;
-            var field = current.Fields.FirstOrDefault(f => f.Name == segName);
+            var field = FindField(current, segName, out _, out var polyErr);
+            if (polyErr is not null) return polyErr;
             if (field is null) return FieldNotFound(current, segName);
 
             if (segKey is null)
@@ -154,7 +155,8 @@ public sealed class CorpusRulebook
         if (leafKey is not null)
             return $"Path '{req.Path[^1]}' brackets a collection element at the LEAF; brackets navigate mid-path only. " +
                    "To edit a list/dict element, target the collection field and use the verb + Key (SetAtIndex/Set/Remove).";
-        var leaf = current.Fields.FirstOrDefault(f => f.Name == leafName);
+        var leaf = FindField(current, leafName, out var leafOwner, out var leafPolyErr);
+        if (leafPolyErr is not null) return leafPolyErr;
         if (leaf is null) return FieldNotFound(current, leafName);
 
         // (3a) verb legal for this cardinality?
@@ -162,10 +164,10 @@ public sealed class CorpusRulebook
 
         // (3b) record identity (FormKey/ModKey) is a flat, honest reject regardless of Mutagen's setter (plan §3 P-DISC).
         if (leaf.IsIdentity)
-            return $"'{leaf.Name}' on '{current.Name}' is record identity (FormKey/ModKey), not an editable content field.";
+            return $"'{leaf.Name}' on '{leafOwner.Name}' is record identity (FormKey/ModKey), not an editable content field.";
 
         // (3c) writable? (P-DISC routing for discriminators)
-        if (!leaf.Writable) return WritabilityRejection(current, leaf);
+        if (!leaf.Writable) return WritabilityRejection(leafOwner, leaf);
 
         // (4) value / key coercion + enum/legal-set legality
         return ValueLegality(leaf, req);
@@ -243,10 +245,12 @@ public sealed class CorpusRulebook
             return CheckValue(leaf.Type, req.Value, $"value for '{leaf.Name}'",
                 leaf.MutableTypeAssemblyQualified ?? leaf.GetterTypeAssemblyQualified);
         }
-        // (step 4) collection-verb value legality. A struct-element list (modeled-struct elements) takes a
-        // build-from-parts StructSpec on Add — NOT a plain value — which is wave-1 half B composition; a
+        // (step 4) collection-verb value legality. A struct-element OR arm-element list takes a build-from-parts
+        // StructSpec on Add — NOT a plain value — which is wave-1 half B composition (an ARM element composes by its
+        // concrete arm type, validated against that arm's own schema — the VMAD shape, #35; before this, arm-element
+        // Adds fell through pre-flight UNVALIDATED and only failed at runtime — an accept-then-throw Q3 hole). A
         // coercible-element list takes a plain value the engine coerces (proven by the collection waves).
-        if (leaf.Cardinality is "list" or "dict" && IsStructElement(leaf))
+        if (leaf.Cardinality is "list" or "dict" && IsComposableElement(leaf))
         {
             if (req.Verb == "Add") return StructElementLegality(leaf, req.Struct);
             if (req.Verb is "ReplaceAll" or "SetAtIndex")
@@ -256,24 +260,40 @@ public sealed class CorpusRulebook
         return null;
     }
 
-    /// <summary>True iff the leaf is a collection whose ELEMENT is a BUILD-FROM-PARTS modeled struct (so Add takes a
-    /// StructSpec). Record-elements (nested-group wave) and arm-elements (arm wave) are NOT structs; and a
-    /// WHOLE-COERCIBLE element (an AssetLink path) is set as one value, not composed — so it falls through to the
-    /// plain-value Add path, never demanding a spec.</summary>
-    bool IsStructElement(FieldSchema leaf) => SchemaClassifier.IsStructElement(leaf, _corpus);
+    /// <summary>True iff the leaf is a collection whose ELEMENT is built FROM PARTS on Add (so Add takes a
+    /// StructSpec): a modeled-struct element, or a polymorphic-union (arm) element composed by its concrete arm
+    /// type. Record-elements (nested-group wave) are resolved on their own axis, and a WHOLE-COERCIBLE element
+    /// (an AssetLink path) is set as one value — both fall through to the plain-value Add path, never demanding
+    /// a spec. Derived via the shared <see cref="SchemaClassifier"/> so the partition cannot be defined twice.</summary>
+    bool IsComposableElement(FieldSchema leaf)
+        => SchemaClassifier.ClassifyElement(leaf, _corpus) is ElementKind.Struct or ElementKind.Arm;
 
     /// <summary>Validate a struct-element Add: the spec must be present, its type must match the list's element
-    /// type, and its contents must validate against that element type (recursively, via the shared validator).</summary>
+    /// type — or, when the element type is a <b>polymorphic-base</b>, be one of its ARMS (the VMAD shape, #35:
+    /// <c>ScriptEntry.Properties</c> is a list of the base <c>ScriptProperty</c>, but a real new element is a
+    /// concrete arm like <c>ScriptObjectProperty</c>) — and its contents must validate against the SPEC's own
+    /// schema (the arm's fields, not the base's), recursively via the shared validator. Generic over every
+    /// polymorphic-base element family — no per-type wiring (cornerstone).</summary>
     string? StructElementLegality(FieldSchema leaf, StructSpec? spec)
     {
         if (spec is null)
             return $"Add to struct-element collection '{leaf.Name}' requires a build-from-parts spec (the new element).";
         var er = leaf.ElementTypeRef!;
-        if (spec.Type != er)
-            return $"Element spec type '{spec.Type}' does not match '{leaf.Name}' element type '{er}'.";
         var elemSchema = Type(er);
         if (elemSchema is null) return $"Element type '{er}' for '{leaf.Name}' absent from corpus.";
-        return StructSpecContents(spec, elemSchema);
+
+        TypeSchema specSchema;
+        if (spec.Type == er) specSchema = elemSchema;
+        else if (elemSchema is { Kind: "polymorphic-base", Arms: { Count: > 0 } arms } && arms.Contains(spec.Type))
+            specSchema = Type(spec.Type)
+                ?? throw new InvalidOperationException($"Arm '{spec.Type}' of '{er}' is listed but absent from the corpus — regenerate corpus.json.");
+        else
+        {
+            var legal = elemSchema is { Kind: "polymorphic-base", Arms: { Count: > 0 } a }
+                ? $" Legal element types: {string.Join(", ", a)}." : "";
+            return $"Element spec type '{spec.Type}' does not match '{leaf.Name}' element type '{er}'.{legal}";
+        }
+        return StructSpecContents(spec, specSchema);
     }
 
     /// <summary>Validate a build-from-parts spec's CONTENTS against its declared struct type: flat <see cref="StructSpec.Fields"/>
@@ -361,10 +381,60 @@ public sealed class CorpusRulebook
         catch (Exception ex) { name = segment; key = null; error = ex.Message; return false; }
     }
 
-    static string FieldNotFound(TypeSchema owner, string name)
+    string FieldNotFound(TypeSchema owner, string name)
     {
         var sample = owner.Fields.Select(f => f.Name).Take(12).ToList();
         var more = owner.Fields.Count > sample.Count ? $", … (+{owner.Fields.Count - sample.Count} more)" : "";
-        return $"No field '{name}' on '{owner.Name}'. Fields: {string.Join(", ", sample)}{more}.";
+        var arms = owner is { Kind: "polymorphic-base", Arms.Count: > 0 }
+            ? $" Also searched its arms ({string.Join(", ", owner.Arms!.Where(a => a != owner.Name))})."
+            : "";
+        return $"No field '{name}' on '{owner.Name}'. Fields: {string.Join(", ", sample)}{more}.{arms}";
     }
+
+    /// <summary>Find <paramref name="name"/> on <paramref name="owner"/>, looking through a <b>polymorphic-base</b>'s
+    /// ARMS when the base itself lacks it — the VMAD shape (#35): <c>ScriptEntry.Properties</c> is modeled as a list
+    /// of the base <c>ScriptProperty</c> (Name/Flags only), but every REAL element is a concrete arm
+    /// (<c>ScriptObjectProperty</c> carries Object/Alias), so a path like <c>Properties[0].Object</c> is legal even
+    /// though the BASE schema lacks 'Object'. Generic over every polymorphic-base family — no per-type wiring
+    /// (cornerstone). The static validator cannot know WHICH arm sits at a given index, so: a name found on arms
+    /// must AGREE in shape across all the arms that declare it (one shape validates for whichever arm the element
+    /// turns out to be — the engine then resolves on the element's RUNTIME type and fails loud on a real mismatch);
+    /// arms that DISAGREE reject named (Q3), never guess. <paramref name="effectiveOwner"/> is the schema the found
+    /// field belongs to (the arm for an arm-found field), so downstream messages name the real owner.</summary>
+    FieldSchema? FindField(TypeSchema owner, string name, out TypeSchema effectiveOwner, out string? error)
+    {
+        effectiveOwner = owner; error = null;
+        if (owner.Fields.FirstOrDefault(f => f.Name == name) is { } direct) return direct;
+        if (owner is not { Kind: "polymorphic-base", Arms.Count: > 0 }) return null;
+
+        var hits = new List<(TypeSchema arm, FieldSchema field)>();
+        foreach (var armName in owner.Arms!)
+        {
+            if (armName == owner.Name) continue;                       // the base lists itself as an arm; already checked
+            if (Type(armName) is not { } arm) continue;                 // absent arm entry → other arms still searched
+            if (arm.Fields.FirstOrDefault(f => f.Name == name) is { } af) hits.Add((arm, af));
+        }
+        if (hits.Count == 0) return null;
+
+        var (firstArm, firstField) = hits[0];
+        foreach (var (arm, f) in hits.Skip(1))
+            if (!SameShape(firstField, f))
+            {
+                error = $"Field '{name}' exists on several arms of '{owner.Name}' with CONFLICTING shapes " +
+                        $"('{firstArm.Name}': {firstField.Cardinality} {firstField.Type} vs '{arm.Name}': {f.Cardinality} {f.Type}) — " +
+                        "the validator cannot pick one statically. Read the element first to learn its concrete arm, " +
+                        "then target a field whose shape is unambiguous.";
+                return null;
+            }
+        effectiveOwner = firstArm;
+        return firstField;
+    }
+
+    /// <summary>Two arm declarations of the same field name agree iff every navigation/validation-relevant facet
+    /// matches — cardinality, display + referenced types, element type, and writability. Identity by what the
+    /// validator USES, so "agrees" can never silently mean "close enough".</summary>
+    static bool SameShape(FieldSchema a, FieldSchema b) =>
+        a.Cardinality == b.Cardinality && a.Type == b.Type && a.TypeRef == b.TypeRef
+        && a.ElementType == b.ElementType && a.ElementTypeRef == b.ElementTypeRef
+        && a.Writable == b.Writable && a.Nullable == b.Nullable && a.IsIdentity == b.IsIdentity;
 }
