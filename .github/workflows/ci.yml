@@ -85,3 +85,10 @@ jobs:
       # object IDs >= 0x800 and a floored persisted counter from every entry path (HCBR-2026-06-09-04).
       - name: Probe — FormID allocation floor (self-contained regression guard)
         run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- formid-floor-guard
+
+      # Drives the REAL housecarl-mcp.exe over stdio — the exact wire path of the live failure; needs no game data
+      # (argument binding resolves before configuration is consulted): a regression guard locking in the tool-argument
+      # binding shim — string-for-array coerces, missing-required refuses by name, an uncoercible shape fails NAMED
+      # (never the SDK's generic text), and the published schema stays a declared array (HCBR-2026-06-11-01).
+      - name: Probe — tool-argument binding shim (drives the real server over stdio)
+        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- binding-shim-guard

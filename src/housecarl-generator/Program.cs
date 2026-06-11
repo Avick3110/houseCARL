@@ -39,6 +39,10 @@ if (args.Length > 0 && args[0] == "value-predicate-guard") return ValuePredicate
 // (B wins) and asserts RecordsIn pairs each yielded body with its OWN source plugin, the winner stream with the winner.
 if (args.Length > 0 && args[0] == "source-display-guard") return SourceDisplayProbe.RunGuard(args[1..]);
 
+// Tool-argument binding shim (HCBR-2026-06-11-01): drives the REAL housecarl-mcp.exe over stdio with the report's
+// exact malformed argument shapes — string-for-array coerces, missing-required refuses by name, uncoercible fails named.
+if (args.Length > 0 && args[0] == "binding-shim-guard") return BindingShimProbe.RunGuard(args[1..]);
+
 // One-shot verify (decision #1): confirm the xEdit 4-char signature reflection path.
 if (args.Length > 0 && args[0] == "sig") return Probe.RunSig();
 
