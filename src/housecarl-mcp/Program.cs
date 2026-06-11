@@ -132,4 +132,8 @@ static void AddMcp(IServiceCollection services, bool stdio)
     if (stdio) mcp.WithStdioServerTransport();
     else mcp.WithHttpTransport(o => o.Stateless = true);
     mcp.WithToolsFromAssembly();
+    // The argument-binding shim (HCBR-2026-06-11-01): schema-driven coercion of obvious-intent argument shapes
+    // (a bare string where an array is declared, quoted bools/numbers), named refusal of missing required
+    // parameters, and a named rewrite of the SDK's generic binding-failure text. See ToolCallShim.
+    mcp.WithRequestFilters(f => f.AddCallToolFilter(ToolCallShim.LenientArguments));
 }
