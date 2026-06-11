@@ -111,6 +111,17 @@ public static class SnapshotViewProbe
             Check("PINNED: viewOld.ConflictKeys() still yields exactly [W1]",
                   viewOld.ConflictKeys().ToList() is { Count: 1 } ck && ck[0] == fk1);
 
+            // ---- PINNED SCANS (review #1, teeth proven missing): the view's SCAN STREAMS must ride the pinned
+            //      build too, not re-deref the live one. Master's file is unchanged on disk, so enumerating it
+            //      under the OLD snapshot is staleness-safe; the discriminators are pure index facts. ----
+            var pinnedIn = viewOld.RecordsIn(new[] { masterName }, null).Where(x => x.fk == fk1).ToList();
+            Check("PINNED SCAN: viewOld.RecordsIn(master) yields W1 at the OLD depth 2 (a live re-deref would say 1)",
+                  pinnedIn.Count == 1 && pinnedIn[0].depth == 2);
+            var pinnedWin = viewOld.WinnerRecordsOfType(new[] { typeof(Mutagen.Bethesda.Skyrim.IWeaponGetter) }).ToList();
+            Check("PINNED SCAN: viewOld.WinnerRecordsOfType yields ONLY W2 (old build: W1's winner is the override; " +
+                  "a live re-deref would also yield W1 from master and W3 from the rewritten override)",
+                  pinnedWin.Count == 1 && pinnedWin[0].fk != fk1);
+
             // ---- FRESH: a new capture answers ALL-NEW — the view pins, it doesn't freeze the resolver. ----
             var viewNew = resolver.Capture();
             Check($"FRESH: viewNew.ResolveWinner(W1) = {masterName}, depth 1",

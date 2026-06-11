@@ -307,8 +307,11 @@ public sealed class LoadOrderService : IDisposable
 
     /// <summary>The read body, answered entirely off ONE captured view (HCBR-2026-06-11-02): excluded-check, winner,
     /// and touching-plugin list all describe the SAME build — a freshness rebuild landing mid-read can no longer make
-    /// a record's reported winner disagree with its own conflict tree. (The body fetch reads the file on disk through
-    /// the session; a mid-read file edit surfaces as the existing named fetch-inconsistency error, never torn values.)</summary>
+    /// a record's reported winner disagree with its own TOUCHING LIST. (The body fetch reads the file on disk through
+    /// the session; a mid-read file edit surfaces as the existing named fetch-inconsistency error, never torn values.
+    /// Known residue, review #1: the conflict-tree DIFF the render layer adds is a separate <see cref="ResolveTree"/>
+    /// call with its own capture, so one rendered response can still pair this read's build with an adjacent build's
+    /// diff — same low-severity class, named for the next wave rather than threaded through the render API here.)</summary>
     ReadOutcome ResolveRead(LoadOrderResolver resolver, LoadOrderResolver.IndexView view,
                             FormKey fk, string? plugin, IReadOnlyList<string>? fields, bool conflictTree, int depth)
     {

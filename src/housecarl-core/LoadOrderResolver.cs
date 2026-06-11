@@ -79,8 +79,9 @@ public sealed class LoadOrderResolver : IDisposable
     /// sibling call's freshness check may rebuild) — when the per-build state lived in five separate fields, a reader
     /// could observe a NEW index next to OLD overriders mid-swap (a KeyNotFound on a freshly-multi key, surfaced as an
     /// opaque transport error pre-Guard). Bundling the build into one immutable snapshot, captured ONCE per operation
-    /// (iterators capture at enumeration start), makes a torn view impossible by construction (HCBR-2026-06-11-01
-    /// hardening). The volatile field gives the swap release/acquire visibility.</summary>
+    /// (single-shot members and the scan wrappers capture at CALL time; <see cref="Capture"/> pins a whole logical
+    /// operation), makes a torn view impossible by construction (HCBR-2026-06-11-01 hardening, extended by
+    /// HCBR-2026-06-11-02's IndexView). The volatile field gives the swap release/acquire visibility.</summary>
     internal sealed class IndexSnapshot   // internal (not private) so IndexView's ctor can take it; never leaves the assembly
     {
         public readonly Dictionary<FormKey, (int winner, int count)> Index;   // ALL keys — winner + depth, O(1)
