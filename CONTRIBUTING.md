@@ -1,0 +1,30 @@
+# Contributing to houseCARL
+
+Thanks for your interest — houseCARL accepts issues and pull requests.
+
+## Before you start
+
+For anything beyond a typo fix, **open an issue first** describing the problem or proposal. It lets us confirm direction before you invest in an implementation — and lets us tell you if the gap is already fixed on `main` awaiting release.
+
+## Bug reports
+
+The fastest reports to act on include:
+
+- **houseCARL version** — fixes often land on `main` before a release, so the version tells us whether you're hitting a known-fixed gap.
+- **Exact repro** — the tool call(s) you made and the full error or wrong output you got. Driving the server directly over stdio and quoting its stderr is gold, but not required.
+- **Environment** where relevant — Skyrim SE version, MO2 or manual install, load-order size.
+
+## Pull requests
+
+- **Fork and branch** — PRs come from a branch on your fork, targeting `main`.
+- **One logical change per PR.** Small and reviewable beats broad.
+- **CI must be green** — the `build + probes` check is required to merge. First-time contributors' CI runs wait for maintainer approval; that's a GitHub safety default, not distrust.
+- **Linear history** — we merge by rebase only. Keep your branch rebased on current `main`.
+- **Bring proof.** A fix should come with a probe/guard that fails before the change and passes after — see `binding-shim-guard` or `vmad-poly-guard` in `src/housecarl-generator` for the pattern. CI-safe checks must run on a fresh checkout without game data; anything that needs real plugins runs locally, with its results documented in the PR.
+- **Stay generic.** houseCARL's cornerstone is coverage by construction: record-type support comes from reflection over Mutagen's model, never per-type hand-wiring. A fix that special-cases one record type will be asked to generalize.
+- **Fail loud.** No silent failure and no silently degraded mode: an unsupported path returns a named error saying what was checked and what to try next — never a wrong answer or a bare miss.
+- **Naming** — MCP tools are `housecarl_<snake_case>`; see `standards/HOUSECARL_NAMING.md`.
+
+## License
+
+houseCARL is GPL-3.0. By submitting a pull request you agree your contribution is licensed under GPL-3.0 like the rest of the project.
