@@ -47,6 +47,11 @@ if (args.Length > 0 && args[0] == "binding-shim-guard") return BindingShimProbe.
 // winner/touching/counters from ONE build even when the index rebuilds mid-operation; the real service rides it.
 if (args.Length > 0 && args[0] == "snapshot-view-guard") return SnapshotViewProbe.RunGuard(args[1..]);
 
+// Verify-loop wave (HCBR-2026-06-11-02, Option A): SELF-CONTAINED CI regression guard — a plugin= read naming a
+// not-in-order plugin gets the TRUE taxonomy (never "does not define"), and the write cleave's opt-in fullReadback
+// hands back every touched/created record IN FULL off the written file (the pre-enable verify loop).
+if (args.Length > 0 && args[0] == "verify-loop-guard") return VerifyLoopProbe.RunGuard(args[1..]);
+
 // One-shot verify (decision #1): confirm the xEdit 4-char signature reflection path.
 if (args.Length > 0 && args[0] == "sig") return Probe.RunSig();
 
