@@ -841,6 +841,91 @@ public static class WriteEngine
         return InvokeAddNew(group!, tMajor!, editorId);   // CanCreateType guaranteed a concrete flat group exists
     }
 
+    /// <summary>UPSERT front-end for the extend path: like <see cref="GenericAddNew"/>, but if the patch already
+    /// carries a record with the same EditorID (a re-run of the same create against the same <c>into=</c> target),
+    /// the stale copy is REPLACED — removed from its group and re-created FRESH at the SAME FormKey — instead of a
+    /// duplicate being appended. This makes create calls IDEMPOTENT: re-running neither appends a second copy (the
+    /// dup-append failure) nor accumulates list items inside a reused record (re-applying edits to a live record
+    /// would re-Add keyword/effect list entries), and the stable FormKey keeps cross-record links and external
+    /// references (script properties, SKSE framework configs) valid across re-runs. An EditorID collision across
+    /// record TYPES is refused loud (Q3) — that is a real authoring error, not an upsert.
+    /// Returns the record plus whether an existing one was replaced (for caller logging).</summary>
+    public static (IMajorRecord Record, bool Replaced) GenericUpsertNew(SkyrimMod patchMod, string typeName, string? editorId)
+    {
+        if (editorId is not null)
+        {
+            var existing = patchMod.EnumerateMajorRecords()
+                .FirstOrDefault(r => string.Equals(r.EditorID, editorId, StringComparison.OrdinalIgnoreCase));
+            if (existing is not null)
+            {
+                if (!CanCreateType(typeName, out var reason)) throw new InvalidOperationException(reason);
+                var formKey = existing.FormKey;
+                object? group = null; Type? tMajor = null;
+                foreach (var (prop, tm, _) in EnumerateFlatGroups(patchMod.GetType()))
+                    if (string.Equals(tm.Name, typeName, StringComparison.OrdinalIgnoreCase)) { group = prop.GetValue(patchMod); tMajor = tm; break; }
+                if (group is null || tMajor is null)
+                    throw new InvalidOperationException($"upsert: no flat group found for type '{typeName}'.");
+                if (!tMajor.IsInstanceOfType(existing))
+                    throw new InvalidOperationException(
+                        $"upsert refused: existing record '{editorId}' ({formKey}) is a {existing.GetType().Name}, not a {typeName} — " +
+                        "an EditorID collision across record types is a real authoring error, surfaced not swallowed (Q3).");
+                InvokeRemove(group, formKey);
+                var fresh = InvokeAddNewWithFormKey(group, tMajor, formKey);
+                fresh.EditorID = editorId;
+                return (fresh, true);
+            }
+        }
+        return (GenericAddNew(patchMod, typeName, editorId), false);
+    }
+
+    /// <summary>Remove a record from a flat group by FormKey. Tries the group's own instance <c>Remove(FormKey)</c>
+    /// first, then falls back to the same Mutagen static-extension scan <see cref="InvokeAddNew"/> uses (Q3 —
+    /// fails loud if neither shape exists, never a silent no-op).</summary>
+    static void InvokeRemove(object group, FormKey formKey)
+    {
+        var instance = group.GetType().GetMethod("Remove", new[] { typeof(FormKey) });
+        if (instance is not null) { instance.Invoke(group, new object[] { formKey }); return; }
+        foreach (var asm in AppDomain.CurrentDomain.GetAssemblies().Where(a => (a.GetName().Name ?? "").StartsWith("Mutagen")))
+            foreach (var t in SafeTypes(asm).Where(t => t is { IsAbstract: true, IsSealed: true }))
+                foreach (var m in t.GetMethods(BindingFlags.Public | BindingFlags.Static).Where(m => m.Name == "Remove"))
+                {
+                    var ps = m.GetParameters();
+                    if (ps.Length != 2 || ps[1].ParameterType != typeof(FormKey)) continue;
+                    var closed = m;
+                    if (m.IsGenericMethodDefinition)
+                    {
+                        if (m.GetGenericArguments().Length != 1) continue;
+                        var tArg = group.GetType().IsGenericType ? group.GetType().GetGenericArguments()[0] : null;
+                        if (tArg is null) continue;
+                        try { closed = m.MakeGenericMethod(tArg); } catch { continue; }
+                    }
+                    if (!closed.GetParameters()[0].ParameterType.IsInstanceOfType(group)) continue;
+                    closed.Invoke(null, new object[] { group, formKey });
+                    return;
+                }
+        throw new InvalidOperationException($"Could not locate a Remove(FormKey) accepting {group.GetType().Name}.");
+    }
+
+    /// <summary>The FormKey-preserving sibling of <see cref="InvokeAddNew"/>: Mutagen's <c>AddNew(IGroup&lt;T&gt;, FormKey)</c>
+    /// extension, located by the same proven candidate scan. Used by upsert so a replaced record keeps its FormID
+    /// (the allocator is untouched — no new ID is consumed by a replace).</summary>
+    static IMajorRecord InvokeAddNewWithFormKey(object group, Type tMajor, FormKey formKey)
+    {
+        foreach (var asm in AppDomain.CurrentDomain.GetAssemblies().Where(a => (a.GetName().Name ?? "").StartsWith("Mutagen")))
+            foreach (var t in SafeTypes(asm).Where(t => t is { IsAbstract: true, IsSealed: true }))
+                foreach (var open in t.GetMethods(BindingFlags.Public | BindingFlags.Static)
+                             .Where(m => m.Name == "AddNew" && m.IsGenericMethodDefinition && m.GetGenericArguments().Length == 1))
+                {
+                    var ps = open.GetParameters();
+                    if (ps.Length != 2 || ps[1].ParameterType != typeof(FormKey)) continue;
+                    MethodInfo closed;
+                    try { closed = open.MakeGenericMethod(tMajor); } catch { continue; }
+                    if (!closed.GetParameters()[0].ParameterType.IsInstanceOfType(group)) continue;
+                    return (IMajorRecord)closed.Invoke(null, new object[] { group, formKey })!;
+                }
+        throw new InvalidOperationException($"Could not locate an AddNew(FormKey) extension accepting {group.GetType().Name}.");
+    }
+
     /// <summary>
     /// Raise the patch's FormID allocator counter (<c>HEDR.NextObjectID</c>, in memory <c>ModHeader.Stats.NextFormID</c>)
     /// to its safe floor: at least 0x800 (object IDs below 0x800 are engine-reserved — and 0x000000 is the NULL-reference
@@ -964,12 +1049,79 @@ public static class WriteEngine
         // so a freed ID is never re-allocated). Every product write funnels through here, so every houseCARL-written
         // plugin carries a conventional counter regardless of which tool created it.
         EnsureFormIdFloor(patchMod);
-        patchMod.BeginWrite
-            .ToPath(outputPath)
-            .WithLoadOrder(ordered)
-            .WithExtraIncludedMasters(baseline)
-            .NoNextFormIDProcessing()
-            .Write();
+        // ATOMIC WRITE (Q3): stage + commit. Serializing IN PLACE can tear the plugin (a crash mid-write leaves a
+        // truncated .esp) and loses two races once the patch is enabled in MO2: (a) MO2's folder watcher opens the
+        // half-written file to refresh its plugin list (sharing violation), and (b) on an EXTEND, the caller's own
+        // overlay session may have memory-mapped the target (a winner read against a last-in-order patch opens its
+        // overlay; AllMastersExcept keeps the SERIALIZER from mapping it but cannot un-map a phase-3 read) — and a
+        // memory-mapped file cannot be replaced (deterministic AccessDenied, measured against a live MO2 instance).
+        // Callers that hold a session stage INSIDE it and commit AFTER disposing it; this one-shot overload serves
+        // session-free callers (the standalone harness).
+        var staged = WritePatchStaged(patchMod, ordered, baseline, outputPath);
+        CommitStagedPatch(staged, outputPath);
+    }
+
+    /// <summary>Stage 1 of the atomic write: serialize the patch into a temp SUBDIRECTORY beside the target —
+    /// same filename (Mutagen's writer ties filename to ModKey), same parent directory (guarantees same NTFS
+    /// volume so the stage-2 rename is atomic). Read-only with respect to the target file, so it is safe while
+    /// an overlay session still has the target memory-mapped (the extend path). Cleans its temp on serialize
+    /// failure (Q3 — a failed stage leaves no residue). Same filename-check / floor / counter-persistence
+    /// semantics as <see cref="WritePatch(SkyrimMod,IReadOnlyList{ISkyrimModGetter},string)"/>.</summary>
+    internal static string WritePatchStaged(SkyrimMod patchMod, IReadOnlyList<ISkyrimModGetter> knownMasters, string outputPath)
+    {
+        var expected = patchMod.ModKey.FileName.String;
+        var actual = Path.GetFileName(outputPath);
+        if (!string.Equals(expected, actual, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException(
+                $"Output filename '{actual}' must match patch ModKey filename '{expected}'.");
+        Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
+        var ordered = knownMasters as ISkyrimModGetter[] ?? knownMasters.ToArray();
+        var baseline = BaselineMasters.Where(bm => ordered.Any(km => km.ModKey == bm)).ToArray();
+        EnsureFormIdFloor(patchMod);
+        return WritePatchStaged(patchMod, ordered, baseline, outputPath);
+    }
+
+    static string WritePatchStaged(SkyrimMod patchMod, ISkyrimModGetter[] ordered, ModKey[] baseline, string outputPath)
+    {
+        var tmpDir = Path.Combine(Path.GetDirectoryName(outputPath)!, ".housecarl-tmp");
+        var tmpPath = Path.Combine(tmpDir, Path.GetFileName(outputPath));
+        Directory.CreateDirectory(tmpDir);
+        try
+        {
+            patchMod.BeginWrite
+                .ToPath(tmpPath)
+                .WithLoadOrder(ordered)
+                .WithExtraIncludedMasters(baseline)
+                .NoNextFormIDProcessing()
+                .Write();
+            return tmpPath;
+        }
+        catch
+        {
+            CleanupStaged(tmpPath);
+            throw;
+        }
+    }
+
+    /// <summary>Stage 2 of the atomic write: rename the staged temp over the target — atomic on the same volume
+    /// (stage 1 guaranteed same-volume placement). Call AFTER disposing any overlay session that may have the
+    /// target mapped. Temp is removed afterward; a cleanup failure never masks the result (Q3).</summary>
+    internal static void CommitStagedPatch(string tmpPath, string outputPath)
+    {
+        try { File.Move(tmpPath, outputPath, overwrite: true); }
+        finally { CleanupStaged(tmpPath); }
+    }
+
+    static void CleanupStaged(string tmpPath)
+    {
+        try
+        {
+            if (File.Exists(tmpPath)) File.Delete(tmpPath);
+            var dir = Path.GetDirectoryName(tmpPath);
+            if (dir is not null && Directory.Exists(dir) && !Directory.EnumerateFileSystemEntries(dir).Any())
+                Directory.Delete(dir, recursive: false);
+        }
+        catch (IOException) { } catch (UnauthorizedAccessException) { }
     }
 
     /// <summary>The base-game masters EVERY Skyrim plugin must carry — Skyrim.esm + Update.esm, exactly what the Creation
