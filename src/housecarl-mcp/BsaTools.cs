@@ -25,7 +25,7 @@ public static class BsaTools
         [Description("Full path to the .bsa archive to list.")]
             string archive,
         [Description("Optional. Max characters before the file list is cut with an explicit notice. 0 = the server default (~80k).")]
-            int max_chars = 0)
+            int max_chars = 0) => Guard.Tool("housecarl_bsa_list", () =>
     {
         if (string.IsNullOrWhiteSpace(archive)) return "error: no archive given. Pass the full path to the .bsa.";
         archive = archive.Trim().Trim('"');
@@ -48,7 +48,7 @@ public static class BsaTools
             sb.Append("  ").Append(f).Append('\n'); shown++;
         }
         return sb.ToString().TrimEnd('\n');
-    }
+    });
 
     [McpServerTool(Name = "housecarl_bsa_extract", Title = "Extract a .bsa archive to a folder"),
      Description(
@@ -62,7 +62,7 @@ public static class BsaTools
         [Description("Full path to the .bsa archive to extract.")]
             string archive,
         [Description("Optional. Folder to unpack into. If omitted, houseCARL creates a NEW mod folder under your mods directory and reports its path.")]
-            string? dest = null)
+            string? dest = null) => Guard.Tool("housecarl_bsa_extract", () =>
     {
         if (string.IsNullOrWhiteSpace(archive)) return "error: no archive given. Pass the full path to the .bsa.";
         archive = archive.Trim().Trim('"');
@@ -93,7 +93,7 @@ public static class BsaTools
             ? "(a new houseCARL mod folder — read the files you need from it; enable it in MO2 only if you want the loose files in your load order.)"
             : "(read the files you need from that folder.)");
         return sb.ToString();
-    }
+    });
 
     [McpServerTool(Name = "housecarl_bsa_repack", Title = "Pack a folder into a .bsa archive"),
      Description(
@@ -116,7 +116,7 @@ public static class BsaTools
         [Description("Optional. Base name for the NEW mod folder the .bsa lands in (default 'houseCARL_Archive'); auto-suffixed if taken.")]
             string? patch_name = null,
         [Description("Optional. Filename of an existing houseCARL patch mod to place the .bsa into instead of a fresh folder.")]
-            string? into = null)
+            string? into = null) => Guard.Tool("housecarl_bsa_repack", () =>
     {
         if (string.IsNullOrWhiteSpace(source_folder)) return "error: no source_folder given.";
         source_folder = Path.GetFullPath(source_folder.Trim().Trim('"'));
@@ -145,5 +145,5 @@ public static class BsaTools
         sb.Append("(a new houseCARL mod folder — enable it in MO2 to use the archive.)");
         if (compress) sb.Append("\nNOTE: compressed — any sounds/voices in it will not work in-game (BSArch limitation).");
         return sb.ToString();
-    }
+    });
 }

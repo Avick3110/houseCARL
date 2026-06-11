@@ -37,7 +37,7 @@ public static class ReadTools
         [Description("When true, also return the ordered list of every plugin that touches this record (winner last) and the winner-relative field diff for each.")]
             bool conflict_tree = false,
         [Description("Optional. Max characters before the diff is cut with an explicit notice (never silent). 0 = the server default (~80k). Raise to see a very deep conflict tree in full.")]
-            int max_chars = 0)
+            int max_chars = 0) => Guard.Tool("housecarl_read_record", () =>
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
         FormKey fk;
@@ -46,7 +46,7 @@ public static class ReadTools
 
         var outcome = svc.ResolveRead(fk, plugin, fields, conflict_tree, depth <= 0 ? 1 : depth);
         return Wire.RenderRecord(svc, outcome, fields, conflict_tree, max_chars);
-    }
+    });
 
     [McpServerTool(Name = "housecarl_batch_record_detail", ReadOnly = true, Title = "Read many records"),
      Description(
@@ -67,13 +67,13 @@ public static class ReadTools
         [Description("When true, include each record's touching-plugin list (winner last) + winner-relative field diff.")]
             bool conflict_tree = false,
         [Description("Optional. Max characters before the response stops with an explicit 'rendered X of N' notice. 0 = the server default (~80k).")]
-            int max_chars = 0)
+            int max_chars = 0) => Guard.Tool("housecarl_batch_record_detail", () =>
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
         if (formids is null || formids.Length == 0) return "error: formids is empty. Pass one or more 'XXXXXX:Plugin.esp' FormIDs.";
         var outcomes = svc.ResolveBatch(formids, fields, conflict_tree, depth <= 0 ? 1 : depth);
         return Wire.RenderBatch(svc, outcomes, fields, conflict_tree, max_chars);
-    }
+    });
 
     [McpServerTool(Name = "housecarl_cross_plugin_query", ReadOnly = true, Title = "Query records across the load order"),
      Description(
@@ -109,7 +109,7 @@ public static class ReadTools
         [Description("Optional. Max matches to return (default 500). The TRUE total is always reported; over the cap it says 'showing first N'.")]
             int limit = 500,
         [Description("Optional. Max characters before the response stops with an explicit notice. 0 = the server default (~80k).")]
-            int max_chars = 0)
+            int max_chars = 0) => Guard.Tool("housecarl_cross_plugin_query", () =>
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
         FormKey? refFk = null;
@@ -120,7 +120,7 @@ public static class ReadTools
         }
         var outcome = svc.CrossQuery(type, refFk, editorid_contains, conflicts_only, plugins, where, limit <= 0 ? 500 : limit);
         return Wire.RenderCrossQuery(svc, outcome, fields, conflict_tree, max_chars);
-    }
+    });
 }
 
 /// <summary>Compact, parseable `key = value` rendering (Q4.8 lever 1) + the winner-relative conflict diff

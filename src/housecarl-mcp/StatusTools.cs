@@ -33,13 +33,13 @@ public static class StatusTools
         [Description("Optional. A mod folder name or plugin filename to look up. Omit for the whole-profile summary.")]
             string? lookup = null,
         [Description("Optional. Max characters before name lists are cut with an explicit notice. 0 = the server default (~80k).")]
-            int max_chars = 0)
+            int max_chars = 0) => Guard.Tool("housecarl_load_order_status", () =>
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
         var data = svc.StatusData();
         var logs = StatusWire.LogFolders(tools);                 // resolved Papyrus/crash log dirs (pure — no persist)
         return StatusWire.Render(data, logs, lookup, max_chars > 0 ? max_chars : 80_000);
-    }
+    });
 }
 
 /// <summary>Renders <see cref="LoadOrderStatusData"/> as compact, scannable text: a header line per category, then the
