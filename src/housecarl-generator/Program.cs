@@ -43,6 +43,10 @@ if (args.Length > 0 && args[0] == "source-display-guard") return SourceDisplayPr
 // exact malformed argument shapes — string-for-array coerces, missing-required refuses by name, uncoercible fails named.
 if (args.Length > 0 && args[0] == "binding-shim-guard") return BindingShimProbe.RunGuard(args[1..]);
 
+// Snapshot-view capture (HCBR-2026-06-11-02): SELF-CONTAINED CI regression guard — a captured IndexView answers
+// winner/touching/counters from ONE build even when the index rebuilds mid-operation; the real service rides it.
+if (args.Length > 0 && args[0] == "snapshot-view-guard") return SnapshotViewProbe.RunGuard(args[1..]);
+
 // One-shot verify (decision #1): confirm the xEdit 4-char signature reflection path.
 if (args.Length > 0 && args[0] == "sig") return Probe.RunSig();
 

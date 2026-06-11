@@ -92,3 +92,10 @@ jobs:
       # (never the SDK's generic text), and the published schema stays a declared array (HCBR-2026-06-11-01).
       - name: Probe — tool-argument binding shim (drives the real server over stdio)
         run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- binding-shim-guard
+
+      # Self-contained (synthesizes a master + override, then rewrites the override and rebuilds the index mid-test
+      # — no external files), runs fully here: a regression guard locking in the snapshot-view capture discipline —
+      # ONE captured view answers a whole logical operation (winner/touching/counters from the SAME build), pinned
+      # across a real index rebuild; the real service layer rides it (HCBR-2026-06-11-02).
+      - name: Probe — snapshot-view capture (self-contained regression guard)
+        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- snapshot-view-guard
