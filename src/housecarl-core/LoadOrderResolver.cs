@@ -420,6 +420,13 @@ public sealed class LoadOrderResolver : IDisposable
         public IEnumerable<(FormKey fk, int depth, IMajorRecordGetter body, string source)> RecordsIn(
             IReadOnlyList<string> plugins, IReadOnlyList<Type>? getterTypes)
             => _r.RecordsIn(plugins, getterTypes, _s);
+
+        /// <summary>One record's body from a named plugin (<see cref="LoadOrderResolver.GetRecord"/>), with the
+        /// excluded-plugin check judged against THIS view's build — so a winner this view resolved and the body
+        /// fetched for it can never be vetted by two different builds (2026-06-12 hunt F5: the write path resolves
+        /// every edit of one call off ONE view; reads pin their fetch to the same view they resolved with).</summary>
+        public IMajorRecordGetter? GetRecord(OverlaySession session, string pluginName, FormKey fk)
+            => _r.GetRecord(session, pluginName, fk, _s);
     }
 
     // ---- Queries -------------------------------------------------------
@@ -490,9 +497,12 @@ public sealed class LoadOrderResolver : IDisposable
     /// for an explicit-plugin read, and for the winner's body off <see cref="ResolveWinner"/>. The returned body is
     /// backed by the session's overlay — read it before the session disposes.</summary>
     public IMajorRecordGetter? GetRecord(OverlaySession session, string pluginName, FormKey fk)
+        => GetRecord(session, pluginName, fk, _snap);                      // single-shot: this call = its own build (the IndexView overload pins a whole operation)
+
+    IMajorRecordGetter? GetRecord(OverlaySession session, string pluginName, FormKey fk, IndexSnapshot s)
     {
         if (!_nameToIdx.TryGetValue(pluginName, out int idx)) return null;
-        if (_snap.Excluded.Contains(idx)) return null;                     // excluded plugin — never re-enumerate it (would re-throw); the service reports the reason via ExcludedPlugins
+        if (s.Excluded.Contains(idx)) return null;                         // excluded plugin — never re-enumerate it (would re-throw); the service reports the reason via ExcludedPlugins
         foreach (var rec in session.Overlay(idx).EnumerateMajorRecords())
             if (rec.FormKey == fk) return rec;
         return null;

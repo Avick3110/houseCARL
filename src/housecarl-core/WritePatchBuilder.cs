@@ -147,14 +147,20 @@ public static class WritePatchBuilder
         using var session = resolver.OpenSession();
 
         // --- Phase 1: resolve winner + derive RecordType + pre-flight EVERY edit. Collect ALL problems (so the caller
-        //     sees every fix at once), then refuse the whole call if any (Q3 — never a silently-partial patch). ---
+        //     sees every fix at once), then refuse the whole call if any (Q3 — never a silently-partial patch).
+        //     ONE captured view answers EVERY edit (2026-06-12 hunt F5): the per-edit single-shot resolves each took
+        //     a fresh capture, so a freshness rebuild landing mid-loop (a concurrent read's refresh) could resolve
+        //     two edits of ONE call against two different builds' winners — a silently MIXED patch
+        //     (freshness-capture-guard arm 4, RED pre-fix: 2 of 12 hammered multi-op writes mixed). The write is one
+        //     logical operation; it reads one build — the same HCBR-2026-06-11-02 discipline the read service follows. ---
+        var view = resolver.Capture();
         var resolved = new List<(PatchEdit edit, IMajorRecordGetter body, string winnerPlugin, WriteRequest req, string label)>(edits.Count);
         var problems = new List<string>();
         foreach (var e in edits)
         {
-            var w = resolver.ResolveWinner(e.Target);
-            if (w is null) { problems.Add($"{e.Target}: not present in the load order ({resolver.PluginCount} plugins)."); continue; }
-            var body = resolver.GetRecord(session, w.Value.WinnerPlugin, e.Target);
+            var w = view.ResolveWinner(e.Target);
+            if (w is null) { problems.Add($"{e.Target}: not present in the load order ({view.PluginCount} plugins)."); continue; }
+            var body = view.GetRecord(session, w.Value.WinnerPlugin, e.Target);
             if (body is null) { problems.Add($"{e.Target}: winner '{w.Value.WinnerPlugin}' did not yield it on fetch (a load-order inconsistency)."); continue; }
 
             var recType = RecordNaming.StripOverlay(body.GetType().Name);
