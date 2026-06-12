@@ -113,6 +113,36 @@ internal static class DecompileGuardProbe
         }
         finally { try { Directory.Delete(work, recursive: true); } catch { /* temp scratch */ } }
 
+        // ---- 6) statement-level JMPT fires the optimizer hint (live-fire finding 2026-06-12) -----
+        // The §4 catalog's named Caprica marker: the CK compiler emits statement conditionals as JMPF
+        // ALWAYS (its JMPTs live only inside short-circuit arms). Real Caprica ships (Campfire,
+        // NL_MCM) are shape-canonical except for this inversion, so the original four flow-hint
+        // sites underfired on them. Mutate the fixture exactly as an optimizer would — flip one
+        // statement-level JMPF to JMPT — and the hint must fire while the source stays clean
+        // (negated condition). Arm 1 above pins the other side: the UNMUTATED canonical fixture
+        // must stay at zero hints (no false positives on PCompiler output, short-circuits included).
+        Console.WriteLine();
+        Console.WriteLine("--- 6: statement-level JMPT (optimizer inversion) fires the hint ---");
+        {
+            var mutated = PexFile.CreateFromFile(constructPex, GameCategory.Skyrim);
+            var tally = ((PexObject)mutated.Objects[0]).States
+                .SelectMany(s => s.Functions)
+                .FirstOrDefault(f => string.Equals(f.FunctionName, "Tally", StringComparison.OrdinalIgnoreCase))?.Function;
+            Check(tally is not null, "fixture carries the plain-conditional victim function (Tally)");
+            if (tally is not null)
+            {
+                var jmpf = tally.Instructions.FirstOrDefault(x => x.OpCode == InstructionOpcode.JMPF);
+                Check(jmpf is not null, "victim has a statement-level JMPF to invert");
+                if (jmpf is not null)
+                {
+                    jmpf.OpCode = InstructionOpcode.JMPT;
+                    var r6 = PapyrusDecompiler.DecompileFile(mutated, edges);
+                    Check(r6.FunctionsFailed == 0, "inverted branch still structures clean (negated condition)");
+                    Check(r6.OptimizerHints > 0, $"the optimizer hint FIRES on statement-level JMPT (hints={r6.OptimizerHints})");
+                }
+            }
+        }
+
         // ---- 2) unreadable pex throws loud ------------------------------------------------------
         Console.WriteLine();
         Console.WriteLine("--- 2: truncated pex — Mutagen throws, the tool's named unreadable class ---");

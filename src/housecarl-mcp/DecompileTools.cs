@@ -29,7 +29,9 @@ public static class DecompileTools
          "decompiler shares, baked into the PEX format itself: parameter DEFAULTS don't exist in .pex (callers baked " +
          "the literals, so defaulted parameters come back as plain parameters), and comments/blank-line layout are " +
          "gone (docstrings survive). Scripts built by an OPTIMIZING compiler (Caprica) decompile to correct source " +
-         "but won't re-produce byte-identical output under the CK compiler — the result says so when detected. Any " +
+         "but won't re-produce byte-identical output under the CK compiler — the result says so when optimizer " +
+         "patterns are detected, but detection is best-effort: a result WITHOUT the note does not prove the .pex " +
+         "came from the CK compiler. Any " +
          "function the engine cannot prove is emitted as a LOUD failure comment with its raw bytecode (the .psc then " +
          "won't compile as-is) — never silently wrong source. Needs houseCARL pointed at your MO2 instance for the " +
          "output folder; no compiler or external tool required.")]

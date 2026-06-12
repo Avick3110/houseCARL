@@ -614,9 +614,17 @@ public sealed class PapyrusDecompiler
                         }
 
                         // Statement-level JMPT = inverted branch (seen in Caprica-optimized output):
-                        // same if/while shapes with the condition negated.
+                        // same if/while shapes with the condition negated. This is the §4 catalog's
+                        // named Caprica marker — the CK compiler emits statement conditionals as JMPF
+                        // ALWAYS (its JMPTs live only inside short-circuit arms, consumed above) — so
+                        // reaching here on a JMPT is an optimizer hint. Live-fire 2026-06-12 found the
+                        // original four hint sites underfire on real Caprica ships (Campfire, NL_MCM):
+                        // their clean functions are shape-canonical except for exactly this inversion.
                         if (op == InstructionOpcode.JMPT)
+                        {
+                            _d._res.OptimizerHints++;
                             cond = cond is EUn { Op: "!" } un ? un.E : new EUn("!", cond);
+                        }
 
                         // while: target-1 is a backward JMP to the condition start.
                         if (isWhile)
