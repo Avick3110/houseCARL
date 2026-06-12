@@ -91,7 +91,16 @@ public static class CompileTools
         if (gameRoot is not null)
         {
             var vanilla = Path.Combine(gameRoot, "Data", "Source", "Scripts");
-            if (Directory.Exists(vanilla)) imports.Add(vanilla);
+            if (Directory.Exists(vanilla))
+            {
+                // The auto-added vanilla dir is authoritative-LAST: a caller re-passing it (defensively,
+                // not knowing it's auto-added) must not pin it into the caller slot and resurrect the
+                // shadowing — Distinct keeps the FIRST occurrence. (When the script ITSELF lives in the
+                // vanilla folder, that slot is the own-folder slot and stays.)
+                imports.RemoveAll(d => d.Equals(vanilla, StringComparison.OrdinalIgnoreCase)
+                                       && !d.Equals(scriptDir, StringComparison.OrdinalIgnoreCase));
+                imports.Add(vanilla);
+            }
         }
         return imports.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
     }

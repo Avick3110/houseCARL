@@ -67,11 +67,20 @@ internal static class ImportOrderProbe
 
             var dedup = CompileTools.BuildImports(scriptDir, fakeCompiler, scriptDir.ToUpperInvariant() + ";" + fakeVanilla);
             Check(dedup.Count == 2, $"case-insensitive dedup holds (got {dedup.Count})");
-            // a caller re-passing the vanilla dir explicitly must not DEMOTE their other intent — it
-            // simply dedups; first occurrence wins positionally, which is the caller's slot.
+            // PR #46 review pin: a caller re-passing the auto-added vanilla dir (defensively, ahead of
+            // their real dirs) must NOT pin vanilla into the caller slot and resurrect the shadowing —
+            // the auto-vanilla is authoritative-LAST regardless of where the caller listed it.
+            var repass = CompileTools.BuildImports(scriptDir, fakeCompiler, fakeVanilla + ";" + userB);
+            Check(repass.Count == 3 && repass[^1].Equals(fakeVanilla, StringComparison.OrdinalIgnoreCase)
+                  && repass[1].Equals(userB, StringComparison.OrdinalIgnoreCase),
+                  "re-passed vanilla stays LAST; the caller's real dir keeps the caller slot");
             var none = CompileTools.BuildImports(scriptDir, fakeCompiler, null);
             Check(none.Count == 2 && none[^1].Equals(fakeVanilla, StringComparison.OrdinalIgnoreCase),
                   "no import_dirs → own folder + vanilla, vanilla last");
+            // script ITSELF in the vanilla folder: the own-folder slot survives (vanilla == scriptDir).
+            var inVan = CompileTools.BuildImports(fakeVanilla, fakeCompiler, userB);
+            Check(inVan.Count == 2 && inVan[0].Equals(fakeVanilla, StringComparison.OrdinalIgnoreCase),
+                  "script inside the vanilla folder keeps its own-folder slot first");
         }
         finally { try { Directory.Delete(fake, recursive: true); } catch { /* temp scratch; non-fatal */ } }
 

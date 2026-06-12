@@ -85,3 +85,8 @@ dev/
 ## match *.user.json, so this safety net keeps a dev run's local config out of the repo.
 *.user.json
 houseCARL.user.json
+
+## Probe scratch dirs (compile-probe / import-order-guard end-to-end arms create + delete these in
+## the repo root; a swallowed delete failure must not litter the tree as untracked noise).
+.compile-probe-gen/
+.import-order-probe-gen/
