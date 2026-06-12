@@ -36,6 +36,12 @@ public sealed class LoadOrderService : IDisposable
     readonly UserConfigStore _store;               // the sole owner of houseCARL.user.json (MO2 instance dir + tool paths)
     readonly int _maxPlugins;
     readonly object _gate = new();
+    // Serializes the WHOLE resolve→stage→commit of every .esp write (2026-06-12 hunt F2): the MCP SDK dispatches tool
+    // calls CONCURRENTLY, and without this two same-name writes could allocate the same folder (UniqueStem TOCTOU) and
+    // cross-commit through the fixed .housecarl-tmp staging path — R1's success message shipping R2's bytes. Writes are
+    // seconds-long and rare; serializing them is correct (accuracy over perf). SetInstance takes it too, so an instance
+    // switch can never tear a write in flight across instances. Lock order where both are held: _writeGate THEN _gate.
+    readonly object _writeGate = new();
     LoadOrderResolver? _resolver;
     CorpusRulebook? _rulebook;
     IReadOnlyList<string> _orderWarnings = Array.Empty<string>();
@@ -258,6 +264,7 @@ public sealed class LoadOrderService : IDisposable
     public (Mo2InstancePaths paths, bool persisted, string? persistError) SetInstance(string instanceDir)
     {
         var paths = Mo2Instance.Resolve(instanceDir);            // throws (Q3) if not a usable MO2 instance — the tool renders the reason
+        lock (_writeGate)                                        // hunt F2: an instance switch waits for any in-flight write — never tears one across instances
         lock (_gate)
         {
             _instanceDir = paths.InstanceDir;
@@ -565,10 +572,8 @@ public sealed class LoadOrderService : IDisposable
         if (ops.Count == 0)
             return WritePatchBuilder.PatchOutcome.Fail("no operations supplied.");
 
-        var resolver = Resolver;                                          // builds/refreshes the index
-        var rulebook = Rulebook;
-
         // Map every op to a core PatchEdit, collecting ALL parse problems first (all-or-nothing, like the cleave).
+        // Pure parsing — runs outside the write gate so a malformed call never queues behind a real write.
         var edits = new List<WritePatchBuilder.PatchEdit>(ops.Count);
         var problems = new List<string>();
         for (int i = 0; i < ops.Count; i++)
@@ -580,11 +585,19 @@ public sealed class LoadOrderService : IDisposable
             return WritePatchBuilder.PatchOutcome.Fail(
                 $"refused — {problems.Count} of {ops.Count} operation(s) malformed; NO patch written:\n  - " + string.Join("\n  - ", problems));
 
-        string outPath; bool extend;
-        try { outPath = ResolveOutputPath(patchName, into, out extend); }
-        catch (Exception ex) { return WritePatchBuilder.PatchOutcome.Fail(ex.Message); }
+        lock (_writeGate)                                                 // hunt F2: one write at a time, resolve→commit
+        {
+            var resolver = Resolver;                                      // builds/refreshes the index
+            var rulebook = Rulebook;
 
-        return WritePatchBuilder.Apply(resolver, rulebook, edits, outPath, extend, fullReadback);
+            string outPath; bool extend, created;
+            try { outPath = ResolveOutputPath(patchName, into, out extend, out created); }
+            catch (Exception ex) { return WritePatchBuilder.PatchOutcome.Fail(ex.Message); }
+
+            var outcome = WritePatchBuilder.Apply(resolver, rulebook, edits, outPath, extend, fullReadback);
+            if (!outcome.Success && created) RemoveFolderCreatedThisCall(outPath);   // hunt F4: a refused write leaves no orphan
+            return outcome;
+        }
     }
 
     /// <summary>Remove WHOLE records a houseCARL patch carries (housecarl_remove_record) — literal drop-from-plugin, the
@@ -601,9 +614,7 @@ public sealed class LoadOrderService : IDisposable
             return WritePatchBuilder.RemovalOutcome.Fail(
                 "patch is required — name the houseCARL patch to remove the record from (removal only targets a patch that already carries it).");
 
-        var resolver = Resolver;                                          // builds/refreshes the index (Overlays for the re-serialize)
-
-        // Parse every formid first, collecting ALL problems (all-or-nothing, like the edit path).
+        // Parse every formid first, collecting ALL problems (all-or-nothing, like the edit path). Pure — outside the gate.
         var keys = new List<FormKey>(formids.Count);
         var problems = new List<string>();
         for (int i = 0; i < formids.Count; i++)
@@ -617,12 +628,17 @@ public sealed class LoadOrderService : IDisposable
             return WritePatchBuilder.RemovalOutcome.Fail(
                 $"refused — {problems.Count} of {formids.Count} formid(s) malformed; NOTHING removed:\n  - " + string.Join("\n  - ", problems));
 
-        // Resolve + ownership-gate the patch path via the into= (extend) path — must exist + carry the houseCARL marker.
-        string outPath;
-        try { outPath = ResolveOutputPath(patchName: null, into: patch, out _); }
-        catch (Exception ex) { return WritePatchBuilder.RemovalOutcome.Fail(ex.Message); }
+        lock (_writeGate)                                                 // hunt F2: removal re-serializes the patch — same gate
+        {
+            var resolver = Resolver;                                      // builds/refreshes the index (Overlays for the re-serialize)
 
-        return WritePatchBuilder.RemoveRecords(resolver, keys, outPath);
+            // Resolve + ownership-gate the patch path via the into= (extend) path — must exist + carry the houseCARL marker.
+            string outPath;
+            try { outPath = ResolveOutputPath(patchName: null, into: patch, out _, out _); }
+            catch (Exception ex) { return WritePatchBuilder.RemovalOutcome.Fail(ex.Message); }
+
+            return WritePatchBuilder.RemoveRecords(resolver, keys, outPath);
+        }
     }
 
     /// <summary>Create a BRAND-NEW record (housecarl_create_record) — the net-new authoring capability, the sibling of
@@ -639,9 +655,6 @@ public sealed class LoadOrderService : IDisposable
             return WritePatchBuilder.CreateOutcome.Fail("record_type is required (a catalog name like 'Keyword'/'Spell'/'Weapon' or a 4-char signature like 'KYWD').");
         if (string.IsNullOrWhiteSpace(editorid))
             return WritePatchBuilder.CreateOutcome.Fail("editorid is required — the EditorID the new record is referenced by (e.g. in SkyPatcher/SPID).");
-
-        var resolver = Resolver;
-        var rulebook = Rulebook;
 
         // Resolve the type string → ONE concrete catalog name. Signature + name both work; unknown → Q3; an ambiguous
         // signature (maps to several types) → refuse and ask for the specific name.
@@ -668,12 +681,20 @@ public sealed class LoadOrderService : IDisposable
             return WritePatchBuilder.CreateOutcome.Fail(
                 $"refused — {problems.Count} of {operations.Count} operation(s) malformed; NOTHING created:\n  - " + string.Join("\n  - ", problems));
 
-        string outPath; bool extend;
-        try { outPath = ResolveOutputPath(patchName, into, out extend); }
-        catch (Exception ex) { return WritePatchBuilder.CreateOutcome.Fail(ex.Message); }
+        lock (_writeGate)                                                 // hunt F2: one write at a time, resolve→commit
+        {
+            var resolver = Resolver;
+            var rulebook = Rulebook;
 
-        var spec = new WritePatchBuilder.CreateSpec { RecordType = catalogName, EditorId = editorid.Trim(), Edits = edits };
-        return WritePatchBuilder.CreateRecords(resolver, rulebook, new[] { spec }, outPath, extend, fullReadback);
+            string outPath; bool extend, created;
+            try { outPath = ResolveOutputPath(patchName, into, out extend, out created); }
+            catch (Exception ex) { return WritePatchBuilder.CreateOutcome.Fail(ex.Message); }
+
+            var spec = new WritePatchBuilder.CreateSpec { RecordType = catalogName, EditorId = editorid.Trim(), Edits = edits };
+            var outcome = WritePatchBuilder.CreateRecords(resolver, rulebook, new[] { spec }, outPath, extend, fullReadback);
+            if (!outcome.Success && created) RemoveFolderCreatedThisCall(outPath);   // hunt F4: a refused create leaves no orphan
+            return outcome;
+        }
     }
 
     /// <summary>Map a wire field-op to a core <see cref="WriteRequest"/> for CREATE: RecordType is the create type (not
@@ -771,40 +792,73 @@ public sealed class LoadOrderService : IDisposable
     /// <paramref name="into"/> EXTENDS an existing houseCARL-owned patch (replace / modify its own plugins).
     /// ORIGINALS UNTOUCHED is structural (CLAUDE.md §1): houseCARL only ever writes a folder that is brand-NEW or carries
     /// its own <c>meta.ini</c> marker — it REFUSES (Q3) to write a folder it didn't create (a user mod), even on a name
-    /// collision. The caller name is reduced to a bare stem (no directory parts) so it can never escape ModsDir.</summary>
-    string ResolveOutputPath(string? patchName, string? into, out bool extend)
+    /// collision. The caller name is reduced to a bare stem (no directory parts) so it can never escape ModsDir.
+    /// Runs under <see cref="_gate"/> like its sibling <see cref="ResolvePatchModFolder"/> (hunt F2): the UniqueStem
+    /// check-then-create is only race-free when every folder allocation is serialized on the one gate.
+    /// <paramref name="createdFolder"/> reports whether THIS call created the fresh folder, so a refused write can
+    /// remove it again (hunt F4 — "NO patch written" must not leave an orphan folder accreting _001/_002 on retry).</summary>
+    string ResolveOutputPath(string? patchName, string? into, out bool extend, out bool createdFolder)
     {
-        if (!Directory.Exists(_modsDir))
-            throw new InvalidOperationException($"cannot write: ModsDir '{_modsDir}' does not exist. Check HouseCarl:ModsDir.");
-
-        if (!string.IsNullOrWhiteSpace(into))
+        lock (_gate)
         {
-            extend = true;
-            var stem = PatchStem(into);
-            var folder = Path.Combine(_modsDir, ModFolderName(stem));
-            if (!Directory.Exists(folder))
-                throw new InvalidOperationException(
-                    $"cannot extend: no houseCARL patch named '{stem}' (mod folder '{ModFolderName(stem)}' not found). " +
-                    "Omit into= to create it fresh, or check the name.");
-            if (!IsHouseCarlOwned(folder))
-                throw new InvalidOperationException(
-                    $"cannot extend: mod folder '{ModFolderName(stem)}' exists but was NOT created by houseCARL (no marker) — " +
-                    "refusing to modify a folder houseCARL doesn't own (originals untouched, Q3). Use a different patch name.");
-            var existing = Path.Combine(folder, stem + ".esp");
-            if (!File.Exists(existing))
-                throw new InvalidOperationException(
-                    $"cannot extend: houseCARL folder '{ModFolderName(stem)}' has no '{stem}.esp' to extend.");
-            return existing;
-        }
+            createdFolder = false;
+            if (!Directory.Exists(_modsDir))
+                throw new InvalidOperationException($"cannot write: ModsDir '{_modsDir}' does not exist. Check HouseCarl:ModsDir.");
 
-        extend = false;
-        var baseStem = PatchStem(string.IsNullOrWhiteSpace(patchName) ? "houseCARL_Patch" : patchName!);
-        var freeStem = UniqueStem(baseStem);
-        var newFolder = Path.Combine(_modsDir, ModFolderName(freeStem));
-        Directory.CreateDirectory(newFolder);
-        var plugin = freeStem + ".esp";
-        WriteOwnerMeta(newFolder, plugin);
-        return Path.Combine(newFolder, plugin);
+            if (!string.IsNullOrWhiteSpace(into))
+            {
+                extend = true;
+                var stem = PatchStem(into);
+                var folder = Path.Combine(_modsDir, ModFolderName(stem));
+                if (!Directory.Exists(folder))
+                    throw new InvalidOperationException(
+                        $"cannot extend: no houseCARL patch named '{stem}' (mod folder '{ModFolderName(stem)}' not found). " +
+                        "Omit into= to create it fresh, or check the name.");
+                if (!IsHouseCarlOwned(folder))
+                    throw new InvalidOperationException(
+                        $"cannot extend: mod folder '{ModFolderName(stem)}' exists but was NOT created by houseCARL (no marker) — " +
+                        "refusing to modify a folder houseCARL doesn't own (originals untouched, Q3). Use a different patch name.");
+                var existing = Path.Combine(folder, stem + ".esp");
+                if (!File.Exists(existing))
+                    throw new InvalidOperationException(
+                        $"cannot extend: houseCARL folder '{ModFolderName(stem)}' has no '{stem}.esp' to extend.");
+                return existing;
+            }
+
+            extend = false;
+            var baseStem = PatchStem(string.IsNullOrWhiteSpace(patchName) ? "houseCARL_Patch" : patchName!);
+            var freeStem = UniqueStem(baseStem);
+            var newFolder = Path.Combine(_modsDir, ModFolderName(freeStem));
+            Directory.CreateDirectory(newFolder);
+            createdFolder = true;
+            var plugin = freeStem + ".esp";
+            WriteOwnerMeta(newFolder, plugin);
+            return Path.Combine(newFolder, plugin);
+        }
+    }
+
+    /// <summary>Hunt F4: a write that was REFUSED after <see cref="ResolveOutputPath"/> created a fresh folder removes
+    /// that folder again, so "NO patch written" is true of the disk too (no orphan accreting _001/_002 on retry).
+    /// DELETION-SAFE by content check, not trust: only a folder holding NOTHING beyond our own meta.ini (and an empty
+    /// <c>.housecarl-tmp</c> staging leftover) is removed — anything else present means the folder gained real content
+    /// and stays. Best-effort: a cleanup failure never masks the write's own (already-reported) outcome.</summary>
+    static void RemoveFolderCreatedThisCall(string outPath)
+    {
+        try
+        {
+            var folder = Path.GetDirectoryName(outPath);
+            if (folder is null || !Directory.Exists(folder)) return;
+            foreach (var entry in Directory.EnumerateFileSystemEntries(folder))
+            {
+                var name = Path.GetFileName(entry);
+                if (File.Exists(entry) && name.Equals("meta.ini", StringComparison.OrdinalIgnoreCase)) continue;
+                if (Directory.Exists(entry) && name.Equals(".housecarl-tmp", StringComparison.OrdinalIgnoreCase)
+                    && !Directory.EnumerateFileSystemEntries(entry).Any()) continue;
+                return;                                       // real content appeared — leave the folder alone
+            }
+            Directory.Delete(folder, recursive: true);
+        }
+        catch (IOException) { } catch (UnauthorizedAccessException) { }
     }
 
     /// <summary>Resolve a houseCARL-owned MOD FOLDER under ModsDir for a NON-.esp output (compiled scripts, a packed .bsa,

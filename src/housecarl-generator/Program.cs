@@ -64,6 +64,10 @@ if (args.Length > 0 && args[0] == "bsa-contract-guard") return BsaContractProbe.
 // class-parents map for process lifetime — paths derive before the build; the first derivation invalidates.
 if (args.Length > 0 && args[0] == "hierarchy-cache-guard") return HierarchyCacheProbe.RunGuard(args[1..]);
 
+// Write-path mutex + orphan folders (2026-06-12 hunt F2+F4): concurrent writes serialize (distinct outputs, own
+// bytes, no lost extend), and a pre-flight-refused fresh write removes the folder it created (no _NNN accretion).
+if (args.Length > 0 && args[0] == "write-mutex-guard") return WriteMutexProbe.RunGuard(args[1..]);
+
 // Compile-tool import order: caller import_dirs OUTRANK the vanilla auto-import (first match wins, so
 // SKSE-extended copies of vanilla sources must win). Pure order arm always runs; real-compile arm self-skips.
 if (args.Length > 0 && args[0] == "import-order-guard") return ImportOrderProbe.RunGuard(args[1..]);

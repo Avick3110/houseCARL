@@ -149,3 +149,12 @@ jobs:
       # a synthetic MO2 instance in temp, no game data.
       - name: Probe — hierarchy-cache lifecycle (decompile-first sees the mods tree)
         run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- hierarchy-cache-guard
+
+      # Write-path mutex + orphan folders (2026-06-12 adversarial hunt F2+F4): the MCP SDK dispatches tool calls
+      # concurrently, so the whole resolve-stage-commit of every .esp write serializes on one service-level gate —
+      # concurrent writes get distinct outputs carrying their own bytes (no UniqueStem TOCTOU, no cross-commit
+      # through the fixed .housecarl-tmp staging path, no lost into= extend) — and a pre-flight-refused fresh
+      # write removes the folder it created ("NO patch written" is true of the disk; no _NNN accretion on retry).
+      # Self-contained: a synthetic MO2 instance + a synthesized master in temp.
+      - name: Probe — write-path mutex (concurrent writes serialize; refusals leave no orphan)
+        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- write-mutex-guard
