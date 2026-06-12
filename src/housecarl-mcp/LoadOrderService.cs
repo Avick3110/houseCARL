@@ -45,9 +45,16 @@ public sealed class LoadOrderService : IDisposable
     LoadOrderResolver? _resolver;
     CorpusRulebook? _rulebook;
     IReadOnlyList<string> _orderWarnings = Array.Empty<string>();
-    DateTime _orderBuiltUtc = DateTime.MinValue;   // when the resolver last read the profile (the staleness baseline)
-    DateTime _iniReadUtc = DateTime.MinValue;      // when ModOrganizer.ini was last read (instance-mode profile-switch baseline)
+    // Freshness baselines are the files' LAST-SEEN MTIMES compared by VALUE (!=), the same model the resolver itself
+    // uses — NOT wall-clock stamps compared by ORDER (2026-06-12 hunt F8: `mtime > builtUtc` was blind to an mtime
+    // REGRESSION, so MO2's "Restore Backup" — which restores a profile file with an OLDER mtime — stayed invisible
+    // for the process lifetime). Each baseline is statted BEFORE the read it baselines (TOCTOU: a write landing
+    // during/after the read shows as a changed mtime on the next check, never absorbed).
+    DateTime[] _profileMtimes = new DateTime[ProfileFileNames.Length];   // per ProfileFileNames, recorded at each order build
+    DateTime _iniMtime = DateTime.MinValue;                              // ModOrganizer.ini (instance-mode profile-switch baseline)
     IReadOnlyList<string> _resolvedPaths = Array.Empty<string>();   // ordered paths the current snapshot was built from (the cheap "did the order actually change?" check)
+
+    static readonly string[] ProfileFileNames = { "loadorder.txt", "modlist.txt", "plugins.txt" };
 
     LoadOrderService(string? instanceDir, string dataDir, string modsDir, string profileDir, bool configured, int maxPlugins, UserConfigStore store)
     {
@@ -81,7 +88,6 @@ public sealed class LoadOrderService : IDisposable
     {
         var svc = new LoadOrderService(null, "", "", "", configured: true, maxPlugins: 0, store);
         svc._resolver = resolver;
-        svc._orderBuiltUtc = DateTime.UtcNow;
         return svc;
     }
 
@@ -108,7 +114,7 @@ public sealed class LoadOrderService : IDisposable
                     // §8.5: the TRUE active order, read statically from the MO2 profile (loadorder.txt + modlist.txt +
                     // plugins.txt) — no VFS, no live MO2 state. See HousecarlCore.Mo2LoadOrder + memory
                     // project_mo2_load_order_resolution.
-                    var builtUtc = DateTime.UtcNow;              // stamp BEFORE the read (TOCTOU): a profile write during the build is caught next call, not missed
+                    var profileMtimes = StatProfileFiles();      // stat BEFORE the read (TOCTOU): a profile write during the build is caught next call, not missed
                     var order = Mo2LoadOrder.Build(_profileDir, _modsDir, _dataDir);
                     _orderWarnings = order.Warnings;
                     var paths = order.OrderedPaths;
@@ -120,12 +126,26 @@ public sealed class LoadOrderService : IDisposable
                             "HouseCarl config and that MO2 has written loadorder.txt/modlist.txt (a refresh/re-sort in MO2).");
                     _resolver = LoadOrderResolver.Build(paths);
                     _resolvedPaths = paths;
-                    _orderBuiltUtc = builtUtc;
+                    _profileMtimes = profileMtimes;
                 }
-                else
+                else if (Monitor.TryEnter(_writeGate))
                 {
-                    RefreshOnProfileChange();     // to-do #6: lazy profile-membership refresh on THIS call (cheap-check first)
-                    _resolver.RefreshIfStale();   // plugin-CONTENT freshness: cheap stat sweep; rebuilds if a plugin's bytes changed
+                    // Lazy freshness, run on each tool call once the snapshot exists — but DEFERRED while a WRITE is
+                    // in flight (PR #51 review note): a refresh here can rebuild the index — transiently mmap-opening
+                    // every plugin INCLUDING the file a concurrent write is serializing (the PR #24 "no mapped handle
+                    // on the target survives the serialize" invariant, breached from the read path) — and dispose-swap
+                    // the resolver that write captured. TryEnter probes the write gate WITHOUT blocking: it cannot
+                    // deadlock (no blocking _gate→_writeGate wait — the established blocking order stays _writeGate
+                    // THEN _gate), and Monitor reentrancy keeps the write's OWN entry refresh working (it holds
+                    // _writeGate, so its TryEnter succeeds). A skipped refresh serves the last good snapshot and
+                    // re-checks on the next call — the freshness contract is per-call lazy, so deferral behind a
+                    // seconds-long write is honest staleness, never wrongness (freshness-capture-guard arm 5).
+                    try
+                    {
+                        RefreshOnProfileChange();     // to-do #6: lazy profile-membership refresh on THIS call (cheap-check first)
+                        _resolver.RefreshIfStale();   // plugin-CONTENT freshness: cheap stat sweep; rebuilds if a plugin's bytes changed
+                    }
+                    finally { Monitor.Exit(_writeGate); }
                 }
                 return _resolver;
             }
@@ -145,22 +165,48 @@ public sealed class LoadOrderService : IDisposable
     /// changed since that build (Q3 — never present a stale picture as current). Forces the lazy resolver build.</summary>
     public LoadOrderStatusData StatusData()
     {
-        var view = Resolver.Capture();                             // force build/refresh; ONE build for count + exclusions (HCBR-2026-06-11-02)
-        var comp = Mo2LoadOrder.ReadComposition(_profileDir);      // FRESH composition (always current)
+        // The view AND the per-build fields beside it (warnings / staleness / profile dir) are snapshotted under ONE
+        // gate hold (2026-06-12 hunt F6): they used to be read outside the gate after Capture() returned, so a
+        // concurrent freshness rebuild landing in that gap could compose one status line from TWO adjacent builds —
+        // the count from one, the warnings beside it from another. The fresh composition stays OUTSIDE the gate by
+        // design (it is documented as always-current and is not judged against the resolver's build).
+        LoadOrderResolver.IndexView view; IReadOnlyList<string> warnings; bool profileChanged; string profileDir;
+        lock (_gate)
+        {
+            view = Resolver.Capture();                             // force build/refresh; ONE build for count + exclusions (HCBR-2026-06-11-02)
+            warnings = _orderWarnings;
+            profileChanged = ProfileFilesChanged();
+            profileDir = _profileDir;
+        }
+        var comp = Mo2LoadOrder.ReadComposition(profileDir);       // FRESH composition (always current)
         return new LoadOrderStatusData(
-            comp, _orderWarnings, view.PluginCount, _maxPlugins, ProfileNewerThan(_orderBuiltUtc), _profileDir, view.ExcludedPlugins);
+            comp, warnings, view.PluginCount, _maxPlugins, profileChanged, profileDir, view.ExcludedPlugins);
     }
 
-    /// <summary>True if any of the three MO2 profile files has a newer mtime than the resolver's last build — i.e. the
-    /// user toggled mods/plugins or re-sorted since, so the resolver's resolved set is behind the live profile.</summary>
-    bool ProfileNewerThan(DateTime builtUtc)
+    /// <summary>True if any of the three MO2 profile files' mtimes DIFFERS from the last build's baseline — the user
+    /// toggled mods/plugins, re-sorted, or RESTORED A BACKUP since, so the resolver's resolved set is behind the live
+    /// profile. Compared by value (!=), like the resolver's own plugin sweep: a restored backup carries an OLDER
+    /// mtime, which an is-newer comparison was blind to (hunt F8). Caller holds <see cref="_gate"/>.</summary>
+    bool ProfileFilesChanged()
     {
-        foreach (var f in new[] { "loadorder.txt", "modlist.txt", "plugins.txt" })
-        {
-            var p = Path.Combine(_profileDir, f);
-            if (File.Exists(p) && File.GetLastWriteTimeUtc(p) > builtUtc) return true;
-        }
+        if (_profileDir.Length == 0) return false;                 // guard seam / not yet derived — nothing to compare against
+        for (int i = 0; i < ProfileFileNames.Length; i++)
+            if (SafeMtime(Path.Combine(_profileDir, ProfileFileNames[i])) != _profileMtimes[i]) return true;
         return false;
+    }
+
+    /// <summary>The three profile files' current mtimes, in <see cref="ProfileFileNames"/> order — the freshness
+    /// baseline a build records. Stat BEFORE the read it baselines (TOCTOU). Caller holds <see cref="_gate"/>.</summary>
+    DateTime[] StatProfileFiles()
+    {
+        var m = new DateTime[ProfileFileNames.Length];
+        for (int i = 0; i < ProfileFileNames.Length; i++) m[i] = SafeMtime(Path.Combine(_profileDir, ProfileFileNames[i]));
+        return m;
+    }
+
+    static DateTime SafeMtime(string path)
+    {
+        try { return File.GetLastWriteTimeUtc(path); } catch { return DateTime.MinValue; }
     }
 
     /// <summary>To-do #6 — LAZY freshness, run on each tool call once the snapshot exists. Two signals, both cheap-mtime:
@@ -173,7 +219,7 @@ public sealed class LoadOrderService : IDisposable
     void RefreshOnProfileChange()
     {
         if (RederiveIfIniChanged()) return;                      // instance mode: a profile SWITCH already re-derived + re-resolved
-        if (!ProfileNewerThan(_orderBuiltUtc)) return;           // nothing touched the active profile → nothing to do
+        if (!ProfileFilesChanged()) return;                      // nothing touched the active profile → nothing to do
         ReResolve();
     }
 
@@ -186,10 +232,11 @@ public sealed class LoadOrderService : IDisposable
     {
         if (_instanceDir is null) return false;                  // explicit/override mode — no ini to watch
         var ini = Mo2Instance.IniPath(_instanceDir);
-        if (!File.Exists(ini) || File.GetLastWriteTimeUtc(ini) <= _iniReadUtc) return false;
-        var iniReadUtc = DateTime.UtcNow;                        // stamp BEFORE the read (TOCTOU): an ini write during/after TryResolve is caught next call
+        if (!File.Exists(ini)) return false;                     // missing/mid-replace → keep last good, retry next call
+        var iniMtime = SafeMtime(ini);                           // stat BEFORE the read (TOCTOU): an ini write during/after TryResolve is caught next call
+        if (iniMtime == _iniMtime) return false;                 // compared by VALUE — a restored-backup ini (OLDER mtime) is a change too (hunt F8)
         if (!Mo2Instance.TryResolve(_instanceDir, out var p) || p is null) return false;   // mid-write/invalid → keep last good, retry next call
-        _iniReadUtc = iniReadUtc;                                // advance only on a clean read
+        _iniMtime = iniMtime;                                    // advance only on a clean read
         bool switched = !PathEq(p.ProfileDir, _profileDir) || !PathEq(p.ModsDir, _modsDir) || !PathEq(p.DataDir, _dataDir);
         if (!switched) return false;                             // ini touched but nothing we resolve from changed
         _profileDir = p.ProfileDir; _modsDir = p.ModsDir; _dataDir = p.DataDir; _profileName = p.ProfileName;
@@ -203,7 +250,7 @@ public sealed class LoadOrderService : IDisposable
     /// <see cref="_resolver"/> is non-null. Used by both freshness signals (active-profile change + profile switch).</summary>
     void ReResolve()
     {
-        var builtUtc = DateTime.UtcNow;                          // stamp BEFORE the read (TOCTOU): a write during the re-read is caught next call, not missed
+        var profileMtimes = StatProfileFiles();                  // stat BEFORE the read (TOCTOU): a write during the re-read is caught next call, not missed
         var order = Mo2LoadOrder.Build(_profileDir, _modsDir, _dataDir);
         var paths = order.OrderedPaths;
         if (_maxPlugins > 0 && paths.Count > _maxPlugins) paths = paths.Take(_maxPlugins).ToList();
@@ -217,14 +264,14 @@ public sealed class LoadOrderService : IDisposable
             _resolver = rebuilt;
             _resolvedPaths = paths;
             _orderWarnings = order.Warnings;
-            _orderBuiltUtc = builtUtc;
+            _profileMtimes = profileMtimes;
         }
         else if (paths.Count > 0)
         {
             // The profile was touched but the resolved order is identical (e.g. a no-plugin mod toggled) — no deep
             // re-index; just advance the freshness baseline so the staleness flag clears.
             _orderWarnings = order.Warnings;
-            _orderBuiltUtc = builtUtc;
+            _profileMtimes = profileMtimes;
         }
         // paths.Count == 0 → almost certainly a transient mid-write read; keep the last good snapshot and DON'T advance the
         // baseline, so the next tool call re-checks and self-recovers once MO2 finishes writing.
@@ -238,10 +285,10 @@ public sealed class LoadOrderService : IDisposable
     {
         if (_instanceDir is null) return;                        // explicit mode — roots configured directly
         if (_profileDir.Length > 0) return;                      // already derived (a prior build / SetInstance); RederiveIfIniChanged owns later updates
-        var iniReadUtc = DateTime.UtcNow;                        // stamp BEFORE the read (TOCTOU): an ini write during/after Resolve is caught next call
+        var iniMtime = SafeMtime(Mo2Instance.IniPath(_instanceDir));   // stat BEFORE the read (TOCTOU): an ini write during/after Resolve is caught next call
         var p = Mo2Instance.Resolve(_instanceDir);               // throws (Q3) naming the missing piece if not a usable instance
         _profileDir = p.ProfileDir; _modsDir = p.ModsDir; _dataDir = p.DataDir; _profileName = p.ProfileName;
-        _iniReadUtc = iniReadUtc;
+        _iniMtime = iniMtime;
         InvalidateClassParents();                                // _modsDir just gained a value — a cache built before derivation is baseline-only (hunt F1)
     }
 
@@ -263,17 +310,22 @@ public sealed class LoadOrderService : IDisposable
     /// survives a restart. Returns the derived paths + whether the persist succeeded, for the tool's confirmation.</summary>
     public (Mo2InstancePaths paths, bool persisted, string? persistError, string? persistNote) SetInstance(string instanceDir)
     {
+        // The ini baseline is statted BEFORE Resolve reads the instance (hunt F7 — this was the one stamp-AFTER-the-read
+        // in the file: an MO2 ini write landing between Resolve's read and the stamp was absorbed into the baseline and
+        // its profile switch stayed invisible forever). Statting first makes a during/after-read write show as a changed
+        // mtime on the next call — the same TOCTOU discipline every other baseline here follows.
+        var iniMtime = SafeMtime(Mo2Instance.IniPath(instanceDir.Trim()));
         var paths = Mo2Instance.Resolve(instanceDir);            // throws (Q3) if not a usable MO2 instance — the tool renders the reason
         lock (_writeGate)                                        // hunt F2: an instance switch waits for any in-flight write — never tears one across instances
         lock (_gate)
         {
             _instanceDir = paths.InstanceDir;
             _dataDir = paths.DataDir; _modsDir = paths.ModsDir; _profileDir = paths.ProfileDir; _profileName = paths.ProfileName;
-            _iniReadUtc = DateTime.UtcNow;
+            _iniMtime = iniMtime;
             _configured = true;
             _resolver?.Dispose(); _resolver = null;              // force a rebuild against the new instance on the next query
             _resolvedPaths = Array.Empty<string>();
-            _orderBuiltUtc = DateTime.MinValue;
+            _profileMtimes = new DateTime[ProfileFileNames.Length];   // unset — the next build records fresh baselines against the new profile
             _orderWarnings = Array.Empty<string>();
             InvalidateClassParents();                            // every sibling cache drops on a switch — the hierarchy too (PR #47 review)
         }
@@ -357,7 +409,7 @@ public sealed class LoadOrderService : IDisposable
 
         var source = plugin ?? winner.Value.WinnerPlugin;
         using var session = resolver.OpenSession();                       // opens the source plugin; disposed at return (Option B)
-        var rec = resolver.GetRecord(session, source, fk);
+        var rec = view.GetRecord(session, source, fk);                    // excluded-check pinned to the SAME view the winner came from (hunt F5 discipline)
         if (rec is null)
             return ReadOutcome.Fail(fk, plugin is null
                 ? $"Winner '{winner.Value.WinnerPlugin}' did not yield {fk} on fetch — a load-order inconsistency."
@@ -397,10 +449,11 @@ public sealed class LoadOrderService : IDisposable
     public RecordSummary ResolveSummary(FormKey fk)
     {
         var resolver = Resolver;
-        var w = resolver.Capture().ResolveWinner(fk);   // one capture per summary (winner + depth from one build)
+        var view = resolver.Capture();                  // one capture per summary (winner + depth + fetch from one build)
+        var w = view.ResolveWinner(fk);
         if (w is null) return new RecordSummary(fk, "?", null, "?", 0, $"{fk} not in the load order");
         using var session = resolver.OpenSession();
-        var body = resolver.GetRecord(session, w.Value.WinnerPlugin, fk);
+        var body = view.GetRecord(session, w.Value.WinnerPlugin, fk);
         if (body is null)
             return new RecordSummary(fk, "?", null, w.Value.WinnerPlugin, w.Value.OverrideDepth,
                 $"winner '{w.Value.WinnerPlugin}' did not yield {fk} on fetch");
