@@ -42,7 +42,14 @@ public sealed class ToolPathResolver
         if (saved is not null && ToolBridge.Validate(dep, saved).ok) return saved;
 
         var found = ToolBridge.Probe(dep);
-        if (found is not null) Save(dep, found);   // persist the auto-detected home so we only probe once
+        if (found is not null)
+        {
+            // Persist the auto-detected home so we only probe once. This silent persist is the ONE path where a
+            // corrupt-config recovery would otherwise vanish for good (the file is rewritten clean, so no later
+            // Update re-reports it) — route the note to stderr, the same channel as the boot log (PR #51 review).
+            var r = Save(dep, found);
+            if (r.persistNote is not null) Console.Error.WriteLine("houseCARL user config recovered: " + r.persistNote);
+        }
         return found;
     }
 
