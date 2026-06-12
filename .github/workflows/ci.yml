@@ -120,3 +120,10 @@ jobs:
       # checkout; the end-to-end engine half (--source) needs game data and runs locally, not here.
       - name: Probe — polymorphic-element validator (VMAD arm fields + composes)
         run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- vmad-poly-guard
+
+      # The compile tool's import ORDER is semantics (the CK compiler takes the FIRST matching .psc), so caller
+      # import_dirs must outrank the auto-added vanilla folder — else SKSE-extended copies of vanilla scripts lose
+      # to vanilla and extended calls fail despite the right folder being passed (spike findings §5.12, hit twice).
+      # The pure order arm fabricates its game layout (runs fully here); the real-compile shadow arm self-skips.
+      - name: Probe — compile-tool import order (import_dirs outrank vanilla)
+        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- import-order-guard

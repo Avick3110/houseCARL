@@ -21,7 +21,8 @@ public static class CompileTools
          "houseCARL patch-mod folder you review and enable in MO2 (originals untouched). Pass script= the full path to the " +
          ".psc to compile; houseCARL adds the script's own folder and the vanilla source folder (derived from the compiler's " +
          "game dir) to the import path automatically — pass import_dirs= (';'-separated) for any extra dependency sources " +
-         "(SKSE, other mods). On a compile FAILURE it returns the per-line errors as 'name(line,col): message' so you can fix " +
+         "(SKSE, other mods); your folders are searched BEFORE the vanilla sources, so mod-extended copies of vanilla " +
+         "scripts (SKSE's Actor.psc etc.) win. On a compile FAILURE it returns the per-line errors as 'name(line,col): message' so you can fix " +
          "the .psc and recompile (look unfamiliar functions up with the papyrus-reference skill); on SUCCESS it returns the " +
          ".pex path. Needs houseCARL pointed at your MO2 instance (for the output folder) and the Papyrus compiler path — if " +
          "the compiler isn't set yet, houseCARL tells you exactly what to ask for and how to set it. The CK compiler ships " +
@@ -31,7 +32,7 @@ public static class CompileTools
         ToolPathResolver bridge,
         [Description("Full path to the .psc source file to compile.")]
             string script,
-        [Description("Optional. Extra import directories where dependency sources (.psc) live — SKSE, other mods — separated by ';'. The script's own folder and the vanilla source folder are added automatically.")]
+        [Description("Optional. Extra import directories where dependency sources (.psc) live — SKSE, other mods — separated by ';'. The script's own folder and the vanilla source folder are added automatically; your directories are searched before vanilla (first match wins), so extended copies of vanilla scripts take precedence.")]
             string? import_dirs = null,
         [Description("Optional. Base name for the NEW patch-mod folder the .pex lands in (default 'houseCARL_Scripts'); auto-suffixed if taken.")]
             string? patch_name = null,
@@ -56,19 +57,8 @@ public static class CompileTools
         // 3) the compiler — bridge forcing function if unset (returns the trained prompt to surface).
         if (bridge.RequireOrPrompt(ToolDependency.PapyrusCompiler, out var compilerExe) is { } toolPrompt) return toolPrompt;
 
-        // 4) import dirs: the script's own folder + the vanilla sources (derived from the compiler's game dir:
-        //    <game>\Papyrus Compiler\PapyrusCompiler.exe → <game>\Data\Source\Scripts, which also holds the flags file) + caller extras.
-        var imports = new List<string> { scriptDir };
-        var gameRoot = Path.GetDirectoryName(Path.GetDirectoryName(compilerExe!));
-        if (gameRoot is not null)
-        {
-            var vanilla = Path.Combine(gameRoot, "Data", "Source", "Scripts");
-            if (Directory.Exists(vanilla)) imports.Add(vanilla);
-        }
-        if (!string.IsNullOrWhiteSpace(import_dirs))
-            foreach (var d in import_dirs.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
-                imports.Add(d.Trim('"'));
-        imports = imports.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        // 4) import dirs — assembled by BuildImports (the guard-probed seam).
+        var imports = BuildImports(scriptDir, compilerExe!, import_dirs);
 
         // 5) output folder (folder-per-patch, Scripts\ subdir).
         string outDir;
@@ -79,6 +69,32 @@ public static class CompileTools
         var result = HousecarlCore.PapyrusCompile.CompileObject(compilerExe!, objectName, imports, outDir);
         return Render(result, imports);
     });
+
+    /// <summary>
+    /// Assemble the compiler's import-directory list. The CK compiler resolves each referenced script
+    /// to the FIRST matching .psc across these directories in order, so order is semantics: the
+    /// script's own folder first, then CALLER extras, then the vanilla sources LAST (derived from the
+    /// compiler's game dir: &lt;game&gt;\Papyrus Compiler\PapyrusCompiler.exe → &lt;game&gt;\Data\Source\Scripts,
+    /// which also holds the flags file). Vanilla last is load-bearing: mods ship EXTENDED copies of
+    /// vanilla sources (SKSE's Actor.psc/Game.psc/Form.psc above all) — ranked above the caller's
+    /// dirs, the vanilla copy wins and every call to an extended function fails "not a function or
+    /// does not exist" despite the user passing the right folder (the PEX bulk gate hit this twice;
+    /// spike findings §5.12). Exposed as the import-order-guard probe's seam.
+    /// </summary>
+    public static List<string> BuildImports(string scriptDir, string compilerExe, string? import_dirs)
+    {
+        var imports = new List<string> { scriptDir };
+        if (!string.IsNullOrWhiteSpace(import_dirs))
+            foreach (var d in import_dirs.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                imports.Add(d.Trim('"'));
+        var gameRoot = Path.GetDirectoryName(Path.GetDirectoryName(compilerExe));
+        if (gameRoot is not null)
+        {
+            var vanilla = Path.Combine(gameRoot, "Data", "Source", "Scripts");
+            if (Directory.Exists(vanilla)) imports.Add(vanilla);
+        }
+        return imports.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+    }
 
     static string Render(HousecarlCore.CompileResult r, IReadOnlyList<string> imports)
     {

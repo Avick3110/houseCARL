@@ -56,6 +56,10 @@ if (args.Length > 0 && args[0] == "verify-loop-guard") return VerifyLoopProbe.Ru
 // pass pre-flight; non-arm fields/specs still reject named. --source <Skyrim.esm> adds the end-to-end engine proof.
 if (args.Length > 0 && args[0] == "vmad-poly-guard") return VmadPolyProbe.RunGuard(args[1..]);
 
+// Compile-tool import order: caller import_dirs OUTRANK the vanilla auto-import (first match wins, so
+// SKSE-extended copies of vanilla sources must win). Pure order arm always runs; real-compile arm self-skips.
+if (args.Length > 0 && args[0] == "import-order-guard") return ImportOrderProbe.RunGuard(args[1..]);
+
 // One-shot verify (decision #1): confirm the xEdit 4-char signature reflection path.
 if (args.Length > 0 && args[0] == "sig") return Probe.RunSig();
 
