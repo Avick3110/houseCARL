@@ -68,7 +68,8 @@ public static class DecompileTools
 
         // 4) class hierarchy: cached vanilla baseline + mods-tree sources, topped up with the input pex itself
         //    and its sibling .pex files (every pex declares its own parent). Soft input — missing pieces mean
-        //    explicit casts in the output, never wrong code; any degraded mode is named in the result.
+        //    explicit casts in the output, never wrong code. A missing/corrupt BASELINE is named in the
+        //    result; the runtime top-ups degrade silently to fewer edges (purely cosmetic).
         var (cached, hierarchyNote) = svc.ClassParentsForDecompile();
         var edges = new Dictionary<string, string>(cached, StringComparer.OrdinalIgnoreCase);
         HousecarlCore.PapyrusClassParents.AddFromPex(edges, pexFile);
@@ -84,7 +85,8 @@ public static class DecompileTools
         // 6) decompile + write (the guard-probed seam).
         var o = WriteObjects(pexFile, edges, outDir);
         if (o.UnnamedObject)
-            return $"error: '{Path.GetFileName(pex)}' carries an unnamed script object — no output was written.";
+            return $"error: '{Path.GetFileName(pex)}' carries an unnamed script object. " +
+                   (o.Written.Count > 0 ? $"Already written this call: {string.Join(", ", o.Written)}." : "Nothing was written.");
         if (o.ExistingTarget is not null)
             return $"error: '{o.ExistingTarget}' already exists — houseCARL never overwrites a source file. " +
                    "Move/delete it, or pass a different patch_name= (or into= another patch folder). " +
@@ -132,7 +134,7 @@ public static class DecompileTools
                 return new(written, null, true, totalFns, failedFns, optimizerHints, failures);
 
             var target = Path.Combine(outDir, obj.Name + ".psc");
-            if (File.Exists(target))
+            if (File.Exists(target))   // cheap refusal before any decompile work
                 return new(written, target, false, totalFns, failedFns, optimizerHints, failures);
 
             var r = HousecarlCore.PapyrusDecompiler.DecompileFile(SingleObjectView(pexFile, obj), edges);
@@ -146,7 +148,18 @@ public static class DecompileTools
                   "; compiler will not reproduce the original .pex byte-for-byte (the optimizer's output is not its form).\n"
                   + r.Source
                 : r.Source;
-            File.WriteAllText(target, source);
+            try
+            {
+                // CreateNew = atomic create-or-fail: "never overwrites" holds even against a file that
+                // appeared between the cheap check above and this write (PR #47 review should-fix).
+                using var fs = new FileStream(target, FileMode.CreateNew, FileAccess.Write);
+                using var w = new StreamWriter(fs);
+                w.Write(source);
+            }
+            catch (IOException) when (File.Exists(target))
+            {
+                return new(written, target, false, totalFns, failedFns, optimizerHints, failures);
+            }
             written.Add(target);
         }
         return new(written, null, false, totalFns, failedFns, optimizerHints, failures);
@@ -154,7 +167,9 @@ public static class DecompileTools
 
     /// <summary>A PexFile view carrying ONE object, so multi-object pex files emit one .psc per object while
     /// reusing <see cref="HousecarlCore.PapyrusDecompiler.DecompileFile"/> unchanged. Single-object files (the
-    /// Skyrim norm) pass through as-is.</summary>
+    /// Skyrim norm) pass through as-is. The USER-FLAG TABLE must ride along: it maps bit→name per FILE, and
+    /// the engine resolves every Hidden/Conditional through it — a fresh PexFile's table is empty and would
+    /// silently drop the flags (PR #47 review must-fix; Conditional is functional, not cosmetic).</summary>
     static PexFile SingleObjectView(PexFile pex, PexObject obj)
     {
         if (pex.Objects.Count == 1) return pex;
@@ -169,6 +184,8 @@ public static class DecompileTools
             MachineName = pex.MachineName,
             DebugInfo = pex.DebugInfo,
         };
+        for (int i = 0; i < pex.UserFlags.Length && i < view.UserFlags.Length; i++)
+            view.UserFlags[i] = pex.UserFlags[i];
         view.Objects.Add(obj);
         return view;
     }

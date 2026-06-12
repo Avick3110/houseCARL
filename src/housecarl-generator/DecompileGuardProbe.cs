@@ -125,6 +125,29 @@ internal static class DecompileGuardProbe
         }
         finally { try { File.Delete(corrupt); } catch { /* temp scratch */ } }
 
+        // ---- 5) multi-object pex carries the user-flag TABLE (PR #47 review must-fix 1) ----------
+        // PexFile.UserFlags maps bit→name per FILE; the per-object emission path must see the same
+        // table or Hidden/Conditional silently vanish on the multi-object path (Conditional is
+        // FUNCTIONAL — losing it breaks quest condition reads on recompile).
+        Console.WriteLine();
+        Console.WriteLine("--- 5: multi-object pex — Hidden/Conditional survive the per-object split ---");
+        var work5 = Path.Combine(Path.GetTempPath(), "hc-decompile-guard5-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(work5);
+        try
+        {
+            var multi = PexFile.CreateFromFile(constructPex, GameCategory.Skyrim);
+            var second = (PexObject)PexFile.CreateFromFile(constructPex, GameCategory.Skyrim).Objects[0];
+            second.Name = "HC_CloneProbe";
+            multi.Objects.Add(second);
+            var o5 = DecompileTools.WriteObjects(multi, edges, work5);
+            Check(o5.Written.Count == 2 && o5.FunctionsFailed == 0, $"both objects written, none failed (wrote {o5.Written.Count})");
+            var first = o5.Written.Count > 0 ? File.ReadAllText(o5.Written[0]) : "";
+            var clone = o5.Written.Count > 1 ? File.ReadAllText(o5.Written[1]) : "";
+            Check(first.Contains("extends Quest Hidden"), "object 1 keeps its Hidden flag on the multi-object path");
+            Check(clone.Contains("extends Quest Hidden"), "object 2 keeps its Hidden flag on the multi-object path");
+        }
+        finally { try { Directory.Delete(work5, recursive: true); } catch { /* temp scratch */ } }
+
         // ---- 4) hierarchy degradation is soft ----------------------------------------------------
         Console.WriteLine();
         Console.WriteLine("--- 4: upcast fixture — implicit with the map, explicit without, correct both ways ---");

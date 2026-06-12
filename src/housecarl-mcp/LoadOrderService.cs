@@ -187,6 +187,7 @@ public sealed class LoadOrderService : IDisposable
         bool switched = !PathEq(p.ProfileDir, _profileDir) || !PathEq(p.ModsDir, _modsDir) || !PathEq(p.DataDir, _dataDir);
         if (!switched) return false;                             // ini touched but nothing we resolve from changed
         _profileDir = p.ProfileDir; _modsDir = p.ModsDir; _dataDir = p.DataDir; _profileName = p.ProfileName;
+        InvalidateClassParents();                                // the mods tree may have moved — drop the cached hierarchy with it
         ReResolve();                                             // a new profile ⇒ the order differs ⇒ ReResolve deep-re-indexes
         return true;
     }
@@ -266,6 +267,7 @@ public sealed class LoadOrderService : IDisposable
             _resolvedPaths = Array.Empty<string>();
             _orderBuiltUtc = DateTime.MinValue;
             _orderWarnings = Array.Empty<string>();
+            InvalidateClassParents();                            // every sibling cache drops on a switch — the hierarchy too (PR #47 review)
         }
         var (persisted, persistError) = PersistInstanceDir(paths.InstanceDir);
         return (paths, persisted, persistError);
@@ -867,6 +869,11 @@ public sealed class LoadOrderService : IDisposable
     Dictionary<string, string>? _classParents;
     string? _classParentsNote;
     readonly object _classParentsLock = new();
+
+    /// <summary>Drop the cached hierarchy whenever <see cref="_modsDir"/> can have changed (instance switch /
+    /// profile re-derive) — a stale tree's edges could suppress a cast the NEW order's hierarchy doesn't
+    /// justify (a recompile-fail, not silent wrong semantics — but stale is stale). Rebuilds lazily.</summary>
+    void InvalidateClassParents() { lock (_classParentsLock) { _classParents = null; _classParentsNote = null; } }
 
     /// <summary>The decompiler's child→parent class map: committed vanilla baseline (beside the exe) + loose .psc
     /// headers across the MO2 mods tree (mods that ship sources — SKSE, PO3, …). Built on FIRST decompile call,
