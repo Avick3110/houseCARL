@@ -236,6 +236,7 @@ public sealed class LoadOrderService : IDisposable
         var p = Mo2Instance.Resolve(_instanceDir);               // throws (Q3) naming the missing piece if not a usable instance
         _profileDir = p.ProfileDir; _modsDir = p.ModsDir; _dataDir = p.DataDir; _profileName = p.ProfileName;
         _iniReadUtc = iniReadUtc;
+        InvalidateClassParents();                                // _modsDir just gained a value — a cache built before derivation is baseline-only (hunt F1)
     }
 
     static bool PathEq(string a, string b) =>
@@ -879,9 +880,17 @@ public sealed class LoadOrderService : IDisposable
     /// headers across the MO2 mods tree (mods that ship sources — SKSE, PO3, …). Built on FIRST decompile call,
     /// cached for process lifetime (a SOFT input by construction: missing pieces = explicit casts in the output,
     /// never wrong code — the note names any degraded mode, Q3). The input pex's own folder is topped up per call
-    /// by the tool, not here (it varies per input).</summary>
+    /// by the tool, not here (it varies per input). Paths derive FIRST (under the gate — the established
+    /// gate→parents lock order): in instance mode ModsDir is lazy, and a decompile-first session used to build
+    /// and cache the baseline-only map for process lifetime with the mods-tree harvest silently skipped
+    /// (2026-06-12 adversarial hunt F1, proven — the third _modsDir-mutation site missed by the PR #47 fix).</summary>
     public (Dictionary<string, string> Edges, string? Note) ClassParentsForDecompile()
     {
+        lock (_gate)
+        {
+            try { EnsurePathsDerived(); }
+            catch { /* unusable instance: the tool's config gate reports it; here = fewer edges, never a throw */ }
+        }
         lock (_classParentsLock)
         {
             if (_classParents is null)

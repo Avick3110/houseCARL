@@ -68,7 +68,14 @@ public static class DecompileTools
         if (pexFile.Objects.Count == 0)
             return $"error: '{Path.GetFileName(pex)}' contains no script objects — no output was written.";
 
-        // 4) class hierarchy: cached vanilla baseline + mods-tree sources, topped up with the input pex itself
+        // 4) output folder (folder-per-patch, Source\Scripts subdir) — resolved BEFORE the hierarchy build so a
+        //    folder-resolution error costs nothing, and the instance paths are derived before the cached walk
+        //    (defense in depth for hunt F1; the service also self-derives now).
+        string outDir;
+        try { outDir = svc.ResolveDecompiledSourceFolder(patch_name, into); }
+        catch (InvalidOperationException ex) { return "error: " + ex.Message; }
+
+        // 5) class hierarchy: cached vanilla baseline + mods-tree sources, topped up with the input pex itself
         //    and its sibling .pex files (every pex declares its own parent). Soft input — missing pieces mean
         //    explicit casts in the output, never wrong code. A missing/corrupt BASELINE is named in the
         //    result; the runtime top-ups degrade silently to fewer edges (purely cosmetic).
@@ -77,12 +84,6 @@ public static class DecompileTools
         HousecarlCore.PapyrusClassParents.AddFromPex(edges, pexFile);
         try { HousecarlCore.PapyrusClassParents.AddFromPexFolder(edges, Path.GetDirectoryName(pex)!); }
         catch { /* fewer edges, never fatal */ }
-
-        // 5) output folder (folder-per-patch, Source\Scripts subdir) — resolved BEFORE decompiling so a
-        //    folder-resolution error costs nothing.
-        string outDir;
-        try { outDir = svc.ResolveDecompiledSourceFolder(patch_name, into); }
-        catch (InvalidOperationException ex) { return "error: " + ex.Message; }
 
         // 6) decompile + write (the guard-probed seam).
         var o = WriteObjects(pexFile, edges, outDir);

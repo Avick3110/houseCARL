@@ -142,3 +142,10 @@ jobs:
       # loud; a fresh-run mtime gates the move; the prior archive always survives), and format-token refusal.
       - name: Probe — BSA bridge contract (unpack/pack provenance, self-contained)
         run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- bsa-contract-guard
+
+      # Hierarchy-cache lifecycle (2026-06-12 adversarial hunt F1, proven): a decompile-first session must not
+      # cache a baseline-only class-parents map for process lifetime — instance paths derive before the build
+      # (gate-then-parents lock order) and the first derivation invalidates any earlier cache. Self-contained:
+      # a synthetic MO2 instance in temp, no game data.
+      - name: Probe — hierarchy-cache lifecycle (decompile-first sees the mods tree)
+        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- hierarchy-cache-guard
