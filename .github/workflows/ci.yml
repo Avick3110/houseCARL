@@ -127,3 +127,10 @@ jobs:
       # The pure order arm fabricates its game layout (runs fully here); the real-compile shadow arm self-skips.
       - name: Probe — compile-tool import order (import_dirs outrank vanilla)
         run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- import-order-guard
+
+      # Committed-fixture contract for housecarl_decompile_script (fixtures are our OWN compiled probe sources):
+      # construct fidelity vs a reviewed golden, unreadable-pex fails loud, an existing .psc is never overwritten,
+      # and a missing class-hierarchy degrades to explicit casts (correct source) — runs fully here. What CI proves
+      # is the DECOMPILE side; the recompile round-trip proof is the dev-side bulk gate (no CK compiler on runners).
+      - name: Probe — decompile tool (fixture fidelity + output contract)
+        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- decompile-guard

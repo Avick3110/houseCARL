@@ -64,6 +64,10 @@ if (args.Length > 0 && args[0] == "import-order-guard") return ImportOrderProbe.
 // ScriptName-extends headers (committed asset — vanilla sources don't exist on CI; regenerate on game updates).
 if (args.Length > 0 && args[0] == "class-parents") return ClassParentsEmitter.Run(args[1..]);
 
+// Decompile guard: committed-fixture contract for housecarl_decompile_script — construct fidelity vs golden,
+// unreadable-pex loud, never-overwrite, soft hierarchy degradation. Self-contained (fixtures are ours, committed).
+if (args.Length > 0 && args[0] == "decompile-guard") return DecompileGuardProbe.RunGuard(args[1..]);
+
 // One-shot verify (decision #1): confirm the xEdit 4-char signature reflection path.
 if (args.Length > 0 && args[0] == "sig") return Probe.RunSig();
 

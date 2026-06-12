@@ -25,6 +25,13 @@ public sealed class PapyrusDecompiler
         public int FunctionsTotal;
         public int FunctionsFailed;
         public List<string> Failures = new();
+
+        /// <summary>Count of flow patterns the canonical CK compiler provably never emits (threaded
+        /// shared-join trailing JMPs, jump-to-end early returns, value-reused temps — findings §9):
+        /// &gt;0 means the pex came from an OPTIMIZING compiler (Caprica class). The decompiled source
+        /// is still correct, but recompiling it with the CK compiler will not reproduce the original
+        /// bytes — the optimizer's output is not the CK compiler's canonical form.</summary>
+        public int OptimizerHints;
     }
 
     sealed class StructureException : Exception
@@ -136,6 +143,7 @@ public sealed class PapyrusDecompiler
             total.FunctionsTotal += r.FunctionsTotal;
             total.FunctionsFailed += r.FunctionsFailed;
             total.Failures.AddRange(r.Failures);
+            total.OptimizerHints += r.OptimizerHints;
         }
         total.Source = sb.ToString();
         return total;
@@ -442,6 +450,7 @@ public sealed class PapyrusDecompiler
                     && ReadsBeforeWrite(scanFrom, _ins.Count, name))
                 {
                     Materialized.Add(name);
+                    _d._res.OptimizerHints++;   // value-reused temp: PCompiler temps are strictly single-use (§9.4)
                     stmts.Add($"{LhsName(name)} = {Render(e)}");
                     DropPending(name);
                     continue;
@@ -517,7 +526,7 @@ public sealed class PapyrusDecompiler
                         // A trailing JMP whose join was claimed by an ENCLOSING construct (threaded
                         // shared-join shape): jump to an exit-equivalent index in last position is a
                         // no-op — identical to falling off the region end.
-                        if (exits.Contains(t) && i == hi - 1) { i++; break; }
+                        if (exits.Contains(t) && i == hi - 1) { _d._res.OptimizerHints++; i++; break; }
                         // Dead jump: a JMP immediately after a return statement is unreachable
                         // (canonical then-end filler the else-claim usually consumes; threading can
                         // leave it dangling, even pointed past the function end). Skipping it cannot
@@ -531,6 +540,7 @@ public sealed class PapyrusDecompiler
                         // unverified).
                         if (t == _ins.Count && ReturnsNone())
                         {
+                            _d._res.OptimizerHints++;
                             FlushPending(stmts);
                             stmts.Add("return");
                             i++; break;
@@ -598,6 +608,7 @@ public sealed class PapyrusDecompiler
                             && ReadsBeforeWrite(i + 1, target, condName))
                         {
                             Materialized.Add(condName);
+                            _d._res.OptimizerHints++;   // value-reused condition temp (§9.4)
                             stmts.Add($"{LhsName(condName)} = {Render(cond)}");
                             cond = new EIdent(LhsName(condName));
                         }
