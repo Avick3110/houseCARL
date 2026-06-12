@@ -11,8 +11,10 @@ public sealed record BsaListResult(
     public bool Ran => RunError is null;
 }
 
-/// <summary>The result of a BSArch unpack/pack. <see cref="RunError"/> non-null ⇒ BSArch couldn't be run; otherwise
-/// <see cref="Success"/> is decided by the ARTIFACT (dest has files / the .bsa exists), not the exit code.</summary>
+/// <summary>The result of a BSArch unpack/pack. <see cref="RunError"/> non-null ⇒ the operation never ran BSArch
+/// (bad path / timeout / a stuck stale scratch refused up front); otherwise <see cref="Success"/> is decided by
+/// THIS-RUN artifact provenance (unpack: entries added or changed since the pre-run snapshot; pack: a fresh,
+/// non-empty scratch written at/after the run baseline), never by the exit code alone.</summary>
 public sealed record BsaResult(bool Success, string Raw, string? RunError)
 {
     public bool Ran => RunError is null;
@@ -105,9 +107,12 @@ public static class BsaArchive
     /// <summary>Pack <paramref name="srcFolder"/> into a .bsa at <paramref name="archive"/> with the given format flag
     /// (e.g. "-sse") and optional compression. NON-DESTRUCTIVE (Aaron 2026-06-06): an existing archive at the target is
     /// NEVER overwritten unless this run successfully packs a new one — BSArch writes to a houseCARL-internal temp beside
-    /// the target, and only a clean pack (temp exists, non-empty) is moved over the target; any failure (BSArch error,
-    /// timeout, empty output) deletes the temp and leaves the prior .bsa untouched. NOTE the caller must surface BSArch's
-    /// caveat: a COMPRESSED archive breaks any sounds/voices it contains.</summary>
+    /// the target, and only a clean pack THIS RUN (temp exists, non-empty, AND written at/after the run's mtime baseline)
+    /// is moved over the target; a stale scratch from a previous run that cannot be removed REFUSES up front (nothing
+    /// runs, the prior .bsa untouched), and any failure (BSArch error, timeout, empty output, stale-mtime scratch)
+    /// deletes the temp and leaves the prior .bsa untouched. The mtime gate assumes an NTFS-class timestamp resolution —
+    /// on a FAT-class target a same-second pack could read as stale and fail LOUD (never falsely succeed). NOTE the
+    /// caller must surface BSArch's caveat: a COMPRESSED archive breaks any sounds/voices it contains.</summary>
     public static BsaResult Pack(string bsarchExe, string srcFolder, string archive, string formatFlag, bool compress, int timeoutMs = 600_000)
     {
         // Pack to a scratch sibling (keeps the .bsa extension so BSArch is happy); the real target is touched only on success.
