@@ -25,6 +25,9 @@ namespace HousecarlGenerator;
 ///      ObjectReference) decompiles WITH the committed vanilla map to the bare implicit form, and
 ///      WITHOUT any map to the explicit-cast form — correct either way, exactly the documented
 ///      degraded mode.
+///   5. MULTI-OBJECT FLAG TABLE — a two-object pex (fixture parsed twice, second renamed) keeps
+///      Hidden/Conditional on BOTH outputs: the per-object view must carry the file's user-flag
+///      table or the flags silently vanish (PR #47 review must-fix; Conditional is functional).
 ///
 /// Fixtures: src/housecarl-generator/fixtures/decompile/ (paths relative to the repo root, where CI
 /// and the docs run this). Regenerate goldens after a REVIEWED engine-output change:

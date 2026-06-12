@@ -148,18 +148,22 @@ public static class DecompileTools
                   "; compiler will not reproduce the original .pex byte-for-byte (the optimizer's output is not its form).\n"
                   + r.Source
                 : r.Source;
-            try
-            {
-                // CreateNew = atomic create-or-fail: "never overwrites" holds even against a file that
-                // appeared between the cheap check above and this write (PR #47 review should-fix).
-                using var fs = new FileStream(target, FileMode.CreateNew, FileAccess.Write);
-                using var w = new StreamWriter(fs);
-                w.Write(source);
-            }
+            // CreateNew = atomic create-or-fail: "never overwrites" holds even against a file that
+            // appeared between the cheap check above and this write. The collision catch wraps the
+            // CONSTRUCTOR ONLY: once the create succeeded the file exists BECAUSE WE MADE IT, so a
+            // write-phase IOException (disk full, device error) caught here would mis-report as
+            // "already exists" over our own partial file — it must propagate with its true name
+            // (PR #47 review #2). A CreateNew-constructor IOException with the file present is a
+            // collision by API contract.
+            FileStream fs;
+            try { fs = new FileStream(target, FileMode.CreateNew, FileAccess.Write); }
             catch (IOException) when (File.Exists(target))
             {
                 return new(written, target, false, totalFns, failedFns, optimizerHints, failures);
             }
+            using (fs)
+            using (var w = new StreamWriter(fs))
+                w.Write(source);
             written.Add(target);
         }
         return new(written, null, false, totalFns, failedFns, optimizerHints, failures);
