@@ -261,7 +261,7 @@ public sealed class LoadOrderService : IDisposable
     /// persisted on failure), then re-points the live service (derives the roots + active profile, drops the cached resolver
     /// so the next tool call rebuilds against the new instance) and PERSISTS the choice to the user config file so it
     /// survives a restart. Returns the derived paths + whether the persist succeeded, for the tool's confirmation.</summary>
-    public (Mo2InstancePaths paths, bool persisted, string? persistError) SetInstance(string instanceDir)
+    public (Mo2InstancePaths paths, bool persisted, string? persistError, string? persistNote) SetInstance(string instanceDir)
     {
         var paths = Mo2Instance.Resolve(instanceDir);            // throws (Q3) if not a usable MO2 instance — the tool renders the reason
         lock (_writeGate)                                        // hunt F2: an instance switch waits for any in-flight write — never tears one across instances
@@ -277,15 +277,16 @@ public sealed class LoadOrderService : IDisposable
             _orderWarnings = Array.Empty<string>();
             InvalidateClassParents();                            // every sibling cache drops on a switch — the hierarchy too (PR #47 review)
         }
-        var (persisted, persistError) = PersistInstanceDir(paths.InstanceDir);
-        return (paths, persisted, persistError);
+        var (persisted, persistError, persistNote) = PersistInstanceDir(paths.InstanceDir);
+        return (paths, persisted, persistError, persistNote);
     }
 
     /// <summary>Persist the chosen instance dir through the shared <see cref="UserConfigStore"/> (read-modify-write), so it
     /// survives a restart AND coexists with any saved tool paths — the store never clobbers the other concern's field.
     /// Best-effort + HONEST (Q3): a write failure (e.g. a read-only data dir) is reported, not swallowed — the session
-    /// still works, but the user is told the choice won't survive a restart.</summary>
-    (bool ok, string? error) PersistInstanceDir(string instanceDir)
+    /// still works, but the user is told the choice won't survive a restart. <c>note</c> carries a corrupt-file recovery
+    /// (hunt F3 — the prior file was backed up; other saved settings were lost), rendered even on success.</summary>
+    (bool ok, string? error, string? note) PersistInstanceDir(string instanceDir)
         => _store.Update(c => c.Mo2InstanceDir = instanceDir);
 
     /// <summary>The trained prompt shown while unconfigured: tells houseCARL to ask the user which MO2 instance to use (not

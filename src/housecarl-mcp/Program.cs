@@ -15,13 +15,15 @@ var hostArgs = args.Where(a => a != "--http").ToArray();   // strip our own flag
 if (useHttp)
 {
     var builder = WebApplication.CreateBuilder(hostArgs);
-    var (svc, explicitMode, instanceDir, instanceSource) = SetupHouseCarl(builder.Configuration, builder.Services);
+    var (svc, explicitMode, instanceDir, instanceSource, configNote) = SetupHouseCarl(builder.Configuration, builder.Services);
     AddMcp(builder.Services, stdio: false);
 
     var app = builder.Build();
     app.MapMcp();
 
     var url = builder.Configuration.GetSection("HouseCarl")["Url"] is { Length: > 0 } u ? u : "http://127.0.0.1:7345";
+    if (configNote is not null)
+        app.Logger.LogWarning("houseCARL user config recovered: {Note}", configNote);   // corrupt file — backed up, never silent (hunt F3)
     if (!svc.IsConfigured)
         app.Logger.LogWarning(
             "houseCARL listening on {Url} — NOT configured yet. The first tool call will ask for your MO2 instance folder (or call housecarl_set_mo2_instance with it).", url);
@@ -37,12 +39,14 @@ else
     // STDIO GOTCHA: stdout IS the JSON-RPC channel — route ALL logs to stderr or they corrupt the protocol stream.
     builder.Logging.AddConsole(o => o.LogToStandardErrorThreshold = LogLevel.Trace);
 
-    var (svc, explicitMode, instanceDir, instanceSource) = SetupHouseCarl(builder.Configuration, builder.Services);
+    var (svc, explicitMode, instanceDir, instanceSource, configNote) = SetupHouseCarl(builder.Configuration, builder.Services);
     AddMcp(builder.Services, stdio: true);
 
     var app = builder.Build();
 
     var logger = app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("houseCARL");
+    if (configNote is not null)
+        logger.LogWarning("houseCARL user config recovered: {Note}", configNote);   // corrupt file — backed up, never silent (hunt F3)
     if (!svc.IsConfigured)
         logger.LogWarning(
             "houseCARL stdio server — NOT configured yet. The first tool call will ask for your MO2 instance folder (or call housecarl_set_mo2_instance with it).");
@@ -61,7 +65,7 @@ else
 // RUNTIME) > explicit DataDir+ModsDir+ProfileDir (dev/non-portable) > Mo2InstanceDir (userConfig install dialog / appsettings)
 // > UNCONFIGURED (boots; tools prompt). The runtime user choice beats the install default. A corrupt user file never crashes boot (Q3).
 // Builds + registers the LoadOrderService; returns the bits the boot log needs.
-static (LoadOrderService svc, bool explicitMode, string? instanceDir, string instanceSource) SetupHouseCarl(IConfiguration config, IServiceCollection services)
+static (LoadOrderService svc, bool explicitMode, string? instanceDir, string instanceSource, string? configNote) SetupHouseCarl(IConfiguration config, IServiceCollection services)
 {
     var cfg = config.GetSection("HouseCarl");
 
@@ -77,10 +81,11 @@ static (LoadOrderService svc, bool explicitMode, string? instanceDir, string ins
     var userConfigDir = string.IsNullOrWhiteSpace(pluginDataDir) ? AppContext.BaseDirectory : pluginDataDir;
     var userConfigPath = Path.Combine(userConfigDir, "houseCARL.user.json");
     // ONE owner of houseCARL.user.json (UserConfigStore): the MO2 instance dir AND the external-tool paths share the file,
-    // so neither writer clobbers the other (read-modify-write). Tolerant read (corrupt/missing → blank, never crashes — Q3).
+    // so neither writer clobbers the other (read-modify-write under a cross-process lock; atomic writes). A corrupt file
+    // never crashes boot, but it is NOT silent either (hunt F3): it's backed up and the note rides the boot log.
     var store = new UserConfigStore(userConfigPath);
     services.AddSingleton(store);
-    string? userInstanceDir = store.Load().Mo2InstanceDir;
+    string? userInstanceDir = store.Load(out var configNote).Mo2InstanceDir;
 
     // PRECEDENCE (§6d): the saved user config (houseCARL.user.json, written by housecarl_set_mo2_instance at RUNTIME) wins
     // over Mo2InstanceDir (the userConfig install-dialog value / appsettings) — the runtime switch beats the install default.
@@ -111,7 +116,7 @@ static (LoadOrderService svc, bool explicitMode, string? instanceDir, string ins
         c.DefaultRequestHeaders.UserAgent.ParseAdd("houseCARL (+https://github.com/Avick3110/houseCARL)");
     });
 
-    return (svc, explicitMode, instanceDir, instanceSource);
+    return (svc, explicitMode, instanceDir, instanceSource, configNote);
 }
 
 // The MCP server registration — server identity + instructions + the 16 attribute-registered tools. ONLY the

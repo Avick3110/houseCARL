@@ -48,19 +48,21 @@ public sealed class ToolPathResolver
 
     /// <summary>Validate + SAVE a user-supplied path for a dependency (the housecarl_set_tool_path body). The path is
     /// trimmed of surrounding quotes and made absolute. On a validation failure NOTHING is saved (Q3) and the reason is
-    /// returned; on success it's written to the shared user.json (coexisting with the MO2 instance setting).</summary>
-    public (bool ok, string? error, bool persisted, string? persistError, string resolved) Save(ToolDependency dep, string rawPath)
+    /// returned; on success it's written to the shared user.json (coexisting with the MO2 instance setting).
+    /// <c>persistNote</c> carries a corrupt-file recovery (hunt F3 — the prior file was backed up; other saved settings
+    /// were lost), rendered even on success.</summary>
+    public (bool ok, string? error, bool persisted, string? persistError, string? persistNote, string resolved) Save(ToolDependency dep, string rawPath)
     {
         var path = (rawPath ?? "").Trim().Trim('"');
-        if (path.Length == 0) return (false, "no path given.", false, null, "");
+        if (path.Length == 0) return (false, "no path given.", false, null, null, "");
         try { path = Path.GetFullPath(path); }
-        catch (Exception ex) { return (false, $"'{rawPath}' is not a usable path ({ex.Message}).", false, null, rawPath ?? ""); }
+        catch (Exception ex) { return (false, $"'{rawPath}' is not a usable path ({ex.Message}).", false, null, null, rawPath ?? ""); }
 
         var (ok, error) = ToolBridge.Validate(dep, path);
-        if (!ok) return (false, error, false, null, path);
+        if (!ok) return (false, error, false, null, null, path);
 
-        var (persisted, persistError) = _store.Update(c => (c.ToolPaths ??= new())[ToolBridge.Info(dep).Key] = path);
-        return (true, null, persisted, persistError, path);
+        var (persisted, persistError, persistNote) = _store.Update(c => (c.ToolPaths ??= new())[ToolBridge.Info(dep).Key] = path);
+        return (true, null, persisted, persistError, persistNote, path);
     }
 
     /// <summary>The forcing function a rider calls: out <paramref name="path"/> is the resolved path when available and the

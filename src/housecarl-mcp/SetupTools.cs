@@ -36,11 +36,11 @@ public static class SetupTools
         if (string.IsNullOrWhiteSpace(path))
             return "error: no path given. Pass the full path to your MO2 instance folder (the one containing ModOrganizer.ini).";
 
-        Mo2InstancePaths paths; bool persisted; string? persistError;
-        try { (paths, persisted, persistError) = svc.SetInstance(path); }
+        Mo2InstancePaths paths; bool persisted; string? persistError; string? persistNote;
+        try { (paths, persisted, persistError, persistNote) = svc.SetInstance(path); }
         catch (InvalidOperationException ex) { return "error: " + ex.Message; }   // not a usable instance — Q3 reason, nothing changed
 
-        return Render(paths, persisted, persistError);
+        return Render(paths, persisted, persistError, persistNote);
     });
 
     [McpServerTool(Name = "housecarl_set_tool_path", Title = "Tell houseCARL where an external tool is"),
@@ -68,7 +68,7 @@ public static class SetupTools
         if (string.IsNullOrWhiteSpace(path))
             return $"error: no path given for '{tool}'. Pass the full path to {ToolBridge.Info(dep).Display}.";
 
-        var (ok, error, persisted, persistError, resolved) = bridge.Save(dep, path);
+        var (ok, error, persisted, persistError, persistNote, resolved) = bridge.Save(dep, path);
         if (!ok) return "error: " + error;   // validation failed — nothing saved (Q3)
 
         var info = ToolBridge.Info(dep);
@@ -78,13 +78,14 @@ public static class SetupTools
         sb.Append(persisted
             ? "saved to houseCARL.user.json — persists across restarts (coexists with your MO2 instance)."
             : $"NOTE: could not save ({persistError}) — works this session, but you'll need to set it again after a restart.");
+        if (persistNote is not null) sb.Append("\nRECOVERED: ").Append(persistNote);   // corrupt prior config — never silent (hunt F3)
         return sb.ToString();
     });
 
     /// <summary>Confirmation: the instance + the DERIVED roots + the AUTO-DETECTED profile, a cheap enabled/active summary
     /// (text-file read, no deep index — proof houseCARL found the order), and whether the choice was persisted (Q3: a
-    /// failed save is reported, not hidden).</summary>
-    static string Render(Mo2InstancePaths p, bool persisted, string? persistError)
+    /// failed save is reported, not hidden; a corrupt-file recovery is named even on success — hunt F3).</summary>
+    static string Render(Mo2InstancePaths p, bool persisted, string? persistError, string? persistNote)
     {
         var sb = new StringBuilder();
         sb.Append("configured houseCARL -> MO2 instance '").Append(p.InstanceDir).Append("'\n");
@@ -106,6 +107,7 @@ public static class SetupTools
         sb.Append(persisted
             ? "saved to houseCARL.user.json — persists across restarts."
             : $"NOTE: could not save the choice ({persistError}) — it works this session, but you'll need to set it again after a restart.");
+        if (persistNote is not null) sb.Append("\nRECOVERED: ").Append(persistNote);   // corrupt prior config — never silent (hunt F3)
         sb.Append("\nthe load order resolves on the next read/write (first build ~10s).");
         return sb.ToString();
     }

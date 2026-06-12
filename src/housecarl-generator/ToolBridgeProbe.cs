@@ -7,8 +7,11 @@ namespace HousecarlGenerator;
 /// housecarl_set_tool_path tool + the riders ride, with NO MO2 / NO server, so it's a cheap, deterministic green/red gate:
 ///
 ///   1. <see cref="UserConfigStore"/> CLOBBER-SAFETY (the load-bearing claim) — two independent writers (the MO2 instance
-///      dir + a tool path) share one houseCARL.user.json and must NOT overwrite each other's field, in either order; a
-///      corrupt file reads blank, never throws (Q3).
+///      dir + a tool path) share one houseCARL.user.json and must NOT overwrite each other's field, in either order;
+///      hardened per the 2026-06-12 hunt (F3): a corrupt file is BACKED UP + REPORTED (never silently blank — the old
+///      path wiped every saved setting on the next Update), writes are atomic (temp + rename, no residue), and TWO
+///      STORE INSTANCES on one file (the CLI + desktop two-process shape) serialize on the named cross-process mutex
+///      instead of losing each other's read-modify-write.
 ///   2. <see cref="ToolBridge.Validate"/> — rejects a missing exe / wrong-named exe / missing dir; accepts a real exe + dir.
 ///   3. <see cref="ToolBridge.RenderMissingPrompt"/> — the forcing function names the tool key AND the resolving call.
 ///   4. <see cref="ToolBridge.TryParse"/> — wire names round-trip; junk is rejected.
@@ -60,11 +63,40 @@ public static class ToolBridgeProbe
             store.Update(c => (c.ToolPaths ??= new())["papyrus_compiler"] = @"C:\CK\PapyrusCompiler.exe");
             var c2 = store.Load();
             Check(c2.ToolPaths!.Count == 2 && c2.Mo2InstanceDir == @"D:\Other", "a second tool path merges; MO2 dir intact");
+            Check(!File.Exists(tmp + ".tmp"), "atomic write leaves no .tmp residue");
 
+            // CORRUPT = LOUD (hunt F3, hunter-proven silent clobber): blank-with-note + backup, never silently blank.
             File.WriteAllText(tmp, "{ this is not valid json");
-            Check(store.Load().Mo2InstanceDir is null, "corrupt file loads blank, no throw (Q3)");
+            var blank = store.Load(out var loadNote);
+            Check(blank.Mo2InstanceDir is null, "corrupt file loads blank, no throw (Q3)");
+            Check(loadNote is not null && loadNote.Contains(".corrupt.bak"), "corrupt load is REPORTED, naming the backup");
+            Check(File.Exists(tmp + ".corrupt.bak") && File.ReadAllText(tmp + ".corrupt.bak") == "{ this is not valid json",
+                  "the corrupt original is backed up byte-for-byte beside the file");
+            var (upOk, upErr, upNote) = store.Update(c => c.Mo2InstanceDir = @"E:\Fresh");
+            Check(upOk && upErr is null && upNote is not null, "Update over a corrupt file succeeds AND reports the recovery");
+            var fresh = store.Load(out var freshNote);
+            Check(fresh.Mo2InstanceDir == @"E:\Fresh" && freshNote is null, "the fresh file holds the new setting and reads clean");
+
+            // CROSS-PROCESS shape (hunt F3): TWO store instances on ONE file — each with its own process-local gate, the
+            // way the CLI plugin + desktop app share houseCARL.user.json — hammer different fields concurrently. Without
+            // the named mutex the read-modify-write races and one concern's last value is clobbered (hunter-measured).
+            const int rounds = 200;
+            var s1 = new UserConfigStore(tmp);
+            var s2 = new UserConfigStore(tmp);
+            var t1 = Task.Run(() => { for (int i = 1; i <= rounds; i++) s1.Update(c => c.Mo2InstanceDir = @"C:\Race\" + i); });
+            var t2 = Task.Run(() => { for (int i = 1; i <= rounds; i++) s2.Update(c => (c.ToolPaths ??= new())["bsarch"] = @"C:\Race\bsarch" + i + ".exe"); });
+            Task.WaitAll(t1, t2);
+            var final = s1.Load(out var raceNote);
+            Check(raceNote is null, "no corruption under two-store contention (every write atomic + serialized)");
+            Check(final.Mo2InstanceDir == @"C:\Race\" + rounds
+                  && final.ToolPaths is { } rtp && rtp.TryGetValue("bsarch", out var rb) && rb == @"C:\Race\bsarch" + rounds + ".exe",
+                  "BOTH concerns' LAST values survive two-store concurrent updates (no cross-process clobber)");
         }
-        finally { try { File.Delete(tmp); } catch { /* temp cleanup, non-fatal */ } }
+        finally
+        {
+            try { File.Delete(tmp); } catch { /* temp cleanup, non-fatal */ }
+            try { File.Delete(tmp + ".corrupt.bak"); } catch { /* temp cleanup, non-fatal */ }
+        }
 
         // ---------------------------------------------------------------- 2) VALIDATE
         Console.WriteLine();
