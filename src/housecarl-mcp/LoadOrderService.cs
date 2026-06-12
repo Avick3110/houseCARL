@@ -32,6 +32,7 @@ public sealed class LoadOrderService : IDisposable
     string _modsDir;
     string _profileDir;
     string _profileName;                           // the active profile (instance mode: from selected_profile)
+    string _overwriteDir = "";                     // MO2's overwrite layer (instance mode: derived; explicit mode: none) — hunt F9
     bool _configured;                              // false ⇒ tools return the trained prompt instead of resolving
     readonly UserConfigStore _store;               // the sole owner of houseCARL.user.json (MO2 instance dir + tool paths)
     readonly int _maxPlugins;
@@ -115,7 +116,7 @@ public sealed class LoadOrderService : IDisposable
                     // plugins.txt) — no VFS, no live MO2 state. See HousecarlCore.Mo2LoadOrder + memory
                     // project_mo2_load_order_resolution.
                     var profileMtimes = StatProfileFiles();      // stat BEFORE the read (TOCTOU): a profile write during the build is caught next call, not missed
-                    var order = Mo2LoadOrder.Build(_profileDir, _modsDir, _dataDir);
+                    var order = Mo2LoadOrder.Build(_profileDir, _modsDir, _dataDir, _overwriteDir);
                     _orderWarnings = order.Warnings;
                     var paths = order.OrderedPaths;
                     if (_maxPlugins > 0 && paths.Count > _maxPlugins) paths = paths.Take(_maxPlugins).ToList();
@@ -237,9 +238,10 @@ public sealed class LoadOrderService : IDisposable
         if (iniMtime == _iniMtime) return false;                 // compared by VALUE — a restored-backup ini (OLDER mtime) is a change too (hunt F8)
         if (!Mo2Instance.TryResolve(_instanceDir, out var p) || p is null) return false;   // mid-write/invalid → keep last good, retry next call
         _iniMtime = iniMtime;                                    // advance only on a clean read
-        bool switched = !PathEq(p.ProfileDir, _profileDir) || !PathEq(p.ModsDir, _modsDir) || !PathEq(p.DataDir, _dataDir);
+        bool switched = !PathEq(p.ProfileDir, _profileDir) || !PathEq(p.ModsDir, _modsDir) || !PathEq(p.DataDir, _dataDir)
+                        || !PathEq(p.OverwriteDir, _overwriteDir);
         if (!switched) return false;                             // ini touched but nothing we resolve from changed
-        _profileDir = p.ProfileDir; _modsDir = p.ModsDir; _dataDir = p.DataDir; _profileName = p.ProfileName;
+        _profileDir = p.ProfileDir; _modsDir = p.ModsDir; _dataDir = p.DataDir; _profileName = p.ProfileName; _overwriteDir = p.OverwriteDir;
         InvalidateClassParents();                                // the mods tree may have moved — drop the cached hierarchy with it
         ReResolve();                                             // a new profile ⇒ the order differs ⇒ ReResolve deep-re-indexes
         return true;
@@ -251,7 +253,7 @@ public sealed class LoadOrderService : IDisposable
     void ReResolve()
     {
         var profileMtimes = StatProfileFiles();                  // stat BEFORE the read (TOCTOU): a write during the re-read is caught next call, not missed
-        var order = Mo2LoadOrder.Build(_profileDir, _modsDir, _dataDir);
+        var order = Mo2LoadOrder.Build(_profileDir, _modsDir, _dataDir, _overwriteDir);
         var paths = order.OrderedPaths;
         if (_maxPlugins > 0 && paths.Count > _maxPlugins) paths = paths.Take(_maxPlugins).ToList();
 
@@ -287,7 +289,7 @@ public sealed class LoadOrderService : IDisposable
         if (_profileDir.Length > 0) return;                      // already derived (a prior build / SetInstance); RederiveIfIniChanged owns later updates
         var iniMtime = SafeMtime(Mo2Instance.IniPath(_instanceDir));   // stat BEFORE the read (TOCTOU): an ini write during/after Resolve is caught next call
         var p = Mo2Instance.Resolve(_instanceDir);               // throws (Q3) naming the missing piece if not a usable instance
-        _profileDir = p.ProfileDir; _modsDir = p.ModsDir; _dataDir = p.DataDir; _profileName = p.ProfileName;
+        _profileDir = p.ProfileDir; _modsDir = p.ModsDir; _dataDir = p.DataDir; _profileName = p.ProfileName; _overwriteDir = p.OverwriteDir;
         _iniMtime = iniMtime;
         InvalidateClassParents();                                // _modsDir just gained a value — a cache built before derivation is baseline-only (hunt F1)
     }
@@ -321,6 +323,7 @@ public sealed class LoadOrderService : IDisposable
         {
             _instanceDir = paths.InstanceDir;
             _dataDir = paths.DataDir; _modsDir = paths.ModsDir; _profileDir = paths.ProfileDir; _profileName = paths.ProfileName;
+            _overwriteDir = paths.OverwriteDir;
             _iniMtime = iniMtime;
             _configured = true;
             _resolver?.Dispose(); _resolver = null;              // force a rebuild against the new instance on the next query

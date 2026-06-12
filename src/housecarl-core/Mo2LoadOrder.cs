@@ -67,18 +67,19 @@ public static class Mo2LoadOrder
     static readonly string[] PluginExts = { ".esp", ".esm", ".esl" };
 
     /// <summary>Read the active order from <paramref name="profileDir"/>'s loadorder.txt + modlist.txt + plugins.txt,
-    /// resolving each active plugin to its WINNING real path under <paramref name="modsDir"/> (highest-priority enabled
-    /// mod that provides the filename), falling back to <paramref name="dataDir"/> for vanilla/base plugins. The returned
-    /// paths are in load order (winner last) — feed straight to <see cref="LoadOrderResolver.Build"/>.</summary>
-    public static Mo2OrderResult Build(string profileDir, string modsDir, string dataDir)
+    /// resolving each active plugin to its WINNING real path: MO2's <paramref name="overwriteDir"/> first (the overwrite
+    /// layer beats every mod — it's where tool outputs land), then the highest-priority enabled mod under
+    /// <paramref name="modsDir"/> that provides the filename, falling back to <paramref name="dataDir"/> for vanilla/base
+    /// plugins. The returned paths are in load order (winner last) — feed straight to <see cref="LoadOrderResolver.Build"/>.</summary>
+    public static Mo2OrderResult Build(string profileDir, string modsDir, string dataDir, string overwriteDir = "")
     {
         var warnings = new List<string>();
 
         // The enabled/disabled COMPOSITION (text files only — cheap). The diagnostic re-reads this same parse fresh.
         var comp = ReadComposition(profileDir, warnings);
 
-        // filename → WINNING real path: highest-priority enabled mod first (first-seen wins), data folder as base.
-        var winningPath = BuildFilenameMap(comp.EnabledMods, modsDir, dataDir);
+        // filename → WINNING real path: overwrite first, then highest-priority enabled mod (first-seen wins), data folder as base.
+        var winningPath = BuildFilenameMap(comp.EnabledMods, modsDir, dataDir, overwriteDir);
         var inactive = new HashSet<string>(comp.InactivePluginNames, StringComparer.OrdinalIgnoreCase);
 
         // loadorder.txt order → drop unchecked plugins; resolve the rest to their winning path (winner last).
@@ -92,8 +93,8 @@ public static class Mo2LoadOrder
                 orderedPaths.Add(path);
             else
                 warnings.Add(
-                    $"load order lists '{name}' but no enabled mod or the data folder provides it " +
-                    "(stale loadorder.txt? trigger an MO2 refresh / re-sort so it re-writes the profile files).");
+                    $"load order lists '{name}' but no enabled mod, the overwrite folder, or the game Data folder " +
+                    "provides it (stale loadorder.txt? trigger an MO2 refresh / re-sort so it re-writes the profile files).");
         }
 
         return new Mo2OrderResult(orderedPaths, warnings, active);
@@ -145,12 +146,18 @@ public static class Mo2LoadOrder
         }
     }
 
-    /// <summary>Build filename → winning real path. Enabled mods are scanned highest-priority FIRST and the first sighting
-    /// of a filename wins (so a higher-priority mod's copy beats a lower one's — MO2's own overwrite rule). The data
-    /// folder is scanned LAST and only fills names no mod provided (vanilla masters / base game = lowest priority).</summary>
-    static Dictionary<string, string> BuildFilenameMap(IReadOnlyList<string> enabledModsByPriority, string modsDir, string dataDir)
+    /// <summary>Build filename → winning real path. MO2's OVERWRITE folder is scanned first — it is the top of MO2's
+    /// VFS (a copy there beats every mod; tool outputs like Synthesis patches and xEdit "new file" plugins live there,
+    /// and MO2 lists them in the profile files — 2026-06-12 hunt F9: these were unresolvable and the warning
+    /// misdiagnosed them as a stale-profile problem a re-sort can't fix). Then enabled mods, highest-priority FIRST,
+    /// first sighting of a filename wins (a higher-priority mod's copy beats a lower one's — MO2's own overwrite rule).
+    /// The data folder is scanned LAST and only fills names no mod provided (vanilla masters / base game = lowest priority).</summary>
+    static Dictionary<string, string> BuildFilenameMap(IReadOnlyList<string> enabledModsByPriority, string modsDir, string dataDir, string overwriteDir)
     {
         var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var (fn, full) in EnumeratePlugins(overwriteDir))  // MO2's overwrite layer — beats every mod
+            map[fn] = full;                                         // (map is empty here; plain set keeps the rule obvious)
 
         foreach (var mod in enabledModsByPriority)                  // highest priority first
         {

@@ -167,3 +167,11 @@ jobs:
       # instances + synthesized plugins in temp.
       - name: Probe — freshness + write-capture (restored backups seen; one build per answer)
         run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- freshness-capture-guard
+
+      # MO2 overwrite-folder resolution (2026-06-12 hunt F9, Aaron-picked full fix): plugins living in MO2's
+      # overwrite layer — where tool outputs (Synthesis, xEdit "new file") land, listed in the profile files by
+      # MO2 — resolve at HIGHEST priority (top of the VFS, a copy there beats every mod), and the can't-resolve
+      # warning names overwrite among the places searched. Self-contained: dummy files for the path-map arms +
+      # a synthetic MO2 instance with real synthesized plugins for the end-to-end arms.
+      - name: Probe — MO2 overwrite-folder resolution (tool outputs resolve, on top)
+        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- overwrite-resolve-guard

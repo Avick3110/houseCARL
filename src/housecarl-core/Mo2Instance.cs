@@ -26,9 +26,10 @@ namespace HousecarlCore;
 //      carries \\, and anything exotic just fails the existence check loud (Q3).
 //
 //  Derivation (base = base_directory if set+real, else the instance dir):
-//      ModsDir    = base\mods
-//      ProfileDir = base\profiles\<selected_profile>
-//      DataDir    = <gamePath>\Data
+//      ModsDir      = base\mods
+//      ProfileDir   = base\profiles\<selected_profile>
+//      DataDir      = <gamePath>\Data
+//      OverwriteDir = base\overwrite   (MO2's overwrite layer — tool outputs land here; NOT required to exist)
 //
 //  Q3: a missing/empty piece is NAMED in the problem list and the resolve
 //  FAILS — never a silently-empty or half-derived path set.
@@ -42,8 +43,11 @@ namespace HousecarlCore;
 /// <param name="ModsDir">base\mods — each enabled mod is a subfolder.</param>
 /// <param name="DataDir">gamePath\Data — the base-game Data folder (vanilla masters).</param>
 /// <param name="GamePath">The game root (ModOrganizer.ini gamePath); DataDir = this + \Data.</param>
+/// <param name="OverwriteDir">base\overwrite — MO2's overwrite layer, the HIGHEST-priority file source (tool outputs:
+/// Synthesis, xEdit "new file", Wrye Bash land plugins here, and MO2 lists them in the profile files). Derived but NOT
+/// required to exist (a fresh instance may lack it; resolution just skips a missing folder).</param>
 public sealed record Mo2InstancePaths(
-    string InstanceDir, string ProfileName, string ProfileDir, string ModsDir, string DataDir, string GamePath);
+    string InstanceDir, string ProfileName, string ProfileDir, string ModsDir, string DataDir, string GamePath, string OverwriteDir);
 
 public static class Mo2Instance
 {
@@ -141,7 +145,9 @@ public static class Mo2Instance
                   && Directory.Exists(modsDir) && Directory.Exists(dataDir);
         if (!ok) return null;
 
-        return new Mo2InstancePaths(instanceDir, profile!, profileDir, modsDir, dataDir, gamePath!);
+        // Overwrite is derived like mods/profiles (base-relative, the portable default measured on Aaron's real ini)
+        // but never gates validity — a missing folder just means no overwrite-provided plugins.
+        return new Mo2InstancePaths(instanceDir, profile!, profileDir, modsDir, dataDir, gamePath!, Path.Combine(basePath, "overwrite"));
     }
 
     /// <summary>First <c>key=</c> line's raw value (the key matched case-insensitively, ignoring section headers — the keys

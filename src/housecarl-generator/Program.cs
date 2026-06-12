@@ -73,6 +73,11 @@ if (args.Length > 0 && args[0] == "write-mutex-guard") return WriteMutexProbe.Ru
 // read's freshness refresh defers while a write is in flight (never rebuilds under a serialize).
 if (args.Length > 0 && args[0] == "freshness-capture-guard") return FreshnessCaptureProbe.RunGuard(args[1..]);
 
+// MO2 overwrite-folder resolution (2026-06-12 hunt F9): plugins living in MO2's overwrite layer resolve at
+// HIGHEST priority (top of the VFS — where Synthesis/xEdit tool outputs land), and the can't-resolve warning
+// names overwrite among the places searched.
+if (args.Length > 0 && args[0] == "overwrite-resolve-guard") return OverwriteResolveProbe.RunGuard(args[1..]);
+
 // Compile-tool import order: caller import_dirs OUTRANK the vanilla auto-import (first match wins, so
 // SKSE-extended copies of vanilla sources must win). Pure order arm always runs; real-compile arm self-skips.
 if (args.Length > 0 && args[0] == "import-order-guard") return ImportOrderProbe.RunGuard(args[1..]);
