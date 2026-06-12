@@ -16,6 +16,9 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>HousecarlMcp</RootNamespace>
     <AssemblyName>housecarl-mcp</AssemblyName>
+    <!-- ServerInfo.Version truth: build-plugin.ps1 overrides with -p:Version from plugin.json (the single
+         version home), so a release exe reports the real release; an unstamped dev build says 0.0.0-dev. -->
+    <Version>0.0.0-dev</Version>
   </PropertyGroup>
 
   <ItemGroup>

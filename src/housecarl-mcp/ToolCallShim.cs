@@ -148,16 +148,27 @@ internal static class ToolCallShim
         return set;
     }
 
-    /// <summary>Schema-required parameters absent from the call → a named refusal (Q3), or null to proceed.</summary>
+    /// <summary>Schema-required parameters absent from the call → a named refusal (Q3), or null to proceed.
+    /// An EXPLICIT JSON <c>null</c> for a required parameter counts as missing too (unless the schema itself declares
+    /// null legal): the SDK binds it and the tool body NullReferences into the generic "internal houseCARL failure"
+    /// misdirection (2026-06-12 hunt, proven over stdio on nexus_mod) — name the parameter instead.</summary>
     static CallToolResult? MissingRequired(CallToolRequestParams p, JsonElement schema)
     {
         if (schema.ValueKind != JsonValueKind.Object ||
             !schema.TryGetProperty("required", out var req) || req.ValueKind != JsonValueKind.Array) return null;
 
+        schema.TryGetProperty("properties", out var props);
+
         List<string>? missing = null;
         foreach (var r in req.EnumerateArray())
-            if (r.GetString() is { } name && (p.Arguments is null || !p.Arguments.ContainsKey(name)))
-                (missing ??= new List<string>()).Add(name);
+        {
+            if (r.GetString() is not { } name) continue;
+            if (p.Arguments is null || !p.Arguments.TryGetValue(name, out var val))
+                { (missing ??= new List<string>()).Add(name); continue; }
+            if (val.ValueKind == JsonValueKind.Null
+                && !(props.ValueKind == JsonValueKind.Object && props.TryGetProperty(name, out var ps) && DeclaredTypes(ps).Contains("null")))
+                (missing ??= new List<string>()).Add(name + " (was explicit null)");
+        }
         if (missing is null) return null;
 
         string plural = missing.Count == 1 ? "" : "s";

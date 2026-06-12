@@ -148,6 +148,16 @@ public static class BindingShimProbe
                 """{"type":"CELL","plugins":["Synthetic.esp"],"limit":{"oops":1}}""");
             failures += Check("G rewrite: an uncoercible argument fails NAMED, not generic",
                 !g.text.Contains(GenericError) && g.text.Contains("could not be bound"), g.Describe());
+
+            // -- H: an EXPLICIT JSON null for a REQUIRED parameter (2026-06-12 hunt, proven over stdio on
+            //    nexus_mod): ContainsKey saw it as supplied, the SDK bound null, and the tool body
+            //    NullReferenced into Guard's "internal houseCARL failure… capture a bug report"
+            //    misdirection. Must be the same NAMED missing-parameter refusal as D.
+            var h = Call(stdin, stdout, 9, "housecarl_batch_record_detail", """{"formids":null}""");
+            failures += Check("H required: explicit null for a required parameter is refused by NAME, not an internal failure",
+                !h.text.Contains(GenericError) && !h.text.Contains("internal houseCARL failure")
+                && h.text.Contains("required parameter") && h.text.Contains("formids"),
+                h.Describe());
         }
         catch (Exception ex)
         {

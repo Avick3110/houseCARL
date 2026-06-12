@@ -75,8 +75,10 @@ if (-not (Test-Path $CorpusSrc)) { throw "corpus not produced at $CorpusSrc" }
 Write-Host ("corpus.json: {0:N1} MB" -f ((Get-Item $CorpusSrc).Length / 1MB))
 
 # ---- 2. publish the server (framework-dependent; trimming OFF) -------------
+# -p:Version stamps the plugin.json version into the exe, which ServerInfo reports over MCP
+# (one version home; an unstamped dev build says 0.0.0-dev).
 Step '2/10' 'Publish server (Release, win-x64, framework-dependent)'
-dotnet publish $McpProj -c Release -r win-x64 --self-contained false -o $ServerDir
+dotnet publish $McpProj -c Release -r win-x64 --self-contained false -p:Version=$Version -o $ServerDir
 if ($LASTEXITCODE -ne 0) { throw "publish failed (exit $LASTEXITCODE)" }
 $Exe = Join-Path $ServerDir 'housecarl-mcp.exe'
 if (-not (Test-Path $Exe)) { throw "server exe not produced at $Exe" }

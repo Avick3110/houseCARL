@@ -144,7 +144,17 @@ static class Render
         if (!string.IsNullOrWhiteSpace(category)) sb.Append(" in '").Append(category).Append('\'');
         sb.Append(" — ").Append(r.TotalCount.ToString("N0")).Append(" match(es), by ").Append(sort)
           .Append(", showing ").Append(r.Hits.Count).Append(':');
-        if (r.Hits.Count == 0) return sb.Append("\n(none)").ToString();
+        if (r.Hits.Count == 0)
+        {
+            sb.Append("\n(none)");
+            // category= is a server-side case-sensitive EQUALS (live-proven: 'Armour' 5041 matches vs 'armour' 0),
+            // so a zero WITH a category filter is as likely a casing/name miss as a real zero — say so (Q3).
+            if (!string.IsNullOrWhiteSpace(category))
+                sb.Append("\nnote: category matching is EXACT and case-sensitive on Nexus's side ('Armour', not 'armour') — ")
+                  .Append("0 matches with a category filter may mean the category name didn't match, not that no mods exist. ")
+                  .Append("Retry without category= or with the exact Nexus category name.");
+            return sb.ToString();
+        }
 
         foreach (var h in r.Hits)
         {
@@ -179,12 +189,16 @@ static class Render
         if (!string.IsNullOrWhiteSpace(m.Summary)) sb.Append("\n\n").Append(m.Summary);
 
         // The accurate "latest version" is the newest MAIN file, not the mod's version header (which can lag).
+        // A mod with NO main file (everything filed as optional/misc/old) says so explicitly — otherwise the
+        // section's absence silently leaves the possibly-lagging version header as the only signal (Q3).
         NexusFile? main = null;
         foreach (var f in m.Files)
             if (f.Category == "MAIN" && (main is null || f.Date > main.Date)) main = f;
         if (main is not null)
             sb.Append("\n\nlatest MAIN file: ").Append(main.Name).Append(" v").Append(main.Version ?? "?")
               .Append(" (").Append(Day(main.Date)).Append(')');
+        else
+            sb.Append("\n\nno MAIN file listed (files may all be optional/misc) — the version header above is the only version signal and can lag.");
 
         if (m.NexusRequirements.Count > 0)
         {

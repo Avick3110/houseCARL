@@ -119,14 +119,16 @@ static (LoadOrderService svc, bool explicitMode, string? instanceDir, string ins
     return (svc, explicitMode, instanceDir, instanceSource, configNote);
 }
 
-// The MCP server registration — server identity + instructions + the 16 attribute-registered tools. ONLY the
+// The MCP server registration — server identity + instructions + the attribute-registered tools. ONLY the
 // transport line differs between modes (the whole point of the stdio/http split); everything else is shared.
 static void AddMcp(IServiceCollection services, bool stdio)
 {
     var mcp = services.AddMcpServer(options =>
     {
-        // The houseCARL brand string lives HERE — the one place in code (CLAUDE.md §6).
-        options.ServerInfo = new Implementation { Name = "houseCARL", Version = "0.1.0" };
+        // The houseCARL brand string lives HERE — the one place in code (CLAUDE.md §6). The version is the exe's
+        // stamped InformationalVersion: build-plugin.ps1 passes -p:Version from plugin.json (the single version
+        // home), so ServerInfo reports the REAL release; an unstamped dev build honestly says 0.0.0-dev.
+        options.ServerInfo = new Implementation { Name = "houseCARL", Version = ServerVersion() };
         options.ServerInstructions =
             "houseCARL exposes the Skyrim Special Edition load order at the data layer. Reads return the TRUE " +
             "load-order winner and, on request, the conflict tree; writes go to a NEW plugin, leaving originals " +
@@ -141,4 +143,16 @@ static void AddMcp(IServiceCollection services, bool stdio)
     // (a bare string where an array is declared, quoted bools/numbers), named refusal of missing required
     // parameters, and a named rewrite of the SDK's generic binding-failure text. See ToolCallShim.
     mcp.WithRequestFilters(f => f.AddCallToolFilter(ToolCallShim.LenientArguments));
+}
+
+// The exe's stamped version for ServerInfo: InformationalVersion (set by build-plugin.ps1's -p:Version from
+// plugin.json — ONE version home) with any "+metadata" suffix trimmed; an unstamped build reports 0.0.0-dev.
+static string ServerVersion()
+{
+    var info = System.Reflection.Assembly.GetExecutingAssembly()
+        .GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), inherit: false)
+        is [System.Reflection.AssemblyInformationalVersionAttribute a, ..] ? a.InformationalVersion : null;
+    if (string.IsNullOrWhiteSpace(info)) return "0.0.0-dev";
+    var plus = info.IndexOf('+');
+    return plus > 0 ? info[..plus] : info;
 }

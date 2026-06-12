@@ -35,6 +35,7 @@ public static class SetupTools
     {
         if (string.IsNullOrWhiteSpace(path))
             return "error: no path given. Pass the full path to your MO2 instance folder (the one containing ModOrganizer.ini).";
+        path = path.Trim().Trim('"');   // tolerate a copy-pasted quoted path, like every sibling path-taking tool
 
         Mo2InstancePaths paths; bool persisted; string? persistError; string? persistNote;
         try { (paths, persisted, persistError, persistNote) = svc.SetInstance(path); }
@@ -94,7 +95,8 @@ public static class SetupTools
         sb.Append("  game Data  : ").Append(p.DataDir).Append('\n');
 
         // Cheap composition (the three profile text files only — NO deep index): a quick figure so the user sees houseCARL
-        // actually found the order. The resolve already confirmed the profile files exist; a read hiccup here is non-fatal.
+        // actually found the order. The resolve already confirmed the profile files exist; a read hiccup here is non-fatal
+        // but NAMED — the proof line is what tells the user the setup really worked, so its absence must not be silent (Q3).
         try
         {
             var comp = Mo2LoadOrder.ReadComposition(p.ProfileDir);
@@ -102,7 +104,11 @@ public static class SetupTools
             sb.Append("sees: ").Append(comp.EnabledMods.Count).Append(" enabled mods · ")
               .Append(comp.OrderedPluginNames.Count).Append(" plugins in the load order (").Append(active).Append(" active)\n");
         }
-        catch { /* non-fatal — don't fail a good setup over a follow-up read */ }
+        catch (Exception ex)
+        {
+            sb.Append("(couldn't read the enabled-mods summary just now: ").Append(ex.Message)
+              .Append(" — the instance itself validated; the first real read will confirm.)\n");
+        }
 
         sb.Append(persisted
             ? "saved to houseCARL.user.json — persists across restarts."

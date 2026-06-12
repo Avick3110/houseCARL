@@ -126,7 +126,9 @@ public static class CompileTools
         sb.Append("compile FAILED: ").Append(r.ObjectName).Append(".psc — no new .pex produced (any previous build is left unchanged).");
         if (r.Diagnostics.Count > 0)
         {
-            sb.Append('\n').Append(r.Diagnostics.Count).Append(" error(s):");
+            // "diagnostic(s)", not "error(s)": the CK compiler mixes warnings into a failed run's output and the
+            // parser doesn't split severities — labelling them all errors over-claims (2026-06-12 hunt render wave).
+            sb.Append('\n').Append(r.Diagnostics.Count).Append(" diagnostic(s) (errors and possibly warnings — the CK compiler mixes them):");
             foreach (var d in r.Diagnostics) sb.Append("\n  ").Append(d);
             sb.Append("\nfix the .psc and recompile (look unfamiliar functions/types up with the papyrus-reference skill). " +
                       "If a dependency type is 'not found', its source folder may be missing from the import path — pass it via import_dirs=.");

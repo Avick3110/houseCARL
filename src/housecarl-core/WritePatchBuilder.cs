@@ -178,7 +178,7 @@ public static class WritePatchBuilder
         if (extend)
         {
             if (!File.Exists(outPath))
-                return PatchOutcome.Fail($"cannot extend: no existing patch at {outPath}. Omit extend to create it fresh.");
+                return PatchOutcome.Fail($"cannot extend: no existing patch at {outPath}. Omit into= to create it fresh.");
             try { patchMod = SkyrimMod.CreateFromBinary(outPath, SkyrimRelease.SkyrimSE); }
             catch (Exception ex) { return PatchOutcome.Fail($"cannot open patch to extend ({fileName}): {ex.GetType().Name}: {ex.Message}"); }
         }
@@ -398,7 +398,7 @@ public static class WritePatchBuilder
         if (extend)
         {
             if (!File.Exists(outPath))
-                return CreateOutcome.Fail($"cannot extend: no existing patch at {outPath}. Omit extend to create it fresh.");
+                return CreateOutcome.Fail($"cannot extend: no existing patch at {outPath}. Omit into= to create it fresh.");
             try { patchMod = SkyrimMod.CreateFromBinary(outPath, SkyrimRelease.SkyrimSE); }
             catch (Exception ex) { return CreateOutcome.Fail($"cannot open patch to extend ({fileName}): {ex.GetType().Name}: {ex.Message}"); }
         }

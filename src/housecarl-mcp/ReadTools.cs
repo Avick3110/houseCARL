@@ -85,16 +85,17 @@ public static class ReadTools
          "'BasicStats.Damage >= 50' — any scalar field, ANDed); plugins= limits the scan to records those plugins " +
          "touch (a bare plugins= is 'everything this plugin touches'). At least one filter or plugins= is required. " +
          "editorid_contains/references/where " +
-         "are body scans and MUST be combined with type=, plugins=, or conflicts_only= to bound the work. Pass fields= " +
+         "are body scans and MUST be combined with type= or plugins= to bound the work (conflicts_only= alone is not " +
+         "enough). Pass fields= " +
          "or conflict_tree=true to expand each match from a summary line to full detail. Results cap at limit= matches " +
          "and max_chars; both overruns are reported explicitly (never silent). Does NOT modify anything.")]
     public static string CrossPluginQuery(
         LoadOrderService svc,
         [Description("Optional. A record signature ('WEAP', 'NPC_') or catalog name ('Weapon', 'Npc'). Cheap — uses typed group enumeration.")]
             string? type = null,
-        [Description("Optional. A FormID 'XXXXXX:Plugin.esp'; matches records whose winner references it (deep link scan). Must be combined with type=, plugins=, or conflicts_only=.")]
+        [Description("Optional. A FormID 'XXXXXX:Plugin.esp'; matches records whose winner references it (deep link scan). Must be combined with type= or plugins= (conflicts_only= alone is not enough).")]
             string? references = null,
-        [Description("Optional. Case-insensitive substring of the EditorID. Body scan — must be combined with type=, plugins=, or conflicts_only=.")]
+        [Description("Optional. Case-insensitive substring of the EditorID. Body scan — must be combined with type= or plugins= (conflicts_only= alone is not enough).")]
             string? editorid_contains = null,
         [Description("When true, restrict to records more than one plugin touches (the contested set).")]
             bool conflicts_only = false,
