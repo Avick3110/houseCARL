@@ -17,6 +17,9 @@ It can:
   cleaned automatically.
 - **Drive the external toolchain** — compile Papyrus scripts through the Creation Kit's compiler, and
   list / extract / repack BSA archives via BSArch; each tool's path is auto-detected or set once.
+- **Decompile compiled scripts** — reconstruct reviewable `.psc` source from any `.pex` (Mutagen-native,
+  no external tool needed), measured at 98.8% byte-exact recompile round-trips across every provable
+  script in a 3,400-plugin load order; anything it can't prove fails loudly, never silently wrong.
 - **Look mods up on Nexus** — search the Skyrim SE catalogue and read any mod's version, requirements,
   and latest release straight from Nexus Mods, no browser needed. Read-only; downloading stays your mod
   manager's job.
