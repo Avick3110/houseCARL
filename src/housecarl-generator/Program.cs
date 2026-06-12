@@ -68,6 +68,11 @@ if (args.Length > 0 && args[0] == "hierarchy-cache-guard") return HierarchyCache
 // bytes, no lost extend), and a pre-flight-refused fresh write removes the folder it created (no _NNN accretion).
 if (args.Length > 0 && args[0] == "write-mutex-guard") return WriteMutexProbe.RunGuard(args[1..]);
 
+// Freshness + write-capture guard (2026-06-12 hunt F5–F8 + PR #51 review note): restored-backup profile/ini
+// changes (older mtimes) are seen; one status line / one multi-op write composes from ONE build; a concurrent
+// read's freshness refresh defers while a write is in flight (never rebuilds under a serialize).
+if (args.Length > 0 && args[0] == "freshness-capture-guard") return FreshnessCaptureProbe.RunGuard(args[1..]);
+
 // Compile-tool import order: caller import_dirs OUTRANK the vanilla auto-import (first match wins, so
 // SKSE-extended copies of vanilla sources must win). Pure order arm always runs; real-compile arm self-skips.
 if (args.Length > 0 && args[0] == "import-order-guard") return ImportOrderProbe.RunGuard(args[1..]);

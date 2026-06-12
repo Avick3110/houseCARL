@@ -158,3 +158,12 @@ jobs:
       # Self-contained: a synthetic MO2 instance + a synthesized master in temp.
       - name: Probe — write-path mutex (concurrent writes serialize; refusals leave no orphan)
         run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- write-mutex-guard
+
+      # Freshness + write-capture (2026-06-12 hunt F5-F8 + the PR #51 review note): a restored-backup profile or
+      # ModOrganizer.ini (newer content, OLDER mtimes) is seen — baselines compare last-seen mtimes by value, never
+      # wall-clock order; one status line and one multi-op write each compose from ONE index build (no torn status,
+      # no patch silently mixing two builds' winners); and a concurrent read's freshness refresh DEFERS while a
+      # write is in flight (never rebuilds/swaps the index under a serialize). Self-contained: synthetic MO2
+      # instances + synthesized plugins in temp.
+      - name: Probe — freshness + write-capture (restored backups seen; one build per answer)
+        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- freshness-capture-guard
