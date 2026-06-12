@@ -851,6 +851,49 @@ public sealed class LoadOrderService : IDisposable
         return scripts;
     }
 
+    /// <summary>The <c>Source\Scripts\</c> output folder for a DECOMPILED .psc (the decompile rider) — the SE-canonical
+    /// source layout, and the same default patch stem as the compile rider so decompile → edit → compile naturally
+    /// accumulates in one houseCARL patch folder via <c>into=</c>.</summary>
+    public string ResolveDecompiledSourceFolder(string? patchName, string? into)
+    {
+        var folder = ResolvePatchModFolder(patchName, into, "houseCARL_Scripts");
+        var src = Path.Combine(folder, "Source", "Scripts");
+        Directory.CreateDirectory(src);
+        return src;
+    }
+
+    // ---- decompiler class hierarchy (lazy, cached for process lifetime) ----------------------------------------
+
+    Dictionary<string, string>? _classParents;
+    string? _classParentsNote;
+    readonly object _classParentsLock = new();
+
+    /// <summary>The decompiler's child→parent class map: committed vanilla baseline (beside the exe) + loose .psc
+    /// headers across the MO2 mods tree (mods that ship sources — SKSE, PO3, …). Built on FIRST decompile call,
+    /// cached for process lifetime (a SOFT input by construction: missing pieces = explicit casts in the output,
+    /// never wrong code — the note names any degraded mode, Q3). The input pex's own folder is topped up per call
+    /// by the tool, not here (it varies per input).</summary>
+    public (Dictionary<string, string> Edges, string? Note) ClassParentsForDecompile()
+    {
+        lock (_classParentsLock)
+        {
+            if (_classParents is null)
+            {
+                var (edges, note) = HousecarlCore.PapyrusClassParents.LoadBaseline(
+                    Path.Combine(AppContext.BaseDirectory, "vanilla-class-parents.json"));
+                try
+                {
+                    if (!string.IsNullOrEmpty(_modsDir) && Directory.Exists(_modsDir))
+                        HousecarlCore.PapyrusClassParents.AddFromPscHeaders(edges, new[] { _modsDir });
+                }
+                catch { /* fewer edges, never fatal — the baseline still applies */ }
+                _classParents = edges;
+                _classParentsNote = note;
+            }
+            return (_classParents, _classParentsNote);
+        }
+    }
+
     /// <summary>The MO2 mod-folder name for a patch stem. The "houseCARL - " prefix groups our patches in MO2's left
     /// pane and is the human-visible ownership signal (the meta.ini marker is the structural one).</summary>
     static string ModFolderName(string stem) => "houseCARL - " + stem;

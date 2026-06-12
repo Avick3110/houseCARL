@@ -60,6 +60,10 @@ if (args.Length > 0 && args[0] == "vmad-poly-guard") return VmadPolyProbe.RunGua
 // SKSE-extended copies of vanilla sources must win). Pure order arm always runs; real-compile arm self-skips.
 if (args.Length > 0 && args[0] == "import-order-guard") return ImportOrderProbe.RunGuard(args[1..]);
 
+// Decompiler baseline hierarchy: emit vanilla-class-parents.json from the CK vanilla sources' own
+// ScriptName-extends headers (committed asset — vanilla sources don't exist on CI; regenerate on game updates).
+if (args.Length > 0 && args[0] == "class-parents") return ClassParentsEmitter.Run(args[1..]);
+
 // One-shot verify (decision #1): confirm the xEdit 4-char signature reflection path.
 if (args.Length > 0 && args[0] == "sig") return Probe.RunSig();
 
