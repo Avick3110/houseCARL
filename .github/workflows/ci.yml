@@ -134,3 +134,11 @@ jobs:
       # is the DECOMPILE side; the recompile round-trip proof is the dev-side bulk gate (no CK compiler on runners).
       - name: Probe — decompile tool (fixture fidelity + output contract)
         run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- decompile-guard
+
+      # BSA bridge contract guard (2026-06-12 adversarial hunt) — self-contained, BSArch NOT needed: the failing-
+      # BSArch stand-in is a copy of the runner's own where.exe (runs, errors, writes nothing). Locks in: unpack
+      # success = entries created/changed THIS RUN (the managed flow's pre-seeded meta.ini no longer reads as a
+      # successful extract — the false-success both hunters proved), pack provenance (a stuck stale scratch refuses
+      # loud; a fresh-run mtime gates the move; the prior archive always survives), and format-token refusal.
+      - name: Probe — BSA bridge contract (unpack/pack provenance, self-contained)
+        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- bsa-contract-guard

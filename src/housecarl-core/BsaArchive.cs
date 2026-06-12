@@ -54,15 +54,52 @@ public static class BsaArchive
         return new BsaListResult(files.Count == declared, format, declared, files, run.stdout, null);
     }
 
-    /// <summary>Unpack the WHOLE archive into <paramref name="destFolder"/> (created if absent). Success = the folder has
-    /// at least one entry afterwards (BSArch's exit code isn't relied on). "Read a file inside" = unpack, then read it.</summary>
+    /// <summary>Unpack the WHOLE archive into <paramref name="destFolder"/> (created if absent). Success = THIS RUN
+    /// added or changed entries, not "the folder is non-empty afterwards": the managed flow PRE-SEEDS the folder (the
+    /// meta.ini ownership marker is written before BSArch runs) and a caller-supplied dest may hold anything, so the
+    /// old test was satisfiable with zero extracted files and reported every BSArch failure as a successful extract
+    /// (2026-06-12 adversarial hunt, MUST-FIX). New entries are detected by PATH (robust to extractors that restore
+    /// archived timestamps); changed ones by size/mtime. Honest residual edge: re-extracting byte-identical content
+    /// over an existing dest with restored timestamps can read as "nothing new" — that direction fails LOUD with
+    /// BSArch's raw output attached, never falsely succeeds. "Read a file inside" = unpack, then read it.</summary>
     public static BsaResult Unpack(string bsarchExe, string archive, string destFolder, int timeoutMs = 300_000)
     {
         Directory.CreateDirectory(destFolder);
+        var before = SnapshotEntries(destFolder);
         var run = Run(bsarchExe, new[] { "unpack", archive, destFolder, "-mt" }, timeoutMs);
         if (run.runError is not null) return new BsaResult(false, (run.stdout + run.stderr).Trim(), run.runError);
-        bool ok = Directory.Exists(destFolder) && Directory.EnumerateFileSystemEntries(destFolder).Any();
+        bool ok = AnyNewOrChangedEntries(destFolder, before);
         return new BsaResult(ok, (run.stdout + "\n" + run.stderr).Trim(), null);
+    }
+
+    /// <summary>Snapshot a folder's files (recursive): relative path → (size, mtimeUtc). The Unpack provenance
+    /// baseline — and the bsa-contract-guard probe's seam.</summary>
+    public static Dictionary<string, (long Size, DateTime MtimeUtc)> SnapshotEntries(string folder)
+    {
+        var map = new Dictionary<string, (long, DateTime)>(StringComparer.OrdinalIgnoreCase);
+        if (!Directory.Exists(folder)) return map;
+        foreach (var f in Directory.EnumerateFiles(folder, "*", SearchOption.AllDirectories))
+        {
+            var fi = new FileInfo(f);
+            map[Path.GetRelativePath(folder, f)] = (fi.Length, fi.LastWriteTimeUtc);
+        }
+        return map;
+    }
+
+    /// <summary>Did anything appear or change under <paramref name="folder"/> since <paramref name="before"/>?
+    /// A path absent from the baseline = new (timestamp-independent); a present path with a different size or
+    /// mtime = changed.</summary>
+    public static bool AnyNewOrChangedEntries(string folder, Dictionary<string, (long Size, DateTime MtimeUtc)> before)
+    {
+        if (!Directory.Exists(folder)) return false;
+        foreach (var f in Directory.EnumerateFiles(folder, "*", SearchOption.AllDirectories))
+        {
+            var rel = Path.GetRelativePath(folder, f);
+            if (!before.TryGetValue(rel, out var b)) return true;
+            var fi = new FileInfo(f);
+            if (fi.Length != b.Size || fi.LastWriteTimeUtc != b.MtimeUtc) return true;
+        }
+        return false;
     }
 
     /// <summary>Pack <paramref name="srcFolder"/> into a .bsa at <paramref name="archive"/> with the given format flag
@@ -76,13 +113,25 @@ public static class BsaArchive
         // Pack to a scratch sibling (keeps the .bsa extension so BSArch is happy); the real target is touched only on success.
         var dir = Path.GetDirectoryName(archive) ?? Environment.CurrentDirectory;
         var tmp = Path.Combine(dir, Path.GetFileNameWithoutExtension(archive) + ".houseCARL-tmp.bsa");
-        try { if (File.Exists(tmp)) File.Delete(tmp); } catch { /* stale internal scratch; best-effort */ }
+        try { if (File.Exists(tmp)) File.Delete(tmp); } catch { /* checked next — a stuck scratch refuses loud */ }
+        if (File.Exists(tmp))
+            // A stale scratch from a previous run that we cannot remove: packing over it would let
+            // "tmp exists and is non-empty" pass on the PREVIOUS run's bytes when BSArch fails this
+            // run — a false success that ships wrong content over the target (2026-06-12 adversarial
+            // hunt). Refuse loud instead; nothing is packed, the prior archive is untouched.
+            return new BsaResult(false, "",
+                $"a stale houseCARL scratch from a previous run is stuck at '{tmp}' and could not be removed " +
+                "(another process may hold it). Delete it and retry — this run packed nothing; the existing archive, if any, is untouched.");
+        var baselineUtc = DateTime.UtcNow;
 
         var args = new List<string> { "pack", srcFolder, tmp, formatFlag, "-mt" };
         if (compress) args.Add("-z");
         var run = Run(bsarchExe, args, timeoutMs);
 
-        bool packed = run.runError is null && File.Exists(tmp) && new FileInfo(tmp).Length > 0;
+        // Provenance: THIS run must have written the scratch (mtime at/after the pre-run baseline) —
+        // existence alone proved nothing about who made it.
+        bool packed = run.runError is null && File.Exists(tmp) && new FileInfo(tmp).Length > 0
+                      && File.GetLastWriteTimeUtc(tmp) >= baselineUtc;
         if (!packed)   // BSArch couldn't run, or produced no/empty output — leave any prior archive untouched
         {
             try { if (File.Exists(tmp)) File.Delete(tmp); } catch { /* best-effort */ }
@@ -98,20 +147,26 @@ public static class BsaArchive
         return new BsaResult(File.Exists(archive) && new FileInfo(archive).Length > 0, (run.stdout + "\n" + run.stderr).Trim(), null);
     }
 
-    /// <summary>Map a houseCARL format token to a BSArch flag. Default/unknown → -sse (Skyrim Special Edition, the target).</summary>
-    public static string FormatFlag(string? format) => "-" + ((format?.Trim().ToLowerInvariant()) switch
+    /// <summary>The legal format tokens, for refusal messages.</summary>
+    public const string FormatTokens = "sse (default), tes3/morrowind, tes4/oblivion, fo3, fnv, tes5/le/skyrimle, fo4, fo4dds, sf1/starfield, sf1dds";
+
+    /// <summary>Map a houseCARL format token to a BSArch flag. Null/empty/sse-family = the -sse default (Skyrim SE,
+    /// the target). An UNKNOWN token returns null — the caller refuses loud naming <see cref="FormatTokens"/> —
+    /// instead of silently packing -sse from a typo (Q3: a silently degraded mode; 2026-06-12 adversarial hunt).</summary>
+    public static string? TryFormatFlag(string? format) => (format?.Trim().ToLowerInvariant()) switch
     {
-        "tes3" or "morrowind" => "tes3",
-        "tes4" or "oblivion" => "tes4",
-        "fo3" => "fo3",
-        "fnv" => "fnv",
-        "tes5" or "le" or "skyrimle" => "tes5",
-        "fo4" => "fo4",
-        "fo4dds" => "fo4dds",
-        "sf1" or "starfield" => "sf1",
-        "sf1dds" => "sf1dds",
-        _ => "sse",   // sse / ae / skyrimse / null / unknown → Skyrim SE
-    });
+        null or "" or "sse" or "ae" or "skyrimse" => "-sse",
+        "tes3" or "morrowind" => "-tes3",
+        "tes4" or "oblivion" => "-tes4",
+        "fo3" => "-fo3",
+        "fnv" => "-fnv",
+        "tes5" or "le" or "skyrimle" => "-tes5",
+        "fo4" => "-fo4",
+        "fo4dds" => "-fo4dds",
+        "sf1" or "starfield" => "-sf1",
+        "sf1dds" => "-sf1dds",
+        _ => null,
+    };
 
     static (bool ran, int exit, string stdout, string stderr, string? runError) Run(string exe, IReadOnlyList<string> args, int timeoutMs)
     {

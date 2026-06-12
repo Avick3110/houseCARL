@@ -28,14 +28,22 @@ public static class BsaTools
             int max_chars = 0) => Guard.Tool("housecarl_bsa_list", () =>
     {
         if (string.IsNullOrWhiteSpace(archive)) return "error: no archive given. Pass the full path to the .bsa.";
-        archive = archive.Trim().Trim('"');
+        // GetFullPath: BSArch resolves relative paths against ITS OWN folder (the child's working dir),
+        // not the server's — a relative path that passed File.Exists here could list a DIFFERENT
+        // same-named archive sitting beside BSArch (2026-06-12 adversarial hunt).
+        try { archive = Path.GetFullPath(archive.Trim().Trim('"')); }
+        catch (Exception ex) { return $"error: '{archive}' is not a usable path ({ex.Message})."; }
         if (!File.Exists(archive)) return $"error: no such file: '{archive}'.";
         if (bridge.RequireOrPrompt(ToolDependency.Bsarch, out var bsarch) is { } prompt) return prompt;
 
         var r = HousecarlCore.BsaArchive.List(bsarch!, archive);
         if (!r.Ran) return "error: " + r.RunError;
-        if (!r.Success && r.DeclaredCount == 0)
-            return $"error: BSArch could not read '{Path.GetFileName(archive)}' as an archive. Raw output:\n" + r.Raw;
+        if (!r.Success)
+            // Covers BOTH unreadable (no "Files: N" at all) and aborted-mid-list (declared N, listed
+            // fewer) — the old guard only caught the first, rendering "N file(s)" over an empty list.
+            return r.DeclaredCount == 0
+                ? $"error: BSArch could not read '{Path.GetFileName(archive)}' as an archive. Raw output:\n" + r.Raw
+                : $"error: BSArch declared {r.DeclaredCount} file(s) in '{Path.GetFileName(archive)}' but listed {r.Files.Count} — the listing aborted or the archive is damaged. Raw output:\n" + r.Raw;
 
         int cap = max_chars > 0 ? max_chars : 80_000;
         var sb = new StringBuilder();
@@ -65,7 +73,9 @@ public static class BsaTools
             string? dest = null) => Guard.Tool("housecarl_bsa_extract", () =>
     {
         if (string.IsNullOrWhiteSpace(archive)) return "error: no archive given. Pass the full path to the .bsa.";
-        archive = archive.Trim().Trim('"');
+        // GetFullPath: BSArch resolves relative paths against ITS OWN folder, not the server's (see BsaList).
+        try { archive = Path.GetFullPath(archive.Trim().Trim('"')); }
+        catch (Exception ex) { return $"error: '{archive}' is not a usable path ({ex.Message})."; }
         if (!File.Exists(archive)) return $"error: no such file: '{archive}'.";
         if (bridge.RequireOrPrompt(ToolDependency.Bsarch, out var bsarch) is { } prompt) return prompt;
 
@@ -85,7 +95,9 @@ public static class BsaTools
         var r = HousecarlCore.BsaArchive.Unpack(bsarch!, archive, target);
         if (!r.Ran) return "error: " + r.RunError;
         if (!r.Success)
-            return $"extract FAILED: '{Path.GetFileName(archive)}' produced no files in '{target}'. Raw BSArch output:\n" + r.Raw;
+            return $"extract FAILED: '{Path.GetFileName(archive)}' produced no new or changed files in '{target}' this run." +
+                   (managed ? $" The freshly created mod folder (with only houseCARL's meta.ini marker) was left at '{target}' — delete it or retry into it." : "") +
+                   "\nRaw BSArch output:\n" + r.Raw;
 
         var sb = new StringBuilder();
         sb.Append("extracted ").Append(Path.GetFileName(archive)).Append(" → ").Append(target).Append('\n');
@@ -134,7 +146,10 @@ public static class BsaTools
         catch (InvalidOperationException ex) { return "error: " + ex.Message; }
 
         var archive = Path.Combine(folder, name);
-        var fmtFlag = HousecarlCore.BsaArchive.FormatFlag(format);
+        // Unknown format tokens REFUSE (Q3): a typo like 'fo4dd' must not silently pack -sse.
+        var fmtFlag = HousecarlCore.BsaArchive.TryFormatFlag(format);
+        if (fmtFlag is null)
+            return $"error: unknown format '{format}'. Legal tokens: {HousecarlCore.BsaArchive.FormatTokens}.";
         var r = HousecarlCore.BsaArchive.Pack(bsarch!, source_folder, archive, fmtFlag, compress);
         if (!r.Ran) return "error: " + r.RunError;
         if (!r.Success)

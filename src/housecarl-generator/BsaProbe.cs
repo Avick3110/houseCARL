@@ -54,7 +54,7 @@ internal static class BsaProbe
             Check(onDisk == orig.DeclaredCount, $"unpack: files on disk == declared ({onDisk}/{orig.DeclaredCount})");
 
             // 3) PACK back (Skyrim SE, uncompressed)
-            var pk = BsaArchive.Pack(bsarch, unpacked, repacked, BsaArchive.FormatFlag("sse"), compress: false);
+            var pk = BsaArchive.Pack(bsarch, unpacked, repacked, BsaArchive.TryFormatFlag("sse")!, compress: false);
             Check(pk.Ran && pk.Success, "pack: ran + .bsa written");
             Check(File.Exists(repacked) && new FileInfo(repacked).Length > 0, "pack: output .bsa exists, non-empty");
 
@@ -68,7 +68,7 @@ internal static class BsaProbe
             //    good `repacked` from the round-trip; attempt a pack from a non-existent source to the SAME path and assert
             //    the prior archive survives byte-for-byte (the original is touched only by a clean, successful compaction).
             var beforeLen = new FileInfo(repacked).Length;
-            var failPack = BsaArchive.Pack(bsarch, Path.Combine(work, "no-such-source"), repacked, BsaArchive.FormatFlag("sse"), compress: false);
+            var failPack = BsaArchive.Pack(bsarch, Path.Combine(work, "no-such-source"), repacked, BsaArchive.TryFormatFlag("sse")!, compress: false);
             Check(!failPack.Success, "non-destructive: a pack from a missing source reports failure");
             Check(File.Exists(repacked) && new FileInfo(repacked).Length == beforeLen,
                   "non-destructive: the PRIOR archive is left intact after a failed pack");
