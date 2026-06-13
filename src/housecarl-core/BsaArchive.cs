@@ -187,6 +187,7 @@ public static class BsaArchive
         try { p = Process.Start(psi)!; }
         catch (Exception ex) { return (false, -1, "", "", $"could not run BSArch at '{exe}': {ex.Message}"); }
 
+        const int StreamDrainMs = 5000;
         var o = p.StandardOutput.ReadToEndAsync();
         var e = p.StandardError.ReadToEndAsync();
         if (!p.WaitForExit(timeoutMs))
@@ -194,6 +195,17 @@ public static class BsaArchive
             try { p.Kill(entireProcessTree: true); } catch { /* already gone */ }
             return (false, -1, "", "", $"BSArch did not finish within {timeoutMs / 1000}s (killed).");
         }
-        return (true, p.ExitCode, o.GetAwaiter().GetResult(), e.GetAwaiter().GetResult(), null);
+        // The PROCESS exited, but a grandchild that inherited the stdout/stderr pipe could keep it open and hang the
+        // stream reads forever (WaitForExit(int) does NOT flush async readers, unlike the parameterless overload).
+        // Bound the post-exit drain: on a stuck pipe kill the tree to force the inherited handles closed and report
+        // what was captured rather than blocking indefinitely (Q3 — a bounded, named degradation, never a hang).
+        bool drained; try { drained = Task.WaitAll(new Task[] { o, e }, StreamDrainMs); } catch { drained = false; }
+        if (!drained) { try { p.Kill(entireProcessTree: true); } catch { /* already gone */ } }
+        var stdout = o.IsCompletedSuccessfully ? o.Result : "";
+        var stderr = e.IsCompletedSuccessfully ? e.Result : "";
+        return drained
+            ? (true, p.ExitCode, stdout, stderr, null)
+            : (true, p.ExitCode, stdout, stderr,
+               $"BSArch exited but its output did not drain within {StreamDrainMs / 1000}s (a child process may still hold the pipe) — captured output may be truncated.");
     }
 }
