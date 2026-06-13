@@ -18,7 +18,8 @@ namespace HousecarlGenerator;
 ///   1  core/resolve — an overwrite-only plugin listed in the profile resolves to its overwrite path, no warning.
 ///   2  core/priority — a filename present in overwrite AND an enabled mod resolves to the OVERWRITE copy.
 ///   3  core/warning — a genuinely-missing plugin still warns, and the warning names the overwrite folder among
-///      the places searched (the message is honest about what was checked).
+///      the places searched (the message is honest about what was checked) — but in explicit-paths mode
+///      (overwriteDir="") the SAME warning omits overwrite, since it was never searched (hunt F9-3).
 ///   4  service/end-to-end — a real (synthesized) plugin only in overwrite: the service resolves the full order,
 ///      reads a record out of the overwrite plugin, and reports no warnings.
 ///   5  service/freshness — the overwrite plugin enters the profile files mid-session (the MO2-refresh flow after
@@ -77,6 +78,14 @@ internal static class OverwriteResolveProbe
                 Check(goneWarn is not null, "a genuinely-missing plugin still warns");
                 Check(goneWarn is not null && goneWarn.Contains("overwrite", StringComparison.OrdinalIgnoreCase),
                       "…and the warning names the overwrite folder among the places searched");
+
+                // F9-3: explicit-paths mode passes overwriteDir="" (there IS no overwrite layer), so the same warning
+                // must NOT claim the overwrite folder was searched — that would overstate what was checked (Q3).
+                var rExplicit = Mo2LoadOrder.Build(prof, mods, data, "");
+                var goneWarnExplicit = rExplicit.Warnings.FirstOrDefault(w => w.Contains("Gone.esp", StringComparison.OrdinalIgnoreCase));
+                Check(goneWarnExplicit is not null, "explicit mode (overwriteDir=\"\"): a missing plugin still warns");
+                Check(goneWarnExplicit is not null && !goneWarnExplicit.Contains("overwrite", StringComparison.OrdinalIgnoreCase),
+                      "…and the warning does NOT name the overwrite folder (it was never searched in explicit mode)");
             }
 
             // ---- arms 4-5: the real service against a synthetic instance with real plugin bytes ----
