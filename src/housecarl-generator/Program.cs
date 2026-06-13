@@ -82,6 +82,11 @@ if (args.Length > 0 && args[0] == "overwrite-resolve-guard") return OverwriteRes
 // SKSE-extended copies of vanilla sources must win). Pure order arm always runs; real-compile arm self-skips.
 if (args.Length > 0 && args[0] == "import-order-guard") return ImportOrderProbe.RunGuard(args[1..]);
 
+// Render-clamp guard (2026-06-13 cosmetic sweep, render NOTEs N2+N3): the Nexus description renderer
+// truncates surrogate-safe (an emoji at the clamp boundary is never split into a lone half-glyph) and
+// decodes &amp; LAST so a double-encoded "&amp;lt;" renders the literal "&lt;", not "<". Pure strings.
+if (args.Length > 0 && args[0] == "render-clamp-guard") return RenderClampProbe.RunGuard(args[1..]);
+
 // Decompiler baseline hierarchy: emit vanilla-class-parents.json from the CK vanilla sources' own
 // ScriptName-extends headers (committed asset — vanilla sources don't exist on CI; regenerate on game updates).
 if (args.Length > 0 && args[0] == "class-parents") return ClassParentsEmitter.Run(args[1..]);

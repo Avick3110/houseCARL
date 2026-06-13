@@ -128,6 +128,13 @@ jobs:
       - name: Probe — compile-tool import order (import_dirs outrank vanilla)
         run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- import-order-guard
 
+      # Render-clamp guard (2026-06-13 cosmetic sweep, render NOTEs N2+N3): the Nexus description renderer
+      # truncates surrogate-safe (an emoji/astral char at the truncation boundary is never split into a lone
+      # half-glyph) and decodes the &amp; entity LAST, so a double-encoded "&amp;lt;" renders the literal text
+      # "&lt;" rather than double-decoding to "<". Pure string transforms — runs fully here, no game data.
+      - name: Probe — render clamp (surrogate-safe truncation + &amp;-last entity decode)
+        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- render-clamp-guard
+
       # Committed-fixture contract for housecarl_decompile_script (fixtures are our OWN compiled probe sources):
       # construct fidelity vs a reviewed golden, unreadable-pex fails loud, an existing .psc is never overwritten,
       # and a missing class-hierarchy degrades to explicit casts (correct source) — runs fully here. What CI proves
