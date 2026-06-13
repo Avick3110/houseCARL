@@ -25,6 +25,9 @@ namespace HousecarlGenerator;
 ///                gate means the second opens what the first committed — no lost update). RED pre-fix.
 ///   ORPHAN     — a pre-flight-refused fresh write leaves NO folder behind, twice over (no _001 accretion), and
 ///                a later successful write under that name gets the BASE stem. RED pre-fix (deterministic).
+///   DOTTED     — a dotted patch name ("My.Cool.Patch") keeps every segment in the folder + plugin, and an
+///                into= naming the .esp-suffixed form strips ONLY the extension, resolving the SAME folder.
+///                RED pre-fix (Path.GetFileNameWithoutExtension clipped at the last dot -> "My.Cool"). NOTE N1.
 /// </summary>
 internal static class WriteMutexProbe
 {
@@ -159,6 +162,22 @@ internal static class WriteMutexProbe
                 var good = svc.ApplyEdits(new[] { DamageOp(fid, 75) }, "HcWmxOrphan", null);
                 Check(good.Success && good.OutputPath.EndsWith(Path.Combine("houseCARL - HcWmxOrphan", "HcWmxOrphan.esp"), StringComparison.OrdinalIgnoreCase),
                       $"a later good write gets the BASE stem, not an accreted _NNN — wrote {Path.GetFileName(good.OutputPath)}");
+            }
+
+            // ---- DOTTED: a dotted patch name survives intact; into= strips only the extension (render NOTE N1) ----
+            Console.WriteLine();
+            Console.WriteLine("--- 4: dotted patch name not clipped at a dot (render NOTE N1) ---");
+            {
+                var dot = svc.ApplyEdits(new[] { DamageOp(fid, 80) }, "My.Cool.Patch", null);
+                Check(dot.Success && dot.OutputPath.EndsWith(
+                          Path.Combine("houseCARL - My.Cool.Patch", "My.Cool.Patch.esp"), StringComparison.OrdinalIgnoreCase),
+                      $"the dotted stem survives — folder + plugin keep every segment (wrote {Path.GetFileName(dot.OutputPath)})");
+                // into= naming the .esp-suffixed form strips ONLY the extension and resolves the SAME dotted folder.
+                var ext = svc.ApplyEdits(
+                    new[] { new BulkOp { Formid = fid, FieldPath = "BasicStats.Weight", Verb = "Set", Value = "9" } },
+                    null, "My.Cool.Patch.esp");
+                Check(ext.Success && dot.Success && string.Equals(ext.OutputPath, dot.OutputPath, StringComparison.OrdinalIgnoreCase),
+                      $"into='My.Cool.Patch.esp' resolves the SAME folder — extension stripped, inner dots kept (into {Path.GetFileName(ext.OutputPath)})");
             }
         }
         finally { try { Directory.Delete(root, recursive: true); } catch { /* temp scratch */ } }
