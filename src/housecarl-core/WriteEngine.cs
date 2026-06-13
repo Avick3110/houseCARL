@@ -1008,6 +1008,154 @@ public static class WriteEngine
             $"Could not locate an AddNew({(withEdid ? "string" : "")}) extension accepting {group.GetType().Name} in the Mutagen assemblies.");
     }
 
+    // ======================================================================
+    //  NESTED CREATE front-end (nested/dialogue plan, Layer A — STEP 0 proven).
+    //  The sibling of NestedGetOrAddAsOverride: where that OVERRIDES an existing
+    //  nested record into the patch, this ALLOCATES a brand-new child INTO a
+    //  parent's modeled child-collection. By construction for the FormKey-
+    //  parented families (an INFO under a DialogTopic; a Placed* into a Cell):
+    //  the add-target collection is found REFLECTIVELY — the child type alone
+    //  picks it (outcome i) or the caller names one of the parent's enumerable
+    //  child-collections (outcome ii) — never a hand-coded per-family selector.
+    //  The parent must already be settable IN the patch (the caller overrides or
+    //  creates it first). Coordinate-keyed parents (an exterior Cell under the
+    //  FormKey-LESS WorldspaceBlock/SubBlock structs) are a SEPARATE §4-(b) seam,
+    //  not reachable here — TryFindNestedCollection fails loud for them (Q3).
+    // ======================================================================
+
+    /// <summary>Resolve a catalog/record-type name to its concrete Mutagen record <see cref="Type"/>. The namespace
+    /// is <c>Mutagen.Bethesda.Skyrim</c> by construction (the Loqui convention). Null ⇒ absent from the modeled set,
+    /// a real coverage gap to surface (Q3), never a value to guess.</summary>
+    public static Type? ResolveConcreteRecordType(string catalogName)
+        => typeof(IArmorGetter).Assembly.GetType("Mutagen.Bethesda.Skyrim." + catalogName);
+
+    /// <summary>Can a brand-new <paramref name="childCatalogName"/> record be created as a nested child of a parent of
+    /// <paramref name="parentType"/>, into <paramref name="collectionName"/> (null = the unique collection that accepts
+    /// the child)? The by-construction add-target test (nested plan §1.4 Q2): the parent's settable child-collections are
+    /// found reflectively, so "createable-under" is defined by the model, not a hand-coded per-family list. Every false
+    /// (no such containment, an ambiguous unnamed target, an unknown collection name) names what it checked (Q3).</summary>
+    public static bool CanCreateNested(string childCatalogName, Type parentType, string? collectionName, out string? reason)
+    {
+        var childType = ResolveConcreteRecordType(childCatalogName);
+        if (childType is null)
+        {
+            reason = $"'{childCatalogName}' is absent from the Mutagen corpus — a real coverage gap to surface, not a value to guess.";
+            return false;
+        }
+        return TryFindNestedCollection(parentType, childType, collectionName, out _, out _, out reason);
+    }
+
+    /// <summary>Find the parent type's SETTABLE child-collection to allocate a <paramref name="childType"/> into — the
+    /// generic add-target resolver. Reflects the parent's list/ExtendedList properties whose element type the child
+    /// satisfies. Outcomes: exactly one match ⇒ derivable by type (i), returned; several ⇒ the caller must NAME one
+    /// (<paramref name="collectionName"/> picks it) (ii); zero ⇒ the child cannot nest under this parent (a real
+    /// containment boundary, Q3). <paramref name="error"/> names the unnamed-ambiguous / no-containment / bad-name cases;
+    /// null on success.</summary>
+    static bool TryFindNestedCollection(Type parentType, Type childType, string? collectionName,
+        out PropertyInfo? prop, out List<string> matches, out string? error)
+    {
+        prop = null; error = null;
+        matches = new List<string>();
+        var hits = new List<PropertyInfo>();
+        foreach (var p in parentType.GetProperties(BindingFlags.Public | BindingFlags.Instance))
+        {
+            if (p.GetGetMethod() is null) continue;                          // need a readable list instance to Add to
+            var elem = ListElementType(p.PropertyType);
+            if (elem is null) continue;
+            if (!elem.IsAssignableFrom(childType)) continue;                 // the child fits this list's element type
+            if (!typeof(System.Collections.IList).IsAssignableFrom(p.PropertyType)) continue;  // addable (ExtendedList<T> is an IList)
+            hits.Add(p); matches.Add(p.Name);
+        }
+        var parentName = parentType.Name;   // concrete class name, already clean (never an I…Getter here)
+        var childName = childType.Name;
+        if (hits.Count == 0)
+        {
+            error = $"'{childName}' cannot be created under a '{parentName}' — that parent models no child-collection that " +
+                    "holds it. (A real containment boundary — e.g. exterior cells nest under FormKey-less worldspace block " +
+                    "structs, a separate capability — surfaced not guessed, Q3.)";
+            return false;
+        }
+        if (collectionName is not null)
+        {
+            var named = hits.FirstOrDefault(h => string.Equals(h.Name, collectionName, StringComparison.OrdinalIgnoreCase));
+            if (named is null)
+            {
+                error = $"'{parentName}' has no child-collection named '{collectionName}' that holds '{childName}'. Available: {string.Join(", ", matches)}.";
+                return false;
+            }
+            prop = named; return true;
+        }
+        if (hits.Count > 1)
+        {
+            error = $"'{childName}' can be added to more than one collection on '{parentName}' ({string.Join(", ", matches)}) — " +
+                    "name which one (the collection= discriminator). (Q3 — never a silent default.)";
+            return false;
+        }
+        prop = hits[0]; return true;
+    }
+
+    /// <summary>The element type of an <c>IList&lt;T&gt;</c>/<c>ExtendedList&lt;T&gt;</c>-shaped property, else null
+    /// (a scalar, a string, a read-only sequence). Used to match a parent's child-collections to a child type.</summary>
+    static Type? ListElementType(Type t)
+    {
+        if (t == typeof(string) || !typeof(System.Collections.IEnumerable).IsAssignableFrom(t)) return null;
+        if (t.IsGenericType && t.GetGenericArguments() is { Length: 1 } ga) return ga[0];
+        return t.GetInterfaces().FirstOrDefault(i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IList<>))
+                ?.GetGenericArguments()[0];
+    }
+
+    /// <summary>Construct a concrete Mutagen record via its <c>(FormKey, &lt;release enum&gt;)</c> constructor — the
+    /// net-new nested child. The ctor shape is discovered reflectively (measure, don't assume); throws loud if absent.</summary>
+    static IMajorRecord ConstructRecord(Type concrete, FormKey fk)
+    {
+        var ctor = concrete.GetConstructors()
+            .FirstOrDefault(c => c.GetParameters().Length == 2
+                && c.GetParameters()[0].ParameterType == typeof(FormKey) && c.GetParameters()[1].ParameterType.IsEnum);
+        if (ctor is null)
+            throw new InvalidOperationException($"nested create: no (FormKey, release) constructor on {concrete.Name} — surfaced, not guessed (Q3).");
+        var release = Enum.Parse(ctor.GetParameters()[1].ParameterType, "SkyrimSE");
+        return (IMajorRecord)ctor.Invoke(new object[] { fk, release });
+    }
+
+    /// <summary>Allocate the next LOCAL FormKey from the patch's own allocator (<c>GetNextFormKey</c>), discovered
+    /// reflectively. The caller floors the counter first (<see cref="EnsureFormIdFloor"/>), so the returned id is in
+    /// the 0x800+ ESP-local range and shares the SAME incrementing counter flat <c>AddNew</c> draws from (STEP 0).</summary>
+    static FormKey AllocateNextFormKey(SkyrimMod patchMod)
+    {
+        var m = patchMod.GetType().GetMethods(BindingFlags.Public | BindingFlags.Instance)
+            .FirstOrDefault(x => x.Name == "GetNextFormKey" && x.GetParameters().Length == 0)
+            ?? throw new InvalidOperationException("nested create: no GetNextFormKey() on the patch mod — surfaced, not guessed (Q3).");
+        return (FormKey)m.Invoke(patchMod, null)!;
+    }
+
+    /// <summary>The CREATE front-end for a NESTED record: allocate a brand-new <paramref name="childCatalogName"/> child
+    /// into <paramref name="parentInPatch"/>'s modeled child-collection (named, or the unique one), returning a settable
+    /// root fed into the SAME <see cref="ApplyVerb"/> path as a flat create or an override. The new record gets a fresh
+    /// local 0x800+ FormKey from the SAME floor/counter as flat <see cref="GenericAddNew"/> (the nested plan §1.5 inherited
+    /// item — proven sharing in STEP 0). The parent MUST already be settable in the patch (overridden or created by the
+    /// caller). Throws loud (Q3) via <see cref="TryFindNestedCollection"/> on a containment/ambiguity the pre-flight
+    /// (<see cref="CanCreateNested"/>) should have caught — a throw here means the surface changed under us.</summary>
+    public static IMajorRecord NestedAddNew(SkyrimMod patchMod, IMajorRecord parentInPatch,
+        string childCatalogName, string? collectionName, string? editorId)
+    {
+        var childType = ResolveConcreteRecordType(childCatalogName)
+            ?? throw new InvalidOperationException($"nested create: '{childCatalogName}' is absent from the Mutagen corpus.");
+        if (!TryFindNestedCollection(parentInPatch.GetType(), childType, collectionName, out var prop, out _, out var error))
+            throw new InvalidOperationException(error);
+        if (prop!.GetValue(parentInPatch) is not System.Collections.IList list)
+            throw new InvalidOperationException($"nested create: collection '{prop.Name}' on '{parentInPatch.GetType().Name}' is not an addable list.");
+
+        EnsureFormIdFloor(patchMod);   // a rehydrated (into=) counter below 0x800 would hand engine-reserved IDs (HCBR-2026-06-09-04)
+        if (patchMod.ModHeader.Stats.NextFormID > 0xFFFFFF)
+            throw new InvalidOperationException(
+                $"cannot allocate a new FormID: the patch's NextObjectID counter is 0x{patchMod.ModHeader.Stats.NextFormID:X} — " +
+                "past the 24-bit object-ID ceiling (0xFFFFFF). The plugin is full or its header counter is corrupt.");
+        var child = ConstructRecord(childType, AllocateNextFormKey(patchMod));
+        if (editorId is not null) child.EditorID = editorId;
+        list.Add(child);
+        return child;
+    }
+
     static MethodInfo? _overrideMethod;
     /// <summary>The 2-arg <c>GetOrAddAsOverride&lt;TMajor,TMajorGetter&gt;(IGroup&lt;TMajor&gt;, TMajorGetter)</c> extension.</summary>
     static MethodInfo OverrideMethod()
