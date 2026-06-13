@@ -86,13 +86,18 @@ public static class SetupTools
     /// <summary>Confirmation: the instance + the DERIVED roots + the AUTO-DETECTED profile, a cheap enabled/active summary
     /// (text-file read, no deep index — proof houseCARL found the order), and whether the choice was persisted (Q3: a
     /// failed save is reported, not hidden; a corrupt-file recovery is named even on success — hunt F3).</summary>
-    static string Render(Mo2InstancePaths p, bool persisted, string? persistError, string? persistNote)
+    internal static string Render(Mo2InstancePaths p, bool persisted, string? persistError, string? persistNote)
     {
         var sb = new StringBuilder();
         sb.Append("configured houseCARL -> MO2 instance '").Append(p.InstanceDir).Append("'\n");
         sb.Append("active profile: ").Append(p.ProfileName).Append("  (auto-detected from ModOrganizer.ini)\n");
         sb.Append("  mods folder: ").Append(p.ModsDir).Append('\n');
         sb.Append("  game Data  : ").Append(p.DataDir).Append('\n');
+        // The overwrite layer is one of the derived roots (MO2's top-of-VFS, where tool outputs resolve from). It is
+        // NOT required to exist on a fresh instance, so annotate an absent one rather than printing a bare path that
+        // looks like a broken root.
+        sb.Append("  overwrite  : ").Append(p.OverwriteDir)
+          .Append(Directory.Exists(p.OverwriteDir) ? "" : "  (none yet — MO2 creates it when a tool writes here)").Append('\n');
 
         // Cheap composition (the three profile text files only — NO deep index): a quick figure so the user sees houseCARL
         // actually found the order. The resolve already confirmed the profile files exist; a read hiccup here is non-fatal
