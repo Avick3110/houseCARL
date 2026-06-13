@@ -3,9 +3,10 @@ using HousecarlCore;
 namespace HousecarlGenerator;
 
 /// <summary>
-/// Launch-arc item 3 proof — <see cref="Mo2Instance"/> derives the three load-order roots (ProfileDir / ModsDir /
-/// DataDir) + the ACTIVE profile from ONE path (the MO2 instance folder), by reading ModOrganizer.ini. Deterministic,
-/// solo, touches no tracked file:
+/// Launch-arc item 3 proof — <see cref="Mo2Instance"/> derives the load-order roots + the ACTIVE profile from ONE path
+/// (the MO2 instance folder), by reading ModOrganizer.ini. This probe proves the three that reproduce the old hardcoding
+/// (ProfileDir / ModsDir / DataDir); OverwriteDir (the fourth root, hunt F9) is covered by overwrite-resolve-guard.
+/// Deterministic, solo, touches no tracked file:
 ///
 ///   E5 (the real instance) — Resolve(Aaron's real `C:\MO2\Instance`) must reproduce EXACTLY the three paths
 ///       that were hand-typed into appsettings.json (the ground truth this replaces), and auto-detect the selected
@@ -155,7 +156,7 @@ public static class Mo2InstanceProbe
 
         Directory.Delete(tmp, recursive: true);
         Console.WriteLine(allPass
-            ? "=== PASS: one instance path → the three roots + active profile, by construction (real == old hardcoding); Qt quirks + loud-fail edges proven. ==="
+            ? "=== PASS: one instance path → the load-order roots + active profile, by construction (real == old hardcoding); Qt quirks + loud-fail edges proven. ==="
             : "=== read the per-E lines above (a !! marks the thing to fix). ===");
         return allPass ? 0 : 1;
 
