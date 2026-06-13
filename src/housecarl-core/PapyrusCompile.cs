@@ -99,6 +99,7 @@ public static class PapyrusCompile
                 $"could not run the Papyrus compiler at '{compilerExe}': {ex.Message}");
         }
 
+        const int StreamDrainMs = 5000;
         var outTask = proc.StandardOutput.ReadToEndAsync();
         var errTask = proc.StandardError.ReadToEndAsync();
         if (!proc.WaitForExit(timeoutMs))
@@ -107,8 +108,14 @@ public static class PapyrusCompile
             return new CompileResult(false, objectName, null, Array.Empty<PapyrusDiagnostic>(), "", "", -1,
                 $"the Papyrus compiler did not finish within {timeoutMs / 1000}s (killed).");
         }
-        var stdout = outTask.GetAwaiter().GetResult();
-        var stderr = errTask.GetAwaiter().GetResult();
+        // The PROCESS exited, but a grandchild inheriting the stdout/stderr pipe could keep it open and hang the stream
+        // reads forever (WaitForExit(int) does NOT flush async readers, unlike the parameterless overload). Bound the
+        // post-exit drain: on a stuck pipe kill the tree to force the handles closed and use what was captured rather
+        // than blocking indefinitely (Q3). producedNow is decided on the .pex's mtime, independent of the streams.
+        bool drained; try { drained = Task.WaitAll(new Task[] { outTask, errTask }, StreamDrainMs); } catch { drained = false; }
+        if (!drained) { try { proc.Kill(entireProcessTree: true); } catch { /* already gone */ } }
+        var stdout = outTask.IsCompletedSuccessfully ? outTask.Result : "";
+        var stderr = errTask.IsCompletedSuccessfully ? errTask.Result : "";
 
         var diags = ParseDiagnostics(stderr);
         // Success = THIS run WROTE the .pex. Warnings are NON-FATAL: if the compiler still emitted a .pex it's "good
