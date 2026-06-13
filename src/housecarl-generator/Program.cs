@@ -133,6 +133,11 @@ if (args.Length > 0 && args[0] == "nested-probe") return NestedProbe.RunNestedPr
 // the FormID floor, and characterizes the coordinate-keyed §4-(b) seam. Throwaway recon, fail-loud per shape (Q3).
 if (args.Length > 0 && args[0] == "nested-create-probe") return NestedCreateProbe.RunProbe(args[1..]);
 
+// Nested-create build proof (Layer A): drive the REAL WritePatchBuilder.CreateRecords nested path — one-shot
+// topic+INFO, INFO into an existing topic, Placed into a cell (named collection), + the Q3 rejects (no-parent,
+// bad parent, ambiguous collection, forward sibling). Re-opens each patch from disk; Skyrim.esm byte-checked.
+if (args.Length > 0 && args[0] == "nested-create-proof") return NestedCreateProof.RunProof(args[1..]);
+
 // Wave 4 scout: recon Mutagen's IFormLinkOrIndex condition-target API — the form-vs-index discriminator (condition oracle), the wave-4 unknown.
 if (args.Length > 0 && args[0] == "condition-probe") return ConditionProbe.RunConditionProbe(args[1..]);
 

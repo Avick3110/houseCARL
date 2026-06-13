@@ -98,6 +98,19 @@ public static class WritePatchBuilder
         public required string RecordType { get; init; }
         public required string EditorId { get; init; }
         public required IReadOnlyList<WriteRequest> Edits { get; init; }
+
+        /// <summary>Optional — the PARENT this record nests UNDER (nested-create, Layer A). Either an EXISTING parent's
+        /// FormKey (<c>XXXXXX:Plugin.esp</c> — add a line to an existing topic, a ref to an existing cell) OR the
+        /// <see cref="EditorId"/> of a record created EARLIER in this same call (the one-shot "topic + its lines" unit).
+        /// A FormKey is recognised by parsing; anything else is a same-call sibling EditorId. Null ⇒ a flat top-level
+        /// record (the existing create path, unchanged).</summary>
+        public string? ParentRef { get; init; }
+
+        /// <summary>Optional — which of the parent's child-collections to add into, BY NAME (the outcome-(ii)
+        /// discriminator, e.g. a Cell's <c>Persistent</c>/<c>Temporary</c>). Null ⇒ the unique collection that accepts
+        /// this child type (outcome (i), e.g. a DialogTopic's one <c>Responses</c> list). Ignored when
+        /// <see cref="ParentRef"/> is null.</summary>
+        public string? IntoCollection { get; init; }
     }
 
     /// <summary>One record created by <see cref="CreateRecords"/> — its freshly-allocated <see cref="FormKey"/> (the
@@ -380,17 +393,54 @@ public static class WritePatchBuilder
         // when the method returns — no handle held at rest.
         using var session = resolver.OpenSession();
 
-        // --- Phase 1: pre-flight EVERY spec before any mutation (Q3, all-or-nothing). editorid required; the type must be
-        //     createable (a concrete flat group — else the named nested/abstract boundary message); every edit validated by
-        //     the rulebook rooted at the create type. The new FormID isn't known until AddNew (Phase 3), so creatability is
-        //     a STRUCTURAL check (no resolve, no winner). ---
+        // --- Phase 1: pre-flight EVERY spec before any mutation (Q3, all-or-nothing). editorid required + unique; the
+        //     type must be createable — a FLAT top-level type (CanCreateType), OR a NESTED child given a valid parent
+        //     (CanCreateNested): the parent is resolved to its TYPE (an existing parent FormKey's load-order winner, or a
+        //     record created EARLIER in this same call — the one-shot order rule), and the child must nest under it by
+        //     construction (§1.4 Q2). Every edit is validated by the rulebook rooted at the create type. The new FormID
+        //     isn't known until allocation (Phase 3), so creatability is STRUCTURAL; a FormKey parent is resolved here only
+        //     to learn its TYPE + stash its winner body for the Phase-3 override. ONE captured build answers every parent
+        //     resolve (the hunt-F5 discipline the edit path follows). ---
+        var view = resolver.Capture();
         var problems = new List<string>();
         var seenEdid = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var s in specs)
+        var declaredEdidType = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);   // editorid -> RecordType (same-call sibling parents)
+        var parentPlans = new List<(IMajorRecordGetter? body, string? winnerPlugin, string? sibling)?>(specs.Count);
+        for (int i = 0; i < specs.Count; i++)
         {
+            var s = specs[i];
+            parentPlans.Add(null);   // flat default; overwritten on the nested path
             if (string.IsNullOrWhiteSpace(s.EditorId)) { problems.Add($"{s.RecordType}: an editorid is required to create a record (it's how the record is referenced)."); continue; }
             if (!seenEdid.Add(s.EditorId)) { problems.Add($"editorid '{s.EditorId}' is used by more than one record in this call — each created record needs a distinct editorid."); continue; }
-            if (!WriteEngine.CanCreateType(s.RecordType, out var why)) { problems.Add($"{s.RecordType} '{s.EditorId}': {why}"); continue; }
+            declaredEdidType[s.EditorId] = s.RecordType;
+
+            if (s.ParentRef is null)
+            {
+                if (!WriteEngine.CanCreateType(s.RecordType, out var why)) { problems.Add($"{s.RecordType} '{s.EditorId}': {why}"); continue; }
+            }
+            else
+            {
+                Type? parentType = null;
+                if (FormKey.TryFactory(s.ParentRef, out var parentFk))
+                {
+                    var w = view.ResolveWinner(parentFk);
+                    if (w is null) { problems.Add($"{s.RecordType} '{s.EditorId}': parent {parentFk} is not present in the load order — name an existing parent or create it first."); continue; }
+                    var parentBody = view.GetRecord(session, w.Value.WinnerPlugin, parentFk);
+                    if (parentBody is null) { problems.Add($"{s.RecordType} '{s.EditorId}': parent {parentFk} winner '{w.Value.WinnerPlugin}' did not yield it on fetch (a load-order inconsistency)."); continue; }
+                    parentType = WriteEngine.ResolveConcreteRecordType(RecordNaming.StripOverlay(parentBody.GetType().Name));
+                    parentPlans[i] = (parentBody, w.Value.WinnerPlugin, null);
+                }
+                else   // a same-call sibling parent — must be DECLARED EARLIER in this call (topic before its lines)
+                {
+                    if (s.ParentRef.Equals(s.EditorId, StringComparison.OrdinalIgnoreCase) || !declaredEdidType.TryGetValue(s.ParentRef, out var parentCatalog))
+                    { problems.Add($"{s.RecordType} '{s.EditorId}': parent '{s.ParentRef}' is neither an existing FormID nor a record created EARLIER in this call — create the parent (e.g. the topic) before its children, in spec order."); continue; }
+                    parentType = WriteEngine.ResolveConcreteRecordType(parentCatalog);
+                    parentPlans[i] = (null, null, s.ParentRef);
+                }
+                if (parentType is null) { problems.Add($"{s.RecordType} '{s.EditorId}': could not resolve the parent's record type."); continue; }
+                if (!WriteEngine.CanCreateNested(s.RecordType, parentType, s.IntoCollection, out var nestedWhy)) { problems.Add($"{s.RecordType} '{s.EditorId}': {nestedWhy}"); continue; }
+            }
+
             foreach (var req in s.Edits)
                 if (rulebook.Validate(req) is { } reject) problems.Add($"{s.RecordType} '{s.EditorId}' [{Label(req)}]: {reject}");
         }
@@ -424,13 +474,51 @@ public static class WritePatchBuilder
         //     idempotent, list fields can't accumulate, and stable FormKeys keep cross-record links + external references
         //     valid. Collisions it will NOT absorb (carried overrides, duplicate residue, cross-type) refuse loud there;
         //     every replace that DOES happen is carried on CreatedRecord.ReplacedExisting and rendered to the user. ---
+        //     NESTED create (a spec with a ParentRef): the parent is made settable IN the patch first — an existing
+        //     parent is overridden in (a flat parent needs no link cache; a nested parent — a Cell — gets the winner
+        //     overlay's cache, the SAME session.LinkCacheFor path Apply uses + guards), a same-call sibling parent is
+        //     the record created earlier in this loop — then WriteEngine.NestedAddNew allocates the child into the
+        //     parent's modeled collection (named, or the unique one). Idempotency note: nested create APPENDS (no
+        //     upsert-replace yet — a re-run into= re-adds; a follow-up surface). ---
         var created = new List<CreatedRecord>(specs.Count);
-        foreach (var s in specs)
+        var createdByEditorId = new Dictionary<string, IMajorRecord>(StringComparer.OrdinalIgnoreCase);
+        var linkCacheByPlugin = new Dictionary<string, Mutagen.Bethesda.Plugins.Cache.ILinkCache>(StringComparer.OrdinalIgnoreCase);
+        for (int i = 0; i < specs.Count; i++)
         {
-            IMajorRecord rec; bool replaced;
-            try { (rec, replaced) = WriteEngine.GenericUpsertNew(patchMod, s.RecordType, s.EditorId); }
+            var s = specs[i];
+            IMajorRecord rec; bool replaced = false;
+            try
+            {
+                if (s.ParentRef is null)
+                {
+                    (rec, replaced) = WriteEngine.GenericUpsertNew(patchMod, s.RecordType, s.EditorId);
+                }
+                else
+                {
+                    var plan = parentPlans[i]!.Value;
+                    IMajorRecord settableParent;
+                    if (plan.body is not null)
+                    {
+                        Mutagen.Bethesda.Plugins.Cache.ILinkCache? cache = null;
+                        if (WriteEngine.RecordNeedsSourceCache(plan.body))
+                        {
+                            if (!linkCacheByPlugin.TryGetValue(plan.winnerPlugin!, out cache))
+                                linkCacheByPlugin[plan.winnerPlugin!] = cache = session.LinkCacheFor(plan.winnerPlugin!);
+                        }
+                        settableParent = WriteEngine.GenericGetOrAddAsOverride(patchMod, plan.body, cache);
+                    }
+                    else
+                    {
+                        if (!createdByEditorId.TryGetValue(plan.sibling!, out var sib))
+                            return CreateOutcome.Fail($"internal: same-call parent '{plan.sibling}' for '{s.EditorId}' was not created before it — surfaced, not swallowed (Q3).");
+                        settableParent = sib;
+                    }
+                    rec = WriteEngine.NestedAddNew(patchMod, settableParent, s.RecordType, s.IntoCollection, s.EditorId);
+                }
+            }
             catch (Exception ex) { return CreateOutcome.Fail($"could not create {s.RecordType} '{s.EditorId}': {ex.Message}"); }
 
+            createdByEditorId[s.EditorId] = rec;
             var ops = new List<OpResult>(s.Edits.Count);
             foreach (var req in s.Edits)
             {
