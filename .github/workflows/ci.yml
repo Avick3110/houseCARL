@@ -182,3 +182,11 @@ jobs:
       # a synthetic MO2 instance with real synthesized plugins for the end-to-end arms.
       - name: Probe — MO2 overwrite-folder resolution (tool outputs resolve, on top)
         run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- overwrite-resolve-guard
+
+      # MO2 instance derivation (launch-arc item 3 + hunt H1): one instance path derives the load-order roots + the
+      # active profile from ModOrganizer.ini, with the Qt @ByteArray/doubled-backslash quirks handled and every missing
+      # piece NAMED in the problem list (Q3) — including a base_directory that is SET but points at a missing folder
+      # (still usable via the instance-dir fallback, but the discarded base_directory is named, not silently dropped).
+      # The real-instance arms (E5/E6) self-skip when Aaron's C:\MO2\Instance is absent; the synthetic edges run fully.
+      - name: Probe — MO2 instance derivation (roots + profile + base_directory honesty)
+        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- mo2instance-probe
