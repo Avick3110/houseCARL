@@ -128,6 +128,11 @@ if (args.Length > 0 && args[0] == "substruct-probe") return WriteEngine.RunSubst
 // Wave 3 scout: recon Mutagen's nested-group override API (Cell/Placed*/INFO/Navmesh/Landscape) — the highest-risk unknown.
 if (args.Length > 0 && args[0] == "nested-probe") return NestedProbe.RunNestedProbe(args[1..]);
 
+// STEP 0 scout (nested/dialogue plan §1.4, BLOCKING): can houseCARL ALLOCATE a brand-new record INTO a nested parent
+// by construction? Tests DuplicateIntoAsNewRecord (clone-a-sibling) + construct-and-Add-into-collection (new parent),
+// the FormID floor, and characterizes the coordinate-keyed §4-(b) seam. Throwaway recon, fail-loud per shape (Q3).
+if (args.Length > 0 && args[0] == "nested-create-probe") return NestedCreateProbe.RunProbe(args[1..]);
+
 // Wave 4 scout: recon Mutagen's IFormLinkOrIndex condition-target API — the form-vs-index discriminator (condition oracle), the wave-4 unknown.
 if (args.Length > 0 && args[0] == "condition-probe") return ConditionProbe.RunConditionProbe(args[1..]);
 
