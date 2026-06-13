@@ -130,7 +130,7 @@ public static class PerkRefsProbe
         Console.WriteLine($"################  REAL-DATA PROOF — cross_plugin_query type=Perk references={refRaw} on {Path.GetFileName(instanceDir)}  ################");
         Console.WriteLine();
         var p = Mo2Instance.Resolve(instanceDir);
-        var order = Mo2LoadOrder.Build(p.ProfileDir, p.ModsDir, p.DataDir);
+        var order = Mo2LoadOrder.Build(p.ProfileDir, p.ModsDir, p.DataDir, p.OverwriteDir);
         using var resolver = LoadOrderResolver.Build(order.OrderedPaths.ToList());
         Console.WriteLine($"   resolver: {resolver.PluginCount} plugins, {resolver.RecordCount:N0} records, {resolver.ExcludedPlugins.Count} excluded");
         var svc = LoadOrderService.ForGuard(resolver, new UserConfigStore(Path.Combine(Path.GetTempPath(), "hc-perkrefs-proof.user.json")));
@@ -199,7 +199,7 @@ public static class PerkRefsProbe
         Console.WriteLine($"################  DIAGNOSIS — EnumerateFormLinks over ALL winner PERKs in the {Path.GetFileName(instanceDir)} order  ################");
         Console.WriteLine();
         var p = HousecarlCore.Mo2Instance.Resolve(instanceDir);
-        var order = HousecarlCore.Mo2LoadOrder.Build(p.ProfileDir, p.ModsDir, p.DataDir);
+        var order = HousecarlCore.Mo2LoadOrder.Build(p.ProfileDir, p.ModsDir, p.DataDir, p.OverwriteDir);
         Console.WriteLine($"   order: {order.OrderedPaths.Count} plugins (profile '{p.ProfileName}')");
         using var resolver = HousecarlCore.LoadOrderResolver.Build(order.OrderedPaths.ToList());
         Console.WriteLine($"   resolver: {resolver.PluginCount} plugins, {resolver.RecordCount:N0} records, {resolver.ExcludedPlugins.Count} excluded");

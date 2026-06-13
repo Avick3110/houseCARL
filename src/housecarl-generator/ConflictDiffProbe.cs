@@ -215,7 +215,7 @@ public static class ConflictDiffProbe
         Console.WriteLine($"################  REAL-DATA PROOF — conflict-tree content diff on {Path.GetFileName(instanceDir)}  ################");
         Console.WriteLine();
         var p = Mo2Instance.Resolve(instanceDir);
-        var order = Mo2LoadOrder.Build(p.ProfileDir, p.ModsDir, p.DataDir);
+        var order = Mo2LoadOrder.Build(p.ProfileDir, p.ModsDir, p.DataDir, p.OverwriteDir);
         using var resolver = LoadOrderResolver.Build(order.OrderedPaths.ToList());
         Console.WriteLine($"   resolver: {resolver.PluginCount} plugins, {resolver.RecordCount:N0} records");
         var svc = LoadOrderService.ForGuard(resolver, new UserConfigStore(Path.Combine(Path.GetTempPath(), "hc-conflictdiff-proof.user.json")));
