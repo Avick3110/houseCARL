@@ -35,8 +35,13 @@ public static class BsaArchive
     static readonly Regex FilesCount = new(@"^\s*Files:\s*(\d+)\s*$", RegexOptions.Multiline | RegexOptions.Compiled);
     static readonly Regex FormatLine = new(@"^\s*Format:\s*(.+?)\s*$", RegexOptions.Multiline | RegexOptions.Compiled);
 
-    /// <summary>List an archive's contents. Robust parse: BSArch prints "Files: N" in the info block, then the N paths as
-    /// the final block — so the file list is the LAST N non-empty lines (immune to banner/info-block variation).</summary>
+    /// <summary>List an archive's contents. BSArch prints "Files: N" in the info block, then the N paths as the final
+    /// block, so the file list is taken as the LAST N non-empty lines. NOTE (hunt H4 — parse fix DEFERRED, needs real
+    /// BSArch output to fix safely): this is immune to LEADING banner/info-block growth, but NOT to the path block
+    /// UNDER-producing — if BSArch prints fewer than N path lines, the last-N window slides UP into the info block and
+    /// absorbs banner/"Files:" lines AS paths (files.Count still == declared, so it reads as success). The real fix is
+    /// a delimiter-anchored parse (the paths after the last blank line) + a LOUD count-mismatch, landed against a
+    /// captured real-BSArch fixture; it is intentionally not attempted blind here.</summary>
     public static BsaListResult List(string bsarchExe, string archive, int timeoutMs = 60_000)
     {
         var run = Run(bsarchExe, new[] { archive, "-list" }, timeoutMs);
