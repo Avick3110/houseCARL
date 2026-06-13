@@ -918,13 +918,20 @@ public sealed class LoadOrderService : IDisposable
         catch (IOException) { } catch (UnauthorizedAccessException) { }
     }
 
+    /// <summary>The resolved output location for a NON-.esp rider: the directory to WRITE into, the mod-folder ROOT
+    /// (what residue cleanup operates on), and whether THIS call created the folder fresh (vs reused an into= folder,
+    /// which the user owns and cleanup never touches). For the .bsa/extract riders OutputDir == ModFolder; for the
+    /// compile/decompile riders OutputDir is a subfolder (<c>Scripts\</c> / <c>Source\Scripts\</c>) under ModFolder.</summary>
+    public readonly record struct RiderFolder(string OutputDir, string ModFolder, bool CreatedFresh);
+
     /// <summary>Resolve a houseCARL-owned MOD FOLDER under ModsDir for a NON-.esp output (compiled scripts, a packed .bsa,
     /// extracted loose files) — the folder-per-patch model generalised beyond the .esp write path. A fresh marker-stamped
     /// folder (<paramref name="defaultStem"/> names it when patchName is blank; auto-suffixed so a prior one is never
     /// clobbered) or <paramref name="into"/> an existing houseCARL-owned one. ORIGINALS UNTOUCHED (Q3): refuses a folder
     /// houseCARL didn't create. Derives ModsDir CHEAPLY (reads ModOrganizer.ini; NO ~10s index build). Throws the trained
-    /// prompt when unconfigured. Reuses the same ownership/marker helpers as the .esp write path.</summary>
-    public string ResolvePatchModFolder(string? patchName, string? into, string defaultStem)
+    /// prompt when unconfigured. Reuses the same ownership/marker helpers as the .esp write path. The returned
+    /// <see cref="RiderFolder.CreatedFresh"/> flag drives <see cref="RemoveOrNameRiderResidue"/> on a rider failure.</summary>
+    public RiderFolder ResolvePatchModFolder(string? patchName, string? into, string defaultStem)
     {
         lock (_gate)
         {
@@ -943,37 +950,61 @@ public sealed class LoadOrderService : IDisposable
                 if (!IsHouseCarlOwned(folder))
                     throw new InvalidOperationException(
                         $"cannot extend: mod folder '{ModFolderName(stem)}' was NOT created by houseCARL (no marker) — refusing to write into a folder houseCARL doesn't own (Q3).");
-                return folder;
+                return new RiderFolder(folder, folder, CreatedFresh: false);   // reused — the user owns it; cleanup leaves it
             }
 
             var newStem = UniqueStem(PatchStem(string.IsNullOrWhiteSpace(patchName) ? defaultStem : patchName!));
             var newFolder = Path.Combine(_modsDir, ModFolderName(newStem));
             Directory.CreateDirectory(newFolder);
             WriteOwnerMeta(newFolder, "(houseCARL output)");   // ownership marker; this folder may hold scripts / a .bsa / loose files, not an .esp
-            return newFolder;
+            return new RiderFolder(newFolder, newFolder, CreatedFresh: true);
         }
     }
 
     /// <summary>The <c>Scripts\</c> output folder for a COMPILED .pex (the compile rider) — a houseCARL mod folder via
     /// <see cref="ResolvePatchModFolder"/> plus its <c>Scripts\</c> subfolder, where MO2 deploys compiled Papyrus into the
-    /// game's Data\Scripts.</summary>
-    public string ResolveCompiledScriptFolder(string? patchName, string? into)
+    /// game's Data\Scripts. Carries the mod-folder root + fresh flag through for residue cleanup.</summary>
+    public RiderFolder ResolveCompiledScriptFolder(string? patchName, string? into)
     {
-        var folder = ResolvePatchModFolder(patchName, into, "houseCARL_Scripts");
-        var scripts = Path.Combine(folder, "Scripts");
+        var f = ResolvePatchModFolder(patchName, into, "houseCARL_Scripts");
+        var scripts = Path.Combine(f.ModFolder, "Scripts");
         Directory.CreateDirectory(scripts);
-        return scripts;
+        return f with { OutputDir = scripts };
     }
 
     /// <summary>The <c>Source\Scripts\</c> output folder for a DECOMPILED .psc (the decompile rider) — the SE-canonical
     /// source layout, and the same default patch stem as the compile rider so decompile → edit → compile naturally
-    /// accumulates in one houseCARL patch folder via <c>into=</c>.</summary>
-    public string ResolveDecompiledSourceFolder(string? patchName, string? into)
+    /// accumulates in one houseCARL patch folder via <c>into=</c>. Carries the root + fresh flag through for cleanup.</summary>
+    public RiderFolder ResolveDecompiledSourceFolder(string? patchName, string? into)
     {
-        var folder = ResolvePatchModFolder(patchName, into, "houseCARL_Scripts");
-        var src = Path.Combine(folder, "Source", "Scripts");
+        var f = ResolvePatchModFolder(patchName, into, "houseCARL_Scripts");
+        var src = Path.Combine(f.ModFolder, "Source", "Scripts");
         Directory.CreateDirectory(src);
-        return src;
+        return f with { OutputDir = src };
+    }
+
+    /// <summary>Hunt H2 (Aaron 2026-06-13): a NON-.esp rider (compile / decompile / repack) that FAILED after creating a
+    /// fresh houseCARL mod folder cleans up after itself — the .esp F4 "a refusal leaves no orphan folder" principle,
+    /// generalised to the riders. If the fresh folder is GENUINELY EMPTY (holds NOTHING but our own meta.ini marker
+    /// anywhere in its tree) it is DELETED, so "no output written" is true of the disk; if real output DID land (a
+    /// partial .bsa, some written .psc/.pex), the folder STAYS and its path is RETURNED so the rider can NAME it —
+    /// houseCARL never deletes content it didn't recognise as its own marker. A REUSED into= folder
+    /// (<see cref="RiderFolder.CreatedFresh"/> = false) is never touched: the user owns it. Returns the leftover path to
+    /// name, or null (deleted, or nothing to do). Best-effort: a cleanup hiccup never masks the rider's own outcome.</summary>
+    internal string? RemoveOrNameRiderResidue(RiderFolder folder)
+    {
+        if (!folder.CreatedFresh) return null;             // into= reuse — the user owns it, never deleted or named
+        var root = folder.ModFolder;
+        try
+        {
+            if (!Directory.Exists(root)) return null;
+            bool onlyMarker = Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories)
+                .All(f => Path.GetFileName(f).Equals("meta.ini", StringComparison.OrdinalIgnoreCase));
+            if (onlyMarker) { Directory.Delete(root, recursive: true); return null; }   // genuinely empty → gone, nothing to name
+            return root;                                   // real output landed → keep it, hand back the path to NAME
+        }
+        catch (IOException) { return Directory.Exists(root) ? root : null; }
+        catch (UnauthorizedAccessException) { return Directory.Exists(root) ? root : null; }
     }
 
     // ---- decompiler class hierarchy (lazy, cached for process lifetime) ----------------------------------------

@@ -55,7 +55,7 @@ internal static class HierarchyCacheProbe
                 var (edges, _) = svc.ClassParentsForDecompile();
                 Check(edges.TryGetValue("HcGuardChild", out var p1) && p1 == "HcGuardParent",
                       "FIRST call already sees the mods-tree edge (paths derive before the build)");
-                var outDir = svc.ResolveDecompiledSourceFolder(null, null);
+                var outDir = svc.ResolveDecompiledSourceFolder(null, null).OutputDir;
                 Check(outDir.StartsWith(mods, StringComparison.OrdinalIgnoreCase), "output folder resolves under the instance's mods dir");
                 var (edges2, _) = svc.ClassParentsForDecompile();
                 Check(edges2.ContainsKey("HcGuardChild"), "the cache stays correct after derivation (no poisoned survivor)");

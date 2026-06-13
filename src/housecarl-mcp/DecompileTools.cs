@@ -71,8 +71,8 @@ public static class DecompileTools
         // 4) output folder (folder-per-patch, Source\Scripts subdir) — resolved BEFORE the hierarchy build so a
         //    folder-resolution error costs nothing, and the instance paths are derived before the cached walk
         //    (defense in depth for hunt F1; the service also self-derives now).
-        string outDir;
-        try { outDir = svc.ResolveDecompiledSourceFolder(patch_name, into); }
+        LoadOrderService.RiderFolder rf;
+        try { rf = svc.ResolveDecompiledSourceFolder(patch_name, into); }
         catch (InvalidOperationException ex) { return "error: " + ex.Message; }
 
         // 5) class hierarchy: cached vanilla baseline + mods-tree sources, topped up with the input pex itself
@@ -85,15 +85,24 @@ public static class DecompileTools
         try { HousecarlCore.PapyrusClassParents.AddFromPexFolder(edges, Path.GetDirectoryName(pex)!); }
         catch { /* fewer edges, never fatal */ }
 
+        // A refused decompile leaves no orphan: a genuinely-empty fresh folder is deleted, one holding partial .psc
+        // output is kept and named, an into= reuse is left alone (hunt H2, Aaron's delete-if-empty).
+        string Refuse(string msg)
+        {
+            var left = svc.RemoveOrNameRiderResidue(rf);
+            return left is null ? msg
+                : msg + $" The freshly created mod folder at '{left}' still holds partial output — delete it or retry with into=.";
+        }
+
         // 6) decompile + write (the guard-probed seam).
-        var o = WriteObjects(pexFile, edges, outDir);
+        var o = WriteObjects(pexFile, edges, rf.OutputDir);
         if (o.UnnamedObject)
-            return $"error: '{Path.GetFileName(pex)}' carries an unnamed script object. " +
-                   (o.Written.Count > 0 ? $"Already written this call: {string.Join(", ", o.Written)}." : "Nothing was written.");
+            return Refuse($"error: '{Path.GetFileName(pex)}' carries an unnamed script object. " +
+                   (o.Written.Count > 0 ? $"Already written this call: {string.Join(", ", o.Written)}." : "Nothing was written."));
         if (o.ExistingTarget is not null)
-            return $"error: '{o.ExistingTarget}' already exists — houseCARL never overwrites a source file. " +
+            return Refuse($"error: '{o.ExistingTarget}' already exists — houseCARL never overwrites a source file. " +
                    "Move/delete it, or pass a different patch_name= (or into= another patch folder). " +
-                   (o.Written.Count > 0 ? $"Already written this call: {string.Join(", ", o.Written)}." : "Nothing was written.");
+                   (o.Written.Count > 0 ? $"Already written this call: {string.Join(", ", o.Written)}." : "Nothing was written."));
 
         // 7) render — Q3: totals, failures, and every degraded mode named.
         var outSb = new StringBuilder();
