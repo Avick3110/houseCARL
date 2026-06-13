@@ -82,6 +82,13 @@ public static class Mo2LoadOrder
         var winningPath = BuildFilenameMap(comp.EnabledMods, modsDir, dataDir, overwriteDir);
         var inactive = new HashSet<string>(comp.InactivePluginNames, StringComparer.OrdinalIgnoreCase);
 
+        // The can't-resolve warning names the places actually searched. The overwrite folder is only one of them in
+        // MO2-instance mode; explicit-paths mode passes overwriteDir="" (no overwrite layer), so naming it there would
+        // overstate the search (Q3 — honest about what was checked).
+        var searchedPlaces = string.IsNullOrWhiteSpace(overwriteDir)
+            ? "no enabled mod or the game Data folder"
+            : "no enabled mod, the overwrite folder, or the game Data folder";
+
         // loadorder.txt order → drop unchecked plugins; resolve the rest to their winning path (winner last).
         var orderedPaths = new List<string>(comp.OrderedPluginNames.Count);
         int active = 0;
@@ -93,8 +100,8 @@ public static class Mo2LoadOrder
                 orderedPaths.Add(path);
             else
                 warnings.Add(
-                    $"load order lists '{name}' but no enabled mod, the overwrite folder, or the game Data folder " +
-                    "provides it (stale loadorder.txt? trigger an MO2 refresh / re-sort so it re-writes the profile files).");
+                    $"load order lists '{name}' but {searchedPlaces} provides it (stale loadorder.txt? " +
+                    "trigger an MO2 refresh / re-sort so it re-writes the profile files).");
         }
 
         return new Mo2OrderResult(orderedPaths, warnings, active);
