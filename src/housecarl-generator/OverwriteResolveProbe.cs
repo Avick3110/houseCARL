@@ -24,6 +24,8 @@ namespace HousecarlGenerator;
 ///      reads a record out of the overwrite plugin, and reports no warnings.
 ///   5  service/freshness — the overwrite plugin enters the profile files mid-session (the MO2-refresh flow after
 ///      a tool writes there); the next call picks it up.
+///   6  service/setup-confirm — the housecarl_set_mo2_instance confirmation lists the overwrite root among the
+///      derived roots, not silently omitted (hunt F9-4).
 ///
 /// Arms 1–3 drive Mo2LoadOrder.Build directly with dummy plugin FILES (Build maps paths; it never opens plugin
 /// content). Arms 4–5 drive the REAL service against a synthetic MO2 instance with real plugin bytes. Self-contained.
@@ -140,6 +142,12 @@ internal static class OverwriteResolveProbe
                 var read = svc.ResolveRead(toolFk, null, null, conflictTree: false);
                 Check(read.Error is null && read.Record is not null && read.WinnerPlugin == tKey.FileName,
                       $"a record inside the overwrite plugin reads end-to-end — winner={read.WinnerPlugin ?? "?"}, err={read.Error ?? "none"}");
+
+                // F9-4: the setup confirmation (housecarl_set_mo2_instance) lists the overwrite root among the derived
+                // roots, not silently omitted — it's a real load-order root the user should see.
+                var confirm = SetupTools.Render(Mo2Instance.Resolve(instance), persisted: true, persistError: null, persistNote: null);
+                Check(confirm.Contains(ovw, StringComparison.OrdinalIgnoreCase),
+                      "the setup confirmation lists the overwrite root among the derived roots (hunt F9-4)");
             }
         }
         finally { try { Directory.Delete(root, recursive: true); } catch { /* temp scratch */ } }
