@@ -188,7 +188,7 @@ if (args.Length > 0 && args[0] == "create-proof") return CreateProof.RunCreatePr
 // Master-baseline scout: how to FORCE Skyrim.esm onto every written plugin (Mutagen strips unreferenced masters) — Aaron-flagged bug.
 if (args.Length > 0 && args[0] == "master-probe") return MasterProbe.RunProbe(args[1..]);
 
-// Launch-arc item 3 proof: derive the three load-order roots + active profile from ONE MO2 instance path (ModOrganizer.ini).
+// Launch-arc item 3 proof: derive the load-order roots + active profile from ONE MO2 instance path (ModOrganizer.ini).
 if (args.Length > 0 && args[0] == "mo2instance-probe") return Mo2InstanceProbe.RunProbe(args[1..]);
 
 // Cleanup-gotcha / Option-B viability: prove a plain overlay LOCKS a plugin, Dispose() RELEASES it promptly, and open->read->dispose latency is invisible (de-risks the LOCKED Option-B fix).
