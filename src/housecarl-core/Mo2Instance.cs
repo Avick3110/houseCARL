@@ -125,6 +125,13 @@ public static class Mo2Instance
         if (string.IsNullOrWhiteSpace(profile))  problems?.Add($"{IniFileName} has no selected_profile (open a profile in MO2 once)");
         if (string.IsNullOrWhiteSpace(gamePath)) problems?.Add($"{IniFileName} has no gamePath (MO2 doesn't know where the game is)");
 
+        // base_directory SET but pointing at a missing folder is its own problem: we still fall back to the instance dir
+        // (below), but silently doing so would point every downstream "mods/profiles missing" message at the WRONG root
+        // (Q3 — never a silently-degraded mode). Absent base_directory (the common portable case) stays quiet: it's the
+        // documented default, not a misconfiguration.
+        if (!string.IsNullOrWhiteSpace(baseDir) && !Directory.Exists(baseDir))
+            problems?.Add($"{IniFileName} sets base_directory='{baseDir}' but that folder doesn't exist — falling back to the instance dir for mods/ + profiles/");
+
         // base_directory overrides where mods/ + profiles/ live; absent (the common portable case) ⇒ the instance dir.
         var basePath = (!string.IsNullOrWhiteSpace(baseDir) && Directory.Exists(baseDir)) ? baseDir! : instanceDir;
         var modsDir    = Path.Combine(basePath, "mods");

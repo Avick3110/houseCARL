@@ -12,9 +12,10 @@ namespace HousecarlGenerator;
 ///       profile. This is the load-bearing assertion: the derivation == the old hardcoding, by construction.
 ///   E6 (cheap profile detect) — ReadSelectedProfile() returns the active profile name alone (what the freshness check
 ///       reads after the ini's mtime moves, to learn a profile was switched).
-///   E1–E4 (Qt quirks + edges, synthetic) — a temp instance exercises the @ByteArray(...) unwrap, the doubled-backslash
-///       unescape, a profile name with spaces, the base_directory override, and the loud-fail paths (missing ini,
-///       missing/unset selected_profile) — each NAMED in the problem list (Q3), never a silent half-derivation.
+///   E1–E4, E7 (Qt quirks + edges, synthetic) — a temp instance exercises the @ByteArray(...) unwrap, the doubled-
+///       backslash unescape, a profile name with spaces, the base_directory override, a base_directory set-but-MISSING
+///       (still usable via fallback, but NAMED — hunt H1), and the loud-fail paths (missing ini, missing/unset
+///       selected_profile) — each NAMED in the problem list (Q3), never a silent half-derivation or silent fallback.
 /// </summary>
 public static class Mo2InstanceProbe
 {
@@ -131,6 +132,24 @@ public static class Mo2InstanceProbe
                 Pass(ref allPass, "E4c DataDir still under gamePath", SamePath(p.DataDir, Path.Combine(game, "Data")));
             }
             catch (Exception ex) { Console.WriteLine($"   !! Resolve threw: {ex.Message}"); allPass = false; }
+        }
+        Console.WriteLine();
+
+        // ---------------------------------------------------------- E7: base_directory SET but its folder is MISSING (hunt H1)
+        Console.WriteLine("--- E7: base_directory set but the folder doesn't exist → still usable (falls back), but the discarded base_directory is NAMED (Q3) ---");
+        {
+            var inst = Path.Combine(tmp, "e7");
+            var game = Path.Combine(inst, "Stock Game");
+            const string prof = "Default";
+            MakeInstance(inst, game, prof, baseDirOverride: null);          // a VALID instance: mods/ + profiles/ under the instance dir
+            var ghostBase = Path.Combine(tmp, "e7-ghost-base");            // named by the ini but never created on disk
+            File.AppendAllLines(Mo2Instance.IniPath(inst),
+                new[] { "[Settings]", $"base_directory=@ByteArray({ghostBase.Replace(@"\", @"\\")})" });   // MO2's doubled-backslash form
+            var (ok, paths, problems) = Mo2Instance.Validate(inst);
+            Console.WriteLine($"   ok={ok}  problems=[{string.Join(" | ", problems)}]");
+            Pass(ref allPass, "E7a still usable — silently falls back to the instance dir", ok && paths is not null);
+            Pass(ref allPass, "E7b the discarded base_directory is NAMED, not silently dropped (Q3)",
+                problems.Any(s => s.Contains("base_directory")));
         }
         Console.WriteLine();
 
