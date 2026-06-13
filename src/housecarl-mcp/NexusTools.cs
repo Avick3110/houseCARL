@@ -226,12 +226,23 @@ static class Render
         return sb.ToString();
     }
 
+    /// <summary>Substring(0, n) that never splits a surrogate pair: an astral char (emoji, CJK extension B+, …) is two
+    /// UTF-16 chars, so a raw clamp can leave a LONE high surrogate at the cut = a broken half-glyph. If the char just
+    /// before the cut is a high surrogate (its low half sits at/after n), back up one so the orphaned half is dropped
+    /// (Q3 — an explicit cut, never a silent garble).</summary>
+    static string ClampChars(string s, int n)
+    {
+        if (s.Length <= n) return s;
+        if (n > 0 && char.IsHighSurrogate(s[n - 1])) n--;
+        return s[..n];
+    }
+
     /// <summary>Collapse whitespace and cap a blurb to n chars with an ellipsis (Q3: explicit cut, never silent garble).</summary>
-    static string OneLine(string s, int n)
+    internal static string OneLine(string s, int n)
     {
         s = s.Replace('\r', ' ').Replace('\n', ' ').Trim();
         while (s.Contains("  ")) s = s.Replace("  ", " ");
-        return s.Length <= n ? s : s[..n].TrimEnd() + "…";
+        return s.Length <= n ? s : ClampChars(s, n).TrimEnd() + "…";
     }
 
     /// <summary>Turn a Nexus description (BBCode interleaved with HTML — e.g. "[size=5][b]…[/b][/size]&lt;br /&gt;") into
@@ -239,7 +250,7 @@ static class Render
     /// [url=…]label[/url] to its label, turn list markers and HTML block/break tags into newlines, strip every remaining
     /// BBCode and HTML tag (keeping inner text), decode the handful of HTML entities that actually appear, collapse
     /// runaway whitespace, and cap the result with an explicit truncation marker (Q3 — never a silent cut).</summary>
-    static string StripMarkup(string raw, int cap)
+    internal static string StripMarkup(string raw, int cap)
     {
         const RegexOptions IC = RegexOptions.IgnoreCase;
         // Bound the input BEFORE any regex: the embed/[url] cleaners use a lazy `.*?` that backtracks O(n²) on many
@@ -247,7 +258,7 @@ static class Render
         // mode risk; DescriptionCap runs too late to help, it only trims the cleaned OUTPUT). cap*4 leaves ample
         // headroom (a real description cleans to < cap from far less raw) while capping the worst case to a fraction
         // of a second.
-        var s = raw.Length > cap * 4 ? raw[..(cap * 4)] : raw;
+        var s = ClampChars(raw, cap * 4);
 
         // Embeds: remove tag AND inner content (a URL/id is meaningless as prose). [img]…[/img], [youtube]…[/youtube], …
         s = Regex.Replace(s, @"\[(img|youtube|video|media|embed)\b[^\]]*\].*?\[/\1\]", " ", IC | RegexOptions.Singleline);
@@ -265,9 +276,13 @@ static class Render
         s = Regex.Replace(s, @"<\s*/?\s*(p|div|li|ul|ol|h[1-6]|tr|table)\b[^>]*>", "\n", IC);
         s = Regex.Replace(s, @"<[^>]+>", "", RegexOptions.Singleline);
 
-        // Entities that actually show up in Nexus descriptions.
-        s = s.Replace("&amp;", "&").Replace("&lt;", "<").Replace("&gt;", ">").Replace("&quot;", "\"")
-             .Replace("&#39;", "'").Replace("&apos;", "'").Replace("&nbsp;", " ");
+        // Entities that actually show up in Nexus descriptions. &amp; is decoded LAST (after every other entity):
+        // it produces a literal '&', the entity-introducing char, so undoing it first would let a double-encoded
+        // input like "&amp;lt;" (author wanted the visible text "&lt;") become "&lt;" then "<" — a double-decode.
+        // Keep &amp; at the tail so an already-decoded entity's '&' can never re-trigger another replacement.
+        s = s.Replace("&lt;", "<").Replace("&gt;", ">").Replace("&quot;", "\"")
+             .Replace("&#39;", "'").Replace("&apos;", "'").Replace("&nbsp;", " ")
+             .Replace("&amp;", "&");
 
         // Strip zero-width / BOM characters authors paste in (they render as stray glyphs); normalise no-break spaces.
         s = s.Replace("\uFEFF", "").Replace("\u200B", "").Replace("\u200C", "").Replace("\u200D", "").Replace('\u00A0', ' ');
@@ -282,7 +297,7 @@ static class Render
         // Cap with an explicit marker, backing up to a nearby word boundary so we don't cut mid-word.
         if (s.Length > cap)
         {
-            var cut = s[..cap];
+            var cut = ClampChars(s, cap);
             var sp = cut.LastIndexOf(' ');
             if (sp > cap - 200) cut = cut[..sp];
             s = cut.TrimEnd() + "\n…(description truncated — full text on the mod page.)";
