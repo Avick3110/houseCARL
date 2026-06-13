@@ -1,7 +1,7 @@
 namespace HousecarlCore;
 
 // ======================================================================
-//  Mo2Instance — derive the three load-order roots from ONE path: the MO2
+//  Mo2Instance — derive the four load-order roots from ONE path: the MO2
 //  instance folder, read out of its ModOrganizer.ini (launch-arc item 3,
 //  2026-06-02). The user configures a single "where is your MO2?" path;
 //  ProfileDir / ModsDir / DataDir are derived, and the ACTIVE profile is
@@ -35,8 +35,8 @@ namespace HousecarlCore;
 //  FAILS — never a silently-empty or half-derived path set.
 // ======================================================================
 
-/// <summary>The three load-order roots derived from an MO2 instance folder, plus the active profile name + game root.
-/// Feed ProfileDir/ModsDir/DataDir straight to <see cref="Mo2LoadOrder.Build"/>.</summary>
+/// <summary>The four load-order roots derived from an MO2 instance folder, plus the active profile name + game root.
+/// Feed ProfileDir/ModsDir/DataDir/OverwriteDir straight to <see cref="Mo2LoadOrder.Build"/>.</summary>
 /// <param name="InstanceDir">The MO2 instance folder (contains ModOrganizer.ini).</param>
 /// <param name="ProfileName">The ACTIVE profile (ModOrganizer.ini selected_profile) — auto-detected.</param>
 /// <param name="ProfileDir">base\profiles\&lt;ProfileName&gt; — holds loadorder.txt + modlist.txt + plugins.txt.</param>

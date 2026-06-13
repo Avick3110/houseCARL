@@ -158,7 +158,7 @@ public static class PkcuProbe
 
         Console.WriteLine("== SCALE PROOF: real MO2 order + 1 malformed plugin ==");
         var p = Mo2Instance.Resolve(instanceDir);
-        var order = Mo2LoadOrder.Build(p.ProfileDir, p.ModsDir, p.DataDir);
+        var order = Mo2LoadOrder.Build(p.ProfileDir, p.ModsDir, p.DataDir, p.OverwriteDir);
         var real = order.OrderedPaths.ToList();
         Console.WriteLine($"   real order: {real.Count} plugins (profile '{p.ProfileName}')");
         real.Add(mal);                                                     // append the malformed plugin at highest priority
