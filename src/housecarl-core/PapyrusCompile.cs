@@ -88,7 +88,10 @@ public static class PapyrusCompile
         };
         psi.ArgumentList.Add(objectName);
         psi.ArgumentList.Add($"-f={flagsFile}");
-        psi.ArgumentList.Add($"-i={string.Join(";", importDirs)}");   // one arg; .NET quotes it, so spaces/semicolons in paths survive
+        // One arg: ';' is the CK compiler's import-dir LIST separator, not a path char. .NET quotes the whole value so
+        // paths-with-spaces survive; a literal ';' INSIDE a path is the one thing that does NOT (it would split that
+        // path at the separator) — but import directories effectively never contain one, so it's not a real concern.
+        psi.ArgumentList.Add($"-i={string.Join(";", importDirs)}");
         psi.ArgumentList.Add($"-o={outputDir}");
 
         Process proc;
