@@ -166,13 +166,13 @@ public static class NestedCreateProof
             Console.WriteLine($"  [{(pass ? "PASS" : "FAIL")}] {name,-34} {detail}");
         Console.WriteLine($"  [{(srcOk ? "PASS" : "FAIL")}] {"Skyrim.esm byte-untouched",-34}");
         Console.WriteLine();
-        Console.WriteLine("OPEN QUESTION (Layer-B / domain — surfaced, NOT guessed, evidence-first §4):");
+        Console.WriteLine("NOTE — the surgical-override model (resolved via mutagen-reference, not guessed):");
         Console.WriteLine($"  Adding a child to an EXISTING parent overrides that parent carrying ONLY the new child");
         Console.WriteLine($"  (N2 topic override = {n2OverrideCount} response of {origResponses + 1}; N3 cell override = {n3OverrideCount} persistent of {origPersistent + 1}).");
-        Console.WriteLine($"  This is CORRECT iff Skyrim merges a parent's children across plugins by record (the 28 cell refs /");
-        Console.WriteLine($"  the original topic line still load from Skyrim.esm). If the engine instead REPLACES the child list,");
-        Console.WriteLine($"  the override silently drops the siblings — then the build must deep-copy existing children first.");
-        Console.WriteLine($"  The NEW-parent one-shot (N1) has NO existing siblings, so it is unaffected + complete either way.");
+        Console.WriteLine($"  This is CORRECT, not lossy: INFOs and placed refs are FULL records (own FormKeys; INFO carries a");
+        Console.WriteLine($"  Topic back-link). The engine loads each child record from its defining plugin and merges by FormID,");
+        Console.WriteLine($"  so the cell's other refs / the topic's original line still load from Skyrim.esm. The override is");
+        Console.WriteLine($"  surgical (parent header + the new child) — the standard add-to-an-existing-parent shape.");
         Console.WriteLine();
         bool allPass = results.All(r => r.pass) && srcOk;
         Console.WriteLine("================================================================");
