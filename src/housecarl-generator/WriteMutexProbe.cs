@@ -28,6 +28,9 @@ namespace HousecarlGenerator;
 ///   DOTTED     — a dotted patch name ("My.Cool.Patch") keeps every segment in the folder + plugin, and an
 ///                into= naming the .esp-suffixed form strips ONLY the extension, resolving the SAME folder.
 ///                RED pre-fix (Path.GetFileNameWithoutExtension clipped at the last dot -> "My.Cool"). NOTE N1.
+///   RIDER RESIDUE — the F4 "a refusal leaves no orphan folder" principle, generalised to the non-.esp riders
+///                (hunt H2): a failed rider DELETES a genuinely-empty fresh folder (only meta.ini), KEEPS + names one
+///                holding real output, and NEVER touches a reused into= folder. Drives RemoveOrNameRiderResidue.
 /// </summary>
 internal static class WriteMutexProbe
 {
@@ -178,6 +181,33 @@ internal static class WriteMutexProbe
                     null, "My.Cool.Patch.esp");
                 Check(ext.Success && dot.Success && string.Equals(ext.OutputPath, dot.OutputPath, StringComparison.OrdinalIgnoreCase),
                       $"into='My.Cool.Patch.esp' resolves the SAME folder — extension stripped, inner dots kept (into {Path.GetFileName(ext.OutputPath)})");
+            }
+
+            // ---- RIDER RESIDUE: a non-.esp rider that fails cleans up — delete if empty, name if real output, into= untouched (hunt H2) ----
+            Console.WriteLine();
+            Console.WriteLine("--- 5: rider residue — fresh empty folder deleted, partial named, into= reuse untouched (hunt H2) ---");
+            {
+                // (a) fresh + genuinely empty (only our meta.ini) → DELETED, nothing to name
+                var rfEmpty = svc.ResolvePatchModFolder("HcRiderEmpty", null, "houseCARL_Archive");
+                Check(rfEmpty.CreatedFresh && Directory.Exists(rfEmpty.ModFolder), "a fresh rider folder is created (only meta.ini)");
+                var leftEmpty = svc.RemoveOrNameRiderResidue(rfEmpty);
+                Check(leftEmpty is null && !Directory.Exists(rfEmpty.ModFolder),
+                      "a genuinely-empty fresh rider folder is DELETED on failure (no orphan, nothing to name)");
+
+                // (b) fresh + a real artifact landed → KEPT and its path NAMED
+                var rfFull = svc.ResolvePatchModFolder("HcRiderFull", null, "houseCARL_Archive");
+                File.WriteAllText(Path.Combine(rfFull.OutputDir, "Output.bsa"), "data");        // real output before the failure
+                var leftFull = svc.RemoveOrNameRiderResidue(rfFull);
+                Check(leftFull == rfFull.ModFolder && Directory.Exists(rfFull.ModFolder),
+                      "a fresh rider folder holding REAL output is KEPT and its path named (never delete tool output)");
+
+                // (c) into= reuse → NEVER touched (the user owns it)
+                svc.ResolvePatchModFolder("HcRiderInto", null, "houseCARL_Archive");             // create it fresh first
+                var reuse = svc.ResolvePatchModFolder(null, "HcRiderInto", "houseCARL_Archive");  // then reuse it via into=
+                Check(!reuse.CreatedFresh, "an into= reuse is not flagged fresh");
+                var leftReuse = svc.RemoveOrNameRiderResidue(reuse);
+                Check(leftReuse is null && Directory.Exists(reuse.ModFolder),
+                      "an into= reused folder is NEVER deleted or named (the user owns it)");
             }
         }
         finally { try { Directory.Delete(root, recursive: true); } catch { /* temp scratch */ } }

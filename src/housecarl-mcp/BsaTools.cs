@@ -84,7 +84,9 @@ public static class BsaTools
         if (managed)
         {
             if (svc.ConfigPromptOrNull() is { } cfg) return cfg;   // need ModsDir for the default managed folder
-            try { target = svc.ResolvePatchModFolder(Path.GetFileNameWithoutExtension(archive) + " (extracted)", into: null, "houseCARL_Extract"); }
+            // Extract keeps its own #49 residue contract (snapshot-provenance + the "left at X" message below) — out
+            // of H2's delete-if-empty scope, which Aaron set to repack/compile/decompile. Just take the output dir.
+            try { target = svc.ResolvePatchModFolder(Path.GetFileNameWithoutExtension(archive) + " (extracted)", into: null, "houseCARL_Extract").OutputDir; }
             catch (InvalidOperationException ex) { return "error: " + ex.Message; }
         }
         else
@@ -141,19 +143,29 @@ public static class BsaTools
             : Path.GetFileName(archive_name!.Trim().Trim('"'));
         if (!name.EndsWith(".bsa", StringComparison.OrdinalIgnoreCase)) name += ".bsa";
 
-        string folder;
-        try { folder = svc.ResolvePatchModFolder(patch_name, into, "houseCARL_Archive"); }
+        LoadOrderService.RiderFolder rf;
+        try { rf = svc.ResolvePatchModFolder(patch_name, into, "houseCARL_Archive"); }
         catch (InvalidOperationException ex) { return "error: " + ex.Message; }
+        var folder = rf.OutputDir;
+
+        // On any post-allocation failure: a genuinely-empty fresh folder is deleted (no orphan), a partial .bsa is
+        // kept and named, a reused into= folder is left alone — hunt H2 (Aaron's delete-if-empty).
+        string Refuse(string msg)
+        {
+            var left = svc.RemoveOrNameRiderResidue(rf);
+            return left is null ? msg
+                : msg + $"\nThe freshly created mod folder at '{left}' still holds a partial archive — delete it or retry with into=.";
+        }
 
         var archive = Path.Combine(folder, name);
         // Unknown format tokens REFUSE (Q3): a typo like 'fo4dd' must not silently pack -sse.
         var fmtFlag = HousecarlCore.BsaArchive.TryFormatFlag(format);
         if (fmtFlag is null)
-            return $"error: unknown format '{format}'. Legal tokens: {HousecarlCore.BsaArchive.FormatTokens}.";
+            return Refuse($"error: unknown format '{format}'. Legal tokens: {HousecarlCore.BsaArchive.FormatTokens}.");
         var r = HousecarlCore.BsaArchive.Pack(bsarch!, source_folder, archive, fmtFlag, compress);
-        if (!r.Ran) return "error: " + r.RunError;
+        if (!r.Ran) return Refuse("error: " + r.RunError);
         if (!r.Success)
-            return $"repack FAILED: no .bsa written at '{archive}'. Raw BSArch output:\n" + r.Raw;
+            return Refuse($"repack FAILED: no .bsa written at '{archive}'. Raw BSArch output:\n" + r.Raw);
 
         var sb = new StringBuilder();
         sb.Append("packed ").Append(name).Append(" (").Append(fmtFlag.TrimStart('-')).Append(compress ? ", compressed" : ", uncompressed").Append(") → ").Append(archive).Append('\n');

@@ -61,13 +61,22 @@ public static class CompileTools
         var imports = BuildImports(scriptDir, compilerExe!, import_dirs);
 
         // 5) output folder (folder-per-patch, Scripts\ subdir).
-        string outDir;
-        try { outDir = svc.ResolveCompiledScriptFolder(patch_name, into); }
+        LoadOrderService.RiderFolder rf;
+        try { rf = svc.ResolveCompiledScriptFolder(patch_name, into); }
         catch (InvalidOperationException ex) { return "error: " + ex.Message; }
 
         // 6) compile + render.
-        var result = HousecarlCore.PapyrusCompile.CompileObject(compilerExe!, objectName, imports, outDir);
-        return Render(result, imports);
+        var result = HousecarlCore.PapyrusCompile.CompileObject(compilerExe!, objectName, imports, rf.OutputDir);
+        var rendered = Render(result, imports);
+        // A failed compile produced no .pex — clean up a genuinely-empty fresh folder, name a partial one, leave an
+        // into= reuse alone (hunt H2, Aaron's delete-if-empty).
+        if (!result.Success)
+        {
+            var left = svc.RemoveOrNameRiderResidue(rf);
+            if (left is not null)
+                rendered += $"\nThe freshly created mod folder at '{left}' still holds partial output — delete it or retry with into=.";
+        }
+        return rendered;
     });
 
     /// <summary>
