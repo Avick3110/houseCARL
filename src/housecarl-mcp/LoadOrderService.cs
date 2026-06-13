@@ -1025,13 +1025,21 @@ public sealed class LoadOrderService : IDisposable
     /// pane and is the human-visible ownership signal (the meta.ini marker is the structural one).</summary>
     static string ModFolderName(string stem) => "houseCARL - " + stem;
 
-    /// <summary>Reduce a caller name to a safe bare STEM — no extension, no directory parts (so "../x" / "C:\y" can't
-    /// escape ModsDir). The plugin is always <c>&lt;stem&gt;.esp</c>; the mod folder is <c>houseCARL - &lt;stem&gt;</c>.</summary>
+    /// <summary>Plugin extensions stripped from a caller-supplied patch name (case-insensitive). NOT every dot — see
+    /// <see cref="PatchStem"/>.</summary>
+    static readonly string[] PluginExts = { ".esp", ".esm", ".esl" };
+
+    /// <summary>Reduce a caller name to a safe bare STEM — no directory parts (so "../x" / "C:\y" can't escape ModsDir),
+    /// stripping ONLY a trailing plugin extension (.esp/.esm/.esl), not every dot. A dotted patch name like
+    /// "My.Cool.Patch" must survive intact: Path.GetFileNameWithoutExtension would clip it to "My.Cool" — and then an
+    /// into="My.Cool.Patch" extend would look for the wrong folder, a silent name divergence. The plugin is always
+    /// <c>&lt;stem&gt;.esp</c>; the mod folder is <c>houseCARL - &lt;stem&gt;</c>.</summary>
     static string PatchStem(string raw)
     {
         var name = Path.GetFileName(raw.Trim());
-        var stem = Path.GetFileNameWithoutExtension(name);
-        return string.IsNullOrEmpty(stem) ? "houseCARL_Patch" : stem;
+        foreach (var ext in PluginExts)
+            if (name.EndsWith(ext, StringComparison.OrdinalIgnoreCase)) { name = name[..^ext.Length]; break; }
+        return string.IsNullOrEmpty(name) ? "houseCARL_Patch" : name;
     }
 
     /// <summary>The given stem if its mod folder is free, else the first free "<c>&lt;stem&gt;_NNN</c>" — never clobbers
