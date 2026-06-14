@@ -424,7 +424,18 @@ public static class WritePatchBuilder
                 if (FormKey.TryFactory(s.ParentRef, out var parentFk))
                 {
                     var w = view.ResolveWinner(parentFk);
-                    if (w is null) { problems.Add($"{s.RecordType} '{s.EditorId}': parent {parentFk} is not present in the load order — name an existing parent or create it first."); continue; }
+                    if (w is null)
+                    {
+                        // KNOWN GAP (nested-create Layer A): a FormKey parent is resolved against the LOAD ORDER only, not
+                        // the patch being extended — so a parent created in a PRIOR into= call isn't resolvable yet. The
+                        // one-shot path (create the parent + its children in ONE call via a same-call sibling parent)
+                        // covers the common case; the patch-carried-parent extend path is a named follow-up. Refuse LOUD
+                        // and name the workaround (Q3 — never a misleading "wrong FormID" implication).
+                        problems.Add($"{s.RecordType} '{s.EditorId}': parent {parentFk} is not present in the load order — name an existing parent, "
+                            + "or create the parent and this child in ONE call (a same-call sibling parent, by the parent's editorid)."
+                            + (extend ? " (A parent you created in a PRIOR into= call isn't resolvable as a parent yet — for now, create a topic/cell and its children together in one call.)" : ""));
+                        continue;
+                    }
                     var parentBody = view.GetRecord(session, w.Value.WinnerPlugin, parentFk);
                     if (parentBody is null) { problems.Add($"{s.RecordType} '{s.EditorId}': parent {parentFk} winner '{w.Value.WinnerPlugin}' did not yield it on fetch (a load-order inconsistency)."); continue; }
                     parentType = WriteEngine.ResolveConcreteRecordType(RecordNaming.StripOverlay(parentBody.GetType().Name));

@@ -134,6 +134,50 @@ public static class NestedCreateProof
                 $"created={YN(ok)} ref-in-persistent={YN(present)} local-id={YN(local)} | override-carries={(persistent?.Count ?? -1)} of {origPersistent + 1} (orig+new) [merge-semantic: OPEN]{Err(o)}"));
         }
 
+        // ===================== N8 — multi-child under one new topic + a FIELD EDIT on a created INFO =====================
+        {
+            var outPath = Path.Combine(outDir, "houseCARL_NestedCreate_N8.esp");
+            var specs = new[]
+            {
+                new WritePatchBuilder.CreateSpec { RecordType = "DialogTopic", EditorId = "HC_N8_Topic", Edits = Array.Empty<WriteRequest>() },
+                new WritePatchBuilder.CreateSpec { RecordType = "DialogResponses", EditorId = "HC_N8_L1", ParentRef = "HC_N8_Topic", Edits = Array.Empty<WriteRequest>() },
+                new WritePatchBuilder.CreateSpec { RecordType = "DialogResponses", EditorId = "HC_N8_L2", ParentRef = "HC_N8_Topic",
+                    Edits = new[] { new WriteRequest { RecordType = "DialogResponses", Path = new[] { "Prompt" }, Verb = "Set", Value = "houseCARL line two" } } },
+            };
+            var o = WritePatchBuilder.CreateRecords(resolver, rulebook, specs, outPath, extend: false);
+            bool ok = o.Success && o.Created.Count == 3;
+            var l1 = ok ? o.Created[1].FormKey : default;
+            var l2 = ok ? o.Created[2].FormKey : default;
+            var responses = ok ? TopicResponses(outPath, "HC_N8_Topic") : null;
+            bool bothUnder = responses is not null && responses.Contains(l1) && responses.Contains(l2);
+            var prompt = ok ? InfoPrompt(outPath, l2) : null;
+            bool fieldLanded = prompt == "houseCARL line two";
+            bool distinct = ok && l1 != l2;
+            bool pass = ok && bothUnder && fieldLanded && distinct;
+            results.Add(("N8 multi-INFO + field edit", pass,
+                $"created={(o.Success ? o.Created.Count : 0)} both-under-topic={YN(bothUnder)} L2.Prompt=\"{prompt}\" field-landed={YN(fieldLanded)} distinct-ids={YN(distinct)}{Err(o)}"));
+        }
+
+        // ===================== N9 — KNOWN GAP: extend= with a parent CARRIED BY THE PATCH (not the load order) =====================
+        //   Create a topic (call 1), then add an INFO under it in a separate into= call (call 2). The parent topic
+        //   lives in the PATCH, not the load order — and nested parent resolution checks the load-order winner only,
+        //   so this is REFUSED. Asserts the gap is communicated LOUD + names the one-call workaround (Q3), NOT that
+        //   the capability works. The capability (resolve a patch-carried parent on extend) is a named follow-up.
+        {
+            var outPath = Path.Combine(outDir, "houseCARL_NestedCreate_N9.esp");
+            var s1 = WritePatchBuilder.CreateRecords(resolver, rulebook,
+                new[] { new WritePatchBuilder.CreateSpec { RecordType = "DialogTopic", EditorId = "HC_N9_Topic", Edits = Array.Empty<WriteRequest>() } },
+                outPath, extend: false);
+            var topicFk2 = s1.Success ? s1.Created[0].FormKey : default;
+            var s2 = WritePatchBuilder.CreateRecords(resolver, rulebook,
+                new[] { new WritePatchBuilder.CreateSpec { RecordType = "DialogResponses", EditorId = "HC_N9_Info", ParentRef = topicFk2.ToString(), Edits = Array.Empty<WriteRequest>() } },
+                outPath, extend: true);
+            bool refusedLoud = s1.Success && !s2.Success && (s2.Error ?? "").Contains("one call", StringComparison.OrdinalIgnoreCase)
+                && (s2.Error ?? "").Contains("prior into=", StringComparison.OrdinalIgnoreCase);
+            results.Add(("N9 extend+patch-parent (KNOWN GAP: refuses loud)", refusedLoud,
+                $"call1-ok={YN(s1.Success)} call2-refused-loud+named={YN(refusedLoud)}{Err(s2)}"));
+        }
+
         // ===================== N4 — REJECT nested with no parent =====================
         results.Add(RejectCheck("N4 reject nested no-parent", outDir, "N4", resolver, rulebook,
             new[] { new WritePatchBuilder.CreateSpec { RecordType = "DialogResponses", EditorId = "HC_N4", Edits = Array.Empty<WriteRequest>() } },
@@ -213,6 +257,19 @@ public static class NestedCreateProof
             back = SkyrimMod.CreateFromBinaryOverlay(patchPath, SkyrimRelease.SkyrimSE);
             var t = back.DialogTopics.FirstOrDefault(match);
             return t?.Responses.Select(r => r.FormKey).ToList();
+        }
+        catch { return null; }
+        finally { (back as IDisposable)?.Dispose(); }
+    }
+
+    static string? InfoPrompt(string patchPath, FormKey infoFk)
+    {
+        ISkyrimModGetter? back = null;
+        try
+        {
+            back = SkyrimMod.CreateFromBinaryOverlay(patchPath, SkyrimRelease.SkyrimSE);
+            var info = back.EnumerateMajorRecords<IDialogResponsesGetter>().FirstOrDefault(x => x.FormKey == infoFk);
+            return info?.Prompt?.String;
         }
         catch { return null; }
         finally { (back as IDisposable)?.Dispose(); }
