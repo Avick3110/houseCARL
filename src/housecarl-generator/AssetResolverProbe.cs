@@ -81,6 +81,29 @@ internal static class AssetResolverProbe
                 Check(r.Resolve(freshRel).Winner is { Source: "HighMod" }, "a loose file added AFTER Build resolves with NO refresh (loose holds no state)");
             }
 
+            // ---- capture/refresh: ResolveMany pins one build; RefreshIfStale no-op is false + result-stable ----
+            Console.WriteLine();
+            Console.WriteLine("--- capture/refresh: ResolveMany parity + stable no-op refresh + captured view ---");
+            using (var r = AssetResolver.Build(overwrite, mods, data, enabled, Array.Empty<ActiveArchive>()))
+            {
+                // overwrite's copy was deleted in arm 2; HighMod/LowMod/Data still hold `rel`, so the winner is HighMod.
+                var paths = new[] { rel, @"meshes\does\not\exist.nif", rel.ToUpperInvariant() };
+                var many = r.ResolveMany(paths);
+                var one = paths.Select(p => r.Resolve(p)).ToList();
+                Check(many.Count == 3 && many[0].Winner?.Source == one[0].Winner?.Source
+                      && many[1].Exists == one[1].Exists && many[2].Winner?.Source == one[2].Winner?.Source,
+                      "ResolveMany matches per-path Resolve (one pinned build)");
+
+                bool first = r.RefreshIfStale();                  // nothing changed since Build
+                bool second = r.RefreshIfStale();
+                Check(!first && !second, $"RefreshIfStale is false when nothing changed — {first}/{second}");
+                Check(r.Resolve(rel).Winner is { Source: "HighMod" }, "the result is unchanged across the no-op refresh (single-thread parity)");
+
+                var view = r.Capture();
+                Check(view.Resolve(rel).Winner is { Source: "HighMod" } && view.BsaFailures.Count == 0 && !view.ReadIncomplete,
+                      "a captured view resolves + reports its (empty) failure list from one build");
+            }
+
             // ---- normalize: slash form / leading separator / case all resolve to the SAME winner; bad paths rejected ----
             Console.WriteLine();
             Console.WriteLine("--- normalize: query-path forms equivalent + drive-rooted/.. rejected ---");
