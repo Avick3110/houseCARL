@@ -183,6 +183,15 @@ jobs:
       - name: Probe — MO2 overwrite-folder resolution (tool outputs resolve, on top)
         run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- overwrite-resolve-guard
 
+      # Asset resolver (facegen-diagnostics step 1): VFS-aware "which mod/BSA provides this asset and which copy WINS"
+      # — loose precedence (overwrite > mod-priority > Data, per-subtree cached + mtime-invalidated), loose beats BSA,
+      # BSA by plugin rank. Self-contained: the loose arms synthesize mod/overwrite/data folders, and the native
+      # Mutagen BSA-read + zero-handles-AT-REST cornerstone + unreadable-BSA arms ride tiny COMMITTED .bsa fixtures
+      # (fixtures/asset-resolver/), so the whole thing runs here with NO BSArch. Only the repack/mtime arm needs
+      # BSArch and self-skips on the runner.
+      - name: Probe — asset resolver (loose precedence + native BSA read + at-rest cornerstone)
+        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- asset-resolver-guard
+
       # MO2 instance derivation (launch-arc item 3 + hunt H1): one instance path derives the load-order roots + the
       # active profile from ModOrganizer.ini, with the Qt @ByteArray/doubled-backslash quirks handled and every missing
       # piece NAMED in the problem list (Q3) — including a base_directory that is SET but points at a missing folder
