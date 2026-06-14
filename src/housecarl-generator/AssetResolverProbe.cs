@@ -81,6 +81,21 @@ internal static class AssetResolverProbe
                 Check(r.Resolve(freshRel).Winner is { Source: "HighMod" }, "a loose file added AFTER Build resolves with NO refresh (loose holds no state)");
             }
 
+            // ---- normalize: slash form / leading separator / case all resolve to the SAME winner; bad paths rejected ----
+            Console.WriteLine();
+            Console.WriteLine("--- normalize: query-path forms equivalent + drive-rooted/.. rejected ---");
+            using (var r = AssetResolver.Build(overwrite, mods, data, enabled, Array.Empty<ActiveArchive>()))
+            {
+                // overwrite's copy was deleted in arm 2; HighMod/LowMod/Data still hold `rel`, so the winner is HighMod.
+                var fwd = r.Resolve(rel.Replace('\\', '/'));               // forward slashes
+                var lead = r.Resolve("\\" + rel);                         // leading separator
+                var upper = r.Resolve(rel.ToUpperInvariant());            // different case
+                Check(fwd.Winner is { Source: "HighMod" } && lead.Winner is { Source: "HighMod" } && upper.Winner is { Source: "HighMod" },
+                      $"slash/leading-sep/case forms resolve to the same winner — {fwd.Winner?.Source}/{lead.Winner?.Source}/{upper.Winner?.Source}");
+                Check(Throws<ArgumentException>(() => { r.Resolve(@"C:\Windows\evil.nif"); }), "a drive-rooted query path is rejected loud");
+                Check(Throws<ArgumentException>(() => { r.Resolve(@"..\..\escape.nif"); }), "a parent-escaping ('..') query path is rejected loud");
+            }
+
             // ---- dedup: the SAME .bsa bound by two plugins is read ONCE (no double-count → no false Ambiguous) ----
             // Self-contained: two ActiveArchive entries share one (unreadable) path. BuildTables reads it a single
             // time, so exactly ONE failure is recorded — proof the path-dedup collapsed the duplicate binding. (The
@@ -172,5 +187,12 @@ internal static class AssetResolverProbe
         Console.WriteLine();
         Console.WriteLine(fail == 0 ? "================ ALL PASS ================" : $"================ {fail} CHECK(S) FAILED ================");
         return fail == 0 ? 0 : 1;
+    }
+
+    /// <summary>True iff <paramref name="a"/> throws an exception of type <typeparamref name="T"/> (any other throw, or
+    /// none, is false) — the probe's loud-failure assertion helper.</summary>
+    static bool Throws<T>(Action a) where T : Exception
+    {
+        try { a(); return false; } catch (T) { return true; } catch { return false; }
     }
 }

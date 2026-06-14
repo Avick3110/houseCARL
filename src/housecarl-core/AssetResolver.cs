@@ -163,7 +163,7 @@ public sealed class AssetResolver : IDisposable
     /// <summary>Resolve one Data-relative asset path: where it lives and which copy wins. See <see cref="AssetHit"/>.</summary>
     public AssetHit Resolve(string relPath)
     {
-        var rel = Normalize(relPath);
+        var rel = NormalizeQueryPath(relPath);
         var snap = _snap;                                         // capture ONE snapshot for this call (consistent view)
         var loose = new List<AssetProvider>();
 
@@ -225,8 +225,25 @@ public sealed class AssetResolver : IDisposable
     }
 
     /// <summary>Normalize an asset path for matching: forward slashes → backslashes, drop a leading separator. Matching is
-    /// OrdinalIgnoreCase (Windows + BSA tables are case-insensitive), so case is left as-is and compared case-insensitively.</summary>
+    /// OrdinalIgnoreCase (Windows + BSA tables are case-insensitive), so case is left as-is and compared case-insensitively.
+    /// Lenient — applied to BSA-table entries (already archive-relative), so it never throws.</summary>
     static string Normalize(string p) => (p ?? "").Replace('/', '\\').TrimStart('\\');
+
+    /// <summary>Normalize AND validate a Data-relative QUERY path. After the lenient <see cref="Normalize"/>, REJECT a
+    /// drive-rooted path ("C:\…") or one carrying a ".." segment — both make <c>Path.Combine(root, rel)</c> ESCAPE the
+    /// loose roots and resolve a file OUTSIDE the load order, a silently-wrong answer. The resolver API is documented
+    /// general-purpose, so a caller can hand it a bad path; we fail LOUD naming it (Q3) rather than resolve the wrong
+    /// file. (UNC inputs aren't drive-rooted after the leading-separator trim and aren't a real caller shape here.)</summary>
+    static string NormalizeQueryPath(string relPath)
+    {
+        var rel = Normalize(relPath);
+        if (Path.IsPathRooted(rel))
+            throw new ArgumentException($"expected a Data-relative asset path, got a drive-rooted path: '{relPath}'", nameof(relPath));
+        foreach (var seg in rel.Split('\\'))
+            if (seg == "..")
+                throw new ArgumentException($"expected a Data-relative asset path, got a parent-escaping ('..') path: '{relPath}'", nameof(relPath));
+        return rel;
+    }
 
     static DateTime SafeMtime(string path)
     {
