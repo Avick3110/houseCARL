@@ -7,16 +7,25 @@ namespace HousecarlGenerator;
 /// rides: which mod/BSA provides a Data-relative asset, and which copy WINS, under MO2 precedence.
 ///
 /// Self-contained LOOSE arms (always run — synthetic mod/overwrite/data folders, no external tool):
-///   1  loose precedence — a path in Data + a low mod + a high mod + overwrite resolves to OVERWRITE, all 4 providers listed, ambiguous.
-///   2  loose by mod priority — with overwrite removed, the HIGHER-priority enabled mod wins.
-///   3  absent — a path no source provides → Exists=false, Winner=null, not ambiguous.
-///   4  loose is LIVE — a loose file dropped in AFTER Build resolves with NO RefreshIfStale (the resolver caches no loose state).
+///   • loose precedence + ORDER — Data + low mod + high mod + overwrite → OVERWRITE wins, all 4 providers in precedence order, ambiguous.
+///   • loose by mod priority — with overwrite removed, the HIGHER-priority enabled mod wins.
+///   • healthy boundary — a single-source asset is Exists, ONE provider, NOT ambiguous.
+///   • absent — a path no source provides → Exists=false, Winner=null, not ambiguous.
+///   • loose CACHE — a file added into a warmed subtree is seen only AFTER RefreshIfStale (the dir went absent→present).
+///   • normalize — slash / leading-separator / case forms resolve to the same winner; a drive-rooted or ".." path is rejected loud.
+///   • capture/refresh — ResolveMany matches per-path Resolve off ONE build; a no-op RefreshIfStale is false; a captured view answers from one build.
+///   • dedup (unreadable) — two bindings sharing one unreadable path are read ONCE (a single BsaFailure).
 ///
-/// BSA arms (the native-Mutagen-read spike — run only when a BSArch is available to MAKE a fixture; SKIP cleanly otherwise,
-/// like bsa-probe; pass BSArch as arg 1 or set HOUSECARL_BSARCH):
-///   5  native BSA read — a path packed into a real SSE .bsa resolves via Mutagen's native reader (BsaFailures empty), kind=Bsa.
+/// COMMITTED-fixture BSA arms (also self-contained — tiny SSE .bsa files under fixtures/asset-resolver/, so the native
+/// read + cornerstone run on CI with NO BSArch):
+///   5  native BSA read — the facegen path in FixtureA.bsa resolves via Mutagen's native reader (BsaFailures empty), kind=Bsa.
 ///   6  loose beats BSA — a loose copy of the same path wins over the BSA copy; both providers listed; ambiguous.
-///   7  BSA by plugin rank — a path in two BSAs resolves to the HIGHER-rank one.
+///   7  BSA by plugin rank — a path in both fixtures resolves to the HIGHER-rank one (FixtureB).
+///   • dedup (readable) — one fixture bound by two plugins lists ONE provider, NOT ambiguous (the false-Ambiguous regression).
+///   • AT-REST CORNERSTONE — the .bsa is renamable + deletable WHILE the resolver is alive (zero archive handles at rest).
+///   • negative — a truncated .bsa is ONE named BsaFailure, a good archive still resolves, and ReadIncomplete flags the build (Q3).
+///
+/// Only the mtime arm needs BSArch (it REPACKS a fixture; pass BSArch as arg 1 or set HOUSECARL_BSARCH; SKIPs cleanly otherwise):
 ///   8  mtime refresh — repacking a BSA (new content) is picked up by RefreshIfStale (cached tables invalidate on mtime).
 ///
 /// Run: dotnet run --project src/housecarl-generator asset-resolver-guard ["&lt;BSArch.exe&gt;"]
@@ -151,71 +160,124 @@ internal static class AssetResolverProbe
                 Check(r.BsaFailures.Count == 1, $"a path-duplicate archive is read once — {r.BsaFailures.Count} failure(s) (expected 1)");
             }
 
-            // ---- 5-8: native BSA read (needs BSArch only to MAKE the fixture) ----
+            // ---- BSA arms — COMMITTED fixtures run on CI (no BSArch); only the repack/mtime arm (8) needs BSArch ----
+            // Fixtures are tiny SSE .bsa files we packed once (regenerate: pack a srcA{facegen path, rank path} and a
+            // srcB{rank path} with `BSArch pack <src> <out> -sse -mt` into the dir below). Mutagen reads PATHS, so the
+            // file bodies are 1 byte each.
+            const string bsaRel = @"meshes\actors\character\facegendata\facegeom\Dawnguard.esm\0001A51A.nif";   // in FixtureA
+            const string rankRel = @"meshes\rank\only-in-bsas.nif";                                            // in FixtureA AND FixtureB
+            var fixDir = Path.GetFullPath(@"src/housecarl-generator/fixtures/asset-resolver");                 // relative to the repo root (CI + docs run here)
+            var fixA = Path.Combine(fixDir, "FixtureA.bsa");
+            var fixB = Path.Combine(fixDir, "FixtureB.bsa");
+
             Console.WriteLine();
-            Console.WriteLine("--- 5-8: native Mutagen BSA read (fixture via BSArch) ---");
-            var bsarch = args.Length > 0 ? args[0] : DefaultBsarch;
-            if (!File.Exists(bsarch))
+            Console.WriteLine("--- 5-7: native Mutagen BSA read (committed fixtures, self-contained) ---");
+            if (!File.Exists(fixA) || !File.Exists(fixB))
             {
-                Console.WriteLine($"  SKIP  no BSArch at '{bsarch}' to build a .bsa fixture (pass its path as arg 1, or set HOUSECARL_BSARCH). Loose arms above are self-contained.");
+                Check(false, $"committed BSA fixtures present at {fixDir} (run from the repo root)");
             }
             else
             {
-                const string bsaRel = @"meshes\actors\character\facegendata\facegeom\Dawnguard.esm\0001A51A.nif";
-                const string rankRel = @"meshes\rank\only-in-bsas.nif";
-
-                // archive A: holds the facegen path + the rank path
-                var srcA = Path.Combine(root, "srcA");
-                foreach (var rr in new[] { bsaRel, rankRel }) { var p = Path.Combine(srcA, rr); Directory.CreateDirectory(Path.GetDirectoryName(p)!); File.WriteAllText(p, "A"); }
-                var bsaA = Path.Combine(root, "ArchiveA.bsa");
-                var packA = BsaArchive.Pack(bsarch, srcA, bsaA, BsaArchive.TryFormatFlag("sse")!, compress: false);
-
-                // archive B: holds ONLY the rank path (to prove BSA-by-rank); higher rank than A
-                var srcB = Path.Combine(root, "srcB");
-                { var p = Path.Combine(srcB, rankRel); Directory.CreateDirectory(Path.GetDirectoryName(p)!); File.WriteAllText(p, "B"); }
-                var bsaB = Path.Combine(root, "ArchiveB.bsa");
-                var packB = BsaArchive.Pack(bsarch, srcB, bsaB, BsaArchive.TryFormatFlag("sse")!, compress: false);
-
-                if (!packA.Success || !packB.Success)
+                var archives = new[]
                 {
-                    Console.WriteLine($"  SKIP  could not pack a fixture .bsa (A:{packA.Success} B:{packB.Success}) — {packA.RunError ?? packB.RunError ?? "see output"}");
-                }
-                else
+                    new ActiveArchive(fixA, "PluginA.esp", PluginRank: 1),
+                    new ActiveArchive(fixB, "PluginB.esp", PluginRank: 2),   // higher rank wins among BSAs
+                };
+                using (var r = AssetResolver.Build(overwrite, mods, data, enabled, archives))
                 {
-                    var archives = new[]
-                    {
-                        new ActiveArchive(bsaA, "PluginA.esp", PluginRank: 1),
-                        new ActiveArchive(bsaB, "PluginB.esp", PluginRank: 2),   // higher rank wins among BSAs
-                    };
-                    using var r = AssetResolver.Build(overwrite, mods, data, enabled, archives);
-
                     // 5: native read worked — no failures, the facegen path resolves from the BSA
                     Check(r.BsaFailures.Count == 0, $"native Mutagen read: no archive-read failures — {(r.BsaFailures.Count == 0 ? "clean" : string.Join(" | ", r.BsaFailures))}");
                     var bhit = r.Resolve(bsaRel);
-                    Check(bhit.Exists && bhit.Winner is { Kind: AssetKind.Bsa } && bhit.Winner.Source.Equals("ArchiveA.bsa", StringComparison.OrdinalIgnoreCase),
+                    Check(bhit.Exists && bhit.Winner is { Kind: AssetKind.Bsa } && bhit.Winner.Source.Equals("FixtureA.bsa", StringComparison.OrdinalIgnoreCase),
                           $"a BSA-packed asset resolves via the native reader — winner={bhit.Winner?.Source ?? "(none)"}/{bhit.Winner?.Kind}");
 
-                    // 6: loose beats BSA — drop a loose copy of the BSA path into a mod (new loose dir → RefreshIfStale)
+                    // 6: loose beats BSA — drop a loose copy, refresh; then DELETE it + refresh so later arms see the BSA winner (critic-4)
                     var lp = Path.Combine(high, bsaRel); Directory.CreateDirectory(Path.GetDirectoryName(lp)!); File.WriteAllText(lp, "loose");
                     r.RefreshIfStale();                            // the loose subtree under HighMod went absent→present
                     var beat = r.Resolve(bsaRel);
                     Check(beat.Winner is { Source: "HighMod", Kind: AssetKind.Loose }, $"a loose copy beats the BSA copy — winner={beat.Winner?.Source ?? "(none)"}/{beat.Winner?.Kind}");
                     Check(beat.Providers.Any(p => p.Kind == AssetKind.Bsa) && beat.Ambiguous, "…and the BSA copy is still listed as a provider, flagged ambiguous");
+                    File.Delete(lp);
 
-                    // 7: BSA-by-rank — the rank path is in both BSAs; the higher rank (B) wins
+                    // 7: BSA-by-rank — the rank path is in both fixtures; the higher rank (B) wins
                     var rank = r.Resolve(rankRel);
-                    Check(rank.Winner is { Kind: AssetKind.Bsa } && rank.Winner.Source.Equals("ArchiveB.bsa", StringComparison.OrdinalIgnoreCase),
+                    Check(rank.Winner is { Kind: AssetKind.Bsa } && rank.Winner.Source.Equals("FixtureB.bsa", StringComparison.OrdinalIgnoreCase),
                           $"among BSAs the higher plugin-rank wins — winner={rank.Winner?.Source ?? "(none)"}");
+                }
 
-                    // 8: mtime refresh — repack ArchiveA with an added path; RefreshIfStale picks it up
-                    const string addedRel = @"meshes\added\after.nif";
+                // dedup (readable): the SAME fixture bound by two plugins lists ONE provider, NOT ambiguous (the stronger correctness-1 arm)
+                using (var r = AssetResolver.Build(overwrite, mods, data, enabled, new[]
+                {
+                    new ActiveArchive(fixA, "PluginA.esp", PluginRank: 1),
+                    new ActiveArchive(fixA, "PluginA2.esp", PluginRank: 2),   // same path, a second binding
+                }))
+                {
+                    var hit = r.Resolve(rankRel);                  // rankRel is BSA-only here → exactly one provider, not ambiguous
+                    Check(hit.Exists && hit.Providers.Count == 1 && !hit.Ambiguous && hit.Winner is { Kind: AssetKind.Bsa },
+                          $"a path-duplicate READABLE archive lists ONE provider, not ambiguous — {hit.Providers.Count} provider(s), ambiguous={hit.Ambiguous}");
+                }
+
+                // at-rest CORNERSTONE: the .bsa is renamable + deletable WHILE the resolver is alive (zero archive handles at rest)
+                Console.WriteLine();
+                Console.WriteLine("--- at-rest cornerstone: zero archive handles held (the #3 contract) ---");
+                var atrest = Path.Combine(root, "AtRest.bsa");
+                File.Copy(fixA, atrest, overwrite: true);
+                using (var r = AssetResolver.Build(overwrite, mods, data, enabled, new[] { new ActiveArchive(atrest, "P.esp", 1) }))
+                {
+                    Check(r.Resolve(bsaRel).Winner is { Kind: AssetKind.Bsa }, "at-rest fixture: the BSA table was read");
+                    bool renamable;
+                    try { var ren = atrest + ".ren"; File.Move(atrest, ren); File.Move(ren, atrest); renamable = true; } catch { renamable = false; }
+                    Check(renamable, "the .bsa is RENAMABLE while the resolver is alive — zero archive handles at rest (the cornerstone)");
+                    bool deletable;
+                    try { File.Delete(atrest); deletable = !File.Exists(atrest); } catch { deletable = false; }
+                    Check(deletable, "…and DELETABLE — MO2/xEdit can move/delete the archive freely");
+                }
+
+                // negative (Q3): an unreadable BSA is a NAMED failure; a good archive still resolves; ReadIncomplete flags it
+                Console.WriteLine();
+                Console.WriteLine("--- negative: an unreadable BSA is surfaced, never silently absent ---");
+                var garbage = Path.Combine(root, "Garbage.bsa");
+                var goodBytes = File.ReadAllBytes(fixA);
+                File.WriteAllBytes(garbage, goodBytes[..(goodBytes.Length / 3)]);   // a truncated .bsa — the table read throws
+                using (var r = AssetResolver.Build(overwrite, mods, data, enabled, new[]
+                {
+                    new ActiveArchive(fixA, "GoodPlugin.esp", 1),
+                    new ActiveArchive(garbage, "BadPlugin.esp", 2),
+                }))
+                {
+                    Check(r.BsaFailures.Count == 1 && r.BsaFailures[0].Contains("Garbage.bsa") && r.BsaFailures[0].Contains("BadPlugin.esp"),
+                          $"an unreadable BSA is ONE named failure (file + owning plugin) — {(r.BsaFailures.Count == 1 ? r.BsaFailures[0] : r.BsaFailures.Count + " failure(s)")}");
+                    Check(r.ReadIncomplete, "ReadIncomplete flags the build so an Exists=false isn't over-trusted (the Q3 caveat)");
+                    Check(r.Resolve(bsaRel).Winner is { Kind: AssetKind.Bsa }, "a good archive still resolves alongside the unreadable one");
+                }
+            }
+
+            // ---- 8: mtime refresh — repacking a BSA's bytes is picked up by RefreshIfStale (needs BSArch to repack) ----
+            Console.WriteLine();
+            Console.WriteLine("--- 8: BSA mtime refresh (repack — needs BSArch) ---");
+            var bsarch = args.Length > 0 ? args[0] : DefaultBsarch;
+            if (!File.Exists(bsarch))
+            {
+                Console.WriteLine($"  SKIP  no BSArch at '{bsarch}' to repack (pass its path as arg 1, or set HOUSECARL_BSARCH). The committed-fixture arms above are self-contained.");
+            }
+            else
+            {
+                const string addedRel = @"meshes\added\after.nif";
+                var srcA = Path.Combine(root, "srcA");
+                var seed = Path.Combine(srcA, @"meshes\seed\seed.nif"); Directory.CreateDirectory(Path.GetDirectoryName(seed)!); File.WriteAllText(seed, "seed");
+                var bsaA = Path.Combine(root, "ArchiveA.bsa");
+                var pack0 = BsaArchive.Pack(bsarch, srcA, bsaA, BsaArchive.TryFormatFlag("sse")!, compress: false);
+                Check(pack0.Success, $"BSArch packs the seed archive — {(pack0.Success ? "ok" : pack0.RunError ?? "see output")}");
+                if (pack0.Success)
+                {
+                    using var r = AssetResolver.Build(overwrite, mods, data, enabled, new[] { new ActiveArchive(bsaA, "P.esp", 1) });
+                    Check(!r.Resolve(addedRel).Exists, "the to-be-added path is absent before the repack");
                     var ap = Path.Combine(srcA, addedRel); Directory.CreateDirectory(Path.GetDirectoryName(ap)!); File.WriteAllText(ap, "A2");
                     var repack = BsaArchive.Pack(bsarch, srcA, bsaA, BsaArchive.TryFormatFlag("sse")!, compress: false);
-                    if (!repack.Success) Console.WriteLine($"  SKIP  could not repack ArchiveA for the mtime arm — {repack.RunError ?? "see output"}");
-                    else
+                    Check(repack.Success, $"BSArch repacks the archive — {(repack.Success ? "ok" : repack.RunError ?? "see output")}");   // BSArch PRESENT but pack failed = FAIL, never a silent skip
+                    if (repack.Success)
                     {
-                        bool refreshed = r.RefreshIfStale();
-                        Check(refreshed, "RefreshIfStale() reports the repacked archive as stale");
+                        Check(r.RefreshIfStale(), "RefreshIfStale() reports the repacked archive as stale");
                         Check(r.Resolve(addedRel).Winner is { Kind: AssetKind.Bsa }, "the newly-packed path resolves after the refresh (cached table invalidated on mtime)");
                     }
                 }

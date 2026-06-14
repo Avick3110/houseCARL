@@ -29,10 +29,14 @@ namespace HousecarlCore;
 //  surfaced, never silently treated as "absent".
 //
 //  CORNERSTONE (#3, Aaron 2026-06-14 — "I also think #3 is fine"): holds DERIVED DATA only
-//  (cached BSA file-tables as string sets) and ZERO archive handles at rest. Each BSA is
-//  opened, its table copied into a HashSet, and the reader DISPOSED immediately — the exact
-//  LoadOrderResolver contract (read → extract → dispose), so MO2/xEdit can still move/delete
-//  archives freely. Loose presence is a PER-SUBTREE cache (the filename set under each requested
+//  (cached BSA file-tables as string sets) and ZERO archive handles at rest. Each BSA is opened,
+//  its table copied into a HashSet, and the reader dropped — Mutagen's reader does NOT keep the
+//  archive mapped for the resolver's lifetime (the reader is not IDisposable in 0.53.1, so there
+//  is no held handle to dispose — the asset-resolver-guard's at-rest arm proves the .bsa stays
+//  renamable/deletable while the resolver is alive). Same ZERO-AT-REST property LoadOrderResolver
+//  gives plugins, by a DIFFERENT mechanism — the plugin overlay there IS disposed; here there is
+//  simply nothing held — so MO2/xEdit can still move/delete archives freely. Loose presence is a
+//  PER-SUBTREE cache (the filename set under each requested
 //  directory, in EACH loose root, warmed on first touch) — so a bulk facegen scan warms the small
 //  facegendata subtree ONCE and the rest is O(1), not a File.Exists per (path × every enabled mod).
 //  Both caches mtime-invalidated via RefreshIfStale (BSA file mtimes + each warmed subtree's dirs);
@@ -187,8 +191,12 @@ public sealed class AssetResolver : IDisposable
         return new Snapshot(tables, mtimes, failures);
     }
 
-    /// <summary>Read one BSA's file table with Mutagen's native reader, then DISPOSE the reader so no handle is held
-    /// (the cornerstone). Paths are normalized (backslash, no leading slash) for OrdinalIgnoreCase matching.</summary>
+    /// <summary>Read one BSA's file table with Mutagen's native reader and copy it into a string set. No handle survives:
+    /// Mutagen's reader does not keep the archive mapped for the resolver's lifetime (the at-rest guard arm proves the
+    /// .bsa stays renamable/deletable while the resolver is alive). NOTE — IArchiveReader is NOT IDisposable in Mutagen
+    /// 0.53.1, so the cast in the finally is INERT (it disposes nothing); it is kept belt-and-braces in case a future
+    /// Mutagen makes the reader disposable, NOT as the release mechanism (the absence of a held handle is). Paths are
+    /// normalized (backslash, no leading slash) for OrdinalIgnoreCase matching.</summary>
     static HashSet<string> ReadArchiveTable(string archivePath)
     {
         var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -198,7 +206,7 @@ public sealed class AssetResolver : IDisposable
             foreach (var file in reader.Files)
                 set.Add(Normalize(file.Path));
         }
-        finally { (reader as IDisposable)?.Dispose(); }           // release the archive handle immediately (zero at rest)
+        finally { (reader as IDisposable)?.Dispose(); }           // INERT in 0.53.1 (reader isn't IDisposable) — see the summary
         return set;
     }
 
