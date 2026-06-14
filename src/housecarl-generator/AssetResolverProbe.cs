@@ -56,8 +56,11 @@ internal static class AssetResolverProbe
                 var hit = r.Resolve(rel);
                 Check(hit.Exists && hit.Winner is { Source: "overwrite", Kind: AssetKind.Loose },
                       $"overwrite wins the full loose stack — winner={hit.Winner?.Source ?? "(none)"}");
-                Check(hit.Providers.Count == 4, $"all 4 loose providers listed — {hit.Providers.Count}");
-                Check(hit.Ambiguous, "contention flagged ambiguous (the dark-face desync signal)");
+                Check(hit.Providers.Count == 4
+                      && hit.Providers[0].Source == "overwrite" && hit.Providers[1].Source == "HighMod"
+                      && hit.Providers[2].Source == "LowMod" && hit.Providers[3].Source == "Data",
+                      $"all 4 loose providers listed IN PRECEDENCE ORDER — [{string.Join(",", hit.Providers.Select(p => p.Source))}]");
+                Check(hit.Ambiguous, "contention flagged ambiguous (more than one source provides it)");
             }
 
             // ---- 2: remove overwrite copy → highest enabled mod wins ----
@@ -68,17 +71,29 @@ internal static class AssetResolverProbe
                 Check(hit.Winner is { Source: "HighMod" }, $"the higher-priority mod wins among loose — winner={hit.Winner?.Source ?? "(none)"}");
             }
 
+            // ---- healthy boundary: a single-source asset is Exists, ONE provider, NOT ambiguous ----
+            {
+                var soloRel = @"meshes\solo\unique.nif";
+                var sp = Path.Combine(data, soloRel); Directory.CreateDirectory(Path.GetDirectoryName(sp)!); File.WriteAllText(sp, "x");
+                using var r = AssetResolver.Build(overwrite, mods, data, enabled, Array.Empty<ActiveArchive>());
+                var hit = r.Resolve(soloRel);
+                Check(hit.Exists && hit.Providers.Count == 1 && !hit.Ambiguous && hit.Winner is { Source: "Data", Kind: AssetKind.Loose },
+                      "a single-source loose asset is healthy — Exists, one provider, not ambiguous");
+            }
+
             // ---- 3: a path nobody provides ----
             using (var r = AssetResolver.Build(overwrite, mods, data, enabled, Array.Empty<ActiveArchive>()))
             {
                 var miss = r.Resolve(@"meshes\does\not\exist.nif");
                 Check(!miss.Exists && miss.Winner is null && !miss.Ambiguous, "an absent asset → Exists=false, no winner, not ambiguous");
 
-                // ---- 4: loose is live — drop a new copy in AFTER Build, no refresh, it resolves ----
+                // ---- 4: loose cache — a file added into a WARMED subtree is picked up by RefreshIfStale (dir mtime) ----
                 var freshRel = @"meshes\foo\fresh.nif";
-                Check(!r.Resolve(freshRel).Exists, "fresh path absent before it's written");
+                Check(!r.Resolve(freshRel).Exists, "fresh path absent before it's written (warms meshes\\foo empty)");
                 var fp = Path.Combine(high, freshRel); Directory.CreateDirectory(Path.GetDirectoryName(fp)!); File.WriteAllText(fp, "x");
-                Check(r.Resolve(freshRel).Winner is { Source: "HighMod" }, "a loose file added AFTER Build resolves with NO refresh (loose holds no state)");
+                Check(!r.Resolve(freshRel).Exists, "still absent from the warmed cache before a refresh (cache holds the empty warm)");
+                Check(r.RefreshIfStale(), "RefreshIfStale sees the new loose dir (the subtree went absent→present)");
+                Check(r.Resolve(freshRel).Winner is { Source: "HighMod" }, "after the refresh the new loose file resolves");
             }
 
             // ---- capture/refresh: ResolveMany pins one build; RefreshIfStale no-op is false + result-stable ----
@@ -180,8 +195,9 @@ internal static class AssetResolverProbe
                     Check(bhit.Exists && bhit.Winner is { Kind: AssetKind.Bsa } && bhit.Winner.Source.Equals("ArchiveA.bsa", StringComparison.OrdinalIgnoreCase),
                           $"a BSA-packed asset resolves via the native reader — winner={bhit.Winner?.Source ?? "(none)"}/{bhit.Winner?.Kind}");
 
-                    // 6: loose beats BSA — drop a loose copy of the BSA path into a mod
+                    // 6: loose beats BSA — drop a loose copy of the BSA path into a mod (new loose dir → RefreshIfStale)
                     var lp = Path.Combine(high, bsaRel); Directory.CreateDirectory(Path.GetDirectoryName(lp)!); File.WriteAllText(lp, "loose");
+                    r.RefreshIfStale();                            // the loose subtree under HighMod went absent→present
                     var beat = r.Resolve(bsaRel);
                     Check(beat.Winner is { Source: "HighMod", Kind: AssetKind.Loose }, $"a loose copy beats the BSA copy — winner={beat.Winner?.Source ?? "(none)"}/{beat.Winner?.Kind}");
                     Check(beat.Providers.Any(p => p.Kind == AssetKind.Bsa) && beat.Ambiguous, "…and the BSA copy is still listed as a provider, flagged ambiguous");

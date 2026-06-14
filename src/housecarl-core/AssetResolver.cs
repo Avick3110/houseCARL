@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Mutagen.Bethesda;
 using Mutagen.Bethesda.Archives;
 
@@ -31,8 +32,11 @@ namespace HousecarlCore;
 //  (cached BSA file-tables as string sets) and ZERO archive handles at rest. Each BSA is
 //  opened, its table copied into a HashSet, and the reader DISPOSED immediately — the exact
 //  LoadOrderResolver contract (read → extract → dispose), so MO2/xEdit can still move/delete
-//  archives freely. Loose presence is LIVE File.Exists (caches nothing, always current).
-//  mtime-invalidated via RefreshIfStale; no live MO2 tracking, no daemon.
+//  archives freely. Loose presence is a PER-SUBTREE cache (the filename set under each requested
+//  directory, in EACH loose root, warmed on first touch) — so a bulk facegen scan warms the small
+//  facegendata subtree ONCE and the rest is O(1), not a File.Exists per (path × every enabled mod).
+//  Both caches mtime-invalidated via RefreshIfStale (BSA file mtimes + each warmed subtree's dirs);
+//  no live MO2 tracking, no daemon.
 //
 //  BSA reading uses Mutagen's NATIVE archive surface (Mutagen.Bethesda.Archives), in-process,
 //  with NO BSArch dependency (BsaArchive.cs shells BSArch for pack/unpack — which Mutagen
@@ -68,7 +72,8 @@ public sealed class AssetResolver : IDisposable
     readonly string _modsDir;                            // base\mods
     readonly string _dataDir;                            // game Data (lowest loose source)
     readonly IReadOnlyList<string> _enabledMods;         // mod folder names, HIGHEST priority FIRST (Mo2Composition.EnabledMods order)
-    readonly IReadOnlyList<ActiveArchive> _archives;     // active BSAs (any order; winner decided by PluginRank)
+    readonly IReadOnlyList<ActiveArchive> _archives;     // active BSAs (path-deduped; winner decided by PluginRank)
+    readonly IReadOnlyList<(string Name, string Dir)> _looseRoots;   // loose roots in PRECEDENCE order: overwrite > mods (priority) > Data
 
     /// <summary>One table-build's whole output, swapped in as a single reference write (the LoadOrderResolver
     /// snapshot discipline) so a concurrent Resolve never sees a half-rebuilt cache. Holds string sets only.
@@ -78,8 +83,23 @@ public sealed class AssetResolver : IDisposable
         public readonly Dictionary<string, HashSet<string>> Tables;   // archive path → its file paths (normalized)
         public readonly Dictionary<string, DateTime> Mtimes;          // archive path → mtime at this build (freshness baseline)
         public readonly List<string> Failures;                        // archives that couldn't be read, with the reason (Q3)
+        // Loose subtree cache — LAZILY warmed (one entry per requested directory), invalidated wholesale with the
+        // snapshot. A fresh build starts empty and re-warms on demand. ConcurrentDictionary: concurrent Resolve calls
+        // may race to warm the same subtree (the result is deterministic, so the redundant warm is harmless).
+        public readonly ConcurrentDictionary<string, LooseSubtree> LooseCache;
         public Snapshot(Dictionary<string, HashSet<string>> tables, Dictionary<string, DateTime> mtimes, List<string> failures)
-        { Tables = tables; Mtimes = mtimes; Failures = failures; }
+        { Tables = tables; Mtimes = mtimes; Failures = failures; LooseCache = new(StringComparer.OrdinalIgnoreCase); }
+    }
+
+    /// <summary>One subtree directory's loose resolution, warmed on first touch. <see cref="Present"/> = the filename
+    /// sets of the roots that HAVE that subtree (in <see cref="_looseRoots"/> precedence order); <see cref="DirMtimes"/>
+    /// = the mtime of EVERY root's copy of the subtree dir (MinValue if absent), so RefreshIfStale catches a content
+    /// change to an existing dir AND a root gaining or losing the subtree.</summary>
+    internal sealed class LooseSubtree
+    {
+        public readonly DateTime[] DirMtimes;                         // parallel to _looseRoots (length == root count)
+        public readonly (int RootIndex, HashSet<string> Files)[] Present;   // roots that have the dir + ≥1 file, precedence order
+        public LooseSubtree(DateTime[] dirMtimes, (int, HashSet<string>)[] present) { DirMtimes = dirMtimes; Present = present; }
     }
 
     volatile Snapshot _snap;
@@ -102,7 +122,21 @@ public sealed class AssetResolver : IDisposable
         _dataDir = dataDir ?? "";
         _enabledMods = enabledMods;
         _archives = DedupeArchives(archives);    // collapse a path bound by >1 plugin → ONE provider (no double-count → no false Ambiguous)
+        _looseRoots = BuildLooseRoots();         // fixed ordered roots: overwrite > mods (priority) > Data
         _snap = BuildTables();
+    }
+
+    /// <summary>The loose roots in PRECEDENCE order (the same order Mo2LoadOrder.BuildFilenameMap walks): MO2's
+    /// overwrite layer first (top of the VFS), then each enabled mod highest-priority-first, then the game Data folder.
+    /// Fixed for the resolver's lifetime — the set only changes with the profile, which rebuilds the whole resolver.
+    /// The subtree cache stores per-subtree mtimes parallel to THIS list.</summary>
+    IReadOnlyList<(string Name, string Dir)> BuildLooseRoots()
+    {
+        var roots = new List<(string, string)>(_enabledMods.Count + 2);
+        if (_overwriteDir.Length > 0) roots.Add(("overwrite", _overwriteDir));
+        foreach (var mod in _enabledMods) roots.Add((mod, Path.Combine(_modsDir, mod)));
+        if (_dataDir.Length > 0) roots.Add(("Data", _dataDir));
+        return roots;
     }
 
     /// <summary>Collapse the injected archives to ONE entry per distinct path (OrdinalIgnoreCase). The same .bsa can
@@ -176,16 +210,15 @@ public sealed class AssetResolver : IDisposable
     AssetHit Resolve(string relPath, Snapshot snap)
     {
         var rel = NormalizeQueryPath(relPath);
-        var loose = new List<AssetProvider>();
 
-        // ---- loose, in MO2 precedence order (overwrite > mods by priority > Data) ----
-        if (_overwriteDir.Length > 0 && FileExists(_overwriteDir, rel))
-            loose.Add(new AssetProvider("overwrite", AssetKind.Loose));
-        foreach (var mod in _enabledMods)
-            if (FileExists(System.IO.Path.Combine(_modsDir, mod), rel))
-                loose.Add(new AssetProvider(mod, AssetKind.Loose));
-        if (_dataDir.Length > 0 && FileExists(_dataDir, rel))
-            loose.Add(new AssetProvider("Data", AssetKind.Loose));
+        // ---- loose, in MO2 precedence order — via the per-subtree cache (warmed on first touch) ----
+        var subtreeDir = Normalize(Path.GetDirectoryName(rel) ?? "");
+        var fname = Path.GetFileName(rel);
+        var st = snap.LooseCache.GetOrAdd(subtreeDir, WarmSubtree);
+        var loose = new List<AssetProvider>();
+        foreach (var (rootIndex, files) in st.Present)               // Present is already in precedence order
+            if (files.Contains(fname))
+                loose.Add(new AssetProvider(_looseRoots[rootIndex].Name, AssetKind.Loose));
 
         // ---- BSA, highest plugin rank first ----
         var bsa = new List<(AssetProvider provider, int rank)>();
@@ -249,24 +282,71 @@ public sealed class AssetResolver : IDisposable
         }
     }
 
-    /// <summary>Re-stat the active archives; if any changed (a BSA's bytes changed), rebuild the tables and return true.
-    /// The cheap no-change path is just the stat sweep. A changed archive SET (active plugins added/removed) is an order
-    /// change — the service rebuilds the whole resolver, like it does for LoadOrderResolver. Loose presence is live, so
-    /// it needs no refresh. One reference swap; an in-flight Resolve keeps its captured snapshot.</summary>
+    /// <summary>Re-stat the inputs; if any changed, rebuild the snapshot and return true. Inputs = the active archives
+    /// (a BSA's bytes changed) AND every WARMED loose subtree's directories across all roots (a facegen file added /
+    /// removed, or a root gaining/losing the subtree — both move the dir's mtime). The cheap no-change path is just the
+    /// stat sweep. A changed archive/mod SET (active plugins added/removed) is an ORDER change — the service rebuilds the
+    /// whole resolver, like it does for LoadOrderResolver. One reference swap; an in-flight Resolve keeps its captured
+    /// snapshot, and the rebuilt snapshot's loose cache re-warms lazily on the next touch.</summary>
     public bool RefreshIfStale()
     {
         var snap = _snap;
         bool stale = false;
         foreach (var a in _archives)
             if (!snap.Mtimes.TryGetValue(a.Path, out var m) || SafeMtime(a.Path) != m) { stale = true; break; }
+        if (!stale)
+            foreach (var kv in snap.LooseCache)                       // each warmed loose subtree — re-stat its dirs across all roots
+                if (LooseSubtreeStale(kv.Key, kv.Value)) { stale = true; break; }
         if (!stale) return false;
-        _snap = BuildTables();
+        _snap = BuildTables();                                        // BSA tables re-read; loose cache starts empty, re-warms lazily
         return true;
     }
 
-    static bool FileExists(string root, string rel)
+    /// <summary>True if a warmed subtree's loose layer changed since warm: any root's copy of the subtree dir has a
+    /// different mtime than recorded (a content edit, or the dir appeared/disappeared). Bounded by (warmed subtrees ×
+    /// roots) — RefreshIfStale is called per query-batch, not per path.</summary>
+    bool LooseSubtreeStale(string subtreeDir, LooseSubtree st)
     {
-        try { return File.Exists(System.IO.Path.Combine(root, rel)); } catch { return false; }
+        var roots = _looseRoots;
+        for (int i = 0; i < roots.Count; i++)
+        {
+            var dir = subtreeDir.Length == 0 ? roots[i].Dir : Path.Combine(roots[i].Dir, subtreeDir);
+            if (SafeMtime(dir) != st.DirMtimes[i]) return true;
+        }
+        return false;
+    }
+
+    /// <summary>Warm one subtree directory's loose layer: for each root (precedence order) record the subtree dir's
+    /// mtime (MinValue if absent, so an appear/disappear is detectable) and, when it exists with ≥1 file, its top-level
+    /// filename set. Walks every root ONCE — the cost the per-subtree cache pays a single time so each later query in
+    /// that subtree is an O(1) set lookup. Pure read of the filesystem; the result is cached in the snapshot.</summary>
+    LooseSubtree WarmSubtree(string subtreeDir)
+    {
+        var roots = _looseRoots;
+        var mtimes = new DateTime[roots.Count];
+        var present = new List<(int, HashSet<string>)>();
+        for (int i = 0; i < roots.Count; i++)
+        {
+            var dir = subtreeDir.Length == 0 ? roots[i].Dir : Path.Combine(roots[i].Dir, subtreeDir);
+            mtimes[i] = SafeMtime(dir);                              // MinValue if absent — baseline for an appear/disappear
+            var files = SafeListFilenames(dir);
+            if (files is { Count: > 0 }) present.Add((i, files));
+        }
+        return new LooseSubtree(mtimes, present.ToArray());
+    }
+
+    /// <summary>The top-level filenames in a directory (OrdinalIgnoreCase), or null if it doesn't exist / can't be read.
+    /// Top-level only — a "subtree" here is the immediate parent dir of the queried asset, not a recursive tree.</summary>
+    static HashSet<string>? SafeListFilenames(string dir)
+    {
+        try
+        {
+            if (!Directory.Exists(dir)) return null;
+            var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var f in Directory.EnumerateFiles(dir)) set.Add(Path.GetFileName(f));
+            return set;
+        }
+        catch { return null; }
     }
 
     /// <summary>Normalize an asset path for matching: forward slashes → backslashes, drop a leading separator. Matching is
