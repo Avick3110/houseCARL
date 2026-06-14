@@ -71,8 +71,9 @@ public sealed class AssetResolver : IDisposable
     readonly IReadOnlyList<ActiveArchive> _archives;     // active BSAs (any order; winner decided by PluginRank)
 
     /// <summary>One table-build's whole output, swapped in as a single reference write (the LoadOrderResolver
-    /// snapshot discipline) so a concurrent Resolve never sees a half-rebuilt cache. Holds string sets only.</summary>
-    sealed class Snapshot
+    /// snapshot discipline) so a concurrent Resolve never sees a half-rebuilt cache. Holds string sets only.
+    /// internal (not private) so <see cref="AssetView"/>'s ctor can take it; never leaves the assembly.</summary>
+    internal sealed class Snapshot
     {
         public readonly Dictionary<string, HashSet<string>> Tables;   // archive path → its file paths (normalized)
         public readonly Dictionary<string, DateTime> Mtimes;          // archive path → mtime at this build (freshness baseline)
@@ -85,6 +86,13 @@ public sealed class AssetResolver : IDisposable
 
     /// <summary>Archives that could not be read this build (path: reason) — surfaced, never silently treated as empty (Q3).</summary>
     public IReadOnlyList<string> BsaFailures => _snap.Failures;
+
+    /// <summary>True iff this build had archive-read failures (<see cref="BsaFailures"/> non-empty). The Q3 caveat for an
+    /// Exists=false answer: an asset present ONLY in an archive that failed to read is indistinguishable from a truly
+    /// absent one, so a consumer acting on "no facegen → the NPC is fine" must check this — an Exists=false is
+    /// authoritative only when the read was complete. Surfaced at the resolver level (like LoadOrderResolver's
+    /// LoadFailures), never forced into a per-answer field that would diverge from the codebase idiom.</summary>
+    public bool ReadIncomplete => _snap.Failures.Count > 0;
 
     AssetResolver(string overwriteDir, string modsDir, string dataDir,
                   IReadOnlyList<string> enabledMods, IReadOnlyList<ActiveArchive> archives)
@@ -160,11 +168,14 @@ public sealed class AssetResolver : IDisposable
         return set;
     }
 
-    /// <summary>Resolve one Data-relative asset path: where it lives and which copy wins. See <see cref="AssetHit"/>.</summary>
-    public AssetHit Resolve(string relPath)
+    /// <summary>Resolve one Data-relative asset path: where it lives and which copy wins. See <see cref="AssetHit"/>.
+    /// Single-shot — this call captures its own build; a caller making MANY reads in one logical operation should
+    /// <see cref="Capture"/> once and read off the view so the scan and its failure list share one build.</summary>
+    public AssetHit Resolve(string relPath) => Resolve(relPath, _snap);
+
+    AssetHit Resolve(string relPath, Snapshot snap)
     {
         var rel = NormalizeQueryPath(relPath);
-        var snap = _snap;                                         // capture ONE snapshot for this call (consistent view)
         var loose = new List<AssetProvider>();
 
         // ---- loose, in MO2 precedence order (overwrite > mods by priority > Data) ----
@@ -200,9 +211,43 @@ public sealed class AssetResolver : IDisposable
         return new AssetHit(rel, true, winner, providers, ambiguous);
     }
 
-    /// <summary>Resolve many paths in one call (the facegen bulk scan). Each is independent; holds nothing past the return.</summary>
+    /// <summary>Resolve many paths in one call (the facegen bulk scan), all against ONE pinned build so the whole scan
+    /// is internally consistent even if a RefreshIfStale lands mid-scan (the LoadOrderResolver.Capture discipline).
+    /// To pair the scan with its read-failure list off the same build, use <see cref="Capture"/>. Holds nothing past return.</summary>
     public IReadOnlyList<AssetHit> ResolveMany(IEnumerable<string> relPaths)
-        => relPaths.Select(Resolve).ToList();
+    {
+        var snap = _snap;                                         // pin ONE build for the whole scan
+        return relPaths.Select(p => Resolve(p, snap)).ToList();
+    }
+
+    /// <summary>Capture the CURRENT build as a pinned read view (the LoadOrderResolver.Capture discipline): a bulk
+    /// facegen scan and its read-failure list answer from ONE build, so a RefreshIfStale landing mid-scan cannot make
+    /// the scan's hits and <see cref="BsaFailures"/> describe two different builds. Pure data over the immutable snapshot.</summary>
+    public AssetView Capture() => new(this, _snap);
+
+    /// <summary>A read view pinned to ONE captured build (see <see cref="Capture"/>). Resolve / ResolveMany and
+    /// BsaFailures / ReadIncomplete all answer from the SAME snapshot, so they can never disagree about which build
+    /// they describe. No handles — safe to hold for a call.</summary>
+    public readonly struct AssetView
+    {
+        readonly AssetResolver _r;
+        readonly Snapshot _s;
+        internal AssetView(AssetResolver r, Snapshot s) { _r = r; _s = s; }   // only Capture() constructs
+
+        /// <summary>Archives that could not be read this build (Q3) — see <see cref="AssetResolver.BsaFailures"/>.</summary>
+        public IReadOnlyList<string> BsaFailures => _s.Failures;
+
+        /// <summary>The Exists=false caveat for THIS build — see <see cref="AssetResolver.ReadIncomplete"/>.</summary>
+        public bool ReadIncomplete => _s.Failures.Count > 0;
+
+        public AssetHit Resolve(string relPath) => _r.Resolve(relPath, _s);
+
+        public IReadOnlyList<AssetHit> ResolveMany(IEnumerable<string> relPaths)
+        {
+            var r = _r; var s = _s;                              // locals — a struct's lambda can't capture 'this'
+            return relPaths.Select(p => r.Resolve(p, s)).ToList();
+        }
+    }
 
     /// <summary>Re-stat the active archives; if any changed (a BSA's bytes changed), rebuild the tables and return true.
     /// The cheap no-change path is just the stat sweep. A changed archive SET (active plugins added/removed) is an order
