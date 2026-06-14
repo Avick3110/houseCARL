@@ -78,6 +78,11 @@ if (args.Length > 0 && args[0] == "freshness-capture-guard") return FreshnessCap
 // names overwrite among the places searched.
 if (args.Length > 0 && args[0] == "overwrite-resolve-guard") return OverwriteResolveProbe.RunGuard(args[1..]);
 
+// Asset resolver (facegen-diagnostics step 1): VFS-aware "which mod/BSA provides this asset and which copy WINS"
+// (loose: overwrite>mod-priority>Data; loose beats BSA; BSA by plugin rank). Self-contained loose arms; the
+// native-Mutagen BSA-read spike builds a .bsa fixture via BSArch (skips cleanly without it).
+if (args.Length > 0 && args[0] == "asset-resolver-guard") return AssetResolverProbe.RunGuard(args[1..]);
+
 // Compile-tool import order: caller import_dirs OUTRANK the vanilla auto-import (first match wins, so
 // SKSE-extended copies of vanilla sources must win). Pure order arm always runs; real-compile arm self-skips.
 if (args.Length > 0 && args[0] == "import-order-guard") return ImportOrderProbe.RunGuard(args[1..]);
