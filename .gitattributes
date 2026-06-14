@@ -13,3 +13,8 @@
 
 # Generated reference corpora (mutagen-reference / papyrus-reference) — emitted LF, kept LF.
 *.jsonl text eol=lf
+
+# Committed binary test fixtures — never line-ending-converted (a packed .bsa is binary; the
+# asset-resolver-guard's native-read + at-rest arms read these on CI). .pex fixtures are already
+# auto-detected as binary by git; pin .bsa explicitly so no autocrlf pass can corrupt one.
+*.bsa binary
