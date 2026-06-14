@@ -93,8 +93,29 @@ public sealed class AssetResolver : IDisposable
         _modsDir = modsDir;
         _dataDir = dataDir ?? "";
         _enabledMods = enabledMods;
-        _archives = archives;
+        _archives = DedupeArchives(archives);    // collapse a path bound by >1 plugin → ONE provider (no double-count → no false Ambiguous)
         _snap = BuildTables();
+    }
+
+    /// <summary>Collapse the injected archives to ONE entry per distinct path (OrdinalIgnoreCase). The same .bsa can
+    /// be injected under more than one plugin binding; without this both <see cref="BuildTables"/> and <see cref="Resolve"/>
+    /// would see it twice — Resolve would then list it twice in <see cref="AssetHit.Providers"/> and raise a FALSE
+    /// <see cref="AssetHit.Ambiguous"/> (the contention signal the dark-face skill keys on). Keep the HIGHEST plugin rank
+    /// (the later binding wins among BSAs) and its owning plugin; preserve first-seen order of distinct paths for a stable
+    /// Providers list.</summary>
+    static IReadOnlyList<ActiveArchive> DedupeArchives(IReadOnlyList<ActiveArchive> archives)
+    {
+        var byPath = new Dictionary<string, ActiveArchive>(StringComparer.OrdinalIgnoreCase);
+        var order = new List<string>();
+        foreach (var a in archives)
+        {
+            if (byPath.TryGetValue(a.Path, out var prev))
+            {
+                if (a.PluginRank > prev.PluginRank) byPath[a.Path] = a;   // keep the max-rank binding + its owning plugin
+            }
+            else { byPath[a.Path] = a; order.Add(a.Path); }
+        }
+        return order.Select(p => byPath[p]).ToList();
     }
 
     /// <summary>Build a resolver over the given roots, enabled-mod priority list (highest first), and active archives.
@@ -111,15 +132,14 @@ public sealed class AssetResolver : IDisposable
         var mtimes = new Dictionary<string, DateTime>(StringComparer.OrdinalIgnoreCase);
         var failures = new List<string>();
 
-        foreach (var a in _archives)
+        foreach (var a in _archives)                              // _archives is already path-deduped (DedupeArchives) — read each once
         {
-            if (tables.ContainsKey(a.Path)) continue;             // same archive named by two plugins — read once
             mtimes[a.Path] = SafeMtime(a.Path);
             try { tables[a.Path] = ReadArchiveTable(a.Path); }
             catch (Exception ex)
             {
                 tables[a.Path] = new HashSet<string>(StringComparer.OrdinalIgnoreCase);   // empty = contributes nothing
-                failures.Add($"{System.IO.Path.GetFileName(a.Path)}: could not read the archive table — {Concise(ex)}");
+                failures.Add($"{Path.GetFileName(a.Path)} (loaded by {a.OwningPlugin}): could not read the archive table — {Concise(ex)}");
             }
         }
         return new Snapshot(tables, mtimes, failures);
@@ -160,8 +180,12 @@ public sealed class AssetResolver : IDisposable
         var bsa = new List<(AssetProvider provider, int rank)>();
         foreach (var a in _archives)
             if (snap.Tables.TryGetValue(a.Path, out var t) && t.Contains(rel))
-                bsa.Add((new AssetProvider(System.IO.Path.GetFileName(a.Path), AssetKind.Bsa), a.PluginRank));
-        var bsaOrdered = bsa.OrderByDescending(b => b.rank).Select(b => b.provider).ToList();
+                bsa.Add((new AssetProvider(Path.GetFileName(a.Path), AssetKind.Bsa), a.PluginRank));
+        // Higher plugin rank wins; the archive filename is a DETERMINISTIC tie-break so equal-rank BSAs (a plugin can
+        // ship more than one) order stably across runs rather than by hash/enumeration order.
+        var bsaOrdered = bsa.OrderByDescending(b => b.rank)
+                            .ThenBy(b => b.provider.Source, StringComparer.OrdinalIgnoreCase)
+                            .Select(b => b.provider).ToList();
 
         // ---- winner: loose beats BSA; providers = winner first, then the rest in precedence ----
         var providers = new List<AssetProvider>(loose);

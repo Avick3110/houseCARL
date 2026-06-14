@@ -81,6 +81,23 @@ internal static class AssetResolverProbe
                 Check(r.Resolve(freshRel).Winner is { Source: "HighMod" }, "a loose file added AFTER Build resolves with NO refresh (loose holds no state)");
             }
 
+            // ---- dedup: the SAME .bsa bound by two plugins is read ONCE (no double-count → no false Ambiguous) ----
+            // Self-contained: two ActiveArchive entries share one (unreadable) path. BuildTables reads it a single
+            // time, so exactly ONE failure is recorded — proof the path-dedup collapsed the duplicate binding. (The
+            // stronger "a readable shared archive lists ONE provider, not ambiguous" arm rides the committed fixture below.)
+            Console.WriteLine();
+            Console.WriteLine("--- dedup: a path-duplicate BSA binding is collapsed ---");
+            {
+                var dupPath = Path.Combine(root, "Shared.bsa");   // never created → unreadable; both bindings point here
+                var dupArchives = new[]
+                {
+                    new ActiveArchive(dupPath, "PluginX.esp", PluginRank: 1),
+                    new ActiveArchive(dupPath, "PluginY.esp", PluginRank: 2),
+                };
+                using var r = AssetResolver.Build(overwrite, mods, data, enabled, dupArchives);
+                Check(r.BsaFailures.Count == 1, $"a path-duplicate archive is read once — {r.BsaFailures.Count} failure(s) (expected 1)");
+            }
+
             // ---- 5-8: native BSA read (needs BSArch only to MAKE the fixture) ----
             Console.WriteLine();
             Console.WriteLine("--- 5-8: native Mutagen BSA read (fixture via BSArch) ---");
