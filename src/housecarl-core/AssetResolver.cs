@@ -22,8 +22,9 @@ namespace HousecarlCore;
 //  WINNER = the top loose provider if ANY loose copy exists, else the top BSA provider.
 //
 //  Q3 — ALL providers are returned, not just the winner, plus an Ambiguous flag. Two mods
-//  shipping the same facegen path IS the bug, so surfacing the contenders is the diagnostic
-//  value; and the precise loose-vs-BSA outcome has real MO2 edge cases (managed archives),
+//  shipping the same facegen path is a CONTENTION worth surfacing (the contender list is the
+//  diagnostic value) — though the dark-face bug proper is a record-winner-vs-file-winner desync
+//  this phase only half-answers; and the precise loose-vs-BSA outcome has real MO2 edge cases (managed archives),
 //  so the resolver models the common rule and FLAGS contention rather than asserting a
 //  falsely-precise single winner. A BSA that can't be read is collected into BsaFailures and
 //  surfaced, never silently treated as "absent".
@@ -62,8 +63,10 @@ public sealed record AssetProvider(string Source, AssetKind Kind);
 
 /// <summary>The resolution of one asset path. <see cref="Winner"/> is null iff <see cref="Exists"/> is false.
 /// <see cref="Providers"/> lists every source that has the asset, winner FIRST (then the rest in precedence order).
-/// <see cref="Ambiguous"/> = more than one source provides it (contention — for facegen, the desync signal) OR a
-/// loose copy coexists with a BSA copy (the one loose-vs-BSA edge the model can't promise exactly).</summary>
+/// <see cref="Ambiguous"/> = more than one source provides it (FILE-layer contention) OR a loose copy coexists with a
+/// BSA copy (the one loose-vs-BSA edge the model can't promise exactly). This is the file-winner half only; the
+/// dark-face desync is record-winner-vs-file-winner (a later phase joins them), so Ambiguous flags contention to
+/// VERIFY, not a confirmed desync.</summary>
 public sealed record AssetHit(string RelPath, bool Exists, AssetProvider? Winner, IReadOnlyList<AssetProvider> Providers, bool Ambiguous);
 
 /// <summary>An active BSA the resolver should consider: its full path, the plugin it loads with, and that plugin's
@@ -122,7 +125,7 @@ public sealed class AssetResolver : IDisposable
                   IReadOnlyList<string> enabledMods, IReadOnlyList<ActiveArchive> archives)
     {
         _overwriteDir = overwriteDir ?? "";
-        _modsDir = modsDir;
+        _modsDir = modsDir ?? "";
         _dataDir = dataDir ?? "";
         _enabledMods = enabledMods;
         _archives = DedupeArchives(archives);    // collapse a path bound by >1 plugin → ONE provider (no double-count → no false Ambiguous)
