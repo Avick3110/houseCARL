@@ -8,39 +8,40 @@ using HousecarlCore;
 namespace HousecarlMcp;
 
 /// <summary>
-/// houseCARL place-asset tools (facegen-diagnostics Phase 3) — the WRITE side of dark-face / grey-face repair. Where
-/// housecarl_asset_status (read-only) tells you WHICH copy of a FaceGen file currently wins MO2's VFS, these place the
-/// CORRECT copy into a NEW houseCARL-owned mod folder so it CAN win once enabled + sorted. A precise placer: it writes a
-/// source it is handed and auto-resolves only when exactly ONE copy exists (the "which copy is correct" judgment is the
-/// caller's / the facegen skill's, not the tool's). Source bytes are read IN PROCESS — a loose file, or a single entry
-/// out of a BSA via native Mutagen (no BSArch). The write is crash-atomic and non-destructive (originals untouched; a
-/// failed fresh placement leaves no orphan). Honest (Q3): "wrote it" is NOT "it wins" — the tool reports the current
-/// winner and the required MO2 enable + sort, and never claims the fix took effect on write.
+/// houseCARL place-asset tools — place a chosen asset file (any Data-relative file) as a winning override in a NEW
+/// houseCARL-owned MO2 mod folder, the WRITE counterpart to housecarl_asset_status (which reports which copy currently
+/// wins the VFS). A precise placer: it writes a source it is handed and auto-resolves only when exactly ONE copy exists
+/// (the "which copy is correct" judgment is the caller's / a skill's, not the tool's). Source bytes are read IN PROCESS —
+/// a loose file, or a single entry out of a BSA via native Mutagen (no BSArch). The write is crash-atomic and
+/// non-destructive (originals untouched; a failed fresh placement leaves no orphan). Honest (Q3): "wrote it" is NOT "it
+/// wins" — the tool reports the current winner and the required MO2 enable + sort, and never claims the fix took effect on
+/// write. General asset-layer; the FaceGen / dark-face case is the headline use case, driven by the facegen skill (the
+/// formid+kind input is its convenience — for any other file use asset_path).
 /// </summary>
 [McpServerToolType]
 public static class PlaceAssetTools
 {
-    [McpServerTool(Name = "housecarl_place_asset", Title = "Place ONE FaceGen/asset file so the correct copy can win MO2's VFS"),
+    [McpServerTool(Name = "housecarl_place_asset", Title = "Place ONE asset file so a chosen copy can win MO2's VFS"),
      Description(
-         "Place ONE asset file (a FaceGen .nif/.dds, or any Data-relative file) into a NEW houseCARL-owned MO2 mod folder " +
-         "so the CORRECT copy can win the virtual file system — the WRITE half of dark-face / grey-face ('black face', " +
-         "'ashen face') NPC repair (housecarl_asset_status is the read half). Give the DESTINATION as either formid (an " +
-         "NPC's FormID 'XXXXXX:Plugin.esp' — houseCARL computes the FaceGen path: folder = the DEFINING plugin in the " +
-         "FormID, file = the FormID with the index masked) plus kind ('mesh' = the head .nif, 'tint' = the face .dds), OR " +
-         "asset_path (a raw Data-relative path for any file). Give the SOURCE (the correct copy) as source= a loose file " +
-         "path, or '<archive.bsa path>|<entry inside>', or just a '.bsa' path (the entry is taken to be the destination " +
-         "path — the Creation-Club-NPC case). If source is OMITTED, houseCARL auto-resolves: it uses the SOLE provider in " +
-         "your load order, and REFUSES (telling you the candidates) if more than one provides it — it will not guess which " +
-         "is correct. The write is crash-atomic; originals are never touched. IMPORTANT (and reported back): the placed " +
-         "copy does NOT win on write — you must ENABLE the new mod in MO2 and SORT it above the current winner. This tool " +
-         "places ONE file; to place an NPC's mesh AND tint together (or many files) use housecarl_bulk_place_asset.")]
+         "Place ONE asset file — ANY Data-relative file (a mesh, texture, script, sound, interface, etc.) — into a NEW " +
+         "houseCARL-owned MO2 mod folder so a CHOSEN copy can win the virtual file system. The WRITE counterpart to " +
+         "housecarl_asset_status (which reports which copy currently wins). Give the DESTINATION as asset_path (a " +
+         "Data-relative path); OR, for an NPC's generated FaceGen file, as formid (the NPC's FormID 'XXXXXX:Plugin.esp') " +
+         "+ kind ('mesh' = the head .nif, 'tint' = the face .dds), which houseCARL computes the path for. Give the SOURCE " +
+         "(the copy to place) as source= a loose file path, or '<archive.bsa path>|<entry inside>', or just a '.bsa' path " +
+         "(the entry is taken to be the destination — a quick way to pull ONE file out of a BSA as a loose override). If " +
+         "source is OMITTED, houseCARL auto-resolves: it uses the SOLE provider in your load order, and REFUSES (telling " +
+         "you the candidates) if more than one provides it — it will not guess which is correct. The write is crash-atomic; " +
+         "originals are never touched. IMPORTANT (and reported back): the placed copy does NOT win on write — you must " +
+         "ENABLE the new mod in MO2 and SORT it above the current winner. This tool places ONE file; to place several (or " +
+         "an NPC's mesh AND tint together) use housecarl_bulk_place_asset.")]
     public static string PlaceAsset(
         LoadOrderService svc,
-        [Description("Optional. The NPC's FormID 'XXXXXX:Plugin.esp' — houseCARL computes the FaceGen path from it. Use for dark-face fixes. Provide this OR asset_path. Requires kind=.")]
+        [Description("Optional. For an NPC's generated FaceGen file: the NPC's FormID 'XXXXXX:Plugin.esp' — houseCARL computes the FaceGen path from it. For any other file, use asset_path instead. Provide this OR asset_path; requires kind=.")]
             string? formid = null,
         [Description("Optional (with formid). Which FaceGen file: 'mesh' (the head .nif) or 'tint' (the face .dds). REQUIRED when formid is given — this tool places one file. Use housecarl_bulk_place_asset to place both at once.")]
             string? kind = null,
-        [Description("Optional. A Data-relative destination path to place to directly (e.g. 'meshes/actors/...'), instead of formid+kind. Provide this OR formid. A drive-rooted or '..'-escaping path is rejected.")]
+        [Description("Optional. The Data-relative destination path to place to (any file — e.g. 'textures/armor/iron/cuirass_1.dds', 'meshes/...', a script, a sound), instead of formid+kind. Provide this OR formid. A drive-rooted or '..'-escaping path is rejected.")]
             string? asset_path = null,
         [Description("Optional. The correct copy to place: a loose file path; or '<archive.bsa path>|<entry inside>'; or just a '.bsa' path (the entry is taken to be the destination path). If omitted, houseCARL uses the SOLE provider in your load order and refuses if more than one provides it (you choose).")]
             string? source = null,
@@ -55,15 +56,15 @@ public static class PlaceAssetTools
         return PlaceWire.Render(svc.PlaceAssets(reqs!, patch_name, into));
     });
 
-    [McpServerTool(Name = "housecarl_bulk_place_asset", Title = "Place MANY FaceGen/asset files in one houseCARL mod"),
+    [McpServerTool(Name = "housecarl_bulk_place_asset", Title = "Place MANY asset files in one houseCARL mod"),
      Description(
-         "Place MANY asset files in ONE houseCARL-owned MO2 mod folder — the batch form of housecarl_place_asset, and the " +
-         "way to fix an NPC's FaceGen mesh AND tint together (or several NPCs at once). assets is an array of " +
-         "{ formid?, kind?, asset_path?, source? }: give EITHER formid (an NPC FormID — omit kind to place BOTH the mesh " +
-         "and the tint; or set kind='mesh'/'tint' for just one) OR asset_path (a raw Data-relative path). source is the " +
-         "correct copy (a loose file path, '<archive.bsa>|<entry>', or a '.bsa' path); omit it to auto-resolve the sole " +
-         "VFS provider (an ambiguous or absent source becomes a per-asset error — the rest still place). When you give a " +
-         "FormID with no kind (placing both files), an explicit source must be a '.bsa' path (each slot's entry is " +
+         "Place MANY asset files in ONE houseCARL-owned MO2 mod folder — the batch form of housecarl_place_asset (place " +
+         "several overrides at once; or, for an NPC, its FaceGen mesh AND tint together). assets is an array of " +
+         "{ formid?, kind?, asset_path?, source? }: give EITHER asset_path (any Data-relative path) OR formid (an NPC " +
+         "FormID — omit kind to place BOTH the FaceGen mesh and the tint; or set kind='mesh'/'tint' for just one). source " +
+         "is the copy to place (a loose file path, '<archive.bsa>|<entry>', or a '.bsa' path); omit it to auto-resolve the " +
+         "sole VFS provider (an ambiguous or absent source becomes a per-asset error — the rest still place). When you give " +
+         "a FormID with no kind (placing both files), an explicit source must be a '.bsa' path (each slot's entry is " +
          "derived) — for a single loose/entry source set kind=. All files land in ONE reviewable mod folder. A malformed " +
          "spec (bad FormID, bad kind, neither/both of formid+asset_path) refuses the WHOLE call with per-spec reasons and " +
          "places nothing. As with the single tool, the placed copies do NOT win until you enable + sort the mod in MO2 " +
