@@ -810,10 +810,14 @@ public static class WriteEngine
                 reason = null;
                 return true;
             }
-        reason = $"'{typeName}' has no top-level group, so it can't be created directly — it's a nested/placed record " +
-                 "(a cell, a placed object/NPC, a dialogue line, navmesh or terrain, which needs parent context like which " +
-                 "cell it goes in), or a subtype of an abstract group (like Global → GlobalFloat). Both are named follow-ups. " +
-                 "Flat top-level records — keywords, spells, perks, magic effects, factions, armor, weapons, leveled lists, … — create fine.";
+        reason = $"'{typeName}' has no top-level group, so it can't be created on its own — it's a nested/placed record " +
+                 "(a placed object/NPC, a dialogue line, navmesh or terrain) that needs a parent. Create it WITH its parent: " +
+                 "pass parent= (the parent record's FormID, or the editorid of a record created EARLIER in the same call) and, " +
+                 "if the parent holds more than one child-collection, collection= — or use housecarl_bulk_create to make a parent " +
+                 "and its children (a dialogue topic + its lines, a cell + its placed refs) in ONE call. (An EXTERIOR cell nests " +
+                 "under FormKey-less worldspace block structs — a separate capability, still unsupported.) If instead it's a subtype " +
+                 "of an abstract group (like Global → GlobalFloat), create the concrete subtype. Flat top-level records — keywords, " +
+                 "spells, perks, magic effects, factions, armor, weapons, leveled lists, … — create fine.";
         return false;
     }
 

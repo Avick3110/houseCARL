@@ -101,6 +101,13 @@ jobs:
       - name: Probe — nested-record create (self-contained regression guard)
         run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- nested-create-guard
 
+      # Self-contained (synthesizes a real MO2 instance + a master with a dialogue topic) and drives the REAL
+      # LoadOrderService.CreateRecords / CreateRecordsBatch: locks in the create-tool WIRE (nested/dialogue plan,
+      # Layer A) — create_record's parent/collection passthrough, the new bulk_create batch tool (the same-call
+      # topic + line one-shot), batch all-or-nothing, and the nested-with-no-parent guidance copy.
+      - name: Probe — create-tool wire create_record parent + bulk_create (self-contained regression guard)
+        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- bulk-create-guard
+
       # Drives the REAL housecarl-mcp.exe over stdio — the exact wire path of the live failure; needs no game data
       # (argument binding resolves before configuration is consulted): a regression guard locking in the tool-argument
       # binding shim — string-for-array coerces, missing-required refuses by name, an uncoercible shape fails NAMED
