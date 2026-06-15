@@ -74,13 +74,13 @@ static class AssetWire
                   .Append(" more path(s) omitted at max_chars=").Append(cap).Append("; raise max_chars to see all]\n");
                 break;
             }
-            AppendPath(sb, r, d.ReadIncomplete);
+            AppendPath(sb, r, d.ReadIncomplete, d.Warnings.Count > 0);
             shown++;
         }
         return sb.ToString().TrimEnd('\n');
     }
 
-    static void AppendPath(StringBuilder sb, AssetPathResult r, bool readIncomplete)
+    static void AppendPath(StringBuilder sb, AssetPathResult r, bool readIncomplete, bool discoveryIncomplete)
     {
         sb.Append('\n').Append(r.RelPath).Append('\n');
 
@@ -94,9 +94,16 @@ static class AssetWire
         if (!hit.Exists)
         {
             sb.Append("  ABSENT — no active mod or BSA provides this path\n");
+            // Both "the scan was incomplete" conditions hedge an ABSENT at the POINT OF USE (Q3 — symmetric honesty),
+            // not just at the top-of-output note: an archive that failed to READ, AND base archives that were never
+            // DISCOVERED (a Skyrim.ini we couldn't find → vanilla "Skyrim - Textures*.bsa" unscanned). Either means the
+            // asset could exist where we didn't look — the exact over-trust an "absent → the NPC is fine" call must avoid.
             if (readIncomplete)
                 sb.Append("  [!] but an archive failed to read this build (see the read-failure note above), so " +
                           "\"absent\" may be incomplete — the asset could live in the unreadable archive.\n");
+            if (discoveryIncomplete)
+                sb.Append("  [!] some archives were not scanned this build (see the discovery note above), so " +
+                          "\"absent\" may be incomplete — base-game assets live in BSAs that weren't enumerated.\n");
             return;
         }
 
