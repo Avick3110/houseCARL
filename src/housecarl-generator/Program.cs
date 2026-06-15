@@ -90,6 +90,13 @@ if (args.Length > 0 && args[0] == "asset-resolver-guard") return AssetResolverPr
 // the heavy record index. Self-contained: synthetic folders/instances + the committed .bsa fixtures, NO BSArch.
 if (args.Length > 0 && args[0] == "asset-status-guard") return AssetStatusProbe.RunGuard(args[1..]);
 
+// Place asset (facegen-diagnostics Phase 3 — housecarl_place_asset / housecarl_bulk_place_asset): the FormKey→FaceGen-path
+// keystone (defining-master folder + masked id), native BSA single-entry extraction with ZERO handles at rest, the
+// crash-atomic non-destructive place, the precise placer (explicit + auto-resolved source; ambiguity refused, not
+// guessed), the wins-VFS end-to-end story through the REAL service, and the Q3 refusals. Self-contained: synthetic
+// folders/instances + the committed FixtureA.bsa, NO BSArch.
+if (args.Length > 0 && args[0] == "place-asset-guard") return PlaceAssetProbe.RunGuard(args[1..]);
+
 // Compile-tool import order: caller import_dirs OUTRANK the vanilla auto-import (first match wins, so
 // SKSE-extended copies of vanilla sources must win). Pure order arm always runs; real-compile arm self-skips.
 if (args.Length > 0 && args[0] == "import-order-guard") return ImportOrderProbe.RunGuard(args[1..]);

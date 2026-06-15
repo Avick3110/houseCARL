@@ -231,3 +231,15 @@ jobs:
       # with a note on a file-system-tunneling host; arm C2 proves the locked-target mid-swap fails loud + non-destructive.
       - name: Probe — atomic-commit (crash-atomic File.Replace swap primitive)
         run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- atomic-commit-guard
+
+      # Place asset (facegen-diagnostics Phase 3 — housecarl_place_asset / housecarl_bulk_place_asset): the WRITE side of
+      # dark-face repair. Locks in the FormKey->FaceGen-path keystone (defining-master folder + masked id, matched against
+      # the committed fixture's entry name), native BSA single-entry extraction with ZERO handles at rest (the .bsa stays
+      # renamable/deletable after — the cornerstone), the crash-atomic non-destructive place (routes through
+      # AtomicFile.WriteAllBytes -> Commit; the creation-time arm is RED to a File.Move regression, self-skipping on a
+      # tunneling host), the precise placer (explicit + auto-resolved source; ambiguity REFUSED, never guessed), the
+      # wins-VFS end-to-end story through the REAL service (place over a wrong winner, enable on top -> it wins
+      # svc.AssetStatus), and the Q3 refusals (drive-rooted/'..', malformed tool specs). Self-contained: synthetic
+      # folders/instances + the committed FixtureA.bsa (fixtures/asset-resolver/), so it runs here with NO BSArch.
+      - name: Probe — place asset (FaceGen-path keystone + precise placer + BSA extract + wins-VFS)
+        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- place-asset-guard
