@@ -238,6 +238,173 @@ public sealed class LoadOrderService : IDisposable
         }
     }
 
+    // ---- facegen-diagnostics Phase 3: place an asset so the correct copy WINS the VFS (housecarl_place_asset) ----
+
+    /// <summary>Place one-or-more assets (FaceGen .nif/.dds, or any Data-relative file) into a NEW houseCARL-owned MO2 mod
+    /// folder so the CORRECT copy can win the VFS (housecarl_place_asset = one; housecarl_bulk_place_asset = many). For
+    /// each request: resolve its current providers (auto-resolve a source when none was named — sole provider used, &gt;1
+    /// refused as ambiguous, 0 refused with guidance), read the source bytes IN PROCESS (a loose file, or a single entry
+    /// out of a BSA via native Mutagen), and write them CRASH-ATOMICALLY (<see cref="AtomicFile.WriteAllBytes"/>) under the
+    /// owned folder. Originals untouched (we only ever write a fresh / houseCARL-owned folder). NON-DESTRUCTIVE on failure:
+    /// a fresh folder that ended up with NOTHING placed is removed (no orphan); a partial one is kept + named. Q3 honesty:
+    /// "wrote it" ≠ "it wins" — the fresh mod must be ENABLED + SORTED above the current winner, which the render reports;
+    /// this never claims the fix took effect on write. Serialized on the write gate (one placement batch at a time).</summary>
+    public PlaceOutcome PlaceAssets(IReadOnlyList<PlaceRequest> requests, string? patchName, string? into)
+    {
+        if (requests is null || requests.Count == 0) return PlaceOutcome.Fail("no assets to place.");
+
+        lock (_writeGate)                                                 // hunt F2 sibling: one placement batch at a time, resolve->stage->commit
+        {
+            RiderFolder rf;
+            try { rf = ResolvePatchModFolder(patchName, into, "houseCARL_FaceGen"); }
+            catch (InvalidOperationException ex) { return PlaceOutcome.Fail(ex.Message); }
+
+            // ONE asset build for the whole batch (auto-resolve sources + the post-write winner report), reentrant on _gate.
+            AssetResolver resolver; IReadOnlyList<string> warnings;
+            try { lock (_gate) { resolver = Assets; warnings = _assetWarnings; } }
+            catch (Exception ex)
+            {
+                var residue = RemoveOrNameRiderResidue(rf);              // nothing placed yet → a fresh folder is an orphan
+                return PlaceOutcome.Fail($"could not resolve the asset layer (the MO2 instance may not be readable): {ex.Message}"
+                    + (residue is null ? "" : $" The freshly created mod folder was left at '{residue}'."));
+            }
+
+            var results = new List<PlaceResult>(requests.Count);
+            int placed = 0;
+            foreach (var req in requests)
+            {
+                var r = PlaceOne(req, resolver, rf.OutputDir);
+                results.Add(r);
+                if (r.Placed) placed++;
+            }
+
+            // Nothing placed into a FRESH folder → remove the orphan (the .esp F4 / rider H2 principle). A reused into=
+            // folder (the user owns it) is never touched. A partial fresh folder is kept and its path surfaced.
+            string? leftover = placed == 0 ? RemoveOrNameRiderResidue(rf) : null;
+            return new PlaceOutcome(results, placed > 0 ? rf.ModFolder : null, warnings, leftover, null);
+        }
+    }
+
+    /// <summary>Place ONE asset: validate the destination rel-path (reject drive-rooted/'..' through the resolver's own
+    /// gate, Q3), get the source bytes (explicit source= or auto-resolve), and write them crash-atomically under
+    /// <paramref name="outDir"/>. Reports the CURRENT VFS winner so the caller knows what to sort the fresh mod above —
+    /// the placed file does NOT win until the mod is enabled + sorted (the fresh folder isn't in the active profile yet).
+    /// A per-asset failure is a recoverable named error, never a thrown batch abort.</summary>
+    PlaceResult PlaceOne(PlaceRequest req, AssetResolver resolver, string outDir)
+    {
+        string rel;
+        try { rel = AssetResolver.ValidateRelPath(req.AssetPath); }
+        catch (ArgumentException ex) { return PlaceResult.Fail(req.AssetPath, ex.Message); }
+
+        var res = resolver.ResolveForPlacement(rel);                     // rel already validated — won't throw
+        var winner = res.Sources.Count > 0 ? DescribeSource(res.Sources[0]) : null;
+
+        // ---- source bytes: explicit source= wins; else auto-resolve the sole provider ----
+        byte[] bytes; string sourceDesc;
+        var explicitSrc = req.Source?.Trim();
+        if (!string.IsNullOrEmpty(explicitSrc))
+        {
+            var (b, desc, err) = ReadExplicitSource(explicitSrc!, rel);
+            if (err is not null) return PlaceResult.Fail(rel, err, winner);
+            bytes = b!; sourceDesc = desc!;
+        }
+        else
+        {
+            if (res.Sources.Count == 0)
+                return PlaceResult.Fail(rel,
+                    $"nothing in the active load order provides '{rel}', so there is no copy to auto-place. Pass source= the correct copy "
+                    + "(a loose file path, or '<archive.bsa>|<entry>', or a '.bsa' path)."
+                    + (res.ReadIncomplete ? " NOTE: a BSA failed to read this build, so a source may merely be unscanned (see the warnings)." : ""),
+                    winner);
+            if (res.Ambiguous)
+                return PlaceResult.Fail(rel,
+                    $"{res.Sources.Count} sources provide '{rel}' — ambiguous, so place_asset will not guess which copy is correct (the skill decides). "
+                    + $"Pass source= one of: {string.Join("; ", res.Sources.Select(SourceHint))}.",
+                    winner);
+            var (b, desc, err) = ReadResolvedSource(res.Sources[0]);
+            if (err is not null) return PlaceResult.Fail(rel, err, winner);
+            bytes = b!; sourceDesc = desc!;
+        }
+
+        // ---- crash-atomic place under the owned folder (originals untouched; same-volume staging done in core) ----
+        var dest = Path.Combine(outDir, rel);
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(dest)!);
+            AtomicFile.WriteAllBytes(dest, bytes);
+        }
+        catch (Exception ex) { return PlaceResult.Fail(rel, $"could not write '{rel}' into the patch folder: {ex.Message}", winner); }
+
+        // ---- integrity (Q3: THIS run wrote it; the on-disk size matches the source bytes — no false success) ----
+        long size; try { size = new FileInfo(dest).Length; } catch { size = -1; }
+        if (size != bytes.Length)
+            return PlaceResult.Fail(rel,
+                $"wrote '{rel}' but its on-disk size ({size}) does not match the {bytes.Length} source byte(s) — verify before relying on it.", winner);
+        return new PlaceResult(rel, true, bytes.Length, sourceDesc, winner, null);
+    }
+
+    /// <summary>Read an EXPLICIT source= the caller named. Forms: "&lt;archive.bsa&gt;|&lt;entry&gt;" (a specific BSA
+    /// entry, split on the FIRST '|'); a path ending ".bsa" (the entry is the destination rel-path — the FaceGen case,
+    /// where the entry inside the BSA IS the Data-relative path); any other path (a loose file on disk). Returns the bytes
+    /// + a human description, or a NAMED error (Q3) for a missing file / missing entry / unreadable archive.</summary>
+    static (byte[]? bytes, string? desc, string? error) ReadExplicitSource(string source, string destRel)
+    {
+        int bar = source.IndexOf('|');
+        if (bar >= 0)
+            return ReadBsaEntry(source[..bar].Trim().Trim('"'), source[(bar + 1)..].Trim());
+        if (source.EndsWith(".bsa", StringComparison.OrdinalIgnoreCase))
+            return ReadBsaEntry(source.Trim('"'), destRel);              // .bsa with no explicit entry → entry := the destination path
+        string path;
+        try { path = Path.GetFullPath(source.Trim('"')); }
+        catch (Exception ex) { return (null, null, $"source '{source}' is not a usable path: {ex.Message}"); }
+        if (!File.Exists(path)) return (null, null, $"source file not found: '{path}'.");
+        try { return (File.ReadAllBytes(path), $"loose file {path}", null); }
+        catch (Exception ex) { return (null, null, $"could not read source file '{path}': {ex.Message}"); }
+    }
+
+    /// <summary>Read the bytes of an AUTO-resolved provider (the sole VFS provider when no source= was named). A loose
+    /// provider reads off disk; a BSA provider extracts its single entry natively. A named error (Q3) if the resolved copy
+    /// vanished between resolve and read, or the archive can't be read.</summary>
+    static (byte[]? bytes, string? desc, string? error) ReadResolvedSource(PlacementSource s)
+    {
+        if (s.Kind == AssetKind.Loose)
+        {
+            var p = s.LooseFilePath!;
+            if (!File.Exists(p)) return (null, null, $"the resolved loose source '{p}' is no longer on disk.");
+            try { return (File.ReadAllBytes(p), $"loose file {p} (from {s.ProviderName})", null); }
+            catch (Exception ex) { return (null, null, $"could not read resolved source '{p}': {ex.Message}"); }
+        }
+        return ReadBsaEntry(s.ArchivePath!, s.EntryPath);
+    }
+
+    /// <summary>Read one entry out of a BSA (native Mutagen, no BSArch, zero handles at rest — see
+    /// <see cref="AssetResolver.TryReadArchiveEntry"/>). Named errors (Q3) for a missing archive, an entry not inside it,
+    /// or an unreadable archive.</summary>
+    static (byte[]? bytes, string? desc, string? error) ReadBsaEntry(string archive, string entry)
+    {
+        string ap;
+        try { ap = Path.GetFullPath(archive.Trim('"')); }
+        catch (Exception ex) { return (null, null, $"source archive '{archive}' is not a usable path: {ex.Message}"); }
+        if (!File.Exists(ap)) return (null, null, $"source archive not found: '{ap}'.");
+        try
+        {
+            var b = AssetResolver.TryReadArchiveEntry(ap, entry);
+            if (b is null) return (null, null, $"entry '{entry}' not found inside archive '{Path.GetFileName(ap)}'.");
+            return (b, $"{Path.GetFileName(ap)}|{entry}", null);
+        }
+        catch (Exception ex) { return (null, null, $"could not read archive '{Path.GetFileName(ap)}': {ex.Message}"); }
+    }
+
+    /// <summary>A human label for the current winner (the sort target). "ModX (loose)" / "Y.bsa (BSA)".</summary>
+    static string DescribeSource(PlacementSource s) => $"{s.ProviderName} ({(s.Kind == AssetKind.Bsa ? "BSA" : "loose")})";
+
+    /// <summary>A copy-pasteable source= hint for an ambiguous-provider refusal: a BSA provider needs its archive PATH (the
+    /// display name is just the filename), so name it as a BSA the caller must give the full path of; a loose provider's
+    /// on-disk path is exact.</summary>
+    static string SourceHint(PlacementSource s) => s.Kind == AssetKind.Bsa
+        ? $"the BSA '{s.ProviderName}' (give its full path, or '<path>|{s.EntryPath}')"
+        : $"'{s.LooseFilePath}'";
+
     /// <summary>Whole-order stats (forces the lazy build). For the server's stand-up / health check.</summary>
     public (int plugins, int records, int conflicts, int maxDepth, IReadOnlyList<string> loadFailures) Stats()
     {
@@ -1401,3 +1568,30 @@ public sealed record AssetStatusData(
     bool ReadIncomplete,
     IReadOnlyList<string> Warnings,
     string ProfileName);
+
+/// <summary>One asset to PLACE (housecarl_place_asset / bulk). <see cref="AssetPath"/> is the resolved Data-relative
+/// DESTINATION (the tool computes it from a FormID+slot for FaceGen, or takes a raw path). <see cref="Source"/> is the
+/// correct copy to place — a loose file path, "&lt;archive.bsa&gt;|&lt;entry&gt;", or a ".bsa" path (entry := AssetPath);
+/// null/blank ⇒ auto-resolve (use the sole VFS provider; &gt;1 ambiguous and 0 absent are per-asset refusals, Q3).</summary>
+public sealed record PlaceRequest(string AssetPath, string? Source);
+
+/// <summary>One placed asset's outcome. <see cref="Placed"/> false ⇒ <see cref="Error"/> names why (recoverable, per-asset
+/// Q3). <see cref="CurrentWinner"/> is the source that currently wins the VFS for this path (the sort target — the placed
+/// copy does NOT win until the fresh mod is enabled + sorted above it), or null if nothing provided it before.</summary>
+public sealed record PlaceResult(string AssetPath, bool Placed, long Bytes, string? SourceDesc, string? CurrentWinner, string? Error)
+{
+    public static PlaceResult Fail(string assetPath, string error, string? currentWinner = null)
+        => new(assetPath, false, 0, null, currentWinner, error);
+}
+
+/// <summary>The outcome of place_asset / bulk_place_asset. <see cref="Error"/> non-null ⇒ the whole call was rejected
+/// before any placement (unconfigured, an into= folder houseCARL doesn't own, the asset layer wouldn't build). Else
+/// <see cref="Results"/> is per-asset; <see cref="ModFolder"/> is the houseCARL mod the placed files landed in (null when
+/// none placed); <see cref="Warnings"/> carries the asset-discovery caveats (Q3); <see cref="LeftoverFolder"/> names a
+/// fresh folder kept because it holds a partial result (no orphan is left for an all-failed fresh batch).</summary>
+public sealed record PlaceOutcome(
+    IReadOnlyList<PlaceResult> Results, string? ModFolder, IReadOnlyList<string> Warnings, string? LeftoverFolder, string? Error)
+{
+    public static PlaceOutcome Fail(string error)
+        => new(Array.Empty<PlaceResult>(), null, Array.Empty<string>(), null, error);
+}
