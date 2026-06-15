@@ -17,7 +17,9 @@ namespace HousecarlCore;
 /// in-place-write-lane review named as not crash-atomic: it can unlink the destination BEFORE the rename commits, and
 /// it discards the destination's identity (the result becomes the SOURCE file). Same-volume staging is the caller's
 /// invariant — <c>File.Replace</c> THROWS across volumes (a loud, correct refusal) rather than silently degrading to a
-/// non-atomic copy (Q3).
+/// non-atomic copy (Q3). An EFS-encrypted or specially-ACL'd target can likewise make <c>File.Replace</c> throw a
+/// metadata-merge error where <c>File.Move</c> would not — also surfaced loud, original byte-intact; the 3-arg overload
+/// is deliberate (the 4-arg <c>ignoreMetadataErrors: true</c> would silently swallow that failure, violating Q3).
 ///
 /// Holds NO handle at rest: it opens nothing it keeps. Proven by the atomic-commit guard, whose overwrite arm is
 /// RED-sensitive to a <c>File.Move(overwrite)</c> regression via the destination's PRESERVED creation time
@@ -36,12 +38,18 @@ internal static class AtomicFile
         {
             File.Replace(stagedPath, finalPath, destinationBackupFileName: null);
         }
+        // Catch FileNotFoundException ONLY, and deliberately: a cross-volume swap surfaces here as IOException
+        // (ERROR_UNABLE_TO_MOVE_REPLACEMENT_2) and, given the same-volume invariant, that's a caller bug we WANT loud
+        // with the original retained — widening this catch to IOException would silently degrade it into a non-atomic
+        // cross-volume copy (Q3). An EFS/special-ACL merge error likewise surfaces loud here, original byte-intact.
         catch (FileNotFoundException)
         {
             // File.Replace requires an existing destination; the fresh-file case (no prior output) it throws on is
-            // served by an atomic rename instead. A MISSING SOURCE also surfaces here — File.Move then re-throws,
-            // surfacing the real fault loud rather than masking it as a silent no-op.
-            File.Move(stagedPath, finalPath);
+            // served by a rename instead. overwrite:true keeps that branch idempotent against the (mutex-guarded,
+            // houseCARL-owned-path) sub-millisecond TOCTOU where the target appears between the probe and here — there
+            // is no original to lose on a path just judged fresh. A MISSING SOURCE still throws FileNotFoundException
+            // here, so File.Move re-throws it loud rather than masking it as a silent no-op.
+            File.Move(stagedPath, finalPath, overwrite: true);
         }
     }
 }
