@@ -374,14 +374,19 @@ public static class WritePatchBuilder
 
     /// <summary>
     /// Create BRAND-NEW records (new FormIDs) in a patch — the net-new authoring capability, the sibling of
-    /// <see cref="Apply"/> (which overrides an EXISTING record). Each <see cref="CreateSpec"/> allocates a fresh record of
-    /// its (caller-declared) type via <see cref="WriteEngine.GenericAddNew"/> — a local 0x800+ ESP-range FormID, the new
-    /// plugin its own master — then drives the SAME <see cref="WriteEngine.ApplyVerb"/> path to set its fields. Unlike Apply,
-    /// the RecordType is DECLARED (there's no existing winner to derive it from). FLAT records only BY CONSTRUCTION (the
-    /// create surface = the flat-group surface); nested/placed records and abstract-group subtypes fail loud via
-    /// <see cref="WriteEngine.CanCreateType"/> (named follow-ups, Q3). <paramref name="extend"/>=false writes a fresh patch
-    /// (ModKey = filename); =true adds to an existing one (the into= path). ALL-OR-NOTHING (Q3): any pre-flight problem —
-    /// missing editorid, an un-createable type, a rejected edit — refuses the WHOLE call with no file written.
+    /// <see cref="Apply"/> (which overrides an EXISTING record). A FLAT top-level <see cref="CreateSpec"/> (no
+    /// <see cref="CreateSpec.ParentRef"/>) allocates a fresh record of its (caller-declared) type via
+    /// <see cref="WriteEngine.GenericUpsertNew"/>; a NESTED spec (a ParentRef — a dialogue line under a topic, a placed
+    /// ref into a cell) resolves its parent (an existing load-order winner, a same-call sibling by editorid, OR a record
+    /// the patch being extended already carries from a prior into= call) and allocates the child into the parent's modeled
+    /// child-collection via <see cref="WriteEngine.NestedAddNew"/> — the add-target found by construction, named via
+    /// <see cref="CreateSpec.IntoCollection"/> when more than one fits. Either way the new record gets a local 0x800+
+    /// ESP-range FormID and the SAME <see cref="WriteEngine.ApplyVerb"/> path sets its fields; RecordType is DECLARED
+    /// (no existing winner to derive it from). Still failed loud (Q3): an abstract-group subtype, and a coordinate-keyed
+    /// EXTERIOR cell (FormKey-less worldspace block parents) — via <see cref="WriteEngine.CanCreateType"/> /
+    /// <see cref="WriteEngine.CanCreateNested"/>. <paramref name="extend"/>=false writes a fresh patch (ModKey = filename);
+    /// =true adds to an existing one (the into= path). ALL-OR-NOTHING (Q3): any pre-flight problem — missing editorid, an
+    /// un-createable type, an unresolvable parent, a rejected edit — refuses the WHOLE call with no file written.
     /// </summary>
     public static CreateOutcome CreateRecords(
         LoadOrderResolver resolver, CorpusRulebook rulebook,
