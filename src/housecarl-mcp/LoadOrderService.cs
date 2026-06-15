@@ -255,6 +255,10 @@ public sealed class LoadOrderService : IDisposable
 
         lock (_writeGate)                                                 // hunt F2 sibling: one placement batch at a time, resolve->stage->commit
         {
+            // PRECONDITION: _writeGate is held for the WHOLE method. ResolvePatchModFolder and the `Assets` getter each
+            // take-and-release _gate, so this method straddles two _gate sections — safe ONLY because _writeGate excludes
+            // every other writer and instance-switch throughout, so no profile refresh can land between them. Do not call
+            // PlaceOne/Assets here outside this _writeGate hold.
             RiderFolder rf;
             try { rf = ResolvePatchModFolder(patchName, into, "houseCARL_FaceGen"); }
             catch (InvalidOperationException ex) { return PlaceOutcome.Fail(ex.Message); }
@@ -336,6 +340,9 @@ public sealed class LoadOrderService : IDisposable
         catch (Exception ex) { return PlaceResult.Fail(rel, $"could not write '{rel}' into the patch folder: {ex.Message}", winner); }
 
         // ---- integrity (Q3: THIS run wrote it; the on-disk size matches the source bytes — no false success) ----
+        // Belt-and-braces truncation / short-write detection — NOT a content hash (the bytes are in-memory and the swap is
+        // atomic, so a same-length corruption isn't a reachable failure of this path; a size mismatch would mean the OS
+        // wrote fewer bytes than handed). Defensive, not the primary guarantee (that's AtomicFile's crash-atomic swap).
         long size; try { size = new FileInfo(dest).Length; } catch { size = -1; }
         if (size != bytes.Length)
             return PlaceResult.Fail(rel,

@@ -248,7 +248,7 @@ internal static class PlaceAssetProbe
                     var store = new UserConfigStore(Path.Combine(root, "user-f3.json"));
                     using var svc = LoadOrderService.WithInstance(inst, 0, store);
                     var r = svc.PlaceAssets(new[] { new PlaceRequest(FacegenRel, null) }, null, null).Results[0];
-                    Check(!r.Placed && r.Error!.Contains("nothing"), $"NO provider + no source= is REFUSED with guidance — {r.Error}");
+                    Check(!r.Placed && r.Error!.Contains("no copy to auto-place"), $"NO provider + no source= is REFUSED with guidance — {r.Error}");
                 }
             }
 
@@ -301,8 +301,63 @@ internal static class PlaceAssetProbe
                 Check(PlaceAssetTools.BulkPlaceAsset(svc, new[] { new PlaceAssetSpec { Formid = "01A51A:Dawnguard.esm", Source = @"C:\loose.nif" } })
                         .Contains(".bsa"),
                       "bulk tool: a both-expansion (formid, no kind) with a non-.bsa source is refused");
+                // a QUOTED .bsa source (the natural form for a spaced filename) must NOT be wrongly refused at the spec
+                // level — quotes are trimmed for the test, as ReadExplicitSource does (review fix). It then attempts to
+                // place mesh+tint (per-asset outcomes), never the "must be a bare '.bsa' path" spec refusal.
+                Check(!PlaceAssetTools.BulkPlaceAsset(svc, new[] { new PlaceAssetSpec { Formid = "01A51A:Dawnguard.esm", Source = "\"" + fixA + "\"" } })
+                        .Contains("must be a bare"),
+                      "bulk tool: a QUOTED .bsa source in a both-expansion is ACCEPTED (not refused for the trailing quote)");
                 Check(PlaceAssetTools.BulkPlaceAsset(svc, Array.Empty<PlaceAssetSpec>()).Contains("empty"),
                       "bulk tool: an empty assets array is rejected");
+            }
+
+            // ================= H: provenance + crash-atomic ROUTING through the SERVICE (overwrite via into=) =================
+            // The fresh-folder arms (D/E) never overwrite a pre-existing dest, so this arm places TWICE into the same folder
+            // (into=) to prove: (1) the overwrite yields the NEW bytes, not the stale prior — no false-success on a
+            // pre-existing file (the 2026-06-12 BSArch lesson, on the SERVICE path); (2) the service place routes through
+            // the crash-atomic primitive — the destination's creation time is PRESERVED (File.Replace), RED to a
+            // File.Move(overwrite) regression in PlaceOne (which resets it). HONEST residual: a regression to a plain
+            // File.WriteAllBytes is NOT distinguishable in-process (it also preserves creation time and is also atomic for
+            // non-crash writes) — only the crash window differs, which no in-process probe can observe (the same limit
+            // atomic-commit-guard states). This arm catches the File.Move regression + the stale-bytes false-success.
+            Console.WriteLine();
+            Console.WriteLine("--- H: service overwrite (into=) — NEW bytes, not stale; creation-time preserved (routes through AtomicFile) ---");
+            {
+                var inst = Path.Combine(root, "svc-h");
+                var (_, _, prof) = MakeInstance(inst);
+                WriteProfile(prof, Array.Empty<string>(), Array.Empty<string>(), Array.Empty<string>());
+                WriteSkyrimIni(prof, "");
+                var store = new UserConfigStore(Path.Combine(root, "user-h.json"));
+                using var svc = LoadOrderService.WithInstance(inst, 0, store);
+
+                var srcV1 = Path.Combine(root, "v1.nif"); File.WriteAllBytes(srcV1, new byte[] { 1, 1, 1 });
+                var srcV2 = Path.Combine(root, "v2.nif"); var v2 = new byte[] { 2, 2, 2, 2, 2, 2 }; File.WriteAllBytes(srcV2, v2);
+
+                var first = svc.PlaceAssets(new[] { new PlaceRequest(FacegenRel, srcV1) }, "RouteProv", null);
+                Check(first.Results[0].Placed && first.ModFolder is not null, "first place into a fresh folder succeeds");
+                if (first.ModFolder is { } mf)
+                {
+                    var dest = Path.Combine(mf, FacegenRel);
+                    var oldCreate = new DateTime(2019, 6, 6, 0, 0, 0, DateTimeKind.Utc);
+
+                    // tunneling control (same dir, a File.Move on a throwaway): is the creation-time signal valid here?
+                    var ctl = Path.Combine(mf, "ctl.bin"); File.WriteAllBytes(ctl, new byte[] { 0 }); File.SetCreationTimeUtc(ctl, oldCreate);
+                    var cs = ctl + ".s"; File.WriteAllBytes(cs, new byte[] { 1 }); File.Move(cs, ctl, overwrite: true);
+                    bool tunnelingMasks = File.GetCreationTimeUtc(ctl) == oldCreate;
+                    try { File.Delete(ctl); } catch { /* throwaway */ }
+
+                    File.SetCreationTimeUtc(dest, oldCreate);
+                    var second = svc.PlaceAssets(new[] { new PlaceRequest(FacegenRel, srcV2) }, null, "RouteProv");   // into= the SAME folder
+                    Check(second.Results[0].Placed, $"second place into= the existing folder succeeds — {(second.Results[0].Placed ? "ok" : second.Results[0].Error)}");
+                    Check(File.Exists(dest) && File.ReadAllBytes(dest).SequenceEqual(v2),
+                          "overwrite via the SERVICE yields the NEW bytes byte-exact, not the stale prior (provenance — no false success)");
+                    if (tunnelingMasks)
+                        Console.WriteLine("  SKIP  service place creation-time preserved — UNPROVABLE on a tunneling host (Q3, not a pass)");
+                    else
+                        Check(File.GetCreationTimeUtc(dest) == oldCreate,
+                              "the service place preserves the dest creation time — routes through AtomicFile (File.Replace), not File.Move  [RED arm]");
+                }
+                else Check(false, "provenance/routing skipped — first place produced no folder");
             }
         }
         finally { try { Directory.Delete(root, recursive: true); } catch { /* temp scratch */ } }

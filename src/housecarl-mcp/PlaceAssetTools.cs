@@ -130,7 +130,10 @@ public static class PlaceAssetTools
             error = $"{where}kind is required with formid (mesh or tint — housecarl_place_asset places ONE file). To place both at once, use housecarl_bulk_place_asset.";
             return null;
         }
-        bool srcOkForBoth = src is null || (src.EndsWith(".bsa", StringComparison.OrdinalIgnoreCase) && src.IndexOf('|') < 0);
+        // Trim quotes for the test exactly as ReadExplicitSource does — else a quoted spaced BSA name (the natural form,
+        // "C:\...\X - Textures.bsa") ends in '"' not '.bsa' and would be wrongly refused on the marquee mesh+tint path.
+        var srcProbe = src?.Trim('"');
+        bool srcOkForBoth = srcProbe is null || (srcProbe.EndsWith(".bsa", StringComparison.OrdinalIgnoreCase) && srcProbe.IndexOf('|') < 0);
         if (!srcOkForBoth)
         {
             error = $"{where}with formid and no kind (placing BOTH mesh and tint), an explicit source= must be a bare '.bsa' path — each slot's entry is then derived. For a single loose file or BSA entry, set kind= mesh or tint.";
@@ -202,9 +205,15 @@ static class PlaceWire
               .Append("' holds a partial result — delete it or retry with into=.\n");
 
         if (placed > 0)
+        {
+            bool anyContended = false;
+            foreach (var r in o.Results) if (r.Placed && r.CurrentWinner is not null) { anyContended = true; break; }
             sb.Append("\nIMPORTANT — \"wrote it\" is not \"it wins\": the placed file(s) do NOT win the VFS yet. Enable the mod '")
-              .Append(modFolder ?? "(the new folder)")
-              .Append("' in MO2 and SORT it (left pane) ABOVE the current winner(s) listed above. Only then does the placed copy win.\n");
+              .Append(modFolder ?? "(the new folder)").Append("' in MO2");
+            sb.Append(anyContended
+                ? " and SORT it (left pane) ABOVE the current winner(s) listed above. Only then does the placed copy win.\n"
+                : ". Nothing else provided these path(s), so once enabled the placed copy wins (sort it above any mod you later add that also provides them).\n");
+        }
 
         return sb.ToString().TrimEnd('\n');
     }
