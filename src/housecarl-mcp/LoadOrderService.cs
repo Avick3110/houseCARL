@@ -356,13 +356,18 @@ public sealed class LoadOrderService : IDisposable
     /// + a human description, or a NAMED error (Q3) for a missing file / missing entry / unreadable archive.</summary>
     static (byte[]? bytes, string? desc, string? error) ReadExplicitSource(string source, string destRel)
     {
+        source = source.Trim();
         int bar = source.IndexOf('|');
         if (bar >= 0)
-            return ReadBsaEntry(source[..bar].Trim().Trim('"'), source[(bar + 1)..].Trim());
+            return ReadBsaEntry(source[..bar].Trim().Trim('"'), source[(bar + 1)..].Trim().Trim('"'));
+        // Strip surrounding quotes BEFORE the .bsa-vs-loose routing decision (NOT inside each branch): a quoted ".bsa"
+        // path ends in '"' not ".bsa", so routing on the raw string would read the WHOLE archive as a loose file and
+        // place it as the asset — a silent-wrong placement that passes the size check (Q3). The ONE trim point.
+        source = source.Trim('"');
         if (source.EndsWith(".bsa", StringComparison.OrdinalIgnoreCase))
-            return ReadBsaEntry(source.Trim('"'), destRel);              // .bsa with no explicit entry → entry := the destination path
+            return ReadBsaEntry(source, destRel);                        // .bsa with no explicit entry → entry := the destination path
         string path;
-        try { path = Path.GetFullPath(source.Trim('"')); }
+        try { path = Path.GetFullPath(source); }
         catch (Exception ex) { return (null, null, $"source '{source}' is not a usable path: {ex.Message}"); }
         if (!File.Exists(path)) return (null, null, $"source file not found: '{path}'.");
         try { return (File.ReadAllBytes(path), $"loose file {path}", null); }

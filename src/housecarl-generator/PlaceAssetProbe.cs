@@ -204,6 +204,15 @@ internal static class PlaceAssetProbe
                 var placedFile = outcome.ModFolder is null ? null : Path.Combine(outcome.ModFolder, FacegenRel);
                 Check(placedFile is not null && File.Exists(placedFile) && File.ReadAllBytes(placedFile).SequenceEqual(expect),
                       "the placed bytes equal the natively-extracted BSA entry, byte-exact");
+
+                // a QUOTED .bsa source must still route to BSA EXTRACTION, not be read WHOLE as a loose file (the Q3
+                // silent-wrong mis-route the independent pre-merge review caught). RED if routing decides .bsa-vs-loose
+                // on the un-trimmed string: the loose branch would place File.ReadAllBytes(wholeArchive) != the entry.
+                var outcomeQ = svc.PlaceAssets(new[] { new PlaceRequest(FacegenRel, "\"" + fixA + "\"") }, patchName: null, into: null);
+                var rQ = outcomeQ.Results[0];
+                var placedQ = outcomeQ.ModFolder is null ? null : Path.Combine(outcomeQ.ModFolder, FacegenRel);
+                Check(rQ.Placed && placedQ is not null && File.ReadAllBytes(placedQ).SequenceEqual(expect),
+                      "a QUOTED .bsa source extracts the ENTRY (placed bytes == the entry, NOT the whole archive read as loose)  [RED arm]");
             }
 
             // ================= F: auto-resolve (sole / ambiguous / absent) =================
