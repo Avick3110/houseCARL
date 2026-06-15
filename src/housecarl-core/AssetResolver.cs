@@ -69,6 +69,20 @@ public sealed record AssetProvider(string Source, AssetKind Kind);
 /// VERIFY, not a confirmed desync.</summary>
 public sealed record AssetHit(string RelPath, bool Exists, AssetProvider? Winner, IReadOnlyList<AssetProvider> Providers, bool Ambiguous);
 
+/// <summary>A CONCRETE, on-disk source one provider supplies an asset from — enough to READ its bytes (the place-asset
+/// auto-resolve, facegen-diagnostics Phase 3). For a LOOSE provider, <see cref="LooseFilePath"/> is the file on disk and
+/// <see cref="ArchivePath"/>/<see cref="EntryPath"/> describe nothing. For a BSA provider, <see cref="ArchivePath"/> is the
+/// .bsa on disk and <see cref="EntryPath"/> is the file inside it (read via <see cref="AssetResolver.TryReadArchiveEntry"/>);
+/// <see cref="LooseFilePath"/> is null. <see cref="ProviderName"/>/<see cref="Kind"/> mirror <see cref="AssetProvider"/>.</summary>
+public sealed record PlacementSource(string ProviderName, AssetKind Kind, string? LooseFilePath, string? ArchivePath, string EntryPath);
+
+/// <summary>Concrete-source resolution of one asset path for PLACEMENT (place_asset's auto-resolve when no explicit
+/// source= is given): every provider with its on-disk descriptor, winner FIRST (the same precedence
+/// <see cref="AssetHit"/> reports — they share one code path), an <see cref="Ambiguous"/> flag (&gt;1 provider), and the
+/// build-level <see cref="ReadIncomplete"/> caveat (a BSA failed to read this build, so a missing source may merely be
+/// unscanned — Q3). <see cref="Sources"/> empty ⇒ nothing active provides this path.</summary>
+public sealed record PlacementResolution(string RelPath, IReadOnlyList<PlacementSource> Sources, bool Ambiguous, bool ReadIncomplete);
+
 /// <summary>An active BSA the resolver should consider: its full path, the plugin it loads with, and that plugin's
 /// load-order rank (higher = later in load order = wins among BSAs). The service derives these; the probe injects them.</summary>
 public sealed record ActiveArchive(string Path, string OwningPlugin, int PluginRank);
@@ -213,6 +227,31 @@ public sealed class AssetResolver : IDisposable
         return set;
     }
 
+    /// <summary>Read ONE entry's bytes out of a BSA with Mutagen's NATIVE archive surface (no BSArch) — the single-entry
+    /// extraction place_asset uses for a source inside a BSA (a CC NPC's facegen, base-game assets). Returns a FRESH
+    /// byte[] (<c>IArchiveFile.GetBytes</c> allocates a new array — nothing to dispose), and holds ZERO handle at rest:
+    /// the reader isn't IDisposable in 0.53.1 and nothing keeps the archive mapped after this returns, so the .bsa stays
+    /// renamable/deletable (the cornerstone the place guard's at-rest arm proves on the EXTRACTION path, not just the
+    /// table read). <paramref name="entryPath"/> is matched <see cref="Normalize"/>'d (backslash, OrdinalIgnoreCase)
+    /// against the archive table. Returns null if the entry isn't in the archive; lets an archive that can't be opened/read
+    /// THROW (loud, Q3) so the caller reports it — never a silent empty result.</summary>
+    public static byte[]? TryReadArchiveEntry(string archivePath, string entryPath)
+    {
+        var want = Normalize(entryPath);
+        var reader = Archive.CreateReader(GameRelease.SkyrimSE, archivePath);
+        try
+        {
+            foreach (var file in reader.Files)
+                // OrdinalIgnoreCase — BSA tables store paths lowercased, so an ordinal (case-sensitive) compare against a
+                // mixed-case query (e.g. "Dawnguard.esm\0001A51A.nif") would MISS the entry; matches ReadArchiveTable's
+                // case-insensitive table (Q3: a case mismatch must never read as "entry absent").
+                if (string.Equals(Normalize(file.Path), want, StringComparison.OrdinalIgnoreCase))
+                    return file.GetBytes();                        // fresh array; no held handle (see the summary)
+            return null;                                           // archive read fine, entry simply not present
+        }
+        finally { (reader as IDisposable)?.Dispose(); }           // INERT in 0.53.1 — belt-and-braces, see ReadArchiveTable
+    }
+
     /// <summary>Resolve one Data-relative asset path: where it lives and which copy wins. See <see cref="AssetHit"/>.
     /// Single-shot — this call captures its own build; a caller making MANY reads in one logical operation should
     /// <see cref="Capture"/> once and read off the view so the scan and its failure list share one build.</summary>
@@ -221,38 +260,62 @@ public sealed class AssetResolver : IDisposable
     AssetHit Resolve(string relPath, Snapshot snap)
     {
         var rel = NormalizeQueryPath(relPath);
+        var sources = ResolveProviders(rel, snap);                 // ONE precedence path, winner first (shared with placement)
+        if (sources.Count == 0)
+            return new AssetHit(rel, false, null, Array.Empty<AssetProvider>(), false);
+        // Project the concrete sources down to the display providers — the on-disk paths are placement-only.
+        var providers = sources.Select(s => new AssetProvider(s.ProviderName, s.Kind)).ToList();
+        // Ambiguous when >1 source provides it (contention), or a loose copy coexists with a BSA copy (the edge the
+        // common-rule model can't promise exactly under MO2 managed archives).
+        return new AssetHit(rel, true, providers[0], providers, providers.Count > 1);
+    }
 
+    /// <summary>The ONE precedence resolution both the display answer (<see cref="Resolve"/>) and the placement answer
+    /// (<see cref="ResolveForPlacement"/>) ride, so the two can never drift: loose (overwrite &gt; mod-priority &gt; Data,
+    /// first sighting wins) BEATS BSA (higher plugin rank wins; archive filename a deterministic tie-break). Returns each
+    /// provider with its CONCRETE on-disk descriptor (loose file path; or .bsa path + the entry inside it), WINNER FIRST.
+    /// <paramref name="rel"/> is already <see cref="NormalizeQueryPath"/>'d by the caller. Pure read over the snapshot.</summary>
+    List<PlacementSource> ResolveProviders(string rel, Snapshot snap)
+    {
         // ---- loose, in MO2 precedence order — via the per-subtree cache (warmed on first touch) ----
         var subtreeDir = Normalize(Path.GetDirectoryName(rel) ?? "");
         var fname = Path.GetFileName(rel);
         var st = snap.LooseCache.GetOrAdd(subtreeDir, WarmSubtree);
-        var loose = new List<AssetProvider>();
+        var loose = new List<PlacementSource>();
         foreach (var (rootIndex, files) in st.Present)               // Present is already in precedence order
             if (files.Contains(fname))
-                loose.Add(new AssetProvider(_looseRoots[rootIndex].Name, AssetKind.Loose));
+                loose.Add(new PlacementSource(_looseRoots[rootIndex].Name, AssetKind.Loose,
+                    LooseFilePath: Path.Combine(_looseRoots[rootIndex].Dir, rel), ArchivePath: null, EntryPath: rel));
 
         // ---- BSA, highest plugin rank first ----
-        var bsa = new List<(AssetProvider provider, int rank)>();
+        var bsa = new List<(PlacementSource source, int rank)>();
         foreach (var a in _archives)
             if (snap.Tables.TryGetValue(a.Path, out var t) && t.Contains(rel))
-                bsa.Add((new AssetProvider(Path.GetFileName(a.Path), AssetKind.Bsa), a.PluginRank));
+                bsa.Add((new PlacementSource(Path.GetFileName(a.Path), AssetKind.Bsa,
+                    LooseFilePath: null, ArchivePath: a.Path, EntryPath: rel), a.PluginRank));
         // Higher plugin rank wins; the archive filename is a DETERMINISTIC tie-break so equal-rank BSAs (a plugin can
         // ship more than one) order stably across runs rather than by hash/enumeration order.
         var bsaOrdered = bsa.OrderByDescending(b => b.rank)
-                            .ThenBy(b => b.provider.Source, StringComparer.OrdinalIgnoreCase)
-                            .Select(b => b.provider).ToList();
+                            .ThenBy(b => b.source.ProviderName, StringComparer.OrdinalIgnoreCase)
+                            .Select(b => b.source);
 
-        // ---- winner: loose beats BSA; providers = winner first, then the rest in precedence ----
-        var providers = new List<AssetProvider>(loose);
+        // winner: loose beats BSA; the list is winner first, then the rest in precedence.
+        var providers = new List<PlacementSource>(loose);
         providers.AddRange(bsaOrdered);
-        if (providers.Count == 0)
-            return new AssetHit(rel, false, null, providers, false);
+        return providers;
+    }
 
-        var winner = providers[0];                                 // loose[0] if any loose, else bsaOrdered[0]
-        // Ambiguous when >1 source provides it (contention), or a loose copy coexists with a BSA copy (the edge the
-        // common-rule model can't promise exactly under MO2 managed archives).
-        bool ambiguous = providers.Count > 1;
-        return new AssetHit(rel, true, winner, providers, ambiguous);
+    /// <summary>Resolve one Data-relative asset path to its CONCRETE on-disk sources for PLACEMENT (place_asset): every
+    /// provider winner-first with the file/archive path needed to read its bytes, plus the ambiguity + read-incomplete
+    /// caveats. The auto-resolve half of the precise placer — exactly ONE source means an unambiguous copy to re-assert;
+    /// &gt;1 (ambiguous) means the caller must pick a source= (Q3). Rejects a drive-rooted / '..' path loud, like
+    /// <see cref="Resolve"/>. Single-shot against the current build; holds nothing.</summary>
+    public PlacementResolution ResolveForPlacement(string relPath)
+    {
+        var snap = _snap;                                          // pin one build for this resolution
+        var rel = NormalizeQueryPath(relPath);
+        var sources = ResolveProviders(rel, snap);
+        return new PlacementResolution(rel, sources, sources.Count > 1, snap.Failures.Count > 0);
     }
 
     /// <summary>Resolve many paths in one call (the facegen bulk scan), all against ONE pinned build so the whole scan
@@ -364,6 +427,13 @@ public sealed class AssetResolver : IDisposable
     /// OrdinalIgnoreCase (Windows + BSA tables are case-insensitive), so case is left as-is and compared case-insensitively.
     /// Lenient — applied to BSA-table entries (already archive-relative), so it never throws.</summary>
     static string Normalize(string p) => (p ?? "").Replace('/', '\\').TrimStart('\\');
+
+    /// <summary>Public, reusable gate: normalize + VALIDATE a Data-relative path, REJECTING a drive-rooted or
+    /// parent-escaping one — the SAME check <see cref="Resolve"/> applies (it delegates to <see cref="NormalizeQueryPath"/>),
+    /// exposed so the place path validates a destination through this ONE validator rather than a divergent copy
+    /// (place_asset writes to Path.Combine(modRoot, rel), so the same escape would write OUTSIDE the owned folder — Q3).
+    /// Throws ArgumentException naming the bad input; returns the normalized (backslash, no leading sep) path.</summary>
+    public static string ValidateRelPath(string relPath) => NormalizeQueryPath(relPath);
 
     /// <summary>Normalize AND validate a Data-relative QUERY path. After the lenient <see cref="Normalize"/>, REJECT a
     /// drive-rooted path ("C:\…") or one carrying a ".." segment — both make <c>Path.Combine(root, rel)</c> ESCAPE the
