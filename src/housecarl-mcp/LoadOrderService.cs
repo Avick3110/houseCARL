@@ -798,9 +798,12 @@ public sealed class LoadOrderService : IDisposable
     /// catalog name (unknown/ambiguous → Q3), maps the field <paramref name="operations"/> to core <see cref="WriteRequest"/>s
     /// rooted at that type (a create op takes NO formid — it sets fields on the new record), resolves the folder-per-patch
     /// output (fresh, or <paramref name="into"/> an existing houseCARL-owned patch), then drives
-    /// <see cref="WritePatchBuilder.CreateRecords"/> (pre-flight ALL → AddNew → ApplyVerb → multi-master serialize). The new
-    /// record's FormID is auto-allocated (local 0x800+) and reported; originals are never touched. FLAT records only — a
-    /// nested/placed or abstract-group type fails loud with guidance.</summary>
+    /// <see cref="WritePatchBuilder.CreateRecords"/> (pre-flight ALL → AddNew/NestedAddNew → ApplyVerb → multi-master serialize).
+    /// The new record's FormID is auto-allocated (local 0x800+) and reported; originals are never touched. A flat top-level
+    /// record needs no <paramref name="parent"/>; a NESTED child (a dialogue line, a placed ref) passes <paramref name="parent"/>
+    /// (an existing parent's FormKey, or a record created in a prior into= call) and, when the parent holds more than one
+    /// fitting child-list, <paramref name="collection"/>. For a parent + its children in ONE call (a topic + its lines, a
+    /// child's parent= naming a same-call sibling), see <see cref="CreateRecordsBatch"/>.</summary>
     public WritePatchBuilder.CreateOutcome CreateRecords(string recordType, string editorid, IReadOnlyList<BulkOp> operations,
         string? patchName, string? into, bool fullReadback = false, string? parent = null, string? collection = null)
     {

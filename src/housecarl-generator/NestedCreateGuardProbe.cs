@@ -132,10 +132,12 @@ public static class NestedCreateGuardProbe
             var o = WritePatchBuilder.CreateRecords(r, rulebook, specs, pPath, extend: false);
             var responses = o.Success ? TopicResponses(pPath, "HcNcMTopic") : null;
             bool bothUnder = responses is not null && o.Success && responses.Contains(o.Created[1].FormKey) && responses.Contains(o.Created[2].FormKey);
-            string? prompt = o.Success ? InfoPrompt(pPath, o.Created[2].FormKey) : null;
-            bool editLanded = prompt == "houseCARL line two";
-            multiOk = o.Success && o.Created.Count == 3 && bothUnder && editLanded;
-            Console.WriteLine($"   MULTICHILD topic+2 INFO + field edit: {(multiOk ? $"PASS — 3 created, both under topic, L2.Prompt landed" : $"FAIL — success={o.Success} count={(o.Success ? o.Created.Count : 0)} bothUnder={bothUnder} editLanded={editLanded} prompt=[{prompt}] err=[{o.Error}]")}");
+            string? l2Prompt = o.Success ? InfoPrompt(pPath, o.Created[2].FormKey) : null;
+            string? l1Prompt = o.Success ? InfoPrompt(pPath, o.Created[1].FormKey) : null;
+            bool editLanded = l2Prompt == "houseCARL line two";
+            bool editIsolated = l1Prompt != "houseCARL line two";   // the edit landed on L2 ONLY — it did NOT leak to its sibling L1
+            multiOk = o.Success && o.Created.Count == 3 && bothUnder && editLanded && editIsolated;
+            Console.WriteLine($"   MULTICHILD topic+2 INFO + field edit: {(multiOk ? $"PASS — 3 created, both under topic, L2.Prompt landed (only on L2)" : $"FAIL — success={o.Success} count={(o.Success ? o.Created.Count : 0)} bothUnder={bothUnder} editLanded={editLanded} editIsolated={editIsolated} l2=[{l2Prompt}] l1=[{l1Prompt}] err=[{o.Error}]")}");
         }
 
         // ---------- INTOTOPIC (N2): INFO into an EXISTING (master) topic by FormKey ----------
