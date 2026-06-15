@@ -393,19 +393,40 @@ public static class WritePatchBuilder
         // when the method returns — no handle held at rest.
         using var session = resolver.OpenSession();
 
+        // --- Phase 0: open (extend) or create the patch mod FIRST — moved AHEAD of pre-flight so a FormKey parent can
+        //     resolve from the PATCH being extended (a parent created in a PRIOR into= call), not the load order alone
+        //     (the former N9 gap). CreateFromBinary reads the file fully into memory and holds NO handle at rest (the
+        //     active-patch self-lock invariant is untouched — Phase 4's ReleaseOverlay + AllMastersExcept still guard the
+        //     serialize); nothing is mutated until Phase 3 and nothing serialized until Phase 4, so all-or-nothing holds. ---
+        var fileName = Path.GetFileName(outPath);
+        SkyrimMod patchMod;
+        if (extend)
+        {
+            if (!File.Exists(outPath))
+                return CreateOutcome.Fail($"cannot extend: no existing patch at {outPath}. Omit into= to create it fresh.");
+            try { patchMod = SkyrimMod.CreateFromBinary(outPath, SkyrimRelease.SkyrimSE); }
+            catch (Exception ex) { return CreateOutcome.Fail($"cannot open patch to extend ({fileName}): {ex.GetType().Name}: {ex.Message}"); }
+        }
+        else
+        {
+            patchMod = new SkyrimMod(new ModKey(Path.GetFileNameWithoutExtension(outPath), ModType.Plugin), SkyrimRelease.SkyrimSE);
+        }
+        if (!string.Equals(patchMod.ModKey.FileName.String, fileName, StringComparison.OrdinalIgnoreCase))
+            return CreateOutcome.Fail($"patch ModKey '{patchMod.ModKey.FileName}' must match output filename '{fileName}'.");
+
         // --- Phase 1: pre-flight EVERY spec before any mutation (Q3, all-or-nothing). editorid required + unique; the
         //     type must be createable — a FLAT top-level type (CanCreateType), OR a NESTED child given a valid parent
-        //     (CanCreateNested): the parent is resolved to its TYPE (an existing parent FormKey's load-order winner, or a
-        //     record created EARLIER in this same call — the one-shot order rule), and the child must nest under it by
-        //     construction (§1.4 Q2). Every edit is validated by the rulebook rooted at the create type. The new FormID
-        //     isn't known until allocation (Phase 3), so creatability is STRUCTURAL; a FormKey parent is resolved here only
-        //     to learn its TYPE + stash its winner body for the Phase-3 override. ONE captured build answers every parent
-        //     resolve (the hunt-F5 discipline the edit path follows). ---
+        //     (CanCreateNested): the parent is resolved to its TYPE (an existing parent FormKey's load-order winner, a
+        //     record created EARLIER in this same call — the one-shot order rule — or a record the PATCH being extended
+        //     already carries, from a prior into= call), and the child must nest under it by construction (§1.4 Q2). Every
+        //     edit is validated by the rulebook rooted at the create type. The new FormID isn't known until allocation
+        //     (Phase 3), so creatability is STRUCTURAL; a FormKey parent is resolved here only to learn its TYPE + stash
+        //     the route to make it settable in Phase 3. ONE captured build answers every parent resolve (hunt-F5). ---
         var view = resolver.Capture();
         var problems = new List<string>();
         var seenEdid = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var declaredEdidType = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);   // editorid -> RecordType (same-call sibling parents)
-        var parentPlans = new List<(IMajorRecordGetter? body, string? winnerPlugin, string? sibling)?>(specs.Count);
+        var parentPlans = new List<(IMajorRecordGetter? body, string? winnerPlugin, string? sibling, IMajorRecord? patchParent)?>(specs.Count);
         for (int i = 0; i < specs.Count; i++)
         {
             var s = specs[i];
@@ -424,29 +445,38 @@ public static class WritePatchBuilder
                 if (FormKey.TryFactory(s.ParentRef, out var parentFk))
                 {
                     var w = view.ResolveWinner(parentFk);
-                    if (w is null)
+                    if (w is not null)
                     {
-                        // KNOWN GAP (nested-create Layer A): a FormKey parent is resolved against the LOAD ORDER only, not
-                        // the patch being extended — so a parent created in a PRIOR into= call isn't resolvable yet. The
-                        // one-shot path (create the parent + its children in ONE call via a same-call sibling parent)
-                        // covers the common case; the patch-carried-parent extend path is a named follow-up. Refuse LOUD
-                        // and name the workaround (Q3 — never a misleading "wrong FormID" implication).
-                        problems.Add($"{s.RecordType} '{s.EditorId}': parent {parentFk} is not present in the load order — name an existing parent, "
-                            + "or create the parent and this child in ONE call (a same-call sibling parent, by the parent's editorid)."
-                            + (extend ? " (A parent you created in a PRIOR into= call isn't resolvable as a parent yet — for now, create a topic/cell and its children together in one call.)" : ""));
+                        // An EXISTING load-order parent (a topic/cell from a master or mod): override it INTO the patch in Phase 3.
+                        var parentBody = view.GetRecord(session, w.Value.WinnerPlugin, parentFk);
+                        if (parentBody is null) { problems.Add($"{s.RecordType} '{s.EditorId}': parent {parentFk} winner '{w.Value.WinnerPlugin}' did not yield it on fetch (a load-order inconsistency)."); continue; }
+                        parentType = WriteEngine.ResolveConcreteRecordType(RecordNaming.StripOverlay(parentBody.GetType().Name));
+                        parentPlans[i] = (parentBody, w.Value.WinnerPlugin, null, null);
+                    }
+                    else if (patchMod.EnumerateMajorRecords().FirstOrDefault(r => r.FormKey == parentFk) is { } patchParent)
+                    {
+                        // A parent created in a PRIOR into= call — it lives in the patch being extended, not the load order
+                        // (the former N9 gap, now resolvable because Phase 0 opens the patch BEFORE this loop). It's already
+                        // a settable patch-local record, so Phase 3 uses it directly (no override needed).
+                        parentType = WriteEngine.ResolveConcreteRecordType(RecordNaming.StripOverlay(patchParent.GetType().Name));
+                        parentPlans[i] = (null, null, null, patchParent);
+                    }
+                    else
+                    {
+                        // Genuinely absent from BOTH the load order and the patch — the surviving loud refusal (Q3, never a
+                        // misleading "wrong FormID"). Name the one-call workaround for the common new-topic case.
+                        problems.Add($"{s.RecordType} '{s.EditorId}': parent {parentFk} is not present in the load order"
+                            + (extend ? " or this patch" : "") + " — name an existing parent, or create the parent and this "
+                            + "child in ONE call (a same-call sibling parent, by the parent's editorid).");
                         continue;
                     }
-                    var parentBody = view.GetRecord(session, w.Value.WinnerPlugin, parentFk);
-                    if (parentBody is null) { problems.Add($"{s.RecordType} '{s.EditorId}': parent {parentFk} winner '{w.Value.WinnerPlugin}' did not yield it on fetch (a load-order inconsistency)."); continue; }
-                    parentType = WriteEngine.ResolveConcreteRecordType(RecordNaming.StripOverlay(parentBody.GetType().Name));
-                    parentPlans[i] = (parentBody, w.Value.WinnerPlugin, null);
                 }
                 else   // a same-call sibling parent — must be DECLARED EARLIER in this call (topic before its lines)
                 {
                     if (s.ParentRef.Equals(s.EditorId, StringComparison.OrdinalIgnoreCase) || !declaredEdidType.TryGetValue(s.ParentRef, out var parentCatalog))
                     { problems.Add($"{s.RecordType} '{s.EditorId}': parent '{s.ParentRef}' is neither an existing FormID nor a record created EARLIER in this call — create the parent (e.g. the topic) before its children, in spec order."); continue; }
                     parentType = WriteEngine.ResolveConcreteRecordType(parentCatalog);
-                    parentPlans[i] = (null, null, s.ParentRef);
+                    parentPlans[i] = (null, null, s.ParentRef, null);
                 }
                 if (parentType is null) { problems.Add($"{s.RecordType} '{s.EditorId}': could not resolve the parent's record type."); continue; }
                 if (!WriteEngine.CanCreateNested(s.RecordType, parentType, s.IntoCollection, out var nestedWhy)) { problems.Add($"{s.RecordType} '{s.EditorId}': {nestedWhy}"); continue; }
@@ -459,23 +489,6 @@ public static class WritePatchBuilder
             return CreateOutcome.Fail(
                 $"refused — {problems.Count} problem(s) creating {specs.Count} record(s); NOTHING created:\n  - " + string.Join("\n  - ", problems));
 
-        // --- Phase 2: open (extend) or create the patch mod (same as Apply). ---
-        var fileName = Path.GetFileName(outPath);
-        SkyrimMod patchMod;
-        if (extend)
-        {
-            if (!File.Exists(outPath))
-                return CreateOutcome.Fail($"cannot extend: no existing patch at {outPath}. Omit into= to create it fresh.");
-            try { patchMod = SkyrimMod.CreateFromBinary(outPath, SkyrimRelease.SkyrimSE); }
-            catch (Exception ex) { return CreateOutcome.Fail($"cannot open patch to extend ({fileName}): {ex.GetType().Name}: {ex.Message}"); }
-        }
-        else
-        {
-            patchMod = new SkyrimMod(new ModKey(Path.GetFileNameWithoutExtension(outPath), ModType.Plugin), SkyrimRelease.SkyrimSE);
-        }
-        if (!string.Equals(patchMod.ModKey.FileName.String, fileName, StringComparison.OrdinalIgnoreCase))
-            return CreateOutcome.Fail($"patch ModKey '{patchMod.ModKey.FileName}' must match output filename '{fileName}'.");
-
         // --- Phase 3: UPSERT each record, then apply its edits. A throw here AFTER pre-flight passed is a real engine
         //     inconsistency — fail the WHOLE call (the in-memory patch is discarded; nothing serialized), surfaced not
         //     swallowed (Q3). All upserts are in-memory until the single WritePatch, so all-or-nothing holds even mid-loop.
@@ -486,9 +499,10 @@ public static class WritePatchBuilder
         //     valid. Collisions it will NOT absorb (carried overrides, duplicate residue, cross-type) refuse loud there;
         //     every replace that DOES happen is carried on CreatedRecord.ReplacedExisting and rendered to the user. ---
         //     NESTED create (a spec with a ParentRef): the parent is made settable IN the patch first — an existing
-        //     parent is overridden in (a flat parent needs no link cache; a nested parent — a Cell — gets the winner
-        //     overlay's cache, the SAME session.LinkCacheFor path Apply uses + guards), a same-call sibling parent is
-        //     the record created earlier in this loop — then WriteEngine.NestedAddNew allocates the child into the
+        //     load-order parent is overridden in (a flat parent needs no link cache; a nested parent — a Cell — gets the
+        //     winner overlay's cache, the SAME session.LinkCacheFor path Apply uses + guards), a same-call sibling parent
+        //     is the record created earlier in this loop, and a parent the patch ALREADY carries (created in a prior
+        //     into= call — Phase 0) is used directly — then WriteEngine.NestedAddNew allocates the child into the
         //     parent's modeled collection (named, or the unique one). Idempotency: nested create APPENDS (no
         //     upsert-replace) — Aaron-accepted for Layer A (2026-06-14): nested children carry no stable EditorID
         //     handle to de-dup on (unlike flat GenericUpsertNew), so a re-run into= re-adds. Watch in real use;
@@ -510,7 +524,13 @@ public static class WritePatchBuilder
                 {
                     var plan = parentPlans[i]!.Value;
                     IMajorRecord settableParent;
-                    if (plan.body is not null)
+                    if (plan.patchParent is not null)
+                    {
+                        // A parent created in a PRIOR into= call — already a settable patch-local record (Phase 0 opened
+                        // the patch); use it directly, no override.
+                        settableParent = plan.patchParent;
+                    }
+                    else if (plan.body is not null)
                     {
                         Mutagen.Bethesda.Plugins.Cache.ILinkCache? cache = null;
                         if (WriteEngine.RecordNeedsSourceCache(plan.body))

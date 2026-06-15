@@ -158,11 +158,11 @@ public static class NestedCreateProof
                 $"created={(o.Success ? o.Created.Count : 0)} both-under-topic={YN(bothUnder)} L2.Prompt=\"{prompt}\" field-landed={YN(fieldLanded)} distinct-ids={YN(distinct)}{Err(o)}"));
         }
 
-        // ===================== N9 — KNOWN GAP: extend= with a parent CARRIED BY THE PATCH (not the load order) =====================
-        //   Create a topic (call 1), then add an INFO under it in a separate into= call (call 2). The parent topic
-        //   lives in the PATCH, not the load order — and nested parent resolution checks the load-order winner only,
-        //   so this is REFUSED. Asserts the gap is communicated LOUD + names the one-call workaround (Q3), NOT that
-        //   the capability works. The capability (resolve a patch-carried parent on extend) is a named follow-up.
+        // ===================== N9 — extend= with a parent CARRIED BY THE PATCH (the former gap, now SUPPORTED) =====================
+        //   Create a topic (call 1), then add an INFO under it in a SEPARATE into= call (call 2). The parent topic lives
+        //   in the PATCH, not the load order — resolved from the patch being extended (Phase 0 opens the patch before
+        //   pre-flight). Asserts the INFO lands under the patch-carried topic; and a GENUINELY-absent parent (in neither
+        //   the load order nor the patch) still refuses LOUD, naming both (Q3).
         {
             var outPath = Path.Combine(outDir, "houseCARL_NestedCreate_N9.esp");
             var s1 = WritePatchBuilder.CreateRecords(resolver, rulebook,
@@ -172,10 +172,17 @@ public static class NestedCreateProof
             var s2 = WritePatchBuilder.CreateRecords(resolver, rulebook,
                 new[] { new WritePatchBuilder.CreateSpec { RecordType = "DialogResponses", EditorId = "HC_N9_Info", ParentRef = topicFk2.ToString(), Edits = Array.Empty<WriteRequest>() } },
                 outPath, extend: true);
-            bool refusedLoud = s1.Success && !s2.Success && (s2.Error ?? "").Contains("one call", StringComparison.OrdinalIgnoreCase)
-                && (s2.Error ?? "").Contains("prior into=", StringComparison.OrdinalIgnoreCase);
-            results.Add(("N9 extend+patch-parent (KNOWN GAP: refuses loud)", refusedLoud,
-                $"call1-ok={YN(s1.Success)} call2-refused-loud+named={YN(refusedLoud)}{Err(s2)}"));
+            var responses = s2.Success ? TopicResponses(outPath, topicFk2) : null;
+            bool infoUnder = s2.Success && responses is not null && responses.Contains(s2.Created[0].FormKey);
+            // a parent in a non-existent plugin is absent from BOTH the load order and the patch — the surviving refusal.
+            var s3 = WritePatchBuilder.CreateRecords(resolver, rulebook,
+                new[] { new WritePatchBuilder.CreateSpec { RecordType = "DialogResponses", EditorId = "HC_N9_Ghost", ParentRef = "ABCDEF:HC_GhostPlugin.esp", Edits = Array.Empty<WriteRequest>() } },
+                outPath, extend: true);
+            bool ghostRefused = !s3.Success && (s3.Error ?? "").Contains("load order", StringComparison.OrdinalIgnoreCase)
+                && (s3.Error ?? "").Contains("patch", StringComparison.OrdinalIgnoreCase);
+            bool ok = s1.Success && s2.Success && infoUnder && ghostRefused;
+            results.Add(("N9 extend+patch-carried parent (now works; absent still refuses)", ok,
+                $"call1-ok={YN(s1.Success)} call2-ok={YN(s2.Success)} info-under-topic={YN(infoUnder)} absent-refused-loud={YN(ghostRefused)}{Err(s2)}"));
         }
 
         // ===================== N4 — REJECT nested with no parent =====================

@@ -31,11 +31,10 @@ namespace HousecarlGenerator;
 ///   REJ-AMBIG (N6) — a PlacedObject into a Cell with NO collection named refuses loud naming the candidate lists
 ///                    ('more than one' + 'Persistent') — the outcome-(ii) discriminator is required, never guessed.
 ///   REJ-FWDSIB(N7) — a child whose same-call sibling parent is declared LATER refuses loud ('earlier in this call').
-///   EXTENDGAP (N9) — the patch-carried-parent gap: create a topic (call 1), then in a SECOND into= call try to add an
-///                    INFO under it by FormKey. The parent lives only in the patch, not the load order, so it refuses
-///                    LOUD and names the one-call workaround, no file mutated on the refused call.
-///                    [Unit 2 (the N9 extend-gap fix) FLIPS this arm to assert the extend now SUCCEEDS, keeping a
-///                    genuinely-absent-parent sub-check as the surviving loud refusal.]
+///   EXTEND (was N9) — a parent created in a PRIOR into= call IS now resolvable (the N9 extend-gap fix): create a topic
+///                    (call 1), then in a SECOND into= call add an INFO under it by FormKey — the INFO lands under the
+///                    patch-carried topic. A GENUINELY-absent parent (in neither the load order nor the patch) still
+///                    refuses loud, naming both.
 /// </summary>
 public static class NestedCreateGuardProbe
 {
@@ -191,38 +190,56 @@ public static class NestedCreateGuardProbe
             },
             msg => msg.Contains("earlier in this call", StringComparison.OrdinalIgnoreCase));
 
-        // ---------- EXTENDGAP (N9): patch-carried parent on a second into= call refuses loud ----------
-        bool extendGapOk = false;
+        // ---------- EXTEND (was N9): a parent created in a PRIOR into= call IS now resolvable (the N9 fix) ----------
+        bool extendOk = false;
         {
-            string pPath = Path.Combine(tmpDir, "HcNcExtendGap.esp");
-            FormKey topicFk; bool call1Ok;
+            string pPath = Path.Combine(tmpDir, "HcNcExtend.esp");
+            // call 1: a one-shot topic + its first line (so the topic ALREADY carries a child when call 2 extends it).
+            FormKey topicFk = default, l1Fk = default; bool call1Ok;
             using (var r = LoadOrderResolver.Build(new[] { mPath }))
             {
                 var o1 = WritePatchBuilder.CreateRecords(r, rulebook,
-                    new[] { new WritePatchBuilder.CreateSpec { RecordType = "DialogTopic", EditorId = "HcNcN9Topic", Edits = Array.Empty<WriteRequest>() } },
+                    new[]
+                    {
+                        new WritePatchBuilder.CreateSpec { RecordType = "DialogTopic", EditorId = "HcNcExTopic", Edits = Array.Empty<WriteRequest>() },
+                        new WritePatchBuilder.CreateSpec { RecordType = "DialogResponses", EditorId = "HcNcExL1", ParentRef = "HcNcExTopic", Edits = Array.Empty<WriteRequest>() },
+                    },
                     pPath, extend: false);
-                call1Ok = o1.Success;
-                topicFk = o1.Success ? o1.Created[0].FormKey : default;
+                call1Ok = o1.Success && o1.Created.Count == 2;
+                if (call1Ok) { topicFk = o1.Created[0].FormKey; l1Fk = o1.Created[1].FormKey; }
             }
-            byte[] before = call1Ok ? File.ReadAllBytes(pPath) : Array.Empty<byte>();
-            bool refused = false; string? error = null;
+            // call 2: add a SECOND line under that topic — the topic lives ONLY in the patch (the N9 case).
+            bool call2Ok = false; FormKey l2Fk = default;
             if (call1Ok)
                 using (var r = LoadOrderResolver.Build(new[] { mPath }))
                 {
                     var o2 = WritePatchBuilder.CreateRecords(r, rulebook,
-                        new[] { new WritePatchBuilder.CreateSpec { RecordType = "DialogResponses", EditorId = "HcNcN9Info", ParentRef = topicFk.ToString(), Edits = Array.Empty<WriteRequest>() } },
+                        new[] { new WritePatchBuilder.CreateSpec { RecordType = "DialogResponses", EditorId = "HcNcExL2", ParentRef = topicFk.ToString(), Edits = Array.Empty<WriteRequest>() } },
                         pPath, extend: true);
-                    refused = !o2.Success; error = o2.Error;
+                    call2Ok = o2.Success; l2Fk = o2.Success ? o2.Created[0].FormKey : default;
                 }
-            bool untouched = call1Ok && before.AsSpan().SequenceEqual(File.ReadAllBytes(pPath));
-            bool named = error is not null && error.Contains("one call", StringComparison.OrdinalIgnoreCase) && error.Contains("prior into=", StringComparison.OrdinalIgnoreCase);
-            extendGapOk = call1Ok && refused && named && untouched;
-            Console.WriteLine($"   EXTENDGAP patch-parent refused loud  : {(extendGapOk ? "PASS — refused, names the one-call workaround, file untouched" : $"FAIL — call1={call1Ok} refused={refused} named={named} untouched={untouched} err=[{error}]")}");
+            // BOTH the prior line (L1) and the new line (L2) must be under the topic — the patch-carried parent is used
+            // in full, never an override carrying only the new child (which would silently drop L1).
+            var responses = call2Ok ? TopicResponses(pPath, topicFk) : null;
+            bool under = responses is not null && responses.Contains(l1Fk) && responses.Contains(l2Fk);
+            // and a GENUINELY-absent parent (in neither the load order nor the patch) still refuses loud, naming both.
+            bool absentRefused = false; string? absentErr = null;
+            if (call1Ok)
+                using (var r = LoadOrderResolver.Build(new[] { mPath }))
+                {
+                    var o3 = WritePatchBuilder.CreateRecords(r, rulebook,
+                        new[] { new WritePatchBuilder.CreateSpec { RecordType = "DialogResponses", EditorId = "HcNcExGhost", ParentRef = "0F0F0F:HcNcGdMaster.esm", Edits = Array.Empty<WriteRequest>() } },
+                        pPath, extend: true);
+                    absentRefused = !o3.Success; absentErr = o3.Error;
+                }
+            bool absentNamed = absentErr is not null && absentErr.Contains("load order", StringComparison.OrdinalIgnoreCase) && absentErr.Contains("patch", StringComparison.OrdinalIgnoreCase);
+            extendOk = call1Ok && call2Ok && under && absentRefused && absentNamed;
+            Console.WriteLine($"   EXTEND patch-carried parent works    : {(extendOk ? "PASS — prior-call topic resolvable, BOTH lines under it; a truly-absent parent still refuses loud" : $"FAIL — call1={call1Ok} call2={call2Ok} under={under} absentRefused={absentRefused} absentNamed={absentNamed} absentErr=[{absentErr}]")}");
         }
 
         Console.WriteLine();
         bool pass = fixturesOk && oneshotOk && multiOk && intoTopicOk && intoCellOk
-                    && rejNoParentOk && rejBadParentOk && rejAmbigOk && rejFwdSibOk && extendGapOk;
+                    && rejNoParentOk && rejBadParentOk && rejAmbigOk && rejFwdSibOk && extendOk;
         Console.WriteLine($"=== nested-create-guard: {(pass ? "PASS" : "FAIL")} ===");
         try { Directory.Delete(tmpDir, recursive: true); } catch { }
         return pass ? 0 : 1;
