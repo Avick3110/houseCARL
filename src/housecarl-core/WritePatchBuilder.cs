@@ -489,8 +489,10 @@ public static class WritePatchBuilder
         //     parent is overridden in (a flat parent needs no link cache; a nested parent — a Cell — gets the winner
         //     overlay's cache, the SAME session.LinkCacheFor path Apply uses + guards), a same-call sibling parent is
         //     the record created earlier in this loop — then WriteEngine.NestedAddNew allocates the child into the
-        //     parent's modeled collection (named, or the unique one). Idempotency note: nested create APPENDS (no
-        //     upsert-replace yet — a re-run into= re-adds; a follow-up surface). ---
+        //     parent's modeled collection (named, or the unique one). Idempotency: nested create APPENDS (no
+        //     upsert-replace) — Aaron-accepted for Layer A (2026-06-14): nested children carry no stable EditorID
+        //     handle to de-dup on (unlike flat GenericUpsertNew), so a re-run into= re-adds. Watch in real use;
+        //     revisit only if it bites. ---
         var created = new List<CreatedRecord>(specs.Count);
         var createdByEditorId = new Dictionary<string, IMajorRecord>(StringComparer.OrdinalIgnoreCase);
         var linkCacheByPlugin = new Dictionary<string, Mutagen.Bethesda.Plugins.Cache.ILinkCache>(StringComparer.OrdinalIgnoreCase);
