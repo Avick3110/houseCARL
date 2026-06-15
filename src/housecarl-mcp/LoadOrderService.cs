@@ -46,6 +46,14 @@ public sealed class LoadOrderService : IDisposable
     LoadOrderResolver? _resolver;
     CorpusRulebook? _rulebook;
     IReadOnlyList<string> _orderWarnings = Array.Empty<string>();
+    // facegen-diagnostics Phase 2: the VFS-aware asset resolver (housecarl_asset_status), built LAZILY and only on an
+    // ASSET query — a pure-record session never pays for it — and kept fresh the same way _resolver is. Dropped +
+    // rebuilt whenever the active profile changes (InvalidateAssetResolver in ReResolve / SetInstance): an enabled-mod
+    // toggle changes the loose roots and the active-archive set, not just the plugin order. CHEAP to build (it reads BSA
+    // file-TABLES, not the ~10s/180MB record index), so a full rebuild on a profile change is fine. See memory
+    // project_facegen_diagnostics_resolver.
+    AssetResolver? _assetResolver;
+    IReadOnlyList<string> _assetWarnings = Array.Empty<string>();   // discovery warnings from the asset build (e.g. a Skyrim.ini we couldn't find → base BSAs unscanned)
     // Freshness baselines are the files' LAST-SEEN MTIMES compared by VALUE (!=), the same model the resolver itself
     // uses — NOT wall-clock stamps compared by ORDER (2026-06-12 hunt F8: `mtime > builtUtc` was blind to an mtime
     // REGRESSION, so MO2's "Restore Backup" — which restores a profile file with an OLDER mtime — stayed invisible
@@ -150,6 +158,83 @@ public sealed class LoadOrderService : IDisposable
                 }
                 return _resolver;
             }
+        }
+    }
+
+    // ---- facegen-diagnostics Phase 2: VFS asset resolution (housecarl_asset_status) ----------------------
+
+    /// <summary>The VFS-aware asset resolver, built on first ASSET query and kept fresh on every subsequent one — the
+    /// asset twin of <see cref="Resolver"/>. Runs the SAME profile-freshness driver (a switch / toggle / re-sort drops it
+    /// via <see cref="ReResolve"/> → <see cref="InvalidateAssetResolver"/>, so it rebuilds against the new profile), then
+    /// its own cheap BSA-byte / warmed-loose-subtree content sweep. Crucially it does NOT force the heavy
+    /// <see cref="Resolver"/> build — an asset-only query stays cheap (the freshness driver is null-safe for _resolver).
+    /// The getter takes <see cref="_gate"/> (reentrant), so callers need not pre-hold it.</summary>
+    AssetResolver Assets
+    {
+        get
+        {
+            lock (_gate)
+            {
+                if (!_configured) throw NotConfigured();           // fresh install → the tool returns the trained prompt instead
+                EnsurePathsDerived();                              // derive the roots on first use (instance mode)
+                // Profile freshness (switch / toggle / re-sort) — shared with the record path, deferred behind an in-flight
+                // write like the record refresh. ReResolve is null-safe for _resolver, so this FOLLOWS a profile change
+                // WITHOUT building the record index, and drops _assetResolver when the active set changed.
+                if (Monitor.TryEnter(_writeGate))
+                {
+                    try { RefreshOnProfileChange(); }
+                    finally { Monitor.Exit(_writeGate); }
+                }
+                if (_assetResolver is null)
+                {
+                    _assetResolver = BuildAssetResolverLocked();
+                }
+                else if (Monitor.TryEnter(_writeGate))
+                {
+                    try { _assetResolver.RefreshIfStale(); }       // BSA-byte / warmed-loose-subtree content freshness
+                    finally { Monitor.Exit(_writeGate); }
+                }
+                return _assetResolver;
+            }
+        }
+    }
+
+    /// <summary>Build the asset resolver from the current roots: discover the active BSAs (co-name + Skyrim.ini base
+    /// archives, VFS-resolved + ranked — <see cref="ArchiveDiscovery"/>) and read the enabled-mod priority list, both
+    /// from the same cheap static profile read the record path uses. The gamePath (for the game-dir Skyrim.ini fallback)
+    /// is DataDir's parent (DataDir = gamePath\Data). Caller holds <see cref="_gate"/>.</summary>
+    AssetResolver BuildAssetResolverLocked()
+    {
+        var comp = Mo2LoadOrder.ReadComposition(_profileDir);                       // EnabledMods (priority) — cheap text parse
+        var gamePath = _dataDir.Length > 0 ? Path.GetDirectoryName(_dataDir.TrimEnd('\\', '/')) ?? "" : "";
+        var discovery = ArchiveDiscovery.Discover(_profileDir, _modsDir, _dataDir, _overwriteDir, gamePath);
+        _assetWarnings = discovery.Warnings;
+        return AssetResolver.Build(_overwriteDir, _modsDir, _dataDir, comp.EnabledMods, discovery.Archives);
+    }
+
+    /// <summary>Drop the asset resolver so the next asset query rebuilds it — the active-mod/archive SET changed
+    /// (AssetResolver.RefreshIfStale only catches a BSA's bytes / a warmed subtree, not a membership change). No-op when
+    /// none is built (a pure-record session never pays for the asset resolver). Caller holds <see cref="_gate"/>.</summary>
+    void InvalidateAssetResolver() { _assetResolver?.Dispose(); _assetResolver = null; }
+
+    /// <summary>Resolve a batch of Data-relative asset paths through the MO2 VFS (housecarl_asset_status): for each,
+    /// which source provides it and which copy WINS (loose beats BSA; among BSAs the higher plugin rank). ONE
+    /// <see cref="AssetResolver.Capture"/> for the whole batch, so every path AND the build-level BsaFailures /
+    /// ReadIncomplete caveat describe a single build (Q3). A drive-rooted or '..'-escaping path is a per-path
+    /// recoverable error (Q3), never a batch failure.</summary>
+    public AssetStatusData AssetStatus(IReadOnlyList<string> relPaths)
+    {
+        lock (_gate)
+        {
+            var view = Assets.Capture();                          // reentrant gate; build/refresh the asset resolver once for the batch
+            var results = new List<AssetPathResult>(relPaths.Count);
+            foreach (var raw in relPaths)
+            {
+                var p = (raw ?? "").Trim();
+                try { results.Add(new AssetPathResult(p, view.Resolve(p), null)); }
+                catch (ArgumentException ex) { results.Add(new AssetPathResult(p, null, ex.Message)); }   // bad path → per-path Q3 note
+            }
+            return new AssetStatusData(results, view.BsaFailures, view.ReadIncomplete, _assetWarnings, _profileName);
         }
     }
 
@@ -260,18 +345,27 @@ public sealed class LoadOrderService : IDisposable
         if (paths.Count > 0 && !paths.SequenceEqual(_resolvedPaths, StringComparer.OrdinalIgnoreCase))
         {
             // The active set/order genuinely changed → re-take the snapshot (the ~12s deep re-index). Build FIRST so the
-            // old snapshot survives if it throws; only then dispose + swap.
-            var rebuilt = LoadOrderResolver.Build(paths);
-            _resolver!.Dispose();
-            _resolver = rebuilt;
+            // old snapshot survives if it throws; only then dispose + swap. Guarded on `_resolver is not null`: an
+            // ASSET-only query (Phase 2) can drive this re-resolve before any record index exists — it must NOT pay the
+            // heavy build here (the record getter builds fresh against these paths on its own next call). The record
+            // path always has a non-null _resolver when it reaches here, so its behaviour is unchanged.
+            InvalidateAssetResolver();   // the active-mod/archive set changed → the asset resolver rebuilds lazily
+            if (_resolver is not null)
+            {
+                var rebuilt = LoadOrderResolver.Build(paths);
+                _resolver.Dispose();
+                _resolver = rebuilt;
+            }
             _resolvedPaths = paths;
             _orderWarnings = order.Warnings;
             _profileMtimes = profileMtimes;
         }
         else if (paths.Count > 0)
         {
-            // The profile was touched but the resolved order is identical (e.g. a no-plugin mod toggled) — no deep
-            // re-index; just advance the freshness baseline so the staleness flag clears.
+            // The profile was touched but the resolved PLUGIN order is identical (e.g. a no-plugin mod toggled) — no deep
+            // re-index. But a plugin-less toggle still changes the loose roots / active-archive set, so the asset resolver
+            // is dropped to rebuild; just advance the freshness baseline so the staleness flag clears.
+            InvalidateAssetResolver();
             _orderWarnings = order.Warnings;
             _profileMtimes = profileMtimes;
         }
@@ -327,6 +421,7 @@ public sealed class LoadOrderService : IDisposable
             _iniMtime = iniMtime;
             _configured = true;
             _resolver?.Dispose(); _resolver = null;              // force a rebuild against the new instance on the next query
+            _assetResolver?.Dispose(); _assetResolver = null;    // the asset resolver rebuilds against the new instance too (Phase 2)
             _resolvedPaths = Array.Empty<string>();
             _profileMtimes = new DateTime[ProfileFileNames.Length];   // unset — the next build records fresh baselines against the new profile
             _orderWarnings = Array.Empty<string>();
@@ -1168,7 +1263,7 @@ public sealed class LoadOrderService : IDisposable
 
     public void Dispose()
     {
-        lock (_gate) { _resolver?.Dispose(); _resolver = null; }
+        lock (_gate) { _resolver?.Dispose(); _resolver = null; _assetResolver?.Dispose(); _assetResolver = null; }
     }
 }
 
@@ -1230,3 +1325,21 @@ public sealed record LoadOrderStatusData(
     bool ProfileChanged,
     string ProfileDir,
     IReadOnlyDictionary<string, string> ExcludedPlugins);
+
+/// <summary>One queried asset path's resolution behind housecarl_asset_status: the resolver's <see cref="AssetHit"/>
+/// (which sources have it + which wins + an ambiguity flag), or an <see cref="Error"/> when the path was rejected (a
+/// drive-rooted or '..'-escaping path — per-path Q3, never fails the batch). <see cref="Hit"/> is null iff
+/// <see cref="Error"/> is set.</summary>
+public sealed record AssetPathResult(string RelPath, AssetHit? Hit, string? Error);
+
+/// <summary>The data behind housecarl_asset_status: one <see cref="AssetPathResult"/> per queried path, plus the
+/// build-level Q3 caveats — <see cref="BsaFailures"/> (archives that couldn't be read) and <see cref="ReadIncomplete"/>
+/// (an Exists=false answer may be wrong because a BSA failed to read) — and <see cref="Warnings"/> from archive
+/// discovery (e.g. a Skyrim.ini that couldn't be found, so base-game BSAs weren't scanned). <see cref="ProfileName"/>
+/// names the active profile the answer describes.</summary>
+public sealed record AssetStatusData(
+    IReadOnlyList<AssetPathResult> Results,
+    IReadOnlyList<string> BsaFailures,
+    bool ReadIncomplete,
+    IReadOnlyList<string> Warnings,
+    string ProfileName);
