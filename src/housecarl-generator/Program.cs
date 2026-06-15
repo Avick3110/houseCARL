@@ -280,9 +280,10 @@ if (args.Length > 0 && args[0] == "nested-create-guard") return NestedCreateGuar
 if (args.Length > 0 && args[0] == "bulk-create-guard") return BulkCreateGuardProbe.RunGuard(args[1..]);
 
 // crash-atomic final-swap primitive (in-place-write-lane fix): SELF-CONTAINED CI guard for AtomicFile.Commit — the
-// File.Replace-over-existing / rename-onto-fresh swap that every houseCARL write now funnels through, replacing the
-// product-wide File.Move(overwrite:true). Overwrite arm is RED-sensitive to a File.Move regression via the
-// destination's preserved creation time, self-skipping that one check (with a note) on a file-system-tunneling host.
+// File.Replace-over-existing / rename-onto-fresh swap every houseCARL FINAL-SWAP write (commit of a staged temp over the
+// target) now funnels through, replacing the product-wide File.Move(overwrite:true). Overwrite arm is RED-sensitive to a
+// File.Move regression via the destination's preserved creation time, self-skipping that one check (with a note) on a
+// file-system-tunneling host; arm C2 proves the locked-target mid-swap fails loud + non-destructive.
 if (args.Length > 0 && args[0] == "atomic-commit-guard") return AtomicCommitProbe.RunGuard(args[1..]);
 
 // External-tool bridge (step 1) proof: the pure core pieces housecarl_set_tool_path + the riders ride — shared-config
