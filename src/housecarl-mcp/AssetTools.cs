@@ -5,12 +5,12 @@ using ModelContextProtocol.Server;
 namespace HousecarlMcp;
 
 /// <summary>
-/// houseCARL asset tool (facegen-diagnostics Phase 2). Read-only. Resolves Data-relative asset paths through MO2's
-/// virtual file system — which mod or BSA provides each asset, and which copy actually WINS in game (loose files beat
-/// BSA-packed; among BSAs the latest-loaded plugin's wins) — the file-side answer the dark-face ("grey/black face")
-/// skill rides. The asset resolver discovers the active BSAs by construction from the same static MO2 profile read the
-/// load order uses (per-plugin "X.bsa"/"X - Textures.bsa" + Skyrim.ini base archives), holds ZERO archive handles at
-/// rest (arch #3), and refreshes by mtime — no daemon, no live tracking.
+/// houseCARL asset tool. Read-only. Resolves Data-relative asset paths through MO2's virtual file system — which mod or
+/// BSA provides each asset, and which copy actually WINS in game (loose files beat BSA-packed; among BSAs the
+/// latest-loaded plugin's wins) — the file-layer counterpart to a record's load-order winner. General asset-layer; the
+/// FaceGen / dark-face skill is one consumer. The asset resolver discovers the active BSAs by construction from the same
+/// static MO2 profile read the load order uses (per-plugin "X.bsa"/"X - Textures.bsa" + Skyrim.ini base archives), holds
+/// ZERO archive handles at rest (arch #3), and refreshes by mtime — no daemon, no live tracking.
 /// </summary>
 [McpServerToolType]
 public static class AssetTools
@@ -22,11 +22,9 @@ public static class AssetTools
          "overwrite folder, the game Data folder, and active BSAs), whether more than one source contends, and whether " +
          "the asset is absent. Precedence is the real engine/MO2 rule — loose files beat BSA-packed, among loose the " +
          "higher-priority mod (then overwrite) wins, among BSAs the later-loaded plugin's archive wins. This is the " +
-         "file-side half of dark-face / grey-face ('black face', 'ashen face') NPC diagnosis: pass an NPC's FaceGen " +
-         "mesh/texture path (meshes\\actors\\character\\facegendata\\... .nif or textures\\actors\\character\\facegendata\\... .dds) " +
-         "to see which mod's facegen wins versus which plugin wins the NPC record — a mismatch is the dark-face bug. " +
-         "Also answers general 'which mod provides this file / who is this asset coming from / is this texture loose or " +
-         "in a BSA / is this asset even present' questions for any mesh, texture, script, sound, or other path. Pass " +
+         "file-layer counterpart to the load-order winner of a record: use it to answer 'which mod provides this file / " +
+         "who is this asset coming from / is this texture loose or in a BSA / is this asset even present / why isn't my " +
+         "override applying' for ANY mesh, texture, script, sound, interface, or other Data-relative path. Pass " +
          "asset_paths = one or more paths RELATIVE to the Data folder (forward or back slashes both fine; a drive-rooted " +
          "or '..'-escaping path is rejected per-path). An archive that cannot be read, or a Skyrim.ini base-archive list " +
          "that cannot be found, is reported LOUD — so an 'absent' answer is never silently trusted when the scan was " +
@@ -34,15 +32,15 @@ public static class AssetTools
     public static string AssetStatus(
         LoadOrderService svc,
         [Description("The Data-relative asset path(s) to resolve, e.g. " +
-                     "'meshes/actors/character/facegendata/facegeom/Skyrim.esm/000ABCDE.nif'. One or many; resolved in " +
-                     "order, results returned in the same order. Paths are relative to the game's Data folder.")]
+                     "'textures/armor/iron/cuirass_1.dds' or 'meshes/clutter/common/tankard01.nif'. One or many; resolved " +
+                     "in order, results returned in the same order. Paths are relative to the game's Data folder.")]
             string[] asset_paths,
         [Description("Optional. Max characters before the per-path list is cut with an explicit notice. 0 = the server default (~80k).")]
             int max_chars = 0) => Guard.Tool("housecarl_asset_status", () =>
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
         if (asset_paths is null || asset_paths.Length == 0)
-            return "error: asset_paths is empty. Pass one or more Data-relative asset paths (e.g. 'textures/actors/character/facegendata/facetint/Skyrim.esm/000ABCDE.dds').";
+            return "error: asset_paths is empty. Pass one or more Data-relative asset paths (e.g. 'textures/armor/iron/cuirass_1.dds').";
         var data = svc.AssetStatus(asset_paths);
         return AssetWire.Render(data, max_chars > 0 ? max_chars : 80_000);
     });
