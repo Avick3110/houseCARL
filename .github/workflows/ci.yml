@@ -97,7 +97,7 @@ jobs:
       # manual nested-create-proof) and drives the REAL CreateRecords: locks in nested-record create (nested/dialogue
       # plan, Layer A) — the one-shot topic+INFO, multi-child + field edit, INFO-into-existing-topic and
       # placed-into-cell happy paths; the four Q3 rejects (no parent, can't-contain, ambiguous collection, forward
-      # sibling); and the patch-carried-parent extend gap refusing loud.
+      # sibling); and the patch-carried-parent extend WORKING (a prior-into= topic resolves; a truly-absent parent refuses loud).
       - name: Probe — nested-record create (self-contained regression guard)
         run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- nested-create-guard
 

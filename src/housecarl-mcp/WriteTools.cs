@@ -140,7 +140,7 @@ public static class WriteTools
          "FormID + editorid, the patch path, and its (derived) masters.")]
     public static string CreateRecord(
         LoadOrderService svc,
-        [Description("The kind of record to create: a catalog name ('Keyword', 'Spell', 'Weapon', 'LeveledItem') or a 4-char signature ('KYWD'). Flat top-level records only.")]
+        [Description("The kind of record to create: a catalog name ('Keyword', 'Spell', 'Weapon', 'LeveledItem', 'DialogResponses', 'PlacedObject') or a 4-char signature ('KYWD'). A flat top-level type, or a nested type (a dialogue line, a placed ref) when parent= is given.")]
             string record_type,
         [Description("REQUIRED. The EditorID for the new record — how it's referenced (in SkyPatcher/SPID/xEdit). Choose a clear, prefixed name.")]
             string editorid,
