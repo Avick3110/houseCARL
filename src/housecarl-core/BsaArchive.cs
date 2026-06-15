@@ -148,7 +148,7 @@ public static class BsaArchive
             return new BsaResult(false, (run.stdout + "\n" + run.stderr).Trim(), run.runError);
         }
 
-        try { File.Move(tmp, archive, overwrite: true); }   // success → atomically replace the target (same volume = rename)
+        try { AtomicFile.Commit(tmp, archive); }   // success → crash-atomically swap the target (File.Replace / rename, same volume)
         catch (Exception ex)
         {
             try { if (File.Exists(tmp)) File.Delete(tmp); } catch { /* best-effort */ }

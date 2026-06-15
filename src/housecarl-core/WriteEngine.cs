@@ -1236,9 +1236,11 @@ public static class WriteEngine
         // ATOMIC WRITE (Q3): stage + commit. Serializing IN PLACE has two failure shapes once a patch lives in an
         // MO2 mods folder: a crash mid-serialize leaves a truncated .esp (a torn original), and an external folder
         // watcher (MO2 refreshing its plugin list) can open a half-written file. Staging into a sibling temp dir and
-        // committing via an atomic same-volume rename means the target path only ever holds the OLD complete file or
-        // the NEW complete file — never a partial one. NOTE: this does NOT relax the PR #24 self-lock guard
-        // (ReleaseOverlay + AllMastersExcept before the serialize): a rename onto a still-mapped target fails exactly
+        // committing via AtomicFile.Commit (File.Replace over an existing target — the Win32 atomic-replace primitive —
+        // or a rename onto a fresh one) means the target path only ever holds the OLD complete file or the NEW complete
+        // file, never a missing or partial one: true crash-ATOMIC replacement, not merely crash-TEAR safety. NOTE: this
+        // does NOT relax the PR #24 self-lock guard
+        // (ReleaseOverlay + AllMastersExcept before the serialize): a swap onto a still-mapped target fails exactly
         // like an in-place write would, so callers must still release every handle they hold on the target first.
         // Staging buys crash-tear safety and shrinks the external-watcher window; the handle discipline stays
         // load-bearing.
@@ -1272,12 +1274,13 @@ public static class WriteEngine
         }
     }
 
-    /// <summary>Stage 2 of the atomic write: rename the staged temp over the target — atomic on the same volume
-    /// (stage 1 guaranteed same-volume placement). Requires the PR #24 handle discipline to already hold (no handle
-    /// of ours on the target). Temp is removed afterward; a cleanup failure never masks the result (Q3).</summary>
+    /// <summary>Stage 2 of the atomic write: swap the staged temp over the target via AtomicFile.Commit — crash-atomic
+    /// File.Replace when the target exists, a rename when it does not (stage 1 guaranteed same-volume placement).
+    /// Requires the PR #24 handle discipline to already hold (no handle of ours on the target). Temp is removed
+    /// afterward; a cleanup failure never masks the result (Q3).</summary>
     static void CommitStagedPatch(string tmpPath, string outputPath)
     {
-        try { File.Move(tmpPath, outputPath, overwrite: true); }
+        try { AtomicFile.Commit(tmpPath, outputPath); }
         finally { CleanupStaged(tmpPath); }
     }
 
