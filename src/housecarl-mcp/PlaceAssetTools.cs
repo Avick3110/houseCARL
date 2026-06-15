@@ -45,7 +45,7 @@ public static class PlaceAssetTools
             string? asset_path = null,
         [Description("Optional. The correct copy to place: a loose file path; or '<archive.bsa path>|<entry inside>'; or just a '.bsa' path (the entry is taken to be the destination path). If omitted, houseCARL uses the SOLE provider in your load order and refuses if more than one provides it (you choose).")]
             string? source = null,
-        [Description("Optional. Base name for the NEW houseCARL mod folder the file lands in (default 'houseCARL_FaceGen'); auto-suffixed if taken.")]
+        [Description("Optional. Base name for the NEW houseCARL mod folder the file lands in (default 'houseCARL_Assets'); auto-suffixed if taken.")]
             string? patch_name = null,
         [Description("Optional. Filename of an existing houseCARL patch mod to place into instead of a fresh folder (accumulate across calls).")]
             string? into = null) => Guard.Tool("housecarl_place_asset", () =>
@@ -73,7 +73,7 @@ public static class PlaceAssetTools
         LoadOrderService svc,
         [Description("The assets to place, all into one mod folder. Each: { formid?: 'XXXXXX:Plugin.esp', kind?: 'mesh'|'tint' (omit with formid to place BOTH), asset_path?: 'meshes/...', source?: '<loose path>' | '<archive.bsa>|<entry>' | '<archive.bsa>' }.")]
             PlaceAssetSpec[] assets,
-        [Description("Optional. Base name for the NEW houseCARL mod folder (default 'houseCARL_FaceGen'); auto-suffixed if taken.")]
+        [Description("Optional. Base name for the NEW houseCARL mod folder (default 'houseCARL_Assets'); auto-suffixed if taken.")]
             string? patch_name = null,
         [Description("Optional. Filename of an existing houseCARL patch mod to place into instead of a fresh folder.")]
             string? into = null) => Guard.Tool("housecarl_bulk_place_asset", () =>

@@ -260,7 +260,7 @@ public sealed class LoadOrderService : IDisposable
             // every other writer and instance-switch throughout, so no profile refresh can land between them. Do not call
             // PlaceOne/Assets here outside this _writeGate hold.
             RiderFolder rf;
-            try { rf = ResolvePatchModFolder(patchName, into, "houseCARL_FaceGen"); }
+            try { rf = ResolvePatchModFolder(patchName, into, "houseCARL_Assets"); }   // neutral default stem (general asset placer); the facegen skill passes its own patch_name
             catch (InvalidOperationException ex) { return PlaceOutcome.Fail(ex.Message); }
 
             // ONE asset build for the whole batch (auto-resolve sources + the post-write winner report), reentrant on _gate.
