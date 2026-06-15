@@ -176,9 +176,9 @@ public static class WriteTools
          "auto-allocated (the patch's own 0x800+ range) and returned. ALL-OR-NOTHING (Q3): if ANY spec is malformed or fails " +
          "pre-flight (unknown/ambiguous type, missing editorid, illegal field op, a nested child with no resolvable parent, an " +
          "ambiguous collection), the whole call is refused with per-record reasons and nothing is written — no partial patches. " +
-         "By default writes a fresh patch named patch_name; into= extends an existing houseCARL patch. NOTE: a parent created in " +
-         "a PRIOR into= call isn't resolvable as a parent yet — create a parent and its children together in one call. Returns " +
-         "each new record's FormID + editorid, the patch path, and its (derived) masters.")]
+         "By default writes a fresh patch named patch_name; into= extends an existing houseCARL patch — and a parent created in " +
+         "a PRIOR into= call CAN be the parent here too (it's resolved from the patch being extended, not only the load order). " +
+         "Returns each new record's FormID + editorid, the patch path, and its (derived) masters.")]
     public static string BulkCreate(
         LoadOrderService svc,
         [Description("The records to create, all into one patch. Each: {record_type, editorid, operations?, parent?, collection?}. For a nested one-shot, declare the parent (e.g. a DialogTopic) BEFORE the children whose parent= names its editorid.")]

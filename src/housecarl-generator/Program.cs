@@ -270,7 +270,7 @@ if (args.Length > 0 && args[0] == "upsert-guard") return UpsertGuardProbe.RunGua
 
 // nested-record CREATE (nested/dialogue plan, Layer A): SELF-CONTAINED CI regression guard — synthesizes a master
 // (weapon + topic + interior cell), drives the REAL CreateRecords for the one-shot/multi-child/field-edit/into-existing
-// happy paths + the 4 Q3 rejects + the patch-carried-parent extend gap (NO Skyrim.esm, unlike nested-create-proof).
+// happy paths + the 4 Q3 rejects + the patch-carried-parent extend (the former N9 gap) (NO Skyrim.esm, unlike nested-create-proof).
 if (args.Length > 0 && args[0] == "nested-create-guard") return NestedCreateGuardProbe.RunGuard(args[1..]);
 
 // create-tool WIRE (nested/dialogue plan, Layer A): SELF-CONTAINED CI regression guard — drives the REAL
