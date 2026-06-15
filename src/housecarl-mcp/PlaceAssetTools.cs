@@ -130,8 +130,9 @@ public static class PlaceAssetTools
             error = $"{where}kind is required with formid (mesh or tint — housecarl_place_asset places ONE file). To place both at once, use housecarl_bulk_place_asset.";
             return null;
         }
-        // Trim quotes for the test exactly as ReadExplicitSource does — else a quoted spaced BSA name (the natural form,
-        // "C:\...\X - Textures.bsa") ends in '"' not '.bsa' and would be wrongly refused on the marquee mesh+tint path.
+        // Trim quotes for the both-expansion test the same way ReadExplicitSource trims before it routes — else a quoted
+        // spaced BSA name (the natural form, "C:\...\X - Textures.bsa") ends in '"' not '.bsa' and would be wrongly
+        // refused here on the marquee mesh+tint path. (The actual read also trims-before-routing, so the two agree.)
         var srcProbe = src?.Trim('"');
         bool srcOkForBoth = srcProbe is null || (srcProbe.EndsWith(".bsa", StringComparison.OrdinalIgnoreCase) && srcProbe.IndexOf('|') < 0);
         if (!srcOkForBoth)
