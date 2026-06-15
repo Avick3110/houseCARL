@@ -192,6 +192,14 @@ jobs:
       - name: Probe — asset resolver (loose precedence + native BSA read + at-rest cornerstone)
         run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- asset-resolver-guard
 
+      # Asset status (facegen-diagnostics Phase 2 — housecarl_asset_status): ArchiveDiscovery turns the MO2 profile into
+      # the active-BSA list (co-name "X.bsa"/"X - Textures.bsa" + Skyrim.ini base archives, VFS-resolved + ranked), and
+      # LoadOrderService wraps the AssetResolver into the tool response — kept fresh on a profile change and DECOUPLED
+      # from the heavy record index (asset status resolves even when no .esp is on disk). Self-contained: synthetic
+      # folders/instances + the committed .bsa fixtures (fixtures/asset-resolver/), so it runs here with NO BSArch.
+      - name: Probe — asset status (BSA discovery + plugin->BSA binding + freshness + tool response)
+        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- asset-status-guard
+
       # MO2 instance derivation (launch-arc item 3 + hunt H1): one instance path derives the load-order roots + the
       # active profile from ModOrganizer.ini, with the Qt @ByteArray/doubled-backslash quirks handled and every missing
       # piece NAMED in the problem list (Q3) — including a base_directory that is SET but points at a missing folder
