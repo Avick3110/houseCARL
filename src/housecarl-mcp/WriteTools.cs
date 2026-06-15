@@ -128,13 +128,16 @@ public static class WriteTools
          "REQUIRED — the EditorID the record is referenced by (in SkyPatcher/SPID, in xEdit); choose a clear, prefixed name. " +
          "operations set the new record's fields, the SAME shape as bulk_apply ops but WITHOUT a formid (the new record's " +
          "FormID is auto-allocated, in the patch's own 0x800+ range, and returned to you) — e.g. " +
-         "operations=[{field_path:'Name', value:'My Spell'}, {field_path:'EffectList', verb:'Add', compose:{...}}]. The new " +
-         "FormID is reported back; to make ANOTHER record reference it, call this or set_field again with into='<this patch>' " +
-         "using that FormID. By default writes a fresh patch named patch_name; into= extends an existing houseCARL patch " +
-         "(accumulate across calls/sessions). ALL-OR-NOTHING (Q3): the whole call is refused with a reason and nothing is " +
-         "written if the type can't be created (nested/placed records — cells, placed objects, dialogue — need parent " +
-         "context, a follow-up; abstract types like Global need a concrete subtype), if editorid is missing, or if any field " +
-         "op is illegal. Returns the new record's FormID + editorid, the patch path, and its (derived) masters.")]
+         "operations=[{field_path:'Name', value:'My Spell'}, {field_path:'EffectList', verb:'Add', compose:{...}}]. To create a " +
+         "NESTED record (a dialogue line under a topic, a placed ref in a cell), pass parent= (the parent record's FormID) and, " +
+         "if the parent holds more than one child-list that fits, collection= (e.g. 'Persistent'); for a parent AND its children " +
+         "in ONE call (a topic + its lines), use housecarl_bulk_create. The new FormID is reported back; to make ANOTHER record " +
+         "reference it, call this or set_field again with into='<this patch>' using that FormID. By default writes a fresh patch " +
+         "named patch_name; into= extends an existing houseCARL patch (accumulate across calls/sessions). ALL-OR-NOTHING (Q3): " +
+         "the whole call is refused with a reason and nothing is written if the type can't be created (an EXTERIOR cell nests " +
+         "under FormKey-less worldspace structs — a separate capability; abstract types like Global need a concrete subtype), if " +
+         "a nested type is given no parent, if editorid is missing, or if any field op is illegal. Returns the new record's " +
+         "FormID + editorid, the patch path, and its (derived) masters.")]
     public static string CreateRecord(
         LoadOrderService svc,
         [Description("The kind of record to create: a catalog name ('Keyword', 'Spell', 'Weapon', 'LeveledItem') or a 4-char signature ('KYWD'). Flat top-level records only.")]
@@ -143,6 +146,10 @@ public static class WriteTools
             string editorid,
         [Description("Optional. The new record's fields, same shape as bulk_apply ops but with NO formid: {field_path, verb?, value?, key?, values?, entries?, compose?}. Omit to create a bare record (just type + editorid).")]
             BulkOp[]? operations = null,
+        [Description("Optional. For a NESTED record (a dialogue line, a placed ref): the PARENT it nests under, as the parent record's FormID 'XXXXXX:Plugin.esp' (e.g. add a line to an existing topic, a ref to an existing cell). Omit for a flat top-level record. (For a parent + its children in one call — where parent can also be a same-call sibling's editorid — use housecarl_bulk_create.)")]
+            string? parent = null,
+        [Description("Optional. Which of the parent's child-collections to add into, BY NAME (e.g. a cell's 'Persistent'/'Temporary') — needed only when the parent holds more than one list that accepts this child type. Omit when the collection is unique (e.g. a topic's responses) or when parent is omitted.")]
+            string? collection = null,
         [Description("Optional. Base filename for the new patch (default 'houseCARL_Patch'); auto-suffixed if taken. Ignored if into= is given.")]
             string patch_name = "houseCARL_Patch",
         [Description("Optional. Filename of an existing houseCARL patch to add this new record to instead of writing a fresh one (accumulate across calls/sessions).")]
@@ -153,7 +160,42 @@ public static class WriteTools
             int max_chars = 0) => Guard.Tool("housecarl_create_record", () =>
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
-        return RenderCreate(svc.CreateRecords(record_type, editorid, operations ?? Array.Empty<BulkOp>(), patch_name, into, full_readback), max_chars);
+        return RenderCreate(svc.CreateRecords(record_type, editorid, operations ?? Array.Empty<BulkOp>(), patch_name, into, full_readback, parent, collection), max_chars);
+    });
+
+    [McpServerTool(Name = "housecarl_bulk_create", Title = "Create many records (incl. a nested one-shot) in one patch"),
+     Description(
+         "Create MANY brand-new records in ONE patch plugin (originals untouched) — the batch form of housecarl_create_record, " +
+         "and the way to author a NESTED unit in a single call: a dialogue topic AND its lines, a cell AND its placed refs. " +
+         "records is an array of {record_type, editorid, operations?, parent?, collection?} — each spec is exactly a " +
+         "create_record call. A spec's parent= can be the FormID of an EXISTING record OR the editorid of a record declared " +
+         "EARLIER in this same records array (a same-call sibling) — which is how the one-shot 'topic + its lines' is expressed: " +
+         "records=[{record_type:'DialogTopic', editorid:'MyTopic'}, {record_type:'DialogResponses', editorid:'MyTopic_L1', " +
+         "parent:'MyTopic', operations:[{field_path:'Prompt', value:'Hello'}]}] (declare the topic BEFORE the lines). collection= " +
+         "names which child-list when the parent holds more than one that fits (e.g. a cell's 'Persistent'). Each new FormID is " +
+         "auto-allocated (the patch's own 0x800+ range) and returned. ALL-OR-NOTHING (Q3): if ANY spec is malformed or fails " +
+         "pre-flight (unknown/ambiguous type, missing editorid, illegal field op, a nested child with no resolvable parent, an " +
+         "ambiguous collection), the whole call is refused with per-record reasons and nothing is written — no partial patches. " +
+         "By default writes a fresh patch named patch_name; into= extends an existing houseCARL patch. NOTE: a parent created in " +
+         "a PRIOR into= call isn't resolvable as a parent yet — create a parent and its children together in one call. Returns " +
+         "each new record's FormID + editorid, the patch path, and its (derived) masters.")]
+    public static string BulkCreate(
+        LoadOrderService svc,
+        [Description("The records to create, all into one patch. Each: {record_type, editorid, operations?, parent?, collection?}. For a nested one-shot, declare the parent (e.g. a DialogTopic) BEFORE the children whose parent= names its editorid.")]
+            CreateOp[] records,
+        [Description("Optional. Base filename for the new patch (default 'houseCARL_Patch'); auto-suffixed if taken. Ignored if into= is given.")]
+            string patch_name = "houseCARL_Patch",
+        [Description("Optional. Filename of an existing houseCARL patch to add these new records to instead of writing a fresh one (accumulate across calls/sessions).")]
+            string? into = null,
+        [Description("When true, the response ALSO returns each created record IN FULL, read back from the written patch file on disk (every field, deep). The pre-enable verification, WITHOUT enabling the patch in MO2 (the written file's content, not load-order truth).")]
+            bool full_readback = false,
+        [Description("Optional. Max characters for the whole response; past it the full read-back section is cut with an explicit notice (never silent). 0 = the server default (~80k). Only matters with full_readback=true.")]
+            int max_chars = 0) => Guard.Tool("housecarl_bulk_create", () =>
+    {
+        if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
+        if (records is null || records.Length == 0)
+            return "error: records is empty. Pass one or more {record_type, editorid, operations?, parent?, collection?} specs.";
+        return RenderCreate(svc.CreateRecordsBatch(records, patch_name, into, full_readback), max_chars);
     });
 
     /// <summary>Compact, parseable confirmation (rulebook: short mutation confirmation + the IDs needed for follow-up).
@@ -301,6 +343,27 @@ public sealed record BulkOp
 
     [JsonPropertyName("compose"), Description("Build a modeled struct: an arm for a polymorphic Set, or the element for a struct-element Add (e.g. a leveled-list entry; for a polymorphic list like VMAD Scripts[i].Properties, the element's CONCRETE arm type, e.g. 'ScriptObjectProperty').")]
     public StructInput? Compose { get; init; }
+}
+
+/// <summary>One brand-new record to create off the wire (housecarl_bulk_create) — the batch element matching the scalar
+/// args of housecarl_create_record: the DECLARED record_type, its editorid, optional field operations, and the optional
+/// nested parent/collection (a child's parent may be an existing FormID or a same-call sibling's editorid).</summary>
+public sealed record CreateOp
+{
+    [JsonPropertyName("record_type"), Description("The kind of record to create: a catalog name ('Keyword', 'Spell', 'DialogTopic', 'DialogResponses', 'PlacedObject') or a 4-char signature.")]
+    public string? RecordType { get; init; }
+
+    [JsonPropertyName("editorid"), Description("REQUIRED. The EditorID the new record is referenced by. A nested child's parent= can name this editorid (a same-call sibling parent).")]
+    public string? Editorid { get; init; }
+
+    [JsonPropertyName("operations"), Description("Optional. The new record's fields, same shape as bulk_apply ops but with NO formid: {field_path, verb?, value?, key?, values?, entries?, compose?}.")]
+    public BulkOp[]? Operations { get; init; }
+
+    [JsonPropertyName("parent"), Description("Optional. For a NESTED record: the parent it nests under — an EXISTING parent's FormID 'XXXXXX:Plugin.esp', OR the editorid of a record declared EARLIER in this same records array (a same-call sibling). Omit for a flat top-level record.")]
+    public string? Parent { get; init; }
+
+    [JsonPropertyName("collection"), Description("Optional. Which of the parent's child-collections to add into, BY NAME (e.g. a cell's 'Persistent') — needed only when more than one fits. Omit when unique or when parent is omitted.")]
+    public string? Collection { get; init; }
 }
 
 /// <summary>A modeled struct built from parts (wire shape of <see cref="StructSpec"/>): the concrete type, optional

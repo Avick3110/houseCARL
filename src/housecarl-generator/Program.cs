@@ -273,6 +273,12 @@ if (args.Length > 0 && args[0] == "upsert-guard") return UpsertGuardProbe.RunGua
 // happy paths + the 4 Q3 rejects + the patch-carried-parent extend gap (NO Skyrim.esm, unlike nested-create-proof).
 if (args.Length > 0 && args[0] == "nested-create-guard") return NestedCreateGuardProbe.RunGuard(args[1..]);
 
+// create-tool WIRE (nested/dialogue plan, Layer A): SELF-CONTAINED CI regression guard — drives the REAL
+// LoadOrderService.CreateRecords (single, parent/collection) + CreateRecordsBatch (the bulk_create array) over a
+// synthetic MO2 instance: flat-still-works, parent passthrough, the same-call one-shot, batch all-or-nothing, the
+// nested-no-parent guidance copy.
+if (args.Length > 0 && args[0] == "bulk-create-guard") return BulkCreateGuardProbe.RunGuard(args[1..]);
+
 // External-tool bridge (step 1) proof: the pure core pieces housecarl_set_tool_path + the riders ride — shared-config
 // clobber-safety, path validation, the missing-dependency forcing prompt, and canonical-home auto-detect.
 if (args.Length > 0 && args[0] == "tool-bridge") return ToolBridgeProbe.Run(args[1..]);

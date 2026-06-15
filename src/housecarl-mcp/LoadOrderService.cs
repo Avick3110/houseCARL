@@ -801,38 +801,94 @@ public sealed class LoadOrderService : IDisposable
     /// <see cref="WritePatchBuilder.CreateRecords"/> (pre-flight ALL → AddNew → ApplyVerb → multi-master serialize). The new
     /// record's FormID is auto-allocated (local 0x800+) and reported; originals are never touched. FLAT records only — a
     /// nested/placed or abstract-group type fails loud with guidance.</summary>
-    public WritePatchBuilder.CreateOutcome CreateRecords(string recordType, string editorid, IReadOnlyList<BulkOp> operations, string? patchName, string? into, bool fullReadback = false)
+    public WritePatchBuilder.CreateOutcome CreateRecords(string recordType, string editorid, IReadOnlyList<BulkOp> operations,
+        string? patchName, string? into, bool fullReadback = false, string? parent = null, string? collection = null)
     {
-        if (string.IsNullOrWhiteSpace(recordType))
-            return WritePatchBuilder.CreateOutcome.Fail("record_type is required (a catalog name like 'Keyword'/'Spell'/'Weapon' or a 4-char signature like 'KYWD').");
-        if (string.IsNullOrWhiteSpace(editorid))
-            return WritePatchBuilder.CreateOutcome.Fail("editorid is required — the EditorID the new record is referenced by (e.g. in SkyPatcher/SPID).");
-
-        // Resolve the type string → ONE concrete catalog name. Signature + name both work; unknown → Q3; an ambiguous
-        // signature (maps to several types) → refuse and ask for the specific name.
-        string catalogName;
-        try
-        {
-            var types = ResolveTypeFilter(recordType.Trim());
-            if (types.Count != 1)
-                return WritePatchBuilder.CreateOutcome.Fail(
-                    $"record_type '{recordType}' is ambiguous ({types.Count} matches) — use a specific catalog name (e.g. one of: {string.Join(", ", types.Select(t => RecordNaming.StripGetterInterface(t.Name)))}).");
-            catalogName = RecordNaming.StripGetterInterface(types[0].Name);
-        }
-        catch (ArgumentException ex) { return WritePatchBuilder.CreateOutcome.Fail(ex.Message); }
-
-        // Map each field op → a core WriteRequest rooted at the create type (all-or-nothing on a malformed one).
-        var edits = new List<WriteRequest>(operations.Count);
         var problems = new List<string>();
-        for (int i = 0; i < operations.Count; i++)
+        var spec = BuildCreateSpec(recordType, editorid, operations, parent, collection, where: null, problems);
+        if (spec is null)
+            return WritePatchBuilder.CreateOutcome.Fail(
+                $"refused — {problems.Count} problem(s) creating the record; NOTHING created:\n  - " + string.Join("\n  - ", problems));
+        return CommitCreate(new[] { spec }, patchName, into, fullReadback);
+    }
+
+    /// <summary>Create MANY new records in ONE patch (housecarl_bulk_create) — the batch sibling of
+    /// <see cref="CreateRecords"/>, and the one-shot lever for a nested unit (a dialogue topic + its lines, a cell + its
+    /// placed refs) where a child's <c>parent</c> names a same-call sibling by editorid. Each spec is mapped exactly as
+    /// the single create (type resolution + field-op mapping + parent/collection); ALL-OR-NOTHING (Q3) — any malformed
+    /// spec refuses the whole call (with per-record reasons) and the core <see cref="WritePatchBuilder.CreateRecords"/>
+    /// likewise refuses the whole batch on any creatability/parent problem. One serialize for the lot.</summary>
+    public WritePatchBuilder.CreateOutcome CreateRecordsBatch(IReadOnlyList<CreateOp> records, string? patchName, string? into, bool fullReadback = false)
+    {
+        if (records is null || records.Count == 0)
+            return WritePatchBuilder.CreateOutcome.Fail("no records to create supplied — pass one or more {record_type, editorid, operations?, parent?, collection?} specs.");
+
+        var problems = new List<string>();
+        var specs = new List<WritePatchBuilder.CreateSpec>(records.Count);
+        for (int r = 0; r < records.Count; r++)
         {
-            var req = MapCreateEdit(operations[i], i, catalogName, out var err);
-            if (err is not null) problems.Add(err); else edits.Add(req!);
+            var rec = records[r];
+            var spec = BuildCreateSpec(rec.RecordType, rec.Editorid, rec.Operations ?? Array.Empty<BulkOp>(), rec.Parent, rec.Collection, $"record[{r}]", problems);
+            if (spec is not null) specs.Add(spec);
         }
         if (problems.Count > 0)
             return WritePatchBuilder.CreateOutcome.Fail(
-                $"refused — {problems.Count} of {operations.Count} operation(s) malformed; NOTHING created:\n  - " + string.Join("\n  - ", problems));
+                $"refused — {problems.Count} problem(s) across {records.Count} record(s); NOTHING created:\n  - " + string.Join("\n  - ", problems));
+        return CommitCreate(specs, patchName, into, fullReadback);
+    }
 
+    /// <summary>Build ONE core <see cref="WritePatchBuilder.CreateSpec"/> from wire parts (shared by the single create and
+    /// the batch): resolve <paramref name="recordType"/> (catalog name or 4-char signature) to ONE concrete catalog name
+    /// (unknown/ambiguous → a problem), require an editorid, map each field <paramref name="operations"/> op to a core
+    /// <see cref="WriteRequest"/> rooted at that type, and carry <paramref name="parent"/>/<paramref name="collection"/>
+    /// through (a nested child) — null ⇒ a flat top-level record. Every problem (with the optional <paramref name="where"/>
+    /// label) is APPENDED to <paramref name="problems"/>; returns null iff this record contributed any (all-or-nothing).</summary>
+    WritePatchBuilder.CreateSpec? BuildCreateSpec(string? recordType, string? editorid, IReadOnlyList<BulkOp> operations,
+        string? parent, string? collection, string? where, List<string> problems)
+    {
+        var prefix = where is null ? "" : where + ": ";
+        int before = problems.Count;
+
+        string? catalogName = null;
+        if (string.IsNullOrWhiteSpace(recordType))
+            problems.Add($"{prefix}record_type is required (a catalog name like 'Keyword'/'Spell'/'Weapon' or a 4-char signature like 'KYWD').");
+        else
+        {
+            try
+            {
+                var types = ResolveTypeFilter(recordType.Trim());
+                if (types.Count != 1)
+                    problems.Add($"{prefix}record_type '{recordType}' is ambiguous ({types.Count} matches) — use a specific catalog name (e.g. one of: {string.Join(", ", types.Select(t => RecordNaming.StripGetterInterface(t.Name)))}).");
+                else catalogName = RecordNaming.StripGetterInterface(types[0].Name);
+            }
+            catch (ArgumentException ex) { problems.Add($"{prefix}{ex.Message}"); }
+        }
+        if (string.IsNullOrWhiteSpace(editorid))
+            problems.Add($"{prefix}editorid is required — the EditorID the new record is referenced by (e.g. in SkyPatcher/SPID).");
+
+        // Map each field op → a core WriteRequest rooted at the create type (only once the type resolved; collect ALL malformed ops).
+        var edits = new List<WriteRequest>(operations.Count);
+        if (catalogName is not null)
+            for (int i = 0; i < operations.Count; i++)
+            {
+                var req = MapCreateEdit(operations[i], i, catalogName, out var err);
+                if (err is not null) problems.Add($"{prefix}{err}"); else edits.Add(req!);
+            }
+
+        if (problems.Count != before) return null;
+        return new WritePatchBuilder.CreateSpec
+        {
+            RecordType = catalogName!, EditorId = editorid!.Trim(), Edits = edits,
+            ParentRef = string.IsNullOrWhiteSpace(parent) ? null : parent.Trim(),
+            IntoCollection = string.IsNullOrWhiteSpace(collection) ? null : collection.Trim(),
+        };
+    }
+
+    /// <summary>Resolve the folder-per-patch output (fresh, or <paramref name="into"/> an existing houseCARL-owned patch),
+    /// then drive the core multi-record create + serialize under the write gate (hunt F2: one write at a time). A refused
+    /// create that just created the output folder leaves no orphan (hunt F4). Shared by the single + batch create.</summary>
+    WritePatchBuilder.CreateOutcome CommitCreate(IReadOnlyList<WritePatchBuilder.CreateSpec> specs, string? patchName, string? into, bool fullReadback)
+    {
         lock (_writeGate)                                                 // hunt F2: one write at a time, resolve→commit
         {
             var resolver = Resolver;
@@ -842,8 +898,7 @@ public sealed class LoadOrderService : IDisposable
             try { outPath = ResolveOutputPath(patchName, into, out extend, out created); }
             catch (Exception ex) { return WritePatchBuilder.CreateOutcome.Fail(ex.Message); }
 
-            var spec = new WritePatchBuilder.CreateSpec { RecordType = catalogName, EditorId = editorid.Trim(), Edits = edits };
-            var outcome = WritePatchBuilder.CreateRecords(resolver, rulebook, new[] { spec }, outPath, extend, fullReadback);
+            var outcome = WritePatchBuilder.CreateRecords(resolver, rulebook, specs, outPath, extend, fullReadback);
             if (!outcome.Success && created) RemoveFolderCreatedThisCall(outPath);   // hunt F4: a refused create leaves no orphan
             return outcome;
         }
