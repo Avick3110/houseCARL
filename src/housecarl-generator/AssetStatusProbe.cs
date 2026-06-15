@@ -23,6 +23,13 @@ namespace HousecarlGenerator;
 ///      while AssetStatus answers): the asset path never pays the heavy build (the ReResolve null-safe guard).
 ///   F  membership freshness — a newly-ENABLED mod's asset is seen on the next call (the service rebuilds the asset
 ///      resolver on a profile change; RED if the membership invalidation regresses).
+///   G  render layer (AssetWire.Render, pure) — the LOUD Q3 surfacing the user reads: the read-failure alarm renders
+///      BEFORE the per-path list; an ABSENT hedges per-path for BOTH a read failure AND a discovery gap (missing
+///      Skyrim.ini → base BSAs unscanned); the max_chars cut notice; ambiguity rendered neutrally.
+///   H  service Q3 (populated) — a corrupt co-named BSA + a missing Skyrim.ini surface as BsaFailures / ReadIncomplete /
+///      Warnings THROUGH LoadOrderService.AssetStatus (not just the resolver core); an empty asset_paths is rejected.
+///   I  profile SWITCH — SetInstance drops the asset resolver, so the answer follows the new instance (the switch
+///      invalidation site, distinct from F's membership-toggle site).
 ///
 /// Self-contained: synthetic folders/instances in temp + the committed fixtures/asset-resolver/*.bsa, so the whole
 /// thing runs on CI with NO BSArch. See memory project_facegen_diagnostics_resolver.
@@ -222,6 +229,102 @@ internal static class AssetStatusProbe
                 var after = svc.AssetStatus(new[] { newRel }).Results[0];
                 Check(after.Hit is { Exists: true } && after.Hit.Winner is { Source: "NewMod", Kind: AssetKind.Loose },
                       $"after enabling the mod, its asset resolves (the asset resolver rebuilt on the membership change) — winner={after.Hit?.Winner?.Source}");
+            }
+
+            // ---- G: render layer — the LOUD Q3 surfacing the user actually reads (AssetWire.Render) ----
+            Console.WriteLine();
+            Console.WriteLine("--- G: render — Q3 alarms first, per-path 'absent may be incomplete', cut notice, neutral ambiguity ---");
+            {
+                static AssetPathResult Absent(string rel) => new(rel, new AssetHit(rel, false, null, Array.Empty<AssetProvider>(), false), null);
+
+                // (1) a read failure → the alarm renders BEFORE the per-path block, and the ABSENT carries the read caveat.
+                var readFail = new AssetStatusData(new[] { Absent(@"meshes\x.nif") },
+                    new[] { "Bad.bsa (loaded by P.esp): could not read the archive table — truncated" }, true,
+                    Array.Empty<string>(), "Default");
+                var r1 = AssetWire.Render(readFail, 80_000);
+                Check(r1.Contains("could NOT be read")
+                      && r1.IndexOf("could NOT be read", StringComparison.Ordinal) < r1.IndexOf(@"meshes\x.nif", StringComparison.Ordinal),
+                      "the read-failure alarm renders BEFORE the per-path list (a long batch can't truncate it away)");
+                Check(r1.Contains("\"absent\" may be incomplete"), "an ABSENT carries the read-incomplete caveat at the point of use");
+
+                // (2) the missing-Skyrim.ini DISCOVERY gap also hedges an ABSENT per-path (symmetric honesty — the review fix).
+                var discGap = new AssetStatusData(new[] { Absent(@"meshes\y.nif") }, Array.Empty<string>(), false,
+                    new[] { "could not read the [Archive] sResourceArchiveList from a Skyrim.ini ..." }, "Default");
+                var r2 = AssetWire.Render(discGap, 80_000);
+                Check(r2.Contains("not scanned this build") && r2.Contains("\"absent\" may be incomplete"),
+                      "an ABSENT also hedges when base archives weren't DISCOVERED (missing Skyrim.ini) — symmetric with the read-failure caveat");
+
+                // (3) a tiny max_chars over many paths → an explicit cut notice (Q3, never silent truncation).
+                var many = Enumerable.Range(0, 60).Select(i => Absent($@"meshes\m{i}.nif")).ToArray();
+                var rCut = AssetWire.Render(new AssetStatusData(many, Array.Empty<string>(), false, Array.Empty<string>(), "Default"), 300);
+                Check(rCut.Contains("omitted at max_chars="), "the per-path list is cut with an explicit notice at max_chars");
+
+                // (4) contention is rendered NEUTRALLY (a verify signal, not a problem).
+                var amb = new AssetStatusData(new[] { new AssetPathResult(@"meshes\z.nif",
+                        new AssetHit(@"meshes\z.nif", true, new AssetProvider("ModA", AssetKind.Loose),
+                            new[] { new AssetProvider("ModA", AssetKind.Loose), new AssetProvider("X.bsa", AssetKind.Bsa) }, true), null) },
+                    Array.Empty<string>(), false, Array.Empty<string>(), "Default");
+                Check(AssetWire.Render(amb, 80_000).Contains("Verify only if"), "ambiguity is rendered NEUTRALLY (a 'verify' signal, not a 'problem')");
+            }
+
+            // ---- H: service Q3 surfacing — a populated BsaFailures/ReadIncomplete + the missing-ini Warning reach AssetStatus ----
+            Console.WriteLine();
+            Console.WriteLine("--- H: service — corrupt BSA + missing Skyrim.ini surface through AssetStatus (Q3); empty paths rejected ---");
+            {
+                var inst = Path.Combine(root, "svc-h");
+                var mods = Path.Combine(inst, "mods");
+                var data = Path.Combine(inst, "game", "Data");
+                var prof = Path.Combine(inst, "profiles", "Default");
+                var modA = Path.Combine(mods, "ModA");
+                foreach (var d in new[] { data, prof, modA }) Directory.CreateDirectory(d);
+                var good = File.ReadAllBytes(fixA);
+                File.WriteAllBytes(Path.Combine(modA, "PluginA.bsa"), good[..(good.Length / 3)]);   // truncated → unreadable table
+                WriteProfile(prof, new[] { "PluginA.esp" }, new[] { "*PluginA.esp" }, new[] { "+ModA" });
+                // NO Skyrim.ini → the base-archive discovery warning fires too.
+                WriteIni(inst, "Default", Path.Combine(inst, "game"));
+
+                var store = new UserConfigStore(Path.Combine(root, "user-h.json"));
+                using var svc = LoadOrderService.WithInstance(inst, 0, store);
+
+                var resp = svc.AssetStatus(new[] { FacegenRel });
+                Check(resp.BsaFailures.Count >= 1 && resp.BsaFailures.Any(f => f.Contains("PluginA")),
+                      $"a corrupt co-named BSA surfaces as a NAMED BsaFailure THROUGH THE SERVICE — {(resp.BsaFailures.Count > 0 ? resp.BsaFailures[0] : "(none)")}");
+                Check(resp.ReadIncomplete, "ReadIncomplete is true through the service when an archive failed (the 'absent may be wrong' caveat)");
+                Check(resp.Warnings.Any(w => w.Contains("Skyrim.ini", StringComparison.OrdinalIgnoreCase)),
+                      "the missing-Skyrim.ini discovery warning surfaces through the service (.Warnings)");
+                Check(resp.Results[0].Hit is { Exists: false }, "the facegen path is ABSENT (its only archive was unreadable) — so the caveat matters");
+                Check(AssetTools.AssetStatus(svc, Array.Empty<string>()).Contains("empty", StringComparison.OrdinalIgnoreCase),
+                      "the tool rejects an empty asset_paths list (Q3)");
+            }
+
+            // ---- I: profile SWITCH — SetInstance drops the asset resolver so the answer follows the new instance ----
+            Console.WriteLine();
+            Console.WriteLine("--- I: a SetInstance switch re-points the asset answer (the switch invalidation site) ---");
+            {
+                const string switchRel = @"meshes\switch\only-in-1.nif";
+                string MakeInstance(string name, bool withAsset)
+                {
+                    var inst = Path.Combine(root, name);
+                    var mods = Path.Combine(inst, "mods");
+                    var data = Path.Combine(inst, "game", "Data");
+                    var prof = Path.Combine(inst, "profiles", "Default");
+                    var modA = Path.Combine(mods, "ModA");
+                    foreach (var d in new[] { data, prof, modA }) Directory.CreateDirectory(d);
+                    File.WriteAllText(Path.Combine(modA, "PluginA.esp"), "dummy");   // a resolvable plugin path; never parsed
+                    if (withAsset) WriteLoose(modA, switchRel);
+                    WriteProfile(prof, new[] { "PluginA.esp" }, new[] { "*PluginA.esp" }, new[] { "+ModA" });
+                    WriteSkyrimIni(prof, "");
+                    WriteIni(inst, "Default", Path.Combine(inst, "game"));
+                    return inst;
+                }
+                var inst1 = MakeInstance("svc-i1", withAsset: true);
+                var inst2 = MakeInstance("svc-i2", withAsset: false);
+                var store = new UserConfigStore(Path.Combine(root, "user-i.json"));
+                using var svc = LoadOrderService.WithInstance(inst1, 0, store);
+                Check(svc.AssetStatus(new[] { switchRel }).Results[0].Hit is { Exists: true }, "the asset is present under instance 1");
+                svc.SetInstance(inst2);
+                Check(svc.AssetStatus(new[] { switchRel }).Results[0].Hit is { Exists: false },
+                      "after SetInstance to instance 2, the asset answer follows the NEW instance (the switch dropped the asset resolver)");
             }
         }
         finally { try { Directory.Delete(root, recursive: true); } catch { /* temp scratch */ } }
