@@ -109,7 +109,7 @@ public sealed class UserConfigStore
                 if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
                 var tmp = _path + ".tmp";
                 File.WriteAllText(tmp, JsonSerializer.Serialize(cfg, Json));
-                File.Move(tmp, _path, overwrite: true);   // atomic on the same volume — a reader never sees a torn file
+                AtomicFile.Commit(tmp, _path);   // crash-atomic swap (File.Replace / rename) — a reader never sees a torn or vanished file
                 return (true, null, note);
             }
             catch (Exception ex) { return (false, ex.Message, note); }
