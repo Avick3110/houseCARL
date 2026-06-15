@@ -84,6 +84,12 @@ if (args.Length > 0 && args[0] == "overwrite-resolve-guard") return OverwriteRes
 // path adds the repack/mtime arm.
 if (args.Length > 0 && args[0] == "asset-resolver-guard") return AssetResolverProbe.RunGuard(args[1..]);
 
+// Asset status (facegen-diagnostics Phase 2 — housecarl_asset_status): ArchiveDiscovery turns the MO2 profile into the
+// active-BSA list (co-name "X.bsa"/"X - Textures.bsa" + Skyrim.ini base archives, VFS-resolved + ranked), and
+// LoadOrderService wraps the AssetResolver into the tool response — kept fresh on a profile change and DECOUPLED from
+// the heavy record index. Self-contained: synthetic folders/instances + the committed .bsa fixtures, NO BSArch.
+if (args.Length > 0 && args[0] == "asset-status-guard") return AssetStatusProbe.RunGuard(args[1..]);
+
 // Compile-tool import order: caller import_dirs OUTRANK the vanilla auto-import (first match wins, so
 // SKSE-extended copies of vanilla sources must win). Pure order arm always runs; real-compile arm self-skips.
 if (args.Length > 0 && args[0] == "import-order-guard") return ImportOrderProbe.RunGuard(args[1..]);
