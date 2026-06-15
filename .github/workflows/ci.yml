@@ -224,9 +224,10 @@ jobs:
         run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- mo2instance-probe
 
       # Crash-atomic final-swap primitive (in-place-write-lane fix): AtomicFile.Commit — the File.Replace-over-existing /
-      # rename-onto-fresh swap that every houseCARL write now funnels through (the .esp commit, the BSA repack, the config
-      # save), replacing the product-wide File.Move(overwrite:true) named as not crash-atomic. Self-contained (temp files,
-      # no game data, no BSArch). The overwrite arm is RED-sensitive to a File.Move(overwrite) regression via the
-      # destination's preserved creation time, and self-skips that one check with a note on a file-system-tunneling host.
+      # rename-onto-fresh swap every houseCARL FINAL-SWAP write (commit of a staged temp over the target) now funnels
+      # through (the .esp commit, the BSA repack, the config save), replacing the product-wide File.Move(overwrite:true)
+      # named as not crash-atomic. Self-contained (temp files, no game data, no BSArch). The overwrite arm is RED-sensitive
+      # to a File.Move(overwrite) regression via the destination's preserved creation time, and self-skips that one check
+      # with a note on a file-system-tunneling host; arm C2 proves the locked-target mid-swap fails loud + non-destructive.
       - name: Probe — atomic-commit (crash-atomic File.Replace swap primitive)
         run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- atomic-commit-guard
