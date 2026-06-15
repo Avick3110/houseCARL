@@ -27,8 +27,33 @@ namespace HousecarlCore;
 /// on a host where file-system tunneling would restore the creation time under <c>File.Move</c> too, that one check
 /// self-skips with a loud note rather than false-pass (the distinction is unprovable in-process there).
 /// </summary>
-internal static class AtomicFile
+// PUBLIC (facegen-diagnostics Phase 3): place_asset writes from the MCP layer (not a core friend), so the primitive is
+// public. <see cref="Commit"/> is the low-level swap (caller stages same-volume); <see cref="WriteAllBytes"/> is the
+// high-level convenience that does the same-volume staging for you (it materializes the bytes into a sibling temp, so a
+// cross-volume SOURCE never reaches Commit). The .esp/BSA/config writers keep calling Commit directly with their own staging.
+public static class AtomicFile
 {
+    /// <summary>Crash-atomically write <paramref name="bytes"/> to <paramref name="finalPath"/>: stage them into a SIBLING
+    /// temp (same volume as the target, so the swap is never cross-volume — the place tool may read its source from another
+    /// volume or a BSA, but the bytes are in hand by here) and <see cref="Commit"/> it into place. The caller must have
+    /// created the destination directory. THROWS (Q3, never a silent partial write) on any failure, deleting the temp first
+    /// so no scratch is left; on a throw the prior <paramref name="finalPath"/>, if any, is byte-intact (Commit's guarantee).</summary>
+    public static void WriteAllBytes(string finalPath, byte[] bytes)
+    {
+        var staged = finalPath + ".houseCARL-tmp";                 // sibling of the target ⇒ same volume ⇒ Commit's invariant holds
+        try { if (File.Exists(staged)) File.Delete(staged); } catch { /* a stuck temp surfaces on the write below */ }
+        try
+        {
+            File.WriteAllBytes(staged, bytes);
+            Commit(staged, finalPath);
+        }
+        catch
+        {
+            try { if (File.Exists(staged)) File.Delete(staged); } catch { /* best-effort: never mask the real failure */ }
+            throw;
+        }
+    }
+
     /// <summary>Commit a fully-written <paramref name="stagedPath"/> onto <paramref name="finalPath"/> crash-atomically.
     /// Both MUST be on the same volume. THROWS (never a silent no-op) if the staged file is missing or the swap fails —
     /// the caller reports it (Q3); on any throw the prior <paramref name="finalPath"/>, if it existed, is byte-intact.</summary>
