@@ -806,21 +806,32 @@ public static class WriteEngine
     /// the SAME <see cref="EnumerateFlatGroups"/> enumeration that defines the create surface, testing <c>T.IsAbstract</c>,
     /// then collecting every non-abstract record class the base is assignable from (the runtime hierarchy, exactly as
     /// <see cref="GenericAddNew"/> keys off it). By construction: the abstract-group set IS Mutagen's (two today —
-    /// Global, GameSetting), and each base's arm set IS its concrete subtype set — neither is hand-listed. Mod-instance-
-    /// free (walks <c>typeof(SkyrimMod)</c>), so it serves the pre-flight before any patch exists.</summary>
-    internal static IEnumerable<(PropertyInfo prop, Type baseType, IReadOnlyList<Type> arms)> EnumerateAbstractGroups()
-    {
-        var skyrimAsm = typeof(IArmorGetter).Assembly;
-        foreach (var (prop, tMajor, _) in EnumerateFlatGroups(typeof(SkyrimMod)))
+    /// Global, GameSetting), and each base's arm set IS its concrete subtype set — neither is hand-listed.
+    ///
+    /// MEMOIZED (the <see cref="OverrideMethod"/> precedent): the result is pure reflection METADATA (<c>PropertyInfo</c>
+    /// + <c>Type</c>s), constant for the process lifetime and PATCH-INDEPENDENT, so the ~10k-type <c>GetTypes()</c> walk
+    /// runs once. <see cref="CanCreateType"/> calls this ≥2× on EVERY create (incl. common Keyword/Spell creates and every
+    /// record of a bulk_create), so the cache is a pure win. The per-patch group INSTANCE is NOT cached — callers resolve
+    /// it live via <c>prop.GetValue(patchMod)</c> against the tuple's (patch-independent) <c>PropertyInfo</c>.</summary>
+    static readonly Lazy<IReadOnlyList<(PropertyInfo prop, Type baseType, IReadOnlyList<Type> arms)>> _abstractGroups =
+        new(() =>
         {
-            if (!tMajor.IsAbstract) continue;
-            var arms = skyrimAsm.GetTypes()
-                .Where(t => t.IsClass && !t.IsAbstract && tMajor.IsAssignableFrom(t) && typeof(IMajorRecord).IsAssignableFrom(t))
-                .OrderBy(t => t.Name, StringComparer.Ordinal)
-                .ToList();
-            yield return (prop, tMajor, arms);
-        }
-    }
+            var skyrimAsm = typeof(IArmorGetter).Assembly;
+            var list = new List<(PropertyInfo, Type, IReadOnlyList<Type>)>();
+            foreach (var (prop, tMajor, _) in EnumerateFlatGroups(typeof(SkyrimMod)))
+            {
+                if (!tMajor.IsAbstract) continue;
+                var arms = skyrimAsm.GetTypes()
+                    .Where(t => t.IsClass && !t.IsAbstract && tMajor.IsAssignableFrom(t) && typeof(IMajorRecord).IsAssignableFrom(t))
+                    .OrderBy(t => t.Name, StringComparer.Ordinal)
+                    .ToList();
+                list.Add((prop, tMajor, arms));
+            }
+            return list;
+        });
+
+    internal static IReadOnlyList<(PropertyInfo prop, Type baseType, IReadOnlyList<Type> arms)> EnumerateAbstractGroups()
+        => _abstractGroups.Value;
 
     /// <summary>If <paramref name="typeName"/> is the CONCRETE arm of an abstract record group (e.g. "GlobalFloat" under
     /// SkyrimGroup&lt;Global&gt;), resolve the live group + the arm's Type; else false. The single point both the

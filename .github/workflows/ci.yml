@@ -114,7 +114,9 @@ jobs:
       # a bare Global. The fix is keyed off the runtime hierarchy (abstract group -> its concrete arms, discovered not
       # hand-listed), so 'GlobalFloat' AND 'GameSettingFloat' create off the SAME branch (the by-construction generality
       # proof — never a GLOB special-case), Data round-trips, re-runs upsert-replace in place, and the bare base
-      # ('Global') refuses loud naming the arms. RED before the fix (CanCreateType refused the concrete arm).
+      # ('Global') refuses loud naming the arms. Also pins the READ-SIDE base->arm mapping (BuildTypeLookup, driven via a
+      # real cross_plugin_query): type='Global' unions its concrete arms (GlobalFloat+GlobalInt). RED before the fix
+      # (CanCreateType refused the concrete arm; BuildTypeLookup returned "unknown record type" for the base name).
       - name: Probe — create concrete subtype of an abstract record group (self-contained regression guard)
         run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- create-abstract-group-guard
 

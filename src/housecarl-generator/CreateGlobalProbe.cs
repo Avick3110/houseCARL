@@ -3,6 +3,7 @@ using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Plugins.Records;
 using Mutagen.Bethesda.Skyrim;
 using HousecarlCore;
+using HousecarlMcp;
 
 namespace HousecarlGenerator;
 
@@ -34,6 +35,12 @@ namespace HousecarlGenerator;
 ///   G6  BASEREFUSE   — create RecordType='Global' (the bare abstract base) is REFUSED loud, the message NAMES the
 ///                      concrete arms, NOTHING written. (Green today as a regression guard, not a fix-proof — it keeps
 ///                      the loud-fail boundary loud after the fix opened the concrete-arm path beside it.)
+///   G7  READMAP      — the READ-SIDE base→arm mapping (LoadOrderService.BuildTypeLookup): a cross_plugin_query
+///                      type='Global' over an order holding a GlobalFloat AND a GlobalInt resolves (no "unknown type")
+///                      and returns BOTH — proving the abstract base NAME unions its concrete arms (the read-side twin
+///                      of the create branch). The union spanning two DISTINCT arms is the observable form of the
+///                      "4 arms" by-construction claim. type='GameSetting' returns its GameSettingFloat (generality).
+///                      RED before the fix (BuildTypeLookup skipped polymorphic-base names → "unknown record type").
 /// </summary>
 public static class CreateGlobalProbe
 {
@@ -189,8 +196,74 @@ public static class CreateGlobalProbe
             Console.WriteLine($"   G6 bare abstract base 'Global' refused, arms named : {(g6 ? "PASS — refused loud, arms named, no file" : $"FAIL — refused={refused} namesArms={namesArms} noFile={noFile} error=[{error}]")}");
         }
 
+        // --- G7: the READ-SIDE base→arm mapping (LoadOrderService.BuildTypeLookup, driven through the real CrossQuery).
+        //     A synthetic MO2 instance (the bulk-create-guard synth pattern) holding a master with a GlobalFloat, a
+        //     GlobalInt, and a GameSettingFloat. type='Global' must RESOLVE (not "unknown record type") and return BOTH
+        //     globals — proving the abstract base NAME unions its concrete arms (two distinct arms = the observable form
+        //     of the "4 arms" claim); type='GameSetting' returns its GameSettingFloat (the generality, second group). ---
+        bool g7 = false;
+        {
+            var g7Root = Path.Combine(tmpDir, "readmap");
+            string instance = Path.Combine(g7Root, "instance");
+            string profiles = Path.Combine(instance, "profiles", "Default");
+            string mods = Path.Combine(instance, "mods");
+            Directory.CreateDirectory(profiles); Directory.CreateDirectory(mods);
+            Directory.CreateDirectory(Path.Combine(g7Root, "game", "Data"));
+            File.WriteAllText(Path.Combine(instance, "ModOrganizer.ini"),
+                "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(Default)\r\ngamePath=@ByteArray("
+                + Path.Combine(g7Root, "game").Replace(@"\", @"\\") + ")\r\n");
+
+            var mapKey = new ModKey("HcAbsGrpReadMap", ModType.Master);
+            var modDir = Path.Combine(mods, "ReadMapMod");
+            Directory.CreateDirectory(modDir);
+            FormKey globFloatFk, globIntFk, gmstFloatFk;
+            {
+                // Build the fixture records through the product's own abstract-group create (the only path that can
+                // populate these groups — the bare Mutagen AddNew<T> extension can't, which is the whole reason for PR-D).
+                var m = new SkyrimMod(mapKey, SkyrimRelease.SkyrimSE);
+                globFloatFk = WriteEngine.GenericAddNew(m, "GlobalFloat", "HcRmGlobalFloat").FormKey;
+                globIntFk = WriteEngine.GenericAddNew(m, "GlobalInt", "HcRmGlobalInt").FormKey;
+                gmstFloatFk = WriteEngine.GenericAddNew(m, "GameSettingFloat", "fHcRmGmstFloat").FormKey;
+                m.BeginWrite.ToPath(Path.Combine(modDir, mapKey.FileName.String)).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
+            }
+            File.WriteAllText(Path.Combine(profiles, "loadorder.txt"), "# header\r\n" + mapKey.FileName + "\r\n");
+            File.WriteAllText(Path.Combine(profiles, "plugins.txt"), "*" + mapKey.FileName + "\r\n");
+            File.WriteAllText(Path.Combine(profiles, "modlist.txt"), "# header\r\n+ReadMapMod\r\n");
+
+            // BuildTypeLookup reads the corpus via CorpusRulebook.CorpusPath (the same one the rulebook loaded from).
+            CorpusRulebook.CorpusPath = Path.Combine(genDir, "corpus.json");
+            var store = new UserConfigStore(Path.Combine(g7Root, "houseCARL.user.json"));
+
+            bool globResolved = false, globBothArms = false, gmstResolved = false, gmstArm = false;
+            string? globErr = null, gmstErr = null;
+            try
+            {
+                using var svc = LoadOrderService.WithInstance(instance, 0, store);
+                svc.Stats();   // warm the lazy index once
+
+                var glob = svc.CrossQuery("Global", null, null, false, null, null, 50);
+                globErr = glob.Error;
+                globResolved = glob.Error is null;
+                if (globResolved)
+                {
+                    var keys = glob.Keys.ToHashSet();
+                    // BOTH distinct arms surface under the single base-name query (the union spans >1 arm).
+                    globBothArms = keys.Contains(globFloatFk) && keys.Contains(globIntFk);
+                }
+
+                var gmst = svc.CrossQuery("GameSetting", null, null, false, null, null, 50);
+                gmstErr = gmst.Error;
+                gmstResolved = gmst.Error is null;
+                if (gmstResolved) gmstArm = gmst.Keys.Contains(gmstFloatFk);
+            }
+            catch (Exception ex) { globErr ??= $"{ex.GetType().Name}: {ex.Message}"; }
+
+            g7 = globResolved && globBothArms && gmstResolved && gmstArm;
+            Console.WriteLine($"   G7 read-side base→arm mapping (cross_plugin_query): {(g7 ? "PASS — type='Global' unions GlobalFloat+GlobalInt; type='GameSetting' returns its arm" : $"FAIL — globResolved={globResolved} bothArms={globBothArms} gmstResolved={gmstResolved} gmstArm={gmstArm} globErr=[{globErr}] gmstErr=[{gmstErr}]")}");
+        }
+
         Console.WriteLine();
-        bool pass = g1 && g2 && g3 && g4 && g5 && g6;
+        bool pass = g1 && g2 && g3 && g4 && g5 && g6 && g7;
         Console.WriteLine($"=== create-abstract-group-guard: {(pass ? "PASS" : "FAIL")} ===");
         try { Directory.Delete(tmpDir, recursive: true); } catch { }
         return pass ? 0 : 1;
