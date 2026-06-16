@@ -28,15 +28,48 @@ public static class FieldsDiff
 {
     /// <summary>Field-level deltas, preformatted for the conflict-tree render. <see cref="Complete"/> false ⇒
     /// at least one side's read was truncated at the expansion cap, so an empty <see cref="Deltas"/> must NOT
-    /// be rendered as "identical to winner" (Q3 — never claim knowledge the comparison doesn't have).</summary>
-    public sealed record Result(IReadOnlyList<string> Deltas, bool Complete);
+    /// be rendered as "identical to winner" (Q3 — never claim knowledge the comparison doesn't have).
+    ///
+    /// <para><see cref="AgreedCount"/> + <see cref="AgreedSample"/> are the present-==-winner signal (PR-G, item
+    /// 4.3): how many VALUE LEAVES the node carries that exactly equal the winner's — i.e. ITM-restated fields,
+    /// the deltas of which are (by design) OMITTED, so without this count a contributor that restates a field
+    /// identically (an ITM override) was indistinguishable from one that simply doesn't carry it. Counts only
+    /// exact-path value leaves read on BOTH sides (never container summaries, never a side's <c>(absent)</c> /
+    /// <c>(null link)</c> sentinel — an absent field is NOT an agreement). <see cref="AgreedSample"/> is up to a
+    /// few of those paths for the render. Both are 0/empty on a truncated comparison (the agreed set, like the
+    /// one-sided deltas, would be a where-the-cap-fell artifact — Q3).</para>
+    ///
+    /// <para><b>Honest limit (Q3):</b> per-field presence is reliable only for NULLABLE fields, whose absence the
+    /// read engine surfaces as a distinct <c>(absent)</c> / <c>(null link)</c> note. Non-nullable scalars grouped
+    /// in a binary subrecord (Armor <c>DATA</c> → rating/value/weight) read as <c>0</c>/default with no carried
+    /// presence bit, so a leaf that EQUALS the winner is counted as agreement (it IS the same modeled value) but
+    /// the render never claims the contributor "carries" it as a distinct subrecord — there is no bit to prove
+    /// that. The ABSENT render fires only on the explicit sentinels, which only nullable fields produce.</para></summary>
+    public sealed record Result(IReadOnlyList<string> Deltas, bool Complete,
+        int AgreedCount, IReadOnlyList<string> AgreedSample);
+
+    /// <summary>The read-engine note for a modeled-but-empty optional (absent substruct/optional). Kept in sync
+    /// with <c>ReadEngine.AbsentNote</c> — duplicated (not referenced) to keep core's diff decoupled from the
+    /// read walk's internals; the GuardProbe's real on-disk read proves they still match.</summary>
+    internal const string AbsentNote = "(absent)";
+    /// <summary>The read-engine note for a present-but-null FormLink (FormKey.Null) — distinct from a wholly
+    /// absent field, but for the diff both mean "this contributor carries no value here".</summary>
+    internal const string NullLinkNote = "(null link)";
+
+    /// <summary>True when a CleanLines value is a read-engine "no value here" note sentinel — the field is
+    /// modeled but the contributor carries nothing (absent optional, or a present-but-null link). Treated as a
+    /// first-class state, never compared as if it were a real token value.</summary>
+    static bool IsAbsentSentinel(string val) =>
+        val == AbsentNote || val == NullLinkNote;
 
     /// <summary>Compare one plugin's deep-read fields against the winner's. Both sides should be read by the
     /// same <see cref="ReadEngine.ReadFields"/> call shape (same paths, same depth) so line sets correspond.</summary>
     public static Result Compare(RecordFields theirs, RecordFields winner)
     {
-        var (tLines, tComplete) = CleanLines(theirs);
-        var (wLines, wComplete) = CleanLines(winner);
+        var tValueLeaves = new HashSet<string>(StringComparer.Ordinal);
+        var wValueLeaves = new HashSet<string>(StringComparer.Ordinal);
+        var (tLines, tComplete) = CleanLines(theirs, tValueLeaves);
+        var (wLines, wComplete) = CleanLines(winner, wValueLeaves);
         bool complete = tComplete && wComplete;
 
         // Numeric-bracket roots seen on EITHER side (the union, so a 0-item-vs-N-item list is still compared
@@ -71,12 +104,43 @@ public static class FieldsDiff
         // though element comparison is suppressed (PR #28 review #2, non-blocking note).
         var tScalar = ExactPathLines(tLines, listRoots, includeListRootSummaries: !complete);
         var wScalar = ExactPathLines(wLines, listRoots, includeListRootSummaries: !complete);
+        int agreedCount = 0;
+        var agreedSample = new List<string>();
         foreach (var (path, val) in tScalar)
         {
             if (wScalar.TryGetValue(path, out var wv))
             {
-                if (!string.Equals(NormalizeForCompare(val), NormalizeForCompare(wv), StringComparison.Ordinal))
+                bool tAbsent = IsAbsentSentinel(val), wAbsent = IsAbsentSentinel(wv);
+                if (tAbsent && wAbsent)
+                {
+                    // Both carry nothing here (a nullable field neither side sets) — same state, no delta and
+                    // not an agreement (there is no value to agree ON).
+                }
+                else if (tAbsent)
+                {
+                    // FIRST-CLASS absent state (item 4.3): the contributor doesn't carry this field but the
+                    // winner does. Rendered as ABSENT, not as a "=(absent)" phantom value delta. Only nullable
+                    // fields reach here — the read engine emits the sentinel only for them.
+                    deltas.Add($"{path}: ABSENT here (winner has {wv})");
+                }
+                else if (wAbsent)
+                {
+                    // The contributor carries a value the WINNER doesn't — the field is absent on the winner.
+                    deltas.Add($"{path}={val} (winner has {path} ABSENT)");
+                }
+                else if (!string.Equals(NormalizeForCompare(val), NormalizeForCompare(wv), StringComparison.Ordinal))
+                {
                     deltas.Add($"{path}={val} (winner {wv})");
+                }
+                else if (tValueLeaves.Contains(path) && wValueLeaves.Contains(path))
+                {
+                    // present-==-winner: a VALUE leaf the contributor restates identically (an ITM override).
+                    // Counted (not a delta) so the render can distinguish an ITM-restating override from a
+                    // fields-narrow one. Container summary lines ("[3 item(s)]") that happen to match are NOT
+                    // value leaves and so never inflate this count.
+                    agreedCount++;
+                    if (agreedSample.Count < AgreedSampleCap) agreedSample.Add(path);
+                }
             }
             // One-sided presence is only a delta when BOTH sides were fully read: on a truncated side a
             // missing line is an artifact of WHERE its cap fell, not of content — reporting it would
@@ -102,8 +166,15 @@ public static class FieldsDiff
             }
         }
 
-        return new Result(deltas, complete);
+        // On a truncated comparison the agreed set, like the one-sided deltas, would be a where-the-cap-fell
+        // artifact — suppress it (Q3): a partial read must not claim "N fields match the winner".
+        if (!complete) { agreedCount = 0; agreedSample.Clear(); }
+        return new Result(deltas, complete, agreedCount, agreedSample);
     }
+
+    /// <summary>How many agreed-field paths to keep for the render — a small sample, not the full set (a deep
+    /// ITM override agrees on dozens of leaves; the count carries the weight, the sample is illustrative).</summary>
+    const int AgreedSampleCap = 3;
 
     /// <summary>The root's own container-summary line ("[Type: N item(s)/pair(s)]"), or null when the read
     /// never emitted one (a fields=-bracketed read names element paths directly, skipping the root).</summary>
@@ -115,14 +186,18 @@ public static class FieldsDiff
     }
 
     /// <summary>The read's lines minus the expansion-cap sentinel; each value is the round-trippable token or,
-    /// for a non-leaf/absent line, its note. Complete=false iff the sentinel was present.</summary>
-    static (List<(string path, string val)> lines, bool complete) CleanLines(RecordFields rf)
+    /// for a non-leaf/absent line, its note. <paramref name="valueLeaves"/> collects the paths that carry a real
+    /// VALUE (<c>HasValue</c>) — the only lines an agreement count may consider, so a container summary line
+    /// ("[3 item(s)]") or an absent/null-link note is never miscounted as a present field. Complete=false iff the
+    /// expansion-cap sentinel was present.</summary>
+    static (List<(string path, string val)> lines, bool complete) CleanLines(RecordFields rf, HashSet<string> valueLeaves)
     {
         var lines = new List<(string, string)>(rf.Fields.Count);
         bool complete = true;
         foreach (var f in rf.Fields)
         {
             if (f.Path == "…") { complete = false; continue; }         // ReadEngine's expansion-cap sentinel (Q3)
+            if (f.HasValue) valueLeaves.Add(f.Path);
             lines.Add((f.Path, f.HasValue ? f.Token ?? "" : f.Note ?? ""));
         }
         return (lines, complete);

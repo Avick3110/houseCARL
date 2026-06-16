@@ -21,6 +21,12 @@ namespace HousecarlGenerator;
 ///   D. a scalar field delta → still reported (the old behavior, preserved at depth);
 ///   E. a read that hits the expansion cap → Complete=false (the render must NOT claim "identical"; Q3).
 ///
+/// Extended for PR-G (HCBR-2026-06-15-01 item 4.3) — distinguish present-==-winner from absent:
+///   I. a NULLABLE FORMLINK the contributor doesn't carry but the winner does → a FIRST-CLASS "ABSENT here"
+///      state, not the pre-fix phantom "=(absent) (winner …)" value delta (RED before the fix);
+///   J. the contributor RESTATES a field == winner (an ITM override) → no delta, but a positive AgreedCount
+///      makes it distinguishable from a contributor that simply doesn't carry the field (RED before the fix).
+///
 /// Run: <c>dotnet run --project src/housecarl-generator conflict-diff-guard</c>
 /// </summary>
 public static class ConflictDiffProbe
@@ -41,7 +47,8 @@ public static class ConflictDiffProbe
         var masterPath = Path.Combine(dir, masterName);
         var overPath = Path.Combine(dir, overName);
 
-        // ---- MASTER: four target factions (relation targets) + four subject factions, one per arm. ----
+        // ---- MASTER: four target factions (relation targets) + the subject factions, one per arm (A–D the
+        //      list/scalar arms; I/J the nullable-formlink absent / ITM-restate arms added for PR-G). ----
         var master = new SkyrimMod(ModKey.FromNameAndExtension(masterName), SkyrimRelease.SkyrimSE);
         var t = new FormKey[4];
         for (int i = 0; i < 4; i++) { var tf = master.Factions.AddNew(); tf.EditorID = $"hcDiffTarget{i + 1}"; t[i] = tf.FormKey; }
@@ -54,6 +61,15 @@ public static class ConflictDiffProbe
         fC.Relations.AddRange(new[] { Rel(t[0]), Rel(t[1]) });
         var fD = master.Factions.AddNew(); fD.EditorID = "hcDiffScalar";     // arm D: scalar delta
         fD.Flags = Faction.FactionFlag.HiddenFromPC;
+
+        // A FormList for the nullable-formlink arms (I/J) to point at — a real link target so the
+        // present-side renders a round-trippable FormKey, the absent-side a note sentinel.
+        var fl = master.FormLists.AddNew(); fl.EditorID = "hcDiffCrimeList";
+
+        var fI = master.Factions.AddNew(); fI.EditorID = "hcDiffAbsent";     // arm I: nullable formlink absent on the contributor, set on the winner
+        // (SharedCrimeFactionList deliberately LEFT NULL on the master)
+        var fJ = master.Factions.AddNew(); fJ.EditorID = "hcDiffITM";        // arm J: contributor restates the field == winner (an ITM override)
+        fJ.SharedCrimeFactionList.SetTo(fl.FormKey);
         master.BeginWrite.ToPath(masterPath).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
 
         // ---- OVERRIDE (the winner): the four subjects re-shaped per arm. ----
@@ -68,9 +84,13 @@ public static class ConflictDiffProbe
         oC.Relations.Add(Rel(t[2]));                                          // 2 -> 3 items
         var oD = (IFaction)WriteEngine.GenericGetOrAddAsOverride(over, fD);
         oD.Flags = Faction.FactionFlag.SpecialCombat;                         // scalar enum delta
+        var oI = (IFaction)WriteEngine.GenericGetOrAddAsOverride(over, fI);
+        oI.SharedCrimeFactionList.SetTo(fl.FormKey);                          // winner CARRIES the link the contributor (master) left null
+        var oJ = (IFaction)WriteEngine.GenericGetOrAddAsOverride(over, fJ);
+        oJ.SharedCrimeFactionList.SetTo(fl.FormKey);                          // winner == contributor (ITM restate)
         over.BeginWrite.ToPath(overPath).WithLoadOrder(new ISkyrimModGetter[] { master }).Write();
 
-        Console.WriteLine($"-- synthesized {masterName} < {overName} (winner); four factions, one comparison arm each --");
+        Console.WriteLine($"-- synthesized {masterName} < {overName} (winner); subject factions, one comparison arm each --");
         Console.WriteLine();
 
         // ---- Drive the PRODUCT path: service ResolveTree (deep) + FieldsDiff per node-vs-winner. ----
@@ -96,6 +116,33 @@ public static class ConflictDiffProbe
         var dD = DiffOf(svc, fD.FormKey);
         Check("D: scalar delta still reported",
               dD.Deltas.Any(d => d.StartsWith("Flags=", StringComparison.Ordinal) && d.Contains("winner")));
+
+        // ---- I (PR-G, item 4.3): a NULLABLE FORMLINK the contributor (master) doesn't carry but the winner
+        //      does. The empirically-confirmed render is "SharedCrimeFactionList: ABSENT here (winner has …)" —
+        //      a FIRST-CLASS absent state, NOT the pre-fix phantom "=(absent) (winner …)" value delta. The null
+        //      formlink reads through the read engine's "(absent)" sentinel; the symmetric "(null link)"
+        //      sentinel (a present-but-FormKey.Null link) is handled identically by construction
+        //      (IsAbsentSentinel covers both). ----
+        var dI = DiffOf(svc, fI.FormKey);
+        Check("I: an absent nullable formlink renders as a FIRST-CLASS ABSENT state, not a phantom value delta",
+              dI.Complete
+              && dI.Deltas.Any(d => d.StartsWith("SharedCrimeFactionList: ABSENT here (winner has ", StringComparison.Ordinal))
+              && !dI.Deltas.Any(d => d.Contains("=(absent)", StringComparison.Ordinal)));
+        Check("I: the ABSENT delta names the value the winner carries",
+              dI.Deltas.Any(d => d.Contains(fl.FormKey.ToString(), StringComparison.Ordinal)));
+        // The agreement signal is alive even alongside a delta: the shared scalar leaves (EditorID/Flags/…)
+        // are restated identical, and the absent formlink is NOT miscounted as an agreement.
+        Check("I: AgreedCount counts the restated VALUE leaves but NOT the absent field",
+              dI.AgreedCount > 0 && !dI.AgreedSample.Contains("SharedCrimeFactionList"));
+
+        // ---- J (PR-G, item 4.3): the contributor RESTATES the formlink == winner (an ITM override). No delta,
+        //      but AgreedCount must be STRICTLY HIGHER than arm I's (it agrees on the formlink that arm I left
+        //      absent) — the signal that distinguishes a deliberate same-as-winner override from a no-op. ----
+        var dJ = DiffOf(svc, fJ.FormKey);
+        Check("J: a present-==-winner (ITM) override carries NO delta",
+              dJ.Complete && dJ.Deltas.Count == 0);
+        Check("J: the ITM override is detectable — AgreedCount > arm-I (it restates the formlink arm I omits)",
+              dJ.AgreedCount > dI.AgreedCount && dJ.AgreedSample.Count > 0);
 
         // ---- E: truncation honesty (in-memory; the expansion cap fires well below 900 relations). ----
         var big = new SkyrimMod(new ModKey("hcDiffBig", ModType.Plugin), SkyrimRelease.SkyrimSE);
