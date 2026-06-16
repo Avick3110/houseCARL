@@ -463,12 +463,36 @@ public sealed class CorpusRulebook
     /// CLR types (two arms can share a display name like 'Flags' while binding DIFFERENT enum types; ValueLegality
     /// validates against the AQ-resolved type, so AQ disagreement means the value would be checked against the
     /// wrong arm's legal set — PR review). Identity by what the validator USES, so "agrees" can never silently
-    /// mean "close enough".</summary>
+    /// mean "close enough".
+    ///
+    /// The CLR-type facets compare write-legal EQUIVALENCE, not raw-string identity (HCBR 1.2 / PR-B): a type and
+    /// its <c>Nullable&lt;T&gt;</c> wrapper admit the identical value set, because <see cref="WriteEngine"/>'s
+    /// Coerce/CanCoerce unwrap <c>Nullable&lt;T&gt;</c> before checking. So a field declared <c>float</c> on one
+    /// arm and <c>float?</c> on another (the one such corpus field — <c>APerkEffect.Value</c>) AGREES: the
+    /// over-arms search admits the path and the engine resolves on the live arm. The raw <c>Nullable</c> flag is
+    /// therefore NOT compared — it is exactly the wrapper distinction the unwrap erases — while every GENUINE
+    /// difference (cardinality, display type, or a different underlying CLR type) still rejects.</summary>
     static bool SameShape(FieldSchema a, FieldSchema b) =>
         a.Cardinality == b.Cardinality && a.Type == b.Type && a.TypeRef == b.TypeRef
         && a.ElementType == b.ElementType && a.ElementTypeRef == b.ElementTypeRef
-        && a.Writable == b.Writable && a.Nullable == b.Nullable && a.IsIdentity == b.IsIdentity
-        && a.GetterTypeAssemblyQualified == b.GetterTypeAssemblyQualified
-        && a.MutableTypeAssemblyQualified == b.MutableTypeAssemblyQualified
-        && a.ElementTypeAssemblyQualified == b.ElementTypeAssemblyQualified;
+        && a.Writable == b.Writable && a.IsIdentity == b.IsIdentity
+        && SameWriteLegalType(a.GetterTypeAssemblyQualified, b.GetterTypeAssemblyQualified)
+        && SameWriteLegalType(a.MutableTypeAssemblyQualified, b.MutableTypeAssemblyQualified)
+        && SameWriteLegalType(a.ElementTypeAssemblyQualified, b.ElementTypeAssemblyQualified);
+
+    /// <summary>Two assembly-qualified CLR-type names are write-legal-equivalent iff they resolve to the same
+    /// runtime type after unwrapping <c>Nullable&lt;T&gt;</c> — mirroring <see cref="WriteEngine"/>'s own
+    /// Coerce/CanCoerce, which unwrap <c>Nullable&lt;T&gt;</c> before validating, so <c>float</c> and <c>float?</c>
+    /// admit the identical value set. A name that will not resolve to a runtime Type falls back to RAW-string
+    /// identity, so a genuinely unknown type can never be silently widened (Q3 — fail loud, never "close enough").
+    /// Null matches only null (one arm declaring the facet and the other not is a real difference).</summary>
+    static bool SameWriteLegalType(string? a, string? b)
+    {
+        if (a == b) return true;                      // identical strings (incl. both-null) — the common case
+        if (a is null || b is null) return false;     // one present, one absent → genuinely different
+        var ta = WriteEngine.ResolveType(a);
+        var tb = WriteEngine.ResolveType(b);
+        if (ta is null || tb is null) return a == b;  // unresolvable → raw-string fallback (false here → stay rejected, Q3)
+        return (Nullable.GetUnderlyingType(ta) ?? ta) == (Nullable.GetUnderlyingType(tb) ?? tb);
+    }
 }

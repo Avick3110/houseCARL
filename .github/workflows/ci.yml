@@ -146,6 +146,16 @@ jobs:
       - name: Probe — standalone-polymorphic-field descend (pre-flight + in-CI apply)
         run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- poly-field-descend-guard
 
+      # SameShape write-legality equivalence (HCBR 1.2 / PR-B): when a field is shared across a polymorphic base's
+      # arms, FindField admits the path only if the arms AGREE in shape. The one corpus field that differs ONLY by
+      # the Nullable<T> wrapper (APerkEffect.Value: float vs float?) used to over-reject ("CONFLICTING shapes"),
+      # though the engine unwraps Nullable<T> when it coerces; it now agrees. Genuine conflicts on BOTH axes the AQ
+      # check defends stay rejected AT the SameShape gate (cardinality: Condition.ComparisonValue; underlying type:
+      # APackageData.Data), and Apply-1 drives the now-admitted request on an in-memory Perk arm.
+      # Self-contained — generates the corpus into a temp dir on a fresh checkout, no game data.
+      - name: Probe — SameShape write-legality equivalence (self-contained regression guard)
+        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- sameshape-agree-guard
+
       # The compile tool's import ORDER is semantics (the CK compiler takes the FIRST matching .psc), so caller
       # import_dirs must outrank the auto-added vanilla folder — else SKSE-extended copies of vanilla scripts lose
       # to vanilla and extended calls fail despite the right folder being passed (spike findings §5.12, hit twice).
