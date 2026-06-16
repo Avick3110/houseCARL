@@ -56,6 +56,12 @@ if (args.Length > 0 && args[0] == "verify-loop-guard") return VerifyLoopProbe.Ru
 // pass pre-flight; non-arm fields/specs still reject named. --source <Skyrim.esm> adds the end-to-end engine proof.
 if (args.Length > 0 && args[0] == "vmad-poly-guard") return VmadPolyProbe.RunGuard(args[1..]);
 
+// Standalone-polymorphic-field descend (HCBR 1.1 + 1.3 / PR-A): a plain hop through a STANDALONE poly field
+// (NpcConfiguration.Level, Npc.Sound, DialogResponsesAdapter.ScriptFragments) descends to its poly-base so the
+// over-arms search resolves the next hop; a field on no arm still rejects naming the arms; the same path applies
+// end-to-end through a live arm (asserted IN CI on an in-memory NPC, not behind --source).
+if (args.Length > 0 && args[0] == "poly-field-descend-guard") return PolyFieldDescendProbe.RunGuard(args[1..]);
+
 // BSA bridge contract guard (2026-06-12 adversarial hunt): unpack success = entries THIS RUN (the pre-seeded
 // meta.ini no longer reads as success), pack provenance (stuck stale scratch refuses), unknown format= refuses.
 if (args.Length > 0 && args[0] == "bsa-contract-guard") return BsaContractProbe.RunGuard(args[1..]);

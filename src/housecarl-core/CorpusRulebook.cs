@@ -115,12 +115,25 @@ public sealed class CorpusRulebook
 
             if (segKey is null)
             {
-                // plain hop — the only descendable kind is a substruct (with a non-record TypeRef).
+                // plain hop — descend a substruct, OR a STANDALONE polymorphic field (NpcConfiguration.Level,
+                // Npc.Sound, DialogResponsesAdapter.ScriptFragments). The poly case descends to the polymorphic-BASE
+                // catalog entry (field.TypeRef); FindField's existing over-arms search (below) then resolves the next
+                // hop against the base's arms — the standalone twin of the list-element poly branch (#35), keyed on
+                // cardinality, no per-type wiring. The static validator can't know WHICH live arm sits here, so apply
+                // resolves on the element's RUNTIME type and fails loud on a real arm mismatch (Q3) — the identical
+                // accepted contract the list-element branch already carries.
                 if (field.Cardinality == "substruct" && field.TypeRef is { } tr)
                 {
                     var next = Type(tr);
                     if (next is null)
                         return $"Path hop '{segName}' on '{current.Name}' points to type '{tr}', absent from the corpus.";
+                    current = next;
+                }
+                else if (field.Cardinality == "polymorphic" && field.TypeRef is { } ptr)
+                {
+                    var next = Type(ptr);
+                    if (next is null)
+                        return $"Path hop '{segName}' on '{current.Name}' points to polymorphic-base '{ptr}', absent from the corpus.";
                     current = next;
                 }
                 else

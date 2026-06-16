@@ -136,6 +136,16 @@ jobs:
       - name: Probe — polymorphic-element validator (VMAD arm fields + composes)
         run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- vmad-poly-guard
 
+      # Standalone-polymorphic-field descend (HCBR 1.1 + 1.3 / PR-A): a plain hop through a STANDALONE polymorphic
+      # field (NpcConfiguration.Level, Npc.Sound, DialogResponsesAdapter.ScriptFragments) descends to its
+      # polymorphic-base so the over-arms search resolves the next hop — the standalone twin of the VMAD list-element
+      # branch. The corpus checks validate the descend (and that a field on no arm still rejects naming the arms);
+      # the APPLY half runs IN CI on an in-memory NPC with a live NpcLevel/PcLevelMult arm (not behind --source), so
+      # the probe can't go green on pre-flight alone if the descend-through-a-live-arm apply path ever broke.
+      # Self-contained — generates the corpus into a temp dir on a fresh checkout, no game data.
+      - name: Probe — standalone-polymorphic-field descend (pre-flight + in-CI apply)
+        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- poly-field-descend-guard
+
       # The compile tool's import ORDER is semantics (the CK compiler takes the FIRST matching .psc), so caller
       # import_dirs must outrank the auto-added vanilla folder — else SKSE-extended copies of vanilla scripts lose
       # to vanilla and extended calls fail despite the right folder being passed (spike findings §5.12, hit twice).
