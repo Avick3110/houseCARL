@@ -787,27 +787,89 @@ public static class WriteEngine
     //  the SAME EnumerateFlatGroups enumeration, so the create surface IS the
     //  flat-group surface BY CONSTRUCTION — every concrete flat record type is
     //  createable, nothing else is silently treated as covered (CLAUDE.md §3).
+    //
+    //  A small minority of flat groups are typed by an ABSTRACT base — exactly two
+    //  by construction (SkyrimGroup<Global>, SkyrimGroup<GameSetting>); a Global is
+    //  stored as a GlobalFloat / GlobalInt / GlobalShort, never a bare Global. The
+    //  generic AddNew path can't close Mutagen's AddNew<T> with an abstract T (it
+    //  throws), so abstract-group create takes a distinct branch keyed off the
+    //  runtime hierarchy (T.IsAssignableFrom(concrete) && !concrete.IsAbstract):
+    //  the caller names the CONCRETE arm ('GlobalFloat'), which is constructed via
+    //  the same ConstructRecord/AllocateNextFormKey helpers the nested create uses
+    //  and Add()-ed to the group's own instance Add(T) (a SkyrimGroup<T> is NOT an
+    //  IList). Naming the bare abstract base ('Global') stays a loud refusal that
+    //  lists the arms (Q3 — never a guessed default). The arm set is discovered, not
+    //  hand-listed, so the branch serves GMST and any future abstract group equally.
     // ======================================================================
 
+    /// <summary>Every flat group whose T is ABSTRACT, paired with its concrete-arm record Types — discovered by walking
+    /// the SAME <see cref="EnumerateFlatGroups"/> enumeration that defines the create surface, testing <c>T.IsAbstract</c>,
+    /// then collecting every non-abstract record class the base is assignable from (the runtime hierarchy, exactly as
+    /// <see cref="GenericAddNew"/> keys off it). By construction: the abstract-group set IS Mutagen's (two today —
+    /// Global, GameSetting), and each base's arm set IS its concrete subtype set — neither is hand-listed. Mod-instance-
+    /// free (walks <c>typeof(SkyrimMod)</c>), so it serves the pre-flight before any patch exists.</summary>
+    internal static IEnumerable<(PropertyInfo prop, Type baseType, IReadOnlyList<Type> arms)> EnumerateAbstractGroups()
+    {
+        var skyrimAsm = typeof(IArmorGetter).Assembly;
+        foreach (var (prop, tMajor, _) in EnumerateFlatGroups(typeof(SkyrimMod)))
+        {
+            if (!tMajor.IsAbstract) continue;
+            var arms = skyrimAsm.GetTypes()
+                .Where(t => t.IsClass && !t.IsAbstract && tMajor.IsAssignableFrom(t) && typeof(IMajorRecord).IsAssignableFrom(t))
+                .OrderBy(t => t.Name, StringComparer.Ordinal)
+                .ToList();
+            yield return (prop, tMajor, arms);
+        }
+    }
+
+    /// <summary>If <paramref name="typeName"/> is the CONCRETE arm of an abstract record group (e.g. "GlobalFloat" under
+    /// SkyrimGroup&lt;Global&gt;), resolve the live group + the arm's Type; else false. The single point both the
+    /// pre-flight (<see cref="CanCreateType"/>) and the allocation (<see cref="GenericAddNew"/> / <see cref="GenericUpsertNew"/>)
+    /// key off, so they can't drift. <paramref name="patchMod"/> null ⇒ the group instance isn't resolved (pre-flight,
+    /// no patch yet) — only the arm Type is returned.</summary>
+    static bool TryResolveAbstractGroupArm(SkyrimMod? patchMod, string typeName, out object? group, out Type? arm)
+    {
+        group = null; arm = null;
+        foreach (var (prop, _, arms) in EnumerateAbstractGroups())
+        {
+            var hit = arms.FirstOrDefault(a => string.Equals(a.Name, typeName, StringComparison.OrdinalIgnoreCase));
+            if (hit is null) continue;
+            arm = hit;
+            group = patchMod is null ? null : prop.GetValue(patchMod);
+            return true;
+        }
+        return false;
+    }
+
     /// <summary>Can a brand-new record of <paramref name="typeName"/> (a catalog name, e.g. "Keyword") be created by the
-    /// generic flat-group dispatch? True iff a flat <c>SkyrimGroup&lt;T&gt;</c> models it AND its T is concrete. The two
-    /// false cases are the named loud-fail boundaries (Q3 — surfaced, never a silent wrong create): NO flat group ⇒ a
-    /// nested/placed record (Cell/Placed*/INFO/Navmesh/Landscape) that needs parent context, OR an abstract-group subtype;
-    /// an ABSTRACT T (Global) ⇒ needs a concrete subtype. <paramref name="reason"/> carries the user-facing explanation
-    /// when false. Mod-instance-free (walks <c>typeof(SkyrimMod)</c>), so it serves the pre-flight before any patch exists.</summary>
+    /// generic create dispatch? True iff a flat <c>SkyrimGroup&lt;T&gt;</c> models it with a CONCRETE T, OR
+    /// <paramref name="typeName"/> is a concrete ARM of an abstract group (e.g. "GlobalFloat" under SkyrimGroup&lt;Global&gt;).
+    /// The two false cases are the named loud-fail boundaries (Q3 — surfaced, never a silent wrong create): NO flat group ⇒ a
+    /// nested/placed record (Cell/Placed*/INFO/Navmesh/Landscape) that needs parent context; the bare ABSTRACT base
+    /// ('Global'/'GameSetting') ⇒ name a concrete arm (the message lists the DISCOVERED arms — never a guessed default).
+    /// <paramref name="reason"/> carries the user-facing explanation when false. Mod-instance-free (walks
+    /// <c>typeof(SkyrimMod)</c>), so it serves the pre-flight before any patch exists.</summary>
     public static bool CanCreateType(string typeName, out string? reason)
     {
+        // A concrete arm of an abstract group ('GlobalFloat', 'GameSettingFloat', …) — createable via the abstract-group
+        // branch in GenericAddNew. Checked FIRST so a concrete arm always wins over the abstract-base refusal below.
+        if (TryResolveAbstractGroupArm(null, typeName, out _, out _)) { reason = null; return true; }
+
+        foreach (var (_, tm, _) in EnumerateAbstractGroups())
+            if (string.Equals(tm.Name, typeName, StringComparison.OrdinalIgnoreCase))
+            {
+                // The bare abstract base ('Global'/'GameSetting'). The record is always stored as one of its concrete
+                // arms — name which (Q3, no guessed default). Arms are DISCOVERED, not hand-listed (cornerstone §3).
+                var arms = EnumerateAbstractGroups().First(g => g.baseType == tm).arms.Select(a => a.Name);
+                reason = $"'{typeName}' is an abstract record group — a {typeName} is always stored as one of its concrete " +
+                         $"subtypes ({string.Join(" / ", arms)}). Name the concrete subtype to create (e.g. {tm.Name}Float).";
+                return false;
+            }
+
         foreach (var (_, tm, _) in EnumerateFlatGroups(typeof(SkyrimMod)))
             if (string.Equals(tm.Name, typeName, StringComparison.OrdinalIgnoreCase))
             {
-                if (tm.IsAbstract)
-                {
-                    reason = $"'{typeName}' is an abstract record type (e.g. Global, whose concrete subtypes are " +
-                             "GlobalFloat / GlobalInt / GlobalShort) — create a concrete subtype instead. Abstract-type " +
-                             "create is a named follow-up, not yet supported.";
-                    return false;
-                }
-                reason = null;
+                reason = null;   // a concrete flat T (abstract T's were handled by the EnumerateAbstractGroups loop above)
                 return true;
             }
         reason = $"'{typeName}' has no top-level group, so it can't be created on its own — it's a nested/placed record " +
@@ -821,13 +883,16 @@ public static class WriteEngine
         return false;
     }
 
-    /// <summary>The CREATE front-end: allocate a brand-new record of <paramref name="typeName"/> in <paramref name="patchMod"/>
-    /// via the flat group's <c>AddNew</c>, returning a settable root fed into the SAME <see cref="ApplyVerb"/> path as an
-    /// override. AddNew allocates a fresh LOCAL FormID (the new plugin's own 0x800+ ESP range, incrementing — measured by
-    /// create-probe C2, with the floor guaranteed by <see cref="EnsureFormIdFloor"/>); the new record's master is the patch
-    /// itself. <paramref name="editorId"/> sets the EditorID via the <c>AddNew(string)</c> overload (null uses the no-arg,
-    /// engine-assigned one). Throws loud (Q3) on the two boundaries via <see cref="CanCreateType"/> — callers pre-flight
-    /// with that, so a throw here means the surface changed under us.</summary>
+    /// <summary>The CREATE front-end: allocate a brand-new record of <paramref name="typeName"/> in <paramref name="patchMod"/>,
+    /// returning a settable root fed into the SAME <see cref="ApplyVerb"/> path as an override. For a concrete flat type the
+    /// flat group's <c>AddNew</c> allocates a fresh LOCAL FormID (the new plugin's own 0x800+ ESP range, incrementing — measured
+    /// by create-probe C2, with the floor guaranteed by <see cref="EnsureFormIdFloor"/>); for a concrete ARM of an abstract group
+    /// ('GlobalFloat' / 'GameSettingFloat'), the arm is constructed via <see cref="ConstructRecord"/> + <see cref="AllocateNextFormKey"/>
+    /// (the same allocator the nested create draws from, so the floor + counter are shared) and added through the group's own
+    /// instance <c>Add(T)</c> — a <c>SkyrimGroup&lt;T&gt;</c> is NOT an IList, and Mutagen's generic AddNew&lt;T&gt; can't be
+    /// closed with the abstract base. The new record's master is the patch itself. <paramref name="editorId"/> sets the EditorID
+    /// (null uses the engine-assigned one). Throws loud (Q3) on the boundaries via <see cref="CanCreateType"/> — callers
+    /// pre-flight with that, so a throw here means the surface changed under us.</summary>
     public static IMajorRecord GenericAddNew(SkyrimMod patchMod, string typeName, string? editorId)
     {
         if (!CanCreateType(typeName, out var reason)) throw new InvalidOperationException(reason);
@@ -839,10 +904,33 @@ public static class WriteEngine
             throw new InvalidOperationException(
                 $"cannot allocate a new FormID: the patch's NextObjectID counter is 0x{patchMod.ModHeader.Stats.NextFormID:X} — " +
                 "past the 24-bit object-ID ceiling (0xFFFFFF). The plugin is full or its header counter is corrupt.");
+
+        // Abstract-group arm (GlobalFloat / GameSettingFloat / …): construct the concrete arm + Add(T) it (the abstract T
+        // can't go through InvokeAddNew). CanCreateType admitted the arm, so resolution here can't fail benignly.
+        if (TryResolveAbstractGroupArm(patchMod, typeName, out var armGroup, out var armType))
+            return AddConcreteArmToGroup(armGroup!, armType!, AllocateNextFormKey(patchMod), editorId);
+
         object? group = null; Type? tMajor = null;
         foreach (var (prop, tm, _) in EnumerateFlatGroups(patchMod.GetType()))
             if (string.Equals(tm.Name, typeName, StringComparison.OrdinalIgnoreCase)) { group = prop.GetValue(patchMod); tMajor = tm; break; }
         return InvokeAddNew(group!, tMajor!, editorId);   // CanCreateType guaranteed a concrete flat group exists
+    }
+
+    /// <summary>Construct a concrete abstract-group arm (<paramref name="armType"/>, e.g. <c>GlobalFloat</c>) at
+    /// <paramref name="formKey"/> and add it to its group via the group's own instance <c>Add(T)</c> method (reflected —
+    /// a <c>SkyrimGroup&lt;T&gt;</c> is NOT an IList, so the nested-create IList.Add path would crash). The same
+    /// <see cref="ConstructRecord"/> idiom the nested create uses. Throws loud (Q3) if the expected <c>Add(T)</c> shape
+    /// is absent — never a silent no-op.</summary>
+    static IMajorRecord AddConcreteArmToGroup(object group, Type armType, FormKey formKey, string? editorId)
+    {
+        var rec = ConstructRecord(armType, formKey);
+        if (editorId is not null) rec.EditorID = editorId;
+        var baseType = group.GetType().IsGenericType ? group.GetType().GetGenericArguments()[0] : armType;
+        var add = group.GetType().GetMethod("Add", new[] { baseType })
+            ?? throw new InvalidOperationException(
+                $"abstract-group create: no Add({baseType.Name}) on {group.GetType().Name} — surfaced, not guessed (Q3).");
+        add.Invoke(group, new object[] { rec });
+        return rec;
     }
 
     /// <summary>UPSERT front-end for the extend path: like <see cref="GenericAddNew"/>, but if the patch already
@@ -888,6 +976,22 @@ public static class WriteEngine
                 var existing = matches[0];
                 if (!CanCreateType(typeName, out var reason)) throw new InvalidOperationException(reason);
                 var formKey = existing.FormKey;
+
+                // Abstract-group arm (GlobalFloat / GameSettingFloat / …): the cross-type guard compares the existing
+                // record's CONCRETE type to the requested arm (re-running a GlobalFloat create over a stored GlobalInt
+                // of the same editorid IS a cross-type collision — different concrete records), and the re-add goes
+                // through Add(T), not the abstract-base InvokeAddNewWithFormKey (which can't close AddNew<T>).
+                if (TryResolveAbstractGroupArm(patchMod, typeName, out var armGroup, out var armType))
+                {
+                    if (!armType!.IsInstanceOfType(existing))
+                        throw new InvalidOperationException(
+                            $"upsert refused: existing record '{editorId}' ({formKey}) is a {existing.GetType().Name}, not a {typeName} — " +
+                            "an EditorID collision across record types is a real authoring error, surfaced not swallowed (Q3).");
+                    InvokeRemove(armGroup!, formKey);
+                    var freshArm = AddConcreteArmToGroup(armGroup!, armType, formKey, editorId);
+                    return (freshArm, true);
+                }
+
                 object? group = null; Type? tMajor = null;
                 foreach (var (prop, tm, _) in EnumerateFlatGroups(patchMod.GetType()))
                     if (string.Equals(tm.Name, typeName, StringComparison.OrdinalIgnoreCase)) { group = prop.GetValue(patchMod); tMajor = tm; break; }

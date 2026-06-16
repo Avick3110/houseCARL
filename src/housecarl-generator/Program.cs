@@ -234,6 +234,12 @@ if (args.Length > 0 && args[0] == "create-probe") return CreateProbe.RunProbe(ar
 // Capability arc create proof: drive WritePatchBuilder.CreateRecords (the core housecarl_create_record calls) vs a real, large load order.
 if (args.Length > 0 && args[0] == "create-proof") return CreateProof.RunCreateProof(args[1..]);
 
+// Create a CONCRETE SUBTYPE of an ABSTRACT record group (HCBR 2.2 / PR-D): SELF-CONTAINED CI regression guard —
+// create_record 'GlobalFloat' + 'GameSettingFloat' succeed (the by-construction generality: two distinct abstract
+// groups off ONE branch, never a GLOB special-case), set Data + round-trip, upsert-replace in place, and the bare
+// abstract base ('Global') refuses loud naming the arms.
+if (args.Length > 0 && args[0] == "create-abstract-group-guard") return CreateGlobalProbe.RunGuard(args[1..]);
+
 // Master-baseline scout: how to FORCE Skyrim.esm onto every written plugin (Mutagen strips unreferenced masters) — Aaron-flagged bug.
 if (args.Length > 0 && args[0] == "master-probe") return MasterProbe.RunProbe(args[1..]);
 

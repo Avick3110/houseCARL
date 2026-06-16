@@ -108,6 +108,16 @@ jobs:
       - name: Probe — create-tool wire create_record parent + bulk_create (self-contained regression guard)
         run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- bulk-create-guard
 
+      # Self-contained (synthesizes a master + corpus — no external files), drives the REAL CreateRecords: locks in
+      # creating a CONCRETE SUBTYPE of an ABSTRACT record group (HCBR-2026-06-15-01 item 2.2 / PR-D). The two abstract
+      # groups are SkyrimGroup<Global> / SkyrimGroup<GameSetting>; a Global is stored as a GlobalFloat/Int/Short, never
+      # a bare Global. The fix is keyed off the runtime hierarchy (abstract group -> its concrete arms, discovered not
+      # hand-listed), so 'GlobalFloat' AND 'GameSettingFloat' create off the SAME branch (the by-construction generality
+      # proof — never a GLOB special-case), Data round-trips, re-runs upsert-replace in place, and the bare base
+      # ('Global') refuses loud naming the arms. RED before the fix (CanCreateType refused the concrete arm).
+      - name: Probe — create concrete subtype of an abstract record group (self-contained regression guard)
+        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- create-abstract-group-guard
+
       # Drives the REAL housecarl-mcp.exe over stdio — the exact wire path of the live failure; needs no game data
       # (argument binding resolves before configuration is consulted): a regression guard locking in the tool-argument
       # binding shim — string-for-array coerces, missing-required refuses by name, an uncoercible shape fails NAMED

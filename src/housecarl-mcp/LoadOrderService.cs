@@ -1482,8 +1482,11 @@ public sealed class LoadOrderService : IDisposable
 
     /// <summary>Build the type-string → getter-Type(s) map from the corpus (the authoritative type catalog).
     /// Keyed by BOTH catalog name and 4-char signature; the 2 many-to-one signatures (GMST/GLOB) accumulate
-    /// their variants so a signature query unions them. A corpus AQ name that won't load is skipped here and
-    /// surfaces as "unknown type" at query time — never a silent wrong type.</summary>
+    /// their variants so a signature query unions them. The 2 abstract-group BASE names (Global / GameSetting,
+    /// kind="polymorphic-base") map to their concrete arms' getter Types BY CONSTRUCTION — the same arm union the
+    /// GMST/GLOB signature already yields — so a query by the base name unions them too and the ambiguity branch at
+    /// ResolveTypeFilter's callers names the variants. A corpus AQ name that won't load is skipped here and surfaces
+    /// as "unknown type" at query time — never a silent wrong type.</summary>
     static Dictionary<string, List<Type>> BuildTypeLookup()
     {
         var lookup = new Dictionary<string, List<Type>>(StringComparer.OrdinalIgnoreCase);
@@ -1493,13 +1496,25 @@ public sealed class LoadOrderService : IDisposable
             if (!lookup.TryGetValue(key, out var list)) lookup[key] = list = new List<Type>();
             if (!list.Contains(t)) list.Add(t);
         }
-        foreach (var ts in CorpusRulebook.LoadCorpus().Types.Values)
+        var corpus = CorpusRulebook.LoadCorpus();
+        foreach (var ts in corpus.Types.Values)
         {
             if (ts.Kind != "record") continue;
             var t = Type.GetType(ts.GetterInterfaceAssemblyQualified);
             if (t is null) continue;
             Add(ts.Name, t);
             Add(ts.Signature, t);
+        }
+        // Abstract-group base names (Global / GameSetting) → their concrete arms' getter Types. The arms are listed
+        // on the polymorphic-base's own corpus entry, so the union is derived, not hand-wired (cornerstone §3): a query
+        // type='Global' resolves to the same set GLOB does, and the existing many-match guidance names the variants.
+        foreach (var ts in corpus.Types.Values)
+        {
+            if (ts.Kind != "polymorphic-base" || ts.Arms is not { Count: > 0 } arms) continue;
+            foreach (var armName in arms)
+                if (corpus.Types.TryGetValue(armName, out var arm) && arm.Kind == "record"
+                    && Type.GetType(arm.GetterInterfaceAssemblyQualified) is { } at)
+                    Add(ts.Name, at);
         }
         return lookup;
     }
