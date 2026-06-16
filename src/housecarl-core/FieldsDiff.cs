@@ -48,19 +48,12 @@ public static class FieldsDiff
     public sealed record Result(IReadOnlyList<string> Deltas, bool Complete,
         int AgreedCount, IReadOnlyList<string> AgreedSample);
 
-    /// <summary>The read-engine note for a modeled-but-empty optional (absent substruct/optional). Kept in sync
-    /// with <c>ReadEngine.AbsentNote</c> — duplicated (not referenced) to keep core's diff decoupled from the
-    /// read walk's internals; the GuardProbe's real on-disk read proves they still match.</summary>
-    internal const string AbsentNote = "(absent)";
-    /// <summary>The read-engine note for a present-but-null FormLink (FormKey.Null) — distinct from a wholly
-    /// absent field, but for the diff both mean "this contributor carries no value here".</summary>
-    internal const string NullLinkNote = "(null link)";
-
     /// <summary>True when a CleanLines value is a read-engine "no value here" note sentinel — the field is
     /// modeled but the contributor carries nothing (absent optional, or a present-but-null link). Treated as a
-    /// first-class state, never compared as if it were a real token value.</summary>
+    /// first-class state, never compared as if it were a real token value. References the <see cref="ReadEngine"/>
+    /// constants directly (same assembly) — single source of truth, compile-time coupling, no drift.</summary>
     static bool IsAbsentSentinel(string val) =>
-        val == AbsentNote || val == NullLinkNote;
+        val == ReadEngine.AbsentNote || val == ReadEngine.NullLinkNote;
 
     /// <summary>Compare one plugin's deep-read fields against the winner's. Both sides should be read by the
     /// same <see cref="ReadEngine.ReadFields"/> call shape (same paths, same depth) so line sets correspond.</summary>

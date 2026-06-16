@@ -25,7 +25,9 @@ namespace HousecarlGenerator;
 ///   I. a NULLABLE FORMLINK the contributor doesn't carry but the winner does → a FIRST-CLASS "ABSENT here"
 ///      state, not the pre-fix phantom "=(absent) (winner …)" value delta (RED before the fix);
 ///   J. the contributor RESTATES a field == winner (an ITM override) → no delta, but a positive AgreedCount
-///      makes it distinguishable from a contributor that simply doesn't carry the field (RED before the fix).
+///      makes it distinguishable from a contributor that simply doesn't carry the field (RED before the fix);
+///   K. the SYMMETRIC absent case — the contributor carries the link, the WINNER cleared it → the distinct
+///      "<path>=<val> (winner has <path> ABSENT)" render (review finding #3).
 ///
 /// Run: <c>dotnet run --project src/housecarl-generator conflict-diff-guard</c>
 /// </summary>
@@ -70,6 +72,8 @@ public static class ConflictDiffProbe
         // (SharedCrimeFactionList deliberately LEFT NULL on the master)
         var fJ = master.Factions.AddNew(); fJ.EditorID = "hcDiffITM";        // arm J: contributor restates the field == winner (an ITM override)
         fJ.SharedCrimeFactionList.SetTo(fl.FormKey);
+        var fK = master.Factions.AddNew(); fK.EditorID = "hcDiffWinnerCleared"; // arm K: contributor CARRIES the link, the winner CLEARS it (symmetric absent)
+        fK.SharedCrimeFactionList.SetTo(fl.FormKey);
         master.BeginWrite.ToPath(masterPath).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
 
         // ---- OVERRIDE (the winner): the four subjects re-shaped per arm. ----
@@ -88,6 +92,8 @@ public static class ConflictDiffProbe
         oI.SharedCrimeFactionList.SetTo(fl.FormKey);                          // winner CARRIES the link the contributor (master) left null
         var oJ = (IFaction)WriteEngine.GenericGetOrAddAsOverride(over, fJ);
         oJ.SharedCrimeFactionList.SetTo(fl.FormKey);                          // winner == contributor (ITM restate)
+        var oK = (IFaction)WriteEngine.GenericGetOrAddAsOverride(over, fK);
+        oK.SharedCrimeFactionList.SetToNull();                                // winner CLEARS the link the contributor carries (symmetric absent)
         over.BeginWrite.ToPath(overPath).WithLoadOrder(new ISkyrimModGetter[] { master }).Write();
 
         Console.WriteLine($"-- synthesized {masterName} < {overName} (winner); subject factions, one comparison arm each --");
@@ -143,6 +149,26 @@ public static class ConflictDiffProbe
               dJ.Complete && dJ.Deltas.Count == 0);
         Check("J: the ITM override is detectable — AgreedCount > arm-I (it restates the formlink arm I omits)",
               dJ.AgreedCount > dI.AgreedCount && dJ.AgreedSample.Count > 0);
+
+        // (Review finding #1's node-neutral render WORDING — IdenticalWholeRecord/IdenticalAcrossFields in
+        // ReadTools — is human-reviewed, not pinned here: a cross-assembly call into the mcp render helper
+        // could not be compiled in this worktree (a build-server metadata-cache pathology, see the PR summary),
+        // and the reviewer explicitly authorised skipping the render-string pin when it needs an awkward
+        // harness. The data-layer signal the wording rests on — AgreedCount distinguishing an ITM restate from
+        // a no-op — IS pinned by arm J above.)
+
+        // ---- K (review finding #3): the SYMMETRIC absent branch — the contributor CARRIES the link, the WINNER
+        //      cleared it. Distinct render string "<path>=<val> (winner has <path> ABSENT)", previously
+        //      unexercised. The winner's null formlink reads through the "(absent)" sentinel. ----
+        var dK = DiffOf(svc, fK.FormKey);
+        Check("K: a field the winner CLEARED renders as the contributor's value + 'winner has … ABSENT'",
+              dK.Complete
+              && dK.Deltas.Any(d => d.StartsWith("SharedCrimeFactionList=", StringComparison.Ordinal)
+                                 && d.Contains("(winner has SharedCrimeFactionList ABSENT)", StringComparison.Ordinal)
+                                 && d.Contains(fl.FormKey.ToString(), StringComparison.Ordinal)));
+        Check("K: the cleared-on-winner field is NOT rendered as a phantom value delta",
+              !dK.Deltas.Any(d => d.Contains("(winner (absent))", StringComparison.Ordinal)
+                               || d.Contains("(winner (null link))", StringComparison.Ordinal)));
 
         // ---- E: truncation honesty (in-memory; the expansion cap fires well below 900 relations). ----
         var big = new SkyrimMod(new ModKey("hcDiffBig", ModType.Plugin), SkyrimRelease.SkyrimSE);

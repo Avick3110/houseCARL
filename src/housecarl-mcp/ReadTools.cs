@@ -284,9 +284,11 @@ static class Wire
                 ? string.Join("; ", diff.Deltas)
                   + (diff.Complete ? "" : " [comparison TRUNCATED at the expansion cap — only value mismatches observed on both sides are shown; list contents and one-sided fields were NOT compared; narrow with fields= to fully compare]")
                 : diff.Complete
-                    // No deltas. Distinguish an ITM-RESTATING override (carries fields set EQUAL to the winner —
-                    // a real, deliberate identical override) from one that simply doesn't carry the differing
-                    // fields. AgreedCount counts only value leaves read identical on both sides (item 4.3).
+                    // No deltas. Surface HOW MANY modeled fields read identical to the winner (item 4.3) — node-
+                    // neutral, because this renders for every touching plugin including the master (Nodes[0]),
+                    // which is not an "override". AgreedCount counts only value leaves read identical on both
+                    // sides; it distinguishes an ITM-restate (high N) from a fields-narrow compare, without
+                    // asserting intent the diff can't know.
                     ? (fields is { Count: > 0 }
                         ? IdenticalAcrossFields(diff)
                         : IdenticalWholeRecord(diff))
@@ -301,21 +303,23 @@ static class Wire
         }
     }
 
-    /// <summary>No-delta render for a WHOLE-record compare. AgreedCount>0 ⇒ the contributor RESTATES fields
-    /// identically to the winner (an ITM override — it deliberately carries those values), distinct from
-    /// carrying nothing that differs. The sample names a few agreed paths; presence is claimed only for the
-    /// nullable/value leaves the read engine actually surfaced (Q3 — never claim a non-nullable subrecord bit
-    /// the read can't prove).</summary>
+    /// <summary>No-delta render for a WHOLE-record compare. Node-NEUTRAL: this renders for every touching plugin,
+    /// including the master node (Nodes[0]), which is not an override — so it reports the COUNT of fields read
+    /// identical to the winner (the ITM-restate-vs-no-op signal lives in N) without asserting an "override" or a
+    /// "not a no-op" intent the diff can't know. A whole-record compare always agrees on housekeeping/identity
+    /// leaves, so N is typically >0; that's stated as a plain fact, not a verdict. The sample names a few agreed
+    /// paths; presence is claimed only for the value leaves the read engine actually surfaced (Q3 — never claim a
+    /// non-nullable subrecord bit the read can't prove).</summary>
     static string IdenticalWholeRecord(FieldsDiff.Result diff) =>
         diff.AgreedCount > 0
-            ? $"(no differences — but RESTATES {diff.AgreedCount} field(s) set identical to the winner ({SampleOf(diff)}): a same-as-winner (ITM) override, not merely a no-op. Full modeled content compared, list order ignored)"
+            ? $"(no field deltas; {diff.AgreedCount} modeled field(s) read identical to the winner ({SampleOf(diff)}) — list order ignored)"
             : "(identical to winner — full modeled content compared, list order ignored)";
 
-    /// <summary>No-delta render for a fields=-narrowed compare — the identity claim must not outrun the
-    /// compared paths (PR #28 review #2).</summary>
+    /// <summary>No-delta render for a fields=-narrowed compare — node-neutral, and the identity claim must not
+    /// outrun the compared paths (PR #28 review #2).</summary>
     static string IdenticalAcrossFields(FieldsDiff.Result diff) =>
         diff.AgreedCount > 0
-            ? $"(no differences across the requested fields — RESTATES {diff.AgreedCount} of them identical to the winner ({SampleOf(diff)}): an ITM override across those fields; other fields NOT compared, list order ignored)"
+            ? $"(no deltas across the requested fields; {diff.AgreedCount} of them read identical to the winner ({SampleOf(diff)}) — other fields NOT compared, list order ignored)"
             : "(identical to winner across the requested fields, list order ignored — other fields NOT compared)";
 
     static string SampleOf(FieldsDiff.Result diff)

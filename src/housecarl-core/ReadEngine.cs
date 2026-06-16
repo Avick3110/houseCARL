@@ -60,6 +60,12 @@ public static class ReadEngine
     /// surface.</summary>
     internal const string AbsentNote = "(absent)";
 
+    /// <summary>A present-but-null FormLink (FormKey.Null) — modeled, but carrying no target. Not a
+    /// round-trippable token (the write surface sets links to a real FormKey, never "Null"), so surfaced as
+    /// a note. Distinct from <see cref="AbsentNote"/> (a wholly absent optional); the conflict diff treats
+    /// both as "no value here" (see <c>FieldsDiff.IsAbsentSentinel</c>).</summary>
+    internal const string NullLinkNote = "(null link)";
+
     // ======================================================================
     //  `read` MODE — resolve a record in one plugin and emit its fields.
     //    dotnet run --project src/housecarl-generator read \
@@ -446,7 +452,7 @@ public static class ReadEngine
         // link (FormKey.Null) is NOT a round-trippable token (the write surface sets links to a real
         // FormKey, never "Null"), so surface it as no-value — consistent with what Coerce accepts.
         if (val is IFormLinkGetter fl)
-            return fl.FormKey.IsNull ? LeafRead.None("(null link)") : LeafRead.Value(fl.FormKey.ToString());
+            return fl.FormKey.IsNull ? LeafRead.None(NullLinkNote) : LeafRead.Value(fl.FormKey.ToString());
         // value types (inverse of TryValueType)
         if (TryEmitValueType(val, out var vt)) return LeafRead.Value(vt);
 
