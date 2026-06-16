@@ -6,7 +6,8 @@
     "recall": "9/10 = 0.90",
     "specificity": "10/10 = 1.00",
     "passed": true,
-    "lone_miss": "q9 (\"what does ALCH map to\") — read by one judge as a pure name-lookup rather than a schema request; borderline query; left as-is rather than overfit the description to it"
+    "lone_miss": "q9 (\"what does ALCH map to\") — read by one judge as a pure name-lookup rather than a schema request; borderline query; left as-is rather than overfit the description to it",
+    "pending_rerun": "PR-K (HCBR 8.1, 2026-06-16) added the 'Addressing a field & what you can write' section + one positive query (q21) exercising it. The stored 9/10 + 10/10 figures predate q21 and are NOT re-scored here — a skill must not evaluate itself (the fan-out is contaminated when run from inside the skill), so the manual fan-out re-run per HOUSECARL_SKILL_AUTHORING.md §6.5 is left to the conductor. q21 reflects an already-triggering surface (the description already covers 'composing a record write'), so no recall/specificity regression is expected, but the figures above are stale until the conductor re-runs the fan-out."
   },
   "evals": [
     {"id": 1,  "query": "what fields can I actually edit on an ARMO record? figuring out what's safe to override in my armor patch", "should_trigger": true,  "verdict": "trigger"},
@@ -19,6 +20,7 @@
     {"id": 8,  "query": "is the Name field on a book editable or is it computed? renaming a bunch of books in my merge", "should_trigger": true,  "verdict": "trigger"},
     {"id": 9,  "query": "what does the ALCH record map to in mutagen / what's it actually called there", "should_trigger": true,  "verdict": "skip", "note": "lone miss — judged a name-lookup, not a schema request; borderline"},
     {"id": 10, "query": "I need every field on the Race record and which ones I can change for my custom race patch", "should_trigger": true,  "verdict": "trigger"},
+    {"id": 21, "query": "composing a write to add a magic effect to a spell — what's the field name and is EffectList a list I add a composed entry to or something else", "should_trigger": true,  "verdict": "trigger", "note": "exercises the 'Addressing a field & what you can write' section (cardinality -> path-form/verb); needs the field's cardinality to compose the edit"},
 
     {"id": 11, "query": "what's the armor rating value of Steel Armor in Skyrim.esm right now", "should_trigger": false, "verdict": "skip", "note": "instance value read, not schema (map vs territory)"},
     {"id": 12, "query": "what does the GetActorValue papyrus function return and what params does it take", "should_trigger": false, "verdict": "skip", "note": "papyrus function signature -> papyrus-reference"},
