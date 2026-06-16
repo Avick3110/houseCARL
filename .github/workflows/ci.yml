@@ -86,6 +86,14 @@ jobs:
       - name: Probe — FormID allocation floor (self-contained regression guard)
         run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- formid-floor-guard
 
+      # Self-contained (synthesizes its own light + full masters — no game data), drives the REAL write path (Apply →
+      # the single WriteEngine.WritePatch chokepoint) + read path (LoadOrderResolver): a regression guard pinning the
+      # correct-by-construction ESL / FE-space behavior — a light-master override round-trips, the on-disk reference is
+      # master-index-encoded (never 0xFE — FE is a runtime address, confirmed over 1,399 real ESL plugins), light/full
+      # is discriminated by the master's OWN header flag, and the FormKey is index-independent (HCBR-2026-06-15-01 5.1).
+      - name: Probe — ESL / FE-space FormID handling (self-contained regression guard)
+        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- esl-formid-guard
+
       # Self-contained (synthesizes its own master — no external files), drives the REAL create/apply paths: locks
       # in the create_record into= upsert + atomic staged write (PR #44, outside contribution, hardened in review) —
       # re-runs replace loudly in place (stable FormKeys, byte-identical, REPLACED surfaced); override / duplicate /

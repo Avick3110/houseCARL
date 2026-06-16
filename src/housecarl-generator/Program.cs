@@ -292,6 +292,20 @@ if (args.Length > 0 && args[0] == "conflict-diff-proof") return ConflictDiffProb
 // the Iterate serialize recompute that seeds 0, CreateFromBinary rehydration, AddNew-from-0) the fix is designed from.
 if (args.Length > 0 && args[0] == "formid-floor-probe") return FormIdFloorProbe.RunProbe(args[1..]);
 
+// ESL / FE-space FormID handling (HCBR-2026-06-15-01 item 5.1): EXPLORATORY — pin the Mutagen 0.53.1 small-master
+// semantics (legal object-ID range, IsSmallMaster→FE-space encode through our incantation, FE decode round-trip,
+// flag-tracking, index-independence) the guard + any §4 surface-call are built from.
+if (args.Length > 0 && args[0] == "esl-formid-probe") return EslFormIdProbe.RunProbe(args[1..]);
+
+// ESL ground-truth scan (HCBR-2026-06-15-01 item 5.1): EXPLORATORY — raw-byte scan of REAL plugins to settle
+// whether SSE stores light-master references in FE-space on disk (0xFE high byte) or by master-list index.
+if (args.Length > 0 && args[0] == "esl-real-scan") return EslFormIdProbe.RunRealScan(args[1..]);
+
+// ESL / FE-space FormID handling (HCBR-2026-06-15-01 item 5.1): SELF-CONTAINED CI regression guard — pins the
+// correct-by-construction behavior (master-index on-disk encode never 0xFE, light/full discriminated by the master's
+// own header flag, round-trip via Apply + the resolver, FormKey index-independence) measured over 1,399 real ESL plugins.
+if (args.Length > 0 && args[0] == "esl-formid-guard") return EslFormIdProbe.RunGuard(args[1..]);
+
 // FormID allocation floor (HCBR-2026-06-09-04): SELF-CONTAINED CI regression guard — drives the report's exact
 // workflow (Apply-born patch → CreateRecords into=) through the real product paths, asserts the 0x800+ contract.
 if (args.Length > 0 && args[0] == "formid-floor-guard") return FormIdFloorProbe.RunGuard(args[1..]);
