@@ -1921,9 +1921,42 @@ public static class WriteEngine
         return true;
     }
 
+    // ---- FormLink null-clear (HCBR-2026-06-15-01 / PR-F) -------------------------------------------------------
+    //  A Set that CLEARS a FormLink (points it at no target) is expressed by a null-synonym value. The canonical
+    //  set is fixed (Aaron 2026-06-16): "0", "00000000", "Null", "000000:Null" — trimmed, case-insensitive,
+    //  FULL-STRING, so a real FormID ("012345:Skyrim.esm") is never mistaken for a clear. A synonym routes to
+    //  FormKey.Null; anything else parses through FormKey.Factory (which throws fail-loud on a malformed id — that
+    //  throw is caught at the gate by the pre-flight value-shape check, never reached as an accept-then-throw). This
+    //  ONE recognizer is shared by the apply path (ToFormKey, via TryFormLink) and pre-flight (CorpusRulebook ->
+    //  IsValidFormLinkValue) so the two can't drift on what counts as a clear — the same shared-predicate shape the
+    //  engine already uses for IsFormLinkOrIndex. (Without it, "00000000"/"0" was ACCEPTED by pre-flight then threw
+    //  "Malformed FormKey string" at apply — a Q3 accept-then-throw hole; and a required link had no clear path.)
+    static readonly string[] FormKeyNullSynonyms = { "0", "00000000", "Null", "000000:Null" };
+
+    /// <summary>True iff <paramref name="text"/> is a canonical FormKey null-clear synonym (trimmed, case-insensitive,
+    /// full-string). Shared by apply (<see cref="ToFormKey"/>) and pre-flight (<see cref="IsValidFormLinkValue"/>).</summary>
+    internal static bool IsFormKeyNullSynonym(string? text)
+    {
+        var v = (text ?? "").Trim();
+        foreach (var s in FormKeyNullSynonyms)
+            if (v.Equals(s, StringComparison.OrdinalIgnoreCase)) return true;
+        return false;
+    }
+
+    /// <summary>A null-synonym clears to <see cref="FormKey.Null"/>; anything else parses via FormKey.Factory
+    /// (fail-loud on a malformed id — pre-flight's value-shape check rejects that string before apply is reached).</summary>
+    static FormKey ToFormKey(string text) => IsFormKeyNullSynonym(text) ? FormKey.Null : FormKey.Factory(text);
+
+    /// <summary>Pre-flight value-shape check for a NORMAL FormLink Set: a null-clear synonym, or a value that parses
+    /// as a FormKey. The type-only <c>CoercibilityReject</c> never inspected the value, so "00000000"/"0" were
+    /// accepted then threw at FormKey.Factory on apply; this closes that hole at the gate. Shares the synonym
+    /// recognizer with the apply path so the gate and the engine agree on a legal value.</summary>
+    internal static bool IsValidFormLinkValue(string text) => IsFormKeyNullSynonym(text) || FormKey.TryFactory(text, out _);
+
     /// <summary>FormLink families — build the matching concrete (nullable vs not) from a "FORMID:ModName.esp" key.
     /// Mutagen distinguishes IFormLink&lt;T&gt; (required) from IFormLinkNullable&lt;T&gt; (optional); the wrong
-    /// concrete won't assign to the property, so the target type decides which we construct.</summary>
+    /// concrete won't assign to the property, so the target type decides which we construct. A null-synonym value
+    /// clears the link to <see cref="FormKey.Null"/> (see <see cref="ToFormKey"/>) rather than throwing.</summary>
     static bool TryFormLink(string? text, Type u, out object? result)
     {
         result = null;
@@ -1933,13 +1966,13 @@ public static class WriteEngine
         if (def == typeof(IFormLinkNullable<>) || def == typeof(IFormLinkNullableGetter<>) || def == typeof(FormLinkNullable<>))
         {
             if (text != null)
-                result = System.Activator.CreateInstance(typeof(FormLinkNullable<>).MakeGenericType(targetGetter), FormKey.Factory(text));
+                result = System.Activator.CreateInstance(typeof(FormLinkNullable<>).MakeGenericType(targetGetter), ToFormKey(text));
             return true;
         }
         if (def == typeof(FormLink<>) || def == typeof(IFormLink<>) || def == typeof(IFormLinkGetter<>))
         {
             if (text != null)
-                result = System.Activator.CreateInstance(typeof(FormLink<>).MakeGenericType(targetGetter), FormKey.Factory(text));
+                result = System.Activator.CreateInstance(typeof(FormLink<>).MakeGenericType(targetGetter), ToFormKey(text));
             return true;
         }
         // IFormLinkOrIndex<T> (condition-data targets) is NOT coercible here: its ctor needs the owning arm as a

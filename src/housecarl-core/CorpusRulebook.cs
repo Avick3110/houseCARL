@@ -253,6 +253,15 @@ public sealed class CorpusRulebook
                     return WriteEngine.TryClassifyFloiValue(req.Value) ? null
                         : $"Illegal condition target '{req.Value}' for '{leaf.Name}': expected a FormID " +
                           "(XXXXXX:Plugin.esp → form mode), a bare index, or 'alias N' / 'packdata N' (→ index mode).";
+                // A NORMAL FormLink Set — validate the FormKey VALUE shape at the gate (the FORMLINK arm ONLY; a
+                // substruct still falls to the type-shape CoercibilityReject below). CoercibilityReject is type-only
+                // and never inspected the string, so "00000000"/"0" were accepted then threw at FormKey.Factory on
+                // apply — a Q3 accept-then-throw hole. A null-synonym clears the link; otherwise it must parse as a
+                // FormKey. The recognizer is SHARED with the engine apply path (no drift). (HCBR-2026-06-15-01 PR-F.)
+                if (leaf.Cardinality == "formlink")
+                    return WriteEngine.IsValidFormLinkValue(req.Value) ? null
+                        : $"Illegal FormLink target '{req.Value}' for '{leaf.Name}': expected a FormID " +
+                          "(XXXXXX:Plugin.esp) or a null-clear ('0', '00000000', 'Null', '000000:Null').";
                 return CoercibilityReject(leaf);
             }
             return CheckValue(leaf.Type, req.Value, $"value for '{leaf.Name}'",
