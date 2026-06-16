@@ -1,0 +1,155 @@
+{
+  "skill_name": "facegen-diagnostics",
+  "_validation_method": "Manual prediction per HOUSECARL_SKILL_AUTHORING.md §6.5 at authoring time (empirical run_loop.py unavailable: absent from this repo and no non-Windows env), THEN validated via houseCARL's native cold-read fan-out (anonymized, relevance-framed; fresh agents shown a neutral skill catalog with the candidate description unlabeled among the real shipped skills, queries shuffled into mixed batches so no agent saw the trigger cluster, judging blind — per feedback_skill_trigger_eval_fanout). The candidate skill lived only in the worktree (not installed), so it could not contaminate its own eval. Reasoning was read, not just the verdict. Outcome correctness (§6.6) covered by the _q3_outcome notes below + Aaron empirical sign-off on the live order before the 1.3 release (PRE_RELEASE_1.3_LOCAL_TEST_CHECKLIST.md).",
+  "_fanout_note_post_trim": "After the fan-out, the description was trimmed from 190→179 words to meet the §3.5 soft target. The trim removed only redundant phrasings ('a face that's'→'a face', 'into a new plugin'→'into an override', dropped 'or a baked face that doesn't match the record'); NO validated trigger noun was removed, so the shipped trigger surface is a strict subset of the fanned-out one and the 10/10 recall holds a fortiori.",
+  "_fanout_result": "2026-06-16, 5 router agents × 4 mixed queries (20 total). RECALL 10/10 (100%) — every should-trigger query routed to facegen-diagnostics, each citing the correct symptom (dark/grey/black/brown face, neck seam, fine-in-xEdit, ESL-batch, FDF, player-grey, which-copy-wins). SPECIFICITY 10/10 (100%) — every should-not-trigger near-miss routed elsewhere (skypatcher ×2, spid, papyrus-reference, none ×6). Both far exceed the §6.3 gates (≥80% / ≥50%). Notable: the CBBE body neck-seam near-miss was correctly distinguished — the agent keyed on 'tone breaks BELOW the neck → body-texture, not facegen' and explicitly noted 'head darker than body would flip it to facegen', i.e. the skill's intended discriminator held. The asset_status-only and purple-armor cases resisted the VFS/texture-vocabulary overlap. No near-miss false-fire.",
+  "_predicted_recall": "10/10 should-trigger predicted to fire (100%) — CONFIRMED 10/10 by fan-out",
+  "_predicted_specificity": "10/10 should-not-trigger predicted to abstain — CONFIRMED 10/10 by fan-out (the four flagged risks all held)",
+  "_specificity_risks_to_watch": [
+    "snt-skypatcher-npc-face", "snt-asset-status-only", "snt-shiny-enb-face", "snt-npc-outfit-edit"
+  ],
+  "_q3_outcome": "Investigation-flow + procedural-write archetype → §6.6 Q3 conformance applies. Pass = emit a correct cause+fix+capability-class diagnosis OR an explicit 'houseCARL cannot finish this — here's what I checked + the external tool that can' (CK/NifSkope/RaceMenu/ReSaver). Silent wrong answer (e.g. 'place this file and you're done' when the real cause is out of lane, or anchoring the facegen folder to the conflict winner) fails outright. The out-of-lane should-trigger cases (brown face, player-only grey) are deliberate Q3 probes: the correct outcome is the honest 'houseCARL is a no-op, here's the runtime fix', not a place_asset.",
+  "evals": [
+    {
+      "id": "st-dark-follower-overhaul",
+      "query": "i installed Bijin and now Lydia's face is way darker than her body with a visible neck seam, how do i fix it",
+      "should_trigger": true,
+      "manual_predicted_trigger": true,
+      "rationale": "Canonical dark-face desync on an overhauled NPC (Cause A). Named symptom (darker face + neck seam) + named NPC. Core use case."
+    },
+    {
+      "id": "st-fine-in-xedit-dark-in-game",
+      "query": "this NPC looks fine in xedit, no conflicts, but in game her face is black. what am i missing",
+      "should_trigger": true,
+      "manual_predicted_trigger": true,
+      "rationale": "The record-vs-file desync tell verbatim — the exact case a record-only tool misses and asset_status catches."
+    },
+    {
+      "id": "st-esl-batch-dark",
+      "query": "i compacted my follower mod to ESL and now every single NPC in it has a grey face. did i break the facegen?",
+      "should_trigger": true,
+      "manual_predicted_trigger": true,
+      "rationale": "Whole-mod ESL-compaction FormID renumber (Cause F), the batch 'universal' signature. Mentions facegen explicitly."
+    },
+    {
+      "id": "st-generic-greyface-bug",
+      "query": "how do i fix the grey face bug on npcs in skyrim se",
+      "should_trigger": true,
+      "manual_predicted_trigger": true,
+      "rationale": "Generic dark/grey face bug request — the skill's headline topic."
+    },
+    {
+      "id": "st-modder-baked-still-black",
+      "query": "i made a custom npc and baked the facegen with ctrl+f4 in the CK but her head is still pitch black in game",
+      "should_trigger": true,
+      "manual_predicted_trigger": true,
+      "rationale": "Baked-but-still-black → mode ii head-parts/nif mismatch or a path/winner problem; the skill triages record-vs-file and the .nif-internals boundary."
+    },
+    {
+      "id": "st-fdf-mention",
+      "query": "should i just install Face Discoloration Fix for my black face npcs or is there a real fix",
+      "should_trigger": true,
+      "manual_predicted_trigger": true,
+      "rationale": "Names FDF + black-face NPCs. The skill owns the FDF-is-a-color-mask-not-a-fix framing and the FDF-off litmus."
+    },
+    {
+      "id": "st-dark-after-installing-mod",
+      "query": "a bunch of my npcs went dark in the face after i added that big npc overhaul pack, how do i track down which ones and fix them",
+      "should_trigger": true,
+      "manual_predicted_trigger": true,
+      "rationale": "Batch 'after I installed X' flow — enumerate winners → compute paths → asset_status-all → bulk_place."
+    },
+    {
+      "id": "st-brown-face",
+      "query": "one of my followers has a brown face that doesn't match her body, the rest look fine",
+      "should_trigger": true,
+      "manual_predicted_trigger": true,
+      "rationale": "Brown face (Cause Q). Q3 probe: the skill should TRIGGER and triage correctly to weight/save-baked + setnpcweight/ReSaver — an out-of-lane-for-place_asset outcome, not a file fix."
+    },
+    {
+      "id": "st-player-grey-after-update",
+      "query": "after the latest skyrim update my character's face is grey in the inventory menu but npcs are all fine",
+      "should_trigger": true,
+      "manual_predicted_trigger": true,
+      "rationale": "Player-only grey (Cause U/V). Q3 probe: the skill should TRIGGER and correctly exclude it as RaceMenu/SKEE runtime state — houseCARL is a no-op; route to version match / OverlayFix / skse64.log. The strongest exclusion rule is the skill's to own."
+    },
+    {
+      "id": "st-which-facegen-wins",
+      "query": "two of my npc mods both ship facegen for the same character and i think the wrong one is winning, can you tell which copy the game actually uses",
+      "should_trigger": true,
+      "manual_predicted_trigger": true,
+      "rationale": "Record-vs-file winner / VFS facegen precedence — exactly asset_status + the decide-which-copy-is-correct judgment the skill owns."
+    },
+
+    {
+      "id": "snt-skypatcher-npc-face",
+      "query": "my skypatcher ini that changes an npc's head parts and skin tone isn't applying, can you see why",
+      "should_trigger": false,
+      "manual_predicted_trigger": false,
+      "rationale": "Near-miss / RISK: mentions npc head parts + skin tone (face vocabulary) but it's a SkyPatcher INI authoring/debug task → skypatcher-authoring, not a dark-face bug. Watch the 'head parts'/'skin tone' overlap."
+    },
+    {
+      "id": "snt-spid-distribute-appearance",
+      "query": "i want to give all the bandits in my game a new menacing look, how do i set that up with SPID",
+      "should_trigger": false,
+      "manual_predicted_trigger": false,
+      "rationale": "Near-miss: distributing appearance to NPCs, but it's SPID authoring → spid-authoring, not diagnosing a baked-face bug."
+    },
+    {
+      "id": "snt-ctd-on-npc",
+      "query": "my game crashes to desktop every time a specific npc loads in whiterun, here's the crash log",
+      "should_trigger": false,
+      "manual_predicted_trigger": false,
+      "rationale": "Near-miss: NPC + 'after loads' + an artifact, but it's a CTD diagnosis → crash-diagnostics, not a face-rendering bug."
+    },
+    {
+      "id": "snt-shiny-enb-face",
+      "query": "my follower's face looks really shiny and oily in direct sunlight, the rest of the skin is fine",
+      "should_trigger": false,
+      "manual_predicted_trigger": false,
+      "rationale": "Near-miss / RISK: a 'face' problem, but it's specular/ENB, not facegen (the skill itself lists shiny face as not-facegen). Watch the 'face' overlap."
+    },
+    {
+      "id": "snt-asset-status-only",
+      "query": "which mod is providing femalehead.dds in my load order right now?",
+      "should_trigger": false,
+      "manual_predicted_trigger": false,
+      "rationale": "Near-miss / RISK: a head-texture VFS-winner question Claude answers directly with housecarl_asset_status — no dark-face diagnosis, no facegen skill needed. Watch the asset/VFS vocabulary overlap."
+    },
+    {
+      "id": "snt-npc-outfit-edit",
+      "query": "can you change this npc's default outfit and add a steel sword to her inventory in a patch",
+      "should_trigger": false,
+      "manual_predicted_trigger": false,
+      "rationale": "Near-miss / RISK: an NPC record edit, but outfit/inventory, nothing to do with a face bug. Watch the 'NPC + patch' overlap (it's esp-patching territory, not facegen)."
+    },
+    {
+      "id": "snt-create-follower-mod",
+      "query": "i want to make my own custom follower from scratch, what's the process for setting up the npc record and her face",
+      "should_trigger": false,
+      "manual_predicted_trigger": false,
+      "rationale": "Near-miss: mentions 'her face' + NPC record, but it's greenfield follower authoring, not diagnosing a dark/grey face — no symptom to investigate."
+    },
+    {
+      "id": "snt-purple-armor-texture",
+      "query": "the steel armor on my new mod shows up bright purple in game, what did i do wrong",
+      "should_trigger": false,
+      "manual_predicted_trigger": false,
+      "rationale": "Near-miss: a purple/missing-texture problem (which the skill mentions for FACES), but it's armor, not a face — tests that the skill keys on the face-bug family, not on 'purple/missing texture' generally."
+    },
+    {
+      "id": "snt-body-neck-seam-cbbe",
+      "query": "i'm getting a neck seam between the body and the head on my CBBE setup, different skin tone below the neck",
+      "should_trigger": false,
+      "manual_predicted_trigger": false,
+      "rationale": "Hard near-miss: 'neck seam' is a dark-face symptom too, BUT a CBBE body/skin-texture-set mismatch across the whole body is a body-texture install problem, not a per-NPC facegen desync. Genuinely tricky — flagged as a watch item; a body-wide seam ≠ a single NPC's baked-face seam."
+    },
+    {
+      "id": "snt-compile-papyrus",
+      "query": "how do i compile this quest script into a pex, i keep getting an unknown identifier error",
+      "should_trigger": false,
+      "manual_predicted_trigger": false,
+      "rationale": "Clean negative in an adjacent modding domain (Papyrus compile) — shares no facegen vocabulary; confirms the skill doesn't fire on generic 'skyrim modding help'."
+    }
+  ]
+}
