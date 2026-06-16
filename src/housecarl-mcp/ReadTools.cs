@@ -284,11 +284,12 @@ static class Wire
                 ? string.Join("; ", diff.Deltas)
                   + (diff.Complete ? "" : " [comparison TRUNCATED at the expansion cap — only value mismatches observed on both sides are shown; list contents and one-sided fields were NOT compared; narrow with fields= to fully compare]")
                 : diff.Complete
-                    // The identity claim must not outrun the comparison's scope: a fields=-narrowed diff
-                    // compared ONLY those paths, never the whole record (PR #28 review #2).
+                    // No deltas. Distinguish an ITM-RESTATING override (carries fields set EQUAL to the winner —
+                    // a real, deliberate identical override) from one that simply doesn't carry the differing
+                    // fields. AgreedCount counts only value leaves read identical on both sides (item 4.3).
                     ? (fields is { Count: > 0 }
-                        ? "(identical to winner across the requested fields, list order ignored — other fields NOT compared)"
-                        : "(identical to winner — full modeled content compared, list order ignored)")
+                        ? IdenticalAcrossFields(diff)
+                        : IdenticalWholeRecord(diff))
                     : "(no differences found, but the comparison was TRUNCATED at the expansion cap — NOT a verified ITM; narrow with fields= to fully compare)";
             // One node's joined deltas are unbounded (two divergent deep reads can carry thousands); slice
             // against the remaining char budget with the same explicit notice the other cuts use (Q3).
@@ -298,5 +299,28 @@ static class Wire
                     " ... [delta line truncated at max_chars; narrow with fields= or raise max_chars]");
             sb.Append("  ").Append(node.Plugin).Append(": ").Append(line).Append('\n');
         }
+    }
+
+    /// <summary>No-delta render for a WHOLE-record compare. AgreedCount>0 ⇒ the contributor RESTATES fields
+    /// identically to the winner (an ITM override — it deliberately carries those values), distinct from
+    /// carrying nothing that differs. The sample names a few agreed paths; presence is claimed only for the
+    /// nullable/value leaves the read engine actually surfaced (Q3 — never claim a non-nullable subrecord bit
+    /// the read can't prove).</summary>
+    static string IdenticalWholeRecord(FieldsDiff.Result diff) =>
+        diff.AgreedCount > 0
+            ? $"(no differences — but RESTATES {diff.AgreedCount} field(s) set identical to the winner ({SampleOf(diff)}): a same-as-winner (ITM) override, not merely a no-op. Full modeled content compared, list order ignored)"
+            : "(identical to winner — full modeled content compared, list order ignored)";
+
+    /// <summary>No-delta render for a fields=-narrowed compare — the identity claim must not outrun the
+    /// compared paths (PR #28 review #2).</summary>
+    static string IdenticalAcrossFields(FieldsDiff.Result diff) =>
+        diff.AgreedCount > 0
+            ? $"(no differences across the requested fields — RESTATES {diff.AgreedCount} of them identical to the winner ({SampleOf(diff)}): an ITM override across those fields; other fields NOT compared, list order ignored)"
+            : "(identical to winner across the requested fields, list order ignored — other fields NOT compared)";
+
+    static string SampleOf(FieldsDiff.Result diff)
+    {
+        var s = string.Join(", ", diff.AgreedSample);
+        return diff.AgreedCount > diff.AgreedSample.Count ? $"e.g. {s}, …" : s;
     }
 }
