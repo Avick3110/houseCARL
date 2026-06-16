@@ -1244,9 +1244,30 @@ public static class WriteEngine
         // like an in-place write would, so callers must still release every handle they hold on the target first.
         // Staging buys crash-tear safety and shrinks the external-watcher window; the handle discipline stays
         // load-bearing.
-        var staged = WritePatchStaged(patchMod, ordered, baseline, outputPath);
+        // SERIALIZE-BOUNDARY NULL-ARM CATCH (HCBR-2026-06-15-01 PR-C, PART B): Mutagen's binary writer dereferences a
+        // record's modeled sub-fields as it writes; a COMPOSED record that left a REQUIRED polymorphic sub-field unset
+        // (the canonical case: a Condition composed without its Data arm) is null at that deref → a bare
+        // NullReferenceException carrying NO field name. Pre-flight can't reject it: the corpus models every polymorphic
+        // field as Nullable=false, so there is no required/optional signal to gate on (that predicate would over-reject
+        // EVERY legitimately-optional null poly field — empirically a bare NPC with Sound/Level null serializes fine).
+        // The serialize boundary is the honest place to fail it (Q3). WritePatchStaged already discards its temp on any
+        // throw, so nothing is on disk; re-stamp ONLY the opaque NRE as a NAMED refusal (other serialize errors keep
+        // their own type/message). The existing WritePatchBuilder serialize catches render it loud + all-or-nothing.
+        string staged;
+        try { staged = WritePatchStaged(patchMod, ordered, baseline, outputPath); }
+        catch (NullReferenceException ex) { throw new NullArmSerializeException(ex); }
         CommitStagedPatch(staged, outputPath);
     }
+
+    /// <summary>Render an exception as <c>Type: message</c>, APPENDING its inner exception's type+message when present.
+    /// A re-stamped wrapper (e.g. <see cref="NullArmSerializeException"/> over the raw writer NRE) otherwise hides the
+    /// discriminating inner signal at the user surface — so the serialize-failure render sites use this to keep the
+    /// loud NAMED outer message AND the inner that distinguishes a genuine engine NRE from a composed-null-arm one
+    /// (the codebase's InnerException-unwrap idiom). Q3 — no opaque, no signal-stripping error.</summary>
+    internal static string Describe(Exception ex)
+        => ex.InnerException is { } inner
+            ? $"{ex.GetType().Name}: {ex.Message} [inner: {inner.GetType().Name}: {inner.Message}]"
+            : $"{ex.GetType().Name}: {ex.Message}";
 
     /// <summary>Stage 1 of the atomic write: serialize the patch into a temp SUBDIRECTORY beside the target —
     /// same filename (Mutagen's writer ties filename to ModKey), same parent directory (guarantees same NTFS
@@ -2491,5 +2512,27 @@ public sealed class CompositionRequiredException : InvalidOperationException
     {
         Segment = segment;
         SubstructType = substructType;
+    }
+}
+
+/// <summary>A serialize-boundary <see cref="NullReferenceException"/> re-stamped as a loud, NAMED refusal
+/// (HCBR-2026-06-15-01 PR-C, PART B). Mutagen's binary writer throws a bare NRE — no field name — when it dereferences
+/// a record's REQUIRED modeled sub-field that was left null; the dominant cause is a COMPOSED record missing a required
+/// polymorphic sub-arm (a Condition without its Data arm, an element missing a required part). The corpus models every
+/// polymorphic field as <c>Nullable=false</c>, so pre-flight has no required/optional signal to reject on (such a
+/// predicate would over-reject every legitimately-optional null poly field), which is why this is caught at the
+/// serialize boundary instead. The staged temp is already discarded by the time this throws (nothing on disk; the
+/// target is untouched), and the caller's serialize catch renders it as an all-or-nothing <c>Fail</c>. The original
+/// NRE is preserved as <see cref="Exception.InnerException"/>. Q3 — no silent failure, no opaque message.</summary>
+public sealed class NullArmSerializeException : InvalidOperationException
+{
+    public NullArmSerializeException(Exception inner)
+        : base("a required modeled sub-field was null when Mutagen serialized the patch (a NullReferenceException in the " +
+               "writer). The most common cause is a COMPOSED record that left a required polymorphic sub-field unset — " +
+               "e.g. a Condition composed without its Data arm, or a leveled-list / effect element missing a required " +
+               "part. Compose that sub-field too (select the arm via compose). Nothing was written — the staged file was " +
+               "discarded and the target is untouched. If no composition was involved, this is an engine/Mutagen " +
+               "inconsistency — surface it, don't work around it.", inner)
+    {
     }
 }

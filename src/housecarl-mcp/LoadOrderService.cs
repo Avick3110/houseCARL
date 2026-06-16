@@ -1149,8 +1149,15 @@ public sealed class LoadOrderService : IDisposable
     /// <summary>Build a core composition <see cref="StructSpec"/> from the wire shape — flat <c>fields</c> (coercible
     /// sub-fields), positional <c>ctor_args</c>, and nested <c>sets</c> (each a path+verb+value applied to the built
     /// struct, e.g. a leveled-list entry's Data.Level / Data.Reference). The nested sets' RecordType carries the struct
-    /// type (the validator roots them at the struct schema, so it's a label). Q3 on a malformed spec.</summary>
-    StructSpec? MapStruct(StructInput s, string where, out string? error)
+    /// type (the validator roots them at the struct schema, so it's a label). A nested set may itself carry a
+    /// <c>compose</c> (HCBR-2026-06-15-01 PR-C) — a recursive <see cref="StructSpec"/> selecting a polymorphic
+    /// sub-ARM (e.g. <c>sets:[{path:'Data', compose:{type:'GetActorValueConditionData', …}}]</c>) — mapped here into
+    /// the nested <see cref="WriteRequest.Struct"/> the core already applies + validates end-to-end (BuildStruct
+    /// recurses on a Set/Add carrying a Struct; the rulebook's ArmLegality validates compose.type against the leaf's
+    /// legal arms). Without this propagation a nested set could only set a coercible scalar, never a sub-arm. Q3 on a
+    /// malformed spec. <c>internal static</c> is the harness seam (the PR-C guard drives the wire→core mapping directly,
+    /// like the other engine helpers; it touches no instance state).</summary>
+    internal static StructSpec? MapStruct(StructInput s, string where, out string? error)
     {
         error = null;
         if (string.IsNullOrWhiteSpace(s.Type)) { error = $"{where}: compose.type is required (the arm / element type, e.g. 'LeveledItemEntry')."; return null; }
@@ -1161,10 +1168,17 @@ public sealed class LoadOrderService : IDisposable
             foreach (var ns in s.Sets)
             {
                 if (string.IsNullOrWhiteSpace(ns.Path)) { error = $"{where}: each compose.sets[] needs a path."; return null; }
+                StructSpec? nestedSpec = null;
+                if (ns.Compose is not null)
+                {
+                    nestedSpec = MapStruct(ns.Compose, where, out error);
+                    if (error is not null) return null;
+                }
                 sets.Add(new WriteRequest
                 {
                     RecordType = s.Type!, Path = SplitPath(ns.Path),
                     Verb = string.IsNullOrWhiteSpace(ns.Verb) ? "Set" : ns.Verb, Key = ns.Key, Value = ns.Value,
+                    Struct = nestedSpec,
                 });
             }
         }

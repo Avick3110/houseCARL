@@ -69,6 +69,13 @@ if (args.Length > 0 && args[0] == "poly-field-descend-guard") return PolyFieldDe
 // request end-to-end on an in-memory Perk. Self-contained (generated corpus + in-memory Mutagen).
 if (args.Length > 0 && args[0] == "sameshape-agree-guard") return SameShapeAgreeProbe.RunGuard(args[1..]);
 
+// Nested compose + serialize-boundary null-arm refusal (HCBR 1.1 null-arm half + serialize-NRE / PR-C): a compose's
+// nested set can SELECT a polymorphic sub-arm (NestedSet.compose → MapStruct propagates it into WriteRequest.Struct,
+// which the core already applies + validates end-to-end); and a COMPOSED record left with a required polymorphic
+// sub-field null fails serialize as a NAMED NullArmSerializeException (not a bare NRE), all-or-nothing, while a
+// genuinely-optional null poly field still serializes fine. Self-contained (in-memory Mutagen + generated corpus).
+if (args.Length > 0 && args[0] == "nullarm-guard") return NullArmGuardProbe.RunGuard(args[1..]);
+
 // BSA bridge contract guard (2026-06-12 adversarial hunt): unpack success = entries THIS RUN (the pre-seeded
 // meta.ini no longer reads as success), pack provenance (stuck stale scratch refuses), unknown format= refuses.
 if (args.Length > 0 && args[0] == "bsa-contract-guard") return BsaContractProbe.RunGuard(args[1..]);

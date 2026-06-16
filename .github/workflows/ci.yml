@@ -156,6 +156,18 @@ jobs:
       - name: Probe — SameShape write-legality equivalence (self-contained regression guard)
         run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- sameshape-agree-guard
 
+      # Nested compose + serialize-boundary null-arm refusal (HCBR 1.1 null-arm half + serialize-NRE / PR-C). PART A:
+      # a compose's nested set carried no `compose`, so a sets[] entry could only set a scalar, never SELECT a
+      # polymorphic sub-arm (a Condition's Data). NestedSet gained an optional Compose and MapStruct propagates it into
+      # WriteRequest.Struct — which the core already applies + validates end-to-end (BuildStruct recurses; ArmLegality
+      # validates the arm). PART B: a COMPOSED record left with a required polymorphic sub-field null is a bare NRE in
+      # Mutagen's writer (no field name); pre-flight can't reject it (every poly field is corpus-Nullable=false, so no
+      # required/optional signal — empirically a bare NPC with Sound/Level null serializes fine), so WritePatch
+      # re-stamps the serialize-boundary NRE as a NAMED NullArmSerializeException (all-or-nothing, target untouched).
+      # A1/A2/A5/B1/B2 are pure in-memory Mutagen; A3/A4 generate the corpus into a temp dir. No game data.
+      - name: Probe — nested compose + serialize-boundary null-arm refusal (self-contained regression guard)
+        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- nullarm-guard
+
       # The compile tool's import ORDER is semantics (the CK compiler takes the FIRST matching .psc), so caller
       # import_dirs must outrank the auto-added vanilla folder — else SKSE-extended copies of vanilla scripts lose
       # to vanilla and extended calls fail despite the right folder being passed (spike findings §5.12, hit twice).
