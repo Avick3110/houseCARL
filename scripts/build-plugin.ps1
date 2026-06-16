@@ -91,7 +91,7 @@ Get-ChildItem $ServerDir -Filter 'appsettings*.json' -ErrorAction SilentlyContin
 Step '3/10' 'Copy corpus.json beside the exe'
 Copy-Item $CorpusSrc (Join-Path $ServerDir 'corpus.json') -Force
 
-# ---- 4. bundle the 6 skills (exclude evals/ + _CORPUS_STATUS.md; KEEP all .jsonl) ----
+# ---- 4. bundle the 7 skills (exclude evals/ + _CORPUS_STATUS.md; KEEP all .jsonl) ----
 Step '4/10' 'Bundle skills'
 New-Item -ItemType Directory -Path $SkillsDir -Force | Out-Null
 foreach ($s in $Skills) {
