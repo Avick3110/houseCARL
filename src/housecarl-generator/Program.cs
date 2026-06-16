@@ -62,6 +62,13 @@ if (args.Length > 0 && args[0] == "vmad-poly-guard") return VmadPolyProbe.RunGua
 // end-to-end through a live arm (asserted IN CI on an in-memory NPC, not behind --source).
 if (args.Length > 0 && args[0] == "poly-field-descend-guard") return PolyFieldDescendProbe.RunGuard(args[1..]);
 
+// SameShape write-legality equivalence (HCBR 1.2 / PR-B): a field shared across a poly base's arms that differs
+// ONLY by the Nullable<T> wrapper (APerkEffect.Value: float vs float?) now AGREES at pre-flight (the engine
+// unwraps Nullable<T> when it coerces); genuine conflicts on either axis the AQ check defends stay rejected
+// (cardinality: Condition.ComparisonValue; underlying type: APackageData.Data). Apply-1 drives the now-admitted
+// request end-to-end on an in-memory Perk. Self-contained (generated corpus + in-memory Mutagen).
+if (args.Length > 0 && args[0] == "sameshape-agree-guard") return SameShapeAgreeProbe.RunGuard(args[1..]);
+
 // BSA bridge contract guard (2026-06-12 adversarial hunt): unpack success = entries THIS RUN (the pre-seeded
 // meta.ini no longer reads as success), pack provenance (stuck stale scratch refuses), unknown format= refuses.
 if (args.Length > 0 && args[0] == "bsa-contract-guard") return BsaContractProbe.RunGuard(args[1..]);
