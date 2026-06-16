@@ -102,6 +102,26 @@ An enum block carries its legal values:
 
 A type's `writable` is its `writable/total` field count; a field's own `w` is what governs whether you can set *that* field.
 
+## Addressing a field & what you can write
+
+The schema tells you a field's `c` (cardinality) and `w` (writable). That same `c` determines **how you name the field in a houseCARL write tool's path** and **which verbs the write tool accepts** — so once you've read the schema, you can compose a legal `housecarl_set_field` / `housecarl_bulk_apply` / `housecarl_create_record` edit without guessing. This table maps each cardinality to its path-form + legal verbs (it mirrors the write tools' own pre-flight rules — that enforcement is the source of truth, this is the reading view of it):
+
+| `c` (cardinality) | How to address it in the path | Verb(s) the write tool accepts | Notes |
+|---|---|---|---|
+| `scalar` / `enum` / `formlink` / `value` | the **dotted name**, e.g. `ArmorRating`, `BasicStats.Damage`, `MajorFlags` | `Set` (the default) | The value is coerced to the field's `t`: a number, an enum name (one of the referenced enum's `values`), or a FormID `XXXXXX:Plugin.esp` for a `formlink`. To **clear** a nullable field, use `Remove`. |
+| `substruct` | **descend by name** to the sub-field you want — `WorldModel.Male.Model.File`, not `WorldModel` | `Set` on the **leaf** sub-field | A direct `Set` on the substruct *itself* is refused — navigate into it and set a sub-field. The schema's `ref` names the substruct's own type; grep + block-read it to learn its fields. |
+| `list` | **`[N]` mid-path** to step into an element (`Effects[0].Data.Magnitude`); at the **leaf**, target the list field itself and use verb + `key` (the index) — **not** a leaf bracket | `Add`, `Remove`, `SetAtIndex`, `ReplaceAll` (not `Set`) | To **add a modeled element** (a leveled-list entry, an effect), `Add` with `compose:{type:'<ElementType>', ...}`. For a coercible-element list (e.g. a list of FormLinks), `Add`/`ReplaceAll` take plain value(s). |
+| `dict` | **`[key]`** to step into an element mid-path; at the leaf use verb + `key` | `Set` (with `key`), `Add`, `Remove`, `Merge`, `ReplaceAll` | `Merge` / `ReplaceAll` take an `entries` key→value map. The `key` schema key gives the dict's key type. |
+| `polymorphic` **as a list element** | step into the element (`Scripts[0].Properties[0].Object`) and address the field on the element's concrete arm | element-level verbs (above) | The library models the list as the polymorphic **base**, but each real element is a concrete arm. A field that lives on an arm (`ScriptObjectProperty.Object`) is still addressable by name; the write tool resolves which arm at apply time. To `Add` an element, `compose:{type:'<concrete arm>', ...}` (e.g. `'ScriptObjectProperty'`). |
+| `polymorphic` **as a standalone field** | **descend by name** (`Configuration.Level.Level`), and to **set the arm itself** use a `compose:{type:'<arm>', ...}` on a `Set` of the polymorphic field | `Set` carrying a `compose` arm; or descend and `Set` a sub-field of the live arm | See the standalone-polymorphic note below — **never** index a standalone polymorphic field with a bracket. |
+
+**Standalone polymorphic fields (`NpcConfiguration.Level`, `ConditionFloat.Data`, …).** You can now both *descend* one (`Configuration.Level.Level` resolves the sub-field across the base's arms) and *set its arm* with a nested `compose`: a `Set` whose `compose:{type:'<arm name>', sets:[...]}` selects which arm sits there (e.g. composing a `Condition`'s `Data` as `compose:{type:'GetActorValueConditionData', sets:[...]}`). The legal arms are the field's `arms` (or the referenced polymorphic-base's `arms`) — block-read them from `arms.jsonl` rather than guessing; **this reference does not inline an arm list per type** (coverage is by construction, so the arm set lives once on each base/field). A standalone polymorphic field is **never** addressed with a bracket (`Data[...]` is wrong) — brackets are for `list`/`dict` elements only.
+
+Two honesty boundaries the write tool enforces, worth stating when you compose against this schema:
+
+- **The arm is resolved at apply time, not from the schema.** The static schema can't know which arm currently sits at a polymorphic field, so a path like `Configuration.Level.Level` is accepted whenever *some* arm declares `Level` — and if the live arm is a different one, the write **fails loud and writes nothing**, never silently. (When a name lives on several arms with disagreeing shapes, the tool refuses up front and names the conflict rather than guessing.)
+- **A composed record missing a required arm fails loud.** If you `compose` or `Add` a modeled element and leave a required polymorphic sub-field unset (a `Condition` composed without its `Data` arm, a leveled-list entry missing required data), the write is refused at serialize time with a **named** error and **nothing is written** — all-or-nothing, never a half-written patch. So when you compose an element, set its required sub-arm in the same `compose`.
+
 ## Common mistakes
 
 - **Answering a schema question from memory.** Re-grep and re-read every time. A remembered schema is the silent-wrong-answer trap (see "Always fetch fresh").
@@ -110,6 +130,7 @@ A type's `writable` is its `writable/total` field count; a field's own `w` is wh
 - **Reading a whole shard instead of the one line.** Every index entry gives an exact `line`; a whole-shard read pulls in hundreds of unrelated types. Only widen the read if a block looks malformed (a generation bug worth reporting).
 - **Treating a `ref` / `arms` / `target` as the answer.** Those are *pointers*. To learn the referenced enum's legal values or the substruct's fields, grep the index for that name and block-read it too.
 - **Reading `w:false` as "broken".** Some fields are genuinely read-only in the library (computed, or no mutable accessor). That is the real schema, not a gap — compose writes only against `w:true` fields.
+- **Bracketing the wrong cardinality.** `[N]`/`[key]` step into a `list`/`dict` element only — a `substruct` is descended **by name** and a standalone `polymorphic` field is set by `compose` (see "Addressing a field"). A bracket on a substruct or a standalone polymorphic field is refused.
 
 ## Notes
 
