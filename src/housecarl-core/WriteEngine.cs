@@ -1950,8 +1950,10 @@ public static class WriteEngine
     /// <summary>Pre-flight value-shape check for a NORMAL FormLink Set: a null-clear synonym, or a value that parses
     /// as a FormKey. The type-only <c>CoercibilityReject</c> never inspected the value, so "00000000"/"0" were
     /// accepted then threw at FormKey.Factory on apply; this closes that hole at the gate. Shares the synonym
-    /// recognizer with the apply path so the gate and the engine agree on a legal value.</summary>
-    internal static bool IsValidFormLinkValue(string text) => IsFormKeyNullSynonym(text) || FormKey.TryFactory(text, out _);
+    /// recognizer with the apply path so the gate and the engine agree on a legal value. Null-tolerant for symmetry
+    /// with the FLOI sibling (<see cref="TryClassifyFloiValue"/>): all current callers guard non-null, but a future
+    /// caller can't trip an NRE in FormKey.TryFactory.</summary>
+    internal static bool IsValidFormLinkValue(string? text) => IsFormKeyNullSynonym(text) || (text is not null && FormKey.TryFactory(text, out _));
 
     /// <summary>FormLink families — build the matching concrete (nullable vs not) from a "FORMID:ModName.esp" key.
     /// Mutagen distinguishes IFormLink&lt;T&gt; (required) from IFormLinkNullable&lt;T&gt; (optional); the wrong
