@@ -24,11 +24,17 @@ namespace HousecarlGenerator;
 /// rejects.
 ///
 /// RED→GREEN: check A (the one over-reject — <c>APerkEffect.Value</c> reached through <c>Perk.Effects[0].Value</c>)
-/// is RED before the fix ("CONFLICTING shapes") and GREEN after. The genuine-conflict guards are GREEN before AND
-/// after, proving the loosen is NARROW on BOTH axes the AQ check defends: C = <c>Condition.ComparisonValue</c>
-/// (formlink vs scalar — the CARDINALITY axis), D = <c>APackageData.Data</c> (bool vs uint vs float — the
-/// underlying-TYPE axis); each must still reject AT the SameShape gate (asserted on the "CONFLICTING shapes"
-/// message, not just any refusal — no green-for-the-wrong-reason). Apply-1 drives the SAME request A through
+/// is RED before the fix ("CONFLICTING shapes") and GREEN after. Real-corpus genuine conflicts stay rejected (net
+/// regression guards), each firing AT the SameShape gate ("CONFLICTING shapes" message — no
+/// green-for-the-wrong-reason): C = <c>Condition.ComparisonValue</c> (formlink vs scalar, rejected at the
+/// <c>a.Cardinality</c> clause), D = <c>APackageData.Data</c> (bool/uint/float, rejected at the display
+/// <c>a.Type</c> clause). NOTE neither C nor D reaches the NEW <c>SameWriteLegalType</c> branch — they reject on a
+/// clause this PR did not touch — and no corpus field has arms agreeing on every display facet yet differing only
+/// by underlying CLR type. So E exercises that branch DIRECTLY on two synthetic FieldSchemas equal on every facet
+/// SameShape checks before the AQ comparison: E1 (float vs int) must REJECT — the "different type bound under a
+/// shared display name" defense the original docstring cites, RED-able if <c>SameWriteLegalType</c> were ever
+/// neutered to always-agree; E2 (float vs float?) must AGREE — the loosen isolated at the AQ axis (RED under the
+/// old raw-AQ-string equality). Apply-1 drives the SAME request A through
 /// <see cref="WriteEngine"/>.ApplyVerb on an in-memory Perk carrying a live arm, locking the invariant "pre-flight
 /// admits exactly what the runtime coerces" (GREEN before and after — apply was never the gate; pre-flight was).
 ///
@@ -103,10 +109,11 @@ public static class SameShapeAgreeProbe
         Check("C: Condition.ComparisonValue (formlink vs scalar — cardinality conflict) stays rejected at the SameShape gate",
             cErr is not null && cErr.Contains("CONFLICTING shapes", StringComparison.Ordinal), cErr);
 
-        // ---- D: GENUINE conflict on the underlying-TYPE axis — APackageData.Data is scalar bool / uint / float
-        //         across arms (SAME cardinality + display facets differ only by the real CLR type). Reached through
-        //         Package.Data[0] (dict of the poly base). Proves the AQ comparison still distinguishes
-        //         Boolean/UInt32/Single AFTER the Nullable-unwrap — the loosen did NOT collapse different scalars. ----
+        // ---- D: GENUINE real-corpus conflict — APackageData.Data is scalar bool / uint / float across arms,
+        //         reached through Package.Data[0] (dict of the poly base). The display Type strings DIFFER
+        //         (bool/uint/float), so SameShape rejects at the UNCHANGED `a.Type == b.Type` clause — it never
+        //         reaches SameWriteLegalType. Kept as a net regression guard that a genuine multi-arm conflict
+        //         stays rejected; the AQ-discrimination branch the loosen actually changed is exercised by E. ----
         var d = new WriteRequest
         {
             RecordType = "Package",
@@ -114,8 +121,30 @@ public static class SameShapeAgreeProbe
             Verb = "Set", Value = "1",
         };
         var dErr = rb.Validate(d);
-        Check("D: APackageData.Data (bool vs uint vs float — underlying-type conflict) stays rejected at the SameShape gate",
+        Check("D: APackageData.Data (bool/uint/float — genuine conflict, rejects at the unchanged display-Type clause) stays rejected",
             dErr is not null && dErr.Contains("CONFLICTING shapes", StringComparison.Ordinal), dErr);
+
+        // ---- E: the SameWriteLegalType discrimination branch ITSELF, driven DIRECTLY — because no corpus field
+        //         has arms agreeing on every display facet yet differing only by underlying CLR type, C/D both
+        //         reject at earlier, UNCHANGED clauses and never reach it. Two synthetic FieldSchemas, identical on
+        //         every facet SameShape checks before the AQ comparison (same Cardinality/Type/refs/Writable/
+        //         IsIdentity), differing ONLY in a resolvable AQ type:
+        //           E1 (float vs int) must REJECT — the "two arms share a display name but bind different types"
+        //              defense; RED if SameWriteLegalType were ever neutered to always-agree past its a==b fast path.
+        //           E2 (float vs float?) must AGREE — the loosen, isolated at the AQ axis (RED under the old raw-AQ
+        //              equality, which compared the wrapper string literally). Together they pin the branch both ways. ----
+        FieldSchema Leaf(string aq) => new FieldSchema
+        {
+            Name = "X", Cardinality = "scalar", Type = "float", Writable = true, IsIdentity = false,
+            GetterTypeAssemblyQualified = aq, MutableTypeAssemblyQualified = aq,
+        };
+        var floatLeaf = Leaf(typeof(float).AssemblyQualifiedName!);
+        var intLeaf = Leaf(typeof(int).AssemblyQualifiedName!);
+        var nullableFloatLeaf = Leaf(typeof(float?).AssemblyQualifiedName!);
+        Check("E1: arms equal on every display facet but binding float vs int REJECT (SameWriteLegalType discriminates underlying type)",
+            !CorpusRulebook.SameShape(floatLeaf, intLeaf));
+        Check("E2: the same two facets binding float vs float? AGREE (the Nullable<T> unwrap, isolated at the AQ axis)",
+            CorpusRulebook.SameShape(floatLeaf, nullableFloatLeaf));
 
         // ============================================================================================
         // PART 2 — apply: the same request A the loosen now admits actually applies through the engine, asserted
