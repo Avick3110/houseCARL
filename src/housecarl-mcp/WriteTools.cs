@@ -131,11 +131,13 @@ public static class WriteTools
          "operations=[{field_path:'Name', value:'My Spell'}, {field_path:'EffectList', verb:'Add', compose:{...}}]. To create a " +
          "NESTED record (a dialogue line under a topic, a placed ref in a cell), pass parent= (the parent record's FormID) and, " +
          "if the parent holds more than one child-list that fits, collection= (e.g. 'Persistent'); for a parent AND its children " +
-         "in ONE call (a topic + its lines), use housecarl_bulk_create. The new FormID is reported back; to make ANOTHER record " +
+         "in ONE call (a topic + its lines), use housecarl_bulk_create. For an abstract record group (Global, GameSetting), name " +
+         "the CONCRETE subtype directly ('GlobalFloat'/'GlobalInt'/'GlobalShort', 'GameSettingFloat'/'GameSettingInt'/'GameSettingString') " +
+         "— that's how a global variable or game setting is created. The new FormID is reported back; to make ANOTHER record " +
          "reference it, call this or set_field again with into='<this patch>' using that FormID. By default writes a fresh patch " +
          "named patch_name; into= extends an existing houseCARL patch (accumulate across calls/sessions). ALL-OR-NOTHING (Q3): " +
          "the whole call is refused with a reason and nothing is written if the type can't be created (an EXTERIOR cell nests " +
-         "under FormKey-less worldspace structs — a separate capability; abstract types like Global need a concrete subtype), if " +
+         "under FormKey-less worldspace structs — a separate capability; the bare abstract base 'Global'/'GameSetting' needs a concrete subtype — the refusal names them), if " +
          "a nested type is given no parent, if editorid is missing, or if any field op is illegal. Returns the new record's " +
          "FormID + editorid, the patch path, and its (derived) masters.")]
     public static string CreateRecord(
