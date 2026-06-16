@@ -273,7 +273,11 @@ public static class EslFormIdProbe
         //     teased them apart): the 0x800 FLOOR is the GENERAL lower-range guard (LowerFormKeyRangeDisallowed fires on
         //     any originating sub-0x800 record, ESL or not); the 0xFFF CEILING is the ESL-SPECIFIC FormIDCompaction limit
         //     (FormIDCompactionOutOfBounds, only when IsSmallMaster=true). Both must hold for houseCARL to never silently
-        //     write an out-of-window ESL record. ---
+        //     write an out-of-window ESL record.
+        //     NOTE (scope): RANGE + CONTROL pin an UPSTREAM capability — writing ORIGINATING records into a light master —
+        //     that houseCARL does not exercise today (it writes patch plugins and does not ESL-flag its own output). The
+        //     LIVE ESL path is the LIGHT + INDEX arms (overriding a light-master record via Apply). RANGE/CONTROL are kept
+        //     anyway so the window is regression-pinned the day houseCARL (or a future tool path) does originate ESL records. ---
         bool rangeOk;
         {
             // Match on the exception TYPE name (not a message substring) — robust to an upstream message rewording.
@@ -543,19 +547,23 @@ public static class EslFormIdProbe
         {
             string sig = System.Text.Encoding.ASCII.GetString(buf, p, 4);
             uint size = BitConverter.ToUInt32(buf, p + 4);
+            // `next` in LONG arithmetic so a malformed huge size can't wrap a 32-bit add into a backwards jump.
+            long next;
             if (sig == "GRUP")
             {
-                // GRUP size INCLUDES the 24-byte header; contents are [p+24, p+size).
-                int gend = p + (int)size;
-                Scan(buf, p + 24, Math.Min(gend, end), outp);
-                p = gend;
+                // GRUP size INCLUDES the 24-byte header; contents are [p+24, p+size), sibling at p+size.
+                next = (long)p + size;
+                Scan(buf, p + 24, (int)Math.Min(next, end), outp);
             }
             else
             {
-                uint formId = BitConverter.ToUInt32(buf, p + 12);
-                outp.Add((sig, formId));
-                p += 24 + (int)size; // major record: 24-byte header + dataSize bytes of fields
+                outp.Add((sig, BitConverter.ToUInt32(buf, p + 12)));
+                next = (long)p + 24 + size; // major record: 24-byte header + dataSize bytes of fields
             }
+            // Forward-progress guard (Q3 — the manual esl-real-scan is pointed at real, possibly-malformed plugins):
+            // a GRUP whose size is 0/< its own header would not advance p. Break instead of spinning.
+            if (next <= p) break;
+            p = (int)Math.Min(next, (long)end);
         }
     }
 
