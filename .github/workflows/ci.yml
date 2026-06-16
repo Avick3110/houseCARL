@@ -188,6 +188,15 @@ jobs:
       - name: Probe — nested compose + serialize-boundary null-arm refusal (self-contained regression guard)
         run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- nullarm-guard
 
+      # FormLink null-clear (HCBR 1.6 / PR-F): clearing a FormLink with a null-synonym ("00000000"/"0") threw at apply
+      # (FormKey.Factory) while pre-flight ACCEPTED it (type-only CoercibilityReject) — a Q3 accept-then-throw hole, and
+      # a REQUIRED link ("Set Race = null") had no clear path. ONE shared recognizer routes a synonym to FormKey.Null on
+      # apply and validates the formlink value shape at pre-flight; a real 6-hex FormID is never swallowed as a clear.
+      # Teeth: C1 (pre-flight now rejects a malformed value), D (apply clears a nullable link), E (apply clears a
+      # required link). Apply/serialize arms are pure in-memory Mutagen; pre-flight arms generate the corpus into a temp dir.
+      - name: Probe — FormLink null-clear + value-shape pre-flight (self-contained regression guard)
+        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- formlink-null-guard
+
       # The compile tool's import ORDER is semantics (the CK compiler takes the FIRST matching .psc), so caller
       # import_dirs must outrank the auto-added vanilla folder — else SKSE-extended copies of vanilla scripts lose
       # to vanilla and extended calls fail despite the right folder being passed (spike findings §5.12, hit twice).

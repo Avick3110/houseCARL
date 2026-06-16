@@ -76,6 +76,13 @@ if (args.Length > 0 && args[0] == "sameshape-agree-guard") return SameShapeAgree
 // genuinely-optional null poly field still serializes fine. Self-contained (in-memory Mutagen + generated corpus).
 if (args.Length > 0 && args[0] == "nullarm-guard") return NullArmGuardProbe.RunGuard(args[1..]);
 
+// FormLink null-clear (HCBR 1.6 / PR-F): a Set clearing a FormLink with a null-synonym ("00000000"/"0") threw at
+// apply (FormKey.Factory) while pre-flight ACCEPTED it (type-only CoercibilityReject) — a Q3 accept-then-throw hole,
+// and a required link had no clear path. ONE shared recognizer (IsFormKeyNullSynonym) routes a synonym to
+// FormKey.Null on apply and validates the formlink value shape at pre-flight; a real 6-hex FormID is never swallowed.
+// Self-contained: apply/serialize arms are pure in-memory Mutagen; pre-flight arms generate the corpus into a temp dir.
+if (args.Length > 0 && args[0] == "formlink-null-guard") return FormLinkNullProbe.RunGuard(args[1..]);
+
 // BSA bridge contract guard (2026-06-12 adversarial hunt): unpack success = entries THIS RUN (the pre-seeded
 // meta.ini no longer reads as success), pack provenance (stuck stale scratch refuses), unknown format= refuses.
 if (args.Length > 0 && args[0] == "bsa-contract-guard") return BsaContractProbe.RunGuard(args[1..]);
