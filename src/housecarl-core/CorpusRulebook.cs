@@ -472,7 +472,7 @@ public sealed class CorpusRulebook
     /// over-arms search admits the path and the engine resolves on the live arm. The raw <c>Nullable</c> flag is
     /// therefore NOT compared — it is exactly the wrapper distinction the unwrap erases — while every GENUINE
     /// difference (cardinality, display type, or a different underlying CLR type) still rejects.</summary>
-    static bool SameShape(FieldSchema a, FieldSchema b) =>
+    internal static bool SameShape(FieldSchema a, FieldSchema b) =>
         a.Cardinality == b.Cardinality && a.Type == b.Type && a.TypeRef == b.TypeRef
         && a.ElementType == b.ElementType && a.ElementTypeRef == b.ElementTypeRef
         && a.Writable == b.Writable && a.IsIdentity == b.IsIdentity
