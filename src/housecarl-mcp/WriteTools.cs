@@ -397,4 +397,7 @@ public sealed record NestedSet
 
     [JsonPropertyName("key"), Description("Dict key or list index, if the nested target is a collection.")]
     public string? Key { get; init; }
+
+    [JsonPropertyName("compose"), Description("Build a modeled sub-struct for THIS nested target (recursive): the concrete ARM of a polymorphic sub-field (e.g. a Condition's Data → 'GetActorValueConditionData'), or the element for a struct-element Add nested inside the struct. Omit for a coercible scalar (use value=).")]
+    public StructInput? Compose { get; init; }
 }

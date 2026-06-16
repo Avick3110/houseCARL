@@ -239,7 +239,7 @@ public static class WritePatchBuilder
         session.ReleaseOverlay(patchMod.ModKey.FileName.String);
         try { WriteEngine.WritePatch(patchMod, session.AllMastersExcept(patchMod.ModKey.FileName.String), outPath); }
         catch (Exception ex)
-            { return PatchOutcome.Fail($"writing the patch failed (serialize or commit; the existing file is untouched): {ex.GetType().Name}: {ex.Message}"); }
+            { return PatchOutcome.Fail($"writing the patch failed (serialize or commit; the existing file is untouched): {WriteEngine.Describe(ex)}"); }
 
         // --- Phase 5: re-open the written patch and report its master header — and, on request, each touched
         //     record's FULL read-back off that same re-opened file (the on-disk bytes, not the in-memory mod — the
@@ -352,7 +352,7 @@ public static class WritePatchBuilder
         // keeps the target out of the master set. (writelock-probe / writelock-apply-probe; both halves guarded.)
         session.ReleaseOverlay(patchMod.ModKey.FileName.String);
         try { WriteEngine.WritePatch(patchMod, session.AllMastersExcept(patchMod.ModKey.FileName.String), outPath); }
-        catch (Exception ex) { return RemovalOutcome.Fail($"writing the patch after removal failed (serialize or commit; the existing file is untouched): {ex.GetType().Name}: {ex.Message}"); }
+        catch (Exception ex) { return RemovalOutcome.Fail($"writing the patch after removal failed (serialize or commit; the existing file is untouched): {WriteEngine.Describe(ex)}"); }
 
         // Re-open: report the (possibly shrunk) master header + how many records remain (0 ⇒ the patch is now an inert
         // header-only plugin the user can disable/delete). Dispose the overlay so the file isn't left mmap'd for a later call.
@@ -580,7 +580,7 @@ public static class WritePatchBuilder
         // keeps the target out of the master set. (writelock-probe / writelock-apply-probe; both halves guarded.)
         session.ReleaseOverlay(patchMod.ModKey.FileName.String);
         try { WriteEngine.WritePatch(patchMod, session.AllMastersExcept(patchMod.ModKey.FileName.String), outPath); }
-        catch (Exception ex) { return CreateOutcome.Fail($"writing the patch after create failed (serialize or commit; the existing file is untouched): {ex.GetType().Name}: {ex.Message}"); }
+        catch (Exception ex) { return CreateOutcome.Fail($"writing the patch after create failed (serialize or commit; the existing file is untouched): {WriteEngine.Describe(ex)}"); }
 
         // --- Phase 5: re-open + report the (derived) master header + bytes — and, on request, each created record's
         //     FULL read-back off that same re-opened file (see Apply's Phase 5). Dispose the overlay so the file isn't
