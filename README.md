@@ -66,6 +66,10 @@ models — by construction, not a hand-maintained subset.
    tell houseCARL your **MO2 instance folder** — the one containing `ModOrganizer.ini`. It prompts you on
    first use; you can switch instances anytime by asking it to set a new one.
 
+> **Updating an existing install?** Fully quit Claude Code (and Codex) before re-running
+> `houseCARL-Setup.exe` — it can't replace the server while a session is running it. If one is, it stops and
+> tells you to quit and re-run.
+
 ### Build from source (developers / verifiers)
 
 Requires the **.NET 9 SDK** (not just the runtime), Windows, and PowerShell.

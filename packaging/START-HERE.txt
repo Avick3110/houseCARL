@@ -36,6 +36,13 @@ INSTALL  (about 30 seconds, no command line)
           "which plugins override the IronSword record, and who wins?"
 
 
+UPDATING  (installing a newer houseCARL over an older one)
+------------------------------------------------------------------------
+  Same as installing -- but FULLY QUIT Claude (and Codex) FIRST. The
+  setup can't replace the houseCARL server while a session is running
+  it; if one is, it stops and tells you to quit and re-run.
+
+
 REQUIREMENTS
 ------------------------------------------------------------------------
   - Windows (x64).
