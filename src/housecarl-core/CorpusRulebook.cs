@@ -250,7 +250,7 @@ public sealed class CorpusRulebook
             case "Add":
                 // A dict Add coerces req.Key into the new entry's key (ApplyDictVerb -> Coerce(req.Key!, kType)); a
                 // MISSING key reaches apply and throws UNNAMED (Coerce(null)). A list Add appends — no key. Gate dict-Add
-                // key PRESENCE here, the structural twin of Set-on-dict above (key VALUE-shape stays ValueLegality's job).
+                // key PRESENCE here, the structural twin of Set-on-dict above (key VALUE-shape is ValueLegality's step-4-key).
                 if (c == "dict") return hasKey ? null : $"Add on dict field '{leaf.Name}' requires a key.";
                 return c == "list" ? null : $"Add is only valid on list/dict; '{leaf.Name}' is {c}.";
             case "Remove":
@@ -264,7 +264,8 @@ public sealed class CorpusRulebook
                 return c is "list" or "dict" ? null : $"ReplaceAll is only valid on list/dict; '{leaf.Name}' is {c}.";
             case "SetAtIndex":
                 // A list SetAtIndex parses req.Key as the index (ApplyListVerb -> int.Parse(req.Key!)); a MISSING index
-                // throws ArgumentNullException at apply. Require it up front (PRESENCE; parseable-as-int stays deferred).
+                // throws ArgumentNullException at apply. Require it up front (PRESENCE; the parseable-as-int / non-negative
+                // VALUE-shape is gated in ValueLegality's step-4-key block).
                 if (c != "list") return $"SetAtIndex is only valid on list; '{leaf.Name}' is {c}.";
                 return hasKey ? null : $"SetAtIndex on list '{leaf.Name}' requires an index.";
             case "Merge":
@@ -318,17 +319,43 @@ public sealed class CorpusRulebook
         // A sibling token inside a COLLECTION value (a list ReplaceAll's Values, or a dict Entries' VALUES) is NOT
         // substituted (only the singular Set Value is) — refuse loud rather than accept-then-throw at apply (Q3).
         // Unconditional: never supported, on either the create or the edit-existing path. List/dict sibling-refs are a
-        // deliberate later surface. NOTE: dict KEYS are deliberately NOT scanned here — a '@' in a (rare) FormLink-keyed
-        // dict key would still reach apply, where it fails LOUD (a coerce throw caught as a named Q3 inconsistency), not
-        // silently; that edge rides the parked general "list/dict element value-shape isn't gate-checked" task, which
-        // owns collection element-shape validation (gating keys here without it would be an inconsistent half-measure).
+        // deliberate later surface. (A '@editorid' in a dict KEY — Set/Add/Remove req.Key, or a Merge/ReplaceAll Entries
+        // key — is now caught by the step-4-key key-shape gate below: '@…' won't coerce to any modeled key type, so it
+        // rejects there by construction, never reaching apply. The "parked key value-shape" task this note once pointed
+        // at IS that gate.)
         if ((req.Values is { } vals && vals.Any(v => WriteEngine.IsSameCallSiblingRef(v, out _)))
             || (req.Entries is { } ents && ents.Values.Any(v => WriteEngine.IsSameCallSiblingRef(v, out _))))
             return $"a '@editorid' same-call reference for '{leaf.Name}' is only supported as a single Set value on a " +
                    "FormLink field, not inside a list/dict value — list/dict sibling-refs are a later surface.";
+        // (step 4-key) KEY / INDEX VALUE-SHAPE — the shape twin of the key/index PRESENCE gate (VerbLegality's
+        // missing-key rejects). A PRESENT-but-malformed dict key / list index passes presence but throws UNNAMED at
+        // apply: a dict Set/Add/Remove coerces req.Key into the entry (ApplyDictVerb -> Coerce(req.Key!, KeyType)) and
+        // Merge/ReplaceAll coerce each Entries key the same way; a list SetAtIndex/Remove parses req.Key as the index
+        // (ApplyListVerb -> int.Parse(req.Key!)). Gate both LOUD here, by construction, with the SAME recognizers the
+        // apply path uses so gate and apply can't drift: the dict key's real CLR type is resolved from the field's own
+        // dictionary AQ (DictKeyType — the identical type apply keys on, dictIface.GetGenericArguments()[0]), so
+        // coercibility is checked for EVERY key kind (enum AND the one sbyte-keyed dict), not just enums by catalog-
+        // name; the list index via WriteEngine.IsValidListIndexValue (parseable non-negative int32). This EXTENDS the
+        // gate to Add/Remove/Merge/ReplaceAll keys AND reconciles the dict Set key check (below, now value-only) onto
+        // the same recognizer — closing the prior enum-only gaps (a non-enum key slipped; a numeric enum key like '3',
+        // which apply accepts, was over-rejected). PRESENCE stays VerbLegality's job; this is purely SHAPE.
+        if (leaf.Cardinality == "dict")
+        {
+            var keyAq = DictKeyType(leaf)?.AssemblyQualifiedName;
+            string? KeyShape(string? k) => CheckValue(leaf.KeyType, k, $"dict key for '{leaf.Name}'", keyAq);
+            if (req.Verb is "Set" or "Add" or "Remove" && req.Key is { } dKey && KeyShape(dKey) is { } dKeyErr)
+                return dKeyErr;
+            if (req.Verb is "Merge" or "ReplaceAll" && req.Entries is { } keyEnts)
+                foreach (var k in keyEnts.Keys)
+                    if (KeyShape(k) is { } entKeyErr) return entKeyErr;
+        }
+        if (leaf.Cardinality == "list" && req.Verb is "SetAtIndex" or "Remove" && req.Key is { } lIdx
+            && !WriteEngine.IsValidListIndexValue(lIdx))
+            return $"Illegal list index '{lIdx}' for '{leaf.Name}': expected a non-negative integer. " +
+                   "(Whether the index is in range is checked at apply, against the live list.)";
         if (req.Verb is "Set" && leaf.Cardinality == "dict")
         {
-            if (CheckValue(leaf.KeyType, req.Key, $"dict key for '{leaf.Name}'") is { } ke) return ke;
+            // Key shape gated by the step-4-key block above (Set/Add/Remove share one recognizer); validate the VALUE here.
             if (req.Value is null) return $"Set on dict '{leaf.Name}' requires a value.";
             return CheckValue(leaf.ElementType, req.Value, $"dict value for '{leaf.Name}'", leaf.ElementTypeAssemblyQualified);
         }
@@ -393,13 +420,13 @@ public sealed class CorpusRulebook
         // element VALUE with the SAME recognizer the singular path uses (IsValidFormLinkValue — one predicate, no
         // drift between gate and apply): req.Value (list Add / SetAtIndex / Remove-by-value; dict Add — dict Set
         // returned at its own block above), req.Values (list ReplaceAll), and req.Entries' VALUES (dict Merge /
-        // ReplaceAll). The dict KEY VALUE-SHAPE is deliberately NOT checked here — key shape is the deferred surface the
-        // sibling-ref note drew. (Key/index PRESENCE is a DISTINCT concern and IS gated up front, by construction, in
-        // VerbLegality's Add/Remove/SetAtIndex arms — the missing-key twin of the missing-value gate above.) NOTE: every
+        // ReplaceAll). The dict KEY VALUE-SHAPE is gated up front by the step-4-key block above (coercible-to-KeyType
+        // via the key's real CLR type, EVERY key kind) — this block validates element VALUES only. (Key/index PRESENCE
+        // is a DISTINCT concern, gated by construction in VerbLegality's Add/Remove/SetAtIndex arms.) NOTE: every
         // formlink collection in the current corpus is a LIST (85 fields); a formlink-VALUED dict is
         // not modeled by Mutagen today (0 fields) and the generator's dict branch does not stamp FormLinkTarget for
         // one, so the req.Entries arm is dormant-by-construction — named here (Q3), and lit the moment such a field
-        // (carrying its FormLinkTarget stamp) exists. The dict KEY-shape edge stays as the sibling-ref note left it.
+        // (carrying its FormLinkTarget stamp) exists. The dict KEY-shape edge is now closed by the step-4-key block above.
         if (leaf.Cardinality is "list" or "dict" && leaf.FormLinkTarget is not null)
         {
             if (req.Value is { } ev && !WriteEngine.IsValidFormLinkValue(ev)) return FormLinkElementReject(ev, leaf);
@@ -531,6 +558,21 @@ public sealed class CorpusRulebook
         var armSchema = Type(arm.Type);
         if (armSchema is null) return $"Arm '{arm.Type}' absent from corpus.";
         return StructSpecContents(arm, armSchema);
+    }
+
+    /// <summary>Resolve a dict leaf's KEY clr type from its own dictionary AQ — the SAME type the apply path keys on
+    /// (<c>ApplyDictVerb</c>: <c>dictIface.GetGenericArguments()[0]</c>), so the key-shape gate and the engine agree on
+    /// the key type by construction. The corpus carries the whole <c>IDictionary&lt;K,V&gt;</c> /
+    /// <c>IReadOnlyDictionary&lt;K,V&gt;</c> AQ with BOTH type args fully qualified, so no separate key-AQ schema field
+    /// is needed. Returns null if it can't be resolved (the caller's <see cref="CheckValue"/> then degrades to the
+    /// catalog-by-name enum check — still loud for enum keys, never a silent accept). Mutable AQ preferred over getter,
+    /// matching <see cref="CoercibilityReject"/>.</summary>
+    static System.Type? DictKeyType(FieldSchema leaf)
+    {
+        var aq = leaf.MutableTypeAssemblyQualified ?? leaf.GetterTypeAssemblyQualified;
+        if (aq is null || WriteEngine.ResolveType(aq) is not { IsGenericType: true } dt) return null;
+        var args = dt.GetGenericArguments();
+        return args.Length == 2 ? args[0] : null;
     }
 
     /// <summary>Enum → must be a legal value of the field's REAL enum type; primitive → must coerce to the

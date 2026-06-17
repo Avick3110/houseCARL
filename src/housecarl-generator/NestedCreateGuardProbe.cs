@@ -87,7 +87,34 @@ namespace HousecarlGenerator;
 ///   KEYIDX-OK-LISTREMOVE  — a keyless list Remove + value is STILL accepted: list Remove is by-index-OR-by-value, so the
 ///                           DICT-only scope does not over-reach to lists (no-over-reject, like FLELEM-NULLCLEAR-OK).
 ///   KEYIDX-REJ-SETIDX-E2E — a keyless SetAtIndex refuses end-to-end with NO file written; the PRE-FLIGHT message (not the
-///                           apply int.Parse(null) throw) proves the gate. (Key VALUE-shape stays the deferred surface.)
+///                           apply int.Parse(null) throw) proves the gate.
+///
+/// KEY / INDEX VALUE-SHAPE — the malformed-addressing-key twin of the PRESENCE gap above (this PR). PRESENCE (above)
+/// catches a MISSING key/index; this catches a PRESENT-but-MALFORMED one. A dict Set/Add/Remove coerces req.Key into the
+/// entry and Merge/ReplaceAll coerce each Entries key (ApplyDictVerb -> Coerce(key, KeyType)); a list SetAtIndex/Remove
+/// parses req.Key as the index (ApplyListVerb -> int.Parse(req.Key!)). A malformed key/index slipped pre-flight (only dict
+/// SET key-shape was gated, and only ENUM keys by catalog-NAME) and threw UNNAMED at apply. ValueLegality now gates the
+/// key/index SHAPE by construction: dict keys via the SAME coercibility the apply path uses (the key's real CLR type
+/// resolved from the field's dict AQ — EVERY key kind, not just enums); list indices via IsValidListIndexValue (parseable
+/// non-negative int, the in-range check left to apply, Q3):
+///   KEYSHAPE-REJ-DICTADD       — a dict Add with a non-coercible enum key refuses at PRE-FLIGHT (Class.SkillWeights; a
+///                                valid value supplied so ONLY the key differs). RED before: accepted (no Add key-shape gate).
+///   KEYSHAPE-REJ-DICTREMOVE    — a dict Remove with a non-coercible key refuses (it identifies the entry BY key). RED: accepted.
+///   KEYSHAPE-REJ-MERGEKEY      — a Merge with a non-coercible Entries KEY refuses (Merge/ReplaceAll keys coerce too). RED: accepted.
+///   KEYSHAPE-REJ-SBYTE         — a Remove on the ONE non-enum-keyed dict (Package.Data = Dictionary&lt;sbyte,APackageData&gt;)
+///                                with a non-numeric key refuses 'does not coerce to sbyte' — proves the gate is by the key's
+///                                real CLR type (every kind), not enum-catalog-name only. RED before: accepted (the sbyte hole).
+///   KEYSHAPE-REJ-SETIDX        — a list SetAtIndex with a non-integer index refuses (Race.MovementTypeNames). RED: accepted.
+///   KEYSHAPE-REJ-NEGIDX        — a list SetAtIndex with a NEGATIVE index refuses too: int.Parse accepts '-1' but the indexer
+///                                throws, so the gate pre-checks &gt;= 0 (the &gt;=0 decision). RED before: accepted.
+///   KEYSHAPE-REJ-LISTREMOVE-IDX— a list Remove with a present non-integer index refuses (the RemoveAt path int.Parse too). RED: accepted.
+///   KEYSHAPE-OK-DICTADD        — a dict Add with a VALID enum key + value is STILL accepted (no over-reject). Accepted before AND after.
+///   KEYSHAPE-OK-SETIDX         — a list SetAtIndex with a VALID index is STILL accepted (no over-reject). Accepted before AND after.
+///   KEYSHAPE-OK-NUMENUM-SET    — a dict Set with a NUMERIC enum key ('3', which apply accepts via Enum.Parse) is accepted: the
+///                                gate matches apply, no longer over-rejecting numeric enum keys (the reconciled Set path).
+///                                RED before: REJECTED by the old enum-catalog-NAME-only check (the gate/apply drift this fixes).
+///   KEYSHAPE-REJ-E2E           — a malformed list index refuses end-to-end with NO file written; the PRE-FLIGHT message
+///                                ('Illegal list index'), not the apply int.Parse throw, proves the gate.
 /// </summary>
 public static class NestedCreateGuardProbe
 {
@@ -580,13 +607,142 @@ public static class NestedCreateGuardProbe
             },
             msg => msg.Contains("requires an index", StringComparison.OrdinalIgnoreCase));
 
+        // ====== KEY / INDEX VALUE-SHAPE — the malformed-key/index twin of the PRESENCE gate above ======
+        // The presence gate (KEYIDX-*) catches a MISSING key/index; this catches a PRESENT-but-MALFORMED one. A dict
+        // Set/Add/Remove coerces req.Key into the entry (ApplyDictVerb -> Coerce(req.Key!, KeyType)) and Merge/ReplaceAll
+        // coerce each Entries key; a list SetAtIndex/Remove parses req.Key as the index (ApplyListVerb -> int.Parse).
+        // ValueLegality now gates the SHAPE: dict keys via the SAME coercibility apply uses (the key's real CLR type from
+        // the field's dict AQ — EVERY kind, not just enum-by-name), list indices via IsValidListIndexValue (non-negative
+        // int; in-range left to apply). Most arms drive the rulebook DIRECTLY (a non-null reject IS the gate refusal).
+
+        // ---------- KEYSHAPE-REJ-DICTADD: a dict Add with a non-coercible ENUM key refuses at PRE-FLIGHT ----------
+        // A VALID value (Byte "5") so ONLY the key differs. RED before: no Add key-shape gate existed -> accepted, then
+        // Coerce("notaskill", Skill) threw at apply.
+        bool keyShapeRejDictAddOk;
+        {
+            var req = new WriteRequest { RecordType = "Class", Path = new[] { "SkillWeights" }, Verb = "Add", Key = "notaskill", Value = "5" };
+            var reject = rulebook.Validate(req);
+            keyShapeRejDictAddOk = reject is not null && reject.Contains("dict key", StringComparison.OrdinalIgnoreCase)
+                && reject.Contains("not a legal Skill", StringComparison.OrdinalIgnoreCase);
+            Console.WriteLine($"   KEYSHAPE-REJ-DICTADD bad enum key   : {(keyShapeRejDictAddOk ? "PASS — a non-coercible dict Add key is refused at pre-flight (not accepted-then-thrown at apply)" : $"FAIL — reject=[{reject}]")}");
+        }
+
+        // ---------- KEYSHAPE-REJ-DICTREMOVE: a dict Remove with a non-coercible key refuses (entry identified BY key) ----------
+        bool keyShapeRejDictRemoveOk;
+        {
+            var req = new WriteRequest { RecordType = "Class", Path = new[] { "SkillWeights" }, Verb = "Remove", Key = "notaskill" };
+            var reject = rulebook.Validate(req);
+            keyShapeRejDictRemoveOk = reject is not null && reject.Contains("not a legal Skill", StringComparison.OrdinalIgnoreCase);
+            Console.WriteLine($"   KEYSHAPE-REJ-DICTREMOVE bad key     : {(keyShapeRejDictRemoveOk ? "PASS — a non-coercible dict Remove key is refused at pre-flight" : $"FAIL — reject=[{reject}]")}");
+        }
+
+        // ---------- KEYSHAPE-REJ-MERGEKEY: a Merge with a non-coercible Entries KEY refuses (Merge/ReplaceAll keys coerce too) ----------
+        // Values are valid + carry no @ (so the sibling-collection gate passes through to the entries-key scan). RED before: accepted.
+        bool keyShapeRejMergeKeyOk;
+        {
+            var req = new WriteRequest { RecordType = "Class", Path = new[] { "SkillWeights" }, Verb = "Merge",
+                Entries = new Dictionary<string, string> { ["notaskill"] = "5" } };
+            var reject = rulebook.Validate(req);
+            keyShapeRejMergeKeyOk = reject is not null && reject.Contains("not a legal Skill", StringComparison.OrdinalIgnoreCase);
+            Console.WriteLine($"   KEYSHAPE-REJ-MERGEKEY bad entry key : {(keyShapeRejMergeKeyOk ? "PASS — a non-coercible Merge entries key is refused too (Merge/ReplaceAll keys coerce)" : $"FAIL — reject=[{reject}]")}");
+        }
+
+        // ---------- KEYSHAPE-REJ-SBYTE: the ONE non-enum-keyed dict — by-construction, not enum-only ----------
+        // Package.Data = Dictionary<sbyte,APackageData>. A Remove (no value, sidesteps the composable-element value path)
+        // with a non-numeric key refuses 'does not coerce to sbyte' — the gate resolves the key's REAL CLR type (sbyte) from
+        // the dict AQ, so it catches a kind the old enum-catalog-name check NEVER could. RED before: accepted (the sbyte hole).
+        bool keyShapeRejSbyteOk;
+        {
+            var req = new WriteRequest { RecordType = "Package", Path = new[] { "Data" }, Verb = "Remove", Key = "notanumber" };
+            var reject = rulebook.Validate(req);
+            keyShapeRejSbyteOk = reject is not null && reject.Contains("does not coerce to sbyte", StringComparison.OrdinalIgnoreCase);
+            Console.WriteLine($"   KEYSHAPE-REJ-SBYTE non-enum key     : {(keyShapeRejSbyteOk ? "PASS — a non-coercible sbyte key is refused by construction (real CLR type, not enum-name only)" : $"FAIL — reject=[{reject}]")}");
+        }
+
+        // ---------- KEYSHAPE-REJ-SETIDX: a list SetAtIndex with a non-integer index refuses ----------
+        // A VALID value so ONLY the index differs. RED before: accepted, then int.Parse("abc") threw FormatException at apply.
+        bool keyShapeRejSetIdxOk;
+        {
+            var req = new WriteRequest { RecordType = "Race", Path = new[] { "MovementTypeNames" }, Verb = "SetAtIndex", Key = "abc", Value = "MT_Walk" };
+            var reject = rulebook.Validate(req);
+            keyShapeRejSetIdxOk = reject is not null && reject.Contains("Illegal list index", StringComparison.OrdinalIgnoreCase)
+                && reject.Contains("non-negative integer", StringComparison.OrdinalIgnoreCase);
+            Console.WriteLine($"   KEYSHAPE-REJ-SETIDX non-int index   : {(keyShapeRejSetIdxOk ? "PASS — a non-integer list index is refused at pre-flight" : $"FAIL — reject=[{reject}]")}");
+        }
+
+        // ---------- KEYSHAPE-REJ-NEGIDX: a list SetAtIndex with a NEGATIVE index refuses (the >=0 decision) ----------
+        // int.Parse accepts "-1" but the indexer throws ArgumentOutOfRangeException — so the gate pre-checks >= 0. RED before: accepted.
+        bool keyShapeRejNegIdxOk;
+        {
+            var req = new WriteRequest { RecordType = "Race", Path = new[] { "MovementTypeNames" }, Verb = "SetAtIndex", Key = "-1", Value = "MT_Walk" };
+            var reject = rulebook.Validate(req);
+            keyShapeRejNegIdxOk = reject is not null && reject.Contains("non-negative integer", StringComparison.OrdinalIgnoreCase);
+            Console.WriteLine($"   KEYSHAPE-REJ-NEGIDX negative index  : {(keyShapeRejNegIdxOk ? "PASS — a negative index is refused too (parses but the indexer would throw)" : $"FAIL — reject=[{reject}]")}");
+        }
+
+        // ---------- KEYSHAPE-REJ-LISTREMOVE-IDX: a list Remove with a present non-integer index refuses (the RemoveAt path) ----------
+        // A present key on list Remove is interpreted as the index (ApplyListVerb -> RemoveAt(int.Parse(req.Key))). RED before: accepted.
+        bool keyShapeRejListRemoveIdxOk;
+        {
+            var req = new WriteRequest { RecordType = "Race", Path = new[] { "MovementTypeNames" }, Verb = "Remove", Key = "abc" };
+            var reject = rulebook.Validate(req);
+            keyShapeRejListRemoveIdxOk = reject is not null && reject.Contains("Illegal list index", StringComparison.OrdinalIgnoreCase);
+            Console.WriteLine($"   KEYSHAPE-REJ-LISTREMOVE-IDX non-int : {(keyShapeRejListRemoveIdxOk ? "PASS — a non-integer index on list Remove (by-index) is refused too" : $"FAIL — reject=[{reject}]")}");
+        }
+
+        // ---------- KEYSHAPE-OK-DICTADD: a dict Add with a VALID enum key + value is STILL accepted (no over-reject) ----------
+        bool keyShapeOkDictAddOk;
+        {
+            var req = new WriteRequest { RecordType = "Class", Path = new[] { "SkillWeights" }, Verb = "Add", Key = "OneHanded", Value = "5" };
+            var reject = rulebook.Validate(req);
+            keyShapeOkDictAddOk = reject is null;
+            Console.WriteLine($"   KEYSHAPE-OK-DICTADD valid key+value : {(keyShapeOkDictAddOk ? "PASS — a valid dict Add (key+value) is NOT over-rejected" : $"FAIL — reject=[{reject}]")}");
+        }
+
+        // ---------- KEYSHAPE-OK-SETIDX: a list SetAtIndex with a VALID index is STILL accepted (no over-reject) ----------
+        bool keyShapeOkSetIdxOk;
+        {
+            var req = new WriteRequest { RecordType = "Race", Path = new[] { "MovementTypeNames" }, Verb = "SetAtIndex", Key = "0", Value = "MT_Walk" };
+            var reject = rulebook.Validate(req);
+            keyShapeOkSetIdxOk = reject is null;
+            Console.WriteLine($"   KEYSHAPE-OK-SETIDX valid index      : {(keyShapeOkSetIdxOk ? "PASS — a valid list index (0) is NOT over-rejected" : $"FAIL — reject=[{reject}]")}");
+        }
+
+        // ---------- KEYSHAPE-OK-NUMENUM-SET: a dict Set with a NUMERIC enum key ('3') is accepted — gate matches apply ----------
+        // apply's Coerce("3", Skill) = Enum.Parse accepts the underlying-numeric form, so the gate must too. The reconciled
+        // Set path now resolves the key's real enum type (TryCoerce), not the old NAME-only catalog check. RED before:
+        // REJECTED ('3' is not a NAMED Skill) — the gate/apply drift this fix closes by reusing the engine recognizer.
+        bool keyShapeOkNumEnumSetOk;
+        {
+            var req = new WriteRequest { RecordType = "Class", Path = new[] { "SkillWeights" }, Verb = "Set", Key = "3", Value = "5" };
+            var reject = rulebook.Validate(req);
+            keyShapeOkNumEnumSetOk = reject is null;
+            Console.WriteLine($"   KEYSHAPE-OK-NUMENUM-SET numeric key : {(keyShapeOkNumEnumSetOk ? "PASS — a numeric enum key '3' (which apply accepts) is no longer over-rejected" : $"FAIL — reject=[{reject}]")}");
+        }
+
+        // ---------- KEYSHAPE-REJ-E2E: a malformed list index refuses end-to-end with NO file written (gate, not apply throw) ----------
+        // The "no file written" half (RejectArm): a real create+apply with a non-integer LinkTo SetAtIndex index leaves no
+        // patch — the PRE-FLIGHT message ('Illegal list index'), not the apply int.Parse throw, proving the gate. A valid
+        // value is supplied so ONLY the index is at fault (the index gate runs before the value-presence gate).
+        bool keyShapeRejE2eOk = RejectArm("KEYSHAPE-REJ-E2E bad list index   ", tmpDir, "KeyShapeIdx", mPath, rulebook,
+            new[]
+            {
+                new WritePatchBuilder.CreateSpec { RecordType = "DialogTopic", EditorId = "HcNcKsTopic", Edits = Array.Empty<WriteRequest>() },
+                new WritePatchBuilder.CreateSpec { RecordType = "DialogResponses", EditorId = "HcNcKsL1", ParentRef = "HcNcKsTopic",
+                    Edits = new[] { new WriteRequest { RecordType = "DialogResponses", Path = new[] { "LinkTo" }, Verb = "SetAtIndex", Key = "abc", Value = "012345:Skyrim.esm" } } },
+            },
+            msg => msg.Contains("Illegal list index", StringComparison.OrdinalIgnoreCase));
+
         Console.WriteLine();
         bool pass = fixturesOk && oneshotOk && multiOk && intoTopicOk && intoCellOk
                     && rejNoParentOk && rejBadParentOk && rejAmbigOk && rejFwdSibOk && extendOk
                     && sibrefOk && sibRejFwdOk && sibRejNonflOk && sibRejListOk && sibRejDictOk && sibRejApplyOk
                     && flElemRejGateOk && flElemRejAddOk && flElemNullClearOk && flElemOkE2eOk && flElemRejE2eOk
                     && flElemRejNullAddOk && flElemRejNullAddPlainOk && flElemRejNullSetIdxOk && flElemRejNullAddE2eOk
-                    && keyIdxRejDictAddOk && keyIdxRejDictRemoveOk && keyIdxRejSetIdxOk && keyIdxOkListRemoveOk && keyIdxRejSetIdxE2eOk;
+                    && keyIdxRejDictAddOk && keyIdxRejDictRemoveOk && keyIdxRejSetIdxOk && keyIdxOkListRemoveOk && keyIdxRejSetIdxE2eOk
+                    && keyShapeRejDictAddOk && keyShapeRejDictRemoveOk && keyShapeRejMergeKeyOk && keyShapeRejSbyteOk
+                    && keyShapeRejSetIdxOk && keyShapeRejNegIdxOk && keyShapeRejListRemoveIdxOk
+                    && keyShapeOkDictAddOk && keyShapeOkSetIdxOk && keyShapeOkNumEnumSetOk && keyShapeRejE2eOk;
         Console.WriteLine($"=== nested-create-guard: {(pass ? "PASS" : "FAIL")} ===");
         try { Directory.Delete(tmpDir, recursive: true); } catch { }
         return pass ? 0 : 1;

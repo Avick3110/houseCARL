@@ -2036,6 +2036,20 @@ public static class WriteEngine
     /// caller can't trip an NRE in FormKey.TryFactory.</summary>
     internal static bool IsValidFormLinkValue(string? text) => IsFormKeyNullSynonym(text) || (text is not null && FormKey.TryFactory(text, out _));
 
+    // ---- List INDEX value-shape (write pre-flight: key/index value-shape gate) ---------------------------------
+    //  A list SetAtIndex / Remove(with a key) parses req.Key as the index at apply (ApplyListVerb:
+    //  int.Parse(req.Key!, CultureInfo.InvariantCulture)). A non-integer threw FormatException; a NEGATIVE value
+    //  parsed but then threw ArgumentOutOfRangeException at the indexer — both UNNAMED accept-then-throws. This
+    //  recognizer mirrors that parse EXACTLY (int32, NumberStyles.Integer, InvariantCulture — int.Parse(s, provider)'s
+    //  own default style) so the gate and apply can't drift on what counts as a legal index, plus the non-negative
+    //  pre-check the indexer would otherwise enforce by throwing. The UPPER bound (index < the live element count) is
+    //  NOT checked here — pre-flight has no live collection; an in-range-shaped but too-large index is left to apply,
+    //  where it fails named (Q3). Same shared-recognizer discipline as IsValidFormLinkValue / IsFormKeyNullSynonym.
+    /// <summary>True iff <paramref name="text"/> is a legal list INDEX SHAPE: a non-negative int32 under the same
+    /// parse the apply path uses (<see cref="ApplyListVerb"/>). Shape only — the in-range check is apply's.</summary>
+    internal static bool IsValidListIndexValue(string? text) =>
+        text is not null && int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var i) && i >= 0;
+
     // ---- Same-call sibling reference (HCBR-2026-06-15-01 Layer B / unit A) -------------------------------------
     //  A create's field VALUE can forward-reference a record created EARLIER in the SAME create call, by its
     //  editorid, written "@<editorid>". The referenced record's local 0x800+ FormKey is not allocated until the
