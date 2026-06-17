@@ -196,7 +196,8 @@ public static class Program
 
         foreach (string destExe in destExes)
             if (ServerExeInUse(destExe))
-                return new InstallResult(InstallOutcome.ServerInUse, "Looks like the server is running here: " + destExe)
+                return new InstallResult(InstallOutcome.ServerInUse,
+                        "Can't update the server here — it looks like it's running (or the file is locked/read-only): " + destExe)
                     { RefusedBeforeAnyCopy = true };
 
         try
@@ -206,8 +207,10 @@ public static class Program
         }
         catch (IOException ex) when (IsSharingViolation(ex))
         {
+            // The try wraps the copy AND the host-config registration, so the locked file may be the server
+            // exe/DLL or a config file (e.g. ~/.codex/config.toml open in an editor) — name both honestly.
             return new InstallResult(InstallOutcome.ServerInUse,
-                "A houseCARL server file was in use during the update.");
+                "A houseCARL file was in use during the update (the server, or a config file it writes).");
         }
 
         return new InstallResult(InstallOutcome.Installed, null);
@@ -236,6 +239,12 @@ public static class Program
     /// Claude/Codex session is running it (a running image denies write sharing). A missing file (a clean
     /// first install) returns false, so it's never falsely blocked. The handle is opened then immediately
     /// closed and never written, so a held server's exe stays byte-intact.
+    ///
+    /// CONSERVATIVE BY DESIGN: FileShare.None reports "in use" if ANYTHING else holds the file (an AV
+    /// on-demand scan, the Search indexer, a backup tool with full sharing) — a possible false positive
+    /// that self-resolves on retry. That is the SAFE direction: a false positive is an annoying "quit and
+    /// re-run"; a false negative is the exact mid-copy corruption this exists to prevent. Do NOT "tighten"
+    /// this (e.g. to FileShare.Read) into a false-negative.
     /// </summary>
     private static bool ServerExeInUse(string destExe)
     {
@@ -246,7 +255,7 @@ public static class Program
             return false; // got exclusive write access -> nothing holds it -> safe to overwrite
         }
         catch (IOException)                 { return true; } // in use by a running session
-        catch (UnauthorizedAccessException) { return true; } // locked / not writable -> can't overwrite either
+        catch (UnauthorizedAccessException) { return true; } // locked / read-only -> can't overwrite either
     }
 
     // ERROR_SHARING_VIOLATION (32) / ERROR_LOCK_VIOLATION (33): the file-in-use cases. We re-stamp ONLY these
