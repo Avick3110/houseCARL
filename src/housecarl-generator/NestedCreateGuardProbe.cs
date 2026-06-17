@@ -46,6 +46,7 @@ namespace HousecarlGenerator;
 ///   REJ-SIBLIST   — an @ref inside a COLLECTION value (a list ReplaceAll's Values) refuses loud ('only supported as a
 ///                   single Set value') — the create path resolves only the singular Value, so a list/dict token must
 ///                   fail at the gate, not accept-then-throw at apply (Q3).
+///   REJ-SIBDICT   — the dict half of that gate: an @ref inside a dict Merge's Entries values refuses loud the same way.
 ///   REJ-SIBAPPLY  — an @ref validated with a NULL sibling set (the Apply/set_field context) refuses at the rulebook —
 ///                   create-only scoping, so @editorid never becomes an accept-then-substitute-nothing hole (Q3).
 /// </summary>
@@ -318,6 +319,19 @@ public static class NestedCreateGuardProbe
             },
             msg => msg.Contains("only supported as a single Set value", StringComparison.OrdinalIgnoreCase));
 
+        // ---------- REJ-SIBDICT: an @ref inside a DICT value (Merge Entries) refuses loud — the dict half of the gate ----------
+        // Sibling tokens in a dict Entries' VALUES are caught by the same collection gate as the list case (the |
+        // req.Entries branch). Class.SkillWeights (Dictionary<Skill,Byte>) is a flat dict leaf; the gate fires on the
+        // '@' in the Entries value before any key/value coercion, so the dict key need not be a valid Skill.
+        bool sibRejDictOk = RejectArm("REJ-SIBDICT @ref in dict value     ", tmpDir, "SibDict", mPath, rulebook,
+            new[]
+            {
+                new WritePatchBuilder.CreateSpec { RecordType = "Class", EditorId = "HcNcSdClass",
+                    Edits = new[] { new WriteRequest { RecordType = "Class", Path = new[] { "SkillWeights" }, Verb = "Merge",
+                        Entries = new Dictionary<string, string> { ["OneHanded"] = "@HcNcSdClass" } } } },
+            },
+            msg => msg.Contains("only supported as a single Set value", StringComparison.OrdinalIgnoreCase));
+
         // ---------- REJ-SIBAPPLY: an @ref on the Apply/set_field path (no siblings) refuses at the rulebook ----------
         // Drives the rulebook DIRECTLY with a null sibling set (the override/set_field context) — proves the create-only
         // scoping that keeps @editorid from becoming an accept-then-substitute-nothing hole on the edit-existing path (Q3).
@@ -332,7 +346,7 @@ public static class NestedCreateGuardProbe
         Console.WriteLine();
         bool pass = fixturesOk && oneshotOk && multiOk && intoTopicOk && intoCellOk
                     && rejNoParentOk && rejBadParentOk && rejAmbigOk && rejFwdSibOk && extendOk
-                    && sibrefOk && sibRejFwdOk && sibRejNonflOk && sibRejListOk && sibRejApplyOk;
+                    && sibrefOk && sibRejFwdOk && sibRejNonflOk && sibRejListOk && sibRejDictOk && sibRejApplyOk;
         Console.WriteLine($"=== nested-create-guard: {(pass ? "PASS" : "FAIL")} ===");
         try { Directory.Delete(tmpDir, recursive: true); } catch { }
         return pass ? 0 : 1;
