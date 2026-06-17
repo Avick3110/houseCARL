@@ -17,9 +17,10 @@ namespace HousecarlGenerator;
 ///      (6.2) when auto-detect had a candidate to check, NAMES where it looked — a missed compiler game-dir anchor tells
 ///      the user which path failed, while keeping the tool-key + resolving-call contract intact.
 ///   4. <see cref="ToolBridge.TryParse"/> — wire names round-trip; junk is rejected.
-///   5. <see cref="ToolBridge.Probe"/> (6.2 compiler auto-detect) — WITH a gameDirHint the compiler probe hits a synthetic
-///      &lt;game&gt;\Papyrus Compiler\PapyrusCompiler.exe and misses when that exe is absent (a Stock-Game copy); WITHOUT a
-///      hint it yields no candidate (null), the pre-6.2 behavior; BSArch has no canonical home (always null).
+///   5. <see cref="ToolBridge.Probe"/> (6.2 compiler auto-detect) — the compiler probe checks each game-dir hint in ORDER
+///      for &lt;game&gt;\Papyrus Compiler\PapyrusCompiler.exe: the common Stock-Game case (load-order dir misses, the
+///      located Steam install hits) returns the Steam compiler; a single present/absent hint hits/misses as expected;
+///      NO hints → null (pre-6.2 behavior); BSArch has no canonical home (always null, hints ignored).
 ///   6. <see cref="ToolBridge.Inspect"/> — the status-surface resolve (housecarl_load_order_status' log-folder section): a
 ///      saved+valid path → Saved; an invalid/absent one with no canonical home → Unset; PURE (takes the saved path,
 ///      persists nothing — a ReadOnly status read never mutates config).
@@ -131,16 +132,20 @@ public static class ToolBridgeProbe
         Check(prompt.Contains("bsarch"), "prompt names the tool key");
         Check(!prompt.Contains("looked for it automatically"), "BSArch (no candidates) prompt names NO looked-here location");
 
-        // 6.2 "better message": with a game-dir hint, the compiler prompt NAMES the candidate it checked (so a Stock-Game
-        // miss says WHERE houseCARL looked) — WITHOUT losing the tool-key + resolving-call contract.
-        var hintDir = Path.Combine(Path.GetTempPath(), "hc-no-such-game-" + Guid.NewGuid().ToString("N"));
-        var expectedCandidate = Path.Combine(hintDir, "Papyrus Compiler", "PapyrusCompiler.exe");
-        var compPrompt = ToolBridge.RenderMissingPrompt(ToolDependency.PapyrusCompiler, hintDir);
-        Check(compPrompt.Contains(expectedCandidate), "compiler prompt (hinted) names the exact path it auto-checked");
+        // 6.2 "better message": with game-dir hints, the compiler prompt NAMES every candidate it checked (so a miss says
+        // WHERE houseCARL looked — across BOTH the load-order dir AND the located Steam install) — WITHOUT losing the
+        // tool-key + resolving-call contract.
+        var hintA = Path.Combine(Path.GetTempPath(), "hc-stockgame-" + Guid.NewGuid().ToString("N"));   // load-order game dir
+        var hintB = Path.Combine(Path.GetTempPath(), "hc-steam-" + Guid.NewGuid().ToString("N"));        // located Steam install
+        var candA = Path.Combine(hintA, "Papyrus Compiler", "PapyrusCompiler.exe");
+        var candB = Path.Combine(hintB, "Papyrus Compiler", "PapyrusCompiler.exe");
+        var compPrompt = ToolBridge.RenderMissingPrompt(ToolDependency.PapyrusCompiler, new[] { hintA, hintB });
+        Check(compPrompt.Contains(candA) && compPrompt.Contains(candB),
+              "compiler prompt names EVERY game-dir candidate it auto-checked (load-order dir + Steam install)");
         Check(compPrompt.Contains("housecarl_set_tool_path") && compPrompt.Contains("papyrus_compiler"),
               "compiler prompt keeps the tool-key + resolving-call contract alongside the looked-here note");
         Check(!ToolBridge.RenderMissingPrompt(ToolDependency.PapyrusCompiler).Contains("looked for it automatically"),
-              "compiler prompt with NO hint names no location (nothing was auto-checked)");
+              "compiler prompt with NO hints names no location (nothing was auto-checked)");
 
         // ---------------------------------------------------------------- 4) PARSE
         Console.WriteLine();
@@ -152,24 +157,28 @@ public static class ToolBridgeProbe
         // ---------------------------------------------------------------- 5) AUTO-DETECT (6.2 compiler game-dir anchor)
         Console.WriteLine();
         Console.WriteLine("--- 5: ToolBridge.Probe — compiler auto-detects under the game-dir hint; bsarch never does ---");
-        // A synthetic game dir with the CK's canonical compiler layout: <game>\Papyrus Compiler\PapyrusCompiler.exe.
-        var synthGame = Path.Combine(Path.GetTempPath(), "hc-synthgame-" + Guid.NewGuid().ToString("N"));
-        var synthCompilerDir = Path.Combine(synthGame, "Papyrus Compiler");
-        var synthCompiler = Path.Combine(synthCompilerDir, "PapyrusCompiler.exe");
-        Directory.CreateDirectory(synthCompilerDir);
-        File.WriteAllText(synthCompiler, "stub");
+        // Two synthetic game dirs modelling the common Stock-Game setup: [0] the load order's dir (a COPY, no CK) and
+        // [1] the located Steam install (HAS the CK). The CK layout is <game>\Papyrus Compiler\PapyrusCompiler.exe.
+        var stockGame = Path.Combine(Path.GetTempPath(), "hc-stock-" + Guid.NewGuid().ToString("N"));   // no CK
+        var steamGame = Path.Combine(Path.GetTempPath(), "hc-steam-" + Guid.NewGuid().ToString("N"));   // has CK
+        var steamCompiler = Path.Combine(steamGame, "Papyrus Compiler", "PapyrusCompiler.exe");
+        Directory.CreateDirectory(stockGame);
+        Directory.CreateDirectory(Path.Combine(steamGame, "Papyrus Compiler"));
+        File.WriteAllText(steamCompiler, "stub");
         try
         {
-            Check(ToolBridge.Probe(ToolDependency.PapyrusCompiler, synthGame) == synthCompiler,
-                  "compiler probe (with game-dir hint) hits <game>\\Papyrus Compiler\\PapyrusCompiler.exe");
+            Check(ToolBridge.Probe(ToolDependency.PapyrusCompiler, new[] { steamGame }) == steamCompiler,
+                  "compiler probe (single game-dir hint) hits <game>\\Papyrus Compiler\\PapyrusCompiler.exe");
+            // THE Stock-Game fix: the load-order dir misses, the located Steam install hits — ordered search returns Steam.
+            Check(ToolBridge.Probe(ToolDependency.PapyrusCompiler, new[] { stockGame, steamGame }) == steamCompiler,
+                  "Stock-Game case: load-order dir misses, located Steam install hits (ordered multi-dir search — the fix)");
             Check(ToolBridge.Probe(ToolDependency.PapyrusCompiler) is null,
-                  "compiler probe with NO hint yields no candidate (pre-6.2 behavior — falls through to the prompt)");
-            var emptyGame = Path.Combine(Path.GetTempPath(), "hc-emptygame-" + Guid.NewGuid().ToString("N"));
-            Check(ToolBridge.Probe(ToolDependency.PapyrusCompiler, emptyGame) is null,
-                  "compiler probe misses when the hinted game dir has no Papyrus Compiler\\ (a Stock-Game copy)");
-            Check(ToolBridge.Probe(ToolDependency.Bsarch, synthGame) is null, "bsarch has no canonical home (always prompts, hint ignored)");
+                  "compiler probe with NO hints yields no candidate (pre-6.2 behavior — falls through to the prompt)");
+            Check(ToolBridge.Probe(ToolDependency.PapyrusCompiler, new[] { stockGame }) is null,
+                  "compiler probe misses when the only hinted dir has no Papyrus Compiler\\ (a Stock-Game copy, no CK)");
+            Check(ToolBridge.Probe(ToolDependency.Bsarch, new[] { steamGame }) is null, "bsarch has no canonical home (always prompts, hints ignored)");
         }
-        finally { try { Directory.Delete(synthGame, recursive: true); } catch { /* non-fatal */ } }
+        finally { try { Directory.Delete(stockGame, recursive: true); Directory.Delete(steamGame, recursive: true); } catch { /* non-fatal */ } }
         // (papyrus_logs / crash_logs probe the user's Documents — environment-dependent, so not asserted here.)
 
         // ---------------------------------------------------------------- 6) INSPECT (status surface: saved → auto-detect → unset, PURE)

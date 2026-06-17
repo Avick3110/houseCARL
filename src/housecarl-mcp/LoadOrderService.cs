@@ -660,6 +660,41 @@ public sealed class LoadOrderService : IDisposable
         }
     }
 
+    /// <summary>The game directories to search for the Creation Kit's compiler, in PRIORITY ORDER — the compile rider's
+    /// auto-detect hints (6.2). [0] = the load order's OWN game dir (<see cref="GameDirOrNull"/>): correct when MO2 points
+    /// straight at a real, CK-equipped install. Then the GameFinder/Mutagen-located real Skyrim SE install(s): in the common
+    /// MO2 "Stock Game" setup (Aaron 2026-06-17) the load order points at a COPY that has NEITHER the CK nor the vanilla
+    /// script sources — both live in the Steam install — so the located install is the one that actually hits. De-duplicated,
+    /// nulls dropped. BEST-EFFORT + NULL-SAFE end to end: the locator reads the registry/Steam, so a miss or a throw just
+    /// yields fewer hints (the forcing prompt then names what was checked), it NEVER aborts the compile.
+    /// <para>LOAD-BEARING (do NOT "simplify"): the compile rider derives the vanilla SOURCE folder from the RESOLVED
+    /// COMPILER's own game dir (<see cref="CompileTools.BuildImports"/>), NOT from these hints and NOT from the data dir — so
+    /// once the compiler resolves to the Steam install, its sibling Data\Source\Scripts is used, never the Stock Game copy's
+    /// (which usually has none). Keying sources off the data dir would re-break exactly the Stock-Game case this fixes.</para></summary>
+    public IReadOnlyList<string> CompilerGameDirHints()
+    {
+        var hints = new List<string>();
+        if (GameDirOrNull() is { } loadOrderGameDir) hints.Add(loadOrderGameDir);
+        try
+        {
+            // The bundled GameFinder locator (Steam/GOG/Xbox), via Mutagen — finds the REAL Skyrim SE install (App 489830),
+            // where the Creation Kit + sources live, regardless of where MO2's load order points.
+            if (new Mutagen.Bethesda.Installs.GameLocator().TryGetGameDirectory(
+                    Mutagen.Bethesda.GameRelease.SkyrimSE, out var dir) && !string.IsNullOrWhiteSpace(dir.Path))
+                hints.Add(NormalizeGameDir(dir.Path));
+        }
+        catch { /* GameFinder / registry hiccup → just the load-order hint (best-effort; the prompt still names it) */ }
+        return hints.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
+    /// <summary>The locator returns the game-install ROOT (the folder holding the exe + Data); defend against a future build
+    /// handing back the Data folder itself by stepping up one level so the &lt;game&gt;\Papyrus Compiler\ join stays correct.</summary>
+    static string NormalizeGameDir(string p)
+    {
+        var t = p.TrimEnd('\\', '/');
+        return Path.GetFileName(t).Equals("Data", StringComparison.OrdinalIgnoreCase) ? (Path.GetDirectoryName(t) ?? t) : t;
+    }
+
     /// <summary>Point houseCARL at an MO2 instance folder — first-run setup AND switching between instances ("jump around").
     /// VALIDATES it (<see cref="Mo2Instance.Resolve"/> throws a clear Q3 message if it isn't usable — nothing is changed or
     /// persisted on failure), then re-points the live service (derives the roots + active profile, drops the cached resolver

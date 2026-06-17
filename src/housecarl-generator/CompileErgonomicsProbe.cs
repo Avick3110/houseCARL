@@ -62,6 +62,18 @@ internal static class CompileErgonomicsProbe
             try { badResult = badInstance.GameDirOrNull(); } catch { badThrew = true; }
             Check(!badThrew && badResult is null,
                   "unusable instance: GameDirOrNull returns null, does NOT throw (best-effort hint — the rider's config gate reports the real problem)");
+
+            // CompilerGameDirHints: the ordered auto-detect hint list. [0] = the load-order game dir; then the located real
+            // Steam install (environment-dependent — absent on a CI runner with no Skyrim, verified on Aaron's rig). NULL-SAFE
+            // end to end: the GameFinder/registry call is wrapped, so a hiccup yields fewer hints, never throws.
+            bool hintsThrew = false; IReadOnlyList<string>? hints = null;
+            try { hints = explicitSvc.CompilerGameDirHints(); } catch { hintsThrew = true; }
+            Check(!hintsThrew && hints is not null && hints.Contains(@"C:\Game\Skyrim Special Edition"),
+                  "CompilerGameDirHints includes the load-order game dir as the first hint, and never throws (locator is best-effort)");
+            bool unconfHintsThrew = false; IReadOnlyList<string>? unconfHints = null;
+            try { unconfHints = unconfigured.CompilerGameDirHints(); } catch { unconfHintsThrew = true; }
+            Check(!unconfHintsThrew && unconfHints is not null,
+                  "CompilerGameDirHints on an unconfigured service returns a list (no load-order hint; locator-only), never throws");
         }
         finally { try { File.Delete(tmpStore); } catch { /* non-fatal */ } }
 
