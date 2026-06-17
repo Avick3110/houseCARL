@@ -97,10 +97,18 @@ internal static class CompileErgonomicsProbe
         Console.WriteLine();
         Console.WriteLine("--- B2: ScriptOutputContract — deployability warning (Q3: never a clean done for a .pex that won't load) ---");
         Check(bare.deployWarning is not null, "a path under NEITHER mods nor Data carries the Q3 deploy warning");
+        // DEPLOYABLE (no warning): exactly <mods>\<modFolder>\Scripts, or <data>\Scripts.
         Check(LoadOrderService.ScriptOutputContract(@"C:\MO2\mods\MyPatch", mods, data).deployWarning is null,
-              "a path under the MO2 mods folder is deployable (no warning)");
+              "a real mod folder (<mods>\\MyPatch) is deployable (no warning)");
         Check(LoadOrderService.ScriptOutputContract(data, mods, data).deployWarning is null,
-              "a path under the game's Data folder is deployable (no warning)");
+              "the game's Data folder (-> <data>\\Scripts) is deployable (no warning)");
+        // NON-deployable (warns) — the tightened rule (review nit): "under mods" alone is not enough.
+        Check(LoadOrderService.ScriptOutputContract(@"C:\MO2\mods", mods, data).deployWarning is not null,
+              "the mods ROOT itself (-> <mods>\\Scripts, no mod folder) WARNS — MO2 won't deploy it (tightened nit)");
+        Check(LoadOrderService.ScriptOutputContract(@"C:\MO2\mods\X\Sub", mods, data).deployWarning is not null,
+              "a NESTED path (<mods>\\X\\Sub\\Scripts -> Data\\Sub\\Scripts) WARNS — not Data\\Scripts (tightened nit)");
+        Check(LoadOrderService.ScriptOutputContract(@"C:\Game\Skyrim Special Edition\Data\Sub", mods, data).deployWarning is not null,
+              "a nested Data path (<data>\\Sub\\Scripts) WARNS — the game loads only <data>\\Scripts");
         Check(LoadOrderService.ScriptOutputContract(@"C:\MO2\modsX\Foo", mods, data).deployWarning is not null,
               "segment-boundary safe: C:\\MO2\\modsX is NOT 'under' C:\\MO2\\mods (still warns)");
 

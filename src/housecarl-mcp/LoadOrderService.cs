@@ -1480,23 +1480,44 @@ public sealed class LoadOrderService : IDisposable
         var root = outputDir.TrimEnd('\\', '/');
         bool alreadyScripts = Path.GetFileName(root).Equals("Scripts", StringComparison.OrdinalIgnoreCase);
         var scriptsDir = alreadyScripts ? root : Path.Combine(root, "Scripts");
-        bool deployable = IsUnder(scriptsDir, modsDir) || IsUnder(scriptsDir, dataDir);
+        // Deployable = the .pex will ACTUALLY auto-load. MO2 overlays a mod folder's CONTENTS onto the game Data root, so a
+        // deployable mod Scripts\ is EXACTLY <mods>\<modFolder>\Scripts (mod folder a direct child of mods; Scripts directly
+        // under it). A bare <mods>\Scripts (no mod folder) and a nested <mods>\X\Sub\Scripts (lands at Data\Sub\Scripts, not
+        // Data\Scripts) do NOT load — so they correctly WARN (review nit: "under mods" alone was too loose). A direct game
+        // install loads exactly <data>\Scripts.
+        bool deployable = IsModScriptsFolder(scriptsDir, modsDir) || IsDataScriptsFolder(scriptsDir, dataDir);
         string? warn = deployable ? null :
-            $"note: '{scriptsDir}' is under neither your MO2 mods folder nor the game's Data folder, so MO2 won't deploy " +
-            "the compiled script automatically — it compiled fine, but you must place it where the game loads scripts " +
-            "(a mod's Scripts\\ folder, or <game>\\Data\\Scripts) yourself.";
+            $"note: '{scriptsDir}' isn't a folder MO2 (or the game) auto-loads scripts from, so the compiled .pex won't " +
+            "deploy on its own — it compiled fine, but you must place it where the game loads scripts yourself: a mod's " +
+            "own Scripts\\ folder (<mods>\\<YourMod>\\Scripts) or the game's <Data>\\Scripts.";
         return (scriptsDir, !alreadyScripts, warn);
     }
 
-    /// <summary>Case-insensitive "is <paramref name="child"/> at or below <paramref name="parent"/>" by normalized path
-    /// prefix, segment-boundary safe (so C:\ModsX is NOT "under" C:\Mods). An empty parent (unconfigured root) → false.</summary>
-    static bool IsUnder(string child, string parent)
+    /// <summary>A Scripts\ folder MO2 actually deploys: <c>&lt;modsDir&gt;\&lt;modFolder&gt;\Scripts</c> exactly — the mod
+    /// folder a DIRECT child of the mods root, Scripts directly under it (MO2 maps a mod folder's contents onto the Data
+    /// root, so <c>&lt;mods&gt;\Scripts</c> has no mod and <c>&lt;mods&gt;\X\Sub\Scripts</c> lands at Data\Sub\Scripts). Empty
+    /// mods root (unconfigured) → false. Case-insensitive, normalized.</summary>
+    static bool IsModScriptsFolder(string scriptsDir, string modsDir)
     {
-        if (string.IsNullOrEmpty(parent)) return false;
-        var c = Path.GetFullPath(child).TrimEnd('\\', '/');
-        var p = Path.GetFullPath(parent).TrimEnd('\\', '/');
-        return c.Equals(p, StringComparison.OrdinalIgnoreCase)
-            || c.StartsWith(p + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+        if (string.IsNullOrEmpty(modsDir)) return false;
+        var modFolder = Path.GetDirectoryName(scriptsDir.TrimEnd('\\', '/'));   // expect <mods>\<modFolder>
+        return modFolder is not null && PathEquals(Path.GetDirectoryName(modFolder), modsDir);
+    }
+
+    /// <summary>A direct game install loads exactly <c>&lt;dataDir&gt;\Scripts</c> (not Data\Sub\Scripts). Empty data dir →
+    /// false. Case-insensitive, normalized.</summary>
+    static bool IsDataScriptsFolder(string scriptsDir, string dataDir)
+    {
+        if (string.IsNullOrEmpty(dataDir)) return false;
+        return PathEquals(Path.GetDirectoryName(scriptsDir.TrimEnd('\\', '/')), dataDir);
+    }
+
+    /// <summary>Case-insensitive equality of two paths after full-path normalization + trailing-separator trim (no
+    /// filesystem access). A null left side (no parent — e.g. a drive root) is never equal.</summary>
+    static bool PathEquals(string? a, string b)
+    {
+        if (a is null) return false;
+        return Path.GetFullPath(a).TrimEnd('\\', '/').Equals(Path.GetFullPath(b).TrimEnd('\\', '/'), StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>The <c>Source\Scripts\</c> output folder for a DECOMPILED .psc (the decompile rider) — the SE-canonical
