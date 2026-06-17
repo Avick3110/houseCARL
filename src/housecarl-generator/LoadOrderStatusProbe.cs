@@ -27,6 +27,8 @@ namespace HousecarlGenerator;
 ///   F  discovery — no name in instance mode lists the available profiles; the default status renders the discovery line.
 ///   G  base_directory redirect — profiles under a redirected base are still found (root = parent of the derived ProfileDir,
 ///      so the redirect is honored BY CONSTRUCTION — guards against a future re-derivation from the instance dir).
+///   H  stray-folder filter — a folder under profiles/ with no loadorder.txt (never-opened profile / backup dir) is NOT
+///      listed or matched, so it can't be offered or read back as an all-zero phantom profile (Q3 — pre-push review fold).
 ///
 /// Self-contained: synthetic MO2 instances + one synthesized master plugin in temp; no game data, no corpus (reads only).
 /// </summary>
@@ -183,6 +185,22 @@ internal static class LoadOrderStatusProbe
                       "a profile under the redirected base_directory is found and read correctly");
                 Check(second.AvailableProfiles.Contains("Default") && second.AvailableProfiles.Contains("Second"),
                       "the profiles root resolved through base_directory (both siblings enumerated)");
+            }
+
+            // ---- H: a stray / never-opened folder under profiles/ (no loadorder.txt) is NOT offered or matched ----
+            Console.WriteLine();
+            Console.WriteLine("--- H: a folder under profiles/ with no loadorder.txt is skipped (Q3 — never an all-zero phantom profile) ---");
+            string instH = MakeInstance("inst-h");
+            WriteProfile(Path.Combine(instH, "profiles", "Default"), new[] { masterName }, new[] { "*" + masterName }, new[] { "+MasterMod" });
+            Directory.CreateDirectory(Path.Combine(instH, "profiles", "_NotAProfile"));   // a stray dir — no loadorder.txt (e.g. a backup or never-opened profile)
+            using (var svc = LoadOrderService.WithInstance(instH, 0, store))
+            {
+                var disc = svc.NamedProfileComposition(null);
+                Check(disc.AvailableProfiles.Contains("Default") && !disc.AvailableProfiles.Contains("_NotAProfile"),
+                      "the stray folder is excluded from the available profiles (only loadorder.txt-bearing dirs)");
+                var miss = svc.NamedProfileComposition("_NotAProfile");
+                Check(miss.InstanceMode && miss.Composition is null,
+                      "requesting the stray folder is a clean not-found, not an all-zero composition");
             }
         }
         finally { try { Directory.Delete(root, recursive: true); } catch { /* temp scratch */ } }
