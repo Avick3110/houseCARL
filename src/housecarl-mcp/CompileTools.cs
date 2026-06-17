@@ -86,7 +86,7 @@ public static class CompileTools
 
         // 6) compile + render.
         var result = HousecarlCore.PapyrusCompile.CompileObject(compilerExe!, objectName, imports, rf.OutputDir);
-        var rendered = Render(result, imports);
+        var rendered = Render(result, imports, userChoseOutputDir: !string.IsNullOrWhiteSpace(output_dir));
         if (result.Success)
         {
             // Q3: never report a clean "done" for a .pex that won't deploy from where output_dir= put it.
@@ -140,7 +140,7 @@ public static class CompileTools
         return imports.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
     }
 
-    static string Render(HousecarlCore.CompileResult r, IReadOnlyList<string> imports)
+    internal static string Render(HousecarlCore.CompileResult r, IReadOnlyList<string> imports, bool userChoseOutputDir)
     {
         var sb = new StringBuilder();
         if (!r.Ran) return "error: " + r.RunError;   // the compiler couldn't be run at all
@@ -148,7 +148,12 @@ public static class CompileTools
         if (r.Success)
         {
             sb.Append("compile OK: ").Append(r.ObjectName).Append(".psc → ").Append(r.PexPath).Append('\n');
-            sb.Append("the .pex is in a houseCARL patch-mod folder — enable it in MO2 to use it.");
+            // The destination line must match where the .pex actually went (Q3 — don't claim a houseCARL patch folder for a
+            // user-chosen output_dir=, where there may be no "enable in MO2" step at all). Any deployability caveat for an
+            // output_dir= target is appended by the caller as deployWarning.
+            sb.Append(userChoseOutputDir
+                ? "the .pex is in the output folder you chose (path above)."
+                : "the .pex is in a houseCARL patch-mod folder — enable it in MO2 to use it.");
             if (r.Diagnostics.Count > 0)   // a .pex WAS produced but the compiler emitted notes → surface them as warnings
             {
                 sb.Append('\n').Append(r.Diagnostics.Count).Append(" warning(s) (the .pex compiled anyway):");
