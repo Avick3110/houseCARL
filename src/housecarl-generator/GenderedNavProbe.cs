@@ -226,12 +226,16 @@ public static class GenderedNavProbe
 
         // ---- C-LEAF (control): a NON-gendered (real list) field bracketed at the LEAF still gets the GENERIC leaf-bracket
         //      message, NOT the gendered by-name hint — the new leaf branch is gated on the GenderedItem recogniser and
-        //      doesn't leak to list/dict leaves. Green before AND after the fix. ----
+        //      doesn't leak to list/dict leaves. Pre-flight AND the engine (the list-leaf engine fallthrough, symmetric
+        //      with A4-LEAF). Green before AND after the fix. ----
         var listLeafPf = rb.Validate(Set("Armor", "Keywords[0]", "012345:Skyrim.esm"));
-        Check("C-LEAF: a list field at the leaf (Keywords[0]) keeps the generic leaf message (gendered branch gated)",
-            listLeafPf is not null && listLeafPf.Contains("LEAF", StringComparison.Ordinal)
-            && !listLeafPf.Contains("by name", StringComparison.OrdinalIgnoreCase),
-            $"preflight={listLeafPf}");
+        string? listLeafEngineMsg = null;
+        try { WriteEngine.ApplyVerb(FreshArmor(), Set("Armor", "Keywords[0]", "012345:Skyrim.esm")); }
+        catch (Exception ex) { listLeafEngineMsg = ex.Message; }
+        Check("C-LEAF: a list field at the leaf (Keywords[0]) keeps the generic leaf message at pre-flight AND the engine (gendered branch gated)",
+            listLeafPf is not null && listLeafPf.Contains("LEAF", StringComparison.Ordinal) && !listLeafPf.Contains("by name", StringComparison.OrdinalIgnoreCase)
+            && listLeafEngineMsg is not null && listLeafEngineMsg.Contains("LEAF", StringComparison.Ordinal) && !listLeafEngineMsg.Contains("by name", StringComparison.OrdinalIgnoreCase),
+            $"preflight={listLeafPf}\n        -> engine={listLeafEngineMsg}");
 
         // ---- VTYPE (by-construction Q3 guard — the orphan trap, corpus-wide): every gendered arm pre-flight ACCEPTS
         //      for descent (a corpus-resolvable arm type) MUST be a REFERENCE type. A VALUE-type arm would be returned
