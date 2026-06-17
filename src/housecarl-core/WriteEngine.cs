@@ -1895,9 +1895,12 @@ public static class WriteEngine
         static bool IsGen(Type x)
         {
             if (!x.IsGenericType) return false;
-            var n = x.GetGenericTypeDefinition().Name;
-            return n.StartsWith("GenderedItem", StringComparison.Ordinal)
-                || n.StartsWith("IGenderedItem", StringComparison.Ordinal);
+            var n = x.GetGenericTypeDefinition().Name;   // e.g. "GenderedItem`1" / "IGenderedItem`1" / "IGenderedItemGetter`1"
+            var tick = n.IndexOf('`');
+            if (tick > 0) n = n[..tick];
+            // ANCHORED to the exact gendered family (not a StartsWith) so the runtime recogniser can't drift broader
+            // than the corpus-side "GenderedItem<" TypeRef check — a hypothetical "GenderedItemList<T>" must NOT match.
+            return n is "GenderedItem" or "IGenderedItem" or "IGenderedItemGetter";
         }
         if (IsGen(t)) return t;
         return t.GetInterfaces().FirstOrDefault(IsGen);

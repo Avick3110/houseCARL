@@ -205,6 +205,34 @@ public static class GenderedNavProbe
             && flPf is not null && flPf.Contains("by name", StringComparison.OrdinalIgnoreCase),
             $"Priority[0]={scalPf}\n        -> SkinTexture[0]={flPf}");
 
+        // ---- VTYPE (by-construction Q3 guard — the orphan trap, corpus-wide): every gendered arm pre-flight ACCEPTS
+        //      for descent (a corpus-resolvable arm type) MUST be a REFERENCE type. A VALUE-type arm would be returned
+        //      BOXED by armProp.GetValue, so a sub-field write would land on the copy and silently vanish — the same
+        //      orphan the write-back guards against for a null ref arm, but undetectable because a value-type arm is
+        //      never null (the materialize-write-back branch is skipped). The engine's design rests on "things you
+        //      descend into are reference types; value types are whole-coercible leaves" — this proves that holds for
+        //      EVERY gendered arm in the corpus, not just ArmorModel. If a value-type descendable arm ever appears,
+        //      this goes RED and names it (a pre-existing risk shared with the named .Male/.Female path — surface, fix
+        //      both, never guess). Scalar/value/formlink arms are excluded: their armRef doesn't resolve as a corpus
+        //      type, so pre-flight already refuses to descend (A4-SCALAR). ----
+        var corpus = CorpusRulebook.LoadCorpus();
+        var vtypeOffenders = new List<string>();
+        int descendableArms = 0;
+        foreach (var (tname, tschema) in corpus.Types)
+            foreach (var fld in tschema.Fields)
+            {
+                if (fld.Cardinality != "substruct" || fld.TypeRef is not { } tr
+                    || !tr.StartsWith("GenderedItem<", StringComparison.Ordinal)) continue;
+                var armRef = InnerArm(tr);
+                if (armRef is null || rb.Type(armRef) is null) continue;   // scalar/value/formlink arm → descent already refused
+                descendableArms++;
+                var armType = ArmRuntimeType(fld.MutableTypeAssemblyQualified ?? fld.GetterTypeAssemblyQualified);
+                if (armType is null) vtypeOffenders.Add($"{tname}.{fld.Name} ({armRef}: arm runtime type unresolved)");
+                else if (armType.IsValueType) vtypeOffenders.Add($"{tname}.{fld.Name} ({armRef}: VALUE type → write-back would orphan)");
+            }
+        Check($"VTYPE: all {descendableArms} descendable gendered arms are reference types (write-back can't orphan)",
+            vtypeOffenders.Count == 0, vtypeOffenders.Count == 0 ? null : string.Join("; ", vtypeOffenders.Take(8)));
+
         // ---- C-LIST (control): a real list element still navigates after the StepIntoElement refactor (the gendered
         //      branch was prepended, not substituted). Add a keyword, then read Keywords[0]. Green ±fix. ----
         bool listOk; string? listDetail;
@@ -249,6 +277,25 @@ public static class GenderedNavProbe
             && (x.GetGenericTypeDefinition().Name.StartsWith("GenderedItem", StringComparison.Ordinal)
                 || x.GetGenericTypeDefinition().Name.StartsWith("IGenderedItem", StringComparison.Ordinal));
         return IsGen(t) || t.GetInterfaces().Any(IsGen);
+    }
+
+    /// <summary>Extract the arm ref T from a "GenderedItem&lt;T&gt;" corpus TypeRef (mirrors CorpusRulebook.GenderedArmRef);
+    /// a nested-generic arm (FormLinkNullable&lt;…&gt;) returns whole and won't resolve as a corpus type.</summary>
+    static string? InnerArm(string typeRef)
+    {
+        const string head = "GenderedItem<";
+        if (!typeRef.StartsWith(head, StringComparison.Ordinal) || !typeRef.EndsWith(">", StringComparison.Ordinal)) return null;
+        var inner = typeRef[head.Length..^1].Trim();
+        return inner.Length == 0 ? null : inner;
+    }
+
+    /// <summary>Resolve the arm's runtime type T from a field's <c>IGenderedItem&lt;T&gt;</c> assembly-qualified name —
+    /// the actual type <c>armProp.GetValue</c> returns (boxed iff it is a value type). Null if the AQ can't be loaded.</summary>
+    static Type? ArmRuntimeType(string? genderedAq)
+    {
+        if (genderedAq is null) return null;
+        var gt = Type.GetType(genderedAq);
+        return gt is { IsGenericType: true } ? gt.GetGenericArguments()[0] : null;
     }
 
     static bool Throws(Action a) { try { a(); return false; } catch { return true; } }
