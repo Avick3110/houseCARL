@@ -43,6 +43,9 @@ namespace HousecarlGenerator;
 ///   REJ-SIBFWD    — a field @ref to a sibling declared LATER refuses loud ('EARLIER in this call' — the declared-earlier rule).
 ///   REJ-SIBNONFL  — an @ref on a NON-FormLink field (FavorLevel) refuses loud ('only valid on a FormLink field' — the
 ///                   string-collision guard that keeps Phase-3 substitution scoped to formlinks).
+///   REJ-SIBLIST   — an @ref inside a COLLECTION value (a list ReplaceAll's Values) refuses loud ('only supported as a
+///                   single Set value') — the create path resolves only the singular Value, so a list/dict token must
+///                   fail at the gate, not accept-then-throw at apply (Q3).
 ///   REJ-SIBAPPLY  — an @ref validated with a NULL sibling set (the Apply/set_field context) refuses at the rulebook —
 ///                   create-only scoping, so @editorid never becomes an accept-then-substitute-nothing hole (Q3).
 /// </summary>
@@ -303,6 +306,18 @@ public static class NestedCreateGuardProbe
             },
             msg => msg.Contains("only valid on a FormLink field", StringComparison.OrdinalIgnoreCase));
 
+        // ---------- REJ-SIBLIST: an @ref inside a COLLECTION value (list ReplaceAll) refuses loud, not accept-then-throw ----------
+        // The create path substitutes only the singular Set Value; a sibling token in req.Values would otherwise slip
+        // past pre-flight and throw FormKey.Factory at apply (a Q3 accept-then-throw). Caught loud at the gate instead.
+        bool sibRejListOk = RejectArm("REJ-SIBLIST @ref in list value     ", tmpDir, "SibList", mPath, rulebook,
+            new[]
+            {
+                new WritePatchBuilder.CreateSpec { RecordType = "DialogTopic", EditorId = "HcNcSlTopic", Edits = Array.Empty<WriteRequest>() },
+                new WritePatchBuilder.CreateSpec { RecordType = "DialogResponses", EditorId = "HcNcSlL1", ParentRef = "HcNcSlTopic",
+                    Edits = new[] { new WriteRequest { RecordType = "DialogResponses", Path = new[] { "LinkTo" }, Verb = "ReplaceAll", Values = new[] { "@HcNcSlTopic" } } } },
+            },
+            msg => msg.Contains("only supported as a single Set value", StringComparison.OrdinalIgnoreCase));
+
         // ---------- REJ-SIBAPPLY: an @ref on the Apply/set_field path (no siblings) refuses at the rulebook ----------
         // Drives the rulebook DIRECTLY with a null sibling set (the override/set_field context) — proves the create-only
         // scoping that keeps @editorid from becoming an accept-then-substitute-nothing hole on the edit-existing path (Q3).
@@ -317,7 +332,7 @@ public static class NestedCreateGuardProbe
         Console.WriteLine();
         bool pass = fixturesOk && oneshotOk && multiOk && intoTopicOk && intoCellOk
                     && rejNoParentOk && rejBadParentOk && rejAmbigOk && rejFwdSibOk && extendOk
-                    && sibrefOk && sibRejFwdOk && sibRejNonflOk && sibRejApplyOk;
+                    && sibrefOk && sibRejFwdOk && sibRejNonflOk && sibRejListOk && sibRejApplyOk;
         Console.WriteLine($"=== nested-create-guard: {(pass ? "PASS" : "FAIL")} ===");
         try { Directory.Delete(tmpDir, recursive: true); } catch { }
         return pass ? 0 : 1;

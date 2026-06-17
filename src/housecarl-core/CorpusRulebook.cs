@@ -284,9 +284,12 @@ public sealed class CorpusRulebook
         // Same-call sibling reference ("@editorid", create-context forward-ref — HCBR Layer B unit A). Gate it BEFORE
         // any verb/cardinality dispatch: it is a Set VALUE naming a record created earlier in this same create call,
         // substituted with that record's real FormKey AFTER allocation (WritePatchBuilder.CreateRecords). It is ONLY
-        // legal as a Set on a FormLink leaf, and ONLY in create context (siblingEditorIds non-null) — everywhere else
-        // it rejects loud (the Apply/set_field path has no siblings, so never an accept-then-substitute-nothing, Q3).
-        // One central gate (here, not per-arm) so a sibling token can never slip through a cardinality branch below.
+        // legal as a singular Set Value on a FormLink leaf, and ONLY in create context (siblingEditorIds non-null) —
+        // everywhere else it rejects loud (the Apply/set_field path has no siblings, so never an
+        // accept-then-substitute-nothing, Q3). The create path resolves ONLY the singular req.Value; a sibling token
+        // in a COLLECTION value (a list ReplaceAll's req.Values, or dict req.Entries) is therefore caught here too and
+        // refused loud — otherwise it would slip past pre-flight and throw FormKey.Factory at apply (a Q3
+        // accept-then-throw). Both gates sit ahead of the cardinality branches so no sibling token reaches them.
         if (WriteEngine.IsSameCallSiblingRef(req.Value, out var sibEdid))
         {
             if (siblingEditorIds is null)
@@ -301,6 +304,13 @@ public sealed class CorpusRulebook
                 : $"Same-call reference '{req.Value}' for '{leaf.Name}': no record with editorid '{sibEdid}' is created " +
                   "EARLIER in this call — declare it before the record that references it (in spec order).";
         }
+        // A sibling token inside a COLLECTION value (list ReplaceAll Values, dict Entries) is NOT substituted (only the
+        // singular Set Value is) — refuse loud rather than accept-then-throw at apply (Q3). Unconditional: it is never
+        // supported, on either the create or the edit-existing path. List/dict sibling-refs are a deliberate later surface.
+        if ((req.Values is { } vals && vals.Any(v => WriteEngine.IsSameCallSiblingRef(v, out _)))
+            || (req.Entries is { } ents && ents.Values.Any(v => WriteEngine.IsSameCallSiblingRef(v, out _))))
+            return $"a '@editorid' same-call reference for '{leaf.Name}' is only supported as a single Set value on a " +
+                   "FormLink field, not inside a list/dict value — list/dict sibling-refs are a later surface.";
         if (req.Verb is "Set" && leaf.Cardinality == "dict")
         {
             if (CheckValue(leaf.KeyType, req.Key, $"dict key for '{leaf.Name}'") is { } ke) return ke;
