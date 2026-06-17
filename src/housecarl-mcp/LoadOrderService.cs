@@ -641,6 +641,25 @@ public sealed class LoadOrderService : IDisposable
     /// name); "" when unconfigured. For the status surface.</summary>
     public string ProfileName { get { lock (_gate) { return _profileName; } } }
 
+    /// <summary>The game install directory the load order points at — DataDir's PARENT (DataDir = gamePath\Data), the same
+    /// derivation the asset-discovery path uses — or null when it isn't derivable. The compile rider's auto-detect HINT: the
+    /// CK installs its compiler at &lt;gamePath&gt;\Papyrus Compiler\PapyrusCompiler.exe (6.2). NULL-SAFE by contract — it is
+    /// best-effort plumbing, so a failure here must fall through to the forcing prompt, NEVER throw and abort the compile:
+    /// returns null when unconfigured (no _configured guard would otherwise hit EnsurePathsDerived's NotConfigured throw),
+    /// when the instance is unusable (EnsurePathsDerived throws naming the missing piece — the rider's own config gate
+    /// reports that; here it's just "no hint"), or when DataDir hasn't been derived yet. Takes <see cref="_gate"/> like the
+    /// other derived-root reads; works in explicit mode too (DataDir is set directly, EnsurePathsDerived no-ops).</summary>
+    public string? GameDirOrNull()
+    {
+        lock (_gate)
+        {
+            if (!_configured) return null;
+            try { EnsurePathsDerived(); }
+            catch { return null; }                                  // unusable instance → no hint (Q3: the rider's config gate names the real problem)
+            return _dataDir.Length > 0 ? Path.GetDirectoryName(_dataDir.TrimEnd('\\', '/')) : null;
+        }
+    }
+
     /// <summary>Point houseCARL at an MO2 instance folder — first-run setup AND switching between instances ("jump around").
     /// VALIDATES it (<see cref="Mo2Instance.Resolve"/> throws a clear Q3 message if it isn't usable — nothing is changed or
     /// persisted on failure), then re-points the live service (derives the roots + active profile, drops the cached resolver

@@ -54,8 +54,10 @@ public static class CompileTools
         var objectName = Path.GetFileNameWithoutExtension(script);
         var scriptDir = Path.GetDirectoryName(script)!;
 
-        // 3) the compiler — bridge forcing function if unset (returns the trained prompt to surface).
-        if (bridge.RequireOrPrompt(ToolDependency.PapyrusCompiler, out var compilerExe) is { } toolPrompt) return toolPrompt;
+        // 3) the compiler — bridge forcing function if unset (returns the trained prompt to surface). Pass the active
+        // load order's game dir as the auto-detect HINT (the CK installs its compiler under it): a normal Steam+CK install
+        // resolves with no prompt; a Wabbajack Stock-Game copy misses and the prompt names where houseCARL looked (6.2).
+        if (bridge.RequireOrPrompt(ToolDependency.PapyrusCompiler, out var compilerExe, svc.GameDirOrNull()) is { } toolPrompt) return toolPrompt;
 
         // 4) import dirs — assembled by BuildImports (the guard-probed seam).
         var imports = BuildImports(scriptDir, compilerExe!, import_dirs);

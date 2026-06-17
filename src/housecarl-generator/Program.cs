@@ -111,6 +111,12 @@ if (args.Length > 0 && args[0] == "freshness-capture-guard") return FreshnessCap
 // names the available ones (Q3). Self-contained: synthetic instances + one synthesized master, no game data / no corpus.
 if (args.Length > 0 && args[0] == "loadorder-status-guard") return LoadOrderStatusProbe.RunGuard(args[1..]);
 
+// Compile-rider ergonomics (HCBR-2026-06-15-01 / PR-J, items 6.2 + 6.3): the service-layer half — GameDirOrNull is
+// NULL-SAFE (the compiler auto-detect hint falls through to the forcing prompt, never throws), and the output_dir=
+// contract appends Scripts\ with a double-Scripts guard + a Q3 deployability warning, WITHOUT cutting a houseCARL mod
+// folder. Pure synthetic paths; the pure-core ToolBridge half is in the tool-bridge probe.
+if (args.Length > 0 && args[0] == "compile-ergonomics-guard") return CompileErgonomicsProbe.RunGuard(args[1..]);
+
 // MO2 overwrite-folder resolution (2026-06-12 hunt F9): plugins living in MO2's overwrite layer resolve at
 // HIGHEST priority (top of the VFS — where Synthesis/xEdit tool outputs land), and the can't-resolve warning
 // names overwrite among the places searched.

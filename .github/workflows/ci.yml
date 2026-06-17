@@ -216,6 +216,14 @@ jobs:
       - name: Probe — load-order-status instance path + named-profile read (self-contained regression guard)
         run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- loadorder-status-guard
 
+      # Compile-rider ergonomics (HCBR-2026-06-15-01 / PR-J, items 6.2 + 6.3): the service-layer half. GameDirOrNull (the
+      # compiler auto-detect hint) is NULL-SAFE — unconfigured / unusable-instance → null, never a throw that aborts the
+      # compile; and the output_dir= contract appends Scripts\ with a double-Scripts guard + a Q3 deployability warning,
+      # WITHOUT cutting a houseCARL mod folder. Pure synthetic paths (no MO2, no game data). The pure-core ToolBridge half
+      # (auto-detect candidates, the looked-here prompt, cross-instance sharing) is exercised by the tool-bridge probe.
+      - name: Probe — compile-rider ergonomics (GameDirOrNull null-safety + output_dir= contract)
+        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- compile-ergonomics-guard
+
       # The compile tool's import ORDER is semantics (the CK compiler takes the FIRST matching .psc), so caller
       # import_dirs must outrank the auto-added vanilla folder — else SKSE-extended copies of vanilla scripts lose
       # to vanilla and extended calls fail despite the right folder being passed (spike findings §5.12, hit twice).
