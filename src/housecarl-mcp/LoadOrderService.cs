@@ -473,19 +473,20 @@ public sealed class LoadOrderService : IDisposable
 
         var name = string.IsNullOrWhiteSpace(requested) ? null : requested.Trim();
         if (instanceDir is null)                                  // explicit-paths mode — no profiles root (refuse loud; the tool renders the named-mode-only message)
-            return new NamedProfileResult(InstanceMode: false, AvailableProfiles: Array.Empty<string>(), RequestedName: name, ResolvedProfileDir: null, Composition: null);
+            return new NamedProfileResult(InstanceMode: false, AvailableProfiles: Array.Empty<string>(), RequestedName: name, ResolvedProfileDir: null, Composition: null, Warnings: Array.Empty<string>());
 
         var available = ListProfiles(profilesRoot);              // directory listing OUTSIDE the gate (like StatusData's ReadComposition) — no lock held over I/O
         if (name is null)                                        // no name → the discovery list only (default-status affordance)
-            return new NamedProfileResult(true, available, null, null, null);
+            return new NamedProfileResult(true, available, null, null, null, Array.Empty<string>());
 
         var match = available.FirstOrDefault(p => string.Equals(p, name, StringComparison.OrdinalIgnoreCase));
         if (match is null)                                       // named profile not found → Q3: report it WITH the available names, never an empty composition
-            return new NamedProfileResult(true, available, name, null, null);
+            return new NamedProfileResult(true, available, name, null, null, Array.Empty<string>());
 
         var dir = Path.Combine(profilesRoot, match);
-        var comp = Mo2LoadOrder.ReadComposition(dir);            // cheap text parse of THAT profile's loadorder/modlist/plugins — no index build, no switch
-        return new NamedProfileResult(true, available, match, dir, comp);
+        var warnings = new List<string>();                       // surface read notes (e.g. a missing modlist.txt) — so a 0-mods inspected profile isn't silently mistaken for empty (Q3)
+        var comp = Mo2LoadOrder.ReadComposition(dir, warnings);  // cheap text parse of THAT profile's loadorder/modlist/plugins — no index build, no switch
+        return new NamedProfileResult(true, available, match, dir, comp, warnings);
     }
 
     /// <summary>The USABLE profile names under <paramref name="profilesRoot"/> — each MO2 profile is one subfolder, and a
@@ -1662,13 +1663,16 @@ public sealed record LoadOrderStatusData(
 /// explicit mode), used both for the default-status discovery line and to name the options when a requested profile isn't
 /// found. <see cref="RequestedName"/> echoes the trimmed name asked for (null if none). <see cref="Composition"/> +
 /// <see cref="ResolvedProfileDir"/> are set ONLY when a requested profile was found and read; a non-null RequestedName with
-/// a null Composition is the "not found" case (Q3 — AvailableProfiles names the real options, never a silent empty).</summary>
+/// a null Composition is the "not found" case (Q3 — AvailableProfiles names the real options, never a silent empty).
+/// <see cref="Warnings"/> carries any Q3 notes from reading the inspected profile (e.g. a missing modlist.txt — so a
+/// 0-enabled-mods render is never mistaken for a genuinely-empty profile); empty unless a profile was found and read.</summary>
 public sealed record NamedProfileResult(
     bool InstanceMode,
     IReadOnlyList<string> AvailableProfiles,
     string? RequestedName,
     string? ResolvedProfileDir,
-    Mo2Composition? Composition);
+    Mo2Composition? Composition,
+    IReadOnlyList<string> Warnings);
 
 /// <summary>One queried asset path's resolution behind housecarl_asset_status: the resolver's <see cref="AssetHit"/>
 /// (which sources have it + which wins + an ambiguity flag), or an <see cref="Error"/> when the path was rejected (a
