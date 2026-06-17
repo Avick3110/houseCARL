@@ -488,15 +488,20 @@ public sealed class LoadOrderService : IDisposable
         return new NamedProfileResult(true, available, match, dir, comp);
     }
 
-    /// <summary>The profile folder names under <paramref name="profilesRoot"/> (each MO2 profile is one subfolder), sorted
-    /// case-insensitively. Never throws — an unreadable/absent root yields an empty list, so the caller surfaces "no
-    /// profiles" honestly rather than failing the whole status read (Q3).</summary>
+    /// <summary>The USABLE profile names under <paramref name="profilesRoot"/> — each MO2 profile is one subfolder, and a
+    /// profile that's been opened at least once has a loadorder.txt (the same validity signal <see cref="Mo2Instance"/> uses
+    /// for the ACTIVE profile). Folders WITHOUT one — a never-opened profile, or a stray non-profile dir — are skipped, so
+    /// the list never OFFERS (and a name match never LANDS ON) a folder that would read back as an all-zero composition
+    /// (Q3: don't present an uninitialized folder as an empty profile). Sorted case-insensitively. Never throws — an
+    /// unreadable/absent root yields an empty list, so the caller surfaces "no profiles" honestly rather than failing the
+    /// whole status read.</summary>
     static IReadOnlyList<string> ListProfiles(string profilesRoot)
     {
         if (profilesRoot.Length == 0) return Array.Empty<string>();
         try
         {
             return Directory.EnumerateDirectories(profilesRoot)
+                .Where(d => File.Exists(Path.Combine(d, "loadorder.txt")))   // an opened MO2 profile has loadorder.txt — skip stray/never-opened folders (Q3, accuracy over the per-folder stat)
                 .Select(d => Path.GetFileName(d.TrimEnd('\\', '/')))
                 .Where(n => !string.IsNullOrEmpty(n))
                 .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)
