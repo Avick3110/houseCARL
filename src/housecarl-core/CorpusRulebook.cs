@@ -304,9 +304,13 @@ public sealed class CorpusRulebook
                 : $"Same-call reference '{req.Value}' for '{leaf.Name}': no record with editorid '{sibEdid}' is created " +
                   "EARLIER in this call — declare it before the record that references it (in spec order).";
         }
-        // A sibling token inside a COLLECTION value (list ReplaceAll Values, dict Entries) is NOT substituted (only the
-        // singular Set Value is) — refuse loud rather than accept-then-throw at apply (Q3). Unconditional: it is never
-        // supported, on either the create or the edit-existing path. List/dict sibling-refs are a deliberate later surface.
+        // A sibling token inside a COLLECTION value (a list ReplaceAll's Values, or a dict Entries' VALUES) is NOT
+        // substituted (only the singular Set Value is) — refuse loud rather than accept-then-throw at apply (Q3).
+        // Unconditional: never supported, on either the create or the edit-existing path. List/dict sibling-refs are a
+        // deliberate later surface. NOTE: dict KEYS are deliberately NOT scanned here — a '@' in a (rare) FormLink-keyed
+        // dict key would still reach apply, where it fails LOUD (a coerce throw caught as a named Q3 inconsistency), not
+        // silently; that edge rides the parked general "list/dict element value-shape isn't gate-checked" task, which
+        // owns collection element-shape validation (gating keys here without it would be an inconsistent half-measure).
         if ((req.Values is { } vals && vals.Any(v => WriteEngine.IsSameCallSiblingRef(v, out _)))
             || (req.Entries is { } ents && ents.Values.Any(v => WriteEngine.IsSameCallSiblingRef(v, out _))))
             return $"a '@editorid' same-call reference for '{leaf.Name}' is only supported as a single Set value on a " +
