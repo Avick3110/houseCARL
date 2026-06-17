@@ -2036,6 +2036,33 @@ public static class WriteEngine
     /// caller can't trip an NRE in FormKey.TryFactory.</summary>
     internal static bool IsValidFormLinkValue(string? text) => IsFormKeyNullSynonym(text) || (text is not null && FormKey.TryFactory(text, out _));
 
+    // ---- Same-call sibling reference (HCBR-2026-06-15-01 Layer B / unit A) -------------------------------------
+    //  A create's field VALUE can forward-reference a record created EARLIER in the SAME create call, by its
+    //  editorid, written "@<editorid>". The referenced record's local 0x800+ FormKey is not allocated until the
+    //  apply phase, so the caller cannot write a literal FormID — this is how the INFO PNAM order-chain
+    //  (PreviousDialog -> the prior line) and the Topic back-link (-> the same-call DialogTopic) are authored in
+    //  ONE housecarl_bulk_create. WritePatchBuilder.CreateRecords substitutes the token with the sibling's real
+    //  FormKey AFTER allocation (single-pass: the prior sibling is already allocated, in spec order). CREATE-CONTEXT
+    //  ONLY — the override/set_field (Apply) path has no siblings, so pre-flight there (CorpusRulebook called with a
+    //  null sibling set) rejects the token LOUD rather than letting it through to a substitute-nothing apply (Q3, no
+    //  accept-then-throw). The recognizer is SHARED by pre-flight (CorpusRulebook) and the apply-side substitution
+    //  (CreateRecords) so the gate and the engine cannot drift on the token shape — the same shared-predicate
+    //  discipline as IsFormKeyNullSynonym / IsFormLinkOrIndex.
+    internal const char SiblingRefSigil = '@';
+
+    /// <summary>True iff <paramref name="text"/> is a same-call sibling reference (<c>@editorid</c>, trimmed); emits
+    /// the referenced editorid (also trimmed). The sigil '@' begins neither a Skyrim EditorID nor a FormID, so the
+    /// token can't collide with a real FormLink value. Shared by pre-flight (<see cref="CorpusRulebook"/>) and the
+    /// create-time substitution (<see cref="WritePatchBuilder.CreateRecords"/>).</summary>
+    internal static bool IsSameCallSiblingRef(string? text, out string editorId)
+    {
+        editorId = "";
+        var v = (text ?? "").Trim();
+        if (v.Length < 2 || v[0] != SiblingRefSigil) return false;
+        editorId = v[1..].Trim();
+        return editorId.Length > 0;
+    }
+
     /// <summary>FormLink families — build the matching concrete (nullable vs not) from a "FORMID:ModName.esp" key.
     /// Mutagen distinguishes IFormLink&lt;T&gt; (required) from IFormLinkNullable&lt;T&gt; (optional); the wrong
     /// concrete won't assign to the property, so the target type decides which we construct. A null-synonym value
