@@ -197,6 +197,17 @@ jobs:
       - name: Probe — FormLink null-clear + value-shape pre-flight (self-contained regression guard)
         run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- formlink-null-guard
 
+      # Gendered-item [0]/[1] navigable alias (HCBR 2.4+4.4 / PR-H): a GenderedItem<T> field (Armor.WorldModel, .Male/
+      # .Female) RENDERS as Field[0]/[1] but feeding that back was unreadable (StepIntoElement knew only IList/IDict) and
+      # unwritable (pre-flight rejected a bracket on a substruct) — a render-vs-input asymmetry (Q3). The fix makes
+      # [0]=male/[1]=female a true read+write alias: the engine recognises the runtime IGenderedItem<>, materializing-
+      # and-writing-back an absent arm on write; pre-flight recognises the "GenderedItem<T>" TypeRef; the render uses the
+      # SAME index→arm mapping so what it shows is what it accepts. Teeth: A1 (read alias), A2 (write + write-back, not an
+      # orphan), A3 (render↔nav agree), A4-IDX/SCALAR (loud refusals), SER (persists). Self-contained (in-memory records +
+      # temp corpus).
+      - name: Probe — gendered-item [0]/[1] navigable alias, read+write (self-contained regression guard)
+        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- gendered-nav-guard
+
       # The compile tool's import ORDER is semantics (the CK compiler takes the FIRST matching .psc), so caller
       # import_dirs must outrank the auto-added vanilla folder — else SKSE-extended copies of vanilla scripts lose
       # to vanilla and extended calls fail despite the right folder being passed (spike findings §5.12, hit twice).

@@ -1492,7 +1492,7 @@ public static class WriteEngine
             // A bracket (Effects[0]) → step INTO that collection element and keep descending (wave-1 collection-nav).
             current = segKey is null
                 ? (p.GetValue(current) ?? MaterializeSubstruct(current, p, segName))
-                : StepIntoElement(current, p, segName, segKey);
+                : StepIntoElement(current, p, segName, segKey, materialize: true);   // write path may materialize a gendered arm on demand
         }
         var (leafName, leafKey) = ParseSegment(req.Path[^1]);
         if (leafKey is not null)
@@ -1793,8 +1793,17 @@ public static class WriteEngine
     /// LOUD (Q3) on an absent collection (add an element first — composition, half B), a bad/out-of-bounds index,
     /// or a missing key — never a silent wrong target.
     /// </summary>
-    internal static object StepIntoElement(object parent, PropertyInfo prop, string name, string key)
+    internal static object StepIntoElement(object parent, PropertyInfo prop, string name, string key, bool materialize = false)
     {
+        // Gendered field ([0]=male / [1]=female): a fixed two-slot pair (IGenderedItem<T>), NOT a list/dict, so it
+        // never reaches the IList/IDictionary branches below. Its named arms (.Male/.Female) already navigate as
+        // plain hops; [0]/[1] is the render-matching navigable alias (HCBR PR-H). Handled by the same materialize-
+        // and-write-back primitive the named plain hop uses, so a freshly-built arm can't become a silently-dropped
+        // orphan (Q3). Recognised by the runtime IGenderedItem<> — the engine twin of the corpus "GenderedItem<"
+        // recogniser CorpusRulebook pre-flight keys off (two recognisers that must agree, never one shared classifier).
+        if (GenderedInterface(prop.PropertyType) is not null)
+            return StepIntoGenderedArm(parent, prop, name, key, materialize);
+
         var coll = prop.GetValue(parent)
             ?? throw new InvalidOperationException(
                 $"Cannot navigate into '{name}[{key}]': the collection is absent (null). Add an element first " +
@@ -1833,6 +1842,65 @@ public static class WriteEngine
         }
 
         throw new InvalidOperationException($"'{name}' is not a navigable collection (no [read-only] IList/IDictionary).");
+    }
+
+    /// <summary>The gendered-arm twin of <see cref="StepIntoElement"/>'s list/dict branches: map a bracketed index
+    /// (<c>[0]</c>=male, <c>[1]</c>=female — see <see cref="GenderedArmNames"/>) to the pair's named arm and return it.
+    /// On a WRITE (<paramref name="materialize"/>=true) an absent pair OR an absent ref arm is materialized AND written
+    /// back through the SAME <see cref="MaterializeSubstruct"/> setter the named plain hop uses — so the bracket alias
+    /// and the named path produce identical results, and a freshly-built arm is never an orphan a later sub-field write
+    /// silently lands on and loses (the Q3 trap). On a READ (<paramref name="materialize"/>=false) an absent pair/arm
+    /// fails LOUD — a read never mutates a record, exactly as stepping into an absent list element does.</summary>
+    static object StepIntoGenderedArm(object parent, PropertyInfo prop, string name, string key, bool materialize)
+    {
+        int idx = key switch { "0" => 0, "1" => 1, _ => -1 };
+        if (idx < 0)
+            throw new InvalidOperationException(
+                $"Gendered field '{name}' is indexed by [0] (male) or [1] (female); got '{key}'. " +
+                $"(Its halves are also reachable by name: '{name}.Male' / '{name}.Female'.)");
+
+        var gendered = prop.GetValue(parent);
+        if (gendered is null)
+        {
+            if (!materialize)
+                throw new InvalidOperationException($"Cannot navigate into '{name}[{key}]': the gendered field is absent (null).");
+            gendered = MaterializeSubstruct(parent, prop, name);   // build the pair (default parts) + write back — named-path parity
+        }
+
+        var armName = GenderedArmNames[idx];
+        var armProp = ResolveProperty(gendered.GetType(), armName)
+            ?? throw new InvalidOperationException($"Gendered type {gendered.GetType().Name} has no '{armName}' arm.");
+        var arm = armProp.GetValue(gendered);
+        if (arm is null)
+        {
+            if (!materialize)
+                throw new InvalidOperationException($"Gendered arm '{name}[{key}]' ({armName}) is absent (null).");
+            arm = MaterializeSubstruct(gendered, armProp, armName);   // materialize the ref arm + WRITE BACK via the setter (the Q3 orphan trap)
+        }
+        return arm;
+    }
+
+    /// <summary>The canonical gendered index→arm mapping, the ONE place navigation (<see cref="StepIntoGenderedArm"/>)
+    /// and the depth-render (<c>ReadEngine.Expand</c>) both read — so the <c>[0]/[1]</c> a read SHOWS is exactly the
+    /// <c>[0]/[1]</c> a write/read ACCEPTS, with no enumeration-order drift between the two surfaces.</summary>
+    internal static readonly string[] GenderedArmNames = { "Male", "Female" };
+
+    /// <summary>The closed gendered interface a type carries (<c>IGenderedItem&lt;T&gt;</c> / <c>IGenderedItemGetter&lt;T&gt;</c>,
+    /// or the concrete <c>GenderedItem&lt;T&gt;</c>), else null. Recognised by the generic definition's NAME — the same
+    /// by-the-generic-definition recognition the engine uses for IList&lt;&gt;/FormLink&lt;&gt;, never a hand-listed set
+    /// of arm-bearing record types (the cornerstone forbids that). The corpus-side twin is the <c>"GenderedItem&lt;"</c>
+    /// TypeRef check in <c>CorpusRulebook</c>; the two recognisers must agree.</summary>
+    internal static Type? GenderedInterface(Type t)
+    {
+        static bool IsGen(Type x)
+        {
+            if (!x.IsGenericType) return false;
+            var n = x.GetGenericTypeDefinition().Name;
+            return n.StartsWith("GenderedItem", StringComparison.Ordinal)
+                || n.StartsWith("IGenderedItem", StringComparison.Ordinal);
+        }
+        if (IsGen(t)) return t;
+        return t.GetInterfaces().FirstOrDefault(IsGen);
     }
 
     static PropertyInfo Indexer(Type t) =>

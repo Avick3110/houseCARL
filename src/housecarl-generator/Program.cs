@@ -83,6 +83,11 @@ if (args.Length > 0 && args[0] == "nullarm-guard") return NullArmGuardProbe.RunG
 // Self-contained: apply/serialize arms are pure in-memory Mutagen; pre-flight arms generate the corpus into a temp dir.
 if (args.Length > 0 && args[0] == "formlink-null-guard") return FormLinkNullProbe.RunGuard(args[1..]);
 
+// Gendered-item [0]/[1] navigable alias (HCBR 2.4+4.4 / PR-H): a GenderedItem<T> field renders as Field[0]/[1] but
+// was unreadable + unwritable in that form; the fix makes [0]=male/[1]=female a true read+write alias (materialize-
+// and-write-back on write, render via the same index→arm mapping). Self-contained: in-memory records + temp corpus.
+if (args.Length > 0 && args[0] == "gendered-nav-guard") return GenderedNavProbe.RunGuard(args[1..]);
+
 // BSA bridge contract guard (2026-06-12 adversarial hunt): unpack success = entries THIS RUN (the pre-seeded
 // meta.ini no longer reads as success), pack provenance (stuck stale scratch refuses), unknown format= refuses.
 if (args.Length > 0 && args[0] == "bsa-contract-guard") return BsaContractProbe.RunGuard(args[1..]);

@@ -142,6 +142,26 @@ public sealed class CorpusRulebook
             }
             else
             {
+                // Gendered field ([0]=male / [1]=female): a substruct whose TypeRef is GenderedItem<T>. The named arms
+                // (.Male/.Female) descend as plain hops today; [0]/[1] is the render-matching navigable alias (HCBR
+                // PR-H). Corpus-side recogniser = the "GenderedItem<" TypeRef; the engine's twin is the runtime
+                // IGenderedItem<> in WriteEngine.StepIntoElement — two recognisers that must agree. Descends to the arm
+                // type T so the next hop validates against the arm's own fields (a scalar/value arm has none → loud).
+                if (field.Cardinality == "substruct" && field.TypeRef is { } gtr
+                    && gtr.StartsWith("GenderedItem<", StringComparison.Ordinal))
+                {
+                    if (segKey is not ("0" or "1"))
+                        return $"Gendered field '{segName}' on '{current.Name}' is indexed by [0] (male) or [1] (female); got '{segKey}'. " +
+                               $"(Its halves are also reachable by name: '{segName}.Male' / '{segName}.Female'.)";
+                    var armRef = GenderedArmRef(gtr);
+                    var armType = armRef is null ? null : Type(armRef);
+                    if (armType is null)
+                        return $"'{segName}[{segKey}]' on '{current.Name}' steps into a gendered scalar/value arm ('{armRef}'), which has " +
+                               $"no sub-fields to navigate — set its halves by name ('{segName}.Male' / '{segName}.Female').";
+                    current = armType;
+                    continue;
+                }
+
                 // bracketed hop — step into a collection element. Must be a list/dict whose element is a navigable
                 // STRUCT; a record-element is resolved on its own (nested-group wave), never walked into from a parent.
                 if (field.Cardinality is not ("list" or "dict"))
@@ -184,6 +204,20 @@ public sealed class CorpusRulebook
 
         // (4) value / key coercion + enum/legal-set legality
         return ValueLegality(leaf, req);
+    }
+
+    /// <summary>Extract the arm type T from a gendered field's <c>GenderedItem&lt;T&gt;</c> TypeRef — e.g.
+    /// "GenderedItem&lt;ArmorModel&gt;" → "ArmorModel". Returns the inner ref verbatim: a nested generic like
+    /// "FormLinkNullable&lt;TextureSet&gt;" (a scalar/value arm) comes back whole and simply won't resolve as a
+    /// corpus type, which the caller correctly surfaces as a non-navigable arm. Null if the string isn't the
+    /// expected GenderedItem&lt;…&gt; shape.</summary>
+    static string? GenderedArmRef(string typeRef)
+    {
+        const string head = "GenderedItem<";
+        if (!typeRef.StartsWith(head, StringComparison.Ordinal) || !typeRef.EndsWith(">", StringComparison.Ordinal))
+            return null;
+        var inner = typeRef[head.Length..^1].Trim();
+        return inner.Length == 0 ? null : inner;
     }
 
     // ---- verb × cardinality (plan §3 P-VERBS) ----
