@@ -56,7 +56,10 @@ static class StatusWire
         int gameLoaded = checkedActive + impl;
 
         var sb = new StringBuilder();
-        sb.Append("load order status — profile '").Append(ProfileName(d.ProfileDir)).Append("'\n");
+        sb.Append("load order status — profile '").Append(d.ProfileName).Append("'\n");
+        // The resolved MO2 instance houseCARL is pointed at (9.2: easy to lose track of which instance is configured);
+        // null ⇒ explicit-paths mode (dev override — the three roots are set directly, there is no MO2 instance folder).
+        sb.Append("instance: ").Append(d.InstanceDir ?? "explicit-paths mode (no MO2 instance configured)").Append('\n');
         sb.Append("mods:    ").Append(c.EnabledMods.Count).Append(" enabled · ").Append(c.DisabledMods.Count).Append(" disabled\n");
         sb.Append("plugins in load order: ").Append(c.OrderedPluginNames.Count).Append('\n');
         sb.Append("  active:   ").Append(gameLoaded).Append("  (").Append(checkedActive).Append(" checked + ").Append(impl).Append(" implicit masters/CC)\n");
@@ -180,13 +183,6 @@ static class StatusWire
         // "ACTIVE … houseCARL reads/writes it" line above isn't taken as the whole truth.
         if (excluded.TryGetValue(name, out var why))
             sb.Append("  [!] EXCLUDED this session: ").Append(why).Append("\n      → houseCARL does NOT read this plugin (every other plugin is unaffected).\n");
-    }
-
-    static string ProfileName(string profileDir)
-    {
-        var trimmed = profileDir.TrimEnd('\\', '/');
-        var name = Path.GetFileName(trimmed);
-        return string.IsNullOrEmpty(name) ? profileDir : name;
     }
 
     static bool Contains(IReadOnlyList<string> list, string name)
