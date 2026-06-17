@@ -29,6 +29,8 @@ namespace HousecarlGenerator;
 ///      so the redirect is honored BY CONSTRUCTION — guards against a future re-derivation from the instance dir).
 ///   H  stray-folder filter — a folder under profiles/ with no loadorder.txt (never-opened profile / backup dir) is NOT
 ///      listed or matched, so it can't be offered or read back as an all-zero phantom profile (Q3 — pre-push review fold).
+///   I  inspected-read warnings — a profile with loadorder.txt but no modlist.txt surfaces the read warning under the
+///      inspection block, so a 0-enabled-mods render is never silently mistaken for a genuinely-empty profile (review fold).
 ///
 /// Self-contained: synthetic MO2 instances + one synthesized master plugin in temp; no game data, no corpus (reads only).
 /// </summary>
@@ -201,6 +203,25 @@ internal static class LoadOrderStatusProbe
                 var miss = svc.NamedProfileComposition("_NotAProfile");
                 Check(miss.InstanceMode && miss.Composition is null,
                       "requesting the stray folder is a clean not-found, not an all-zero composition");
+            }
+
+            // ---- I: an inspected profile missing modlist.txt surfaces a read warning, not a silent 0-mods (review-fold note 1) ----
+            Console.WriteLine();
+            Console.WriteLine("--- I: a profile with loadorder.txt but no modlist.txt surfaces a warning (not silently 0-mods) ---");
+            string instI = MakeInstance("inst-i");
+            WriteProfile(Path.Combine(instI, "profiles", "Default"), new[] { masterName }, new[] { "*" + masterName }, new[] { "+MasterMod" });
+            string profI = Path.Combine(instI, "profiles", "Partial");   // loadorder.txt + plugins.txt present, modlist.txt deliberately ABSENT
+            Directory.CreateDirectory(profI);
+            File.WriteAllText(Path.Combine(profI, "loadorder.txt"), "# header\r\n" + masterName + "\r\n");
+            File.WriteAllText(Path.Combine(profI, "plugins.txt"), "*" + masterName + "\r\n");
+            using (var svc = LoadOrderService.WithInstance(instI, 0, store))
+            {
+                var partial = svc.NamedProfileComposition("Partial");
+                Check(partial.Composition is not null, "the partial profile still reads (loadorder.txt present → listed + matched)");
+                Check(partial.Warnings.Any(w => w.Contains("modlist.txt", StringComparison.OrdinalIgnoreCase)),
+                      "the missing modlist.txt is surfaced as a read warning (not a silent 0-mods composition)");
+                var text = Render(svc, partial, "Partial");
+                Check(text.Contains("[!]") && text.Contains("modlist.txt"), "render shows the warning under the inspection block");
             }
         }
         finally { try { Directory.Delete(root, recursive: true); } catch { /* temp scratch */ } }

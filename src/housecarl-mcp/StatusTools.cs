@@ -199,6 +199,10 @@ static class StatusWire
         sb.Append("  mods:    ").Append(c.EnabledMods.Count).Append(" enabled · ").Append(c.DisabledMods.Count).Append(" disabled\n");
         sb.Append("  plugins: ").Append(c.OrderedPluginNames.Count).Append(" in order · ").Append(active).Append(" active · ")
           .Append(c.InactivePluginNames.Count).Append(" inactive\n");
+        // Q3: any read note (e.g. a missing modlist.txt) — so a 0-enabled-mods inspection is never silently mistaken for a
+        // genuinely-empty profile. Rendered before the lists, like the active status' own warnings block.
+        foreach (var warn in p.Warnings)
+            sb.Append("  [!] ").Append(warn).Append('\n');
         AppendList(sb, "  disabled mods", c.DisabledMods, cap);
         AppendList(sb, "  inactive plugins", c.InactivePluginNames, cap);
     }
