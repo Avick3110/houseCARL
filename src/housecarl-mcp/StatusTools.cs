@@ -32,13 +32,20 @@ public static class StatusTools
         ToolPathResolver tools,
         [Description("Optional. A mod folder name or plugin filename to look up. Omit for the whole-profile summary.")]
             string? lookup = null,
+        [Description("Optional. A profile NAME to INSPECT without switching to it (e.g. 'Default', 'Modded') — reports that " +
+            "profile's enabled/disabled mods + active/inactive plugins even if it is not the active one, so you can compare " +
+            "load orders across profiles. Omit to describe the ACTIVE profile (which also lists the available profile names). " +
+            "MO2-instance mode only (explicit-paths mode has no profiles folder); if both lookup= and profile= are given, " +
+            "both render.")]
+            string? profile = null,
         [Description("Optional. Max characters before name lists are cut with an explicit notice. 0 = the server default (~80k).")]
             int max_chars = 0) => Guard.Tool("housecarl_load_order_status", () =>
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
         var data = svc.StatusData();
         var logs = StatusWire.LogFolders(tools);                 // resolved Papyrus/crash log dirs (pure — no persist)
-        return StatusWire.Render(data, logs, lookup, max_chars > 0 ? max_chars : 80_000);
+        var profiles = svc.NamedProfileComposition(profile);     // 9.2: available-profile discovery + inactive-profile inspection (cheap text parse, no index build, no switch)
+        return StatusWire.Render(data, logs, profiles, lookup, max_chars > 0 ? max_chars : 80_000);
     });
 }
 
@@ -47,7 +54,7 @@ public static class StatusTools
 /// explicit cut notice (Q3 — never silent truncation). lookup= switches to a single mod/plugin verdict.</summary>
 static class StatusWire
 {
-    public static string Render(LoadOrderStatusData d, IReadOnlyList<LogFolderView> logs, string? lookup, int cap)
+    public static string Render(LoadOrderStatusData d, IReadOnlyList<LogFolderView> logs, NamedProfileResult profiles, string? lookup, int cap)
     {
         var c = d.Composition;
         int checkedActive = c.ActivePluginNames.Count;
@@ -71,6 +78,11 @@ static class StatusWire
             sb.Append("[!] the profile changed mid-call and a refresh is still pending — houseCARL re-reads it " +
                       "automatically on the next tool call (lazy refresh; no restart needed).\n");
 
+        // 9.2 profile= inspection: render whenever a name was asked for, BEFORE the lookup branch — so an explicit profile=
+        // request is never silently dropped by a concurrent lookup= (the two compose: lookup verdicts the ACTIVE profile,
+        // this inspects another, possibly inactive, one WITHOUT switching to it).
+        if (profiles.RequestedName is not null) AppendNamedProfile(sb, profiles, cap);
+
         if (lookup is { Length: > 0 })
         {
             AppendLookup(sb, c, d.ExcludedPlugins, lookup.Trim());
@@ -79,6 +91,7 @@ static class StatusWire
 
         AppendExcluded(sb, d.ExcludedPlugins, cap);   // Q3 health alarm — prominent, before the routine name lists
         AppendLogs(sb, logs);   // fixed-tiny — before the cap-bounded name lists, so a long modlist can't truncate it away
+        AppendAvailableProfiles(sb, profiles, cap);   // 9.2 discovery line (instance mode, no profile= asked) — makes the inactive-profile read discoverable
 
         AppendList(sb, "disabled mods", c.DisabledMods, cap);
         AppendList(sb, "inactive plugins", c.InactivePluginNames, cap);
@@ -159,6 +172,64 @@ static class StatusWire
             if (sb.Length >= cap) { sb.Append("  ... [showing ").Append(shown).Append(" of ").Append(names.Count).Append("; raise max_chars to see all]\n"); break; }
             sb.Append("  - ").Append(n).Append('\n'); shown++;
         }
+    }
+
+    /// <summary>9.2 profile= : render the requested NAMED profile's composition (or a loud refusal / not-found). Called
+    /// whenever a name was asked for. Explicit-paths mode has no profiles folder → refuse loud (Q3, never enumerate an
+    /// arbitrary dir). A name matching no profile lists the real options (Q3 — never a silent empty composition). A match
+    /// renders that profile's counts + its disabled-mods / inactive-plugins lists, stating plainly the active profile is
+    /// unchanged (this is inspection, not a switch).</summary>
+    static void AppendNamedProfile(StringBuilder sb, NamedProfileResult p, int cap)
+    {
+        if (!p.InstanceMode)
+        {
+            sb.Append("\nprofile '").Append(p.RequestedName)
+              .Append("': can't inspect — that needs MO2-instance mode; in explicit-paths mode there is no profiles folder to read from.\n");
+            return;
+        }
+        if (p.Composition is null)                                // not found → name the real options, never a silent empty composition
+        {
+            sb.Append("\nprofile '").Append(p.RequestedName).Append("' not found — ");
+            AppendProfileNames(sb, "available", p.AvailableProfiles, cap);
+            return;
+        }
+        var c = p.Composition;
+        int active = c.ActivePluginNames.Count + c.ImplicitPluginNames.Count;
+        sb.Append("\n— inspecting profile '").Append(p.RequestedName).Append("' (read-only; the active profile is unchanged):\n");
+        sb.Append("  mods:    ").Append(c.EnabledMods.Count).Append(" enabled · ").Append(c.DisabledMods.Count).Append(" disabled\n");
+        sb.Append("  plugins: ").Append(c.OrderedPluginNames.Count).Append(" in order · ").Append(active).Append(" active · ")
+          .Append(c.InactivePluginNames.Count).Append(" inactive\n");
+        AppendList(sb, "  disabled mods", c.DisabledMods, cap);
+        AppendList(sb, "  inactive plugins", c.InactivePluginNames, cap);
+    }
+
+    /// <summary>9.2 discovery line: the available profile names (instance mode), so the inactive-profile read is
+    /// discoverable from the default status. Suppressed in explicit-paths mode (no profiles folder) and when a profile= was
+    /// asked for (the named block already named them on a miss).</summary>
+    static void AppendAvailableProfiles(StringBuilder sb, NamedProfileResult p, int cap)
+    {
+        if (!p.InstanceMode || p.RequestedName is not null) return;
+        sb.Append('\n');
+        AppendProfileNames(sb, "profiles available", p.AvailableProfiles, cap);
+        if (p.AvailableProfiles.Count > 0)
+            sb.Append("  → pass profile='<name>' to inspect any of these WITHOUT switching to it.\n");
+    }
+
+    /// <summary>One-line "label (N): a, b, c" of profile names, comma-joined, cap-bounded with an explicit cut notice
+    /// (Q3 — never silent truncation).</summary>
+    static void AppendProfileNames(StringBuilder sb, string label, IReadOnlyList<string> names, int cap)
+    {
+        sb.Append(label).Append(" (").Append(names.Count).Append(')');
+        if (names.Count == 0) { sb.Append(": none\n"); return; }
+        sb.Append(": ");
+        int shown = 0;
+        foreach (var n in names)
+        {
+            if (sb.Length >= cap) { sb.Append(" ... [").Append(names.Count - shown).Append(" more omitted at max_chars=").Append(cap).Append(']'); break; }
+            if (shown > 0) sb.Append(", ");
+            sb.Append(n); shown++;
+        }
+        sb.Append('\n');
     }
 
     static void AppendLookup(StringBuilder sb, HousecarlCore.Mo2Composition c,
