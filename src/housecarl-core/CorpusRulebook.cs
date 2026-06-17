@@ -248,14 +248,25 @@ public sealed class CorpusRulebook
                 if (c == "list") return $"Set is not valid on list '{leaf.Name}' — use SetAtIndex (with an index) or ReplaceAll.";
                 return hasKey ? $"Set on {c} field '{leaf.Name}' does not take a key." : null;
             case "Add":
-                return c is "list" or "dict" ? null : $"Add is only valid on list/dict; '{leaf.Name}' is {c}.";
+                // A dict Add coerces req.Key into the new entry's key (ApplyDictVerb -> Coerce(req.Key!, kType)); a
+                // MISSING key reaches apply and throws UNNAMED (Coerce(null)). A list Add appends — no key. Gate dict-Add
+                // key PRESENCE here, the structural twin of Set-on-dict above (key VALUE-shape stays ValueLegality's job).
+                if (c == "dict") return hasKey ? null : $"Add on dict field '{leaf.Name}' requires a key.";
+                return c == "list" ? null : $"Add is only valid on list/dict; '{leaf.Name}' is {c}.";
             case "Remove":
-                if (c is "list" or "dict") return null;
+                // A dict Remove identifies the entry to drop BY KEY (ApplyDictVerb -> Coerce(req.Key!, kType)); a MISSING
+                // key throws UNNAMED at apply. A list Remove is by-index-OR-by-value (ApplyListVerb): a null key legally
+                // falls back to remove-by-value, so list Remove needs NO key — gate dict-Remove key PRESENCE only.
+                if (c == "dict") return hasKey ? null : $"Remove on dict field '{leaf.Name}' requires a key.";
+                if (c == "list") return null;
                 return leaf.Nullable ? null : $"Remove on non-nullable {c} field '{leaf.Name}' is not valid.";
             case "ReplaceAll":
                 return c is "list" or "dict" ? null : $"ReplaceAll is only valid on list/dict; '{leaf.Name}' is {c}.";
             case "SetAtIndex":
-                return c == "list" ? null : $"SetAtIndex is only valid on list; '{leaf.Name}' is {c}.";
+                // A list SetAtIndex parses req.Key as the index (ApplyListVerb -> int.Parse(req.Key!)); a MISSING index
+                // throws ArgumentNullException at apply. Require it up front (PRESENCE; parseable-as-int stays deferred).
+                if (c != "list") return $"SetAtIndex is only valid on list; '{leaf.Name}' is {c}.";
+                return hasKey ? null : $"SetAtIndex on list '{leaf.Name}' requires an index.";
             case "Merge":
                 return c == "dict" ? null : $"Merge is only valid on dict; '{leaf.Name}' is {c}.";
             default:
@@ -382,8 +393,10 @@ public sealed class CorpusRulebook
         // element VALUE with the SAME recognizer the singular path uses (IsValidFormLinkValue — one predicate, no
         // drift between gate and apply): req.Value (list Add / SetAtIndex / Remove-by-value; dict Add — dict Set
         // returned at its own block above), req.Values (list ReplaceAll), and req.Entries' VALUES (dict Merge /
-        // ReplaceAll). The dict KEY is deliberately NOT checked — keys are the deferred surface the sibling-ref note
-        // drew. NOTE: every formlink collection in the current corpus is a LIST (85 fields); a formlink-VALUED dict is
+        // ReplaceAll). The dict KEY VALUE-SHAPE is deliberately NOT checked here — key shape is the deferred surface the
+        // sibling-ref note drew. (Key/index PRESENCE is a DISTINCT concern and IS gated up front, by construction, in
+        // VerbLegality's Add/Remove/SetAtIndex arms — the missing-key twin of the missing-value gate above.) NOTE: every
+        // formlink collection in the current corpus is a LIST (85 fields); a formlink-VALUED dict is
         // not modeled by Mutagen today (0 fields) and the generator's dict branch does not stamp FormLinkTarget for
         // one, so the req.Entries arm is dormant-by-construction — named here (Q3), and lit the moment such a field
         // (carrying its FormLinkTarget stamp) exists. The dict KEY-shape edge stays as the sibling-ref note left it.

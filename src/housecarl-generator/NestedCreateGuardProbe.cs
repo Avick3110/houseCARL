@@ -75,6 +75,19 @@ namespace HousecarlGenerator;
 ///   FLELEM-REJ-NULLSETIDX    — a compose supplied with NO value on a coercible SetAtIndex still refuses (PR #77 review
 ///                              finding 1): SetAtIndex ignores req.Struct, so the gate carries NO req.Struct guard.
 ///   FLELEM-REJ-NULLADD-E2E   — a null-value Add refuses end-to-end with NO file written (the gate, not the serialize NRE).
+///
+/// KEY / INDEX PRESENCE — the missing-addressing-key twin of the value-presence gap above (PR #77 follow-up). A dict
+/// Add/Remove coerces req.Key into / against the entry; a list SetAtIndex parses req.Key as the index. A MISSING
+/// key/index slipped pre-flight (VerbLegality required a key only for Set-on-dict) and threw UNNAMED at apply
+/// (Coerce(null) / int.Parse(null)). VerbLegality now requires it up front, by construction:
+///   KEYIDX-REJ-DICTADD    — a dict Add with no key refuses at PRE-FLIGHT (Class.SkillWeights=Dictionary&lt;Skill,Byte&gt;;
+///                           a valid value is supplied so ONLY the missing key differs). RED before: accepted (null).
+///   KEYIDX-REJ-DICTREMOVE — a dict Remove with no key refuses (it identifies the entry BY key). RED before: accepted.
+///   KEYIDX-REJ-SETIDX     — a list SetAtIndex with no index refuses (Race.MovementTypeNames=List&lt;String&gt;). RED before: accepted.
+///   KEYIDX-OK-LISTREMOVE  — a keyless list Remove + value is STILL accepted: list Remove is by-index-OR-by-value, so the
+///                           DICT-only scope does not over-reach to lists (no-over-reject, like FLELEM-NULLCLEAR-OK).
+///   KEYIDX-REJ-SETIDX-E2E — a keyless SetAtIndex refuses end-to-end with NO file written; the PRE-FLIGHT message (not the
+///                           apply int.Parse(null) throw) proves the gate. (Key VALUE-shape stays the deferred surface.)
 /// </summary>
 public static class NestedCreateGuardProbe
 {
@@ -501,12 +514,79 @@ public static class NestedCreateGuardProbe
             },
             msg => msg.Contains("requires an element value", StringComparison.OrdinalIgnoreCase));
 
+        // ====== KEY / INDEX PRESENCE — the missing-addressing-key twin of the element-VALUE-presence gate above ======
+        // The value-presence gate (FLELEM-REJ-NULL*) catches a missing element VALUE; this catches a missing addressing
+        // KEY/INDEX. A dict Add/Remove coerces req.Key into / against the entry (ApplyDictVerb -> Coerce(req.Key!, kType));
+        // a list SetAtIndex parses req.Key as the index (ApplyListVerb -> int.Parse(req.Key!)). A MISSING key/index used
+        // to slip pre-flight — VerbLegality required a key only for Set-on-dict, NOT for Add/SetAtIndex/Remove — and threw
+        // UNNAMED at apply (Coerce(null) / int.Parse(null) -> the generic "internal failure" misdirection, a Q3 accept-
+        // then-throw). VerbLegality now requires the key/index up front, by construction (verb x cardinality, no per-type
+        // list). It is PRESENCE only — the key VALUE-shape (coercible-to-KeyType / parseable-as-int) stays the deferred
+        // surface ValueLegality step-4a names. The reachability is the same the value-presence twin proved: `key` is an
+        // optional string? param (WriteTools set_field / BulkOp), so ToolCallShim's required-param gate never blocks it.
+
+        // ---------- KEYIDX-REJ-DICTADD: a dict Add with NO key refuses at PRE-FLIGHT (Class.SkillWeights=Dictionary<Skill,Byte>) ----------
+        // A VALID value (Byte "5") is supplied so ONLY the missing key differs — isolates key-presence from value-presence.
+        // RED before the gate: VerbLegality's Add arm returned null for any list/dict -> accepted, then Coerce(null,Skill) threw at apply.
+        bool keyIdxRejDictAddOk;
+        {
+            var req = new WriteRequest { RecordType = "Class", Path = new[] { "SkillWeights" }, Verb = "Add", Key = null, Value = "5" };
+            var reject = rulebook.Validate(req);
+            keyIdxRejDictAddOk = reject is not null && reject.Contains("requires a key", StringComparison.OrdinalIgnoreCase);
+            Console.WriteLine($"   KEYIDX-REJ-DICTADD missing dict key  : {(keyIdxRejDictAddOk ? "PASS — a dict Add with no key is refused at pre-flight (not accepted-then-thrown at apply)" : $"FAIL — reject=[{reject}]")}");
+        }
+
+        // ---------- KEYIDX-REJ-DICTREMOVE: a dict Remove with NO key refuses at PRE-FLIGHT (it identifies the entry BY key) ----------
+        // RED before the gate: VerbLegality's Remove arm returned null for list/dict -> accepted, then Coerce(null,Skill) threw at apply.
+        bool keyIdxRejDictRemoveOk;
+        {
+            var req = new WriteRequest { RecordType = "Class", Path = new[] { "SkillWeights" }, Verb = "Remove", Key = null };
+            var reject = rulebook.Validate(req);
+            keyIdxRejDictRemoveOk = reject is not null && reject.Contains("requires a key", StringComparison.OrdinalIgnoreCase);
+            Console.WriteLine($"   KEYIDX-REJ-DICTREMOVE missing dict key: {(keyIdxRejDictRemoveOk ? "PASS — a dict Remove with no key is refused at pre-flight" : $"FAIL — reject=[{reject}]")}");
+        }
+
+        // ---------- KEYIDX-REJ-SETIDX: a list SetAtIndex with NO index refuses at PRE-FLIGHT (Race.MovementTypeNames=List<String>) ----------
+        // A VALID value is supplied so ONLY the missing index differs. RED before the gate: VerbLegality's SetAtIndex arm
+        // returned null for any list -> accepted, then int.Parse(null) threw ArgumentNullException at apply.
+        bool keyIdxRejSetIdxOk;
+        {
+            var req = new WriteRequest { RecordType = "Race", Path = new[] { "MovementTypeNames" }, Verb = "SetAtIndex", Key = null, Value = "MT_Walk" };
+            var reject = rulebook.Validate(req);
+            keyIdxRejSetIdxOk = reject is not null && reject.Contains("requires an index", StringComparison.OrdinalIgnoreCase);
+            Console.WriteLine($"   KEYIDX-REJ-SETIDX missing list index : {(keyIdxRejSetIdxOk ? "PASS — a list SetAtIndex with no index is refused at pre-flight" : $"FAIL — reject=[{reject}]")}");
+        }
+
+        // ---------- KEYIDX-OK-LISTREMOVE: a keyless list Remove + a value is STILL accepted (no over-reject) ----------
+        // The gate is DICT-only for Remove: a list Remove is by-index-OR-by-value (ApplyListVerb), so a null key legally
+        // falls back to remove-by-value. Proves the dict-scoping doesn't over-reach to lists. Accepted before AND after.
+        bool keyIdxOkListRemoveOk;
+        {
+            var req = new WriteRequest { RecordType = "Race", Path = new[] { "MovementTypeNames" }, Verb = "Remove", Key = null, Value = "MT_Walk" };
+            var reject = rulebook.Validate(req);
+            keyIdxOkListRemoveOk = reject is null;
+            Console.WriteLine($"   KEYIDX-OK-LISTREMOVE keyless list rm : {(keyIdxOkListRemoveOk ? "PASS — a keyless list Remove (by value) is NOT over-rejected" : $"FAIL — reject=[{reject}]")}");
+        }
+
+        // ---------- KEYIDX-REJ-SETIDX-E2E: a keyless list SetAtIndex refuses end-to-end with NO file written (gate, not apply throw) ----------
+        // The "no file written" half (RejectArm): the REAL create+apply path refuses a no-index LinkTo SetAtIndex and
+        // leaves no patch — the PRE-FLIGHT message ('requires an index'), not the apply int.Parse(null) throw, proving the gate.
+        bool keyIdxRejSetIdxE2eOk = RejectArm("KEYIDX-REJ-SETIDX-E2E no index    ", tmpDir, "KeyIdxNoIdx", mPath, rulebook,
+            new[]
+            {
+                new WritePatchBuilder.CreateSpec { RecordType = "DialogTopic", EditorId = "HcNcKiTopic", Edits = Array.Empty<WriteRequest>() },
+                new WritePatchBuilder.CreateSpec { RecordType = "DialogResponses", EditorId = "HcNcKiL1", ParentRef = "HcNcKiTopic",
+                    Edits = new[] { new WriteRequest { RecordType = "DialogResponses", Path = new[] { "LinkTo" }, Verb = "SetAtIndex", Key = null, Value = "012345:Skyrim.esm" } } },
+            },
+            msg => msg.Contains("requires an index", StringComparison.OrdinalIgnoreCase));
+
         Console.WriteLine();
         bool pass = fixturesOk && oneshotOk && multiOk && intoTopicOk && intoCellOk
                     && rejNoParentOk && rejBadParentOk && rejAmbigOk && rejFwdSibOk && extendOk
                     && sibrefOk && sibRejFwdOk && sibRejNonflOk && sibRejListOk && sibRejDictOk && sibRejApplyOk
                     && flElemRejGateOk && flElemRejAddOk && flElemNullClearOk && flElemOkE2eOk && flElemRejE2eOk
-                    && flElemRejNullAddOk && flElemRejNullAddPlainOk && flElemRejNullSetIdxOk && flElemRejNullAddE2eOk;
+                    && flElemRejNullAddOk && flElemRejNullAddPlainOk && flElemRejNullSetIdxOk && flElemRejNullAddE2eOk
+                    && keyIdxRejDictAddOk && keyIdxRejDictRemoveOk && keyIdxRejSetIdxOk && keyIdxOkListRemoveOk && keyIdxRejSetIdxE2eOk;
         Console.WriteLine($"=== nested-create-guard: {(pass ? "PASS" : "FAIL")} ===");
         try { Directory.Delete(tmpDir, recursive: true); } catch { }
         return pass ? 0 : 1;
