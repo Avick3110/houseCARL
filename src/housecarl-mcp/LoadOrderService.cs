@@ -1458,7 +1458,13 @@ public sealed class LoadOrderService : IDisposable
                 throw new InvalidOperationException($"output_dir '{root}' is a file, not a folder. Give a mod-folder root — houseCARL appends Scripts\\.");
 
             var (scriptsDir, appended, warn) = ScriptOutputContract(root, _modsDir, _dataDir);
-            Directory.CreateDirectory(scriptsDir);
+            // Friendly Q3 message if the folder can't be created — e.g. <output_dir>\Scripts already exists AS A FILE, or
+            // the path is read-only — instead of letting the IO/access exception reach Guard.Tool's generic "internal
+            // failure" (which would wrongly read as a houseCARL bug, not bad input). The File.Exists(root) guard above
+            // already catches the common "output_dir itself is a file" shape; this rounds out the rest.
+            try { Directory.CreateDirectory(scriptsDir); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            { throw new InvalidOperationException($"output_dir: couldn't create the output folder '{scriptsDir}' ({ex.Message}). Check the path and that it's writable."); }
             deployWarning = warn;
             // ModFolder = the mod-folder root (inert here — cleanup is bypassed by CreatedFresh=false — but kept honest):
             // when the user pointed AT a Scripts\ dir, the root is its parent; otherwise the path they gave IS the root.

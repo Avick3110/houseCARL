@@ -143,8 +143,33 @@ internal static class CompileErgonomicsProbe
             var rfIn = svc.ResolveExplicitScriptFolder(Path.Combine(tMods, "MyPatch"), out var warnIn);
             Check(rfIn.OutputDir == Path.Combine(tMods, "MyPatch", "Scripts") && warnIn is null,
                   "an output_dir under the MO2 mods folder deploys cleanly (no warning)");
+
+            // review nit #4: if <output_dir>\Scripts already exists AS A FILE, the create throws IOException — it must be
+            // re-stamped as a friendly InvalidOperationException (which the rider renders as a clean "error: ...") rather
+            // than escaping to Guard.Tool's generic "internal failure" wording.
+            var tColl = Path.Combine(bRoot, "collision");
+            Directory.CreateDirectory(tColl);
+            File.WriteAllText(Path.Combine(tColl, "Scripts"), "a file where the Scripts folder should go");
+            bool friendly = false;
+            try { svc.ResolveExplicitScriptFolder(tColl, out _); }
+            catch (InvalidOperationException) { friendly = true; }
+            catch { /* any other exception type → not friendly */ }
+            Check(friendly, "a file at <output_dir>\\Scripts yields a friendly InvalidOperationException, not a raw IOException");
         }
         finally { try { Directory.Delete(bRoot, recursive: true); } catch { /* non-fatal */ } }
+
+        // ---------------------------------------------------------- C: success message matches the actual destination (Q3)
+        Console.WriteLine();
+        Console.WriteLine("--- C: CompileTools.Render — the success line names the RIGHT destination (review nit #1) ---");
+        var ok = new HousecarlCore.CompileResult(
+            Success: true, ObjectName: "MyScript", PexPath: @"C:\out\Scripts\MyScript.pex",
+            Diagnostics: Array.Empty<HousecarlCore.PapyrusDiagnostic>(), Stdout: "", Stderr: "", ExitCode: 0, RunError: null);
+        var defaultMsg = CompileTools.Render(ok, Array.Empty<string>(), userChoseOutputDir: false);
+        var outDirMsg = CompileTools.Render(ok, Array.Empty<string>(), userChoseOutputDir: true);
+        Check(defaultMsg.Contains("houseCARL patch-mod folder") && defaultMsg.Contains("enable it in MO2"),
+              "default destination: success names the houseCARL patch-mod folder + the MO2-enable step");
+        Check(outDirMsg.Contains("output folder you chose") && !outDirMsg.Contains("houseCARL patch-mod folder"),
+              "output_dir= destination: success names the user's chosen folder, NOT a houseCARL patch folder (no over-claim)");
 
         Console.WriteLine();
         Console.WriteLine(fail == 0
