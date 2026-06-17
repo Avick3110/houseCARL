@@ -84,8 +84,12 @@ public sealed class CorpusRulebook
             ?? throw new InvalidOperationException("corpus.json deserialised to null.");
     }
 
-    /// <summary>Pre-flight (P-VALIDATE order). Returns null if the write is legal, else a fail-loud message.</summary>
-    public string? Validate(WriteRequest req)
+    /// <summary>Pre-flight (P-VALIDATE order). Returns null if the write is legal, else a fail-loud message.
+    /// <paramref name="siblingEditorIds"/> (non-null only on the CREATE-batch path) is the set of editorids created
+    /// EARLIER in the same call: a FormLink value of the form <c>@editorid</c> in that set is accepted as a forward-ref
+    /// the create path resolves post-allocation (HCBR Layer B unit A). Null (the override/set_field path) ⇒ an
+    /// <c>@editorid</c> value is rejected loud — it has no meaning when there are no same-call siblings.</summary>
+    public string? Validate(WriteRequest req, IReadOnlyCollection<string>? siblingEditorIds = null)
     {
         // (1) resolve the record, then validate rooted at it. ValidateFromType is shared with StructSpec validation
         // (a build-from-parts spec's nested writes) so the record path and the composition path can never disagree.
@@ -93,12 +97,12 @@ public sealed class CorpusRulebook
         if (recType is null)
             return $"Unknown record type '{req.RecordType}': absent from the Mutagen corpus ({TypeCount} types). " +
                    "If Mutagen models it, that's a real coverage gap to surface — never a value to guess.";
-        return ValidateFromType(recType, req);
+        return ValidateFromType(recType, req, siblingEditorIds);
     }
 
     /// <summary>Validate a write rooted at an arbitrary type — a record OR a struct being built from parts (so a
     /// <see cref="StructSpec"/>'s nested writes validate by the identical leaf/path rules, recursively).</summary>
-    string? ValidateFromType(TypeSchema root, WriteRequest req)
+    string? ValidateFromType(TypeSchema root, WriteRequest req, IReadOnlyCollection<string>? siblingEditorIds = null)
     {
         if (req.Path.Length == 0)
             return "Empty path: a write must target at least one field.";
@@ -215,7 +219,7 @@ public sealed class CorpusRulebook
         if (!leaf.Writable) return WritabilityRejection(leafOwner, leaf);
 
         // (4) value / key coercion + enum/legal-set legality
-        return ValueLegality(leaf, req);
+        return ValueLegality(leaf, req, siblingEditorIds);
     }
 
     /// <summary>Extract the arm type T from a gendered field's <c>GenderedItem&lt;T&gt;</c> TypeRef — e.g.
@@ -275,8 +279,28 @@ public sealed class CorpusRulebook
     }
 
     // ---- value / key legality ----
-    string? ValueLegality(FieldSchema leaf, WriteRequest req)
+    string? ValueLegality(FieldSchema leaf, WriteRequest req, IReadOnlyCollection<string>? siblingEditorIds = null)
     {
+        // Same-call sibling reference ("@editorid", create-context forward-ref — HCBR Layer B unit A). Gate it BEFORE
+        // any verb/cardinality dispatch: it is a Set VALUE naming a record created earlier in this same create call,
+        // substituted with that record's real FormKey AFTER allocation (WritePatchBuilder.CreateRecords). It is ONLY
+        // legal as a Set on a FormLink leaf, and ONLY in create context (siblingEditorIds non-null) — everywhere else
+        // it rejects loud (the Apply/set_field path has no siblings, so never an accept-then-substitute-nothing, Q3).
+        // One central gate (here, not per-arm) so a sibling token can never slip through a cardinality branch below.
+        if (WriteEngine.IsSameCallSiblingRef(req.Value, out var sibEdid))
+        {
+            if (siblingEditorIds is null)
+                return $"'{req.Value}' for '{leaf.Name}': a '@editorid' same-call reference is only valid when creating " +
+                       "records in ONE call (housecarl_bulk_create) — it has no meaning when editing an existing record.";
+            if (req.Verb != "Set")
+                return $"Same-call reference '{req.Value}' for '{leaf.Name}' is only valid as a Set value (the verb was '{req.Verb}').";
+            if (leaf.Cardinality != "formlink")
+                return $"Same-call reference '{req.Value}' for '{leaf.Name}' is only valid on a FormLink field, but " +
+                       $"'{leaf.Name}' is a {leaf.Cardinality}.";
+            return siblingEditorIds.Contains(sibEdid) ? null
+                : $"Same-call reference '{req.Value}' for '{leaf.Name}': no record with editorid '{sibEdid}' is created " +
+                  "EARLIER in this call — declare it before the record that references it (in spec order).";
+        }
         if (req.Verb is "Set" && leaf.Cardinality == "dict")
         {
             if (CheckValue(leaf.KeyType, req.Key, $"dict key for '{leaf.Name}'") is { } ke) return ke;
@@ -385,7 +409,9 @@ public sealed class CorpusRulebook
                     af.MutableTypeAssemblyQualified ?? af.GetterTypeAssemblyQualified) is { } e) return e;
         }
         foreach (var s in spec.Sets ?? new())
-            if (ValidateFromType(structSchema, s) is { } e) return e;
+            // siblingEditorIds: null — a same-call @editorid forward-ref inside a COMPOSED struct (e.g. a VMAD
+            // property) is out of unit-A scope; it rejects loud here rather than being silently accepted (Q3).
+            if (ValidateFromType(structSchema, s, siblingEditorIds: null) is { } e) return e;
         return null;
     }
 

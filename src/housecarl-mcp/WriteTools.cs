@@ -173,7 +173,12 @@ public static class WriteTools
          "create_record call. A spec's parent= can be the FormID of an EXISTING record OR the editorid of a record declared " +
          "EARLIER in this same records array (a same-call sibling) — which is how the one-shot 'topic + its lines' is expressed: " +
          "records=[{record_type:'DialogTopic', editorid:'MyTopic'}, {record_type:'DialogResponses', editorid:'MyTopic_L1', " +
-         "parent:'MyTopic', operations:[{field_path:'Prompt', value:'Hello'}]}] (declare the topic BEFORE the lines). collection= " +
+         "parent:'MyTopic', operations:[{field_path:'Prompt', value:'Hello'}]}] (declare the topic BEFORE the lines). A FormLink " +
+         "field VALUE can ALSO reference a same-call sibling, written '@editorid' — so a dialogue line's order-chain and its " +
+         "topic back-link are authored in the SAME call: e.g. on a line, operations:[{field_path:'Topic', value:'@MyTopic'}, " +
+         "{field_path:'PreviousDialog', value:'@MyTopic_L1'}] points it at the same-call topic and the prior line. Each '@editorid' " +
+         "must name a record declared EARLIER in this array; it resolves to that record's auto-allocated FormID. (Only on FormLink " +
+         "fields, only in this batch tool — a single create_record has no siblings.) collection= " +
          "names which child-list when the parent holds more than one that fits (e.g. a cell's 'Persistent'). Each new FormID is " +
          "auto-allocated (the patch's own 0x800+ range) and returned. ALL-OR-NOTHING (Q3): if ANY spec is malformed or fails " +
          "pre-flight (unknown/ambiguous type, missing editorid, illegal field op, a nested child with no resolvable parent, an " +

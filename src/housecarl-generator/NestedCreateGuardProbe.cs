@@ -35,6 +35,16 @@ namespace HousecarlGenerator;
 ///                    (call 1), then in a SECOND into= call add an INFO under it by FormKey — the INFO lands under the
 ///                    patch-carried topic. A GENUINELY-absent parent (in neither the load order nor the patch) still
 ///                    refuses loud, naming both.
+///
+/// Layer B unit A — same-call sibling reference (@editorid) as a FormLink VALUE (the PNAM order-chain + Topic back-link
+/// in ONE bulk_create):
+///   SIBREF        — topic + 2 lines; line 1's Topic=@topic and line 2's PreviousDialog=@line1 BOTH resolve to the
+///                   right same-call 0x800+ FormKeys on disk (the keystone).
+///   REJ-SIBFWD    — a field @ref to a sibling declared LATER refuses loud ('EARLIER in this call' — the declared-earlier rule).
+///   REJ-SIBNONFL  — an @ref on a NON-FormLink field (FavorLevel) refuses loud ('only valid on a FormLink field' — the
+///                   string-collision guard that keeps Phase-3 substitution scoped to formlinks).
+///   REJ-SIBAPPLY  — an @ref validated with a NULL sibling set (the Apply/set_field context) refuses at the rulebook —
+///                   create-only scoping, so @editorid never becomes an accept-then-substitute-nothing hole (Q3).
 /// </summary>
 public static class NestedCreateGuardProbe
 {
@@ -239,9 +249,75 @@ public static class NestedCreateGuardProbe
             Console.WriteLine($"   EXTEND patch-carried parent works    : {(extendOk ? "PASS — prior-call topic resolvable, BOTH lines under it; a truly-absent parent still refuses loud" : $"FAIL — call1={call1Ok} call2={call2Ok} under={under} absentRefused={absentRefused} absentNamed={absentNamed} absentErr=[{absentErr}]")}");
         }
 
+        // ---------- SIBREF (Layer B unit A): @editorid same-call FormLink forward-ref ----------
+        // The keystone: a one-shot topic + two lines where line 1 back-links to the same-call topic (Topic=@topic) and
+        // line 2 chains off line 1 (PreviousDialog=@line1) — BOTH targets are sibling local 0x800+ FormKeys not known
+        // until allocation. Proves the @editorid token resolves to the right allocated FormKey in a FormLink VALUE.
+        bool sibrefOk = false;
+        {
+            string pPath = Path.Combine(tmpDir, "HcNcSibRef.esp");
+            var specs = new[]
+            {
+                new WritePatchBuilder.CreateSpec { RecordType = "DialogTopic", EditorId = "HcNcSrTopic", Edits = Array.Empty<WriteRequest>() },
+                new WritePatchBuilder.CreateSpec { RecordType = "DialogResponses", EditorId = "HcNcSrL1", ParentRef = "HcNcSrTopic",
+                    Edits = new[] { new WriteRequest { RecordType = "DialogResponses", Path = new[] { "Topic" }, Verb = "Set", Value = "@HcNcSrTopic" } } },
+                new WritePatchBuilder.CreateSpec { RecordType = "DialogResponses", EditorId = "HcNcSrL2", ParentRef = "HcNcSrTopic",
+                    Edits = new[]
+                    {
+                        new WriteRequest { RecordType = "DialogResponses", Path = new[] { "Topic" }, Verb = "Set", Value = "@HcNcSrTopic" },
+                        new WriteRequest { RecordType = "DialogResponses", Path = new[] { "PreviousDialog" }, Verb = "Set", Value = "@HcNcSrL1" },
+                    } },
+            };
+            using var r = LoadOrderResolver.Build(new[] { mPath });
+            var o = WritePatchBuilder.CreateRecords(r, rulebook, specs, pPath, extend: false);
+            FormKey topicFk = o.Success ? o.Created[0].FormKey : default;
+            FormKey l1Fk = o.Success && o.Created.Count > 1 ? o.Created[1].FormKey : default;
+            FormKey l2Fk = o.Success && o.Created.Count > 2 ? o.Created[2].FormKey : default;
+            var l1Topic = o.Success ? InfoTopic(pPath, l1Fk) : null;            // back-link → same-call topic
+            var l2Topic = o.Success ? InfoTopic(pPath, l2Fk) : null;
+            var l2Prev  = o.Success ? InfoPreviousDialog(pPath, l2Fk) : null;   // PNAM chain → prior same-call line
+            bool backLink = l1Topic == topicFk && l2Topic == topicFk;
+            bool pnam = l2Prev == l1Fk;
+            sibrefOk = o.Success && o.Created.Count == 3 && backLink && pnam && topicFk != l1Fk && l1Fk != l2Fk;
+            Console.WriteLine($"   SIBREF @editorid FormLink fwd-ref    : {(sibrefOk ? "PASS — Topic back-link + PreviousDialog chain resolved to same-call FormKeys" : $"FAIL — success={o.Success} backLink={backLink} pnam={pnam} l1Topic=[{l1Topic}] l2Prev=[{l2Prev}] topic=[{topicFk}] l1=[{l1Fk}] err=[{o.Error}]")}");
+        }
+
+        // ---------- REJ-SIBFWD: a field @ref to a sibling declared LATER refuses loud (declared-earlier rule) ----------
+        bool sibRejFwdOk = RejectArm("REJ-SIBFWD @ref to later sibling   ", tmpDir, "SibFwd", mPath, rulebook,
+            new[]
+            {
+                new WritePatchBuilder.CreateSpec { RecordType = "DialogTopic", EditorId = "HcNcSfTopic", Edits = Array.Empty<WriteRequest>() },
+                new WritePatchBuilder.CreateSpec { RecordType = "DialogResponses", EditorId = "HcNcSfL1", ParentRef = "HcNcSfTopic",
+                    Edits = new[] { new WriteRequest { RecordType = "DialogResponses", Path = new[] { "PreviousDialog" }, Verb = "Set", Value = "@HcNcSfL2" } } },
+                new WritePatchBuilder.CreateSpec { RecordType = "DialogResponses", EditorId = "HcNcSfL2", ParentRef = "HcNcSfTopic", Edits = Array.Empty<WriteRequest>() },
+            },
+            msg => msg.Contains("EARLIER in this call", StringComparison.OrdinalIgnoreCase));
+
+        // ---------- REJ-SIBNONFL: an @ref on a NON-FormLink field refuses loud (the string-collision guard) ----------
+        bool sibRejNonflOk = RejectArm("REJ-SIBNONFL @ref on non-formlink  ", tmpDir, "SibNonFl", mPath, rulebook,
+            new[]
+            {
+                new WritePatchBuilder.CreateSpec { RecordType = "DialogTopic", EditorId = "HcNcSnTopic", Edits = Array.Empty<WriteRequest>() },
+                new WritePatchBuilder.CreateSpec { RecordType = "DialogResponses", EditorId = "HcNcSnL1", ParentRef = "HcNcSnTopic",
+                    Edits = new[] { new WriteRequest { RecordType = "DialogResponses", Path = new[] { "FavorLevel" }, Verb = "Set", Value = "@HcNcSnTopic" } } },
+            },
+            msg => msg.Contains("only valid on a FormLink field", StringComparison.OrdinalIgnoreCase));
+
+        // ---------- REJ-SIBAPPLY: an @ref on the Apply/set_field path (no siblings) refuses at the rulebook ----------
+        // Drives the rulebook DIRECTLY with a null sibling set (the override/set_field context) — proves the create-only
+        // scoping that keeps @editorid from becoming an accept-then-substitute-nothing hole on the edit-existing path (Q3).
+        bool sibRejApplyOk;
+        {
+            var req = new WriteRequest { RecordType = "DialogResponses", Path = new[] { "PreviousDialog" }, Verb = "Set", Value = "@AnySibling" };
+            var reject = rulebook.Validate(req);   // null sibling set == the override/set_field context
+            sibRejApplyOk = reject is not null && reject.Contains("only valid when creating records in ONE call", StringComparison.OrdinalIgnoreCase);
+            Console.WriteLine($"   REJ-SIBAPPLY @ref on set_field path  : {(sibRejApplyOk ? "PASS — rejected at the gate (no same-call siblings when editing an existing record)" : $"FAIL — reject=[{reject}]")}");
+        }
+
         Console.WriteLine();
         bool pass = fixturesOk && oneshotOk && multiOk && intoTopicOk && intoCellOk
-                    && rejNoParentOk && rejBadParentOk && rejAmbigOk && rejFwdSibOk && extendOk;
+                    && rejNoParentOk && rejBadParentOk && rejAmbigOk && rejFwdSibOk && extendOk
+                    && sibrefOk && sibRejFwdOk && sibRejNonflOk && sibRejApplyOk;
         Console.WriteLine($"=== nested-create-guard: {(pass ? "PASS" : "FAIL")} ===");
         try { Directory.Delete(tmpDir, recursive: true); } catch { }
         return pass ? 0 : 1;
@@ -321,6 +397,30 @@ public static class NestedCreateGuardProbe
                 foreach (var sub in block.SubBlocks)
                     foreach (var c in sub.Cells)
                         if (c.FormKey == cellFk) return c.Persistent.Select(x => x.FormKey).ToList();
+            return null;
+        }
+        catch { return null; }
+        finally { (ov as IDisposable)?.Dispose(); }
+    }
+
+    /// <summary>Re-open the written patch and read a created INFO's Topic back-link FormKey (the @editorid sibling-ref
+    /// arm). FormKey.Null if unset.</summary>
+    static FormKey? InfoTopic(string patchPath, FormKey infoFk) => InfoFormLink(patchPath, infoFk, i => i.Topic.FormKey);
+
+    /// <summary>Re-open the written patch and read a created INFO's PreviousDialog (PNAM) FormKey. FormKey.Null if unset.</summary>
+    static FormKey? InfoPreviousDialog(string patchPath, FormKey infoFk) => InfoFormLink(patchPath, infoFk, i => i.PreviousDialog.FormKey);
+
+    /// <summary>Re-open the written patch, find a created INFO by FormKey (under any topic's Responses), and project a
+    /// FormLink field off it — shared by the Topic / PreviousDialog readers.</summary>
+    static FormKey? InfoFormLink(string patchPath, FormKey infoFk, Func<IDialogResponsesGetter, FormKey> select)
+    {
+        ISkyrimModGetter? ov = null;
+        try
+        {
+            ov = SkyrimMod.CreateFromBinaryOverlay(patchPath, SkyrimRelease.SkyrimSE);
+            foreach (var t in ov.DialogTopics)
+                foreach (var info in t.Responses)
+                    if (info.FormKey == infoFk) return select(info);
             return null;
         }
         catch { return null; }

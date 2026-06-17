@@ -431,6 +431,10 @@ public static class WritePatchBuilder
         var problems = new List<string>();
         var seenEdid = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var declaredEdidType = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);   // editorid -> RecordType (same-call sibling parents)
+        // editorids declared in EARLIER specs (NOT the current one) — the legal targets of a "@editorid" same-call
+        // field forward-ref (HCBR Layer B unit A). Grown at the END of each spec's iteration, so during spec i's edit
+        // validation it holds {0..i-1}: a self-ref (@its-own-editorid) and a forward-ref (a later sibling) both reject.
+        var priorEditorIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var parentPlans = new List<(IMajorRecordGetter? body, string? winnerPlugin, string? sibling, IMajorRecord? patchParent)?>(specs.Count);
         for (int i = 0; i < specs.Count; i++)
         {
@@ -488,7 +492,11 @@ public static class WritePatchBuilder
             }
 
             foreach (var req in s.Edits)
-                if (rulebook.Validate(req) is { } reject) problems.Add($"{s.RecordType} '{s.EditorId}' [{Label(req)}]: {reject}");
+                // siblingEditorIds = priorEditorIds: a "@editorid" FormLink value is accepted iff that editorid was
+                // created in an EARLIER spec of THIS call (resolved to its real FormKey in Phase 3); else rejected loud.
+                if (rulebook.Validate(req, priorEditorIds) is { } reject) problems.Add($"{s.RecordType} '{s.EditorId}' [{Label(req)}]: {reject}");
+
+            priorEditorIds.Add(s.EditorId);   // now available as a same-call sibling target for LATER specs (not its own)
         }
         if (problems.Count > 0)
             return CreateOutcome.Fail(
@@ -558,8 +566,23 @@ public static class WritePatchBuilder
 
             createdByEditorId[s.EditorId] = rec;
             var ops = new List<OpResult>(s.Edits.Count);
-            foreach (var req in s.Edits)
+            foreach (var rawReq in s.Edits)
             {
+                // Resolve a same-call sibling reference (@editorid) in a FormLink value to the sibling's now-allocated
+                // FormKey (HCBR Layer B unit A — the INFO PNAM chain + Topic back-link in one bulk_create). Pre-flight
+                // (Phase 1) already guaranteed any surviving @-token is on a FormLink leaf AND names a record created
+                // EARLIER in this call — so it is already in createdByEditorId; a miss here is a real engine
+                // inconsistency, surfaced not swallowed (Q3). The substituted value is a normal intra-patch FormKey
+                // that ApplyVerb coerces exactly as a literal FormID would (no apply-path change).
+                var req = rawReq;
+                if (WriteEngine.IsSameCallSiblingRef(rawReq.Value, out var sibEdid))
+                {
+                    if (!createdByEditorId.TryGetValue(sibEdid, out var sibRec))
+                        return CreateOutcome.Fail(
+                            $"internal: same-call reference '@{sibEdid}' on new {s.RecordType} '{s.EditorId}' resolved to no " +
+                            "record created in this call — pre-flight should have caught it; surfaced, not swallowed (Q3).");
+                    req = CopyWithValue(rawReq, sibRec.FormKey.ToString());
+                }
                 try { WriteEngine.ApplyVerb(rec, req); ops.Add(new OpResult(rec.FormKey, s.RecordType, Label(req), true, null, TryReadAfter(rec, req))); }
                 catch (Exception ex)
                 {
@@ -639,6 +662,15 @@ public static class WritePatchBuilder
     /// <summary>The xEdit-style edit label: <c>Verb path[key] = value</c> (matches <see cref="WriteEngine.RunPatch"/>).</summary>
     static string Label(WriteRequest r) =>
         $"{r.Verb} {string.Join('.', r.Path)}{(r.Key is not null ? "[" + r.Key + "]" : "")}{(r.Value is not null ? " = " + r.Value : "")}";
+
+    /// <summary>Clone a <see cref="WriteRequest"/> changing ONLY its <see cref="WriteRequest.Value"/> — it's an
+    /// init-only class (no <c>with</c>). Used to substitute a resolved same-call sibling FormKey for the
+    /// <c>@editorid</c> token before apply (HCBR Layer B unit A); every other field is carried verbatim.</summary>
+    static WriteRequest CopyWithValue(WriteRequest r, string value) => new()
+    {
+        RecordType = r.RecordType, Path = r.Path, Verb = r.Verb, Key = r.Key,
+        Value = value, Values = r.Values, Entries = r.Entries, Struct = r.Struct,
+    };
 
     /// <summary>Best-effort read-back of the edited leaf off the override (so the caller sees the value landed without a
     /// follow-up read). Reads the leaf PATH (not the keyed element — that's xEdit's job); null on any difficulty — never
