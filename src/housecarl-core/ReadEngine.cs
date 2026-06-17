@@ -272,6 +272,21 @@ public static class ReadEngine
                 Expand(ev, ev?.GetType() ?? typeof(object), val, $"{path}[{key}]", depth - 1, sink, ref budget);
             }
         }
+        else if (WriteEngine.GenderedInterface(val.GetType()) is not null)
+        {
+            // Gendered pair ([0]=male, [1]=female): render via the SAME index→arm mapping navigation uses
+            // (WriteEngine.GenderedArmNames), NOT raw enumeration order — so the [0]/[1] paths a depth-read SHOWS are
+            // exactly the ones a write/read ACCEPTS, by construction (no drift if Mutagen's enumerator order shifts).
+            // Numeric [0]/[1] keeps this root a positional list to FieldsDiff (gendered halves never reorder), so the
+            // conflict-diff comparison is unchanged (the HCBR PR-H render decision: keep numeric indices).
+            for (int g = 0; g < WriteEngine.GenderedArmNames.Length; g++)
+            {
+                if (budget < 0) return;
+                var armProp = WriteEngine.ResolveProperty(val.GetType(), WriteEngine.GenderedArmNames[g]);
+                object? arm; try { arm = armProp?.GetValue(val); } catch { continue; }
+                Expand(arm, armProp?.PropertyType ?? typeof(object), val, $"{path}[{g}]", depth - 1, sink, ref budget);
+            }
+        }
         else if (val is System.Collections.IEnumerable seq and not string)
         {
             int i = 0;
