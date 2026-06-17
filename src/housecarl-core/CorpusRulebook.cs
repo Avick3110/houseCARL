@@ -351,6 +351,23 @@ public sealed class CorpusRulebook
             return CheckValue(leaf.Type, req.Value, $"value for '{leaf.Name}'",
                 leaf.MutableTypeAssemblyQualified ?? leaf.GetterTypeAssemblyQualified);
         }
+        // (step 4-pre) ELEMENT-VALUE PRESENCE — the collection twin of the singular Set "requires a value" reject
+        // above (line ~328). Add / SetAtIndex on a COERCIBLE-element collection set the new element by coercing the
+        // singular req.Value (ApplyListVerb / ApplyDictVerb -> Coerce(req.Value!, elem)); a MISSING value (req.Value
+        // null, and no req.Struct compose) does NOT fail loud at the gate — at apply Coerce(null) yields a null
+        // element that then throws a NullReferenceException at SERIALIZE (surfaced as the misleading "compose the Data
+        // arm" NullArmSerializeException, nothing to do with the real cause). That is the SAME accept-then-throw shape
+        // PR #76 closed for a MALFORMED (non-null) element, but for the absent-value case: the step-4a formlink check
+        // below uses `is { } ev`, which SKIPS a null slot. Gate it here for EVERY coercible element (formlink +
+        // non-formlink), by construction. Verb-scoped to the verbs that consume the singular req.Value — ReplaceAll
+        // (req.Values) / Merge (req.Entries) carry their elements elsewhere (a null ENTRY inside those is the step-4a
+        // formlink check's job, or the parked non-formlink value-shape surface), and Remove is by-key-OR-value (a
+        // distinct identify-the-element concern, not a "requires a value" mirror). Coercible-element-only: Struct/Arm
+        // elements take req.Struct (StructElementLegality below gives the right "build-from-parts spec" message), and
+        // Record / uncoercible elements have no plain-value Add path at all — both correctly left exactly as today.
+        if (leaf.Cardinality is "list" or "dict" && req.Verb is "Add" or "SetAtIndex"
+            && req.Value is null && req.Struct is null && IsValueCoercibleElement(leaf))
+            return $"{req.Verb} on '{leaf.Name}' requires an element value.";
         // (step 4a) FormLink-ELEMENT collection value-shape — the collection twin of the singular formlink Set check
         // immediately above. A list/dict whose ELEMENT is a FormLink (corpus FormLinkTarget set — emitted BY
         // CONSTRUCTION by the SAME generator IsFormLink branch that flags a singular formlink) coerces each element
@@ -403,6 +420,18 @@ public sealed class CorpusRulebook
     /// a spec. Derived via the shared <see cref="SchemaClassifier"/> so the partition cannot be defined twice.</summary>
     bool IsComposableElement(FieldSchema leaf)
         => SchemaClassifier.ClassifyElement(leaf, _corpus) is ElementKind.Struct or ElementKind.Arm;
+
+    /// <summary>True iff the leaf is a collection whose ELEMENT the engine sets by COERCING a single plain value
+    /// (req.Value): a scalar/enum/formlink element (<see cref="ElementKind.ScalarCoercible"/>) or a whole-coercible
+    /// AssetLink-path element (<see cref="ElementKind.WholeCoercible"/>). These are exactly the kinds an Add /
+    /// SetAtIndex writes via <c>Coerce(req.Value!, elem)</c> at apply, so a null req.Value yields a null element that
+    /// throws at serialize — the value-presence gate keys off this. Struct/Arm elements compose via req.Struct
+    /// (<see cref="IsComposableElement"/>), and Record / uncoercible elements have no plain-value Add path at all; both
+    /// are correctly EXCLUDED so the gate can't mis-diagnose them. Derived via the shared <see cref="SchemaClassifier"/>
+    /// so the partition isn't redefined. (Broader than <see cref="SchemaClassifier.CoercibleElement"/>, which is
+    /// ScalarCoercible only — a WholeCoercible element is ALSO set by one coerced value, so it shares the null hazard.)</summary>
+    bool IsValueCoercibleElement(FieldSchema leaf)
+        => SchemaClassifier.ClassifyElement(leaf, _corpus) is ElementKind.ScalarCoercible or ElementKind.WholeCoercible;
 
     /// <summary>Validate a struct-element Add: the spec must be present, its type must match the list's element
     /// type — or, when the element type is a <b>polymorphic-base</b>, be one of its ARMS (the VMAD shape, #35:

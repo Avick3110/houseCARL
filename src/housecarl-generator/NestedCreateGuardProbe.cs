@@ -63,6 +63,16 @@ namespace HousecarlGenerator;
 ///   FLELEM-REJ-E2E     — a malformed element refuses end-to-end with NO file written; the PRE-FLIGHT message (not the
 ///                        apply throw) proves it was the gate. (The dict half — Merge/ReplaceAll on a formlink-VALUED
 ///                        dict — is dormant-by-construction: no such field is modeled in the corpus today, see ValueLegality.)
+///
+/// ELEMENT-VALUE PRESENCE — the null-PRESENCE twin of the value-SHAPE gap above (PR #76 follow-up). Add/SetAtIndex on a
+/// coercible-element collection set the new element by coercing the singular req.Value; a MISSING value (req.Value null,
+/// no compose) used to slip pre-flight — the formlink step-4a check uses `is { } ev`, which SKIPS a null slot — then
+/// Coerce(null) yielded a null element that threw a NullReferenceException at SERIALIZE (the misleading "compose the Data
+/// arm" message). The value-presence gate refuses it loud, mirroring the singular Set "requires a value":
+///   FLELEM-REJ-NULLADD       — a null req.Value on a formlink-list Add refuses at PRE-FLIGHT (RED before: accepted, null).
+///   FLELEM-REJ-NULLADD-PLAIN — the SAME gate fires for a NON-formlink coercible list (Race.MovementTypeNames =
+///                              List&lt;String&gt;) — proves it's gated UNIFORMLY by element KIND, not formlink-ness (by construction).
+///   FLELEM-REJ-NULLADD-E2E   — a null-value Add refuses end-to-end with NO file written (the gate, not the serialize NRE).
 /// </summary>
 public static class NestedCreateGuardProbe
 {
@@ -432,11 +442,54 @@ public static class NestedCreateGuardProbe
             },
             msg => msg.Contains("Illegal FormLink element", StringComparison.OrdinalIgnoreCase));
 
+        // ====== ELEMENT-VALUE PRESENCE — the null-PRESENCE twin of the FLELEM value-SHAPE gap above ======
+        // FLELEM-REJ-ADD/GATE catch a MALFORMED (non-null) element; this catches a MISSING one. The step-4a formlink
+        // check uses `is { } ev`, which SKIPS a null req.Value — so a formlink-list Add with NO value used to pass
+        // pre-flight (the RED state) and then null-deref/odd-result at apply (the same accept-then-throw shape PR #76
+        // closed, but for the absent-value case). The value-presence gate refuses it loud, mirroring the singular
+        // Set "requires a value". Coercible-element-only + verb-scoped (Add/SetAtIndex consume the singular req.Value).
+
+        // ---------- FLELEM-REJ-NULLADD: a MISSING element value (req.Value null) on an Add refuses at PRE-FLIGHT ----------
+        // Driven parent-free against the rulebook — a non-null reject IS the gate refusal. RED before the gate:
+        // Validate returned null (accepted), because the formlink step-4a `is { } ev` skips the null slot.
+        bool flElemRejNullAddOk;
+        {
+            var req = new WriteRequest { RecordType = "DialogResponses", Path = new[] { "LinkTo" }, Verb = "Add", Value = null };
+            var reject = rulebook.Validate(req);
+            flElemRejNullAddOk = reject is not null && reject.Contains("requires an element value", StringComparison.OrdinalIgnoreCase);
+            Console.WriteLine($"   FLELEM-REJ-NULLADD missing Add value : {(flElemRejNullAddOk ? "PASS — a null element value is refused at pre-flight (not accepted-then-null/thrown at apply)" : $"FAIL — reject=[{reject}]")}");
+        }
+
+        // ---------- FLELEM-REJ-NULLADD-PLAIN: the gate fires for a NON-formlink coercible element too (uniform scope) ----------
+        // The gate keys off the element KIND (ScalarCoercible/WholeCoercible via SchemaClassifier), not formlink-ness, so a
+        // plain coercible list shares the same null-presence hazard and the same fix BY CONSTRUCTION. Race.MovementTypeNames
+        // is List<String> (no FormLinkTarget, no ElementTypeRef → ScalarCoercible). RED before the gate: accepted (null).
+        bool flElemRejNullAddPlainOk;
+        {
+            var req = new WriteRequest { RecordType = "Race", Path = new[] { "MovementTypeNames" }, Verb = "Add", Value = null };
+            var reject = rulebook.Validate(req);
+            flElemRejNullAddPlainOk = reject is not null && reject.Contains("requires an element value", StringComparison.OrdinalIgnoreCase);
+            Console.WriteLine($"   FLELEM-REJ-NULLADD-PLAIN non-formlink: {(flElemRejNullAddPlainOk ? "PASS — a null value on a plain coercible (List<String>) Add is refused too — gated uniformly" : $"FAIL — reject=[{reject}]")}");
+        }
+
+        // ---------- FLELEM-REJ-NULLADD-E2E: a missing element value refuses end-to-end with NO file written ----------
+        // The "no file written" half (RejectArm): the REAL create+apply path refuses a null-value LinkTo Add and leaves
+        // no patch — the pre-flight message (not an apply null/throw) proving the gate, all-or-nothing leaving nothing.
+        bool flElemRejNullAddE2eOk = RejectArm("FLELEM-REJ-NULLADD-E2E missing value", tmpDir, "FlElemNull", mPath, rulebook,
+            new[]
+            {
+                new WritePatchBuilder.CreateSpec { RecordType = "DialogTopic", EditorId = "HcNcFnTopic", Edits = Array.Empty<WriteRequest>() },
+                new WritePatchBuilder.CreateSpec { RecordType = "DialogResponses", EditorId = "HcNcFnL1", ParentRef = "HcNcFnTopic",
+                    Edits = new[] { new WriteRequest { RecordType = "DialogResponses", Path = new[] { "LinkTo" }, Verb = "Add", Value = null } } },
+            },
+            msg => msg.Contains("requires an element value", StringComparison.OrdinalIgnoreCase));
+
         Console.WriteLine();
         bool pass = fixturesOk && oneshotOk && multiOk && intoTopicOk && intoCellOk
                     && rejNoParentOk && rejBadParentOk && rejAmbigOk && rejFwdSibOk && extendOk
                     && sibrefOk && sibRejFwdOk && sibRejNonflOk && sibRejListOk && sibRejDictOk && sibRejApplyOk
-                    && flElemRejGateOk && flElemRejAddOk && flElemNullClearOk && flElemOkE2eOk && flElemRejE2eOk;
+                    && flElemRejGateOk && flElemRejAddOk && flElemNullClearOk && flElemOkE2eOk && flElemRejE2eOk
+                    && flElemRejNullAddOk && flElemRejNullAddPlainOk && flElemRejNullAddE2eOk;
         Console.WriteLine($"=== nested-create-guard: {(pass ? "PASS" : "FAIL")} ===");
         try { Directory.Delete(tmpDir, recursive: true); } catch { }
         return pass ? 0 : 1;
