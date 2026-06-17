@@ -72,6 +72,8 @@ namespace HousecarlGenerator;
 ///   FLELEM-REJ-NULLADD       — a null req.Value on a formlink-list Add refuses at PRE-FLIGHT (RED before: accepted, null).
 ///   FLELEM-REJ-NULLADD-PLAIN — the SAME gate fires for a NON-formlink coercible list (Race.MovementTypeNames =
 ///                              List&lt;String&gt;) — proves it's gated UNIFORMLY by element KIND, not formlink-ness (by construction).
+///   FLELEM-REJ-NULLSETIDX    — a compose supplied with NO value on a coercible SetAtIndex still refuses (PR #77 review
+///                              finding 1): SetAtIndex ignores req.Struct, so the gate carries NO req.Struct guard.
 ///   FLELEM-REJ-NULLADD-E2E   — a null-value Add refuses end-to-end with NO file written (the gate, not the serialize NRE).
 /// </summary>
 public static class NestedCreateGuardProbe
@@ -472,6 +474,21 @@ public static class NestedCreateGuardProbe
             Console.WriteLine($"   FLELEM-REJ-NULLADD-PLAIN non-formlink: {(flElemRejNullAddPlainOk ? "PASS — a null value on a plain coercible (List<String>) Add is refused too — gated uniformly" : $"FAIL — reject=[{reject}]")}");
         }
 
+        // ---------- FLELEM-REJ-NULLSETIDX: a compose supplied with NO value on a coercible SetAtIndex still refuses ----------
+        // (PR #77 review finding 1.) SetAtIndex NEVER consumes req.Struct — ApplyListVerb's SetAtIndex is unconditionally
+        // Coerce(req.Value!, elem) — so a compose+no-value must NOT suppress the presence gate, else Coerce(null) hits the
+        // same serialize NRE the gate exists to kill. The gate therefore has NO req.Struct guard (a coercible element is
+        // never built from a struct, so a struct here is itself malformed). RED before the finding-1 fold: the gate's old
+        // `&& req.Struct is null` clause let a non-null Struct skip the gate → accepted. Race.MovementTypeNames = List<String>.
+        bool flElemRejNullSetIdxOk;
+        {
+            var req = new WriteRequest { RecordType = "Race", Path = new[] { "MovementTypeNames" }, Verb = "SetAtIndex",
+                Key = "0", Value = null, Struct = new StructSpec { Type = "Keyword" } };
+            var reject = rulebook.Validate(req);
+            flElemRejNullSetIdxOk = reject is not null && reject.Contains("requires an element value", StringComparison.OrdinalIgnoreCase);
+            Console.WriteLine($"   FLELEM-REJ-NULLSETIDX struct+no value: {(flElemRejNullSetIdxOk ? "PASS — a compose can't suppress the gate on SetAtIndex (which ignores req.Struct)" : $"FAIL — reject=[{reject}]")}");
+        }
+
         // ---------- FLELEM-REJ-NULLADD-E2E: a missing element value refuses end-to-end with NO file written ----------
         // The "no file written" half (RejectArm): the REAL create+apply path refuses a null-value LinkTo Add and leaves
         // no patch — the pre-flight message (not an apply null/throw) proving the gate, all-or-nothing leaving nothing.
@@ -489,7 +506,7 @@ public static class NestedCreateGuardProbe
                     && rejNoParentOk && rejBadParentOk && rejAmbigOk && rejFwdSibOk && extendOk
                     && sibrefOk && sibRejFwdOk && sibRejNonflOk && sibRejListOk && sibRejDictOk && sibRejApplyOk
                     && flElemRejGateOk && flElemRejAddOk && flElemNullClearOk && flElemOkE2eOk && flElemRejE2eOk
-                    && flElemRejNullAddOk && flElemRejNullAddPlainOk && flElemRejNullAddE2eOk;
+                    && flElemRejNullAddOk && flElemRejNullAddPlainOk && flElemRejNullSetIdxOk && flElemRejNullAddE2eOk;
         Console.WriteLine($"=== nested-create-guard: {(pass ? "PASS" : "FAIL")} ===");
         try { Directory.Delete(tmpDir, recursive: true); } catch { }
         return pass ? 0 : 1;
