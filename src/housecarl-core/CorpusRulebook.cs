@@ -353,20 +353,24 @@ public sealed class CorpusRulebook
         }
         // (step 4-pre) ELEMENT-VALUE PRESENCE — the collection twin of the singular Set "requires a value" reject
         // above (line ~328). Add / SetAtIndex on a COERCIBLE-element collection set the new element by coercing the
-        // singular req.Value (ApplyListVerb / ApplyDictVerb -> Coerce(req.Value!, elem)); a MISSING value (req.Value
-        // null, and no req.Struct compose) does NOT fail loud at the gate — at apply Coerce(null) yields a null
-        // element that then throws a NullReferenceException at SERIALIZE (surfaced as the misleading "compose the Data
-        // arm" NullArmSerializeException, nothing to do with the real cause). That is the SAME accept-then-throw shape
-        // PR #76 closed for a MALFORMED (non-null) element, but for the absent-value case: the step-4a formlink check
-        // below uses `is { } ev`, which SKIPS a null slot. Gate it here for EVERY coercible element (formlink +
-        // non-formlink), by construction. Verb-scoped to the verbs that consume the singular req.Value — ReplaceAll
-        // (req.Values) / Merge (req.Entries) carry their elements elsewhere (a null ENTRY inside those is the step-4a
-        // formlink check's job, or the parked non-formlink value-shape surface), and Remove is by-key-OR-value (a
-        // distinct identify-the-element concern, not a "requires a value" mirror). Coercible-element-only: Struct/Arm
-        // elements take req.Struct (StructElementLegality below gives the right "build-from-parts spec" message), and
-        // Record / uncoercible elements have no plain-value Add path at all — both correctly left exactly as today.
+        // singular req.Value (ApplyListVerb / ApplyDictVerb -> Coerce(req.Value!, elem)); a MISSING value does NOT
+        // fail loud at the gate — at apply Coerce(null) yields a null element that then throws a NullReferenceException
+        // at SERIALIZE (surfaced as the misleading "compose the Data arm" NullArmSerializeException, nothing to do with
+        // the real cause). That is the SAME accept-then-throw shape PR #76 closed for a MALFORMED (non-null) element,
+        // but for the absent-value case: the step-4a formlink check below uses `is { } ev`, which SKIPS a null slot.
+        // Gate it here for EVERY coercible element (formlink + non-formlink), by construction. NO req.Struct guard, by
+        // design (PR #77 review finding 1): a coercible element is NEVER built from a StructSpec, so a struct supplied
+        // with a null value is itself malformed — SetAtIndex ignores req.Struct entirely (ApplyListVerb is
+        // unconditionally Coerce(req.Value!)), and an Add's BuildStruct on a coercible element throws too; firing on a
+        // null value REGARDLESS of req.Struct closes both, and "requires an element value" is the right guidance either
+        // way (this also matches the singular Set mirror, which carries no struct guard). Verb-scoped to the verbs that
+        // consume the singular req.Value — ReplaceAll (req.Values) / Merge (req.Entries) carry their elements elsewhere
+        // (a null ENTRY inside those is the step-4a formlink check's job, or the parked non-formlink value-shape
+        // surface), and Remove is by-key-OR-value (a distinct identify-the-element concern, not a "requires a value"
+        // mirror). Coercible-element-only: Struct/Arm elements compose via the composable block below (which DOES
+        // require the spec), and Record / uncoercible elements have no plain-value Add path — both left as today.
         if (leaf.Cardinality is "list" or "dict" && req.Verb is "Add" or "SetAtIndex"
-            && req.Value is null && req.Struct is null && IsValueCoercibleElement(leaf))
+            && req.Value is null && IsValueCoercibleElement(leaf))
             return $"{req.Verb} on '{leaf.Name}' requires an element value.";
         // (step 4a) FormLink-ELEMENT collection value-shape — the collection twin of the singular formlink Set check
         // immediately above. A list/dict whose ELEMENT is a FormLink (corpus FormLinkTarget set — emitted BY
