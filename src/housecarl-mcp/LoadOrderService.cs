@@ -1400,6 +1400,70 @@ public sealed class LoadOrderService : IDisposable
         return f with { OutputDir = scripts };
     }
 
+    /// <summary>output_dir= escape hatch (6.3): the user names WHERE the compiled .pex lands, instead of houseCARL cutting a
+    /// fresh folder-per-patch mod folder. DECIDED contract (Aaron 2026-06-16): output_dir is a mod-folder ROOT and houseCARL
+    /// appends Scripts\ — matching <see cref="ResolveCompiledScriptFolder"/> + MO2's deploy model so the .pex actually loads —
+    /// with a DOUBLE-SCRIPTS guard (don't append a second Scripts\ if it's already there). Does NOT call
+    /// <see cref="ResolvePatchModFolder"/> (no houseCARL mod folder is cut under ModsDir), and the folder is USER-OWNED — the
+    /// returned <see cref="RiderFolder"/> carries CreatedFresh=false, so <see cref="RemoveOrNameRiderResidue"/> never deletes
+    /// it on a failed compile (it early-returns on !CreatedFresh). <paramref name="deployWarning"/> is a Q3 note (non-null)
+    /// when the final Scripts\ path is under neither the MO2 mods tree nor the game's Data — the .pex compiles but the game
+    /// won't auto-load it from there, so a clean "done" is never reported for a .pex that won't deploy. Refuses loud (Q3) on
+    /// an unusable output_dir (a malformed path, or a path that names an existing FILE).</summary>
+    public RiderFolder ResolveExplicitScriptFolder(string outputDir, out string? deployWarning)
+    {
+        lock (_gate)
+        {
+            if (!_configured) throw NotConfigured();
+            EnsurePathsDerived();                          // cheap: derive ModsDir/DataDir for the deployability check, NO resolver build
+            string root;
+            try { root = Path.GetFullPath((outputDir ?? "").Trim().Trim('"')); }
+            catch (Exception ex) { throw new InvalidOperationException($"output_dir '{outputDir}' is not a usable path ({ex.Message})."); }
+            if (File.Exists(root))
+                throw new InvalidOperationException($"output_dir '{root}' is a file, not a folder. Give a mod-folder root — houseCARL appends Scripts\\.");
+
+            var (scriptsDir, appended, warn) = ScriptOutputContract(root, _modsDir, _dataDir);
+            Directory.CreateDirectory(scriptsDir);
+            deployWarning = warn;
+            // ModFolder = the mod-folder root (inert here — cleanup is bypassed by CreatedFresh=false — but kept honest):
+            // when the user pointed AT a Scripts\ dir, the root is its parent; otherwise the path they gave IS the root.
+            var modRoot = appended ? root : (Path.GetDirectoryName(scriptsDir.TrimEnd('\\', '/')) ?? scriptsDir);
+            return new RiderFolder(scriptsDir, modRoot, CreatedFresh: false);   // user-owned: residue cleanup never touches it
+        }
+    }
+
+    /// <summary>PURE (no filesystem access) resolution of the output_dir= contract, so the riskiest 6.3 change is provable in
+    /// CI without an MO2 instance. Appends Scripts\ to a mod-folder root, with the DOUBLE-SCRIPTS GUARD (a root already ending
+    /// in a Scripts segment — any case, trailing separator tolerated — is taken as-is, never doubled). <paramref name="outputDir"/>
+    /// is expected absolute (the caller GetFullPaths it). Returns the final Scripts dir, whether Scripts\ was appended, and a
+    /// Q3 deployWarning when the result is under neither <paramref name="modsDir"/> (a mod's Scripts\ is VFS-deployed) nor
+    /// <paramref name="dataDir"/> (a direct game install) — the one "this won't load" case the contract can't fix by
+    /// construction, so it's surfaced rather than reported as a clean success.</summary>
+    internal static (string scriptsDir, bool appendedScripts, string? deployWarning) ScriptOutputContract(
+        string outputDir, string modsDir, string dataDir)
+    {
+        var root = outputDir.TrimEnd('\\', '/');
+        bool alreadyScripts = Path.GetFileName(root).Equals("Scripts", StringComparison.OrdinalIgnoreCase);
+        var scriptsDir = alreadyScripts ? root : Path.Combine(root, "Scripts");
+        bool deployable = IsUnder(scriptsDir, modsDir) || IsUnder(scriptsDir, dataDir);
+        string? warn = deployable ? null :
+            $"note: '{scriptsDir}' is under neither your MO2 mods folder nor the game's Data folder, so MO2 won't deploy " +
+            "the compiled script automatically — it compiled fine, but you must place it where the game loads scripts " +
+            "(a mod's Scripts\\ folder, or <game>\\Data\\Scripts) yourself.";
+        return (scriptsDir, !alreadyScripts, warn);
+    }
+
+    /// <summary>Case-insensitive "is <paramref name="child"/> at or below <paramref name="parent"/>" by normalized path
+    /// prefix, segment-boundary safe (so C:\ModsX is NOT "under" C:\Mods). An empty parent (unconfigured root) → false.</summary>
+    static bool IsUnder(string child, string parent)
+    {
+        if (string.IsNullOrEmpty(parent)) return false;
+        var c = Path.GetFullPath(child).TrimEnd('\\', '/');
+        var p = Path.GetFullPath(parent).TrimEnd('\\', '/');
+        return c.Equals(p, StringComparison.OrdinalIgnoreCase)
+            || c.StartsWith(p + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+    }
+
     /// <summary>The <c>Source\Scripts\</c> output folder for a DECOMPILED .psc (the decompile rider) — the SE-canonical
     /// source layout, and the same default patch stem as the compile rider so decompile → edit → compile naturally
     /// accumulates in one houseCARL patch folder via <c>into=</c>. Carries the root + fresh flag through for cleanup.</summary>

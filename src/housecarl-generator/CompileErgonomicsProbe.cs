@@ -65,6 +65,67 @@ internal static class CompileErgonomicsProbe
         }
         finally { try { File.Delete(tmpStore); } catch { /* non-fatal */ } }
 
+        // ---------------------------------------------------------- B) output_dir= contract (6.3): pure double-Scripts guard
+        Console.WriteLine();
+        Console.WriteLine("--- B1: ScriptOutputContract (pure) — append Scripts\\ with the double-Scripts guard + deployability ---");
+        const string mods = @"C:\MO2\mods", data = @"C:\Game\Skyrim Special Edition\Data";
+
+        var bare = LoadOrderService.ScriptOutputContract(@"C:\MyMod", mods, data);
+        Check(bare.scriptsDir == @"C:\MyMod\Scripts" && bare.appendedScripts, "a bare mod-folder root gets Scripts\\ appended");
+
+        var already = LoadOrderService.ScriptOutputContract(@"C:\MyMod\Scripts", mods, data);
+        Check(already.scriptsDir == @"C:\MyMod\Scripts" && !already.appendedScripts, "double-Scripts guard: a root already ending in Scripts is NOT doubled");
+
+        var lower = LoadOrderService.ScriptOutputContract(@"C:\MyMod\scripts", mods, data);
+        Check(lower.scriptsDir == @"C:\MyMod\scripts" && !lower.appendedScripts, "double-Scripts guard is case-insensitive (…\\scripts not doubled)");
+
+        var trailing = LoadOrderService.ScriptOutputContract(@"C:\MyMod\Scripts\", mods, data);
+        Check(trailing.scriptsDir == @"C:\MyMod\Scripts" && !trailing.appendedScripts, "double-Scripts guard tolerates a trailing separator");
+
+        Console.WriteLine();
+        Console.WriteLine("--- B2: ScriptOutputContract — deployability warning (Q3: never a clean done for a .pex that won't load) ---");
+        Check(bare.deployWarning is not null, "a path under NEITHER mods nor Data carries the Q3 deploy warning");
+        Check(LoadOrderService.ScriptOutputContract(@"C:\MO2\mods\MyPatch", mods, data).deployWarning is null,
+              "a path under the MO2 mods folder is deployable (no warning)");
+        Check(LoadOrderService.ScriptOutputContract(data, mods, data).deployWarning is null,
+              "a path under the game's Data folder is deployable (no warning)");
+        Check(LoadOrderService.ScriptOutputContract(@"C:\MO2\modsX\Foo", mods, data).deployWarning is not null,
+              "segment-boundary safe: C:\\MO2\\modsX is NOT 'under' C:\\MO2\\mods (still warns)");
+
+        // ---------------------------------------------------------- B3: ResolveExplicitScriptFolder — no patch folder cut
+        Console.WriteLine();
+        Console.WriteLine("--- B3: ResolveExplicitScriptFolder — user-owned, ResolvePatchModFolder NOT called, cleanup bypassed ---");
+        var bRoot = Path.Combine(Path.GetTempPath(), "hc-comperg-b-" + Guid.NewGuid().ToString("N"));
+        var tStore = Path.Combine(bRoot, "user.json");
+        var tMods = Path.Combine(bRoot, "mods");
+        var tData = Path.Combine(bRoot, "game", "Data");
+        var tOut = Path.Combine(bRoot, "elsewhere", "MyMod");           // OUTSIDE the mods tree
+        try
+        {
+            Directory.CreateDirectory(tMods); Directory.CreateDirectory(tData);
+            var svc = LoadOrderService.WithExplicitPaths(tData, tMods, "", 0, new UserConfigStore(tStore));
+
+            var rf = svc.ResolveExplicitScriptFolder(tOut, out var warn);
+            Check(rf.OutputDir == Path.Combine(tOut, "Scripts"), "output path = output_dir\\Scripts (the chosen contract)");
+            Check(!rf.CreatedFresh, "the folder is USER-OWNED (CreatedFresh=false), so residue cleanup never deletes it");
+            Check(Directory.Exists(rf.OutputDir), "the Scripts\\ folder is created under output_dir");
+            Check(!Directory.EnumerateFileSystemEntries(tMods).Any(),
+                  "ResolvePatchModFolder was NOT called — no houseCARL patch folder cut under ModsDir");
+            Check(warn is not null, "output_dir outside the mods tree carries the deploy warning");
+            // The load-bearing bypass: on a failed compile RemoveOrNameRiderResidue must NOT delete the user's folder.
+            // (Asserting it returns null alone is too weak — an EMPTY fresh folder also returns null because it gets
+            // deleted; the real tooth is that a user-owned folder SURVIVES.)
+            var residue = svc.RemoveOrNameRiderResidue(rf);
+            Check(residue is null && Directory.Exists(rf.OutputDir),
+                  "residue cleanup never deletes a user-owned output_dir folder (CreatedFresh=false: returns null, folder survives)");
+
+            // A path UNDER the mods tree is deployable → no warning.
+            var rfIn = svc.ResolveExplicitScriptFolder(Path.Combine(tMods, "MyPatch"), out var warnIn);
+            Check(rfIn.OutputDir == Path.Combine(tMods, "MyPatch", "Scripts") && warnIn is null,
+                  "an output_dir under the MO2 mods folder deploys cleanly (no warning)");
+        }
+        finally { try { Directory.Delete(bRoot, recursive: true); } catch { /* non-fatal */ } }
+
         Console.WriteLine();
         Console.WriteLine(fail == 0
             ? "================ ALL PASS ================"
