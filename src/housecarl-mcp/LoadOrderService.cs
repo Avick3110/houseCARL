@@ -435,17 +435,19 @@ public sealed class LoadOrderService : IDisposable
         // concurrent freshness rebuild landing in that gap could compose one status line from TWO adjacent builds —
         // the count from one, the warnings beside it from another. The fresh composition stays OUTSIDE the gate by
         // design (it is documented as always-current and is not judged against the resolver's build).
-        LoadOrderResolver.IndexView view; IReadOnlyList<string> warnings; bool profileChanged; string profileDir;
+        LoadOrderResolver.IndexView view; IReadOnlyList<string> warnings; bool profileChanged; string profileDir; string profileName; string? instanceDir;
         lock (_gate)
         {
             view = Resolver.Capture();                             // force build/refresh; ONE build for count + exclusions (HCBR-2026-06-11-02)
             warnings = _orderWarnings;
             profileChanged = ProfileFilesChanged();
             profileDir = _profileDir;
+            profileName = _profileName;                            // captured under the SAME gate (hunt F6) — one snapshot, never re-derived at render
+            instanceDir = _instanceDir;                            // the configured MO2 instance folder; null ⇒ explicit-paths / unconfigured mode
         }
         var comp = Mo2LoadOrder.ReadComposition(profileDir);       // FRESH composition (always current)
         return new LoadOrderStatusData(
-            comp, warnings, view.PluginCount, _maxPlugins, profileChanged, profileDir, view.ExcludedPlugins);
+            comp, warnings, view.PluginCount, _maxPlugins, profileChanged, profileDir, profileName, instanceDir, view.ExcludedPlugins);
     }
 
     /// <summary>True if any of the three MO2 profile files' mtimes DIFFERS from the last build's baseline — the user
@@ -1590,6 +1592,8 @@ public sealed record LoadOrderStatusData(
     int MaxPlugins,
     bool ProfileChanged,
     string ProfileDir,
+    string ProfileName,         // the ACTIVE profile (instance mode: MO2's selected_profile; explicit: the dir name) — captured under the gate, not re-derived at render
+    string? InstanceDir,        // the resolved MO2 instance folder houseCARL is pointed at; null ⇒ explicit-paths / unconfigured mode
     IReadOnlyDictionary<string, string> ExcludedPlugins);
 
 /// <summary>One queried asset path's resolution behind housecarl_asset_status: the resolver's <see cref="AssetHit"/>
