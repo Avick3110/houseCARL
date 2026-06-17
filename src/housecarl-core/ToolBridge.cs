@@ -39,7 +39,8 @@ public static class ToolBridge
     {
         new(ToolDependency.PapyrusCompiler, "papyrus_compiler", "the Papyrus compiler (PapyrusCompiler.exe)", false, "papyruscompiler",
             "compiling .psc scripts to .pex",
-            "it ships with the Creation Kit (Bethesda's free modding tool, on Steam); it's typically at <Skyrim>\\Papyrus Compiler\\PapyrusCompiler.exe"),
+            "it ships with the Creation Kit (Bethesda's free modding tool, on Steam); it lives in your REAL Steam Skyrim SE install " +
+            "at <Skyrim SE>\\Papyrus Compiler\\PapyrusCompiler.exe — NOT a Wabbajack/MO2 'Stock Game' copy (that's the data dir; the CK and the vanilla script sources are in the Steam install)"),
         new(ToolDependency.Bsarch, "bsarch", "BSArch (BSArch.exe)", false, "bsarch",
             "listing, extracting, and repacking .bsa archives",
             "BSArch is a standalone tool on Nexus Mods (also bundled with 'Cathedral Assets Optimizer' / 'BSA Browser')"),
@@ -93,14 +94,14 @@ public static class ToolBridge
     /// asks the user and is handed the exact resolving call (the forcing function). Mirrors the MO2 not-configured prompt
     /// idiom: a RETURNED string reaches the client, whereas a thrown one is genericized to "An error occurred invoking…"
     /// (measured 2026-06-02), so the guidance must be a return value, never an exception. When auto-detect had canonical
-    /// candidates to check (the compiler with a <paramref name="gameDirHint"/>, the log folders), the prompt NAMES them —
-    /// so a miss says WHERE houseCARL already looked (6.2: "better message"), telling a Wabbajack/Stock-Game user why the
-    /// game-dir anchor missed and that they must supply the real CK path. The tool-key + resolving-call contract is kept
-    /// intact regardless (the AI still gets the exact housecarl_set_tool_path call).</summary>
-    public static string RenderMissingPrompt(ToolDependency dep, string? gameDirHint = null)
+    /// candidates to check (the compiler under each <paramref name="gameDirHints"/> dir, the log folders), the prompt NAMES
+    /// them — so a miss says WHERE houseCARL already looked (6.2: "better message"), telling a Wabbajack/Stock-Game user why
+    /// every game-dir anchor missed and that they must supply the real CK path. The tool-key + resolving-call contract is
+    /// kept intact regardless (the AI still gets the exact housecarl_set_tool_path call).</summary>
+    public static string RenderMissingPrompt(ToolDependency dep, IReadOnlyList<string>? gameDirHints = null)
     {
         var info = Info(dep);
-        var tried = Candidates(dep, gameDirHint).ToList();
+        var tried = Candidates(dep, gameDirHints).ToList();
         var lookedNote = tried.Count == 0 ? "" :
             $" houseCARL already looked for it automatically at {string.Join(" and ", tried.Select(c => $"'{c}'"))} " +
             "and didn't find it there.";
@@ -115,20 +116,22 @@ public static class ToolBridge
 
     /// <summary>The canonical candidate paths houseCARL auto-detects for a dependency, in priority order — the SINGLE
     /// source of truth shared by <see cref="Probe"/> (returns the first that EXISTS) and <see cref="RenderMissingPrompt"/>
-    /// (lists them, so a miss can say WHERE houseCARL looked). The Papyrus compiler is anchored on the active instance's
-    /// game dir (<paramref name="gameDirHint"/> = the load order's gamePath; the CK installs its compiler at
-    /// &lt;game&gt;\Papyrus Compiler\PapyrusCompiler.exe). That hits a NORMAL Steam+CK install (the game dir IS the Steam
-    /// game), and MISSES a Wabbajack "Stock Game" copy (the CK lives in the separate real Steam install, on any drive) —
-    /// a BEST-EFFORT anchor, so a miss falls through to the forcing prompt, never a wrong guess. A future enhancement is
-    /// Steam-library discovery (registry + libraryfolders.vdf) for the Stock-Game case. The log folders live under the
-    /// user's Documents; BSArch is user-downloaded with no canonical home — both yield zero candidates (always prompt).</summary>
-    static IEnumerable<string> Candidates(ToolDependency dep, string? gameDirHint)
+    /// (lists them, so a miss can say WHERE houseCARL looked). The Papyrus compiler is checked under EACH game dir in
+    /// <paramref name="gameDirHints"/>, in order — the CK installs its compiler at &lt;game&gt;\Papyrus
+    /// Compiler\PapyrusCompiler.exe. The caller supplies the hints (LoadOrderService.CompilerGameDirHints): [0] the load
+    /// order's own game dir (correct when MO2 points straight at a CK-equipped install), then the GameFinder-located real
+    /// Steam SE install — because the common MO2 "Stock Game" setup points the load order at a COPY with no CK (the
+    /// Creation Kit + sources live in the Steam install). Whichever has the compiler wins; a total miss falls through to
+    /// the forcing prompt, never a wrong guess. The log folders live under the user's Documents; BSArch is user-downloaded
+    /// with no canonical home — both yield zero compiler-style candidates (BSArch always prompts).</summary>
+    static IEnumerable<string> Candidates(ToolDependency dep, IReadOnlyList<string>? gameDirHints)
     {
         switch (dep)
         {
             case ToolDependency.PapyrusCompiler:
-                if (!string.IsNullOrWhiteSpace(gameDirHint))
-                    yield return Path.Combine(gameDirHint!, "Papyrus Compiler", "PapyrusCompiler.exe");
+                foreach (var g in gameDirHints ?? Array.Empty<string>())
+                    if (!string.IsNullOrWhiteSpace(g))
+                        yield return Path.Combine(g, "Papyrus Compiler", "PapyrusCompiler.exe");
                 break;
             case ToolDependency.PapyrusLogs:
                 yield return Path.Combine(MyGames, "Logs", "Script");
@@ -146,10 +149,10 @@ public static class ToolBridge
     /// an existing folder; an exe dep (the compiler) needs an existing file — its candidate is built as the literal
     /// PapyrusCompiler.exe, so File.Exists is sufficient (the name carries the right stem by construction, and
     /// <see cref="ToolPathResolver.Resolve"/> re-Validates before persisting it anyway).</summary>
-    public static string? Probe(ToolDependency dep, string? gameDirHint = null)
+    public static string? Probe(ToolDependency dep, IReadOnlyList<string>? gameDirHints = null)
     {
         bool isDir = Info(dep).IsDirectory;
-        foreach (var c in Candidates(dep, gameDirHint))
+        foreach (var c in Candidates(dep, gameDirHints))
             if (isDir ? Directory.Exists(c) : File.Exists(c)) return c;
         return null;
     }
@@ -161,12 +164,12 @@ public static class ToolBridge
     /// else none (Unset — a rider would fire the forcing prompt). PURE (no file write), so a ReadOnly status read never
     /// mutates config, and it mirrors what a rider's resolve would find — so "where the logs are" in status is the truth a
     /// Read would hit. A saved path that no longer validates falls through (tool moved / folder deleted), same as the
-    /// runtime resolver. The optional <paramref name="gameDirHint"/> feeds the compiler's game-dir-anchored auto-detect
-    /// (the log deps that use this surface ignore it).</summary>
-    public static (string? path, ToolPathSource source) Inspect(ToolDependency dep, string? savedPath, string? gameDirHint = null)
+    /// runtime resolver. The optional <paramref name="gameDirHints"/> feed the compiler's game-dir-anchored auto-detect
+    /// (the log deps that use this surface ignore them).</summary>
+    public static (string? path, ToolPathSource source) Inspect(ToolDependency dep, string? savedPath, IReadOnlyList<string>? gameDirHints = null)
     {
         if (savedPath is not null && Validate(dep, savedPath).ok) return (savedPath, ToolPathSource.Saved);
-        var found = Probe(dep, gameDirHint);
+        var found = Probe(dep, gameDirHints);
         return found is not null ? (found, ToolPathSource.AutoDetected) : (null, ToolPathSource.Unset);
     }
 

@@ -30,22 +30,22 @@ public sealed class ToolPathResolver
     /// <summary>For a status / diagnostic surface (housecarl_load_order_status' log-folder section): where a dependency
     /// resolves right now — saved-and-valid → auto-detected canonical home → unset — WITHOUT persisting (unlike
     /// <see cref="Resolve"/>), so a ReadOnly status read never writes config. Thin wrapper over the pure
-    /// <see cref="ToolBridge.Inspect"/>, supplying the user's saved path. The optional <paramref name="gameDirHint"/>
-    /// feeds the compiler's game-dir-anchored auto-detect (the status log deps that call this pass none).</summary>
-    public (string? path, ToolPathSource source) Inspect(ToolDependency dep, string? gameDirHint = null)
-        => ToolBridge.Inspect(dep, Saved(dep), gameDirHint);
+    /// <see cref="ToolBridge.Inspect"/>, supplying the user's saved path. The optional <paramref name="gameDirHints"/>
+    /// feed the compiler's game-dir-anchored auto-detect (the status log deps that call this pass none).</summary>
+    public (string? path, ToolPathSource source) Inspect(ToolDependency dep, IReadOnlyList<string>? gameDirHints = null)
+        => ToolBridge.Inspect(dep, Saved(dep), gameDirHints);
 
     /// <summary>Resolve a dependency to a usable path: saved → else auto-detect (persist on hit) → else null. A saved path
     /// that no longer validates (tool moved/uninstalled) is treated as unset, so it re-detects or re-prompts rather than
-    /// failing opaquely downstream. The optional <paramref name="gameDirHint"/> (the active load order's game dir) anchors
-    /// the compiler's auto-detect; persisting the hit is what makes "detect once, reuse across instances" work (6.2/7.1) —
-    /// the saved path is checked FIRST on every later call, regardless of which instance is active.</summary>
-    public string? Resolve(ToolDependency dep, string? gameDirHint = null)
+    /// failing opaquely downstream. The optional <paramref name="gameDirHints"/> (the active load order's game dir, then the
+    /// located real Steam install) anchor the compiler's auto-detect; persisting the hit is what makes "detect once, reuse
+    /// across instances" work (6.2/7.1) — the saved path is checked FIRST on every later call, regardless of active instance.</summary>
+    public string? Resolve(ToolDependency dep, IReadOnlyList<string>? gameDirHints = null)
     {
         var saved = Saved(dep);
         if (saved is not null && ToolBridge.Validate(dep, saved).ok) return saved;
 
-        var found = ToolBridge.Probe(dep, gameDirHint);
+        var found = ToolBridge.Probe(dep, gameDirHints);
         if (found is not null)
         {
             // Persist the auto-detected home so we only probe once. This silent persist is the ONE path where a
@@ -79,11 +79,11 @@ public sealed class ToolPathResolver
     /// <summary>The forcing function a rider calls: out <paramref name="path"/> is the resolved path when available and the
     /// return is null (proceed); otherwise the return is the trained prompt string for the rider to RETURN to the client
     /// (so the AI surfaces the ask + the resolving call) and path is null. Exactly one of the two is non-null. The optional
-    /// <paramref name="gameDirHint"/> (trailing, so the BSArch riders that don't have one keep calling with two args) feeds
-    /// the compiler's game-dir-anchored auto-detect AND the prompt's "looked here" note when the anchor missed.</summary>
-    public string? RequireOrPrompt(ToolDependency dep, out string? path, string? gameDirHint = null)
+    /// <paramref name="gameDirHints"/> (trailing, so the BSArch riders that don't have any keep calling with two args) feed
+    /// the compiler's game-dir-anchored auto-detect AND the prompt's "looked here" note when every candidate missed.</summary>
+    public string? RequireOrPrompt(ToolDependency dep, out string? path, IReadOnlyList<string>? gameDirHints = null)
     {
-        path = Resolve(dep, gameDirHint);
-        return path is null ? ToolBridge.RenderMissingPrompt(dep, gameDirHint) : null;
+        path = Resolve(dep, gameDirHints);
+        return path is null ? ToolBridge.RenderMissingPrompt(dep, gameDirHints) : null;
     }
 }
