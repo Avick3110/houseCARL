@@ -49,6 +49,20 @@ namespace HousecarlGenerator;
 ///   REJ-SIBDICT   — the dict half of that gate: an @ref inside a dict Merge's Entries values refuses loud the same way.
 ///   REJ-SIBAPPLY  — an @ref validated with a NULL sibling set (the Apply/set_field context) refuses at the rulebook —
 ///                   create-only scoping, so @editorid never becomes an accept-then-substitute-nothing hole (Q3).
+///
+/// GENERAL FormLink-ELEMENT collection value-shape — the BROADER pre-existing gap REJ-SIBLIST/REJ-SIBDICT named: ANY
+/// malformed FormLink ELEMENT (not just an @editorid sibling token) in a collection value was accepted at pre-flight
+/// then threw "Malformed FormKey string" at apply (a Q3 accept-then-throw). The gate now validates each element with
+/// the SAME recognizer the singular formlink Set uses (DialogResponses.LinkTo = List&lt;FormLink&lt;DialogTopic&gt;&gt;):
+///   FLELEM-REJ-GATE    — a malformed element in a ReplaceAll (req.Values), PAST a valid one, refuses at PRE-FLIGHT and
+///                        NAMES the bad element ('Illegal FormLink element …' — per-element, the rulebook driven directly).
+///   FLELEM-REJ-ADD     — the req.Value slot too: a malformed Add value refuses (Add/SetAtIndex carry the element there).
+///   FLELEM-NULLCLEAR-OK— a null-clear synonym ('00000000') is a LEGAL element (shares IsValidFormLinkValue with the
+///                        singular path) — the gate doesn't over-reject the clear shape.
+///   FLELEM-OK-E2E      — a VALID FormID element round-trips through the REAL create+apply (accepted AND written to disk).
+///   FLELEM-REJ-E2E     — a malformed element refuses end-to-end with NO file written; the PRE-FLIGHT message (not the
+///                        apply throw) proves it was the gate. (The dict half — Merge/ReplaceAll on a formlink-VALUED
+///                        dict — is dormant-by-construction: no such field is modeled in the corpus today, see ValueLegality.)
 /// </summary>
 public static class NestedCreateGuardProbe
 {
@@ -343,10 +357,86 @@ public static class NestedCreateGuardProbe
             Console.WriteLine($"   REJ-SIBAPPLY @ref on set_field path  : {(sibRejApplyOk ? "PASS — rejected at the gate (no same-call siblings when editing an existing record)" : $"FAIL — reject=[{reject}]")}");
         }
 
+        // ====== GENERAL FormLink-ELEMENT collection value-shape (the broader gap the sibling-ref collection gate named) ======
+        // The sibling-ref arms above gate a '@editorid' token in a collection value; this is the GENERAL case — ANY
+        // malformed FormLink ELEMENT in a collection (a list/dict whose element is a FormLink). DialogResponses.LinkTo
+        // is List<FormLink<IDialogTopicGetter>> (corpus FormLinkTarget set), the same fixture field REJ-SIBLIST used.
+
+        // ---------- FLELEM-REJ-GATE: a malformed element in a ReplaceAll (req.Values) refuses at PRE-FLIGHT ----------
+        // Drive the rulebook DIRECTLY (parent-free) — a non-null reject IS a gate refusal (apply would instead throw the
+        // misleading "Malformed FormKey string"). A VALID FormID sits first in the list, so the per-element scan must
+        // catch the bad one even past a good one, and the message must NAME the offending element (per-element, Q3).
+        bool flElemRejGateOk;
+        {
+            var req = new WriteRequest { RecordType = "DialogResponses", Path = new[] { "LinkTo" }, Verb = "ReplaceAll",
+                Values = new[] { masterTopicFk.ToString(), "notaformkey" } };
+            var reject = rulebook.Validate(req);
+            flElemRejGateOk = reject is not null
+                && reject.Contains("Illegal FormLink element", StringComparison.OrdinalIgnoreCase)
+                && reject.Contains("notaformkey", StringComparison.Ordinal);
+            Console.WriteLine($"   FLELEM-REJ-GATE malformed list elem  : {(flElemRejGateOk ? "PASS — refused at pre-flight, names the bad element past a valid one" : $"FAIL — reject=[{reject}]")}");
+        }
+
+        // ---------- FLELEM-REJ-ADD: a malformed element in an Add (req.Value slot) refuses too ----------
+        // Guards the req.Value arm of the gate specifically (Add/SetAtIndex carry the element in req.Value, not req.Values).
+        bool flElemRejAddOk;
+        {
+            var req = new WriteRequest { RecordType = "DialogResponses", Path = new[] { "LinkTo" }, Verb = "Add", Value = "notaformkey" };
+            var reject = rulebook.Validate(req);
+            flElemRejAddOk = reject is not null && reject.Contains("Illegal FormLink element", StringComparison.OrdinalIgnoreCase);
+            Console.WriteLine($"   FLELEM-REJ-ADD malformed Add value   : {(flElemRejAddOk ? "PASS — the req.Value slot is gated too" : $"FAIL — reject=[{reject}]")}");
+        }
+
+        // ---------- FLELEM-NULLCLEAR-OK: a null-clear synonym element is LEGAL (mirrors the singular formlink check) ----------
+        // The gate shares IsValidFormLinkValue with the singular path, so "00000000" (a null-clear) must pass as an
+        // element exactly as it does as a singular Set value — proves the gate doesn't over-reject the legal clear shape.
+        bool flElemNullClearOk;
+        {
+            var req = new WriteRequest { RecordType = "DialogResponses", Path = new[] { "LinkTo" }, Verb = "ReplaceAll",
+                Values = new[] { masterTopicFk.ToString(), "00000000" } };
+            var reject = rulebook.Validate(req);
+            flElemNullClearOk = reject is null;
+            Console.WriteLine($"   FLELEM-NULLCLEAR-OK null-clear elem  : {(flElemNullClearOk ? "PASS — a real FormID and a null-clear synonym both accepted" : $"FAIL — reject=[{reject}]")}");
+        }
+
+        // ---------- FLELEM-OK-E2E: a VALID element round-trips through the REAL create+apply path ----------
+        // The no-over-reject proof in full: pre-flight accepts AND the engine writes it (the gate guards the apply path,
+        // it does not block it). Create a topic + INFO whose LinkTo ReplaceAll = [a real FormID]; read it back off disk.
+        bool flElemOkE2eOk = false;
+        {
+            string pPath = Path.Combine(tmpDir, "HcNcFlElemOk.esp");
+            var specs = new[]
+            {
+                new WritePatchBuilder.CreateSpec { RecordType = "DialogTopic", EditorId = "HcNcFoTopic", Edits = Array.Empty<WriteRequest>() },
+                new WritePatchBuilder.CreateSpec { RecordType = "DialogResponses", EditorId = "HcNcFoL1", ParentRef = "HcNcFoTopic",
+                    Edits = new[] { new WriteRequest { RecordType = "DialogResponses", Path = new[] { "LinkTo" }, Verb = "ReplaceAll",
+                        Values = new[] { masterTopicFk.ToString() } } } },
+            };
+            using var r = LoadOrderResolver.Build(new[] { mPath });
+            var o = WritePatchBuilder.CreateRecords(r, rulebook, specs, pPath, extend: false);
+            var linkTo = o.Success && o.Created.Count > 1 ? InfoLinkTo(pPath, o.Created[1].FormKey) : null;
+            bool present = linkTo is not null && linkTo.Contains(masterTopicFk);
+            flElemOkE2eOk = o.Success && present;
+            Console.WriteLine($"   FLELEM-OK-E2E valid elem round-trips : {(flElemOkE2eOk ? "PASS — accepted at the gate AND written to LinkTo on disk" : $"FAIL — success={o.Success} present={present} linkTo=[{(linkTo is null ? "null" : string.Join(",", linkTo))}] err=[{o.Error}]")}");
+        }
+
+        // ---------- FLELEM-REJ-E2E: a malformed element refuses end-to-end with NO file written (gate, not apply throw) ----------
+        // The "no file written" half: drive the REAL create path; the message being the PRE-FLIGHT one (not the apply
+        // "Malformed FormKey string") proves the gate caught it, and RejectArm proves the all-or-nothing leaves no file.
+        bool flElemRejE2eOk = RejectArm("FLELEM-REJ-E2E malformed list elem ", tmpDir, "FlElem", mPath, rulebook,
+            new[]
+            {
+                new WritePatchBuilder.CreateSpec { RecordType = "DialogTopic", EditorId = "HcNcFeTopic", Edits = Array.Empty<WriteRequest>() },
+                new WritePatchBuilder.CreateSpec { RecordType = "DialogResponses", EditorId = "HcNcFeL1", ParentRef = "HcNcFeTopic",
+                    Edits = new[] { new WriteRequest { RecordType = "DialogResponses", Path = new[] { "LinkTo" }, Verb = "ReplaceAll", Values = new[] { "notaformkey" } } } },
+            },
+            msg => msg.Contains("Illegal FormLink element", StringComparison.OrdinalIgnoreCase));
+
         Console.WriteLine();
         bool pass = fixturesOk && oneshotOk && multiOk && intoTopicOk && intoCellOk
                     && rejNoParentOk && rejBadParentOk && rejAmbigOk && rejFwdSibOk && extendOk
-                    && sibrefOk && sibRejFwdOk && sibRejNonflOk && sibRejListOk && sibRejDictOk && sibRejApplyOk;
+                    && sibrefOk && sibRejFwdOk && sibRejNonflOk && sibRejListOk && sibRejDictOk && sibRejApplyOk
+                    && flElemRejGateOk && flElemRejAddOk && flElemNullClearOk && flElemOkE2eOk && flElemRejE2eOk;
         Console.WriteLine($"=== nested-create-guard: {(pass ? "PASS" : "FAIL")} ===");
         try { Directory.Delete(tmpDir, recursive: true); } catch { }
         return pass ? 0 : 1;
@@ -450,6 +540,23 @@ public static class NestedCreateGuardProbe
             foreach (var t in ov.DialogTopics)
                 foreach (var info in t.Responses)
                     if (info.FormKey == infoFk) return select(info);
+            return null;
+        }
+        catch { return null; }
+        finally { (ov as IDisposable)?.Dispose(); }
+    }
+
+    /// <summary>Re-open the written patch and list a created INFO's LinkTo (TCLT) element FormKeys — the valid
+    /// formlink-ELEMENT round-trip check (FLELEM-OK-E2E). Null if the INFO isn't found.</summary>
+    static List<FormKey>? InfoLinkTo(string patchPath, FormKey infoFk)
+    {
+        ISkyrimModGetter? ov = null;
+        try
+        {
+            ov = SkyrimMod.CreateFromBinaryOverlay(patchPath, SkyrimRelease.SkyrimSE);
+            foreach (var t in ov.DialogTopics)
+                foreach (var info in t.Responses)
+                    if (info.FormKey == infoFk) return info.LinkTo.Select(x => x.FormKey).ToList();
             return null;
         }
         catch { return null; }

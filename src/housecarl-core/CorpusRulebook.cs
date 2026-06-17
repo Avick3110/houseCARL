@@ -351,6 +351,29 @@ public sealed class CorpusRulebook
             return CheckValue(leaf.Type, req.Value, $"value for '{leaf.Name}'",
                 leaf.MutableTypeAssemblyQualified ?? leaf.GetterTypeAssemblyQualified);
         }
+        // (step 4a) FormLink-ELEMENT collection value-shape — the collection twin of the singular formlink Set check
+        // immediately above. A list/dict whose ELEMENT is a FormLink (corpus FormLinkTarget set — emitted BY
+        // CONSTRUCTION by the SAME generator IsFormLink branch that flags a singular formlink) coerces each element
+        // through FormKey.Factory at apply (ApplyListVerb / ApplyDictVerb -> Coerce -> TryFormLink -> ToFormKey). A
+        // malformed element ("notaformkey"; "0"/"00000000"/"Null"/"000000:Null" stay legal null-clears) used to pass
+        // pre-flight here and throw "Malformed FormKey string" at apply — a Q3 accept-then-throw, the GENERAL gap the
+        // Layer-B sibling-ref collection gate (above) named as the broader pre-existing hole. Validate every supplied
+        // element VALUE with the SAME recognizer the singular path uses (IsValidFormLinkValue — one predicate, no
+        // drift between gate and apply): req.Value (list Add / SetAtIndex / Remove-by-value; dict Add — dict Set
+        // returned at its own block above), req.Values (list ReplaceAll), and req.Entries' VALUES (dict Merge /
+        // ReplaceAll). The dict KEY is deliberately NOT checked — keys are the deferred surface the sibling-ref note
+        // drew. NOTE: every formlink collection in the current corpus is a LIST (85 fields); a formlink-VALUED dict is
+        // not modeled by Mutagen today (0 fields) and the generator's dict branch does not stamp FormLinkTarget for
+        // one, so the req.Entries arm is dormant-by-construction — named here (Q3), and lit the moment such a field
+        // (carrying its FormLinkTarget stamp) exists. The dict KEY-shape edge stays as the sibling-ref note left it.
+        if (leaf.Cardinality is "list" or "dict" && leaf.FormLinkTarget is not null)
+        {
+            if (req.Value is { } ev && !WriteEngine.IsValidFormLinkValue(ev)) return FormLinkElementReject(ev, leaf);
+            foreach (var v in req.Values ?? Array.Empty<string>())
+                if (!WriteEngine.IsValidFormLinkValue(v)) return FormLinkElementReject(v, leaf);
+            foreach (var kv in req.Entries ?? new())
+                if (!WriteEngine.IsValidFormLinkValue(kv.Value)) return FormLinkElementReject(kv.Value, leaf);
+        }
         // (step 4) collection-verb value legality. A struct-element OR arm-element list takes a build-from-parts
         // StructSpec on Add — NOT a plain value — which is wave-1 half B composition (an ARM element composes by its
         // concrete arm type, validated against that arm's own schema — the VMAD shape, #35; before this, arm-element
@@ -442,6 +465,14 @@ public sealed class CorpusRulebook
         return $"'{leaf.Name}' ({leaf.Type}) needs a typed-value spec, not a plain value (e.g. a condition " +
                "FormLinkOrIndex target). Known deferred surface — surfaced, never silently accepted.";
     }
+
+    /// <summary>The loud per-element rejection for a malformed FormLink collection ELEMENT — the SAME legal-set copy
+    /// as the singular formlink Set reject, with "target" reading "element" so the two are visibly the one check at
+    /// two cardinalities. The offending value is named (per-element, Q3): the gate says exactly which element it
+    /// refused and what shape is legal, never a bare "internal inconsistency" surfaced from an apply-time throw.</summary>
+    static string FormLinkElementReject(string value, FieldSchema leaf) =>
+        $"Illegal FormLink element '{value}' for '{leaf.Name}': expected a FormID (XXXXXX:Plugin.esp) " +
+        "or a null-clear ('0', '00000000', 'Null', '000000:Null').";
 
     /// <summary>Validate a polymorphic Set: the arm must be a legal arm of the field, and its contents (flat fields +
     /// nested sets) must validate against the arm type — the same composition-contents check a struct-element Add uses.</summary>
