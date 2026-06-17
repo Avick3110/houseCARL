@@ -13,13 +13,20 @@ namespace HousecarlGenerator;
 ///      STORE INSTANCES on one file (the CLI + desktop two-process shape) serialize on the named cross-process mutex
 ///      instead of losing each other's read-modify-write.
 ///   2. <see cref="ToolBridge.Validate"/> — rejects a missing exe / wrong-named exe / missing dir; accepts a real exe + dir.
-///   3. <see cref="ToolBridge.RenderMissingPrompt"/> — the forcing function names the tool key AND the resolving call.
+///   3. <see cref="ToolBridge.RenderMissingPrompt"/> — the forcing function names the tool key AND the resolving call, AND
+///      (6.2) when auto-detect had a candidate to check, NAMES where it looked — a missed compiler game-dir anchor tells
+///      the user which path failed, while keeping the tool-key + resolving-call contract intact.
 ///   4. <see cref="ToolBridge.TryParse"/> — wire names round-trip; junk is rejected.
-///   5. <see cref="ToolBridge.Probe"/> — the compiler probe hits a synthetic &lt;game&gt;\Papyrus Compiler\PapyrusCompiler.exe
-///      and misses when absent; BSArch has no canonical home (always null).
+///   5. <see cref="ToolBridge.Probe"/> (6.2 compiler auto-detect) — WITH a gameDirHint the compiler probe hits a synthetic
+///      &lt;game&gt;\Papyrus Compiler\PapyrusCompiler.exe and misses when that exe is absent (a Stock-Game copy); WITHOUT a
+///      hint it yields no candidate (null), the pre-6.2 behavior; BSArch has no canonical home (always null).
 ///   6. <see cref="ToolBridge.Inspect"/> — the status-surface resolve (housecarl_load_order_status' log-folder section): a
 ///      saved+valid path → Saved; an invalid/absent one with no canonical home → Unset; PURE (takes the saved path,
 ///      persists nothing — a ReadOnly status read never mutates config).
+///   7. CROSS-INSTANCE SHARING (6.2/7.1 "share across instances") — tool paths live in ONE global houseCARL.user.json keyed
+///      by tool, and an MO2-instance switch (SetInstance) only writes Mo2InstanceDir; so repeated instance-dir rewrites
+///      (the switch shape) leave the saved compiler + bsarch paths untouched. A regression-lock on that by-construction
+///      coexistence (the same store the clobber-safety arm proves), framed in the gap's own "set once, reuse" terms.
 ///
 /// The cross-restart persistence + live-server forcing-function proof is the Aaron-empirical follow-up (needs his install).
 /// Run: dotnet run --project src/housecarl-generator tool-bridge
@@ -118,10 +125,22 @@ public static class ToolBridgeProbe
 
         // ---------------------------------------------------------------- 3) MISSING-DEPENDENCY PROMPT (forcing function)
         Console.WriteLine();
-        Console.WriteLine("--- 3: ToolBridge.RenderMissingPrompt — scripts the ask + the resolving call ---");
+        Console.WriteLine("--- 3: ToolBridge.RenderMissingPrompt — scripts the ask + the resolving call (+ where it looked) ---");
         var prompt = ToolBridge.RenderMissingPrompt(ToolDependency.Bsarch);
         Check(prompt.Contains("housecarl_set_tool_path"), "prompt names the resolving call");
         Check(prompt.Contains("bsarch"), "prompt names the tool key");
+        Check(!prompt.Contains("looked for it automatically"), "BSArch (no candidates) prompt names NO looked-here location");
+
+        // 6.2 "better message": with a game-dir hint, the compiler prompt NAMES the candidate it checked (so a Stock-Game
+        // miss says WHERE houseCARL looked) — WITHOUT losing the tool-key + resolving-call contract.
+        var hintDir = Path.Combine(Path.GetTempPath(), "hc-no-such-game-" + Guid.NewGuid().ToString("N"));
+        var expectedCandidate = Path.Combine(hintDir, "Papyrus Compiler", "PapyrusCompiler.exe");
+        var compPrompt = ToolBridge.RenderMissingPrompt(ToolDependency.PapyrusCompiler, hintDir);
+        Check(compPrompt.Contains(expectedCandidate), "compiler prompt (hinted) names the exact path it auto-checked");
+        Check(compPrompt.Contains("housecarl_set_tool_path") && compPrompt.Contains("papyrus_compiler"),
+              "compiler prompt keeps the tool-key + resolving-call contract alongside the looked-here note");
+        Check(!ToolBridge.RenderMissingPrompt(ToolDependency.PapyrusCompiler).Contains("looked for it automatically"),
+              "compiler prompt with NO hint names no location (nothing was auto-checked)");
 
         // ---------------------------------------------------------------- 4) PARSE
         Console.WriteLine();
@@ -130,11 +149,27 @@ public static class ToolBridgeProbe
         Check(ToolBridge.TryParse("CRASH_LOGS", out var d2) && d2 == ToolDependency.CrashLogs, "parses case-insensitively");
         Check(!ToolBridge.TryParse("nonsense", out _), "rejects an unknown tool");
 
-        // ---------------------------------------------------------------- 5) AUTO-DETECT
+        // ---------------------------------------------------------------- 5) AUTO-DETECT (6.2 compiler game-dir anchor)
         Console.WriteLine();
-        Console.WriteLine("--- 5: ToolBridge.Probe — compiler + bsarch have no cheap canonical home (prompt) ---");
-        Check(ToolBridge.Probe(ToolDependency.PapyrusCompiler) is null, "compiler has no probe home (prompts; the CK lives in the separate Steam install)");
-        Check(ToolBridge.Probe(ToolDependency.Bsarch) is null, "bsarch has no canonical home (always prompts)");
+        Console.WriteLine("--- 5: ToolBridge.Probe — compiler auto-detects under the game-dir hint; bsarch never does ---");
+        // A synthetic game dir with the CK's canonical compiler layout: <game>\Papyrus Compiler\PapyrusCompiler.exe.
+        var synthGame = Path.Combine(Path.GetTempPath(), "hc-synthgame-" + Guid.NewGuid().ToString("N"));
+        var synthCompilerDir = Path.Combine(synthGame, "Papyrus Compiler");
+        var synthCompiler = Path.Combine(synthCompilerDir, "PapyrusCompiler.exe");
+        Directory.CreateDirectory(synthCompilerDir);
+        File.WriteAllText(synthCompiler, "stub");
+        try
+        {
+            Check(ToolBridge.Probe(ToolDependency.PapyrusCompiler, synthGame) == synthCompiler,
+                  "compiler probe (with game-dir hint) hits <game>\\Papyrus Compiler\\PapyrusCompiler.exe");
+            Check(ToolBridge.Probe(ToolDependency.PapyrusCompiler) is null,
+                  "compiler probe with NO hint yields no candidate (pre-6.2 behavior — falls through to the prompt)");
+            var emptyGame = Path.Combine(Path.GetTempPath(), "hc-emptygame-" + Guid.NewGuid().ToString("N"));
+            Check(ToolBridge.Probe(ToolDependency.PapyrusCompiler, emptyGame) is null,
+                  "compiler probe misses when the hinted game dir has no Papyrus Compiler\\ (a Stock-Game copy)");
+            Check(ToolBridge.Probe(ToolDependency.Bsarch, synthGame) is null, "bsarch has no canonical home (always prompts, hint ignored)");
+        }
+        finally { try { Directory.Delete(synthGame, recursive: true); } catch { /* non-fatal */ } }
         // (papyrus_logs / crash_logs probe the user's Documents — environment-dependent, so not asserted here.)
 
         // ---------------------------------------------------------------- 6) INSPECT (status surface: saved → auto-detect → unset, PURE)
@@ -162,6 +197,28 @@ public static class ToolBridgeProbe
             // runtime ToolPathResolver owns persistence, so a ReadOnly status read can never mutate config.
         }
         finally { try { File.Delete(realExe); Directory.Delete(realDir); } catch { /* non-fatal */ } }
+
+        // ---------------------------------------------------------------- 7) CROSS-INSTANCE SHARING (6.2/7.1: set once, reuse)
+        Console.WriteLine();
+        Console.WriteLine("--- 7: tool paths persist across MO2-instance switches (one global file; SetInstance writes only Mo2InstanceDir) ---");
+        var tmp7 = Path.Combine(Path.GetTempPath(), "houseCARL.user.share." + Guid.NewGuid().ToString("N") + ".json");
+        try
+        {
+            var store = new UserConfigStore(tmp7);
+            // The user sets the compiler + bsarch ONCE (housecarl_set_tool_path writes ToolPaths).
+            store.Update(c => (c.ToolPaths ??= new())["papyrus_compiler"] = @"C:\CK\Papyrus Compiler\PapyrusCompiler.exe");
+            store.Update(c => (c.ToolPaths ??= new())["bsarch"] = @"C:\Tools\bsarch.exe");
+            // Now they "jump around" instances — each SetInstance writes ONLY Mo2InstanceDir (PersistInstanceDir), never
+            // ToolPaths. Replay that shape: repeated instance-dir rewrites must not disturb the saved tool paths.
+            for (int i = 1; i <= 5; i++) store.Update(c => c.Mo2InstanceDir = @"C:\MO2\Instance" + i);
+            var after = store.Load();
+            Check(after.Mo2InstanceDir == @"C:\MO2\Instance5", "the last instance switch is recorded");
+            Check(after.ToolPaths is { } tps
+                  && tps.TryGetValue("papyrus_compiler", out var cp) && cp == @"C:\CK\Papyrus Compiler\PapyrusCompiler.exe"
+                  && tps.TryGetValue("bsarch", out var bs) && bs == @"C:\Tools\bsarch.exe",
+                  "BOTH tool paths survive every instance switch unchanged (set once → shared across instances)");
+        }
+        finally { try { File.Delete(tmp7); } catch { /* non-fatal */ } }
 
         Console.WriteLine();
         Console.WriteLine(fail == 0
