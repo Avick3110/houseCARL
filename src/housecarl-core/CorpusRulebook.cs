@@ -186,8 +186,20 @@ public sealed class CorpusRulebook
         // (3) the leaf field — a bracketed LEAF is rejected (brackets navigate mid-path only; the leaf uses Key).
         if (!TrySeg(req.Path[^1], out var leafName, out var leafKey, out var leafErr)) return leafErr;
         if (leafKey is not null)
+        {
+            // A gendered field bracketed at the LEAF (Set Priority[0]) is NOT a list/dict — the renderer SHOWS [0]/[1]
+            // but the halves are reached/set BY NAME, so point at .Male/.Female, not the list-verb message below (which
+            // would mis-route the user to SetAtIndex/Set/Remove + Key on a field that takes none of them). Same corpus-
+            // side "GenderedItem<" recogniser as the mid-path hop above; its engine twin is WriteEngine.GenderedInterface
+            // in ApplyVerb's leaf throw — two recognisers that must agree. (HCBR-2026-06-15-01 PR-H follow-up: the leaf
+            // seam of the mid-path scalar hint.)
+            if (FindField(current, leafName, out _, out _) is { Cardinality: "substruct", TypeRef: { } ltr }
+                && ltr.StartsWith("GenderedItem<", StringComparison.Ordinal))
+                return $"Gendered field '{leafName}' on '{current.Name}' renders as [0]/[1] but is not a list — set its " +
+                       $"halves by name: '{leafName}.Male' (=[0]) / '{leafName}.Female' (=[1]).";
             return $"Path '{req.Path[^1]}' brackets a collection element at the LEAF; brackets navigate mid-path only. " +
                    "To edit a list/dict element, target the collection field and use the verb + Key (SetAtIndex/Set/Remove).";
+        }
         var leaf = FindField(current, leafName, out var leafOwner, out var leafPolyErr);
         if (leafPolyErr is not null) return leafPolyErr;
         if (leaf is null) return FieldNotFound(current, leafName);

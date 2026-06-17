@@ -1496,10 +1496,20 @@ public static class WriteEngine
         }
         var (leafName, leafKey) = ParseSegment(req.Path[^1]);
         if (leafKey is not null)
+        {
+            // A gendered field at the LEAF (Set Priority[0]) renders as [0]/[1] but is NOT a list/dict — redirect to the
+            // named halves, not the list-verb message. Runtime twin of CorpusRulebook's "GenderedItem<" leaf recogniser
+            // (two recognisers that must agree). Pre-flight normally gates this first; the engine keeps the message honest
+            // for any direct / CLI --op call that bypasses pre-flight. (HCBR-2026-06-15-01 PR-H follow-up.)
+            if (ResolveProperty(current.GetType(), leafName) is { } gp && GenderedInterface(gp.PropertyType) is not null)
+                throw new InvalidOperationException(
+                    $"Gendered field '{leafName}' on {current.GetType().Name} renders as [0]/[1] but is not a list — set " +
+                    $"its halves by name: '{leafName}.Male' (=[0]) / '{leafName}.Female' (=[1]).");
             throw new InvalidOperationException(
                 $"Path segment '{req.Path[^1]}' brackets a collection element at the LEAF. Brackets navigate mid-path " +
                 "only; to operate on a list/dict element at the leaf, use the verb + Key (SetAtIndex/Remove by index, " +
                 "or Set/Remove by dict key).");
+        }
         var leaf = ResolveProperty(current.GetType(), leafName)
             ?? throw new InvalidOperationException($"No property '{leafName}' on {current.GetType().Name}");
 

@@ -32,8 +32,11 @@ namespace HousecarlGenerator;
 /// ACCEPTS the bracket write), A2 (bracket WRITE lands AND the materialized arm is read back via the NAMED arm — the
 /// write-back/orphan tooth), A3 (the rendered [0]/[1] path re-feeds to the SHOWN value — render↔navigate agreement),
 /// A4-IDX (a bad index [2] is refused with the gendered hint), A4-SCALAR (stepping into a scalar/value arm is refused,
-/// naming the by-name fix), SER (a bracket-written arm PERSISTS through serialize→reopen). CONTROLS (green before+after):
-/// A4-SUB (a non-gendered substruct bracket stays refused — the gendered branch is gated, doesn't leak), C-LIST (a real
+/// naming the by-name fix), A4-LEAF (a gendered field bracketed at the LEAF — <c>Priority[0]</c> — is refused naming
+/// .Male/.Female, NOT the generic list-verb message; the leaf seam of A4-SCALAR — PR-H follow-up, Aaron finding #1),
+/// SER (a bracket-written arm PERSISTS through serialize→reopen). CONTROLS (green before+after):
+/// A4-SUB (a non-gendered substruct bracket stays refused — the gendered branch is gated, doesn't leak), C-LEAF (a
+/// list field bracketed at the leaf keeps the generic message — the leaf gendered branch is gated too), C-LIST (a real
 /// list element still navigates — the StepIntoElement refactor didn't break list nav), SET (the settability fact the
 /// materialize-write-back relies on — GenderedItem&lt;T&gt;.Male is settable; the named-from-null path materializes it).
 ///
@@ -79,6 +82,8 @@ public static class GenderedNavProbe
         // ---- helpers --------------------------------------------------------
         static Armor FreshArmor() =>
             new SkyrimMod(new ModKey("hc_gendered_nav", ModType.Plugin), SkyrimRelease.SkyrimSE).Armors.AddNew();
+        static ArmorAddon FreshArmorAddon() =>
+            new SkyrimMod(new ModKey("hc_gendered_nav", ModType.Plugin), SkyrimRelease.SkyrimSE).ArmorAddons.AddNew();
         static WriteRequest Set(string recordType, string dotted, string value) => new()
         {
             RecordType = recordType,
@@ -204,6 +209,29 @@ public static class GenderedNavProbe
             scalPf is not null && scalPf.Contains("by name", StringComparison.OrdinalIgnoreCase)
             && flPf is not null && flPf.Contains("by name", StringComparison.OrdinalIgnoreCase),
             $"Priority[0]={scalPf}\n        -> SkinTexture[0]={flPf}");
+
+        // ---- A4-LEAF (tooth — gendered field bracketed at the LEAF): `Set Priority[0]` with NO trailing segment is
+        //      refused naming the by-name fix (.Male/.Female), NOT the generic list-verb (SetAtIndex/Set/Remove + Key)
+        //      message — a gendered field is not a list/dict and takes none of those. RED before: it fell to the generic
+        //      LEAF-bracket message (no by-name hint). The leaf seam of A4-SCALAR (mid-path scalar already named the fix;
+        //      this closes the pure-leaf case — Aaron finding #1, PR-H follow-up). Pre-flight AND the engine must agree. ----
+        var leafPf = rb.Validate(Set("ArmorAddon", "Priority[0]", "1"));
+        string? leafEngineMsg = null;
+        try { WriteEngine.ApplyVerb(FreshArmorAddon(), Set("ArmorAddon", "Priority[0]", "1")); }
+        catch (Exception ex) { leafEngineMsg = ex.Message; }
+        Check("A4-LEAF: a gendered field at the LEAF (Priority[0]) is refused naming .Male/.Female, at pre-flight AND the engine",
+            leafPf is not null && leafPf.Contains("by name", StringComparison.OrdinalIgnoreCase) && leafPf.Contains(".Male", StringComparison.OrdinalIgnoreCase)
+            && leafEngineMsg is not null && leafEngineMsg.Contains("by name", StringComparison.OrdinalIgnoreCase) && leafEngineMsg.Contains(".Male", StringComparison.OrdinalIgnoreCase),
+            $"preflight={leafPf}\n        -> engine={leafEngineMsg}");
+
+        // ---- C-LEAF (control): a NON-gendered (real list) field bracketed at the LEAF still gets the GENERIC leaf-bracket
+        //      message, NOT the gendered by-name hint — the new leaf branch is gated on the GenderedItem recogniser and
+        //      doesn't leak to list/dict leaves. Green before AND after the fix. ----
+        var listLeafPf = rb.Validate(Set("Armor", "Keywords[0]", "012345:Skyrim.esm"));
+        Check("C-LEAF: a list field at the leaf (Keywords[0]) keeps the generic leaf message (gendered branch gated)",
+            listLeafPf is not null && listLeafPf.Contains("LEAF", StringComparison.Ordinal)
+            && !listLeafPf.Contains("by name", StringComparison.OrdinalIgnoreCase),
+            $"preflight={listLeafPf}");
 
         // ---- VTYPE (by-construction Q3 guard — the orphan trap, corpus-wide): every gendered arm pre-flight ACCEPTS
         //      for descent (a corpus-resolvable arm type) MUST be a REFERENCE type. A VALUE-type arm would be returned
