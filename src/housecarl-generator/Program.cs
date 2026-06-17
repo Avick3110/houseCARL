@@ -105,6 +105,12 @@ if (args.Length > 0 && args[0] == "write-mutex-guard") return WriteMutexProbe.Ru
 // read's freshness refresh defers while a write is in flight (never rebuilds under a serialize).
 if (args.Length > 0 && args[0] == "freshness-capture-guard") return FreshnessCaptureProbe.RunGuard(args[1..]);
 
+// Instance-describe + named-profile read (HCBR-2026-06-15-01 item 9.2 / PR-I): load_order_status now surfaces the
+// resolved MO2 instance PATH (captured in the same gated snapshot) and reads any sibling profile's composition WITHOUT
+// switching (cheap text parse, no index build) — explicit-paths mode refuses loud (no profiles root), an unknown name
+// names the available ones (Q3). Self-contained: synthetic instances + one synthesized master, no game data / no corpus.
+if (args.Length > 0 && args[0] == "loadorder-status-guard") return LoadOrderStatusProbe.RunGuard(args[1..]);
+
 // MO2 overwrite-folder resolution (2026-06-12 hunt F9): plugins living in MO2's overwrite layer resolve at
 // HIGHEST priority (top of the VFS — where Synthesis/xEdit tool outputs land), and the can't-resolve warning
 // names overwrite among the places searched.

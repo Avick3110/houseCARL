@@ -208,6 +208,14 @@ jobs:
       - name: Probe — gendered-item [0]/[1] navigable alias, read+write (self-contained regression guard)
         run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- gendered-nav-guard
 
+      # Instance-describe + named-profile read (HCBR-2026-06-15-01 item 9.2 / PR-I): load_order_status surfaces the resolved
+      # MO2 instance PATH (same gated snapshot as the rest of the status line) and inspects any sibling profile's composition
+      # WITHOUT switching to it — cheap text parse (no record-index build), explicit-paths mode refuses loud (no profiles
+      # root), an unknown name lists the available ones (Q3). Asserts both the service data AND the rendered text the user
+      # sees. Self-contained — synthetic MO2 instances + one synthesized master plugin in temp, no game data / no corpus.
+      - name: Probe — load-order-status instance path + named-profile read (self-contained regression guard)
+        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- loadorder-status-guard
+
       # The compile tool's import ORDER is semantics (the CK compiler takes the FIRST matching .psc), so caller
       # import_dirs must outrank the auto-added vanilla folder — else SKSE-extended copies of vanilla scripts lose
       # to vanilla and extended calls fail despite the right folder being passed (spike findings §5.12, hit twice).
