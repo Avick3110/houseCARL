@@ -20,6 +20,9 @@
     <!-- The CI regression guards drive the SERVICE-layer scan logic (LoadOrderService.CrossQuery, via the
          ForGuard seam) — the first CI coverage of the mcp layer (PR #23 follow-up). -->
     <ProjectReference Include="..\housecarl-mcp\housecarl-mcp.csproj" />
+    <!-- The setup update-lock guard (HCBR item 9.1 / PR-M) drives the real installer's now-public
+         Program.TryInstall seam — the only way to regression-test the locked-server pre-flight in CI. -->
+    <ProjectReference Include="..\housecarl-setup\housecarl-setup.csproj" />
   </ItemGroup>
 
   <ItemGroup>

@@ -224,6 +224,17 @@ jobs:
       - name: Probe — compile-rider ergonomics (GameDirOrNull null-safety + output_dir= contract)
         run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- compile-ergonomics-guard
 
+      # Setup update-lock pre-flight (HCBR-2026-06-15-01 item 9.1 / PR-M): re-running houseCARL-Setup.exe over a LIVE
+      # install used to overwrite the running housecarl-mcp.exe (CopyDirectory's File.Copy overwrite:true), throw
+      # mid-copy, and leave a half-updated tree behind a generic "did not complete". The fix pre-flights the lock at
+      # EVERY destination before any copy and refuses with actionable "quit Claude/Codex" guidance, with a mid-copy
+      # sharing-violation catch as defense in depth. Drives the real (now-probeable) Program.TryInstall over a
+      # synthetic package + temp home: a clean install succeeds, a held server exe refuses at PRE-FLIGHT for BOTH
+      # Claude and Codex (no copy ran, held exe byte-intact), and a held sibling DLL is caught mid-copy. Self-
+      # contained — synthetic files in temp, no game data / no real host config.
+      - name: Probe — setup update-lock pre-flight (self-contained regression guard)
+        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- setup-update-lock-guard
+
       # The compile tool's import ORDER is semantics (the CK compiler takes the FIRST matching .psc), so caller
       # import_dirs must outrank the auto-added vanilla folder — else SKSE-extended copies of vanilla scripts lose
       # to vanilla and extended calls fail despite the right folder being passed (spike findings §5.12, hit twice).

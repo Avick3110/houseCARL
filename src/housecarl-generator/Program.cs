@@ -117,6 +117,13 @@ if (args.Length > 0 && args[0] == "loadorder-status-guard") return LoadOrderStat
 // folder. Pure synthetic paths; the pure-core ToolBridge half is in the tool-bridge probe.
 if (args.Length > 0 && args[0] == "compile-ergonomics-guard") return CompileErgonomicsProbe.RunGuard(args[1..]);
 
+// Setup update-lock pre-flight (HCBR-2026-06-15-01 item 9.1 / PR-M): re-running houseCARL-Setup over a LIVE
+// install used to overwrite the running housecarl-mcp.exe (CopyDirectory's File.Copy overwrite:true), throw
+// mid-copy, and leave a half-updated tree. Drives the now-probeable Program.TryInstall: a clean install
+// succeeds, a held server exe refuses at PRE-FLIGHT before any copy (both Claude + Codex), and a held sibling
+// DLL is caught mid-copy as defense in depth. Self-contained: synthetic package + temp home, no game data.
+if (args.Length > 0 && args[0] == "setup-update-lock-guard") return SetupUpdateLockProbe.RunGuard(args[1..]);
+
 // MO2 overwrite-folder resolution (2026-06-12 hunt F9): plugins living in MO2's overwrite layer resolve at
 // HIGHEST priority (top of the VFS — where Synthesis/xEdit tool outputs land), and the can't-resolve warning
 // names overwrite among the places searched.
