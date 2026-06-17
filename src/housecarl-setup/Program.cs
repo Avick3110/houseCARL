@@ -27,7 +27,7 @@ namespace HousecarlSetup;
 /// For a Both install each host runs its own server copy (so MO2 is set once per host); unifying to a
 /// single shared server is a deferred clean-up that would re-touch the proven Claude path.
 /// </summary>
-internal static class Program
+public static class Program
 {
     private const string PluginFolderName = "housecarl"; // plugin dir shipped beside this exe
     private const string McpServerName    = "housecarl"; // server key under mcpServers / [mcp_servers.*]
@@ -37,7 +37,28 @@ internal static class Program
     // does not satisfy a net9.0 framework-dependent server.
     private const string ServerRuntimeMajor = "9";
 
-    private enum Target { Claude, Codex, Both }
+    public enum Target { Claude, Codex, Both }
+
+    /// <summary>What a non-interactive <see cref="TryInstall"/> did.</summary>
+    public enum InstallOutcome
+    {
+        /// <summary>Skills + server copied and the MCP server registered for the chosen host(s).</summary>
+        Installed,
+        /// <summary>A houseCARL server file at a destination is in use (a live Claude/Codex session is
+        /// running it), so it could not be overwritten. Nothing usable was changed when the refusal was at
+        /// pre-flight (<see cref="InstallResult.RefusedBeforeAnyCopy"/>).</summary>
+        ServerInUse,
+    }
+
+    /// <summary>Result of a non-interactive install attempt — the probeable seam under the interactive prompt.</summary>
+    /// <param name="Outcome">What happened.</param>
+    /// <param name="Message">Caller-facing detail for a non-<see cref="InstallOutcome.Installed"/> outcome (else null).</param>
+    public sealed record InstallResult(InstallOutcome Outcome, string? Message)
+    {
+        /// <summary>True only when a <see cref="InstallOutcome.ServerInUse"/> refusal happened at PRE-FLIGHT,
+        /// before any file was copied (so nothing was changed). False for the mid-copy defense-in-depth catch.</summary>
+        public bool RefusedBeforeAnyCopy { get; init; }
+    }
 
     private static int Main(string[] args)
     {
@@ -125,8 +146,21 @@ internal static class Program
             }
 
             Console.WriteLine();
-            if (target is Target.Claude or Target.Both) InstallForClaude(pluginSrc, home);
-            if (target is Target.Codex  or Target.Both) InstallForCodex(pluginSrc, home, homeOverride);
+            InstallResult result = TryInstall(target.Value, pluginSrc, home, homeOverride);
+            if (result.Outcome == InstallOutcome.ServerInUse)
+            {
+                Console.Error.WriteLine("ERROR: houseCARL is already installed and a server file is in use, so it");
+                Console.Error.WriteLine("       can't be updated right now.");
+                if (result.Message is not null)
+                    Console.Error.WriteLine("  " + result.Message);
+                Console.Error.WriteLine();
+                Console.Error.WriteLine("  Fully quit Claude Code AND Codex -- every desktop window, every terminal");
+                Console.Error.WriteLine("  session, and any background session -- then run this setup again.");
+                Console.Error.WriteLine(result.RefusedBeforeAnyCopy
+                    ? "  Nothing was changed."
+                    : "  The update was stopped partway; re-running after you quit will finish it.");
+                return Finish(1);
+            }
 
             PrintNext(target.Value);
             return Finish(0);
@@ -139,6 +173,90 @@ internal static class Program
             return Finish(1);
         }
     }
+
+    // ---- non-interactive install (the probeable seam under the prompt) -----
+
+    /// <summary>
+    /// Copy the plugin + register the MCP server for the chosen host(s), non-interactively. This is the seam
+    /// <see cref="Main"/> drives after the prompt, and the one the CI guard drives directly.
+    ///
+    /// Re-running setup over a LIVE install would have <see cref="CopyDirectory"/> overwrite the running
+    /// <c>housecarl-mcp.exe</c> (File.Copy overwrite:true), throw mid-copy, and leave a half-updated tree
+    /// behind a generic "did not complete". So we PRE-FLIGHT the lock at EVERY destination this target
+    /// touches, before copying anything, and refuse with actionable guidance (mirrors the runtime preflight
+    /// below). A clean first install (no destination exe yet) is never blocked. As defense in depth, a
+    /// sharing violation that slips past the pre-flight (a held sibling DLL, or a session started between the
+    /// check and the copy) is caught and surfaced with the same guidance instead of the generic failure.
+    /// </summary>
+    public static InstallResult TryInstall(Target target, string pluginSrc, string home, string? homeOverride)
+    {
+        List<string> destExes = new();
+        if (target is Target.Claude or Target.Both) destExes.Add(ClaudeDestExe(home));
+        if (target is Target.Codex  or Target.Both) destExes.Add(CodexDestExe(home, homeOverride));
+
+        foreach (string destExe in destExes)
+            if (ServerExeInUse(destExe))
+                return new InstallResult(InstallOutcome.ServerInUse, "Looks like the server is running here: " + destExe)
+                    { RefusedBeforeAnyCopy = true };
+
+        try
+        {
+            if (target is Target.Claude or Target.Both) InstallForClaude(pluginSrc, home);
+            if (target is Target.Codex  or Target.Both) InstallForCodex(pluginSrc, home, homeOverride);
+        }
+        catch (IOException ex) when (IsSharingViolation(ex))
+        {
+            return new InstallResult(InstallOutcome.ServerInUse,
+                "A houseCARL server file was in use during the update.");
+        }
+
+        return new InstallResult(InstallOutcome.Installed, null);
+    }
+
+    /// <summary>The Claude install's server exe path. Single source of truth so pre-flight == installer.</summary>
+    private static string ClaudeDestExe(string home)
+        => Path.Combine(home, ".claude", "skills", PluginFolderName, "server", "housecarl-mcp.exe");
+
+    /// <summary>The Codex install's server dir. Under a test home (HOUSECARL_SETUP_HOME) it hangs off that
+    /// home so tests never touch the real LOCALAPPDATA; otherwise it lives under %LOCALAPPDATA%.</summary>
+    private static string CodexServerDir(string home, string? homeOverride)
+    {
+        string dataBase = string.IsNullOrWhiteSpace(homeOverride)
+            ? Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData)
+            : home;
+        return Path.Combine(dataBase, "houseCARL", "server");
+    }
+
+    /// <summary>The Codex install's server exe path. Single source of truth so pre-flight == installer.</summary>
+    private static string CodexDestExe(string home, string? homeOverride)
+        => Path.Combine(CodexServerDir(home, homeOverride), "housecarl-mcp.exe");
+
+    /// <summary>
+    /// True if <paramref name="destExe"/> already exists AND can't be opened for writing — i.e. a live
+    /// Claude/Codex session is running it (a running image denies write sharing). A missing file (a clean
+    /// first install) returns false, so it's never falsely blocked. The handle is opened then immediately
+    /// closed and never written, so a held server's exe stays byte-intact.
+    /// </summary>
+    private static bool ServerExeInUse(string destExe)
+    {
+        if (!File.Exists(destExe)) return false;
+        try
+        {
+            using FileStream _ = new(destExe, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+            return false; // got exclusive write access -> nothing holds it -> safe to overwrite
+        }
+        catch (IOException)                 { return true; } // in use by a running session
+        catch (UnauthorizedAccessException) { return true; } // locked / not writable -> can't overwrite either
+    }
+
+    // ERROR_SHARING_VIOLATION (32) / ERROR_LOCK_VIOLATION (33): the file-in-use cases. We re-stamp ONLY these
+    // as "server in use" so an unrelated IOException (disk full, path too long) still surfaces as the honest
+    // generic failure rather than a misleading "quit Claude" message (Q3 — no silently wrong diagnosis).
+    private const int HrSharingViolation = unchecked((int)0x80070020);
+    private const int HrLockViolation    = unchecked((int)0x80070021);
+
+    private static bool IsSharingViolation(IOException ex)
+        => ex.HResult == HrSharingViolation || ex.HResult == HrLockViolation;
 
     // ---- server runtime preflight ------------------------------------------
 
@@ -240,7 +358,7 @@ internal static class Program
     private static void InstallForClaude(string pluginSrc, string home)
     {
         string skillsDest = Path.Combine(home, ".claude", "skills", PluginFolderName);
-        string destExe    = Path.Combine(skillsDest, "server", "housecarl-mcp.exe");
+        string destExe    = ClaudeDestExe(home);
         string claudeJson = Path.Combine(home, ".claude.json");
 
         Console.WriteLine("[Claude Code] installing skills + server");
@@ -260,11 +378,8 @@ internal static class Program
         // Server + corpus go to a neutral per-user dir, NOT the skills dir: Codex scans ~/.agents/skills
         // for skill FOLDERS, and the server is not a skill. Under a test home (HOUSECARL_SETUP_HOME) the
         // data dir hangs off that home so tests never touch the real LOCALAPPDATA.
-        string dataBase = string.IsNullOrWhiteSpace(homeOverride)
-            ? Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData)
-            : home;
-        string serverDest = Path.Combine(dataBase, "houseCARL", "server");
-        string destExe    = Path.Combine(serverDest, "housecarl-mcp.exe");
+        string serverDest = CodexServerDir(home, homeOverride);
+        string destExe    = CodexDestExe(home, homeOverride);
 
         // Skills go FLAT under ~/.agents/skills/ (the cross-agent, user-scope skills dir).
         string skillsRoot = Path.Combine(home, ".agents", "skills");
