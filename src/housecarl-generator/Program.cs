@@ -374,6 +374,11 @@ if (args.Length > 0 && args[0] == "compile-probe") return CompileProbe.Run(args[
 // External-tool bridge (step 3) proof: the BSA riders' list→unpack→pack→re-list round-trip against real BSArch.
 if (args.Length > 0 && args[0] == "bsa-probe") return BsaProbe.Run(args[1..]);
 
+// Corpus structural hygiene: regenerates the corpus into temp and asserts the five shape invariants the
+// reflection walk must satisfy (no self-listing arm, no indexer-named field, no non-modeled type, no
+// read-only projection arm, no degenerate field-less struct) — each RED-proven against a synthetic violation.
+if (args.Length > 0 && args[0] == "corpus-hygiene-guard") return CorpusHygieneProbe.RunGuard(args[1..]);
+
 var outputDir = Path.GetFullPath(args.Length > 0 ? args[0] : "generated");
 // The slim reference tree ships INSIDE the skill (tracked); corpus.json + summary stay in generated/.
 // Default assumes the generator is run from the repo root (as `dotnet run --project src/housecarl-generator`).
