@@ -127,17 +127,29 @@ public static class VmadPolyProbe
         var eErr = rb.Validate(questAlias);
         Check("E: QUST alias-script arm-field path passes pre-flight", eErr is null, eErr);
 
-        // ---- G: a DICT of polymorphic elements (Package.Data) refuses a compose-Add NAMED — the engine's
-        //         dict Add takes a coercible key + value, never a spec (accept-then-throw guard, PR review). ----
+        // ---- G: a DICT of polymorphic elements (Package.Data = Dictionary<sbyte,APackageData>) ACCEPTS a compose-Add
+        //         — the dict analog of VMAD's list-of-arm compose (Gap 3 / PR-B: dict-element composition). ApplyDictVerb
+        //         now BuildStructs the entry value and the gate validates the spec via the SAME StructElementLegality the
+        //         list Add uses. RED before Gap 3: rejected 'dict-element composition is a later surface'. ----
         var dictCompose = new WriteRequest
         {
             RecordType = "Package", Path = new[] { "Data" }, Verb = "Add", Key = "0",
             Struct = new StructSpec { Type = "PackageDataBool", Fields = new() },
         };
         var gErr = rb.Validate(dictCompose);
-        Check("G: dict arm-element compose-Add rejects", gErr is not null);
-        Check("G2: …named as a deferred surface, not a generic failure",
-            gErr?.Contains("later surface", StringComparison.OrdinalIgnoreCase) == true, gErr);
+        Check("G: dict arm-element compose-Add accepted (Gap 3)", gErr is null, gErr);
+
+        // ---- G2: a Package.Data compose-Add whose type is NOT an APackageData arm still rejects, naming the legal arms
+        //          — the dict compose validates its spec exactly like the list path (no blind accept). ----
+        var dictBadArm = new WriteRequest
+        {
+            RecordType = "Package", Path = new[] { "Data" }, Verb = "Add", Key = "0",
+            Struct = new StructSpec { Type = "Weapon", Fields = new() },
+        };
+        var g2Err = rb.Validate(dictBadArm);
+        Check("G2: a non-arm dict compose type rejects, naming the legal arms",
+            g2Err?.Contains("does not match", StringComparison.OrdinalIgnoreCase) == true
+            && g2Err?.Contains("Legal element types", StringComparison.OrdinalIgnoreCase) == true, g2Err);
 
         // ---- H: a polymorphic-base whose arms are RECORDS (GameSetting → GameSettingBool/Float/Int/String)
         //         classifies Record, never Arm — the composition surface must not admit record-group families

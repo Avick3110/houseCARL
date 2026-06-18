@@ -197,6 +197,22 @@ namespace HousecarlGenerator;
 ///                                      non-plain-value branch covers records (the twin found while implementing G6).
 ///   G7-OK-COMPOSABLE-REMOVE-BYINDEX  — a struct-element Remove BY INDEX (RemoveAt) stays accepted (no over-reject).
 ///   G7-OK-DICTREMOVE-BYKEY           — a composable-dict (Package.Data) Remove BY KEY stays accepted (the branch is list-only).
+///
+/// GAP 3 — dict-element COMPOSITION (PR-B; AI-package Data-input authoring). Package.Data (Dictionary&lt;sbyte,APackageData&gt;)
+/// is the ONLY struct/arm-VALUED dict Mutagen models, so this is the last un-authorable PACK piece — a package's typed Data
+/// inputs (target/location/bool/int/float/objectlist/topic). Before Gap 3 the gate refused a dict Add carrying a compose
+/// ('dict-element composition is a later surface') and ApplyDictVerb ignored req.Struct — a correct-but-incomplete case-(c)
+/// deferral, NOT an accept-then-throw. Gap 3 BUILDS it by construction, mirroring the LIST compose path: ApplyDictVerb
+/// Add/Set now BuildStruct(req.Struct) for a composable element, and the gate ACCEPTS the spec via the SAME
+/// StructElementLegality the list Add uses (poly-base arm resolution + recursive contents — no per-type wiring). Add stays
+/// throw-on-duplicate (Aaron 2026-06-18); overwrite is Set-with-compose. G6/G7 keep record-element verbs +
+/// ReplaceAll/SetAtIndex/Merge deferred, so only Add/Set compose:
+///   GAP3-OK-DICTADD-COMPOSE  — a Package.Data Add carrying a PackageDataBool compose is ACCEPTED (RED before: 'later surface').
+///   GAP3-OK-DICTSET-COMPOSE  — a Package.Data Set carrying a compose is ACCEPTED (the overwrite path; RED before: 'requires a value').
+///   GAP3-REJ-BADARM          — a compose type that is not an APackageData arm refuses, naming the legal arms (RED before: 'later surface').
+///   GAP3-OK-LIST-UNCHANGED   — an ARM-element LIST compose (Faction.Conditions) still composes (the dict-Add change didn't disturb the list path).
+///   GAP3-E2E                 — a composed PackageDataBool(Data=true) round-trips through the real create+apply path onto Package.Data[0] on disk.
+///   GAP3-REJ-DUP             — an Add of an already-present key refuses (apply-time) end-to-end, NO file written, naming Set as the overwrite path.
 /// </summary>
 public static class NestedCreateGuardProbe
 {
@@ -1155,6 +1171,91 @@ public static class NestedCreateGuardProbe
             Console.WriteLine($"   G7-OK-DICTREMOVE-BYKEY composable  : {(g7OkDictRemoveKeyOk ? "PASS — a composable-dict Remove by key (key-gated, throw-free) is NOT over-rejected" : $"FAIL — reject=[{reject}]")}");
         }
 
+        // ====== GAP 3 — dict-element COMPOSITION (PR-B; AI-package Data-input authoring) ======
+        // Package.Data (Dictionary<sbyte,APackageData>) is the ONLY struct/arm-VALUED dict Mutagen models — the last
+        // un-authorable PACK piece (a package's typed Data inputs: target/location/bool/int/float/objectlist/topic).
+        // Before Gap 3 the gate refused a dict Add compose ('dict-element composition is a later surface') and
+        // ApplyDictVerb ignored req.Struct (case-c deferral). Gap 3 builds it BY CONSTRUCTION, mirroring the LIST compose
+        // path: ApplyDictVerb Add/Set BuildStruct(req.Struct) for a composable element + the gate ACCEPTS the spec via the
+        // SAME StructElementLegality the list Add uses. Add stays throw-on-duplicate; overwrite is Set-with-compose.
+
+        // ---------- GAP3-OK-DICTADD-COMPOSE: a Package.Data Add carrying a PackageDataBool compose is ACCEPTED ----------
+        bool gap3OkDictAddComposeOk;
+        {
+            var req = new WriteRequest { RecordType = "Package", Path = new[] { "Data" }, Verb = "Add", Key = "0",
+                Struct = new StructSpec { Type = "PackageDataBool", Fields = new Dictionary<string, string> { ["Data"] = "true" } } };
+            var reject = rulebook.Validate(req);
+            gap3OkDictAddComposeOk = reject is null;
+            Console.WriteLine($"   GAP3-OK-DICTADD-COMPOSE            : {(gap3OkDictAddComposeOk ? "PASS — a Package.Data Add carrying a PackageDataBool compose is ACCEPTED (RED before: rejected 'dict-element composition is a later surface')" : $"FAIL — reject=[{reject}]")}");
+        }
+
+        // ---------- GAP3-OK-DICTSET-COMPOSE: a Package.Data Set (overwrite) carrying a compose is ACCEPTED ----------
+        bool gap3OkDictSetComposeOk;
+        {
+            var req = new WriteRequest { RecordType = "Package", Path = new[] { "Data" }, Verb = "Set", Key = "0",
+                Struct = new StructSpec { Type = "PackageDataBool", Fields = new Dictionary<string, string> { ["Data"] = "true" } } };
+            var reject = rulebook.Validate(req);
+            gap3OkDictSetComposeOk = reject is null;
+            Console.WriteLine($"   GAP3-OK-DICTSET-COMPOSE            : {(gap3OkDictSetComposeOk ? "PASS — a Package.Data Set carrying a compose is ACCEPTED (the overwrite path; RED before: 'Set on dict requires a value' — req.Value null)" : $"FAIL — reject=[{reject}]")}");
+        }
+
+        // ---------- GAP3-REJ-BADARM: a Package.Data compose whose type is not an APackageData arm refuses ----------
+        bool gap3RejBadArmOk;
+        {
+            var req = new WriteRequest { RecordType = "Package", Path = new[] { "Data" }, Verb = "Add", Key = "0",
+                Struct = new StructSpec { Type = "Weapon" } };
+            var reject = rulebook.Validate(req);
+            gap3RejBadArmOk = reject is not null && reject.Contains("does not match", StringComparison.OrdinalIgnoreCase)
+                && reject.Contains("Legal element types", StringComparison.OrdinalIgnoreCase);
+            Console.WriteLine($"   GAP3-REJ-BADARM bad compose arm    : {(gap3RejBadArmOk ? "PASS — a non-APackageData compose type is refused, naming the legal arms (RED before: rejected 'later surface', wrong reason)" : $"FAIL — reject=[{reject}]")}");
+        }
+
+        // ---------- GAP3-OK-LIST-UNCHANGED: an ARM-element LIST compose (Faction.Conditions) still composes (no regression) ----------
+        // The composable-block Add branch now serves list AND dict; this guards that the LIST arm-element path (the closest
+        // analog to Package.Data's arm-valued dict) still accepts after the edit. Accepted before AND after (regression guard).
+        bool gap3OkListUnchangedOk;
+        {
+            var req = new WriteRequest { RecordType = "Faction", Path = new[] { "Conditions" }, Verb = "Add",
+                Struct = new StructSpec { Type = "ConditionFloat" } };
+            var reject = rulebook.Validate(req);
+            gap3OkListUnchangedOk = reject is null;
+            Console.WriteLine($"   GAP3-OK-LIST-UNCHANGED arm-list Add: {(gap3OkListUnchangedOk ? "PASS — an arm-element list compose still composes (the dict-Add change didn't disturb the list path)" : $"FAIL — reject=[{reject}]")}");
+        }
+
+        // ---------- GAP3-E2E: a composed PackageDataBool round-trips through the REAL create+apply path onto disk ----------
+        bool gap3OkE2eOk = false;
+        {
+            string pPath = Path.Combine(tmpDir, "HcNcGap3Ok.esp");
+            var specs = new[]
+            {
+                new WritePatchBuilder.CreateSpec { RecordType = "Package", EditorId = "HcNcGap3Pack",
+                    Edits = new[] { new WriteRequest { RecordType = "Package", Path = new[] { "Data" }, Verb = "Add", Key = "0",
+                        Struct = new StructSpec { Type = "PackageDataBool", Fields = new Dictionary<string, string> { ["Data"] = "true", ["Name"] = "HcGap3" } } } } },
+            };
+            using var r = LoadOrderResolver.Build(new[] { mPath });
+            var o = WritePatchBuilder.CreateRecords(r, rulebook, specs, pPath, extend: false);
+            bool present = o.Success && o.Created.Count > 0 && PackageDataComposedBool(pPath, o.Created[0].FormKey);
+            gap3OkE2eOk = o.Success && present;
+            Console.WriteLine($"   GAP3-E2E composed bool round-trips : {(gap3OkE2eOk ? "PASS — accepted at the gate AND a PackageDataBool(Data=true) written to Package.Data[0] on disk" : $"FAIL — success={o.Success} present={present} err=[{o.Error}]")}");
+        }
+
+        // ---------- GAP3-REJ-DUP: Add of an already-present key refuses (apply-time) with the improved 'use Set' guidance ----------
+        // The duplicate check is apply-time (pre-flight is schema-only, can't see live occupancy): two Adds of Data[0] in one
+        // create — the second refuses the WHOLE call, no file written, with the Gap-3 message naming Set as the overwrite path.
+        bool gap3RejDupOk = RejectArm("GAP3-REJ-DUP duplicate key add     ", tmpDir, "Gap3Dup", mPath, rulebook,
+            new[]
+            {
+                new WritePatchBuilder.CreateSpec { RecordType = "Package", EditorId = "HcNcGap3Dup",
+                    Edits = new[]
+                    {
+                        new WriteRequest { RecordType = "Package", Path = new[] { "Data" }, Verb = "Add", Key = "0",
+                            Struct = new StructSpec { Type = "PackageDataBool", Fields = new Dictionary<string, string> { ["Data"] = "true" } } },
+                        new WriteRequest { RecordType = "Package", Path = new[] { "Data" }, Verb = "Add", Key = "0",
+                            Struct = new StructSpec { Type = "PackageDataBool", Fields = new Dictionary<string, string> { ["Data"] = "false" } } },
+                    } },
+            },
+            msg => msg.Contains("already present", StringComparison.OrdinalIgnoreCase) && msg.Contains("use Set", StringComparison.OrdinalIgnoreCase));
+
         Console.WriteLine();
         bool pass = fixturesOk && oneshotOk && multiOk && intoTopicOk && intoCellOk
                     && rejNoParentOk && rejBadParentOk && rejAmbigOk && rejFwdSibOk && extendOk
@@ -1170,7 +1271,8 @@ public static class NestedCreateGuardProbe
                     && gap2OkValidOk && gap2OkRemoveByIndexOk && gap2FormlinkRouteOk && gap2OkOffcardSlotOk && gap2RejE2eOk
                     && g6RejRecordAddOk && g6RejRecordReplaceAllOk && g6OkRemoveByIndexOk && g6OkStructUnchangedOk && g6RejE2eOk
                     && g4RejCtorArgShapeOk && g4RejCtorArgArityOk && g4OkCtorArgOk && g4OkNoCtorArgsOk && g4RejCtorArgE2eOk
-                    && g7RejDictMergeOk && g7RejComposableRemoveOk && g7RejRecordRemoveOk && g7OkComposableRemoveIdxOk && g7OkDictRemoveKeyOk;
+                    && g7RejDictMergeOk && g7RejComposableRemoveOk && g7RejRecordRemoveOk && g7OkComposableRemoveIdxOk && g7OkDictRemoveKeyOk
+                    && gap3OkDictAddComposeOk && gap3OkDictSetComposeOk && gap3RejBadArmOk && gap3OkListUnchangedOk && gap3OkE2eOk && gap3RejDupOk;
         Console.WriteLine($"=== nested-create-guard: {(pass ? "PASS" : "FAIL")} ===");
         try { Directory.Delete(tmpDir, recursive: true); } catch { }
         return pass ? 0 : 1;
@@ -1193,6 +1295,22 @@ public static class NestedCreateGuardProbe
         bool ok = refused && noFile && named;
         Console.WriteLine($"   {banner}: {(ok ? "PASS — refused by name, no file written" : $"FAIL — refused={refused} noFile={noFile} named={named} err=[{error}]")}");
         return ok;
+    }
+
+    /// <summary>Re-open the written patch and confirm a Package's Data dict carries a composed PackageDataBool(Data=true)
+    /// at key 0 — the Gap-3 dict-element composition round-trip (the value was built FROM PARTS, not coerced).</summary>
+    static bool PackageDataComposedBool(string patchPath, FormKey packFk)
+    {
+        ISkyrimModGetter? ov = null;
+        try
+        {
+            ov = SkyrimMod.CreateFromBinaryOverlay(patchPath, SkyrimRelease.SkyrimSE);
+            var p = ov.Packages.FirstOrDefault(x => x.FormKey == packFk);
+            if (p?.Data is null) return false;
+            return p.Data.TryGetValue((sbyte)0, out var d) && d is IPackageDataBoolGetter b && b.Data;
+        }
+        catch { return false; }
+        finally { (ov as IDisposable)?.Dispose(); }
     }
 
     /// <summary>Re-open the written patch and list a new topic's (by EditorID) child INFO FormKeys.</summary>
