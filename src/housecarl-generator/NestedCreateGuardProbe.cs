@@ -176,6 +176,21 @@ namespace HousecarlGenerator;
 ///                                RED before: accepted.
 ///   G4-OK-CTORARG              — valid ctor args ('ValueModifier') of the right arity stay accepted (no over-reject).
 ///   G4-OK-NOCTORARGS          — a compose WITHOUT ctor_args (the common case) is untouched (the spec.CtorArgs guard skips).
+///
+/// G7 — composable-element MERGE + non-plain-value Remove-BY-VALUE (the deferred-reject completion; matrix-critic finding
+/// + a record twin found while implementing G6). The IsComposableElement deferred-reject covered Add and
+/// ReplaceAll/SetAtIndex but OMITTED Merge (a Package.Data Merge fell through to ACCEPT then threw 'No coercion rule' at
+/// apply), and a Remove BY VALUE (Key null) on ANY non-plain-value element (composable OR record — neither has a
+/// plain-value form) likewise fell through then threw. The fix folds Merge into the composable deferred-reject and adds
+/// ONE unified Remove-by-value branch (predicate: list Remove, Key null, NOT formlink, NOT coercible) covering
+/// composable + record + the dormant uncoercible case by construction:
+///   G7-REJ-DICTMERGE                 — a Package.Data Merge refuses ('Merge of modeled elements is a later surface')
+///                                      (RED before: accepted then 'No coercion rule' at apply).
+///   G7-REJ-COMPOSABLE-REMOVE-BYVALUE — a struct-element (Faction.Ranks) Remove-by-value refuses, redirected to remove-by-index.
+///   G7-REJ-RECORD-REMOVE-BYVALUE     — a record-element (DialogTopic.Responses) Remove-by-value refuses too — the unified
+///                                      non-plain-value branch covers records (the twin found while implementing G6).
+///   G7-OK-COMPOSABLE-REMOVE-BYINDEX  — a struct-element Remove BY INDEX (RemoveAt) stays accepted (no over-reject).
+///   G7-OK-DICTREMOVE-BYKEY           — a composable-dict (Package.Data) Remove BY KEY stays accepted (the branch is list-only).
 /// </summary>
 public static class NestedCreateGuardProbe
 {
@@ -1033,6 +1048,66 @@ public static class NestedCreateGuardProbe
             Console.WriteLine($"   G4-OK-NOCTORARGS no ctor_args       : {(g4OkNoCtorArgsOk ? "PASS — a compose without ctor_args (the common case) is untouched" : $"FAIL — reject=[{reject}]")}");
         }
 
+        // ====== G7 — composable-element MERGE + non-plain-value Remove-BY-VALUE (the deferred-reject completion) ======
+        // The IsComposableElement deferred-reject block covered Add (compose/deferred) and ReplaceAll/SetAtIndex, but
+        // OMITTED Merge — a Package.Data Merge fell through to ACCEPT then threw 'No coercion rule' at apply. And a
+        // Remove BY VALUE (Key null) on ANY non-plain-value element (composable OR record — both have no plain-value
+        // form) likewise fell through then threw. The fix adds Merge to the composable deferred-reject and adds ONE
+        // unified Remove-by-value branch (predicate: list Remove, Key null, NOT formlink, NOT coercible) covering
+        // composable + record + the dormant uncoercible case by construction. A Remove BY INDEX (Key present) and a dict
+        // Remove BY KEY stay accepted (throw-free RemoveAt / key-gated). Closes the 2 matrix-critic cells + the record
+        // Remove-by-value twin found while implementing G6.
+
+        // ---------- G7-REJ-DICTMERGE: a Package.Data Merge (composable-valued dict) refuses (Merge now in the block) ----------
+        bool g7RejDictMergeOk;
+        {
+            var req = new WriteRequest { RecordType = "Package", Path = new[] { "Data" }, Verb = "Merge",
+                Entries = new Dictionary<string, string> { ["0"] = "x" } };
+            var reject = rulebook.Validate(req);
+            g7RejDictMergeOk = reject is not null && reject.Contains("Merge of modeled elements", StringComparison.OrdinalIgnoreCase);
+            Console.WriteLine($"   G7-REJ-DICTMERGE composable merge   : {(g7RejDictMergeOk ? "PASS — a Package.Data Merge is refused (Merge folded into the composable deferred-reject; RED before: accepted then 'No coercion rule' at apply)" : $"FAIL — reject=[{reject}]")}");
+        }
+
+        // ---------- G7-REJ-COMPOSABLE-REMOVE-BYVALUE: a struct-element list Remove-by-value refuses (remove by index) ----------
+        bool g7RejComposableRemoveOk;
+        {
+            var req = new WriteRequest { RecordType = "Faction", Path = new[] { "Ranks" }, Verb = "Remove", Value = "x" };
+            var reject = rulebook.Validate(req);
+            g7RejComposableRemoveOk = reject is not null && reject.Contains("BY INDEX", StringComparison.OrdinalIgnoreCase)
+                && reject.Contains("not by value", StringComparison.OrdinalIgnoreCase);
+            Console.WriteLine($"   G7-REJ-COMPOSABLE-REMOVE-BYVALUE   : {(g7RejComposableRemoveOk ? "PASS — a struct-element Remove-by-value is refused, redirected to remove-by-index (RED before: accepted then 'No coercion rule' at apply)" : $"FAIL — reject=[{reject}]")}");
+        }
+
+        // ---------- G7-REJ-RECORD-REMOVE-BYVALUE: a record-element list Remove-by-value refuses too (one unified branch) ----------
+        // The twin found while implementing G6: a record element ALSO has no plain-value form, so the SAME predicate
+        // (not coercible, not formlink) catches it. RED before: accepted then Coerce(value, IDialogResponsesGetter) threw.
+        bool g7RejRecordRemoveOk;
+        {
+            var req = new WriteRequest { RecordType = "DialogTopic", Path = new[] { "Responses" }, Verb = "Remove", Value = "x" };
+            var reject = rulebook.Validate(req);
+            g7RejRecordRemoveOk = reject is not null && reject.Contains("BY INDEX", StringComparison.OrdinalIgnoreCase)
+                && reject.Contains("not by value", StringComparison.OrdinalIgnoreCase);
+            Console.WriteLine($"   G7-REJ-RECORD-REMOVE-BYVALUE       : {(g7RejRecordRemoveOk ? "PASS — a record-element Remove-by-value is refused too (the unified non-plain-value branch covers records)" : $"FAIL — reject=[{reject}]")}");
+        }
+
+        // ---------- G7-OK-COMPOSABLE-REMOVE-BYINDEX: a struct-element Remove BY INDEX stays accepted (no over-reject) ----------
+        bool g7OkComposableRemoveIdxOk;
+        {
+            var req = new WriteRequest { RecordType = "Faction", Path = new[] { "Ranks" }, Verb = "Remove", Key = "0" };
+            var reject = rulebook.Validate(req);
+            g7OkComposableRemoveIdxOk = reject is null;
+            Console.WriteLine($"   G7-OK-COMPOSABLE-REMOVE-BYINDEX    : {(g7OkComposableRemoveIdxOk ? "PASS — a struct-element Remove by index (RemoveAt) is throw-free and NOT over-rejected" : $"FAIL — reject=[{reject}]")}");
+        }
+
+        // ---------- G7-OK-DICTREMOVE-BYKEY: a Package.Data Remove BY KEY stays accepted (the Remove-by-value branch is list-only) ----------
+        bool g7OkDictRemoveKeyOk;
+        {
+            var req = new WriteRequest { RecordType = "Package", Path = new[] { "Data" }, Verb = "Remove", Key = "0" };
+            var reject = rulebook.Validate(req);
+            g7OkDictRemoveKeyOk = reject is null;
+            Console.WriteLine($"   G7-OK-DICTREMOVE-BYKEY composable  : {(g7OkDictRemoveKeyOk ? "PASS — a composable-dict Remove by key (key-gated, throw-free) is NOT over-rejected" : $"FAIL — reject=[{reject}]")}");
+        }
+
         Console.WriteLine();
         bool pass = fixturesOk && oneshotOk && multiOk && intoTopicOk && intoCellOk
                     && rejNoParentOk && rejBadParentOk && rejAmbigOk && rejFwdSibOk && extendOk
@@ -1047,7 +1122,8 @@ public static class NestedCreateGuardProbe
                     && gap2RejDictAddOk && gap2RejListAddOk && gap2RejListReplaceAllOk && gap2RejListRemoveOk && gap2RejDictMergeOk
                     && gap2OkValidOk && gap2OkRemoveByIndexOk && gap2FormlinkRouteOk && gap2RejE2eOk
                     && g6RejRecordAddOk && g6RejRecordReplaceAllOk && g6OkRemoveByIndexOk && g6OkStructUnchangedOk && g6RejE2eOk
-                    && g4RejCtorArgShapeOk && g4RejCtorArgArityOk && g4OkCtorArgOk && g4OkNoCtorArgsOk;
+                    && g4RejCtorArgShapeOk && g4RejCtorArgArityOk && g4OkCtorArgOk && g4OkNoCtorArgsOk
+                    && g7RejDictMergeOk && g7RejComposableRemoveOk && g7RejRecordRemoveOk && g7OkComposableRemoveIdxOk && g7OkDictRemoveKeyOk;
         Console.WriteLine($"=== nested-create-guard: {(pass ? "PASS" : "FAIL")} ===");
         try { Directory.Delete(tmpDir, recursive: true); } catch { }
         return pass ? 0 : 1;
