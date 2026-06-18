@@ -274,6 +274,16 @@ namespace HousecarlGenerator;
 ///   (Left LOUD by design: bad-SHAPE index, structural/reflection failures — not clean live-state addressing. Present-but-null
 ///    is now its own MalformedTargetDataException third category — see below.)
 ///
+/// Gap 2 (PR #83 follow-up) — a present-but-null element/entry is its own MalformedTargetDataException THIRD category.
+/// Such a throw was a plain InvalidOperationException → the "pre-flight ACCEPTED … a real inconsistency" wrapper, which
+/// mislabels pre-existing malformed SOURCE data (not user input, not an engine bug) as an internal inconsistency. Now its
+/// own exception kind, caught distinctly by WritePatchBuilder and rendered cleanly (Aaron 2026-06-18: dedicated third
+/// category). The state isn't producible via houseCARL's write path (the null gates forbid it) and Mutagen won't
+/// serialize a null element to make a malformed fixture, so this is engine-direct (throw kind + message); the type
+/// deterministically routes to the dedicated catch (a verbatim passthrough mirroring the proven ExpectedApplyRejection catch):
+///   MALFORMED-NAV-TYPE         — a present-but-null dict entry AND list element throw MalformedTargetDataException ('malformed'
+///                                message), not a plain IOE. RED before: plain InvalidOperationException → not caught as the third kind.
+///
 /// Gap 3 (PR #83 follow-up) — surface a Remove that removes NOTHING (close the silent-no-op). list Remove-by-value and
 /// dict Remove-by-key ignored the runtime Remove's bool, so "remove X" when X isn't present SILENTLY succeeded (Q3
 /// degradation). Now all three forms surface as the EXPECTED kind ("nothing to remove") — the symmetric twin of Add's
@@ -1602,6 +1612,39 @@ public static class NestedCreateGuardProbe
                 && !msg.Contains("real inconsistency", StringComparison.OrdinalIgnoreCase)
                 && !msg.Contains("pre-flight ACCEPTED", StringComparison.OrdinalIgnoreCase));
 
+        // ====== Gap 2 (PR #83 follow-up) — present-but-null element/entry = its own MalformedTargetData third category ======
+        // A present-but-null collection element / dict entry threw a PLAIN InvalidOperationException → the generic
+        // "pre-flight ACCEPTED it but the apply threw — a real inconsistency" wrapper, which mislabels pre-existing
+        // malformed SOURCE data (not the user's input, not an engine bug) as an internal inconsistency. It is now its own
+        // MalformedTargetDataException — a distinct THIRD category (neither ExpectedApplyRejection nor the inconsistency
+        // wrapper), rendered cleanly by WritePatchBuilder. Decision: Aaron 2026-06-18 (dedicated third category).
+        // NOTE on coverage: the present-but-null state is NOT producible through houseCARL's own write path (the null gates
+        // forbid writing one) and Mutagen will not serialize a null element to synthesize a malformed fixture — so there is
+        // nothing to drive through the create/Apply pipeline for a full E2E render. This engine-direct arm proves the THROW
+        // KIND + the third-category message; the throw type deterministically routes to WritePatchBuilder's dedicated
+        // MalformedTargetDataException catch (a verbatim-message passthrough mirroring the proven ExpectedApplyRejection catch).
+
+        // ---------- MALFORMED-NAV-TYPE: a present-but-null dict entry AND list element throw MalformedTargetData ----------
+        // Inject a present-but-null entry/element in-memory (the only way to reach the state — see NOTE), then navigate in.
+        // RED before: the throws were plain InvalidOperationException → not caught as MalformedTargetData → flags stay false.
+        bool malformedNavTypeOk;
+        {
+            bool dictOk = false, listOk = false;
+            var pkg = new Package(new FormKey(mKey, 0x913u), SkyrimRelease.SkyrimSE);
+            pkg.Data[(sbyte)0] = null!;   // present-but-null dict entry (Data is non-null/empty on a fresh Package)
+            try { WriteEngine.ApplyVerb(pkg, new WriteRequest { RecordType = "Package", Path = new[] { "Data[0]", "Data" }, Verb = "Set", Value = "true" }); }
+            catch (MalformedTargetDataException ex) { dictOk = ex.Message.Contains("malformed", StringComparison.OrdinalIgnoreCase); }
+            catch { }
+            var fac = new Faction(new FormKey(mKey, 0x914u), SkyrimRelease.SkyrimSE);
+            WriteEngine.ApplyVerb(fac, new WriteRequest { RecordType = "Faction", Path = new[] { "Conditions" }, Verb = "Add", Struct = new StructSpec { Type = "ConditionFloat" } });
+            fac.Conditions![0] = null!;   // present-but-null list element (Conditions materialized with one element by the Add)
+            try { WriteEngine.ApplyVerb(fac, new WriteRequest { RecordType = "Faction", Path = new[] { "Conditions[0]", "CompareOperator" }, Verb = "Set", Value = "EqualTo" }); }
+            catch (MalformedTargetDataException ex) { listOk = ex.Message.Contains("malformed", StringComparison.OrdinalIgnoreCase); }
+            catch { }
+            malformedNavTypeOk = dictOk && listOk;
+            Console.WriteLine($"   MALFORMED-NAV-TYPE present-but-null : {(malformedNavTypeOk ? "PASS — StepIntoElement throws MalformedTargetDataException (the distinct third category, 'malformed' message) for a present-but-null dict entry AND list element" : $"FAIL — dictOk={dictOk} listOk={listOk}")}");
+        }
+
         // ====== Gap 3 (PR #83 follow-up) — surface a Remove that removes NOTHING (close the silent-no-op) ======
         // list Remove-by-value and dict Remove-by-key IGNORED the runtime Remove's bool, so "remove X" when X isn't
         // present SILENTLY succeeded (a Q3 silent degradation — reports success having changed nothing). Now all three
@@ -1706,6 +1749,7 @@ public static class NestedCreateGuardProbe
                     && gap3RejBaseArmFieldOk && gap3OkArmFieldUnchangedOk
                     && expectedRejSetIdxOobOk && expectedRejRemoveIdxOobOk && expectedOkSetIdxInRangeOk && expectedNavTypeOk
                     && expectedRejNavE2eOk
+                    && malformedNavTypeOk
                     && removeRejDictKeyAbsentOk && removeRejNullCollOk && removeRejListValAbsentOk
                     && removeOkPresentDictOk && removeOkPresentListOk;
         Console.WriteLine($"=== nested-create-guard: {(pass ? "PASS" : "FAIL")} ===");

@@ -1929,7 +1929,8 @@ public static class WriteEngine
                 .FirstOrDefault(p => p.GetIndexParameters().Length == 1 && p.CanRead)
                 ?? throw new InvalidOperationException($"No readable indexer on dict '{name}' ({dt.Name}).");
             return idxer.GetValue(coll, new object[] { keyObj! })
-                ?? throw new InvalidOperationException($"Entry '{name}[{key}]' is null.");
+                ?? throw new MalformedTargetDataException(   // present-but-null entry: a SOURCE-data anomaly (its own third category), not gate/apply drift
+                    $"Entry '{name}[{key}]' is present but null — the target record's data is malformed here (a source-data anomaly, not an engine fault).");
         }
 
         var listIface = ClosedInterface(prop.PropertyType, typeof(IList<>))
@@ -1941,7 +1942,8 @@ public static class WriteEngine
             int j = 0;
             foreach (var item in (System.Collections.IEnumerable)coll)
                 if (j++ == idx)
-                    return item ?? throw new InvalidOperationException($"Element '{name}[{idx}]' is null.");  // present-but-null: NOT reclassified (data anomaly, stays loud)
+                    return item ?? throw new MalformedTargetDataException(   // present-but-null element: a SOURCE-data anomaly (its own third category), not gate/apply drift
+                        $"Element '{name}[{idx}]' is present but null — the target record's data is malformed here (a source-data anomaly, not an engine fault).");
             throw new ExpectedApplyRejectionException($"Index {idx} out of bounds for list '{name}' (has {j} element(s)).");  // live-state: out of range
         }
 
@@ -2924,10 +2926,29 @@ public sealed class NullArmSerializeException : InvalidOperationException
 /// path; a read has no inconsistency wrapper, so it simply renders this message exactly as it did when these were plain
 /// <see cref="InvalidOperationException"/>s — no read behavior changes. Use this ONLY where the throw is a known,
 /// live-state user error with self-explanatory guidance — never to quiet a throw whose cause is unclear, which would
-/// re-introduce the silent-failure this project exists to avoid (the present-but-null element and bad-shape index throws
-/// deliberately stay un-reclassified for that reason). It is an <see cref="InvalidOperationException"/> so any plain
+/// re-introduce the silent-failure this project exists to avoid (a bad-SHAPE index throw deliberately stays
+/// un-reclassified for that reason; a present-but-null element/entry is its own <see cref="MalformedTargetDataException"/>
+/// — a distinct THIRD category — rather than this kind). It is an <see cref="InvalidOperationException"/> so any plain
 /// fail-loud handler still catches it.</summary>
 public sealed class ExpectedApplyRejectionException : InvalidOperationException
 {
     public ExpectedApplyRejectionException(string message) : base(message) { }
+}
+
+/// <summary>A refusal whose cause is the TARGET record's own data being malformed/unexpected — a present-but-null
+/// collection element or dict entry that <see cref="WriteEngine.StepIntoElement"/> cannot navigate into. This is the
+/// THIRD apply-rejection category, deliberately distinct from both siblings: it is NOT an
+/// <see cref="ExpectedApplyRejectionException"/> (the user did nothing wrong — there's no input to fix; a null element is
+/// a data anomaly, not a routine occupancy/length/presence rejection), and it is NOT a gate/apply <i>inconsistency</i>
+/// (the schema-only pre-flight provably cannot see live data, so it is not a "pre-flight ACCEPTED it but apply threw"
+/// engine bug). The honest middle: surfaced LOUD and accurately as malformed SOURCE data — houseCARL reads it but never
+/// wrote it, so the present-but-null state arises only from pre-existing malformed plugins, never from houseCARL's own
+/// write path (the null gates forbid writing one). The all-or-nothing catch in <see cref="WritePatchBuilder"/> renders
+/// this kind's message cleanly (no inconsistency wrapper), still refusing the whole call with no file written (Q3).
+/// <see cref="WriteEngine.StepIntoElement"/> is shared with the READ path, which has no wrapper, so a read renders this
+/// message exactly as it did when these were plain <see cref="InvalidOperationException"/>s — no read behavior change. It
+/// is an <see cref="InvalidOperationException"/> so any plain fail-loud handler still catches it.</summary>
+public sealed class MalformedTargetDataException : InvalidOperationException
+{
+    public MalformedTargetDataException(string message) : base(message) { }
 }
