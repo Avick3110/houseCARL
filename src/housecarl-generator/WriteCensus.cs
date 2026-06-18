@@ -47,10 +47,12 @@ public static class WriteCensus
             var rGetter = asm.GetType("Mutagen.Bethesda.Skyrim.I" + recordName + "Getter");
             return rGetter is not null && flatGetters.Any(g => g.IsAssignableFrom(rGetter));
         }
-        // EXCLUDE the SkyrimMod container itself: the corpus tags it Kind="record", but it is the mod object,
-        // not a game record type. Its ~120 "writable fields" are the 113 record-group containers + structural
-        // plumbing — not user-facing content edits. Counting them would inflate the denominator with non-content
-        // and misattribute structural plumbing to a deferred wave. Excluded LOUDLY (reported below), never silent.
+        // EXCLUDE the SkyrimMod container itself: it is the mod object (kind "struct" — the read-only multi-mod
+        // overlay arm is filtered as non-authorable, so it is not a union), not a game record type. Its ~120
+        // "writable fields" are the 113 record-group containers + structural plumbing — not user-facing content
+        // edits. Counting them would inflate the denominator with non-content and misattribute structural plumbing
+        // to a deferred wave. The per-type leaf walk below excludes it by NAME (kind-independent), and its field
+        // count is reported LOUDLY (modContainerFields), never silently dropped.
         const string ModContainer = "SkyrimMod";
         var records = corpus.Types.Values
             .Where(t => t.Kind == "record" && t.Name != ModContainer)

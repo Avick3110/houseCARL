@@ -60,8 +60,10 @@ public static class CorpusGenerator
         // The mod CONTAINER itself (Aaron-go 2026-05-30: in scope). It is neither the header nor a major record,
         // so record-reachability never reaches it — seed it explicitly. Seeding walks the SkyrimGroup<T> /
         // SkyrimListGroup<T> record-group surface (now handled as collections in IsList), the only path to types
-        // like CellBlock / MergedCellBlock. ISkyrimModGetter is itself a 2-arm union (SkyrimMod +
-        // SkyrimMultiModOverlay), so route it through EnqueueModeledRef like any other modeled reference.
+        // like CellBlock. ISkyrimModGetter has two implementers — the writable SkyrimMod and the read-only
+        // SkyrimMultiModOverlay projection (a multi-mod view); the projection is filtered as non-authorable
+        // (IsAuthorableArm), so the container classifies as a plain struct, not a union. Route it through
+        // EnqueueModeledRef like any other modeled reference.
         var modGetter = asm.GetType("Mutagen.Bethesda.Skyrim.ISkyrimModGetter");
         if (modGetter != null) EnqueueModeledRef(modGetter, seeds);
         else Warnings.Add("ISkyrimModGetter not found — mod container omitted (investigate).");
@@ -443,9 +445,31 @@ public static class CorpusGenerator
     {
         if (!getterIfc.IsInterface) return new List<Type>();
         return getterIfc.Assembly.GetTypes()
-            .Where(t => t.IsClass && !t.IsAbstract && !IsOverlayTwin(t) && getterIfc.IsAssignableFrom(t))
+            .Where(t => t.IsClass && !t.IsAbstract && !IsOverlayTwin(t) && IsAuthorableArm(t) && getterIfc.IsAssignableFrom(t))
             .ToList();
     }
+
+    /// <summary>
+    /// True when a concrete union implementer is actually AUTHORABLE — it exposes a mutable interface
+    /// (the same computation as the emitted <see cref="TypeSchema.MutableInterface"/>: a getter interface
+    /// whose mutable twin exists). False for a read-only PROJECTION of the real writable type — Mutagen's
+    /// multi-mod overlay (SkyrimMultiModOverlay, an arm of SkyrimMod) and merged-cell view (MergedCellBlock,
+    /// an arm of CellBlock), which implement only the getter side, expose NO dedicated getter interface
+    /// (GetterInterfaceFor → null, so the lookup falls back to the concrete class, which never ends in
+    /// "Getter" → no mutable twin). Such a projection can never be composed, so it must not be presented as
+    /// a legal arm. Filtering it here drops the union below the &gt;1 threshold and the container reclassifies
+    /// to a plain struct (SkyrimMod, CellBlock) — correct, since both are containers, not authorable unions.
+    ///
+    /// This is the STRUCTURAL twin of <see cref="IsOverlayTwin"/>'s name match: that catches the lazy
+    /// "*BinaryOverlay" record twins by name; this catches every read-only projection by shape, regardless
+    /// of name (the multi-mod overlay does NOT end in "Overlay"-by-itself; the merged-cell view has no
+    /// "Overlay" in its name at all). It does NOT touch a 0-field MARKER arm (PackageTargetSelf,
+    /// BookTeachesNothing) — a marker DOES implement its mutable interface, so it stays authorable. It also
+    /// leaves a CONCRETE self-listing poly-base (APackageData, ScriptFragments, SimpleModel) in the raw arm
+    /// set — those are authorable, so the &gt;1 count is preserved and the self-entry is stripped at emit by
+    /// <see cref="EmittedArmNames"/>, exactly as before.
+    /// </summary>
+    static bool IsAuthorableArm(Type t) => MutableInterfaceFor(GetterInterfaceFor(t) ?? t) != null;
 
     /// <summary>
     /// True for Mutagen's lazy-read overlay class (e.g. ArmorBinaryOverlay), which
@@ -637,7 +661,9 @@ public static class CorpusGenerator
     //
     //   R0 identity          — FormKey / ModKey: record identity, read-only by design, any type.
     //   R1 no-mutable-iface  — the type exposes no mutable interface at all (read-only construct:
-    //                          the multi-mod overlay, ReadOnlyArray2d<T> views, the AssetType descriptor).
+    //                          ReadOnlyArray2d<T> views, the AssetType descriptor). The read-only
+    //                          projections (the multi-mod overlay, the merged-cell view) are filtered out
+    //                          of arm detection upstream (IsAuthorableArm), so they never reach this audit.
     //   R2 poly-discriminator— a polymorphic-union arm's identity fixes the field, so it is get-only
     //                          (Condition.Function, archetype Type / AssociationKey, condition
     //                          Parameter{1,2}Type). Allowed on arm / polymorphic-base only, so the same
