@@ -506,10 +506,26 @@ public sealed class CorpusRulebook
                     ? $"'{leaf.Name}' is a dict of modeled elements ({leaf.ElementTypeRef}); dict-element " +
                       "composition is a later surface — surfaced here, never accepted and thrown at apply time."
                     : StructElementLegality(leaf, req.Struct);
-            if (req.Verb is "ReplaceAll" or "SetAtIndex")
-                return $"'{leaf.Name}' holds modeled-struct elements ({leaf.ElementTypeRef}); only Add " +
-                       "(build-from-parts) composes struct elements — ReplaceAll/SetAtIndex of structs is a later surface.";
+            // ReplaceAll/SetAtIndex/Merge of modeled elements are all deferred (only Add composes). Merge is dict-only
+            // and was previously OMITTED here, so a Package.Data Merge fell through to ACCEPT then threw 'No coercion
+            // rule' at apply (matrix-critic finding) — folding it in closes that. Verb named in the message so it reads
+            // accurately for each.
+            if (req.Verb is "ReplaceAll" or "SetAtIndex" or "Merge")
+                return $"'{leaf.Name}' holds modeled elements ({leaf.ElementTypeRef}); only Add (build-from-parts) " +
+                       $"composes them — {req.Verb} of modeled elements is a later surface.";
         }
+        // (step 4-rmv) Remove-BY-VALUE on a NON-PLAIN-VALUE element — a list Remove with NO key is by-value
+        // (ApplyListVerb -> Coerce(req.Value!, elem)); an element that is neither coercible (step-4b) nor formlink
+        // (step-4a) has NO plain-value form, so the coerce throws 'No coercion rule' at apply (or an NRE if the value is
+        // also null). ONE by-construction predicate covers composable (struct/arm), record, AND the dormant uncoercible
+        // case — the value twin none of the other branches catch for Remove. A Remove BY INDEX (Key present -> RemoveAt,
+        // no coercion) stays accepted, and a dict Remove (by key only, key-gated) is excluded (list-only). Redirect to
+        // remove-by-index; value-based removal of a modeled/record element is a later surface.
+        if (req.Verb == "Remove" && leaf.Cardinality == "list" && req.Key is null
+            && leaf.FormLinkTarget is null && !IsValueCoercibleElement(leaf))
+            return $"'{leaf.Name}' holds modeled/record elements ({leaf.ElementTypeRef ?? leaf.ElementType}); remove one " +
+                   "BY INDEX (Remove with a Key = its position), not by value — a modeled or record element has no " +
+                   "plain-value form to match. (Value-based removal of such an element is a later surface.)";
         return null;
     }
 
