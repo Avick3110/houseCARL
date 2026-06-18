@@ -214,6 +214,28 @@ namespace HousecarlGenerator;
 ///   GAP3-E2E                 — a composed PackageDataBool(Data=true) round-trips through the real create+apply path onto Package.Data[0] on disk.
 ///   GAP3-E2E-SET             — the Set-OVERWRITE apply branch round-trips: Add Data[0]=false then Set Data[0]=true reads Data==true on disk (the dup escape hatch).
 ///   GAP3-REJ-DUP             — an Add of an already-present key refuses (apply-time) end-to-end, NO file written, naming Set as the overwrite path.
+///
+/// G8 — the polymorphic BASE composed by its OWN name (PR-B review finding; PRE-EXISTING, shared list+dict). A compose
+/// naming the base itself ({Type:"APackageData"} on Package.Data, {Type:"Condition"} on a *.Conditions list) hit
+/// StructElementLegality's `if (spec.Type == er) specSchema = elemSchema` short-circuit, validated against the base's OWN
+/// fields, and ACCEPTED — then apply DIVERGED by base kind (verified by reflection, correcting the PR-B note's
+/// 'CompositionRequiredException' guess): a CONCRETE base (APackageData, IsAbstract=false, public parameterless ctor)
+/// Instantiate()s a degenerate empty base and SILENTLY WRITES IT (a Q3 silent-wrong-write, WORSE than a throw); an
+/// ABSTRACT base (Condition) throws MemberAccessException at Invoke. A CONCRETE poly-base also lists ITSELF among its arms
+/// (FindUnionArms keeps it; only an ABSTRACT base like Condition is filtered by !IsAbstract), so the arms.Contains branch
+/// would admit it too and GAP3-REJ-BADARM's message advertised it. The fix rejects spec.Type==er when er is a poly-base
+/// (recognizer = corpus KIND, NOT Type.IsAbstract — APackageData is concrete, so IsAbstract would miss the silent-write
+/// case) and filters the base out of the legal-arms set everywhere (Contains + every message). By construction over every
+/// poly-base family, no per-type wiring; concrete non-poly-base structs composed by their own name still accept:
+///   GAP3-REJ-BASEARM         — a Package.Data Add composing the base 'APackageData' itself refuses, offering the concrete
+///                              arms (RED before: accepted via the spec.Type==er short-circuit).
+///   GAP3-REJ-BASEARM-LIST    — the LIST twin (Faction.Conditions Add {Type:"Condition"}) refuses too — proves the fix is
+///                              in the SHARED validator and catches an ABSTRACT base by the same check. RED before: accepted.
+///   GAP3-OK-BASE-NOOVERREJECT— a CONCRETE struct element composed by its own name (Faction.Ranks element 'Rank', Kind=struct)
+///                              STILL accepts — only poly-bases are rejected, not every spec.Type==er. Accepted before AND after.
+///   GAP3-REJ-BASEARM-E2E     — composing the base refuses end-to-end with NO file written; the PRE-FLIGHT 'polymorphic base'
+///                              message (not the apply CompositionRequiredException) proves the gate fired before BuildStruct.
+///   (GAP3-REJ-BADARM strengthened: its 'Legal element types' list no longer names the un-composable base 'APackageData'.)
 /// </summary>
 public static class NestedCreateGuardProbe
 {
@@ -1206,9 +1228,13 @@ public static class NestedCreateGuardProbe
             var req = new WriteRequest { RecordType = "Package", Path = new[] { "Data" }, Verb = "Add", Key = "0",
                 Struct = new StructSpec { Type = "Weapon" } };
             var reject = rulebook.Validate(req);
+            // (G8) the un-composable base must NOT appear in the 'Legal element types:' list it names — scoped to the
+            // list portion, since 'APackageData' legitimately appears earlier as the element-type context of the mismatch.
+            int g3LegalAt = reject?.IndexOf("Legal element types:", StringComparison.Ordinal) ?? -1;
+            string g3LegalList = g3LegalAt >= 0 ? reject![g3LegalAt..] : "";
             gap3RejBadArmOk = reject is not null && reject.Contains("does not match", StringComparison.OrdinalIgnoreCase)
-                && reject.Contains("Legal element types", StringComparison.OrdinalIgnoreCase);
-            Console.WriteLine($"   GAP3-REJ-BADARM bad compose arm    : {(gap3RejBadArmOk ? "PASS — a non-APackageData compose type is refused, naming the legal arms (RED before: rejected 'later surface', wrong reason)" : $"FAIL — reject=[{reject}]")}");
+                && g3LegalAt >= 0 && !g3LegalList.Contains("APackageData", StringComparison.Ordinal);
+            Console.WriteLine($"   GAP3-REJ-BADARM bad compose arm    : {(gap3RejBadArmOk ? "PASS — a non-APackageData compose type is refused, naming the legal arms but NOT the base 'APackageData' in the legal list (G8 filter; RED before G8: the base was advertised)" : $"FAIL — reject=[{reject}]")}");
         }
 
         // ---------- GAP3-OK-LIST-UNCHANGED: an ARM-element LIST compose (Faction.Conditions) still composes (no regression) ----------
@@ -1282,6 +1308,69 @@ public static class NestedCreateGuardProbe
             },
             msg => msg.Contains("already present", StringComparison.OrdinalIgnoreCase) && msg.Contains("use Set", StringComparison.OrdinalIgnoreCase));
 
+        // ====== G8 — the polymorphic BASE composed by its OWN name (the gate/apply drift this batch exists to kill) ======
+        // StructElementLegality short-circuits `if (spec.Type == er) specSchema = elemSchema` — so composing the poly-BASE
+        // itself ({Type:"APackageData"} on the Package.Data dict, {Type:"Condition"} on a *.Conditions list) validated
+        // against the base's OWN fields and ACCEPTED, then apply DIVERGED by base kind (verified by reflection): a CONCRETE
+        // base (APackageData, IsAbstract=false, has a public parameterless ctor) Instantiate()s a degenerate empty base and
+        // SILENTLY WRITES IT — a Q3 silent-wrong-write, WORSE than a throw; an ABSTRACT base (Condition) throws
+        // MemberAccessException ("cannot create an abstract class") at Invoke. A CONCRETE poly-base ALSO lists itself among
+        // its arms (FindUnionArms keeps a non-abstract base — only an abstract one is filtered by !IsAbstract), so the
+        // arms.Contains branch would admit it too and the bad-arm message advertised it. The recognizer is the corpus
+        // poly-base KIND, NOT Type.IsAbstract — APackageData is concrete, so IsAbstract would miss the silent-write (worse)
+        // case. The base is rejected when named, and filtered out of the legal-arms set everywhere (Contains + message).
+
+        // ---------- GAP3-REJ-BASEARM: a Package.Data Add composing the BASE 'APackageData' itself refuses ----------
+        bool gap3RejBaseArmOk;
+        {
+            var req = new WriteRequest { RecordType = "Package", Path = new[] { "Data" }, Verb = "Add", Key = "0",
+                Struct = new StructSpec { Type = "APackageData" } };
+            var reject = rulebook.Validate(req);
+            gap3RejBaseArmOk = reject is not null
+                && reject.Contains("polymorphic base", StringComparison.OrdinalIgnoreCase)
+                && reject.Contains("PackageDataBool", StringComparison.Ordinal);   // a real arm is offered instead
+            Console.WriteLine($"   GAP3-REJ-BASEARM compose the base  : {(gap3RejBaseArmOk ? "PASS — composing the poly-base 'APackageData' itself refuses, offering the concrete arms (RED before: accepted via the spec.Type==er short-circuit)" : $"FAIL — reject=[{reject}]")}");
+        }
+
+        // ---------- GAP3-REJ-BASEARM-LIST: the LIST twin — Faction.Conditions Add {Type:"Condition"} refuses ----------
+        // Proves the fix lives in the SHARED StructElementLegality (list + dict), and catches an ABSTRACT base (Condition,
+        // NOT in its own arms) by the same spec.Type==er + poly-base check the concrete APackageData hits.
+        bool gap3RejBaseArmListOk;
+        {
+            var req = new WriteRequest { RecordType = "Faction", Path = new[] { "Conditions" }, Verb = "Add",
+                Struct = new StructSpec { Type = "Condition" } };
+            var reject = rulebook.Validate(req);
+            gap3RejBaseArmListOk = reject is not null
+                && reject.Contains("polymorphic base", StringComparison.OrdinalIgnoreCase)
+                && reject.Contains("ConditionFloat", StringComparison.Ordinal);
+            Console.WriteLine($"   GAP3-REJ-BASEARM-LIST list base    : {(gap3RejBaseArmListOk ? "PASS — composing the poly-base 'Condition' on a list refuses too (shared validator; RED before: accepted)" : $"FAIL — reject=[{reject}]")}");
+        }
+
+        // ---------- GAP3-OK-BASE-NOOVERREJECT: a CONCRETE (non-poly-base) struct composed by its own name STILL accepts ----
+        // The no-over-reject guard: the fix rejects spec.Type==er ONLY when er is a poly-base. A plain struct element
+        // (Faction.Ranks element 'Rank', Kind=struct) composed by its own name is the NORMAL case and must stay accepted.
+        bool gap3OkBaseNoOverRejectOk;
+        {
+            var req = new WriteRequest { RecordType = "Faction", Path = new[] { "Ranks" }, Verb = "Add",
+                Struct = new StructSpec { Type = "Rank" } };
+            var reject = rulebook.Validate(req);
+            gap3OkBaseNoOverRejectOk = reject is null;
+            Console.WriteLine($"   GAP3-OK-BASE-NOOVERREJECT struct   : {(gap3OkBaseNoOverRejectOk ? "PASS — a concrete struct element composed by its own name ('Rank') still accepts (only poly-bases rejected)" : $"FAIL — reject=[{reject}]")}");
+        }
+
+        // ---------- GAP3-REJ-BASEARM-E2E: composing the base end-to-end refuses with NO file written (gate, not apply) ----
+        // The silent-wrong-write closed end-to-end: APackageData is concrete + instantiable, so RED here was the WORST case
+        // — the create SUCCEEDED and a degenerate empty-base entry was WRITTEN with no error (refused=False, noFile=False).
+        // GREEN: the gate rejects pre-flight ('polymorphic base'), so NO file is written and BuildStruct never runs.
+        bool gap3RejBaseArmE2eOk = RejectArm("GAP3-REJ-BASEARM-E2E compose base  ", tmpDir, "Gap3Base", mPath, rulebook,
+            new[]
+            {
+                new WritePatchBuilder.CreateSpec { RecordType = "Package", EditorId = "HcNcGap3Base",
+                    Edits = new[] { new WriteRequest { RecordType = "Package", Path = new[] { "Data" }, Verb = "Add", Key = "0",
+                        Struct = new StructSpec { Type = "APackageData" } } } },
+            },
+            msg => msg.Contains("polymorphic base", StringComparison.OrdinalIgnoreCase));
+
         Console.WriteLine();
         bool pass = fixturesOk && oneshotOk && multiOk && intoTopicOk && intoCellOk
                     && rejNoParentOk && rejBadParentOk && rejAmbigOk && rejFwdSibOk && extendOk
@@ -1299,7 +1388,8 @@ public static class NestedCreateGuardProbe
                     && g4RejCtorArgShapeOk && g4RejCtorArgArityOk && g4OkCtorArgOk && g4OkNoCtorArgsOk && g4RejCtorArgE2eOk
                     && g7RejDictMergeOk && g7RejComposableRemoveOk && g7RejRecordRemoveOk && g7OkComposableRemoveIdxOk && g7OkDictRemoveKeyOk
                     && gap3OkDictAddComposeOk && gap3OkDictSetComposeOk && gap3RejBadArmOk && gap3OkListUnchangedOk
-                    && gap3OkE2eOk && gap3OkE2eSetOk && gap3RejDupOk;
+                    && gap3OkE2eOk && gap3OkE2eSetOk && gap3RejDupOk
+                    && gap3RejBaseArmOk && gap3RejBaseArmListOk && gap3OkBaseNoOverRejectOk && gap3RejBaseArmE2eOk;
         Console.WriteLine($"=== nested-create-guard: {(pass ? "PASS" : "FAIL")} ===");
         try { Directory.Delete(tmpDir, recursive: true); } catch { }
         return pass ? 0 : 1;

@@ -572,15 +572,34 @@ public sealed class CorpusRulebook
         var elemSchema = Type(er);
         if (elemSchema is null) return $"Element type '{er}' for '{leaf.Name}' absent from corpus.";
 
+        // (G8) A polymorphic BASE is composed by choosing a concrete ARM, never the base itself. Naming the base
+        // ({Type:"APackageData"} on the Package.Data dict, {Type:"Condition"} on a *.Conditions list) is a gate/apply
+        // drift the validator must reject: the spec.Type==er short-circuit below would validate it against the base's
+        // OWN fields and ACCEPT, then apply either SILENTLY writes a degenerate base instance (a CONCRETE base like
+        // APackageData — Instantiate finds its public parameterless ctor: a Q3 silent-wrong-write) or THROWS at Invoke
+        // ("cannot create an abstract class" — an ABSTRACT base like Condition). The recognizer is the corpus poly-base
+        // KIND, NOT Type.IsAbstract: APackageData is concrete (IsAbstract=false), so an IsAbstract check would miss the
+        // silent-write case — the worse one. A concrete poly-base also lists ITSELF among its arms (FindUnionArms keeps
+        // a non-abstract base), so the base is filtered out of the legal-arms set everywhere it is used (the arm-match
+        // check AND every message) — neither path can admit or advertise it. Generic over every poly-base; no per-type wiring.
+        bool isPolyBase = elemSchema is { Kind: "polymorphic-base" };
+        var legalArms = (elemSchema.Arms ?? new()).Where(a => a != er).ToList();
+
         TypeSchema specSchema;
-        if (spec.Type == er) specSchema = elemSchema;
-        else if (elemSchema is { Kind: "polymorphic-base", Arms: { Count: > 0 } arms } && arms.Contains(spec.Type))
+        if (spec.Type == er)
+        {
+            if (isPolyBase)
+                return $"'{spec.Type}' is the polymorphic base of '{leaf.Name}' — the base itself cannot be composed; " +
+                       $"choose a concrete arm. Legal element types: {string.Join(", ", legalArms)}.";
+            specSchema = elemSchema;   // a concrete (non-poly-base) struct element composed by its own name — the normal case
+        }
+        else if (isPolyBase && legalArms.Contains(spec.Type))
             specSchema = Type(spec.Type)
                 ?? throw new InvalidOperationException($"Arm '{spec.Type}' of '{er}' is listed but absent from the corpus — regenerate corpus.json.");
         else
         {
-            var legal = elemSchema is { Kind: "polymorphic-base", Arms: { Count: > 0 } a }
-                ? $" Legal element types: {string.Join(", ", a)}." : "";
+            var legal = isPolyBase && legalArms.Count > 0
+                ? $" Legal element types: {string.Join(", ", legalArms)}." : "";
             return $"Element spec type '{spec.Type}' does not match '{leaf.Name}' element type '{er}'.{legal}";
         }
         return StructSpecContents(spec, specSchema);
