@@ -223,18 +223,25 @@ namespace HousecarlGenerator;
 /// Instantiate()s a degenerate empty base and SILENTLY WRITES IT (a Q3 silent-wrong-write, WORSE than a throw); an
 /// ABSTRACT base (Condition) throws MemberAccessException at Invoke. A CONCRETE poly-base also lists ITSELF among its arms
 /// (FindUnionArms keeps it; only an ABSTRACT base like Condition is filtered by !IsAbstract), so the arms.Contains branch
-/// would admit it too and GAP3-REJ-BADARM's message advertised it. The fix rejects spec.Type==er when er is a poly-base
-/// (recognizer = corpus KIND, NOT Type.IsAbstract — APackageData is concrete, so IsAbstract would miss the silent-write
-/// case) and filters the base out of the legal-arms set everywhere (Contains + every message). By construction over every
-/// poly-base family, no per-type wiring; concrete non-poly-base structs composed by their own name still accept:
+/// would admit it too and GAP3-REJ-BADARM's message advertised it. The fix rejects composing the base by its own name and
+/// filters the base out of the legal-arms set everywhere (Contains + every message) at BOTH composition entry points —
+/// StructElementLegality (collection elements: the 4 self-listing bases APackageData/BaseLayer/CellBlock/ScriptProperty)
+/// AND its sibling ArmLegality (standalone polymorphic FIELDS: DialogResponsesAdapter.ScriptFragments,
+/// GenderedItem&lt;SimpleModel&gt; — the twin found in a completeness sweep, folded in Aaron 2026-06-18). Recognizer = corpus
+/// poly-base KIND, NOT Type.IsAbstract (APackageData is concrete, so IsAbstract would miss the silent-write case). By
+/// construction over every poly-base family, no per-type wiring, no generator/corpus change; a concrete non-poly-base
+/// struct composed by its own name still accepts:
 ///   GAP3-REJ-BASEARM         — a Package.Data Add composing the base 'APackageData' itself refuses, offering the concrete
 ///                              arms (RED before: accepted via the spec.Type==er short-circuit).
 ///   GAP3-REJ-BASEARM-LIST    — the LIST twin (Faction.Conditions Add {Type:"Condition"}) refuses too — proves the fix is
 ///                              in the SHARED validator and catches an ABSTRACT base by the same check. RED before: accepted.
 ///   GAP3-OK-BASE-NOOVERREJECT— a CONCRETE struct element composed by its own name (Faction.Ranks element 'Rank', Kind=struct)
 ///                              STILL accepts — only poly-bases are rejected, not every spec.Type==er. Accepted before AND after.
-///   GAP3-REJ-BASEARM-E2E     — composing the base refuses end-to-end with NO file written; the PRE-FLIGHT 'polymorphic base'
-///                              message (not the apply CompositionRequiredException) proves the gate fired before BuildStruct.
+///   GAP3-REJ-BASEARM-E2E     — composing the base refuses end-to-end with NO file written; RED here was the WORST case (the
+///                              concrete base is instantiable, so it SILENTLY wrote a degenerate entry) — GREEN: gate rejects, no file.
+///   GAP3-REJ-BASEARM-FIELD   — the ArmLegality twin: a standalone poly-FIELD Set composing the base
+///                              (DialogResponses.VirtualMachineAdapter.ScriptFragments {Type:"ScriptFragments"}) refuses. RED before: accepted.
+///   GAP3-OK-ARMFIELD-UNCHANGED— a REAL arm ('SceneScriptFragments') on that poly field still accepts (no over-reject). Before AND after.
 ///   (GAP3-REJ-BADARM strengthened: its 'Legal element types' list no longer names the un-composable base 'APackageData'.)
 /// </summary>
 public static class NestedCreateGuardProbe
@@ -1371,6 +1378,34 @@ public static class NestedCreateGuardProbe
             },
             msg => msg.Contains("polymorphic base", StringComparison.OrdinalIgnoreCase));
 
+        // ---------- GAP3-REJ-BASEARM-FIELD: the STANDALONE poly-FIELD twin (ArmLegality, NOT StructElementLegality) ----
+        // A Set on a polymorphic FIELD (not a collection element) composing the base by name hits the SIBLING validator
+        // ArmLegality, which had the IDENTICAL hole: a concrete poly-base (ScriptFragments on
+        // DialogResponsesAdapter.ScriptFragments) self-lists, so legal.Contains(base) admitted it then apply silently
+        // wrote a degenerate base. Found in a completeness sweep, folded in (Aaron 2026-06-18) so the poly-base-by-own-name
+        // class is closed at BOTH composition entry points by construction. Path: DialogResponses -> VirtualMachineAdapter
+        // (the VMAD substruct) -> ScriptFragments (polymorphic leaf).
+        bool gap3RejBaseArmFieldOk;
+        {
+            var req = new WriteRequest { RecordType = "DialogResponses", Path = new[] { "VirtualMachineAdapter", "ScriptFragments" },
+                Verb = "Set", Struct = new StructSpec { Type = "ScriptFragments" } };
+            var reject = rulebook.Validate(req);
+            gap3RejBaseArmFieldOk = reject is not null
+                && reject.Contains("polymorphic base", StringComparison.OrdinalIgnoreCase)
+                && reject.Contains("SceneScriptFragments", StringComparison.Ordinal);   // a real arm is offered instead
+            Console.WriteLine($"   GAP3-REJ-BASEARM-FIELD poly field  : {(gap3RejBaseArmFieldOk ? "PASS — a standalone poly-FIELD Set composing the base 'ScriptFragments' refuses via ArmLegality (RED before: accepted, then silent-write)" : $"FAIL — reject=[{reject}]")}");
+        }
+
+        // ---------- GAP3-OK-ARMFIELD-UNCHANGED: a REAL arm on the same poly field still accepts (no over-reject) ----------
+        bool gap3OkArmFieldUnchangedOk;
+        {
+            var req = new WriteRequest { RecordType = "DialogResponses", Path = new[] { "VirtualMachineAdapter", "ScriptFragments" },
+                Verb = "Set", Struct = new StructSpec { Type = "SceneScriptFragments" } };
+            var reject = rulebook.Validate(req);
+            gap3OkArmFieldUnchangedOk = reject is null;
+            Console.WriteLine($"   GAP3-OK-ARMFIELD-UNCHANGED real arm: {(gap3OkArmFieldUnchangedOk ? "PASS — a real arm ('SceneScriptFragments') on the poly field still accepts (filtering the base didn't break real arms)" : $"FAIL — reject=[{reject}]")}");
+        }
+
         Console.WriteLine();
         bool pass = fixturesOk && oneshotOk && multiOk && intoTopicOk && intoCellOk
                     && rejNoParentOk && rejBadParentOk && rejAmbigOk && rejFwdSibOk && extendOk
@@ -1389,7 +1424,8 @@ public static class NestedCreateGuardProbe
                     && g7RejDictMergeOk && g7RejComposableRemoveOk && g7RejRecordRemoveOk && g7OkComposableRemoveIdxOk && g7OkDictRemoveKeyOk
                     && gap3OkDictAddComposeOk && gap3OkDictSetComposeOk && gap3RejBadArmOk && gap3OkListUnchangedOk
                     && gap3OkE2eOk && gap3OkE2eSetOk && gap3RejDupOk
-                    && gap3RejBaseArmOk && gap3RejBaseArmListOk && gap3OkBaseNoOverRejectOk && gap3RejBaseArmE2eOk;
+                    && gap3RejBaseArmOk && gap3RejBaseArmListOk && gap3OkBaseNoOverRejectOk && gap3RejBaseArmE2eOk
+                    && gap3RejBaseArmFieldOk && gap3OkArmFieldUnchangedOk;
         Console.WriteLine($"=== nested-create-guard: {(pass ? "PASS" : "FAIL")} ===");
         try { Directory.Delete(tmpDir, recursive: true); } catch { }
         return pass ? 0 : 1;

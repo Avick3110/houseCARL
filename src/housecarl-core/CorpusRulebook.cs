@@ -660,7 +660,17 @@ public sealed class CorpusRulebook
     string? ArmLegality(FieldSchema leaf, StructSpec? arm)
     {
         if (arm is null) return $"Set on polymorphic field '{leaf.Name}' requires an arm (which arm + its data).";
-        var legal = leaf.Arms ?? (leaf.TypeRef is { } tr ? Type(tr)?.Arms : null) ?? new();
+        // (G8) The standalone-poly-FIELD twin of the StructElementLegality base-reject. A CONCRETE poly-base (e.g.
+        // ScriptFragments on DialogResponsesAdapter.ScriptFragments) lists ITSELF among its arms, so legal.Contains(base)
+        // would otherwise admit a Set composing the base by its OWN name, and apply then SILENTLY writes a degenerate
+        // base instance. Filter the base (leaf.TypeRef — this method is only reached for a polymorphic field) out of the
+        // legal set, and reject composing the base itself. Symmetric with StructElementLegality; closes the SECOND
+        // composition entry point so the poly-base-by-own-name class is shut at both, by construction.
+        var baseName = leaf.TypeRef;
+        var legal = (leaf.Arms ?? (baseName is { } tr ? Type(tr)?.Arms : null) ?? new()).Where(a => a != baseName).ToList();
+        if (baseName is not null && arm.Type == baseName)
+            return $"'{arm.Type}' is the polymorphic base of '{leaf.Name}' — the base itself cannot be composed; " +
+                   $"choose a concrete arm. Legal arms: {string.Join(", ", legal)}.";
         if (!legal.Contains(arm.Type))
             return $"Illegal arm '{arm.Type}' for '{leaf.Name}'. Legal arms: {string.Join(", ", legal)}.";
         var armSchema = Type(arm.Type);
