@@ -176,6 +176,17 @@ jobs:
       - name: Probe — SameShape write-legality equivalence (self-contained regression guard)
         run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- sameshape-agree-guard
 
+      # Corpus structural hygiene (display-leak class): the shipped mutagen-reference / corpus.json is the
+      # by-construction artifact Claude authors writes against, so a reflection-walk leak into it is a Q3-adjacent
+      # wrong ANSWER even though the write GATE backstops it. Regenerates the corpus into a temp dir (no game data)
+      # and asserts five shape invariants the walk must satisfy — no self-listing arm (locks PR #84), no C# indexer
+      # surfaced as a field (the Weather "Item" leak), no non-modeled System.* type (the phantom Enumerable), no
+      # read-only projection presented as a legal arm (the multi-mod overlay + merged-cell view, by structure not
+      # name), and no degenerate field-less struct/record. Every invariant is RED-proven in-code against a synthetic
+      # violation, so a GREEN means the contract holds, not that the case didn't arise. Self-contained — runs fully here.
+      - name: Probe — corpus structural hygiene (self-contained regression guard)
+        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- corpus-hygiene-guard
+
       # Nested compose + serialize-boundary null-arm refusal (HCBR 1.1 null-arm half + serialize-NRE / PR-C). PART A:
       # a compose's nested set carried no `compose`, so a sets[] entry could only set a scalar, never SELECT a
       # polymorphic sub-arm (a Condition's Data). NestedSet gained an optional Compose and MapStruct propagates it into
