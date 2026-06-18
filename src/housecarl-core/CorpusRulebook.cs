@@ -567,6 +567,14 @@ public sealed class CorpusRulebook
     /// composition entry points can never disagree.</summary>
     string? StructSpecContents(StructSpec spec, TypeSchema structSchema)
     {
+        // (G4) positional ctor_args value-SHAPE + ARITY — the one compose part the gate never checked. A malformed arg
+        // or a wrong arity passed pre-flight then threw at apply (Instantiate: Coerce(arg, paramType) / "no constructor
+        // taking N arg(s)"). WriteEngine.TryRecognizeCtorArgs mirrors Instantiate EXACTLY (same ResolveStructType + ctor
+        // selector + TryCoerce), so gate and apply can't drift. Checked at the TOP so it runs for BOTH StructSpecContents
+        // call sites (ArmLegality + StructElementLegality) and reports before the per-field checks. Skipped when CtorArgs
+        // is null (the common compose path — parameterless/fields only, unchanged).
+        if (spec.CtorArgs is { } ctorArgs && WriteEngine.TryRecognizeCtorArgs(spec.Type, ctorArgs) is { } ctorErr)
+            return ctorErr;
         foreach (var f in spec.Fields ?? new())
         {
             var af = structSchema.Fields.FirstOrDefault(x => x.Name == f.Key);

@@ -1608,6 +1608,33 @@ public static class WriteEngine
         return InstantiateComposition(t);
     }
 
+    /// <summary>Recognition-only mirror of <see cref="Instantiate"/>'s ctor-args path — the write pre-flight gate's twin
+    /// of the apply-time ctor build (G4). Does this struct type have a constructor of the supplied arity, and does each
+    /// supplied arg COERCE to its parameter type? Resolves the type the SAME way <see cref="BuildStruct"/> feeds
+    /// Instantiate (<see cref="ResolveStructType"/>), selects the ctor the SAME way Instantiate does
+    /// (<c>GetConstructors().FirstOrDefault(len==N)</c>), and checks each arg with <see cref="TryCoerce"/> — the
+    /// non-throwing twin of the very same <c>Coerce</c> Instantiate calls per arg — so the gate and apply cannot drift on
+    /// arity OR value-shape. Returns null = legal; else a fail-loud message: the arity mismatch (mirroring Instantiate's
+    /// own throw text, incl. <see cref="CtorList"/>) or the first arg that won't coerce, NAMED (Q3). The corpus models no
+    /// ctor signatures (it is schema-driven; apply is reflection-driven), so this is the ONE gap whose recognizer is new
+    /// — but it composes entirely from existing engine primitives, by construction, no generator change. Called only when
+    /// <c>spec.CtorArgs</c> is non-null; an empty array means "the 0-arg ctor" and is checked like any other arity.</summary>
+    internal static string? TryRecognizeCtorArgs(string structTypeName, string[] ctorArgs)
+    {
+        Type t;
+        try { t = ResolveStructType(structTypeName); }
+        catch (Exception ex) { return ex.Message; }   // unknown struct type — surface ResolveStructType's own loud message
+        var ctor = t.GetConstructors().FirstOrDefault(c => c.GetParameters().Length == ctorArgs.Length);
+        if (ctor is null)
+            return $"{t.Name}: no constructor taking {ctorArgs.Length} arg(s). Ctors: {CtorList(t)}";
+        var ps = ctor.GetParameters();
+        for (int i = 0; i < ps.Length; i++)
+            if (!TryCoerce(ctorArgs[i], ps[i].ParameterType, out _))
+                return $"ctor arg #{i} ('{ctorArgs[i]}') for '{structTypeName}' does not coerce to " +
+                       $"{Pretty(ps[i].ParameterType)} (parameter '{ps[i].Name}').";
+        return null;
+    }
+
     /// <summary>A composition type has NO parameterless ctor — it is built only from its parts. Recognised by its
     /// generic definition (the engine's normal type-recognition, like IList&lt;&gt;/FormLink&lt;&gt; — NOT a hand-listed
     /// set of record types, which the cornerstone forbids):
