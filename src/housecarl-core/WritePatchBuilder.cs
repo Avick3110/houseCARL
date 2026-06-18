@@ -222,6 +222,14 @@ public static class WritePatchBuilder
                 WriteEngine.ApplyVerb(ov, req);
                 ops.Add(new OpResult(e.Target, req.RecordType, label, true, null, TryReadAfter(ov, req)));
             }
+            catch (ExpectedApplyRejectionException ex)
+            {
+                // An EXPECTED apply-time refusal pre-flight legitimately can't pre-empt (live state — e.g. a duplicate dict
+                // key): render its clean guidance, NOT the gate/apply-inconsistency wrapper. All-or-nothing still holds —
+                // the whole call is refused and no file is written (gap-audit Finding 3).
+                return PatchOutcome.Fail(
+                    $"refused applying [{label}] to {req.RecordType} {e.Target} — {ex.Message} (no patch written)");
+            }
             catch (Exception ex)
             {
                 return PatchOutcome.Fail(
@@ -584,6 +592,13 @@ public static class WritePatchBuilder
                     req = CopyWithValue(rawReq, sibRec.FormKey.ToString());
                 }
                 try { WriteEngine.ApplyVerb(rec, req); ops.Add(new OpResult(rec.FormKey, s.RecordType, Label(req), true, null, TryReadAfter(rec, req))); }
+                catch (ExpectedApplyRejectionException ex)
+                {
+                    // EXPECTED apply-time refusal (live state pre-flight can't see — e.g. a duplicate dict key): clean
+                    // guidance, NOT the inconsistency wrapper. Whole call still refused, nothing serialized (gap-audit Finding 3).
+                    return CreateOutcome.Fail(
+                        $"refused applying [{Label(req)}] to new {s.RecordType} '{s.EditorId}' ({rec.FormKey}) — {ex.Message} (nothing created)");
+                }
                 catch (Exception ex)
                 {
                     return CreateOutcome.Fail(
