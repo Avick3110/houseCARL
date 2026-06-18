@@ -212,6 +212,7 @@ namespace HousecarlGenerator;
 ///   GAP3-REJ-BADARM          — a compose type that is not an APackageData arm refuses, naming the legal arms (RED before: 'later surface').
 ///   GAP3-OK-LIST-UNCHANGED   — an ARM-element LIST compose (Faction.Conditions) still composes (the dict-Add change didn't disturb the list path).
 ///   GAP3-E2E                 — a composed PackageDataBool(Data=true) round-trips through the real create+apply path onto Package.Data[0] on disk.
+///   GAP3-E2E-SET             — the Set-OVERWRITE apply branch round-trips: Add Data[0]=false then Set Data[0]=true reads Data==true on disk (the dup escape hatch).
 ///   GAP3-REJ-DUP             — an Add of an already-present key refuses (apply-time) end-to-end, NO file written, naming Set as the overwrite path.
 /// </summary>
 public static class NestedCreateGuardProbe
@@ -1239,6 +1240,31 @@ public static class NestedCreateGuardProbe
             Console.WriteLine($"   GAP3-E2E composed bool round-trips : {(gap3OkE2eOk ? "PASS — accepted at the gate AND a PackageDataBool(Data=true) written to Package.Data[0] on disk" : $"FAIL — success={o.Success} present={present} err=[{o.Error}]")}");
         }
 
+        // ---------- GAP3-E2E-SET: the Set-OVERWRITE apply path round-trips (the documented duplicate-key escape hatch) ----------
+        // GAP3-E2E proves the Add apply branch; this proves the new Set branch (setItem.Invoke(dict, …, BuildValue())) — the
+        // path a user takes after "Key already present — use Set to overwrite". Add Data[0]={Data:false}, then Set Data[0]=
+        // {Data:true} in ONE create: the Set REPLACES, so the on-disk Data[0] reads Data==true (PackageDataComposedBool).
+        bool gap3OkE2eSetOk = false;
+        {
+            string pPath = Path.Combine(tmpDir, "HcNcGap3Set.esp");
+            var specs = new[]
+            {
+                new WritePatchBuilder.CreateSpec { RecordType = "Package", EditorId = "HcNcGap3SetPack",
+                    Edits = new[]
+                    {
+                        new WriteRequest { RecordType = "Package", Path = new[] { "Data" }, Verb = "Add", Key = "0",
+                            Struct = new StructSpec { Type = "PackageDataBool", Fields = new Dictionary<string, string> { ["Data"] = "false" } } },
+                        new WriteRequest { RecordType = "Package", Path = new[] { "Data" }, Verb = "Set", Key = "0",
+                            Struct = new StructSpec { Type = "PackageDataBool", Fields = new Dictionary<string, string> { ["Data"] = "true" } } },
+                    } },
+            };
+            using var r = LoadOrderResolver.Build(new[] { mPath });
+            var o = WritePatchBuilder.CreateRecords(r, rulebook, specs, pPath, extend: false);
+            bool overwritten = o.Success && o.Created.Count > 0 && PackageDataComposedBool(pPath, o.Created[0].FormKey);
+            gap3OkE2eSetOk = o.Success && overwritten;
+            Console.WriteLine($"   GAP3-E2E-SET overwrite round-trips : {(gap3OkE2eSetOk ? "PASS — Add Data[0]=false then Set Data[0]=true OVERWRITES; PackageDataBool(Data=true) on disk (the 'use Set to overwrite' escape hatch)" : $"FAIL — success={o.Success} overwritten={overwritten} err=[{o.Error}]")}");
+        }
+
         // ---------- GAP3-REJ-DUP: Add of an already-present key refuses (apply-time) with the improved 'use Set' guidance ----------
         // The duplicate check is apply-time (pre-flight is schema-only, can't see live occupancy): two Adds of Data[0] in one
         // create — the second refuses the WHOLE call, no file written, with the Gap-3 message naming Set as the overwrite path.
@@ -1272,7 +1298,8 @@ public static class NestedCreateGuardProbe
                     && g6RejRecordAddOk && g6RejRecordReplaceAllOk && g6OkRemoveByIndexOk && g6OkStructUnchangedOk && g6RejE2eOk
                     && g4RejCtorArgShapeOk && g4RejCtorArgArityOk && g4OkCtorArgOk && g4OkNoCtorArgsOk && g4RejCtorArgE2eOk
                     && g7RejDictMergeOk && g7RejComposableRemoveOk && g7RejRecordRemoveOk && g7OkComposableRemoveIdxOk && g7OkDictRemoveKeyOk
-                    && gap3OkDictAddComposeOk && gap3OkDictSetComposeOk && gap3RejBadArmOk && gap3OkListUnchangedOk && gap3OkE2eOk && gap3RejDupOk;
+                    && gap3OkDictAddComposeOk && gap3OkDictSetComposeOk && gap3RejBadArmOk && gap3OkListUnchangedOk
+                    && gap3OkE2eOk && gap3OkE2eSetOk && gap3RejDupOk;
         Console.WriteLine($"=== nested-create-guard: {(pass ? "PASS" : "FAIL")} ===");
         try { Directory.Delete(tmpDir, recursive: true); } catch { }
         return pass ? 0 : 1;
