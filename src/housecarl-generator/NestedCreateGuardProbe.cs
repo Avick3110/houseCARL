@@ -125,6 +125,8 @@ namespace HousecarlGenerator;
 ///   GAP1-REJ-MIDKEY-SBYTE      — a malformed sbyte key in a mid-path hop ('Data[notasbyte].Name') refuses 'does not coerce
 ///                                to sbyte' at PRE-FLIGHT (RED before: accepted — no AQ, 'sbyte' not a catalog enum).
 ///   GAP1-OK-MIDKEY             — a VALID sbyte mid-path key ('Data[0].Name') + valid leaf Set stays accepted (no over-reject).
+///   GAP1-REJ-E2E               — a malformed mid-path key refuses end-to-end with NO file written (review hardening); the
+///                                PRE-FLIGHT 'does not coerce to sbyte', not the apply sbyte FormatException, proves the gate.
 ///
 /// GAP 2 — NON-FORMLINK coercible collection ELEMENT VALUE-SHAPE (the value twin of step-4a + the dict-Set value block).
 /// A non-null, non-formlink, MALFORMED coercible element value on list Add/SetAtIndex/ReplaceAll/Remove-by-value and dict
@@ -178,6 +180,8 @@ namespace HousecarlGenerator;
 ///                                RED before: accepted.
 ///   G4-OK-CTORARG              — valid ctor args ('ValueModifier') of the right arity stay accepted (no over-reject).
 ///   G4-OK-NOCTORARGS          — a compose WITHOUT ctor_args (the common case) is untouched (the spec.CtorArgs guard skips).
+///   G4-REJ-CTORARG-E2E         — a malformed ctor arg refuses end-to-end with NO file written (review hardening); the
+///                                PRE-FLIGHT 'ctor arg #0', not the apply Enum.Parse throw, proves the gate ran before Instantiate.
 ///
 /// G7 — composable-element MERGE + non-plain-value Remove-BY-VALUE (the deferred-reject completion; matrix-critic finding
 /// + a record twin found while implementing G6). The IsComposableElement deferred-reject covered Add and
@@ -840,6 +844,20 @@ public static class NestedCreateGuardProbe
             Console.WriteLine($"   GAP1-OK-MIDKEY valid sbyte mid key : {(gap1OkMidKeyOk ? "PASS — a valid sbyte mid-path key (Data[0]) is NOT over-rejected" : $"FAIL — reject=[{reject}]")}");
         }
 
+        // ---------- GAP1-REJ-E2E: a malformed mid-path dict key refuses end-to-end with NO file written (review hardening) ----------
+        // Package is a flat (Kind=record) createable record; the create's own op edits Data[notasbyte].Name. A fresh
+        // Package's Data is an empty NON-null dict (Mutagen initializes it), so apply DOES reach the key coerce — WITHOUT
+        // the fix, pre-flight accepts and apply throws the genuine sbyte FormatException at StepIntoElement ->
+        // Coerce('notasbyte', sbyte) (RED-proven verbatim). With the fix, the PRE-FLIGHT message ('does not coerce to
+        // sbyte'), not the apply throw, refuses it with NO file written — the faithful mid-path-key accept-then-throw, end to end.
+        bool gap1RejE2eOk = RejectArm("GAP1-REJ-E2E bad mid-path key      ", tmpDir, "Gap1E2E", mPath, rulebook,
+            new[]
+            {
+                new WritePatchBuilder.CreateSpec { RecordType = "Package", EditorId = "HcNcG1Pack",
+                    Edits = new[] { new WriteRequest { RecordType = "Package", Path = new[] { "Data[notasbyte]", "Name" }, Verb = "Set", Value = "houseCARL" } } },
+            },
+            msg => msg.Contains("does not coerce to sbyte", StringComparison.OrdinalIgnoreCase));
+
         // ====== GAP 2 — NON-FORMLINK coercible collection ELEMENT VALUE-SHAPE ======
         // The value twin of step-4a (formlink elements) and of the dict-Set value block. A non-null, non-formlink,
         // MALFORMED coercible element value on list Add/SetAtIndex/ReplaceAll/Remove-by-value and dict Add/Merge/ReplaceAll
@@ -1063,6 +1081,20 @@ public static class NestedCreateGuardProbe
             Console.WriteLine($"   G4-OK-NOCTORARGS no ctor_args       : {(g4OkNoCtorArgsOk ? "PASS — a compose without ctor_args (the common case) is untouched" : $"FAIL — reject=[{reject}]")}");
         }
 
+        // ---------- G4-REJ-CTORARG-E2E: a malformed ctor arg refuses end-to-end with NO file written (review hardening) ----------
+        // MagicEffect is a flat (Kind=record) createable record; the create's own op does the polymorphic Set with a bad
+        // ctor arg. The PRE-FLIGHT message ('ctor arg #0'), not the apply Enum.Parse throw, proves the gate caught it
+        // BEFORE Instantiate ran — self-enforcing against future drift in Instantiate (G4's recognizer is the one
+        // genuinely new one, so this faithfully reproduces the accept-then-throw end to end). RejectArm proves no file.
+        bool g4RejCtorArgE2eOk = RejectArm("G4-REJ-CTORARG-E2E bad ctor arg   ", tmpDir, "G4E2E", mPath, rulebook,
+            new[]
+            {
+                new WritePatchBuilder.CreateSpec { RecordType = "MagicEffect", EditorId = "HcNcG4Mgef",
+                    Edits = new[] { new WriteRequest { RecordType = "MagicEffect", Path = new[] { "Archetype" }, Verb = "Set",
+                        Struct = new StructSpec { Type = "MagicEffectArchetype", CtorArgs = new[] { "notatypeenum" } } } } },
+            },
+            msg => msg.Contains("ctor arg #0", StringComparison.OrdinalIgnoreCase));
+
         // ====== G7 — composable-element MERGE + non-plain-value Remove-BY-VALUE (the deferred-reject completion) ======
         // The IsComposableElement deferred-reject block covered Add (compose/deferred) and ReplaceAll/SetAtIndex, but
         // OMITTED Merge — a Package.Data Merge fell through to ACCEPT then threw 'No coercion rule' at apply. And a
@@ -1133,11 +1165,11 @@ public static class NestedCreateGuardProbe
                     && keyShapeRejDictAddOk && keyShapeRejDictRemoveOk && keyShapeRejMergeKeyOk && keyShapeRejSbyteOk
                     && keyShapeRejSetIdxOk && keyShapeRejNegIdxOk && keyShapeRejListRemoveIdxOk
                     && keyShapeOkDictAddOk && keyShapeOkSetIdxOk && keyShapeOkNumEnumSetOk && keyShapeRejE2eOk
-                    && gap1RejMidKeySbyteOk && gap1OkMidKeyOk
+                    && gap1RejMidKeySbyteOk && gap1OkMidKeyOk && gap1RejE2eOk
                     && gap2RejDictAddOk && gap2RejListAddOk && gap2RejListReplaceAllOk && gap2RejListRemoveOk && gap2RejDictMergeOk
                     && gap2OkValidOk && gap2OkRemoveByIndexOk && gap2FormlinkRouteOk && gap2OkOffcardSlotOk && gap2RejE2eOk
                     && g6RejRecordAddOk && g6RejRecordReplaceAllOk && g6OkRemoveByIndexOk && g6OkStructUnchangedOk && g6RejE2eOk
-                    && g4RejCtorArgShapeOk && g4RejCtorArgArityOk && g4OkCtorArgOk && g4OkNoCtorArgsOk
+                    && g4RejCtorArgShapeOk && g4RejCtorArgArityOk && g4OkCtorArgOk && g4OkNoCtorArgsOk && g4RejCtorArgE2eOk
                     && g7RejDictMergeOk && g7RejComposableRemoveOk && g7RejRecordRemoveOk && g7OkComposableRemoveIdxOk && g7OkDictRemoveKeyOk;
         Console.WriteLine($"=== nested-create-guard: {(pass ? "PASS" : "FAIL")} ===");
         try { Directory.Delete(tmpDir, recursive: true); } catch { }
