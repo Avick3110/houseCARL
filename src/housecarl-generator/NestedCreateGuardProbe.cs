@@ -213,7 +213,8 @@ namespace HousecarlGenerator;
 ///   GAP3-OK-LIST-UNCHANGED   — an ARM-element LIST compose (Faction.Conditions) still composes (the dict-Add change didn't disturb the list path).
 ///   GAP3-E2E                 — a composed PackageDataBool(Data=true) round-trips through the real create+apply path onto Package.Data[0] on disk.
 ///   GAP3-E2E-SET             — the Set-OVERWRITE apply branch round-trips: Add Data[0]=false then Set Data[0]=true reads Data==true on disk (the dup escape hatch).
-///   GAP3-REJ-DUP             — an Add of an already-present key refuses (apply-time) end-to-end, NO file written, naming Set as the overwrite path.
+///   GAP3-REJ-DUP             — an Add of an already-present key refuses (apply-time) end-to-end, NO file written, naming Set as the overwrite path,
+///                              and renders that EXPECTED rejection cleanly — NO "real inconsistency" wrapper (gap-audit Finding 3).
 ///
 /// G8 — the polymorphic BASE composed by its OWN name (PR-B review finding; PRE-EXISTING, shared list+dict). A compose
 /// naming the base itself ({Type:"APackageData"} on Package.Data, {Type:"Condition"} on a *.Conditions list) hit
@@ -1301,6 +1302,9 @@ public static class NestedCreateGuardProbe
         // ---------- GAP3-REJ-DUP: Add of an already-present key refuses (apply-time) with the improved 'use Set' guidance ----------
         // The duplicate check is apply-time (pre-flight is schema-only, can't see live occupancy): two Adds of Data[0] in one
         // create — the second refuses the WHOLE call, no file written, with the Gap-3 message naming Set as the overwrite path.
+        // ALSO guards gap-audit Finding 3: this EXPECTED apply rejection (an ExpectedApplyRejectionException) must render its
+        // clean guidance WITHOUT the "pre-flight ACCEPTED … a real inconsistency" wrapper reserved for genuine gate/apply
+        // drift. RED-proof: before the fix the envelope embedded that wrapper, so the absence-asserts below would FAIL.
         bool gap3RejDupOk = RejectArm("GAP3-REJ-DUP duplicate key add     ", tmpDir, "Gap3Dup", mPath, rulebook,
             new[]
             {
@@ -1313,7 +1317,10 @@ public static class NestedCreateGuardProbe
                             Struct = new StructSpec { Type = "PackageDataBool", Fields = new Dictionary<string, string> { ["Data"] = "false" } } },
                     } },
             },
-            msg => msg.Contains("already present", StringComparison.OrdinalIgnoreCase) && msg.Contains("use Set", StringComparison.OrdinalIgnoreCase));
+            msg => msg.Contains("already present", StringComparison.OrdinalIgnoreCase)
+                && msg.Contains("use Set", StringComparison.OrdinalIgnoreCase)
+                && !msg.Contains("real inconsistency", StringComparison.OrdinalIgnoreCase)   // Finding 3: no inconsistency wrapper …
+                && !msg.Contains("pre-flight ACCEPTED", StringComparison.OrdinalIgnoreCase)); //            … on an expected rejection
 
         // ====== G8 — the polymorphic BASE composed by its OWN name (the gate/apply drift this batch exists to kill) ======
         // StructElementLegality short-circuits `if (spec.Type == er) specSchema = elemSchema` — so composing the poly-BASE

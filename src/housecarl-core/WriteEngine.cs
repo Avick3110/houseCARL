@@ -1738,7 +1738,10 @@ public static class WriteEngine
                 var addKey = Coerce(req.Key!, kType);
                 var contains = dt.GetMethod("ContainsKey", new[] { kType });
                 if (contains is not null && contains.Invoke(dict, new[] { addKey }) is true)
-                    throw new InvalidOperationException(
+                    // EXPECTED apply rejection (live occupancy — pre-flight is schema-only, can't see it): thrown as the
+                    // distinct kind so WritePatchBuilder renders this guidance cleanly, NOT under the "real inconsistency"
+                    // wrapper reserved for genuine gate/apply drift (gap-audit Finding 3).
+                    throw new ExpectedApplyRejectionException(
                         $"Key '{req.Key}' already present in '{prop.Name}' — use Set to overwrite that entry, or choose a free key/index.");
                 dt.GetMethod("Add", new[] { kType, vType })!.Invoke(dict, new[] { addKey, BuildValue() });
                 break;
@@ -2845,4 +2848,20 @@ public sealed class NullArmSerializeException : InvalidOperationException
                "inconsistency — surface it, don't work around it.", inner)
     {
     }
+}
+
+/// <summary>An apply-time refusal that pre-flight LEGITIMATELY CANNOT pre-empt because it depends on LIVE STATE the
+/// schema-only gate has no visibility into — distinct from a gate/apply <i>inconsistency</i>. The canonical case is a
+/// dict <c>Add</c> of a key that is ALREADY PRESENT (Gap 3 / Package.Data composition): occupancy is runtime state, not
+/// schema, so the gate accepts the shape and the duplicate is correctly caught here at apply with a clear, actionable
+/// message. The all-or-nothing catch in <see cref="WritePatchBuilder"/> renders this kind's message VERBATIM — still
+/// refusing the whole call with no file written (Q3 all-or-nothing holds) — WITHOUT the generic "pre-flight ACCEPTED it
+/// but the apply threw — a real inconsistency" wrapper, which would mislabel an expected, fixable user error as an
+/// internal bug. Genuinely-unexpected apply throws (a real gate/apply drift) keep that wrapper. Use this ONLY where the
+/// throw is a known, live-state user error with self-explanatory guidance — never to quiet a throw whose cause is
+/// unclear, which would re-introduce the silent-failure this project exists to avoid. It is an
+/// <see cref="InvalidOperationException"/> so any plain fail-loud handler still catches it.</summary>
+public sealed class ExpectedApplyRejectionException : InvalidOperationException
+{
+    public ExpectedApplyRejectionException(string message) : base(message) { }
 }
