@@ -362,7 +362,12 @@ public sealed class CorpusRulebook
                    "(Whether the index is in range is checked at apply, against the live list.)";
         if (req.Verb is "Set" && leaf.Cardinality == "dict")
         {
-            // Key shape gated by the step-4-key block above (Set/Add/Remove share one recognizer); validate the VALUE here.
+            // Key shape gated by the step-4-key block above (Set/Add/Remove share one recognizer). A struct/arm-VALUED
+            // dict (Package.Data — the only one Mutagen models) Set REPLACES an entry's value with a build-from-parts
+            // element (Gap 3, dict-element composition): validate the spec against the element type via the SAME
+            // StructElementLegality the Add path uses (poly-base arm resolution + recursive contents) — gate and apply
+            // share one recognizer, no drift. A coercible-VALUE dict (Class.SkillWeights, Race.Regen, …) Set coerces.
+            if (IsComposableElement(leaf)) return StructElementLegality(leaf, req.Struct);
             if (req.Value is null) return $"Set on dict '{leaf.Name}' requires a value.";
             return CheckValue(leaf.ElementType, req.Value, $"dict value for '{leaf.Name}'", leaf.ElementTypeAssemblyQualified);
         }
@@ -502,15 +507,15 @@ public sealed class CorpusRulebook
         // coercible-element list takes a plain value the engine coerces (proven by the collection waves).
         if (leaf.Cardinality is "list" or "dict" && IsComposableElement(leaf))
         {
-            // Composition lands through the LIST Add only — the engine's dict Add takes a coercible key + value
-            // and ignores a spec (ApplyDictVerb), so admitting a dict compose here would be accept-then-throw
-            // (PR review). Named deferred surface instead, never a runtime surprise.
+            // Add composes a build-from-parts element against the element type — LIST and DICT alike (Gap 3 opened dict
+            // Add: ApplyDictVerb now builds the entry value via BuildStruct(req.Struct) when composing, mirroring
+            // ApplyListVerb's Add, so admitting a dict compose is apply-faithful — no longer the accept-then-throw the
+            // earlier PR-review note guarded against). StructElementLegality resolves a polymorphic-base element's arm
+            // (Package.Data -> an APackageData arm) + validates contents recursively. (A composable dict SET is gated at
+            // the dict-Set block above — same StructElementLegality.)
             if (req.Verb == "Add")
-                return leaf.Cardinality == "dict"
-                    ? $"'{leaf.Name}' is a dict of modeled elements ({leaf.ElementTypeRef}); dict-element " +
-                      "composition is a later surface — surfaced here, never accepted and thrown at apply time."
-                    : StructElementLegality(leaf, req.Struct);
-            // ReplaceAll/SetAtIndex/Merge of modeled elements are all deferred (only Add composes). Merge is dict-only
+                return StructElementLegality(leaf, req.Struct);
+            // ReplaceAll/SetAtIndex/Merge of modeled elements are all deferred (only Add/Set composes). Merge is dict-only
             // and was previously OMITTED here, so a Package.Data Merge fell through to ACCEPT then threw 'No coercion
             // rule' at apply (matrix-critic finding) — folding it in closes that. Verb named in the message so it reads
             // accurately for each.
@@ -562,7 +567,7 @@ public sealed class CorpusRulebook
     string? StructElementLegality(FieldSchema leaf, StructSpec? spec)
     {
         if (spec is null)
-            return $"Add to struct-element collection '{leaf.Name}' requires a build-from-parts spec (the new element).";
+            return $"'{leaf.Name}' takes a build-from-parts element (a modeled {leaf.ElementTypeRef}); supply a compose spec, not a plain value.";
         var er = leaf.ElementTypeRef!;
         var elemSchema = Type(er);
         if (elemSchema is null) return $"Element type '{er}' for '{leaf.Name}' absent from corpus.";

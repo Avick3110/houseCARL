@@ -1722,16 +1722,27 @@ public static class WriteEngine
         var dt = dict.GetType();
         var setItem = Indexer(dt).GetSetMethod()!;
         void Set(string k, string v) => setItem.Invoke(dict, new[] { Coerce(k, kType), Coerce(v, vType) });
+        // The entry VALUE for Set/Add: a struct/arm-VALUED dict (Package.Data — the only one Mutagen models) builds the
+        // value FROM PARTS (Gap 3: dict-element composition), mirroring ApplyListVerb's Add; a coercible-VALUE dict
+        // (Class.SkillWeights, Race.Regen, …) coerces the plain value as before. The gate (CorpusRulebook) accepts a dict
+        // Set/Add carrying a StructSpec ONLY for a composable element, so a spec on a coercible dict can't reach here.
+        object? BuildValue() => req.Struct is not null ? BuildStruct(req.Struct) : Coerce(req.Value!, vType);
 
         switch (req.Verb)
         {
-            case "Set":
-                Set(req.Key!, req.Value!);
+            case "Set": // REPLACES (indexer-set) — for a composable dict this overwrites an entry's composed value (Gap 3)
+                setItem.Invoke(dict, new[] { Coerce(req.Key!, kType), BuildValue() });
                 break;
-            case "Add": // distinct from Set: throws on duplicate key (Mutagen semantics)
-                dt.GetMethod("Add", new[] { kType, vType })!
-                    .Invoke(dict, new[] { Coerce(req.Key!, kType), Coerce(req.Value!, vType) });
+            case "Add": // distinct from Set: a duplicate key is refused (Mutagen's dict.Add throws). Pre-check ContainsKey so
+            {           // the guidance names the fix (Gap 3) — "use Set to overwrite" — instead of the raw Mutagen string.
+                var addKey = Coerce(req.Key!, kType);
+                var contains = dt.GetMethod("ContainsKey", new[] { kType });
+                if (contains is not null && contains.Invoke(dict, new[] { addKey }) is true)
+                    throw new InvalidOperationException(
+                        $"Key '{req.Key}' already present in '{prop.Name}' — use Set to overwrite that entry, or choose a free key/index.");
+                dt.GetMethod("Add", new[] { kType, vType })!.Invoke(dict, new[] { addKey, BuildValue() });
                 break;
+            }
             case "Remove":
                 dt.GetMethod("Remove", new[] { kType })!.Invoke(dict, new[] { Coerce(req.Key!, kType) });
                 break;
