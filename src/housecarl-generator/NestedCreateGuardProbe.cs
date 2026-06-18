@@ -125,6 +125,27 @@ namespace HousecarlGenerator;
 ///   GAP1-REJ-MIDKEY-SBYTE      — a malformed sbyte key in a mid-path hop ('Data[notasbyte].Name') refuses 'does not coerce
 ///                                to sbyte' at PRE-FLIGHT (RED before: accepted — no AQ, 'sbyte' not a catalog enum).
 ///   GAP1-OK-MIDKEY             — a VALID sbyte mid-path key ('Data[0].Name') + valid leaf Set stays accepted (no over-reject).
+///
+/// GAP 2 — NON-FORMLINK coercible collection ELEMENT VALUE-SHAPE (the value twin of step-4a + the dict-Set value block).
+/// A non-null, non-formlink, MALFORMED coercible element value on list Add/SetAtIndex/ReplaceAll/Remove-by-value and dict
+/// Add/Merge/ReplaceAll passed pre-flight then threw UNNAMED at apply (Coerce -> float.Parse/byte.Parse). dict-Set value
+/// was already gated; the new ValueLegality step-4b block mirrors that CheckValue across those verbs/slots, scoped to
+/// IsValueCoercibleElement && FormLinkTarget is null (formlink elements keep step-4a) and verb/key-faithful to which slot
+/// apply coerces (so a Remove-BY-INDEX with a stray value is not over-rejected):
+///   GAP2-REJ-DICTADD           — a malformed dict Add value ('notabyte' into Dictionary&lt;Skill,Byte&gt;) refuses 'does
+///                                not coerce to Byte' (RED before: accepted — only dict Set value was gated).
+///   GAP2-REJ-LISTADD           — a malformed list Add value ('notafloat' into List&lt;Single&gt;) refuses (RED: accepted).
+///   GAP2-REJ-LISTREPLACEALL    — a bad ReplaceAll value PAST a valid one is caught and NAMED (per-element scan). RED: accepted.
+///   GAP2-REJ-LISTREMOVE        — a malformed Remove-BY-VALUE (Key null) refuses (RED: accepted).
+///   GAP2-REJ-DICTMERGE         — a malformed Merge entries value refuses ('notabyte'). RED: accepted.
+///   GAP2-OK-VALID              — valid list+dict element values stay accepted (no over-reject).
+///   GAP2-OK-REMOVE-BYINDEX     — a list Remove BY INDEX (Key present) carrying a stray value is NOT over-rejected (apply
+///                                ignores the value on a by-index Remove) — proves the verb/key-faithful scoping.
+///   GAP2-FORMLINK-ROUTE        — a formlink list (Weapon.Keywords) stays on step-4a: a valid FormID accepted, a malformed
+///                                one refuses 'Illegal FormLink element' (NOT 'does not coerce') — the two blocks partition
+///                                coercible elements with no overlap.
+///   GAP2-REJ-E2E               — a malformed list value refuses end-to-end with NO file written; the PRE-FLIGHT message
+///                                ('does not coerce to Single'), not the apply float.Parse throw, proves the gate.
 /// </summary>
 public static class NestedCreateGuardProbe
 {
@@ -772,6 +793,106 @@ public static class NestedCreateGuardProbe
             Console.WriteLine($"   GAP1-OK-MIDKEY valid sbyte mid key : {(gap1OkMidKeyOk ? "PASS — a valid sbyte mid-path key (Data[0]) is NOT over-rejected" : $"FAIL — reject=[{reject}]")}");
         }
 
+        // ====== GAP 2 — NON-FORMLINK coercible collection ELEMENT VALUE-SHAPE ======
+        // The value twin of step-4a (formlink elements) and of the dict-Set value block. A non-null, non-formlink,
+        // MALFORMED coercible element value on list Add/SetAtIndex/ReplaceAll/Remove-by-value and dict Add/Merge/ReplaceAll
+        // passed pre-flight then threw UNNAMED at apply (Coerce -> float.Parse/byte.Parse). dict-Set value was already
+        // gated. The new step-4b block mirrors the dict-Set CheckValue across those verbs/slots, scoped to
+        // IsValueCoercibleElement && FormLinkTarget is null (formlink elements keep step-4a), and verb/key-faithful to
+        // which slot apply actually coerces (so a Remove-BY-INDEX carrying a stray value is NOT over-rejected).
+
+        // ---------- GAP2-REJ-DICTADD: dict Add, valid key, malformed value (Class.SkillWeights=Dictionary<Skill,Byte>) ----------
+        bool gap2RejDictAddOk;
+        {
+            var req = new WriteRequest { RecordType = "Class", Path = new[] { "SkillWeights" }, Verb = "Add", Key = "OneHanded", Value = "notabyte" };
+            var reject = rulebook.Validate(req);
+            gap2RejDictAddOk = reject is not null && reject.Contains("does not coerce to Byte", StringComparison.OrdinalIgnoreCase);
+            Console.WriteLine($"   GAP2-REJ-DICTADD bad dict value     : {(gap2RejDictAddOk ? "PASS — a malformed dict Add value is refused at pre-flight (only dict Set value was gated before)" : $"FAIL — reject=[{reject}]")}");
+        }
+
+        // ---------- GAP2-REJ-LISTADD: list Add malformed value (MusicTrack.CuePoints=List<Single>) ----------
+        bool gap2RejListAddOk;
+        {
+            var req = new WriteRequest { RecordType = "MusicTrack", Path = new[] { "CuePoints" }, Verb = "Add", Value = "notafloat" };
+            var reject = rulebook.Validate(req);
+            gap2RejListAddOk = reject is not null && reject.Contains("does not coerce to Single", StringComparison.OrdinalIgnoreCase);
+            Console.WriteLine($"   GAP2-REJ-LISTADD bad list value     : {(gap2RejListAddOk ? "PASS — a malformed list Add value is refused at pre-flight" : $"FAIL — reject=[{reject}]")}");
+        }
+
+        // ---------- GAP2-REJ-LISTREPLACEALL: bad value PAST a good one (per-element scan names the bad one) ----------
+        bool gap2RejListReplaceAllOk;
+        {
+            var req = new WriteRequest { RecordType = "MusicTrack", Path = new[] { "CuePoints" }, Verb = "ReplaceAll", Values = new[] { "1.5", "notafloat" } };
+            var reject = rulebook.Validate(req);
+            gap2RejListReplaceAllOk = reject is not null && reject.Contains("does not coerce to Single", StringComparison.OrdinalIgnoreCase)
+                && reject.Contains("notafloat", StringComparison.Ordinal);
+            Console.WriteLine($"   GAP2-REJ-LISTREPLACEALL bad in list : {(gap2RejListReplaceAllOk ? "PASS — a bad ReplaceAll value is caught past a valid one, named" : $"FAIL — reject=[{reject}]")}");
+        }
+
+        // ---------- GAP2-REJ-LISTREMOVE: Remove-by-value (Key null) malformed value ----------
+        bool gap2RejListRemoveOk;
+        {
+            var req = new WriteRequest { RecordType = "MusicTrack", Path = new[] { "CuePoints" }, Verb = "Remove", Value = "notafloat" };
+            var reject = rulebook.Validate(req);
+            gap2RejListRemoveOk = reject is not null && reject.Contains("does not coerce to Single", StringComparison.OrdinalIgnoreCase);
+            Console.WriteLine($"   GAP2-REJ-LISTREMOVE bad remove value: {(gap2RejListRemoveOk ? "PASS — a malformed Remove-by-value is refused at pre-flight" : $"FAIL — reject=[{reject}]")}");
+        }
+
+        // ---------- GAP2-REJ-DICTMERGE: Merge entries bad value (valid key, non-@ value) ----------
+        bool gap2RejDictMergeOk;
+        {
+            var req = new WriteRequest { RecordType = "Class", Path = new[] { "SkillWeights" }, Verb = "Merge",
+                Entries = new Dictionary<string, string> { ["OneHanded"] = "notabyte" } };
+            var reject = rulebook.Validate(req);
+            gap2RejDictMergeOk = reject is not null && reject.Contains("does not coerce to Byte", StringComparison.OrdinalIgnoreCase);
+            Console.WriteLine($"   GAP2-REJ-DICTMERGE bad merge value  : {(gap2RejDictMergeOk ? "PASS — a malformed Merge entries value is refused at pre-flight" : $"FAIL — reject=[{reject}]")}");
+        }
+
+        // ---------- GAP2-OK-VALID: valid coercible values stay accepted (no over-reject) ----------
+        bool gap2OkValidOk;
+        {
+            var r1 = rulebook.Validate(new WriteRequest { RecordType = "MusicTrack", Path = new[] { "CuePoints" }, Verb = "Add", Value = "1.5" });
+            var r2 = rulebook.Validate(new WriteRequest { RecordType = "Class", Path = new[] { "SkillWeights" }, Verb = "Add", Key = "OneHanded", Value = "5" });
+            gap2OkValidOk = r1 is null && r2 is null;
+            Console.WriteLine($"   GAP2-OK-VALID valid values accepted : {(gap2OkValidOk ? "PASS — valid list+dict element values are NOT over-rejected" : $"FAIL — r1=[{r1}] r2=[{r2}]")}");
+        }
+
+        // ---------- GAP2-OK-REMOVE-BYINDEX: Remove BY INDEX (Key present) ignores its value at apply -> not over-rejected ----------
+        // ApplyListVerb Remove with a Key is RemoveAt(int.Parse(key)) — the value is apply-irrelevant. The step-4b value
+        // check is verb/key-faithful (Remove value only when Key is null), so a stray value here must NOT reject.
+        bool gap2OkRemoveByIndexOk;
+        {
+            var req = new WriteRequest { RecordType = "MusicTrack", Path = new[] { "CuePoints" }, Verb = "Remove", Key = "0", Value = "notafloat" };
+            var reject = rulebook.Validate(req);
+            gap2OkRemoveByIndexOk = reject is null;
+            Console.WriteLine($"   GAP2-OK-REMOVE-BYINDEX stray value  : {(gap2OkRemoveByIndexOk ? "PASS — a by-index Remove with a stray value is NOT over-rejected (apply ignores it)" : $"FAIL — reject=[{reject}]")}");
+        }
+
+        // ---------- GAP2-FORMLINK-ROUTE: formlink elements still take step-4a, not step-4b (the partition holds) ----------
+        // A formlink list (Weapon.Keywords, FormLinkTarget set) is EXCLUDED from step-4b's scope, so a valid FormID stays
+        // accepted and a malformed one rejects with step-4a's "Illegal FormLink element" (NOT "does not coerce") — proving
+        // the two value-shape blocks partition coercible elements with no overlap and no gap.
+        bool gap2FormlinkRouteOk;
+        {
+            var ok = rulebook.Validate(new WriteRequest { RecordType = "Weapon", Path = new[] { "Keywords" }, Verb = "Add", Value = "012345:Skyrim.esm" });
+            var bad = rulebook.Validate(new WriteRequest { RecordType = "Weapon", Path = new[] { "Keywords" }, Verb = "Add", Value = "notaformkey" });
+            gap2FormlinkRouteOk = ok is null && bad is not null
+                && bad.Contains("Illegal FormLink element", StringComparison.OrdinalIgnoreCase)
+                && !bad.Contains("does not coerce", StringComparison.OrdinalIgnoreCase);
+            Console.WriteLine($"   GAP2-FORMLINK-ROUTE step-4a intact  : {(gap2FormlinkRouteOk ? "PASS — formlink elements still route through step-4a, not step-4b" : $"FAIL — ok=[{ok}] bad=[{bad}]")}");
+        }
+
+        // ---------- GAP2-REJ-E2E: a malformed list value refuses end-to-end with NO file written (gate, not apply throw) ----------
+        // MusicTrack is a flat (Kind=record) createable record — no parent needed. The PRE-FLIGHT message ('does not
+        // coerce to Single'), not the apply float.Parse throw, proves the gate; RejectArm proves no file written.
+        bool gap2RejE2eOk = RejectArm("GAP2-REJ-E2E bad list value       ", tmpDir, "Gap2", mPath, rulebook,
+            new[]
+            {
+                new WritePatchBuilder.CreateSpec { RecordType = "MusicTrack", EditorId = "HcNcG2Mtrk",
+                    Edits = new[] { new WriteRequest { RecordType = "MusicTrack", Path = new[] { "CuePoints" }, Verb = "Add", Value = "notafloat" } } },
+            },
+            msg => msg.Contains("does not coerce to Single", StringComparison.OrdinalIgnoreCase));
+
         Console.WriteLine();
         bool pass = fixturesOk && oneshotOk && multiOk && intoTopicOk && intoCellOk
                     && rejNoParentOk && rejBadParentOk && rejAmbigOk && rejFwdSibOk && extendOk
@@ -782,7 +903,9 @@ public static class NestedCreateGuardProbe
                     && keyShapeRejDictAddOk && keyShapeRejDictRemoveOk && keyShapeRejMergeKeyOk && keyShapeRejSbyteOk
                     && keyShapeRejSetIdxOk && keyShapeRejNegIdxOk && keyShapeRejListRemoveIdxOk
                     && keyShapeOkDictAddOk && keyShapeOkSetIdxOk && keyShapeOkNumEnumSetOk && keyShapeRejE2eOk
-                    && gap1RejMidKeySbyteOk && gap1OkMidKeyOk;
+                    && gap1RejMidKeySbyteOk && gap1OkMidKeyOk
+                    && gap2RejDictAddOk && gap2RejListAddOk && gap2RejListReplaceAllOk && gap2RejListRemoveOk && gap2RejDictMergeOk
+                    && gap2OkValidOk && gap2OkRemoveByIndexOk && gap2FormlinkRouteOk && gap2RejE2eOk;
         Console.WriteLine($"=== nested-create-guard: {(pass ? "PASS" : "FAIL")} ===");
         try { Directory.Delete(tmpDir, recursive: true); } catch { }
         return pass ? 0 : 1;

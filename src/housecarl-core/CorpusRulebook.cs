@@ -442,6 +442,36 @@ public sealed class CorpusRulebook
             foreach (var kv in req.Entries ?? new())
                 if (!WriteEngine.IsValidFormLinkValue(kv.Value)) return FormLinkElementReject(kv.Value, leaf);
         }
+        // (step 4b) NON-FORMLINK coercible-element collection value-SHAPE — the value twin of step-4a (which handles
+        // FORMLINK elements via IsValidFormLinkValue) and of the dict-Set value block above (which gates dict Set's value
+        // but not the other collection verbs). A list Add/SetAtIndex/ReplaceAll/Remove-by-value and a dict Add/Merge/
+        // ReplaceAll coerce each supplied element value at apply (ApplyListVerb/ApplyDictVerb -> Coerce(req.Value!/v,
+        // elem/vType)); a malformed value (e.g. "notafloat" into a List<Single>, "notabyte" into a Dictionary<Skill,Byte>)
+        // used to pass pre-flight then throw UNNAMED (float.Parse/byte.Parse) at apply — the Q3 accept-then-throw this
+        // closes. Scoped to IsValueCoercibleElement(leaf) && FormLinkTarget is null so formlink elements keep step-4a's
+        // per-element message and the two together cover EVERY coercible element with no double-check and no gap. Uses the
+        // SAME CheckValue recognizer (with the element AQ) the dict-Set value block uses — gate and apply can't drift.
+        // Verb/key-FAITHFUL to which slot apply actually coerces: the singular req.Value is checked for list Add/SetAtIndex
+        // and dict Add (always coerced), and for a list Remove-by-VALUE (Key null) only — a list Remove BY INDEX / a dict
+        // Remove coerce only the key, so their value is apply-irrelevant and must NOT be over-rejected. req.Values is the
+        // list ReplaceAll contents; req.Entries' VALUES are dict Merge/ReplaceAll (their keys are the step-4-key block's
+        // job). Null PRESENCE on Add/SetAtIndex stays step-4-pre's; a null inside Values/Entries yields CheckValue's
+        // "Missing element value …" (correct for those verbs, which have no presence mirror).
+        if (leaf.Cardinality is "list" or "dict" && IsValueCoercibleElement(leaf) && leaf.FormLinkTarget is null)
+        {
+            string? ElemShape(string? v) =>
+                CheckValue(leaf.ElementType, v, $"element value for '{leaf.Name}'", leaf.ElementTypeAssemblyQualified);
+            if (req.Value is { } ev
+                && (req.Verb is "Add" or "SetAtIndex" || (req.Verb is "Remove" && req.Key is null))
+                && ElemShape(ev) is { } evErr)
+                return evErr;
+            if (req.Verb is "ReplaceAll")
+                foreach (var v in req.Values ?? Array.Empty<string>())
+                    if (ElemShape(v) is { } valsErr) return valsErr;
+            if (req.Verb is "Merge" or "ReplaceAll")
+                foreach (var kv in req.Entries ?? new())
+                    if (ElemShape(kv.Value) is { } entErr) return entErr;
+        }
         // (step 4) collection-verb value legality. A struct-element OR arm-element list takes a build-from-parts
         // StructSpec on Add — NOT a plain value — which is wave-1 half B composition (an ARM element composes by its
         // concrete arm type, validated against that arm's own schema — the VMAD shape, #35; before this, arm-element
