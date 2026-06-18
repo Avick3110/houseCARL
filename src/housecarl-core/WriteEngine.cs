@@ -1783,13 +1783,28 @@ public static class WriteEngine
                     new[] { req.Struct is not null ? BuildStruct(req.Struct) : Coerce(req.Value!, elem) });
                 break;
             case "SetAtIndex":
-                Indexer(lt).GetSetMethod()!.Invoke(list,
-                    new[] { (object)int.Parse(req.Key!, CultureInfo.InvariantCulture), Coerce(req.Value!, elem) });
+            {
+                // EXPECTED apply rejection (live length): pre-flight gates the index SHAPE (parseable non-negative int)
+                // but leaves the in-range bound to apply — it has no live collection to know the length (KEYSHAPE / gap-
+                // audit Finding 3). Pre-check it so an out-of-range index surfaces as clean guidance, not a reflection-
+                // wrapped ArgumentOutOfRangeException under the "real inconsistency" wrapper.
+                int idx = int.Parse(req.Key!, CultureInfo.InvariantCulture);
+                int count = CollectionCount(list);
+                if (idx < 0 || idx >= count)
+                    throw new ExpectedApplyRejectionException(IndexRangeMessage(prop.Name, idx, count, append: true));
+                Indexer(lt).GetSetMethod()!.Invoke(list, new[] { (object)idx, Coerce(req.Value!, elem) });
                 break;
+            }
             case "Remove":
                 if (req.Key is not null)
-                    lt.GetMethod("RemoveAt", new[] { typeof(int) })!
-                        .Invoke(list, new object[] { int.Parse(req.Key, CultureInfo.InvariantCulture) });
+                {
+                    // Same EXPECTED out-of-range rejection for Remove-by-index (RemoveAt) — clean, not the wrapper.
+                    int idx = int.Parse(req.Key, CultureInfo.InvariantCulture);
+                    int count = CollectionCount(list);
+                    if (idx < 0 || idx >= count)
+                        throw new ExpectedApplyRejectionException(IndexRangeMessage(prop.Name, idx, count, append: false));
+                    lt.GetMethod("RemoveAt", new[] { typeof(int) })!.Invoke(list, new object[] { idx });
+                }
                 else
                     lt.GetMethod("Remove", new[] { elem })!.Invoke(list, new[] { Coerce(req.Value!, elem) });
                 break;
@@ -1802,6 +1817,27 @@ public static class WriteEngine
                 throw new InvalidOperationException($"Verb '{req.Verb}' is not valid on list '{prop.Name}'.");
         }
     }
+
+    /// <summary>Element count of a (possibly Mutagen <c>ExtendedList&lt;T&gt;</c>) collection WITHOUT assuming the
+    /// non-generic <c>ICollection</c> — enumerate, mirroring <see cref="StepIntoElement"/>'s index walk. Used to
+    /// pre-check a list index against live length so an out-of-range SetAtIndex/Remove-by-index surfaces as an
+    /// <see cref="ExpectedApplyRejectionException"/> (clean, live-state user error) rather than a reflection-wrapped
+    /// <c>ArgumentOutOfRangeException</c> under the gate/apply-inconsistency wrapper.</summary>
+    static int CollectionCount(object coll)
+    {
+        int n = 0;
+        foreach (var _ in (System.Collections.IEnumerable)coll) n++;
+        return n;
+    }
+
+    /// <summary>The clean out-of-range message for a list index op. <paramref name="append"/> adds the "or Add to
+    /// append" hint for SetAtIndex (Remove can't append); the empty-list case names the right next step for each.</summary>
+    static string IndexRangeMessage(string field, int idx, int count, bool append) =>
+        count == 0
+            ? $"Index {idx} out of range for '{field}' — the list is empty"
+              + (append ? "; Add an element first." : "; nothing to remove.")
+            : $"Index {idx} out of range for '{field}' (it has {count} element(s)) — use an index in 0..{count - 1}"
+              + (append ? ", or Add to append a new element." : ".");
 
     /// <summary>Materialize an absent (null) optional collection so a first element/entry can be added. Instantiates
     /// the property's declared concrete collection type (Mutagen's settable ExtendedList&lt;T&gt; / dictionary) and
@@ -1856,7 +1892,7 @@ public static class WriteEngine
             return StepIntoGenderedArm(parent, prop, name, key, materialize);
 
         var coll = prop.GetValue(parent)
-            ?? throw new InvalidOperationException(
+            ?? throw new ExpectedApplyRejectionException(   // live-state: empty/absent collection — clean, not the inconsistency wrapper
                 $"Cannot navigate into '{name}[{key}]': the collection is absent (null). Add an element first " +
                 "(element composition — wave 1 half B), then navigate into it.");
 
@@ -1871,7 +1907,7 @@ public static class WriteEngine
             var dt = coll.GetType();
             var contains = dt.GetMethod("ContainsKey", new[] { kType });
             if (contains is not null && contains.Invoke(coll, new[] { keyObj }) is false)
-                throw new InvalidOperationException($"No entry with key '{key}' in dict '{name}'.");
+                throw new ExpectedApplyRejectionException($"No entry with key '{key}' in dict '{name}'.");  // live-state: absent key
             var idxer = dt.GetProperties(BindingFlags.Public | BindingFlags.Instance)
                 .FirstOrDefault(p => p.GetIndexParameters().Length == 1 && p.CanRead)
                 ?? throw new InvalidOperationException($"No readable indexer on dict '{name}' ({dt.Name}).");
@@ -1888,8 +1924,8 @@ public static class WriteEngine
             int j = 0;
             foreach (var item in (System.Collections.IEnumerable)coll)
                 if (j++ == idx)
-                    return item ?? throw new InvalidOperationException($"Element '{name}[{idx}]' is null.");
-            throw new InvalidOperationException($"Index {idx} out of bounds for list '{name}' (has {j} element(s)).");
+                    return item ?? throw new InvalidOperationException($"Element '{name}[{idx}]' is null.");  // present-but-null: NOT reclassified (data anomaly, stays loud)
+            throw new ExpectedApplyRejectionException($"Index {idx} out of bounds for list '{name}' (has {j} element(s)).");  // live-state: out of range
         }
 
         throw new InvalidOperationException($"'{name}' is not a navigable collection (no [read-only] IList/IDictionary).");
@@ -2850,17 +2886,26 @@ public sealed class NullArmSerializeException : InvalidOperationException
     }
 }
 
-/// <summary>An apply-time refusal that pre-flight LEGITIMATELY CANNOT pre-empt because it depends on LIVE STATE the
-/// schema-only gate has no visibility into — distinct from a gate/apply <i>inconsistency</i>. The canonical case is a
-/// dict <c>Add</c> of a key that is ALREADY PRESENT (Gap 3 / Package.Data composition): occupancy is runtime state, not
-/// schema, so the gate accepts the shape and the duplicate is correctly caught here at apply with a clear, actionable
-/// message. The all-or-nothing catch in <see cref="WritePatchBuilder"/> renders this kind's message VERBATIM — still
-/// refusing the whole call with no file written (Q3 all-or-nothing holds) — WITHOUT the generic "pre-flight ACCEPTED it
-/// but the apply threw — a real inconsistency" wrapper, which would mislabel an expected, fixable user error as an
-/// internal bug. Genuinely-unexpected apply throws (a real gate/apply drift) keep that wrapper. Use this ONLY where the
-/// throw is a known, live-state user error with self-explanatory guidance — never to quiet a throw whose cause is
-/// unclear, which would re-introduce the silent-failure this project exists to avoid. It is an
-/// <see cref="InvalidOperationException"/> so any plain fail-loud handler still catches it.</summary>
+/// <summary>A refusal whose cause is LIVE COLLECTION/RECORD STATE the schema-only pre-flight provably CANNOT see —
+/// distinct from a gate/apply <i>inconsistency</i>. This is the whole class of "expected, user-fixable apply rejections":
+/// <list type="bullet">
+///   <item>a dict <c>Add</c> of an ALREADY-PRESENT key (occupancy — Gap 3 / Package.Data);</item>
+///   <item>a list <c>SetAtIndex</c> / <c>Remove</c>-by-index at an OUT-OF-RANGE index (length — pre-flight gates the
+///         index shape but leaves the in-range bound to apply, having no live collection);</item>
+///   <item>a mid-path navigation into an ABSENT collection, an ABSENT dict key, or an OUT-OF-BOUNDS list index
+///         (<see cref="WriteEngine.StepIntoElement"/>).</item>
+/// </list>
+/// Each is correctly caught at the boundary it manifests, with a clear, actionable message. The all-or-nothing catch in
+/// <see cref="WritePatchBuilder"/> renders this kind's message VERBATIM — still refusing the whole call with no file
+/// written (Q3 all-or-nothing holds) — WITHOUT the generic "pre-flight ACCEPTED it but the apply threw — a real
+/// inconsistency" wrapper, which would mislabel an expected, fixable user error as an internal bug. Genuinely-unexpected
+/// throws (a real gate/apply drift) keep that wrapper. <see cref="WriteEngine.StepIntoElement"/> is shared with the READ
+/// path; a read has no inconsistency wrapper, so it simply renders this message exactly as it did when these were plain
+/// <see cref="InvalidOperationException"/>s — no read behavior changes. Use this ONLY where the throw is a known,
+/// live-state user error with self-explanatory guidance — never to quiet a throw whose cause is unclear, which would
+/// re-introduce the silent-failure this project exists to avoid (the present-but-null element and bad-shape index throws
+/// deliberately stay un-reclassified for that reason). It is an <see cref="InvalidOperationException"/> so any plain
+/// fail-loud handler still catches it.</summary>
 public sealed class ExpectedApplyRejectionException : InvalidOperationException
 {
     public ExpectedApplyRejectionException(string message) : base(message) { }
