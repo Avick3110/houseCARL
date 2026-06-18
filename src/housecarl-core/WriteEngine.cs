@@ -1710,11 +1710,15 @@ public static class WriteEngine
     static void ApplyDictVerb(object parent, PropertyInfo prop, Type dictIface, WriteRequest req)
     {
         // Writable-by-construction: an ABSENT optional dict (null) is materialized so a first entry can be set.
-        // Remove on an absent dict is a no-op (nothing to remove) — it must NOT create an empty dict.
+        // Remove on an absent dict SURFACES "nothing to remove" (Gap 3 — a Remove that removes nothing is no longer a
+        // silent no-op; the key is trivially not present when the whole dict is absent) — thrown as the EXPECTED kind
+        // BEFORE materializing, so it still must NOT create an empty dict.
         var dict = prop.GetValue(parent);
         if (dict is null)
         {
-            if (req.Verb == "Remove") return;
+            if (req.Verb == "Remove")
+                throw new ExpectedApplyRejectionException(
+                    $"Remove on dict '{prop.Name}': the collection is absent (no entries) — nothing to remove.");
             dict = MaterializeCollection(parent, prop);
         }
         var kType = dictIface.GetGenericArguments()[0];
@@ -1747,7 +1751,11 @@ public static class WriteEngine
                 break;
             }
             case "Remove":
-                dt.GetMethod("Remove", new[] { kType })!.Invoke(dict, new[] { Coerce(req.Key!, kType) });
+                // SURFACE a no-op Remove (Gap 3): the runtime Remove returns false when the key is not present — refuse it
+                // as the EXPECTED kind (the symmetric twin of Add's duplicate-key refusal), clean, not a silent success.
+                if (dt.GetMethod("Remove", new[] { kType })!.Invoke(dict, new[] { Coerce(req.Key!, kType) }) is false)
+                    throw new ExpectedApplyRejectionException(
+                        $"Key '{req.Key}' is not present in '{prop.Name}' — nothing to remove.");
                 break;
             case "ReplaceAll":
                 dt.GetMethod("Clear")!.Invoke(dict, null);
@@ -1764,12 +1772,15 @@ public static class WriteEngine
     static void ApplyListVerb(object parent, PropertyInfo prop, Type listIface, WriteRequest req)
     {
         // Writable-by-construction: an ABSENT optional list (null) is materialized so a first element can be
-        // added — "add a keyword to a record that has none" must work, not throw. Remove on an absent list is a
-        // no-op (nothing to remove) — it must NOT create an empty list (which would alter the serialized bytes).
+        // added — "add a keyword to a record that has none" must work, not throw. Remove on an absent list SURFACES
+        // "nothing to remove" (Gap 3 — no silent no-op; the value/index is trivially not present when the whole list is
+        // absent) — thrown as the EXPECTED kind BEFORE materializing, so it still must NOT create an empty list.
         var list = prop.GetValue(parent);
         if (list is null)
         {
-            if (req.Verb == "Remove") return;
+            if (req.Verb == "Remove")
+                throw new ExpectedApplyRejectionException(
+                    $"Remove on list '{prop.Name}': the collection is absent (no elements) — nothing to remove.");
             list = MaterializeCollection(parent, prop);
         }
         var elem = listIface.GetGenericArguments()[0];
@@ -1806,7 +1817,13 @@ public static class WriteEngine
                     lt.GetMethod("RemoveAt", new[] { typeof(int) })!.Invoke(list, new object[] { idx });
                 }
                 else
-                    lt.GetMethod("Remove", new[] { elem })!.Invoke(list, new[] { Coerce(req.Value!, elem) });
+                {
+                    // SURFACE a no-op Remove-by-value (Gap 3): List<T>.Remove returns false when the value is not present —
+                    // refuse it as the EXPECTED kind (Remove-by-INDEX is range-checked above), clean, not a silent success.
+                    if (lt.GetMethod("Remove", new[] { elem })!.Invoke(list, new[] { Coerce(req.Value!, elem) }) is false)
+                        throw new ExpectedApplyRejectionException(
+                            $"Value '{req.Value}' is not present in '{prop.Name}' — nothing to remove.");
+                }
                 break;
             case "ReplaceAll":
                 lt.GetMethod("Clear")!.Invoke(list, null);
@@ -2892,6 +2909,10 @@ public sealed class NullArmSerializeException : InvalidOperationException
 ///   <item>a dict <c>Add</c> of an ALREADY-PRESENT key (occupancy — Gap 3 / Package.Data);</item>
 ///   <item>a list <c>SetAtIndex</c> / <c>Remove</c>-by-index at an OUT-OF-RANGE index (length — pre-flight gates the
 ///         index shape but leaves the in-range bound to apply, having no live collection);</item>
+///   <item>a <c>Remove</c> that removes NOTHING — a dict <c>Remove</c> of a key not present, a list
+///         <c>Remove</c>-by-value of a value not present, or a <c>Remove</c> on an absent (null) collection
+///         (occupancy — Gap 3 / PR #83 follow-up; the symmetric twin of the duplicate-key <c>Add</c> refusal, so a
+///         Remove that thought it removed something but didn't surfaces instead of silently succeeding);</item>
 ///   <item>a mid-path navigation into an ABSENT collection, an ABSENT dict key, or an OUT-OF-BOUNDS list index
 ///         (<see cref="WriteEngine.StepIntoElement"/>).</item>
 /// </list>

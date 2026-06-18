@@ -271,7 +271,19 @@ namespace HousecarlGenerator;
 ///   EXPECTED-OK-SETIDX-INRANGE — an in-range SetAtIndex[0] still APPLIES (value lands; the new pre-check doesn't over-reject).
 ///   EXPECTED-NAV-TYPE          — the shared StepIntoElement throws the EXPECTED kind for an absent dict entry AND an out-of-bounds list index. RED: plain IOE.
 ///   EXPECTED-REJ-NAV-E2E       — a mid-path nav reject (Package.Data[5].Name, absent key) renders cleanly THROUGH WritePatchBuilder, NO file. RED: wrapped.
-///   (Left LOUD by design: present-but-null element/entry, bad-SHAPE index, structural/reflection failures — not clean live-state addressing.)
+///   (Left LOUD by design: bad-SHAPE index, structural/reflection failures — not clean live-state addressing. Present-but-null
+///    is now its own MalformedTargetDataException third category — see below.)
+///
+/// Gap 3 (PR #83 follow-up) — surface a Remove that removes NOTHING (close the silent-no-op). list Remove-by-value and
+/// dict Remove-by-key ignored the runtime Remove's bool, so "remove X" when X isn't present SILENTLY succeeded (Q3
+/// degradation). Now all three forms surface as the EXPECTED kind ("nothing to remove") — the symmetric twin of Add's
+/// duplicate-key refusal; consistent with Remove-by-INDEX already surfacing out-of-range (Aaron 2026-06-18: surface, not
+/// idempotent). REMOVE-* disambiguates from the GAP3-* dict-element-COMPOSITION arms:
+///   REMOVE-REJ-DICTKEY-ABSENT  — a dict Remove of a key not present refuses cleanly E2E, NO file. RED before: silent success → file written.
+///   REMOVE-REJ-NULLCOLL        — a Remove on an absent (null) collection refuses cleanly E2E, NO file. RED before: silent no-op → file written.
+///   REMOVE-REJ-LISTVAL-ABSENT  — a list Remove-by-value of a value not present throws the EXPECTED kind (in-memory). RED before: no throw.
+///   REMOVE-OK-PRESENT-DICT     — a dict Remove of a PRESENT key still succeeds (no over-reject of a real removal).
+///   REMOVE-OK-PRESENT-LIST     — a list Remove-by-value of a PRESENT value still succeeds (no over-reject).
 /// </summary>
 public static class NestedCreateGuardProbe
 {
@@ -1590,6 +1602,87 @@ public static class NestedCreateGuardProbe
                 && !msg.Contains("real inconsistency", StringComparison.OrdinalIgnoreCase)
                 && !msg.Contains("pre-flight ACCEPTED", StringComparison.OrdinalIgnoreCase));
 
+        // ====== Gap 3 (PR #83 follow-up) — surface a Remove that removes NOTHING (close the silent-no-op) ======
+        // list Remove-by-value and dict Remove-by-key IGNORED the runtime Remove's bool, so "remove X" when X isn't
+        // present SILENTLY succeeded (a Q3 silent degradation — reports success having changed nothing). Now all three
+        // forms — dict key absent, list value absent, and a Remove on an absent (null) collection — SURFACE as the
+        // EXPECTED kind ("nothing to remove"): the symmetric twin of Add's duplicate-key refusal, and consistent with
+        // Remove-by-INDEX already surfacing out-of-range. Decision: Aaron 2026-06-18 (surface, not idempotent). (REMOVE-*
+        // prefix disambiguates from the existing GAP3-* dict-element-COMPOSITION arms.)
+
+        // ---------- REMOVE-REJ-DICTKEY-ABSENT: a dict Remove of a key NOT present refuses cleanly E2E, NO file ----------
+        // A fresh Package's Data is an empty NON-null dict, so apply reaches the runtime Remove (returns false). RED before:
+        // the false was ignored → silent success → a no-op patch was WRITTEN (refused=False, noFile=False).
+        bool removeRejDictKeyAbsentOk = RejectArm("REMOVE-REJ-DICTKEY-ABSENT no key  ", tmpDir, "RmDictKey", mPath, rulebook,
+            new[]
+            {
+                new WritePatchBuilder.CreateSpec { RecordType = "Package", EditorId = "HcNcRmDictKey",
+                    Edits = new[] { new WriteRequest { RecordType = "Package", Path = new[] { "Data" }, Verb = "Remove", Key = "0" } } },
+            },
+            msg => msg.Contains("nothing to remove", StringComparison.OrdinalIgnoreCase)
+                && !msg.Contains("real inconsistency", StringComparison.OrdinalIgnoreCase)
+                && !msg.Contains("pre-flight ACCEPTED", StringComparison.OrdinalIgnoreCase));
+
+        // ---------- REMOVE-REJ-NULLCOLL: a Remove on an ABSENT (null) collection refuses cleanly E2E, NO file ----------
+        // A fresh Faction's Conditions is null (the absent-collection case, (a)). RED before: the null-collection
+        // early-return silently no-op'd → a no-op patch was WRITTEN.
+        bool removeRejNullCollOk = RejectArm("REMOVE-REJ-NULLCOLL absent coll   ", tmpDir, "RmNullColl", mPath, rulebook,
+            new[]
+            {
+                new WritePatchBuilder.CreateSpec { RecordType = "Faction", EditorId = "HcNcRmNull",
+                    Edits = new[] { new WriteRequest { RecordType = "Faction", Path = new[] { "Conditions" }, Verb = "Remove", Key = "5" } } },
+            },
+            msg => msg.Contains("nothing to remove", StringComparison.OrdinalIgnoreCase)
+                && !msg.Contains("real inconsistency", StringComparison.OrdinalIgnoreCase)
+                && !msg.Contains("pre-flight ACCEPTED", StringComparison.OrdinalIgnoreCase));
+
+        // ---------- REMOVE-REJ-LISTVAL-ABSENT: a list Remove-by-value of a value NOT present throws the EXPECTED kind ----
+        // Direct engine (a String list never references a master): Add "MT_Run" (list non-null, ["MT_Run"]) then Remove
+        // "MT_Walk" (absent). RED before: List<T>.Remove returned false, ignored → no throw → flag stays false.
+        bool removeRejListValAbsentOk;
+        {
+            var race = new Race(new FormKey(mKey, 0x910u), SkyrimRelease.SkyrimSE);
+            WriteEngine.ApplyVerb(race, new WriteRequest { RecordType = "Race", Path = new[] { "MovementTypeNames" }, Verb = "Add", Value = "MT_Run" });
+            bool surfaced = false;
+            try { WriteEngine.ApplyVerb(race, new WriteRequest { RecordType = "Race", Path = new[] { "MovementTypeNames" }, Verb = "Remove", Value = "MT_Walk" }); }
+            catch (ExpectedApplyRejectionException) { surfaced = true; }
+            catch { }
+            removeRejListValAbsentOk = surfaced && race.MovementTypeNames is { Count: 1 };
+            Console.WriteLine($"   REMOVE-REJ-LISTVAL-ABSENT no value : {(removeRejListValAbsentOk ? "PASS — a list Remove-by-value of an absent value surfaces (EXPECTED kind); the present element is untouched" : $"FAIL — surfaced={surfaced}")}");
+        }
+
+        // ---------- REMOVE-OK-PRESENT-DICT: a dict Remove of a PRESENT key still succeeds (no over-reject) ----------
+        // Add a composed PackageDataBool at key 0, then Remove it: the runtime Remove returns true → no throw, dict emptied.
+        bool removeOkPresentDictOk;
+        {
+            var pkg = new Package(new FormKey(mKey, 0x911u), SkyrimRelease.SkyrimSE);
+            bool threw = false;
+            try
+            {
+                WriteEngine.ApplyVerb(pkg, new WriteRequest { RecordType = "Package", Path = new[] { "Data" }, Verb = "Add", Key = "0",
+                    Struct = new StructSpec { Type = "PackageDataBool", Fields = new Dictionary<string, string> { ["Data"] = "true" } } });
+                WriteEngine.ApplyVerb(pkg, new WriteRequest { RecordType = "Package", Path = new[] { "Data" }, Verb = "Remove", Key = "0" });
+            }
+            catch { threw = true; }
+            removeOkPresentDictOk = !threw && pkg.Data is { Count: 0 };
+            Console.WriteLine($"   REMOVE-OK-PRESENT-DICT present key  : {(removeOkPresentDictOk ? "PASS — a dict Remove of a PRESENT key still succeeds (the no-op surface does NOT over-reject a real removal)" : $"FAIL — threw={threw} count={pkg.Data?.Count}")}");
+        }
+
+        // ---------- REMOVE-OK-PRESENT-LIST: a list Remove-by-value of a PRESENT value still succeeds (no over-reject) ----------
+        bool removeOkPresentListOk;
+        {
+            var race = new Race(new FormKey(mKey, 0x912u), SkyrimRelease.SkyrimSE);
+            bool threw = false;
+            try
+            {
+                WriteEngine.ApplyVerb(race, new WriteRequest { RecordType = "Race", Path = new[] { "MovementTypeNames" }, Verb = "Add", Value = "MT_Run" });
+                WriteEngine.ApplyVerb(race, new WriteRequest { RecordType = "Race", Path = new[] { "MovementTypeNames" }, Verb = "Remove", Value = "MT_Run" });
+            }
+            catch { threw = true; }
+            removeOkPresentListOk = !threw && race.MovementTypeNames is { Count: 0 };
+            Console.WriteLine($"   REMOVE-OK-PRESENT-LIST present val  : {(removeOkPresentListOk ? "PASS — a list Remove-by-value of a PRESENT value still succeeds (no over-reject)" : $"FAIL — threw={threw} count={race.MovementTypeNames?.Count}")}");
+        }
+
         Console.WriteLine();
         bool pass = fixturesOk && oneshotOk && multiOk && intoTopicOk && intoCellOk
                     && rejNoParentOk && rejBadParentOk && rejAmbigOk && rejFwdSibOk && extendOk
@@ -1612,7 +1705,9 @@ public static class NestedCreateGuardProbe
                     && gap3RejBaseArmOk && gap3RejBaseArmListOk && gap3OkBaseNoOverRejectOk && gap3RejBaseArmE2eOk
                     && gap3RejBaseArmFieldOk && gap3OkArmFieldUnchangedOk
                     && expectedRejSetIdxOobOk && expectedRejRemoveIdxOobOk && expectedOkSetIdxInRangeOk && expectedNavTypeOk
-                    && expectedRejNavE2eOk;
+                    && expectedRejNavE2eOk
+                    && removeRejDictKeyAbsentOk && removeRejNullCollOk && removeRejListValAbsentOk
+                    && removeOkPresentDictOk && removeOkPresentListOk;
         Console.WriteLine($"=== nested-create-guard: {(pass ? "PASS" : "FAIL")} ===");
         try { Directory.Delete(tmpDir, recursive: true); } catch { }
         return pass ? 0 : 1;
