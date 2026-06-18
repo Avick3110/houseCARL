@@ -1413,6 +1413,82 @@ public static class NestedCreateGuardProbe
             Console.WriteLine($"   GAP3-OK-ARMFIELD-UNCHANGED real arm: {(gap3OkArmFieldUnchangedOk ? "PASS — a real arm ('SceneScriptFragments') on the poly field still accepts (filtering the base didn't break real arms)" : $"FAIL — reject=[{reject}]")}");
         }
 
+        // ====== EXPECTED apply rejections — the LIVE-STATE collection-addressing class (gap-audit Finding 3, whole class) ======
+        // Finding 3's dup-key (GAP3-REJ-DUP) is ONE member of a class: apply-time refusals whose cause is live collection
+        // state the schema-only pre-flight CANNOT see. They must render CLEANLY (the actionable message), NOT under the
+        // "pre-flight ACCEPTED … a real inconsistency" wrapper reserved for genuine gate/apply drift. The leaf out-of-range
+        // index (SetAtIndex / Remove-by-index) is the sibling Finding 3 named; the mid-path nav twins route through the SAME
+        // WritePatchBuilder catch via the shared StepIntoElement (now throwing the EXPECTED kind too).
+
+        // ---------- EXPECTED-REJ-SETIDX-OOB: a list SetAtIndex past the end refuses CLEANLY end-to-end, NO file ----------
+        // Index 5 is a VALID shape (pre-flight accepts — KEYSHAPE leaves the in-range bound to apply), so the gate passes
+        // and apply's new pre-check fires (Race.MovementTypeNames=List<String> — a String list, so no master to serialize).
+        // RED before: the indexer Invoke threw ArgumentOutOfRangeException → wrapped as a "real inconsistency"; the
+        // absence-asserts below would FAIL.
+        bool expectedRejSetIdxOobOk = RejectArm("EXPECTED-REJ-SETIDX-OOB out-of-range", tmpDir, "ExpSetIdxOob", mPath, rulebook,
+            new[]
+            {
+                new WritePatchBuilder.CreateSpec { RecordType = "Race", EditorId = "HcNcExpSetIdx",
+                    Edits = new[] { new WriteRequest { RecordType = "Race", Path = new[] { "MovementTypeNames" }, Verb = "SetAtIndex", Key = "5", Value = "MT_Walk" } } },
+            },
+            msg => msg.Contains("out of range", StringComparison.OrdinalIgnoreCase)
+                && !msg.Contains("real inconsistency", StringComparison.OrdinalIgnoreCase)
+                && !msg.Contains("pre-flight ACCEPTED", StringComparison.OrdinalIgnoreCase));
+
+        // ---------- EXPECTED-REJ-REMOVEIDX-OOB: a list Remove-by-index past the end refuses CLEANLY, NO file ----------
+        // Add one element first so the list is non-null (Remove on an absent list is a deliberate no-op), then Remove[5]
+        // (count 1 → out of range). RED before: RemoveAt Invoke threw ArgumentOutOfRangeException → wrapped.
+        bool expectedRejRemoveIdxOobOk = RejectArm("EXPECTED-REJ-REMOVEIDX-OOB out-range", tmpDir, "ExpRmIdxOob", mPath, rulebook,
+            new[]
+            {
+                new WritePatchBuilder.CreateSpec { RecordType = "Race", EditorId = "HcNcExpRmIdx",
+                    Edits = new[]
+                    {
+                        new WriteRequest { RecordType = "Race", Path = new[] { "MovementTypeNames" }, Verb = "Add", Value = "MT_Walk" },
+                        new WriteRequest { RecordType = "Race", Path = new[] { "MovementTypeNames" }, Verb = "Remove", Key = "5" },
+                    } },
+            },
+            msg => msg.Contains("out of range", StringComparison.OrdinalIgnoreCase)
+                && !msg.Contains("real inconsistency", StringComparison.OrdinalIgnoreCase)
+                && !msg.Contains("pre-flight ACCEPTED", StringComparison.OrdinalIgnoreCase));
+
+        // ---------- EXPECTED-OK-SETIDX-INRANGE: an in-range SetAtIndex still applies (the pre-check does NOT over-reject) ----
+        // Direct engine (no serialize/master concern — a String list never references a master): Add then SetAtIndex[0],
+        // assert the value LANDED and nothing threw. Guards against the new pre-check rejecting a legitimate in-range index.
+        bool expectedOkSetIdxInRangeOk;
+        {
+            var race = new Race(new FormKey(mKey, 0x901u), SkyrimRelease.SkyrimSE);
+            bool threw = false;
+            try
+            {
+                WriteEngine.ApplyVerb(race, new WriteRequest { RecordType = "Race", Path = new[] { "MovementTypeNames" }, Verb = "Add", Value = "MT_Walk" });
+                WriteEngine.ApplyVerb(race, new WriteRequest { RecordType = "Race", Path = new[] { "MovementTypeNames" }, Verb = "SetAtIndex", Key = "0", Value = "MT_Run" });
+            }
+            catch { threw = true; }
+            bool landed = race.MovementTypeNames is { Count: 1 } mtn && mtn[0] == "MT_Run";
+            expectedOkSetIdxInRangeOk = !threw && landed;
+            Console.WriteLine($"   EXPECTED-OK-SETIDX-INRANGE valid  : {(expectedOkSetIdxInRangeOk ? "PASS — Add then in-range SetAtIndex[0] applies (value lands; the pre-check does NOT over-reject)" : $"FAIL — threw={threw} landed={landed}")}");
+        }
+
+        // ---------- EXPECTED-NAV-TYPE: the shared StepIntoElement throws the EXPECTED kind for live-state mid-path nav ----
+        // So a mid-path write into an absent dict entry / out-of-bounds list index routes into the clean-render channel,
+        // not the wrapper. Direct engine (deterministic; independent of whether pre-flight admits a mid-path index). RED
+        // before: StepIntoElement threw a PLAIN InvalidOperationException → not caught as EXPECTED → flags stay false → FAIL.
+        bool expectedNavTypeOk;
+        {
+            bool dictEntryAbsentExpected = false, listOobExpected = false;
+            var pkg = new Package(new FormKey(mKey, 0x902u), SkyrimRelease.SkyrimSE);   // Data dict carries no entry at key 0
+            try { WriteEngine.ApplyVerb(pkg, new WriteRequest { RecordType = "Package", Path = new[] { "Data[0]", "Data" }, Verb = "Set", Value = "true" }); }
+            catch (ExpectedApplyRejectionException) { dictEntryAbsentExpected = true; }
+            catch { }
+            var fac = new Faction(new FormKey(mKey, 0x903u), SkyrimRelease.SkyrimSE);    // Conditions list carries no index 5
+            try { WriteEngine.ApplyVerb(fac, new WriteRequest { RecordType = "Faction", Path = new[] { "Conditions[5]", "Flags" }, Verb = "Set", Value = "0" }); }
+            catch (ExpectedApplyRejectionException) { listOobExpected = true; }
+            catch { }
+            expectedNavTypeOk = dictEntryAbsentExpected && listOobExpected;
+            Console.WriteLine($"   EXPECTED-NAV-TYPE live-state nav   : {(expectedNavTypeOk ? "PASS — StepIntoElement throws the EXPECTED kind for an absent dict entry AND an out-of-bounds list index (routes to clean render)" : $"FAIL — dictEntryAbsent={dictEntryAbsentExpected} listOob={listOobExpected}")}");
+        }
+
         Console.WriteLine();
         bool pass = fixturesOk && oneshotOk && multiOk && intoTopicOk && intoCellOk
                     && rejNoParentOk && rejBadParentOk && rejAmbigOk && rejFwdSibOk && extendOk
@@ -1432,7 +1508,8 @@ public static class NestedCreateGuardProbe
                     && gap3OkDictAddComposeOk && gap3OkDictSetComposeOk && gap3RejBadArmOk && gap3OkListUnchangedOk
                     && gap3OkE2eOk && gap3OkE2eSetOk && gap3RejDupOk
                     && gap3RejBaseArmOk && gap3RejBaseArmListOk && gap3OkBaseNoOverRejectOk && gap3RejBaseArmE2eOk
-                    && gap3RejBaseArmFieldOk && gap3OkArmFieldUnchangedOk;
+                    && gap3RejBaseArmFieldOk && gap3OkArmFieldUnchangedOk
+                    && expectedRejSetIdxOobOk && expectedRejRemoveIdxOobOk && expectedOkSetIdxInRangeOk && expectedNavTypeOk;
         Console.WriteLine($"=== nested-create-guard: {(pass ? "PASS" : "FAIL")} ===");
         try { Directory.Delete(tmpDir, recursive: true); } catch { }
         return pass ? 0 : 1;
