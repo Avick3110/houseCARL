@@ -244,6 +244,18 @@ namespace HousecarlGenerator;
 ///                              (DialogResponses.VirtualMachineAdapter.ScriptFragments {Type:"ScriptFragments"}) refuses. RED before: accepted.
 ///   GAP3-OK-ARMFIELD-UNCHANGED— a REAL arm ('SceneScriptFragments') on that poly field still accepts (no over-reject). Before AND after.
 ///   (GAP3-REJ-BADARM strengthened: its 'Legal element types' list no longer names the un-composable base 'APackageData'.)
+///
+/// EXPECTED apply rejections — the LIVE-STATE collection-addressing class (gap-audit Finding 3, "close the whole class").
+/// Apply-time refusals whose cause is live state the schema-only gate CANNOT see (occupancy / length / presence) must
+/// render CLEANLY via WritePatchBuilder, NOT under the "pre-flight ACCEPTED … a real inconsistency" wrapper (an
+/// ExpectedApplyRejectionException, a subclass of IOE the catch keys off). GAP3-REJ-DUP (above) is the dict-occupancy
+/// member; the rest:
+///   EXPECTED-REJ-SETIDX-OOB    — a list SetAtIndex past the end refuses cleanly E2E, NO file (Race.MovementTypeNames[5]). RED: wrapped.
+///   EXPECTED-REJ-REMOVEIDX-OOB — a list Remove-by-index past the end refuses cleanly E2E, NO file (Add one, then Remove[5]). RED: wrapped.
+///   EXPECTED-OK-SETIDX-INRANGE — an in-range SetAtIndex[0] still APPLIES (value lands; the new pre-check doesn't over-reject).
+///   EXPECTED-NAV-TYPE          — the shared StepIntoElement throws the EXPECTED kind for an absent dict entry AND an out-of-bounds list index. RED: plain IOE.
+///   EXPECTED-REJ-NAV-E2E       — a mid-path nav reject (Package.Data[5].Name, absent key) renders cleanly THROUGH WritePatchBuilder, NO file. RED: wrapped.
+///   (Left LOUD by design: present-but-null element/entry, bad-SHAPE index, structural/reflection failures — not clean live-state addressing.)
 /// </summary>
 public static class NestedCreateGuardProbe
 {
@@ -1489,6 +1501,23 @@ public static class NestedCreateGuardProbe
             Console.WriteLine($"   EXPECTED-NAV-TYPE live-state nav   : {(expectedNavTypeOk ? "PASS — StepIntoElement throws the EXPECTED kind for an absent dict entry AND an out-of-bounds list index (routes to clean render)" : $"FAIL — dictEntryAbsent={dictEntryAbsentExpected} listOob={listOobExpected}")}");
         }
 
+        // ---------- EXPECTED-REJ-NAV-E2E: a mid-path nav reject renders CLEANLY through WritePatchBuilder end-to-end ----------
+        // EXPECTED-NAV-TYPE proves the engine throws the right KIND; this closes the seam by proving the FULL render (the
+        // shared WritePatchBuilder catch → clean message, no wrapper, NO file). Package.Data[5].Name is a VALID mid-path
+        // path (GAP1-OK-MIDKEY: valid sbyte key + the writable APackageData 'Name' leaf) but key 5 is ABSENT in a fresh
+        // Package's (empty, non-null) Data dict — so the gate passes and apply hits StepIntoElement's key-absent throw.
+        // RED before the nav reclassification: that throw was a PLAIN InvalidOperationException → wrapped as a "real
+        // inconsistency"; the absence-asserts below would FAIL.
+        bool expectedRejNavE2eOk = RejectArm("EXPECTED-REJ-NAV-E2E absent key   ", tmpDir, "ExpNavKey", mPath, rulebook,
+            new[]
+            {
+                new WritePatchBuilder.CreateSpec { RecordType = "Package", EditorId = "HcNcExpNav",
+                    Edits = new[] { new WriteRequest { RecordType = "Package", Path = new[] { "Data[5]", "Name" }, Verb = "Set", Value = "houseCARL" } } },
+            },
+            msg => msg.Contains("No entry with key", StringComparison.OrdinalIgnoreCase)
+                && !msg.Contains("real inconsistency", StringComparison.OrdinalIgnoreCase)
+                && !msg.Contains("pre-flight ACCEPTED", StringComparison.OrdinalIgnoreCase));
+
         Console.WriteLine();
         bool pass = fixturesOk && oneshotOk && multiOk && intoTopicOk && intoCellOk
                     && rejNoParentOk && rejBadParentOk && rejAmbigOk && rejFwdSibOk && extendOk
@@ -1509,7 +1538,8 @@ public static class NestedCreateGuardProbe
                     && gap3OkE2eOk && gap3OkE2eSetOk && gap3RejDupOk
                     && gap3RejBaseArmOk && gap3RejBaseArmListOk && gap3OkBaseNoOverRejectOk && gap3RejBaseArmE2eOk
                     && gap3RejBaseArmFieldOk && gap3OkArmFieldUnchangedOk
-                    && expectedRejSetIdxOobOk && expectedRejRemoveIdxOobOk && expectedOkSetIdxInRangeOk && expectedNavTypeOk;
+                    && expectedRejSetIdxOobOk && expectedRejRemoveIdxOobOk && expectedOkSetIdxInRangeOk && expectedNavTypeOk
+                    && expectedRejNavE2eOk;
         Console.WriteLine($"=== nested-create-guard: {(pass ? "PASS" : "FAIL")} ===");
         try { Directory.Delete(tmpDir, recursive: true); } catch { }
         return pass ? 0 : 1;
