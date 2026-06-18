@@ -161,6 +161,21 @@ namespace HousecarlGenerator;
 ///   G6-REJ-E2E                 — a record-element Add refuses end-to-end with NO file written; the PRE-FLIGHT message
 ///                                (not the apply CompositionRequiredException) proves the gate. (A FLAT create whose own op
 ///                                does the bad Add — NOT a parent= nested create, which is a disjoint, legitimate path.)
+///
+/// G4 — StructSpec CtorArgs VALUE-SHAPE + ARITY. A compose (polymorphic Set arm OR struct-element Add) can carry
+/// positional ctor_args (StructInput.CtorArgs -> StructSpec.CtorArgs); StructSpecContents validated Fields + Sets but
+/// NEVER CtorArgs. At apply, Instantiate selects GetConstructors().FirstOrDefault(len==N) then Coerce(arg, paramType) — a
+/// wrong ARITY threw 'no constructor taking N arg(s)' (named-but-at-apply) and a malformed arg threw UNNAMED. The new
+/// WriteEngine.TryRecognizeCtorArgs mirrors Instantiate EXACTLY (ResolveStructType + same ctor selector + TryCoerce per
+/// arg), called from StructSpecContents — the ONE gap whose recognizer is new, but composed from existing engine
+/// primitives, by construction:
+///   G4-REJ-CTORARG-SHAPE       — a malformed ctor arg ('notatypeenum' for MagicEffectArchetype's TypeEnum) of the right
+///                                arity refuses at PRE-FLIGHT, naming the bad arg (RED before: accepted then Enum.Parse
+///                                threw unnamed at apply).
+///   G4-REJ-CTORARG-ARITY       — a wrong ctor-arg COUNT refuses (mirrors Instantiate's 'no constructor taking 3 arg(s)').
+///                                RED before: accepted.
+///   G4-OK-CTORARG              — valid ctor args ('ValueModifier') of the right arity stay accepted (no over-reject).
+///   G4-OK-NOCTORARGS          — a compose WITHOUT ctor_args (the common case) is untouched (the spec.CtorArgs guard skips).
 /// </summary>
 public static class NestedCreateGuardProbe
 {
@@ -966,6 +981,58 @@ public static class NestedCreateGuardProbe
             },
             msg => msg.Contains("created on its own (the record axis)", StringComparison.OrdinalIgnoreCase));
 
+        // ====== G4 — StructSpec CtorArgs VALUE-SHAPE + ARITY (compose ctor_args were never pre-flight-validated) ======
+        // A compose (polymorphic Set arm OR struct-element Add) can carry positional ctor_args (StructInput.CtorArgs ->
+        // StructSpec.CtorArgs). StructSpecContents validated Fields + Sets but NEVER CtorArgs. At apply, Instantiate picks
+        // GetConstructors().FirstOrDefault(len==N) then Coerce(arg, paramType): a wrong ARITY threw "no constructor taking
+        // N arg(s)" (named-but-at-apply) and a malformed arg threw UNNAMED (Enum.Parse/int.Parse). The new
+        // WriteEngine.TryRecognizeCtorArgs mirrors Instantiate EXACTLY (ResolveStructType + same ctor selector + TryCoerce
+        // per arg), called from StructSpecContents — gate and apply can't drift. Fixture: MagicEffect.Archetype
+        // (polymorphic, writable) arm MagicEffectArchetype, whose concrete ctor takes a (MagicEffectArchetype.TypeEnum).
+
+        // ---------- G4-REJ-CTORARG-SHAPE: a malformed ctor arg of the right arity refuses, naming the bad arg ----------
+        bool g4RejCtorArgShapeOk;
+        {
+            var req = new WriteRequest { RecordType = "MagicEffect", Path = new[] { "Archetype" }, Verb = "Set",
+                Struct = new StructSpec { Type = "MagicEffectArchetype", CtorArgs = new[] { "notatypeenum" } } };
+            var reject = rulebook.Validate(req);
+            g4RejCtorArgShapeOk = reject is not null && reject.Contains("ctor arg #0", StringComparison.OrdinalIgnoreCase)
+                && reject.Contains("notatypeenum", StringComparison.Ordinal);
+            Console.WriteLine($"   G4-REJ-CTORARG-SHAPE bad ctor arg   : {(g4RejCtorArgShapeOk ? "PASS — a malformed ctor arg is refused at pre-flight, named (RED before: accepted then Enum.Parse threw unnamed at apply)" : $"FAIL — reject=[{reject}]")}");
+        }
+
+        // ---------- G4-REJ-CTORARG-ARITY: a wrong ctor-arg COUNT refuses (mirrors Instantiate's arity throw) ----------
+        bool g4RejCtorArgArityOk;
+        {
+            var req = new WriteRequest { RecordType = "MagicEffect", Path = new[] { "Archetype" }, Verb = "Set",
+                Struct = new StructSpec { Type = "MagicEffectArchetype", CtorArgs = new[] { "a", "b", "c" } } };
+            var reject = rulebook.Validate(req);
+            g4RejCtorArgArityOk = reject is not null && reject.Contains("no constructor taking 3 arg(s)", StringComparison.OrdinalIgnoreCase);
+            Console.WriteLine($"   G4-REJ-CTORARG-ARITY wrong count    : {(g4RejCtorArgArityOk ? "PASS — a wrong ctor-arg count is refused at pre-flight (RED before: accepted then 'no constructor taking 3 arg(s)' at apply)" : $"FAIL — reject=[{reject}]")}");
+        }
+
+        // ---------- G4-OK-CTORARG: valid ctor args of the right arity stay accepted (no over-reject) ----------
+        bool g4OkCtorArgOk;
+        {
+            var req = new WriteRequest { RecordType = "MagicEffect", Path = new[] { "Archetype" }, Verb = "Set",
+                Struct = new StructSpec { Type = "MagicEffectArchetype", CtorArgs = new[] { "ValueModifier" } } };
+            var reject = rulebook.Validate(req);
+            g4OkCtorArgOk = reject is null;
+            Console.WriteLine($"   G4-OK-CTORARG valid ctor arg        : {(g4OkCtorArgOk ? "PASS — a valid ctor arg (MagicEffectArchetype TypeEnum 'ValueModifier') is NOT over-rejected" : $"FAIL — reject=[{reject}]")}");
+        }
+
+        // ---------- G4-OK-NOCTORARGS: a compose WITHOUT ctor_args (the common case) is untouched ----------
+        // The check is guarded by `spec.CtorArgs is { }` — a null CtorArgs skips it entirely, so the parameterless/field
+        // compose path the engine already proves is unchanged. (No Fields, to avoid an unrelated enum dependency.)
+        bool g4OkNoCtorArgsOk;
+        {
+            var req = new WriteRequest { RecordType = "MagicEffect", Path = new[] { "Archetype" }, Verb = "Set",
+                Struct = new StructSpec { Type = "MagicEffectLightArchetype" } };
+            var reject = rulebook.Validate(req);
+            g4OkNoCtorArgsOk = reject is null;
+            Console.WriteLine($"   G4-OK-NOCTORARGS no ctor_args       : {(g4OkNoCtorArgsOk ? "PASS — a compose without ctor_args (the common case) is untouched" : $"FAIL — reject=[{reject}]")}");
+        }
+
         Console.WriteLine();
         bool pass = fixturesOk && oneshotOk && multiOk && intoTopicOk && intoCellOk
                     && rejNoParentOk && rejBadParentOk && rejAmbigOk && rejFwdSibOk && extendOk
@@ -979,7 +1046,8 @@ public static class NestedCreateGuardProbe
                     && gap1RejMidKeySbyteOk && gap1OkMidKeyOk
                     && gap2RejDictAddOk && gap2RejListAddOk && gap2RejListReplaceAllOk && gap2RejListRemoveOk && gap2RejDictMergeOk
                     && gap2OkValidOk && gap2OkRemoveByIndexOk && gap2FormlinkRouteOk && gap2RejE2eOk
-                    && g6RejRecordAddOk && g6RejRecordReplaceAllOk && g6OkRemoveByIndexOk && g6OkStructUnchangedOk && g6RejE2eOk;
+                    && g6RejRecordAddOk && g6RejRecordReplaceAllOk && g6OkRemoveByIndexOk && g6OkStructUnchangedOk && g6RejE2eOk
+                    && g4RejCtorArgShapeOk && g4RejCtorArgArityOk && g4OkCtorArgOk && g4OkNoCtorArgsOk;
         Console.WriteLine($"=== nested-create-guard: {(pass ? "PASS" : "FAIL")} ===");
         try { Directory.Delete(tmpDir, recursive: true); } catch { }
         return pass ? 0 : 1;
