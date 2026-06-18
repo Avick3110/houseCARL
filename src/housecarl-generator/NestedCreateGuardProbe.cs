@@ -115,6 +115,16 @@ namespace HousecarlGenerator;
 ///                                RED before: REJECTED by the old enum-catalog-NAME-only check (the gate/apply drift this fixes).
 ///   KEYSHAPE-REJ-E2E           — a malformed list index refuses end-to-end with NO file written; the PRE-FLIGHT message
 ///                                ('Illegal list index'), not the apply int.Parse throw, proves the gate.
+///
+/// GAP 1 — mid-path dict-key VALUE-SHAPE (the one-segment-up twin of the leaf KEYSHAPE-REJ-SBYTE arm). The leaf step-4-key
+/// block (PR #79) gates a dict key at the LEAF; ValidateFromType's bracketed MID-PATH hop ('Data[key].field') checked the
+/// key via CheckValue WITHOUT the key's AQ, so it fell to the enum-catalog-by-name fallback and missed the lone non-enum
+/// key (Package.Data = Dictionary&lt;sbyte,APackageData&gt;, the only mid-path-navigable dict). A malformed mid-path key
+/// was accepted then threw FormatException at apply (StepIntoElement -&gt; Coerce(key, sbyte)). The fix passes
+/// DictKeyType(field)?.AQ — the SAME recognizer pair the leaf block uses — so mid-path and leaf can't drift:
+///   GAP1-REJ-MIDKEY-SBYTE      — a malformed sbyte key in a mid-path hop ('Data[notasbyte].Name') refuses 'does not coerce
+///                                to sbyte' at PRE-FLIGHT (RED before: accepted — no AQ, 'sbyte' not a catalog enum).
+///   GAP1-OK-MIDKEY             — a VALID sbyte mid-path key ('Data[0].Name') + valid leaf Set stays accepted (no over-reject).
 /// </summary>
 public static class NestedCreateGuardProbe
 {
@@ -733,6 +743,35 @@ public static class NestedCreateGuardProbe
             },
             msg => msg.Contains("Illegal list index", StringComparison.OrdinalIgnoreCase));
 
+        // ====== GAP 1 — mid-path dict-key VALUE-SHAPE (the one-segment-up twin of the leaf KEYSHAPE gate above) ======
+        // KEYSHAPE-REJ-SBYTE gates a dict key at the LEAF; this gates a dict key in a MID-PATH hop ('Data[key].field').
+        // ValidateFromType's bracketed mid-path branch checked the key via CheckValue WITHOUT the key's AQ, so it fell to
+        // the enum-catalog-by-name fallback and missed the lone non-enum key type (Package.Data = Dictionary<sbyte,...>).
+        // A malformed mid-path key ('Data[notasbyte].Name') was accepted then threw FormatException at apply
+        // (StepIntoElement -> Coerce(key, sbyte)). The fix passes DictKeyType(field)?.AQ — the SAME recognizer pair the
+        // leaf step-4-key block uses — so mid-path and leaf can't drift.
+
+        // ---------- GAP1-REJ-MIDKEY-SBYTE: a malformed sbyte key in a MID-PATH hop refuses at PRE-FLIGHT ----------
+        // Package.Data = Dictionary<sbyte,APackageData> is the ONLY mid-path-navigable (struct/poly-valued) dict. A valid
+        // APackageData base field ('Name', writable string) as the leaf so ONLY the mid-path key is at fault. RED before:
+        // accepted (the mid-path CheckValue had no AQ -> 'sbyte' is not a catalog enum -> returns null).
+        bool gap1RejMidKeySbyteOk;
+        {
+            var req = new WriteRequest { RecordType = "Package", Path = new[] { "Data[notasbyte]", "Name" }, Verb = "Set", Value = "houseCARL" };
+            var reject = rulebook.Validate(req);
+            gap1RejMidKeySbyteOk = reject is not null && reject.Contains("does not coerce to sbyte", StringComparison.OrdinalIgnoreCase);
+            Console.WriteLine($"   GAP1-REJ-MIDKEY-SBYTE bad mid key  : {(gap1RejMidKeySbyteOk ? "PASS — a malformed sbyte mid-path key is refused at pre-flight (real CLR type, not enum-name only)" : $"FAIL — reject=[{reject}]")}");
+        }
+
+        // ---------- GAP1-OK-MIDKEY: a VALID sbyte mid-path key + valid leaf Set stays accepted (no over-reject) ----------
+        bool gap1OkMidKeyOk;
+        {
+            var req = new WriteRequest { RecordType = "Package", Path = new[] { "Data[0]", "Name" }, Verb = "Set", Value = "houseCARL" };
+            var reject = rulebook.Validate(req);
+            gap1OkMidKeyOk = reject is null;
+            Console.WriteLine($"   GAP1-OK-MIDKEY valid sbyte mid key : {(gap1OkMidKeyOk ? "PASS — a valid sbyte mid-path key (Data[0]) is NOT over-rejected" : $"FAIL — reject=[{reject}]")}");
+        }
+
         Console.WriteLine();
         bool pass = fixturesOk && oneshotOk && multiOk && intoTopicOk && intoCellOk
                     && rejNoParentOk && rejBadParentOk && rejAmbigOk && rejFwdSibOk && extendOk
@@ -742,7 +781,8 @@ public static class NestedCreateGuardProbe
                     && keyIdxRejDictAddOk && keyIdxRejDictRemoveOk && keyIdxRejSetIdxOk && keyIdxOkListRemoveOk && keyIdxRejSetIdxE2eOk
                     && keyShapeRejDictAddOk && keyShapeRejDictRemoveOk && keyShapeRejMergeKeyOk && keyShapeRejSbyteOk
                     && keyShapeRejSetIdxOk && keyShapeRejNegIdxOk && keyShapeRejListRemoveIdxOk
-                    && keyShapeOkDictAddOk && keyShapeOkSetIdxOk && keyShapeOkNumEnumSetOk && keyShapeRejE2eOk;
+                    && keyShapeOkDictAddOk && keyShapeOkSetIdxOk && keyShapeOkNumEnumSetOk && keyShapeRejE2eOk
+                    && gap1RejMidKeySbyteOk && gap1OkMidKeyOk;
         Console.WriteLine($"=== nested-create-guard: {(pass ? "PASS" : "FAIL")} ===");
         try { Directory.Delete(tmpDir, recursive: true); } catch { }
         return pass ? 0 : 1;

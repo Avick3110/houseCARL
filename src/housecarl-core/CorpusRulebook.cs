@@ -181,7 +181,14 @@ public sealed class CorpusRulebook
                            "not reached by stepping into a parent (nested-group wave).";
                 if (field.Cardinality == "list" && !int.TryParse(segKey, out _))
                     return $"List '{segName}' on '{current.Name}' must be indexed by an integer; got '{segKey}'.";
-                if (field.Cardinality == "dict" && CheckValue(field.KeyType, segKey, $"dict key for '{segName}'") is { } ke)
+                // dict mid-path key SHAPE — reconcile onto the SAME recognizer pair (DictKeyType + CheckValue's AQ
+                // branch) the PR #79 LEAF step-4-key block uses, so the mid-path hop and the leaf can't drift. Without
+                // the key's real CLR type (DictKeyType -> the dict AQ's args[0], the type apply keys on via
+                // StepIntoElement/ApplyDictVerb) CheckValue falls to the enum-catalog-by-name fallback and MISSES a
+                // non-enum key — e.g. Package.Data's sbyte key ('Data[notasbyte]') was accepted then threw
+                // FormatException at apply (StepIntoElement -> Coerce(key, sbyte)).
+                if (field.Cardinality == "dict"
+                    && CheckValue(field.KeyType, segKey, $"dict key for '{segName}'", DictKeyType(field)?.AssemblyQualifiedName) is { } ke)
                     return ke;
                 current = elem;
             }
