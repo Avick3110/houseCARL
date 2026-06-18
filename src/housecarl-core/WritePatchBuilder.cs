@@ -230,6 +230,15 @@ public static class WritePatchBuilder
                 return PatchOutcome.Fail(
                     $"refused applying [{label}] to {req.RecordType} {e.Target} — {ex.Message} (no patch written)");
             }
+            catch (MalformedTargetDataException ex)
+            {
+                // The THIRD category: the TARGET record's own data is malformed (a present-but-null element/entry) — neither
+                // a user input error nor a gate/apply inconsistency. Render it accurately, NOT under the "pre-flight ACCEPTED
+                // … a real inconsistency" wrapper (which would mislabel pre-existing bad source data as an engine bug).
+                // All-or-nothing holds — no file written (PR #83 follow-up Gap 2).
+                return PatchOutcome.Fail(
+                    $"refused applying [{label}] to {req.RecordType} {e.Target} — {ex.Message} (no patch written)");
+            }
             catch (Exception ex)
             {
                 return PatchOutcome.Fail(
@@ -596,6 +605,13 @@ public static class WritePatchBuilder
                 {
                     // EXPECTED apply-time refusal (live state pre-flight can't see — e.g. a duplicate dict key): clean
                     // guidance, NOT the inconsistency wrapper. Whole call still refused, nothing serialized (gap-audit Finding 3).
+                    return CreateOutcome.Fail(
+                        $"refused applying [{Label(req)}] to new {s.RecordType} '{s.EditorId}' ({rec.FormKey}) — {ex.Message} (nothing created)");
+                }
+                catch (MalformedTargetDataException ex)
+                {
+                    // THIRD category: the target record's own data is malformed (present-but-null element/entry) — render it
+                    // accurately, NOT under the inconsistency wrapper. Whole call refused, nothing serialized (PR #83 Gap 2).
                     return CreateOutcome.Fail(
                         $"refused applying [{Label(req)}] to new {s.RecordType} '{s.EditorId}' ({rec.FormKey}) — {ex.Message} (nothing created)");
                 }
