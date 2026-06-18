@@ -146,6 +146,21 @@ namespace HousecarlGenerator;
 ///                                coercible elements with no overlap.
 ///   GAP2-REJ-E2E               — a malformed list value refuses end-to-end with NO file written; the PRE-FLIGHT message
 ///                                ('does not coerce to Single'), not the apply float.Parse throw, proves the gate.
+///
+/// G6 — RECORD-ELEMENT collection VERBS. A list/dict whose ELEMENT is an owned child RECORD (DialogTopic.Responses ->
+/// DialogResponses) is neither coercible, composable, nor formlink, so a collection verb fell through ValueLegality to
+/// ACCEPT then threw at apply (compose -> CompositionRequiredException, named-but-MISLEADING; or plain value -> Coerce
+/// 'No coercion rule'). The new step-4-rec branch redirects Add/SetAtIndex/ReplaceAll to the record axis
+/// (create_record/bulk_create parent=) by one ClassifyElement==Record predicate; a record Remove BY INDEX stays accepted:
+///   G6-REJ-RECORD-ADD          — a record-element Add (compose) refuses, naming create_record (RED before: accepted then
+///                                CompositionRequiredException at apply).
+///   G6-REJ-RECORD-REPLACEALL   — a record-element ReplaceAll refuses too (verb coverage). RED before: accepted.
+///   G6-OK-REMOVE-BYINDEX       — a record-element Remove BY INDEX (RemoveAt) stays accepted (no over-reject; verb-scoped).
+///   G6-OK-STRUCT-UNCHANGED     — a struct-element Add (Faction.Ranks) still composes — the Record branch is mutually
+///                                exclusive with Struct/Arm, so it doesn't bleed onto the real composition surface.
+///   G6-REJ-E2E                 — a record-element Add refuses end-to-end with NO file written; the PRE-FLIGHT message
+///                                (not the apply CompositionRequiredException) proves the gate. (A FLAT create whose own op
+///                                does the bad Add — NOT a parent= nested create, which is a disjoint, legitimate path.)
 /// </summary>
 public static class NestedCreateGuardProbe
 {
@@ -893,6 +908,64 @@ public static class NestedCreateGuardProbe
             },
             msg => msg.Contains("does not coerce to Single", StringComparison.OrdinalIgnoreCase));
 
+        // ====== G6 — RECORD-ELEMENT collection VERBS (Add/SetAtIndex/ReplaceAll redirect to create_record) ======
+        // A list/dict whose element is an owned child RECORD (DialogTopic.Responses -> DialogResponses) is neither
+        // coercible, composable, nor formlink, so a collection verb fell through ValueLegality to ACCEPT then threw at
+        // apply (BuildStruct -> CompositionRequiredException, or Coerce -> "No coercion rule"). The new step-4-rec branch
+        // redirects to the record axis (create_record/bulk_create parent=). Verb-scoped to Add/SetAtIndex/ReplaceAll; a
+        // record Remove BY INDEX stays throw-free/accepted, and a record Remove BY VALUE is the non-plain-value Remove
+        // surface closed with G7's unified Remove-by-value reject.
+
+        // ---------- G6-REJ-RECORD-ADD: an Add (compose) on a record-element list refuses, naming create_record ----------
+        bool g6RejRecordAddOk;
+        {
+            var req = new WriteRequest { RecordType = "DialogTopic", Path = new[] { "Responses" }, Verb = "Add", Struct = new StructSpec { Type = "DialogResponses" } };
+            var reject = rulebook.Validate(req);
+            g6RejRecordAddOk = reject is not null
+                && reject.Contains("created on its own (the record axis)", StringComparison.OrdinalIgnoreCase)
+                && reject.Contains("housecarl_create_record", StringComparison.OrdinalIgnoreCase)
+                && reject.Contains("Responses", StringComparison.Ordinal);
+            Console.WriteLine($"   G6-REJ-RECORD-ADD record-elem Add   : {(g6RejRecordAddOk ? "PASS — a record-element Add is refused, redirected to create_record (RED before: accepted then CompositionRequiredException at apply)" : $"FAIL — reject=[{reject}]")}");
+        }
+
+        // ---------- G6-REJ-RECORD-REPLACEALL: ReplaceAll on a record-element list refuses too (verb coverage) ----------
+        bool g6RejRecordReplaceAllOk;
+        {
+            var req = new WriteRequest { RecordType = "DialogTopic", Path = new[] { "Responses" }, Verb = "ReplaceAll", Values = new[] { "012345:Skyrim.esm" } };
+            var reject = rulebook.Validate(req);
+            g6RejRecordReplaceAllOk = reject is not null && reject.Contains("created on its own (the record axis)", StringComparison.OrdinalIgnoreCase);
+            Console.WriteLine($"   G6-REJ-RECORD-REPLACEALL           : {(g6RejRecordReplaceAllOk ? "PASS — a record-element ReplaceAll is refused too (RED before: accepted)" : $"FAIL — reject=[{reject}]")}");
+        }
+
+        // ---------- G6-OK-REMOVE-BYINDEX: a record-element Remove BY INDEX (RemoveAt) stays accepted (no over-reject) ----------
+        bool g6OkRemoveByIndexOk;
+        {
+            var req = new WriteRequest { RecordType = "DialogTopic", Path = new[] { "Responses" }, Verb = "Remove", Key = "0" };
+            var reject = rulebook.Validate(req);
+            g6OkRemoveByIndexOk = reject is null;
+            Console.WriteLine($"   G6-OK-REMOVE-BYINDEX record rm idx  : {(g6OkRemoveByIndexOk ? "PASS — a record-element Remove by index (RemoveAt) is throw-free and NOT over-rejected" : $"FAIL — reject=[{reject}]")}");
+        }
+
+        // ---------- G6-OK-STRUCT-UNCHANGED: a struct-element Add still composes (Record branch doesn't bleed onto Struct) ----------
+        bool g6OkStructUnchangedOk;
+        {
+            var req = new WriteRequest { RecordType = "Faction", Path = new[] { "Ranks" }, Verb = "Add", Struct = new StructSpec { Type = "Rank" } };
+            var reject = rulebook.Validate(req);
+            g6OkStructUnchangedOk = reject is null;
+            Console.WriteLine($"   G6-OK-STRUCT-UNCHANGED struct Add   : {(g6OkStructUnchangedOk ? "PASS — a struct-element Add (Faction.Ranks) still composes (Record branch is mutually exclusive)" : $"FAIL — reject=[{reject}]")}");
+        }
+
+        // ---------- G6-REJ-E2E: a record-element Add refuses end-to-end with NO file written (gate, not apply throw) ----------
+        // A FLAT DialogTopic create whose OWN op does the bad record-element Add (NOT a parent= nested create — that path
+        // is disjoint and legitimately works). The PRE-FLIGHT message, not the apply CompositionRequiredException, proves the gate.
+        bool g6RejE2eOk = RejectArm("G6-REJ-E2E record-element Add      ", tmpDir, "G6", mPath, rulebook,
+            new[]
+            {
+                new WritePatchBuilder.CreateSpec { RecordType = "DialogTopic", EditorId = "HcNcG6Topic",
+                    Edits = new[] { new WriteRequest { RecordType = "DialogTopic", Path = new[] { "Responses" }, Verb = "Add", Struct = new StructSpec { Type = "DialogResponses" } } } },
+            },
+            msg => msg.Contains("created on its own (the record axis)", StringComparison.OrdinalIgnoreCase));
+
         Console.WriteLine();
         bool pass = fixturesOk && oneshotOk && multiOk && intoTopicOk && intoCellOk
                     && rejNoParentOk && rejBadParentOk && rejAmbigOk && rejFwdSibOk && extendOk
@@ -905,7 +978,8 @@ public static class NestedCreateGuardProbe
                     && keyShapeOkDictAddOk && keyShapeOkSetIdxOk && keyShapeOkNumEnumSetOk && keyShapeRejE2eOk
                     && gap1RejMidKeySbyteOk && gap1OkMidKeyOk
                     && gap2RejDictAddOk && gap2RejListAddOk && gap2RejListReplaceAllOk && gap2RejListRemoveOk && gap2RejDictMergeOk
-                    && gap2OkValidOk && gap2OkRemoveByIndexOk && gap2FormlinkRouteOk && gap2RejE2eOk;
+                    && gap2OkValidOk && gap2OkRemoveByIndexOk && gap2FormlinkRouteOk && gap2RejE2eOk
+                    && g6RejRecordAddOk && g6RejRecordReplaceAllOk && g6OkRemoveByIndexOk && g6OkStructUnchangedOk && g6RejE2eOk;
         Console.WriteLine($"=== nested-create-guard: {(pass ? "PASS" : "FAIL")} ===");
         try { Directory.Delete(tmpDir, recursive: true); } catch { }
         return pass ? 0 : 1;

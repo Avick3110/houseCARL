@@ -472,6 +472,25 @@ public sealed class CorpusRulebook
                 foreach (var kv in req.Entries ?? new())
                     if (ElemShape(kv.Value) is { } entErr) return entErr;
         }
+        // (step 4-rec) RECORD-ELEMENT collection verb — a list/dict whose ELEMENT is an owned child RECORD
+        // (SchemaClassifier classifies record-families ElementKind.Record: DialogTopic.Responses -> DialogResponses;
+        // Cell.Persistent/Temporary -> the all-record Placed arms; the typed record groups). A record element is neither
+        // IsComposableElement (Record is excluded from Struct/Arm) nor IsValueCoercibleElement nor formlink, so an
+        // Add/SetAtIndex/ReplaceAll fell through to `return null` (ACCEPT) and then THREW at apply: with a compose,
+        // BuildStruct -> Instantiate -> CompositionRequiredException (the record class has no public parameterless ctor);
+        // with a plain value, Coerce(value, <record getter>) -> "No coercion rule" — both Q3 accept-then-throw (the
+        // second NAMED-but-misleading: it points at composition/coercion, not at "use create_record"). A child record is
+        // allocated on the record axis, never built into a parent's collection by the verb engine; the supported path is
+        // housecarl_create_record / housecarl_bulk_create with parent=. Redirect by construction (one classifier
+        // predicate, no per-record-type list). Verb-scoped to the create-oriented verbs (Add/SetAtIndex/ReplaceAll); a
+        // record Remove BY INDEX (RemoveAt) is throw-free and stays accepted, and a record Remove BY VALUE is the
+        // non-plain-value Remove surface closed by the unified Remove-by-value reject in the composable block below.
+        if (leaf.Cardinality is "list" or "dict" && req.Verb is "Add" or "SetAtIndex" or "ReplaceAll"
+            && SchemaClassifier.ClassifyElement(leaf, _corpus) == ElementKind.Record)
+            return $"'{leaf.Name}' holds owned child records ({leaf.ElementTypeRef}); a child record is created on its " +
+                   "own (the record axis), not added into a parent's collection by a write verb. Use housecarl_create_record " +
+                   "/ housecarl_bulk_create with parent= the parent's FormID (and collection= when the parent holds more " +
+                   "than one fitting list) — surfaced here, never accepted and thrown at apply.";
         // (step 4) collection-verb value legality. A struct-element OR arm-element list takes a build-from-parts
         // StructSpec on Add — NOT a plain value — which is wave-1 half B composition (an ARM element composes by its
         // concrete arm type, validated against that arm's own schema — the VMAD shape, #35; before this, arm-element
