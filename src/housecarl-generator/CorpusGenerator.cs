@@ -196,7 +196,7 @@ public static class CorpusGenerator
             MutableInterfaceAssemblyQualified = mutableType?.AssemblyQualifiedName,
             AbstractBase = abstractBase,
             Arms = kind == "polymorphic-base" && arms.Count > 0
-                ? arms.Select(a => CatalogName(GetterInterfaceFor(a) ?? a)).ToList()
+                ? EmittedArmNames(arms, catalogName)   // raw count gates detection above; self-listing stripped at emit
                 : null,
             Fields = fields,
             FieldCount = fields.Count,
@@ -361,11 +361,34 @@ public static class CorpusGenerator
                 var ag = GetterInterfaceFor(a) ?? a;
                 referenced.Add(new RefItem(ag, "arm", CatalogName(getterIfc)));
             }
-            return arms.Select(a => CatalogName(GetterInterfaceFor(a) ?? a)).ToList();
+            // The base self-lists when concrete (FindUnionArms keeps it); the >1 count above already
+            // classified the union, so strip the self-entry from the emitted arm list (never null here —
+            // a >1 raw count leaves at least one real arm after the strip). The self-arm RefItem queued
+            // just above is harmless: it dedups against the polymorphic-base entry of the same getter.
+            return EmittedArmNames(arms, CatalogName(getterIfc));
         }
         referenced.Add(new RefItem(getterIfc, "struct", null));
         return null;
     }
+
+    /// <summary>
+    /// Catalog names of a polymorphic base's <paramref name="arms"/> with the base's own self-entry
+    /// removed — the rendering used for the EMITTED <c>Arms</c>/<c>ElementArms</c> lists (corpus.json
+    /// and the mutagen-reference skill). A CONCRETE base (e.g. APackageData, ScriptFragments) is
+    /// assignable to its own getter interface, so <see cref="FindUnionArms"/> lists it among its own
+    /// arms; an ABSTRACT base (Condition, Global) isn't, hence the long-standing asymmetry. That
+    /// self-entry is load-bearing for arm DETECTION — it is part of the &gt;1 count that classifies the
+    /// union, and dropping it BEFORE the count would demote two-entry unions like ScriptFragments
+    /// (<c>[ScriptFragments, SceneScriptFragments]</c>) / SimpleModel (<c>[SimpleModel, Model]</c>)
+    /// back to plain structs, silently losing their real second arm (WRITE_PREFLIGHT_GAP_AUDIT_2026-06-18
+    /// §9). But a base is not a legal arm of ITSELF (the runtime G8 gate already rejects composing one),
+    /// so it must never appear in the emitted list. Strip it here, at emit only, keyed on the base's own
+    /// catalog name — detection upstream still counts the raw arm set, so coverage is unchanged.
+    /// </summary>
+    static List<string> EmittedArmNames(IEnumerable<Type> arms, string baseCatalogName) =>
+        arms.Select(a => CatalogName(GetterInterfaceFor(a) ?? a))
+            .Where(name => name != baseCatalogName)
+            .ToList();
 
     // ---------------------------------------------------------------- reflection helpers
     // CollectAllProperties + IsInfrastructureProperty carry forward the spike's three
