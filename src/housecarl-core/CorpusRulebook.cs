@@ -465,10 +465,14 @@ public sealed class CorpusRulebook
                 && (req.Verb is "Add" or "SetAtIndex" || (req.Verb is "Remove" && req.Key is null))
                 && ElemShape(ev) is { } evErr)
                 return evErr;
-            if (req.Verb is "ReplaceAll")
+            // Slot-faithful to apply: a LIST ReplaceAll coerces req.Values (ApplyListVerb); a DICT Merge/ReplaceAll
+            // coerces req.Entries' values (ApplyDictVerb). Scope each loop to its slot's cardinality so a stray
+            // off-cardinality slot apply IGNORES (e.g. req.Entries supplied on a list ReplaceAll) is not over-rejected —
+            // mirrors the singular-value verb/key-faithfulness above (review polish).
+            if (leaf.Cardinality == "list" && req.Verb is "ReplaceAll")
                 foreach (var v in req.Values ?? Array.Empty<string>())
                     if (ElemShape(v) is { } valsErr) return valsErr;
-            if (req.Verb is "Merge" or "ReplaceAll")
+            if (leaf.Cardinality == "dict" && req.Verb is "Merge" or "ReplaceAll")
                 foreach (var kv in req.Entries ?? new())
                     if (ElemShape(kv.Value) is { } entErr) return entErr;
         }
@@ -484,7 +488,7 @@ public sealed class CorpusRulebook
         // housecarl_create_record / housecarl_bulk_create with parent=. Redirect by construction (one classifier
         // predicate, no per-record-type list). Verb-scoped to the create-oriented verbs (Add/SetAtIndex/ReplaceAll); a
         // record Remove BY INDEX (RemoveAt) is throw-free and stays accepted, and a record Remove BY VALUE is the
-        // non-plain-value Remove surface closed by the unified Remove-by-value reject in the composable block below.
+        // non-plain-value Remove surface closed by the unified Remove-by-value reject in the step-4-rmv block below.
         if (leaf.Cardinality is "list" or "dict" && req.Verb is "Add" or "SetAtIndex" or "ReplaceAll"
             && SchemaClassifier.ClassifyElement(leaf, _corpus) == ElementKind.Record)
             return $"'{leaf.Name}' holds owned child records ({leaf.ElementTypeRef}); a child record is created on its " +

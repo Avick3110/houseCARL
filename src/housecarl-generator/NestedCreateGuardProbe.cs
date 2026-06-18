@@ -144,6 +144,8 @@ namespace HousecarlGenerator;
 ///   GAP2-FORMLINK-ROUTE        — a formlink list (Weapon.Keywords) stays on step-4a: a valid FormID accepted, a malformed
 ///                                one refuses 'Illegal FormLink element' (NOT 'does not coerce') — the two blocks partition
 ///                                coercible elements with no overlap.
+///   GAP2-OK-OFFCARD-SLOT       — a stray off-cardinality slot apply ignores (req.Entries on a list ReplaceAll) is NOT
+///                                over-rejected — step-4b's loops are slot-faithful (Values->list, Entries->dict), review polish.
 ///   GAP2-REJ-E2E               — a malformed list value refuses end-to-end with NO file written; the PRE-FLIGHT message
 ///                                ('does not coerce to Single'), not the apply float.Parse throw, proves the gate.
 ///
@@ -927,6 +929,19 @@ public static class NestedCreateGuardProbe
             Console.WriteLine($"   GAP2-FORMLINK-ROUTE step-4a intact  : {(gap2FormlinkRouteOk ? "PASS — formlink elements still route through step-4a, not step-4b" : $"FAIL — ok=[{ok}] bad=[{bad}]")}");
         }
 
+        // ---------- GAP2-OK-OFFCARD-SLOT: a stray off-cardinality slot apply IGNORES is NOT over-rejected (review polish) ----------
+        // ApplyListVerb ReplaceAll consumes req.Values only and ignores req.Entries; step-4b is slot-faithful (Values only
+        // for a list, Entries only for a dict), so a malformed stray Entries on a LIST ReplaceAll does not over-reject.
+        // RED before the slot-scoping fix: the cardinality-blind Entries loop scanned it -> rejected (gate stricter than apply).
+        bool gap2OkOffcardSlotOk;
+        {
+            var req = new WriteRequest { RecordType = "MusicTrack", Path = new[] { "CuePoints" }, Verb = "ReplaceAll",
+                Values = new[] { "1.5" }, Entries = new Dictionary<string, string> { ["x"] = "notafloat" } };
+            var reject = rulebook.Validate(req);
+            gap2OkOffcardSlotOk = reject is null;
+            Console.WriteLine($"   GAP2-OK-OFFCARD-SLOT stray entries  : {(gap2OkOffcardSlotOk ? "PASS — a stray off-cardinality slot (Entries on a list ReplaceAll) apply ignores is NOT over-rejected" : $"FAIL — reject=[{reject}]")}");
+        }
+
         // ---------- GAP2-REJ-E2E: a malformed list value refuses end-to-end with NO file written (gate, not apply throw) ----------
         // MusicTrack is a flat (Kind=record) createable record — no parent needed. The PRE-FLIGHT message ('does not
         // coerce to Single'), not the apply float.Parse throw, proves the gate; RejectArm proves no file written.
@@ -1120,7 +1135,7 @@ public static class NestedCreateGuardProbe
                     && keyShapeOkDictAddOk && keyShapeOkSetIdxOk && keyShapeOkNumEnumSetOk && keyShapeRejE2eOk
                     && gap1RejMidKeySbyteOk && gap1OkMidKeyOk
                     && gap2RejDictAddOk && gap2RejListAddOk && gap2RejListReplaceAllOk && gap2RejListRemoveOk && gap2RejDictMergeOk
-                    && gap2OkValidOk && gap2OkRemoveByIndexOk && gap2FormlinkRouteOk && gap2RejE2eOk
+                    && gap2OkValidOk && gap2OkRemoveByIndexOk && gap2FormlinkRouteOk && gap2OkOffcardSlotOk && gap2RejE2eOk
                     && g6RejRecordAddOk && g6RejRecordReplaceAllOk && g6OkRemoveByIndexOk && g6OkStructUnchangedOk && g6RejE2eOk
                     && g4RejCtorArgShapeOk && g4RejCtorArgArityOk && g4OkCtorArgOk && g4OkNoCtorArgsOk
                     && g7RejDictMergeOk && g7RejComposableRemoveOk && g7RejRecordRemoveOk && g7OkComposableRemoveIdxOk && g7OkDictRemoveKeyOk;
