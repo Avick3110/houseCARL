@@ -179,8 +179,14 @@ public sealed class CorpusRulebook
                 if (elem.Kind == "record")
                     return $"'{segName}' on '{current.Name}' holds records ({er}); a record is resolved on its own, " +
                            "not reached by stepping into a parent (nested-group wave).";
-                if (field.Cardinality == "list" && !int.TryParse(segKey, out _))
-                    return $"List '{segName}' on '{current.Name}' must be indexed by an integer; got '{segKey}'.";
+                // list mid-path index SHAPE — reconcile onto the SAME recognizer the LEAF step-4-key block uses
+                // (WriteEngine.IsValidListIndexValue: a parseable NON-NEGATIVE int32), so the mid-path hop and the leaf
+                // can't drift. A bare int.TryParse ACCEPTS a negative ('-1' parses), but apply's StepIntoElement list
+                // branch requires idx >= 0 and throws a PLAIN InvalidOperationException (a SHAPE error, deliberately not
+                // an ExpectedApplyRejection) → the misleading "real inconsistency" wrapper. Gating >= 0 here closes that
+                // accept-then-throw, exactly as the leaf index was reconciled (the in-range bound stays apply's job, Q3).
+                if (field.Cardinality == "list" && !WriteEngine.IsValidListIndexValue(segKey))
+                    return $"List '{segName}' on '{current.Name}' must be indexed by a non-negative integer; got '{segKey}'.";
                 // dict mid-path key SHAPE — reconcile onto the SAME recognizer pair (DictKeyType + CheckValue's AQ
                 // branch) the PR #79 LEAF step-4-key block uses, so the mid-path hop and the leaf can't drift. Without
                 // the key's real CLR type (DictKeyType -> the dict AQ's args[0], the type apply keys on via

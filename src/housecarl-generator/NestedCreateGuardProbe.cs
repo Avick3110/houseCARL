@@ -128,6 +128,22 @@ namespace HousecarlGenerator;
 ///   GAP1-REJ-E2E               — a malformed mid-path key refuses end-to-end with NO file written (review hardening); the
 ///                                PRE-FLIGHT 'does not coerce to sbyte', not the apply sbyte FormatException, proves the gate.
 ///
+/// GAP 1 (cont.) — mid-path LIST-index VALUE-SHAPE (the list twin of the dict-key mid-path gate above; the one-segment-up
+/// twin of the leaf KEYSHAPE-REJ-NEGIDX arm). ValidateFromType's bracketed MID-PATH list branch checked the index with a
+/// bare int.TryParse, which ACCEPTS a negative ('-1' parses) — but apply's StepIntoElement list branch requires idx &gt;= 0
+/// and throws a PLAIN InvalidOperationException (a SHAPE error, deliberately not an ExpectedApplyRejection), so a negative
+/// mid-path index ('Conditions[-1].field') was accepted then threw under the "real inconsistency" wrapper. The LEAF index
+/// was already on IsValidListIndexValue; the mid-path hop drifted. The fix points it onto the SAME recognizer, so leaf and
+/// mid-path can't drift (after it, the apply non-negative throw is unreachable on the gated path; it stays as defense-in-depth):
+///   GAP1-REJ-MIDLISTIDX-NEG    — a NEGATIVE mid-path list index ('Conditions[-1].CompareOperator') refuses at PRE-FLIGHT
+///                                (Faction.Conditions = List&lt;Condition&gt;, a struct-element list; a valid enum leaf so ONLY
+///                                the index is at fault). RED before: accepted (bare int.TryParse passed '-1').
+///   GAP1-OK-MIDLISTIDX         — a VALID non-negative mid-path list index ('Conditions[0].CompareOperator') stays accepted (no over-reject).
+///   GAP1-REJ-NEGIDX-E2E        — a negative mid-path list index refuses end-to-end with NO file written; op1 composes a
+///                                ConditionFloat to materialize the list (non-null) so apply truly reaches the negative-index
+///                                throw, then op2 navigates [-1]. RED before: the apply throw under the inconsistency wrapper;
+///                                with the fix the PRE-FLIGHT 'non-negative integer' (anti-wrapper asserts) proves the gate.
+///
 /// GAP 2 — NON-FORMLINK coercible collection ELEMENT VALUE-SHAPE (the value twin of step-4a + the dict-Set value block).
 /// A non-null, non-formlink, MALFORMED coercible element value on list Add/SetAtIndex/ReplaceAll/Remove-by-value and dict
 /// Add/Merge/ReplaceAll passed pre-flight then threw UNNAMED at apply (Coerce -> float.Parse/byte.Parse). dict-Set value
@@ -917,6 +933,62 @@ public static class NestedCreateGuardProbe
             },
             msg => msg.Contains("does not coerce to sbyte", StringComparison.OrdinalIgnoreCase));
 
+        // ====== GAP 1 (cont.) — mid-path LIST-index VALUE-SHAPE (the list twin of the dict-key mid-path gate above) ======
+        // ValidateFromType's bracketed MID-PATH list branch checked the index with a bare int.TryParse, which ACCEPTS a
+        // negative ('-1' parses fine) — but apply's StepIntoElement list branch requires idx >= 0 and throws a PLAIN
+        // InvalidOperationException (NOT an ExpectedApplyRejectionException, by design — it's a SHAPE error, not live
+        // state). So a negative mid-path index ('Conditions[-1].field') was accepted at pre-flight then threw at apply
+        // and got the misleading "real inconsistency" wrapper. The LEAF list index was already reconciled onto
+        // WriteEngine.IsValidListIndexValue (KEYSHAPE-REJ-NEGIDX, parseable non-negative int32); the mid-path hop drifted.
+        // The fix points the mid-path check onto that SAME recognizer, so the leaf and the mid-path hop can't drift —
+        // after it, the apply-side non-negative throw is unreachable on the gated path (both non-integer AND negative are
+        // caught at pre-flight; the apply throw stays as defense-in-depth, shared with the READ path).
+
+        // ---------- GAP1-REJ-MIDLISTIDX-NEG: a NEGATIVE mid-path list index refuses at PRE-FLIGHT ----------
+        // Faction.Conditions = List<Condition> is a struct-element (Condition Kind=polymorphic-base, NOT record) list,
+        // hence mid-path-navigable; 'CompareOperator' (a valid enum 'EqualTo') is the writable leaf so ONLY the index is
+        // at fault. RED before: accepted (the bare int.TryParse passed '-1'), then apply threw the plain non-negative IOE
+        // under the inconsistency wrapper.
+        bool gap1RejMidListIdxNegOk;
+        {
+            var req = new WriteRequest { RecordType = "Faction", Path = new[] { "Conditions[-1]", "CompareOperator" }, Verb = "Set", Value = "EqualTo" };
+            var reject = rulebook.Validate(req);
+            gap1RejMidListIdxNegOk = reject is not null && reject.Contains("non-negative integer", StringComparison.OrdinalIgnoreCase);
+            Console.WriteLine($"   GAP1-REJ-MIDLISTIDX-NEG neg index  : {(gap1RejMidListIdxNegOk ? "PASS — a negative mid-path list index is refused at pre-flight (reconciled onto IsValidListIndexValue; no leaf/mid-path drift)" : $"FAIL — reject=[{reject}]")}");
+        }
+
+        // ---------- GAP1-OK-MIDLISTIDX: a VALID (non-negative) mid-path list index + valid leaf Set stays accepted ----------
+        bool gap1OkMidListIdxOk;
+        {
+            var req = new WriteRequest { RecordType = "Faction", Path = new[] { "Conditions[0]", "CompareOperator" }, Verb = "Set", Value = "EqualTo" };
+            var reject = rulebook.Validate(req);
+            gap1OkMidListIdxOk = reject is null;
+            Console.WriteLine($"   GAP1-OK-MIDLISTIDX valid index     : {(gap1OkMidListIdxOk ? "PASS — a valid non-negative mid-path list index (Conditions[0]) is NOT over-rejected" : $"FAIL — reject=[{reject}]")}");
+        }
+
+        // ---------- GAP1-REJ-NEGIDX-E2E: a negative mid-path list index refuses end-to-end with NO file written ----------
+        // The apply-time negative-index throw only bites a NON-NULL list — on a list that is null (a fresh record's
+        // default), StepIntoElement's absent-collection ExpectedApplyRejection fires FIRST (already clean), masking the
+        // bug. So op1 composes a ConditionFloat to MATERIALIZE Conditions (non-null, 1 element; the proven-good list
+        // compose of GAP3-OK-LIST-UNCHANGED), then op2 navigates Conditions[-1] — faithfully reproducing the bug:
+        // WITHOUT the fix, pre-flight accepts both, apply lands op1 then op2 hits StepIntoElement's list branch and throws
+        // the PLAIN non-negative IOE → the misleading "real inconsistency" wrapper (RED — the anti-wrapper asserts catch
+        // it). WITH the fix, Phase-1 pre-flight rejects op2 (the whole all-or-nothing create is refused, NOTHING created,
+        // op1 never lands) with the clean gate message ('non-negative integer'), NO file written — model: GAP1-REJ-E2E.
+        bool gap1RejNegIdxE2eOk = RejectArm("GAP1-REJ-NEGIDX-E2E neg mid index ", tmpDir, "Gap1NegIdx", mPath, rulebook,
+            new[]
+            {
+                new WritePatchBuilder.CreateSpec { RecordType = "Faction", EditorId = "HcNcG1NegIdx",
+                    Edits = new[]
+                    {
+                        new WriteRequest { RecordType = "Faction", Path = new[] { "Conditions" }, Verb = "Add", Struct = new StructSpec { Type = "ConditionFloat" } },
+                        new WriteRequest { RecordType = "Faction", Path = new[] { "Conditions[-1]", "CompareOperator" }, Verb = "Set", Value = "EqualTo" },
+                    } },
+            },
+            msg => msg.Contains("non-negative integer", StringComparison.OrdinalIgnoreCase)
+                && !msg.Contains("real inconsistency", StringComparison.OrdinalIgnoreCase)
+                && !msg.Contains("pre-flight ACCEPTED", StringComparison.OrdinalIgnoreCase));
+
         // ====== GAP 2 — NON-FORMLINK coercible collection ELEMENT VALUE-SHAPE ======
         // The value twin of step-4a (formlink elements) and of the dict-Set value block. A non-null, non-formlink,
         // MALFORMED coercible element value on list Add/SetAtIndex/ReplaceAll/Remove-by-value and dict Add/Merge/ReplaceAll
@@ -1529,6 +1601,7 @@ public static class NestedCreateGuardProbe
                     && keyShapeRejSetIdxOk && keyShapeRejNegIdxOk && keyShapeRejListRemoveIdxOk
                     && keyShapeOkDictAddOk && keyShapeOkSetIdxOk && keyShapeOkNumEnumSetOk && keyShapeRejE2eOk
                     && gap1RejMidKeySbyteOk && gap1OkMidKeyOk && gap1RejE2eOk
+                    && gap1RejMidListIdxNegOk && gap1OkMidListIdxOk && gap1RejNegIdxE2eOk
                     && gap2RejDictAddOk && gap2RejListAddOk && gap2RejListReplaceAllOk && gap2RejListRemoveOk && gap2RejDictMergeOk
                     && gap2OkValidOk && gap2OkRemoveByIndexOk && gap2FormlinkRouteOk && gap2OkOffcardSlotOk && gap2RejE2eOk
                     && g6RejRecordAddOk && g6RejRecordReplaceAllOk && g6OkRemoveByIndexOk && g6OkStructUnchangedOk && g6RejE2eOk
