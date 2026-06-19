@@ -1,5 +1,4 @@
 using Mutagen.Bethesda.Plugins;
-using Mutagen.Bethesda.Plugins.Records;
 using Mutagen.Bethesda.Skyrim;
 
 namespace HousecarlCore;
@@ -170,8 +169,14 @@ public static class DialogueScriptCheck
         var distinct = names.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         var missing = new List<string>();
         foreach (var name in distinct)
-            if (!av.Resolve($@"Scripts\{name}.pex").Exists)
-                missing.Add($@"Scripts\{name}.pex");
+        {
+            // A NAMESPACED Papyrus class (Namespace:Script) compiles to Scripts\Namespace\Script.pex — the ':' is a
+            // folder separator on disk (and not a legal filename char), so map it before probing the VFS. Without this a
+            // valid namespaced script reads as a false "not compiled" (Q3 — a loud-wrong answer; the check must not cry
+            // wolf). CK-generated fragments (TIF__/QF_) are always flat, so this only bites namespaced attached Scripts[].
+            var relPex = $@"Scripts\{name.Replace(':', '\\')}.pex";
+            if (!av.Resolve(relPex).Exists) missing.Add(relPex);
+        }
 
         if (missing.Count == 0)
             findings.Add(new ScriptBindingFinding(info.FormKey, topicEdid, ScriptBindingStatus.BoundAndCompiled,
