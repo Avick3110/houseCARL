@@ -139,6 +139,12 @@ public static class WritePatchBuilder
         /// pure record-write and the asset-layer dependency lives in the service. See <see cref="VoiceCheck"/>.</summary>
         public VoiceReport? Voice { get; init; }
 
+        /// <summary>The result-script binding report for the INFOs this call created (Layer B unit C / per-create
+        /// structural check) — null unless the call created ≥1 scripted dialogue line. Filled by the SERVICE post-write
+        /// the SAME way as <see cref="Voice"/> (it owns the live AssetResolver), so <see cref="CreateRecords"/> stays a
+        /// pure record-write. See <see cref="DialogueScriptCheck"/>.</summary>
+        public ScriptBindingReport? ScriptBinding { get; init; }
+
         public static CreateOutcome Fail(string error) =>
             new(false, error, "", false, Array.Empty<CreatedRecord>(), Array.Empty<string>(), 0);
     }

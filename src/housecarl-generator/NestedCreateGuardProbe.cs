@@ -1968,6 +1968,146 @@ public static class NestedCreateGuardProbe
             Console.WriteLine($"   VOICE-CHECKERROR surfaced not thrown: {(voiceCheckErrorOk ? "PASS — corrupt patch -> CheckError set, no throw, no lines" : $"FAIL — success={o.Success} threw={threw} checkError=[{report.CheckError}] lines={report.Lines.Count} err=[{o.Error}]")}");
         }
 
+        // ==================  RESULT-SCRIPT (Layer B unit C) — per-create VMAD binding + .pex presence check  ==================
+        // A dialogue line can carry a RESULT SCRIPT (a Papyrus fragment run when the line plays) on its VMAD: a
+        // ScriptFragments fragment (FileName + a Begin/End fragment) and/or attached Scripts. A byte-valid INFO whose
+        // binding is half-built, or names a script with no compiled Scripts\<class>.pex on disk, runs NOTHING in game
+        // (the Q3 class this closes; plan §3 job 3). DialogueScriptCheck verdicts each CREATED scripted INFO. A temp
+        // Data root (planted / absent .pex) makes the bound / incomplete / not-compiled verdict CI-testable. Fixtures
+        // are built directly (a topic + an INFO with a configured VMAD), then serialized + re-opened the way the check
+        // sees a real written patch.
+        (bool ok, string path, FormKey infoFk) BuildScriptFixture(string name, Action<DialogResponses> configure)
+        {
+            try
+            {
+                var key = new ModKey(name, ModType.Plugin);
+                var path = Path.Combine(tmpDir, key.FileName.String);
+                var fm = new SkyrimMod(key, SkyrimRelease.SkyrimSE);
+                var topic = fm.DialogTopics.AddNew(); topic.EditorID = name + "Topic";
+                var info = new DialogResponses(fm.GetNextFormKey(), SkyrimRelease.SkyrimSE) { EditorID = name + "Info" };
+                configure(info);
+                topic.Responses.Add(info);
+                fm.BeginWrite.ToPath(path).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
+                return (true, path, info.FormKey);
+            }
+            catch (Exception ex) { Console.WriteLine($"   (script fixture '{name}' failed: {ex.GetType().Name}: {(ex.InnerException ?? ex).Message})"); return (false, "", default); }
+        }
+        WritePatchBuilder.CreatedRecord[] AsCreated(string name, FormKey fk)
+            => new[] { new WritePatchBuilder.CreatedRecord(fk, "DialogResponses", name + "Info", Array.Empty<WritePatchBuilder.OpResult>()) };
+
+        // ---------- SCRIPT-INCOMPLETE: a VMAD present but binding nothing usable -> BindingIncomplete (won't fire) ----------
+        bool scriptIncompleteOk = false;
+        {
+            var f = BuildScriptFixture("HcScIncomplete", info => info.VirtualMachineAdapter = new DialogResponsesAdapter());
+            var dataDir = Path.Combine(tmpDir, "script-incomplete-data"); Directory.CreateDirectory(dataDir);
+            using var assets = AssetResolver.Build("", "", dataDir, Array.Empty<string>(), Array.Empty<ActiveArchive>());
+            var report = f.ok ? DialogueScriptCheck.Run(f.path, AsCreated("HcScIncomplete", f.infoFk), assets) : ScriptBindingReport.Empty;
+            var find = report.Findings.Count == 1 ? report.Findings[0] : null;
+            scriptIncompleteOk = f.ok && find is not null && find.Status == ScriptBindingStatus.BindingIncomplete && find.Info == f.infoFk;
+            Console.WriteLine($"   SCRIPT-INCOMPLETE empty VMAD       : {(scriptIncompleteOk ? "PASS — VMAD present, binds nothing -> BindingIncomplete" : $"FAIL — ok={f.ok} findings={report.Findings.Count} status={find?.Status} err=[{report.CheckError}]")}");
+        }
+
+        // ---------- SCRIPT-NOFRAG: a ScriptFragments FileName with NO Begin/End fragment is hollow -> BindingIncomplete ----------
+        // The .pex IS planted, so a "FileName alone counts as bound" regression would mis-read this as BoundAndCompiled
+        // (not NotCompiled) — the planted .pex is what makes that regression visible here.
+        bool scriptNoFragOk = false;
+        {
+            var f = BuildScriptFixture("HcScNoFrag", info =>
+                info.VirtualMachineAdapter = new DialogResponsesAdapter { ScriptFragments = new ScriptFragments { FileName = "HcScNoFragClass" } });
+            var dataDir = Path.Combine(tmpDir, "script-nofrag-data"); Directory.CreateDirectory(dataDir);
+            var planted = Path.Combine(dataDir, @"Scripts\HcScNoFragClass.pex");
+            Directory.CreateDirectory(Path.GetDirectoryName(planted)!); File.WriteAllBytes(planted, new byte[] { 0, 1, 2 });
+            using var assets = AssetResolver.Build("", "", dataDir, Array.Empty<string>(), Array.Empty<ActiveArchive>());
+            var report = f.ok ? DialogueScriptCheck.Run(f.path, AsCreated("HcScNoFrag", f.infoFk), assets) : ScriptBindingReport.Empty;
+            var find = report.Findings.Count == 1 ? report.Findings[0] : null;
+            scriptNoFragOk = f.ok && find is not null && find.Status == ScriptBindingStatus.BindingIncomplete;
+            Console.WriteLine($"   SCRIPT-NOFRAG FileName, no fragment: {(scriptNoFragOk ? "PASS — FileName alone (no Begin/End) -> BindingIncomplete even with a .pex on disk" : $"FAIL — ok={f.ok} findings={report.Findings.Count} status={find?.Status} err=[{report.CheckError}]")}");
+        }
+
+        // ---------- SCRIPT-NOTCOMPILED: a bound fragment whose Scripts\<class>.pex is absent -> ScriptNotCompiled ----------
+        bool scriptNotCompiledOk = false;
+        {
+            var f = BuildScriptFixture("HcScNotComp", info =>
+                info.VirtualMachineAdapter = new DialogResponsesAdapter { ScriptFragments = new ScriptFragments {
+                    FileName = "HcScNotCompClass", OnEnd = new ScriptFragment { ScriptName = "HcScNotCompClass", FragmentName = "Fragment_0" } } });
+            var dataDir = Path.Combine(tmpDir, "script-notcomp-data"); Directory.CreateDirectory(dataDir);   // EMPTY — no .pex planted
+            using var assets = AssetResolver.Build("", "", dataDir, Array.Empty<string>(), Array.Empty<ActiveArchive>());
+            var report = f.ok ? DialogueScriptCheck.Run(f.path, AsCreated("HcScNotComp", f.infoFk), assets) : ScriptBindingReport.Empty;
+            var find = report.Findings.Count == 1 ? report.Findings[0] : null;
+            scriptNotCompiledOk = f.ok && find is not null && find.Status == ScriptBindingStatus.ScriptNotCompiled
+                && find.MissingPex.Count == 1 && find.MissingPex[0] == @"Scripts\HcScNotCompClass.pex";
+            Console.WriteLine($"   SCRIPT-NOTCOMPILED no .pex         : {(scriptNotCompiledOk ? @"PASS — bound fragment, no Scripts\<class>.pex -> ScriptNotCompiled" : $"FAIL — ok={f.ok} findings={report.Findings.Count} status={find?.Status} missing=[{(find is null ? "" : string.Join(",", find.MissingPex))}] err=[{report.CheckError}]")}");
+        }
+
+        // ---------- SCRIPT-BOUND: a bound fragment WITH its compiled .pex on disk -> BoundAndCompiled ----------
+        bool scriptBoundOk = false;
+        {
+            var f = BuildScriptFixture("HcScBound", info =>
+                info.VirtualMachineAdapter = new DialogResponsesAdapter { ScriptFragments = new ScriptFragments {
+                    FileName = "HcScBoundClass", OnEnd = new ScriptFragment { ScriptName = "HcScBoundClass", FragmentName = "Fragment_0" } } });
+            var dataDir = Path.Combine(tmpDir, "script-bound-data");
+            if (f.ok)
+            {
+                var planted = Path.Combine(dataDir, @"Scripts\HcScBoundClass.pex");
+                Directory.CreateDirectory(Path.GetDirectoryName(planted)!); File.WriteAllBytes(planted, new byte[] { 0, 1, 2 });
+            }
+            else Directory.CreateDirectory(dataDir);
+            using var assets = AssetResolver.Build("", "", dataDir, Array.Empty<string>(), Array.Empty<ActiveArchive>());
+            var report = f.ok ? DialogueScriptCheck.Run(f.path, AsCreated("HcScBound", f.infoFk), assets) : ScriptBindingReport.Empty;
+            var find = report.Findings.Count == 1 ? report.Findings[0] : null;
+            scriptBoundOk = f.ok && find is not null && find.Status == ScriptBindingStatus.BoundAndCompiled && find.MissingPex.Count == 0;
+            Console.WriteLine($"   SCRIPT-BOUND planted .pex          : {(scriptBoundOk ? "PASS — bound fragment + compiled .pex -> BoundAndCompiled" : $"FAIL — ok={f.ok} findings={report.Findings.Count} status={find?.Status} err=[{report.CheckError}]")}");
+        }
+
+        // ---------- SCRIPT-ATTACHED: an attached Scripts[] entry (not a fragment) is a bound class too -> checked for .pex ----------
+        bool scriptAttachedOk = false;
+        {
+            var f = BuildScriptFixture("HcScAttached", info =>
+            {
+                var a = new DialogResponsesAdapter();
+                a.Scripts.Add(new ScriptEntry { Name = "HcScAttachedClass" });
+                info.VirtualMachineAdapter = a;
+            });
+            var dataDir = Path.Combine(tmpDir, "script-attached-data");
+            if (f.ok)
+            {
+                var planted = Path.Combine(dataDir, @"Scripts\HcScAttachedClass.pex");
+                Directory.CreateDirectory(Path.GetDirectoryName(planted)!); File.WriteAllBytes(planted, new byte[] { 0, 1, 2 });
+            }
+            else Directory.CreateDirectory(dataDir);
+            using var assets = AssetResolver.Build("", "", dataDir, Array.Empty<string>(), Array.Empty<ActiveArchive>());
+            var report = f.ok ? DialogueScriptCheck.Run(f.path, AsCreated("HcScAttached", f.infoFk), assets) : ScriptBindingReport.Empty;
+            var find = report.Findings.Count == 1 ? report.Findings[0] : null;
+            scriptAttachedOk = f.ok && find is not null && find.Status == ScriptBindingStatus.BoundAndCompiled && find.Scripts.Contains("HcScAttachedClass");
+            Console.WriteLine($"   SCRIPT-ATTACHED Scripts[] entry    : {(scriptAttachedOk ? "PASS — attached Scripts[] class + .pex -> BoundAndCompiled" : $"FAIL — ok={f.ok} findings={report.Findings.Count} status={find?.Status} scripts=[{(find is null ? "" : string.Join(",", find.Scripts))}] err=[{report.CheckError}]")}");
+        }
+
+        // ---------- SCRIPT-NOVMAD: a created line with NO result script is NOT checked (no false-positive nag) ----------
+        bool scriptNoVmadOk = false;
+        {
+            var f = BuildScriptFixture("HcScNoVmad", info => { });   // no VMAD configured
+            var dataDir = Path.Combine(tmpDir, "script-novmad-data"); Directory.CreateDirectory(dataDir);
+            using var assets = AssetResolver.Build("", "", dataDir, Array.Empty<string>(), Array.Empty<ActiveArchive>());
+            var report = f.ok ? DialogueScriptCheck.Run(f.path, AsCreated("HcScNoVmad", f.infoFk), assets) : new ScriptBindingReport(Array.Empty<ScriptBindingFinding>()) { CheckError = "fixture failed" };
+            scriptNoVmadOk = f.ok && report.IsEmpty;
+            Console.WriteLine($"   SCRIPT-NOVMAD no script -> no nag   : {(scriptNoVmadOk ? "PASS — a line with no VMAD yields no finding (not nagged)" : $"FAIL — ok={f.ok} findings={report.Findings.Count} err=[{report.CheckError}]")}");
+        }
+
+        // ---------- SCRIPT-CHECKERROR: a check failure SURFACES on CheckError, never throws / never demotes the create ----------
+        bool scriptCheckErrorOk = false;
+        {
+            var corruptPath = Path.Combine(tmpDir, "HcScCorrupt.esp");
+            File.WriteAllText(corruptPath, "this is not a valid Skyrim plugin");
+            var dataDir = Path.Combine(tmpDir, "script-ckerr-data"); Directory.CreateDirectory(dataDir);
+            using var assets = AssetResolver.Build("", "", dataDir, Array.Empty<string>(), Array.Empty<ActiveArchive>());
+            var created = new[] { new WritePatchBuilder.CreatedRecord(new FormKey(new ModKey("HcScCk", ModType.Plugin), 0x800), "DialogResponses", "HcScCkInfo", Array.Empty<WritePatchBuilder.OpResult>()) };
+            ScriptBindingReport report = ScriptBindingReport.Empty; bool threw = false;
+            try { report = DialogueScriptCheck.Run(corruptPath, created, assets); }
+            catch { threw = true; }
+            scriptCheckErrorOk = !threw && report.CheckError is not null && report.Findings.Count == 0;
+            Console.WriteLine($"   SCRIPT-CHECKERROR surfaced not thrown:{(scriptCheckErrorOk ? "PASS — corrupt patch -> CheckError set, no throw, no findings" : $"FAIL — threw={threw} checkError=[{report.CheckError}] findings={report.Findings.Count}")}");
+        }
+
         Console.WriteLine();
         bool pass = fixturesOk && oneshotOk && multiOk && intoTopicOk && intoCellOk
                     && rejNoParentOk && rejBadParentOk && rejAmbigOk && rejFwdSibOk && extendOk
@@ -1995,7 +2135,9 @@ public static class NestedCreateGuardProbe
                     && removeRejDictKeyAbsentOk && removeRejNullCollOk && removeRejListValAbsentOk
                     && removeOkPresentDictOk && removeOkPresentListOk
                     && voicePathOk && voiceSilentOk && voicePresentOk && voiceNoSpeakerOk && voiceMultiOk
-                    && voiceSameCallOk && voiceCheckErrorOk;
+                    && voiceSameCallOk && voiceCheckErrorOk
+                    && scriptIncompleteOk && scriptNoFragOk && scriptNotCompiledOk && scriptBoundOk
+                    && scriptAttachedOk && scriptNoVmadOk && scriptCheckErrorOk;
         Console.WriteLine($"=== nested-create-guard: {(pass ? "PASS" : "FAIL")} ===");
         try { Directory.Delete(tmpDir, recursive: true); } catch { }
         return pass ? 0 : 1;

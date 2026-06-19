@@ -1199,7 +1199,10 @@ public sealed class LoadOrderService : IDisposable
 
             var outcome = WritePatchBuilder.CreateRecords(resolver, rulebook, specs, outPath, extend, fullReadback);
             if (!outcome.Success && created) RemoveFolderCreatedThisCall(outPath);   // hunt F4: a refused create leaves no orphan
-            return outcome.Success ? EnrichWithVoiceCheck(outcome, resolver) : outcome;
+            // Layer B dialogue teeth, both post-write verify steps (the proven CreateRecords path stays untouched):
+            // unit B voice (.fuz/.lip) coverage, then unit C the result-script binding. Each is a no-op unless the call
+            // created a dialogue line; neither can fail the create (the write already succeeded).
+            return outcome.Success ? EnrichWithScriptCheck(EnrichWithVoiceCheck(outcome, resolver)) : outcome;
         }
     }
 
@@ -1222,6 +1225,27 @@ public sealed class LoadOrderService : IDisposable
         try { report = VoiceCheck.Run(outcome.OutputPath, outcome.Created, resolver, Assets); }
         catch (Exception ex) { report = VoiceReport.Empty with { CheckError = $"{ex.GetType().Name}: {ex.Message}" }; }
         return report.IsEmpty ? outcome : outcome with { Voice = report };
+    }
+
+    /// <summary>Layer B unit C — the per-create RESULT-SCRIPT binding check, run as a POST-WRITE step on a SUCCESSFUL
+    /// create (the service owns the live <see cref="Assets"/> resolver; the proven core create path stays asset-free and
+    /// untouched), exactly like <see cref="EnrichWithVoiceCheck"/>. Only fires when the call created ≥1 dialogue line
+    /// (INFO): <see cref="DialogueScriptCheck.Run"/> re-opens the written patch read-only, validates each created INFO's
+    /// VMAD result-script binding and checks its compiled `.pex` on disk — the report rides back on
+    /// <see cref="WritePatchBuilder.CreateOutcome.ScriptBinding"/>. NEVER fails the create (the write already succeeded);
+    /// a check failure is surfaced on the report's CheckError (Q3), and even a thrown Assets-build is caught here. Needs
+    /// no LoadOrderResolver — the binding lives wholly on the INFO + the on-disk `.pex` (no graph resolution).</summary>
+    WritePatchBuilder.CreateOutcome EnrichWithScriptCheck(WritePatchBuilder.CreateOutcome outcome)
+    {
+        bool anyInfo = false;
+        foreach (var c in outcome.Created)
+            if (string.Equals(c.RecordType, VoiceCheck.InfoCatalogName, StringComparison.Ordinal)) { anyInfo = true; break; }
+        if (!anyInfo) return outcome;
+
+        ScriptBindingReport report;
+        try { report = DialogueScriptCheck.Run(outcome.OutputPath, outcome.Created, Assets); }
+        catch (Exception ex) { report = ScriptBindingReport.Empty with { CheckError = $"{ex.GetType().Name}: {ex.Message}" }; }
+        return report.IsEmpty ? outcome : outcome with { ScriptBinding = report };
     }
 
     /// <summary>Map a wire field-op to a core <see cref="WriteRequest"/> for CREATE: RecordType is the create type (not

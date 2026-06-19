@@ -222,12 +222,14 @@ public static class WriteTools
         foreach (var op in o.Ops)
             sb.Append("  ").Append(op.RecordType).Append(' ').Append(op.Target).Append("  ").Append(op.Label)
               .Append(op.After is not null ? "  -> " + op.After : "  -> applied").Append('\n');
-        // Make the voice-coverage scope boundary VISIBLE, not silent (Q3): the .fuz/.lip presence check runs on
-        // CREATE of dialogue lines, not on EDITS to existing ones (Unit C). An edit that adds a spoken response to an
-        // existing INFO produces the same silent-line hazard with no voice note here, so flag it.
+        // Make the dialogue-coverage scope boundary VISIBLE, not silent (Q3): the .fuz/.lip presence check (unit B) AND
+        // the result-script binding check (unit C) both run on CREATE of dialogue lines, not on EDITS to existing ones.
+        // An edit that adds a spoken response or a result script to an existing INFO produces the same silent-line /
+        // dead-script hazard with no note here, so flag it. (The on-demand whole-topic validator — Unit C2 — will audit
+        // existing INFOs too; this note repoints to it then.)
         if (o.Ops.Any(op => string.Equals(op.RecordType, VoiceCheck.InfoCatalogName, StringComparison.Ordinal)))
-            sb.Append("note: this edit touched a dialogue line (INFO). Voice (.fuz) coverage is checked on CREATE, not on edits yet — ")
-              .Append("if you added a spoken response, verify its voice file on disk (housecarl_create_record reports the expected path).\n");
+            sb.Append("note: this edit touched a dialogue line (INFO). Voice (.fuz) and result-script coverage are checked on CREATE, not on edits yet — ")
+              .Append("if you added a spoken response or a result script, verify its voice file / compiled script on disk (housecarl_create_record reports the expected paths).\n");
         if (o.ReadBack is { } rb) AppendFullReadback(sb, rb, maxChars);
         sb.Append("to add more edits to THIS patch, pass into=\"").Append(file).Append("\".");
         return sb.ToString();
@@ -320,6 +322,7 @@ public static class WriteTools
                 sb.Append("      ").Append(op.Label).Append(op.After is not null ? "  -> " + op.After : "  -> applied").Append('\n');
         }
         AppendVoiceReport(sb, o.Voice, maxChars);
+        AppendScriptBindingReport(sb, o.ScriptBinding, maxChars);
         if (o.ReadBack is { } rb) AppendFullReadback(sb, rb, maxChars);
         sb.Append("the new FormID above is how you reference this record (SkyPatcher/SPID, or a follow-up edit). ")
           .Append("To add more to THIS patch, pass into=\"").Append(file).Append("\".");
@@ -382,6 +385,55 @@ public static class WriteTools
     static void AppendVoiceTrunc(StringBuilder sb, int rendered, int total, int cap)
         => sb.Append("  ... [voice coverage truncated: rendered ").Append(rendered).Append(" of ").Append(total)
              .Append(" line(s) at max_chars=").Append(cap).Append("; raise max_chars to see the rest]\n");
+
+    /// <summary>Render the Layer B unit C result-script coverage report (a dialogue-line create). The enforced Q3 teeth
+    /// against a byte-valid-but-INERT result script: a LOUD "WILL NOT FIRE" per created line whose VMAD binds nothing
+    /// usable (incomplete) or names a script with no compiled `.pex` on disk (naming the missing path), a brief "OK" for
+    /// ones fully wired + compiled, and a NAMED reason for any created INFO that couldn't be located. Script compilation
+    /// itself is housecarl_compile_script's job — this reports the on-disk DATA-layer boundary. No-op unless the call
+    /// created scripted dialogue lines. Budget-bounded like the voice + read-back sections (same max_chars contract).</summary>
+    static void AppendScriptBindingReport(StringBuilder sb, ScriptBindingReport? report, int maxChars)
+    {
+        if (report is null || report.IsEmpty) return;
+        int cap = maxChars > 0 ? maxChars : Wire.DefaultMaxChars;
+        int total = report.Findings.Count, rendered = 0;
+        sb.Append("result-script coverage — created dialogue lines (a bound script that's unwired or uncompiled runs NOTHING in game):\n");
+
+        bool anyReadIncomplete = false;
+        foreach (var f in report.Findings)
+        {
+            if (sb.Length >= cap)
+            {
+                sb.Append("  ... [result-script coverage truncated: rendered ").Append(rendered).Append(" of ").Append(total)
+                  .Append(" line(s) at max_chars=").Append(cap).Append("; raise max_chars to see the rest]\n");
+                return;
+            }
+            var who = string.IsNullOrEmpty(f.TopicEditorId) ? f.Info.ToString() : $"{f.TopicEditorId} ({f.Info})";
+            switch (f.Status)
+            {
+                case ScriptBindingStatus.BoundAndCompiled:
+                    sb.Append("  OK   ").Append(who).Append("  — ").Append(f.Detail).Append('\n');
+                    break;
+                case ScriptBindingStatus.ScriptNotCompiled:
+                    sb.Append("  [!] WILL NOT FIRE  ").Append(who).Append("  — ").Append(f.Detail);
+                    if (f.MissingPex.Count > 0) sb.Append("  (missing: ").Append(string.Join(", ", f.MissingPex)).Append(')');
+                    sb.Append('\n');
+                    break;
+                case ScriptBindingStatus.BindingIncomplete:
+                    sb.Append("  [!] WILL NOT FIRE  ").Append(who).Append("  — ").Append(f.Detail).Append('\n');
+                    break;
+                default: // Undetermined
+                    sb.Append("  [?] ").Append(who).Append("  — ").Append(f.Detail).Append('\n');
+                    break;
+            }
+            if (f.ReadIncomplete) anyReadIncomplete = true;
+            rendered++;
+        }
+        if (anyReadIncomplete)
+            sb.Append("  note: a BSA failed to read this scan, so a \"missing .pex\" above may merely be unscanned — verify in MO2.\n");
+        if (report.CheckError is not null)
+            sb.Append("  result-script check could not run: ").Append(report.CheckError).Append(" — the records WERE created; verify the script binding manually.\n");
+    }
 }
 
 // ---- wire DTOs (the operation shape for bulk_apply; set_field builds one internally) ----------------------
