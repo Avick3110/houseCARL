@@ -2082,6 +2082,32 @@ public static class NestedCreateGuardProbe
             Console.WriteLine($"   SCRIPT-ATTACHED Scripts[] entry    : {(scriptAttachedOk ? "PASS — attached Scripts[] class + .pex -> BoundAndCompiled" : $"FAIL — ok={f.ok} findings={report.Findings.Count} status={find?.Status} scripts=[{(find is null ? "" : string.Join(",", find.Scripts))}] err=[{report.CheckError}]")}");
         }
 
+        // ---------- SCRIPT-NAMESPACED: a namespaced class (Namespace:Script) maps to Scripts\Namespace\Script.pex ----------
+        // The ':' is a folder separator on disk (not a legal filename char), so a literal Scripts\<name>.pex probe would
+        // FALSE-alarm "not compiled" on a valid namespaced script. Plant the .pex at the MAPPED subfolder path and assert
+        // BoundAndCompiled — a regression dropping the ':'->'\' mapping turns this RED.
+        bool scriptNamespacedOk = false;
+        {
+            var f = BuildScriptFixture("HcScNs", info =>
+            {
+                var a = new DialogResponsesAdapter();
+                a.Scripts.Add(new ScriptEntry { Name = "HcScNsSpace:HcScNsClass" });
+                info.VirtualMachineAdapter = a;
+            });
+            var dataDir = Path.Combine(tmpDir, "script-ns-data");
+            if (f.ok)
+            {
+                var planted = Path.Combine(dataDir, @"Scripts\HcScNsSpace\HcScNsClass.pex");   // namespace -> subfolder
+                Directory.CreateDirectory(Path.GetDirectoryName(planted)!); File.WriteAllBytes(planted, new byte[] { 0, 1, 2 });
+            }
+            else Directory.CreateDirectory(dataDir);
+            using var assets = AssetResolver.Build("", "", dataDir, Array.Empty<string>(), Array.Empty<ActiveArchive>());
+            var report = f.ok ? DialogueScriptCheck.Run(f.path, AsCreated("HcScNs", f.infoFk), assets) : ScriptBindingReport.Empty;
+            var find = report.Findings.Count == 1 ? report.Findings[0] : null;
+            scriptNamespacedOk = f.ok && find is not null && find.Status == ScriptBindingStatus.BoundAndCompiled && find.MissingPex.Count == 0;
+            Console.WriteLine($@"   SCRIPT-NAMESPACED ns -> subfolder  : {(scriptNamespacedOk ? @"PASS — Namespace:Script -> Scripts\Namespace\Script.pex resolves -> BoundAndCompiled" : $"FAIL — ok={f.ok} findings={report.Findings.Count} status={find?.Status} missing=[{(find is null ? "" : string.Join(",", find.MissingPex))}] err=[{report.CheckError}]")}");
+        }
+
         // ---------- SCRIPT-NOVMAD: a created line with NO result script is NOT checked (no false-positive nag) ----------
         bool scriptNoVmadOk = false;
         {
@@ -2137,7 +2163,7 @@ public static class NestedCreateGuardProbe
                     && voicePathOk && voiceSilentOk && voicePresentOk && voiceNoSpeakerOk && voiceMultiOk
                     && voiceSameCallOk && voiceCheckErrorOk
                     && scriptIncompleteOk && scriptNoFragOk && scriptNotCompiledOk && scriptBoundOk
-                    && scriptAttachedOk && scriptNoVmadOk && scriptCheckErrorOk;
+                    && scriptAttachedOk && scriptNamespacedOk && scriptNoVmadOk && scriptCheckErrorOk;
         Console.WriteLine($"=== nested-create-guard: {(pass ? "PASS" : "FAIL")} ===");
         try { Directory.Delete(tmpDir, recursive: true); } catch { }
         return pass ? 0 : 1;
