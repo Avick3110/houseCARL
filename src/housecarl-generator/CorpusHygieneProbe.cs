@@ -280,6 +280,9 @@ public static class CorpusHygieneProbe
             if (t.Kind == "enum") continue;
             if (t.MutableInterface != null) continue;        // authorable (has a setter twin) -> fine
             var getter = ResolveType(t.GetterInterfaceAssemblyQualified);
+            // If the getter AQ fails to resolve, concreteGetter stays false — but a re-leaked projection is always
+            // an arm, so the kind clause still catches it; getter resolution only matters for the rarer case of a
+            // concrete-getter projection emitted under a non-"arm" kind.
             bool concreteGetter = getter != null && !getter.IsInterface;
             if (t.Kind == "arm" || concreteGetter)
                 v.Add($"type '{t.Name}' (kind {t.Kind}) is an unauthorable read-only projection: " +
