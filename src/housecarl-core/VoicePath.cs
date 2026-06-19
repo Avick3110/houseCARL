@@ -26,6 +26,10 @@ namespace HousecarlCore;
 //    • FOLDER2 = the speaker's VoiceType EditorID (INFO.Speaker -> Npc.Voice -> VoiceType.EditorID),
 //      empirically the on-disk folder name (e.g. "FemaleArgonian"). Resolved by the caller — when
 //      it can't be (no Speaker; the runtime quest-alias case), there is NO path to compute (Q3).
+//      ASSUMPTION (the one unverified leg of the keystone): the on-disk folder == the VoiceType's
+//      EditorID. True for vanilla + the empirically-checked mods; a mod whose VoiceType EditorID
+//      diverges from the folder its audio actually ships under would get a wrong "place audio here"
+//      path. No counter-example seen, but it's the assumption to revisit first if a path is ever wrong.
 //    • QUEST seg = the parent topic's Quest's EditorID, truncated to 10 chars (empirically
 //      "WDSMainQue" = 10). Empty when the topic has no quest (the segment is just empty).
 //    • TOPIC seg = the parent DialogTopic's EditorID, truncated to 15 chars (empirically

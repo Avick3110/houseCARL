@@ -222,6 +222,12 @@ public static class WriteTools
         foreach (var op in o.Ops)
             sb.Append("  ").Append(op.RecordType).Append(' ').Append(op.Target).Append("  ").Append(op.Label)
               .Append(op.After is not null ? "  -> " + op.After : "  -> applied").Append('\n');
+        // Make the voice-coverage scope boundary VISIBLE, not silent (Q3): the .fuz/.lip presence check runs on
+        // CREATE of dialogue lines, not on EDITS to existing ones (Unit C). An edit that adds a spoken response to an
+        // existing INFO produces the same silent-line hazard with no voice note here, so flag it.
+        if (o.Ops.Any(op => string.Equals(op.RecordType, VoiceCheck.InfoCatalogName, StringComparison.Ordinal)))
+            sb.Append("note: this edit touched a dialogue line (INFO). Voice (.fuz) coverage is checked on CREATE, not on edits yet — ")
+              .Append("if you added a spoken response, verify its voice file on disk (housecarl_create_record reports the expected path).\n");
         if (o.ReadBack is { } rb) AppendFullReadback(sb, rb, maxChars);
         sb.Append("to add more edits to THIS patch, pass into=\"").Append(file).Append("\".");
         return sb.ToString();
@@ -313,7 +319,7 @@ public static class WriteTools
             foreach (var op in c.Ops)
                 sb.Append("      ").Append(op.Label).Append(op.After is not null ? "  -> " + op.After : "  -> applied").Append('\n');
         }
-        AppendVoiceReport(sb, o.Voice);
+        AppendVoiceReport(sb, o.Voice, maxChars);
         if (o.ReadBack is { } rb) AppendFullReadback(sb, rb, maxChars);
         sb.Append("the new FormID above is how you reference this record (SkyPatcher/SPID, or a follow-up edit). ")
           .Append("To add more to THIS patch, pass into=\"").Append(file).Append("\".");
@@ -325,14 +331,20 @@ public static class WriteTools
     /// path to put the audio at), a brief "voice present" for ones already covered, and a NAMED reason per line whose
     /// path couldn't even be computed (no Speaker, unresolvable voice type, …). Voice ACTING stays out of scope — this
     /// reports the on-disk DATA-layer boundary, never generates audio. No-op unless the call created dialogue lines.</summary>
-    static void AppendVoiceReport(StringBuilder sb, VoiceReport? report)
+    static void AppendVoiceReport(StringBuilder sb, VoiceReport? report, int maxChars)
     {
         if (report is null || report.IsEmpty) return;
+        // Budget-bounded like the full read-back (same maxChars contract): a bulk_create authoring hundreds of voiced
+        // lines must NOT silently blow the response size or starve a requested read-back — past the cap the voice
+        // section stops with an explicit notice (Q3), never a silent cut.
+        int cap = maxChars > 0 ? maxChars : Wire.DefaultMaxChars;
+        int total = report.Lines.Count + report.Undetermined.Count, rendered = 0;
         sb.Append("voice coverage — created dialogue lines (a response with no .fuz plays SILENT in game; the audio is yours to provide):\n");
 
         bool anyReadIncomplete = false;
         foreach (var l in report.Lines)
         {
+            if (sb.Length >= cap) { AppendVoiceTrunc(sb, rendered, total, cap); return; }
             var who = string.IsNullOrEmpty(l.TopicEditorId) ? l.Info.ToString() : $"{l.TopicEditorId} ({l.Info})";
             if (l.FuzPresent)
             {
@@ -350,17 +362,26 @@ public static class WriteTools
                 sb.Append('\n');
             }
             if (l.ReadIncomplete) anyReadIncomplete = true;
+            rendered++;
         }
         foreach (var u in report.Undetermined)
         {
+            if (sb.Length >= cap) { AppendVoiceTrunc(sb, rendered, total, cap); return; }
             var who = string.IsNullOrEmpty(u.TopicEditorId) ? u.Info.ToString() : $"{u.TopicEditorId} ({u.Info})";
             sb.Append("  [?] ").Append(who).Append("  — ").Append(u.Reason).Append('\n');
+            rendered++;
         }
         if (anyReadIncomplete)
             sb.Append("  note: a BSA failed to read this scan, so an \"absent\" above may merely be unscanned — verify in MO2.\n");
         if (report.CheckError is not null)
             sb.Append("  voice check could not run: ").Append(report.CheckError).Append(" — the records WERE created; verify voice files manually.\n");
     }
+
+    /// <summary>The explicit voice-coverage truncation notice (Q3 — the same convention as the read-back's): how many
+    /// of the total voice entries were rendered before the char budget was hit, and how to see the rest.</summary>
+    static void AppendVoiceTrunc(StringBuilder sb, int rendered, int total, int cap)
+        => sb.Append("  ... [voice coverage truncated: rendered ").Append(rendered).Append(" of ").Append(total)
+             .Append(" line(s) at max_chars=").Append(cap).Append("; raise max_chars to see the rest]\n");
 }
 
 // ---- wire DTOs (the operation shape for bulk_apply; set_field builds one internally) ----------------------

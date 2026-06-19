@@ -158,6 +158,18 @@ public static class VoiceCheck
     {
         var topicEdid = topic.EditorID ?? "";
 
+        // No own response lines: either a link/branch node (no spoken audio — skip silently) or one that BORROWS
+        // another INFO's audio via ResponseData (it IS voiced, but under the OTHER INFO's path, not computable here).
+        // The borrowed case must be NAMED, not silently produce nothing (Q3 — a "false nothing").
+        if (info.Responses.Count == 0)
+        {
+            var sharedFk = NonNull(info.ResponseData.FormKeyNullable);
+            if (sharedFk is { } sfk)
+                undetermined.Add(new VoiceUndetermined(info.FormKey, topicEdid,
+                    $"no own response lines — this line draws its audio from shared response data ({sfk}); voice is not checked here, verify that INFO's .fuz."));
+            return;   // ResponseData null ⇒ a genuine link/branch node: no spoken audio to check
+        }
+
         // Speaker -> the voice type (folder). Null Speaker is the runtime quest-alias case: no computable path (Q3).
         var speakerFk = NonNull(info.Speaker.FormKeyNullable);
         if (speakerFk is null)
@@ -167,10 +179,20 @@ public static class VoiceCheck
                 "Set Speaker on this line to make it checkable, or verify the audio yourself."));
             return;
         }
-        if (resolve(speakerFk.Value) is not INpcGetter npc)
+        // Two distinct misses, two distinct messages (Q3 — don't say "not found" for a record that WAS found): the
+        // FormKey resolves to nothing, vs it resolves to a record that isn't an NPC (Speaker is typed as a FormLink to
+        // an NPC, but real/odd data can point it elsewhere, and the voice type is derived only from an NPC's Voice).
+        var speaker = resolve(speakerFk.Value);
+        if (speaker is null)
         {
             undetermined.Add(new VoiceUndetermined(info.FormKey, topicEdid,
-                $"Speaker NPC {speakerFk.Value} not found in the patch or load order — can't resolve the voice type."));
+                $"Speaker {speakerFk.Value} not found in the patch or load order — can't resolve the voice type."));
+            return;
+        }
+        if (speaker is not INpcGetter npc)
+        {
+            undetermined.Add(new VoiceUndetermined(info.FormKey, topicEdid,
+                $"Speaker {speakerFk.Value} resolves to a non-NPC record — houseCARL derives the voice type from an NPC's Voice, so it can't compute a voice path here; verify the audio yourself."));
             return;
         }
         var voiceFk = NonNull(npc.Voice.FormKeyNullable);
