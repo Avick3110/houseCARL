@@ -1199,8 +1199,29 @@ public sealed class LoadOrderService : IDisposable
 
             var outcome = WritePatchBuilder.CreateRecords(resolver, rulebook, specs, outPath, extend, fullReadback);
             if (!outcome.Success && created) RemoveFolderCreatedThisCall(outPath);   // hunt F4: a refused create leaves no orphan
-            return outcome;
+            return outcome.Success ? EnrichWithVoiceCheck(outcome, resolver) : outcome;
         }
+    }
+
+    /// <summary>Layer B unit B — the on-disk voice (.fuz/.lip) presence check, run as a POST-WRITE step on a SUCCESSFUL
+    /// create (the service owns the live <see cref="Assets"/> resolver; the proven core create path stays asset-free and
+    /// untouched). Only fires when the call created ≥1 dialogue line (INFO): <see cref="VoiceCheck.Run"/> re-opens the
+    /// written patch read-only, computes each created voiced line's expected path, and checks the VFS — the report rides
+    /// back on <see cref="WritePatchBuilder.CreateOutcome.Voice"/>. NEVER fails the create (the write already succeeded);
+    /// a check failure is surfaced on the report's CheckError (Q3), and even a thrown Assets-build is caught here so a
+    /// dialogue create never regresses to an error outcome over a verify step. Caller holds <see cref="_writeGate"/>; the
+    /// reentrant Assets getter is safe there (PlaceAssets uses it the same way).</summary>
+    WritePatchBuilder.CreateOutcome EnrichWithVoiceCheck(WritePatchBuilder.CreateOutcome outcome, LoadOrderResolver resolver)
+    {
+        bool anyInfo = false;
+        foreach (var c in outcome.Created)
+            if (string.Equals(c.RecordType, VoiceCheck.InfoCatalogName, StringComparison.Ordinal)) { anyInfo = true; break; }
+        if (!anyInfo) return outcome;
+
+        VoiceReport report;
+        try { report = VoiceCheck.Run(outcome.OutputPath, outcome.Created, resolver, Assets); }
+        catch (Exception ex) { report = VoiceReport.Empty with { CheckError = $"{ex.GetType().Name}: {ex.Message}" }; }
+        return report.IsEmpty ? outcome : outcome with { Voice = report };
     }
 
     /// <summary>Map a wire field-op to a core <see cref="WriteRequest"/> for CREATE: RecordType is the create type (not

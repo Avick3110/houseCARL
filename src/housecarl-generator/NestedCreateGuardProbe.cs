@@ -294,6 +294,24 @@ namespace HousecarlGenerator;
 ///   REMOVE-REJ-LISTVAL-ABSENT  — a list Remove-by-value of a value not present throws the EXPECTED kind (in-memory). RED before: no throw.
 ///   REMOVE-OK-PRESENT-DICT     — a dict Remove of a PRESENT key still succeeds (no over-reject of a real removal).
 ///   REMOVE-OK-PRESENT-LIST     — a list Remove-by-value of a PRESENT value still succeeds (no over-reject).
+///
+/// VOICE (Layer B unit B) — the on-disk voice (.fuz/.lip) PRESENCE check for created dialogue lines (nested-dialogue
+/// plan §3.5). A byte-valid INFO with no .fuz on disk plays NOTHING — the silent-failure class houseCARL refuses (Q3).
+/// VoiceCheck runs as a post-create step: it walks the written patch to map each created INFO to its parent topic,
+/// resolves the speaker chain (INFO.Speaker -> Npc.Voice -> VoiceType.EditorID) + the topic's quest, computes each
+/// response line's expected path (VoicePath, the xEdit InfoFileName transform), and checks the VFS (AssetResolver).
+/// The master carries a VoiceType + an NPC (Voice -> it) + a Quest the topic points at; an AssetResolver over a TEMP
+/// Data root (planted / absent .fuz) makes the present/silent verdict CI-testable with no real load order:
+///   VOICE-PATH        — the PURE transform locks the keystone format: Quest EDID[..10] _ Topic EDID[..15] _ "00"+6hex
+///                       local id _ ResponseNumber . fuz/.lip (verified empirically against real loose .fuz files).
+///   VOICE-SILENT      — a created voiced line (Speaker set, one response) with NO .fuz planted reports 1 line, NOT
+///                       present, at exactly the computed path (the "WILL BE SILENT" path the create surfaces).
+///   VOICE-PRESENT     — planting the .fuz at that computed path flips the SAME line to present (winner = the Data root)
+///                       — proves the path the check builds is the path the engine looks under (no silent-wrong path).
+///   VOICE-NOSPEAKER   — a created line with NO Speaker can't resolve a voice folder (the runtime quest-alias case): a
+///                       NAMED undetermined reason naming Speaker, and NO line — never a false "fine" (Q3).
+///   VOICE-MULTIRESP   — an INFO with two response lines yields two lines, ResponseNumbers {1,2}, distinct paths (_1/_2)
+///                       — one presence check PER spoken response, keyed by ResponseNumber (not a positional guess).
 /// </summary>
 public static class NestedCreateGuardProbe
 {
@@ -311,7 +329,7 @@ public static class NestedCreateGuardProbe
         //     interior Cell → the named-collection happy path (N3) + the ambiguous-collection reject (N6). ---
         var mKey = new ModKey("HcNcGdMaster", ModType.Master);
         string mPath = Path.Combine(tmpDir, mKey.FileName.String);
-        FormKey masterWeapFk, masterTopicFk, masterCellFk;
+        FormKey masterWeapFk, masterTopicFk, masterCellFk, masterVoiceFk, masterNpcFk, masterQuestFk;
         try
         {
             var m = new SkyrimMod(mKey, SkyrimRelease.SkyrimSE);
@@ -321,6 +339,17 @@ public static class NestedCreateGuardProbe
 
             var topic = m.DialogTopics.AddNew(); topic.EditorID = "HcNcGdTopic";
             masterTopicFk = topic.FormKey;
+
+            // Voice-check fixtures (Layer B unit B): the speaker chain INFO.Speaker -> Npc.Voice -> VoiceType.EditorID,
+            // and a Quest the topic points at (the path's quest segment). A line created under this topic with this
+            // speaker has a fully-resolvable voice path.
+            var voice = m.VoiceTypes.AddNew(); voice.EditorID = "HcNcGdVoice";
+            masterVoiceFk = voice.FormKey;
+            var quest = m.Quests.AddNew(); quest.EditorID = "HcNcGdQuest";
+            masterQuestFk = quest.FormKey;
+            var npc = m.Npcs.AddNew(); npc.EditorID = "HcNcGdNpc"; npc.Voice.SetTo(voice.FormKey);
+            masterNpcFk = npc.FormKey;
+            topic.Quest.SetTo(quest.FormKey);
 
             // An interior cell lives under a CellBlock/CellSubBlock structure (FormKey-LESS group structs); build it by
             // hand — there's no flat AddNew for a cell. The cell itself is a normal (FormKey, release) record.
@@ -349,12 +378,15 @@ public static class NestedCreateGuardProbe
             var view = r.Capture();
             fixturesOk = view.ResolveWinner(masterWeapFk) is not null
                       && view.ResolveWinner(masterTopicFk) is not null
-                      && view.ResolveWinner(masterCellFk) is not null;
+                      && view.ResolveWinner(masterCellFk) is not null
+                      && view.ResolveWinner(masterVoiceFk) is not null
+                      && view.ResolveWinner(masterNpcFk) is not null
+                      && view.ResolveWinner(masterQuestFk) is not null;
         }
         var genDir = Path.Combine(tmpDir, "corpus-gen");
         CorpusGenerator.GenerateAll(genDir, Path.Combine(tmpDir, "corpus-ref"));
         var rulebook = CorpusRulebook.Load(Path.Combine(genDir, "corpus.json"));
-        Console.WriteLine($"-- setup: master {mKey.FileName} with weapon {masterWeapFk}, topic {masterTopicFk}, cell {masterCellFk}; fixtures-resolve={fixturesOk}; corpus generated --");
+        Console.WriteLine($"-- setup: master {mKey.FileName} with weapon {masterWeapFk}, topic {masterTopicFk}, cell {masterCellFk}, voice {masterVoiceFk}, npc {masterNpcFk}, quest {masterQuestFk}; fixtures-resolve={fixturesOk}; corpus generated --");
         Console.WriteLine();
 
         // ---------- ONESHOT (N1): topic + its first INFO in ONE call ----------
@@ -1726,6 +1758,134 @@ public static class NestedCreateGuardProbe
             Console.WriteLine($"   REMOVE-OK-PRESENT-LIST present val  : {(removeOkPresentListOk ? "PASS — a list Remove-by-value of a PRESENT value still succeeds (no over-reject)" : $"FAIL — threw={threw} count={race.MovementTypeNames?.Count}")}");
         }
 
+        // ==================  VOICE (Layer B unit B) — on-disk .fuz/.lip presence check  ==================
+        // The keystone path transform + the present / silent / undeterminable verdict over the REAL create path. The .fuz
+        // path is computed from {defining plugin, speaker voice type, parent quest+topic EDIDs, response number}; a created
+        // INFO with no .fuz on disk plays SILENT in game (the Q3 class this closes). An AssetResolver over a TEMP Data root
+        // (planted / absent .fuz) makes the present/silent verdict CI-testable with no real load order.
+
+        // ---------- VOICE-PATH: the pure transform locks the xEdit InfoFileName format (Quest[..10]_Topic[..15]_00+6hex_num) ----------
+        bool voicePathOk;
+        {
+            var fk = new FormKey(new ModKey("MyPatch", ModType.Plugin), 0x000ABCu);
+            var fuz = VoicePath.For(fk, "MaleNord", "QuestEditorIDLong", "TopicEditorIDLongerThan15", 3, VoiceFile.Fuz);
+            var lip = VoicePath.For(fk, "MaleNord", "QuestEditorIDLong", "TopicEditorIDLongerThan15", 3, VoiceFile.Lip);
+            const string expFuz = @"Sound\Voice\MyPatch.esp\MaleNord\QuestEdito_TopicEditorIDLo_00000ABC_3.fuz";
+            const string expLip = @"Sound\Voice\MyPatch.esp\MaleNord\QuestEdito_TopicEditorIDLo_00000ABC_3.lip";
+            voicePathOk = fuz == expFuz && lip == expLip;
+            Console.WriteLine($"   VOICE-PATH transform format        : {(voicePathOk ? "PASS — quest[..10]_topic[..15]_00+6hex_num, .fuz/.lip" : $"FAIL — fuz=[{fuz}] lip=[{lip}]")}");
+        }
+
+        // ---------- VOICE-SILENT: a created voiced line with NO .fuz on disk reports WILL-BE-SILENT at the right path ----------
+        bool voiceSilentOk = false;
+        {
+            string pPath = Path.Combine(tmpDir, "HcNcVoiceSilent.esp");
+            var specs = new[]
+            {
+                new WritePatchBuilder.CreateSpec { RecordType = "DialogResponses", EditorId = "HcNcVsInfo", ParentRef = masterTopicFk.ToString(),
+                    Edits = new[]
+                    {
+                        new WriteRequest { RecordType = "DialogResponses", Path = new[] { "Speaker" }, Verb = "Set", Value = masterNpcFk.ToString() },
+                        new WriteRequest { RecordType = "DialogResponses", Path = new[] { "Responses" }, Verb = "Add",
+                            Struct = new StructSpec { Type = "DialogResponse", Fields = new Dictionary<string, string> { ["ResponseNumber"] = "1" } } },
+                    } },
+            };
+            using var r = LoadOrderResolver.Build(new[] { mPath });
+            var o = WritePatchBuilder.CreateRecords(r, rulebook, specs, pPath, extend: false);
+            var dataDir = Path.Combine(tmpDir, "voice-silent-data"); Directory.CreateDirectory(dataDir);   // EMPTY — no .fuz planted
+            using var assets = AssetResolver.Build("", "", dataDir, Array.Empty<string>(), Array.Empty<ActiveArchive>());
+            var report = o.Success ? VoiceCheck.Run(pPath, o.Created, r, assets) : VoiceReport.Empty;
+            var exp = o.Success ? VoicePath.For(o.Created[0].FormKey, "HcNcGdVoice", "HcNcGdQuest", "HcNcGdTopic", 1, VoiceFile.Fuz) : "";
+            var line = report.Lines.Count == 1 ? report.Lines[0] : null;
+            voiceSilentOk = o.Success && line is not null && !line.FuzPresent && line.FuzPath == exp && line.ResponseNumber == 1 && report.Undetermined.Count == 0;
+            Console.WriteLine($"   VOICE-SILENT no .fuz -> silent     : {(voiceSilentOk ? $"PASS — 1 line, absent, path={exp}" : $"FAIL — success={o.Success} lines={report.Lines.Count} undet={report.Undetermined.Count} present={line?.FuzPresent} path=[{line?.FuzPath}] exp=[{exp}] err=[{o.Error}]")}");
+        }
+
+        // ---------- VOICE-PRESENT: planting the .fuz at the computed path reports voice present (winner = Data) ----------
+        bool voicePresentOk = false;
+        {
+            string pPath = Path.Combine(tmpDir, "HcNcVoicePresent.esp");
+            var specs = new[]
+            {
+                new WritePatchBuilder.CreateSpec { RecordType = "DialogResponses", EditorId = "HcNcVpInfo", ParentRef = masterTopicFk.ToString(),
+                    Edits = new[]
+                    {
+                        new WriteRequest { RecordType = "DialogResponses", Path = new[] { "Speaker" }, Verb = "Set", Value = masterNpcFk.ToString() },
+                        new WriteRequest { RecordType = "DialogResponses", Path = new[] { "Responses" }, Verb = "Add",
+                            Struct = new StructSpec { Type = "DialogResponse", Fields = new Dictionary<string, string> { ["ResponseNumber"] = "1" } } },
+                    } },
+            };
+            using var r = LoadOrderResolver.Build(new[] { mPath });
+            var o = WritePatchBuilder.CreateRecords(r, rulebook, specs, pPath, extend: false);
+            var dataDir = Path.Combine(tmpDir, "voice-present-data");
+            string? exp = null; bool planted = false;
+            if (o.Success)
+            {
+                exp = VoicePath.For(o.Created[0].FormKey, "HcNcGdVoice", "HcNcGdQuest", "HcNcGdTopic", 1, VoiceFile.Fuz);
+                var full = Path.Combine(dataDir, exp);
+                Directory.CreateDirectory(Path.GetDirectoryName(full)!);
+                File.WriteAllBytes(full, new byte[] { 0, 1, 2 });
+                planted = true;
+            }
+            else Directory.CreateDirectory(dataDir);
+            using var assets = AssetResolver.Build("", "", dataDir, Array.Empty<string>(), Array.Empty<ActiveArchive>());
+            var report = o.Success ? VoiceCheck.Run(pPath, o.Created, r, assets) : VoiceReport.Empty;
+            var line = report.Lines.Count == 1 ? report.Lines[0] : null;
+            voicePresentOk = o.Success && planted && line is not null && line.FuzPresent && line.FuzPath == exp && line.FuzWinner == "Data";
+            Console.WriteLine($"   VOICE-PRESENT planted .fuz -> present: {(voicePresentOk ? $"PASS — 1 line, present (Data), path={exp}" : $"FAIL — success={o.Success} lines={report.Lines.Count} present={line?.FuzPresent} winner=[{line?.FuzWinner}] path=[{line?.FuzPath}] err=[{o.Error}]")}");
+        }
+
+        // ---------- VOICE-NOSPEAKER: a created line with no Speaker can't compute a path -> a NAMED undetermined (Q3) ----------
+        bool voiceNoSpeakerOk = false;
+        {
+            string pPath = Path.Combine(tmpDir, "HcNcVoiceNoSpeaker.esp");
+            var specs = new[]
+            {
+                new WritePatchBuilder.CreateSpec { RecordType = "DialogResponses", EditorId = "HcNcVnsInfo", ParentRef = masterTopicFk.ToString(),
+                    Edits = new[]
+                    {
+                        new WriteRequest { RecordType = "DialogResponses", Path = new[] { "Responses" }, Verb = "Add",
+                            Struct = new StructSpec { Type = "DialogResponse", Fields = new Dictionary<string, string> { ["ResponseNumber"] = "1" } } },
+                    } },
+            };
+            using var r = LoadOrderResolver.Build(new[] { mPath });
+            var o = WritePatchBuilder.CreateRecords(r, rulebook, specs, pPath, extend: false);
+            var dataDir = Path.Combine(tmpDir, "voice-nospk-data"); Directory.CreateDirectory(dataDir);
+            using var assets = AssetResolver.Build("", "", dataDir, Array.Empty<string>(), Array.Empty<ActiveArchive>());
+            var report = o.Success ? VoiceCheck.Run(pPath, o.Created, r, assets) : VoiceReport.Empty;
+            var u = report.Undetermined.Count == 1 ? report.Undetermined[0] : null;
+            voiceNoSpeakerOk = o.Success && report.Lines.Count == 0 && u is not null && u.Info == o.Created[0].FormKey
+                && u.Reason.Contains("Speaker", StringComparison.OrdinalIgnoreCase);
+            Console.WriteLine($"   VOICE-NOSPEAKER undeterminable     : {(voiceNoSpeakerOk ? "PASS — no Speaker -> 1 NAMED undetermined, no lines" : $"FAIL — success={o.Success} lines={report.Lines.Count} undet={report.Undetermined.Count} reason=[{u?.Reason}] err=[{o.Error}]")}");
+        }
+
+        // ---------- VOICE-MULTIRESP: two response lines -> two .fuz paths, _1 and _2 (one per ResponseNumber) ----------
+        bool voiceMultiOk = false;
+        {
+            string pPath = Path.Combine(tmpDir, "HcNcVoiceMulti.esp");
+            var specs = new[]
+            {
+                new WritePatchBuilder.CreateSpec { RecordType = "DialogResponses", EditorId = "HcNcVmInfo", ParentRef = masterTopicFk.ToString(),
+                    Edits = new[]
+                    {
+                        new WriteRequest { RecordType = "DialogResponses", Path = new[] { "Speaker" }, Verb = "Set", Value = masterNpcFk.ToString() },
+                        new WriteRequest { RecordType = "DialogResponses", Path = new[] { "Responses" }, Verb = "Add",
+                            Struct = new StructSpec { Type = "DialogResponse", Fields = new Dictionary<string, string> { ["ResponseNumber"] = "1" } } },
+                        new WriteRequest { RecordType = "DialogResponses", Path = new[] { "Responses" }, Verb = "Add",
+                            Struct = new StructSpec { Type = "DialogResponse", Fields = new Dictionary<string, string> { ["ResponseNumber"] = "2" } } },
+                    } },
+            };
+            using var r = LoadOrderResolver.Build(new[] { mPath });
+            var o = WritePatchBuilder.CreateRecords(r, rulebook, specs, pPath, extend: false);
+            var dataDir = Path.Combine(tmpDir, "voice-multi-data"); Directory.CreateDirectory(dataDir);
+            using var assets = AssetResolver.Build("", "", dataDir, Array.Empty<string>(), Array.Empty<ActiveArchive>());
+            var report = o.Success ? VoiceCheck.Run(pPath, o.Created, r, assets) : VoiceReport.Empty;
+            var nums = report.Lines.Select(l => l.ResponseNumber).OrderBy(n => n).ToList();
+            bool distinctPaths = report.Lines.Select(l => l.FuzPath).Distinct().Count() == report.Lines.Count;
+            voiceMultiOk = o.Success && report.Lines.Count == 2 && nums.SequenceEqual(new[] { 1, 2 }) && distinctPaths && report.Undetermined.Count == 0;
+            Console.WriteLine($"   VOICE-MULTIRESP 2 lines _1/_2       : {(voiceMultiOk ? "PASS — 2 lines, ResponseNumbers {1,2}, distinct paths" : $"FAIL — success={o.Success} lines={report.Lines.Count} nums=[{string.Join(",", nums)}] distinct={distinctPaths} err=[{o.Error}]")}");
+        }
+
         Console.WriteLine();
         bool pass = fixturesOk && oneshotOk && multiOk && intoTopicOk && intoCellOk
                     && rejNoParentOk && rejBadParentOk && rejAmbigOk && rejFwdSibOk && extendOk
@@ -1751,7 +1911,8 @@ public static class NestedCreateGuardProbe
                     && expectedRejNavE2eOk
                     && malformedNavTypeOk
                     && removeRejDictKeyAbsentOk && removeRejNullCollOk && removeRejListValAbsentOk
-                    && removeOkPresentDictOk && removeOkPresentListOk;
+                    && removeOkPresentDictOk && removeOkPresentListOk
+                    && voicePathOk && voiceSilentOk && voicePresentOk && voiceNoSpeakerOk && voiceMultiOk;
         Console.WriteLine($"=== nested-create-guard: {(pass ? "PASS" : "FAIL")} ===");
         try { Directory.Delete(tmpDir, recursive: true); } catch { }
         return pass ? 0 : 1;
