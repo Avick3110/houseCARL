@@ -351,6 +351,12 @@ if (args.Length > 0 && args[0] == "upsert-guard") return UpsertGuardProbe.RunGua
 // happy paths + the 4 Q3 rejects + the patch-carried-parent extend (the former N9 gap) (NO Skyrim.esm, unlike nested-create-proof).
 if (args.Length > 0 && args[0] == "nested-create-guard") return NestedCreateGuardProbe.RunGuard(args[1..]);
 
+// on-demand dialogue-graph VALIDATOR (nested-dialogue plan §3.6, Layer B unit C2 — housecarl_validate_dialogue):
+// SELF-CONTAINED CI regression guard — synthesizes a master with one topic per validation shape, drives the REAL
+// DialogueValidate.Run for the graph checks (PNAM chain, quest + branch wiring), the reused voice/script per-INFO
+// teeth over EXISTING lines, the quest fan-out, and the named not-found / wrong-type rejects (NO Skyrim.esm).
+if (args.Length > 0 && args[0] == "dialogue-validate-guard") return DialogueValidateGuardProbe.RunGuard(args[1..]);
+
 // create-tool WIRE (nested/dialogue plan, Layer A): SELF-CONTAINED CI regression guard — drives the REAL
 // LoadOrderService.CreateRecords (single, parent/collection) + CreateRecordsBatch (the bulk_create array) over a
 // synthetic MO2 instance: flat-still-works, parent passthrough, the same-call one-shot, batch all-or-nothing, the

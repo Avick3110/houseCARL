@@ -109,6 +109,13 @@ jobs:
       - name: Probe — nested-record create (self-contained regression guard)
         run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- nested-create-guard
 
+      # Self-contained (synthesizes a master with one dialogue topic per validation shape — no external files), runs
+      # fully here: a regression guard locking in the on-demand dialogue-graph validator (nested-dialogue plan §3.6,
+      # Layer B unit C2 — housecarl_validate_dialogue): the graph checks (PNAM chain, quest + branch wiring), the reused
+      # voice/script per-INFO teeth over EXISTING lines, the quest fan-out, and the named not-found/wrong-type rejects.
+      - name: Probe — dialogue-graph validator (self-contained regression guard)
+        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- dialogue-validate-guard
+
       # Self-contained (synthesizes a real MO2 instance + a master with a dialogue topic) and drives the REAL
       # LoadOrderService.CreateRecords / CreateRecordsBatch: locks in the create-tool WIRE (nested/dialogue plan,
       # Layer A) — create_record's parent/collection passthrough, the new bulk_create batch tool (the same-call

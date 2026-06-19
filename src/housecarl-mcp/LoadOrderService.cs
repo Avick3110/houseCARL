@@ -762,6 +762,18 @@ public sealed class LoadOrderService : IDisposable
         return ResolveRead(resolver, resolver.Capture(), fk, plugin, fields, conflictTree, depth);
     }
 
+    /// <summary>Layer B unit C2 — the on-demand whole-topic dialogue-graph validator (housecarl_validate_dialogue):
+    /// resolve <paramref name="fk"/> to its load-order winner and, when it is a dialogue topic (DIAL) validate that
+    /// topic's whole graph, or when a quest (QUST) fan out to EVERY topic the quest owns — all against the resolved
+    /// load-order winners (what the game actually sees). The on-demand counterpart of the per-create voice (unit B)
+    /// + result-script (unit C1) teeth, auditing existing INFOs the create-time checks never re-touch. The whole
+    /// Skyrim-typed walk (winner resolution, the DIAL/QUST branch, the graph + per-INFO checks) lives in CORE
+    /// (<see cref="DialogueValidate"/>), so the service stays Mutagen.Skyrim-free exactly like the voice/script
+    /// enrichers — here it just hands core the live record resolver + the VFS asset resolver. NEVER throws over a
+    /// verify step: a mid-run resolve/asset failure rides <see cref="DialogueValidationReport.CheckError"/>, and a
+    /// not-in-order / not-a-DIAL-or-QUST input is a NAMED <see cref="DialogueValidationReport.Error"/> (Q3).</summary>
+    public DialogueValidationReport ValidateDialogue(FormKey fk) => DialogueValidate.Run(Resolver, Assets, fk);
+
     /// <summary>The read body, answered entirely off ONE captured view (HCBR-2026-06-11-02): excluded-check, winner,
     /// and touching-plugin list all describe the SAME build — a freshness rebuild landing mid-read can no longer make
     /// a record's reported winner disagree with its own TOUCHING LIST. (The body fetch reads the file on disk through

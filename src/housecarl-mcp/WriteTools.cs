@@ -223,13 +223,14 @@ public static class WriteTools
             sb.Append("  ").Append(op.RecordType).Append(' ').Append(op.Target).Append("  ").Append(op.Label)
               .Append(op.After is not null ? "  -> " + op.After : "  -> applied").Append('\n');
         // Make the dialogue-coverage scope boundary VISIBLE, not silent (Q3): the .fuz/.lip presence check (unit B) AND
-        // the result-script binding check (unit C) both run on CREATE of dialogue lines, not on EDITS to existing ones.
+        // the result-script binding check (unit C1) both run on CREATE of dialogue lines, not on EDITS to existing ones.
         // An edit that adds a spoken response or a result script to an existing INFO produces the same silent-line /
-        // dead-script hazard with no note here, so flag it. (The on-demand whole-topic validator — Unit C2 — will audit
-        // existing INFOs too; this note repoints to it then.)
+        // dead-script hazard with no note here, so flag it — and point at the on-demand validator (Unit C2 shipped:
+        // housecarl_validate_dialogue), which audits voice + result-script coverage AND the topic graph over the
+        // edited line and every other line in the topic.
         if (o.Ops.Any(op => string.Equals(op.RecordType, VoiceCheck.InfoCatalogName, StringComparison.Ordinal)))
-            sb.Append("note: this edit touched a dialogue line (INFO). Voice (.fuz) and result-script coverage are checked on CREATE, not on edits yet — ")
-              .Append("if you added a spoken response or a result script, verify its voice file / compiled script on disk (housecarl_create_record reports the expected paths).\n");
+            sb.Append("note: this edit touched a dialogue line (INFO). Voice (.fuz) and result-script coverage are checked on CREATE, not on edits — ")
+              .Append("run housecarl_validate_dialogue on the topic (or its owning quest) to audit voice + result-script coverage and the topic graph over the edited line and every other line in the topic.\n");
         if (o.ReadBack is { } rb) AppendFullReadback(sb, rb, maxChars);
         sb.Append("to add more edits to THIS patch, pass into=\"").Append(file).Append("\".");
         return sb.ToString();
