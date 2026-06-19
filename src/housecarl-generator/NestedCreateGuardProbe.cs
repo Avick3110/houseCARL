@@ -306,12 +306,18 @@ namespace HousecarlGenerator;
 ///                       local id _ ResponseNumber . fuz/.lip (verified empirically against real loose .fuz files).
 ///   VOICE-SILENT      — a created voiced line (Speaker set, one response) with NO .fuz planted reports 1 line, NOT
 ///                       present, at exactly the computed path (the "WILL BE SILENT" path the create surfaces).
-///   VOICE-PRESENT     — planting the .fuz at that computed path flips the SAME line to present (winner = the Data root)
-///                       — proves the path the check builds is the path the engine looks under (no silent-wrong path).
+///   VOICE-PRESENT     — planting BOTH the .fuz and the .lip at the computed paths flips the SAME line to present
+///                       (FuzPresent + LipPresent, winner = the Data root) — proves the path the check builds is the
+///                       path the engine looks under (no silent-wrong path), and exercises both the .fuz and .lip legs.
 ///   VOICE-NOSPEAKER   — a created line with NO Speaker can't resolve a voice folder (the runtime quest-alias case): a
 ///                       NAMED undetermined reason naming Speaker, and NO line — never a false "fine" (Q3).
-///   VOICE-MULTIRESP   — an INFO with two response lines yields two lines, ResponseNumbers {1,2}, distinct paths (_1/_2)
-///                       — one presence check PER spoken response, keyed by ResponseNumber (not a positional guess).
+///   VOICE-MULTIRESP   — an INFO with two response lines numbered NON-sequentially (5, 2) yields two lines whose paths
+///                       carry _5 / _2 — one presence check PER spoken response, keyed by the line's own ResponseNumber
+///                       (a positional i+1 impl would emit {1,2} and fail).
+///   VOICE-SAMECALL    — the speaker NPC and its VoiceType are created in the SAME bulk_create as the voiced INFO, so
+///                       the speaker chain resolves through patchByKey (same-call records), not the load order.
+///   VOICE-CHECKERROR  — the check run against a CORRUPT patch path surfaces on VoiceReport.CheckError and does NOT
+///                       throw / does NOT lose the created records — the Q3 "never demote a successful create" safety net.
 /// </summary>
 public static class NestedCreateGuardProbe
 {
@@ -1822,17 +1828,21 @@ public static class NestedCreateGuardProbe
             if (o.Success)
             {
                 exp = VoicePath.For(o.Created[0].FormKey, "HcNcGdVoice", "HcNcGdQuest", "HcNcGdTopic", 1, VoiceFile.Fuz);
-                var full = Path.Combine(dataDir, exp);
-                Directory.CreateDirectory(Path.GetDirectoryName(full)!);
-                File.WriteAllBytes(full, new byte[] { 0, 1, 2 });
+                var expLip = VoicePath.For(o.Created[0].FormKey, "HcNcGdVoice", "HcNcGdQuest", "HcNcGdTopic", 1, VoiceFile.Lip);
+                foreach (var rel in new[] { exp, expLip })   // plant BOTH the .fuz and the .lip — exercise both legs of CheckInfo
+                {
+                    var full = Path.Combine(dataDir, rel);
+                    Directory.CreateDirectory(Path.GetDirectoryName(full)!);
+                    File.WriteAllBytes(full, new byte[] { 0, 1, 2 });
+                }
                 planted = true;
             }
             else Directory.CreateDirectory(dataDir);
             using var assets = AssetResolver.Build("", "", dataDir, Array.Empty<string>(), Array.Empty<ActiveArchive>());
             var report = o.Success ? VoiceCheck.Run(pPath, o.Created, r, assets) : VoiceReport.Empty;
             var line = report.Lines.Count == 1 ? report.Lines[0] : null;
-            voicePresentOk = o.Success && planted && line is not null && line.FuzPresent && line.FuzPath == exp && line.FuzWinner == "Data";
-            Console.WriteLine($"   VOICE-PRESENT planted .fuz -> present: {(voicePresentOk ? $"PASS — 1 line, present (Data), path={exp}" : $"FAIL — success={o.Success} lines={report.Lines.Count} present={line?.FuzPresent} winner=[{line?.FuzWinner}] path=[{line?.FuzPath}] err=[{o.Error}]")}");
+            voicePresentOk = o.Success && planted && line is not null && line.FuzPresent && line.LipPresent && line.FuzPath == exp && line.FuzWinner == "Data";
+            Console.WriteLine($"   VOICE-PRESENT planted .fuz+.lip     : {(voicePresentOk ? $"PASS — 1 line, .fuz+.lip present (Data), path={exp}" : $"FAIL — success={o.Success} lines={report.Lines.Count} fuz={line?.FuzPresent} lip={line?.LipPresent} winner=[{line?.FuzWinner}] path=[{line?.FuzPath}] err=[{o.Error}]")}");
         }
 
         // ---------- VOICE-NOSPEAKER: a created line with no Speaker can't compute a path -> a NAMED undetermined (Q3) ----------
@@ -1869,8 +1879,10 @@ public static class NestedCreateGuardProbe
                     Edits = new[]
                     {
                         new WriteRequest { RecordType = "DialogResponses", Path = new[] { "Speaker" }, Verb = "Set", Value = masterNpcFk.ToString() },
+                        // NON-SEQUENTIAL ResponseNumbers (5, 2) — so a positional i+1 impl (which would emit 1,2) is
+                        // distinguishable from the real read of resp.ResponseNumber: the path must carry _5 / _2.
                         new WriteRequest { RecordType = "DialogResponses", Path = new[] { "Responses" }, Verb = "Add",
-                            Struct = new StructSpec { Type = "DialogResponse", Fields = new Dictionary<string, string> { ["ResponseNumber"] = "1" } } },
+                            Struct = new StructSpec { Type = "DialogResponse", Fields = new Dictionary<string, string> { ["ResponseNumber"] = "5" } } },
                         new WriteRequest { RecordType = "DialogResponses", Path = new[] { "Responses" }, Verb = "Add",
                             Struct = new StructSpec { Type = "DialogResponse", Fields = new Dictionary<string, string> { ["ResponseNumber"] = "2" } } },
                     } },
@@ -1881,9 +1893,79 @@ public static class NestedCreateGuardProbe
             using var assets = AssetResolver.Build("", "", dataDir, Array.Empty<string>(), Array.Empty<ActiveArchive>());
             var report = o.Success ? VoiceCheck.Run(pPath, o.Created, r, assets) : VoiceReport.Empty;
             var nums = report.Lines.Select(l => l.ResponseNumber).OrderBy(n => n).ToList();
-            bool distinctPaths = report.Lines.Select(l => l.FuzPath).Distinct().Count() == report.Lines.Count;
-            voiceMultiOk = o.Success && report.Lines.Count == 2 && nums.SequenceEqual(new[] { 1, 2 }) && distinctPaths && report.Undetermined.Count == 0;
-            Console.WriteLine($"   VOICE-MULTIRESP 2 lines _1/_2       : {(voiceMultiOk ? "PASS — 2 lines, ResponseNumbers {1,2}, distinct paths" : $"FAIL — success={o.Success} lines={report.Lines.Count} nums=[{string.Join(",", nums)}] distinct={distinctPaths} err=[{o.Error}]")}");
+            bool pathsKeyed = report.Lines.All(l => l.FuzPath.EndsWith($"_{l.ResponseNumber}.fuz", StringComparison.Ordinal));
+            voiceMultiOk = o.Success && report.Lines.Count == 2 && nums.SequenceEqual(new[] { 2, 5 }) && pathsKeyed && report.Undetermined.Count == 0;
+            Console.WriteLine($"   VOICE-MULTIRESP keyed by RespNum    : {(voiceMultiOk ? "PASS — 2 lines, ResponseNumbers {2,5}, each path carries its own _N (not positional)" : $"FAIL — success={o.Success} lines={report.Lines.Count} nums=[{string.Join(",", nums)}] pathsKeyed={pathsKeyed} err=[{o.Error}]")}");
+        }
+
+        // ---------- VOICE-SAMECALL: speaker NPC + its VoiceType created in the SAME call -> patch-first resolution ----------
+        // The other voice arms resolve speaker/voice/quest from the MASTER (the load-order arm of Resolve). This one
+        // creates the VoiceType + the speaker NPC (Voice=@it) alongside the voiced INFO in ONE bulk_create, so the
+        // speaker chain resolves through patchByKey (same-call records) — a regression dropping that arm would otherwise
+        // pass every other voice arm GREEN.
+        bool voiceSameCallOk = false;
+        {
+            string pPath = Path.Combine(tmpDir, "HcNcVoiceSameCall.esp");
+            var specs = new[]
+            {
+                new WritePatchBuilder.CreateSpec { RecordType = "VoiceType", EditorId = "HcScVoice", Edits = Array.Empty<WriteRequest>() },
+                new WritePatchBuilder.CreateSpec { RecordType = "Npc", EditorId = "HcScNpc",
+                    Edits = new[] { new WriteRequest { RecordType = "Npc", Path = new[] { "Voice" }, Verb = "Set", Value = "@HcScVoice" } } },
+                new WritePatchBuilder.CreateSpec { RecordType = "DialogResponses", EditorId = "HcScInfo", ParentRef = masterTopicFk.ToString(),
+                    Edits = new[]
+                    {
+                        new WriteRequest { RecordType = "DialogResponses", Path = new[] { "Speaker" }, Verb = "Set", Value = "@HcScNpc" },
+                        new WriteRequest { RecordType = "DialogResponses", Path = new[] { "Responses" }, Verb = "Add",
+                            Struct = new StructSpec { Type = "DialogResponse", Fields = new Dictionary<string, string> { ["ResponseNumber"] = "1" } } },
+                    } },
+            };
+            using var r = LoadOrderResolver.Build(new[] { mPath });
+            var o = WritePatchBuilder.CreateRecords(r, rulebook, specs, pPath, extend: false);
+            var infoFk = o.Success ? o.Created.First(c => c.RecordType == "DialogResponses").FormKey : default;
+            var dataDir = Path.Combine(tmpDir, "voice-samecall-data");
+            string? exp = null;
+            if (o.Success)
+            {
+                exp = VoicePath.For(infoFk, "HcScVoice", "HcNcGdQuest", "HcNcGdTopic", 1, VoiceFile.Fuz);
+                var full = Path.Combine(dataDir, exp);
+                Directory.CreateDirectory(Path.GetDirectoryName(full)!);
+                File.WriteAllBytes(full, new byte[] { 0, 1, 2 });
+            }
+            else Directory.CreateDirectory(dataDir);
+            using var assets = AssetResolver.Build("", "", dataDir, Array.Empty<string>(), Array.Empty<ActiveArchive>());
+            var report = o.Success ? VoiceCheck.Run(pPath, o.Created, r, assets) : VoiceReport.Empty;
+            var line = report.Lines.Count == 1 ? report.Lines[0] : null;
+            voiceSameCallOk = o.Success && line is not null && line.FuzPresent && line.FuzPath == exp && report.Undetermined.Count == 0;
+            Console.WriteLine($"   VOICE-SAMECALL patch-resolved chain : {(voiceSameCallOk ? $"PASS — speaker+voice from the SAME call (patchByKey), present at {exp}" : $"FAIL — success={o.Success} lines={report.Lines.Count} undet={report.Undetermined.Count} present={line?.FuzPresent} path=[{line?.FuzPath}] exp=[{exp}] err=[{o.Error}]")}");
+        }
+
+        // ---------- VOICE-CHECKERROR: a check failure SURFACES on CheckError, never throws / never demotes the create ----
+        // The create succeeds; the voice check is then run against a CORRUPT patch path so the overlay-open throws.
+        // VoiceCheck must catch it and return CheckError (not rethrow, not lose the created records) — the Q3 safety net.
+        bool voiceCheckErrorOk = false;
+        {
+            string pPath = Path.Combine(tmpDir, "HcNcVoiceCkErr.esp");
+            var specs = new[]
+            {
+                new WritePatchBuilder.CreateSpec { RecordType = "DialogResponses", EditorId = "HcNcCeInfo", ParentRef = masterTopicFk.ToString(),
+                    Edits = new[]
+                    {
+                        new WriteRequest { RecordType = "DialogResponses", Path = new[] { "Speaker" }, Verb = "Set", Value = masterNpcFk.ToString() },
+                        new WriteRequest { RecordType = "DialogResponses", Path = new[] { "Responses" }, Verb = "Add",
+                            Struct = new StructSpec { Type = "DialogResponse", Fields = new Dictionary<string, string> { ["ResponseNumber"] = "1" } } },
+                    } },
+            };
+            using var r = LoadOrderResolver.Build(new[] { mPath });
+            var o = WritePatchBuilder.CreateRecords(r, rulebook, specs, pPath, extend: false);
+            var dataDir = Path.Combine(tmpDir, "voice-ckerr-data"); Directory.CreateDirectory(dataDir);
+            using var assets = AssetResolver.Build("", "", dataDir, Array.Empty<string>(), Array.Empty<ActiveArchive>());
+            var corruptPath = Path.Combine(tmpDir, "HcNcVoiceCorrupt.esp");
+            File.WriteAllText(corruptPath, "this is not a valid Skyrim plugin");
+            VoiceReport report = VoiceReport.Empty; bool threw = false;
+            try { report = o.Success ? VoiceCheck.Run(corruptPath, o.Created, r, assets) : VoiceReport.Empty; }
+            catch { threw = true; }
+            voiceCheckErrorOk = o.Success && !threw && report.CheckError is not null && report.Lines.Count == 0;
+            Console.WriteLine($"   VOICE-CHECKERROR surfaced not thrown: {(voiceCheckErrorOk ? "PASS — corrupt patch -> CheckError set, no throw, no lines" : $"FAIL — success={o.Success} threw={threw} checkError=[{report.CheckError}] lines={report.Lines.Count} err=[{o.Error}]")}");
         }
 
         Console.WriteLine();
@@ -1912,7 +1994,8 @@ public static class NestedCreateGuardProbe
                     && malformedNavTypeOk
                     && removeRejDictKeyAbsentOk && removeRejNullCollOk && removeRejListValAbsentOk
                     && removeOkPresentDictOk && removeOkPresentListOk
-                    && voicePathOk && voiceSilentOk && voicePresentOk && voiceNoSpeakerOk && voiceMultiOk;
+                    && voicePathOk && voiceSilentOk && voicePresentOk && voiceNoSpeakerOk && voiceMultiOk
+                    && voiceSameCallOk && voiceCheckErrorOk;
         Console.WriteLine($"=== nested-create-guard: {(pass ? "PASS" : "FAIL")} ===");
         try { Directory.Delete(tmpDir, recursive: true); } catch { }
         return pass ? 0 : 1;
