@@ -18,11 +18,13 @@ public static class DialogueTools
      Description(
          "Validate a dialogue topic's whole graph against the load order — what the game actually sees. Pass a " +
          "dialogue topic (DIAL) FormID to validate that one topic, or a quest (QUST) FormID to validate EVERY topic " +
-         "the quest owns. Checks the things houseCARL CAN verify at the data layer: the INFO previous-link (PNAM) " +
-         "chain is well-formed in response order, the topic is wired to a quest, the dialogue branch resolves, and " +
-         "(reusing the create-time teeth over every existing line) each voiced line has its .fuz on disk and each " +
-         "result script is bound + compiled. It LOUDLY declares what it cannot verify — the CTDA conditions that " +
-         "gate when a line fires (semantic, only the game evaluates them) and lip-sync/audio content — so 'checks " +
+         "the quest owns. Checks the things houseCARL CAN verify at the data layer: the topic is wired to a quest, " +
+         "the dialogue branch resolves, the INFO.LinkTo conversation chain (topic -> next topic) has no dangling " +
+         "targets, and no previous-link (PNAM) is dangling — an EMPTY PNAM is normal (vanilla selects among a " +
+         "topic's lines by their conditions, not a previous-link chain), so absence is never flagged; plus (reusing " +
+         "the create-time teeth over every existing line) each voiced line has its .fuz on disk and each result " +
+         "script is bound + compiled. It LOUDLY declares what it cannot verify — the CTDA conditions that gate WHEN " +
+         "a line fires (semantic, only the game evaluates them) and lip-sync/audio content — so 'checks " +
          "passed' never reads as 'this will play'. Resolves against the load-order WINNERS like every other read. " +
          "A FormID is 'XXXXXX:Plugin.esp'. Does NOT modify anything. To create dialogue lines use " +
          "housecarl_create_record; to inspect a single record use housecarl_read_record.")]
@@ -106,7 +108,7 @@ static class DialogueWire
 
         // --- graph issues (PNAM chain, quest + branch wiring) ---
         if (t.Issues.Count == 0)
-            sb.Append(pad).Append("  graph: OK — PNAM chain well-formed, quest + branch wiring resolve.\n");
+            sb.Append(pad).Append("  graph: OK — quest + branch wiring resolve, LinkTo targets resolve, no dangling PNAM.\n");
         else
         {
             sb.Append(pad).Append("  graph: ").Append(t.Issues.Count).Append(" issue(s):\n");

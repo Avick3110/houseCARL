@@ -23,6 +23,8 @@ namespace HousecarlGenerator;
 ///   LINKTO-DANGLE— an INFO.LinkTo to a missing topic is a PROBLEM naming 'LinkTo' — the real broken-chain teeth.
 ///   PNAM-DANGLE  — a SET PreviousDialog resolving to no INFO is a PROBLEM naming 'PNAM'/'previous-link'. (Absence is
 ///                  NOT flagged — proven by CLEAN.)
+///   PNAM-RESOLVES— a SET previous-link to a REAL sibling INFO is NOT flagged — the positive lock that dangling-only is
+///                  resolve-aware, not blanket (guards against an INFO index-scoping regression). PR #90 review finding 4.
 ///   DELETED-SKIP — a deleted INFO (a removed line) is skipped: not counted live (InfoCount excludes it), tallied as
 ///                  deleted, and never voice/script-checked or graph-flagged.
 ///   NO-QUEST     — a topic with DialogTopic.Quest unset warns 'Quest' — the unowned-topic teeth.
@@ -47,7 +49,7 @@ public static class DialogueValidateGuardProbe
 
         var mKey = new ModKey("HcDvGuardMaster", ModType.Master);
         string mPath = Path.Combine(tmpDir, mKey.FileName.String);
-        FormKey cleanFk, linkBadFk, pnamBadFk, deletedFk, noQuestFk, badBranchFk, voicedFk, scriptedFk, condFk, qFanFk, weapFk;
+        FormKey cleanFk, linkBadFk, pnamBadFk, pnamOkFk, deletedFk, noQuestFk, badBranchFk, voicedFk, scriptedFk, condFk, qFanFk, weapFk;
         try
         {
             var m = new SkyrimMod(mKey, SkyrimRelease.SkyrimSE);
@@ -83,6 +85,13 @@ public static class DialogueValidateGuardProbe
             var tPnamBad = m.DialogTopics.AddNew(); tPnamBad.EditorID = "HcDvPnamBad"; tPnamBad.Quest.SetTo(qMain.FormKey);
             var pb = Info("HcDvPnamBadI"); pb.PreviousDialog.SetTo(new FormKey(mKey, 0x00CCCCCC));
             tPnamBad.Responses.Add(pb); pnamBadFk = tPnamBad.FormKey;
+
+            // PNAM-RESOLVES: an INFO whose previous-link points at a REAL sibling INFO must NOT be flagged — the
+            // positive lock that the dangling-ONLY PNAM check is resolve-aware, not blanket (PR #90 review finding 4).
+            var tPnamOk = m.DialogTopics.AddNew(); tPnamOk.EditorID = "HcDvPnamOk"; tPnamOk.Quest.SetTo(qMain.FormKey);
+            var pa = Info("HcDvPnamOkA");
+            var pbk = Info("HcDvPnamOkB"); pbk.PreviousDialog.SetTo(pa.FormKey);
+            tPnamOk.Responses.Add(pa); tPnamOk.Responses.Add(pbk); pnamOkFk = tPnamOk.FormKey;
 
             // DELETED-SKIP: a live INFO + a deleted INFO (a removed line) — the deleted one must be skipped.
             var tDeleted = m.DialogTopics.AddNew(); tDeleted.EditorID = "HcDvDeleted"; tDeleted.Quest.SetTo(qMain.FormKey);
@@ -134,7 +143,7 @@ public static class DialogueValidateGuardProbe
         var dataDir = Path.Combine(tmpDir, "data"); Directory.CreateDirectory(dataDir);   // EMPTY — nothing planted; voiced/scripted lines read as absent
         using var resolver = LoadOrderResolver.Build(new[] { mPath });
         using var assets = AssetResolver.Build("", "", dataDir, Array.Empty<string>(), Array.Empty<ActiveArchive>());
-        Console.WriteLine($"-- setup: master {mKey.FileName}; topics clean/linkbad/pnambad/deleted/noquest/badbranch/voiced/scripted/cond + 2 fan-out; quest {qFanFk}; weapon {weapFk} --");
+        Console.WriteLine($"-- setup: master {mKey.FileName}; topics clean/linkbad/pnambad/pnamok/deleted/noquest/badbranch/voiced/scripted/cond + 2 fan-out; quest {qFanFk}; weapon {weapFk} --");
         Console.WriteLine();
 
         bool all = true;
@@ -159,6 +168,13 @@ public static class DialogueValidateGuardProbe
             bool ok = t is not null && t.Issues.Any(i => i.Severity == DialogueIssueSeverity.Problem
                 && (i.Message.Contains("PNAM", StringComparison.Ordinal) || i.Message.Contains("previous-link", StringComparison.OrdinalIgnoreCase)));
             all &= Pass("PNAM-DANGLE problem", ok, t is null ? "no topic" : Issues(t));
+        }
+
+        // ---------- PNAM-RESOLVES: a SET previous-link to a REAL sibling INFO is NOT flagged (dangling-only is resolve-aware) ----------
+        {
+            var t = One(DialogueValidate.Run(resolver, assets, pnamOkFk));
+            bool ok = t is not null && t.InfoCount == 2 && t.Issues.Count == 0;
+            all &= Pass("PNAM-RESOLVES not flagged", ok, t is null ? "no topic" : $"infos={t.InfoCount} issues={t.Issues.Count}: {Issues(t)}");
         }
 
         // ---------- DELETED-SKIP: a deleted INFO is skipped (not counted live, tallied deleted, no findings) ----------

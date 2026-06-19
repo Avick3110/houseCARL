@@ -127,6 +127,11 @@ public static class DialogueValidate
                 return g;
             }
 
+            // Cheap O(1) existence check (the index dict, no body fetch): a dangling/missing reference — the common
+            // breakage — is caught here, so only a PRESENT link pays Resolve's body fetch (to name a wrong type). See
+            // ValidateTopic.BadRef.
+            bool InOrder(FormKey k) => !k.IsNull && view.ResolveWinner(k) is not null;
+
             var win = view.ResolveWinner(fk);
             if (win is null)
                 return DialogueValidationReport.ForError(fk,
@@ -139,7 +144,7 @@ public static class DialogueValidate
 
             if (body is IDialogTopicGetter topic)
             {
-                var tv = ValidateTopic(topic, win.Value.WinnerPlugin, Resolve, av);
+                var tv = ValidateTopic(topic, win.Value.WinnerPlugin, InOrder, Resolve, av);
                 return new DialogueValidationReport(fk, "topic", topic.EditorID ?? "", win.Value.WinnerPlugin, new[] { tv })
                     { ReadIncomplete = av.ReadIncomplete };
             }
@@ -157,7 +162,7 @@ public static class DialogueValidate
                     if (tbody is not IDialogTopicGetter dt) continue;
                     if (NonNull(dt.Quest.FormKeyNullable) is not { } qk || qk != fk) continue;
                     var wp = view.ResolveWinner(tfk)?.WinnerPlugin ?? win.Value.WinnerPlugin;
-                    topics.Add(ValidateTopic(dt, wp, Resolve, av));
+                    topics.Add(ValidateTopic(dt, wp, InOrder, Resolve, av));
                 }
                 return new DialogueValidationReport(fk, "quest", quest.EditorID ?? "", win.Value.WinnerPlugin, topics)
                     { ReadIncomplete = av.ReadIncomplete };
@@ -182,9 +187,13 @@ public static class DialogueValidate
     /// by their Conditions, NOT by a previous-link chain — so absence is the universal norm and is never flagged; only
     /// a SET-but-unresolvable PNAM is reported. The real conversation chain is INFO.LinkTo (topic → next topic), checked
     /// here for dangling targets. (Empirically confirmed 2026-06-19 against the live load order — the §3.6 "PNAM chain
-    /// in response order" model was wrong for the existing corpus, so that check was dropped.)</summary>
-    public static TopicValidation ValidateTopic(IDialogTopicGetter topic, string winnerPlugin,
-        Func<FormKey, IMajorRecordGetter?> resolve, AssetResolver.AssetView assetView)
+    /// in response order" model was wrong for the existing corpus, so that check was dropped.)
+    ///
+    /// References are vetted by <paramref name="inOrder"/> first (a cheap O(1) index lookup — a dangling/missing target,
+    /// the common breakage, costs no body fetch); only a PRESENT target pays <paramref name="resolve"/> to name a wrong
+    /// type. The voice/script reuse still uses <paramref name="resolve"/> for the speaker/quest bodies it must read.</summary>
+    internal static TopicValidation ValidateTopic(IDialogTopicGetter topic, string winnerPlugin,
+        Func<FormKey, bool> inOrder, Func<FormKey, IMajorRecordGetter?> resolve, AssetResolver.AssetView assetView)
     {
         var edid = topic.EditorID ?? "";
         var issues = new List<DialogueIssue>();
@@ -192,20 +201,32 @@ public static class DialogueValidate
         var voiceUndet = new List<VoiceUndetermined>();
         var scriptFindings = new List<ScriptBindingFinding>();
 
+        // Classify a SET reference: cheap-existence first (a dangling/missing target needs no body fetch), then a body
+        // fetch ONLY for the rarer present-but-wrong-type case (so the message names what it actually is). Returns null
+        // when the reference is fine, else the clause describing what's wrong — sharper than one "doesn't resolve":
+        // "missing or disabled" vs "resolves to a Weapon" (Q3), and it skips most full-plugin enumerations.
+        string? BadRef(FormKey target, string expects, Func<IMajorRecordGetter, bool> isExpected)
+        {
+            if (!inOrder(target)) return $"is not in the active load order ({expects} missing or disabled)";
+            var body = resolve(target);
+            return body is not null && isExpected(body) ? null
+                : $"resolves to {(body is null ? "an unreadable record" : "a " + RecordNaming.StripOverlay(body.GetType().Name))}, not {expects}";
+        }
+
         // --- Quest wiring: most functional topics are owned by a quest; an unowned one may never present its lines.
         var questFk = NonNull(topic.Quest.FormKeyNullable);
         if (questFk is null)
             issues.Add(new(DialogueIssueSeverity.Warning,
                 "DialogTopic.Quest is unset — this topic is not owned by a quest. Most dialogue topics are; an unowned topic may never present its lines in game. Verify this is intentional."));
-        else if (resolve(questFk.Value) is not IQuestGetter)
+        else if (BadRef(questFk.Value, "a quest (QUST)", b => b is IQuestGetter) is { } qwhy)
             issues.Add(new(DialogueIssueSeverity.Problem,
-                $"DialogTopic.Quest points at {questFk.Value}, which does not resolve to a quest (QUST) in the active load order — the owning quest is missing/disabled."));
+                $"DialogTopic.Quest points at {questFk.Value}, which {qwhy} — the owning quest is unresolved."));
 
         // --- Branch wiring: optional (many topics have none), but if set it must resolve to a real DLBR.
         var branchFk = NonNull(topic.Branch.FormKeyNullable);
-        if (branchFk is not null && resolve(branchFk.Value) is not IDialogBranchGetter)
+        if (branchFk is not null && BadRef(branchFk.Value, "a dialogue branch (DLBR)", b => b is IDialogBranchGetter) is { } bwhy)
             issues.Add(new(DialogueIssueSeverity.Problem,
-                $"DialogTopic.Branch points at {branchFk.Value}, which does not resolve to a dialogue branch (DLBR) in the active load order — the branch wiring is broken."));
+                $"DialogTopic.Branch points at {branchFk.Value}, which {bwhy} — the branch wiring is broken."));
 
         // --- Per-INFO walk over the topic's LIVE INFOs. A deleted INFO is a REMOVED line — skip it entirely (don't
         //     count it, chain it, or voice/script-check it; tally it for an honest "N skipped" note, Q3). InfoCount is
@@ -217,20 +238,20 @@ public static class DialogueValidate
             infoCount++;
 
             // PNAM (PreviousDialog): vanilla leaves it empty and orders intra-topic by Conditions, so ABSENCE is the
-            // norm and is NEVER flagged. Only a SET previous-link that resolves to no INFO is a real dangling reference.
+            // norm and is NEVER flagged. Only a SET previous-link that doesn't resolve to an INFO is a real defect.
             var pnam = NonNull(info.PreviousDialog.FormKeyNullable);
-            if (pnam is not null && resolve(pnam.Value) is not IDialogResponsesGetter)
+            if (pnam is not null && BadRef(pnam.Value, "a dialogue line (INFO)", b => b is IDialogResponsesGetter) is { } pwhy)
                 issues.Add(new(DialogueIssueSeverity.Problem,
-                    $"INFO {info.FormKey} has a previous-link (PNAM -> {pnam.Value}) that resolves to no dialogue line (INFO) in the active load order — a dangling reference."));
+                    $"INFO {info.FormKey} has a previous-link (PNAM -> {pnam.Value}) that {pwhy}."));
 
             // LinkTo: the REAL conversation chain — this line hands off to the next topic(s). A set link to a missing
             // DialogTopic is a broken chain; an empty LinkTo is a normal terminal line (never flagged).
             foreach (var link in info.LinkTo)
             {
                 var lk = link.FormKey;
-                if (!lk.IsNull && resolve(lk) is not IDialogTopicGetter)
+                if (!lk.IsNull && BadRef(lk, "a dialogue topic (DIAL)", b => b is IDialogTopicGetter) is { } lwhy)
                     issues.Add(new(DialogueIssueSeverity.Problem,
-                        $"INFO {info.FormKey} links (LinkTo) to {lk}, which resolves to no dialogue topic (DIAL) in the active load order — the conversation chain is broken."));
+                        $"INFO {info.FormKey} links (LinkTo) to {lk}, which {lwhy} — the conversation chain is broken."));
             }
 
             if (info.Conditions.Count > 0) conditioned++;
