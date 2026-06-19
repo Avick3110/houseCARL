@@ -242,7 +242,7 @@ namespace HousecarlGenerator;
 /// (FindUnionArms keeps it; only an ABSTRACT base like Condition is filtered by !IsAbstract), so the arms.Contains branch
 /// would admit it too and GAP3-REJ-BADARM's message advertised it. The fix rejects composing the base by its own name and
 /// filters the base out of the legal-arms set everywhere (Contains + every message) at BOTH composition entry points —
-/// StructElementLegality (collection elements: the 4 self-listing bases APackageData/BaseLayer/CellBlock/ScriptProperty)
+/// StructElementLegality (collection elements: the 3 self-listing bases APackageData/BaseLayer/ScriptProperty)
 /// AND its sibling ArmLegality (standalone polymorphic FIELDS: DialogResponsesAdapter.ScriptFragments,
 /// GenderedItem&lt;SimpleModel&gt; — the twin found in a completeness sweep, folded in Aaron 2026-06-18). Recognizer = corpus
 /// poly-base KIND, NOT Type.IsAbstract (APackageData is concrete, so IsAbstract would miss the silent-write case). By
