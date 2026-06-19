@@ -12,20 +12,26 @@ namespace HousecarlGenerator;
 /// owns two topics (the fan-out), a weapon (the wrong-type reject) + a not-in-order FormKey (the absent reject).
 /// Run: dotnet run --project src/housecarl-generator -- dialogue-validate-guard
 ///
-/// Arms (ALL required — a GREEN must mean "the contract holds", never "the scenario doesn't arise here"):
-///   CLEAN        — a well-formed topic (quest + branch resolve, PNAM chain correct) reports ZERO graph issues — the
-///                  no-FALSE-POSITIVE keystone (a validator that cries wolf is as bad as one that misses, Q3).
-///   PNAM-BROKEN  — a 2nd line with NO previous-link (PNAM) warns 'previous-link'/'order' — the chain teeth. RED if dropped: no warning.
+/// CHECK MODEL (review fold 2026-06-19, empirically confirmed against the live load order): vanilla topics leave PNAM
+/// EMPTY and select intra-topic by Conditions, so PNAM absence is the NORM and is never flagged — the §3.6 "PNAM chain
+/// in response order" check was DROPPED (it false-flagged ~every real topic). The real conversation chain is INFO.LinkTo
+/// (topic → next topic). So the graph checks are: quest + branch wiring, LinkTo targets resolve, and a SET-but-dangling
+/// PNAM. Deleted INFOs are skipped. Arms (ALL required — a GREEN must mean "the contract holds"):
+///   CLEAN        — a well-formed topic (quest + branch resolve; INFOs with EMPTY PNAM, the vanilla norm; a valid
+///                  LinkTo to a real topic) reports ZERO issues — the no-FALSE-POSITIVE keystone, and the direct proof
+///                  that empty PNAM is NOT flagged (the regression the review caught).
+///   LINKTO-DANGLE— an INFO.LinkTo to a missing topic is a PROBLEM naming 'LinkTo' — the real broken-chain teeth.
+///   PNAM-DANGLE  — a SET PreviousDialog resolving to no INFO is a PROBLEM naming 'PNAM'/'previous-link'. (Absence is
+///                  NOT flagged — proven by CLEAN.)
+///   DELETED-SKIP — a deleted INFO (a removed line) is skipped: not counted live (InfoCount excludes it), tallied as
+///                  deleted, and never voice/script-checked or graph-flagged.
 ///   NO-QUEST     — a topic with DialogTopic.Quest unset warns 'Quest' — the unowned-topic teeth.
-///   BAD-BRANCH   — DialogTopic.Branch pointing at a non-DLBR is a PROBLEM naming 'Branch' — the broken-wiring teeth.
-///   VOICE-WIRED  — a voiced line with no .fuz on disk surfaces as a SILENT VoiceLine IN THE VALIDATOR (the create-time
-///                  VoiceCheck reused over an EXISTING info) — proves the reuse is wired, not just that VoiceCheck exists.
-///   SCRIPT-WIRED — a bound result-script with no .pex surfaces as a ScriptNotCompiled finding IN THE VALIDATOR (the
-///                  reused DialogueScriptCheck over an existing info).
+///   BAD-BRANCH   — DialogTopic.Branch pointing at a non-DLBR is a PROBLEM naming 'Branch'.
+///   VOICE-WIRED  — a voiced line with no .fuz surfaces as a SILENT VoiceLine IN THE VALIDATOR (reused VoiceCheck).
+///   SCRIPT-WIRED — a bound result-script with no .pex surfaces as a ScriptNotCompiled finding (reused DialogueScriptCheck).
 ///   CTDA-COUNT   — a line carrying a Condition is counted (ConditionedInfoCount >= 1) — the standing-CTDA-limit teeth.
-///   QUEST-FANOUT — validating a QUEST fans out to EXACTLY the topics it owns (2 here), kind="quest". RED if the filter
-///                  breaks: 0 or every topic.
-///   REJ-NOTFOUND — a FormID not in the active order is a NAMED error ('not in the active load order'), never an empty pass.
+///   QUEST-FANOUT — validating a QUEST fans out to EXACTLY the topics it owns (2 here), kind="quest".
+///   REJ-NOTFOUND — a FormID not in the active order is a NAMED error ('not in the active load order').
 ///   REJ-WRONGTYPE— a FormID resolving to neither a DIAL nor a QUST (a Weapon) is a NAMED error ('not a dialogue topic').
 /// </summary>
 public static class DialogueValidateGuardProbe
@@ -41,7 +47,7 @@ public static class DialogueValidateGuardProbe
 
         var mKey = new ModKey("HcDvGuardMaster", ModType.Master);
         string mPath = Path.Combine(tmpDir, mKey.FileName.String);
-        FormKey cleanFk, pnamFk, noQuestFk, badBranchFk, voicedFk, scriptedFk, condFk, qFanFk, weapFk;
+        FormKey cleanFk, linkBadFk, pnamBadFk, deletedFk, noQuestFk, badBranchFk, voicedFk, scriptedFk, condFk, qFanFk, weapFk;
         try
         {
             var m = new SkyrimMod(mKey, SkyrimRelease.SkyrimSE);
@@ -57,15 +63,32 @@ public static class DialogueValidateGuardProbe
 
             DialogResponses Info(string edid) => new(m.GetNextFormKey(), SkyrimRelease.SkyrimSE) { EditorID = edid };
 
-            // CLEAN: quest + branch wired, two lines with a correct PNAM chain (line0 has none; line1 -> line0).
+            // A plain target topic so CLEAN's LinkTo resolves to a real DIAL.
+            var tTarget = m.DialogTopics.AddNew(); tTarget.EditorID = "HcDvLinkTarget"; tTarget.Quest.SetTo(qMain.FormKey);
+            tTarget.Responses.Add(Info("HcDvLinkTargetI"));
+
+            // CLEAN: quest + branch wired; two INFOs with EMPTY PNAM (the vanilla norm); the 2nd hands off to a real
+            // topic via LinkTo. The no-false-positive keystone — empty PNAM and a valid LinkTo must NOT be flagged.
             var tClean = m.DialogTopics.AddNew(); tClean.EditorID = "HcDvClean";
             tClean.Quest.SetTo(qMain.FormKey); tClean.Branch.SetTo(branch.FormKey);
-            var c0 = Info("HcDvCleanI0"); var c1 = Info("HcDvCleanI1"); c1.PreviousDialog.SetTo(c0.FormKey);
-            tClean.Responses.Add(c0); tClean.Responses.Add(c1); cleanFk = tClean.FormKey;
+            var c1 = Info("HcDvCleanI1"); c1.LinkTo.Add(new FormLink<IDialogTopicGetter>(tTarget.FormKey));
+            tClean.Responses.Add(Info("HcDvCleanI0")); tClean.Responses.Add(c1); cleanFk = tClean.FormKey;
 
-            // PNAM-BROKEN: a 2nd line whose PNAM is left unset (should chain to line0).
-            var tPnam = m.DialogTopics.AddNew(); tPnam.EditorID = "HcDvBadPnam"; tPnam.Quest.SetTo(qMain.FormKey);
-            tPnam.Responses.Add(Info("HcDvBpI0")); tPnam.Responses.Add(Info("HcDvBpI1")); pnamFk = tPnam.FormKey;
+            // LINKTO-DANGLE: an INFO links to a topic that is not in the order.
+            var tLinkBad = m.DialogTopics.AddNew(); tLinkBad.EditorID = "HcDvLinkBad"; tLinkBad.Quest.SetTo(qMain.FormKey);
+            var lb = Info("HcDvLinkBadI"); lb.LinkTo.Add(new FormLink<IDialogTopicGetter>(new FormKey(mKey, 0x00BBBBBB)));
+            tLinkBad.Responses.Add(lb); linkBadFk = tLinkBad.FormKey;
+
+            // PNAM-DANGLE: an INFO's previous-link points at an INFO that is not in the order.
+            var tPnamBad = m.DialogTopics.AddNew(); tPnamBad.EditorID = "HcDvPnamBad"; tPnamBad.Quest.SetTo(qMain.FormKey);
+            var pb = Info("HcDvPnamBadI"); pb.PreviousDialog.SetTo(new FormKey(mKey, 0x00CCCCCC));
+            tPnamBad.Responses.Add(pb); pnamBadFk = tPnamBad.FormKey;
+
+            // DELETED-SKIP: a live INFO + a deleted INFO (a removed line) — the deleted one must be skipped.
+            var tDeleted = m.DialogTopics.AddNew(); tDeleted.EditorID = "HcDvDeleted"; tDeleted.Quest.SetTo(qMain.FormKey);
+            tDeleted.Responses.Add(Info("HcDvDeletedLive"));
+            var del = Info("HcDvDeletedGone"); del.IsDeleted = true; tDeleted.Responses.Add(del);
+            deletedFk = tDeleted.FormKey;
 
             // NO-QUEST: Quest deliberately left unset.
             var tNoQ = m.DialogTopics.AddNew(); tNoQ.EditorID = "HcDvNoQuest";
@@ -111,24 +134,39 @@ public static class DialogueValidateGuardProbe
         var dataDir = Path.Combine(tmpDir, "data"); Directory.CreateDirectory(dataDir);   // EMPTY — nothing planted; voiced/scripted lines read as absent
         using var resolver = LoadOrderResolver.Build(new[] { mPath });
         using var assets = AssetResolver.Build("", "", dataDir, Array.Empty<string>(), Array.Empty<ActiveArchive>());
-        Console.WriteLine($"-- setup: master {mKey.FileName}; topics clean/pnam/noquest/badbranch/voiced/scripted/cond + 2 fan-out; quest {qFanFk}; weapon {weapFk} --");
+        Console.WriteLine($"-- setup: master {mKey.FileName}; topics clean/linkbad/pnambad/deleted/noquest/badbranch/voiced/scripted/cond + 2 fan-out; quest {qFanFk}; weapon {weapFk} --");
         Console.WriteLine();
 
         bool all = true;
 
-        // ---------- CLEAN: a well-formed topic reports ZERO graph issues (no false positives) ----------
+        // ---------- CLEAN: a well-formed topic (EMPTY PNAM + valid LinkTo) reports ZERO issues — empty PNAM is NOT flagged ----------
         {
             var t = One(DialogueValidate.Run(resolver, assets, cleanFk));
-            bool ok = t is not null && t.Issues.Count == 0;
-            all &= Pass("CLEAN no false issues", ok, t is null ? "no topic returned" : $"{t.Issues.Count} issue(s): {Issues(t)}");
+            bool ok = t is not null && t.Issues.Count == 0 && t.InfoCount == 2;
+            all &= Pass("CLEAN no false issues", ok, t is null ? "no topic returned" : $"infos={t.InfoCount} issues={t.Issues.Count}: {Issues(t)}");
         }
 
-        // ---------- PNAM-BROKEN: a 2nd line missing its previous-link warns ----------
+        // ---------- LINKTO-DANGLE: a LinkTo to a missing topic is a PROBLEM ----------
         {
-            var t = One(DialogueValidate.Run(resolver, assets, pnamFk));
-            bool ok = t is not null && t.Issues.Any(i => i.Severity == DialogueIssueSeverity.Warning
-                && (i.Message.Contains("previous-link", StringComparison.OrdinalIgnoreCase) || i.Message.Contains("PNAM", StringComparison.Ordinal)));
-            all &= Pass("PNAM-BROKEN warns chain", ok, t is null ? "no topic" : Issues(t));
+            var t = One(DialogueValidate.Run(resolver, assets, linkBadFk));
+            bool ok = t is not null && t.Issues.Any(i => i.Severity == DialogueIssueSeverity.Problem && i.Message.Contains("LinkTo", StringComparison.Ordinal));
+            all &= Pass("LINKTO-DANGLE problem", ok, t is null ? "no topic" : Issues(t));
+        }
+
+        // ---------- PNAM-DANGLE: a SET-but-unresolvable previous-link is a PROBLEM (absence is NOT flagged — see CLEAN) ----------
+        {
+            var t = One(DialogueValidate.Run(resolver, assets, pnamBadFk));
+            bool ok = t is not null && t.Issues.Any(i => i.Severity == DialogueIssueSeverity.Problem
+                && (i.Message.Contains("PNAM", StringComparison.Ordinal) || i.Message.Contains("previous-link", StringComparison.OrdinalIgnoreCase)));
+            all &= Pass("PNAM-DANGLE problem", ok, t is null ? "no topic" : Issues(t));
+        }
+
+        // ---------- DELETED-SKIP: a deleted INFO is skipped (not counted live, tallied deleted, no findings) ----------
+        {
+            var t = One(DialogueValidate.Run(resolver, assets, deletedFk));
+            bool ok = t is not null && t.InfoCount == 1 && t.DeletedInfoCount == 1
+                && t.ScriptFindings.Count == 0 && t.VoiceLines.Count == 0 && t.Issues.Count == 0;
+            all &= Pass("DELETED-SKIP not validated", ok, t is null ? "no topic" : $"live={t.InfoCount} deleted={t.DeletedInfoCount} issues={t.Issues.Count} script={t.ScriptFindings.Count}");
         }
 
         // ---------- NO-QUEST: an unowned topic warns 'Quest' ----------
@@ -190,14 +228,14 @@ public static class DialogueValidateGuardProbe
 
         Console.WriteLine();
         Console.WriteLine(all
-            ? "RESULT: PASS — the dialogue-graph validator holds (graph checks, voice/script reuse, fan-out, named rejects)."
+            ? "RESULT: PASS — the dialogue-graph validator holds (no false PNAM-absence flag, LinkTo + dangling-PNAM teeth, deleted-skip, voice/script reuse, fan-out, named rejects)."
             : "RESULT: FAIL — at least one arm regressed (see above).");
         try { Directory.Delete(tmpDir, recursive: true); } catch { }
         return all ? 0 : 1;
     }
 
-    /// <summary>The single topic of a topic-kind report (null on an error / a 0-topic result), so the single-topic arms
-    /// read its one TopicValidation directly.</summary>
+    /// <summary>The single topic of a topic-kind report (null on an error / a non-single-topic result), so the
+    /// single-topic arms read its one TopicValidation directly.</summary>
     static TopicValidation? One(DialogueValidationReport r) => r.Topics.Count == 1 ? r.Topics[0] : null;
 
     static string Issues(TopicValidation t) => t.Issues.Count == 0 ? "<none>" : string.Join(" | ", t.Issues.Select(i => $"[{i.Severity}] {i.Message}"));
