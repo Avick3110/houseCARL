@@ -357,6 +357,12 @@ if (args.Length > 0 && args[0] == "nested-create-guard") return NestedCreateGuar
 // teeth over EXISTING lines, the quest fan-out, and the named not-found / wrong-type rejects (NO Skyrim.esm).
 if (args.Length > 0 && args[0] == "dialogue-validate-guard") return DialogueValidateGuardProbe.RunGuard(args[1..]);
 
+// SEQ writer (nested-dialogue plan Layer B unit D — housecarl_write_seq): SELF-CONTAINED CI regression guard — synthesizes
+// masters + a patch (own/override/non-SGE/deleted quests), drives core SeqFile.Build + the REAL LoadOrderService.WriteSeq
+// over a synthetic MO2 instance, and verifies the master-index on-disk FormID encoding against the plugin's ACTUAL record
+// bytes (own=master count, override=master index, never 0xFE) — load-order-independent, no runtime-FormID bridge.
+if (args.Length > 0 && args[0] == "seq-write-guard") return SeqWriteGuardProbe.RunGuard(args[1..]);
+
 // create-tool WIRE (nested/dialogue plan, Layer A): SELF-CONTAINED CI regression guard — drives the REAL
 // LoadOrderService.CreateRecords (single, parent/collection) + CreateRecordsBatch (the bulk_create array) over a
 // synthetic MO2 instance: flat-still-works, parent passthrough, the same-call one-shot, batch all-or-nothing, the
