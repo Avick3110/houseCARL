@@ -313,10 +313,53 @@ public static class WriteTools
             foreach (var op in c.Ops)
                 sb.Append("      ").Append(op.Label).Append(op.After is not null ? "  -> " + op.After : "  -> applied").Append('\n');
         }
+        AppendVoiceReport(sb, o.Voice);
         if (o.ReadBack is { } rb) AppendFullReadback(sb, rb, maxChars);
         sb.Append("the new FormID above is how you reference this record (SkyPatcher/SPID, or a follow-up edit). ")
           .Append("To add more to THIS patch, pass into=\"").Append(file).Append("\".");
         return sb.ToString();
+    }
+
+    /// <summary>Render the Layer B unit B voice-coverage report (a dialogue-line create). The enforced Q3 teeth against a
+    /// byte-valid-but-SILENT line: a LOUD "WILL BE SILENT" per created voiced response with no .fuz on disk (naming the
+    /// path to put the audio at), a brief "voice present" for ones already covered, and a NAMED reason per line whose
+    /// path couldn't even be computed (no Speaker, unresolvable voice type, …). Voice ACTING stays out of scope — this
+    /// reports the on-disk DATA-layer boundary, never generates audio. No-op unless the call created dialogue lines.</summary>
+    static void AppendVoiceReport(StringBuilder sb, VoiceReport? report)
+    {
+        if (report is null || report.IsEmpty) return;
+        sb.Append("voice coverage — created dialogue lines (a response with no .fuz plays SILENT in game; the audio is yours to provide):\n");
+
+        bool anyReadIncomplete = false;
+        foreach (var l in report.Lines)
+        {
+            var who = string.IsNullOrEmpty(l.TopicEditorId) ? l.Info.ToString() : $"{l.TopicEditorId} ({l.Info})";
+            if (l.FuzPresent)
+            {
+                sb.Append("  OK   ").Append(who).Append(" resp ").Append(l.ResponseNumber)
+                  .Append("  — voice present (").Append(l.FuzWinner ?? "?").Append(')');
+                if (l.FuzAmbiguous) sb.Append(" [more than one source provides it — contended]");
+                if (!l.LipPresent) sb.Append("; no .lip (no lip-sync)");
+                sb.Append('\n');
+            }
+            else
+            {
+                sb.Append("  [!] WILL BE SILENT  ").Append(who).Append(" resp ").Append(l.ResponseNumber)
+                  .Append("  — no .fuz at ").Append(l.FuzPath).Append("  (place the audio here)");
+                if (!l.LipPresent) sb.Append("; .lip also absent (").Append(l.LipPath).Append(')');
+                sb.Append('\n');
+            }
+            if (l.ReadIncomplete) anyReadIncomplete = true;
+        }
+        foreach (var u in report.Undetermined)
+        {
+            var who = string.IsNullOrEmpty(u.TopicEditorId) ? u.Info.ToString() : $"{u.TopicEditorId} ({u.Info})";
+            sb.Append("  [?] ").Append(who).Append("  — ").Append(u.Reason).Append('\n');
+        }
+        if (anyReadIncomplete)
+            sb.Append("  note: a BSA failed to read this scan, so an \"absent\" above may merely be unscanned — verify in MO2.\n");
+        if (report.CheckError is not null)
+            sb.Append("  voice check could not run: ").Append(report.CheckError).Append(" — the records WERE created; verify voice files manually.\n");
     }
 }
 
