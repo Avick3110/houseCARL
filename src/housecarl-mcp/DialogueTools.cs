@@ -97,8 +97,9 @@ static class DialogueWire
         string pad = indent ? "  " : "";
         sb.Append(pad).Append("topic ").Append(Edid(t.TopicEditorId)).Append(" (").Append(t.Topic).Append(')')
           .Append(" — winner ").Append(t.WinnerPlugin).Append('\n');
-        sb.Append(pad).Append("  ").Append(t.InfoCount).Append(t.InfoCount == 1 ? " response line" : " response lines");
+        sb.Append(pad).Append("  ").Append(t.InfoCount).Append(t.InfoCount == 1 ? " INFO record" : " INFO records");
         if (t.ConditionedInfoCount > 0) sb.Append("; ").Append(t.ConditionedInfoCount).Append(" carry conditions (CTDA)");
+        if (t.DeletedInfoCount > 0) sb.Append("; ").Append(t.DeletedInfoCount).Append(" deleted line(s) skipped");
         sb.Append('\n');
         sb.Append(pad).Append("  category=").Append(t.Category).Append("  subtype=").Append(t.Subtype)
           .Append("  subtype_marker=").Append(t.SubtypeName).Append('\n');
@@ -185,6 +186,7 @@ static class DialogueWire
         if (conditioned > 0) sb.Append(" — ").Append(conditioned).Append(" line(s) here carry conditions, unverified");
         sb.Append(".\n");
         sb.Append("  • voice presence is an on-disk file check only — lip-sync accuracy and the audio content itself are not verified (voice acting is out of scope).\n");
+        sb.Append("  • this validates the WINNING topic's INFO list (what the game plays); a line another plugin adds but this topic override does not re-list is dropped in game and is not seen here — resolve dialogue conflicts so the winning topic carries every line.\n");
         if (readIncomplete)
             sb.Append("  • a BSA failed to read this build, so an \"absent\" voice/.pex above may merely be unscanned — see housecarl_load_order_status.\n");
     }

@@ -12,15 +12,24 @@ namespace HousecarlCore;
 //   what the game actually sees — and audits EVERY existing INFO in the topic, not just freshly-created ones.
 //   That closes unit B's deferred edit-path voice/script audit gap (the WriteTools edit-path note repoints here).
 //
-//  WHAT IT CHECKS (per topic, all on the RESOLVED WINNING DialogTopic record — a plugin that overrides any INFO
-//  must carry its parent topic, so the winning topic's authored Responses ARE the in-game response set + order):
-//    • PNAM previous-link chain — each INFO's PreviousDialog should chain to the line before it in response
-//      order; the first line should have none. A disagreement means the playback order and the chain conflict.
+//  WHAT IT CHECKS (per topic, all on the RESOLVED WINNING DialogTopic record). The in-game INFO set IS the winning
+//  topic's Responses: an INFO cannot exist without its parent DIAL, and overriding an INFO pulls the DIAL in with it,
+//  so INFO+DIAL travel together and the winning DIAL's child list is authoritative (the "DIAL-wins-wholesale" model —
+//  exactly why two mods touching one topic cause the classic dropped-line conflict; Aaron-confirmed 2026-06-19):
 //    • Quest wiring — DialogTopic.Quest set and resolving to a real QUST (an unowned topic may never present).
-//    • Branch wiring — if DialogTopic.Branch is set, it must resolve to a real DLBR.
+//    • Branch wiring — if DialogTopic.Branch is set, it must resolve to a real DLBR (an unset Branch is normal).
+//    • INFO.LinkTo conversation chain — the REAL topic→next-topic hand-off; a set link to a missing DIAL is a broken chain.
+//    • Dangling PNAM — a SET PreviousDialog that resolves to no INFO. ABSENCE is NOT flagged: vanilla leaves PNAM empty
+//      and selects intra-topic by Conditions, not by a previous-link chain (empirically confirmed; the §3.6 "PNAM chain
+//      in response order" model was wrong for the existing corpus, so that check was dropped — review fold 2026-06-19).
 //    • Category / Subtype — surfaced as facts (what the game will use), not judged.
-//    • Voice + result-script — the existing per-INFO VoiceCheck.CheckInfo + DialogueScriptCheck.CheckInfo run
-//      over every INFO (reused verbatim, so the create-path and the validator can never drift).
+//    • Voice + result-script — the existing per-INFO VoiceCheck.CheckInfo + DialogueScriptCheck.CheckInfo run over every
+//      LIVE INFO (reused verbatim, so the create-path and the validator can never drift). DELETED INFOs (a removed line)
+//      are skipped, not validated.
+//
+//  BOUNDARY (Q3): an INFO another plugin contributes but the WINNING topic override does not re-list is dropped in game
+//  (the conflict above) and is likewise not seen here — a clean pass is over the winning topic's INFO set, which IS what
+//  plays. The standing-limits footer names this.
 //
 //  WHAT IT DELIBERATELY CANNOT CHECK (grill-rev C2 — the validator is the ONLY non-advisory enforcement, so it
 //  must NAME the gaps, never let "checks passed" read as "this will play"): the CTDA conditions that gate when a
@@ -36,11 +45,10 @@ namespace HousecarlCore;
 //  resolve/asset failure rides DialogueValidationReport.CheckError, surfaced never silently swallowed (Q3).
 // ======================================================================
 
-/// <summary>How serious a graph finding is. <see cref="Problem"/> = a broken link (a Quest/Branch pointing at a
-/// missing record) the game cannot honour; <see cref="Warning"/> = a suspicious-but-not-fatal shape (a PNAM chain
-/// that disagrees with response order, an unowned topic) the author should verify. There is deliberately no "info"
-/// level — Category/Subtype facts ride <see cref="TopicValidation"/> fields, so the issue list is only ever things
-/// worth a second look.</summary>
+/// <summary>How serious a graph finding is. <see cref="Problem"/> = a broken link (a Quest/Branch/LinkTo/PNAM pointing
+/// at a missing record) the game cannot honour; <see cref="Warning"/> = a suspicious-but-not-fatal shape (e.g. an
+/// unowned topic) the author should verify. There is deliberately no "info" level — Category/Subtype facts ride
+/// <see cref="TopicValidation"/> fields, so the issue list is only ever things worth a second look.</summary>
 public enum DialogueIssueSeverity { Problem, Warning }
 
 /// <summary>One whole-topic graph finding: its <see cref="Severity"/> and a human-readable <see cref="Message"/>
@@ -48,13 +56,14 @@ public enum DialogueIssueSeverity { Problem, Warning }
 public sealed record DialogueIssue(DialogueIssueSeverity Severity, string Message);
 
 /// <summary>One topic's whole-graph validation: identity (<see cref="Topic"/>, <see cref="TopicEditorId"/>,
-/// <see cref="WinnerPlugin"/>), the surfaced Category/Subtype facts, the graph <see cref="Issues"/> (PNAM/quest/
-/// branch), and the reused per-INFO voice (<see cref="VoiceLines"/> / <see cref="VoiceUndetermined"/>) + result-
-/// script (<see cref="ScriptFindings"/>) verdicts over EVERY INFO. <see cref="ConditionedInfoCount"/> feeds the
-/// standing CTDA limit (grill-rev C2).</summary>
+/// <see cref="WinnerPlugin"/>), the surfaced Category/Subtype facts, the graph <see cref="Issues"/> (quest/branch/
+/// LinkTo/dangling-PNAM), and the reused per-INFO voice (<see cref="VoiceLines"/> / <see cref="VoiceUndetermined"/>) +
+/// result-script (<see cref="ScriptFindings"/>) verdicts over every LIVE INFO. <see cref="InfoCount"/> counts INFO
+/// records (one INFO may carry several spoken rows, or none) — NOT spoken lines. <see cref="ConditionedInfoCount"/>
+/// feeds the standing CTDA limit (grill-rev C2). <see cref="DeletedInfoCount"/> = INFOs skipped as removed (deleted).</summary>
 public sealed record TopicValidation(
     FormKey Topic, string TopicEditorId, string WinnerPlugin,
-    int InfoCount, int ConditionedInfoCount,
+    int InfoCount, int ConditionedInfoCount, int DeletedInfoCount,
     string Category, string Subtype, string SubtypeName,
     IReadOnlyList<DialogueIssue> Issues,
     IReadOnlyList<VoiceLine> VoiceLines,
@@ -163,12 +172,17 @@ public static class DialogueValidate
         }
     }
 
-    /// <summary>Validate ONE already-resolved winning <paramref name="topic"/> against the load order: the PNAM
-    /// chain in response order, Quest/Branch wiring (resolved via <paramref name="resolve"/> — the load-order
-    /// winner resolver), and the reused per-INFO voice + result-script checks over EVERY INFO (against
-    /// <paramref name="assetView"/>). Pure walk over the in-memory topic getter — the only external calls are
-    /// <paramref name="resolve"/> (the service's session) and the asset view; the service owns the never-throw
-    /// boundary.</summary>
+    /// <summary>Validate ONE already-resolved winning <paramref name="topic"/> against the load order: Quest/Branch
+    /// wiring, the INFO.LinkTo conversation chain, dangling PNAM links, and the reused per-INFO voice + result-script
+    /// checks over every LIVE INFO (all resolved via <paramref name="resolve"/> — the load-order winner resolver —
+    /// against <paramref name="assetView"/>). Deleted INFOs are skipped, not validated. Pure walk over the in-memory
+    /// topic getter; the service owns the never-throw boundary.
+    ///
+    /// NOTE on PNAM (DialogResponses.PreviousDialog): vanilla Skyrim leaves it EMPTY and selects among a topic's INFOs
+    /// by their Conditions, NOT by a previous-link chain — so absence is the universal norm and is never flagged; only
+    /// a SET-but-unresolvable PNAM is reported. The real conversation chain is INFO.LinkTo (topic → next topic), checked
+    /// here for dangling targets. (Empirically confirmed 2026-06-19 against the live load order — the §3.6 "PNAM chain
+    /// in response order" model was wrong for the existing corpus, so that check was dropped.)</summary>
     public static TopicValidation ValidateTopic(IDialogTopicGetter topic, string winnerPlugin,
         Func<FormKey, IMajorRecordGetter?> resolve, AssetResolver.AssetView assetView)
     {
@@ -193,46 +207,42 @@ public static class DialogueValidate
             issues.Add(new(DialogueIssueSeverity.Problem,
                 $"DialogTopic.Branch points at {branchFk.Value}, which does not resolve to a dialogue branch (DLBR) in the active load order — the branch wiring is broken."));
 
-        // --- PNAM previous-link chain, walked in response order. Well-formed: line[0] has no PNAM; line[k] chains
-        //     to line[k-1]'s FormKey. A disagreement means the authored order and the PNAM chain conflict (the
-        //     game plays by the chain, so the lines may run out of order or not at all). Surfaced as warnings —
-        //     unusual-but-not-provably-fatal — never silently (Q3).
-        var responses = topic.Responses;
-        var topicKeys = new HashSet<FormKey>();
-        foreach (var info in responses) topicKeys.Add(info.FormKey);
-
-        int conditioned = 0;
-        FormKey? prevKey = null;
-        for (int i = 0; i < responses.Count; i++)
+        // --- Per-INFO walk over the topic's LIVE INFOs. A deleted INFO is a REMOVED line — skip it entirely (don't
+        //     count it, chain it, or voice/script-check it; tally it for an honest "N skipped" note, Q3). InfoCount is
+        //     INFO RECORDS, not spoken rows (one INFO can carry several DialogResponse rows, or none).
+        int infoCount = 0, conditioned = 0, deleted = 0;
+        foreach (var info in topic.Responses)
         {
-            var info = responses[i];
+            if (info.IsDeleted) { deleted++; continue; }
+            infoCount++;
+
+            // PNAM (PreviousDialog): vanilla leaves it empty and orders intra-topic by Conditions, so ABSENCE is the
+            // norm and is NEVER flagged. Only a SET previous-link that resolves to no INFO is a real dangling reference.
             var pnam = NonNull(info.PreviousDialog.FormKeyNullable);
-            if (i == 0)
+            if (pnam is not null && resolve(pnam.Value) is not IDialogResponsesGetter)
+                issues.Add(new(DialogueIssueSeverity.Problem,
+                    $"INFO {info.FormKey} has a previous-link (PNAM -> {pnam.Value}) that resolves to no dialogue line (INFO) in the active load order — a dangling reference."));
+
+            // LinkTo: the REAL conversation chain — this line hands off to the next topic(s). A set link to a missing
+            // DialogTopic is a broken chain; an empty LinkTo is a normal terminal line (never flagged).
+            foreach (var link in info.LinkTo)
             {
-                if (pnam is not null)
-                    issues.Add(new(DialogueIssueSeverity.Warning,
-                        $"the first response line ({info.FormKey}) has a previous-link (PNAM -> {pnam.Value}); the first line in a topic normally has none — the playback chain may be malformed."));
+                var lk = link.FormKey;
+                if (!lk.IsNull && resolve(lk) is not IDialogTopicGetter)
+                    issues.Add(new(DialogueIssueSeverity.Problem,
+                        $"INFO {info.FormKey} links (LinkTo) to {lk}, which resolves to no dialogue topic (DIAL) in the active load order — the conversation chain is broken."));
             }
-            else if (pnam is null)
-                issues.Add(new(DialogueIssueSeverity.Warning,
-                    $"response line #{i + 1} ({info.FormKey}) has no previous-link (PNAM) but is not first; it should chain to the line before it ({prevKey!.Value}) — the playback order may break."));
-            else if (pnam.Value != prevKey!.Value)
-                issues.Add(new(DialogueIssueSeverity.Warning,
-                    topicKeys.Contains(pnam.Value)
-                        ? $"response line #{i + 1} ({info.FormKey}) chains (PNAM) to {pnam.Value}, not the line before it in response order ({prevKey!.Value}) — the order and the chain disagree."
-                        : $"response line #{i + 1} ({info.FormKey}) chains (PNAM) to {pnam.Value}, which is not a line in this topic — the chain leaves the topic."));
-            prevKey = info.FormKey;
 
             if (info.Conditions.Count > 0) conditioned++;
 
-            // Reuse the per-INFO voice + result-script checks over EVERY INFO (resolved-winner view). These are the
+            // Reuse the per-INFO voice + result-script checks over every LIVE INFO (resolved-winner view). These are the
             // exact methods the per-create teeth run, so the create path and the validator can never drift.
             VoiceCheck.CheckInfo(info, topic, resolve, assetView, voiceLines, voiceUndet);
             DialogueScriptCheck.CheckInfo(info, edid, assetView, scriptFindings);
         }
 
         return new TopicValidation(
-            topic.FormKey, edid, winnerPlugin, responses.Count, conditioned,
+            topic.FormKey, edid, winnerPlugin, infoCount, conditioned, deleted,
             topic.Category.ToString(), topic.Subtype.ToString(), DescribeSubtypeName(topic.SubtypeName),
             issues, voiceLines, voiceUndet, scriptFindings);
     }
