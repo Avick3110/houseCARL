@@ -138,7 +138,9 @@ public static class DialogueScriptCheck
     /// CLASS that must have a compiled `.pex` to run (a ScriptFragments fragment's FileName, counted only when a real
     /// Begin/End fragment is wired; each attached Scripts[] entry's class name), then either flag the hollow binding,
     /// or check each class's `Scripts\&lt;class&gt;.pex` on disk.</summary>
-    static void CheckInfo(IDialogResponsesGetter info, string topicEdid, AssetResolver.AssetView av,
+    // internal (not private): DialogueValidate (unit C2) reuses this exact per-INFO binding check over EVERY INFO
+    // in a topic, so the per-create result-script teeth and the on-demand validator can never drift.
+    internal static void CheckInfo(IDialogResponsesGetter info, string topicEdid, AssetResolver.AssetView av,
                           List<ScriptBindingFinding> findings)
     {
         var vmad = info.VirtualMachineAdapter;

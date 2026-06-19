@@ -152,7 +152,9 @@ public static class VoiceCheck
     /// <summary>Resolve one INFO's voice graph (topic+quest EDIDs, speaker voice type) and emit either a per-line
     /// presence verdict for each spoken response, or ONE named undetermined reason (Q3) when the voice folder can't
     /// be computed. An INFO with no spoken response lines (a link/branch node) yields nothing — there is no voice to check.</summary>
-    static void CheckInfo(IDialogResponsesGetter info, IDialogTopicGetter topic,
+    // internal (not private): DialogueValidate (unit C2) reuses this exact per-INFO walk over EVERY INFO in a
+    // topic, so the per-create voice teeth and the on-demand validator can never drift on what "silent" means.
+    internal static void CheckInfo(IDialogResponsesGetter info, IDialogTopicGetter topic,
                           Func<FormKey, IMajorRecordGetter?> resolve, AssetResolver.AssetView av,
                           List<VoiceLine> lines, List<VoiceUndetermined> undetermined)
     {
