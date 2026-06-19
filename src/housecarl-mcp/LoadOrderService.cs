@@ -1618,6 +1618,95 @@ public sealed class LoadOrderService : IDisposable
         catch (UnauthorizedAccessException) { return Directory.Exists(root) ? root : null; }
     }
 
+    // ---- Layer B unit D: write the start-game-enabled-quest .seq file (housecarl_write_seq) ----
+
+    /// <summary>The <c>SEQ\</c> output folder for a generated <c>.seq</c> (the SEQ rider) — a houseCARL mod folder via
+    /// <see cref="ResolvePatchModFolder"/> plus its <c>SEQ\</c> subfolder, where MO2 deploys it into the game's
+    /// <c>Data\SEQ</c>. Sibling of <see cref="ResolveCompiledScriptFolder"/>; carries the mod-folder root + fresh flag
+    /// through for residue cleanup.</summary>
+    public RiderFolder ResolveSeqFolder(string? patchName, string? into)
+    {
+        var f = ResolvePatchModFolder(patchName, into, "houseCARL_SEQ");
+        var seq = Path.Combine(f.ModFolder, "SEQ");
+        Directory.CreateDirectory(seq);
+        return f with { OutputDir = seq };
+    }
+
+    /// <summary>If <paramref name="pluginPath"/> lives in a houseCARL-owned mod folder DIRECTLY under ModsDir, return that
+    /// folder's patch STEM, so the <c>.seq</c> defaults into the SAME folder as the <c>.esp</c> — one mod to enable, and
+    /// no second fresh folder the user might forget to enable (a real Q3 footgun: a .seq in an un-enabled folder leaves the
+    /// quest silently dead). Only when the folder is the canonical <c>houseCARL - &lt;stem&gt;</c> for THIS plugin (so a
+    /// later <c>into=&lt;stem&gt;</c> resolves to exactly this folder); otherwise null → the caller cuts a fresh folder.</summary>
+    string? OwnedPluginFolderStem(string pluginPath)
+    {
+        var dir = Path.GetDirectoryName(pluginPath);
+        if (dir is null || Path.GetDirectoryName(dir) is not { } parent || !PathEquals(parent, _modsDir)) return null;
+        if (!IsHouseCarlOwned(dir)) return null;
+        var stem = PatchStem(Path.GetFileName(pluginPath));
+        return Path.GetFileName(dir).Equals(ModFolderName(stem), StringComparison.OrdinalIgnoreCase) ? stem : null;
+    }
+
+    /// <summary>Write a plugin's start-game-enabled-quest <c>.seq</c> (housecarl_write_seq). Opens <paramref name="plugin"/>
+    /// (a path to an .esp/.esm/.esl), collects every Start-Game-Enabled quest it defines, and writes
+    /// <c>&lt;ModFolder&gt;\SEQ\&lt;plugin&gt;.seq</c> — the file the engine reads to actually START those quests (the flag
+    /// alone does nothing; the same gated, crash-atomic, non-destructive folder-per-patch model as the compile/asset
+    /// riders). Output folder DEFAULTS to the plugin's OWN houseCARL folder when it lives in one (so the .seq deploys with
+    /// the .esp); else a fresh folder, or <paramref name="into"/>/<paramref name="patchName"/> when given. A plugin with NO
+    /// SGE quests writes NOTHING and cuts no folder (a .seq is only needed for SGE quests — Q3, not a silent empty file).
+    /// Serialized on the write gate (one write at a time), like its sibling writers.</summary>
+    public SeqOutcome WriteSeq(string plugin, string? patchName, string? into)
+    {
+        if (string.IsNullOrWhiteSpace(plugin))
+            return SeqOutcome.Fail("no plugin given. Pass plugin= the path to the .esp/.esm/.esl whose start-game-enabled quests need a .seq.");
+        plugin = plugin.Trim().Trim('"');
+        if (!File.Exists(plugin))
+            return SeqOutcome.Fail($"no such plugin file: '{plugin}'. Pass the full path to the plugin (the path housecarl_create_record reported, or any .esp/.esm/.esl).");
+        var pluginPath = Path.GetFullPath(plugin);
+        if (!PluginExts.Contains(Path.GetExtension(pluginPath), StringComparer.OrdinalIgnoreCase))
+            return SeqOutcome.Fail($"'{Path.GetFileName(pluginPath)}' is not a plugin (.esp/.esm/.esl).");
+
+        lock (_writeGate)                                                // one write at a time (hunt F2 sibling): build → resolve → commit
+        {
+            if (ConfigPromptOrNull() is { } cfgPrompt) return SeqOutcome.Fail(cfgPrompt);   // need ModsDir for the output folder
+            lock (_gate) EnsurePathsDerived();                          // derive ModsDir for the owned-folder check (lock order: _writeGate → _gate)
+
+            // Build the .seq from the plugin (read-only overlay, disposed inside — zero handles at rest).
+            SeqFile.SeqBuild built;
+            try { built = SeqFile.Build(pluginPath); }
+            catch (Exception ex)
+            { return SeqOutcome.Fail($"could not read '{Path.GetFileName(pluginPath)}' as a plugin: {ex.Message}"); }
+
+            // No SGE quests → no .seq needed; write nothing, cut no folder (Q3: a clean, explicit "nothing to do").
+            if (built.Quests.Count == 0)
+                return new SeqOutcome(true, null, null, null, built.Quests, built.PluginFileName, null, false);
+
+            // Output folder: default into the plugin's OWN houseCARL folder; else fresh / explicit into=/patch_name.
+            string? autoInto = (string.IsNullOrWhiteSpace(into) && string.IsNullOrWhiteSpace(patchName))
+                ? OwnedPluginFolderStem(pluginPath) : null;
+            RiderFolder rf;
+            try { rf = ResolveSeqFolder(patchName, autoInto ?? into); }
+            catch (InvalidOperationException ex) { return SeqOutcome.Fail(ex.Message); }
+
+            // Crash-atomic write of <plugin>.seq under SEQ\ (originals untouched — a houseCARL-owned folder only).
+            var seqName = Path.GetFileNameWithoutExtension(pluginPath) + ".seq";
+            var dest = Path.Combine(rf.OutputDir, seqName);
+            try { AtomicFile.WriteAllBytes(dest, built.Bytes); }
+            catch (Exception ex)
+            {
+                var residue = RemoveOrNameRiderResidue(rf);             // nothing landed → a fresh folder is an orphan
+                return SeqOutcome.Fail($"could not write '{seqName}': {ex.Message}"
+                    + (residue is null ? "" : $" The freshly created folder was left at '{residue}'."));
+            }
+
+            // Integrity (Q3: THIS run wrote it; on-disk size matches the bytes we built — no false success).
+            long size; try { size = new FileInfo(dest).Length; } catch { size = -1; }
+            if (size != built.Bytes.Length)
+                return SeqOutcome.Fail($"wrote '{seqName}' but its on-disk size ({size}) does not match the {built.Bytes.Length} expected byte(s) — verify before relying on it.");
+
+            return new SeqOutcome(true, null, dest, rf.ModFolder, built.Quests, built.PluginFileName, null, autoInto is not null);
+        }
+    }
+
     // ---- decompiler class hierarchy (lazy, cached for process lifetime) ----------------------------------------
 
     Dictionary<string, string>? _classParents;
@@ -1919,4 +2008,17 @@ public sealed record PlaceOutcome(
 {
     public static PlaceOutcome Fail(string error)
         => new(Array.Empty<PlaceResult>(), null, Array.Empty<string>(), null, error);
+}
+
+/// <summary>The outcome of housecarl_write_seq. <see cref="Error"/> non-null ⇒ the call was rejected (no plugin, unreadable
+/// plugin, an into= folder houseCARL doesn't own, a failed write). On success: <see cref="Quests"/> is every SGE quest
+/// covered (EMPTY ⇒ the plugin had none, so <see cref="SeqPath"/> is null and nothing was written — a clean no-op, not a
+/// failure); <see cref="SeqPath"/> is the written <c>.seq</c> and <see cref="ModFolder"/> the houseCARL mod it landed in;
+/// <see cref="WroteIntoPluginFolder"/> is true when it defaulted into the plugin's OWN folder (so one mod enables both).</summary>
+public sealed record SeqOutcome(
+    bool Success, string? Error, string? SeqPath, string? ModFolder,
+    IReadOnlyList<HousecarlCore.SeqFile.SeqQuest> Quests, string PluginFileName, string? LeftoverFolder, bool WroteIntoPluginFolder)
+{
+    public static SeqOutcome Fail(string error)
+        => new(false, error, null, null, Array.Empty<HousecarlCore.SeqFile.SeqQuest>(), "", null, false);
 }

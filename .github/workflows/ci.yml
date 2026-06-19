@@ -116,6 +116,14 @@ jobs:
       - name: Probe — dialogue-graph validator (self-contained regression guard)
         run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- dialogue-validate-guard
 
+      # Self-contained (synthesizes masters + a patch with own/override/non-SGE/deleted quests + a real MO2 instance), runs
+      # fully here: a regression guard for the SEQ writer (nested-dialogue plan Layer B unit D — housecarl_write_seq). Pins
+      # the master-INDEX on-disk FormID encoding against the plugin's ACTUAL record bytes (own=master count, override=master
+      # index, NEVER 0xFE — load-order-independent, no runtime-FormID bridge), SGE-only + deleted-skip inclusion, the
+      # little-endian serialization, and the REAL LoadOrderService.WriteSeq wire (same-folder default, empty no-op, refusal).
+      - name: Probe — SEQ writer (self-contained regression guard)
+        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- seq-write-guard
+
       # Self-contained (synthesizes a real MO2 instance + a master with a dialogue topic) and drives the REAL
       # LoadOrderService.CreateRecords / CreateRecordsBatch: locks in the create-tool WIRE (nested/dialogue plan,
       # Layer A) — create_record's parent/collection passthrough, the new bulk_create batch tool (the same-call
