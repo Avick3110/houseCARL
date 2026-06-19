@@ -26,9 +26,11 @@ namespace HousecarlGenerator;
 ///   ENCODE-OWN     — OnDiskFormId(own FormKey, [m]) == (1&lt;&lt;24)|id (own record sits at master COUNT, not a constant 0).
 ///   ENCODE-OVERRIDE— OnDiskFormId(master FormKey, [m]) == (0&lt;&lt;24)|id (an override carries the overridden master's index).
 ///   SGE-ONLY       — Build lists exactly the non-deleted Start-Game-Enabled quests (a RunOnce-only quest is EXCLUDED).
+///   OVERRIDE-SGE   — an override that NEWLY flags SGE is included, at the overridden master's index (high byte != 0xFE).
 ///   DELETED-SKIP   — a deleted SGE quest is NOT in the .seq (the same skip the dialogue validator applies to deleted lines).
 ///   HIGH-BYTE-COUNT— the own SGE quest's high byte == the plugin's master count (1 here, 2 in the 2-master setup — tracks
 ///                    the count, never a fixed value or a global load-order index).
+///   ESL-NEVER-FE   — an ESL (light) patch's own SGE quest ALSO encodes master-index (high byte == master count, never 0xFE).
 ///   ON-DISK-MATCH  — every built FormID is present among the QUST records' ACTUAL on-disk FormIDs (raw byte parse) — the
 ///                    computed master-index encoding == what Mutagen wrote; RED to an FE-space / wrong-index regression.
 ///   SERVICE-WRITE  — LoadOrderService.WriteSeq lands &lt;ModFolder&gt;\SEQ\&lt;plugin&gt;.seq with the expected bytes.
@@ -103,8 +105,8 @@ internal static class SeqWriteGuardProbe
             Check(!aFks.Contains(plainFk), $"SGE-ONLY RunOnce-only quest EXCLUDED — {plainFk} absent");
             Check(!aFks.Contains(delFk), $"DELETED-SKIP deleted SGE quest EXCLUDED — {delFk} absent");
 
-            var ownSeq = builtA.Quests.FirstOrDefault(q => q.FormKey == ownFk);
-            var ovSeq = builtA.Quests.FirstOrDefault(q => q.FormKey == mQuestFk);
+            var ownSeq = builtA.Quests.Single(q => q.FormKey == ownFk);    // present (asserted above) — Single fails loud if a reorder ever breaks that
+            var ovSeq = builtA.Quests.Single(q => q.FormKey == mQuestFk);
             byte ownHi = (byte)((ownSeq.OnDiskFormId >> 24) & 0xFF);
             byte ovHi = (byte)((ovSeq.OnDiskFormId >> 24) & 0xFF);
             Check(ownHi == aMasters.Count, $"HIGH-BYTE-COUNT own quest high byte == master count — 0x{ownHi:X2} (masters={aMasters.Count})");
@@ -138,13 +140,41 @@ internal static class SeqWriteGuardProbe
                 p.BeginWrite.ToPath(bPatch).WithLoadOrder(new[] { (ISkyrimModGetter)m1, (ISkyrimModGetter)m2 }).NoNextFormIDProcessing().Write();
             }
             var builtB = SeqFile.Build(bPatch);
-            var bOwn = builtB.Quests.FirstOrDefault(q => q.FormKey == bOwnFk);
+            var bOwn = builtB.Quests.Single(q => q.FormKey == bOwnFk);
             byte bOwnHi = (byte)((bOwn.OnDiskFormId >> 24) & 0xFF);
             List<ModKey> bMasters;
             using (var pOv = SkyrimMod.CreateFromBinaryOverlay(bPatch, SkyrimRelease.SkyrimSE))
                 bMasters = pOv.ModHeader.MasterReferences.Select(mr => mr.Master).ToList();
             Check(bMasters.Count == 2 && bOwnHi == 2,
                 $"HIGH-BYTE-COUNT(2 masters) own high byte == 2 — 0x{bOwnHi:X2} (masters={bMasters.Count}) — proves it tracks the count");
+
+            // ====================== CORE BUILD: SETUP E (ESL / light patch) — the most-doubted "never 0xFE" case ======================
+            // An ESL-flagged plugin's OWN records STILL use master-INDEX encoding on disk (high byte = master count), NOT the
+            // runtime 0xFE light-space (that's computed at load time). master M (a quest); a LIGHT patch overrides it (forces M)
+            // + an own SGE quest at 0x800 (legal ESL object-id) → own high byte == 1, never 0xFE.
+            string eMaster = Path.Combine(root, "E", "HcSeqEMaster.esm");
+            string ePatch = Path.Combine(root, "E", "HcSeqEPatch.esp");
+            Directory.CreateDirectory(Path.GetDirectoryName(eMaster)!);
+            FormKey emQuestFk;
+            { var m = new SkyrimMod(new ModKey("HcSeqEMaster", ModType.Master), SkyrimRelease.SkyrimSE); var q = m.Quests.AddNew(); q.EditorID = "EMQ"; q.Flags = Quest.Flag.RunOnce; emQuestFk = q.FormKey; m.BeginWrite.ToPath(eMaster).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).NoNextFormIDProcessing().Write(); }
+            FormKey eOwnFk;
+            {
+                using var mOv = SkyrimMod.CreateFromBinaryOverlay(eMaster, SkyrimRelease.SkyrimSE);
+                var p = new SkyrimMod(new ModKey("HcSeqEPatch", ModType.Plugin), SkyrimRelease.SkyrimSE) { IsSmallMaster = true }; // ESL-flagged patch
+                if (p.ModHeader.Stats.NextFormID < 0x800) p.ModHeader.Stats.NextFormID = 0x800;
+                p.Quests.GetOrAddAsOverride(mOv.Quests.First(x => x.FormKey == emQuestFk));   // forces M as a master
+                var own = p.Quests.AddNew(); own.EditorID = "EOwn"; own.Flags = Quest.Flag.StartGameEnabled; eOwnFk = own.FormKey;
+                p.BeginWrite.ToPath(ePatch).WithLoadOrder(new[] { (ISkyrimModGetter)mOv }).NoNextFormIDProcessing().Write();
+            }
+            var builtE = SeqFile.Build(ePatch);
+            var eOwn = builtE.Quests.Single(q => q.FormKey == eOwnFk);
+            byte eOwnHi = (byte)((eOwn.OnDiskFormId >> 24) & 0xFF);
+            var eRaw = AllRecordFormIds(ePatch, "QUST").ToHashSet();
+            bool eslOk = eOwnHi == 1
+                         && builtE.Quests.All(q => ((q.OnDiskFormId >> 24) & 0xFF) != 0xFE)
+                         && builtE.Quests.All(q => eRaw.Contains(q.OnDiskFormId));
+            Check(eslOk,
+                $"ESL-NEVER-FE light patch's SGE quest encodes master-index (own high 0x{eOwnHi:X2}==1, never 0xFE), ON-DISK-MATCH holds — built [{string.Join(",", builtE.Quests.Select(q => $"0x{q.OnDiskFormId:X8}"))}]");
 
             // ====================== SERVICE WIRE over a synthetic MO2 instance ======================
             string instance = Path.Combine(root, "instance");
