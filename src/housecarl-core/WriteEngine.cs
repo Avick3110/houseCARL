@@ -1308,6 +1308,14 @@ public static class WriteEngine
     /// (settable, fed into the same <see cref="ApplyVerb"/> path). STEP-0 proven (CoordCellProbe).</summary>
     public static Cell AddExteriorCell(SkyrimMod patchMod, Worldspace worldspaceInPatch, int gridX, int gridY, string? editorId)
     {
+        // Floor + dedup BEFORE mutating the block tree (a failed call discards the patch, but ordering it like
+        // AddInteriorCell keeps the no-mutation-before-validation property clean — PR #94 review nit).
+        EnsureNoDuplicateCellEditorId(patchMod, editorId);   // no silent duplicate on an into= re-run (cells have a stable EditorID)
+        EnsureFormIdFloor(patchMod);   // 0x800 floor, exactly like flat/nested create (HCBR-2026-06-09-04)
+        if (patchMod.ModHeader.Stats.NextFormID > 0xFFFFFF)
+            throw new InvalidOperationException(
+                $"cannot allocate a new FormID: the patch's NextObjectID counter is 0x{patchMod.ModHeader.Stats.NextFormID:X} — " +
+                "past the 24-bit object-ID ceiling (0xFFFFFF). The plugin is full or its header counter is corrupt.");
         int bx = FloorDiv(gridX, 32), by = FloorDiv(gridY, 32), sx = FloorDiv(gridX, 8), sy = FloorDiv(gridY, 8);
         var block = worldspaceInPatch.SubCells.FirstOrDefault(b => b.BlockNumberX == bx && b.BlockNumberY == by);
         if (block is null)
@@ -1321,11 +1329,6 @@ public static class WriteEngine
             sub = new WorldspaceSubBlock { BlockNumberX = (short)sx, BlockNumberY = (short)sy, GroupType = GroupTypeEnum.ExteriorCellSubBlock };
             block.Items.Add(sub);
         }
-        EnsureFormIdFloor(patchMod);   // 0x800 floor, exactly like flat/nested create (HCBR-2026-06-09-04)
-        if (patchMod.ModHeader.Stats.NextFormID > 0xFFFFFF)
-            throw new InvalidOperationException(
-                $"cannot allocate a new FormID: the patch's NextObjectID counter is 0x{patchMod.ModHeader.Stats.NextFormID:X} — " +
-                "past the 24-bit object-ID ceiling (0xFFFFFF). The plugin is full or its header counter is corrupt.");
         var cell = new Cell(AllocateNextFormKey(patchMod), SkyrimRelease.SkyrimSE) { Grid = new CellGrid { Point = new P2Int(gridX, gridY) } };
         if (editorId is not null) cell.EditorID = editorId;
         sub.Items.Add(cell);
@@ -1339,6 +1342,7 @@ public static class WriteEngine
     /// <see cref="ApplyVerb"/> path).</summary>
     public static Cell AddInteriorCell(SkyrimMod patchMod, string? editorId)
     {
+        EnsureNoDuplicateCellEditorId(patchMod, editorId);   // no silent duplicate on an into= re-run (cells have a stable EditorID)
         EnsureFormIdFloor(patchMod);
         if (patchMod.ModHeader.Stats.NextFormID > 0xFFFFFF)
             throw new InvalidOperationException(
@@ -1356,6 +1360,22 @@ public static class WriteEngine
         if (editorId is not null) cell.EditorID = editorId;
         sub.Cells.Add(cell);
         return cell;
+    }
+
+    /// <summary>Refuse loud (Q3) if <paramref name="patchMod"/> ALREADY defines a cell with <paramref name="editorId"/>.
+    /// Coordinate-keyed cell create does NOT upsert (unlike flat <see cref="GenericUpsertNew"/>), so an into= re-run would
+    /// otherwise silently APPEND a second cell at the same identity — and a cell DOES carry a stable EditorID (the flat
+    /// nested-children carve-out's "no stable handle to de-dup on" rationale, WritePatchBuilder, does not transfer to
+    /// cells; PR #94 review). A no-op on a fresh patch (no prior cells). Within a single bulk_create, same-editorid specs
+    /// are already caught by the pre-flight's per-call editorid set; this closes the cross-call into= gap.</summary>
+    static void EnsureNoDuplicateCellEditorId(SkyrimMod patchMod, string? editorId)
+    {
+        if (string.IsNullOrEmpty(editorId)) return;
+        foreach (var existing in patchMod.EnumerateMajorRecords<ICellGetter>())
+            if (string.Equals(existing.EditorID, editorId, StringComparison.Ordinal))
+                throw new InvalidOperationException(
+                    $"a cell with editorid '{editorId}' already exists in this patch ({existing.FormKey}); creating it again " +
+                    "would duplicate it. Cell create does not upsert — edit the existing cell, or use a different editorid.");
     }
 
     static MethodInfo? _overrideMethod;

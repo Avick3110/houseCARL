@@ -31,6 +31,7 @@ namespace HousecarlGenerator;
 ///                report rides back (the §4-(b) coordinate-keyed wire: grid= threads service→core; the "you must still
 ///                provide lighting/terrain/navmesh" teeth fire).
 ///   INTERIOR-WIRE — create_record 'Cell' with NO parent + NO grid creates an interior cell with its INTERIOR shell report.
+///   MULTI        — bulk_create of an exterior + an interior cell lists BOTH in one shell report (the >1-cell path).
 /// </summary>
 internal static class BulkCreateGuardProbe
 {
@@ -149,6 +150,21 @@ internal static class BulkCreateGuardProbe
                 bool inter = shell is not null && shell.Cells.Count == 1 && shell.Cells[0].Interior && shell.Cells[0].MustProvide.Count > 0;
                 Check(o.Success && o.Created.Count == 1 && o.Created[0].FormKey.ID >= 0x800 && inter,
                     $"INTERIOR-WIRE Cell with no parent → created + INTERIOR shell report — {(o.Success ? (inter ? "interior shell w/ must-provide" : "shell missing/wrong") : "err=[" + o.Error + "]")}");
+            }
+
+            // ---- MULTI: bulk_create an exterior + an interior cell in ONE call → the shell report lists BOTH (the >1-cell
+            //      report path, untested by the single-cell arms; PR #94 review nit). ----
+            {
+                var records = new[]
+                {
+                    new CreateOp { RecordType = "Cell", Editorid = "HcBcMExt", Parent = worldFk.ToString(), Grid = "200,200" },
+                    new CreateOp { RecordType = "Cell", Editorid = "HcBcMInt" },
+                };
+                var o = svc.CreateRecordsBatch(records, "HcBcMulti", null);
+                var shell = o.CellShell;
+                bool two = shell is not null && shell.Cells.Count == 2 && shell.Cells.Any(c => c.Interior) && shell.Cells.Any(c => !c.Interior);
+                Check(o.Success && o.Created.Count == 2 && two,
+                    $"MULTI bulk_create exterior + interior → shell lists BOTH — {(o.Success ? (two ? "2 cells (1 ext, 1 int)" : "shell wrong: count=" + (shell?.Cells.Count.ToString() ?? "null")) : "err=[" + o.Error + "]")}");
             }
         }
         catch (Exception ex)

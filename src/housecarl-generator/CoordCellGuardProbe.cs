@@ -28,6 +28,8 @@ namespace HousecarlGenerator;
 ///   REJ-NOGRID  — a Cell + a Worldspace parent but NO grid refuses loud (ambiguous), NO file written.
 ///   REJ-BADGRID — a Cell + a Worldspace parent + a non-numeric grid refuses loud (the "X,Y" format), NO file written.
 ///   REJ-NONWS   — a Cell + grid with a NON-Worldspace (Weapon) parent refuses loud, NO file written.
+///   DUP-REJECT  — an into= re-run of the SAME cell editorid refuses loud (no silent duplicate — cells carry a stable
+///                 EditorID, so the flat nested-children append carve-out does NOT transfer; PR #94 review).
 /// </summary>
 public static class CoordCellGuardProbe
 {
@@ -149,6 +151,20 @@ public static class CoordCellGuardProbe
         results.Add(RejectArm("REJ-NONWS  grid + Weapon parent", tmpDir, "RejNonWs", mPath, rulebook,
             new[] { new WritePatchBuilder.CreateSpec { RecordType = "Cell", EditorId = "HcCcRej4", ParentRef = masterWeapFk.ToString(), Grid = "1,2", Edits = Array.Empty<WriteRequest>() } },
             msg => msg.Contains("Worldspace", StringComparison.OrdinalIgnoreCase)));
+
+        // ---- DUP-REJECT: an into= re-run of the SAME cell editorid refuses loud (no silent duplicate — cells carry a
+        //      stable EditorID, so the flat nested-children append carve-out does not transfer; PR #94 review). ----
+        {
+            string pPath = Path.Combine(tmpDir, "HcCcDup.esp");
+            using var r = LoadOrderResolver.Build(new[] { mPath });
+            var spec = new[] { new WritePatchBuilder.CreateSpec { RecordType = "Cell", EditorId = "HcCcDupCell", Edits = Array.Empty<WriteRequest>() } };
+            var o1 = WritePatchBuilder.CreateRecords(r, rulebook, spec, pPath, extend: false);
+            var o2 = WritePatchBuilder.CreateRecords(r, rulebook, spec, pPath, extend: true);   // into= the same patch, same editorid
+            bool firstOk = o1.Success && o1.Created.Count == 1;
+            bool refused = !o2.Success && (o2.Error ?? "").Contains("already exists", StringComparison.OrdinalIgnoreCase);
+            results.Add(("DUP-REJECT into= duplicate cell editorid", firstOk && refused,
+                $"first-created={YN(firstOk)} re-run-refused={YN(refused)} err=[{(o2.Error ?? "").Replace('\n', ' ')}]"));
+        }
 
         bool srcOk = shaBefore == Sha(mPath);
 
