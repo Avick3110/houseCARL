@@ -1113,10 +1113,10 @@ public sealed class LoadOrderService : IDisposable
     /// fitting child-list, <paramref name="collection"/>. For a parent + its children in ONE call (a topic + its lines, a
     /// child's parent= naming a same-call sibling), see <see cref="CreateRecordsBatch"/>.</summary>
     public WritePatchBuilder.CreateOutcome CreateRecords(string recordType, string editorid, IReadOnlyList<BulkOp> operations,
-        string? patchName, string? into, bool fullReadback = false, string? parent = null, string? collection = null)
+        string? patchName, string? into, bool fullReadback = false, string? parent = null, string? collection = null, string? grid = null)
     {
         var problems = new List<string>();
-        var spec = BuildCreateSpec(recordType, editorid, operations, parent, collection, where: null, problems);
+        var spec = BuildCreateSpec(recordType, editorid, operations, parent, collection, grid, where: null, problems);
         if (spec is null)
             return WritePatchBuilder.CreateOutcome.Fail(
                 $"refused — {problems.Count} problem(s) creating the record; NOTHING created:\n  - " + string.Join("\n  - ", problems));
@@ -1139,7 +1139,7 @@ public sealed class LoadOrderService : IDisposable
         for (int r = 0; r < records.Count; r++)
         {
             var rec = records[r];
-            var spec = BuildCreateSpec(rec.RecordType, rec.Editorid, rec.Operations ?? Array.Empty<BulkOp>(), rec.Parent, rec.Collection, $"record[{r}]", problems);
+            var spec = BuildCreateSpec(rec.RecordType, rec.Editorid, rec.Operations ?? Array.Empty<BulkOp>(), rec.Parent, rec.Collection, rec.Grid, $"record[{r}]", problems);
             if (spec is not null) specs.Add(spec);
         }
         if (problems.Count > 0)
@@ -1155,7 +1155,7 @@ public sealed class LoadOrderService : IDisposable
     /// through (a nested child) — null ⇒ a flat top-level record. Every problem (with the optional <paramref name="where"/>
     /// label) is APPENDED to <paramref name="problems"/>; returns null iff this record contributed any (all-or-nothing).</summary>
     WritePatchBuilder.CreateSpec? BuildCreateSpec(string? recordType, string? editorid, IReadOnlyList<BulkOp> operations,
-        string? parent, string? collection, string? where, List<string> problems)
+        string? parent, string? collection, string? grid, string? where, List<string> problems)
     {
         var prefix = where is null ? "" : where + ": ";
         int before = problems.Count;
@@ -1192,6 +1192,7 @@ public sealed class LoadOrderService : IDisposable
             RecordType = catalogName!, EditorId = editorid!.Trim(), Edits = edits,
             ParentRef = string.IsNullOrWhiteSpace(parent) ? null : parent.Trim(),
             IntoCollection = string.IsNullOrWhiteSpace(collection) ? null : collection.Trim(),
+            Grid = string.IsNullOrWhiteSpace(grid) ? null : grid.Trim(),
         };
     }
 
@@ -1211,10 +1212,11 @@ public sealed class LoadOrderService : IDisposable
 
             var outcome = WritePatchBuilder.CreateRecords(resolver, rulebook, specs, outPath, extend, fullReadback);
             if (!outcome.Success && created) RemoveFolderCreatedThisCall(outPath);   // hunt F4: a refused create leaves no orphan
-            // Layer B dialogue teeth, both post-write verify steps (the proven CreateRecords path stays untouched):
-            // unit B voice (.fuz/.lip) coverage, then unit C the result-script binding. Each is a no-op unless the call
-            // created a dialogue line; neither can fail the create (the write already succeeded).
-            return outcome.Success ? EnrichWithScriptCheck(EnrichWithVoiceCheck(outcome, resolver)) : outcome;
+            // Layer B dialogue teeth + the coordinate-keyed cell teeth — all post-write verify steps (the proven
+            // CreateRecords path stays untouched): unit B voice (.fuz/.lip) coverage, unit C the result-script binding,
+            // then the §4-(b) structural-shell report. Each is a no-op unless the call created the relevant record kind
+            // (a dialogue line / a cell); none can fail the create (the write already succeeded).
+            return outcome.Success ? EnrichWithCellShell(EnrichWithScriptCheck(EnrichWithVoiceCheck(outcome, resolver))) : outcome;
         }
     }
 
@@ -1258,6 +1260,26 @@ public sealed class LoadOrderService : IDisposable
         try { report = DialogueScriptCheck.Run(outcome.OutputPath, outcome.Created, Assets); }
         catch (Exception ex) { report = ScriptBindingReport.Empty with { CheckError = $"{ex.GetType().Name}: {ex.Message}" }; }
         return report.IsEmpty ? outcome : outcome with { ScriptBinding = report };
+    }
+
+    /// <summary>The coordinate-keyed §4-(b) teeth — the structural-SHELL report, a POST-WRITE step on a SUCCESSFUL
+    /// create exactly like <see cref="EnrichWithVoiceCheck"/>. Only fires when the call created ≥1 Cell:
+    /// <see cref="CellShellCheck.Run"/> re-opens the written patch read-only, reads each created cell's interior/exterior
+    /// kind, and lists the world content houseCARL does NOT author (lighting / terrain / water / navmesh — Aaron
+    /// 2026-06-20: no CK work) — the report rides back on <see cref="WritePatchBuilder.CreateOutcome.CellShell"/>. NEVER
+    /// fails the create (the cell IS written; this only says what the author must still provide); a check failure is
+    /// surfaced on the report's CheckError (Q3). Needs no resolver/assets — the kind comes off the written cell's flag.</summary>
+    WritePatchBuilder.CreateOutcome EnrichWithCellShell(WritePatchBuilder.CreateOutcome outcome)
+    {
+        bool anyCell = false;
+        foreach (var c in outcome.Created)
+            if (string.Equals(c.RecordType, CellShellCheck.CellCatalogName, StringComparison.Ordinal)) { anyCell = true; break; }
+        if (!anyCell) return outcome;
+
+        CellShellReport report;
+        try { report = CellShellCheck.Run(outcome.OutputPath, outcome.Created); }
+        catch (Exception ex) { report = CellShellReport.Empty with { CheckError = $"{ex.GetType().Name}: {ex.Message}" }; }
+        return report.IsEmpty ? outcome : outcome with { CellShell = report };
     }
 
     /// <summary>Map a wire field-op to a core <see cref="WriteRequest"/> for CREATE: RecordType is the create type (not

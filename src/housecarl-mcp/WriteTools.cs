@@ -152,6 +152,8 @@ public static class WriteTools
             string? parent = null,
         [Description("Optional. Which of the parent's child-collections to add into, BY NAME (e.g. a cell's 'Persistent'/'Temporary') — needed only when the parent holds more than one list that accepts this child type. Omit when the collection is unique (e.g. a topic's responses) or when parent is omitted.")]
             string? collection = null,
+        [Description("Optional. For an EXTERIOR cell (record_type 'Cell' with parent= a Worldspace FormID): the cell's grid as \"X,Y\" (e.g. \"5,-12\") — houseCARL files it into the worldspace's block tree (block=floor(grid/32), subblock=floor(grid/8)). A 'Cell' with NO parent and NO grid is an INTERIOR cell (self-files by FormID). Ignored for non-Cell types.")]
+            string? grid = null,
         [Description("Optional. Base filename for the new patch (default 'houseCARL_Patch'); auto-suffixed if taken. Ignored if into= is given.")]
             string patch_name = "houseCARL_Patch",
         [Description("Optional. Filename of an existing houseCARL patch to add this new record to instead of writing a fresh one (accumulate across calls/sessions).")]
@@ -162,7 +164,7 @@ public static class WriteTools
             int max_chars = 0) => Guard.Tool("housecarl_create_record", () =>
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
-        return RenderCreate(svc.CreateRecords(record_type, editorid, operations ?? Array.Empty<BulkOp>(), patch_name, into, full_readback, parent, collection), max_chars);
+        return RenderCreate(svc.CreateRecords(record_type, editorid, operations ?? Array.Empty<BulkOp>(), patch_name, into, full_readback, parent, collection, grid), max_chars);
     });
 
     [McpServerTool(Name = "housecarl_bulk_create", Title = "Create many records (incl. a nested one-shot) in one patch"),
@@ -324,6 +326,7 @@ public static class WriteTools
         }
         AppendVoiceReport(sb, o.Voice, maxChars);
         AppendScriptBindingReport(sb, o.ScriptBinding, maxChars);
+        AppendCellShellReport(sb, o.CellShell);
         if (o.ReadBack is { } rb) AppendFullReadback(sb, rb, maxChars);
         sb.Append("the new FormID above is how you reference this record (SkyPatcher/SPID, or a follow-up edit). ")
           .Append("To add more to THIS patch, pass into=\"").Append(file).Append("\".");
@@ -386,6 +389,25 @@ public static class WriteTools
     static void AppendVoiceTrunc(StringBuilder sb, int rendered, int total, int cap)
         => sb.Append("  ... [voice coverage truncated: rendered ").Append(rendered).Append(" of ").Append(total)
              .Append(" line(s) at max_chars=").Append(cap).Append("; raise max_chars to see the rest]\n");
+
+    /// <summary>Render the coordinate-keyed §4-(b) structural-shell report (a cell create). The enforced Q3 teeth against
+    /// a created-but-EMPTY cell: a created cell is a valid, correctly-placed RECORD, but houseCARL does NOT author world
+    /// content — so per created cell this lists, by kind, what the author must still provide in the Creation Kit
+    /// (lighting / terrain / water / navmesh). "Created" must never read as "looks right in game". No-op unless the call
+    /// created cells.</summary>
+    static void AppendCellShellReport(StringBuilder sb, CellShellReport? report)
+    {
+        if (report is null || report.IsEmpty) return;
+        sb.Append("cell shell — created cells are valid, correctly-placed records but EMPTY; houseCARL does not author world content (provide these in the Creation Kit):\n");
+        foreach (var c in report.Cells)
+        {
+            sb.Append("  ").Append(c.Interior ? "INTERIOR " : "EXTERIOR ").Append(c.EditorId).Append(" (").Append(c.Cell).Append("):\n");
+            foreach (var m in c.MustProvide)
+                sb.Append("      - ").Append(m).Append('\n');
+        }
+        if (report.CheckError is not null)
+            sb.Append("  cell-shell check could not run: ").Append(report.CheckError).Append(" — the cell(s) WERE created; review world content manually.\n");
+    }
 
     /// <summary>Render the Layer B unit C result-script coverage report (a dialogue-line create). The enforced Q3 teeth
     /// against a byte-valid-but-INERT result script: a LOUD "WILL NOT FIRE" per created line whose VMAD binds nothing
@@ -488,6 +510,9 @@ public sealed record CreateOp
 
     [JsonPropertyName("collection"), Description("Optional. Which of the parent's child-collections to add into, BY NAME (e.g. a cell's 'Persistent') — needed only when more than one fits. Omit when unique or when parent is omitted.")]
     public string? Collection { get; init; }
+
+    [JsonPropertyName("grid"), Description("Optional. For an EXTERIOR cell only (record_type 'Cell' with parent= a Worldspace): the cell's grid as \"X,Y\" (e.g. \"5,-12\"). houseCARL files it into the worldspace's block tree by block=floor(grid/32), subblock=floor(grid/8). A 'Cell' with NO parent and NO grid is an INTERIOR cell (self-files by FormID). Ignored for non-Cell types.")]
+    public string? Grid { get; init; }
 }
 
 /// <summary>A modeled struct built from parts (wire shape of <see cref="StructSpec"/>): the concrete type, optional

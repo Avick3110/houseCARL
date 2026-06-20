@@ -27,6 +27,10 @@ namespace HousecarlGenerator;
 ///                naming the problem, with the valid 1st spec NOT written and no orphan folder (all-or-nothing, Q3).
 ///   GUIDANCE   — a single nested create with no parent refuses loud and the message guides to parent= / bulk_create
 ///                (the refreshed CanCreateType copy reaches the user).
+///   EXTERIOR-WIRE — create_record 'Cell' with parent=<worldspace> + grid= creates an exterior cell AND the CellShell
+///                report rides back (the §4-(b) coordinate-keyed wire: grid= threads service→core; the "you must still
+///                provide lighting/terrain/navmesh" teeth fire).
+///   INTERIOR-WIRE — create_record 'Cell' with NO parent + NO grid creates an interior cell with its INTERIOR shell report.
 /// </summary>
 internal static class BulkCreateGuardProbe
 {
@@ -53,11 +57,13 @@ internal static class BulkCreateGuardProbe
             var mKey = new ModKey("HcBcGdMaster", ModType.Master);
             var modDir = Path.Combine(mods, "MasterMod");
             Directory.CreateDirectory(modDir);
-            FormKey topicFk;
+            FormKey topicFk, worldFk;
             {
                 var m = new SkyrimMod(mKey, SkyrimRelease.SkyrimSE);
                 var topic = m.DialogTopics.AddNew(); topic.EditorID = "HcBcGdTopic";
                 topicFk = topic.FormKey;
+                var world = m.Worldspaces.AddNew(); world.EditorID = "HcBcGdWorld";   // the exterior-cell parent fixture (coord-keyed wire)
+                worldFk = world.FormKey;
                 m.BeginWrite.ToPath(Path.Combine(modDir, mKey.FileName.String)).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
             }
             File.WriteAllText(Path.Combine(profiles, "loadorder.txt"), "# header\r\n" + mKey.FileName + "\r\n");
@@ -124,6 +130,25 @@ internal static class BulkCreateGuardProbe
                     && o.Error.Contains("parent", StringComparison.OrdinalIgnoreCase)
                     && o.Error.Contains("bulk_create", StringComparison.OrdinalIgnoreCase);
                 Check(guided, $"GUIDANCE nested-with-no-parent refused + guides to parent=/bulk_create — guided={guided} err=[{o.Error}]");
+            }
+
+            // ---- EXTERIOR-WIRE: create_record Cell with parent=<worldspace> + grid= → exterior cell + shell report ----
+            //      Proves the grid= param threads service→core AND the CellShell teeth fire (Aaron's "you must fill" report).
+            {
+                var o = svc.CreateRecords("Cell", "HcBcExtCell", Array.Empty<BulkOp>(), "HcBcExt", null, parent: worldFk.ToString(), grid: "1000,-1000");
+                var shell = o.CellShell;
+                bool ext = shell is not null && shell.Cells.Count == 1 && !shell.Cells[0].Interior && shell.Cells[0].MustProvide.Count > 0;
+                Check(o.Success && o.Created.Count == 1 && o.Created[0].FormKey.ID >= 0x800 && ext,
+                    $"EXTERIOR-WIRE Cell via parent=worldspace + grid → created + EXTERIOR shell report — {(o.Success ? (ext ? "exterior shell w/ must-provide" : "shell missing/wrong") : "err=[" + o.Error + "]")}");
+            }
+
+            // ---- INTERIOR-WIRE: create_record Cell with NO parent + NO grid → interior cell + shell report ----
+            {
+                var o = svc.CreateRecords("Cell", "HcBcIntCell", Array.Empty<BulkOp>(), "HcBcInt", null);
+                var shell = o.CellShell;
+                bool inter = shell is not null && shell.Cells.Count == 1 && shell.Cells[0].Interior && shell.Cells[0].MustProvide.Count > 0;
+                Check(o.Success && o.Created.Count == 1 && o.Created[0].FormKey.ID >= 0x800 && inter,
+                    $"INTERIOR-WIRE Cell with no parent → created + INTERIOR shell report — {(o.Success ? (inter ? "interior shell w/ must-provide" : "shell missing/wrong") : "err=[" + o.Error + "]")}");
             }
         }
         catch (Exception ex)
