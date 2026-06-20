@@ -196,6 +196,11 @@ if (args.Length > 0 && args[0] == "nested-create-probe") return NestedCreateProb
 // bad parent, ambiguous collection, forward sibling). Re-opens each patch from disk; Skyrim.esm byte-checked.
 if (args.Length > 0 && args[0] == "nested-create-proof") return NestedCreateProof.RunProof(args[1..]);
 
+// STEP 0 scout for the COORDINATE-KEYED §4-(b) seam (exterior/interior Cell + Placed-into-new-cell): round-trips a
+// constructed cell into find-or-built WorldspaceBlock/SubBlock (exterior, floor(grid/32|8)) and CellBlock/SubBlock
+// (interior, FormID digits), checks override is thin, block math vs vanilla, OFST regen, source byte-unchanged.
+if (args.Length > 0 && args[0] == "coord-cell-probe") return CoordCellProbe.RunProbe(args[1..]);
+
 // Wave 4 scout: recon Mutagen's IFormLinkOrIndex condition-target API — the form-vs-index discriminator (condition oracle), the wave-4 unknown.
 if (args.Length > 0 && args[0] == "condition-probe") return ConditionProbe.RunConditionProbe(args[1..]);
 
