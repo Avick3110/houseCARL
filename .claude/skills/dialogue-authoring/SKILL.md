@@ -63,7 +63,7 @@ any of them wrong produces dialogue that looks right and plays wrong:
 
 | # | Job | How | Gotcha |
 |---|-----|-----|--------|
-| 1 | Wire topic ↔ branch ↔ quest | set `DialogTopic.Quest`, `.Branch`, `.Subtype`/`.Category` | `Subtype`/`Category` are enums — get legal values from `mutagen-reference` |
+| 1 | Wire topic ↔ branch ↔ quest | set `DialogTopic.Quest`/`Subtype`/`Category`; author a `DialogBranch` whose `StartingTopic` points at the topic (its entry point) | a `Custom` topic with no inbound branch or `LinkTo` is byte-valid but **never entered**; `Subtype`/`Category` enum values via `mutagen-reference` |
 | 2 | Order / chain the lines | `Responses` list order + `Conditions`; `LinkTo` for topic→topic | set `PreviousDialog` ONLY for a real forced sequence |
 | 3 | Result (TIF) scripts | compose the line's `VirtualMachineAdapter` binding, then `housecarl_compile_script` | create-time teeth check the binding + `.pex` presence |
 | 4 | SEQ for start-game-enabled quests | set the quest's Start-Game-Enabled flag, then `housecarl_write_seq` | ticking the flag alone does nothing |
@@ -126,6 +126,15 @@ this skill's job.
      `LinkTo` above does.
 
    The call is **all-or-nothing**: if any spec is malformed, nothing is written.
+
+   **Reachability — this example is not yet enterable.** `MyMod_AskRing` is a `Custom` topic with no entry
+   point, so as written it is byte-valid but the game never reaches it (only generic subtypes like Hello /
+   Goodbye are matched without one — see the flow model). A new player-choice menu needs a `DialogBranch`
+   (DLBR) whose `StartingTopic` points at the topic; author it in the **same** call, declared *after* the
+   topic, with `StartingTopic` set to `@MyMod_AskRing`. The reverse `DialogTopic.Branch → DLBR` back-link
+   can't be set in the same call (`@editorid` resolves only *earlier* siblings) — set it with a follow-up
+   `into=` edit if you want it, though `Branch` is usually left unset. (Adding a line to an *existing* topic
+   needs none of this — its entry point already exists.)
 
 3. **Author the conditions deliberately** — they are the gate the validator cannot check. A line with no
    conditions fires whenever its topic is reached; gate it with `GetStage` (quest progress) and a speaker
