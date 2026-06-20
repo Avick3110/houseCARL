@@ -111,6 +111,13 @@ public static class WritePatchBuilder
         /// this child type (outcome (i), e.g. a DialogTopic's one <c>Responses</c> list). Ignored when
         /// <see cref="ParentRef"/> is null.</summary>
         public string? IntoCollection { get; init; }
+
+        /// <summary>Optional — the exterior-cell GRID as "X,Y" (the coordinate-keyed §4-(b) create path). Set on a
+        /// <c>Cell</c> create, it places the new cell into a Worldspace's block tree by block=floor(grid/32),
+        /// subblock=floor(grid/8) (STEP-0 proven vs 4000 vanilla cells); <see cref="ParentRef"/> must then resolve to a
+        /// Worldspace. A <c>Cell</c> create with NO <see cref="Grid"/> and NO <see cref="ParentRef"/> ⇒ an INTERIOR cell
+        /// (self-files into the top-level Cells group by its own FormID). Ignored for non-Cell types.</summary>
+        public string? Grid { get; init; }
     }
 
     /// <summary>One record created by <see cref="CreateRecords"/> — its freshly-allocated <see cref="FormKey"/> (the
@@ -154,6 +161,24 @@ public static class WritePatchBuilder
     /// unverifiable perk gate), bounded by the modeled-corpus boundary + ReadEngine's expansion cap, whose
     /// truncation sentinel stays an explicit note (Q3).</summary>
     public const int FullReadbackDepth = 16;
+
+    /// <summary>The coordinate-keyed cell-create kind for a spec (the §4-(b) path): <see cref="None"/> = the flat or
+    /// FormKey-nested path (unchanged); <see cref="Exterior"/> = a Cell placed under a Worldspace by grid
+    /// (<c>block=floor(grid/32)</c>, <c>subblock=floor(grid/8)</c>); <see cref="Interior"/> = a parentless Cell self-filed
+    /// into the top-level Cells group by its own FormID digits. See <c>WriteEngine.AddExteriorCell</c>/<c>AddInteriorCell</c>.</summary>
+    enum CellCreate { None, Exterior, Interior }
+
+    /// <summary>Is <paramref name="recordType"/> the <c>Cell</c> record type (case-insensitive — the system's catalog convention)?</summary>
+    static bool IsCellType(string recordType) => string.Equals(recordType, nameof(Cell), StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Parse an exterior-cell grid "X,Y" into two ints (whitespace-tolerant). False ⇒ malformed (the call refuses loud, Q3).</summary>
+    static bool TryParseGrid(string? grid, out int x, out int y)
+    {
+        x = y = 0;
+        if (string.IsNullOrWhiteSpace(grid)) return false;
+        var parts = grid.Split(',');
+        return parts.Length == 2 && int.TryParse(parts[0].Trim(), out x) && int.TryParse(parts[1].Trim(), out y);
+    }
 
     /// <summary>Build/extend a patch from <paramref name="edits"/> and serialize it to <paramref name="outPath"/>.
     /// <paramref name="extend"/>=false writes a fresh patch (the ModKey = the output filename); =true opens the existing
@@ -465,6 +490,7 @@ public static class WritePatchBuilder
         // validation it holds {0..i-1}: a self-ref (@its-own-editorid) and a forward-ref (a later sibling) both reject.
         var priorEditorIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var parentPlans = new List<(IMajorRecordGetter? body, string? winnerPlugin, string? sibling, IMajorRecord? patchParent)?>(specs.Count);
+        var cellKinds = new CellCreate[specs.Count];   // coordinate-keyed §4-(b) routing per spec (None / Exterior / Interior)
         for (int i = 0; i < specs.Count; i++)
         {
             var s = specs[i];
@@ -475,7 +501,14 @@ public static class WritePatchBuilder
 
             if (s.ParentRef is null)
             {
-                if (!WriteEngine.CanCreateType(s.RecordType, out var why)) { problems.Add($"{s.RecordType} '{s.EditorId}': {why}"); continue; }
+                if (IsCellType(s.RecordType))
+                {
+                    // A parentless Cell (coordinate-keyed §4-(b)): NO grid ⇒ an INTERIOR cell (self-files by FormID —
+                    // CanCreateType would refuse a bare Cell, so bypass it). A grid here is malformed (exterior needs a Worldspace).
+                    if (s.Grid is not null) { problems.Add($"Cell '{s.EditorId}': an exterior cell (grid=) needs parent= a Worldspace; an interior cell takes no parent and no grid."); continue; }
+                    cellKinds[i] = CellCreate.Interior;
+                }
+                else if (!WriteEngine.CanCreateType(s.RecordType, out var why)) { problems.Add($"{s.RecordType} '{s.EditorId}': {why}"); continue; }
             }
             else
             {
@@ -517,7 +550,17 @@ public static class WritePatchBuilder
                     parentPlans[i] = (null, null, s.ParentRef, null);
                 }
                 if (parentType is null) { problems.Add($"{s.RecordType} '{s.EditorId}': could not resolve the parent's record type."); continue; }
-                if (!WriteEngine.CanCreateNested(s.RecordType, parentType, s.IntoCollection, out var nestedWhy)) { problems.Add($"{s.RecordType} '{s.EditorId}': {nestedWhy}"); continue; }
+                if (IsCellType(s.RecordType))
+                {
+                    // A Cell WITH a parent (coordinate-keyed §4-(b)): a grid ⇒ an EXTERIOR cell placed into the
+                    // Worldspace's block tree (NOT a child-collection nest). No grid ⇒ ambiguous — refuse loud (Q3).
+                    // (Parent resolution above already populated parentPlans[i] so Phase 3 can make the Worldspace settable.)
+                    if (s.Grid is null) { problems.Add($"Cell '{s.EditorId}': a Cell with parent= but no grid= is ambiguous — an exterior cell needs grid=<X,Y> under a Worldspace; an interior cell takes no parent."); continue; }
+                    if (parentType != typeof(Worldspace)) { problems.Add($"Cell '{s.EditorId}': an exterior cell nests under a Worldspace, but parent '{s.ParentRef}' resolved to a {parentType.Name}."); continue; }
+                    if (!TryParseGrid(s.Grid, out _, out _)) { problems.Add($"Cell '{s.EditorId}': grid '{s.Grid}' must be two integers \"X,Y\" (e.g. \"5,-12\")."); continue; }
+                    cellKinds[i] = CellCreate.Exterior;
+                }
+                else if (!WriteEngine.CanCreateNested(s.RecordType, parentType, s.IntoCollection, out var nestedWhy)) { problems.Add($"{s.RecordType} '{s.EditorId}': {nestedWhy}"); continue; }
             }
 
             foreach (var req in s.Edits)
@@ -552,43 +595,59 @@ public static class WritePatchBuilder
         var created = new List<CreatedRecord>(specs.Count);
         var createdByEditorId = new Dictionary<string, IMajorRecord>(StringComparer.OrdinalIgnoreCase);
         var linkCacheByPlugin = new Dictionary<string, Mutagen.Bethesda.Plugins.Cache.ILinkCache>(StringComparer.OrdinalIgnoreCase);
+
+        // Resolve a spec's parent to a SETTABLE record IN the patch — shared by nested-create AND exterior-cell create
+        // (both make the parent settable identically: a prior-into= patch record used directly; an existing load-order
+        // parent overridden in, with its source link cache only when the override needs one; or a same-call sibling
+        // created earlier in this loop). Returns (parent, null) on success, (null, error) to fail the WHOLE call (Q3).
+        (IMajorRecord? parent, string? error) MakeSettableParent(int idx)
+        {
+            var plan = parentPlans[idx]!.Value;
+            if (plan.patchParent is not null) return (plan.patchParent, null);   // a prior-into= patch-local record
+            if (plan.body is not null)
+            {
+                Mutagen.Bethesda.Plugins.Cache.ILinkCache? cache = null;
+                if (WriteEngine.RecordNeedsSourceCache(plan.body))
+                {
+                    if (!linkCacheByPlugin.TryGetValue(plan.winnerPlugin!, out cache))
+                        linkCacheByPlugin[plan.winnerPlugin!] = (cache = session.LinkCacheFor(plan.winnerPlugin!))!;
+                }
+                return (WriteEngine.GenericGetOrAddAsOverride(patchMod, plan.body, cache), null);
+            }
+            if (!createdByEditorId.TryGetValue(plan.sibling!, out var sib))
+                return (null, $"internal: same-call parent '{plan.sibling}' for '{specs[idx].EditorId}' was not created before it — surfaced, not swallowed (Q3).");
+            return (sib, null);
+        }
+
         for (int i = 0; i < specs.Count; i++)
         {
             var s = specs[i];
             IMajorRecord rec; bool replaced = false;
             try
             {
-                if (s.ParentRef is null)
+                if (cellKinds[i] == CellCreate.Interior)
+                {
+                    // INTERIOR cell (coordinate-keyed §4-(b)): self-files into the patch's Cells group by FormID digits.
+                    rec = WriteEngine.AddInteriorCell(patchMod, s.EditorId);
+                }
+                else if (cellKinds[i] == CellCreate.Exterior)
+                {
+                    // EXTERIOR cell (coordinate-keyed §4-(b)): make the Worldspace settable (thin override), then place
+                    // the cell into its block tree by grid. Pre-flight (Phase 1) guaranteed a Worldspace parent + a grid that parses.
+                    var (wsParent, perr) = MakeSettableParent(i);
+                    if (perr is not null) return CreateOutcome.Fail(perr);
+                    TryParseGrid(s.Grid!, out var gx, out var gy);
+                    rec = WriteEngine.AddExteriorCell(patchMod, (Worldspace)wsParent!, gx, gy, s.EditorId);
+                }
+                else if (s.ParentRef is null)
                 {
                     (rec, replaced) = WriteEngine.GenericUpsertNew(patchMod, s.RecordType, s.EditorId);
                 }
                 else
                 {
-                    var plan = parentPlans[i]!.Value;
-                    IMajorRecord settableParent;
-                    if (plan.patchParent is not null)
-                    {
-                        // A parent created in a PRIOR into= call — already a settable patch-local record (Phase 0 opened
-                        // the patch); use it directly, no override.
-                        settableParent = plan.patchParent;
-                    }
-                    else if (plan.body is not null)
-                    {
-                        Mutagen.Bethesda.Plugins.Cache.ILinkCache? cache = null;
-                        if (WriteEngine.RecordNeedsSourceCache(plan.body))
-                        {
-                            if (!linkCacheByPlugin.TryGetValue(plan.winnerPlugin!, out cache))
-                                linkCacheByPlugin[plan.winnerPlugin!] = cache = session.LinkCacheFor(plan.winnerPlugin!);
-                        }
-                        settableParent = WriteEngine.GenericGetOrAddAsOverride(patchMod, plan.body, cache);
-                    }
-                    else
-                    {
-                        if (!createdByEditorId.TryGetValue(plan.sibling!, out var sib))
-                            return CreateOutcome.Fail($"internal: same-call parent '{plan.sibling}' for '{s.EditorId}' was not created before it — surfaced, not swallowed (Q3).");
-                        settableParent = sib;
-                    }
-                    rec = WriteEngine.NestedAddNew(patchMod, settableParent, s.RecordType, s.IntoCollection, s.EditorId);
+                    var (settableParent, perr) = MakeSettableParent(i);
+                    if (perr is not null) return CreateOutcome.Fail(perr);
+                    rec = WriteEngine.NestedAddNew(patchMod, settableParent!, s.RecordType, s.IntoCollection, s.EditorId);
                 }
             }
             catch (Exception ex) { return CreateOutcome.Fail($"could not create {s.RecordType} '{s.EditorId}': {ex.Message}"); }

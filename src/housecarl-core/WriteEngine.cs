@@ -887,8 +887,8 @@ public static class WriteEngine
                  "(a placed object/NPC, a dialogue line, navmesh or terrain) that needs a parent. Create it WITH its parent: " +
                  "pass parent= (the parent record's FormID, or the editorid of a record created EARLIER in the same call) and, " +
                  "if the parent holds more than one child-collection, collection= — or use housecarl_bulk_create to make a parent " +
-                 "and its children (a dialogue topic + its lines, a cell + its placed refs) in ONE call. (An EXTERIOR cell nests " +
-                 "under FormKey-less worldspace block structs — a separate capability, still unsupported.) If instead it's a subtype " +
+                 "and its children (a dialogue topic + its lines, a cell + its placed refs) in ONE call. (A CELL is coordinate-keyed: " +
+                 "create an EXTERIOR cell with parent=<Worldspace FormID> + grid=<X,Y>, or an INTERIOR cell with no parent.) If instead it's a subtype " +
                  "of an abstract group (like Global → GlobalFloat), create the concrete subtype. Flat top-level records — keywords, " +
                  "spells, perks, magic effects, factions, armor, weapons, leveled lists, … — create fine.";
         return false;
@@ -1190,8 +1190,10 @@ public static class WriteEngine
         if (hits.Count == 0)
         {
             error = $"'{childName}' cannot be created under a '{parentName}' — that parent models no child-collection that " +
-                    "holds it. (A real containment boundary — e.g. exterior cells nest under FormKey-less worldspace block " +
-                    "structs, a separate capability — surfaced not guessed, Q3.)";
+                    "holds it (a real containment boundary, surfaced not guessed, Q3)." +
+                    (childType == typeof(Cell)
+                        ? " A Cell is coordinate-keyed, not collection-nested: create an EXTERIOR cell with parent=<Worldspace> + grid=<X,Y>, or an INTERIOR cell with no parent."
+                        : "");
             return false;
         }
         if (collectionName is not null)
@@ -1273,6 +1275,87 @@ public static class WriteEngine
         if (editorId is not null) child.EditorID = editorId;
         list.Add(child);
         return child;
+    }
+
+    // ======================================================================
+    //  COORDINATE-KEYED CREATE (the §4-(b) seam) — cells, the one family whose
+    //  structural parents are FormKey-LESS block structs the FormKey locator
+    //  (NestedAddNew) cannot address: exterior cells under WorldspaceBlock/
+    //  WorldspaceSubBlock, interior cells under CellBlock/CellSubBlock. Placed
+    //  by DERIVED block arithmetic, not a parent FormKey. STEP-0 proven
+    //  (CoordCellProbe, round-tripped vs vanilla): exterior block=floor(grid/32)
+    //  subblock=floor(grid/8) (4000/4000); interior block=id%10 subblock=(id/10)%10
+    //  (590/590); thin Worldspace override (a 1-cell delta, not all of Tamriel).
+    //  ONE generic algorithm per cell-kind — NOT a per-type shim (dev/plans/
+    //  COORD_KEYED_CELL_CREATE_BUILD_2026-06-20.md). Mutagen DROPS the OFST
+    //  seek-cache on write (Aaron-accepted 2026-06-20); the engine rebuilds it
+    //  from the block tree at load. A created cell is a STRUCTURAL SHELL —
+    //  lighting/land/navmesh stay the author's (the shell report surfaces this
+    //  loudly; the engine stays policy-free, Q3).
+    // ======================================================================
+
+    /// <summary>Signed integer floor division (toward -∞) — the exterior block/subblock index from a (possibly
+    /// negative) cell grid coordinate. C# truncates toward zero (<c>-1/8 == 0</c>), but the cell at grid -1 sits in
+    /// subblock -1; this floors so negative coordinates key correctly (the scout confirmed floor vs 4000 vanilla cells).</summary>
+    internal static int FloorDiv(int a, int b) => (int)Math.Floor((double)a / b);
+
+    /// <summary>CREATE an EXTERIOR cell at grid (<paramref name="gridX"/>,<paramref name="gridY"/>) under
+    /// <paramref name="worldspaceInPatch"/> (already settable in the patch — the caller overrides it in, thin). Computes
+    /// the block (floor(grid/32)) + subblock (floor(grid/8)) indices, FINDS-OR-CONSTRUCTS the FormKey-less
+    /// <see cref="WorldspaceBlock"/> + <see cref="WorldspaceSubBlock"/> structs (the add-target is the model's block tree,
+    /// not a FormKey lookup), constructs the <see cref="Cell"/> with its Grid set and <c>IsInteriorCell</c> OFF, allocates
+    /// a fresh local 0x800+ FormKey from the SAME floored counter as flat/nested create, and adds it. Returns the new cell
+    /// (settable, fed into the same <see cref="ApplyVerb"/> path). STEP-0 proven (CoordCellProbe).</summary>
+    public static Cell AddExteriorCell(SkyrimMod patchMod, Worldspace worldspaceInPatch, int gridX, int gridY, string? editorId)
+    {
+        int bx = FloorDiv(gridX, 32), by = FloorDiv(gridY, 32), sx = FloorDiv(gridX, 8), sy = FloorDiv(gridY, 8);
+        var block = worldspaceInPatch.SubCells.FirstOrDefault(b => b.BlockNumberX == bx && b.BlockNumberY == by);
+        if (block is null)
+        {
+            block = new WorldspaceBlock { BlockNumberX = (short)bx, BlockNumberY = (short)by, GroupType = GroupTypeEnum.ExteriorCellBlock };
+            worldspaceInPatch.SubCells.Add(block);
+        }
+        var sub = block.Items.FirstOrDefault(s => s.BlockNumberX == sx && s.BlockNumberY == sy);
+        if (sub is null)
+        {
+            sub = new WorldspaceSubBlock { BlockNumberX = (short)sx, BlockNumberY = (short)sy, GroupType = GroupTypeEnum.ExteriorCellSubBlock };
+            block.Items.Add(sub);
+        }
+        EnsureFormIdFloor(patchMod);   // 0x800 floor, exactly like flat/nested create (HCBR-2026-06-09-04)
+        if (patchMod.ModHeader.Stats.NextFormID > 0xFFFFFF)
+            throw new InvalidOperationException(
+                $"cannot allocate a new FormID: the patch's NextObjectID counter is 0x{patchMod.ModHeader.Stats.NextFormID:X} — " +
+                "past the 24-bit object-ID ceiling (0xFFFFFF). The plugin is full or its header counter is corrupt.");
+        var cell = new Cell(AllocateNextFormKey(patchMod), SkyrimRelease.SkyrimSE) { Grid = new CellGrid { Point = new P2Int(gridX, gridY) } };
+        if (editorId is not null) cell.EditorID = editorId;
+        sub.Items.Add(cell);
+        return cell;
+    }
+
+    /// <summary>CREATE an INTERIOR cell — files into the patch's top-level <see cref="SkyrimMod.Cells"/> group by the
+    /// cell's OWN FormID digits (block = id%10, subblock = (id/10)%10 — STEP-0 proven 590/590 vanilla). The FormKey is
+    /// allocated FIRST (the digits key off it), then the <see cref="CellBlock"/>/<see cref="CellSubBlock"/> are
+    /// found-or-constructed. <c>IsInteriorCell</c> ON. Returns the new cell (settable, fed into the same
+    /// <see cref="ApplyVerb"/> path).</summary>
+    public static Cell AddInteriorCell(SkyrimMod patchMod, string? editorId)
+    {
+        EnsureFormIdFloor(patchMod);
+        if (patchMod.ModHeader.Stats.NextFormID > 0xFFFFFF)
+            throw new InvalidOperationException(
+                $"cannot allocate a new FormID: the patch's NextObjectID counter is 0x{patchMod.ModHeader.Stats.NextFormID:X} — " +
+                "past the 24-bit object-ID ceiling (0xFFFFFF). The plugin is full or its header counter is corrupt.");
+        var fk = AllocateNextFormKey(patchMod);
+        uint id = fk.ID;
+        int blockN = (int)(id % 10), subN = (int)((id / 10) % 10);
+        var records = patchMod.Cells.Records;
+        var block = records.FirstOrDefault(b => b.BlockNumber == blockN);
+        if (block is null) { block = new CellBlock { BlockNumber = blockN, GroupType = GroupTypeEnum.InteriorCellBlock }; records.Add(block); }
+        var sub = block.SubBlocks.FirstOrDefault(s => s.BlockNumber == subN);
+        if (sub is null) { sub = new CellSubBlock { BlockNumber = subN, GroupType = GroupTypeEnum.InteriorCellSubBlock }; block.SubBlocks.Add(sub); }
+        var cell = new Cell(fk, SkyrimRelease.SkyrimSE) { Flags = Cell.Flag.IsInteriorCell };
+        if (editorId is not null) cell.EditorID = editorId;
+        sub.Cells.Add(cell);
+        return cell;
     }
 
     static MethodInfo? _overrideMethod;
