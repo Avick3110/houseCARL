@@ -37,7 +37,8 @@ models — by construction, not a hand-maintained subset.
   and informs; downloading stays your mod manager's "Mod Manager Download" handoff.
 - **Look things up, author distributor files, and review scripts** through bundled, namespaced skills:
   record schemas (every type Mutagen models), Papyrus / SKSE signatures, SkyPatcher / SPID / KID
-  distributor grammars, and Papyrus performance review.
+  distributor grammars, Skyrim dialogue authoring, Papyrus performance review, and dark-face NPC
+  diagnosis.
 
 ## Requirements
 
