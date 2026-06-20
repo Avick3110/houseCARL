@@ -47,8 +47,8 @@ $PackagingSrc = Join-Path $RepoRoot 'packaging'        # tracked source for pack
 $ReleaseDir   = Join-Path $RepoRoot 'release'          # output dir for the shippable zip (gitignored)
 $PluginManifest = Join-Path $PluginSrc '.claude-plugin\plugin.json'   # single source of truth for the version
 
-# the 7 shipped skills (the modlist-authoring cluster was removed; tool-surface skills wait)
-$Skills = @('mutagen-reference','papyrus-reference','skypatcher-authoring','spid-authoring','kid-authoring','papyrus-optimization','facegen-diagnostics')
+# the 8 shipped skills (the modlist-authoring cluster was removed; tool-surface skills wait)
+$Skills = @('mutagen-reference','papyrus-reference','skypatcher-authoring','spid-authoring','kid-authoring','papyrus-optimization','facegen-diagnostics','dialogue-authoring')
 
 function Step($n,$msg) { Write-Host "`n=== [$n] $msg ===" -ForegroundColor Cyan }
 
@@ -91,7 +91,7 @@ Get-ChildItem $ServerDir -Filter 'appsettings*.json' -ErrorAction SilentlyContin
 Step '3/10' 'Copy corpus.json beside the exe'
 Copy-Item $CorpusSrc (Join-Path $ServerDir 'corpus.json') -Force
 
-# ---- 4. bundle the 7 skills (exclude evals/ + _CORPUS_STATUS.md; KEEP all .jsonl) ----
+# ---- 4. bundle the 8 skills (exclude evals/ + _CORPUS_STATUS.md; KEEP all .jsonl) ----
 Step '4/10' 'Bundle skills'
 New-Item -ItemType Directory -Path $SkillsDir -Force | Out-Null
 foreach ($s in $Skills) {
