@@ -1678,7 +1678,7 @@ public sealed class LoadOrderService : IDisposable
 
             // No SGE quests → no .seq needed; write nothing, cut no folder (Q3: a clean, explicit "nothing to do").
             if (built.Quests.Count == 0)
-                return new SeqOutcome(true, null, null, null, built.Quests, built.PluginFileName, null, false);
+                return new SeqOutcome(true, null, null, null, built.Quests, built.PluginFileName, false);
 
             // Output folder: default into the plugin's OWN houseCARL folder; else fresh / explicit into=/patch_name.
             string? autoInto = (string.IsNullOrWhiteSpace(into) && string.IsNullOrWhiteSpace(patchName))
@@ -1703,7 +1703,7 @@ public sealed class LoadOrderService : IDisposable
             if (size != built.Bytes.Length)
                 return SeqOutcome.Fail($"wrote '{seqName}' but its on-disk size ({size}) does not match the {built.Bytes.Length} expected byte(s) — verify before relying on it.");
 
-            return new SeqOutcome(true, null, dest, rf.ModFolder, built.Quests, built.PluginFileName, null, autoInto is not null);
+            return new SeqOutcome(true, null, dest, rf.ModFolder, built.Quests, built.PluginFileName, autoInto is not null);
         }
     }
 
@@ -2014,11 +2014,12 @@ public sealed record PlaceOutcome(
 /// plugin, an into= folder houseCARL doesn't own, a failed write). On success: <see cref="Quests"/> is every SGE quest
 /// covered (EMPTY ⇒ the plugin had none, so <see cref="SeqPath"/> is null and nothing was written — a clean no-op, not a
 /// failure); <see cref="SeqPath"/> is the written <c>.seq</c> and <see cref="ModFolder"/> the houseCARL mod it landed in;
-/// <see cref="WroteIntoPluginFolder"/> is true when it defaulted into the plugin's OWN folder (so one mod enables both).</summary>
+/// <see cref="WroteIntoPluginFolder"/> is true when it defaulted into the plugin's OWN folder (so one mod enables both).
+/// A write-failure residue path (a fresh folder kept because the write half-landed) is folded into <see cref="Error"/>.</summary>
 public sealed record SeqOutcome(
     bool Success, string? Error, string? SeqPath, string? ModFolder,
-    IReadOnlyList<HousecarlCore.SeqFile.SeqQuest> Quests, string PluginFileName, string? LeftoverFolder, bool WroteIntoPluginFolder)
+    IReadOnlyList<HousecarlCore.SeqFile.SeqQuest> Quests, string PluginFileName, bool WroteIntoPluginFolder)
 {
     public static SeqOutcome Fail(string error)
-        => new(false, error, null, null, Array.Empty<HousecarlCore.SeqFile.SeqQuest>(), "", null, false);
+        => new(false, error, null, null, Array.Empty<HousecarlCore.SeqFile.SeqQuest>(), "", false);
 }
