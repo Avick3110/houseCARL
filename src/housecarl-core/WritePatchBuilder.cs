@@ -152,6 +152,12 @@ public static class WritePatchBuilder
         /// pure record-write. See <see cref="DialogueScriptCheck"/>.</summary>
         public ScriptBindingReport? ScriptBinding { get; init; }
 
+        /// <summary>The structural-shell report for the cells this call created (the coordinate-keyed §4-(b) teeth —
+        /// what world content the author must still provide; Aaron 2026-06-20: no CK work) — null unless the call created
+        /// ≥1 Cell. Filled by the SERVICE post-write the SAME way as <see cref="Voice"/>, so <see cref="CreateRecords"/>
+        /// stays a pure record-write. See <see cref="CellShellCheck"/>.</summary>
+        public CellShellReport? CellShell { get; init; }
+
         public static CreateOutcome Fail(string error) =>
             new(false, error, "", false, Array.Empty<CreatedRecord>(), Array.Empty<string>(), 0);
     }
