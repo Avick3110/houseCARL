@@ -1,3 +1,4 @@
+using System.Globalization;
 using Mutagen.Bethesda;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Plugins.Cache;
@@ -183,7 +184,9 @@ public static class WritePatchBuilder
         x = y = 0;
         if (string.IsNullOrWhiteSpace(grid)) return false;
         var parts = grid.Split(',');
-        return parts.Length == 2 && int.TryParse(parts[0].Trim(), out x) && int.TryParse(parts[1].Trim(), out y);
+        return parts.Length == 2
+            && int.TryParse(parts[0].Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out x)
+            && int.TryParse(parts[1].Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out y);
     }
 
     /// <summary>Build/extend a patch from <paramref name="edits"/> and serialize it to <paramref name="outPath"/>.

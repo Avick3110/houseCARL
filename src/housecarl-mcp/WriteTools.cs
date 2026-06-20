@@ -405,6 +405,10 @@ public static class WriteTools
             foreach (var m in c.MustProvide)
                 sb.Append("      - ").Append(m).Append('\n');
         }
+        // Q3 — declare the un-checked grid-occupancy seam (full load-order occupancy detection is a follow-up; never a
+        // silent omission). Only an EXTERIOR cell collides on a grid; an interior cell has no grid identity.
+        if (report.Cells.Any(c => !c.Interior))
+            sb.Append("  note: houseCARL does NOT check grid-occupancy — a NEW exterior cell at a grid your load order already fills collides (engine behavior undefined). To change an existing cell, OVERRIDE it instead of creating a new one.\n");
         if (report.CheckError is not null)
             sb.Append("  cell-shell check could not run: ").Append(report.CheckError).Append(" — the cell(s) WERE created; review world content manually.\n");
     }
