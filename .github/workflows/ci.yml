@@ -109,6 +109,14 @@ jobs:
       - name: Probe — nested-record create (self-contained regression guard)
         run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- nested-create-guard
 
+      # Self-contained (synthesizes a master with a Worldspace + Weapon — no Skyrim.esm, unlike the manual coord-cell-probe
+      # scout) and drives the REAL CreateRecords: locks in COORDINATE-KEYED cell create (the §4-(b) seam, dev/plans/
+      # COORD_KEYED_CELL_CREATE_BUILD_2026-06-20.md) — exterior cell by grid (block=floor(grid/32), subblock=floor(grid/8)),
+      # interior cell by FormID digits (block=id%10, subblock=(id/10)%10), placed-into-not-yet-present-cell, and the four
+      # malformed rejects (grid+no-parent, parent+no-grid, bad-grid, grid+non-Worldspace-parent — all no file written).
+      - name: Probe — coordinate-keyed cell create (self-contained regression guard)
+        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- coord-cell-guard
+
       # Self-contained (synthesizes a master with one dialogue topic per validation shape — no external files), runs
       # fully here: a regression guard locking in the on-demand dialogue-graph validator (nested-dialogue plan §3.6,
       # Layer B unit C2 — housecarl_validate_dialogue): the graph checks (PNAM chain, quest + branch wiring), the reused

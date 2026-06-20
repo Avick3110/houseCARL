@@ -201,6 +201,11 @@ if (args.Length > 0 && args[0] == "nested-create-proof") return NestedCreateProo
 // (interior, FormID digits), checks override is thin, block math vs vanilla, OFST regen, source byte-unchanged.
 if (args.Length > 0 && args[0] == "coord-cell-probe") return CoordCellProbe.RunProbe(args[1..]);
 
+// CI regression guard for coordinate-keyed cell create (§4-(b)): drives the REAL CreateRecords path against a
+// synthesized Worldspace+Weapon master in TEMP (no Skyrim.esm) — exterior by grid, interior by FormID digits,
+// placed-into-new-cell, + the malformed rejects (no-worldspace / no-grid / bad-grid / non-worldspace-parent).
+if (args.Length > 0 && args[0] == "coord-cell-guard") return CoordCellGuardProbe.RunGuard(args[1..]);
+
 // Wave 4 scout: recon Mutagen's IFormLinkOrIndex condition-target API — the form-vs-index discriminator (condition oracle), the wave-4 unknown.
 if (args.Length > 0 && args[0] == "condition-probe") return ConditionProbe.RunConditionProbe(args[1..]);
 
