@@ -14,7 +14,13 @@ It can:
 - **Author patches** — set / add / remove fields, edit leveled lists and containers, retune records,
   re-target conditions — emitted as a new MO2 mod folder (`houseCARL - <name>`).
 - **Create new records** (new FormIDs) and **remove** records or individual entries; unused masters are
-  cleaned automatically.
+  cleaned automatically. Author a whole nested dialogue conversation in one call, validate a dialogue
+  graph on demand, and write the `.seq` file a plugin's start-game-enabled quests need.
+- **VFS asset layer** — read which copy of any Data-relative file (mesh, texture, script, sound,
+  interface) actually wins your load order (the overwrite folder, a specific mod, Data, or inside a BSA),
+  and place a file as a winning override into a new MO2 mod folder; loose-vs-BSA aware, with FaceGen as the
+  headline use case. "Wrote it" is reported honestly as not yet "it wins" — you still enable and sort the
+  new mod in MO2.
 - **Drive the external toolchain** — compile Papyrus scripts through the Creation Kit's compiler, and
   list / extract / repack BSA archives via BSArch; each tool's path is auto-detected or set once.
 - **Decompile compiled scripts** — reconstruct reviewable `.psc` source from any `.pex` (Mutagen-native,
@@ -24,10 +30,11 @@ It can:
   and latest release straight from Nexus Mods, no browser needed. Read-only; downloading stays your mod
   manager's job.
 - Look up **record schemas** (every type Mutagen models) and **Papyrus / SKSE signatures**, author
-  **SkyPatcher**, **SPID**, and **KID** distributor files, and **review Papyrus scripts for
-  performance** — through bundled, namespaced skills (`/housecarl:mutagen-reference`,
-  `/housecarl:papyrus-reference`, `/housecarl:skypatcher-authoring`, `/housecarl:spid-authoring`,
-  `/housecarl:kid-authoring`, `/housecarl:papyrus-optimization`).
+  **SkyPatcher**, **SPID**, and **KID** distributor files, **author Skyrim dialogue**, **review Papyrus
+  scripts for performance**, and **diagnose the dark / grey / black-face NPC bug** — through bundled,
+  namespaced skills (`/housecarl:mutagen-reference`, `/housecarl:papyrus-reference`,
+  `/housecarl:skypatcher-authoring`, `/housecarl:spid-authoring`, `/housecarl:kid-authoring`,
+  `/housecarl:dialogue-authoring`, `/housecarl:papyrus-optimization`, `/housecarl:facegen-diagnostics`).
 
 Coverage is **reflection-driven**: the set of record types houseCARL understands *is* the set Mutagen
 models, by construction — not a hand-maintained subset.

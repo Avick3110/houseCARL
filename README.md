@@ -19,7 +19,13 @@ models — by construction, not a hand-maintained subset.
 - **Author patches** — set / add / remove fields, edit leveled lists and containers, retune records,
   re-target conditions — emitted as a new MO2 mod folder (`houseCARL - <name>`).
 - **Create new records** (new FormIDs) and **remove** records or individual entries; unused masters are
-  cleaned automatically.
+  cleaned automatically. Author a whole nested dialogue conversation in one call, validate a dialogue
+  graph on demand, and write the `.seq` file a plugin's start-game-enabled quests need.
+- **VFS asset layer** — read which copy of any Data-relative file (mesh, texture, script, sound,
+  interface) actually wins your load order (the overwrite folder, a specific mod, Data, or inside a BSA),
+  and place a file as a winning override into a new MO2 mod folder; loose-vs-BSA aware, with FaceGen as the
+  headline use case. "Wrote it" is reported honestly as not yet "it wins" — you still enable and sort the
+  new mod in MO2.
 - **Drive the external toolchain** — compile Papyrus scripts through the Creation Kit's compiler, and
   list / extract / repack BSA archives via BSArch; each tool's path is auto-detected or set once.
 - **Decompile compiled scripts** — reconstruct reviewable `.psc` source from any `.pex` (Mutagen-native,
@@ -52,7 +58,7 @@ models — by construction, not a hand-maintained subset.
 
 ### Download — recommended (modders)
 
-1. Download **`houseCARL-1.2.3.zip`** from the [latest release](https://github.com/Avick3110/houseCARL/releases).
+1. Download **`houseCARL-1.3.0.zip`** from the [latest release](https://github.com/Avick3110/houseCARL/releases).
 2. Unzip it and run **`houseCARL-Setup.exe`**.
 3. Pick your host — **`[1] Claude Code`**, **`[2] Codex`**, or **`[3] Both`**. The installer wires
    everything up:
@@ -82,7 +88,7 @@ cd houseCARL
 
 The script regenerates the reflection rulebook, publishes the server framework-dependent (trimming **off**
 — houseCARL is reflection-driven, so trimming would strip types and silently lose coverage), bundles the
-skills, builds the setup utility, and packs `release/houseCARL-1.2.3.zip`. Install the output with
+skills, builds the setup utility, and packs `release/houseCARL-1.3.0.zip`. Install the output with
 `houseCARL-Setup.exe`, `claude --plugin-dir ./dist/housecarl`, or the bundled local-marketplace
 descriptor — see the script header for details.
 
@@ -121,6 +127,14 @@ Namespaced under `/housecarl:` in Claude (and reachable via `$housecarl` in Code
 - **`papyrus-optimization`** — review a Papyrus script for performance: classify each part broken /
   suboptimal / clean, explain what makes it heavy, and give the fix. The cost-and-habits complement to
   `papyrus-reference`, and houseCARL's first community-contributed skill (DrHeisen).
+- **`facegen-diagnostics`** — walk the dark / grey / black-face NPC bug end to end: compare which plugin
+  wins the NPC record against which mod or BSA wins the facegen file, then place the correct facegen as a
+  winning override or forward the matching appearance into a new plugin, instructing the CK / NifSkope /
+  RaceMenu steps houseCARL can't perform.
+- **`dialogue-authoring`** — author or audit Skyrim dialogue at the data layer: create topics (DIAL) and
+  lines (INFO) in a new plugin, wire them to a branch and quest, attach result scripts, write the
+  start-game-enabled `.seq`, and validate a whole topic's or quest's dialogue graph — encoding the
+  counter-intuitive bookkeeping a byte-valid line skips (and so plays nothing in game).
 
 ## License
 
