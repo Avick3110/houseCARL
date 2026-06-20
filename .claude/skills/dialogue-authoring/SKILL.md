@@ -82,9 +82,8 @@ this skill's job.
 
 2. **Author the topic and its lines in one call** with `housecarl_bulk_create` — declare the `DialogTopic`
    first, then each `DialogResponses` with `parent` naming the topic's editorid (that nests the line into
-   the topic's `Responses`). A FormLink field value can reference a same-call sibling as `@editorid`, so the
-   whole unit is authored at once. A worked example — a player-choice topic, two lines, the second chaining
-   on to another topic:
+   the topic's `Responses`, so a line cannot stand alone). A worked example — a player-choice topic with two
+   lines, the second chaining on to another topic:
 
    ```json
    records=[
@@ -99,20 +98,34 @@ this skill's job.
          { "field_path": "Prompt",    "value": "Tell me about the ring." },
          { "field_path": "Speaker",   "value": "0008F2:MyMod.esp" },
          { "field_path": "Responses", "verb": "Add",
-           "compose": { "Text": "It is older than this city.", "ResponseNumber": 1 } } ] },
+           "compose": { "type": "DialogResponse",
+                        "fields": { "Text": "It is older than this city.", "ResponseNumber": "1" } } } ] },
 
      { "record_type": "DialogResponses", "editorid": "MyMod_AskRing_L2", "parent": "MyMod_AskRing",
        "operations": [
          { "field_path": "Speaker",   "value": "0008F2:MyMod.esp" },
          { "field_path": "Responses", "verb": "Add",
-           "compose": { "Text": "Take it, and be careful.", "ResponseNumber": 1 } },
-         { "field_path": "LinkTo",    "verb": "Add", "value": "@MyMod_FollowUpTopic" } ] }
+           "compose": { "type": "DialogResponse",
+                        "fields": { "Text": "Take it, and be careful.", "ResponseNumber": "1" } } },
+         { "field_path": "LinkTo",    "verb": "Add", "value": "00C3D4:MyMod.esp" } ] }
    ]
    ```
 
-   `LinkTo`, `PreviousDialog`, `Topic`, `Branch` are FormLinks — point any of them at a same-call sibling
-   with `@editorid`, or at an existing record with a `XXXXXX:Plugin.esp` FormID. The call is all-or-nothing:
-   if any spec is malformed nothing is written.
+   Three points about the shape, each checked against the write surface:
+   - **`parent`** nests a line into its topic's `Responses` — how the one-shot says "this line belongs to
+     that topic."
+   - **A spoken row is a composed struct:** `verb:"Add"` with `compose:{ "type":"DialogResponse", "fields":{…} }`.
+     The `type` is required and the values sit under `fields` as **strings** (coerced server-side), so
+     `"ResponseNumber":"1"`, not `1`. (`DialogResponse`, singular, is the spoken-row struct; `DialogResponses`
+     is the INFO record.)
+   - **Same-call links use `@editorid`.** A record created in the same call has no FormKey yet, so reference it
+     as `@editorid` — valid **only** as a `Set` value on a **singular** FormLink (`Topic`, `PreviousDialog`,
+     `Branch`). E.g. to force L2 after L1 (the rare deliberate-sequence case — see the flow model) add
+     `{ "field_path":"PreviousDialog", "value":"@MyMod_AskRing_L1" }` to L2. A **list** FormLink like `LinkTo`,
+     and any existing or external record, takes a `XXXXXX:Plugin.esp` FormID instead — as the cross-topic
+     `LinkTo` above does.
+
+   The call is **all-or-nothing**: if any spec is malformed, nothing is written.
 
 3. **Author the conditions deliberately** — they are the gate the validator cannot check. A line with no
    conditions fires whenever its topic is reached; gate it with `GetStage` (quest progress) and a speaker

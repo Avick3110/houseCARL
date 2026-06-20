@@ -34,7 +34,10 @@ voice check needed a runtime-FormID bridge was wrong; it does not.
 3. **One presence check per response line** — `_1`, `_2`, … — because one INFO can hold several spoken rows.
    A single `_1` check is wrong for a multi-row INFO.
 4. **`<VoiceType>`** — comes from the **speaker** (the NPC's or quest-alias's voice type), not the INFO.
-   It is an author-time-knowable input, but it is a real input to resolve.
+   It is an author-time-knowable input, but it is a real input to resolve. houseCARL derives the folder name
+   from the VoiceType's **EditorID**; that the on-disk folder equals the VoiceType EditorID is the one
+   unverified assumption in the path — if a mod ships its audio under a folder that differs from the VoiceType
+   EditorID, the computed path is wrong, so check that first when a path doesn't match.
 
 ## Two traps
 

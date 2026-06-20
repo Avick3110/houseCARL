@@ -16,10 +16,11 @@ Field names below are Mutagen spellings (what `housecarl_create_record` / `house
   consult it to pick lines. Usually unreferenced — you rarely need to author one.
 - **DLBR — Dialog Branch** (`DialogBranch`): a conversation / choice ENTRY POINT.
   `Quest` (QNAM) · `Category` (TNAM — `Player` for player choice menus) · `StartingTopic` (SNAM → the
-  first DIAL of the branch) · `Flags` (TopLevel / Blocking / Normal).
+  first DIAL of the branch) · `Flags` (TopLevel / Blocking / Exclusive).
 - **DIAL — Dialog Topic** (`DialogTopic`): groups INFOs. Key fields:
   `Branch` (BNAM — back-link to its DLBR; **often unset** — generic topics have none) · `Quest` (QNAM) ·
-  `Subtype` / `SubtypeName` (Custom for branch topics; Goodbye / Hello / Service / … for generic) ·
+  `Subtype` / `SubtypeName` (Custom for branch topics; Goodbye / Hello / … for generic — confirm exact
+  values via the `mutagen-reference` skill; note `Service` is a `Category`, not a `Subtype`) ·
   `Category` · `Priority` · `Responses[]` = the INFOs under this topic.
 - **INFO — Dialog Info** (`DialogResponses`): THE CONTENT — one entry in a topic's `Responses` list.
   `Conditions` (CTDA) · `Responses[]` (the spoken row(s) — **one INFO can hold several `DialogResponse`
