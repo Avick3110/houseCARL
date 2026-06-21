@@ -210,6 +210,14 @@ jobs:
       - name: Probe — corpus structural hygiene (self-contained regression guard)
         run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- corpus-hygiene-guard
 
+      # Plugin packaging validation (the 1.3 pre-release gate catch): every shipped SKILL.md frontmatter parses as
+      # YAML with name+description (a parse failure makes the harness silently drop ALL metadata — the dialogue-
+      # authoring colon-space bug that slipped to release-prep because CI never validated the PACKAGE, only
+      # `claude plugin validate --strict` did, by hand), and the manifest carries name+version. RED-proven in-code
+      # against the exact bug. Self-contained — reads the repo's own .claude/skills/*/SKILL.md + plugin.json.
+      - name: Probe — plugin packaging validation (SKILL.md frontmatter + manifest)
+        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- plugin-validate-guard
+
       # Nested compose + serialize-boundary null-arm refusal (HCBR 1.1 null-arm half + serialize-NRE / PR-C). PART A:
       # a compose's nested set carried no `compose`, so a sets[] entry could only set a scalar, never SELECT a
       # polymorphic sub-arm (a Condition's Data). NestedSet gained an optional Compose and MapStruct propagates it into

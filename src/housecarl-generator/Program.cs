@@ -401,6 +401,13 @@ if (args.Length > 0 && args[0] == "bsa-probe") return BsaProbe.Run(args[1..]);
 // read-only projection arm, no degenerate field-less struct) — each RED-proven against a synthetic violation.
 if (args.Length > 0 && args[0] == "corpus-hygiene-guard") return CorpusHygieneProbe.RunGuard(args[1..]);
 
+// Plugin packaging validation (the 1.3 pre-release gate catch): SELF-CONTAINED CI regression guard — every shipped
+// SKILL.md frontmatter parses as YAML with name+description (the harness silently drops ALL metadata on a parse
+// failure — the dialogue-authoring colon-space bug, present-on-disk-but-invisible-to-triggering), and the plugin
+// manifest carries name+version. RED-proven against the exact colon-space, a missing key, and a missing fence.
+// Reads the REAL repo artifacts (.claude/skills/*/SKILL.md + plugin.json; CWD = repo root, as the corpus gen assumes).
+if (args.Length > 0 && args[0] == "plugin-validate-guard") return PluginValidateProbe.RunGuard(args[1..]);
+
 var outputDir = Path.GetFullPath(args.Length > 0 ? args[0] : "generated");
 // The slim reference tree ships INSIDE the skill (tracked); corpus.json + summary stay in generated/.
 // Default assumes the generator is run from the repo root (as `dotnet run --project src/housecarl-generator`).
