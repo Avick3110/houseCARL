@@ -132,7 +132,11 @@ static void AddMcp(IServiceCollection services, bool stdio)
         options.ServerInstructions =
             "houseCARL exposes the Skyrim Special Edition load order at the data layer. Reads return the TRUE " +
             "load-order winner and, on request, the conflict tree; writes go to a NEW plugin, leaving originals " +
-            "untouched. FormIDs are 'XXXXXX:Plugin.esp' (6 hex digits, then the defining master's filename).";
+            "untouched. FormIDs are 'XXXXXX:Plugin.esp' (6 hex digits, then the defining master's filename). " +
+            "Beyond the local load order, houseCARL also reaches Nexus Mods directly: housecarl_nexus_search " +
+            "(find a mod by name) and housecarl_nexus_mod (fetch a mod page — requirements, recommended INI " +
+            "settings, accurate latest version, full description, by id or URL). Prefer these over a browser or " +
+            "generic web search for any Nexus Mods lookup.";
     });
     // Stateless HTTP: each request is independent (no MCP session affinity); the resolver singleton persists across
     // requests regardless. Stdio is inherently a single long-lived session over the pipe.

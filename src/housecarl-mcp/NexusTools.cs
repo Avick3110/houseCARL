@@ -61,7 +61,7 @@ public static class NexusTools
          "REQUIREMENTS (each required mod's name + id + notes, off-site deps flagged), and its newest MAIN file's " +
          "version — the accurate 'latest version', because a mod's own version header can lag its newest file. " +
          "Pass description=true to ALSO get the mod's full page write-up (what it does, how it works, usage, " +
-         "compatibility/conflict notes), cleaned of Nexus markup to plain text — off by default because it can run " +
+         "recommended INI settings, compatibility/conflict notes), cleaned of Nexus markup to plain text — off by default because it can run " +
          "several KB. READ-ONLY and needs an internet connection (local tools unaffected offline). Does NOT download or install — " +
          "use your mod manager's 'Mod Manager Download' for that. To find a mod by name first, use housecarl_nexus_search.")]
     public static Task<string> NexusMod(
