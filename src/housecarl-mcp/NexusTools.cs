@@ -69,7 +69,7 @@ public static class NexusTools
         [Description("The mod to look up: a numeric Nexus mod id (e.g. 12604) or a full mod URL (e.g. https://www.nexusmods.com/skyrimspecialedition/mods/12604).")]
             string mod,
         [Description("Optional. When true, also include the mod's FULL page description — the long write-up of what it " +
-            "does, how it works, usage, and compatibility/conflict notes — cleaned of Nexus BBCode/HTML markup to plain " +
+            "does, how it works, usage, recommended INI settings, and compatibility/conflict notes — cleaned of Nexus BBCode/HTML markup to plain " +
             "text (capped, with an explicit marker if truncated). Default false: the lookup returns the compact summary, " +
             "requirements, and latest version only, because the full description can run several KB. Set true when you " +
             "need the detail, e.g. comparing two mods or understanding how one works.")]
