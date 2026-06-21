@@ -14,20 +14,24 @@ namespace HousecarlGenerator;
 /// pre-release gate: a single colon-space inside the unquoted description ("...the records themselves:
 /// distributing...") made YAML read a nested mapping, threw, and dropped name+description. It passed PR review
 /// and CI green because CI never validated the plugin PACKAGE — only `claude plugin validate --strict` (a
-/// manual, rig-time step) caught it. This guard turns that manual catch into a by-construction CI gate, so the
-/// class can never reach release again.
+/// manual, rig-time step) caught it. This guard turns that manual catch into a by-construction CI gate, so this
+/// class is caught at PR time, not at release (the manual --strict stays as belt-and-suspenders — see INV1).
 ///
 /// Self-contained, in the corpus-hygiene-guard pattern: it reads the REAL shipped artifacts from the repo
-/// (every .claude/skills/*/SKILL.md + plugin/.claude-plugin/plugin.json — CWD is the repo root, as the
-/// generator's corpus default already assumes) and asserts each invariant GREEN over them, paired with a RED
+/// (every .claude/skills/*/SKILL.md, the Codex umbrella plugin/codex/housecarl/SKILL.md, and the manifest
+/// plugin/.claude-plugin/plugin.json — CWD is the repo root, as the generator's corpus default already assumes)
+/// and asserts each invariant GREEN over them, paired with a RED
 /// arm that feeds the SAME checker a synthetic violation and asserts it FIRES — so a GREEN can never mean "no
 /// skill happened to be broken", only "the checker has teeth and every real skill passes it".
 ///
-///   INV1 — EVERY SKILL FRONTMATTER PARSES + CARRIES name/description. The leading --- ... --- fenced block
-///          parses as a YAML mapping via a REAL parser (YamlDotNet — not a hand-rolled approximation that could
-///          drift from the harness's parser) with a non-empty `name` and `description`. (RED: the literal
-///          colon-space description that dropped dialogue-authoring; a frontmatter missing `description`; a file
-///          with no fence at all — each must be caught.)
+///   INV1 — EVERY SHIPPED SKILL FRONTMATTER PARSES + CARRIES name/description, across BOTH shipped trees (the
+///          Claude Code skills under .claude/skills AND the Codex umbrella plugin/codex/housecarl). The leading
+///          --- ... --- fenced block parses as a YAML mapping with a non-empty `name` and `description`. The parse
+///          uses a real YAML parser (YamlDotNet) — a FAITHFUL PROXY for, not byte-identical to, the harness's own
+///          (JS) YAML parser: it reliably catches the colon-space class (RED-proven below), but the residual risk
+///          is a false-NEGATIVE (YamlDotNet accepts what the real loader would drop), which is why the manual
+///          --strict stays the belt-and-suspenders. (RED: the literal colon-space description that dropped
+///          dialogue-authoring; a frontmatter missing `description`; a file with no fence at all.)
 ///   INV2 — THE PLUGIN MANIFEST PARSES + CARRIES name/version. plugin.json is valid JSON with a non-empty
 ///          string name + version (the single source of truth the build stamps). (RED: a manifest missing
 ///          version.)
@@ -45,38 +49,38 @@ public static class PluginValidateProbe
         try
         {
             // ---------- INV1 — every shipped skill's frontmatter parses + has name/description ----------
-            var skillsRoot = Path.Combine(".claude", "skills");
-            if (!Directory.Exists(skillsRoot))
-            {
-                Check("INV1-GREEN skills root resolves (run from repo root)", false,
-                    new() { $"'{Path.GetFullPath(skillsRoot)}' not found — CWD must be the repo root" });
-            }
-            else
-            {
-                var skillFiles = Directory
-                    .GetFiles(skillsRoot, "SKILL.md", SearchOption.AllDirectories)
-                    .OrderBy(p => p, StringComparer.Ordinal).ToList();
-                // loud-fail on zero: a wrong CWD must never read as "all skills valid" (Q3)
-                Check($"INV1-GREEN found shipped skills to validate ({skillFiles.Count})", skillFiles.Count > 0,
-                    new() { "no SKILL.md under .claude/skills — wrong CWD or empty tree" });
-                foreach (var f in skillFiles)
-                {
-                    var skill = Path.GetFileName(Path.GetDirectoryName(f)!);
-                    var v = ValidateSkillFrontmatter(File.ReadAllText(f));
-                    Check($"INV1-GREEN skill '{skill}' frontmatter parses + has name/description", v.Count == 0, v);
-                }
+            // BOTH shipped frontmatter trees are in scope: the Claude Code skills (.claude/skills, bundled by
+            // build-plugin.ps1) AND the Codex umbrella skill (plugin/codex/housecarl, shipped separately by the
+            // same build). Both carry a YAML frontmatter the respective loader parses, so both are exposed to the
+            // parse-failure class — walking only .claude/skills would leave the Codex skill's same-shape
+            // description unguarded (PR #95 review).
+            var skillRoots = new[] { Path.Combine(".claude", "skills"), "plugin" };
+            foreach (var root in skillRoots)
+                Check($"INV1-GREEN skill root '{root}' resolves (run from repo root)", Directory.Exists(root),
+                    new() { $"'{Path.GetFullPath(root)}' not found — CWD must be the repo root" });
 
-                // RED arms — the SAME checker must catch each class, or it is toothless
-                RedSkill("INV1-RED  colon-space description (the dialogue-authoring bug) is caught",
-                    "---\nname: x\ndescription: it edits the records themselves: distributing forms is SPID\n---\n",
-                    s => s.Contains("parse", StringComparison.OrdinalIgnoreCase));
-                RedSkill("INV1-RED  a frontmatter missing 'description' is caught",
-                    "---\nname: x\n---\n",
-                    s => s.Contains("description", StringComparison.OrdinalIgnoreCase));
-                RedSkill("INV1-RED  a file with no --- fence is caught",
-                    "# Heading\nbody, no frontmatter\n",
-                    s => s.Contains("frontmatter", StringComparison.OrdinalIgnoreCase));
+            var skillFiles = skillRoots.Where(Directory.Exists)
+                .SelectMany(r => Directory.GetFiles(r, "SKILL.md", SearchOption.AllDirectories))
+                .Distinct().OrderBy(p => p, StringComparer.Ordinal).ToList();
+            // loud-fail on zero: a wrong CWD must never read as "all skills valid" (Q3)
+            Check($"INV1-GREEN found shipped skill frontmatters to validate ({skillFiles.Count})", skillFiles.Count > 0,
+                new() { "no SKILL.md under .claude/skills or plugin/ — wrong CWD or empty tree" });
+            foreach (var f in skillFiles)
+            {
+                var v = ValidateSkillFrontmatter(File.ReadAllText(f));
+                Check($"INV1-GREEN '{RelLabel(f)}' frontmatter parses + has name/description", v.Count == 0, v);
             }
+
+            // RED arms — the SAME checker must catch each class, or it is toothless
+            RedSkill("INV1-RED  colon-space description (the dialogue-authoring bug) is caught",
+                "---\nname: x\ndescription: it edits the records themselves: distributing forms is SPID\n---\n",
+                s => s.Contains("parse", StringComparison.OrdinalIgnoreCase));
+            RedSkill("INV1-RED  a frontmatter missing 'description' is caught",
+                "---\nname: x\n---\n",
+                s => s.Contains("description", StringComparison.OrdinalIgnoreCase));
+            RedSkill("INV1-RED  a file with no --- fence is caught",
+                "# Heading\nbody, no frontmatter\n",
+                s => s.Contains("frontmatter", StringComparison.OrdinalIgnoreCase));
 
             // ---------- INV2 — the plugin manifest parses + has name/version ----------
             var manifestPath = Path.Combine("plugin", ".claude-plugin", "plugin.json");
@@ -176,4 +180,12 @@ public static class PluginValidateProbe
     }
 
     static string FirstLine(string s) => s.Replace("\r", "").Split('\n')[0];
+
+    /// <summary>A repo-root-relative, forward-slashed label for a SKILL.md's directory — so
+    /// '.claude/skills/dialogue-authoring' and 'plugin/codex/housecarl' are both unambiguous in the CI log.</summary>
+    static string RelLabel(string file)
+    {
+        var dir = Path.GetDirectoryName(Path.GetFullPath(file))!;
+        return Path.GetRelativePath(Directory.GetCurrentDirectory(), dir).Replace('\\', '/');
+    }
 }
