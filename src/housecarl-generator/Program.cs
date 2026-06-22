@@ -27,6 +27,12 @@ if (args.Length > 0 && args[0] == "pkcu-regression") return PkcuProbe.RunRegress
 // condition whose arm carries a System.Type Parameter1Type, asserts a deep read renders it as one opaque token.
 if (args.Length > 0 && args[0] == "depth-leak-guard") return DepthLeakProbe.RunGuard(args[1..]);
 
+// VMAD script-property VALUE read (1.3.1 item 2): SELF-CONTAINED CI regression guard — synthesizes an INFO whose
+// VMAD carries object/null/scalar script properties, asserts a depth=2 read surfaces each property's value one
+// bounded level deeper (Object FormLink, "(null link)" for declared-but-None, Data scalar) while the summary line
+// is kept and a non-property substruct still stops at the floor.
+if (args.Length > 0 && args[0] == "vmad-property-read-guard") return VmadPropertyReadProbe.RunGuard(args[1..]);
+
 // ConditionData form-link parameter read (HCBR-2026-06-09-02): SELF-CONTAINED CI regression guard — synthesizes a
 // COBJ HasPerk gate, asserts the form-mode FLOI renders its FormKey (and alias mode its index) on overlay + mutable.
 if (args.Length > 0 && args[0] == "floi-read-guard") return FloiReadProbe.RunGuard(args[1..]);

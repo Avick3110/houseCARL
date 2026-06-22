@@ -47,6 +47,11 @@ jobs:
       - name: Probe — depth-walker reflection leak (self-contained regression guard)
         run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- depth-leak-guard
 
+      # Self-contained (synthesizes an INFO whose VMAD carries object/null/scalar script properties — no external
+      # files), runs fully here: a regression guard locking in the VMAD script-property VALUE read (1.3.1 item 2).
+      - name: Probe — VMAD script-property value read (self-contained regression guard)
+        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- vmad-property-read-guard
+
       # Self-contained (synthesizes a COBJ HasPerk gate + writes/reopens it as a binary overlay — no external files),
       # runs fully here: a regression guard locking in the floi form-mode FormKey read fix (HCBR-2026-06-09-02).
       - name: Probe — ConditionData form-link parameter read (self-contained regression guard)
