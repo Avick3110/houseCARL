@@ -108,6 +108,13 @@ static class DialogueWire
         sb.Append(pad).Append("  category=").Append(t.Category).Append("  subtype=").Append(t.Subtype)
           .Append("  subtype_marker=").Append(t.SubtypeName).Append('\n');
 
+        // Fragment-presence note (item 8): tells a dev whether to expect a Papyrus.log entry — only a result-script
+        // FRAGMENT line logs when it fires; a plain voiced line does not. Always shown for a topic with live INFOs.
+        if (t.InfoCount > 0)
+            sb.Append(pad).Append("  result-script fragments: ").Append(t.FragmentInfoCount).Append(" of ").Append(t.InfoCount)
+              .Append(t.InfoCount == 1 ? " INFO carries one" : " INFOs carry one")
+              .Append(" — only a fragment line logs to Papyrus.log when it fires (a plain voiced line does not).\n");
+
         // --- graph issues (PNAM chain, quest + branch wiring) ---
         if (t.Issues.Count == 0)
             sb.Append(pad).Append("  graph: OK — quest + branch wiring resolve, LinkTo targets resolve, no dangling PNAM.\n");
