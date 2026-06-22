@@ -72,6 +72,16 @@ public sealed record TopicValidation(
     IReadOnlyList<VoiceUndetermined> VoiceUndetermined,
     IReadOnlyList<ScriptBindingFinding> ScriptFindings);
 
+/// <summary>The SEQ staleness/coverage lint result for a QUEST-input validation (item 7); null for a non-SGE quest
+/// or a DIAL input. A Start-Game-Enabled quest needs a <c>.seq</c> that LISTS it (by its on-disk FormID) and is NEWER
+/// than its defining plugin, or it is dormant on a fresh save — its dialogue never shows. <see cref="SeqContainsQuest"/>
+/// and <see cref="SeqNewerThanPlugin"/> are null when undeterminable (the winning <c>.seq</c> is inside a BSA, or
+/// unreadable — <see cref="Note"/> says why); <see cref="OnDiskFormId"/> is the 4-byte value a <c>.seq</c> must
+/// contain for this quest (0 when it couldn't be computed).</summary>
+public sealed record SeqLintFinding(
+    bool QuestIsSge, string DefiningPlugin, uint OnDiskFormId,
+    bool SeqExists, bool? SeqContainsQuest, bool? SeqNewerThanPlugin, string? Note);
+
 /// <summary>The whole-validation report for one <c>housecarl_validate_dialogue</c> call: the resolved input
 /// (<see cref="Input"/>, <see cref="InputKind"/> = "topic"/"quest"/"error", <see cref="InputEditorId"/>) and the
 /// per-topic validations. A top-level recoverable miss (the FormID isn't in the order, or resolves to neither a
@@ -85,6 +95,10 @@ public sealed record DialogueValidationReport(
     public string? Error { get; init; }
     public string? CheckError { get; init; }
     public bool ReadIncomplete { get; init; }
+
+    /// <summary>The SEQ staleness/coverage lint (item 7), set only for a Start-Game-Enabled QUEST input; null
+    /// otherwise (a non-SGE quest, or a DIAL input — a topic isn't a quest, so a .seq isn't its concern).</summary>
+    public SeqLintFinding? SeqLint { get; init; }
 
     /// <summary>The FormID isn't in the active order, or resolves to neither a DIAL nor a QUST — a recoverable,
     /// named error the tool renders as guidance (Q3), not a thrown failure.</summary>
@@ -158,6 +172,10 @@ public static class DialogueValidate
                 // on-demand validate, not a hot path). Each scanned body is FULLY walked by ValidateTopic before the
                 // scan iterator advances (and disposes that overlay) — the WinnerRecordsOfType consume-before-advance
                 // contract.
+                // SEQ staleness/coverage lint (item 7): keyed on the QUEST input, independent of its topics — a
+                // start-game-enabled quest needs a .seq that lists it, or it (and all its dialogue) stays dormant.
+                var seqLint = CheckSeq(view, av, fk, quest);
+
                 var topics = new List<TopicValidation>();
                 foreach (var (tfk, _, tbody) in view.WinnerRecordsOfType(DialTypes))
                 {
@@ -167,7 +185,7 @@ public static class DialogueValidate
                     topics.Add(ValidateTopic(dt, wp, InOrder, Resolve, av));
                 }
                 return new DialogueValidationReport(fk, "quest", quest.EditorID ?? "", win.Value.WinnerPlugin, topics)
-                    { ReadIncomplete = av.ReadIncomplete };
+                    { ReadIncomplete = av.ReadIncomplete, SeqLint = seqLint };
             }
 
             return DialogueValidationReport.ForError(fk,
@@ -286,6 +304,48 @@ public static class DialogueValidate
             topic.FormKey, edid, winnerPlugin, infoCount, conditioned, deleted, fragmentInfos,
             topic.Category.ToString(), topic.Subtype.ToString(), DescribeSubtypeName(topic.SubtypeName),
             issues, voiceLines, voiceUndet, scriptFindings);
+    }
+
+    /// <summary>SEQ staleness/coverage lint (item 7) for a QUEST input: if the quest is Start-Game-Enabled, does its
+    /// DEFINING plugin have a <c>.seq</c> that LISTS it (by its on-disk FormID) and is NEWER than the plugin? An SGE
+    /// quest with a missing / non-listing / stale <c>.seq</c> is dormant on a fresh save — its dialogue never shows
+    /// (the silent-failure class houseCARL refuses, Q3). Returns null for a non-SGE quest (no <c>.seq</c> needed, no
+    /// lint). Fault-isolated: any IO/parse failure yields a NAMED note rather than a throw, so a SEQ-check failure
+    /// can't sink the whole validation. The winning <c>.seq</c> is resolved via the VFS (loose beats BSA); a
+    /// BSA-resident <c>.seq</c> has no loose path, so its contents + mtime are undeterminable here — surfaced as a
+    /// note, never a false "OK" or a false "stale" (Q3).</summary>
+    internal static SeqLintFinding? CheckSeq(LoadOrderResolver.IndexView view, AssetResolver.AssetView av,
+        FormKey fk, IQuestGetter quest)
+    {
+        if (!quest.Flags.HasFlag(Quest.Flag.StartGameEnabled)) return null;   // not SGE → no .seq needed, no lint
+        var defining = fk.ModKey.FileName;
+        try
+        {
+            var pluginPath = view.PluginPath(defining);
+            if (pluginPath is null)
+                return new SeqLintFinding(true, defining, 0, false, null, null,
+                    $"could not locate the defining plugin '{defining}' on disk to check its .seq.");
+
+            uint onDisk = SeqFile.OnDiskFormIdFromPlugin(pluginPath, fk);
+            var seqRel = $@"SEQ\{Path.GetFileNameWithoutExtension(defining)}.seq";
+            var winner = av.ResolveForPlacement(seqRel).Sources.FirstOrDefault();
+
+            if (winner is null)                                              // no .seq anywhere in the VFS
+                return new SeqLintFinding(true, defining, onDisk, false, null, null, null);
+
+            if (winner.LooseFilePath is null)                               // the winning .seq is inside a BSA
+                return new SeqLintFinding(true, defining, onDisk, true, null, null,
+                    "the winning .seq is inside a BSA, so its contents and modification time can't be checked here.");
+
+            var seqBytes = File.ReadAllBytes(winner.LooseFilePath);
+            bool contains = SeqFile.SeqContains(seqBytes, onDisk);
+            bool newer = File.GetLastWriteTimeUtc(winner.LooseFilePath) >= File.GetLastWriteTimeUtc(pluginPath);
+            return new SeqLintFinding(true, defining, onDisk, true, contains, newer, null);
+        }
+        catch (Exception ex)
+        {
+            return new SeqLintFinding(true, defining, 0, false, null, null, $"the .seq check could not run: {ex.Message}");
+        }
     }
 
     /// <summary>A 4-char SubtypeName marker as text, or "&lt;none&gt;" for the empty/default RecordType — so a

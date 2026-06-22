@@ -70,6 +70,7 @@ static class DialogueWire
             if (r.Topics.Count == 0)
                 sb.Append("  no dialogue topics in the active load order are owned by this quest — nothing to validate. " +
                           "If you expected some, check those topics set DialogTopic.Quest to this quest and that their plugin is enabled.\n");
+            AppendSeq(sb, r.SeqLint);
         }
 
         for (int i = 0; i < r.Topics.Count; i++)
@@ -184,6 +185,36 @@ static class DialogueWire
             if (sb.Length >= cap) { sb.Append(pad).Append("    ... [truncated at max_chars]\n"); return; }
             sb.Append(pad).Append("    [?] ").Append(f.Info).Append("  — ").Append(f.Detail).Append('\n');
         }
+    }
+
+    /// <summary>The SEQ staleness/coverage block (item 7) for a Start-Game-Enabled quest: a WARN (`[!]`) when its
+    /// `.seq` is missing, doesn't list it, or is older than the plugin; an OK line when clean; a `[?]` note when
+    /// undeterminable (the winning `.seq` is in a BSA / unreadable — never a false OK or a false stale, Q3). Plus the
+    /// inverse guidance that stops needless regen. Skipped entirely for a non-SGE quest (SeqLint null).</summary>
+    static void AppendSeq(StringBuilder sb, SeqLintFinding? s)
+    {
+        if (s is null || !s.QuestIsSge) return;
+        string fid = $"0x{s.OnDiskFormId:X8}";
+        if (!s.SeqExists && s.Note is not null)
+            sb.Append("  SEQ: [?] this quest is Start-Game-Enabled but the .seq check could not run — ").Append(s.Note).Append('\n');
+        else if (!s.SeqExists)
+            sb.Append("  SEQ: [!] this quest is Start-Game-Enabled but NO .seq for ").Append(s.DefiningPlugin)
+              .Append(" lists it — on a fresh save the quest stays DORMANT and its dialogue never shows. Run housecarl_write_seq plugin=")
+              .Append(s.DefiningPlugin).Append(".\n");
+        else if (s.SeqContainsQuest is null || s.SeqNewerThanPlugin is null)
+            sb.Append("  SEQ: [?] a .seq for ").Append(s.DefiningPlugin).Append(" exists but couldn't be fully checked — ")
+              .Append(s.Note ?? "its contents/mtime were undeterminable").Append('\n');
+        else if (s.SeqContainsQuest == false)
+            sb.Append("  SEQ: [!] ").Append(s.DefiningPlugin).Append(".seq exists but does NOT list this quest (").Append(fid)
+              .Append(") — it stays dormant on a fresh save. Regenerate with housecarl_write_seq.\n");
+        else if (s.SeqNewerThanPlugin == false)
+            sb.Append("  SEQ: [!] ").Append(s.DefiningPlugin).Append(".seq is OLDER than ").Append(s.DefiningPlugin)
+              .Append(" — it may predate a change to which quests are start-game-enabled or a master/ESL-compaction shift (the one way a .seq goes stale). Regenerate with housecarl_write_seq.\n");
+        else
+            sb.Append("  SEQ: OK — ").Append(s.DefiningPlugin).Append(".seq lists this start-game-enabled quest (").Append(fid)
+              .Append(") and is newer than the plugin.\n");
+        sb.Append("  SEQ note: a .seq is needed only when WHICH quests are start-game-enabled changes (a new SGE quest, or a quest " +
+                  "alias/topic that depends on one) — NOT for a dialogue-only or condition-only edit; those never need a regen.\n");
     }
 
     /// <summary>The ALWAYS-printed footer (grill-rev C2): the validator is the only non-advisory enforcement, so it

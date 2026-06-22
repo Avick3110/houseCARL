@@ -393,6 +393,13 @@ public sealed class LoadOrderResolver : IDisposable
         /// for both (HCBR-2026-06-11-02 verify-loop wave (a)).</summary>
         public bool ContainsPlugin(string pluginName) => _r._nameToIdx.ContainsKey(pluginName);
 
+        /// <summary>The on-disk PATH of the active plugin named <paramref name="pluginName"/> (a filename like
+        /// "MyMod.esp"), or null if no such plugin is in the order. The minimal name→path exposure the dialogue
+        /// validator's SEQ lint needs to stat the quest's defining plugin (mtime) and read its master list; the
+        /// resolver otherwise exposes only filenames (see <see cref="WinnerInfo.WinnerPlugin"/>).</summary>
+        public string? PluginPath(string pluginName)
+            => _r._nameToIdx.TryGetValue(pluginName, out int idx) ? _r._paths[idx] : null;
+
         /// <summary>O(1): the winning plugin + override depth for a FormKey. null if the FormKey isn't in the order.</summary>
         public WinnerInfo? ResolveWinner(FormKey fk)
             => _s.Index.TryGetValue(fk, out var e) ? new WinnerInfo(fk, _r._names[e.winner], e.count) : null;
