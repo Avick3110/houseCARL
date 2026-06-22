@@ -31,19 +31,34 @@ tools.
 - **Evaluate `Conditions` (CTDA).** Conditions decide *when* a line fires; only the running game evaluates
   them, so a wrong or missing condition silently stops a line forever and is **unverifiable at the data
   layer**. This is the single most common silent-dead-dialogue cause and it is on the author to get right.
+  houseCARL *can* read a condition back and **decode** it — the function, its parameters, and its Run On
+  scope ([`references/condition-functions.md`](references/condition-functions.md)) — so you can check it by
+  eye; it cannot tell you whether it *passes*.
 - **Record voice audio or verify lip-sync.** Voice presence is an on-disk file check; the audio content and
   voice *acting* are out of scope.
 - **Promise "this will play" from a clean structural pass.** A green validate means the wiring resolves —
   not that the conditions are correct, the audio exists, or the conversation reads well.
 
-The Skyrim-specific knowledge lives in three references — read the one your task touches:
+The Skyrim-specific knowledge lives in the `references/` files — read the one your task touches:
 - [`references/dialogue-flow-model.md`](references/dialogue-flow-model.md) — how DLVW/DLBR/DIAL/INFO connect
   and what drives the flow (conditions, LinkTo, quest stage, PNAM, DIAL-wins-wholesale). **Read this before
   authoring or auditing anything.**
+- [`references/condition-functions.md`](references/condition-functions.md) — how to **decode** a condition
+  (CTDA): function + params + Run On (Subject vs Target), the operators and the `OR` flag, a curated table of
+  the dialogue/quest condition functions, and CTDA-vs-Papyrus-only. Read before reading or composing any
+  `Conditions`.
+- [`references/dialogue-branch.md`](references/dialogue-branch.md) — the DLBR entry point: its fields and the
+  `TopLevel`/`Blocking`/`Exclusive` flags (one of which can silently lock an NPC out of all dialogue).
+- [`references/quest-objectives-tab.md`](references/quest-objectives-tab.md) — stages vs objectives vs log
+  entries, and why a line gates on the stage while the journal is driven by objectives.
 - [`references/seq-file-format.md`](references/seq-file-format.md) — why a start-game-enabled quest needs a
   `.seq` and what the file is.
 - [`references/voice-file-naming.md`](references/voice-file-naming.md) — the `.fuz`/`.lip` path template and
   the override folder trap.
+
+The condition / branch / quest references are **hand-curated** (sourced from the CK wiki + Mutagen's record
+model, not the by-construction generator), so they carry a staleness duty — provenance and the re-check
+checklist live in [`references/_CORPUS_STATUS.md`](references/_CORPUS_STATUS.md).
 
 ## Read the flow model first
 
@@ -139,8 +154,9 @@ this skill's job.
 3. **Author the conditions deliberately** — they are the gate the validator cannot check. A line with no
    conditions fires whenever its topic is reached; gate it with `GetStage` (quest progress) and a speaker
    check (`GetIsID`/alias) as the flow model describes. Compose each `Condition` per `mutagen-reference`
-   (it is a polymorphic list). Wrong conditions are the #1 silent-dead-dialogue cause — there is no tool
-   that will catch them, so reason them through.
+   (it is a polymorphic list); [`references/condition-functions.md`](references/condition-functions.md) has
+   the function param shapes and the Run On (Subject vs Target) scoping. Wrong conditions are the #1
+   silent-dead-dialogue cause — there is no tool that will catch them, so reason them through.
 
 4. **Result scripts, if the line does something.** Compose the line's `VirtualMachineAdapter` script binding
    (the `TIF_`-style fragment), author the `.psc`, and compile it with `housecarl_compile_script` (never
