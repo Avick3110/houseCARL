@@ -96,6 +96,15 @@ object*, `GetStage`'s `Quest` must be a *QUST*, etc. — a link of the wrong typ
 number, `GetIsAliasRef`'s alias index, `GetVMQuestVariable`'s variable name). A few functions take **no**
 parameter and read state off the Run On object alone (`GetLevel`, `GetDead`, `GetRandomPercent`, …).
 
+> **Composing a form-link param — it is a `FormLinkOrIndex`, not a plain link.** A condition's form-link
+> parameter (`Object`, `Quest`, `Perk`, `ItemOrList`, `Global`, …) is a Mutagen `FormLinkOrIndex<T>`, which
+> `housecarl_read_record` and the `mutagen-reference` schema **normalize to `FormLink<T>`** in their type
+> display — the shown type understates it, because the target can be *either* a real FormID *or* a numeric
+> quest-alias / package-data index. When you compose one, give it a **FormID `XXXXXX:Plugin.esp`** (form mode)
+> or **`alias N` / `packdata N`** (index mode, for an alias-/package-relative target); houseCARL sets the arm's
+> `UseAliases`/`UsePackageData` discriminator for you, and **both** the `compose` `fields:` shorthand and the
+> nested `sets:` path accept it. Don't read the displayed `FormLink<T>` on a condition param as "plain link".
+
 ## Dialogue / quest condition functions (curated)
 
 The functions that show up in quest and dialogue gating, with their **Mutagen parameter shape** (authoritative)
