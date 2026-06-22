@@ -23,10 +23,12 @@ public static class DialogueTools
          "targets, and no previous-link (PNAM) is dangling — an EMPTY PNAM is normal (vanilla selects among a " +
          "topic's lines by their conditions, not a previous-link chain), so absence is never flagged; plus (reusing " +
          "the create-time teeth over every existing line) each voiced line has its .fuz on disk and each result " +
-         "script is bound + compiled; and non-ASCII characters in the player-facing text (topic name, line prompt, " +
-         "response text) are flagged as likely in-game mojibake (the CK/Papyrus surface is Windows-1252/ASCII). It " +
-         "LOUDLY declares what it cannot verify — the CTDA conditions that gate WHEN " +
-         "a line fires (semantic, only the game evaluates them) and lip-sync/audio content — so 'checks " +
+         "script is bound + compiled; non-ASCII characters in the player-facing text (topic name, line prompt, " +
+         "response text) are flagged as likely in-game mojibake (the CK/Papyrus surface is Windows-1252/ASCII); " +
+         "and each line's CTDA conditions are statically checked for a meaningful subset of MALFORMED shapes (a " +
+         "dangling form reference, a dead quest-alias index, an unset Run On reference, GetIsID pointed at a placed " +
+         "instance). It LOUDLY declares what it still cannot verify — it cannot EVALUATE whether a WELL-FORMED " +
+         "condition passes (only the running game can) nor check lip-sync/audio content — so 'checks " +
          "passed' never reads as 'this will play'. Resolves against the load-order WINNERS like every other read. " +
          "A FormID is 'XXXXXX:Plugin.esp'. Does NOT modify anything. To create dialogue lines use " +
          "housecarl_create_record; to inspect a single record use housecarl_read_record.")]
@@ -119,7 +121,7 @@ static class DialogueWire
 
         // --- graph issues (PNAM chain, quest + branch wiring) ---
         if (t.Issues.Count == 0)
-            sb.Append(pad).Append("  graph: OK — quest + branch wiring resolve, LinkTo targets resolve, no dangling PNAM.\n");
+            sb.Append(pad).Append("  graph: OK — quest + branch wiring resolve, LinkTo targets resolve, no dangling PNAM, conditions well-formed (their form references + alias indices resolve).\n");
         else
         {
             sb.Append(pad).Append("  graph: ").Append(t.Issues.Count).Append(" issue(s):\n");
@@ -244,8 +246,8 @@ static class DialogueWire
     static void AppendStandingLimits(StringBuilder sb, int conditioned, bool readIncomplete)
     {
         sb.Append("standing limits — what houseCARL could NOT verify (so a clean pass above does NOT mean the dialogue will play as intended):\n");
-        sb.Append("  • CTDA conditions gate WHEN each line fires; they are semantic and only the game evaluates them, so a wrong/missing condition silently stops a line from ever playing");
-        if (conditioned > 0) sb.Append(" — ").Append(conditioned).Append(" line(s) here carry conditions, unverified");
+        sb.Append("  • CTDA conditions gate WHEN each line fires. houseCARL statically catches a meaningful subset of MALFORMED conditions (a dangling form reference, a dead quest-alias index, an unset Run On reference — surfaced above as graph issues); it still cannot EVALUATE whether a WELL-FORMED condition passes — only the running game can, so a well-formed but wrong condition can still silently stop a line from ever playing");
+        if (conditioned > 0) sb.Append(" — ").Append(conditioned).Append(" line(s) here carry conditions, checked for malformedness but not evaluated");
         sb.Append(".\n");
         sb.Append("  • voice presence is an on-disk file check only — lip-sync accuracy and the audio content itself are not verified (voice acting is out of scope).\n");
         sb.Append("  • this validates the WINNING topic's INFO list (what the game plays); a line another plugin adds but this topic override does not re-list is dropped in game and is not seen here — resolve dialogue conflicts so the winning topic carries every line.\n");

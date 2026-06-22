@@ -34,6 +34,15 @@ namespace HousecarlGenerator;
 ///   FRAGMENT-PRESENCE— a line carrying a real result-script FRAGMENT is reported HasFragment + FragmentInfoCount>=1 (item 8).
 ///   FRAGMENT-FREE— a plain voiced line is fragment-free (FragmentInfoCount 0), COUNTED not omitted (item 8).
 ///   CTDA-COUNT   — a line carrying a Condition is counted (ConditionedInfoCount >= 1) — the standing-CTDA-limit teeth.
+///   COND-CLEAN   — two WELL-FORMED conditions (GetStage on the owning quest + GetIsID on a base npc) report ZERO
+///                  condition issues — the no-false-positive keystone (incl. the GetIsID-on-a-base-form lock) (item 4).
+///   COND-REF-UNSET— Run On a specific Reference with no reference set WARNs ('Run On a specific reference') (item 4).
+///   COND-DEAD-ALIAS— GetIsAliasRef at an alias index the owning quest doesn't define WARNs ('no alias with that ID') (item 4).
+///   COND-ALIAS-OK — GetIsAliasRef at a REAL alias index is NOT flagged — the resolve-aware positive lock (item 4).
+///   COND-DANGLING-PARAM— a condition form param (GetStage's Quest) not in the order WARNs ('not in the active load order') (item 4).
+///   COND-DANGLING-GLOBAL— a ConditionGlobal vs a GLOB not in the order WARNs ('compares against global') (item 4).
+///   COND-GETISID-OK— GetIsID pointed at a BASE object is NOT flagged — the lint-5 no-false-positive lock (item 4).
+///   COND-GETISID-PLACED— GetIsID pointed at a PLACED reference WARNs ('placed reference'), NOT the dangling-param lint (item 4).
 ///   TEXT-MOJIBAKE— a line whose player-facing text carries non-ASCII chars (ellipsis/em-dash) WARNs, naming them (item 1).
 ///   TEXT-CLEAN   — pure-ASCII player-facing text is NOT flagged — the lint keys on >0x7F, not "has text" (item 1).
 ///   QUEST-FANOUT — validating a QUEST fans out to EXACTLY the topics it owns (2 here), kind="quest".
@@ -54,12 +63,14 @@ public static class DialogueValidateGuardProbe
         var mKey = new ModKey("HcDvGuardMaster", ModType.Master);
         string mPath = Path.Combine(tmpDir, mKey.FileName.String);
         FormKey cleanFk, linkBadFk, pnamBadFk, pnamOkFk, deletedFk, noQuestFk, badBranchFk, voicedFk, scriptedFk, condFk, qFanFk, weapFk, encBadFk, encOkFk;
+        FormKey condCleanFk, condRefUnsetFk, condDeadAliasFk, condAliasOkFk, condDanglingFk, condGlobalFk, condGetIsIdOkFk, condGetIsIdFk;
         try
         {
             var m = new SkyrimMod(mKey, SkyrimRelease.SkyrimSE);
 
             // Shared wiring the topics point at: two quests (main + the fan-out owner), a branch, a speaker chain.
             var qMain = m.Quests.AddNew(); qMain.EditorID = "HcDvQuestMain";
+            qMain.Aliases.Add(new QuestAlias { ID = 0, Name = "HcDvAlias0" });   // ONE reference-alias (ID 0) — the alias-index lints key on this set
             var qFan = m.Quests.AddNew(); qFan.EditorID = "HcDvQuestFan"; qFanFk = qFan.FormKey;
             var branch = m.DialogBranches.AddNew(); branch.EditorID = "HcDvBranch";
             var voice = m.VoiceTypes.AddNew(); voice.EditorID = "HcDvVoice";
@@ -143,6 +154,98 @@ public static class DialogueValidateGuardProbe
             var eoi = Info("HcDvEncOkI"); eoi.Prompt = "Wait...";
             eoi.Responses.Add(new DialogResponse { ResponseNumber = 1, Text = "Take it - or leave it" });
             tEncOk.Responses.Add(eoi); encOkFk = tEncOk.FormKey;
+
+            // CONDITION LINTS (item 4) — topics owned by qMain (which carries ONE reference-alias, ID 0). Each
+            // condition below is STRUCTURALLY malformed in exactly one decidable way; a well-formed control proves
+            // no false positive. Conditions are built from real Mutagen ConditionData arms (the same shapes
+            // read_record surfaces), never hand-encoded bytes.
+
+            // COND-CLEAN: two WELL-FORMED conditions (GetStage on the owning quest + GetActorValue, both Run On
+            // Subject) -> ZERO condition issues. The no-false-positive keystone (a present quest param + a
+            // param-free function both pass clean).
+            var tCondClean = m.DialogTopics.AddNew(); tCondClean.EditorID = "HcDvCondClean"; tCondClean.Quest.SetTo(qMain.FormKey);
+            {
+                var i = Info("HcDvCondCleanI");
+                var d1 = new GetStageConditionData { RunOnType = Condition.RunOnType.Subject }; SetFloiForm(d1, "Quest", qMain.FormKey);
+                i.Conditions.Add(new ConditionFloat { CompareOperator = CompareOperator.GreaterThanOrEqualTo, ComparisonValue = 10f, Data = d1 });
+                var d2 = new GetActorValueConditionData { ActorValue = ActorValue.Health, RunOnType = Condition.RunOnType.Subject };
+                i.Conditions.Add(new ConditionFloat { CompareOperator = CompareOperator.GreaterThan, ComparisonValue = 0f, Data = d2 });
+                tCondClean.Responses.Add(i); condCleanFk = tCondClean.FormKey;
+            }
+
+            // COND-REF-UNSET: Run On a specific Reference but NO reference set -> WARN (the gate runs on nothing).
+            var tCondRef = m.DialogTopics.AddNew(); tCondRef.EditorID = "HcDvCondRefUnset"; tCondRef.Quest.SetTo(qMain.FormKey);
+            {
+                var i = Info("HcDvCondRefUnsetI");
+                var d = new GetActorValueConditionData { ActorValue = ActorValue.Health, RunOnType = Condition.RunOnType.Reference };
+                i.Conditions.Add(new ConditionFloat { CompareOperator = CompareOperator.GreaterThan, ComparisonValue = 0f, Data = d });
+                tCondRef.Responses.Add(i); condRefUnsetFk = tCondRef.FormKey;
+            }
+
+            // COND-DEAD-ALIAS: GetIsAliasRef naming alias #99 (qMain defines only #0) -> WARN dead alias.
+            var tCondAliasBad = m.DialogTopics.AddNew(); tCondAliasBad.EditorID = "HcDvCondDeadAlias"; tCondAliasBad.Quest.SetTo(qMain.FormKey);
+            {
+                var i = Info("HcDvCondDeadAliasI");
+                var d = new GetIsAliasRefConditionData { ReferenceAliasIndex = 99, RunOnType = Condition.RunOnType.Subject };
+                i.Conditions.Add(new ConditionFloat { CompareOperator = CompareOperator.EqualTo, ComparisonValue = 1f, Data = d });
+                tCondAliasBad.Responses.Add(i); condDeadAliasFk = tCondAliasBad.FormKey;
+            }
+
+            // COND-ALIAS-OK: GetIsAliasRef naming alias #0 (a REAL alias of qMain) -> NOT flagged (resolve-aware lock).
+            var tCondAliasOk = m.DialogTopics.AddNew(); tCondAliasOk.EditorID = "HcDvCondAliasOk"; tCondAliasOk.Quest.SetTo(qMain.FormKey);
+            {
+                var i = Info("HcDvCondAliasOkI");
+                var d = new GetIsAliasRefConditionData { ReferenceAliasIndex = 0, RunOnType = Condition.RunOnType.Subject };
+                i.Conditions.Add(new ConditionFloat { CompareOperator = CompareOperator.EqualTo, ComparisonValue = 1f, Data = d });
+                tCondAliasOk.Responses.Add(i); condAliasOkFk = tCondAliasOk.FormKey;
+            }
+
+            // COND-DANGLING-PARAM: GetStage whose Quest param is NOT in the load order -> WARN dangling param.
+            var tCondDangling = m.DialogTopics.AddNew(); tCondDangling.EditorID = "HcDvCondDangling"; tCondDangling.Quest.SetTo(qMain.FormKey);
+            {
+                var i = Info("HcDvCondDanglingI");
+                var d = new GetStageConditionData { RunOnType = Condition.RunOnType.Subject }; SetFloiForm(d, "Quest", new FormKey(mKey, 0x00DDDDDD));
+                i.Conditions.Add(new ConditionFloat { CompareOperator = CompareOperator.GreaterThanOrEqualTo, ComparisonValue = 10f, Data = d });
+                tCondDangling.Responses.Add(i); condDanglingFk = tCondDangling.FormKey;
+            }
+
+            // COND-DANGLING-GLOBAL: a ConditionGlobal compared against a GLOB not in the load order -> WARN.
+            var tCondGlobal = m.DialogTopics.AddNew(); tCondGlobal.EditorID = "HcDvCondGlobal"; tCondGlobal.Quest.SetTo(qMain.FormKey);
+            {
+                var i = Info("HcDvCondGlobalI");
+                var d = new GetActorValueConditionData { ActorValue = ActorValue.Health, RunOnType = Condition.RunOnType.Subject };
+                var cg = new ConditionGlobal { CompareOperator = CompareOperator.EqualTo, Data = d };
+                cg.ComparisonValue.SetTo(new FormKey(mKey, 0x00EEEEEE));
+                i.Conditions.Add(cg);
+                tCondGlobal.Responses.Add(i); condGlobalFk = tCondGlobal.FormKey;
+            }
+
+            // COND-GETISID-PLACED: GetIsID pointed at a PLACED reference (an interior-cell PlacedObject) -> WARN
+            // wrong-kind. The placed ref must EXIST + resolve (so lint 3 doesn't fire instead) and resolve to an
+            // IPlacedGetter (so lint 5 does) — proving the validator resolves a placed ref's record type.
+            var condCell = new Cell(m.GetNextFormKey(), SkyrimRelease.SkyrimSE) { EditorID = "HcDvCondCell", Flags = Cell.Flag.IsInteriorCell };
+            var condPlaced = new PlacedObject(m.GetNextFormKey(), SkyrimRelease.SkyrimSE); condPlaced.Base.SetTo(weap.FormKey);
+            condCell.Persistent.Add(condPlaced);
+            var condSub = new CellSubBlock { BlockNumber = 0, GroupType = GroupTypeEnum.InteriorCellSubBlock }; condSub.Cells.Add(condCell);
+            var condBlock = new CellBlock { BlockNumber = 0, GroupType = GroupTypeEnum.InteriorCellBlock }; condBlock.SubBlocks.Add(condSub);
+            m.Cells.Records.Add(condBlock);
+            // COND-GETISID-OK: GetIsID pointed at a BASE npc -> NOT flagged. The lint-5 no-false-positive lock
+            // (a base object is exactly what GetIsID wants), proving lint 5 fires ONLY for a placed reference.
+            var tCondGetIsIdOk = m.DialogTopics.AddNew(); tCondGetIsIdOk.EditorID = "HcDvCondGetIsIdOk"; tCondGetIsIdOk.Quest.SetTo(qMain.FormKey);
+            {
+                var i = Info("HcDvCondGetIsIdOkI");
+                var d = new GetIsIDConditionData { RunOnType = Condition.RunOnType.Subject }; SetFloiForm(d, "Object", npc.FormKey);
+                i.Conditions.Add(new ConditionFloat { CompareOperator = CompareOperator.EqualTo, ComparisonValue = 1f, Data = d });
+                tCondGetIsIdOk.Responses.Add(i); condGetIsIdOkFk = tCondGetIsIdOk.FormKey;
+            }
+
+            var tCondGetIsId = m.DialogTopics.AddNew(); tCondGetIsId.EditorID = "HcDvCondGetIsId"; tCondGetIsId.Quest.SetTo(qMain.FormKey);
+            {
+                var i = Info("HcDvCondGetIsIdI");
+                var d = new GetIsIDConditionData { RunOnType = Condition.RunOnType.Subject }; SetFloiForm(d, "Object", condPlaced.FormKey);
+                i.Conditions.Add(new ConditionFloat { CompareOperator = CompareOperator.EqualTo, ComparisonValue = 1f, Data = d });
+                tCondGetIsId.Responses.Add(i); condGetIsIdFk = tCondGetIsId.FormKey;
+            }
 
             // QUEST-FANOUT: two topics owned by qFan (and nothing else points at it).
             var tf1 = m.DialogTopics.AddNew(); tf1.EditorID = "HcDvFan1"; tf1.Quest.SetTo(qFan.FormKey); tf1.Responses.Add(Info("HcDvFan1I"));
@@ -251,6 +354,63 @@ public static class DialogueValidateGuardProbe
             all &= Pass("CTDA-COUNT counts conditions", ok, t is null ? "no topic" : $"conditioned={t?.ConditionedInfoCount}");
         }
 
+        // ---------- COND-CLEAN (item 4): two well-formed conditions report ZERO condition issues — the no-false-positive keystone ----------
+        {
+            var t = One(DialogueValidate.Run(resolver, assets, condCleanFk));
+            bool ok = t is not null && t.ConditionedInfoCount == 1 && t.Issues.Count == 0;
+            all &= Pass("COND-CLEAN no false issues", ok, t is null ? "no topic" : $"cond={t.ConditionedInfoCount} issues={t.Issues.Count}: {Issues(t)}");
+        }
+
+        // ---------- COND-REF-UNSET (item 4): Run On a specific Reference with none set is a WARN ----------
+        {
+            var t = One(DialogueValidate.Run(resolver, assets, condRefUnsetFk));
+            bool ok = t is not null && t.Issues.Any(i => i.Severity == DialogueIssueSeverity.Warning && i.Message.Contains("Run On a specific reference", StringComparison.Ordinal));
+            all &= Pass("COND-REF-UNSET warns", ok, t is null ? "no topic" : Issues(t));
+        }
+
+        // ---------- COND-DEAD-ALIAS (item 4): an alias index the owning quest doesn't define is a WARN ----------
+        {
+            var t = One(DialogueValidate.Run(resolver, assets, condDeadAliasFk));
+            bool ok = t is not null && t.Issues.Any(i => i.Severity == DialogueIssueSeverity.Warning && i.Message.Contains("no alias with that ID", StringComparison.Ordinal));
+            all &= Pass("COND-DEAD-ALIAS warns", ok, t is null ? "no topic" : Issues(t));
+        }
+
+        // ---------- COND-ALIAS-OK (item 4): a REAL alias index is NOT flagged — the resolve-aware positive lock ----------
+        {
+            var t = One(DialogueValidate.Run(resolver, assets, condAliasOkFk));
+            bool ok = t is not null && t.ConditionedInfoCount == 1 && t.Issues.Count == 0;
+            all &= Pass("COND-ALIAS-OK not flagged", ok, t is null ? "no topic" : $"issues={t.Issues.Count}: {Issues(t)}");
+        }
+
+        // ---------- COND-DANGLING-PARAM (item 4): a condition form param not in the order is a WARN ----------
+        {
+            var t = One(DialogueValidate.Run(resolver, assets, condDanglingFk));
+            bool ok = t is not null && t.Issues.Any(i => i.Severity == DialogueIssueSeverity.Warning
+                && i.Message.Contains("condition", StringComparison.Ordinal) && i.Message.Contains("not in the active load order", StringComparison.Ordinal));
+            all &= Pass("COND-DANGLING-PARAM warns", ok, t is null ? "no topic" : Issues(t));
+        }
+
+        // ---------- COND-DANGLING-GLOBAL (item 4): a ConditionGlobal vs a missing GLOB is a WARN ----------
+        {
+            var t = One(DialogueValidate.Run(resolver, assets, condGlobalFk));
+            bool ok = t is not null && t.Issues.Any(i => i.Severity == DialogueIssueSeverity.Warning && i.Message.Contains("compares against global", StringComparison.Ordinal));
+            all &= Pass("COND-DANGLING-GLOBAL warns", ok, t is null ? "no topic" : Issues(t));
+        }
+
+        // ---------- COND-GETISID-OK (item 4): GetIsID at a BASE object is NOT flagged — lint-5 no-false-positive lock ----------
+        {
+            var t = One(DialogueValidate.Run(resolver, assets, condGetIsIdOkFk));
+            bool ok = t is not null && t.ConditionedInfoCount == 1 && t.Issues.Count == 0;
+            all &= Pass("COND-GETISID-OK not flagged", ok, t is null ? "no topic" : $"issues={t.Issues.Count}: {Issues(t)}");
+        }
+
+        // ---------- COND-GETISID-PLACED (item 4): GetIsID pointed at a placed reference is a WARN (not the dangling-param one) ----------
+        {
+            var t = One(DialogueValidate.Run(resolver, assets, condGetIsIdFk));
+            bool ok = t is not null && t.Issues.Any(i => i.Severity == DialogueIssueSeverity.Warning && i.Message.Contains("placed reference", StringComparison.Ordinal));
+            all &= Pass("COND-GETISID-PLACED warns", ok, t is null ? "no topic" : Issues(t));
+        }
+
         // ---------- TEXT-MOJIBAKE (item 1): non-ASCII player-facing text WARNs, naming the offending chars ----------
         {
             var t = One(DialogueValidate.Run(resolver, assets, encBadFk));
@@ -290,10 +450,20 @@ public static class DialogueValidateGuardProbe
 
         Console.WriteLine();
         Console.WriteLine(all
-            ? "RESULT: PASS — the dialogue-graph validator holds (no false PNAM-absence flag, LinkTo + dangling-PNAM teeth, deleted-skip, voice/script reuse, encoding lint, fan-out, named rejects)."
+            ? "RESULT: PASS — the dialogue-graph validator holds (no false PNAM-absence flag, LinkTo + dangling-PNAM teeth, deleted-skip, voice/script reuse, encoding lint, condition lints (item 4), fan-out, named rejects)."
             : "RESULT: FAIL — at least one arm regressed (see above).");
         try { Directory.Delete(tmpDir, recursive: true); } catch { }
         return all ? 0 : 1;
+    }
+
+    /// <summary>Set a condition FormLinkOrIndex (e.g. GetIsID.Object) to a FORM-mode target via its <c>.Link</c> —
+    /// the inverse of WriteEngine.ReadFloiFormKey, by reflection (the union's typed setter isn't on the public getter
+    /// interface). UseAliases/UsePackageData stay false (form mode) so ReadFloiFormKey reads the link back.</summary>
+    static void SetFloiForm(object data, string prop, FormKey fk)
+    {
+        var floi = data.GetType().GetProperty(prop)!.GetValue(data)!;
+        var link = floi.GetType().GetProperty("Link")!.GetValue(floi)!;
+        link.GetType().GetMethod("SetTo", new[] { typeof(FormKey) })!.Invoke(link, new object[] { fk });
     }
 
     /// <summary>The single topic of a topic-kind report (null on an error / a non-single-topic result), so the

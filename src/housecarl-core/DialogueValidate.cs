@@ -1,3 +1,4 @@
+using System.Reflection;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Plugins.Records;
 using Mutagen.Bethesda.Skyrim;
@@ -260,6 +261,20 @@ public static class DialogueValidate
             issues.Add(new(DialogueIssueSeverity.Problem,
                 $"DialogTopic.Branch points at {branchFk.Value}, which {bwhy} — the branch wiring is broken."));
 
+        // Static condition lints (item 4) need the owning quest's reference-alias IDs — resolved ONCE here off the
+        // load-order WINNER quest (an alias index in a condition is quest-relative, so it's the owning quest's set
+        // that decides whether the index is live). NULL when the quest is unset or unresolvable (already surfaced
+        // above): when we can't read the alias set we SKIP the alias-index lints rather than guess (Q3 — never a
+        // false "dead alias" against a quest we couldn't read). Non-alias condition lints don't need this and run
+        // regardless.
+        HashSet<uint>? ownerAliasIds = null;
+        string ownerQuestLabel = "the owning quest";
+        if (questFk is { } ownerFk && resolve(ownerFk) is IQuestGetter ownerQuest)
+        {
+            ownerAliasIds = ownerQuest.Aliases.Select(a => a.ID).ToHashSet();
+            ownerQuestLabel = $"the owning quest {ownerQuest.EditorID ?? ownerFk.ToString()}";
+        }
+
         // --- Per-INFO walk over the topic's LIVE INFOs. A deleted INFO is a REMOVED line — skip it entirely (don't
         //     count it, chain it, or voice/script-check it; tally it for an honest "N skipped" note, Q3). InfoCount is
         //     INFO RECORDS, not spoken rows (one INFO can carry several DialogResponse rows, or none).
@@ -297,7 +312,14 @@ public static class DialogueValidate
                         $"INFO {info.FormKey} links (LinkTo) to {lk}, which {lwhy} — the conversation chain is broken."));
             }
 
-            if (info.Conditions.Count > 0) conditioned++;
+            if (info.Conditions.Count > 0)
+            {
+                conditioned++;
+                // Static condition (CTDA) well-formedness lints (item 4) — the data-layer-decidable, true-positive
+                // subset. They catch MALFORMED conditions; they do NOT (and cannot) evaluate whether a well-formed
+                // one passes — that stays the running game's job (the standing CTDA limit, restated in the render).
+                CheckConditions(info, ownerAliasIds, ownerQuestLabel, inOrder, resolve, issues);
+            }
 
             // Reuse the per-INFO voice + result-script checks over every LIVE INFO (resolved-winner view). These are the
             // exact methods the per-create teeth run, so the create path and the validator can never drift.
@@ -403,4 +425,106 @@ public static class DialogueValidate
         issues.Add(new(DialogueIssueSeverity.Warning,
             $"{locus} contains non-ASCII char(s) {desc} — the CK/Papyrus user-facing text surface is Windows-1252/ASCII, so these usually render as in-game mojibake.{sug}"));
     }
+
+    /// <summary>Static condition-lint suite (item 4) over one INFO's <c>Conditions</c> (CTDA rows) — the
+    /// data-layer-decidable subset the §4 design decision (A-iii) authorises. Every lint here is a TRUE-positive
+    /// STRUCTURAL defect (a malformed condition), never a behavioural guess: houseCARL still cannot EVALUATE whether
+    /// a well-formed condition passes — only the running game can (the standing CTDA limit, restated in the render).
+    /// All emit WARNING, never block: a dead gate misfires that one line, it doesn't break the topic's chain, and a
+    /// few load-order shapes are legitimately edge-y, so it's an advisory the author confirms (roadmap §3 item 4).
+    ///
+    /// The lints (each decidable from the record + the form index alone):
+    ///   1. Run On a specific Reference with NO reference set — the gate evaluates against nothing.
+    ///   2. A DEAD ALIAS INDEX — Run On:QuestAlias, or a GetIsAliasRef / GetInCurrentLocAlias param, naming an alias
+    ///      ID the OWNING quest does not define. SKIPPED (never guessed) when the owning quest is unknown (ownerAliasIds null).
+    ///   3. A DANGLING form parameter — any condition-function FormLink param pointing at a form not in the active
+    ///      load order. GENERIC, BY CONSTRUCTION via EnumerateFormLinks, so it covers EVERY function Mutagen models,
+    ///      not a hand-listed subset (cornerstone-consistent). The Run On Reference slot is excluded (lint 1 owns it),
+    ///      so an unused/parked Reference is never mis-flagged.
+    ///   4. A DANGLING global comparison value — a ConditionGlobal compared against a GLOB not in the load order.
+    ///   5. GetIsID pointed at a PLACED reference instead of a base object — GetIsID compares the run-on actor's BASE
+    ///      form, so a placed-instance FormID can never match as intended.
+    ///
+    /// DELIBERATELY NOT LINTED (semantic, not structural — flagging them would be a behavioural guess that risks the
+    /// false positives A-iii's honesty forbids, so they stay the author's call / the standing limit): Run On
+    /// Subject-vs-Target INTENT (a player-shaped function left on Subject), the faction-rank gate VALUE (&lt; 0 vs == 0),
+    /// and intra-topic Info-variant ORDERING (a specific line shadowed by a generic sibling). Scope is INFO conditions
+    /// (the dialogue surface); a quest's own DialogConditions/alias conditions are out of this pass.</summary>
+    internal static void CheckConditions(IDialogResponsesGetter info, HashSet<uint>? ownerAliasIds, string ownerQuestLabel,
+        Func<FormKey, bool> inOrder, Func<FormKey, IMajorRecordGetter?> resolve, List<DialogueIssue> issues)
+    {
+        int n = 0;
+        foreach (var cond in info.Conditions)
+        {
+            n++;
+            var data = cond.Data;
+            var fn = data.Function.ToString();
+            var refKey = data.Reference.FormKey;   // the Run On reference slot — owned by lint 1, excluded from the param sweep
+
+            // 1. Run On a specific Reference but none / a missing one is set — the function runs against nothing.
+            if (data.RunOnType == Condition.RunOnType.Reference)
+            {
+                if (data.Reference.IsNull)
+                    issues.Add(new(DialogueIssueSeverity.Warning,
+                        $"INFO {info.FormKey} condition #{n} ({fn}) is set to Run On a specific reference, but no reference is set — it evaluates against nothing, so the gate never behaves as intended."));
+                else if (!inOrder(refKey))
+                    issues.Add(new(DialogueIssueSeverity.Warning,
+                        $"INFO {info.FormKey} condition #{n} ({fn}) Run On reference {refKey} is not in the active load order — the gate evaluates against nothing."));
+            }
+
+            // 2. Dead alias index — only when the owning quest's alias set is known (else skip, never guess, Q3).
+            if (ownerAliasIds is not null)
+            {
+                if (data.RunOnType == Condition.RunOnType.QuestAlias && BadAlias(data.RunOnTypeIndex, ownerAliasIds))
+                    issues.Add(AliasIssue(info.FormKey, n, fn, data.RunOnTypeIndex, "is set to Run On", "reference-alias", ownerQuestLabel));
+                if (data is IGetIsAliasRefConditionDataGetter gar && BadAlias(gar.ReferenceAliasIndex, ownerAliasIds))
+                    issues.Add(AliasIssue(info.FormKey, n, fn, gar.ReferenceAliasIndex, "references", "reference-alias", ownerQuestLabel));
+                if (data is IGetInCurrentLocAliasConditionDataGetter gla && BadAlias(gla.LocationAliasIndex, ownerAliasIds))
+                    issues.Add(AliasIssue(info.FormKey, n, fn, gla.LocationAliasIndex, "references", "location-alias", ownerQuestLabel));
+            }
+
+            // 3. Dangling form-link PARAMETER — generic, BY CONSTRUCTION: reflect over the Data arm's properties and
+            //    take every form TARGET it carries — a plain FormLink (Faction, Spell, Keyword, FormList, …) AND a
+            //    form-mode FormLinkOrIndex (the condition union — Quest, GetIsID's Object, …; read via the write-side
+            //    ReadFloiFormKey, the oracle-proven accessor, so an alias/index-mode FLOI returns null here and is
+            //    lint 2's job). The Run On Reference slot is skipped by name (lint 1 owns it). A param pointing at a
+            //    form not in the active order is a dead reference. This mirrors the write engine's own FLOI handling
+            //    (a plain EnumerateFormLinks does NOT cleanly surface the FLOI union), so it covers EVERY function
+            //    Mutagen models — never a hand-listed subset.
+            foreach (var p in data.GetType().GetProperties(BindingFlags.Public | BindingFlags.Instance))
+            {
+                if (p.Name == "Reference" || p.GetIndexParameters().Length != 0) continue;   // run-on ref → lint 1
+                object? v; try { v = p.GetValue(data); } catch { continue; }
+                FormKey? paramFk =
+                    v is IFormLinkGetter fl && !fl.IsNull ? fl.FormKey
+                    : WriteEngine.IsFormLinkOrIndex(p.PropertyType) ? WriteEngine.ReadFloiFormKey(v) : null;
+                if (paramFk is { } pk && !inOrder(pk))
+                    issues.Add(new(DialogueIssueSeverity.Warning,
+                        $"INFO {info.FormKey} condition #{n} ({fn}) references {pk}, which is not in the active load order — a deleted/disabled form or a wrong FormID, so the condition can't evaluate as intended."));
+            }
+
+            // 4. Dangling global comparison value — a ConditionGlobal compared against a GLOB not in the order. The
+            //    comparison value lives on the Condition, not the Data arm, so it's outside the param sweep above.
+            if (cond is IConditionGlobalGetter cg && !cg.ComparisonValue.IsNull && !inOrder(cg.ComparisonValue.FormKey))
+                issues.Add(new(DialogueIssueSeverity.Warning,
+                    $"INFO {info.FormKey} condition #{n} ({fn}) compares against global {cg.ComparisonValue.FormKey}, which is not in the active load order."));
+
+            // 5. GetIsID pointed at a PLACED reference — the wrong KIND of form (a dangling one is already caught by
+            //    lint 3). GetIsID compares the run-on actor's BASE form, so a placed-instance FormID can never match.
+            if (data is IGetIsIDConditionDataGetter gid && WriteEngine.ReadFloiFormKey(gid.Object) is { } objFk
+                && inOrder(objFk) && resolve(objFk) is IPlacedGetter)
+                issues.Add(new(DialogueIssueSeverity.Warning,
+                    $"INFO {info.FormKey} condition #{n} (GetIsID) points at the placed reference {objFk}, but GetIsID compares the run-on actor's BASE form — pass the base NPC_/object, not a placed instance."));
+        }
+    }
+
+    /// <summary>An alias index is dead when it's negative or not one of the owning quest's reference-alias IDs (the
+    /// alias <c>ID</c> is a <c>uint</c>; a negative condition index can never be a real ID).</summary>
+    static bool BadAlias(int idx, HashSet<uint> ownerAliasIds) => idx < 0 || !ownerAliasIds.Contains((uint)idx);
+
+    /// <summary>The dead-alias-index warning (lint 2), worded so it names the function, the offending index, and the
+    /// owning quest — never a bare "invalid" (Q3).</summary>
+    static DialogueIssue AliasIssue(FormKey infoFk, int n, string fn, int idx, string verb, string aliasKind, string ownerQuestLabel) =>
+        new(DialogueIssueSeverity.Warning,
+            $"INFO {infoFk} condition #{n} ({fn}) {verb} {ownerQuestLabel}'s {aliasKind} #{idx}, but that quest defines no alias with that ID — the gate evaluates against nothing.");
 }

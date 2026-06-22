@@ -28,12 +28,15 @@ tools.
   (`housecarl_validate_dialogue`, `housecarl_read_record`, `housecarl_cross_plugin_query`).
 
 **What houseCARL CANNOT do — say it, never paper over it:**
-- **Evaluate `Conditions` (CTDA).** Conditions decide *when* a line fires; only the running game evaluates
-  them, so a wrong or missing condition silently stops a line forever and is **unverifiable at the data
-  layer**. This is the single most common silent-dead-dialogue cause and it is on the author to get right.
-  houseCARL *can* read a condition back and **decode** it — the function, its parameters, and its Run On
-  scope ([`references/condition-functions.md`](references/condition-functions.md)) — so you can check it by
-  eye; it cannot tell you whether it *passes*.
+- **Evaluate `Conditions` (CTDA).** Conditions decide *when* a line fires. houseCARL **can** statically catch a
+  meaningful subset of **malformed** conditions — `housecarl_validate_dialogue` flags a dangling form reference,
+  a dead quest-alias index, an unset Run On reference, and a `GetIsID` pointed at a placed instance — and it can
+  read a condition back and **decode** it (the function, its parameters, its Run On scope —
+  [`references/condition-functions.md`](references/condition-functions.md)) so you can check it by eye. What it
+  **cannot** do is **evaluate** whether a *well-formed* condition passes — only the running game can. So a
+  well-formed but *wrong* condition (the wrong stage number, the wrong Run On for the intent) still silently
+  stops a line forever — that remains the single most common silent-dead-dialogue cause and on the author to get
+  right.
 - **Record voice audio or verify lip-sync.** Voice presence is an on-disk file check; the audio content and
   voice *acting* are out of scope.
 - **Promise "this will play" from a clean structural pass.** A green validate means the wiring resolves —
@@ -244,8 +247,9 @@ has no `Subtype` field. Copy the exact value from a known-good ForceGreet topic 
   "fix" a topic, and never report its absence as a defect.
 - **Forgetting the SEQ.** A Start-Game-Enabled quest with no `.seq` never starts, and neither does its
   dialogue. Ticking the flag is half the job — write the `.seq`.
-- **Reading a clean validate as "it'll play."** Conditions are unverified by definition. A green graph with
-  wrong `GetStage` conditions is silent in game. Always carry the standing-limits footer to the user.
+- **Reading a clean validate as "it'll play."** A green validate catches *malformed* conditions but never
+  proves a *well-formed* one is *correct* — a wrong `GetStage` value passes validation and is silent in game.
+  Always carry the standing-limits footer to the user.
 - **Computing the voice folder from the conflict winner.** It is the plugin that *defines* the INFO. For a
   new plugin that's yours (clean); for an override it's the original's folder, where the audio lives.
 - **Overriding a topic and dropping its other lines** (the DIAL-wins-wholesale trap above).
