@@ -41,6 +41,32 @@ Field names below are Mutagen spellings (what `housecarl_create_record` / `house
    quest's **stage**. The quest stage is the master driver; dialogue is a set of conditioned views onto it.
    This is why a topic that never fires is so often a `GetStage` condition mismatch, not a wiring fault.
 
+## Authoring traps the model implies (non-lint)
+
+These follow from the flow model above but are author-side traps `housecarl_validate_dialogue` cannot
+catch — it reads records, not the running game's stage state or CK's condition editor. Knowing them is the
+difference between a line that plays and one that is silently dead.
+
+- **`Stop()` resets a quest's stage to 0, and a stopped quest's dialogue is never evaluated.** Because the
+  quest stage is the master driver (above), gating post-completion dialogue on `GetStage` / `GetStageDone`
+  of a quest that *stops* fails twice over: the stage is back at 0 *and* the quest is not running to be
+  checked. Carry a **persistent signal** instead — a granted spell, a global, a faction membership, an item
+  — and put the post-completion dialogue on an **always-running** quest, gated on that signal.
+- **A monologue is multiple `Responses` rows in ONE Info, not multiple Infos.** The INFO bullet above notes
+  one INFO can hold several `DialogResponse` rows; that *is* the multi-line-speech idiom — the rows play
+  sequentially and automatically. Do **not** split a speech across sibling Infos: by the flow model, only
+  the **first valid Info** in a topic plays (selected top-down by `Conditions`), so everything after the
+  first is dropped. Multiple Infos in one topic are for stage/condition *variants*, not consecutive lines.
+- **CK conditions cannot express `(A AND B) OR (C AND D)`.** There are no parentheses; OR only joins
+  adjacent condition rows. To gate a line on a real sum-of-products, **duplicate the whole Info — one per
+  AND-clause** — and copy the response text into each (CK will not share it). This is why you will sometimes
+  see the same line authored two or three times under one topic with different condition blocks; it is
+  deliberate, not a redundant override.
+- **`GetStageDone` (ever reached) is not `GetStage` (current).** `GetStageDone N` is true once stage N has
+  *ever* been set, even after the quest moved past it; `GetStage` returns the *current* stage only. A
+  "stage is within a window" gate therefore needs **two `GetStage` rows** (`>= N` and `<= M`), not a single
+  equality.
+
 ## PNAM (`DialogResponses.PreviousDialog`) — the corrected fact
 
 PNAM is an INFO→INFO back-link that forces an intra-topic SEQUENCE. It is **empty across effectively all
