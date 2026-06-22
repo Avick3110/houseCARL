@@ -32,6 +32,8 @@ namespace HousecarlGenerator;
 ///   VOICE-WIRED  — a voiced line with no .fuz surfaces as a SILENT VoiceLine IN THE VALIDATOR (reused VoiceCheck).
 ///   SCRIPT-WIRED — a bound result-script with no .pex surfaces as a ScriptNotCompiled finding (reused DialogueScriptCheck).
 ///   CTDA-COUNT   — a line carrying a Condition is counted (ConditionedInfoCount >= 1) — the standing-CTDA-limit teeth.
+///   TEXT-MOJIBAKE— a line whose player-facing text carries non-ASCII chars (ellipsis/em-dash) WARNs, naming them (item 1).
+///   TEXT-CLEAN   — pure-ASCII player-facing text is NOT flagged — the lint keys on >0x7F, not "has text" (item 1).
 ///   QUEST-FANOUT — validating a QUEST fans out to EXACTLY the topics it owns (2 here), kind="quest".
 ///   REJ-NOTFOUND — a FormID not in the active order is a NAMED error ('not in the active load order').
 ///   REJ-WRONGTYPE— a FormID resolving to neither a DIAL nor a QUST (a Weapon) is a NAMED error ('not a dialogue topic').
@@ -49,7 +51,7 @@ public static class DialogueValidateGuardProbe
 
         var mKey = new ModKey("HcDvGuardMaster", ModType.Master);
         string mPath = Path.Combine(tmpDir, mKey.FileName.String);
-        FormKey cleanFk, linkBadFk, pnamBadFk, pnamOkFk, deletedFk, noQuestFk, badBranchFk, voicedFk, scriptedFk, condFk, qFanFk, weapFk;
+        FormKey cleanFk, linkBadFk, pnamBadFk, pnamOkFk, deletedFk, noQuestFk, badBranchFk, voicedFk, scriptedFk, condFk, qFanFk, weapFk, encBadFk, encOkFk;
         try
         {
             var m = new SkyrimMod(mKey, SkyrimRelease.SkyrimSE);
@@ -126,6 +128,19 @@ public static class DialogueValidateGuardProbe
             ci.Conditions.Add(new ConditionFloat { CompareOperator = CompareOperator.EqualTo, ComparisonValue = 1f,
                 Data = new GetActorValueConditionData { ActorValue = ActorValue.Conjuration } });
             tCond.Responses.Add(ci); condFk = tCond.FormKey;
+
+            // TEXT-ENCODING (item 1): one topic with non-ASCII player-facing strings (an ellipsis in the Prompt,
+            // an em-dash in a response Text) -> WARN, naming them; one with pure-ASCII text -> NOT flagged (the
+            // no-false-positive lock — the lint keys on >0x7F, not on "has text").
+            var tEncBad = m.DialogTopics.AddNew(); tEncBad.EditorID = "HcDvEncBad"; tEncBad.Quest.SetTo(qMain.FormKey);
+            var ebi = Info("HcDvEncBadI"); ebi.Prompt = "Wait…";
+            ebi.Responses.Add(new DialogResponse { ResponseNumber = 1, Text = "Take it — or leave it" });
+            tEncBad.Responses.Add(ebi); encBadFk = tEncBad.FormKey;
+
+            var tEncOk = m.DialogTopics.AddNew(); tEncOk.EditorID = "HcDvEncOk"; tEncOk.Quest.SetTo(qMain.FormKey);
+            var eoi = Info("HcDvEncOkI"); eoi.Prompt = "Wait...";
+            eoi.Responses.Add(new DialogResponse { ResponseNumber = 1, Text = "Take it - or leave it" });
+            tEncOk.Responses.Add(eoi); encOkFk = tEncOk.FormKey;
 
             // QUEST-FANOUT: two topics owned by qFan (and nothing else points at it).
             var tf1 = m.DialogTopics.AddNew(); tf1.EditorID = "HcDvFan1"; tf1.Quest.SetTo(qFan.FormKey); tf1.Responses.Add(Info("HcDvFan1I"));
@@ -220,6 +235,21 @@ public static class DialogueValidateGuardProbe
             all &= Pass("CTDA-COUNT counts conditions", ok, t is null ? "no topic" : $"conditioned={t?.ConditionedInfoCount}");
         }
 
+        // ---------- TEXT-MOJIBAKE (item 1): non-ASCII player-facing text WARNs, naming the offending chars ----------
+        {
+            var t = One(DialogueValidate.Run(resolver, assets, encBadFk));
+            bool ok = t is not null && t.Issues.Count(i => i.Severity == DialogueIssueSeverity.Warning
+                && i.Message.Contains("non-ASCII", StringComparison.OrdinalIgnoreCase)) >= 2;   // the Prompt + the response Text
+            all &= Pass("TEXT-MOJIBAKE warns non-ASCII", ok, t is null ? "no topic" : Issues(t));
+        }
+
+        // ---------- TEXT-CLEAN (item 1): pure-ASCII player-facing text is NOT flagged (no false positive) ----------
+        {
+            var t = One(DialogueValidate.Run(resolver, assets, encOkFk));
+            bool ok = t is not null && !t.Issues.Any(i => i.Message.Contains("non-ASCII", StringComparison.OrdinalIgnoreCase));
+            all &= Pass("TEXT-CLEAN no false flag", ok, t is null ? "no topic" : Issues(t));
+        }
+
         // ---------- QUEST-FANOUT: validating a quest fans out to EXACTLY its 2 topics ----------
         {
             var r = DialogueValidate.Run(resolver, assets, qFanFk);
@@ -244,7 +274,7 @@ public static class DialogueValidateGuardProbe
 
         Console.WriteLine();
         Console.WriteLine(all
-            ? "RESULT: PASS — the dialogue-graph validator holds (no false PNAM-absence flag, LinkTo + dangling-PNAM teeth, deleted-skip, voice/script reuse, fan-out, named rejects)."
+            ? "RESULT: PASS — the dialogue-graph validator holds (no false PNAM-absence flag, LinkTo + dangling-PNAM teeth, deleted-skip, voice/script reuse, encoding lint, fan-out, named rejects)."
             : "RESULT: FAIL — at least one arm regressed (see above).");
         try { Directory.Delete(tmpDir, recursive: true); } catch { }
         return all ? 0 : 1;

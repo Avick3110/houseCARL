@@ -201,6 +201,13 @@ public static class DialogueValidate
         var voiceUndet = new List<VoiceUndetermined>();
         var scriptFindings = new List<ScriptBindingFinding>();
 
+        // Text-encoding lint (item 1): flag non-ASCII in the player-facing strings — the topic Name (once), each
+        // INFO Prompt, and each spoken response Text — because the CK/Papyrus user-facing text surface is
+        // effectively Windows-1252/ASCII, so an em-dash, ellipsis, or smart quote renders as in-game mojibake.
+        // WARN only (a heuristic — HTML/Ultralight UIs render Unicode fine) and REPORT-ONLY (this validator never
+        // mutates; it suggests the ASCII substitute, never performs it).
+        CheckEncoding(topic.Name?.String, $"DialogTopic.Name ({edid})", issues);
+
         // Classify a SET reference: cheap-existence first (a dangling/missing target needs no body fetch), then a body
         // fetch ONLY for the rarer present-but-wrong-type case (so the message names what it actually is). Returns null
         // when the reference is fine, else the clause describing what's wrong — sharper than one "doesn't resolve":
@@ -236,6 +243,12 @@ public static class DialogueValidate
         {
             if (info.IsDeleted) { deleted++; continue; }
             infoCount++;
+
+            // Text-encoding lint (item 1) — this line's player-facing strings: its menu Prompt and each spoken row.
+            CheckEncoding(info.Prompt?.String, $"INFO {info.FormKey} Prompt", issues);
+            int rnum = 0;
+            foreach (var resp in info.Responses)
+                CheckEncoding(resp.Text?.String, $"INFO {info.FormKey} response {++rnum} text", issues);
 
             // PNAM (PreviousDialog): vanilla leaves it empty and orders intra-topic by Conditions, so ABSENCE is the
             // norm and is NEVER flagged. Only a SET previous-link that doesn't resolve to an INFO is a real defect.
@@ -280,4 +293,37 @@ public static class DialogueValidate
     /// (00000000) — both mean "no target". Mirrors <see cref="VoiceCheck"/>'s sibling so the two read links the
     /// same way.</summary>
     static FormKey? NonNull(FormKey? fk) => fk is { } v && !v.IsNull ? v : null;
+
+    /// <summary>The common non-ASCII offenders with a known ASCII substitute, for the encoding lint's suggestion
+    /// (item 1). Any OTHER non-ASCII char is still flagged, just without a substitution.</summary>
+    static readonly IReadOnlyDictionary<char, string> AsciiSubstitute = new Dictionary<char, string>
+    {
+        ['—'] = "-",    // em dash
+        ['–'] = "-",    // en dash
+        ['…'] = "...",  // ellipsis
+        ['‘'] = "'",    // left single quote
+        ['’'] = "'",    // right single quote / apostrophe
+        ['“'] = "\"",   // left double quote
+        ['”'] = "\"",   // right double quote
+        ['•'] = "*",    // bullet
+    };
+
+    /// <summary>Text-encoding lint (item 1): if <paramref name="s"/> carries any non-ASCII char (&gt; 0x7F), add ONE
+    /// WARNING for this <paramref name="locus"/> naming the offending char(s) and the ASCII substitute where known.
+    /// The CK/Papyrus user-facing surface is effectively Windows-1252/ASCII, so these usually render as in-game
+    /// mojibake. WARN, never blocks (heuristic); REPORT-ONLY (the validator is read-only — it never rewrites the
+    /// string). A bare "invalid" is never emitted: the message names exactly which characters and what to use (Q3).</summary>
+    static void CheckEncoding(string? s, string locus, List<DialogueIssue> issues)
+    {
+        if (string.IsNullOrEmpty(s)) return;
+        var offenders = new List<char>();
+        foreach (var ch in s) if ((int)ch > 0x7F && !offenders.Contains(ch)) offenders.Add(ch);
+        if (offenders.Count == 0) return;
+
+        var desc = string.Join(", ", offenders.Select(c => $"U+{(int)c:X4} '{c}'"));
+        var subs = offenders.Where(AsciiSubstitute.ContainsKey).Select(c => $"'{c}'->\"{AsciiSubstitute[c]}\"").ToList();
+        var sug = subs.Count > 0 ? $" Suggested ASCII: {string.Join(", ", subs)}." : "";
+        issues.Add(new(DialogueIssueSeverity.Warning,
+            $"{locus} contains non-ASCII char(s) {desc} — the CK/Papyrus user-facing text surface is Windows-1252/ASCII, so these usually render as in-game mojibake.{sug}"));
+    }
 }
