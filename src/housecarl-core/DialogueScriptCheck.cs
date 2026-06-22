@@ -56,7 +56,15 @@ public enum ScriptBindingStatus
 public sealed record ScriptBindingFinding(
     FormKey Info, string TopicEditorId, ScriptBindingStatus Status,
     IReadOnlyList<string> Scripts, IReadOnlyList<string> MissingPex,
-    bool ReadIncomplete, string Detail);
+    bool ReadIncomplete, string Detail)
+{
+    /// <summary>True if this INFO carries a REAL result-script FRAGMENT (a ScriptFragments Begin/End box) — the
+    /// only result-script kind that logs to Papyrus.log when the line fires. DISTINCT from "has a bound script":
+    /// an attached Scripts[] class is bound but is not a fragment and does not log. Feeds the per-topic
+    /// <c>FragmentInfoCount</c> + the render's "expect a Papyrus.log entry?" note (item 8). Default false (an
+    /// attached-script-only, binding-incomplete, or undetermined finding).</summary>
+    public bool HasFragment { get; init; }
+}
 
 /// <summary>The result-script-coverage report for one create call: a per-INFO binding verdict for each created
 /// dialogue line that carries a VMAD. <see cref="IsEmpty"/> when the call created no scripted dialogue lines.</summary>
@@ -146,11 +154,15 @@ public static class DialogueScriptCheck
         var vmad = info.VirtualMachineAdapter;
         if (vmad is null) return;   // no result script intended — nothing to check
 
+        // Does this line carry a REAL result-script FRAGMENT (the only kind that logs to Papyrus.log)? Computed via
+        // the single fragment-presence home so the per-finding HasFragment and the validator's per-topic tally
+        // (DialogueValidate.FragmentInfoCount) can never drift (item 8).
+        bool hasFragment = HasResultFragment(info);
+
         // The bound script CLASS names that must each have a compiled .pex to actually fire.
         var names = new List<string>();
         var frag = vmad.ScriptFragments;
-        if (frag is not null && !string.IsNullOrWhiteSpace(frag.FileName) && HasRealFragment(frag))
-            names.Add(frag.FileName.Trim());
+        if (hasFragment) names.Add(frag!.FileName!.Trim());
         foreach (var entry in vmad.Scripts)
             if (!string.IsNullOrWhiteSpace(entry.Name)) names.Add(entry.Name.Trim());
 
@@ -183,12 +195,23 @@ public static class DialogueScriptCheck
         if (missing.Count == 0)
             findings.Add(new ScriptBindingFinding(info.FormKey, topicEdid, ScriptBindingStatus.BoundAndCompiled,
                 distinct, Array.Empty<string>(), av.ReadIncomplete,
-                $"result script bound + compiled ({string.Join(", ", distinct)})."));
+                $"result script bound + compiled ({string.Join(", ", distinct)}).") { HasFragment = hasFragment });
         else
             findings.Add(new ScriptBindingFinding(info.FormKey, topicEdid, ScriptBindingStatus.ScriptNotCompiled,
                 distinct, missing, av.ReadIncomplete,
                 $"result script bound ({string.Join(", ", distinct)}) but the compiled .pex is missing on disk — " +
-                "it runs NOTHING until compiled (housecarl_compile_script)."));
+                "it runs NOTHING until compiled (housecarl_compile_script).") { HasFragment = hasFragment });
+    }
+
+    /// <summary>True if <paramref name="info"/> carries a REAL result-script FRAGMENT — a ScriptFragments Begin/End
+    /// box (with a FileName) that runs when the line plays. The ONLY result-script kind that logs to Papyrus.log; an
+    /// attached Scripts[] entry or a hollow FileName-only declaration does NOT count. The single fragment-presence
+    /// home, reused by <see cref="CheckInfo"/> (the per-finding HasFragment) and DialogueValidate's per-topic
+    /// FragmentInfoCount tally so they cannot drift (item 8).</summary>
+    internal static bool HasResultFragment(IDialogResponsesGetter info)
+    {
+        var frag = info.VirtualMachineAdapter?.ScriptFragments;
+        return frag is not null && !string.IsNullOrWhiteSpace(frag.FileName) && HasRealFragment(frag);
     }
 
     /// <summary>A ScriptFragments carries a REAL fragment when its Begin or End fragment names a script/fragment — a

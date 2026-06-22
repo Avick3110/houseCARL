@@ -60,10 +60,12 @@ public sealed record DialogueIssue(DialogueIssueSeverity Severity, string Messag
 /// LinkTo/dangling-PNAM), and the reused per-INFO voice (<see cref="VoiceLines"/> / <see cref="VoiceUndetermined"/>) +
 /// result-script (<see cref="ScriptFindings"/>) verdicts over every LIVE INFO. <see cref="InfoCount"/> counts INFO
 /// records (one INFO may carry several spoken rows, or none) — NOT spoken lines. <see cref="ConditionedInfoCount"/>
-/// feeds the standing CTDA limit (grill-rev C2). <see cref="DeletedInfoCount"/> = INFOs skipped as removed (deleted).</summary>
+/// feeds the standing CTDA limit (grill-rev C2). <see cref="DeletedInfoCount"/> = INFOs skipped as removed (deleted).
+/// <see cref="FragmentInfoCount"/> = live INFOs carrying a result-script fragment — the only lines that log to
+/// Papyrus.log when they fire (item 8; a plain voiced line does not log).</summary>
 public sealed record TopicValidation(
     FormKey Topic, string TopicEditorId, string WinnerPlugin,
-    int InfoCount, int ConditionedInfoCount, int DeletedInfoCount,
+    int InfoCount, int ConditionedInfoCount, int DeletedInfoCount, int FragmentInfoCount,
     string Category, string Subtype, string SubtypeName,
     IReadOnlyList<DialogueIssue> Issues,
     IReadOnlyList<VoiceLine> VoiceLines,
@@ -238,11 +240,16 @@ public static class DialogueValidate
         // --- Per-INFO walk over the topic's LIVE INFOs. A deleted INFO is a REMOVED line — skip it entirely (don't
         //     count it, chain it, or voice/script-check it; tally it for an honest "N skipped" note, Q3). InfoCount is
         //     INFO RECORDS, not spoken rows (one INFO can carry several DialogResponse rows, or none).
-        int infoCount = 0, conditioned = 0, deleted = 0;
+        int infoCount = 0, conditioned = 0, deleted = 0, fragmentInfos = 0;
         foreach (var info in topic.Responses)
         {
             if (info.IsDeleted) { deleted++; continue; }
             infoCount++;
+
+            // Fragment-presence tally (item 8): does this line carry a result-script FRAGMENT (the only kind that
+            // logs to Papyrus.log)? Via the single fragment-presence home, so this never drifts from the per-INFO
+            // HasFragment the script check sets.
+            if (DialogueScriptCheck.HasResultFragment(info)) fragmentInfos++;
 
             // Text-encoding lint (item 1) — this line's player-facing strings: its menu Prompt and each spoken row.
             CheckEncoding(info.Prompt?.String, $"INFO {info.FormKey} Prompt", issues);
@@ -276,7 +283,7 @@ public static class DialogueValidate
         }
 
         return new TopicValidation(
-            topic.FormKey, edid, winnerPlugin, infoCount, conditioned, deleted,
+            topic.FormKey, edid, winnerPlugin, infoCount, conditioned, deleted, fragmentInfos,
             topic.Category.ToString(), topic.Subtype.ToString(), DescribeSubtypeName(topic.SubtypeName),
             issues, voiceLines, voiceUndet, scriptFindings);
     }

@@ -31,6 +31,8 @@ namespace HousecarlGenerator;
 ///   BAD-BRANCH   — DialogTopic.Branch pointing at a non-DLBR is a PROBLEM naming 'Branch'.
 ///   VOICE-WIRED  — a voiced line with no .fuz surfaces as a SILENT VoiceLine IN THE VALIDATOR (reused VoiceCheck).
 ///   SCRIPT-WIRED — a bound result-script with no .pex surfaces as a ScriptNotCompiled finding (reused DialogueScriptCheck).
+///   FRAGMENT-PRESENCE— a line carrying a real result-script FRAGMENT is reported HasFragment + FragmentInfoCount>=1 (item 8).
+///   FRAGMENT-FREE— a plain voiced line is fragment-free (FragmentInfoCount 0), COUNTED not omitted (item 8).
 ///   CTDA-COUNT   — a line carrying a Condition is counted (ConditionedInfoCount >= 1) — the standing-CTDA-limit teeth.
 ///   TEXT-MOJIBAKE— a line whose player-facing text carries non-ASCII chars (ellipsis/em-dash) WARNs, naming them (item 1).
 ///   TEXT-CLEAN   — pure-ASCII player-facing text is NOT flagged — the lint keys on >0x7F, not "has text" (item 1).
@@ -226,6 +228,20 @@ public static class DialogueValidateGuardProbe
             var t = One(DialogueValidate.Run(resolver, assets, scriptedFk));
             bool ok = t is not null && t.ScriptFindings.Count == 1 && t.ScriptFindings[0].Status == ScriptBindingStatus.ScriptNotCompiled;
             all &= Pass("SCRIPT-WIRED not-compiled", ok, t is null ? "no topic" : $"findings={t.ScriptFindings.Count} status={(t.ScriptFindings.Count == 1 ? t.ScriptFindings[0].Status.ToString() : "?")}");
+        }
+
+        // ---------- FRAGMENT-PRESENCE (item 8): a line carrying a real result-script FRAGMENT is reported HasFragment + tallied ----------
+        {
+            var t = One(DialogueValidate.Run(resolver, assets, scriptedFk));
+            bool ok = t is not null && t.FragmentInfoCount == 1 && t.ScriptFindings.Count == 1 && t.ScriptFindings[0].HasFragment;
+            all &= Pass("FRAGMENT-PRESENCE has fragment", ok, t is null ? "no topic" : $"fragInfos={t.FragmentInfoCount} hasFrag={(t.ScriptFindings.Count == 1 ? t.ScriptFindings[0].HasFragment.ToString() : "?")}");
+        }
+
+        // ---------- FRAGMENT-FREE (item 8): a plain voiced line is fragment-free, COUNTED (FragmentInfoCount 0), not omitted ----------
+        {
+            var t = One(DialogueValidate.Run(resolver, assets, voicedFk));
+            bool ok = t is not null && t.FragmentInfoCount == 0 && t.InfoCount == 1 && t.VoiceLines.Count == 1 && t.ScriptFindings.Count == 0;
+            all &= Pass("FRAGMENT-FREE plain voiced", ok, t is null ? "no topic" : $"fragInfos={t.FragmentInfoCount} infos={t.InfoCount} voice={t.VoiceLines.Count} script={t.ScriptFindings.Count}");
         }
 
         // ---------- CTDA-COUNT: a conditioned line is counted (the standing-limit teeth) ----------
