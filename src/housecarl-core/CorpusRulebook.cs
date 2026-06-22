@@ -718,6 +718,15 @@ public sealed class CorpusRulebook
                 if (WriteEngine.TryCoerce(value, rt, out _)) return null; // numeric / flags-combined the runtime accepts
                 return $"Illegal {what}: '{value}' is not a legal {u.Name} value. Legal: {string.Join(", ", Enum.GetNames(u))}.";
             }
+            // A condition FormLinkOrIndex target (e.g. GetEquipped.ItemOrList, GetGlobalValue.Global) does NOT coerce via
+            // the parentless Coerce family — its parent arm carries the form/alias mode bit (set at apply by SetFloi). It
+            // is reached here only as a flat compose FIELD (the nested-Sets path validates FLOI in ValidateFromType's
+            // formlink branch); validate the target-value SHAPE the SAME way (TryClassifyFloiValue) so the two compose
+            // entry points can't drift. Recognised via the engine's shared IsFormLinkOrIndex (no drift).
+            if (WriteEngine.IsFormLinkOrIndex(rt))
+                return WriteEngine.TryClassifyFloiValue(value) ? null
+                    : $"Illegal {what}: '{value}' is not a legal condition target — expected a FormID " +
+                      "(XXXXXX:Plugin.esp → form mode), a bare index, or 'alias N' / 'packdata N' (→ index mode).";
             if (!WriteEngine.TryCoerce(value, rt, out _))
                 return $"Illegal {what}: '{value}' does not coerce to {typeName ?? u.Name}.";
             return null;
