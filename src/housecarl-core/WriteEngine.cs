@@ -1674,7 +1674,7 @@ public static class WriteEngine
             // SetFloi: the just-built `instance` IS the flag-bearing arm, so its UseAliases/UsePackageData mode is set to
             // match the value. The parentless Coerce rejects FLOI (it has no arm). Mirrors ApplyScalarVerb's FLOI gate so
             // the flat-field and nested-Sets compose paths produce the IDENTICAL write. (Pre-flight already validated val.)
-            if (IsFormLinkOrIndex(p.PropertyType)) SetFloi(instance, p, val!);
+            if (IsFormLinkOrIndex(p.PropertyType)) SetFloi(instance, p, val);
             else p.SetValue(instance, Coerce(val, p.PropertyType));
         }
         foreach (var req in spec.Sets ?? new())

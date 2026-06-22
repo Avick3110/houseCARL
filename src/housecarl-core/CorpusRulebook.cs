@@ -50,6 +50,12 @@ public sealed class CorpusRulebook
     readonly Corpus _corpus;
     CorpusRulebook(Corpus corpus) => _corpus = corpus;
 
+    /// <summary>The legal shapes of a condition FormLinkOrIndex target value — shared by the nested-sets
+    /// (<see cref="ValidateFromType"/>) and the flat-fields (<see cref="CheckValue"/>) rejects so the two compose entry
+    /// points can't drift on what they tell the user is legal (the no-drift thesis of HCBR-2026-06-22).</summary>
+    const string FloiTargetForms =
+        "a FormID (XXXXXX:Plugin.esp → form mode), a bare index, or 'alias N' / 'packdata N' (→ index mode)";
+
     public int TypeCount => _corpus.TotalTypes;
     public TypeSchema? Type(string name) => _corpus.Types.GetValueOrDefault(name);
 
@@ -391,8 +397,7 @@ public sealed class CorpusRulebook
                 var faq = leaf.MutableTypeAssemblyQualified ?? leaf.GetterTypeAssemblyQualified;
                 if (WriteEngine.ResolveType(faq) is { } frt && WriteEngine.IsFormLinkOrIndex(frt))
                     return WriteEngine.TryClassifyFloiValue(req.Value) ? null
-                        : $"Illegal condition target '{req.Value}' for '{leaf.Name}': expected a FormID " +
-                          "(XXXXXX:Plugin.esp → form mode), a bare index, or 'alias N' / 'packdata N' (→ index mode).";
+                        : $"Illegal condition target '{req.Value}' for '{leaf.Name}': expected {FloiTargetForms}.";
                 // A NORMAL FormLink Set — validate the FormKey VALUE shape at the gate (the FORMLINK arm ONLY; a
                 // substruct still falls to the type-shape CoercibilityReject below). CoercibilityReject is type-only
                 // and never inspected the string, so "00000000"/"0" were accepted then threw at FormKey.Factory on
@@ -725,8 +730,7 @@ public sealed class CorpusRulebook
             // entry points can't drift. Recognised via the engine's shared IsFormLinkOrIndex (no drift).
             if (WriteEngine.IsFormLinkOrIndex(rt))
                 return WriteEngine.TryClassifyFloiValue(value) ? null
-                    : $"Illegal {what}: '{value}' is not a legal condition target — expected a FormID " +
-                      "(XXXXXX:Plugin.esp → form mode), a bare index, or 'alias N' / 'packdata N' (→ index mode).";
+                    : $"Illegal {what}: '{value}' is not a legal condition target — expected {FloiTargetForms}.";
             if (!WriteEngine.TryCoerce(value, rt, out _))
                 return $"Illegal {what}: '{value}' does not coerce to {typeName ?? u.Name}.";
             return null;
