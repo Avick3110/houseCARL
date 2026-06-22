@@ -258,7 +258,20 @@ public static class ReadEngine
 
         // a container or substruct — summarise (with an element identity where we can), then maybe open it.
         if (!Emit(sink, ref budget, new FieldValue(path, false, null, ElementSummary(val, isDict)))) return;
-        if (depth <= 1) return;
+
+        // A VMAD script property normally stops here at its identity summary (e.g. "[ScriptObjectProperty]
+        // Name=DAK_HorseBuyPerk"), hiding its VALUE. Surface that value ONE bounded level deeper even at the
+        // depth floor — the Object FormLink (incl. a declared-but-null link, the signal the quest-fragment
+        // linter keys on), the Data scalar, the Alias — so a read reaches parity with the write surface. A
+        // property's direct members are leaves (a *ListProperty arm shows as a count at the floor; raise
+        // depth= to enumerate it), so this opens exactly one level and never unbounded-descends a fat VMAD
+        // (1.3.1 item 2). EVERY OTHER substruct still stops at the floor, byte-for-byte unchanged.
+        int childDepth = depth - 1;
+        if (depth <= 1)
+        {
+            if (!IsScriptProperty(val.GetType())) return;
+            childDepth = 1;
+        }
 
         if (isDict)
         {
@@ -269,7 +282,7 @@ public static class ReadEngine
                 var et = entry.GetType();
                 var key = et.GetProperty("Key", BindingFlags.Public | BindingFlags.Instance)?.GetValue(entry);
                 var ev = et.GetProperty("Value", BindingFlags.Public | BindingFlags.Instance)?.GetValue(entry);
-                Expand(ev, ev?.GetType() ?? typeof(object), val, $"{path}[{key}]", depth - 1, sink, ref budget);
+                Expand(ev, ev?.GetType() ?? typeof(object), val, $"{path}[{key}]", childDepth, sink, ref budget);
             }
         }
         else if (WriteEngine.GenderedInterface(val.GetType()) is not null)
@@ -284,7 +297,7 @@ public static class ReadEngine
                 if (budget < 0) return;
                 var armProp = WriteEngine.ResolveProperty(val.GetType(), WriteEngine.GenderedArmNames[g]);
                 object? arm; try { arm = armProp?.GetValue(val); } catch { continue; }
-                Expand(arm, armProp?.PropertyType ?? typeof(object), val, $"{path}[{g}]", depth - 1, sink, ref budget);
+                Expand(arm, armProp?.PropertyType ?? typeof(object), val, $"{path}[{g}]", childDepth, sink, ref budget);
             }
         }
         else if (val is System.Collections.IEnumerable seq and not string)
@@ -293,7 +306,7 @@ public static class ReadEngine
             foreach (var item in seq)
             {
                 if (budget < 0) return;
-                Expand(item, item?.GetType() ?? typeof(object), val, $"{path}[{i}]", depth - 1, sink, ref budget);
+                Expand(item, item?.GetType() ?? typeof(object), val, $"{path}[{i}]", childDepth, sink, ref budget);
                 i++;
             }
         }
@@ -316,7 +329,7 @@ public static class ReadEngine
                 if (budget < 0) return;
                 var prop = WriteEngine.ResolveProperty(val.GetType(), fname);
                 object? fv; try { fv = prop?.GetValue(val); } catch { continue; }
-                Expand(fv, prop?.PropertyType ?? typeof(object), val, $"{path}.{fname}", depth - 1, sink, ref budget);
+                Expand(fv, prop?.PropertyType ?? typeof(object), val, $"{path}.{fname}", childDepth, sink, ref budget);
             }
         }
     }
@@ -652,6 +665,14 @@ public static class ReadEngine
         var n = t.GetGenericTypeDefinition().Name;
         return n.StartsWith("AssetLink", StringComparison.Ordinal) || n.StartsWith("IAssetLink", StringComparison.Ordinal);
     }
+
+    /// <summary>True if <paramref name="t"/> is a VMAD script-property arm (ScriptObjectProperty, the scalar
+    /// ScriptInt/Float/Bool/StringProperty arms, and the *ListProperty arms) — recognised by the shared getter
+    /// interface, so every arm matches by construction with no per-arm list, on the overlay getter or the
+    /// mutable type alike. The depth walker opens such a property's direct value members one bounded level past
+    /// the depth floor (1.3.1 item 2 — read parity with the write surface); every other substruct stops at the
+    /// floor, so this is the one type-targeted exception to the depth gate.</summary>
+    static bool IsScriptProperty(Type t) => typeof(IScriptPropertyGetter).IsAssignableFrom(t);
 
     static byte[] MemorySliceBytes(object slice)
     {
