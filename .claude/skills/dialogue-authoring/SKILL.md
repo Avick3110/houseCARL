@@ -172,6 +172,55 @@ new one. `housecarl_validate_dialogue` validates the *winning* topic's `Response
 but a record-only glance won't show the loss. This is the classic "two mods touched one topic and lines
 vanished" conflict.
 
+## Write-side recipes — clone a condition gate, write a CK-refused subtype
+
+Two repeatedly-needed edits to *existing* dialogue ride the write tools you already have —
+`housecarl_bulk_apply` and `housecarl_set_field` — each with one sharp edge worth stating once.
+
+**Recipe A — clone a verified condition gate onto N empty Infos. NEVER hand-synthesize the operator bytes.**
+A `Condition` (CTDA) is a polymorphic struct — a `ConditionFloat` carrying a `CompareOperator`, a
+`ComparisonValue`, and a polymorphic `Data` (the function + its params). *Computing* that encoded
+operator/comparison by hand is exactly what once wrote 26 broken conditions onto one gate. So don't — **read
+a known-good gate back and replay its rows verbatim**:
+
+1. Build the gate once (in CK, or on one Info you've validated) and read it back with `housecarl_read_record`
+   (`Conditions`, deep). That array is your source of truth — every field below is **copied, nothing computed**.
+2. For each target Info, **read it first and skip any that already carry `Conditions`** — there is no
+   idempotent verb, so the read-then-skip is yours to do, and it is what makes a re-run safe.
+3. Replay each source row as a composed `Add` into the target's `Conditions`. One `Add` per row; the
+   polymorphic element composes by its concrete arm, with `Data` composed by *its* arm:
+
+   ```json
+   operations=[
+     { "formid": "0A12C4:MyMod.esp", "field_path": "Conditions", "verb": "Add",
+       "compose": { "type": "ConditionFloat",
+                    "fields": { "CompareOperator": "GreaterThanOrEqualTo", "ComparisonValue": "20" },
+                    "sets": [ { "path": "Data",
+                                "compose": { "type": "GetStageConditionData",
+                                             "fields": { "Quest": "001234:MyMod.esp", "RunOnType": "Subject" } } } ] }
+     }
+     // ...one more Add per source row — arm type, CompareOperator, ComparisonValue, the Data arm + its
+     //    params copied verbatim from the read-back; confirm arm/field names via mutagen-reference...
+   ]
+   ```
+
+   Pass `full_readback=true` and confirm the written rows match the source before enabling the patch.
+   (Conditions-only edits do **not** need a `.seq` regen.)
+
+**Recipe B — write an INFO subtype CK's dropdown refuses to offer.** CK's player-dialogue subtype dropdown
+only lists subtypes already present in the branch, so you cannot pick e.g. `ForceGreet` there. The subtype
+lives on the **topic, not the line** — it is `DialogTopic.Subtype` (the DIAL); `DialogResponses` (the INFO)
+has no `Subtype` field. Copy the exact value from a known-good ForceGreet topic and write it with
+`housecarl_set_field`:
+
+   ```json
+   housecarl_set_field( formid="0B77E0:MyMod.esp", field_path="Subtype", value="ForceGreet" )
+   ```
+
+   (`ForceGreet` is the Mutagen spelling of xEdit's `PFGT` subtype — confirm the enum value in
+   `mutagen-reference`.) The write is non-destructive: it lands in a reviewable patch; read it back before
+   enabling + sorting in MO2.
+
 ## Common mistakes
 
 - **Building a PNAM chain, or flagging a missing one.** Vanilla topics have empty PNAM; ordering is the
@@ -184,6 +233,9 @@ vanished" conflict.
 - **Computing the voice folder from the conflict winner.** It is the plugin that *defines* the INFO. For a
   new plugin that's yours (clean); for an override it's the original's folder, where the audio lives.
 - **Overriding a topic and dropping its other lines** (the DIAL-wins-wholesale trap above).
+- **Hand-synthesizing CTDA operator/comparison bytes** instead of cloning a verified `Conditions` array
+  verbatim — computing the encoded operator once wrote 26 broken conditions. Read a good gate back with
+  `housecarl_read_record` and replay its rows (the write-side recipe above).
 - **Hand-rolling the Papyrus compile** instead of `housecarl_compile_script` — hand-rolled calls mangle
   spaced paths and can hit originals; the tool quotes them and lands a reviewable `.pex`.
 - **Reaching for this skill when the user means distribution or a field edit.** Distributing a form to NPCs
