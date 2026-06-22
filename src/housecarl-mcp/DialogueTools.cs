@@ -189,8 +189,10 @@ static class DialogueWire
     }
 
     /// <summary>The SEQ staleness/coverage block (item 7) for a Start-Game-Enabled quest: a WARN (`[!]`) when its
-    /// `.seq` is missing, doesn't list it, or is older than the plugin; an OK line when clean; a `[?]` note when
-    /// undeterminable (the winning `.seq` is in a BSA / unreadable) OR when the WINNING record is an override
+    /// `.seq` is missing or doesn't list it; an OK line when clean; a `[?]` ADVISORY when the `.seq` lists the quest
+    /// but is merely older by mtime (mtime can't tell whether the plugin changed for a SGE/master reason that needs a
+    /// regen or a dialogue-only edit that doesn't — so it's a hint, not a "regenerate"), when the result is
+    /// undeterminable (the winning `.seq` is in a BSA / unreadable), OR when the WINNING record is an override
     /// (winner != defining) — since that override may itself be the plugin that flags SGE and need its OWN .seq, a
     /// not-covered verdict is surfaced as an ambiguity, never a confident "dormant" against the wrong plugin (Q3).
     /// Plus the inverse guidance that stops needless regen. Skipped entirely for a non-SGE quest (SeqLint null).</summary>
@@ -223,9 +225,14 @@ static class DialogueWire
         else if (s.SeqContainsQuest == false)
             sb.Append("  SEQ: [!] ").Append(s.DefiningPlugin).Append(".seq exists but does NOT list this quest (").Append(fid)
               .Append(") — it stays dormant on a fresh save. Regenerate with housecarl_write_seq.\n");
-        else // s.SeqNewerThanPlugin == false
-            sb.Append("  SEQ: [!] ").Append(s.DefiningPlugin).Append(".seq is OLDER than ").Append(s.DefiningPlugin)
-              .Append(" — it may predate a change to which quests are start-game-enabled or a master/ESL-compaction shift (the one way a .seq goes stale). Regenerate with housecarl_write_seq.\n");
+        else // s.SeqNewerThanPlugin == false — the .seq DOES list the quest, it's just older by mtime
+            // mtime alone can't tell WHY the plugin changed, so this is ADVISORY, not a confident "regenerate":
+            // a genuinely stale .seq (a master added/removed, an ESL compaction) is the real failure mode, but a
+            // dialogue/condition-only edit bumps the plugin's mtime too and needs NO regen (the note below). Don't
+            // contradict that note with a hard [!] (Q3 — the mtime is a hint, not proof of staleness).
+            sb.Append("  SEQ: [?] ").Append(s.DefiningPlugin).Append(".seq lists this quest (").Append(fid)
+              .Append(") but is OLDER than ").Append(s.DefiningPlugin)
+              .Append(" — if your last change altered which quests are start-game-enabled or the master list (a master added/removed, an ESL compaction), regenerate with housecarl_write_seq; if it was a dialogue- or condition-only edit, the .seq is still correct (an older mtime alone does not mean stale).\n");
         sb.Append("  SEQ note: a .seq is needed only when WHICH quests are start-game-enabled changes (a new SGE quest, or a quest " +
                   "alias/topic that depends on one) — NOT for a dialogue-only or condition-only edit; those never need a regen.\n");
     }
