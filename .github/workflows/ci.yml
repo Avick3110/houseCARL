@@ -57,6 +57,15 @@ jobs:
       - name: Probe — ConditionData form-link parameter read (self-contained regression guard)
         run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- floi-read-guard
 
+      # Self-contained (composes a COBJ condition in memory + writes/byte-compares two patches — no external files),
+      # runs fully here: a regression guard for the condition-FLOI target set via the flat compose fields: shorthand
+      # (HCBR-2026-06-22). The fields: shorthand bypassed the parent-aware SetFloi that the verbose sets: path used, so
+      # a FLOI condition param (GetEquipped.ItemOrList, GetGlobalValue.Global, …) refused at pre-flight ("does not
+      # coerce to FormLink<…>") and threw at apply. Pins: pre-flight accepts fields: FLOI, apply lands BOTH form and
+      # alias-index mode, the fields: write is BYTE-IDENTICAL to sets: (full parity), and a malformed value still rejects.
+      - name: Probe — condition FLOI via compose fields: shorthand (self-contained regression guard)
+        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- floi-fields-guard
+
       # Self-contained (synthesizes records with known field values — no external files), runs fully here: a regression
       # guard for the field-value query predicate (cross_plugin_query where=) — matched set == brute-force + the Q3 teeth.
       - name: Probe — field-value query predicate (self-contained regression guard)

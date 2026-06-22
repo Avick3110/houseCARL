@@ -37,6 +37,10 @@ if (args.Length > 0 && args[0] == "vmad-property-read-guard") return VmadPropert
 // COBJ HasPerk gate, asserts the form-mode FLOI renders its FormKey (and alias mode its index) on overlay + mutable.
 if (args.Length > 0 && args[0] == "floi-read-guard") return FloiReadProbe.RunGuard(args[1..]);
 
+// Condition FLOI target via the flat compose fields: shorthand (HCBR-2026-06-22): SELF-CONTAINED CI regression guard —
+// composes a GetEquipped.ItemOrList via fields: AND sets:, asserts both land (form + index mode) and are byte-identical.
+if (args.Length > 0 && args[0] == "floi-fields-guard") return FloiFieldsProbe.RunGuard(args[1..]);
+
 // Field-value query predicate (cross_plugin_query where=): SELF-CONTAINED CI regression guard — synthesizes records
 // with known field values, asserts the evaluator's matched set == a brute-force reference + the Q3 teeth.
 if (args.Length > 0 && args[0] == "value-predicate-guard") return ValuePredicateProbe.RunGuard(args[1..]);

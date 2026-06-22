@@ -1670,7 +1670,12 @@ public static class WriteEngine
             var p = ResolveProperty(type, name)
                 ?? throw new InvalidOperationException($"No field '{name}' on '{spec.Type}'");
             if (!p.CanWrite) throw new InvalidOperationException($"Field '{name}' on '{spec.Type}' is not writable");
-            p.SetValue(instance, Coerce(val, p.PropertyType));
+            // A condition FormLinkOrIndex field (GetEquipped.ItemOrList, GetGlobalValue.Global, …) needs the parent-aware
+            // SetFloi: the just-built `instance` IS the flag-bearing arm, so its UseAliases/UsePackageData mode is set to
+            // match the value. The parentless Coerce rejects FLOI (it has no arm). Mirrors ApplyScalarVerb's FLOI gate so
+            // the flat-field and nested-Sets compose paths produce the IDENTICAL write. (Pre-flight already validated val.)
+            if (IsFormLinkOrIndex(p.PropertyType)) SetFloi(instance, p, val!);
+            else p.SetValue(instance, Coerce(val, p.PropertyType));
         }
         foreach (var req in spec.Sets ?? new())
             ApplyVerb(instance, req);     // general nested writes — reuse the verb engine; recurses on struct-element Adds
