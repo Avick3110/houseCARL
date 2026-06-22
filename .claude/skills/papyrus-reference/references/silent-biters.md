@@ -25,11 +25,13 @@ handler declared with only three parameters throws an arg-count error and **sile
 can kill an entire quest's event-driven stage advancement with no log line. A handler registered via
 `RegisterForModEvent` must be `Event MyHandler(string eventName, string strArg, float numArg, Form sender)`.
 
-## 3. Mod-event string payloads are case-folded
+## 3. Papyrus string `==` is case-INSENSITIVE — don't chase a case bug on event strings
 
-The project-wide string-table interning case-folds string payloads, so a `strArg` you send as `"OpenMenu"`
-may arrive normalised. Compare event-string payloads **case-insensitively** — an exact-case `==` can silently
-miss.
+A trap of misdiagnosis, not of behavior: `==` on Papyrus `String`s ignores case, so a mod-event `strArg` you
+send as `"OpenMenu"` still matches `payload == "openmenu"`. Case can NOT cause a missed match, and normalizing
+case "to be safe" before comparing is wasted work, not a fix. So if an event comparison that should match is
+failing, the cause is something else — leading/trailing whitespace, or a genuinely different string — never
+case. (This is the opposite of most languages, which is why it's worth stating.)
 
 ## 4. `FormList.HasForm` misses base-`NPC_` entries
 
@@ -54,11 +56,14 @@ covers `Utility.Wait` thread-pinning and cost more generally.)
 
 ## 7. String-literal and docstring escaping rules
 
-Papyrus string literals escape only `\\` and `\"`. `\n`, `\r`, `\t` are **compile errors**
-(`required (...)+ loop did not match anything`) — there is no newline/tab escape in a literal. Docstrings
-`{ ... }` are legal only immediately after `ScriptName`, `Property`, `Function`, or `Event`, and **cannot
-contain a literal `{`** — so pasting JSON into a `{ ... }` comment cascades parse errors across the whole
-compile.
+The Papyrus grammar documents four string-literal escapes — `\\`, `\"`, `\n`, `\t` — but only `\\` and `\"`
+are safe to rely on across compilers. Bethesda's stock `PapyrusCompiler.exe` has been reported to REJECT `\n`
+in a literal (it fails to compile, surfacing as a generic `required (...)+ loop did not match anything` parser
+error that does NOT name the escape), even though the grammar and Caprica accept it; `\r` has no documented
+escape at all. So avoid `\n`/`\r`/`\t` in a literal unless you've confirmed your compiler accepts them — build
+the string from pieces instead. Docstrings `{ ... }` are legal only immediately after `ScriptName`, `Property`,
+`Function`, or `Event`, and **cannot contain a literal `{`** — so pasting JSON into a `{ ... }` comment cascades
+parse errors across the whole compile.
 
 ## 8. Common-noun type collisions
 
