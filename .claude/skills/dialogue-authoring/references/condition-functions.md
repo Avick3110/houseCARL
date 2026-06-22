@@ -47,7 +47,8 @@ each row:
 
 `OR` only chains **adjacent** rows — there are **no parentheses**. So a list can express a flat
 AND-of-ORs run, but **not** `(A AND B) OR (C AND D)`; to gate on a real sum-of-products you must duplicate
-the whole INFO, one copy per AND-clause (see the flow-model reference's "non-lint traps"). Reading a list,
+the whole INFO, one copy per AND-clause (see the flow-model reference's *Authoring traps the model implies
+(non-lint)* section). Reading a list,
 walk it row by row and group consecutive `OR` rows.
 
 ### `SwapSubjectAndTarget`
