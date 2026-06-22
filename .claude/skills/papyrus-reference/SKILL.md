@@ -11,6 +11,8 @@ This skill provides offline lookup for Papyrus function signatures, parameter sh
 
 This skill covers the **API surface** — function signatures and docs. Reading actual `.psc` source from a modlist, and compiling `.psc` → `.pex`, are separate concerns handled with your normal file-reading and compiler tooling.
 
+For the compiles-clean-but-misbehaves traps a correct signature does NOT reveal — `GetForm` returning `None` for the whole ESL range, `SendModEvent`'s 4-arg handler arity, `FormList.HasForm` missing base-`NPC_` entries, mixed storage backends, `Utility.Wait` in a paused menu, literal/docstring escaping, common-noun type collisions — see [references/silent-biters.md](references/silent-biters.md). It is a hand-curated companion, separate from the by-construction signature corpus.
+
 ## First step
 
 When you encounter a Papyrus function call you need to verify, or when authoring a `.psc`, open the function index at `references/index.jsonl`. The index is JSONL — one entry per line — and resolves an unqualified function name to the per-script reference file that documents it AND the 1-indexed `line_start`/`line_end` range of the entry block within that file. The index is grep-friendly: the entries are compact JSON (no spaces after colons), so match the **full quoted token** `"name":"FunctionName"` — a spaced pattern like `"name": "…"` matches nothing.
@@ -106,5 +108,7 @@ The corpus ships in three tiers. All bundled entries are present in `references/
 ## Notes
 
 - **Corpus provenance** — the `references/` tree is generated from BellCube's [papyrus-index](https://github.com/BellCubeDev/papyrus-index). To update coverage (e.g. a newly-released plugin), regenerate from upstream and refresh `references/` + `index.jsonl`.
+
+- **Hand-curated companion** — `references/silent-biters.md` is NOT part of the BellCube-generated corpus (it carries semantic gotchas, not signatures) and is never resolved by the index lookup. Preserve it across any regeneration of `references/` + `index.jsonl`; it carries a hand-maintained-staleness duty.
 
 - **Authoring custom reference files** — for plugins not in the bundled corpus, you can hand-author a per-script reference file plus matching `index.jsonl` entries following the same `name` / `qualified` / `source` / `file` / `kind` / `line_start` / `line_end` shape this skill uses. The lookup procedure above then resolves them identically.
