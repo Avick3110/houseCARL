@@ -109,12 +109,13 @@ static class DialogueWire
         sb.Append(pad).Append("  category=").Append(t.Category).Append("  subtype=").Append(t.Subtype)
           .Append("  subtype_marker=").Append(t.SubtypeName).Append('\n');
 
-        // Fragment-presence note (item 8): tells a dev whether to expect a Papyrus.log entry — only a result-script
-        // FRAGMENT line logs when it fires; a plain voiced line does not. Always shown for a topic with live INFOs.
+        // Fragment-presence note (item 8): tells a dev whether a Papyrus.log entry is even POSSIBLE for a line — a
+        // result-script FRAGMENT runs code that CAN surface in the log (on error / an explicit trace); a plain voiced
+        // line has no code path, so it never can. Always shown for a topic with live INFOs.
         if (t.InfoCount > 0)
             sb.Append(pad).Append("  result-script fragments: ").Append(t.FragmentInfoCount).Append(" of ").Append(t.InfoCount)
               .Append(t.InfoCount == 1 ? " INFO carries one" : " INFOs carry one")
-              .Append(" — only a fragment line logs to Papyrus.log when it fires (a plain voiced line does not).\n");
+              .Append(" — a fragment runs code that can surface in Papyrus.log (on error or an explicit trace); a plain voiced line has no code path, so no log entry doesn't mean it didn't play.\n");
 
         // --- graph issues (PNAM chain, quest + branch wiring) ---
         if (t.Issues.Count == 0)
@@ -189,30 +190,42 @@ static class DialogueWire
 
     /// <summary>The SEQ staleness/coverage block (item 7) for a Start-Game-Enabled quest: a WARN (`[!]`) when its
     /// `.seq` is missing, doesn't list it, or is older than the plugin; an OK line when clean; a `[?]` note when
-    /// undeterminable (the winning `.seq` is in a BSA / unreadable — never a false OK or a false stale, Q3). Plus the
-    /// inverse guidance that stops needless regen. Skipped entirely for a non-SGE quest (SeqLint null).</summary>
+    /// undeterminable (the winning `.seq` is in a BSA / unreadable) OR when the WINNING record is an override
+    /// (winner != defining) — since that override may itself be the plugin that flags SGE and need its OWN .seq, a
+    /// not-covered verdict is surfaced as an ambiguity, never a confident "dormant" against the wrong plugin (Q3).
+    /// Plus the inverse guidance that stops needless regen. Skipped entirely for a non-SGE quest (SeqLint null).</summary>
     static void AppendSeq(StringBuilder sb, SeqLintFinding? s)
     {
         if (s is null || !s.QuestIsSge) return;
         string fid = $"0x{s.OnDiskFormId:X8}";
+        bool overrideInPlay = !string.Equals(s.WinnerPlugin, s.DefiningPlugin, StringComparison.OrdinalIgnoreCase);
+        bool covered = s.SeqExists && s.SeqContainsQuest == true && s.SeqNewerThanPlugin == true;
+
         if (!s.SeqExists && s.Note is not null)
             sb.Append("  SEQ: [?] this quest is Start-Game-Enabled but the .seq check could not run — ").Append(s.Note).Append('\n');
+        else if (s.SeqExists && (s.SeqContainsQuest is null || s.SeqNewerThanPlugin is null))
+            sb.Append("  SEQ: [?] a .seq for ").Append(s.DefiningPlugin).Append(" exists but couldn't be fully checked — ")
+              .Append(s.Note ?? "its contents/mtime were undeterminable").Append('\n');
+        else if (covered)
+            sb.Append("  SEQ: OK — ").Append(s.DefiningPlugin).Append(".seq lists this start-game-enabled quest (").Append(fid)
+              .Append(") and is newer than the plugin.\n");
+        else if (overrideInPlay)
+            // not covered, but the WINNING record is an override — its plugin (not the defining master) may be the one
+            // that flags SGE and would then need its OWN .seq, so don't confidently blame the defining plugin (Q3).
+            sb.Append("  SEQ: [?] this start-game-enabled quest's .seq coverage couldn't be confirmed — its defining plugin ")
+              .Append(s.DefiningPlugin).Append(" has no listing/fresh .seq, but the WINNING override ").Append(s.WinnerPlugin)
+              .Append(" is the record the game reads and may itself be what sets Start-Game-Enabled (which would need ITS own .seq). ")
+              .Append("Run housecarl_write_seq against whichever plugin sets the flag.\n");
         else if (!s.SeqExists)
             sb.Append("  SEQ: [!] this quest is Start-Game-Enabled but NO .seq for ").Append(s.DefiningPlugin)
               .Append(" lists it — on a fresh save the quest stays DORMANT and its dialogue never shows. Run housecarl_write_seq plugin=")
               .Append(s.DefiningPlugin).Append(".\n");
-        else if (s.SeqContainsQuest is null || s.SeqNewerThanPlugin is null)
-            sb.Append("  SEQ: [?] a .seq for ").Append(s.DefiningPlugin).Append(" exists but couldn't be fully checked — ")
-              .Append(s.Note ?? "its contents/mtime were undeterminable").Append('\n');
         else if (s.SeqContainsQuest == false)
             sb.Append("  SEQ: [!] ").Append(s.DefiningPlugin).Append(".seq exists but does NOT list this quest (").Append(fid)
               .Append(") — it stays dormant on a fresh save. Regenerate with housecarl_write_seq.\n");
-        else if (s.SeqNewerThanPlugin == false)
+        else // s.SeqNewerThanPlugin == false
             sb.Append("  SEQ: [!] ").Append(s.DefiningPlugin).Append(".seq is OLDER than ").Append(s.DefiningPlugin)
               .Append(" — it may predate a change to which quests are start-game-enabled or a master/ESL-compaction shift (the one way a .seq goes stale). Regenerate with housecarl_write_seq.\n");
-        else
-            sb.Append("  SEQ: OK — ").Append(s.DefiningPlugin).Append(".seq lists this start-game-enabled quest (").Append(fid)
-              .Append(") and is newer than the plugin.\n");
         sb.Append("  SEQ note: a .seq is needed only when WHICH quests are start-game-enabled changes (a new SGE quest, or a quest " +
                   "alias/topic that depends on one) — NOT for a dialogue-only or condition-only edit; those never need a regen.\n");
     }

@@ -61,8 +61,9 @@ public sealed record DialogueIssue(DialogueIssueSeverity Severity, string Messag
 /// result-script (<see cref="ScriptFindings"/>) verdicts over every LIVE INFO. <see cref="InfoCount"/> counts INFO
 /// records (one INFO may carry several spoken rows, or none) — NOT spoken lines. <see cref="ConditionedInfoCount"/>
 /// feeds the standing CTDA limit (grill-rev C2). <see cref="DeletedInfoCount"/> = INFOs skipped as removed (deleted).
-/// <see cref="FragmentInfoCount"/> = live INFOs carrying a result-script fragment — the only lines that log to
-/// Papyrus.log when they fire (item 8; a plain voiced line does not log).</summary>
+/// <see cref="FragmentInfoCount"/> = live INFOs carrying a result-script fragment — lines that run Papyrus code
+/// which CAN surface in Papyrus.log (on an error or an explicit trace), where a plain voiced line has no code path
+/// that ever can (item 8).</summary>
 public sealed record TopicValidation(
     FormKey Topic, string TopicEditorId, string WinnerPlugin,
     int InfoCount, int ConditionedInfoCount, int DeletedInfoCount, int FragmentInfoCount,
@@ -77,9 +78,13 @@ public sealed record TopicValidation(
 /// than its defining plugin, or it is dormant on a fresh save — its dialogue never shows. <see cref="SeqContainsQuest"/>
 /// and <see cref="SeqNewerThanPlugin"/> are null when undeterminable (the winning <c>.seq</c> is inside a BSA, or
 /// unreadable — <see cref="Note"/> says why); <see cref="OnDiskFormId"/> is the 4-byte value a <c>.seq</c> must
-/// contain for this quest (0 when it couldn't be computed).</summary>
+/// contain for this quest (0 when it couldn't be computed). The check keys off <see cref="DefiningPlugin"/>;
+/// <see cref="WinnerPlugin"/> is the plugin whose record the game actually reads (the load-order winner) — when it
+/// differs from the defining plugin, an override is in play and the render softens a not-covered verdict to an
+/// ambiguity (the override may be the plugin that flags SGE and needs its own .seq) rather than a confident
+/// "dormant" against the defining plugin (Q3).</summary>
 public sealed record SeqLintFinding(
-    bool QuestIsSge, string DefiningPlugin, uint OnDiskFormId,
+    bool QuestIsSge, string DefiningPlugin, string WinnerPlugin, uint OnDiskFormId,
     bool SeqExists, bool? SeqContainsQuest, bool? SeqNewerThanPlugin, string? Note);
 
 /// <summary>The whole-validation report for one <c>housecarl_validate_dialogue</c> call: the resolved input
@@ -174,7 +179,7 @@ public static class DialogueValidate
                 // contract.
                 // SEQ staleness/coverage lint (item 7): keyed on the QUEST input, independent of its topics — a
                 // start-game-enabled quest needs a .seq that lists it, or it (and all its dialogue) stays dormant.
-                var seqLint = CheckSeq(view, av, fk, quest);
+                var seqLint = CheckSeq(view, av, fk, quest, win.Value.WinnerPlugin);
 
                 var topics = new List<TopicValidation>();
                 foreach (var (tfk, _, tbody) in view.WinnerRecordsOfType(DialTypes))
@@ -264,8 +269,8 @@ public static class DialogueValidate
             if (info.IsDeleted) { deleted++; continue; }
             infoCount++;
 
-            // Fragment-presence tally (item 8): does this line carry a result-script FRAGMENT (the only kind that
-            // logs to Papyrus.log)? Via the single fragment-presence home, so this never drifts from the per-INFO
+            // Fragment-presence tally (item 8): does this line carry a result-script FRAGMENT (a code path that can
+            // surface in Papyrus.log)? Via the single fragment-presence home, so this never drifts from the per-INFO
             // HasFragment the script check sets.
             if (DialogueScriptCheck.HasResultFragment(info)) fragmentInfos++;
 
@@ -313,9 +318,14 @@ public static class DialogueValidate
     /// lint). Fault-isolated: any IO/parse failure yields a NAMED note rather than a throw, so a SEQ-check failure
     /// can't sink the whole validation. The winning <c>.seq</c> is resolved via the VFS (loose beats BSA); a
     /// BSA-resident <c>.seq</c> has no loose path, so its contents + mtime are undeterminable here — surfaced as a
-    /// note, never a false "OK" or a false "stale" (Q3).</summary>
+    /// note, never a false "OK" or a false "stale" (Q3). The check keys off the DEFINING plugin, which is correct for
+    /// the common case (a quest authored SGE in its own plugin) and for a vanilla override that keeps SGE (the base
+    /// .seq already lists it). It carries <paramref name="winnerPlugin"/> too, so the render can SOFTEN to an
+    /// ambiguity note rather than assert a confident "dormant" against the defining plugin when the WINNING record is
+    /// an override (winner != defining) — that override may itself be the plugin that flags SGE and would need its
+    /// OWN .seq (Q3 — don't falsely attribute the gap to the wrong plugin).</summary>
     internal static SeqLintFinding? CheckSeq(LoadOrderResolver.IndexView view, AssetResolver.AssetView av,
-        FormKey fk, IQuestGetter quest)
+        FormKey fk, IQuestGetter quest, string winnerPlugin)
     {
         if (!quest.Flags.HasFlag(Quest.Flag.StartGameEnabled)) return null;   // not SGE → no .seq needed, no lint
         var defining = fk.ModKey.FileName;
@@ -323,28 +333,28 @@ public static class DialogueValidate
         {
             var pluginPath = view.PluginPath(defining);
             if (pluginPath is null)
-                return new SeqLintFinding(true, defining, 0, false, null, null,
+                return new SeqLintFinding(true, defining, winnerPlugin, 0, false, null, null,
                     $"could not locate the defining plugin '{defining}' on disk to check its .seq.");
 
             uint onDisk = SeqFile.OnDiskFormIdFromPlugin(pluginPath, fk);
             var seqRel = $@"SEQ\{Path.GetFileNameWithoutExtension(defining)}.seq";
-            var winner = av.ResolveForPlacement(seqRel).Sources.FirstOrDefault();
+            var seqSource = av.ResolveForPlacement(seqRel).Sources.FirstOrDefault();
 
-            if (winner is null)                                              // no .seq anywhere in the VFS
-                return new SeqLintFinding(true, defining, onDisk, false, null, null, null);
+            if (seqSource is null)                                           // no .seq anywhere in the VFS
+                return new SeqLintFinding(true, defining, winnerPlugin, onDisk, false, null, null, null);
 
-            if (winner.LooseFilePath is null)                               // the winning .seq is inside a BSA
-                return new SeqLintFinding(true, defining, onDisk, true, null, null,
+            if (seqSource.LooseFilePath is null)                            // the winning .seq is inside a BSA
+                return new SeqLintFinding(true, defining, winnerPlugin, onDisk, true, null, null,
                     "the winning .seq is inside a BSA, so its contents and modification time can't be checked here.");
 
-            var seqBytes = File.ReadAllBytes(winner.LooseFilePath);
+            var seqBytes = File.ReadAllBytes(seqSource.LooseFilePath);
             bool contains = SeqFile.SeqContains(seqBytes, onDisk);
-            bool newer = File.GetLastWriteTimeUtc(winner.LooseFilePath) >= File.GetLastWriteTimeUtc(pluginPath);
-            return new SeqLintFinding(true, defining, onDisk, true, contains, newer, null);
+            bool newer = File.GetLastWriteTimeUtc(seqSource.LooseFilePath) >= File.GetLastWriteTimeUtc(pluginPath);
+            return new SeqLintFinding(true, defining, winnerPlugin, onDisk, true, contains, newer, null);
         }
         catch (Exception ex)
         {
-            return new SeqLintFinding(true, defining, 0, false, null, null, $"the .seq check could not run: {ex.Message}");
+            return new SeqLintFinding(true, defining, winnerPlugin, 0, false, null, null, $"the .seq check could not run: {ex.Message}");
         }
     }
 

@@ -18,6 +18,8 @@ namespace HousecarlGenerator;
 ///   SEQ-STALE         — an SGE quest listed in a .seq OLDER than the plugin → SeqNewerThanPlugin=false (mtime teeth).
 ///   SEQ-COVERED-OK    — an SGE quest listed in a FRESH .seq → exists & contains & newer (no warning; the positive lock).
 ///   SEQ-CLEAN-NO-FLAG — a NON-SGE quest yields NO lint (SeqLint null) — fires ONLY for SGE quests, never nags.
+///   SEQ-OVERRIDE-AMBIGUOUS — an override that ADDS SGE the master lacks → winner != defining, so the render softens
+///                    to a [?] ambiguity instead of a false "dormant" against the defining master (Q3, review fold).
 ///
 /// Run: dotnet run --project src/housecarl-generator -- seq-staleness-guard
 /// </summary>
@@ -58,6 +60,23 @@ public static class SeqStalenessProbe
                 var pl = m.Quests.AddNew(); pl.EditorID = "HcDvSeqPlainQ"; pl.Flags = Quest.Flag.RunOnce; qPlainFk = pl.FormKey;
             });
 
+            // OVERRIDE: a master with a NON-SGE quest, and a patch that OVERRIDES it and ADDS the SGE flag the master
+            // lacks. The winning record (the patch) is what the game reads, so winner != defining — the .seq the engine
+            // pairs with the flag belongs to the OVERRIDE, not the defining master. No .seq planted for either.
+            string ovrMPath = Path.Combine(root, "HcDvSeqOvrM.esm");
+            FormKey qOvrFk = default;
+            WriteMaster(ovrMPath, "HcDvSeqOvrM", m =>
+            { var q = m.Quests.AddNew(); q.EditorID = "HcDvSeqOvrQ"; q.Flags = Quest.Flag.RunOnce; qOvrFk = q.FormKey; });
+            string ovrPPath = Path.Combine(root, "HcDvSeqOvrP.esp");
+            {
+                using var mOv = SkyrimMod.CreateFromBinaryOverlay(ovrMPath, SkyrimRelease.SkyrimSE);
+                var p = new SkyrimMod(new ModKey("HcDvSeqOvrP", ModType.Plugin), SkyrimRelease.SkyrimSE);
+                if (p.ModHeader.Stats.NextFormID < 0x800) p.ModHeader.Stats.NextFormID = 0x800;
+                var ov = p.Quests.GetOrAddAsOverride(mOv.Quests.First(x => x.FormKey == qOvrFk));
+                ov.Flags = Quest.Flag.StartGameEnabled;                                   // the OVERRIDE newly flags SGE
+                p.BeginWrite.ToPath(ovrPPath).WithLoadOrder(new[] { (ISkyrimModGetter)mOv }).NoNextFormIDProcessing().Write();
+            }
+
             // Plant the .seq files — the on-disk FormID is computed the SAME way the lint computes it.
             string staleSeq = Path.Combine(dataDir, "SEQ", "HcDvSeqStale.seq");
             File.WriteAllBytes(staleSeq, SeqFile.Serialize(new[] { SeqFile.OnDiskFormIdFromPlugin(stalePath, qStaleFk) }));
@@ -68,7 +87,7 @@ public static class SeqStalenessProbe
             File.SetLastWriteTimeUtc(staleSeq, File.GetLastWriteTimeUtc(stalePath).AddHours(-1));
             File.SetLastWriteTimeUtc(okSeq, File.GetLastWriteTimeUtc(okPath).AddHours(1));
 
-            using var resolver = LoadOrderResolver.Build(new[] { missPath, stalePath, okPath });
+            using var resolver = LoadOrderResolver.Build(new[] { missPath, stalePath, okPath, ovrMPath, ovrPPath });
             using var assets = AssetResolver.Build("", "", dataDir, Array.Empty<string>(), Array.Empty<ActiveArchive>());
             Console.WriteLine($"-- setup: masters miss/stale/ok; .seq planted for stale (old) + ok (fresh, lists qOk only); none for miss --");
             Console.WriteLine();
@@ -89,6 +108,11 @@ public static class SeqStalenessProbe
 
             var plain = Lint(qPlainFk);
             Check(plain is null, $"SEQ-CLEAN-NO-FLAG a non-SGE quest yields NO lint — {Show(plain)}");
+
+            var ovr = Lint(qOvrFk);   // winner = the override patch; defining = the master it overrides
+            Check(ovr is { QuestIsSge: true, SeqExists: false }
+                  && !string.Equals(ovr.WinnerPlugin, ovr.DefiningPlugin, StringComparison.OrdinalIgnoreCase),
+                $"SEQ-OVERRIDE-AMBIGUOUS override adds SGE → winner!=defining (render softens to [?], not a false dormant against the master) — {Show(ovr)}");
         }
         catch (Exception ex) { Console.WriteLine("  FAIL  guard threw: " + ex); fail++; }
         finally { try { Directory.Delete(root, recursive: true); } catch { /* best-effort temp cleanup */ } }
@@ -107,5 +131,5 @@ public static class SeqStalenessProbe
     }
 
     static string Show(SeqLintFinding? s) => s is null ? "SeqLint=null"
-        : $"sge={s.QuestIsSge} exists={s.SeqExists} contains={s.SeqContainsQuest?.ToString() ?? "?"} newer={s.SeqNewerThanPlugin?.ToString() ?? "?"} note=[{s.Note}]";
+        : $"sge={s.QuestIsSge} def={s.DefiningPlugin} win={s.WinnerPlugin} exists={s.SeqExists} contains={s.SeqContainsQuest?.ToString() ?? "?"} newer={s.SeqNewerThanPlugin?.ToString() ?? "?"} note=[{s.Note}]";
 }
