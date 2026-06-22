@@ -142,6 +142,24 @@ public static class FloiFieldsProbe
         Check("C-BAD2: the malformed-FLOI rejection names 'condition target' (actionable, not the coerce message)",
             cBadErr is not null && cBadErr.Contains("condition target", StringComparison.OrdinalIgnoreCase), cBadErr);
 
+        // ---- COVERAGE (BY CONSTRUCTION): enumerate EVERY concrete ConditionData arm's FLOI sites (reflection over
+        //      the Mutagen corpus — the same enumeration coerce-audit / the wave-4 ConditionProbe use) and prove EACH
+        //      both PRE-FLIGHT-ACCEPTS and APPLY-LANDS via fields:, in BOTH form and index mode. This is the cornerstone
+        //      standard (§3) the single-arm arms above don't meet on their own: coverage is Mutagen's coverage, proven
+        //      by enumeration, not a spot-check. Both halves are swept — pre-flight is exactly where the original bug
+        //      ("does not coerce") fired, so leaving it a spot-check would leave the bug's own path un-enumerated
+        //      (adversarial-review finding, folded). RED before the fix (every site fails apply; the apply revert alone
+        //      bites all 312 site-checks). Scope is the FLOI SUB-CLASS of condition params — the part the bug broke; the
+        //      non-FLOI params (plain FormLinks, enums, ints, strings) compose via the normal Coerce path and were never
+        //      affected, and the Fallout-era VATS System.Object params aren't FormLinkOrIndex (out of scope per Aaron:
+        //      Fallout, not Skyrim; they fail LOUD, not silently — Q3). ----
+        var cov = RunFloiCoverage(rb);
+        Console.WriteLine($"        …enumerated {cov.sites} FLOI condition-param site(s) across {cov.arms} arm(s), {cov.types} distinct target type(s)");
+        Check($"COVERAGE: all {cov.sites} FLOI condition-param sites PRE-FLIGHT-ACCEPT + APPLY-LAND via fields:, both form + index mode (by construction)",
+            cov.sites > 0 && cov.failed.Count == 0,
+            cov.sites == 0 ? "enumerated ZERO sites — the enumeration is broken (Mutagen reshape?), not a pass"
+                : $"{cov.failed.Count} failing site-check(s): " + string.Join(" | ", cov.failed.Take(12)));
+
         Console.WriteLine();
         Console.WriteLine(failures == 0 ? "floi-fields-guard: ALL PASS" : $"floi-fields-guard: {failures} FAILURE(S)");
         return failures == 0 ? 0 : 1;
@@ -158,18 +176,109 @@ public static class FloiFieldsProbe
             WriteEngine.ApplyVerb(cobj, AddCondition(viaFields, value));
             if (cobj.Conditions is not { Count: 1 }) return (null, "no condition added");
             var data = cobj.Conditions[0].GetType().GetProperty("Data")?.GetValue(cobj.Conditions[0]);
-            if (data is null) return (null, "Data arm null");
-            if (data.GetType().Name != Arm) return (null, $"Data arm = {data.GetType().Name}");
-            var floi = data.GetType().GetProperty(FloiField)?.GetValue(data);
-            if (floi is null) return (null, $"{FloiField} null");
-            var link = floi.GetType().GetProperty("Link")?.GetValue(floi);
-            var fk = link?.GetType().GetProperty("FormKey")?.GetValue(link) is FormKey k ? k : default;
-            var index = (uint)(floi.GetType().GetProperty("Index")?.GetValue(floi) ?? 0u);
-            var ua = (bool)(data.GetType().GetProperty("UseAliases")?.GetValue(data) ?? false);
-            var up = (bool)(data.GetType().GetProperty("UsePackageData")?.GetValue(data) ?? false);
-            return ((fk, index, ua, up), $"FormKey={fk} Index={index} UseAliases={ua} UsePackageData={up}");
+            if (data is not null && data.GetType().Name != Arm) return (null, $"Data arm = {data.GetType().Name}");
+            return ReadDataFloi(data, FloiField);
         }
         catch (Exception ex) { return (null, $"{ex.GetType().Name}: {ex.Message}"); }
+    }
+
+    // ---- read a FLOI target + its arm's form/alias mode flags off a composed Data arm (reflection; shared by the
+    //      single-arm arms and the by-construction coverage sweep so they can't drift on how a FLOI is read back). ----
+    static ((FormKey fk, uint index, bool useAliases, bool usePackData)? value, string? detail)
+        ReadDataFloi(object? data, string propName)
+    {
+        if (data is null) return (null, "Data arm null");
+        var floi = data.GetType().GetProperty(propName)?.GetValue(data);
+        if (floi is null) return (null, $"{propName} null after set");
+        var link = floi.GetType().GetProperty("Link")?.GetValue(floi);
+        var fk = link?.GetType().GetProperty("FormKey")?.GetValue(link) is FormKey k ? k : default;
+        var index = (uint)(floi.GetType().GetProperty("Index")?.GetValue(floi) ?? 0u);
+        var ua = (bool)(data.GetType().GetProperty("UseAliases")?.GetValue(data) ?? false);
+        var up = (bool)(data.GetType().GetProperty("UsePackageData")?.GetValue(data) ?? false);
+        return ((fk, index, ua, up), $"FormKey={fk} Index={index} UseAliases={ua} UsePackageData={up}");
+    }
+
+    // ---- the BY-CONSTRUCTION sweep: every concrete ConditionData arm's writable FLOI properties, each proven on BOTH
+    //      paths — pre-flight ACCEPT (rb.Validate) and apply LAND (ApplyVerb) — via fields:, in form + index mode.
+    //      Returns (arms-with-FLOI, total sites, distinct target T, failing-site list). ----
+    static (int arms, int sites, int types, System.Collections.Generic.List<string> failed) RunFloiCoverage(CorpusRulebook rb)
+    {
+        var asm = typeof(SkyrimMod).Assembly;
+        var dataBase = asm.GetType("Mutagen.Bethesda.Skyrim.IConditionDataGetter")
+            ?? throw new InvalidOperationException("IConditionDataGetter absent — Mutagen reshape? SURFACE, don't silently pass.");
+        var arms = asm.GetTypes()
+            .Where(t => t is { IsClass: true, IsAbstract: false }
+                && !t.Name.EndsWith("BinaryOverlay", StringComparison.Ordinal)
+                && dataBase.IsAssignableFrom(t))
+            .OrderBy(t => t.Name, StringComparer.Ordinal).ToList();
+
+        var failed = new System.Collections.Generic.List<string>();
+        var distinctT = new System.Collections.Generic.HashSet<string>(StringComparer.Ordinal);
+        int sites = 0, armsWithFloi = 0;
+        foreach (var arm in arms)
+        {
+            var floiProps = arm.GetProperties(BindingFlags.Public | BindingFlags.Instance)
+                .Where(p => p.CanWrite && IsFloi(p.PropertyType)).ToList();
+            if (floiProps.Count > 0) armsWithFloi++;
+            foreach (var p in floiProps)
+            {
+                sites++;
+                distinctT.Add(p.PropertyType.GetGenericArguments()[0].Name);
+
+                // PRE-FLIGHT (rb.Validate) — the path the original bug broke; must ACCEPT a well-formed FLOI target.
+                if (rb.Validate(AddConditionForArm(arm.Name, p.Name, FormVal)) is { } pfErr)
+                    failed.Add($"{arm.Name}.{p.Name}[form-preflight]: {pfErr}");
+                if (rb.Validate(AddConditionForArm(arm.Name, p.Name, "alias 5")) is { } pfiErr)
+                    failed.Add($"{arm.Name}.{p.Name}[alias-preflight]: {pfiErr}");
+
+                // APPLY (ApplyVerb -> BuildStruct -> SetFloi) — the FLOI must land in the right mode.
+                var f = ApplyArmFloiViaFields(arm.Name, p.Name, FormVal);
+                if (!(f.value is { } fv && fv.fk == FormKey.Factory(FormVal) && !fv.useAliases && !fv.usePackData))
+                    failed.Add($"{arm.Name}.{p.Name}[form-apply]: {f.detail}");
+                var ix = ApplyArmFloiViaFields(arm.Name, p.Name, "alias 5");
+                if (!(ix.value is { } iv && iv.useAliases && !iv.usePackData && iv.index == 5u))
+                    failed.Add($"{arm.Name}.{p.Name}[alias-apply]: {ix.detail}");
+            }
+        }
+        return (armsWithFloi, sites, distinctT.Count, failed);
+    }
+
+    // ---- build the "Add a ConditionFloat whose Data arm sets <propName> via fields: to <value>" request for an
+    //      arbitrary arm — shared by the pre-flight (rb.Validate) and apply (ApplyVerb) halves of the sweep so they
+    //      can't drift on what request each is proving. ----
+    static WriteRequest AddConditionForArm(string armName, string propName, string value)
+    {
+        var armSpec = new StructSpec { Type = armName, Fields = new() { [propName] = value } };
+        var condSpec = new StructSpec
+        {
+            Type = "ConditionFloat",
+            Sets = new() { new() { RecordType = RecType, Path = new[] { "Data" }, Verb = "Set", Struct = armSpec } },
+        };
+        return new() { RecordType = RecType, Path = new[] { "Conditions" }, Verb = "Add", Struct = condSpec };
+    }
+
+    // ---- compose ONE arm's FLOI prop via the flat fields: shorthand and read it back (the coverage-sweep apply worker). ----
+    static ((FormKey fk, uint index, bool useAliases, bool usePackData)? value, string? detail)
+        ApplyArmFloiViaFields(string armName, string propName, string value)
+    {
+        try
+        {
+            var cobj = new SkyrimMod(new ModKey("hc_floi_cov", ModType.Plugin), SkyrimRelease.SkyrimSE).ConstructibleObjects.AddNew();
+            WriteEngine.ApplyVerb(cobj, AddConditionForArm(armName, propName, value));
+            if (cobj.Conditions is not { Count: 1 }) return (null, "no condition added");
+            return ReadDataFloi(cobj.Conditions[0].GetType().GetProperty("Data")?.GetValue(cobj.Conditions[0]), propName);
+        }
+        catch (Exception ex) { return (null, $"{ex.GetType().Name}: {ex.Message}"); }
+    }
+
+    // ---- FLOI recognizer (the generic-definition test, matching WriteEngine.IsFormLinkOrIndex; local so the probe
+    //      stays self-contained and doesn't depend on the core's internal visibility). ----
+    static bool IsFloi(Type t)
+    {
+        var u = Nullable.GetUnderlyingType(t) ?? t;
+        if (!u.IsGenericType) return false;
+        var n = u.GetGenericTypeDefinition().Name;
+        return n.StartsWith("IFormLinkOrIndex", StringComparison.Ordinal) || n.StartsWith("FormLinkOrIndex", StringComparison.Ordinal);
     }
 
     // ---- build a COBJ with one composed condition (used by the byte-parity proof). ----
