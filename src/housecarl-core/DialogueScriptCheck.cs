@@ -58,11 +58,12 @@ public sealed record ScriptBindingFinding(
     IReadOnlyList<string> Scripts, IReadOnlyList<string> MissingPex,
     bool ReadIncomplete, string Detail)
 {
-    /// <summary>True if this INFO carries a REAL result-script FRAGMENT (a ScriptFragments Begin/End box) — the
-    /// only result-script kind that logs to Papyrus.log when the line fires. DISTINCT from "has a bound script":
-    /// an attached Scripts[] class is bound but is not a fragment and does not log. Feeds the per-topic
-    /// <c>FragmentInfoCount</c> + the render's "expect a Papyrus.log entry?" note (item 8). Default false (an
-    /// attached-script-only, binding-incomplete, or undetermined finding).</summary>
+    /// <summary>True if this INFO carries a REAL result-script FRAGMENT (a ScriptFragments Begin/End box) — a
+    /// result-script kind that runs Papyrus code which CAN surface in Papyrus.log (on an error or an explicit
+    /// trace), where a plain voiced line has no code path that ever can. DISTINCT from "has a bound script": an
+    /// attached Scripts[] class is also code, but it is not a fragment and this flag does not count it. Feeds the
+    /// per-topic <c>FragmentInfoCount</c> + the render's "could a Papyrus.log entry exist?" note (item 8). Default
+    /// false (an attached-script-only, binding-incomplete, or undetermined finding).</summary>
     public bool HasFragment { get; init; }
 }
 
@@ -154,7 +155,7 @@ public static class DialogueScriptCheck
         var vmad = info.VirtualMachineAdapter;
         if (vmad is null) return;   // no result script intended — nothing to check
 
-        // Does this line carry a REAL result-script FRAGMENT (the only kind that logs to Papyrus.log)? Computed via
+        // Does this line carry a REAL result-script FRAGMENT (a code path that can surface in Papyrus.log)? Computed via
         // the single fragment-presence home so the per-finding HasFragment and the validator's per-topic tally
         // (DialogueValidate.FragmentInfoCount) can never drift (item 8).
         bool hasFragment = HasResultFragment(info);
@@ -204,10 +205,11 @@ public static class DialogueScriptCheck
     }
 
     /// <summary>True if <paramref name="info"/> carries a REAL result-script FRAGMENT — a ScriptFragments Begin/End
-    /// box (with a FileName) that runs when the line plays. The ONLY result-script kind that logs to Papyrus.log; an
-    /// attached Scripts[] entry or a hollow FileName-only declaration does NOT count. The single fragment-presence
-    /// home, reused by <see cref="CheckInfo"/> (the per-finding HasFragment) and DialogueValidate's per-topic
-    /// FragmentInfoCount tally so they cannot drift (item 8).</summary>
+    /// box (with a FileName) that runs when the line plays, a code path that CAN surface in Papyrus.log (on an error
+    /// or an explicit trace) where a plain voiced line has none. An attached Scripts[] entry or a hollow FileName-only
+    /// declaration does NOT count. The single fragment-presence home, reused by <see cref="CheckInfo"/> (the
+    /// per-finding HasFragment) and DialogueValidate's per-topic FragmentInfoCount tally so they cannot drift
+    /// (item 8).</summary>
     internal static bool HasResultFragment(IDialogResponsesGetter info)
     {
         var frag = info.VirtualMachineAdapter?.ScriptFragments;
