@@ -9,7 +9,7 @@ empirically grounded through houseCARL reads — see their own headers.)
 
 Hand-curated references that let houseCARL **decode** a condition (CTDA) and read the quest layer dialogue
 gates on — turning a read-back `Conditions`/`Stages`/`Objectives` array into meaning, instead of echoing raw
-bytes. They are the **keystone for the planned static condition-lint** (1.3.1 roadmap item 4): you cannot
+bytes. They are the **keystone for the static condition-lint** (shipped 1.3.1, roadmap item 4): you cannot
 lint a condition you cannot decode.
 
 **These are curated, not generated.** Like the bundled SkyPatcher/SPID/KID grammar references, they ship as

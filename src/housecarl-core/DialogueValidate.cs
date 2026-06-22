@@ -437,10 +437,11 @@ public static class DialogueValidate
     ///   1. Run On a specific Reference with NO reference set — the gate evaluates against nothing.
     ///   2. A DEAD ALIAS INDEX — Run On:QuestAlias, or a GetIsAliasRef / GetInCurrentLocAlias param, naming an alias
     ///      ID the OWNING quest does not define. SKIPPED (never guessed) when the owning quest is unknown (ownerAliasIds null).
-    ///   3. A DANGLING form parameter — any condition-function FormLink param pointing at a form not in the active
-    ///      load order. GENERIC, BY CONSTRUCTION via EnumerateFormLinks, so it covers EVERY function Mutagen models,
-    ///      not a hand-listed subset (cornerstone-consistent). The Run On Reference slot is excluded (lint 1 owns it),
-    ///      so an unused/parked Reference is never mis-flagged.
+    ///   3. A DANGLING form parameter — any condition-function form target (a plain FormLink, or a FORM-mode
+    ///      FormLinkOrIndex) pointing at a form not in the active load order. GENERIC, BY CONSTRUCTION (reflection over
+    ///      the Data arm's properties), so it covers EVERY function Mutagen models, not a hand-listed subset
+    ///      (cornerstone-consistent). The Run On Reference slot is excluded (lint 1 owns it), so an unused/parked
+    ///      Reference is never mis-flagged; alias/package-data-mode FLOIs are gated out (see the per-condition note).
     ///   4. A DANGLING global comparison value — a ConditionGlobal compared against a GLOB not in the load order.
     ///   5. GetIsID pointed at a PLACED reference instead of a base object — GetIsID compares the run-on actor's BASE
     ///      form, so a placed-instance FormID can never match as intended.
@@ -460,6 +461,15 @@ public static class DialogueValidate
             var data = cond.Data;
             var fn = data.Function.ToString();
             var refKey = data.Reference.FormKey;   // the Run On reference slot — owned by lint 1, excluded from the param sweep
+
+            // FLOI MODE GATE (the load-bearing one). A condition form-parameter is a FormLinkOrIndex (Quest, Object,
+            // Perk, …): a FORM only when the arm is in form mode; in alias / package-data mode the SAME slot is an
+            // INDEX. On the binary OVERLAY the validator reads (CreateFromBinaryOverlay), an index-mode FLOI's .Link
+            // is a BOGUS low FormKey synthesised from the index bytes — NOT null — so reading it as a form would
+            // false-flag a perfectly well-formed alias-mode gate (e.g. "run-on actor has the perk held by quest-alias
+            // N"), the A-iii / Q3 worst case. Mirror the proven write-side gate (WriteEngine's condition scan +
+            // ReadEngine.EmitFloi): treat an FLOI as a form ONLY when UseAliases AND UsePackageData are both false.
+            bool floiIsForm = !data.UseAliases && !data.UsePackageData;
 
             // 1. Run On a specific Reference but none / a missing one is set — the function runs against nothing.
             if (data.RunOnType == Condition.RunOnType.Reference)
@@ -485,19 +495,20 @@ public static class DialogueValidate
 
             // 3. Dangling form-link PARAMETER — generic, BY CONSTRUCTION: reflect over the Data arm's properties and
             //    take every form TARGET it carries — a plain FormLink (Faction, Spell, Keyword, FormList, …) AND a
-            //    form-mode FormLinkOrIndex (the condition union — Quest, GetIsID's Object, …; read via the write-side
-            //    ReadFloiFormKey, the oracle-proven accessor, so an alias/index-mode FLOI returns null here and is
-            //    lint 2's job). The Run On Reference slot is skipped by name (lint 1 owns it). A param pointing at a
-            //    form not in the active order is a dead reference. This mirrors the write engine's own FLOI handling
-            //    (a plain EnumerateFormLinks does NOT cleanly surface the FLOI union), so it covers EVERY function
-            //    Mutagen models — never a hand-listed subset.
+            //    FORM-MODE FormLinkOrIndex (the condition union — Quest, GetIsID's Object, …; read via the write-side
+            //    ReadFloiFormKey). An alias/package-data-mode FLOI is GATED OUT by floiIsForm (its index is not a form,
+            //    and its overlay .Link is a bogus low key — see the mode-gate note above); the alias-INDEX paths it
+            //    leaves are lint 2's int-property domain, and an alias-mode FLOI *parameter* is deliberately out of
+            //    scope (a future extension, not a dangling-form case). The Run On Reference slot is skipped by name
+            //    (lint 1 owns it). A param pointing at a form not in the active order is a dead reference. Mirrors the
+            //    write engine's own FLOI handling, so it covers EVERY function Mutagen models — never a hand-listed subset.
             foreach (var p in data.GetType().GetProperties(BindingFlags.Public | BindingFlags.Instance))
             {
                 if (p.Name == "Reference" || p.GetIndexParameters().Length != 0) continue;   // run-on ref → lint 1
                 object? v; try { v = p.GetValue(data); } catch { continue; }
                 FormKey? paramFk =
                     v is IFormLinkGetter fl && !fl.IsNull ? fl.FormKey
-                    : WriteEngine.IsFormLinkOrIndex(p.PropertyType) ? WriteEngine.ReadFloiFormKey(v) : null;
+                    : floiIsForm && WriteEngine.IsFormLinkOrIndex(p.PropertyType) ? WriteEngine.ReadFloiFormKey(v) : null;
                 if (paramFk is { } pk && !inOrder(pk))
                     issues.Add(new(DialogueIssueSeverity.Warning,
                         $"INFO {info.FormKey} condition #{n} ({fn}) references {pk}, which is not in the active load order — a deleted/disabled form or a wrong FormID, so the condition can't evaluate as intended."));
@@ -511,7 +522,9 @@ public static class DialogueValidate
 
             // 5. GetIsID pointed at a PLACED reference — the wrong KIND of form (a dangling one is already caught by
             //    lint 3). GetIsID compares the run-on actor's BASE form, so a placed-instance FormID can never match.
-            if (data is IGetIsIDConditionDataGetter gid && WriteEngine.ReadFloiFormKey(gid.Object) is { } objFk
+            //    Gated on floiIsForm too: an alias-mode GetIsID.Object is an index, not a form to resolve (without the
+            //    gate its bogus overlay .Link could trip resolve()); a form-mode Object is the real base-vs-placed case.
+            if (data is IGetIsIDConditionDataGetter gid && floiIsForm && WriteEngine.ReadFloiFormKey(gid.Object) is { } objFk
                 && inOrder(objFk) && resolve(objFk) is IPlacedGetter)
                 issues.Add(new(DialogueIssueSeverity.Warning,
                     $"INFO {info.FormKey} condition #{n} (GetIsID) points at the placed reference {objFk}, but GetIsID compares the run-on actor's BASE form — pass the base NPC_/object, not a placed instance."));
