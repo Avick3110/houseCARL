@@ -121,7 +121,14 @@ static class DialogueWire
 
         // --- graph issues (PNAM chain, quest + branch wiring) ---
         if (t.Issues.Count == 0)
-            sb.Append(pad).Append("  graph: OK — quest + branch wiring resolve, LinkTo targets resolve, no dangling PNAM, conditions well-formed (their form references + alias indices resolve).\n");
+        {
+            // The conditions clause is asserted ONLY when the topic actually has conditioned INFOs — otherwise a
+            // condition-free topic would read as "conditions checked + well-formed" when there were none to check.
+            sb.Append(pad).Append("  graph: OK — quest + branch wiring resolve, LinkTo targets resolve, no dangling PNAM");
+            sb.Append(t.ConditionedInfoCount > 0
+                ? ", conditions well-formed (their form references + alias indices resolve).\n"
+                : ".\n");
+        }
         else
         {
             sb.Append(pad).Append("  graph: ").Append(t.Issues.Count).Append(" issue(s):\n");

@@ -38,6 +38,8 @@ namespace HousecarlGenerator;
 ///                  condition issues — the no-false-positive keystone (incl. the GetIsID-on-a-base-form lock) (item 4).
 ///   COND-REF-UNSET— Run On a specific Reference with no reference set WARNs ('Run On a specific reference') (item 4).
 ///   COND-DEAD-ALIAS— GetIsAliasRef at an alias index the owning quest doesn't define WARNs ('no alias with that ID') (item 4).
+///   COND-DEAD-LOCALIAS— GetInCurrentLocAlias at an undefined location-alias WARNs ('location-alias', 'no alias with that ID') (item 4).
+///   COND-DEAD-QUESTALIAS— Run On:QuestAlias at an undefined alias WARNs ('reference-alias', 'no alias with that ID') (item 4).
 ///   COND-ALIAS-OK — GetIsAliasRef at a REAL alias index is NOT flagged — the resolve-aware positive lock (item 4).
 ///   COND-ALIAS-FLOI— an ALIAS-mode form-param FLOI (HasPerk.Perk=alias 7) is NOT flagged — the binary-overlay
 ///                  false-positive lock (an index-mode FLOI's .Link is a bogus low key on the overlay; lint 3/5 gate on form mode) (item 4).
@@ -65,7 +67,7 @@ public static class DialogueValidateGuardProbe
         var mKey = new ModKey("HcDvGuardMaster", ModType.Master);
         string mPath = Path.Combine(tmpDir, mKey.FileName.String);
         FormKey cleanFk, linkBadFk, pnamBadFk, pnamOkFk, deletedFk, noQuestFk, badBranchFk, voicedFk, scriptedFk, condFk, qFanFk, weapFk, encBadFk, encOkFk;
-        FormKey condCleanFk, condRefUnsetFk, condDeadAliasFk, condAliasOkFk, condAliasFloiFk, condDanglingFk, condGlobalFk, condGetIsIdOkFk, condGetIsIdFk;
+        FormKey condCleanFk, condRefUnsetFk, condDeadAliasFk, condDeadLocAliasFk, condDeadQAliasFk, condAliasOkFk, condAliasFloiFk, condDanglingFk, condGlobalFk, condGetIsIdOkFk, condGetIsIdFk;
         try
         {
             var m = new SkyrimMod(mKey, SkyrimRelease.SkyrimSE);
@@ -191,6 +193,26 @@ public static class DialogueValidateGuardProbe
                 var d = new GetIsAliasRefConditionData { ReferenceAliasIndex = 99, RunOnType = Condition.RunOnType.Subject };
                 i.Conditions.Add(new ConditionFloat { CompareOperator = CompareOperator.EqualTo, ComparisonValue = 1f, Data = d });
                 tCondAliasBad.Responses.Add(i); condDeadAliasFk = tCondAliasBad.FormKey;
+            }
+
+            // COND-DEAD-LOCALIAS: GetInCurrentLocAlias naming a location-alias #99 the owning quest doesn't define
+            // -> WARN. Locks lint 2's GetInCurrentLocAlias sub-check (structurally identical to GetIsAliasRef, distinct path).
+            var tCondLocAlias = m.DialogTopics.AddNew(); tCondLocAlias.EditorID = "HcDvCondDeadLocAlias"; tCondLocAlias.Quest.SetTo(qMain.FormKey);
+            {
+                var i = Info("HcDvCondDeadLocAliasI");
+                var d = new GetInCurrentLocAliasConditionData { LocationAliasIndex = 99, RunOnType = Condition.RunOnType.Subject };
+                i.Conditions.Add(new ConditionFloat { CompareOperator = CompareOperator.EqualTo, ComparisonValue = 1f, Data = d });
+                tCondLocAlias.Responses.Add(i); condDeadLocAliasFk = tCondLocAlias.FormKey;
+            }
+
+            // COND-DEAD-QUESTALIAS: Run On:QuestAlias at an alias #99 the owning quest doesn't define -> WARN.
+            // Locks lint 2's RunOnType==QuestAlias sub-check (the run-on path, distinct from the alias-param paths).
+            var tCondQAlias = m.DialogTopics.AddNew(); tCondQAlias.EditorID = "HcDvCondDeadQAlias"; tCondQAlias.Quest.SetTo(qMain.FormKey);
+            {
+                var i = Info("HcDvCondDeadQAliasI");
+                var d = new GetActorValueConditionData { ActorValue = ActorValue.Health, RunOnType = Condition.RunOnType.QuestAlias, RunOnTypeIndex = 99 };
+                i.Conditions.Add(new ConditionFloat { CompareOperator = CompareOperator.GreaterThan, ComparisonValue = 0f, Data = d });
+                tCondQAlias.Responses.Add(i); condDeadQAliasFk = tCondQAlias.FormKey;
             }
 
             // COND-ALIAS-OK: GetIsAliasRef naming alias #0 (a REAL alias of qMain) -> NOT flagged (resolve-aware lock).
@@ -390,6 +412,22 @@ public static class DialogueValidateGuardProbe
             var t = One(DialogueValidate.Run(resolver, assets, condDeadAliasFk));
             bool ok = t is not null && t.Issues.Any(i => i.Severity == DialogueIssueSeverity.Warning && i.Message.Contains("no alias with that ID", StringComparison.Ordinal));
             all &= Pass("COND-DEAD-ALIAS warns", ok, t is null ? "no topic" : Issues(t));
+        }
+
+        // ---------- COND-DEAD-LOCALIAS (item 4): GetInCurrentLocAlias at an undefined location-alias is a WARN ----------
+        {
+            var t = One(DialogueValidate.Run(resolver, assets, condDeadLocAliasFk));
+            bool ok = t is not null && t.Issues.Any(i => i.Severity == DialogueIssueSeverity.Warning
+                && i.Message.Contains("location-alias", StringComparison.Ordinal) && i.Message.Contains("no alias with that ID", StringComparison.Ordinal));
+            all &= Pass("COND-DEAD-LOCALIAS warns", ok, t is null ? "no topic" : Issues(t));
+        }
+
+        // ---------- COND-DEAD-QUESTALIAS (item 4): Run On:QuestAlias at an undefined alias is a WARN ----------
+        {
+            var t = One(DialogueValidate.Run(resolver, assets, condDeadQAliasFk));
+            bool ok = t is not null && t.Issues.Any(i => i.Severity == DialogueIssueSeverity.Warning
+                && i.Message.Contains("reference-alias", StringComparison.Ordinal) && i.Message.Contains("no alias with that ID", StringComparison.Ordinal));
+            all &= Pass("COND-DEAD-QUESTALIAS warns", ok, t is null ? "no topic" : Issues(t));
         }
 
         // ---------- COND-ALIAS-OK (item 4): a REAL alias index is NOT flagged — the resolve-aware positive lock ----------

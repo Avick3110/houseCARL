@@ -506,6 +506,11 @@ public static class DialogueValidate
             {
                 if (p.Name == "Reference" || p.GetIndexParameters().Length != 0) continue;   // run-on ref → lint 1
                 object? v; try { v = p.GetValue(data); } catch { continue; }
+                // Branch 1 (plain FormLink) is defensive: on a ConditionData arm the ONLY plain FormLink is the
+                // (skipped) run-on Reference — every function TARGET is the FormLinkOrIndex union (branch 2). A FLOI
+                // is read via its .Link, not as an IFormLinkGetter, so it never falls into branch 1 and bypasses the
+                // mode gate (proven by COND-ALIAS-FLOI: green with the gate on). Branch 1 has no index mode anyway,
+                // so it needs no gate; it correctly handles a plain-FormLink param should any arm ever carry one.
                 FormKey? paramFk =
                     v is IFormLinkGetter fl && !fl.IsNull ? fl.FormKey
                     : floiIsForm && WriteEngine.IsFormLinkOrIndex(p.PropertyType) ? WriteEngine.ReadFloiFormKey(v) : null;
