@@ -76,4 +76,27 @@ public static class SeqFile
         var bytes = Serialize(quests.Select(x => x.OnDiskFormId).ToList());
         return new SeqBuild(bytes, quests, mod.ModKey.FileName);
     }
+
+    /// <summary>The plugin-local, master-relative ON-DISK FormID for <paramref name="fk"/> as written into
+    /// <paramref name="pluginPath"/> — opens the plugin read-only, reads its ordered master list, and returns
+    /// <see cref="OnDiskFormId"/>. Read-only; holds no handle past the <c>using</c>. THROWS on an unreadable plugin
+    /// (the caller surfaces it). The SEQ staleness lint uses it to know which 4-byte value a .seq must contain for a
+    /// given quest, without re-deriving the master-index encoding.</summary>
+    public static uint OnDiskFormIdFromPlugin(string pluginPath, FormKey fk)
+    {
+        using var mod = SkyrimMod.CreateFromBinaryOverlay(pluginPath, SkyrimRelease.SkyrimSE);
+        var masters = mod.ModHeader.MasterReferences.Select(m => m.Master).ToList();
+        return OnDiskFormId(fk, masters);
+    }
+
+    /// <summary>Whether a .seq's raw bytes (a flat array of 4-byte little-endian on-disk FormIDs — the layout
+    /// <see cref="Serialize"/> writes) contain <paramref name="onDiskFormId"/> — the membership check the staleness
+    /// lint runs against an EXISTING .seq. A trailing partial chunk (a truncated/malformed .seq) is ignored, never
+    /// guessed (Q3).</summary>
+    public static bool SeqContains(ReadOnlySpan<byte> seqBytes, uint onDiskFormId)
+    {
+        for (int i = 0; i + 4 <= seqBytes.Length; i += 4)
+            if (BinaryPrimitives.ReadUInt32LittleEndian(seqBytes.Slice(i)) == onDiskFormId) return true;
+        return false;
+    }
 }

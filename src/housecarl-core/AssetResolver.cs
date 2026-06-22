@@ -310,9 +310,13 @@ public sealed class AssetResolver : IDisposable
     /// caveats. The auto-resolve half of the precise placer — exactly ONE source means an unambiguous copy to re-assert;
     /// &gt;1 (ambiguous) means the caller must pick a source= (Q3). Rejects a drive-rooted / '..' path loud, like
     /// <see cref="Resolve"/>. Single-shot against the current build; holds nothing.</summary>
-    public PlacementResolution ResolveForPlacement(string relPath)
+    public PlacementResolution ResolveForPlacement(string relPath) => ResolveForPlacement(relPath, _snap);
+
+    /// <summary>The snapshot-pinned form, so a captured <see cref="AssetView"/> resolves placement against the SAME
+    /// build its <see cref="AssetView.Resolve"/> uses (the single-capture discipline) — the dialogue validator's SEQ
+    /// lint reads the winning .seq's on-disk path off the view it already holds.</summary>
+    internal PlacementResolution ResolveForPlacement(string relPath, Snapshot snap)
     {
-        var snap = _snap;                                          // pin one build for this resolution
         var rel = NormalizeQueryPath(relPath);
         var sources = ResolveProviders(rel, snap);
         return new PlacementResolution(rel, sources, sources.Count > 1, snap.Failures.Count > 0);
@@ -348,6 +352,11 @@ public sealed class AssetResolver : IDisposable
         public bool ReadIncomplete => _s.Failures.Count > 0;
 
         public AssetHit Resolve(string relPath) => _r.Resolve(relPath, _s);
+
+        /// <summary>The placement (concrete on-disk source) form pinned to THIS view's build — see
+        /// <see cref="AssetResolver.ResolveForPlacement(string)"/>. The dialogue validator's SEQ lint uses it to read
+        /// the winning .seq's loose path off the same capture as <see cref="Resolve"/>.</summary>
+        public PlacementResolution ResolveForPlacement(string relPath) => _r.ResolveForPlacement(relPath, _s);
 
         public IReadOnlyList<AssetHit> ResolveMany(IEnumerable<string> relPaths)
         {

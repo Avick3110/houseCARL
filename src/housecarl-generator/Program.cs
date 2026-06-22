@@ -379,6 +379,12 @@ if (args.Length > 0 && args[0] == "dialogue-validate-guard") return DialogueVali
 // bytes (own=master count, override=master index, never 0xFE) — load-order-independent, no runtime-FormID bridge.
 if (args.Length > 0 && args[0] == "seq-write-guard") return SeqWriteGuardProbe.RunGuard(args[1..]);
 
+// SEQ staleness/coverage lint (1.3.1 item 7 — housecarl_validate_dialogue): SELF-CONTAINED CI regression guard —
+// synthesizes base masters with SGE quests + planted/omitted/aged .seq files under a temp Data root, drives the REAL
+// DialogueValidate.Run, and asserts the per-quest SeqLintFinding (missing / not-listed / stale / covered-ok / a
+// non-SGE quest yields no lint). No Skyrim.esm.
+if (args.Length > 0 && args[0] == "seq-staleness-guard") return SeqStalenessProbe.RunGuard(args[1..]);
+
 // create-tool WIRE (nested/dialogue plan, Layer A): SELF-CONTAINED CI regression guard — drives the REAL
 // LoadOrderService.CreateRecords (single, parent/collection) + CreateRecordsBatch (the bulk_create array) over a
 // synthetic MO2 instance: flat-still-works, parent passthrough, the same-call one-shot, batch all-or-nothing, the
