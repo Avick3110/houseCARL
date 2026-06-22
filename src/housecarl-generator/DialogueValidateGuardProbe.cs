@@ -39,6 +39,8 @@ namespace HousecarlGenerator;
 ///   COND-REF-UNSET— Run On a specific Reference with no reference set WARNs ('Run On a specific reference') (item 4).
 ///   COND-DEAD-ALIAS— GetIsAliasRef at an alias index the owning quest doesn't define WARNs ('no alias with that ID') (item 4).
 ///   COND-ALIAS-OK — GetIsAliasRef at a REAL alias index is NOT flagged — the resolve-aware positive lock (item 4).
+///   COND-ALIAS-FLOI— an ALIAS-mode form-param FLOI (HasPerk.Perk=alias 7) is NOT flagged — the binary-overlay
+///                  false-positive lock (an index-mode FLOI's .Link is a bogus low key on the overlay; lint 3/5 gate on form mode) (item 4).
 ///   COND-DANGLING-PARAM— a condition form param (GetStage's Quest) not in the order WARNs ('not in the active load order') (item 4).
 ///   COND-DANGLING-GLOBAL— a ConditionGlobal vs a GLOB not in the order WARNs ('compares against global') (item 4).
 ///   COND-GETISID-OK— GetIsID pointed at a BASE object is NOT flagged — the lint-5 no-false-positive lock (item 4).
@@ -63,7 +65,7 @@ public static class DialogueValidateGuardProbe
         var mKey = new ModKey("HcDvGuardMaster", ModType.Master);
         string mPath = Path.Combine(tmpDir, mKey.FileName.String);
         FormKey cleanFk, linkBadFk, pnamBadFk, pnamOkFk, deletedFk, noQuestFk, badBranchFk, voicedFk, scriptedFk, condFk, qFanFk, weapFk, encBadFk, encOkFk;
-        FormKey condCleanFk, condRefUnsetFk, condDeadAliasFk, condAliasOkFk, condDanglingFk, condGlobalFk, condGetIsIdOkFk, condGetIsIdFk;
+        FormKey condCleanFk, condRefUnsetFk, condDeadAliasFk, condAliasOkFk, condAliasFloiFk, condDanglingFk, condGlobalFk, condGetIsIdOkFk, condGetIsIdFk;
         try
         {
             var m = new SkyrimMod(mKey, SkyrimRelease.SkyrimSE);
@@ -198,6 +200,21 @@ public static class DialogueValidateGuardProbe
                 var d = new GetIsAliasRefConditionData { ReferenceAliasIndex = 0, RunOnType = Condition.RunOnType.Subject };
                 i.Conditions.Add(new ConditionFloat { CompareOperator = CompareOperator.EqualTo, ComparisonValue = 1f, Data = d });
                 tCondAliasOk.Responses.Add(i); condAliasOkFk = tCondAliasOk.FormKey;
+            }
+
+            // COND-ALIAS-FLOI: a form-PARAMETER FormLinkOrIndex in ALIAS mode (HasPerk.Perk = alias index 7,
+            // UseAliases=true) -> NOT flagged. The regression lock for the binary-overlay FLOI false positive: on the
+            // overlay the validator reads, an index-mode FLOI's .Link is a bogus low key (000007), so WITHOUT the
+            // form-mode gate lint 3 would WARN "references 000007:... not in the active load order" on a well-formed
+            // alias-mode gate. Round-trips through the on-disk master (the overlay path) like every arm. Index 7 need
+            // not be a real alias — alias-mode FLOI *parameter* indices are deliberately out of the dangling-form scope.
+            var tCondAliasFloi = m.DialogTopics.AddNew(); tCondAliasFloi.EditorID = "HcDvCondAliasFloi"; tCondAliasFloi.Quest.SetTo(qMain.FormKey);
+            {
+                var i = Info("HcDvCondAliasFloiI");
+                var d = new HasPerkConditionData { RunOnType = Condition.RunOnType.Subject, UseAliases = true };
+                d.Perk = new FormLinkOrIndex<IPerkGetter>(d, 7u);   // alias index 7 — index mode, the bogus-overlay-link shape
+                i.Conditions.Add(new ConditionFloat { CompareOperator = CompareOperator.EqualTo, ComparisonValue = 1f, Data = d });
+                tCondAliasFloi.Responses.Add(i); condAliasFloiFk = tCondAliasFloi.FormKey;
             }
 
             // COND-DANGLING-PARAM: GetStage whose Quest param is NOT in the load order -> WARN dangling param.
@@ -380,6 +397,13 @@ public static class DialogueValidateGuardProbe
             var t = One(DialogueValidate.Run(resolver, assets, condAliasOkFk));
             bool ok = t is not null && t.ConditionedInfoCount == 1 && t.Issues.Count == 0;
             all &= Pass("COND-ALIAS-OK not flagged", ok, t is null ? "no topic" : $"issues={t.Issues.Count}: {Issues(t)}");
+        }
+
+        // ---------- COND-ALIAS-FLOI (item 4): an ALIAS-mode form-param FLOI is NOT flagged — the binary-overlay false-positive lock ----------
+        {
+            var t = One(DialogueValidate.Run(resolver, assets, condAliasFloiFk));
+            bool ok = t is not null && t.ConditionedInfoCount == 1 && t.Issues.Count == 0;
+            all &= Pass("COND-ALIAS-FLOI not flagged", ok, t is null ? "no topic" : $"issues={t.Issues.Count}: {Issues(t)}");
         }
 
         // ---------- COND-DANGLING-PARAM (item 4): a condition form param not in the order is a WARN ----------

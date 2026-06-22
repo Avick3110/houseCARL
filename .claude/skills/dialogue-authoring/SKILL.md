@@ -154,7 +154,8 @@ this skill's job.
    `into=` edit if you want it, though `Branch` is usually left unset. (Adding a line to an *existing* topic
    needs none of this — its entry point already exists.)
 
-3. **Author the conditions deliberately** — they are the gate the validator cannot check. A line with no
+3. **Author the conditions deliberately** — the validator can check them for *malformedness* but never
+   *evaluate* whether a well-formed one passes. A line with no
    conditions fires whenever its topic is reached; gate it with `GetStage` (quest progress) and a speaker
    check (`GetIsID`/alias) as the flow model describes. Compose each `Condition` per `mutagen-reference`
    (it is a polymorphic list); [`references/condition-functions.md`](references/condition-functions.md) has
