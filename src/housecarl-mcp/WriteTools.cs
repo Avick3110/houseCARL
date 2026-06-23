@@ -358,7 +358,7 @@ public static class WriteTools
             sb.Append("  ").Append(f.RecordType).Append(' ').Append(f.Target).Append("  ").Append(f.EditorId ?? "<no editorid>")
               .Append("  — copied from ").Append(f.FromPlugin);
             if (f.WasAlreadyWinner)
-                sb.Append("  [NOTE: this version was ALREADY the load-order winner — the override is a redundant no-op copy]");
+                sb.Append("  [NOTE: this source IS already the load-order winner — the override just re-asserts the content that already wins (a no-op in effect)]");
             else
                 sb.Append("  (out-ranks the current winner ").Append(f.PriorWinner).Append(" once this patch is enabled + sorted above it)");
             sb.Append('\n');

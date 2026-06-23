@@ -504,7 +504,12 @@ public static class WritePatchBuilder
 
         // --- Phase 1: resolve each source body from its NAMED plugin (NOT the load-order winner) + classify any miss
         //     (Q3 — collect ALL problems, then refuse the whole call if any). ONE captured build answers every spec (the
-        //     hunt-F5 one-view discipline Apply follows: a freshness rebuild mid-loop can't mix two builds' resolutions). ---
+        //     hunt-F5 one-view discipline Apply follows: a freshness rebuild mid-loop can't mix two builds' resolutions).
+        //     PERF (accuracy-over-perf, not a blocker): each GetRecord re-enumerates from_plugin's overlay, so N targets
+        //     from ONE source = N in-memory walks of that overlay (the file is opened ONCE — the session caches it). Fine
+        //     for realistic use (re-assert a few of a mod's records); if a "forward 100 records out of a huge overhaul"
+        //     case ever bites, the clean fix is a single-pass batch fetch keyed by from_plugin (group specs by source,
+        //     enumerate the overlay once collecting all wanted FormKeys) — deferred until measured. ---
         var view = resolver.Capture();
         var resolved = new List<(ForwardSpec spec, IMajorRecordGetter body, string priorWinner, bool wasWinner)>(specs.Count);
         var problems = new List<string>();

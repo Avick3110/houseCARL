@@ -33,6 +33,9 @@ namespace HousecarlGenerator;
 ///                       header carries ONLY the origin master (NOT ModA — content is copied, not mastered); the prior
 ///                       winner (ModB) is reported and WasAlreadyWinner is false. THE core proof.
 ///   FORWARD-MASTER    — forward the ORIGIN master's X: Dmg 10 lands (revert-to-vanilla by naming a master as source).
+///   NESTED            — forward a PlacedObject (lives in a cell -> the link-cache NESTED override branch, NOT the flat
+///                       WEAP path): ModA's Scale 2.0 copied, NOT winner ModB's 3.0. Demonstrates the "every record
+///                       type, nested families included" generality for the forward path itself, not just by reuse.
 ///   ALREADY-WINNER    — forward ModB's X (already winning): succeeds, Dmg 30, flagged WasAlreadyWinner (redundant — surfaced, not silent Q3).
 ///   MULTI             — forward [X,Y] from ModA in ONE call: both land (20, 200).
 ///   EXTEND            — forward X (fresh) then Y into the SAME patch (into=): both present (20, 200).
@@ -41,6 +44,13 @@ namespace HousecarlGenerator;
 ///   REJ-DOESNTDEFINE  — forwarding X from Other (which defines only W) refuses loud ('does NOT define'), NO file.
 ///   REJ-INTOSELF      — from_plugin == the output patch itself refuses loud ('output patch itself'), NO file.
 ///   REJ-DUP           — the SAME target twice in one call refuses loud ('more than once'), NO file.
+///
+/// COVERAGE NOTE (Q3 — surface the gap, don't imply completeness): four of GetRecord's five null/refusal shapes are
+/// armed above (not-in-order, doesn't-define, the-patch-itself, dup). The FIFTH — a source plugin EXCLUDED from the
+/// index because Mutagen can't parse it — is the deliberately-uncovered branch: synthesizing an unparseable plugin here
+/// would duplicate pkcu-regression's malformed-record machinery for one reject path. The branch is a plain
+/// ExcludedPlugins lookup sharing the same OrdinalIgnoreCase table as the armed checks; if it ever earns a test, model
+/// it on pkcu-regression's synthetic malformed plugin.
 ///
 /// Run: dotnet run --project src/housecarl-generator -- forward-from-plugin-guard
 /// </summary>
@@ -77,23 +87,39 @@ public static class ForwardFromPluginProbe
         string aPath = Path.Combine(tmpDir, ModAName);
         string bPath = Path.Combine(tmpDir, ModBName);
         string oPath = Path.Combine(tmpDir, OtherName);
-        FormKey xFk, yFk;
+        FormKey xFk, yFk, pFk;
         try
         {
             var m = new SkyrimMod(new ModKey("HcFwdMaster", ModType.Master), SkyrimRelease.SkyrimSE);
             var x = m.Weapons.AddNew(); x.EditorID = "HcFwdWeapX"; x.BasicStats = new WeaponBasicStats { Damage = 10 };
             var y = m.Weapons.AddNew(); y.EditorID = "HcFwdWeapY"; y.BasicStats = new WeaponBasicStats { Damage = 100 };
             xFk = x.FormKey; yFk = y.FormKey;
+            // A NESTED fixture (the by-construction generality, SHOWN not just asserted): a PlacedObject lives in a cell,
+            // so RecordNeedsSourceCache(it)==true and forwarding it exercises the link-cache NESTED override branch — a
+            // DIFFERENT code path than the flat WEAP arms. Distinct Scale per version (master 1, ModA 2, ModB 3) is the
+            // discriminator, exactly as Damage is for X/Y (a placed ref's parent chain reconstructs from the source overlay).
+            var cell = new Cell(m.GetNextFormKey(), SkyrimRelease.SkyrimSE) { EditorID = "HcFwdCell" };
+            var placed = new PlacedObject(m.GetNextFormKey(), SkyrimRelease.SkyrimSE) { EditorID = "HcFwdRef", Scale = 1.0f };
+            cell.Persistent.Add(placed);
+            var subBlock = new CellSubBlock { BlockNumber = 0, GroupType = GroupTypeEnum.InteriorCellSubBlock };
+            subBlock.Cells.Add(cell);
+            var cblock = new CellBlock { BlockNumber = 0, GroupType = GroupTypeEnum.InteriorCellBlock };
+            cblock.SubBlocks.Add(subBlock);
+            m.Cells.Records.Add(cblock);
+            pFk = placed.FormKey;
             m.BeginWrite.ToPath(mPath).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
+            var mCache = m.ToImmutableLinkCache();   // the nested PlacedObject override (below) reconstructs its parent chain from it
 
             var a = new SkyrimMod(new ModKey("HcFwdModA", ModType.Plugin), SkyrimRelease.SkyrimSE);
             ((IWeapon)WriteEngine.GenericGetOrAddAsOverride(a, x)).BasicStats!.Damage = 20;
             ((IWeapon)WriteEngine.GenericGetOrAddAsOverride(a, y)).BasicStats!.Damage = 200;
+            ((IPlacedObject)WriteEngine.GenericGetOrAddAsOverride(a, placed, mCache)).Scale = 2.0f;
             a.BeginWrite.ToPath(aPath).WithLoadOrder(new ISkyrimModGetter[] { m }).Write();
 
             var b = new SkyrimMod(new ModKey("HcFwdModB", ModType.Plugin), SkyrimRelease.SkyrimSE);
             ((IWeapon)WriteEngine.GenericGetOrAddAsOverride(b, x)).BasicStats!.Damage = 30;
             ((IWeapon)WriteEngine.GenericGetOrAddAsOverride(b, y)).BasicStats!.Damage = 300;
+            ((IPlacedObject)WriteEngine.GenericGetOrAddAsOverride(b, placed, mCache)).Scale = 3.0f;
             b.BeginWrite.ToPath(bPath).WithLoadOrder(new ISkyrimModGetter[] { m }).Write();
 
             var o = new SkyrimMod(new ModKey("HcFwdOther", ModType.Plugin), SkyrimRelease.SkyrimSE);
@@ -141,6 +167,19 @@ public static class ForwardFromPluginProbe
             var dmg = o.Success ? ReadWeaponDamage(pPath, xFk) : null;
             Check("FORWARD-MASTER: forwarding the origin master's version reverts X to vanilla (Dmg 10)",
                 o.Success && dmg == 10, $"success={o.Success} dmg={dmg} (want 10) err=[{Trim(o.Error)}]");
+        }
+
+        // ---- NESTED: forward a PlacedObject (the link-cache NESTED override path, a different branch than the flat WEAP
+        //      arms) -> ModA's Scale 2.0 lands, NOT winner ModB's 3.0. Converts "every record type, nested families
+        //      included" from by-construction to SHOWN for the forward path itself. ----
+        {
+            string pPath = Path.Combine(tmpDir, "HcFwdNested.esp");
+            using var r = LoadOrderResolver.Build(orderPaths);
+            var o = WritePatchBuilder.ForwardRecords(r,
+                new[] { new WritePatchBuilder.ForwardSpec { Target = pFk, FromPlugin = ModAName } }, pPath, extend: false);
+            var scale = o.Success ? ReadPlacedScale(pPath, pFk) : null;
+            Check("NESTED: forwarding a PlacedObject (nested link-cache path) copies ModA's version (Scale 2.0), NOT the winner's (3.0)",
+                o.Success && scale == 2.0f, $"success={o.Success} scale={scale} (want 2) err=[{Trim(o.Error)}]");
         }
 
         // ---- ALREADY-WINNER: forward ModB's X (already the winner) -> succeeds, Dmg 30, flagged redundant. ----
@@ -240,6 +279,18 @@ public static class ForwardFromPluginProbe
         {
             back = SkyrimMod.CreateFromBinaryOverlay(patchPath, SkyrimRelease.SkyrimSE);
             return back.EnumerateMajorRecords<IWeaponGetter>().FirstOrDefault(r => r.FormKey == fk)?.BasicStats?.Damage;
+        }
+        catch { return null; }
+        finally { (back as IDisposable)?.Dispose(); }
+    }
+
+    static float? ReadPlacedScale(string patchPath, FormKey fk)
+    {
+        ISkyrimModGetter? back = null;
+        try
+        {
+            back = SkyrimMod.CreateFromBinaryOverlay(patchPath, SkyrimRelease.SkyrimSE);
+            return back.EnumerateMajorRecords<IPlacedObjectGetter>().FirstOrDefault(r => r.FormKey == fk)?.Scale;
         }
         catch { return null; }
         finally { (back as IDisposable)?.Dispose(); }
