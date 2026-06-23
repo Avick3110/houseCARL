@@ -1204,7 +1204,10 @@ public sealed class LoadOrderService : IDisposable
 
     /// <summary>Writable-parent pre-flight for the in-place swap (§6 layer 3): the staged temp is a sibling of the
     /// target, so prove the parent is writable NOW, loud, rather than degrade to a non-atomic write later. True (with a
-    /// named <paramref name="why"/>) ⇒ refuse. Probes by writing + deleting an empty sibling temp.</summary>
+    /// named <paramref name="why"/>) ⇒ refuse. Probes by writing + deleting an empty sibling temp. This checks the PARENT
+    /// is writable — NOT that the target file isn't EXTERNALLY locked (MO2/xEdit mid-operation); that case isn't
+    /// pre-empted here but surfaces LOUD at the <c>File.Replace</c> swap with the original byte-intact (the correct Q3
+    /// outcome, not a corruption path), so it needs no separate pre-flight.</summary>
     static bool InPlaceParentUnwritable(string targetPath, out string why)
     {
         why = "";
