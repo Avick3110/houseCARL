@@ -122,6 +122,37 @@ public static class ReadTools
         var outcome = svc.CrossQuery(type, refFk, editorid_contains, conflicts_only, plugins, where, limit <= 0 ? 500 : limit);
         return Wire.RenderCrossQuery(svc, outcome, fields, conflict_tree, max_chars);
     });
+
+    [McpServerTool(Name = "housecarl_effect_chain", ReadOnly = true, Title = "Resolve an effect's carriers + magnitudes"),
+     Description(
+         "Given a MagicEffect (MGEF), return every Spell/Enchantment/Potion/Scroll/Ingredient (SPEL/ENCH/ALCH/SCRL/INGR) " +
+         "that APPLIES it, each with the magnitude/area/duration from the MATCHING effect entry — collapsing the " +
+         "'cross_plugin_query references=<MGEF> then read each hit's effect' trace (repeated across five record types) " +
+         "into one call. The FormID MUST resolve to a MagicEffect: a non-MGEF or absent FormID fails LOUD (never a " +
+         "silent '0 carriers') — to find what references an arbitrary record, use housecarl_cross_plugin_query " +
+         "references=. A carrier that applies the effect in more than one entry yields one row per entry. Magnitude is " +
+         "reported AS AUTHORED: this does NOT evaluate the effect's Conditions, so a row means 'this carrier defines the " +
+         "effect at this strength', not 'it will fire'. Winners only (the load-order-effective version). Results cap at " +
+         "limit= and max_chars (both overruns explicit, never silent). Does NOT modify anything.")]
+    public static string EffectChainTool(
+        LoadOrderService svc,
+        [Description("The MagicEffect's FormID as 'XXXXXX:Plugin.esp' — 6 hex digits, a colon, then the defining master's filename. Must resolve to an MGEF in the active order.")]
+            string mgef_formid,
+        [Description("Optional. Narrow the scan to a subset of the effect-bearing types — any of 'SPEL','ENCH','ALCH','SCRL','INGR' (or the catalog names 'Spell','ObjectEffect','Ingestible','Scroll','Ingredient'). A non-effect-bearing type is refused. Omit to scan all five.")]
+            string[]? types = null,
+        [Description("Optional. Max rows (default 500). The TRUE total is always reported; over the cap it says 'showing first N'.")]
+            int limit = 500,
+        [Description("Optional. Max characters before the response stops with an explicit notice. 0 = the server default (~80k).")]
+            int max_chars = 0) => Guard.Tool("housecarl_effect_chain", () =>
+    {
+        if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
+        FormKey fk;
+        try { fk = FormKey.Factory(mgef_formid.Trim()); }
+        catch (Exception ex) { return $"error: bad FormID '{mgef_formid}': {ex.Message}. Expected 'XXXXXX:Plugin.esp', e.g. '0F1AC1:Skyrim.esm'."; }
+
+        var result = svc.ResolveEffectChain(fk, types, limit <= 0 ? 500 : limit);
+        return Wire.RenderEffectChain(result, max_chars);
+    });
 }
 
 /// <summary>Compact, parseable `key = value` rendering (Q4.8 lever 1) + the winner-relative conflict diff
@@ -207,6 +238,54 @@ static class Wire
                        .Append("  winner=").Append(m.Winner).Append("  override_depth=").Append(m.OverrideDepth).Append('\n');
             }
             rendered++;
+        }
+        return sb.ToString().TrimEnd('\n');
+    }
+
+    // ---- housecarl_effect_chain ---------------------------------------------------------------------
+    /// <summary>Render the effect chain: a header that RESOLVES the MGEF (its editorid + the confirmed MagicEffect
+    /// type — the Q3 typed-match proof), then carrier rows grouped by record type. A valid-but-unused MGEF renders a
+    /// clean "none" line, NOT an error (the error path is the bad/mistyped FormID, handled in core). Over max_chars it
+    /// stops with the same explicit notice the other read renders use (Q3 — never silent).</summary>
+    public static string RenderEffectChain(EffectChainResult r, int maxChars)
+    {
+        if (r.Error is not null) return "error: " + r.Error;
+        int cap = Cap(maxChars);
+        var sb = new StringBuilder();
+        sb.Append("effect_chain for ").Append(r.Mgef).Append(" (").Append(r.MgefEditorId).Append(", MagicEffect): ")
+          .Append(r.Total).Append(r.Total == 1 ? " carrier row" : " carrier rows");
+        if (r.Capped) sb.Append(" (showing first ").Append(r.Rows.Count).Append("; raise limit= or narrow to see more)");
+        sb.Append('\n');
+        if (r.Total == 0)
+            sb.Append("  none — ").Append(r.MgefEditorId)
+              .Append(" is a valid MagicEffect but is applied by no SPEL/ENCH/ALCH/SCRL/INGR in the active order.\n");
+        if (r.ScanNote is not null) sb.Append(r.ScanNote).Append('\n');
+
+        int rendered = 0;
+        bool truncated = false;
+        // Group rows by carrier type (stable, ordinal) so a multi-type result reads grouped — like cross_plugin_query's type=.
+        foreach (var grp in r.Rows.GroupBy(x => x.Type).OrderBy(g => g.Key, StringComparer.Ordinal))
+        {
+            if (truncated) break;
+            sb.Append(grp.Key).Append(" (").Append(grp.Count()).Append("):\n");
+            foreach (var row in grp)
+            {
+                if (sb.Length >= cap)
+                {
+                    sb.Append("  ... [truncated: rendered ").Append(rendered).Append(" of ").Append(r.Rows.Count)
+                      .Append(" rows before hitting max_chars=").Append(cap).Append("; lower limit= or raise max_chars]\n");
+                    truncated = true;
+                    break;
+                }
+                sb.Append("  ").Append(row.Carrier)
+                  .Append("  ").Append(row.EditorId ?? "<none>")
+                  .Append("  winner=").Append(row.Winner)
+                  .Append("  mag=").Append(row.Magnitude.ToString(System.Globalization.CultureInfo.InvariantCulture))
+                  .Append("  area=").Append(row.Area)
+                  .Append("  dur=").Append(row.Duration)
+                  .Append("  [effect ").Append(row.EffectIndex + 1).Append('/').Append(row.EffectCount).Append("]\n");
+                rendered++;
+            }
         }
         return sb.ToString().TrimEnd('\n');
     }
