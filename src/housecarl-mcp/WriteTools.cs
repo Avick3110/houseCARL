@@ -24,7 +24,9 @@ public static class WriteTools
          "defaults to Set; for collections use Add / Remove / SetAtIndex / ReplaceAll (key = a dict key or list index; " +
          "values = the whole new list for ReplaceAll). By default writes a fresh patch named patch_name; pass " +
          "into='<an existing patch's filename>' to ADD this edit to that patch instead (accumulate across calls and " +
-         "sessions). Pre-flight rejects an illegal edit with the reason and writes nothing (Q3). Returns the patch path, " +
+         "sessions). To edit an EXISTING plugin IN PLACE instead — rewriting your ORIGINAL file (incl. a mod houseCARL " +
+         "didn't make), not a patch — pass target=<plugin filename> + in_place=true (opt-in; see those params; the default " +
+         "patch lane leaves originals untouched). Pre-flight rejects an illegal edit with the reason and writes nothing (Q3). Returns the patch path, " +
          "its masters, and the value read back. Does NOT compose modeled structs (leveled-list entries, polymorphic " +
          "fields) or edit a dict via Merge — use housecarl_bulk_apply for those, or for many edits in one patch. Read " +
          "first with housecarl_read_record.")]
@@ -46,6 +48,12 @@ public static class WriteTools
             string patch_name = "houseCARL_Patch",
         [Description("Optional. Filename of an existing patch (from a prior call) to EXTEND with this edit instead of writing a fresh one — the way to accumulate edits into one patch across calls/sessions. Found by the plugin's filename even if you've renamed its MO2 mod folder; for two patches sharing a filename, pass the mod-folder name here instead (folder & plugin names need not match).")]
             string? into = null,
+        [Description("Optional. IN-PLACE LANE (opt-in): the filename of an EXISTING active plugin to edit IN PLACE — including one houseCARL didn't author — instead of writing a new patch (e.g. 'CoolWeapons.esp'). Requires in_place=true; mutually exclusive with into=. OMIT this (the default) to write a NEW patch and leave every original untouched — the recommended lane.")]
+            string? target = null,
+        [Description("Optional, default false. With target=, edit that plugin IN PLACE: houseCARL rewrites your ORIGINAL file — no new patch, and NO houseCARL backup or undo (keep your own). It re-lays-out the whole plugin the way xEdit/CK do on save, VERIFIES the records you edit, and trusts Mutagen for the untouched rest; it refuses a file it can't parse or that holds engine-reserved (sub-0x800) records. The FIRST in-place edit of a given plugin returns a one-time confirmation prompt (re-call with acknowledge=true).")]
+            bool in_place = false,
+        [Description("Optional, default false. Confirms the one-time in-place trade-off for target (see in_place) — needed only on the FIRST in-place edit of a given plugin, never again for it. Waives the consent to touch your original ONLY; it NEVER skips the record verify.")]
+            bool acknowledge = false,
         [Description("When true, the response ALSO returns the ENTIRE edited record read back from the written patch file on disk (every field, deep — not just the edited leaf). The pre-enable verification: confirm the write landed exactly and nothing else in the record was disturbed, WITHOUT enabling the patch in MO2. (The patch wins nothing until enabled + sorted in MO2 — this read-back is the written file's content, not load-order truth.)")]
             bool full_readback = false,
         [Description("Optional. Max characters for the whole response; past it the full read-back section is cut with an explicit notice (never silent). 0 = the server default (~80k). Only matters with full_readback=true.")]
@@ -56,7 +64,7 @@ public static class WriteTools
         {
             Formid = formid, FieldPath = field_path, Verb = verb, Value = value, Key = key, Values = values,
         };
-        return Render(svc.ApplyEdits(new[] { op }, patch_name, into, full_readback), max_chars);
+        return Render(svc.ApplyEdits(new[] { op }, patch_name, into, full_readback, target, in_place, acknowledge), max_chars);
     });
 
     [McpServerTool(Name = "housecarl_bulk_apply", Title = "Apply many edits in one patch"),
@@ -74,7 +82,9 @@ public static class WriteTools
          "masters automatically when edits reference forms across several plugins (cross-master merge). ALL-OR-NOTHING " +
          "(Q3): if ANY operation is malformed or fails pre-flight, the whole call is refused with per-op reasons and " +
          "nothing is written — no partial patches. By default writes a fresh patch named patch_name; pass into= to extend " +
-         "an existing one. Returns the patch path, masters, and per-op read-back.")]
+         "an existing one. To edit an EXISTING plugin IN PLACE instead — rewriting your ORIGINAL file (incl. a mod houseCARL " +
+         "didn't make), not a patch — pass target=<plugin filename> + in_place=true (opt-in; the default lane leaves originals " +
+         "untouched). Returns the patch path, masters, and per-op read-back.")]
     public static string BulkApply(
         LoadOrderService svc,
         [Description("The edits to apply, all into one patch. Each: {formid, field_path, verb, value?, key?, values?, entries?, compose?}.")]
@@ -83,6 +93,12 @@ public static class WriteTools
             string patch_name = "houseCARL_Patch",
         [Description("Optional. Filename of an existing patch to EXTEND with these edits instead of writing a fresh one (accumulate across calls/sessions). Found by the plugin's filename even if you've renamed its MO2 mod folder; for two patches sharing a filename, pass the mod-folder name here instead (folder & plugin names need not match).")]
             string? into = null,
+        [Description("Optional. IN-PLACE LANE (opt-in): the filename of an EXISTING active plugin to edit IN PLACE — including one houseCARL didn't author — instead of writing a new patch (e.g. 'CoolWeapons.esp'). Requires in_place=true; mutually exclusive with into=. OMIT this (the default) to write a NEW patch and leave every original untouched — the recommended lane.")]
+            string? target = null,
+        [Description("Optional, default false. With target=, edit that plugin IN PLACE: houseCARL rewrites your ORIGINAL file — no new patch, and NO houseCARL backup or undo (keep your own). It re-lays-out the whole plugin the way xEdit/CK do on save, VERIFIES the records you edit, and trusts Mutagen for the untouched rest; it refuses a file it can't parse or that holds engine-reserved (sub-0x800) records. The FIRST in-place edit of a given plugin returns a one-time confirmation prompt (re-call with acknowledge=true).")]
+            bool in_place = false,
+        [Description("Optional, default false. Confirms the one-time in-place trade-off for target (see in_place) — needed only on the FIRST in-place edit of a given plugin, never again for it. Waives the consent to touch your original ONLY; it NEVER skips the record verify.")]
+            bool acknowledge = false,
         [Description("When true, the response ALSO returns the ENTIRE record(s) this call touched, read back from the written patch file on disk (every field, deep — not just the edited leaves). The pre-enable verification: confirm composed structures (conditions, container entries) landed exactly and nothing else in each record was disturbed, WITHOUT enabling the patch in MO2. (The patch wins nothing until enabled + sorted in MO2 — this read-back is the written file's content, not load-order truth.)")]
             bool full_readback = false,
         [Description("Optional. Max characters for the whole response; past it the full read-back section is cut with an explicit notice (never silent). 0 = the server default (~80k). Only matters with full_readback=true.")]
@@ -91,7 +107,7 @@ public static class WriteTools
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
         if (operations is null || operations.Length == 0)
             return "error: operations is empty. Pass one or more {formid, field_path, verb, ...} edits.";
-        return Render(svc.ApplyEdits(operations, patch_name, into, full_readback), max_chars);
+        return Render(svc.ApplyEdits(operations, patch_name, into, full_readback, target, in_place, acknowledge), max_chars);
     });
 
     [McpServerTool(Name = "housecarl_remove_record", Title = "Remove a whole record from a patch"),
@@ -283,14 +299,22 @@ public static class WriteTools
     /// On refusal, the full reason (every malformed/rejected op) so the caller can fix and retry.</summary>
     static string Render(WritePatchBuilder.PatchOutcome o, int maxChars = 0)
     {
+        if (o.NeedsAcknowledge) return o.Error!;            // the first-touch in-place CONSENT prompt — a required confirmation, NOT an error (Q3)
         if (!o.Success) return "error: " + o.Error;
         var file = Path.GetFileName(o.OutputPath);
         var modFolder = Path.GetFileName(Path.GetDirectoryName(o.OutputPath) ?? "");
         var sb = new StringBuilder();
-        sb.Append(o.Extended ? "extended " : "wrote ").Append(file)
-          .Append(o.Extended ? " (existing patch grown; " : " (new patch; ").Append(o.Bytes).Append(" bytes)\n");
-        sb.Append("mod folder: ").Append(modFolder)
-          .Append(o.Extended ? "\n" : "  — enable + sort it in MO2 to use the patch\n");
+        if (o.InPlace)
+            sb.Append("edited ").Append(file).Append(" IN PLACE (").Append(o.Bytes)
+              .Append(" bytes — your ORIGINAL file was rewritten; no houseCARL backup or undo)\n")
+              .Append("mod folder: ").Append(modFolder).Append("  — already active in your load order; re-sort only if a winner changed\n");
+        else
+        {
+            sb.Append(o.Extended ? "extended " : "wrote ").Append(file)
+              .Append(o.Extended ? " (existing patch grown; " : " (new patch; ").Append(o.Bytes).Append(" bytes)\n");
+            sb.Append("mod folder: ").Append(modFolder)
+              .Append(o.Extended ? "\n" : "  — enable + sort it in MO2 to use the patch\n");
+        }
         sb.Append("masters: ").Append(o.Masters.Count == 0 ? "(none)" : string.Join(", ", o.Masters)).Append('\n');
         sb.Append(o.Ops.Count).Append(o.Ops.Count == 1 ? " edit:\n" : " edits:\n");
         foreach (var op in o.Ops)
@@ -306,7 +330,10 @@ public static class WriteTools
             sb.Append("note: this edit touched a dialogue line (INFO). Voice (.fuz) and result-script coverage are checked on CREATE, not on edits — ")
               .Append("run housecarl_validate_dialogue on the topic (or its owning quest) to audit voice + result-script coverage and the topic graph over the edited line and every other line in the topic.\n");
         if (o.ReadBack is { } rb) AppendFullReadback(sb, rb, maxChars);
-        sb.Append("to add more edits to THIS patch, pass into=\"").Append(file).Append("\".");
+        if (o.Note is { } note) sb.Append("note: ").Append(note).Append('\n');
+        sb.Append(o.InPlace
+            ? $"to make more in-place edits to this plugin, pass target=\"{file}\" in_place=true (no further confirmation needed for it)."
+            : $"to add more edits to THIS patch, pass into=\"{file}\".");
         return sb.ToString();
     }
 

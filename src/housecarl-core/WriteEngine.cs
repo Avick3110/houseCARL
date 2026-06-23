@@ -1535,6 +1535,63 @@ public static class WriteEngine
         catch (IOException) { } catch (UnauthorizedAccessException) { }
     }
 
+    /// <summary>Serialize a plugin edited IN PLACE back over ITSELF — the model-C, xEdit-parity re-emit the Wave 0
+    /// round-trip probe validated (in-place write lane, <c>WritePatchBuilder.ApplyInPlace</c>). DELIBERATELY NOT
+    /// <see cref="WritePatch"/>: in-place re-emits an EXISTING authored plugin, so it must NOT apply WritePatch's
+    /// NEW-patch conventions — no Skyrim.esm/Update.esm baseline force-include (<see cref="WritePatch"/>'s
+    /// <c>WithExtraIncludedMasters</c> would ADD masters the author never declared, reindexing the file) and no
+    /// <see cref="EnsureFormIdFloor"/> (<c>NoNextFormIDProcessing</c> persists the author's <c>HEDR.NextObjectID</c>
+    /// verbatim). This is EXACTLY the probe's incantation (<c>RoundTripProbe</c>: <c>.WithLoadOrder(&lt;own declared
+    /// masters&gt;).NoNextFormIDProcessing().Write()</c>) — the surface against which model C ("verify the touched
+    /// records, trust Mutagen for the rest") was measured (~80% benign reorder, ZERO record drops), so routing in-place
+    /// through it (not WritePatch) is what makes that result actually transfer. <paramref name="ownMasters"/> is the
+    /// target's OWN declared masters, resolved to overlays in load order (Mutagen orders + lean-derives the list exactly
+    /// as it did for the probe). Stage + crash-atomic swap (<see cref="AtomicFile.Commit"/>) is shared with the patch
+    /// lane, so the original only ever holds the OLD or the NEW complete file. The caller MUST already hold the PR #24
+    /// self-lock discipline (every overlay it holds on the target released) — here on a FOREIGN target.</summary>
+    public static void WriteInPlace(SkyrimMod targetMod, IReadOnlyList<ISkyrimModGetter> ownMasters, string outputPath)
+    {
+        var expected = targetMod.ModKey.FileName.String;
+        var actual = Path.GetFileName(outputPath);
+        if (!string.Equals(expected, actual, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException(
+                $"In-place output filename '{actual}' must match the target's ModKey filename '{expected}'.");
+        Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
+        var ordered = ownMasters as ISkyrimModGetter[] ?? ownMasters.ToArray();
+        // Same composed-null-arm serialize guard as WritePatch (an in-place edit can compose a record too): a required
+        // polymorphic sub-field left null surfaces as a bare NRE at the writer deref — re-stamp ONLY that as a NAMED
+        // refusal; the staged temp is already discarded on any throw (nothing on disk), original byte-intact.
+        string staged;
+        try { staged = WriteInPlaceStaged(targetMod, ordered, outputPath); }
+        catch (NullReferenceException ex) { throw new NullArmSerializeException(ex); }
+        CommitStagedPatch(staged, outputPath);
+    }
+
+    /// <summary>Stage 1 of the in-place write — the probe-faithful re-serialize: own declared masters as the load order,
+    /// the counter persisted verbatim (<c>NoNextFormIDProcessing</c>, NO floor), NO baseline force-include. Stages into
+    /// the <c>.housecarl-tmp</c> sibling of the target (same parent ⇒ same NTFS volume ⇒ the stage-2 swap is atomic),
+    /// and cleans its temp on a serialize failure (Q3 — a failed stage leaves no residue, the original untouched).</summary>
+    static string WriteInPlaceStaged(SkyrimMod targetMod, ISkyrimModGetter[] ordered, string outputPath)
+    {
+        var tmpDir = Path.Combine(Path.GetDirectoryName(outputPath)!, ".housecarl-tmp");
+        var tmpPath = Path.Combine(tmpDir, Path.GetFileName(outputPath));
+        Directory.CreateDirectory(tmpDir);
+        try
+        {
+            targetMod.BeginWrite
+                .ToPath(tmpPath)
+                .WithLoadOrder(ordered)            // the target's OWN masters (no whole-order, no baseline) — the probe's set
+                .NoNextFormIDProcessing()          // persist the author's NextObjectID verbatim (no EnsureFormIdFloor)
+                .Write();
+            return tmpPath;
+        }
+        catch
+        {
+            CleanupStaged(tmpPath);
+            throw;
+        }
+    }
+
     /// <summary>The base-game masters EVERY Skyrim plugin must carry — Skyrim.esm + Update.esm, exactly what the Creation
     /// Kit stamps on every plugin (Aaron 2026-06-02: "if ck stamps both then we should too"). Force-included on every
     /// <see cref="WritePatch(SkyrimMod, IReadOnlyList{ISkyrimModGetter},string)"/> via WithExtraIncludedMasters so even a

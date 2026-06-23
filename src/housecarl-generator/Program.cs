@@ -342,6 +342,15 @@ if (args.Length > 0 && args[0] == "writelock-apply-probe") return WriteLockProbe
 // link-cache context path) survives the re-edit-own-override case under the new "release overlay before serialize" invariant.
 if (args.Length > 0 && args[0] == "writelock-nested-proof") return WriteLockProbe.RunNestedProof(args[1..]);
 
+// In-place write lane Wave 1: SELF-CONTAINED CI regression guard — drives the REAL WritePatchBuilder.ApplyInPlace + the
+// REAL LoadOrderService in-place branch (content-source/winner-injection, counter+master preservation, flat lock, the
+// persistent consent handshake, the resolver/contract refusals, opt-in-by-construction). No game data.
+if (args.Length > 0 && args[0] == "inplace-guard") return InPlaceProbe.RunGuard(args[1..]);
+
+// In-place write lane Wave 1: REAL-DATA proof of the NESTED own-override re-edit IN PLACE (the LinkCacheFor-on-a-foreign-
+// target overlay path), the one arm the self-contained guard can't synthesize. Needs Skyrim.esm; self-skips on the runner.
+if (args.Length > 0 && args[0] == "inplace-nested-proof") return InPlaceProbe.RunNestedProof(args[1..]);
+
 // Perk references= crash (HCBR-2026-06-09-03): DIAGNOSIS — run Mutagen's EnumerateFormLinks over every PERK in a
 // real plugin, report which records throw and with what (the evidence the fix is designed from). Skips without Skyrim.esm.
 if (args.Length > 0 && args[0] == "perk-refs-diagnose") return PerkRefsProbe.RunDiagnose(args[1..]);

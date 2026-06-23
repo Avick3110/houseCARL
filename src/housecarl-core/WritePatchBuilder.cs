@@ -70,8 +70,30 @@ public static class WritePatchBuilder
     {
         public IReadOnlyList<FullReadback>? ReadBack { get; init; }
 
+        /// <summary>True ⇒ this outcome came from the IN-PLACE lane (<see cref="Apply"/>'s sibling
+        /// <see cref="ApplyInPlace"/>) — the edits landed in the USER's own file at <see cref="OutputPath"/>, not a new
+        /// patch. Drives the distinct "edited in place" confirmation (and the "no undo; keep your own backup" note).</summary>
+        public bool InPlace { get; init; }
+
+        /// <summary>True ⇒ NOT a write and NOT an error: the server-enforced first-touch in-place CONSENT handshake. The
+        /// in-place lane refused to write this plugin until the user acknowledges the trade-off; <see cref="Error"/>
+        /// carries the prompt verbatim (re-call with acknowledge=true). Rendered as a confirmation prompt, never "error:"
+        /// (Q3 — a required confirmation is not a failure). Nothing was written; the original is untouched.</summary>
+        public bool NeedsAcknowledge { get; init; }
+
+        /// <summary>An optional Q3 honesty note appended to a SUCCESSFUL outcome — a side effect that didn't land cleanly
+        /// even though the write did (e.g. the in-place acknowledgement couldn't be persisted, or the editedInPlace audit
+        /// marker couldn't be written). Null when there's nothing to add.</summary>
+        public string? Note { get; init; }
+
         public static PatchOutcome Fail(string error) =>
             new(false, error, "", false, Array.Empty<string>(), Array.Empty<OpResult>(), 0);
+
+        /// <summary>The first-touch in-place consent handshake: no write, no error — a required confirmation carrying the
+        /// trade-off <paramref name="prompt"/> (the caller re-calls with acknowledge=true). Success=false so no
+        /// downstream success path runs; <see cref="NeedsAcknowledge"/> tells the renderer to show it as a prompt.</summary>
+        public static PatchOutcome NeedsAck(string prompt) =>
+            new(false, prompt, "", false, Array.Empty<string>(), Array.Empty<OpResult>(), 0) { NeedsAcknowledge = true };
     }
 
     /// <summary>One record dropped by <see cref="RemoveRecords"/> — its FormKey, the catalog type, and the editorid (if
@@ -324,6 +346,187 @@ public static class WritePatchBuilder
         finally { (back as IDisposable)?.Dispose(); }
 
         return new PatchOutcome(true, null, outPath, extend, masters, ops, bytes) { ReadBack = readBack };
+    }
+
+    /// <summary>
+    /// EDIT records IN PLACE inside an EXISTING plugin the user owns — the opt-in second write lane (in-place write
+    /// lane, Wave 1), the sibling of <see cref="Apply"/>. Where <see cref="Apply"/> overrides the load-order WINNER into
+    /// a NEW patch (originals untouched), this opens the TARGET plugin itself mutably, edits the TARGET's OWN record, and
+    /// re-serializes the whole plugin back over itself — the user's original file IS the output. Three deliberate
+    /// divergences from <see cref="Apply"/>, each load-bearing:
+    /// <list type="bullet">
+    /// <item>CONTENT SOURCE (§4.1 winner-injection fix): the body is the TARGET's own record
+    /// (<c>view.GetRecord(session, target, fk)</c>), NEVER the load-order winner — and the call REFUSES loud if the
+    /// target doesn't itself define/override the FormKey ("in-place edits only what the file OWNS"). So pre-flight
+    /// validates the body actually mutated, and another mod's content can never be injected into the user's file.</item>
+    /// <item>DESTINATION: <paramref name="targetPath"/> IS the target's real on-disk path (the caller resolved it via
+    /// the load order, dropping the houseCARL-owned gate); the mutable mod IS the target (CreateFromBinary), so
+    /// <see cref="WriteEngine.GenericGetOrAddAsOverride"/> returns the target's OWN record (get-semantics).</item>
+    /// <item>SERIALIZE (model C — what the Wave 0 probe validated, NOT <see cref="WriteEngine.WritePatch"/>):
+    /// <see cref="WriteEngine.WriteInPlace"/> re-emits with the target's OWN declared masters, no baseline force-include,
+    /// no FormID floor — preserving the author's master list + NextObjectID as xEdit/CK do on save.</item>
+    /// </list>
+    /// The reused full read-back (<paramref name="fullReadback"/>, default ON here) VERIFIES the records actually touched
+    /// landed; Mutagen is trusted for the rest (the xEdit-parity bar). CONSENT + the persistent acknowledge handshake are
+    /// enforced by the SERVICE before this is reached — this is the mechanism. All-or-nothing (Q3): any resolve/pre-flight
+    /// reject, or a serialize failure, leaves the original file UNTOUCHED (staged temp + atomic swap).
+    /// </summary>
+    public static PatchOutcome ApplyInPlace(
+        LoadOrderResolver resolver, CorpusRulebook rulebook,
+        IReadOnlyList<PatchEdit> edits, string targetPath, string targetName, bool fullReadback = true)
+    {
+        if (edits.Count == 0) return PatchOutcome.Fail("no edits supplied.");
+
+        // Per-call overlay session (Option B), same as Apply: every read (the target's own bodies, the nested link
+        // cache) is opened THROUGH it and disposed when the method returns — no handle held at rest.
+        using var session = resolver.OpenSession();
+        var fileName = Path.GetFileName(targetPath);
+
+        // --- Phase 1: resolve each edit's body FROM THE TARGET (not the winner) + derive type + pre-flight. The §4.1
+        //     content-source guard. ONE captured view answers every edit (the hunt-F5 one-view discipline). ---
+        var view = resolver.Capture();
+        if (!view.ContainsPlugin(targetName))
+            return PatchOutcome.Fail($"in-place target '{targetName}' is not an active plugin in the load order.");
+        if (view.ExcludedPlugins.TryGetValue(targetName, out var excluded))
+            return PatchOutcome.Fail(
+                $"cannot edit '{targetName}' in place: it was EXCLUDED from this session ({excluded}) — houseCARL won't " +
+                "re-serialize a plugin it can't fully parse (that would risk dropping the record it couldn't read, Q3). The file is UNTOUCHED.");
+
+        var resolved = new List<(PatchEdit edit, IMajorRecordGetter body, WriteRequest req, string label)>(edits.Count);
+        var problems = new List<string>();
+        foreach (var e in edits)
+        {
+            var body = view.GetRecord(session, targetName, e.Target);
+            if (body is null)
+            {
+                problems.Add($"{e.Target}: '{targetName}' does not define or override this record — in-place edits only what the " +
+                             "file OWNS. To change a record defined in another plugin, use the default patch lane (a new override) instead.");
+                continue;
+            }
+            var recType = RecordNaming.StripOverlay(body.GetType().Name);
+            var req = new WriteRequest
+            {
+                RecordType = recType, Path = e.Path, Verb = e.Verb,
+                Key = e.Key, Value = e.Value, Values = e.Values, Entries = e.Entries, Struct = e.Struct,
+            };
+            var label = Label(req);
+            if (rulebook.Validate(req) is { } reject) { problems.Add($"{recType} {e.Target} [{label}]: {reject}"); continue; }
+            resolved.Add((e, body, req, label));
+        }
+        if (problems.Count > 0)
+            return PatchOutcome.Fail(
+                $"refused — {problems.Count} of {edits.Count} edit(s) rejected by resolve/pre-flight; '{fileName}' is UNTOUCHED:\n  - "
+                + string.Join("\n  - ", problems));
+
+        // --- Phase 2: open the TARGET mutably. EAGER, the SINGLE plugin only — NEVER the load order (the legacy 12–14 GB
+        //     RAM trap; CLAUDE.md §1). CreateFromBinary is the same call Apply's extend path uses; an unparseable plugin
+        //     throws here and is REFUSED, never silently re-emitted minus the record Mutagen couldn't read (Q3). ---
+        if (!File.Exists(targetPath))
+            return PatchOutcome.Fail($"in-place target '{fileName}' not found on disk at {targetPath} — the file is untouched.");
+        SkyrimMod targetMod;
+        try { targetMod = SkyrimMod.CreateFromBinary(targetPath, SkyrimRelease.SkyrimSE); }
+        catch (Exception ex)
+            { return PatchOutcome.Fail($"cannot open '{fileName}' to edit in place ({WriteEngine.Describe(ex)}) — a plugin Mutagen can't parse is refused, not re-emitted minus what it couldn't read (Q3). The file is UNTOUCHED."); }
+        if (!string.Equals(targetMod.ModKey.FileName.String, fileName, StringComparison.OrdinalIgnoreCase))
+            return PatchOutcome.Fail($"in-place ModKey '{targetMod.ModKey.FileName}' must match the target filename '{fileName}'.");
+
+        // --- Phase 3: apply each verb to the TARGET's OWN record. GenericGetOrAddAsOverride on the target's own body
+        //     (already present in targetMod) returns THAT record (get-semantics) — the verb edits the file's own body,
+        //     never a foreign override's. A nested record gets the target overlay's link cache on demand (released in
+        //     Phase 4). A throw after pre-flight passed is a real engine inconsistency — fail the WHOLE call (Q3). ---
+        var ops = new List<OpResult>(resolved.Count);
+        foreach (var (e, body, req, label) in resolved)
+        {
+            try
+            {
+                ILinkCache? cache = WriteEngine.RecordNeedsSourceCache(body) ? session.LinkCacheFor(targetName) : null;
+                var ov = WriteEngine.GenericGetOrAddAsOverride(targetMod, body, cache);
+                WriteEngine.ApplyVerb(ov, req);
+                ops.Add(new OpResult(e.Target, req.RecordType, label, true, null, TryReadAfter(ov, req)));
+            }
+            catch (ExpectedApplyRejectionException ex)
+            {
+                return PatchOutcome.Fail(
+                    $"refused applying [{label}] to {req.RecordType} {e.Target} — {ex.Message} (the file is untouched)");
+            }
+            catch (MalformedTargetDataException ex)
+            {
+                return PatchOutcome.Fail(
+                    $"refused applying [{label}] to {req.RecordType} {e.Target} — {ex.Message} (the file is untouched)");
+            }
+            catch (Exception ex)
+            {
+                return PatchOutcome.Fail(
+                    $"engine error applying [{label}] to {req.RecordType} {e.Target}: pre-flight ACCEPTED it but the apply " +
+                    $"threw — a real inconsistency, surfaced not swallowed (Q3): {ex.GetType().Name}: {ex.Message}");
+            }
+        }
+
+        // --- Phase 4: re-serialize the WHOLE target back over itself (model C — the probe's incantation via WriteInPlace,
+        //     NOT WritePatch). Release the target overlay first (the winner-IS-the-target common case made common — the
+        //     two-part self-lock guard, here on a FOREIGN target: ReleaseOverlay disposes every session overlay on the
+        //     target, flat via GetRecord and nested via LinkCacheFor, before the File.Replace). Resolve the target's own
+        //     declared masters to overlays for a faithful re-emit; dispose them after the write. ---
+        session.ReleaseOverlay(fileName);
+        var masterOverlays = new List<IDisposable>();
+        try
+        {
+            ISkyrimModGetter[] ownMasters = ResolveOwnMasters(view, targetMod, masterOverlays, out var missing);
+            if (missing is not null) return PatchOutcome.Fail(missing);
+            try { WriteEngine.WriteInPlace(targetMod, ownMasters, targetPath); }
+            catch (Exception ex)
+                { return PatchOutcome.Fail($"writing '{fileName}' in place failed (serialize or commit; the existing file is untouched): {WriteEngine.Describe(ex)}"); }
+        }
+        finally { foreach (var d in masterOverlays) { try { d.Dispose(); } catch { /* best-effort; never mask the write result */ } } }
+
+        // --- Phase 5: re-open the now-edited file and report its master header — and the touched-record verify (default
+        //     ON for in-place): each edited record read back IN FULL off the on-disk bytes (the model-C substitute for
+        //     the dropped whole-plugin floor — confirm what you TOUCHED landed; Mutagen is trusted for the rest). ---
+        IReadOnlyList<string> masters = Array.Empty<string>();
+        IReadOnlyList<FullReadback>? readBack = null;
+        long bytes = 0;
+        ISkyrimModGetter? back = null;
+        try
+        {
+            back = SkyrimMod.CreateFromBinaryOverlay(targetPath, SkyrimRelease.SkyrimSE);
+            masters = back.ModHeader.MasterReferences.Select(m => m.Master.FileName.ToString()).ToList();
+            bytes = new FileInfo(targetPath).Length;
+            if (fullReadback) readBack = ReadBackInFull(back, resolved.Select(r => r.edit.Target));
+        }
+        catch (Exception ex)
+            { return PatchOutcome.Fail($"'{fileName}' was edited in place but could not be re-opened to verify: {ex.Message}"); }
+        finally { (back as IDisposable)?.Dispose(); }
+
+        return new PatchOutcome(true, null, targetPath, false, masters, ops, bytes) { ReadBack = readBack, InPlace = true };
+    }
+
+    /// <summary>Resolve the target's OWN declared masters to on-disk overlays in declared order — the load order
+    /// <see cref="WriteEngine.WriteInPlace"/> hands Mutagen (the probe's faithful set). Each master filename resolves to
+    /// its WINNING on-disk path via the order (<see cref="LoadOrderResolver.IndexView.PluginPath"/>); a declared master
+    /// ABSENT from the active order makes <paramref name="missing"/> a loud Q3 refusal (re-serializing would leave the
+    /// target's references unresolvable) rather than emit a broken plugin. Opened overlays are added to
+    /// <paramref name="overlays"/> for the caller to dispose after the write.</summary>
+    static ISkyrimModGetter[] ResolveOwnMasters(
+        LoadOrderResolver.IndexView view, SkyrimMod targetMod, List<IDisposable> overlays, out string? missing)
+    {
+        missing = null;
+        var resolved = new List<ISkyrimModGetter>();
+        foreach (var mr in targetMod.ModHeader.MasterReferences)
+        {
+            var mfn = mr.Master.FileName.String;
+            var mpath = view.PluginPath(mfn);
+            if (mpath is null)
+            {
+                missing = $"cannot edit '{targetMod.ModKey.FileName}' in place: its declared master '{mfn}' is not active in the " +
+                          "load order, so a faithful re-serialize can't resolve the references into it. Enable that master (or fix " +
+                          "the target's masters in xEdit) first. The file is UNTOUCHED.";
+                return Array.Empty<ISkyrimModGetter>();
+            }
+            var ov = SkyrimMod.CreateFromBinaryOverlay(mpath, SkyrimRelease.SkyrimSE);
+            overlays.Add((IDisposable)ov);
+            resolved.Add(ov);
+        }
+        return resolved.ToArray();
     }
 
     /// <summary>
