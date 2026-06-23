@@ -619,7 +619,7 @@ public static class WritePatchBuilder
     /// Create an EMPTY, HEADER-ONLY plugin — a valid <c>TES4</c> header and ZERO records (HCBR-2026-06-19-02). The
     /// whole point is a plugin that exists purely so its BASENAME resolves: the artifact SKSE configs that bind by
     /// plugin name need (a CraftingCategories-style trigger that must ship <c>Foo.esp</c> so <c>Foo.json</c> loads), a
-    /// placeholder ESL for FormID reservation, a deliberate empty master, a dummy plugin to satisfy a dependency check.
+    /// placeholder ESL for FormID reservation, a dummy plugin another mod can list as a master to satisfy a dependency.
     /// It is the clean primitive behind those: where the record-centric create/forward paths can only materialise a
     /// plugin by giving it a record (forcing an unwanted conflict-tree participant — the report's redundant backpack
     /// override), this authors NO record at all.
@@ -676,6 +676,8 @@ public static class WritePatchBuilder
 
         if (confirmFail is null && recordCount != 0)
             confirmFail = $"internal error: the created plugin carries {recordCount} record(s), expected 0 (a header-only plugin) — refusing to report success on a wrong artifact (Q3).";
+        if (confirmFail is null && masters.Count != 0)
+            confirmFail = $"internal error: the created plugin carries {masters.Count} master(s) ({string.Join(", ", masters)}), expected 0 (a header-only plugin references nothing) — refusing to report success on a wrong artifact (Q3).";
         if (confirmFail is null && eslBack != esl)
             confirmFail = $"internal error: the created plugin's light-master (ESL) flag is {eslBack}, expected {esl} — refusing to report success on a wrong artifact (Q3).";
 

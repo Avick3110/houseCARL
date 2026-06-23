@@ -253,8 +253,8 @@ public static class WriteTools
          "Create an EMPTY, HEADER-ONLY plugin — a valid TES4 header with ZERO records and no masters, in a NEW mod " +
          "folder (originals untouched). Its only job is to EXIST so its basename resolves: the artifact that SKSE configs " +
          "binding by plugin basename need (e.g. a CraftingCategories-style trigger that must ship 'Foo.esp' so 'Foo.json' " +
-         "loads), a placeholder ESL for FormID reservation, a deliberate empty master, or any 'I just need plugin Foo to " +
-         "be present' case. UNLIKE housecarl_create_record, it authors NO record — so it adds no conflict-tree footprint " +
+         "loads), a placeholder ESL for FormID reservation, a dummy plugin for another mod to list as a master, or any " +
+         "'I just need plugin Foo to be present' case. UNLIKE housecarl_create_record, it authors NO record — so it adds no conflict-tree footprint " +
          "(no filler override needed to make the plugin non-empty). plugin_name is used EXACTLY (the basename is " +
          "load-bearing — houseCARL will NOT auto-suffix it): if a plugin of that name is already active in the load order, " +
          "or a houseCARL folder of that name already exists, it REFUSES loud rather than rename or overwrite (Q3). Pass " +
