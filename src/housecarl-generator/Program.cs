@@ -47,6 +47,11 @@ if (args.Length > 0 && args[0] == "floi-fields-guard") return FloiFieldsProbe.Ru
 // (forward a master) + already-winner + multi + into= work, originals untouched, and the 4 Q3 rejects.
 if (args.Length > 0 && args[0] == "forward-from-plugin-guard") return ForwardFromPluginProbe.RunGuard(args[1..]);
 
+// into=-extend RESOLVER (HCBR-2026-06-23): SELF-CONTAINED CI regression guard — a renamed houseCARL mod folder is still
+// found by the .esp basename it holds (the fixed name) AND by the folder name itself (names need not match); two owned
+// folders sharing an .esp refuse loud + disambiguate by folder; an un-owned folder stays refused (originals untouched); the master is byte-untouched.
+if (args.Length > 0 && args[0] == "extend-resolve-guard") return ExtendResolveProbe.RunGuard(args[1..]);
+
 // Author an EMPTY, header-only (trigger) plugin (HCBR-2026-06-19-02): SELF-CONTAINED CI regression guard — core arms
 // write a header-only plugin straight to temp (0 records, 0 masters, ESL flag round-trip, sig TES4, author/desc), and
 // service arms drive the REAL LoadOrderService.CreatePlugin over a synthetic MO2 instance (exact-name no-suffix +

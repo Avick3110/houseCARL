@@ -1539,21 +1539,54 @@ public sealed class LoadOrderService : IDisposable
             if (!string.IsNullOrWhiteSpace(into))
             {
                 extend = true;
-                var stem = PatchStem(into);
-                var folder = Path.Combine(_modsDir, ModFolderName(stem));
-                if (!Directory.Exists(folder))
+                var stem = PatchStem(into);                         // strips a trailing .esp/.esm/.esl; no directory parts (can't escape ModsDir)
+                var espName = stem + ".esp";
+
+                // (1) CANONICAL fast path — unchanged: the patch still lives in its own "houseCARL - <stem>" folder holding
+                //     <stem>.esp. The common case; no scan, byte-for-byte the prior behavior of every into= call.
+                var canonical = Path.Combine(_modsDir, ModFolderName(stem));
+                if (Directory.Exists(canonical) && IsHouseCarlOwned(canonical) && File.Exists(Path.Combine(canonical, espName)))
+                    return Path.Combine(canonical, espName);
+
+                // (2) Resolve by PLUGIN name — the MO2 mod FOLDER was renamed for organization, but the .esp basename is
+                //     fixed (SPID _DISTR / the CSF JSON / masters all bind the patch by its filename). Find the houseCARL-
+                //     OWNED folder that HOLDS <stem>.esp, whatever the folder is now called. Ownership-gated, so a user mod
+                //     sharing the basename is never touched (originals untouched, Q3 — this opens NO foreign-plugin door).
+                var byEsp = OwnedFoldersHolding(espName);
+                if (byEsp.Count == 1) return byEsp[0];
+                if (byEsp.Count > 1)
                     throw new InvalidOperationException(
-                        $"cannot extend: no houseCARL patch named '{stem}' (mod folder '{ModFolderName(stem)}' not found). " +
-                        "Omit into= to create it fresh, or check the name.");
-                if (!IsHouseCarlOwned(folder))
-                    throw new InvalidOperationException(
-                        $"cannot extend: mod folder '{ModFolderName(stem)}' exists but was NOT created by houseCARL (no marker) — " +
-                        "refusing to modify a folder houseCARL doesn't own (originals untouched, Q3). Use a different patch name.");
-                var existing = Path.Combine(folder, stem + ".esp");
-                if (!File.Exists(existing))
-                    throw new InvalidOperationException(
-                        $"cannot extend: houseCARL folder '{ModFolderName(stem)}' has no '{stem}.esp' to extend.");
-                return existing;
+                        $"cannot extend: {byEsp.Count} houseCARL folders carry '{espName}' — ambiguous, refusing to guess. " +
+                        "Pass the CONTAINING mod-folder name as into= to pick one (folder & plugin names need not match): " +
+                        string.Join("  |  ", byEsp.Select(p => $"into=\"{Path.GetFileName(Path.GetDirectoryName(p)!)}\"")) + ".");
+
+                // (3) FOLDER catch-all — into= NAMES the mod folder itself: the disambiguator for same-named plugins, and the
+                //     way to point at a renamed folder by its new name. Edit the single .esp inside it, whatever it's named.
+                var named = ResolveOwnedFolderByName(into);
+                if (named is not null)
+                {
+                    var sole = SoleEspInFolder(named, out var why);
+                    if (sole is not null) return sole;
+                    throw new InvalidOperationException($"cannot extend: houseCARL folder '{Path.GetFileName(named)}' {why}.");
+                }
+
+                // (4) Nothing matched. Distinguish a FOREIGN (un-owned) name collision — refused for the same reason as ever
+                //     (originals untouched, Q3) — from a genuine miss, and NAME every place searched (the report asked the
+                //     refusal to reveal all the required pieces at once, not one half per failed call).
+                var bareName = Path.GetFileName(into.Trim());
+                foreach (var cand in new[] { ModFolderName(stem), bareName })
+                {
+                    var candPath = string.IsNullOrEmpty(cand) ? null : Path.Combine(_modsDir, cand);
+                    if (candPath is not null && Directory.Exists(candPath) && !IsHouseCarlOwned(candPath))
+                        throw new InvalidOperationException(
+                            $"cannot extend: mod folder '{cand}' exists but was NOT created by houseCARL (no marker) — " +
+                            "refusing to modify a folder houseCARL doesn't own (originals untouched, Q3). Use a different patch name.");
+                }
+                throw new InvalidOperationException(
+                    $"cannot extend: no houseCARL plugin '{espName}' in any houseCARL folder, and no houseCARL folder named " +
+                    $"'{ModFolderName(stem)}'" +
+                    (string.Equals(bareName, ModFolderName(stem), StringComparison.OrdinalIgnoreCase) ? "" : $" or '{bareName}'") +
+                    ". Omit into= to create it fresh, or check the name.");
             }
 
             extend = false;
@@ -1938,6 +1971,53 @@ public sealed class LoadOrderService : IDisposable
             if (!Directory.Exists(Path.Combine(_modsDir, ModFolderName(cand)))) return cand;
         }
         throw new InvalidOperationException($"too many patches named '{stem}' under ModsDir — clean some out.");
+    }
+
+    /// <summary>houseCARL-OWNED mod folders under ModsDir holding a plugin file named <paramref name="espFileName"/> at
+    /// their root — the decoupled resolver behind <c>into=</c>. The .esp basename is FIXED (SPID <c>_DISTR</c>, the CSF
+    /// JSON, and masters all bind the patch by its filename), while the MO2 mod-FOLDER name is the user's to rename for
+    /// organization; so an extend finds the patch by the plugin it holds, not by the folder's current name. Ownership-gated
+    /// (the marker) so a user mod that merely shares the basename is NEVER returned (originals untouched, Q3). Full .esp paths.</summary>
+    List<string> OwnedFoldersHolding(string espFileName)
+    {
+        var hits = new List<string>();
+        foreach (var dir in Directory.EnumerateDirectories(_modsDir))
+        {
+            var esp = Path.Combine(dir, espFileName);
+            if (File.Exists(esp) && IsHouseCarlOwned(dir)) hits.Add(esp);
+        }
+        return hits;
+    }
+
+    /// <summary>A houseCARL-OWNED mod folder named exactly <paramref name="rawName"/> or "<c>houseCARL - &lt;rawName&gt;</c>"
+    /// — the FOLDER catch-all behind <c>into=</c>: the user NAMES the containing mod folder when the plugin basename is
+    /// ambiguous (or to point at a renamed folder by its new name), and the folder name need NOT match the .esp inside.
+    /// Bare name only (no directory parts — can't escape ModsDir). Null when no such folder is houseCARL-owned.</summary>
+    string? ResolveOwnedFolderByName(string rawName)
+    {
+        var bare = Path.GetFileName(rawName.Trim());
+        foreach (var cand in new[] { bare, ModFolderName(PatchStem(rawName)) })
+        {
+            if (string.IsNullOrEmpty(cand)) continue;
+            var folder = Path.Combine(_modsDir, cand);
+            if (Directory.Exists(folder) && IsHouseCarlOwned(folder)) return folder;
+        }
+        return null;
+    }
+
+    /// <summary>The single top-level plugin (.esp/.esm/.esl) in a houseCARL folder, so <c>into=</c> a folder NAME can edit
+    /// "the plugin in this folder" without re-stating its basename. Null + a named <paramref name="reason"/> when the folder
+    /// holds none or more than one (Q3 — never guess which of several to extend).</summary>
+    static string? SoleEspInFolder(string folder, out string reason)
+    {
+        var plugins = Directory.EnumerateFiles(folder)
+            .Where(f => PluginExts.Any(ext => f.EndsWith(ext, StringComparison.OrdinalIgnoreCase)))
+            .ToList();
+        if (plugins.Count == 1) { reason = ""; return plugins[0]; }
+        reason = plugins.Count == 0
+            ? "holds no plugin (.esp/.esm/.esl) to extend"
+            : $"holds {plugins.Count} plugins ({string.Join(", ", plugins.Select(Path.GetFileName))}) — name the one to extend by passing its filename as into=";
+        return null;
     }
 
     /// <summary>A mod folder is houseCARL-owned iff its <c>meta.ini</c> carries the <c>[houseCARL] generated=true</c>

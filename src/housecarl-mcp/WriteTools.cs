@@ -44,7 +44,7 @@ public static class WriteTools
             string[]? values = null,
         [Description("Optional. Base filename for the new patch (default 'houseCARL_Patch'); auto-suffixed if taken so a prior patch is never overwritten. Ignored if into= is given.")]
             string patch_name = "houseCARL_Patch",
-        [Description("Optional. Filename of an existing patch (from a prior call) to EXTEND with this edit instead of writing a fresh one — the way to accumulate edits into one patch across calls/sessions.")]
+        [Description("Optional. Filename of an existing patch (from a prior call) to EXTEND with this edit instead of writing a fresh one — the way to accumulate edits into one patch across calls/sessions. Found by the plugin's filename even if you've renamed its MO2 mod folder; for two patches sharing a filename, pass the mod-folder name here instead (folder & plugin names need not match).")]
             string? into = null,
         [Description("When true, the response ALSO returns the ENTIRE edited record read back from the written patch file on disk (every field, deep — not just the edited leaf). The pre-enable verification: confirm the write landed exactly and nothing else in the record was disturbed, WITHOUT enabling the patch in MO2. (The patch wins nothing until enabled + sorted in MO2 — this read-back is the written file's content, not load-order truth.)")]
             bool full_readback = false,
@@ -81,7 +81,7 @@ public static class WriteTools
             BulkOp[] operations,
         [Description("Optional. Base filename for the new patch (default 'houseCARL_Patch'); auto-suffixed if taken. Ignored if into= is given.")]
             string patch_name = "houseCARL_Patch",
-        [Description("Optional. Filename of an existing patch to EXTEND with these edits instead of writing a fresh one (accumulate across calls/sessions).")]
+        [Description("Optional. Filename of an existing patch to EXTEND with these edits instead of writing a fresh one (accumulate across calls/sessions). Found by the plugin's filename even if you've renamed its MO2 mod folder; for two patches sharing a filename, pass the mod-folder name here instead (folder & plugin names need not match).")]
             string? into = null,
         [Description("When true, the response ALSO returns the ENTIRE record(s) this call touched, read back from the written patch file on disk (every field, deep — not just the edited leaves). The pre-enable verification: confirm composed structures (conditions, container entries) landed exactly and nothing else in each record was disturbed, WITHOUT enabling the patch in MO2. (The patch wins nothing until enabled + sorted in MO2 — this read-back is the written file's content, not load-order truth.)")]
             bool full_readback = false,
@@ -112,7 +112,7 @@ public static class WriteTools
         LoadOrderService svc,
         [Description("The record's FormID as 'XXXXXX:Plugin.esp' — the record to drop from the patch.")]
             string formid,
-        [Description("Filename of the houseCARL patch to remove the record from (e.g. 'MyMerge.esp' or 'MyMerge') — must be a patch houseCARL created that carries this record.")]
+        [Description("Filename of the houseCARL patch to remove the record from (e.g. 'MyMerge.esp' or 'MyMerge') — must be a patch houseCARL created that carries this record. Found by the plugin's filename even if you've renamed its MO2 mod folder; for two patches sharing a filename, pass the mod-folder name here instead (folder & plugin names need not match).")]
             string patch) => Guard.Tool("housecarl_remove_record", () =>
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
@@ -156,7 +156,7 @@ public static class WriteTools
             string? grid = null,
         [Description("Optional. Base filename for the new patch (default 'houseCARL_Patch'); auto-suffixed if taken. Ignored if into= is given.")]
             string patch_name = "houseCARL_Patch",
-        [Description("Optional. Filename of an existing houseCARL patch to add this new record to instead of writing a fresh one (accumulate across calls/sessions).")]
+        [Description("Optional. Filename of an existing houseCARL patch to add this new record to instead of writing a fresh one (accumulate across calls/sessions). Found by the plugin's filename even if you've renamed its MO2 mod folder; for two patches sharing a filename, pass the mod-folder name here instead (folder & plugin names need not match).")]
             string? into = null,
         [Description("When true, the response ALSO returns the ENTIRE created record read back from the written patch file on disk (every field, deep — not just the fields you set). The pre-enable verification, WITHOUT enabling the patch in MO2. (The patch wins nothing until enabled + sorted in MO2 — this read-back is the written file's content, not load-order truth.)")]
             bool full_readback = false,
@@ -194,7 +194,7 @@ public static class WriteTools
             CreateOp[] records,
         [Description("Optional. Base filename for the new patch (default 'houseCARL_Patch'); auto-suffixed if taken. Ignored if into= is given.")]
             string patch_name = "houseCARL_Patch",
-        [Description("Optional. Filename of an existing houseCARL patch to add these new records to instead of writing a fresh one (accumulate across calls/sessions).")]
+        [Description("Optional. Filename of an existing houseCARL patch to add these new records to instead of writing a fresh one (accumulate across calls/sessions). Found by the plugin's filename even if you've renamed its MO2 mod folder; for two patches sharing a filename, pass the mod-folder name here instead (folder & plugin names need not match).")]
             string? into = null,
         [Description("When true, the response ALSO returns each created record IN FULL, read back from the written patch file on disk (every field, deep). The pre-enable verification, WITHOUT enabling the patch in MO2 (the written file's content, not load-order truth).")]
             bool full_readback = false,
@@ -233,7 +233,7 @@ public static class WriteTools
             string from_plugin,
         [Description("Optional. Base filename for the new patch (default 'houseCARL_Patch'); auto-suffixed if taken so a prior patch is never overwritten. Ignored if into= is given.")]
             string patch_name = "houseCARL_Patch",
-        [Description("Optional. Filename of an existing houseCARL patch to ADD these forwards to instead of writing a fresh one (accumulate across calls — e.g. forward from a different source plugin into the same patch).")]
+        [Description("Optional. Filename of an existing houseCARL patch to ADD these forwards to instead of writing a fresh one (accumulate across calls — e.g. forward from a different source plugin into the same patch). Found by the plugin's filename even if you've renamed its MO2 mod folder; for two patches sharing a filename, pass the mod-folder name here instead (folder & plugin names need not match).")]
             string? into = null,
         [Description("When true, the response ALSO returns each forwarded record IN FULL, read back from the written patch file on disk (every field, deep). The pre-enable verification: confirm the copied version is exactly the source's, WITHOUT enabling the patch in MO2 (the written file's content, not load-order truth).")]
             bool full_readback = false,
