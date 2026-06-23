@@ -37,8 +37,8 @@ models — by construction, not a hand-maintained subset.
   and informs; downloading stays your mod manager's "Mod Manager Download" handoff.
 - **Look things up, author distributor files, and review scripts** through bundled, namespaced skills:
   record schemas (every type Mutagen models), Papyrus / SKSE signatures, SkyPatcher / SPID / KID
-  distributor grammars, Skyrim dialogue authoring, Papyrus performance review, and dark-face NPC
-  diagnosis.
+  distributor grammars, Skyrim dialogue authoring, Open Animation Replacer config authoring, Papyrus
+  performance review, and dark-face NPC diagnosis.
 
 ## Requirements
 
@@ -136,6 +136,10 @@ Namespaced under `/housecarl:` in Claude (and reachable via `$housecarl` in Code
   lines (INFO) in a new plugin, wire them to a branch and quest, attach result scripts, write the
   start-game-enabled `.seq`, and validate a whole topic's or quest's dialogue graph — encoding the
   counter-intuitive bookkeeping a byte-valid line skips (and so plays nothing in game).
+- **`oar-authoring`** — author or interpret Open Animation Replacer (OAR) configs: `config.json` /
+  `user.json`, condition sets, submod priorities (OAR ignores load order — higher priority wins), the
+  source-verified `IsEquippedType` enum, addon conditions (Math / RaySense / IED / …), and DAR legacy
+  folders. File-based; uses houseCARL only to resolve the forms a condition references. (DrHeisen.)
 
 ## License
 
@@ -152,5 +156,6 @@ pointers.
   for the bundled `papyrus-reference` skill. Thank you.
 - **Zzyxzz** (SkyPatcher) and **powerofthree** (SPID and KID) — whose public documentation the
   distributor-authoring grammar facts were drawn from.
-- **DrHeisen** — contributed the `papyrus-optimization` skill, houseCARL's first community-contributed
-  skill: a Papyrus performance reviewer. Thank you.
+- **DrHeisen** — contributed the `papyrus-optimization` skill (houseCARL's first community-contributed
+  skill, a Papyrus performance reviewer) and the `oar-authoring` skill (Open Animation Replacer config
+  authoring). Thank you.
