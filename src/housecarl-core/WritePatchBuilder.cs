@@ -659,7 +659,9 @@ public static class WritePatchBuilder
 
         // Re-open + CONFIRM the artifact (Q3 — never report success on an unverified file): zero records, the master
         // header (empty), the ESL flag as written, the byte size.
-        IReadOnlyList<string> masters; int recordCount; bool eslBack; long bytes;
+        IReadOnlyList<string> masters = Array.Empty<string>();
+        int recordCount = -1; bool eslBack = false; long bytes = 0;
+        string? confirmFail = null;
         ISkyrimModGetter? back = null;
         try
         {
@@ -669,16 +671,22 @@ public static class WritePatchBuilder
             eslBack = back.IsSmallMaster;
             bytes = new FileInfo(outPath).Length;
         }
-        catch (Exception ex)
-            { return CreatePluginOutcome.Fail($"plugin written but could not be re-opened to confirm it: {ex.Message}"); }
-        finally { (back as IDisposable)?.Dispose(); }
+        catch (Exception ex) { confirmFail = $"plugin written but could not be re-opened to confirm it: {ex.Message}"; }
+        finally { (back as IDisposable)?.Dispose(); }   // dispose the overlay BEFORE any delete below (it maps the file)
 
-        if (recordCount != 0)
-            return CreatePluginOutcome.Fail(
-                $"internal error: the created plugin carries {recordCount} record(s), expected 0 (a header-only plugin) — refusing to report success on a wrong artifact (Q3).");
-        if (eslBack != esl)
-            return CreatePluginOutcome.Fail(
-                $"internal error: the created plugin's light-master (ESL) flag is {eslBack}, expected {esl} — refusing to report success on a wrong artifact (Q3).");
+        if (confirmFail is null && recordCount != 0)
+            confirmFail = $"internal error: the created plugin carries {recordCount} record(s), expected 0 (a header-only plugin) — refusing to report success on a wrong artifact (Q3).";
+        if (confirmFail is null && eslBack != esl)
+            confirmFail = $"internal error: the created plugin's light-master (ESL) flag is {eslBack}, expected {esl} — refusing to report success on a wrong artifact (Q3).";
+
+        if (confirmFail is not null)
+        {
+            // The file we just wrote is wrong or unverifiable — remove it so a refusal leaves NO bad artifact behind
+            // (Q3; the service's folder cleanup then finds an empty folder and removes that too). Safe here: create_plugin
+            // always writes a FRESH file in a fresh folder (no extend), so there is never a prior file to lose.
+            try { File.Delete(outPath); } catch { /* best-effort; the loud refusal stands regardless */ }
+            return CreatePluginOutcome.Fail(confirmFail);
+        }
 
         return new CreatePluginOutcome(true, null, outPath, fileName, esl, masters, recordCount, bytes);
     }
