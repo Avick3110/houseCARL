@@ -1539,54 +1539,17 @@ public sealed class LoadOrderService : IDisposable
             if (!string.IsNullOrWhiteSpace(into))
             {
                 extend = true;
-                var stem = PatchStem(into);                         // strips a trailing .esp/.esm/.esl; no directory parts (can't escape ModsDir)
-                var espName = stem + ".esp";
-
-                // (1) CANONICAL fast path — unchanged: the patch still lives in its own "houseCARL - <stem>" folder holding
-                //     <stem>.esp. The common case; no scan, byte-for-byte the prior behavior of every into= call.
-                var canonical = Path.Combine(_modsDir, ModFolderName(stem));
-                if (Directory.Exists(canonical) && IsHouseCarlOwned(canonical) && File.Exists(Path.Combine(canonical, espName)))
-                    return Path.Combine(canonical, espName);
-
-                // (2) Resolve by PLUGIN name — the MO2 mod FOLDER was renamed for organization, but the .esp basename is
-                //     fixed (SPID _DISTR / the CSF JSON / masters all bind the patch by its filename). Find the houseCARL-
-                //     OWNED folder that HOLDS <stem>.esp, whatever the folder is now called. Ownership-gated, so a user mod
-                //     sharing the basename is never touched (originals untouched, Q3 — this opens NO foreign-plugin door).
-                var byEsp = OwnedFoldersHolding(espName);
-                if (byEsp.Count == 1) return byEsp[0];
-                if (byEsp.Count > 1)
-                    throw new InvalidOperationException(
-                        $"cannot extend: {byEsp.Count} houseCARL folders carry '{espName}' — ambiguous, refusing to guess. " +
-                        "Pass the CONTAINING mod-folder name as into= to pick one (folder & plugin names need not match): " +
-                        string.Join("  |  ", byEsp.Select(p => $"into=\"{Path.GetFileName(Path.GetDirectoryName(p)!)}\"")) + ".");
-
-                // (3) FOLDER catch-all — into= NAMES the mod folder itself: the disambiguator for same-named plugins, and the
-                //     way to point at a renamed folder by its new name. Edit the single .esp inside it, whatever it's named.
-                var named = ResolveOwnedFolderByName(into);
-                if (named is not null)
-                {
-                    var sole = SoleEspInFolder(named, out var why);
-                    if (sole is not null) return sole;
-                    throw new InvalidOperationException($"cannot extend: houseCARL folder '{Path.GetFileName(named)}' {why}.");
-                }
-
-                // (4) Nothing matched. Distinguish a FOREIGN (un-owned) name collision — refused for the same reason as ever
-                //     (originals untouched, Q3) — from a genuine miss, and NAME every place searched (the report asked the
-                //     refusal to reveal all the required pieces at once, not one half per failed call).
-                var bareName = Path.GetFileName(into.Trim());
-                foreach (var cand in new[] { ModFolderName(stem), bareName })
-                {
-                    var candPath = string.IsNullOrEmpty(cand) ? null : Path.Combine(_modsDir, cand);
-                    if (candPath is not null && Directory.Exists(candPath) && !IsHouseCarlOwned(candPath))
-                        throw new InvalidOperationException(
-                            $"cannot extend: mod folder '{cand}' exists but was NOT created by houseCARL (no marker) — " +
-                            "refusing to modify a folder houseCARL doesn't own (originals untouched, Q3). Use a different patch name.");
-                }
-                throw new InvalidOperationException(
-                    $"cannot extend: no houseCARL plugin '{espName}' in any houseCARL folder, and no houseCARL folder named " +
-                    $"'{ModFolderName(stem)}'" +
-                    (string.Equals(bareName, ModFolderName(stem), StringComparison.OrdinalIgnoreCase) ? "" : $" or '{bareName}'") +
-                    ". Omit into= to create it fresh, or check the name.");
+                // The .esp write lane shares the 4-step EXTEND resolver with the rider/asset lane (HCBR-2026-06-23) so
+                // "extend my renamed patch" behaves IDENTICALLY across records, scripts, BSAs, and assets. needEsp:true —
+                // the canonical fast path only short-circuits a folder that actually holds <stem>.esp; we then pick the .esp
+                // to extend inside the resolved folder: the <stem>.esp it holds, or — via the by-folder catch-all, where the
+                // folder & plugin names differ — the folder's single plugin (Q3-refuse if it holds none or several).
+                var folder = ResolveOwnedPatchFolder(into, needEsp: true);
+                var direct = Path.Combine(folder, PatchStem(into) + ".esp");
+                if (File.Exists(direct)) return direct;
+                var sole = SoleEspInFolder(folder, out var why);
+                if (sole is not null) return sole;
+                throw new InvalidOperationException($"cannot extend: houseCARL folder '{Path.GetFileName(folder)}' {why}.");
             }
 
             extend = false;
@@ -1649,14 +1612,12 @@ public sealed class LoadOrderService : IDisposable
 
             if (!string.IsNullOrWhiteSpace(into))
             {
-                var stem = PatchStem(into);
-                var folder = Path.Combine(_modsDir, ModFolderName(stem));
-                if (!Directory.Exists(folder))
-                    throw new InvalidOperationException(
-                        $"cannot extend: no houseCARL patch named '{stem}' (mod folder '{ModFolderName(stem)}' not found). Omit into= to create it fresh.");
-                if (!IsHouseCarlOwned(folder))
-                    throw new InvalidOperationException(
-                        $"cannot extend: mod folder '{ModFolderName(stem)}' was NOT created by houseCARL (no marker) — refusing to write into a folder houseCARL doesn't own (Q3).");
+                // The SAME shared 4-step EXTEND resolver as the .esp write path (HCBR-2026-06-23): a renamed houseCARL patch
+                // folder is found by the .esp it holds OR by its new name, so compile / decompile / bsa_repack / place_asset
+                // into= behaves exactly like record into= (before this, a renamed folder fell to a misleading "folder not
+                // found"). needEsp:false — a rider targets the FOLDER itself (it writes scripts / a .bsa / loose files into
+                // it, not an .esp), so it does NOT require a <stem>.esp to be present.
+                var folder = ResolveOwnedPatchFolder(into, needEsp: false);
                 return new RiderFolder(folder, folder, CreatedFresh: false);   // reused — the user owns it; cleanup leaves it
             }
 
@@ -1971,6 +1932,62 @@ public sealed class LoadOrderService : IDisposable
             if (!Directory.Exists(Path.Combine(_modsDir, ModFolderName(cand)))) return cand;
         }
         throw new InvalidOperationException($"too many patches named '{stem}' under ModsDir — clean some out.");
+    }
+
+    /// <summary>The 4-step <c>into=</c> EXTEND resolver, SHARED by the .esp write path (<see cref="ResolveOutputPath"/>)
+    /// and the rider/asset path (<see cref="ResolvePatchModFolder"/>) so "extend my renamed patch" behaves IDENTICALLY
+    /// across records, scripts, BSAs, and assets (HCBR-2026-06-23 — the record lane was fixed first; this closes the
+    /// sibling). Resolves <paramref name="into"/> to the houseCARL-OWNED mod FOLDER it names: (1) the canonical
+    /// "houseCARL - &lt;stem&gt;" fast path; (2) by the &lt;stem&gt;.esp it HOLDS (the folder was renamed — the .esp basename
+    /// is fixed by SPID/CSF/masters); (3) by the folder's OWN name (the catch-all; folder &amp; plugin names need not match);
+    /// (4) loud Q3 refusals naming every place searched, a FOREIGN (un-owned) collision distinguished from a genuine miss.
+    /// Ownership-gated at every step — a plugin houseCARL didn't make stays refused (no foreign-plugin door; that's the
+    /// separate in-place lane). <paramref name="needEsp"/> tightens the canonical fast path for the RECORD lane (the folder
+    /// must actually hold &lt;stem&gt;.esp to short-circuit, else fall through); the rider lane targets the folder itself, so
+    /// it short-circuits on folder-exists+owned. Caller holds <see cref="_gate"/>.</summary>
+    string ResolveOwnedPatchFolder(string into, bool needEsp)
+    {
+        var stem = PatchStem(into);                             // strips a trailing .esp/.esm/.esl; no directory parts (can't escape ModsDir)
+        var espName = stem + ".esp";
+
+        // (1) CANONICAL fast path — "houseCARL - <stem>" still owns the patch (common case; no scan). The record lane also
+        //     requires it to HOLD <stem>.esp (needEsp); the rider lane only needs the owned folder.
+        var canonical = Path.Combine(_modsDir, ModFolderName(stem));
+        if (Directory.Exists(canonical) && IsHouseCarlOwned(canonical) && (!needEsp || File.Exists(Path.Combine(canonical, espName))))
+            return canonical;
+
+        // (2) by PLUGIN name — the owned folder HOLDING <stem>.esp, whatever it's now called (the renamed-folder case).
+        var byEsp = OwnedFoldersHolding(espName)
+            .Select(p => Path.GetDirectoryName(p)!).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        if (byEsp.Count == 1) return byEsp[0];
+        if (byEsp.Count > 1)
+            throw new InvalidOperationException(
+                $"cannot extend: {byEsp.Count} houseCARL folders carry '{espName}' — ambiguous, refusing to guess. " +
+                "Pass the CONTAINING mod-folder name as into= to pick one (folder & plugin names need not match): " +
+                string.Join("  |  ", byEsp.Select(d => $"into=\"{Path.GetFileName(d)}\"")) + ".");
+
+        // (3) FOLDER catch-all — into= NAMES the mod folder itself (the same-named-plugin disambiguator, and the way to
+        //     point at a renamed folder by its new name).
+        var named = ResolveOwnedFolderByName(into);
+        if (named is not null) return named;
+
+        // (4) Nothing matched. Distinguish a FOREIGN (un-owned) name collision — refused for the same reason as ever
+        //     (originals untouched, Q3) — from a genuine miss, NAMING every place searched (the report asked the refusal
+        //     to reveal all the required pieces at once, not one half per failed call).
+        var bareName = Path.GetFileName(into.Trim());
+        foreach (var cand in new[] { ModFolderName(stem), bareName })
+        {
+            var candPath = string.IsNullOrEmpty(cand) ? null : Path.Combine(_modsDir, cand);
+            if (candPath is not null && Directory.Exists(candPath) && !IsHouseCarlOwned(candPath))
+                throw new InvalidOperationException(
+                    $"cannot extend: mod folder '{cand}' exists but was NOT created by houseCARL (no marker) — " +
+                    "refusing to write into a folder houseCARL doesn't own (originals untouched, Q3). Use a different patch name.");
+        }
+        throw new InvalidOperationException(
+            $"cannot extend: no houseCARL plugin '{espName}' in any houseCARL folder, and no houseCARL folder named " +
+            $"'{ModFolderName(stem)}'" +
+            (string.Equals(bareName, ModFolderName(stem), StringComparison.OrdinalIgnoreCase) ? "" : $" or '{bareName}'") +
+            ". Omit into= to create it fresh, or check the name.");
     }
 
     /// <summary>houseCARL-OWNED mod folders under ModsDir holding a plugin file named <paramref name="espFileName"/> at

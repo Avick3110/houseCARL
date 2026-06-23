@@ -10,25 +10,29 @@ namespace HousecarlGenerator;
 /// <summary>
 /// into=-extend RESOLVER guard (HCBR-2026-06-23: "in-place into= extend can't find a houseCARL-built plugin once its
 /// mod folder is renamed"). The folder-per-patch model created each patch as "houseCARL - &lt;stem&gt;\&lt;stem&gt;.esp",
-/// and the old ResolveOutputPath into= branch demanded a 3-way name match: into= == mod-folder suffix == .esp basename.
-/// A user who renamed the MO2 mod folder for organization (the .esp basename is FIXED — SPID _DISTR / the CSF JSON /
-/// masters bind it) could no longer extend their OWN patch in place. The fix decouples the folder name from the .esp
-/// basename WITHOUT relaxing the ownership marker (this is houseCARL's OWN output — "originals untouched" is not in play;
-/// the marker still gates every touch, so it opens NO foreign-plugin door — that's the separate, unbuilt in-place lane).
+/// and the old into= branch demanded a 3-way name match: into= == mod-folder suffix == .esp basename. A user who renamed
+/// the MO2 mod folder for organization (the .esp basename is FIXED — SPID _DISTR / the CSF JSON / masters bind it) could
+/// no longer extend their OWN patch in place. The fix routes BOTH write lanes — the .esp path (ResolveOutputPath) AND the
+/// rider/asset path (ResolvePatchModFolder: compile / decompile / bsa_repack / place_asset) — through ONE shared 4-step
+/// resolver (ResolveOwnedPatchFolder), decoupling the folder name from the .esp basename WITHOUT relaxing the ownership
+/// marker (this is houseCARL's OWN output; the marker still gates every touch, so it opens NO foreign-plugin door — that's
+/// the separate, unbuilt in-place lane).
 ///
-/// Drives the REAL service write path (LoadOrderService.ApplyEdits) against a synthetic MO2 instance in temp (the
-/// WriteMutexProbe synth pattern). Arms:
-///   CANONICAL   — into="SeedA" still resolves the unchanged "houseCARL - SeedA\SeedA.esp" (zero regression, no scan).
-///   BY-ESP      — after the folder is RENAMED (esp basename unchanged), into=&lt;esp basename&gt; finds the patch by the
-///                 plugin it holds, whatever the folder is now called. RED pre-fix (old: "mod folder not found").
-///   BY-FOLDER   — into=&lt;the renamed folder's name&gt; edits the single .esp inside it, names NEED NOT match. RED pre-fix
-///                 (old: "folder has no '&lt;folder&gt;.esp' to extend").
-///   ACCUMULATED — both resolution paths extended the SAME patch file (the edits accumulate; not a fresh patch).
-///   AMBIGUOUS   — two OWNED folders carry the same &lt;esp&gt; → refuse loud, name BOTH folders + the into="&lt;folder&gt;"
-///                 disambiguator (Q3 — never guess which). Then into=&lt;a folder name&gt; picks one unambiguously.
-///   NOT-FOUND   — into= a name no owned folder holds/answers to → refuse, naming both places searched + "create it fresh".
-///   FOREIGN     — a "houseCARL - X" folder with NO marker is still REFUSED (originals untouched, Q3) and left byte-intact.
-///   ORIGINALS   — the master plugin is byte-untouched throughout (extends only ever wrote the patch folder).
+/// Drives the REAL service write paths against a synthetic MO2 instance in temp (the WriteMutexProbe synth pattern). Arms:
+///   CANONICAL    — into="SeedA" still resolves the unchanged "houseCARL - SeedA\SeedA.esp" (zero regression, no scan).
+///   BY-ESP       — after the folder is RENAMED, into=&lt;esp basename&gt; finds the patch by the plugin it holds. RED pre-fix.
+///   BY-ESP-EXT   — into="SeedA.esp" (with extension) strips the ext and resolves the same renamed patch.
+///   BY-FOLDER    — into=&lt;the renamed folder's name&gt; edits the single .esp inside it, names NEED NOT match. RED pre-fix.
+///   ACCUMULATED  — both .esp resolution paths extended the SAME patch file (the edits accumulate; not a fresh patch).
+///   RIDER        — the SIBLING lane (ResolvePatchModFolder, used by compile/decompile/bsa/place_asset): a renamed patch
+///                  folder resolves by the .esp it holds AND by its new name, returning the reused folder. RED pre-fix
+///                  (the rider branch carried the same untouched 3-way "folder not found" coupling).
+///   AMBIGUOUS    — two OWNED folders carry the same &lt;esp&gt; → refuse loud, name BOTH + the into="&lt;folder&gt;"
+///                  disambiguator (Q3 — never guess). Then into=&lt;a folder name&gt; picks one unambiguously.
+///   MULTI-PLUGIN — into=&lt;a folder holding 2+ plugins&gt; (no &lt;stem&gt;.esp to single out) refuses, naming each plugin.
+///   NOT-FOUND    — into= a name nothing holds/answers to → refuse, naming both places searched + "create it fresh".
+///   FOREIGN      — a "houseCARL - X" folder with NO marker is still REFUSED (originals untouched, Q3) and left byte-intact.
+///   ORIGINALS    — the master plugin is byte-untouched throughout (extends only ever wrote the patch folder).
 /// </summary>
 internal static class ExtendResolveProbe
 {
@@ -93,6 +97,8 @@ internal static class ExtendResolveProbe
             }
             static bool Ends(string path, params string[] parts) =>
                 path.EndsWith(Path.Combine(parts), StringComparison.OrdinalIgnoreCase);
+            void MarkOwned(string folder, string plugin) =>
+                File.WriteAllText(Path.Combine(folder, "meta.ini"), $"[houseCARL]\r\ngenerated=true\r\nplugin={plugin}\r\n");
 
             // ---- SEED: create the patch fresh — "houseCARL - SeedA\SeedA.esp" carrying a Damage=50 override ----
             var seed = svc.ApplyEdits(new[] { Dmg(50) }, "SeedA", null);
@@ -118,6 +124,11 @@ internal static class ExtendResolveProbe
                 var r = svc.ApplyEdits(new[] { Wgt(7) }, null, "SeedA");
                 Check(r.Success && Ends(r.OutputPath, "houseCARL - SeedA Renamed", "SeedA.esp"),
                       $"into=\"SeedA\" finds the RENAMED folder by the .esp it holds (wrote into {Path.GetFileName(Path.GetDirectoryName(r.OutputPath) ?? "")})");
+
+                // into="SeedA.esp" — the .esp extension is stripped and resolves the SAME renamed patch
+                var ext = svc.ApplyEdits(new[] { Wgt(7) }, null, "SeedA.esp");
+                Check(ext.Success && Ends(ext.OutputPath, "houseCARL - SeedA Renamed", "SeedA.esp"),
+                      "into=\"SeedA.esp\" (with extension) strips the ext and resolves the same renamed patch");
             }
 
             // ---- 3: BY-FOLDER — name the renamed folder; the .esp inside need not match (RED pre-fix) ----
@@ -137,13 +148,25 @@ internal static class ExtendResolveProbe
                 Check(dmg == 88 && wgt == 7, $"the renamed patch carries BOTH extends — Damage={dmg} (by-folder), Weight={wgt} (by-esp)");
             }
 
-            // ---- 5: AMBIGUOUS — a second OWNED folder carrying the same esp → refuse loud + name both ----
+            // ---- 5: RIDER lane — the SAME shared resolver serves compile/decompile/bsa/place_asset (RED pre-fix) ----
             Console.WriteLine();
-            Console.WriteLine("--- 5: two owned folders carry the same .esp → ambiguous refusal ---");
+            Console.WriteLine("--- 5: rider/asset lane (ResolvePatchModFolder) resolves the renamed patch too ---");
+            {
+                var byEsp = svc.ResolvePatchModFolder(null, "SeedA", "houseCARL_Archive");
+                Check(!byEsp.CreatedFresh && Ends(byEsp.ModFolder, "houseCARL - SeedA Renamed"),
+                      $"rider into=\"SeedA\" finds the renamed folder by the .esp it holds ({Path.GetFileName(byEsp.ModFolder)}, reused)");
+                var byFolder = svc.ResolvePatchModFolder(null, "SeedA Renamed", "houseCARL_Archive");
+                Check(!byFolder.CreatedFresh && Ends(byFolder.ModFolder, "houseCARL - SeedA Renamed"),
+                      "rider into=\"SeedA Renamed\" (folder name) resolves the same reused folder");
+            }
+
+            // ---- 6: AMBIGUOUS — a second OWNED folder carrying the same esp → refuse loud + name both ----
+            Console.WriteLine();
+            Console.WriteLine("--- 6: two owned folders carry the same .esp → ambiguous refusal ---");
             string dupFolder = Path.Combine(mods, "houseCARL - DupHome");
             {
                 Directory.CreateDirectory(dupFolder);
-                File.WriteAllText(Path.Combine(dupFolder, "meta.ini"), "[houseCARL]\r\ngenerated=true\r\nplugin=SeedA.esp\r\n");
+                MarkOwned(dupFolder, "SeedA.esp");
                 File.Copy(Path.Combine(renamedFolder, "SeedA.esp"), Path.Combine(dupFolder, "SeedA.esp"));
 
                 var r = svc.ApplyEdits(new[] { Wgt(1) }, null, "SeedA");
@@ -154,15 +177,32 @@ internal static class ExtendResolveProbe
                     && r.Error.Contains("into=", StringComparison.Ordinal);
                 Check(!r.Success && named, "into=\"SeedA\" refuses (ambiguous), naming BOTH folders + the into=<folder> disambiguator");
 
-                // the disambiguator: name a folder → resolves to its single .esp unambiguously (names differ)
                 var pick = svc.ApplyEdits(new[] { Wgt(3) }, null, "DupHome");
                 Check(pick.Success && Ends(pick.OutputPath, "houseCARL - DupHome", "SeedA.esp"),
                       "into=\"DupHome\" (folder name) picks ONE despite the shared .esp basename");
             }
 
-            // ---- 6: NOT-FOUND — refuse, naming both places searched + the fresh-write escape ----
+            // ---- 7: MULTI-PLUGIN — into=<folder holding 2+ plugins, none == stem> refuses, naming each ----
             Console.WriteLine();
-            Console.WriteLine("--- 6: into= a name nothing answers to → named refusal ---");
+            Console.WriteLine("--- 7: into=<folder with several plugins> refuses, naming them ---");
+            {
+                string twoEsp = Path.Combine(mods, "houseCARL - TwoEsp");
+                Directory.CreateDirectory(twoEsp);
+                MarkOwned(twoEsp, "Alpha.esp");
+                File.WriteAllText(Path.Combine(twoEsp, "Alpha.esp"), "x");
+                File.WriteAllText(Path.Combine(twoEsp, "Beta.esp"), "y");
+
+                var r = svc.ApplyEdits(new[] { Wgt(1) }, null, "TwoEsp");
+                bool named = r.Error is not null
+                    && r.Error.Contains("2 plugins", StringComparison.Ordinal)
+                    && r.Error.Contains("Alpha.esp", StringComparison.Ordinal)
+                    && r.Error.Contains("Beta.esp", StringComparison.Ordinal);
+                Check(!r.Success && named, "into=\"TwoEsp\" (folder holds Alpha.esp + Beta.esp) refuses, naming both plugins");
+            }
+
+            // ---- 8: NOT-FOUND — refuse, naming both places searched + the fresh-write escape ----
+            Console.WriteLine();
+            Console.WriteLine("--- 8: into= a name nothing answers to → named refusal ---");
             {
                 var r = svc.ApplyEdits(new[] { Wgt(1) }, null, "GhostPatch");
                 bool named = r.Error is not null
@@ -172,9 +212,9 @@ internal static class ExtendResolveProbe
                 Check(!r.Success && named, "into=\"GhostPatch\" refuses, naming the .esp + the folder searched + 'create it fresh'");
             }
 
-            // ---- 7: FOREIGN — an un-owned "houseCARL - X" folder stays REFUSED + byte-untouched (Q3) ----
+            // ---- 9: FOREIGN — an un-owned "houseCARL - X" folder stays REFUSED + byte-untouched (Q3) ----
             Console.WriteLine();
-            Console.WriteLine("--- 7: an un-owned folder is still refused (originals untouched) ---");
+            Console.WriteLine("--- 9: an un-owned folder is still refused (originals untouched) ---");
             {
                 string foreignFolder = Path.Combine(mods, "houseCARL - Foreign");
                 Directory.CreateDirectory(foreignFolder);                                  // NO meta.ini marker → not owned
@@ -188,11 +228,17 @@ internal static class ExtendResolveProbe
                     && r.Error.Contains("originals untouched", StringComparison.OrdinalIgnoreCase);
                 Check(!r.Success && refused, "into=\"Foreign\" (un-owned folder) is REFUSED — houseCARL won't edit a folder it doesn't own");
                 Check(File.ReadAllBytes(foreignEsp).SequenceEqual(foreignBefore), "the un-owned plugin is byte-untouched after the refusal");
+
+                // the rider lane refuses the un-owned folder too (shared resolver — same gate)
+                bool riderRefused = false;
+                try { svc.ResolvePatchModFolder(null, "Foreign", "houseCARL_Archive"); }
+                catch (InvalidOperationException ex) { riderRefused = ex.Message.Contains("NOT created by houseCARL", StringComparison.Ordinal); }
+                Check(riderRefused, "the RIDER lane also refuses the un-owned folder (same ownership gate, no foreign-plugin door)");
             }
 
-            // ---- 8: ORIGINALS — the master plugin never moved a byte (extends only wrote the patch folder) ----
+            // ---- 10: ORIGINALS — the master plugin never moved a byte (extends only wrote the patch folder) ----
             Console.WriteLine();
-            Console.WriteLine("--- 8: the master plugin is byte-untouched throughout ---");
+            Console.WriteLine("--- 10: the master plugin is byte-untouched throughout ---");
             Check(File.ReadAllBytes(masterPath).SequenceEqual(masterBytesAtStart),
                   "the master plugin is byte-identical to its pre-write state (every extend wrote only the patch)");
         }

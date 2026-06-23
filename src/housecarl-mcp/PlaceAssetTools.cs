@@ -47,7 +47,7 @@ public static class PlaceAssetTools
             string? source = null,
         [Description("Optional. Base name for the NEW houseCARL mod folder the file lands in (default 'houseCARL_Assets'); auto-suffixed if taken.")]
             string? patch_name = null,
-        [Description("Optional. Filename of an existing houseCARL patch mod to place into instead of a fresh folder (accumulate across calls).")]
+        [Description("Optional. Filename of an existing houseCARL patch mod to place into instead of a fresh folder (accumulate across calls). Found by the plugin's filename even if you've renamed its MO2 mod folder; for two patches sharing a filename, pass the mod-folder name here instead (folder & plugin names need not match).")]
             string? into = null) => Guard.Tool("housecarl_place_asset", () =>
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
@@ -75,7 +75,7 @@ public static class PlaceAssetTools
             PlaceAssetSpec[] assets,
         [Description("Optional. Base name for the NEW houseCARL mod folder (default 'houseCARL_Assets'); auto-suffixed if taken.")]
             string? patch_name = null,
-        [Description("Optional. Filename of an existing houseCARL patch mod to place into instead of a fresh folder.")]
+        [Description("Optional. Filename of an existing houseCARL patch mod to place into instead of a fresh folder. Found by the plugin's filename even if you've renamed its MO2 mod folder; for two patches sharing a filename, pass the mod-folder name here instead (folder & plugin names need not match).")]
             string? into = null) => Guard.Tool("housecarl_bulk_place_asset", () =>
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
