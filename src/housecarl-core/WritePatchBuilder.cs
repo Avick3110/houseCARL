@@ -435,6 +435,167 @@ public static class WritePatchBuilder
         return new RemovalOutcome(true, null, outPath, toRemove, masters, remaining, bytes);
     }
 
+    /// <summary>One record to FORWARD: take plugin <see cref="FromPlugin"/>'s version of <see cref="Target"/> and carry
+    /// it INTO the patch as an override (xEdit's "copy as override into"). Unlike <see cref="PatchEdit"/> there is no
+    /// path/verb — the WHOLE source record is deep-copied verbatim, so the SOURCE plugin (not the load-order winner)
+    /// decides the content.</summary>
+    public sealed record ForwardSpec
+    {
+        public required FormKey Target { get; init; }
+        public required string FromPlugin { get; init; }
+    }
+
+    /// <summary>One record forwarded by <see cref="ForwardRecords"/> — its FormKey + type + editorid, the source plugin
+    /// whose version was copied, and the load-order winner it will out-rank once the patch is enabled (so the caller
+    /// sees what the forward CHANGES). <see cref="WasAlreadyWinner"/>=true ⇒ the forwarded version WAS already the
+    /// winner, so this override is a redundant no-op copy — surfaced, never silent (Q3).</summary>
+    public sealed record ForwardedRecord(
+        FormKey Target, string RecordType, string? EditorId, string FromPlugin, string PriorWinner, bool WasAlreadyWinner);
+
+    /// <summary>The outcome of a <see cref="ForwardRecords"/> call. <see cref="Error"/> non-null ⇒ the whole call was
+    /// refused (no file written) with a named, recoverable reason (Q3 — a source plugin not in the order / excluded /
+    /// the output itself / one that doesn't define the target). Otherwise the patch at <see cref="OutputPath"/> carries
+    /// each forwarded record; <see cref="Masters"/> is its lean header (the forwarded content's ORIGIN master + whatever
+    /// it references — NOT the source plugin, which is copied FROM, never mastered ON). <see cref="ReadBack"/> is the
+    /// opt-in full read-back of every forwarded record (null unless requested).</summary>
+    public sealed record ForwardOutcome(
+        bool Success, string? Error, string OutputPath, bool Extended,
+        IReadOnlyList<ForwardedRecord> Forwarded, IReadOnlyList<string> Masters, long Bytes)
+    {
+        public IReadOnlyList<FullReadback>? ReadBack { get; init; }
+
+        public static ForwardOutcome Fail(string error) =>
+            new(false, error, "", false, Array.Empty<ForwardedRecord>(), Array.Empty<string>(), 0);
+    }
+
+    /// <summary>
+    /// FORWARD a NAMED plugin's version of each record INTO the patch as an override — xEdit's "copy as override into",
+    /// the inverse of <see cref="Apply"/>'s winner-override. Where Apply/Create author NEW content, this re-asserts an
+    /// EARLIER plugin's already-authored version over a later override (the HCBR-2026-06-21 case: restore ATweaks'
+    /// Searing-Sun spell over Sacrilege's). The whole source record is DEEP-COPIED via
+    /// <see cref="WriteEngine.GenericGetOrAddAsOverride"/> — the SAME override primitive <see cref="Apply"/> uses, so
+    /// it's generic over EVERY record type by construction (the nested Cell/Placed*/INFO/Navmesh/Landscape families
+    /// included, via the source link cache). There is NO field edit, so NO rulebook pre-flight: a complete, valid source
+    /// record copied verbatim is legal by definition (the rulebook validates field EDITS, of which this has none).
+    ///
+    /// <para>Forwarding copies CONTENT, it does not add a master: the patch overrides the target's ORIGIN FormKey with
+    /// the source's body, so the source plugin is read FROM, never recorded as a master — the resulting header carries
+    /// the origin master + whatever the forwarded content references (exactly what xEdit's "copy as override into a new
+    /// patch" produces). Forwarding the ORIGIN master's own version reverts the record to vanilla.</para>
+    ///
+    /// <para>Q3 — every refusal is named and the WHOLE call is all-or-nothing (no partial patch): a source plugin not in
+    /// the order, EXCLUDED (unparseable), the OUTPUT patch itself (a no-op self-forward), the SAME target twice, or one
+    /// that simply doesn't DEFINE the target — the distinct null shapes
+    /// <see cref="LoadOrderResolver.IndexView.GetRecord"/> returns, told apart here so the caller gets the real reason.
+    /// A forwarded version that WAS already the winner is reported (<see cref="ForwardedRecord.WasAlreadyWinner"/>), not
+    /// silently dropped. <paramref name="extend"/>=false writes a fresh patch; =true adds to an existing one (into=).
+    /// <paramref name="fullReadback"/> reads every forwarded record back IN FULL off the written file (the pre-enable
+    /// verify loop — see <see cref="FullReadback"/>).</para>
+    /// </summary>
+    public static ForwardOutcome ForwardRecords(
+        LoadOrderResolver resolver, IReadOnlyList<ForwardSpec> specs, string outPath, bool extend, bool fullReadback = false)
+    {
+        if (specs.Count == 0) return ForwardOutcome.Fail("no records to forward supplied.");
+
+        // Per-call overlay session (Option B): every source plugin this forward reads is opened THROUGH it and disposed
+        // when the method returns — no handle held at rest (the same model Apply / RemoveRecords / CreateRecords use).
+        using var session = resolver.OpenSession();
+        var fileName = Path.GetFileName(outPath);
+
+        // --- Phase 1: resolve each source body from its NAMED plugin (NOT the load-order winner) + classify any miss
+        //     (Q3 — collect ALL problems, then refuse the whole call if any). ONE captured build answers every spec (the
+        //     hunt-F5 one-view discipline Apply follows: a freshness rebuild mid-loop can't mix two builds' resolutions). ---
+        var view = resolver.Capture();
+        var resolved = new List<(ForwardSpec spec, IMajorRecordGetter body, string priorWinner, bool wasWinner)>(specs.Count);
+        var problems = new List<string>();
+        var seen = new HashSet<FormKey>();
+        foreach (var s in specs)
+        {
+            if (!seen.Add(s.Target))
+            { problems.Add($"{s.Target}: forwarded more than once in this call — name each target once (one source per record)."); continue; }
+            if (string.Equals(s.FromPlugin, fileName, StringComparison.OrdinalIgnoreCase))
+            { problems.Add($"{s.Target}: from_plugin '{s.FromPlugin}' is the output patch itself — forwarding a patch's own version into itself is a no-op; name the EARLIER plugin whose version you want to re-assert."); continue; }
+            if (!view.ContainsPlugin(s.FromPlugin))
+            { problems.Add($"{s.Target}: source plugin '{s.FromPlugin}' is not in the load order — name an active plugin that defines or overrides this record."); continue; }
+            if (view.ExcludedPlugins.TryGetValue(s.FromPlugin, out var why))
+            { problems.Add($"{s.Target}: source plugin '{s.FromPlugin}' was excluded from this session ({why}) — its records aren't resolvable."); continue; }
+            var body = view.GetRecord(session, s.FromPlugin, s.Target);
+            if (body is null)
+            { problems.Add($"{s.Target}: source plugin '{s.FromPlugin}' is in the load order but does NOT define or override this record (it doesn't touch it) — there is no version of it there to forward."); continue; }
+            var w = view.ResolveWinner(s.Target);
+            resolved.Add((s, body, w?.WinnerPlugin ?? "(none)",
+                w is { } wi && string.Equals(wi.WinnerPlugin, s.FromPlugin, StringComparison.OrdinalIgnoreCase)));
+        }
+        if (problems.Count > 0)
+            return ForwardOutcome.Fail(
+                $"refused — {problems.Count} of {specs.Count} forward(s) rejected; NO patch written:\n  - "
+                + string.Join("\n  - ", problems));
+
+        // --- Phase 2: open (extend) or create the patch mod (identical to Apply Phase 2). ---
+        SkyrimMod patchMod;
+        if (extend)
+        {
+            if (!File.Exists(outPath))
+                return ForwardOutcome.Fail($"cannot extend: no existing patch at {outPath}. Omit into= to create it fresh.");
+            try { patchMod = SkyrimMod.CreateFromBinary(outPath, SkyrimRelease.SkyrimSE); }
+            catch (Exception ex) { return ForwardOutcome.Fail($"cannot open patch to extend ({fileName}): {ex.GetType().Name}: {ex.Message}"); }
+        }
+        else
+        {
+            patchMod = new SkyrimMod(new ModKey(Path.GetFileNameWithoutExtension(outPath), ModType.Plugin), SkyrimRelease.SkyrimSE);
+        }
+        if (!string.Equals(patchMod.ModKey.FileName.String, fileName, StringComparison.OrdinalIgnoreCase))
+            return ForwardOutcome.Fail($"patch ModKey '{patchMod.ModKey.FileName}' must match output filename '{fileName}'.");
+
+        // --- Phase 3: deep-copy each source body INTO the patch as an override. NO ApplyVerb — the copy IS the forward
+        //     (GenericGetOrAddAsOverride duplicates the source's whole content; a nested record gets the source overlay's
+        //     link cache on demand, the SAME session.LinkCacheFor path Apply uses + guards). A throw here is a real
+        //     engine inconsistency — fail the WHOLE call (no partial patch), surfaced not swallowed (Q3). ---
+        var forwarded = new List<ForwardedRecord>(resolved.Count);
+        foreach (var (spec, body, priorWinner, wasWinner) in resolved)
+        {
+            try
+            {
+                ILinkCache? cache = WriteEngine.RecordNeedsSourceCache(body) ? session.LinkCacheFor(spec.FromPlugin) : null;
+                WriteEngine.GenericGetOrAddAsOverride(patchMod, body, cache);
+                forwarded.Add(new ForwardedRecord(
+                    spec.Target, RecordNaming.StripOverlay(body.GetType().Name), body.EditorID, spec.FromPlugin, priorWinner, wasWinner));
+            }
+            catch (Exception ex)
+            {
+                return ForwardOutcome.Fail(
+                    $"engine error forwarding {spec.Target} from '{spec.FromPlugin}': the source resolved but the " +
+                    $"override-copy threw — a real inconsistency, surfaced not swallowed (Q3): {ex.GetType().Name}: {ex.Message}");
+            }
+        }
+
+        // --- Phase 4: serialize ONCE with the FULL known-master set (identical to Apply Phase 4 — release any overlay
+        //     on the target before the serialize + keep the target out of the master set; the two-part self-lock guard). ---
+        session.ReleaseOverlay(patchMod.ModKey.FileName.String);
+        try { WriteEngine.WritePatch(patchMod, session.AllMastersExcept(patchMod.ModKey.FileName.String), outPath); }
+        catch (Exception ex)
+            { return ForwardOutcome.Fail($"writing the patch failed (serialize or commit; the existing file is untouched): {WriteEngine.Describe(ex)}"); }
+
+        // --- Phase 5: re-open + report the (lean, derived) master header + bytes — and, on request, each forwarded
+        //     record's FULL read-back off that same re-opened file (see Apply's Phase 5). Dispose the overlay after. ---
+        IReadOnlyList<string> masters = Array.Empty<string>();
+        IReadOnlyList<FullReadback>? readBack = null;
+        long bytes = 0;
+        ISkyrimModGetter? back = null;
+        try
+        {
+            back = SkyrimMod.CreateFromBinaryOverlay(outPath, SkyrimRelease.SkyrimSE);
+            masters = back.ModHeader.MasterReferences.Select(m => m.Master.FileName.ToString()).ToList();
+            bytes = new FileInfo(outPath).Length;
+            if (fullReadback) readBack = ReadBackInFull(back, resolved.Select(r => r.spec.Target));
+        }
+        catch (Exception ex)
+            { return ForwardOutcome.Fail($"patch written but could not be re-opened to confirm masters: {ex.Message}"); }
+        finally { (back as IDisposable)?.Dispose(); }
+
+        return new ForwardOutcome(true, null, outPath, extend, forwarded, masters, bytes) { ReadBack = readBack };
+    }
+
     /// <summary>
     /// Create BRAND-NEW records (new FormIDs) in a patch — the net-new authoring capability, the sibling of
     /// <see cref="Apply"/> (which overrides an EXISTING record). A FLAT top-level <see cref="CreateSpec"/> (no

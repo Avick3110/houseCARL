@@ -207,6 +207,47 @@ public static class WriteTools
         return RenderCreate(svc.CreateRecordsBatch(records, patch_name, into, full_readback), max_chars);
     });
 
+    [McpServerTool(Name = "housecarl_forward_record", Title = "Forward a plugin's version of a record as an override"),
+     Description(
+         "Forward a SPECIFIC plugin's version of one-or-more records into a NEW patch as an override (originals untouched) " +
+         "— xEdit's \"copy as override into\", the INVERSE of set_field/bulk_apply. Those edit the load-order WINNER; this " +
+         "copies from_plugin's whole record VERBATIM, so from_plugin's version (NOT the winner) becomes the patch's content " +
+         "— the way to RE-ASSERT an earlier mod's version over a later override (e.g. a late total-overhaul re-architected a " +
+         "record an earlier list patch had balanced — forward the earlier plugin's version back on top), or to REVERT a " +
+         "record to vanilla (name a master — Skyrim.esm/Update.esm/… — as from_plugin). formids are 'XXXXXX:Plugin.esp' " +
+         "(one or more, ALL copied from the SAME from_plugin); call again with into= to forward from a different source into " +
+         "the same patch. This copies the record WHOLE — it does NOT edit fields (use set_field/bulk_apply for that) and " +
+         "needs no field pre-flight (a complete source record is legal by construction). Forwarding does NOT add from_plugin " +
+         "as a master: the patch overrides the record's ORIGIN FormKey with the copied body, so the header carries the origin " +
+         "master + whatever the body references (exactly xEdit's copy-as-override-into-a-new-patch). ALL-OR-NOTHING (Q3): the " +
+         "whole call is refused with a named reason and NOTHING is written if from_plugin isn't in the load order, was " +
+         "excluded (unparseable), is the output patch itself, names a target twice, or simply doesn't DEFINE/override a given " +
+         "record (nothing there to forward). By default writes a fresh patch named patch_name; into= EXTENDS an existing " +
+         "houseCARL patch (accumulate across calls/sessions). Returns the patch path, masters, and per-record what was " +
+         "copied + the current winner it will out-rank (a forward whose version is ALREADY winning is flagged redundant).")]
+    public static string ForwardRecord(
+        LoadOrderService svc,
+        [Description("The record(s) to forward, each as 'XXXXXX:Plugin.esp' (6 hex digits, the defining master's filename). All are copied from the SAME from_plugin.")]
+            string[] formids,
+        [Description("The plugin filename whose version of the record(s) to copy (e.g. 'Authoria - ATweaks.esp', or a master like 'Skyrim.esm' to revert to vanilla). Must be an active plugin that DEFINES or overrides each formid.")]
+            string from_plugin,
+        [Description("Optional. Base filename for the new patch (default 'houseCARL_Patch'); auto-suffixed if taken so a prior patch is never overwritten. Ignored if into= is given.")]
+            string patch_name = "houseCARL_Patch",
+        [Description("Optional. Filename of an existing houseCARL patch to ADD these forwards to instead of writing a fresh one (accumulate across calls — e.g. forward from a different source plugin into the same patch).")]
+            string? into = null,
+        [Description("When true, the response ALSO returns each forwarded record IN FULL, read back from the written patch file on disk (every field, deep). The pre-enable verification: confirm the copied version is exactly the source's, WITHOUT enabling the patch in MO2 (the written file's content, not load-order truth).")]
+            bool full_readback = false,
+        [Description("Optional. Max characters for the whole response; past it the full read-back section is cut with an explicit notice (never silent). 0 = the server default (~80k). Only matters with full_readback=true.")]
+            int max_chars = 0) => Guard.Tool("housecarl_forward_record", () =>
+    {
+        if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
+        if (formids is null || formids.Length == 0)
+            return "error: formids is empty. Pass one or more 'XXXXXX:Plugin.esp' FormIDs to forward from from_plugin.";
+        if (string.IsNullOrWhiteSpace(from_plugin))
+            return "error: from_plugin is empty. Name the plugin whose version of the record(s) to forward.";
+        return RenderForward(svc.ForwardRecords(formids, from_plugin, patch_name, into, full_readback), max_chars);
+    });
+
     /// <summary>Compact, parseable confirmation (rulebook: short mutation confirmation + the IDs needed for follow-up).
     /// On refusal, the full reason (every malformed/rejected op) so the caller can fix and retry.</summary>
     static string Render(WritePatchBuilder.PatchOutcome o, int maxChars = 0)
@@ -293,6 +334,37 @@ public static class WriteTools
         sb.Append(o.RemainingRecords == 0
             ? "this patch now carries no records — it's inert; disable or delete the mod folder in MO2 if you don't need it."
             : "re-sort in MO2 if dropping this override changes a conflict winner.");
+        return sb.ToString();
+    }
+
+    /// <summary>Confirmation for housecarl_forward_record: per record, WHAT was copied (type + FormID + editorid), the
+    /// source it was copied FROM, and the current winner it out-ranks once enabled — with a redundant-forward NOTE when
+    /// the copied version was already winning (Q3 — never silently a no-op). On refusal, the named reason so the caller
+    /// can fix and retry. Optional full read-back rides along (the pre-enable verify that the copy is the source's).</summary>
+    static string RenderForward(WritePatchBuilder.ForwardOutcome o, int maxChars = 0)
+    {
+        if (!o.Success) return "error: " + o.Error;
+        var file = Path.GetFileName(o.OutputPath);
+        var modFolder = Path.GetFileName(Path.GetDirectoryName(o.OutputPath) ?? "");
+        var sb = new StringBuilder();
+        sb.Append(o.Extended ? "extended " : "wrote ").Append(file)
+          .Append(o.Extended ? " (existing patch grown; " : " (new patch; ").Append(o.Bytes).Append(" bytes)\n");
+        sb.Append("mod folder: ").Append(modFolder)
+          .Append(o.Extended ? "\n" : "  — enable + sort it in MO2 to use the patch\n");
+        sb.Append("masters: ").Append(o.Masters.Count == 0 ? "(none)" : string.Join(", ", o.Masters)).Append('\n');
+        sb.Append("forwarded ").Append(o.Forwarded.Count).Append(o.Forwarded.Count == 1 ? " record:\n" : " records:\n");
+        foreach (var f in o.Forwarded)
+        {
+            sb.Append("  ").Append(f.RecordType).Append(' ').Append(f.Target).Append("  ").Append(f.EditorId ?? "<no editorid>")
+              .Append("  — copied from ").Append(f.FromPlugin);
+            if (f.WasAlreadyWinner)
+                sb.Append("  [NOTE: this version was ALREADY the load-order winner — the override is a redundant no-op copy]");
+            else
+                sb.Append("  (out-ranks the current winner ").Append(f.PriorWinner).Append(" once this patch is enabled + sorted above it)");
+            sb.Append('\n');
+        }
+        if (o.ReadBack is { } rb) AppendFullReadback(sb, rb, maxChars);
+        sb.Append("to forward more into THIS patch (incl. from a different source plugin), pass into=\"").Append(file).Append("\".");
         return sb.ToString();
     }
 

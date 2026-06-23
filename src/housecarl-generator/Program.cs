@@ -41,6 +41,12 @@ if (args.Length > 0 && args[0] == "floi-read-guard") return FloiReadProbe.RunGua
 // composes a GetEquipped.ItemOrList via fields: AND sets:, asserts both land (form + index mode) and are byte-identical.
 if (args.Length > 0 && args[0] == "floi-fields-guard") return FloiFieldsProbe.RunGuard(args[1..]);
 
+// Forward a NAMED plugin's version of a record as an override (HCBR-2026-06-21): SELF-CONTAINED CI regression guard —
+// synthesizes a master + earlier-override + winner-override + a non-toucher, drives the REAL WritePatchBuilder.ForwardRecords,
+// asserts the EARLIER plugin's version (not the winner) is copied, the header carries only the origin master, revert-to-vanilla
+// (forward a master) + already-winner + multi + into= work, originals untouched, and the 4 Q3 rejects.
+if (args.Length > 0 && args[0] == "forward-from-plugin-guard") return ForwardFromPluginProbe.RunGuard(args[1..]);
+
 // Field-value query predicate (cross_plugin_query where=): SELF-CONTAINED CI regression guard — synthesizes records
 // with known field values, asserts the evaluator's matched set == a brute-force reference + the Q3 teeth.
 if (args.Length > 0 && args[0] == "value-predicate-guard") return ValuePredicateProbe.RunGuard(args[1..]);
