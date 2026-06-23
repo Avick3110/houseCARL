@@ -1016,6 +1016,40 @@ public sealed class LoadOrderService : IDisposable
         return new CrossQueryOutcome(keys, prefilled, total, total > keys.Count, null, predicate?.AccountingNote(), sources, scanNote);
     }
 
+    // ---- effect-chain resolver (housecarl_effect_chain — gap 2026-06-08) --------------------------------
+
+    /// <summary>Resolve which SPEL/ENCH/ALCH/SCRL/INGR apply a MagicEffect, each with the magnitude/area/duration from
+    /// the MATCHING effect entry (housecarl_effect_chain). Thin wiring over the core: resolve the optional type-narrow
+    /// (each must be one of the five effect-bearing records — a non-member is refused loud, never a silent empty scan),
+    /// then drive <see cref="EffectChain.Resolve"/> (Q3 typed-match gate → winner-body scan). All the logic + the Q3
+    /// teeth live in core so the self-contained guard drives this same path on synthetic plugins.</summary>
+    public EffectChainResult ResolveEffectChain(FormKey mgef, IReadOnlyList<string>? typesNarrow, int limit)
+    {
+        IReadOnlyList<Type> scope;
+        if (typesNarrow is { Count: > 0 })
+        {
+            var picked = new List<Type>();
+            foreach (var ts in typesNarrow)
+            {
+                IReadOnlyList<Type> resolved;
+                try { resolved = ResolveTypeFilter(ts.Trim()); }              // unknown type → named Q3 error (same as cross_plugin_query)
+                catch (ArgumentException ex) { return EffectChainResult.Fail(ex.Message); }
+                foreach (var t in resolved)
+                {
+                    if (!EffectChain.CarrierTypes.Contains(t))
+                        return EffectChainResult.Fail(
+                            $"type '{ts}' is not effect-bearing — effect_chain scans only Spell/ObjectEffect/Ingestible/Scroll/Ingredient " +
+                            "(SPEL/ENCH/ALCH/SCRL/INGR), the records that carry an Effects list. Drop it or pass one of those.");
+                    if (!picked.Contains(t)) picked.Add(t);
+                }
+            }
+            scope = picked;
+        }
+        else scope = EffectChain.CarrierTypes;
+
+        return EffectChain.Resolve(Resolver, mgef, scope, limit);
+    }
+
     // ---- writes (§8.4 Beat C: housecarl_set_field / housecarl_bulk_apply) -------------------------------
 
     /// <summary>Apply one-or-more edits as a single patch (housecarl_set_field = one op; housecarl_bulk_apply = many).

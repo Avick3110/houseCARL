@@ -92,6 +92,12 @@ jobs:
       - name: Probe — field-value query predicate (self-contained regression guard)
         run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- value-predicate-guard
 
+      # Self-contained (synthesizes MGEFs + the five effect-bearing records on disk — no external files), runs fully
+      # here: a regression guard for the effect-chain resolver (housecarl_effect_chain) — Resolve's carrier rows ==
+      # a brute-force oracle, multi-entry + null-base + types-narrow + the Q3 gate (non-MGEF / absent → loud, unused → clean zero).
+      - name: Probe — effect-chain resolver (self-contained regression guard)
+        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- effect-chain-guard
+
       # Self-contained (synthesizes a master + two overrides on disk — no external files), runs fully here: a regression
       # guard for the winner-vs-source display fix (cross_plugin_query plugins= scope) — RecordsIn pairs each body with
       # its OWN source plugin (the body the scan filtered), the winner stream with the winner. Locks wishlist #8.

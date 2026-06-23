@@ -57,6 +57,12 @@ if (args.Length > 0 && args[0] == "create-plugin-guard") return CreatePluginGuar
 // with known field values, asserts the evaluator's matched set == a brute-force reference + the Q3 teeth.
 if (args.Length > 0 && args[0] == "value-predicate-guard") return ValuePredicateProbe.RunGuard(args[1..]);
 
+// Effect-chain resolver (housecarl_effect_chain, gap 2026-06-08): SELF-CONTAINED CI regression guard — synthesizes
+// MGEFs + the five effect-bearing records (SPEL/ENCH/ALCH/SCRL/INGR) with KNOWN magnitudes referencing them, asserts
+// Resolve's carrier rows == a brute-force oracle, multi-entry + null-base + types-narrow + the Q3 gate (non-MGEF /
+// absent → loud, unused → clean zero).
+if (args.Length > 0 && args[0] == "effect-chain-guard") return EffectChainProbe.RunGuard(args[1..]);
+
 // Winner-vs-source display (wishlist #8): SELF-CONTAINED CI regression guard — synthesizes a master + two overrides
 // (B wins) and asserts RecordsIn pairs each yielded body with its OWN source plugin, the winner stream with the winner.
 if (args.Length > 0 && args[0] == "source-display-guard") return SourceDisplayProbe.RunGuard(args[1..]);
