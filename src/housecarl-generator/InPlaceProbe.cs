@@ -214,6 +214,52 @@ public static class InPlaceProbe
                 $"set_field={DefOff(sf)} bulk_apply={DefOff(ba)}"));
         }
 
+        // ===== I — MARKER + into= BOUNDARY: the editedInPlace marker is stamped but NEVER generated=true, so the user
+        // mod keeps failing IsHouseCarlOwned and a later into= can't blind-overwrite it. The marker only fires for a
+        // target under ModsDir (IsUnderModsDir), so this arm drives the REAL service over a synthetic MO2 instance with
+        // the user mod as a NON-houseCARL mod folder. The discriminating check: into= STILL refuses the edited user mod
+        // — it would SUCCEED (extend it) if the marker had wrongly written generated=true. =====
+        {
+            string inst = Path.Combine(tmpDir, "instance");
+            string profiles = Path.Combine(inst, "profiles", "Default");
+            string mods = Path.Combine(inst, "mods");
+            Directory.CreateDirectory(profiles); Directory.CreateDirectory(mods);
+            Directory.CreateDirectory(Path.Combine(tmpDir, "game", "Data"));
+            File.WriteAllText(Path.Combine(inst, "ModOrganizer.ini"),
+                "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(Default)\r\ngamePath=@ByteArray("
+                + Path.Combine(tmpDir, "game").Replace(@"\", @"\\") + ")\r\n");
+
+            var mMod = Path.Combine(mods, "MasterMod"); Directory.CreateDirectory(mMod);
+            File.Copy(masterPath, Path.Combine(mMod, MasterName));
+            var uMod = Path.Combine(mods, "UserMod"); Directory.CreateDirectory(uMod);
+            File.Copy(userPristine, Path.Combine(uMod, UserName));
+            string userMeta = Path.Combine(uMod, "meta.ini");
+            File.WriteAllText(userMeta, "[General]\r\ngameName=skyrimse\r\ncomments=USER SENTINEL\r\n");   // a NON-houseCARL meta.ini
+
+            File.WriteAllText(Path.Combine(profiles, "loadorder.txt"), "# header\r\n" + MasterName + "\r\n" + UserName + "\r\n");
+            File.WriteAllText(Path.Combine(profiles, "plugins.txt"), "*" + MasterName + "\r\n*" + UserName + "\r\n");
+            File.WriteAllText(Path.Combine(profiles, "modlist.txt"), "# header\r\n+UserMod\r\n+MasterMod\r\n");
+
+            var store = new UserConfigStore(Path.Combine(tmpDir, "I.user.json"));
+            using var svc = LoadOrderService.WithInstance(inst, 0, store);
+            svc.Stats();   // warm the lazy index once
+
+            var edit = new[] { new BulkOp { Formid = fmtWfk, FieldPath = "BasicStats.Damage", Verb = "Set", Value = "61" } };
+            var wrote = svc.ApplyEdits(edit, null, null, fullReadback: false, target: UserName, inPlace: true, acknowledge: true);
+            string meta = File.Exists(userMeta) ? File.ReadAllText(userMeta) : "";
+            bool markerWritten = meta.Contains("editedInPlace=");
+            bool noGenerated = !meta.Replace(" ", "").Contains("generated=true", StringComparison.OrdinalIgnoreCase);
+            bool sentinelKept = meta.Contains("USER SENTINEL");
+            // The boundary, end-to-end: an into= extend of the now-edited user mod STILL refuses it (un-owned). With the
+            // bug (marker writes generated=true) this would instead SUCCEED — so a refusal is the discriminating proof.
+            var intoTry = svc.ApplyEdits(edit, null, UserName, fullReadback: false);
+            bool ownedStaysFalse = !intoTry.Success;
+            bool landed = ReadDamage(Path.Combine(uMod, UserName), wfk) == 61;
+            bool pass = wrote.Success && wrote.InPlace && landed && markerWritten && noGenerated && sentinelKept && ownedStaysFalse;
+            results.Add(("I editedInPlace marker + into= boundary (never generated=true)", pass,
+                $"wrote={wrote.Success} landed61={landed} marker={markerWritten} noGenerated={noGenerated} userSentinelKept={sentinelKept} into=StillRefusesUnowned={ownedStaysFalse}  [{Trim(wrote.Error)}]"));
+        }
+
         Console.WriteLine("── ARMS ──");
         bool all = true;
         foreach (var (name, pass, detail) in results)
