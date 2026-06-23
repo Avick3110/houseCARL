@@ -1167,12 +1167,16 @@ public sealed class LoadOrderService : IDisposable
 
         lock (_writeGate)                                                 // hunt F2: one write at a time, resolve→commit
         {
+            // Touch Resolver FIRST: in instance mode _modsDir is derived LAZILY (EnsurePathsDerived runs inside the
+            // Resolver getter), so a cold first-call (create_plugin before any read warmed the index) would otherwise
+            // see _modsDir="" and misreport "ModsDir '' does not exist" (a Q3-adjacent wrong reason). Capturing the view
+            // here both derives the paths AND is what the collision check below needs.
+            var view = Resolver.Capture();
             if (!Directory.Exists(_modsDir))
                 return WritePatchBuilder.CreatePluginOutcome.Fail($"cannot write: ModsDir '{_modsDir}' does not exist. Check HouseCarl:ModsDir.");
 
             // COLLISION (Q3): the basename is load-bearing for a trigger, so NEVER auto-suffix — refuse loud instead.
             // (a) an active plugin already owns this basename — a second one would shadow it (MO2 picks one by mod order).
-            var view = Resolver.Capture();
             foreach (var ext in PluginExts)                              // .esp / .esm / .esl
                 if (view.ContainsPlugin(stem + ext))
                     return WritePatchBuilder.CreatePluginOutcome.Fail(

@@ -132,6 +132,18 @@ public static class CreatePluginGuardProbe
                 Check("ESL-WIRE: esl=true through the service lands a light-flagged plugin on disk",
                     o.Success && o.Esl && eslBack == true, $"success={o.Success} esl={eslBack} err=[{Trim(o.Error)}]");
             }
+
+            // COLD-START (PR #105 review #1): create_plugin as the FIRST op on a fresh service (no prior Stats()/read
+            // to warm the lazy index) must derive ModsDir itself and SUCCEED — not misreport "ModsDir '' does not
+            // exist". A separate, un-warmed service over the same instance exercises the cold path the warmed `svc`
+            // above masks. RED before the fix (derive paths before the _modsDir check), GREEN after.
+            {
+                using var cold = LoadOrderService.WithInstance(instance, 0, store);
+                var o = cold.CreatePlugin("HcCpCold");
+                Check("COLD-START: create_plugin as the first op on a fresh service succeeds (derives ModsDir; no false config error)",
+                    o.Success && Path.GetFileName(o.OutputPath) == "HcCpCold.esp",
+                    $"success={o.Success} file={(o.Success ? Path.GetFileName(o.OutputPath) : "")} err=[{Trim(o.Error)}]");
+            }
         }
         catch (Exception ex)
         {
