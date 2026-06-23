@@ -425,6 +425,13 @@ if (args.Length > 0 && args[0] == "bulk-create-guard") return BulkCreateGuardPro
 // file-system-tunneling host; arm C2 proves the locked-target mid-swap fails loud + non-destructive.
 if (args.Length > 0 && args[0] == "atomic-commit-guard") return AtomicCommitProbe.RunGuard(args[1..]);
 
+// IN-PLACE WRITE LANE, Wave 0 (design-gating, IN_PLACE_WRITE_LANE_PLAN §5.3/§9 STEP-2): MANUAL/REAL-DATA probe —
+// no-op re-serialize a sample of REAL plugins (counter-preserving, the §5.1-correct in-place shape) and measure the
+// whole-plugin byte divergence surface (identical / header-only / body / records-changed / unloadable), so fork #1's
+// round-trip accept/refuse threshold is calibrated on measured reality. Needs --mo2 <instance>; SKIPs without (a
+// synthetic fixture round-trips clean and would reveal nothing). Writes only to temp; read-only on the load order.
+if (args.Length > 0 && args[0] == "roundtrip-probe") return RoundTripProbe.RunProbe(args[1..]);
+
 // External-tool bridge (step 1) proof: the pure core pieces housecarl_set_tool_path + the riders ride — shared-config
 // clobber-safety, path validation, the missing-dependency forcing prompt, and canonical-home auto-detect.
 if (args.Length > 0 && args[0] == "tool-bridge") return ToolBridgeProbe.Run(args[1..]);
