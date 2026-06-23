@@ -1101,6 +1101,50 @@ public sealed class LoadOrderService : IDisposable
         }
     }
 
+    /// <summary>Forward a NAMED plugin's version of one-or-more records into a patch as an override (housecarl_forward_record)
+    /// — xEdit's "copy as override into", the inverse of <see cref="ApplyEdits"/>'s winner-override. Parses every formid
+    /// (all-or-nothing on a malformed one), resolves the folder-per-patch output (fresh, or <paramref name="into"/> an
+    /// existing houseCARL-owned patch), then drives <see cref="WritePatchBuilder.ForwardRecords"/> (resolve each source
+    /// body from <paramref name="fromPlugin"/> → deep-copy as override → multi-master serialize). The whole source record
+    /// is copied verbatim, so the SOURCE plugin (not the load-order winner) decides the content — and forwarding the
+    /// ORIGIN master reverts a record to vanilla. Originals are never touched (only the patch folder is written).</summary>
+    public WritePatchBuilder.ForwardOutcome ForwardRecords(IReadOnlyList<string> formids, string fromPlugin, string? patchName, string? into, bool fullReadback = false)
+    {
+        if (string.IsNullOrWhiteSpace(fromPlugin))
+            return WritePatchBuilder.ForwardOutcome.Fail(
+                "from_plugin is required — name the plugin whose version of the record(s) to forward (the earlier override, or a master to revert to vanilla).");
+        if (formids is null || formids.Count == 0)
+            return WritePatchBuilder.ForwardOutcome.Fail("no formids supplied — pass the FormID(s) to forward from the source plugin.");
+
+        // Parse every formid first, collecting ALL problems (all-or-nothing, like the edit/remove paths). Pure — outside the gate.
+        var fp = fromPlugin.Trim();
+        var specs = new List<WritePatchBuilder.ForwardSpec>(formids.Count);
+        var problems = new List<string>();
+        for (int i = 0; i < formids.Count; i++)
+        {
+            var raw = formids[i];
+            if (string.IsNullOrWhiteSpace(raw)) { problems.Add($"formid[{i}]: empty."); continue; }
+            try { specs.Add(new WritePatchBuilder.ForwardSpec { Target = FormKey.Factory(raw.Trim()), FromPlugin = fp }); }
+            catch (Exception ex) { problems.Add($"formid[{i}] '{raw}': {ex.Message}. Expected 'XXXXXX:Plugin.esp'."); }
+        }
+        if (problems.Count > 0)
+            return WritePatchBuilder.ForwardOutcome.Fail(
+                $"refused — {problems.Count} of {formids.Count} formid(s) malformed; NOTHING forwarded:\n  - " + string.Join("\n  - ", problems));
+
+        lock (_writeGate)                                                 // hunt F2: one write at a time, resolve→commit
+        {
+            var resolver = Resolver;                                      // builds/refreshes the index (Overlays for the source fetch + serialize)
+
+            string outPath; bool extend, created;
+            try { outPath = ResolveOutputPath(patchName, into, out extend, out created); }
+            catch (Exception ex) { return WritePatchBuilder.ForwardOutcome.Fail(ex.Message); }
+
+            var outcome = WritePatchBuilder.ForwardRecords(resolver, specs, outPath, extend, fullReadback);
+            if (!outcome.Success && created) RemoveFolderCreatedThisCall(outPath);   // hunt F4: a refused forward leaves no orphan
+            return outcome;
+        }
+    }
+
     /// <summary>Create a BRAND-NEW record (housecarl_create_record) — the net-new authoring capability, the sibling of
     /// <see cref="ApplyEdits"/>. Resolves <paramref name="recordType"/> (catalog name or 4-char signature) to ONE concrete
     /// catalog name (unknown/ambiguous → Q3), maps the field <paramref name="operations"/> to core <see cref="WriteRequest"/>s

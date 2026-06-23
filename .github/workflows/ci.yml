@@ -66,6 +66,17 @@ jobs:
       - name: "Probe — condition FLOI via compose fields shorthand (self-contained regression guard)"
         run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- floi-fields-guard
 
+      # Self-contained (synthesizes a master + earlier-override + winner-override + a non-toucher in temp — no Skyrim.esm),
+      # runs fully here: a regression guard for FORWARD-FROM-PLUGIN (HCBR-2026-06-21 — housecarl_forward_record). The write
+      # tools override the load-order WINNER; forwarding copies a NAMED earlier plugin's whole record verbatim as the
+      # override (xEdit's "copy as override into") to re-assert it over a later override, or names a master to revert to
+      # vanilla. Drives the REAL WritePatchBuilder.ForwardRecords: pins that the EARLIER plugin's version (not the winner)
+      # is copied, the header carries ONLY the origin master (content copied, source not mastered), revert-to-vanilla +
+      # already-winner-flagged + multi-record + into= extend all work, the source plugins stay byte-identical, and the four
+      # Q3 rejects (source not-in-order / doesn't-define / the patch itself / same target twice) refuse loud with no file.
+      - name: Probe — forward-from-plugin (self-contained regression guard)
+        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- forward-from-plugin-guard
+
       # Self-contained (synthesizes records with known field values — no external files), runs fully here: a regression
       # guard for the field-value query predicate (cross_plugin_query where=) — matched set == brute-force + the Q3 teeth.
       - name: Probe — field-value query predicate (self-contained regression guard)
