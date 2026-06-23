@@ -40,6 +40,12 @@ namespace HousecarlGenerator;
 ///                    distinguishable from the bad-id errors above, so "0 carriers" is never a silent wrong answer.
 ///   CAP            — limit=3 returns 3 rows but reports the TRUE total (7) and Capped (the explicit-overrun teeth).
 ///
+/// COVERAGE NOTE (Q3 — name what this guard LEANS ON rather than re-proves; PR #107 review): the fixture is ONE
+/// plugin, so the winner-only scan (WinnerRecordsOfType) and the per-row winner= are exercised only at depth 0. Both
+/// are the SAME shared primitive cross_plugin_query uses, multi-plugin-proven in source-display-guard +
+/// snapshot-view-guard — so override/winner behavior is covered transitively, not re-proven here. The MATCH-ALL-FIVE
+/// arm is the canary for a sixth effect-bearing record (it would simply not be scanned).
+///
 /// Run: dotnet run --project src/housecarl-generator -- effect-chain-guard
 /// </summary>
 public static class EffectChainProbe
@@ -78,11 +84,13 @@ public static class EffectChainProbe
             var v = m.MagicEffects.AddNew(); v.EditorID = "HcEcUnused";
             tFk = t.FormKey; uFk = u.FormKey; vFk = v.FormKey;
 
-            var s1 = m.Spells.AddNew();      s1.EditorID = "HcEcSpell1";  s1.Effects.Add(Eff(t.FormKey, 11f));
-            var e1 = m.ObjectEffects.AddNew(); e1.EditorID = "HcEcEnch1"; e1.Effects.Add(Eff(t.FormKey, 22f));
-            var a1 = m.Ingestibles.AddNew(); a1.EditorID = "HcEcAlch1";   a1.Effects.Add(Eff(t.FormKey, 33f));
-            var c1 = m.Scrolls.AddNew();     c1.EditorID = "HcEcScroll1"; c1.Effects.Add(Eff(t.FormKey, 44f));
-            var i1 = m.Ingredients.AddNew(); i1.EditorID = "HcEcIngr1";   i1.Effects.Add(Eff(t.FormKey, 55f));
+            // distinct (mag, area, dur) per carrier — all three differ WITHIN a row, so an Area/Duration/Magnitude
+            // field transposition in the extraction is caught, not just a magnitude bug (PR #107 review).
+            var s1 = m.Spells.AddNew();      s1.EditorID = "HcEcSpell1";  s1.Effects.Add(Eff(t.FormKey, 11f, 1, 101));
+            var e1 = m.ObjectEffects.AddNew(); e1.EditorID = "HcEcEnch1"; e1.Effects.Add(Eff(t.FormKey, 22f, 2, 102));
+            var a1 = m.Ingestibles.AddNew(); a1.EditorID = "HcEcAlch1";   a1.Effects.Add(Eff(t.FormKey, 33f, 3, 103));
+            var c1 = m.Scrolls.AddNew();     c1.EditorID = "HcEcScroll1"; c1.Effects.Add(Eff(t.FormKey, 44f, 4, 104));
+            var i1 = m.Ingredients.AddNew(); i1.EditorID = "HcEcIngr1";   i1.Effects.Add(Eff(t.FormKey, 55f, 5, 105));
             s1Fk = s1.FormKey; e1Fk = e1.FormKey; a1Fk = a1.FormKey; c1Fk = c1.FormKey; i1Fk = i1.FormKey;
 
             // multi-entry: T at index 1 AND 2; the U-entry at index 0 must NOT match.
@@ -119,12 +127,12 @@ public static class EffectChainProbe
             $"success={all.Success} eid={all.MgefEditorId} err=[{Trim(all.Error)}]");
 
         bool five =
-            RowMag(all, s1Fk, 0) == 11f && RowCount(all, s1Fk, 0) == 1 && RowType(all, s1Fk) == "Spell" &&
-            RowMag(all, e1Fk, 0) == 22f && RowType(all, e1Fk) == "ObjectEffect" &&
-            RowMag(all, a1Fk, 0) == 33f && RowType(all, a1Fk) == "Ingestible" &&
-            RowMag(all, c1Fk, 0) == 44f && RowType(all, c1Fk) == "Scroll" &&
-            RowMag(all, i1Fk, 0) == 55f && RowType(all, i1Fk) == "Ingredient";
-        Check("MATCH-ALL-FIVE: SPEL/ENCH/ALCH/SCRL/INGR each return with the authored magnitude + catalog type", five,
+            RowMag(all, s1Fk, 0) == 11f && RowArea(all, s1Fk, 0) == 1 && RowDur(all, s1Fk, 0) == 101 && RowCount(all, s1Fk, 0) == 1 && RowType(all, s1Fk) == "Spell" &&
+            RowMag(all, e1Fk, 0) == 22f && RowArea(all, e1Fk, 0) == 2 && RowDur(all, e1Fk, 0) == 102 && RowType(all, e1Fk) == "ObjectEffect" &&
+            RowMag(all, a1Fk, 0) == 33f && RowArea(all, a1Fk, 0) == 3 && RowDur(all, a1Fk, 0) == 103 && RowType(all, a1Fk) == "Ingestible" &&
+            RowMag(all, c1Fk, 0) == 44f && RowArea(all, c1Fk, 0) == 4 && RowDur(all, c1Fk, 0) == 104 && RowType(all, c1Fk) == "Scroll" &&
+            RowMag(all, i1Fk, 0) == 55f && RowArea(all, i1Fk, 0) == 5 && RowDur(all, i1Fk, 0) == 105 && RowType(all, i1Fk) == "Ingredient";
+        Check("MATCH-ALL-FIVE: SPEL/ENCH/ALCH/SCRL/INGR each return the authored magnitude/area/duration (distinct, so a field transposition is caught) + catalog type", five,
             $"S1={RowMag(all, s1Fk, 0)}/{RowType(all, s1Fk)} E1={RowMag(all, e1Fk, 0)}/{RowType(all, e1Fk)} A1={RowMag(all, a1Fk, 0)}/{RowType(all, a1Fk)} C1={RowMag(all, c1Fk, 0)}/{RowType(all, c1Fk)} I1={RowMag(all, i1Fk, 0)}/{RowType(all, i1Fk)}");
 
         bool multi =
@@ -205,6 +213,12 @@ public static class EffectChainProbe
 
     static float? RowMag(EffectChainResult res, FormKey carrier, int effIndex) =>
         res.Rows.FirstOrDefault(x => x.Carrier == carrier && x.EffectIndex == effIndex)?.Magnitude;
+
+    static int? RowArea(EffectChainResult res, FormKey carrier, int effIndex) =>
+        res.Rows.FirstOrDefault(x => x.Carrier == carrier && x.EffectIndex == effIndex)?.Area;
+
+    static int? RowDur(EffectChainResult res, FormKey carrier, int effIndex) =>
+        res.Rows.FirstOrDefault(x => x.Carrier == carrier && x.EffectIndex == effIndex)?.Duration;
 
     static int? RowCount(EffectChainResult res, FormKey carrier, int effIndex) =>
         res.Rows.FirstOrDefault(x => x.Carrier == carrier && x.EffectIndex == effIndex)?.EffectCount;
