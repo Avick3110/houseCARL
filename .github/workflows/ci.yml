@@ -77,6 +77,16 @@ jobs:
       - name: Probe — forward-from-plugin (self-contained regression guard)
         run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- forward-from-plugin-guard
 
+      # Self-contained (core arms write to temp; service arms synthesize an MO2 instance — no Skyrim.esm), runs fully
+      # here: a regression guard for CREATE-PLUGIN (HCBR-2026-06-19-02 — housecarl_create_plugin). houseCARL's write
+      # model was record-centric, so a basename-bound SKSE config trigger (CraftingCategories-style) had to carry a junk
+      # filler record; create_plugin authors a valid TES4 header with ZERO records instead. Drives the REAL
+      # WritePatchBuilder.CreatePlugin (0 records, 0 masters, the ESL flag round-trip, sig TES4, author/desc) AND the
+      # REAL LoadOrderService.CreatePlugin (exact name — never auto-suffixed — plus the two collision refusals: an
+      # already-active basename, and an existing houseCARL folder, each loud with no orphan).
+      - name: Probe — create-plugin (self-contained regression guard)
+        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- create-plugin-guard
+
       # Self-contained (synthesizes records with known field values — no external files), runs fully here: a regression
       # guard for the field-value query predicate (cross_plugin_query where=) — matched set == brute-force + the Q3 teeth.
       - name: Probe — field-value query predicate (self-contained regression guard)

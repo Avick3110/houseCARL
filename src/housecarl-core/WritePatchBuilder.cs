@@ -468,6 +468,20 @@ public static class WritePatchBuilder
             new(false, error, "", false, Array.Empty<ForwardedRecord>(), Array.Empty<string>(), 0);
     }
 
+    /// <summary>The outcome of a <see cref="CreatePlugin"/> call. <see cref="Error"/> non-null ⇒ the call was refused
+    /// (no file written) with a named reason (Q3). Otherwise the empty plugin lives at <see cref="OutputPath"/> with the
+    /// exact <see cref="PluginName"/> the caller asked for (never auto-suffixed — a header-only plugin's basename is
+    /// load-bearing). <see cref="RecordCount"/> is 0 by definition (re-read off the written file to confirm, not
+    /// assumed); <see cref="Masters"/> is empty (an empty plugin references nothing — exactly what the CK stamps on one);
+    /// <see cref="Esl"/> echoes the light-master flag as it round-tripped through the write.</summary>
+    public sealed record CreatePluginOutcome(
+        bool Success, string? Error, string OutputPath, string PluginName, bool Esl,
+        IReadOnlyList<string> Masters, int RecordCount, long Bytes)
+    {
+        public static CreatePluginOutcome Fail(string error) =>
+            new(false, error, "", "", false, Array.Empty<string>(), 0, 0);
+    }
+
     /// <summary>
     /// FORWARD a NAMED plugin's version of each record INTO the patch as an override — xEdit's "copy as override into",
     /// the inverse of <see cref="Apply"/>'s winner-override. Where Apply/Create author NEW content, this re-asserts an
@@ -599,6 +613,74 @@ public static class WritePatchBuilder
         finally { (back as IDisposable)?.Dispose(); }
 
         return new ForwardOutcome(true, null, outPath, extend, forwarded, masters, bytes) { ReadBack = readBack };
+    }
+
+    /// <summary>
+    /// Create an EMPTY, HEADER-ONLY plugin — a valid <c>TES4</c> header and ZERO records (HCBR-2026-06-19-02). The
+    /// whole point is a plugin that exists purely so its BASENAME resolves: the artifact SKSE configs that bind by
+    /// plugin name need (a CraftingCategories-style trigger that must ship <c>Foo.esp</c> so <c>Foo.json</c> loads), a
+    /// placeholder ESL for FormID reservation, a deliberate empty master, a dummy plugin to satisfy a dependency check.
+    /// It is the clean primitive behind those: where the record-centric create/forward paths can only materialise a
+    /// plugin by giving it a record (forcing an unwanted conflict-tree participant — the report's redundant backpack
+    /// override), this authors NO record at all.
+    ///
+    /// <para>CORNERSTONE-CLEAN: a <see cref="SkyrimMod"/> with no records added IS a header-only plugin — there is no
+    /// per-type anything here, so it is trivially generic. ZERO MASTERS (Aaron 2026-06-23): an empty plugin references
+    /// nothing, so it carries no masters — passing an EMPTY known-master set means <see cref="WriteEngine.WritePatch"/>
+    /// forces no baseline masters either (its baseline force-include filters to masters present in the set; the empty
+    /// set yields none). That is exactly what the Creation Kit stamps on a truly empty plugin, so it honours the same
+    /// "match the CK" convention the baseline-master rule is built on. The atomic staged write + FormID floor still
+    /// apply (every product write funnels through that one chokepoint).</para>
+    ///
+    /// <para>Q3 — the written file is RE-READ to confirm it is what was promised (0 records, the ESL flag as requested)
+    /// before reporting success; a mismatch refuses loud rather than return a wrong artifact. Caller resolves
+    /// <paramref name="outPath"/> (the service uses an EXACT, never-suffixed name with a loud collision refusal — the
+    /// basename must be precise for the trigger to bind).</para>
+    /// </summary>
+    public static CreatePluginOutcome CreatePlugin(string outPath, bool esl, string? author, string? description)
+    {
+        var fileName = Path.GetFileName(outPath);
+
+        SkyrimMod mod;
+        try
+        {
+            mod = new SkyrimMod(new ModKey(Path.GetFileNameWithoutExtension(outPath), ModType.Plugin), SkyrimRelease.SkyrimSE)
+                { IsSmallMaster = esl };
+            if (!string.IsNullOrWhiteSpace(author)) mod.ModHeader.Author = author.Trim();
+            if (!string.IsNullOrWhiteSpace(description)) mod.ModHeader.Description = description.Trim();
+        }
+        catch (Exception ex) { return CreatePluginOutcome.Fail($"could not build the plugin in memory: {ex.GetType().Name}: {ex.Message}"); }
+
+        // Serialize through the single WriteEngine.WritePatch chokepoint with an EMPTY known-master set → zero masters,
+        // plus the crash-atomic staged write + the FormID floor every product write gets. Nothing is on disk on a throw.
+        try { WriteEngine.WritePatch(mod, Array.Empty<ISkyrimModGetter>(), outPath); }
+        catch (Exception ex)
+            { return CreatePluginOutcome.Fail($"writing the plugin failed (serialize or commit; nothing left on disk): {WriteEngine.Describe(ex)}"); }
+
+        // Re-open + CONFIRM the artifact (Q3 — never report success on an unverified file): zero records, the master
+        // header (empty), the ESL flag as written, the byte size.
+        IReadOnlyList<string> masters; int recordCount; bool eslBack; long bytes;
+        ISkyrimModGetter? back = null;
+        try
+        {
+            back = SkyrimMod.CreateFromBinaryOverlay(outPath, SkyrimRelease.SkyrimSE);
+            masters = back.ModHeader.MasterReferences.Select(m => m.Master.FileName.ToString()).ToList();
+            recordCount = back.EnumerateMajorRecords().Count();
+            eslBack = back.IsSmallMaster;
+            bytes = new FileInfo(outPath).Length;
+        }
+        catch (Exception ex)
+            { return CreatePluginOutcome.Fail($"plugin written but could not be re-opened to confirm it: {ex.Message}"); }
+        finally { (back as IDisposable)?.Dispose(); }
+
+        if (recordCount != 0)
+            return CreatePluginOutcome.Fail(
+                $"internal error: the created plugin carries {recordCount} record(s), expected 0 (a header-only plugin) — refusing to report success on a wrong artifact (Q3).");
+        if (eslBack != esl)
+            return CreatePluginOutcome.Fail(
+                $"internal error: the created plugin's light-master (ESL) flag is {eslBack}, expected {esl} — refusing to report success on a wrong artifact (Q3).");
+
+        return new CreatePluginOutcome(true, null, outPath, fileName, esl, masters, recordCount, bytes);
     }
 
     /// <summary>
