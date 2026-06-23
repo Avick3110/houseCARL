@@ -14,7 +14,7 @@ The pattern problem: skill descriptions in Claude_MO2 were written without apply
 
 **Empirical anchor:** Anthropic's `anthropic-skills:skill-creator` (introspected at `~/AppData/Roaming/Claude/local-agent-mode-sessions/skills-plugin/.../skills/skill-creator/SKILL.md`) is the canonical authority on description engineering. This standard is faithful to skill-creator's prescription and adapts it to Housecarl's scope (a Bethesda modding MCP plugin).
 
-**Operational directive — invoke skill-creator at authoring time.** Before authoring, editing, or validating any Housecarl skill, invoke `anthropic-skills:skill-creator` via the Skill tool at the start of the session. This standard is the project-scoped overlay; skill-creator is Anthropic's upstream authority and carries the live procedural body — description-optimization loop, eval-set construction guidance, the `run_loop` script invocation referenced in § 6.1. Running it alongside this standard puts the full Anthropic guidance in context regardless of when this standard was last revised, and reduces drift between this standard's quoted snippets (lock-time snapshot) and skill-creator's current prescription (live). Skip only when Aaron has authorized the specific edit.
+**Operational directive — invoke skill-creator at authoring time.** Before authoring, editing, or validating any Housecarl skill, invoke `anthropic-skills:skill-creator` via the Skill tool at the start of the session. This standard is the project-scoped overlay; skill-creator is Anthropic's upstream authority and carries the live procedural body for description engineering and eval-set construction guidance (§ 6.2). (We follow its description-writing prescription but not its `run_loop` validation harness — §6.4.) Running it alongside this standard puts the full Anthropic guidance in context regardless of when this standard was last revised, and reduces drift between this standard's quoted snippets (lock-time snapshot) and skill-creator's current prescription (live). Skip only when Aaron has authorized the specific edit.
 
 **Verifying Anthropic-skill claims.** The bundled-skills surface (the available-skills list shown at session start) is not exhaustive — many Anthropic-published skills ship via the public repo at <https://github.com/anthropics/skills> and install on-demand via `/install anthropics/skills/<skill-name>`. `mcp-builder` (referenced in HOUSECARL_MCP_AUTHORING.md § 1.1) is the canonical precedent: published but not bundled by default. Before concluding that no relevant Anthropic-published skill exists for an authoring concern, web-search or fetch the repo's skill index. Don't infer absence from the bundled list alone.
 ---
@@ -288,23 +288,9 @@ A skill description is not shippable until trigger reliability has been measured
 
 ### 6.1 — The validation method
 
-Use `anthropic-skills:skill-creator`'s description-optimization loop. Invocation pattern (verbatim from skill-creator's SKILL.md, lines 381-388):
+Validate trigger reliability with a **fresh-context agent fan-out** (full procedure in §6.5). In short: spawn one fresh agent per eval query, give each only an *anonymized* statement of the skill's capability plus the one query, ask whether the request falls within that capability, and score against the §6.3 thresholds. This measures the signal we actually care about — *is this query in-scope for the skill* — and it runs natively wherever Claude Code runs.
 
-```bash
-python -m scripts.run_loop \
-  --eval-set <path-to-trigger-eval.json> \
-  --skill-path <path-to-skill> \
-  --model <model-id-powering-this-session> \
-  --max-iterations 5 \
-  --verbose
-```
-
-The loop:
-1. Splits an eval set 60% train / 40% held-out test.
-2. Evaluates the current description (3 reps per query for reliable trigger rate).
-3. Calls Claude to propose improvements based on what failed.
-4. Re-evaluates each candidate on both train and test.
-5. Selects the description with the best **test** score (avoiding overfitting).
+We deliberately do **not** use Anthropic `skill-creator`'s `run_loop` / `run_eval` description-optimization loop. See §6.4 for why.
 
 ### 6.2 — Eval set construction (binding requirements)
 
@@ -327,32 +313,32 @@ Doesn't conform:
 
 ### 6.3 — Pass/fail thresholds
 
-A skill ships only when its description hits these thresholds on the held-out test set, computed across 3 reps per query:
+A skill ships only when its description hits these thresholds across the §6.5 fan-out:
 
 - **Recall (should-trigger rate)**: ≥ 80%. The skill fires for at least 8 of 10 legitimate trigger queries. Below 80% = the skill is shadow-failing (the v2.9.4 `session-strategy` failure mode).
 - **Specificity (should-not-trigger rate)**: ≥ 50%. Per the asymmetric-cost argument in § 3.3, low specificity is acceptable. Below 50% means the skill is firing on truly unrelated queries — tighten the trigger nouns.
 
 Skills can ship with recall < 80% **only** with explicit Aaron sign-off and a documented follow-up to re-validate on the next release. This gate exists because shipping below 80% recall is exactly the v2.9.4 failure mode the rebuild is designed to prevent.
 
-### 6.4 — Windows environment caveat
+### 6.4 — Why not the Anthropic skill-creator loop
 
-`run_loop.py`'s underlying `run_eval.py` uses `select()` on subprocess pipes, which **does not work on Windows** (per the v2.9.5 retrospective at `<old-repo>/dev/plans/v2.9.5_descriptions_redesign/PHASE_1_HANDOFF.md` § "Empirical skill description validation"). All v2.9.5 attempts on Aaron's Windows box returned constant "no trigger" / 0% trigger rate / meaningless results.
+`skill-creator` ships a description-optimization loop (`run_loop` / `run_eval`) that scores a description by whether headless `claude -p` actually invokes the skill for each query. We tried it and do not use it, for a reason that outlived its original Windows bug:
 
-**Operational implications for Housecarl:**
+- **It measures the wrong thing for our skills.** When the eval query is something Claude can answer from its own knowledge — which is most Skyrim-modding requests — `claude -p` just answers directly and never loads the skill, so the loop scores ~0% **regardless of how good the description is**. Measured 2026-06: across two skills and 25 should-trigger queries, opus invoked neither the harness probe nor the real installed skill on a single one. The fan-out (§6.5) avoids this by judging *relevance* ("should this fire") instead of watching whether a lazy headless model bothered to load the skill.
+- **(Historical.)** `run_eval` also used a Unix-only `select()` call and returned 0% on native Windows. A Windows-compatible port was written and confirmed running in 2026-06 — which is how the deeper "answers directly" problem above surfaced: the port runs fine, the measurement still isn't useful for our skills. The port was not kept.
 
-- Description-validation runs are performed in WSL2 / Linux / macOS, not native Windows. Phase 3 setup (`HOUSECARL_REPO_LAYOUT.md` and dev-environment standards) must include a documented validation environment.
-- A native-Windows-compatible rewrite of `run_eval.py` (substituting `threading + queue` or `subprocess.communicate()` for `select()`) is a follow-up candidate; if implemented, document at the Housecarl repo's `dev/` level.
-- Until either path is in place, the validation gate (§ 6.3) requires a non-Windows execution environment. Skills authored without validation are not shippable per this standard.
-### 6.5 — Manual validation as fallback (constrained)
+### 6.5 — The fan-out procedure
 
-When the empirical loop is unavailable for environmental reasons, **manual validation is permitted as a constrained fallback** with these rules:
+The validation method (§6.1) in detail. It runs natively wherever Claude Code runs — no special environment:
 
-1. The eval set (still 8-10 + 8-10) is constructed as in § 6.2.
-2. The author walks each query and predicts whether the description will trigger, recording the prediction inline in the eval JSON (`{"query": "...", "should_trigger": true, "manual_predicted_trigger": true}`).
-3. The skill ships only if predicted recall ≥ 80% and predicted specificity ≥ 50% **and** at least one peer reviewer has validated the predictions independently (concretely: the reviewer checks 3 random queries by reading the description cold and saying whether they think it should fire).
-4. The skill is flagged for empirical re-validation on the next release that follows. Track via a follow-up entry; don't let it become permanent.
+1. Construct the eval set (8-10 + 8-10) as in §6.2.
+2. Spawn **one fresh-context agent per query**, over the full set. Give each agent only the query plus an **anonymized** statement of the skill's capability — **never** the skill's name and **never** "would you load this skill?" Once a skill is saved it enters the test agents' own available-skills list, and naming it makes them meta-confuse ("already loaded / this is a test") instead of judging the description.
+3. Ask a pure relevance question ("does this request fall within this purpose? YES / NO").
+4. **Adjudicate from each agent's reasoning, not its raw verdict token** — verdict tokens have proved noisy across runs; the reasoning is the trustworthy, consistent signal.
+5. Score against §6.3 (recall ≥ 80%, specificity ≥ 50%). Ship below threshold only with explicit Aaron sign-off + a documented re-validation follow-up.
+6. **Re-measure whenever the description changes** — the gate is not one-and-done; an edited description (or a stale eval set with no read-side queries) must be re-run against the final text.
 
-The v2.9.5 ship used this fallback (per `<old-repo>/dev/plans/v2.9.5_descriptions_redesign/PHASE_1_HANDOFF.md`). It is not a substitute for the empirical loop — it is a documented exception path for environment-blocked moments.
+A lighter degraded fallback, only when agents cannot be spawned at all: the author predicts each query's outcome and at least one peer reviewer independently checks a sample by reading the description cold, then flag for a proper fan-out re-run on the next release.
 
 ### 6.6 — Q3 conformance scoring ("no silent wrong answers")
 
@@ -369,7 +355,7 @@ Per Q3 lock (vision-alignment 2026-05-01) + Q5.5 (runtime validator dropped), ev
 
 **Pass criterion:** Skill must either emit the correct outcome OR explicit "I cannot — here's what I checked + what to investigate next" framing. **Silent wrong answers fail outright** (a confident answer that's wrong is the v2.9.5 failure mode this rebuild exists to prevent — it is worse than a clear non-answer per Q3 acceptance principle).
 
-**Threshold:** [Aaron-decision pending — default candidate: 100% on seed corpus + 100% non-silent on uncertain inputs. Aaron may relax to e.g., 95%/95% if the seed-corpus shape demands it, or tighten to "any silent wrong answer = ship-blocker" for v1.0.] Threshold is checked at the eval-set's held-out test split per the §6.1 description-optimization-loop pattern, adapted for outcome scoring instead of trigger scoring.
+**Threshold:** [Aaron-decision pending — default candidate: 100% on seed corpus + 100% non-silent on uncertain inputs. Aaron may relax to e.g., 95%/95% if the seed-corpus shape demands it, or tighten to "any silent wrong answer = ship-blocker" for v1.0.] Threshold is checked over the §6.5 fan-out, adapted for outcome scoring instead of trigger scoring.
 
 **Cross-references:** §1 (why this standard exists), FOUNDATION.md §"v1.0 acceptance principle — 'no silent wrong answers'", VISION_ALIGNMENT_PROGRESS.md §Q3 + §Q5.5 + §Q5.6, REBUILD_RATIONALE.md Signal 1.
 ---
@@ -416,7 +402,7 @@ Before a Housecarl skill merges to main:
 14. ☐ Skill is one of the three archetypes in § 5.2 (or has explicit justification for new shape).
 15. ☐ Skill is not an anti-pattern from § 5.3.
 16. ☐ Eval set ≥ 8 should-trigger + ≥ 8 should-not-trigger, including near-misses, all queries plausible utterances (§ 6.2).
-17. ☐ Empirical validation (or documented manual fallback per § 6.5) shows recall ≥ 80%, specificity ≥ 50% (§ 6.3).
+17. ☐ Trigger-reliability validation via the §6.5 fan-out shows recall ≥ 80%, specificity ≥ 50% (§ 6.3).
 18. ☐ Eval set archived alongside the skill (e.g., `.claude/skills/<name>/evals/eval_set.json`) so future re-validation is reproducible.
 19. ☐ Skill added to the `$Skills` array in `scripts/build-plugin.ps1` so it bundles into the plugin — and thus installs for **both** Claude Code and Codex. A skill absent from that list ships to neither host.
 
