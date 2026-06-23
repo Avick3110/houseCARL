@@ -4,6 +4,30 @@ All notable changes to houseCARL are documented here. Versioning is [semantic](h
 the `version` in `.claude-plugin/plugin.json` is bumped on each release, so installed users update only
 when it changes.
 
+## 1.4.0 — 2026-06-23
+
+Adds a ninth bundled skill — **`oar-authoring`** — houseCARL's second community-contributed skill, from
+**DrHeisen**. No change to the tool set.
+
+- **New `oar-authoring` skill.** Author or interpret Open Animation Replacer (OAR) configs — the runtime,
+  condition-driven animation system (`config.json` / `user.json`) that supersedes DAR and still reads its
+  legacy `_conditions.txt` folders. It ships a source-verified reference (the full schema, the ~120-condition
+  roster, the authoritative `IsEquippedType` enum — which OAR deliberately diverges from the vanilla
+  `GetEquippedItemType` enum at values 6/9/10/11 — value components, the DAR grammar, and the global INI),
+  plus a playbook for the counter-intuitive parts: OAR ignores plugin load order and picks winners purely by
+  the `priority` integer; the submod's top-level array is lowercase `conditions` while a nested `AND`/`OR`
+  child array is capital-C `Conditions`; `user.json` is a full-document shadow of `config.json`, not a field
+  merge; and an addon condition (Math / RaySense / IED / Detection / Dialogue) is a hard dependency that
+  silently no-ops when its DLL is absent. OAR is file-based, so the skill works the files directly
+  (Read / Glob / Write) and uses houseCARL only to resolve the forms a condition references. It complements
+  the distributor skills — it authors animation CONFIGS, while distributing forms to NPCs is SPID, keywords
+  to items is KID, and editing record fields is SkyPatcher.
+- **Validation.** Passes the `HOUSECARL_SKILL_AUTHORING.md` §8 reviewer checklist; trigger reliability via the
+  §6.5 manual fallback plus an independent cold peer-prediction (recall 10/10, specificity 10/10); §6.6
+  outcome correctness via a round-trip over 9 real-world configs (blind-interpret, diff vs ground truth) at
+  9/9 pass, 0 silent-wrong. Empirical `run_loop` re-validation on a non-Windows host is still owed, as for the
+  other skills.
+
 ## 1.3.0 — 2026-06-20
 
 The biggest release since 1.0: a VFS-aware **asset layer** (read which copy of any file wins; place a file

@@ -1,0 +1,34 @@
+{
+  "_meta": {
+    "skill": "oar-authoring",
+    "purpose": "Trigger-reliability eval per HOUSECARL_SKILL_AUTHORING.md section 6.",
+    "validation": "Manual predictions only (section 6.5 fallback). The empirical run_loop (section 6.1) must be executed in the houseCARL dev environment on WSL2/Linux/macOS (section 6.4 Windows select() caveat) before ship. Predicted recall 10/10, predicted specificity 10/10.",
+    "peer_prediction": "Independent peer-prediction check (section 6.5 item 3) performed 2026-06-23: a reviewer predicted all 20 queries cold from the description alone, with no access to the labels -- recall 10/10 (100%), specificity 10/10 (100%), zero disagreements. Re-checked after the description was trimmed to <180 words (section 3.5): still 10/10 / 10/10.",
+    "outcome_eval": "Section 6.6 outcome-correctness round-trip over 9 real-world configs (blind-interpret via the skill, diff vs ground truth): 9/9 pass (7 correct, 2 appropriately-uncertain), 0 silent-wrong. The detailed run-record is dev-local (it carries a tester's load-order paths), per repo policy.",
+    "scoring": "manual_predicted_trigger == should_trigger counts as correct."
+  },
+  "should_trigger": [
+    { "query": "my new dual-wield moveset plays even when I have an axe out, it should be swords only — fix the OAR config", "should_trigger": true, "manual_predicted_trigger": true },
+    { "query": "write a user.json so this idle only plays at night, without editing the original animation mod", "should_trigger": true, "manual_predicted_trigger": true },
+    { "query": "which submod wins for the bow draw animation, the priority 9007010 OAR one or the legacy DAR _CustomConditions 225000 one?", "should_trigger": true, "manual_predicted_trigger": true },
+    { "query": "why isn't my dodge animation playing when I have a shield equipped", "should_trigger": true, "manual_predicted_trigger": true },
+    { "query": "add a condition so this sprint animation only triggers when the actor is a vampire", "should_trigger": true, "manual_predicted_trigger": true },
+    { "query": "convert this _conditions.txt into the new OAR config format", "should_trigger": true, "manual_predicted_trigger": true },
+    { "query": "what does this config.json actually do? it has IsEquippedType 6 and a HasMagicEffect line", "should_trigger": true, "manual_predicted_trigger": true },
+    { "query": "gate the Smooth greatsword moveset behind a perk so it only applies once the player learns it", "should_trigger": true, "manual_predicted_trigger": true },
+    { "query": "set the priority on my idle replacer so it beats Leviathan Animations", "should_trigger": true, "manual_predicted_trigger": true },
+    { "query": "can I use the Math plugin condition to make this animation play based on stamina percentage?", "should_trigger": true, "manual_predicted_trigger": true }
+  ],
+  "should_not_trigger": [
+    { "query": "distribute this idle-marker spell to all bandits", "should_trigger": false, "manual_predicted_trigger": false, "note": "SPID — form distribution to NPCs, not an animation config." },
+    { "query": "write a KID ini to tag all greatswords with a custom keyword", "should_trigger": false, "manual_predicted_trigger": false, "note": "KID — keyword on items; shares 'greatswords' vocabulary but not OAR." },
+    { "query": "buff the attack damage on this sword in SkyPatcher", "should_trigger": false, "manual_predicted_trigger": false, "note": "SkyPatcher record edit." },
+    { "query": "this Papyrus script calls RegisterForAnimationEvent in an OnUpdate loop — is it heavy?", "should_trigger": false, "manual_predicted_trigger": false, "note": "papyrus-optimization — an animation EVENT in script, not an OAR config." },
+    { "query": "the NPC T-poses in his walk animation — is a skeleton node missing from the nif?", "should_trigger": false, "manual_predicted_trigger": false, "note": "nif-node-reading / behavior; not an OAR condition problem." },
+    { "query": "what biped slot does this animated armor mesh occupy?", "should_trigger": false, "manual_predicted_trigger": false, "note": "nif-mesh-inspection." },
+    { "query": "my follower's face is dark after I gave her a new animation pack", "should_trigger": false, "manual_predicted_trigger": false, "note": "facegen-diagnostics; 'animation pack' is a red herring." },
+    { "query": "add a SPID _DISTR line so guards use a different voice type", "should_trigger": false, "manual_predicted_trigger": false, "note": "SPID." },
+    { "query": "I just added a new dual-wield moveset animation mod — do I need to run Nemesis or Pandora to regenerate the behavior?", "should_trigger": false, "manual_predicted_trigger": false, "note": "Nemesis/Pandora behavior-graph generation is an animation-engine build step, not OAR config authoring (OAR is runtime and needs no behavior regen for its replacements); shares 'moveset'/'animation mod' vocabulary." },
+    { "query": "repoint the purple texture on this animated waterfall mesh", "should_trigger": false, "manual_predicted_trigger": false, "note": "nif-editing; 'animated' is a red herring." }
+  ]
+}
