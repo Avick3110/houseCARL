@@ -1145,6 +1145,56 @@ public sealed class LoadOrderService : IDisposable
         }
     }
 
+    /// <summary>Create an EMPTY, HEADER-ONLY plugin (housecarl_create_plugin) — a valid TES4 header with ZERO records,
+    /// no masters, optionally ESL-flagged, named EXACTLY <paramref name="pluginName"/>. The clean primitive for "I need
+    /// plugin <c>Foo.esp</c> to exist" (a basename-bound SKSE config trigger, a placeholder ESL, a dummy master) — it
+    /// authors no record, so it adds no conflict footprint (HCBR-2026-06-19-02). UNLIKE the patch-write paths, the name
+    /// is used VERBATIM — never auto-suffixed — because a trigger plugin's whole job is that its basename matches the
+    /// config bound to it; so a name collision REFUSES loud (Q3) rather than rename or overwrite: (a) a plugin of that
+    /// basename already active in the order (creating another would shadow it), or (b) a houseCARL mod folder of that
+    /// name already on disk. The core <see cref="WritePatchBuilder.CreatePlugin"/> builds + serializes + re-reads to
+    /// confirm; a refused create that just made the output folder leaves no orphan (hunt F4).</summary>
+    public WritePatchBuilder.CreatePluginOutcome CreatePlugin(string pluginName, bool esl = false, string? author = null, string? description = null)
+    {
+        if (string.IsNullOrWhiteSpace(pluginName))
+            return WritePatchBuilder.CreatePluginOutcome.Fail(
+                "plugin_name is required — a header-only plugin has no record to derive a name from, so name it explicitly (e.g. 'Authoria - CraftingCategories').");
+
+        var stem = PatchStem(pluginName);
+        if (string.IsNullOrWhiteSpace(stem))
+            return WritePatchBuilder.CreatePluginOutcome.Fail(
+                $"plugin_name '{pluginName}' has no usable name once path parts and the plugin extension are stripped — give a plain name like 'MyTrigger'.");
+
+        lock (_writeGate)                                                 // hunt F2: one write at a time, resolve→commit
+        {
+            if (!Directory.Exists(_modsDir))
+                return WritePatchBuilder.CreatePluginOutcome.Fail($"cannot write: ModsDir '{_modsDir}' does not exist. Check HouseCarl:ModsDir.");
+
+            // COLLISION (Q3): the basename is load-bearing for a trigger, so NEVER auto-suffix — refuse loud instead.
+            // (a) an active plugin already owns this basename — a second one would shadow it (MO2 picks one by mod order).
+            var view = Resolver.Capture();
+            foreach (var ext in PluginExts)                              // .esp / .esm / .esl
+                if (view.ContainsPlugin(stem + ext))
+                    return WritePatchBuilder.CreatePluginOutcome.Fail(
+                        $"a plugin named '{stem + ext}' is already active in your load order — a header-only trigger needs a UNIQUE basename (a second one would shadow it, MO2 picking the winner by mod order). Choose a different name.");
+            // (b) a houseCARL mod folder of this exact name already exists — don't overwrite (could clobber a real patch
+            //     sharing the name) and don't auto-rename (would break the basename trigger): refuse and point at it.
+            var folder = Path.Combine(_modsDir, ModFolderName(stem));
+            if (Directory.Exists(folder))
+                return WritePatchBuilder.CreatePluginOutcome.Fail(
+                    $"a houseCARL output folder '{ModFolderName(stem)}' already exists — houseCARL won't auto-rename a header-only plugin (its exact basename is what makes the trigger resolve). Remove that folder in MO2, or choose a different name.");
+
+            Directory.CreateDirectory(folder);
+            var plugin = stem + ".esp";
+            WriteOwnerMeta(folder, plugin);
+            var outPath = Path.Combine(folder, plugin);
+
+            var outcome = WritePatchBuilder.CreatePlugin(outPath, esl, author, description);
+            if (!outcome.Success) RemoveFolderCreatedThisCall(outPath);   // hunt F4: a refused create leaves no orphan
+            return outcome;
+        }
+    }
+
     /// <summary>Create a BRAND-NEW record (housecarl_create_record) — the net-new authoring capability, the sibling of
     /// <see cref="ApplyEdits"/>. Resolves <paramref name="recordType"/> (catalog name or 4-char signature) to ONE concrete
     /// catalog name (unknown/ambiguous → Q3), maps the field <paramref name="operations"/> to core <see cref="WriteRequest"/>s

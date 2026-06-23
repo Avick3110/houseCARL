@@ -248,6 +248,37 @@ public static class WriteTools
         return RenderForward(svc.ForwardRecords(formids, from_plugin, patch_name, into, full_readback), max_chars);
     });
 
+    [McpServerTool(Name = "housecarl_create_plugin", Title = "Create an empty header-only (trigger) plugin"),
+     Description(
+         "Create an EMPTY, HEADER-ONLY plugin — a valid TES4 header with ZERO records and no masters, in a NEW mod " +
+         "folder (originals untouched). Its only job is to EXIST so its basename resolves: the artifact that SKSE configs " +
+         "binding by plugin basename need (e.g. a CraftingCategories-style trigger that must ship 'Foo.esp' so 'Foo.json' " +
+         "loads), a placeholder ESL for FormID reservation, a deliberate empty master, or any 'I just need plugin Foo to " +
+         "be present' case. UNLIKE housecarl_create_record, it authors NO record — so it adds no conflict-tree footprint " +
+         "(no filler override needed to make the plugin non-empty). plugin_name is used EXACTLY (the basename is " +
+         "load-bearing — houseCARL will NOT auto-suffix it): if a plugin of that name is already active in the load order, " +
+         "or a houseCARL folder of that name already exists, it REFUSES loud rather than rename or overwrite (Q3). Pass " +
+         "esl=true for the lightest trigger (a header-only light plugin consumes no consequential load-order slot; with " +
+         "zero records the ESL FormID-range rule is trivially satisfied). author/description are optional TES4 header " +
+         "text. Returns the plugin path + mod folder — enable + sort it in MO2 to use it. To author actual records, use " +
+         "housecarl_create_record / housecarl_bulk_create instead.")]
+    public static string CreatePlugin(
+        LoadOrderService svc,
+        [Description("The EXACT plugin name (with or without a trailing .esp/.esm/.esl; e.g. 'Authoria - CraftingCategories'). Used VERBATIM as the basename — houseCARL will not auto-suffix it, because a trigger plugin's whole job is that its basename matches the config bound to it. The written file is '<name>.esp'.")]
+            string plugin_name,
+        [Description("When true, flag the plugin as a light master (ESL) — the lightest possible trigger: a header-only ESL consumes no consequential load-order slot. Default false (a normal full plugin).")]
+            bool esl = false,
+        [Description("Optional. Author text for the TES4 header (the CNAM field). Purely informational.")]
+            string? author = null,
+        [Description("Optional. Description text for the TES4 header (the SNAM field). Purely informational.")]
+            string? description = null) => Guard.Tool("housecarl_create_plugin", () =>
+    {
+        if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
+        if (string.IsNullOrWhiteSpace(plugin_name))
+            return "error: plugin_name is empty. Name the plugin to create (a header-only plugin has no record to derive a name from).";
+        return RenderCreatePlugin(svc.CreatePlugin(plugin_name, esl, author, description));
+    });
+
     /// <summary>Compact, parseable confirmation (rulebook: short mutation confirmation + the IDs needed for follow-up).
     /// On refusal, the full reason (every malformed/rejected op) so the caller can fix and retry.</summary>
     static string Render(WritePatchBuilder.PatchOutcome o, int maxChars = 0)
@@ -365,6 +396,25 @@ public static class WriteTools
         }
         if (o.ReadBack is { } rb) AppendFullReadback(sb, rb, maxChars);
         sb.Append("to forward more into THIS patch (incl. from a different source plugin), pass into=\"").Append(file).Append("\".");
+        return sb.ToString();
+    }
+
+    /// <summary>Confirmation for housecarl_create_plugin: the empty plugin's path + mod folder, its ESL flag, master
+    /// header (none), record count (0) and byte size, plus the MO2 enable reminder and what the trigger does. On
+    /// refusal, the named reason (Q3) so the caller can fix and retry.</summary>
+    static string RenderCreatePlugin(WritePatchBuilder.CreatePluginOutcome o)
+    {
+        if (!o.Success) return "error: " + o.Error;
+        var file = Path.GetFileName(o.OutputPath);
+        var modFolder = Path.GetFileName(Path.GetDirectoryName(o.OutputPath) ?? "");
+        var sb = new StringBuilder();
+        sb.Append("wrote ").Append(file).Append(o.Esl ? " (header-only, ESL-flagged; " : " (header-only; ")
+          .Append(o.Bytes).Append(" bytes, ").Append(o.RecordCount).Append(o.RecordCount == 1 ? " record)\n" : " records)\n");
+        sb.Append("mod folder: ").Append(modFolder).Append("  — enable + sort it in MO2 to use it\n");
+        sb.Append("masters: ").Append(o.Masters.Count == 0 ? "(none)" : string.Join(", ", o.Masters)).Append('\n');
+        sb.Append("this is a trigger/placeholder plugin: it carries no records, so it changes nothing in game by itself — ")
+          .Append("its only job is to make the basename '").Append(Path.GetFileNameWithoutExtension(file))
+          .Append("' present in the load order (so a basename-bound SKSE config resolves, a FormID range is reserved, etc.).");
         return sb.ToString();
     }
 

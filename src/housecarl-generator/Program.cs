@@ -47,6 +47,12 @@ if (args.Length > 0 && args[0] == "floi-fields-guard") return FloiFieldsProbe.Ru
 // (forward a master) + already-winner + multi + into= work, originals untouched, and the 4 Q3 rejects.
 if (args.Length > 0 && args[0] == "forward-from-plugin-guard") return ForwardFromPluginProbe.RunGuard(args[1..]);
 
+// Author an EMPTY, header-only (trigger) plugin (HCBR-2026-06-19-02): SELF-CONTAINED CI regression guard — core arms
+// write a header-only plugin straight to temp (0 records, 0 masters, ESL flag round-trip, sig TES4, author/desc), and
+// service arms drive the REAL LoadOrderService.CreatePlugin over a synthetic MO2 instance (exact-name no-suffix +
+// the two collision refusals: an already-active basename, and an existing houseCARL folder).
+if (args.Length > 0 && args[0] == "create-plugin-guard") return CreatePluginGuardProbe.RunGuard(args[1..]);
+
 // Field-value query predicate (cross_plugin_query where=): SELF-CONTAINED CI regression guard — synthesizes records
 // with known field values, asserts the evaluator's matched set == a brute-force reference + the Q3 teeth.
 if (args.Length > 0 && args[0] == "value-predicate-guard") return ValuePredicateProbe.RunGuard(args[1..]);
