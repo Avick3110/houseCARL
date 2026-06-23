@@ -20,6 +20,15 @@ public sealed class UserConfig
     /// <summary>External-tool paths the bridge saved, keyed by tool wire-name (papyrus_compiler, bsarch, papyrus_logs,
     /// crash_logs) → an absolute file/dir path. Null/absent until housecarl_set_tool_path is first called.</summary>
     public Dictionary<string, string>? ToolPaths { get; set; }
+
+    /// <summary>Resolved on-disk plugin paths (normalized, lower-cased full paths) the user has acknowledged for
+    /// IN-PLACE editing — the PERSISTENT, cross-session first-touch handshake of the in-place write lane. A path present
+    /// here means the user accepted that houseCARL writes that ORIGINAL file in place (it will no longer be untouched);
+    /// it waives the CONSENT axis ONLY, never the touched-record verify (a tool-capability fact no acknowledgement can
+    /// override). Null/absent until the first in-place acknowledgement. The third independent concern in this file —
+    /// like the other two it is read-modify-written ONLY through <see cref="UserConfigStore.Update"/> so it can never
+    /// clobber (or be clobbered by) the MO2 instance / tool paths.</summary>
+    public List<string>? InPlaceAcknowledged { get; set; }
 }
 
 /// <summary>
@@ -114,6 +123,43 @@ public sealed class UserConfigStore
             }
             catch (Exception ex) { return (false, ex.Message, note); }
         });
+    }
+
+    /// <summary>True iff <paramref name="pluginPath"/> already carries a PERSISTED in-place acknowledgement — the
+    /// cross-session first-touch handshake (in-place write lane). Normalized full-path compare, so a file is identified
+    /// the same way it was recorded regardless of the caller's path spelling. FAIL-SAFE (Q3): a missing / unreadable /
+    /// corrupt config reads as NOT acknowledged, so the handshake re-prompts rather than silently proceeding to write a
+    /// user's original. Waives the CONSENT axis only — the touched-record verify still runs.</summary>
+    public bool IsInPlaceAcknowledged(string pluginPath)
+    {
+        var key = NormalizePath(pluginPath);
+        var ack = Load().InPlaceAcknowledged;
+        return ack is not null && ack.Any(p => string.Equals(NormalizePath(p), key, StringComparison.Ordinal));
+    }
+
+    /// <summary>PERSIST an in-place acknowledgement for <paramref name="pluginPath"/> (idempotent — never duplicated),
+    /// through the same atomic read-modify-write as every other field so it can never clobber the MO2 instance / tool
+    /// paths sharing this file. Returns (ok, error): a write failure is RETURNED, not thrown (Q3 — the caller can tell
+    /// the user the edit proceeded but the acknowledgement won't survive a restart, so the next session re-prompts).</summary>
+    public (bool ok, string? error) RecordInPlaceAcknowledged(string pluginPath)
+    {
+        var key = NormalizePath(pluginPath);
+        var (ok, error, _) = Update(cfg =>
+        {
+            cfg.InPlaceAcknowledged ??= new List<string>();
+            if (!cfg.InPlaceAcknowledged.Any(p => string.Equals(NormalizePath(p), key, StringComparison.Ordinal)))
+                cfg.InPlaceAcknowledged.Add(key);
+        });
+        return (ok, error);
+    }
+
+    /// <summary>Canonical identity for an in-place acknowledgement: the full, lower-cased path, so the same on-disk file
+    /// matches whatever path spelling reaches the check. Best-effort — an un-rootable string falls back to a trimmed
+    /// lower-case compare rather than throwing (the worst case is a redundant re-prompt, never a wrong waiver).</summary>
+    static string NormalizePath(string p)
+    {
+        try { return Path.GetFullPath(p).ToLowerInvariant(); }
+        catch { return p.Trim().ToLowerInvariant(); }
     }
 
     /// <summary>The tolerant-but-LOUD read (hunt F3): missing ⇒ blank, parseable ⇒ as saved, CORRUPT ⇒ back the file up

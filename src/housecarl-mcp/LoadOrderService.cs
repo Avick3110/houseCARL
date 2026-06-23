@@ -1061,10 +1061,25 @@ public sealed class LoadOrderService : IDisposable
     /// existing houseCARL-owned patch (the multi-session accumulation lever). Returns null-Error outcome on success.
     /// <paramref name="fullReadback"/> additionally reads every touched record back IN FULL off the written file
     /// (the pre-enable verify loop — wishlist #3 re-scoped / HCBR-2026-06-11-02 wave (b)).</summary>
-    public WritePatchBuilder.PatchOutcome ApplyEdits(IReadOnlyList<BulkOp> ops, string? patchName, string? into, bool fullReadback = false)
+    public WritePatchBuilder.PatchOutcome ApplyEdits(IReadOnlyList<BulkOp> ops, string? patchName, string? into,
+        bool fullReadback = false, string? target = null, bool inPlace = false, bool acknowledge = false)
     {
         if (ops.Count == 0)
             return WritePatchBuilder.PatchOutcome.Fail("no operations supplied.");
+
+        // In-place is the explicit, named-file opt-in (the SECOND write lane — edit an existing plugin, incl. one
+        // houseCARL didn't author, instead of writing a new patch). Validate the contract up front (Q3): it REQUIRES a
+        // target=, and it is mutually exclusive with into= (which EXTENDS a houseCARL patch — a different lane). target=
+        // without in_place is a no-op the caller likely didn't mean — name it rather than silently ignore it.
+        if (inPlace && string.IsNullOrWhiteSpace(target))
+            return WritePatchBuilder.PatchOutcome.Fail(
+                "in_place=true requires target=<plugin filename> — name the existing plugin to edit in place. (Omit in_place to write a new patch instead — the default, originals untouched.)");
+        if (inPlace && !string.IsNullOrWhiteSpace(into))
+            return WritePatchBuilder.PatchOutcome.Fail(
+                "in_place=true and into= are mutually exclusive: into= EXTENDS a houseCARL patch, while in_place edits an existing plugin in place. Use one lane or the other.");
+        if (!inPlace && !string.IsNullOrWhiteSpace(target))
+            return WritePatchBuilder.PatchOutcome.Fail(
+                "target= is only meaningful with in_place=true (it names the plugin to edit in place). For the default patch lane omit target=; use into= to extend an existing houseCARL patch.");
 
         // Map every op to a core PatchEdit, collecting ALL parse problems first (all-or-nothing, like the cleave).
         // Pure parsing — runs outside the write gate so a malformed call never queues behind a real write.
@@ -1084,6 +1099,9 @@ public sealed class LoadOrderService : IDisposable
             var resolver = Resolver;                                      // builds/refreshes the index
             var rulebook = Rulebook;
 
+            if (inPlace)
+                return ApplyEditsInPlace(resolver, rulebook, edits, target!.Trim(), acknowledge);
+
             string outPath; bool extend, created;
             try { outPath = ResolveOutputPath(patchName, into, out extend, out created); }
             catch (Exception ex) { return WritePatchBuilder.PatchOutcome.Fail(ex.Message); }
@@ -1093,6 +1111,184 @@ public sealed class LoadOrderService : IDisposable
             return outcome;
         }
     }
+
+    /// <summary>The in-place branch of <see cref="ApplyEdits"/> (in-place write lane, Wave 1) — runs under _writeGate.
+    /// (1) resolves <paramref name="target"/> to its REAL on-disk path via the load order (NOT the houseCARL-owned
+    /// folder model — the foreign-plugin resolver, the sibling of <see cref="ResolveOwnedPatchFolder"/> with the
+    /// ownership gate DROPPED); (2) enforces the server-side, PERSISTENT first-touch CONSENT handshake (keyed off the
+    /// resolved path, stored in <see cref="UserConfigStore"/>); (3) checks the writable parent; (4) drives
+    /// <see cref="WritePatchBuilder.ApplyInPlace"/> with the touched-record verify forced ON; (5) on success stamps the
+    /// distinct <c>editedInPlace=</c> marker (NEVER <c>generated=true</c> — the user mod must keep failing
+    /// <see cref="IsHouseCarlOwned"/> so a later into= can't blind-overwrite it). <paramref name="acknowledge"/> waives
+    /// the CONSENT axis ONLY — the verify is a corruption-axis fact no acknowledgement overrides.</summary>
+    WritePatchBuilder.PatchOutcome ApplyEditsInPlace(
+        LoadOrderResolver resolver, CorpusRulebook rulebook, IReadOnlyList<WritePatchBuilder.PatchEdit> edits,
+        string target, bool acknowledge)
+    {
+        // (1) Resolve target -> real on-disk path via the load order (by plugin FILENAME — unique in an order). Refuse
+        //     loud if it isn't a real active plugin (closes the coincidental-folder collision the into= lane can hit).
+        var view = resolver.Capture();
+        var targetPath = ResolveActivePluginPath(view, Path.GetFileName(target.Trim()), out var targetName);
+        if (targetPath is null)
+            return WritePatchBuilder.PatchOutcome.Fail(
+                $"in-place target '{target}' is not an active plugin in the load order — name a plugin enabled in MO2, by its " +
+                "plugin filename (e.g. 'CoolWeapons.esp'). in-place edits the file the game actually loads. Nothing was written.");
+
+        // (2) CONSENT axis — the persistent, server-enforced first-touch handshake, keyed off the resolved path. NOT a
+        //     sticky mode: each in-place write still names its own target=, so this only stops re-explaining the
+        //     trade-off; it never makes an ambiguous request route to in-place.
+        bool already = _store.IsInPlaceAcknowledged(targetPath);
+        if (!already && !acknowledge)
+            return WritePatchBuilder.PatchOutcome.NeedsAck(InPlaceHandshakeText(targetName, targetPath));
+        string? ackNote = null;
+        if (!already && acknowledge)
+        {
+            var (ok, err) = _store.RecordInPlaceAcknowledged(targetPath);
+            if (!ok) ackNote = $"the in-place acknowledgement could not be saved ({err}) — the edit proceeded, but a future session will re-prompt for this plugin.";
+        }
+
+        // (3) Writable, same-volume parent pre-flight — refuse rather than degrade (the swap stages a sibling temp in
+        //     this dir; AtomicFile.Commit already refuses cross-volume loud, this catches a read-only/locked parent up
+        //     front with a clear message before any work).
+        if (InPlaceParentUnwritable(targetPath, out var why))
+            return WritePatchBuilder.PatchOutcome.Fail(why);
+
+        // (4) The write — touched-record verify forced ON (the model-C substitute for the dropped whole-plugin floor).
+        var outcome = WritePatchBuilder.ApplyInPlace(resolver, rulebook, edits, targetPath, targetName, fullReadback: true);
+
+        // (5) On success, stamp the distinct audit marker (best-effort; a marker miss never fails the done edit, Q3-noted).
+        if (outcome.Success)
+        {
+            var markerNote = MergeEditedInPlaceMarker(Path.GetDirectoryName(targetPath));
+            var note = JoinNotes(ackNote, markerNote);
+            if (note is not null) return outcome with { Note = note };
+        }
+        else if (ackNote is not null)
+        {
+            // The acknowledgement was recorded but the write then failed — keep the (now-honest) note alongside the error.
+            return outcome with { Note = ackNote };
+        }
+        return outcome;
+    }
+
+    /// <summary>Resolve an ACTIVE plugin's on-disk path by filename (in-place write lane) — exact match first, then a
+    /// lenient retry appending each plugin extension if the caller dropped it (e.g. 'CoolWeapons' → 'CoolWeapons.esp').
+    /// <paramref name="resolvedName"/> echoes the canonical filename that matched. Null ⇒ no such active plugin (the
+    /// caller refuses loud). The path is the load order's WINNING path for that filename — the file the game loads.</summary>
+    static string? ResolveActivePluginPath(LoadOrderResolver.IndexView view, string raw, out string resolvedName)
+    {
+        resolvedName = raw;
+        var direct = view.PluginPath(raw);
+        if (direct is not null) return direct;
+        if (!PluginExts.Any(e => raw.EndsWith(e, StringComparison.OrdinalIgnoreCase)))
+            foreach (var ext in PluginExts)
+            {
+                var cand = raw + ext;
+                var p = view.PluginPath(cand);
+                if (p is not null) { resolvedName = cand; return p; }
+            }
+        return null;
+    }
+
+    /// <summary>The first-touch in-place CONSENT prompt (server-enforced, shown once per plugin). States the trade-off
+    /// plainly: the original file IS the output, there's no houseCARL undo/backup, the whole plugin is re-laid-out like
+    /// xEdit/CK do on save with the touched records VERIFIED and Mutagen trusted for the rest, and the default new-patch
+    /// lane stays recommended. Waives the CONSENT axis only (re-call with acknowledge=true).</summary>
+    static string InPlaceHandshakeText(string pluginName, string path) =>
+        $"in-place edit of '{pluginName}' — first-time confirmation (shown once for this plugin):\n" +
+        $"  • This writes to your ORIGINAL file ({path}). It will NO LONGER be untouched, and houseCARL keeps NO backup or undo — keep your own.\n" +
+        "  • houseCARL re-lays-out the WHOLE plugin the way xEdit/CK do on save (every record re-serialized), VERIFIES the records you edit, and trusts Mutagen for the rest.\n" +
+        "  • It still refuses if the file can't be parsed, or carries engine-reserved (sub-0x800) records.\n" +
+        "  • The default lane (a NEW patch, originals untouched) stays the recommended way — this is the explicit opt-in.\n" +
+        "Re-call the SAME edit with acknowledge=true to proceed.";
+
+    /// <summary>Writable-parent pre-flight for the in-place swap (§6 layer 3): the staged temp is a sibling of the
+    /// target, so prove the parent is writable NOW, loud, rather than degrade to a non-atomic write later. True (with a
+    /// named <paramref name="why"/>) ⇒ refuse. Probes by writing + deleting an empty sibling temp.</summary>
+    static bool InPlaceParentUnwritable(string targetPath, out string why)
+    {
+        why = "";
+        var dir = Path.GetDirectoryName(targetPath);
+        if (string.IsNullOrEmpty(dir) || !Directory.Exists(dir))
+        {
+            why = $"in-place refused: the target's parent folder '{dir}' does not exist — nothing written.";
+            return true;
+        }
+        try
+        {
+            var probe = Path.Combine(dir, ".housecarl-writeprobe-" + Guid.NewGuid().ToString("N"));
+            File.WriteAllBytes(probe, Array.Empty<byte>());
+            File.Delete(probe);
+            return false;
+        }
+        catch (Exception ex)
+        {
+            why = $"in-place refused: the target's folder '{dir}' is not writable ({ex.GetType().Name}: {ex.Message}) — houseCARL " +
+                  "won't degrade to a non-atomic write. Make the mod folder writable (or move the plugin somewhere writable) and retry. Nothing written.";
+            return true;
+        }
+    }
+
+    /// <summary>Stamp the distinct <c>[houseCARL] editedInPlace=&lt;ISO&gt;</c> audit line into the target mod's
+    /// <c>meta.ini</c> (the MO2-undeployed mod-root file) — a breadcrumb that houseCARL touched this user mod, WITHOUT
+    /// ever writing <c>generated=true</c> (so <see cref="IsHouseCarlOwned"/> still reads FALSE and a later into= can't
+    /// blind-overwrite it — the safety property). PRESERVES every existing line (merges into / creates the
+    /// <c>[houseCARL]</c> section), and only for an MO2 mod folder under ModsDir (never pollutes the game Data dir for a
+    /// loose plugin). Best-effort: returns a Q3 note on failure (the edit already succeeded), null on success or N/A.</summary>
+    string? MergeEditedInPlaceMarker(string? modFolder)
+    {
+        try
+        {
+            if (string.IsNullOrEmpty(modFolder) || !IsUnderModsDir(modFolder)) return null;   // N/A for a non-MO2 target
+            var meta = Path.Combine(modFolder, "meta.ini");
+            var stamp = $"editedInPlace={DateTime.UtcNow:o}";
+            var lines = File.Exists(meta) ? File.ReadAllLines(meta).ToList() : new List<string>();
+
+            int sec = lines.FindIndex(l => l.Trim().Equals("[houseCARL]", StringComparison.OrdinalIgnoreCase));
+            if (sec < 0)
+            {
+                if (lines.Count > 0 && lines[^1].Trim().Length > 0) lines.Add("");
+                lines.Add("[houseCARL]");
+                lines.Add(stamp);
+            }
+            else
+            {
+                int edited = -1;
+                for (int i = sec + 1; i < lines.Count; i++)
+                {
+                    var t = lines[i].Trim();
+                    if (t.StartsWith('[') && t.EndsWith(']')) break;                          // next section — stop
+                    if (t.Replace(" ", "").StartsWith("editedInPlace=", StringComparison.OrdinalIgnoreCase)) { edited = i; break; }
+                }
+                if (edited >= 0) lines[edited] = stamp; else lines.Insert(sec + 1, stamp);    // update-or-insert within the section
+            }
+            File.WriteAllText(meta, string.Join("\r\n", lines) + "\r\n");
+            return null;
+        }
+        catch (Exception ex)
+        {
+            return $"the editedInPlace audit marker could not be written to the target's meta.ini ({ex.GetType().Name}) — the edit itself succeeded.";
+        }
+    }
+
+    /// <summary>True iff <paramref name="folder"/> is ModsDir itself or a folder directly/indirectly under it — the gate
+    /// that keeps the editedInPlace marker out of the game Data dir for a loose (non-MO2-managed) in-place target.</summary>
+    bool IsUnderModsDir(string folder)
+    {
+        if (string.IsNullOrEmpty(_modsDir)) return false;
+        try
+        {
+            var full = Path.GetFullPath(folder);
+            var mods = Path.GetFullPath(_modsDir);
+            return full.Equals(mods, StringComparison.OrdinalIgnoreCase)
+                || full.StartsWith(mods + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+        }
+        catch { return false; }
+    }
+
+    /// <summary>Join two optional Q3 notes into one (space-separated), or null when both are absent.</summary>
+    static string? JoinNotes(string? a, string? b)
+        => (a, b) switch { (null, null) => null, (null, _) => b, (_, null) => a, _ => a + " " + b };
 
     /// <summary>Remove WHOLE records a houseCARL patch carries (housecarl_remove_record) — literal drop-from-plugin, the
     /// companion to <see cref="ApplyEdits"/>. <paramref name="patch"/> is REQUIRED and names an existing houseCARL-owned
