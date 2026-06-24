@@ -8,6 +8,11 @@ using HousecarlGenerator;
 //
 // Usage:  dotnet run --project src/housecarl-generator [outputDir]   (default: ./generated)
 
+// CI optimization Phase 2B: run EVERY CI probe in ONE process (the big Mutagen assembly loads + JITs once;
+// the schema corpus reflects once via CorpusGenerator's memoize). Replaces the per-probe ci.yml steps with one
+// invocation. See CiAll + dev/plans/CI_OPTIMIZATION_RESEARCH_2026-06-24.md.
+if (args.Length > 0 && args[0] == "ci-all") return CiAll.RunAll(args[1..]);
+
 // Maintenance diagnostic: re-verify the mutable-collection whitelist on a Mutagen bump.
 if (args.Length > 0 && args[0] == "vocab") return Probe.RunVocab();
 
