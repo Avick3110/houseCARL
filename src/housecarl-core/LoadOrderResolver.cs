@@ -244,7 +244,7 @@ public sealed class LoadOrderResolver : IDisposable
     /// master is never cleaned/relocated, so it resolves to the true game-Data root in both MO2 and explicit-paths modes.
     /// The localized-strings fallback target in <see cref="OpenOverlay"/>; null (→ unchanged folder-adjacent opens
     /// everywhere) only if the order somehow lacks Skyrim.esm.</summary>
-    static string? ComputeDataDir(Dictionary<string, int> nameToIdx, string[] paths)
+    internal static string? ComputeDataDir(Dictionary<string, int> nameToIdx, string[] paths)
         => nameToIdx.TryGetValue("Skyrim.esm", out var i) ? Path.GetDirectoryName(paths[i]) : null;
 
     /// <summary>Open one plugin as a lazy binary overlay — THE single overlay-open choke point (every read/scan/index
@@ -279,7 +279,7 @@ public sealed class LoadOrderResolver : IDisposable
     /// a loose <c>Strings\</c> subfolder or any <c>.bsa</c> (which may embed strings). Cheap (one dir stat + a lazy,
     /// short-circuited <c>.bsa</c> scan; negligible beside the per-plugin overlay open it precedes). Defensive: any IO
     /// fault answers "has its own", keeping the unchanged default open — we only ever REDIRECT on a clean, empty read.</summary>
-    static bool FolderHasOwnStrings(string path)
+    internal static bool FolderHasOwnStrings(string path)
     {
         try
         {
