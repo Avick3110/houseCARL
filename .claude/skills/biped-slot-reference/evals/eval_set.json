@@ -1,0 +1,23 @@
+[
+  {"query": "i need to find every armor in my load order thats on biped slot 52 so i can sort out the SOS pelvis stuff", "should_trigger": true},
+  {"query": "what biped slot is FirstPersonFlags value 8388608, and how do i query for it", "should_trigger": true},
+  {"query": "find every record on slot 32 in the whole load order", "should_trigger": true},
+  {"query": "before i tag the pelvis-slot gear with a keyword i need to figure out which armors are actually sitting on slot 52", "should_trigger": true},
+  {"query": "does this circlet use slot 42 or one of the modder slots? how do i check what biped slot a piece occupies", "should_trigger": true},
+  {"query": "whats the bit value i pass to filter for armor on slot 49", "should_trigger": true},
+  {"query": "show me everything in my load order thats sitting on the SOS slot", "should_trigger": true},
+  {"query": "is this helmet on slot 30 or slot 31, how can i tell", "should_trigger": true},
+  {"query": "list all the armor records on biped slot 44 across my plugins", "should_trigger": true},
+  {"query": "i have FirstPersonFlags = 4194304 on a piece, which biped slot is that", "should_trigger": true},
+
+  {"query": "add the SOS pelvis keyword to all my body armors at runtime, no esp", "should_trigger": false},
+  {"query": "change the armor rating on every iron armor piece in the load order to 30", "should_trigger": false},
+  {"query": "distribute a cloak item to all bandits and forsworn", "should_trigger": false},
+  {"query": "my SOS schlong is invisible in game, the genital mesh just isnt showing up — whats wrong", "should_trigger": false},
+  {"query": "whats the difference between First Person Flags and Biped Object Flags in xEdit, conceptually", "should_trigger": false},
+  {"query": "patch this new armor set for Requiem — set its armor rating, material keywords and a tempering recipe", "should_trigger": false},
+  {"query": "the player has a neck seam and a gap at the wrists after installing this body mod, how do i fix the discoloration", "should_trigger": false},
+  {"query": "convert this cuirass from slot 32 to slot 52 so it stops clipping with my body — edit the FirstPersonFlags on the record", "should_trigger": false},
+  {"query": "find all the iron weapons in my load order so i can rebalance their damage", "should_trigger": false},
+  {"query": "how many armor addon (ARMA) records does Immersive Armors actually contain", "should_trigger": false}
+]

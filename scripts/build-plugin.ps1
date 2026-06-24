@@ -47,8 +47,8 @@ $PackagingSrc = Join-Path $RepoRoot 'packaging'        # tracked source for pack
 $ReleaseDir   = Join-Path $RepoRoot 'release'          # output dir for the shippable zip (gitignored)
 $PluginManifest = Join-Path $PluginSrc '.claude-plugin\plugin.json'   # single source of truth for the version
 
-# the 10 shipped skills (the modlist-authoring cluster was removed; tool-surface skills wait)
-$Skills = @('mutagen-reference','papyrus-reference','skypatcher-authoring','spid-authoring','kid-authoring','papyrus-optimization','facegen-diagnostics','dialogue-authoring','oar-authoring','tool-output-awareness')
+# the 11 shipped skills (the modlist-authoring cluster was removed; tool-surface skills wait)
+$Skills = @('mutagen-reference','papyrus-reference','skypatcher-authoring','spid-authoring','kid-authoring','papyrus-optimization','facegen-diagnostics','dialogue-authoring','oar-authoring','tool-output-awareness','biped-slot-reference')
 
 function Step($n,$msg) { Write-Host "`n=== [$n] $msg ===" -ForegroundColor Cyan }
 
