@@ -287,10 +287,19 @@ public static class InPlaceProbe
             string meta2 = File.Exists(userMeta) ? File.ReadAllText(userMeta) : "";
             bool createNoGenerated = !meta2.Replace(" ", "").Contains("generated=true", StringComparison.OrdinalIgnoreCase) && meta2.Contains("editedInPlace=");
 
+            // The REMOVE lane (Wave 2) likewise shares this user mod's acknowledgement AND stamps the SAME marker via the
+            // SAME helper: a remove-in-place here must NOT re-prompt (the edit's ack covers it) and must keep generated=true
+            // absent — the remove half of the cross-lane share + marker safety, end-to-end through the REAL service over a
+            // ModsDir instance. (Drops the weapon override; the created keyword above keeps the mod non-empty.)
+            var removeIP = svc.RemoveRecords(new[] { fmtWfk }, null, target: UserName, inPlace: true, acknowledge: false);
+            bool removeShared = removeIP.Success && removeIP.InPlace && !removeIP.NeedsAcknowledge;
+            string meta3 = File.Exists(userMeta) ? File.ReadAllText(userMeta) : "";
+            bool removeNoGenerated = !meta3.Replace(" ", "").Contains("generated=true", StringComparison.OrdinalIgnoreCase) && meta3.Contains("editedInPlace=");
+
             bool pass = wrote.Success && wrote.InPlace && landed && markerWritten && noGenerated && sentinelKept && ownedStaysFalse
-                     && createShared && createNoGenerated;
-            results.Add(("I editedInPlace marker + into= boundary + create-lane share (never generated=true)", pass,
-                $"wrote={wrote.Success} landed61={landed} marker={markerWritten} noGenerated={noGenerated} userSentinelKept={sentinelKept} into=StillRefusesUnowned={ownedStaysFalse} createSharesAck={createShared} createKeepsMarkerSafe={createNoGenerated}  [{Trim(wrote.Error)}]"));
+                     && createShared && createNoGenerated && removeShared && removeNoGenerated;
+            results.Add(("I editedInPlace marker + into= boundary + create+remove-lane share (never generated=true)", pass,
+                $"wrote={wrote.Success} landed61={landed} marker={markerWritten} noGenerated={noGenerated} userSentinelKept={sentinelKept} into=StillRefusesUnowned={ownedStaysFalse} createSharesAck={createShared} createKeepsMarkerSafe={createNoGenerated} removeSharesAck={removeShared} removeKeepsMarkerSafe={removeNoGenerated}  [{Trim(wrote.Error)}]"));
         }
 
         // ===== J — CREATE-INTO-TARGET: a new flat record allocates a fresh FormID IN THE TARGET; the counter ADVANCES =====

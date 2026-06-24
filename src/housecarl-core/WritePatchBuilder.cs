@@ -565,9 +565,9 @@ public static class WritePatchBuilder
             var mpath = view.PluginPath(mfn);
             if (mpath is null)
             {
-                missing = $"cannot edit '{targetMod.ModKey.FileName}' in place: its declared master '{mfn}' is not active in the " +
-                          "load order, so a faithful re-serialize can't resolve the references into it. Enable that master (or fix " +
-                          "the target's masters in xEdit) first. The file is UNTOUCHED.";
+                missing = $"cannot re-serialize '{targetMod.ModKey.FileName}' in place: its declared master '{mfn}' is not active " +
+                          "in the load order, so a faithful re-serialize can't resolve the references into it. Enable that master " +
+                          "(or fix the target's masters in xEdit) first. The file is UNTOUCHED.";
                 return Array.Empty<ISkyrimModGetter>();
             }
             var ov = SkyrimMod.CreateFromBinaryOverlay(mpath, SkyrimRelease.SkyrimSE);
