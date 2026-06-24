@@ -11,6 +11,13 @@ on:
     branches: [main]
   pull_request:
 
+# Cancel a superseded in-progress run on the SAME pull request when a newer commit is pushed
+# (saves runner time and queue contention while iterating on a PR). Never cancel main-branch
+# (push) runs — every commit that lands on main must be verified end-to-end.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   build-and-probe:
     name: build + probes
@@ -24,38 +31,52 @@ jobs:
         with:
           dotnet-version: '9.0.x'
 
+      # Cache the NuGet package restore across runs (keyed on the project files, which pin the
+      # package versions). Trims the restore inside the build step below; the build itself still
+      # compiles the whole solution fresh every run.
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj') }}
+          restore-keys: |
+            nuget-${{ runner.os }}-
+
       - name: Build the whole solution (Release)
         run: dotnet build housecarl.sln --configuration Release
 
+      # Probes run the PRE-BUILT binary directly (`dotnet <dll>`) instead of `dotnet run`, which
+      # would re-evaluate the project with MSBuild on every one of the 50+ steps. The build step
+      # above already produced bin/Release; this just executes it (no rebuild, no project eval).
       # Each probe returns 0 (pass) / non-zero (fail); a failure fails the job.
       - name: Probe — external-tool bridge (pure logic; runs fully)
-        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- tool-bridge
+        run: dotnet src/housecarl-generator/bin/Release/net9.0/housecarl-generator.dll tool-bridge
 
       - name: Probe — compile rider (stderr parser; compile layer skips without the CK compiler)
-        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- compile-probe
+        run: dotnet src/housecarl-generator/bin/Release/net9.0/housecarl-generator.dll compile-probe
 
       - name: Probe — BSA riders (skips without BSArch)
-        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- bsa-probe
+        run: dotnet src/housecarl-generator/bin/Release/net9.0/housecarl-generator.dll bsa-probe
 
       # Self-contained (synthesizes a malformed-PKCU plugin in code — no external files), so unlike the manual
       # pkcu-* proofs it runs fully here: a regression guard locking in the "Taste of Death" index-build fix.
       - name: Probe — PKCU index-build resilience (self-contained regression guard)
-        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- pkcu-regression
+        run: dotnet src/housecarl-generator/bin/Release/net9.0/housecarl-generator.dll pkcu-regression
 
       # Self-contained (synthesizes a CTDA condition whose arm carries a System.Type Parameter1Type — no external
       # files), runs fully here: a regression guard locking in the depth-walker reflection-leak fix (HCBR-2026-06-08-01).
       - name: Probe — depth-walker reflection leak (self-contained regression guard)
-        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- depth-leak-guard
+        run: dotnet src/housecarl-generator/bin/Release/net9.0/housecarl-generator.dll depth-leak-guard
 
       # Self-contained (synthesizes an INFO whose VMAD carries object/null/scalar script properties — no external
       # files), runs fully here: a regression guard locking in the VMAD script-property VALUE read (1.3.1 item 2).
       - name: Probe — VMAD script-property value read (self-contained regression guard)
-        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- vmad-property-read-guard
+        run: dotnet src/housecarl-generator/bin/Release/net9.0/housecarl-generator.dll vmad-property-read-guard
 
       # Self-contained (synthesizes a COBJ HasPerk gate + writes/reopens it as a binary overlay — no external files),
       # runs fully here: a regression guard locking in the floi form-mode FormKey read fix (HCBR-2026-06-09-02).
       - name: Probe — ConditionData form-link parameter read (self-contained regression guard)
-        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- floi-read-guard
+        run: dotnet src/housecarl-generator/bin/Release/net9.0/housecarl-generator.dll floi-read-guard
 
       # Self-contained (composes a COBJ condition in memory + writes/byte-compares two patches — no external files),
       # runs fully here: a regression guard for the condition-FLOI target set via the flat compose fields: shorthand
@@ -64,7 +85,7 @@ jobs:
       # coerce to FormLink<…>") and threw at apply. Pins: pre-flight accepts fields: FLOI, apply lands BOTH form and
       # alias-index mode, the fields: write is BYTE-IDENTICAL to sets: (full parity), and a malformed value still rejects.
       - name: "Probe — condition FLOI via compose fields shorthand (self-contained regression guard)"
-        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- floi-fields-guard
+        run: dotnet src/housecarl-generator/bin/Release/net9.0/housecarl-generator.dll floi-fields-guard
 
       # Self-contained (synthesizes a master + earlier-override + winner-override + a non-toucher in temp — no Skyrim.esm),
       # runs fully here: a regression guard for FORWARD-FROM-PLUGIN (HCBR-2026-06-21 — housecarl_forward_record). The write
@@ -75,7 +96,7 @@ jobs:
       # already-winner-flagged + multi-record + into= extend all work, the source plugins stay byte-identical, and the four
       # Q3 rejects (source not-in-order / doesn't-define / the patch itself / same target twice) refuse loud with no file.
       - name: Probe — forward-from-plugin (self-contained regression guard)
-        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- forward-from-plugin-guard
+        run: dotnet src/housecarl-generator/bin/Release/net9.0/housecarl-generator.dll forward-from-plugin-guard
 
       # Self-contained (synthesizes an MO2 instance + master in temp — no Skyrim.esm), runs fully here: a regression
       # guard for the into=-EXTEND RESOLVER (HCBR-2026-06-23 — "in-place into= can't find a houseCARL patch once its mod
@@ -85,7 +106,7 @@ jobs:
       # two owned folders sharing an .esp refuse loud + disambiguate by folder, an UN-OWNED folder stays refused (originals
       # untouched — no foreign-plugin door), and the master is byte-untouched. Still behind the ownership marker.
       - name: Probe — into=-extend resolver (renamed-folder resolution; self-contained)
-        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- extend-resolve-guard
+        run: dotnet src/housecarl-generator/bin/Release/net9.0/housecarl-generator.dll extend-resolve-guard
 
       # Self-contained (core arms write to temp; service arms synthesize an MO2 instance — no Skyrim.esm), runs fully
       # here: a regression guard for CREATE-PLUGIN (HCBR-2026-06-19-02 — housecarl_create_plugin). houseCARL's write
@@ -95,29 +116,29 @@ jobs:
       # REAL LoadOrderService.CreatePlugin (exact name — never auto-suffixed — plus the two collision refusals: an
       # already-active basename, and an existing houseCARL folder, each loud with no orphan).
       - name: Probe — create-plugin (self-contained regression guard)
-        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- create-plugin-guard
+        run: dotnet src/housecarl-generator/bin/Release/net9.0/housecarl-generator.dll create-plugin-guard
 
       # Self-contained (synthesizes records with known field values — no external files), runs fully here: a regression
       # guard for the field-value query predicate (cross_plugin_query where=) — matched set == brute-force + the Q3 teeth.
       - name: Probe — field-value query predicate (self-contained regression guard)
-        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- value-predicate-guard
+        run: dotnet src/housecarl-generator/bin/Release/net9.0/housecarl-generator.dll value-predicate-guard
 
       # Self-contained (synthesizes MGEFs + the five effect-bearing records on disk — no external files), runs fully
       # here: a regression guard for the effect-chain resolver (housecarl_effect_chain) — Resolve's carrier rows ==
       # a brute-force oracle, multi-entry + null-base + types-narrow + the Q3 gate (non-MGEF / absent → loud, unused → clean zero).
       - name: Probe — effect-chain resolver (self-contained regression guard)
-        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- effect-chain-guard
+        run: dotnet src/housecarl-generator/bin/Release/net9.0/housecarl-generator.dll effect-chain-guard
 
       # Self-contained (synthesizes a master + two overrides on disk — no external files), runs fully here: a regression
       # guard for the winner-vs-source display fix (cross_plugin_query plugins= scope) — RecordsIn pairs each body with
       # its OWN source plugin (the body the scan filtered), the winner stream with the winner. Locks wishlist #8.
       - name: Probe — winner-vs-source display (self-contained regression guard)
-        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- source-display-guard
+        run: dotnet src/housecarl-generator/bin/Release/net9.0/housecarl-generator.dll source-display-guard
 
       # Self-contained (synthesizes a patch active in its own load order — no external files), runs fully here: a
       # regression guard locking in the active-patch write self-lock fix (Heisen 2026-06-08, AllMastersExcept).
       - name: Probe — active-patch write self-lock (self-contained regression guard)
-        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- writelock-guard
+        run: dotnet src/housecarl-generator/bin/Release/net9.0/housecarl-generator.dll writelock-guard
 
       # Self-contained (synthesizes a master + a user override + a higher override in temp — no game data), runs fully
       # here: the in-place write lane Waves 1 + 1b + 2 — set_field/bulk_apply EDIT, create_record/bulk_create CREATE, and
@@ -132,25 +153,25 @@ jobs:
       # default OFF). The NESTED-record arms need a real master, so they're the manual inplace-nested-proof +
       # inplace-remove-nested-proof (self-skip here).
       - name: Probe — in-place write lane Waves 1+1b+2 (self-contained regression guard)
-        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- inplace-guard
+        run: dotnet src/housecarl-generator/bin/Release/net9.0/housecarl-generator.dll inplace-guard
 
       # Self-contained (synthesizes a corrupted-EPFT perk — no external files), runs fully here AND drives the REAL
       # service-layer scan (the first CI coverage of the mcp layer): a regression guard locking in the references=
       # per-record fault isolation + unscannable accounting (HCBR-2026-06-09-03).
       - name: Probe — references= scan fault isolation (self-contained regression guard)
-        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- perk-refs-guard
+        run: dotnet src/housecarl-generator/bin/Release/net9.0/housecarl-generator.dll perk-refs-guard
 
       # Self-contained (synthesizes a master + override with list-content arms — no external files), runs fully here
       # and drives the REAL ResolveTree (deep) + FieldsDiff: a regression guard locking in the conflict-tree CONTENT
       # diff — equal-count list deltas reported, reorder ignored, truncation honest (HCBR-2026-06-09-01).
       - name: Probe — conflict-tree content diff (self-contained regression guard)
-        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- conflict-diff-guard
+        run: dotnet src/housecarl-generator/bin/Release/net9.0/housecarl-generator.dll conflict-diff-guard
 
       # Self-contained (synthesizes its own master — no external files) and drives the REAL write paths (Apply-born
       # patch → CreateRecords into= → RemoveRecords): a regression guard locking in the FormID allocation floor —
       # object IDs >= 0x800 and a floored persisted counter from every entry path (HCBR-2026-06-09-04).
       - name: Probe — FormID allocation floor (self-contained regression guard)
-        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- formid-floor-guard
+        run: dotnet src/housecarl-generator/bin/Release/net9.0/housecarl-generator.dll formid-floor-guard
 
       # Self-contained (synthesizes its own light + full masters — no game data), drives the REAL write path (Apply →
       # the single WriteEngine.WritePatch chokepoint) + read path (LoadOrderResolver): a regression guard pinning the
@@ -158,14 +179,14 @@ jobs:
       # master-index-encoded (never 0xFE — FE is a runtime address, confirmed over 1,399 real ESL plugins), light/full
       # is discriminated by the master's OWN header flag, and the FormKey is index-independent (HCBR-2026-06-15-01 5.1).
       - name: Probe — ESL / FE-space FormID handling (self-contained regression guard)
-        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- esl-formid-guard
+        run: dotnet src/housecarl-generator/bin/Release/net9.0/housecarl-generator.dll esl-formid-guard
 
       # Self-contained (synthesizes its own master — no external files), drives the REAL create/apply paths: locks
       # in the create_record into= upsert + atomic staged write (PR #44, outside contribution, hardened in review) —
       # re-runs replace loudly in place (stable FormKeys, byte-identical, REPLACED surfaced); override / duplicate /
       # cross-type editorid collisions refuse loud; a commit blocked by a foreign handle leaves the old file intact.
       - name: Probe — create into= upsert + staged write (self-contained regression guard)
-        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- upsert-guard
+        run: dotnet src/housecarl-generator/bin/Release/net9.0/housecarl-generator.dll upsert-guard
 
       # Self-contained (synthesizes a master with a weapon + dialogue topic + interior cell — no Skyrim.esm, unlike the
       # manual nested-create-proof) and drives the REAL CreateRecords: locks in nested-record create (nested/dialogue
@@ -173,7 +194,7 @@ jobs:
       # placed-into-cell happy paths; the four Q3 rejects (no parent, can't-contain, ambiguous collection, forward
       # sibling); and the patch-carried-parent extend WORKING (a prior-into= topic resolves; a truly-absent parent refuses loud).
       - name: Probe — nested-record create (self-contained regression guard)
-        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- nested-create-guard
+        run: dotnet src/housecarl-generator/bin/Release/net9.0/housecarl-generator.dll nested-create-guard
 
       # Self-contained (synthesizes a master with a Worldspace + Weapon — no Skyrim.esm, unlike the manual coord-cell-probe
       # scout) and drives the REAL CreateRecords: locks in COORDINATE-KEYED cell create (the §4-(b) seam, dev/plans/
@@ -181,14 +202,14 @@ jobs:
       # interior cell by FormID digits (block=id%10, subblock=(id/10)%10), placed-into-not-yet-present-cell, and the four
       # malformed rejects (grid+no-parent, parent+no-grid, bad-grid, grid+non-Worldspace-parent — all no file written).
       - name: Probe — coordinate-keyed cell create (self-contained regression guard)
-        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- coord-cell-guard
+        run: dotnet src/housecarl-generator/bin/Release/net9.0/housecarl-generator.dll coord-cell-guard
 
       # Self-contained (synthesizes a master with one dialogue topic per validation shape — no external files), runs
       # fully here: a regression guard locking in the on-demand dialogue-graph validator (nested-dialogue plan §3.6,
       # Layer B unit C2 — housecarl_validate_dialogue): the graph checks (PNAM chain, quest + branch wiring), the reused
       # voice/script per-INFO teeth over EXISTING lines, the quest fan-out, and the named not-found/wrong-type rejects.
       - name: Probe — dialogue-graph validator (self-contained regression guard)
-        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- dialogue-validate-guard
+        run: dotnet src/housecarl-generator/bin/Release/net9.0/housecarl-generator.dll dialogue-validate-guard
 
       # Self-contained (synthesizes masters + a patch with own/override/non-SGE/deleted quests + a real MO2 instance), runs
       # fully here: a regression guard for the SEQ writer (nested-dialogue plan Layer B unit D — housecarl_write_seq). Pins
@@ -196,19 +217,19 @@ jobs:
       # index, NEVER 0xFE — load-order-independent, no runtime-FormID bridge), SGE-only + deleted-skip inclusion, the
       # little-endian serialization, and the REAL LoadOrderService.WriteSeq wire (same-folder default, empty no-op, refusal).
       - name: Probe — SEQ writer (self-contained regression guard)
-        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- seq-write-guard
+        run: dotnet src/housecarl-generator/bin/Release/net9.0/housecarl-generator.dll seq-write-guard
 
       # Self-contained (synthesizes masters with SGE quests + planted/omitted/aged .seq files — no Skyrim.esm), runs
       # fully here: a regression guard for the SEQ staleness/coverage lint (1.3.1 item 7 — validate_dialogue).
       - name: Probe — SEQ staleness/coverage lint (self-contained regression guard)
-        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- seq-staleness-guard
+        run: dotnet src/housecarl-generator/bin/Release/net9.0/housecarl-generator.dll seq-staleness-guard
 
       # Self-contained (synthesizes a real MO2 instance + a master with a dialogue topic) and drives the REAL
       # LoadOrderService.CreateRecords / CreateRecordsBatch: locks in the create-tool WIRE (nested/dialogue plan,
       # Layer A) — create_record's parent/collection passthrough, the new bulk_create batch tool (the same-call
       # topic + line one-shot), batch all-or-nothing, and the nested-with-no-parent guidance copy.
       - name: Probe — create-tool wire create_record parent + bulk_create (self-contained regression guard)
-        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- bulk-create-guard
+        run: dotnet src/housecarl-generator/bin/Release/net9.0/housecarl-generator.dll bulk-create-guard
 
       # Self-contained (synthesizes a master + corpus — no external files), drives the REAL CreateRecords: locks in
       # creating a CONCRETE SUBTYPE of an ABSTRACT record group (HCBR-2026-06-15-01 item 2.2 / PR-D). The two abstract
@@ -220,35 +241,35 @@ jobs:
       # real cross_plugin_query): type='Global' unions its concrete arms (GlobalFloat+GlobalInt). RED before the fix
       # (CanCreateType refused the concrete arm; BuildTypeLookup returned "unknown record type" for the base name).
       - name: Probe — create concrete subtype of an abstract record group (self-contained regression guard)
-        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- create-abstract-group-guard
+        run: dotnet src/housecarl-generator/bin/Release/net9.0/housecarl-generator.dll create-abstract-group-guard
 
       # Drives the REAL housecarl-mcp.exe over stdio — the exact wire path of the live failure; needs no game data
       # (argument binding resolves before configuration is consulted): a regression guard locking in the tool-argument
       # binding shim — string-for-array coerces, missing-required refuses by name, an uncoercible shape fails NAMED
       # (never the SDK's generic text), and the published schema stays a declared array (HCBR-2026-06-11-01).
       - name: Probe — tool-argument binding shim (drives the real server over stdio)
-        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- binding-shim-guard
+        run: dotnet src/housecarl-generator/bin/Release/net9.0/housecarl-generator.dll binding-shim-guard
 
       # Self-contained (synthesizes a master + override, then rewrites the override and rebuilds the index mid-test
       # — no external files), runs fully here: a regression guard locking in the snapshot-view capture discipline —
       # ONE captured view answers a whole logical operation (winner/touching/counters from the SAME build), pinned
       # across a real index rebuild; the real service layer rides it (HCBR-2026-06-11-02).
       - name: Probe — snapshot-view capture (self-contained regression guard)
-        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- snapshot-view-guard
+        run: dotnet src/housecarl-generator/bin/Release/net9.0/housecarl-generator.dll snapshot-view-guard
 
       # Self-contained (synthesizes a 2-plugin order + drives the REAL service read and the REAL write cleave — no
       # external files), runs fully here: a regression guard locking in the verify-loop wave (HCBR-2026-06-11-02,
       # Option A) — a plugin= read naming a not-in-order plugin gets the TRUE taxonomy (never the false "does not
       # define"), and the write tools' opt-in full read-back returns every touched record IN FULL off the written file.
       - name: Probe — verify-loop wave, plugin= taxonomy + write-time full read-back (self-contained regression guard)
-        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- verify-loop-guard
+        run: dotnet src/housecarl-generator/bin/Release/net9.0/housecarl-generator.dll verify-loop-guard
 
       # Corpus-only validator checks for the polymorphic-element surface (#35 — the VMAD write gap): paths through
       # an arm-only field validate, an arm-element compose validates against the ARM's own schema, and non-arm
       # fields / non-arm specs still reject NAMED. Self-contained — generates the corpus into a temp dir on a fresh
       # checkout; the end-to-end engine half (--source) needs game data and runs locally, not here.
       - name: Probe — polymorphic-element validator (VMAD arm fields + composes)
-        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- vmad-poly-guard
+        run: dotnet src/housecarl-generator/bin/Release/net9.0/housecarl-generator.dll vmad-poly-guard
 
       # Standalone-polymorphic-field descend (HCBR 1.1 + 1.3 / PR-A): a plain hop through a STANDALONE polymorphic
       # field (NpcConfiguration.Level, Npc.Sound, DialogResponsesAdapter.ScriptFragments) descends to its
@@ -258,7 +279,7 @@ jobs:
       # the probe can't go green on pre-flight alone if the descend-through-a-live-arm apply path ever broke.
       # Self-contained — generates the corpus into a temp dir on a fresh checkout, no game data.
       - name: Probe — standalone-polymorphic-field descend (pre-flight + in-CI apply)
-        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- poly-field-descend-guard
+        run: dotnet src/housecarl-generator/bin/Release/net9.0/housecarl-generator.dll poly-field-descend-guard
 
       # SameShape write-legality equivalence (HCBR 1.2 / PR-B): when a field is shared across a polymorphic base's
       # arms, FindField admits the path only if the arms AGREE in shape. The one corpus field that differs ONLY by
@@ -268,7 +289,7 @@ jobs:
       # APackageData.Data), and Apply-1 drives the now-admitted request on an in-memory Perk arm.
       # Self-contained — generates the corpus into a temp dir on a fresh checkout, no game data.
       - name: Probe — SameShape write-legality equivalence (self-contained regression guard)
-        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- sameshape-agree-guard
+        run: dotnet src/housecarl-generator/bin/Release/net9.0/housecarl-generator.dll sameshape-agree-guard
 
       # Corpus structural hygiene (display-leak class): the shipped mutagen-reference / corpus.json is the
       # by-construction artifact Claude authors writes against, so a reflection-walk leak into it is a Q3-adjacent
@@ -279,7 +300,7 @@ jobs:
       # name), and no degenerate field-less struct/record. Every invariant is RED-proven in-code against a synthetic
       # violation, so a GREEN means the contract holds, not that the case didn't arise. Self-contained — runs fully here.
       - name: Probe — corpus structural hygiene (self-contained regression guard)
-        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- corpus-hygiene-guard
+        run: dotnet src/housecarl-generator/bin/Release/net9.0/housecarl-generator.dll corpus-hygiene-guard
 
       # Plugin packaging validation (the 1.3 pre-release gate catch): every shipped SKILL.md frontmatter parses as
       # YAML with name+description (a parse failure makes the harness silently drop ALL metadata — the dialogue-
@@ -287,7 +308,7 @@ jobs:
       # `claude plugin validate --strict` did, by hand), and the manifest carries name+version. RED-proven in-code
       # against the exact bug. Self-contained — reads the repo's own .claude/skills/*/SKILL.md + plugin.json.
       - name: Probe — plugin packaging validation (SKILL.md frontmatter + manifest)
-        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- plugin-validate-guard
+        run: dotnet src/housecarl-generator/bin/Release/net9.0/housecarl-generator.dll plugin-validate-guard
 
       # Nested compose + serialize-boundary null-arm refusal (HCBR 1.1 null-arm half + serialize-NRE / PR-C). PART A:
       # a compose's nested set carried no `compose`, so a sets[] entry could only set a scalar, never SELECT a
@@ -299,7 +320,7 @@ jobs:
       # re-stamps the serialize-boundary NRE as a NAMED NullArmSerializeException (all-or-nothing, target untouched).
       # A1/A2/A5/B1/B2 are pure in-memory Mutagen; A3/A4 generate the corpus into a temp dir. No game data.
       - name: Probe — nested compose + serialize-boundary null-arm refusal (self-contained regression guard)
-        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- nullarm-guard
+        run: dotnet src/housecarl-generator/bin/Release/net9.0/housecarl-generator.dll nullarm-guard
 
       # FormLink null-clear (HCBR 1.6 / PR-F): clearing a FormLink with a null-synonym ("00000000"/"0") threw at apply
       # (FormKey.Factory) while pre-flight ACCEPTED it (type-only CoercibilityReject) — a Q3 accept-then-throw hole, and
@@ -308,7 +329,7 @@ jobs:
       # Teeth: C1 (pre-flight now rejects a malformed value), D (apply clears a nullable link), E (apply clears a
       # required link). Apply/serialize arms are pure in-memory Mutagen; pre-flight arms generate the corpus into a temp dir.
       - name: Probe — FormLink null-clear + value-shape pre-flight (self-contained regression guard)
-        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- formlink-null-guard
+        run: dotnet src/housecarl-generator/bin/Release/net9.0/housecarl-generator.dll formlink-null-guard
 
       # Gendered-item [0]/[1] navigable alias (HCBR 2.4+4.4 / PR-H): a GenderedItem<T> field (Armor.WorldModel, .Male/
       # .Female) RENDERS as Field[0]/[1] but feeding that back was unreadable (StepIntoElement knew only IList/IDict) and
@@ -319,7 +340,7 @@ jobs:
       # orphan), A3 (render↔nav agree), A4-IDX/SCALAR (loud refusals), SER (persists). Self-contained (in-memory records +
       # temp corpus).
       - name: Probe — gendered-item [0]/[1] navigable alias, read+write (self-contained regression guard)
-        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- gendered-nav-guard
+        run: dotnet src/housecarl-generator/bin/Release/net9.0/housecarl-generator.dll gendered-nav-guard
 
       # Instance-describe + named-profile read (HCBR-2026-06-15-01 item 9.2 / PR-I): load_order_status surfaces the resolved
       # MO2 instance PATH (same gated snapshot as the rest of the status line) and inspects any sibling profile's composition
@@ -327,7 +348,7 @@ jobs:
       # root), an unknown name lists the available ones (Q3). Asserts both the service data AND the rendered text the user
       # sees. Self-contained — synthetic MO2 instances + one synthesized master plugin in temp, no game data / no corpus.
       - name: Probe — load-order-status instance path + named-profile read (self-contained regression guard)
-        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- loadorder-status-guard
+        run: dotnet src/housecarl-generator/bin/Release/net9.0/housecarl-generator.dll loadorder-status-guard
 
       # Compile-rider ergonomics (HCBR-2026-06-15-01 / PR-J, items 6.2 + 6.3): the service-layer half. GameDirOrNull (the
       # compiler auto-detect hint) is NULL-SAFE — unconfigured / unusable-instance → null, never a throw that aborts the
@@ -335,7 +356,7 @@ jobs:
       # WITHOUT cutting a houseCARL mod folder. Pure synthetic paths (no MO2, no game data). The pure-core ToolBridge half
       # (auto-detect candidates, the looked-here prompt, cross-instance sharing) is exercised by the tool-bridge probe.
       - name: Probe — compile-rider ergonomics (GameDirOrNull null-safety + output_dir= contract)
-        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- compile-ergonomics-guard
+        run: dotnet src/housecarl-generator/bin/Release/net9.0/housecarl-generator.dll compile-ergonomics-guard
 
       # Setup update-lock pre-flight (HCBR-2026-06-15-01 item 9.1 / PR-M): re-running houseCARL-Setup.exe over a LIVE
       # install used to overwrite the running housecarl-mcp.exe (CopyDirectory's File.Copy overwrite:true), throw
@@ -346,28 +367,28 @@ jobs:
       # Claude and Codex (no copy ran, held exe byte-intact), and a held sibling DLL is caught mid-copy. Self-
       # contained — synthetic files in temp, no game data / no real host config.
       - name: Probe — setup update-lock pre-flight (self-contained regression guard)
-        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- setup-update-lock-guard
+        run: dotnet src/housecarl-generator/bin/Release/net9.0/housecarl-generator.dll setup-update-lock-guard
 
       # The compile tool's import ORDER is semantics (the CK compiler takes the FIRST matching .psc), so caller
       # import_dirs must outrank the auto-added vanilla folder — else SKSE-extended copies of vanilla scripts lose
       # to vanilla and extended calls fail despite the right folder being passed (spike findings §5.12, hit twice).
       # The pure order arm fabricates its game layout (runs fully here); the real-compile shadow arm self-skips.
       - name: Probe — compile-tool import order (import_dirs outrank vanilla)
-        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- import-order-guard
+        run: dotnet src/housecarl-generator/bin/Release/net9.0/housecarl-generator.dll import-order-guard
 
       # Render-clamp guard (2026-06-13 cosmetic sweep, render NOTEs N2+N3): the Nexus description renderer
       # truncates surrogate-safe (an emoji/astral char at the truncation boundary is never split into a lone
       # half-glyph) and decodes the &amp; entity LAST, so a double-encoded "&amp;lt;" renders the literal text
       # "&lt;" rather than double-decoding to "<". Pure string transforms — runs fully here, no game data.
       - name: Probe — render clamp (surrogate-safe truncation + &amp;-last entity decode)
-        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- render-clamp-guard
+        run: dotnet src/housecarl-generator/bin/Release/net9.0/housecarl-generator.dll render-clamp-guard
 
       # Committed-fixture contract for housecarl_decompile_script (fixtures are our OWN compiled probe sources):
       # construct fidelity vs a reviewed golden, unreadable-pex fails loud, an existing .psc is never overwritten,
       # and a missing class-hierarchy degrades to explicit casts (correct source) — runs fully here. What CI proves
       # is the DECOMPILE side; the recompile round-trip proof is the dev-side bulk gate (no CK compiler on runners).
       - name: Probe — decompile tool (fixture fidelity + output contract)
-        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- decompile-guard
+        run: dotnet src/housecarl-generator/bin/Release/net9.0/housecarl-generator.dll decompile-guard
 
       # BSA bridge contract guard (2026-06-12 adversarial hunt) — self-contained, BSArch NOT needed: the failing-
       # BSArch stand-in is a copy of the runner's own where.exe (runs, errors, writes nothing). Locks in: unpack
@@ -375,14 +396,14 @@ jobs:
       # successful extract — the false-success both hunters proved), pack provenance (a stuck stale scratch refuses
       # loud; a fresh-run mtime gates the move; the prior archive always survives), and format-token refusal.
       - name: Probe — BSA bridge contract (unpack/pack provenance, self-contained)
-        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- bsa-contract-guard
+        run: dotnet src/housecarl-generator/bin/Release/net9.0/housecarl-generator.dll bsa-contract-guard
 
       # Hierarchy-cache lifecycle (2026-06-12 adversarial hunt F1, proven): a decompile-first session must not
       # cache a baseline-only class-parents map for process lifetime — instance paths derive before the build
       # (gate-then-parents lock order) and the first derivation invalidates any earlier cache. Self-contained:
       # a synthetic MO2 instance in temp, no game data.
       - name: Probe — hierarchy-cache lifecycle (decompile-first sees the mods tree)
-        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- hierarchy-cache-guard
+        run: dotnet src/housecarl-generator/bin/Release/net9.0/housecarl-generator.dll hierarchy-cache-guard
 
       # Write-path mutex + orphan folders (2026-06-12 adversarial hunt F2+F4): the MCP SDK dispatches tool calls
       # concurrently, so the whole resolve-stage-commit of every .esp write serializes on one service-level gate —
@@ -391,7 +412,7 @@ jobs:
       # write removes the folder it created ("NO patch written" is true of the disk; no _NNN accretion on retry).
       # Self-contained: a synthetic MO2 instance + a synthesized master in temp.
       - name: Probe — write-path mutex (concurrent writes serialize; refusals leave no orphan)
-        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- write-mutex-guard
+        run: dotnet src/housecarl-generator/bin/Release/net9.0/housecarl-generator.dll write-mutex-guard
 
       # Freshness + write-capture (2026-06-12 hunt F5-F8 + the PR #51 review note): a restored-backup profile or
       # ModOrganizer.ini (newer content, OLDER mtimes) is seen — baselines compare last-seen mtimes by value, never
@@ -400,7 +421,7 @@ jobs:
       # write is in flight (never rebuilds/swaps the index under a serialize). Self-contained: synthetic MO2
       # instances + synthesized plugins in temp.
       - name: Probe — freshness + write-capture (restored backups seen; one build per answer)
-        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- freshness-capture-guard
+        run: dotnet src/housecarl-generator/bin/Release/net9.0/housecarl-generator.dll freshness-capture-guard
 
       # MO2 overwrite-folder resolution (2026-06-12 hunt F9, Aaron-picked full fix): plugins living in MO2's
       # overwrite layer — where tool outputs (Synthesis, xEdit "new file") land, listed in the profile files by
@@ -408,7 +429,7 @@ jobs:
       # warning names overwrite among the places searched. Self-contained: dummy files for the path-map arms +
       # a synthetic MO2 instance with real synthesized plugins for the end-to-end arms.
       - name: Probe — MO2 overwrite-folder resolution (tool outputs resolve, on top)
-        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- overwrite-resolve-guard
+        run: dotnet src/housecarl-generator/bin/Release/net9.0/housecarl-generator.dll overwrite-resolve-guard
 
       # Asset resolver (facegen-diagnostics step 1): VFS-aware "which mod/BSA provides this asset and which copy WINS"
       # — loose precedence (overwrite > mod-priority > Data, per-subtree cached + mtime-invalidated), loose beats BSA,
@@ -417,7 +438,7 @@ jobs:
       # (fixtures/asset-resolver/), so the whole thing runs here with NO BSArch. Only the repack/mtime arm needs
       # BSArch and self-skips on the runner.
       - name: Probe — asset resolver (loose precedence + native BSA read + at-rest cornerstone)
-        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- asset-resolver-guard
+        run: dotnet src/housecarl-generator/bin/Release/net9.0/housecarl-generator.dll asset-resolver-guard
 
       # Asset status (facegen-diagnostics Phase 2 — housecarl_asset_status): ArchiveDiscovery turns the MO2 profile into
       # the active-BSA list (co-name "X.bsa"/"X - Textures.bsa" + Skyrim.ini base archives, VFS-resolved + ranked), and
@@ -425,7 +446,7 @@ jobs:
       # from the heavy record index (asset status resolves even when no .esp is on disk). Self-contained: synthetic
       # folders/instances + the committed .bsa fixtures (fixtures/asset-resolver/), so it runs here with NO BSArch.
       - name: Probe — asset status (BSA discovery + plugin->BSA binding + freshness + tool response)
-        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- asset-status-guard
+        run: dotnet src/housecarl-generator/bin/Release/net9.0/housecarl-generator.dll asset-status-guard
 
       # MO2 instance derivation (launch-arc item 3 + hunt H1): one instance path derives the load-order roots + the
       # active profile from ModOrganizer.ini, with the Qt @ByteArray/doubled-backslash quirks handled and every missing
@@ -433,7 +454,7 @@ jobs:
       # (still usable via the instance-dir fallback, but the discarded base_directory is named, not silently dropped).
       # The real-instance arms (E5/E6) self-skip when Aaron's C:\MO2\Instance is absent; the synthetic edges run fully.
       - name: Probe — MO2 instance derivation (roots + profile + base_directory honesty)
-        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- mo2instance-probe
+        run: dotnet src/housecarl-generator/bin/Release/net9.0/housecarl-generator.dll mo2instance-probe
 
       # Crash-atomic final-swap primitive (in-place-write-lane fix): AtomicFile.Commit — the File.Replace-over-existing /
       # rename-onto-fresh swap every houseCARL FINAL-SWAP write (commit of a staged temp over the target) now funnels
@@ -442,7 +463,7 @@ jobs:
       # to a File.Move(overwrite) regression via the destination's preserved creation time, and self-skips that one check
       # with a note on a file-system-tunneling host; arm C2 proves the locked-target mid-swap fails loud + non-destructive.
       - name: Probe — atomic-commit (crash-atomic File.Replace swap primitive)
-        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- atomic-commit-guard
+        run: dotnet src/housecarl-generator/bin/Release/net9.0/housecarl-generator.dll atomic-commit-guard
 
       # Place asset (facegen-diagnostics Phase 3 — housecarl_place_asset / housecarl_bulk_place_asset): the WRITE side of
       # dark-face repair. Locks in the FormKey->FaceGen-path keystone (defining-master folder + masked id, matched against
@@ -454,7 +475,7 @@ jobs:
       # svc.AssetStatus), and the Q3 refusals (drive-rooted/'..', malformed tool specs). Self-contained: synthetic
       # folders/instances + the committed FixtureA.bsa (fixtures/asset-resolver/), so it runs here with NO BSArch.
       - name: Probe — place asset (FaceGen-path keystone + precise placer + BSA extract + wins-VFS)
-        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- place-asset-guard
+        run: dotnet src/housecarl-generator/bin/Release/net9.0/housecarl-generator.dll place-asset-guard
 
       # Localized-strings redirect DECISION (HCBR 2026-06-24): SELF-CONTAINED CI regression guard — the pure path
       # logic the localized-strings read fix turns on, with NO game files. A localized master MO2 resolves to a
@@ -466,4 +487,4 @@ jobs:
       # Skyrim.esm's dir, case-insensitive, null when absent). Temp dirs only. The end-to-end string RESOLUTION
       # (Mutagen finding the DLC strings in the game-Data BSA) is the manual strings-resolve-probe (needs real DLC + BSA).
       - name: Probe — localized-strings redirect decision (self-contained regression guard)
-        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- strings-decision-guard
+        run: dotnet src/housecarl-generator/bin/Release/net9.0/housecarl-generator.dll strings-decision-guard
