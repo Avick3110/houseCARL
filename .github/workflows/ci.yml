@@ -120,15 +120,18 @@ jobs:
         run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- writelock-guard
 
       # Self-contained (synthesizes a master + a user override + a higher override in temp — no game data), runs fully
-      # here: the in-place write lane Wave 1 (set_field/bulk_apply target=+in_place=true edits the user's ORIGINAL file).
-      # Drives the REAL WritePatchBuilder.ApplyInPlace + LoadOrderService in-place branch and RED-proves every safety
-      # property: content sourced from the TARGET not the load-order winner (no foreign-content injection) + refuse-if-
-      # undefined, the author's NextObjectID + master list preserved verbatim (WriteInPlace ≠ the patch-lane floor/baseline),
-      # the flat self-lock (winner==target, ReleaseOverlay before the swap), the persistent first-touch consent handshake
-      # (RED refuse → acknowledge writes → no re-prompt → persists cross-session via UserConfig), the resolver refusing a
-      # non-load-order target, the in_place⇔target / ⊥ into= contract, and opt-in-by-construction (params default OFF).
-      # The NESTED-record lock arm needs a real master, so it's the manual inplace-nested-proof (self-skips here).
-      - name: Probe — in-place write lane Wave 1 (self-contained regression guard)
+      # here: the in-place write lane Waves 1 + 1b + 2 — set_field/bulk_apply EDIT, create_record/bulk_create CREATE, and
+      # remove_record REMOVE, all with target=+in_place=true against the user's ORIGINAL file. Drives the REAL
+      # WritePatchBuilder.ApplyInPlace / CreateRecordsInPlace / RemoveRecordsInPlace + the LoadOrderService in-place
+      # branches and RED-proves every safety property: content sourced from the TARGET not the load-order winner (no
+      # foreign-content injection) + refuse-if-undefined, the author's NextObjectID + master list preserved verbatim on an
+      # edit (WriteInPlace ≠ the patch-lane floor/baseline) and orphaned masters pruned on a remove, the flat self-lock
+      # (winner==target, ReleaseOverlay before the swap), the persistent first-touch consent handshake SHARED across all
+      # three lanes (RED refuse → acknowledge writes → no re-prompt → persists cross-session via UserConfig), the resolver
+      # refusing a non-load-order target, the in_place⇔target / ⊥ into=/patch= contract, and opt-in-by-construction (params
+      # default OFF). The NESTED-record arms need a real master, so they're the manual inplace-nested-proof +
+      # inplace-remove-nested-proof (self-skip here).
+      - name: Probe — in-place write lane Waves 1+1b+2 (self-contained regression guard)
         run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- inplace-guard
 
       # Self-contained (synthesizes a corrupted-EPFT perk — no external files), runs fully here AND drives the REAL

@@ -110,29 +110,39 @@ public static class WriteTools
         return Render(svc.ApplyEdits(operations, patch_name, into, full_readback, target, in_place, acknowledge), max_chars);
     });
 
-    [McpServerTool(Name = "housecarl_remove_record", Title = "Remove a whole record from a patch"),
+    [McpServerTool(Name = "housecarl_remove_record", Title = "Remove a whole record from a patch (or a plugin in place)"),
      Description(
          "Remove a WHOLE record from a houseCARL patch — a literal drop-from-plugin (NOT a flag-as-deleted stub). The " +
          "companion to the edit tools: where set_field/bulk_apply ADD an override into a patch, this drops one OUT of it. " +
          "Only works on a record the patch ITSELF carries — one houseCARL created, or an override the patch accumulated " +
          "via a prior set_field/bulk_apply into=patch. You CANNOT remove a record that lives in a master/another mod; you " +
          "can only drop THIS patch's override of it, which makes the load-order winner revert (the patch stops touching " +
-         "that record). patch is REQUIRED and names an existing houseCARL-owned patch (the same name you pass to into=); " +
-         "removal targets a patch that already carries the record. Refuses loud and writes nothing (Q3) if the patch does " +
-         "not carry the FormID. Unused masters are pruned automatically — if the removed record held the patch's last " +
-         "reference to a master, that master drops from the header on the re-write. Reaches records in ANY group (incl. " +
-         "cells, placed references, dialog, navmesh). Returns what was removed, the patch's remaining masters, and how " +
-         "many records remain. To remove a list ENTRY (a keyword, an item) rather than a whole record, use set_field with " +
-         "verb=Remove instead.")]
+         "that record). patch names an existing houseCARL-owned patch (the same name you pass to into=) and is REQUIRED in " +
+         "this default lane; removal targets a patch that already carries the record. Refuses loud and writes nothing (Q3) " +
+         "if the patch does not carry the FormID. Unused masters are pruned automatically — if the removed record held the " +
+         "patch's last reference to a master, that master drops from the header on the re-write. Reaches records in ANY " +
+         "group (incl. cells, placed references, dialog, navmesh). Returns what was removed, the patch's remaining masters, " +
+         "and how many records remain. To remove the record straight from an EXISTING plugin IN PLACE instead — dropping it " +
+         "from your ORIGINAL file (incl. a mod houseCARL didn't make), not a patch — pass target=<plugin filename> + " +
+         "in_place=true (opt-in; the default patch lane leaves originals untouched). In place the rule is the same: you can " +
+         "only drop a record the TARGET file itself defines or OVERRIDES (dropping an override it holds reverts that record " +
+         "to the load-order winner underneath); a FormID the target doesn't carry is refused. To remove a list ENTRY (a " +
+         "keyword, an item) rather than a whole record, use set_field with verb=Remove instead.")]
     public static string RemoveRecord(
         LoadOrderService svc,
-        [Description("The record's FormID as 'XXXXXX:Plugin.esp' — the record to drop from the patch.")]
+        [Description("The record's FormID as 'XXXXXX:Plugin.esp' — the record to drop.")]
             string formid,
-        [Description("Filename of the houseCARL patch to remove the record from (e.g. 'MyMerge.esp' or 'MyMerge') — must be a patch houseCARL created that carries this record. Found by the plugin's filename even if you've renamed its MO2 mod folder; for two patches sharing a filename, pass the mod-folder name here instead (folder & plugin names need not match).")]
-            string patch) => Guard.Tool("housecarl_remove_record", () =>
+        [Description("DEFAULT LANE: filename of the houseCARL patch to remove the record from (e.g. 'MyMerge.esp' or 'MyMerge') — must be a patch houseCARL created that carries this record. Found by the plugin's filename even if you've renamed its MO2 mod folder; for two patches sharing a filename, pass the mod-folder name here instead (folder & plugin names need not match). REQUIRED unless you use the in-place lane (target + in_place); omit it then.")]
+            string? patch = null,
+        [Description("Optional. IN-PLACE LANE (opt-in): the filename of an EXISTING active plugin to remove the record from IN PLACE — including one houseCARL didn't author — instead of from a houseCARL patch (e.g. 'CoolWeapons.esp'). Requires in_place=true; mutually exclusive with patch. Drops only a record the TARGET itself defines or overrides; a FormID it doesn't carry is refused. OMIT this (the default) to drop the record from a houseCARL patch and leave every original untouched.")]
+            string? target = null,
+        [Description("Optional, default false. With target=, remove the record straight from that plugin IN PLACE: houseCARL rewrites your ORIGINAL file — no patch, and NO houseCARL backup or undo (keep your own). houseCARL re-lays-out the whole plugin the way xEdit/CK do on save, VERIFIES the record is gone, and trusts Mutagen for the untouched rest; it refuses a file it can't parse or that holds engine-reserved (sub-0x800) records. Any master the removal orphans is pruned from the header. The FIRST in-place write to a given plugin returns a one-time confirmation prompt (re-call with acknowledge=true).")]
+            bool in_place = false,
+        [Description("Optional, default false. Confirms the one-time in-place trade-off for target (see in_place) — needed only on the FIRST in-place write to a given plugin (edit, create, OR remove), never again for it. Waives the consent to touch your original ONLY; it NEVER skips the record verify.")]
+            bool acknowledge = false) => Guard.Tool("housecarl_remove_record", () =>
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
-        return RenderRemoval(svc.RemoveRecords(new[] { formid }, patch));
+        return RenderRemoval(svc.RemoveRecords(new[] { formid }, patch, target, in_place, acknowledge));
     });
 
     [McpServerTool(Name = "housecarl_create_record", Title = "Create a brand-new record"),
@@ -395,21 +405,37 @@ public static class WriteTools
     /// records remain (0 ⇒ inert). On refusal, the named reason (Q3) so the caller can fix and retry.</summary>
     static string RenderRemoval(WritePatchBuilder.RemovalOutcome o)
     {
+        if (o.NeedsAcknowledge) return o.Error!;            // the first-touch in-place CONSENT prompt — a required confirmation, NOT an error (Q3)
         if (!o.Success) return "error: " + o.Error;
         var file = Path.GetFileName(o.OutputPath);
         var modFolder = Path.GetFileName(Path.GetDirectoryName(o.OutputPath) ?? "");
         var sb = new StringBuilder();
         sb.Append("removed ").Append(o.Removed.Count).Append(o.Removed.Count == 1 ? " record from " : " records from ")
-          .Append(file).Append(" (").Append(o.Bytes).Append(" bytes; ")
-          .Append(o.RemainingRecords).Append(o.RemainingRecords == 1 ? " record remains)\n" : " records remain)\n");
-        sb.Append("mod folder: ").Append(modFolder).Append('\n');
+          .Append(file);
+        if (o.InPlace)
+            sb.Append(" IN PLACE (").Append(o.Bytes).Append(" bytes; ")
+              .Append(o.RemainingRecords).Append(o.RemainingRecords == 1 ? " record remains" : " records remain")
+              .Append(" — your ORIGINAL file was rewritten; no houseCARL backup or undo)\n")
+              .Append("mod folder: ").Append(modFolder).Append("  — already active in your load order; re-sort only if a winner changed\n");
+        else
+        {
+            sb.Append(" (").Append(o.Bytes).Append(" bytes; ")
+              .Append(o.RemainingRecords).Append(o.RemainingRecords == 1 ? " record remains)\n" : " records remain)\n");
+            sb.Append("mod folder: ").Append(modFolder).Append('\n');
+        }
         foreach (var r in o.Removed)
             sb.Append("  - ").Append(r.RecordType).Append(' ').Append(r.Target).Append("  ")
               .Append(r.EditorId ?? "<no editorid>").Append('\n');
         sb.Append("masters: ").Append(o.Masters.Count == 0 ? "(none)" : string.Join(", ", o.Masters)).Append('\n');
-        sb.Append(o.RemainingRecords == 0
-            ? "this patch now carries no records — it's inert; disable or delete the mod folder in MO2 if you don't need it."
-            : "re-sort in MO2 if dropping this override changes a conflict winner.");
+        if (o.Note is { } note) sb.Append("note: ").Append(note).Append('\n');
+        if (o.InPlace)
+            sb.Append(o.RemainingRecords == 0
+                ? "this plugin now carries no records — it's an inert shell; disable or delete the mod in MO2 if you don't need it."
+                : $"to remove more records from this plugin in place, pass target=\"{file}\" in_place=true (no further confirmation needed for it).");
+        else
+            sb.Append(o.RemainingRecords == 0
+                ? "this patch now carries no records — it's inert; disable or delete the mod folder in MO2 if you don't need it."
+                : "re-sort in MO2 if dropping this override changes a conflict winner.");
         return sb.ToString();
     }
 

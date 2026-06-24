@@ -1294,18 +1294,36 @@ public sealed class LoadOrderService : IDisposable
         => (a, b) switch { (null, null) => null, (null, _) => b, (_, null) => a, _ => a + " " + b };
 
     /// <summary>Remove WHOLE records a houseCARL patch carries (housecarl_remove_record) — literal drop-from-plugin, the
-    /// companion to <see cref="ApplyEdits"/>. <paramref name="patch"/> is REQUIRED and names an existing houseCARL-owned
-    /// patch (resolved + ownership-gated via the same <c>into=</c> path as an extend — refuses a folder houseCARL didn't
-    /// create, Q3); removal only makes sense against a patch that already carries the record. Parses every formid (all-or-
-    /// nothing on a malformed one), then drives <see cref="WritePatchBuilder.RemoveRecords"/> (present-check → mod.Remove →
-    /// re-serialize, with clean-masters riding along). Originals are never touched (only the patch folder is written).</summary>
-    public WritePatchBuilder.RemovalOutcome RemoveRecords(IReadOnlyList<string> formids, string? patch)
+    /// companion to <see cref="ApplyEdits"/>. In the DEFAULT lane <paramref name="patch"/> is REQUIRED and names an existing
+    /// houseCARL-owned patch (resolved + ownership-gated via the same <c>into=</c> path as an extend — refuses a folder
+    /// houseCARL didn't create, Q3); removal only makes sense against a patch that already carries the record. In the
+    /// IN-PLACE lane (Wave 2: <paramref name="target"/> + <paramref name="inPlace"/>) it drops the record from an EXISTING
+    /// plugin in place (incl. one houseCARL didn't author) instead — see <see cref="RemoveRecordsInPlace"/>. Parses every
+    /// formid (all-or-nothing on a malformed one), then drives <see cref="WritePatchBuilder.RemoveRecords"/> (present-check
+    /// → mod.Remove → re-serialize, with clean-masters riding along). The default lane never touches originals (only the
+    /// patch folder is written).</summary>
+    public WritePatchBuilder.RemovalOutcome RemoveRecords(IReadOnlyList<string> formids, string? patch,
+        string? target = null, bool inPlace = false, bool acknowledge = false)
     {
         if (formids is null || formids.Count == 0)
             return WritePatchBuilder.RemovalOutcome.Fail("no formids supplied — pass the FormID(s) of the record(s) to remove.");
-        if (string.IsNullOrWhiteSpace(patch))
+
+        // In-place is the explicit, named-file opt-in (the SECOND remove lane — drop a record from an EXISTING plugin, incl.
+        // one houseCARL didn't author, instead of from a houseCARL patch). Validate the contract up front (Q3): it REQUIRES
+        // a target=, and it is mutually exclusive with patch= (the houseCARL-owned lane). target= without in_place is a
+        // no-op the caller likely didn't mean — name it rather than silently ignore it. (Mirrors ApplyEdits' contract.)
+        if (inPlace && string.IsNullOrWhiteSpace(target))
             return WritePatchBuilder.RemovalOutcome.Fail(
-                "patch is required — name the houseCARL patch to remove the record from (removal only targets a patch that already carries it).");
+                "in_place=true requires target=<plugin filename> — name the existing plugin to remove the record from in place. (Omit in_place to drop the record from a houseCARL patch instead — the default.)");
+        if (inPlace && !string.IsNullOrWhiteSpace(patch))
+            return WritePatchBuilder.RemovalOutcome.Fail(
+                "in_place=true and patch= are mutually exclusive: patch= drops a record from a houseCARL patch, while in_place removes it from an existing plugin in place. Use one lane or the other.");
+        if (!inPlace && !string.IsNullOrWhiteSpace(target))
+            return WritePatchBuilder.RemovalOutcome.Fail(
+                "target= is only meaningful with in_place=true (it names the plugin to remove from in place). For the default lane omit target=; use patch= to name the houseCARL patch.");
+        if (!inPlace && string.IsNullOrWhiteSpace(patch))
+            return WritePatchBuilder.RemovalOutcome.Fail(
+                "patch is required — name the houseCARL patch to remove the record from (removal only targets a patch that already carries it). To remove from an existing plugin IN PLACE instead, pass target=<plugin filename> + in_place=true.");
 
         // Parse every formid first, collecting ALL problems (all-or-nothing, like the edit path). Pure — outside the gate.
         var keys = new List<FormKey>(formids.Count);
@@ -1325,6 +1343,9 @@ public sealed class LoadOrderService : IDisposable
         {
             var resolver = Resolver;                                      // builds/refreshes the index (Overlays for the re-serialize)
 
+            if (inPlace)
+                return RemoveRecordsInPlace(resolver, keys, target!.Trim(), acknowledge);
+
             // Resolve + ownership-gate the patch path via the into= (extend) path — must exist + carry the houseCARL marker.
             string outPath;
             try { outPath = ResolveOutputPath(patchName: null, into: patch, out _, out _); }
@@ -1332,6 +1353,63 @@ public sealed class LoadOrderService : IDisposable
 
             return WritePatchBuilder.RemoveRecords(resolver, keys, outPath);
         }
+    }
+
+    /// <summary>The in-place branch of <see cref="RemoveRecords"/> (in-place write lane, Wave 2) — runs under _writeGate.
+    /// The remove counterpart of <see cref="ApplyEditsInPlace"/>, and it REUSES every Wave-1 in-place seam: the same
+    /// foreign-target resolver (<see cref="ResolveActivePluginPath"/>), the same PERSISTENT first-touch CONSENT handshake
+    /// (keyed off the resolved path in <see cref="UserConfigStore"/>, SHARED with the edit + create lanes — acknowledging a
+    /// plugin once covers all three), the same writable-parent pre-flight, and the same distinct <c>editedInPlace=</c>
+    /// marker (NEVER <c>generated=true</c> — the user mod keeps failing <see cref="IsHouseCarlOwned"/> so a later into=
+    /// can't blind-overwrite it). It drives <see cref="WritePatchBuilder.RemoveRecordsInPlace"/> (drop the record from the
+    /// target's OWN file, with the absence verify forced ON). <paramref name="acknowledge"/> waives the CONSENT axis ONLY —
+    /// the verify is a corruption-axis fact no acknowledgement overrides. (No CorpusRulebook: a removal pre-flights nothing
+    /// — the present-check that the target carries the record is the whole gate.)</summary>
+    WritePatchBuilder.RemovalOutcome RemoveRecordsInPlace(
+        LoadOrderResolver resolver, IReadOnlyList<FormKey> keys, string target, bool acknowledge)
+    {
+        // (1) Resolve target -> real on-disk path via the load order (by plugin FILENAME). Refuse loud if it isn't a real
+        //     active plugin (closes the coincidental-folder collision). Same resolver as the edit + create lanes.
+        var view = resolver.Capture();
+        var targetPath = ResolveActivePluginPath(view, Path.GetFileName(target.Trim()), out var targetName);
+        if (targetPath is null)
+            return WritePatchBuilder.RemovalOutcome.Fail(
+                $"in-place target '{target}' is not an active plugin in the load order — name a plugin enabled in MO2, by its " +
+                "plugin filename (e.g. 'CoolWeapons.esp'). in-place removes from the file the game actually loads. Nothing was written.");
+
+        // (2) CONSENT axis — the persistent, server-enforced first-touch handshake, keyed off the resolved path (shared
+        //     with the edit + create lanes: acknowledging a plugin once covers editing, creating into, AND removing from
+        //     it in place — it's the same "touch your original" trade-off).
+        bool already = _store.IsInPlaceAcknowledged(targetPath);
+        if (!already && !acknowledge)
+            return WritePatchBuilder.RemovalOutcome.NeedsAck(InPlaceHandshakeText(targetName, targetPath));
+        string? ackNote = null;
+        if (!already && acknowledge)
+        {
+            var (ok, err) = _store.RecordInPlaceAcknowledged(targetPath);
+            if (!ok) ackNote = $"the in-place acknowledgement could not be saved ({err}) — the removal proceeded, but a future session will re-prompt for this plugin.";
+        }
+
+        // (3) Writable, same-volume parent pre-flight — refuse rather than degrade (the swap stages a sibling temp here).
+        if (InPlaceParentUnwritable(targetPath, out var why))
+            return WritePatchBuilder.RemovalOutcome.Fail(why);
+
+        // (4) The write — absence verify forced ON (the model-C substitute for the dropped whole-plugin floor).
+        var outcome = WritePatchBuilder.RemoveRecordsInPlace(resolver, keys, targetPath, targetName);
+
+        // (5) On success, stamp the distinct audit marker (best-effort; a marker miss never fails the done removal, Q3-noted).
+        if (outcome.Success)
+        {
+            var markerNote = MergeEditedInPlaceMarker(Path.GetDirectoryName(targetPath));
+            var note = JoinNotes(ackNote, markerNote);
+            if (note is not null) return outcome with { Note = note };
+        }
+        else if (ackNote is not null)
+        {
+            // The acknowledgement was recorded but the write then failed — keep the (now-honest) note alongside the error.
+            return outcome with { Note = ackNote };
+        }
+        return outcome;
     }
 
     /// <summary>Forward a NAMED plugin's version of one-or-more records into a patch as an override (housecarl_forward_record)
