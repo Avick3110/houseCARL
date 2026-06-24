@@ -455,3 +455,15 @@ jobs:
       # folders/instances + the committed FixtureA.bsa (fixtures/asset-resolver/), so it runs here with NO BSArch.
       - name: Probe — place asset (FaceGen-path keystone + precise placer + BSA extract + wins-VFS)
         run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- place-asset-guard
+
+      # Localized-strings redirect DECISION (HCBR 2026-06-24): SELF-CONTAINED CI regression guard — the pure path
+      # logic the localized-strings read fix turns on, with NO game files. A localized master MO2 resolves to a
+      # strings-less mod folder (the "Cleaned Base Game Masters" pattern) read its FULL/Name EMPTY because Mutagen's
+      # per-plugin strings lookup only scans the plugin's OWN folder; OpenOverlay redirects the lookup to the real
+      # game-Data folder ONLY when the plugin's own folder carries no strings source. Locks the two decision pieces
+      # most likely to silently regress: FolderHasOwnStrings (loose Strings\ OR a .bsa ⇒ keep the default; bare ⇒
+      # redirect; a bad read ⇒ defensive keep-default) and ComputeDataDir (the fallback target = the resolved
+      # Skyrim.esm's dir, case-insensitive, null when absent). Temp dirs only. The end-to-end string RESOLUTION
+      # (Mutagen finding the DLC strings in the game-Data BSA) is the manual strings-resolve-probe (needs real DLC + BSA).
+      - name: Probe — localized-strings redirect decision (self-contained regression guard)
+        run: dotnet run --project src/housecarl-generator --configuration Release --no-build -- strings-decision-guard
