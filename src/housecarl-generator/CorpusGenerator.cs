@@ -23,23 +23,17 @@ public static class CorpusGenerator
     static readonly List<string> Warnings = new();
 
     // The reflection walk over Mutagen's whole type library is the dominant CI cost (~11.5s) and is
-    // PROCESS-DETERMINISTIC (same assembly -> same corpus). Memoize it: the first GenerateAll in a process
-    // does the real walk and caches the Corpus; later calls reuse it and only re-emit the outputs to the
-    // caller's dir. Transparent to every caller — a standalone probe process calls GenerateAll once (cache
-    // empty -> full walk, unchanged), while the in-process CI runner (ci-all) calls it ~21x and reflects ONCE.
-    static Corpus? _cachedCorpus;
-    static readonly object _corpusCacheLock = new();
+    // PROCESS-DETERMINISTIC (same assembly -> same corpus). Memoize it via Lazy (ExecutionAndPublication): the
+    // FIRST GenerateAll in a process walks Mutagen exactly once — thread-safe even under concurrent first-callers
+    // — and every later call reuses the cached Corpus and only re-emits outputs to the caller's dir. Transparent:
+    // a standalone probe process walks once (unchanged); the in-process CI runner (ci-all) calls GenerateAll ~21x
+    // and still reflects ONCE.
+    static readonly Lazy<Corpus> CachedCorpus = new(BuildCorpus, LazyThreadSafetyMode.ExecutionAndPublication);
 
-    public static int GenerateAll(string outputDir, string refDir)
+    public static int GenerateAll(string outputDir, string refDir) => EmitCorpus(CachedCorpus.Value, outputDir, refDir);
+
+    static Corpus BuildCorpus()
     {
-        lock (_corpusCacheLock)
-        {
-            if (_cachedCorpus != null)
-            {
-                Console.WriteLine("Reusing the in-process Mutagen corpus (reflected once this run) — re-emitting outputs only.");
-                return EmitCorpus(_cachedCorpus, outputDir, refDir);
-            }
-        }
         Warnings.Clear();
         var asm = typeof(IArmorGetter).Assembly; // Mutagen.Bethesda.Skyrim
         Console.WriteLine($"Walking the full Mutagen type corpus via reflection...");
@@ -157,9 +151,7 @@ public static class CorpusGenerator
         // categories. Anything outside them is flagged in Report's anomaly list (a possible lost
         // setter — a content field silently dropping out of the writable surface).
         AuditWritability(corpus);
-
-        lock (_corpusCacheLock) { _cachedCorpus = corpus; }
-        return EmitCorpus(corpus, outputDir, refDir);
+        return corpus;
     }
 
     /// <summary>Write the corpus' artifacts (corpus.json + summary + the slim reference tree) into the

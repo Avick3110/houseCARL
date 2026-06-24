@@ -57,4 +57,7 @@ jobs:
       # straddle a fixed ~100ms sleep — only true in a cold process. The warm ci-all runner finishes the write
       # too fast to land that race, so it is carved out here (cold). See the note in CiAll.cs.
       - name: Probe — freshness + write-capture (own cold process; timing-sensitive deferral arm)
+        # Run even if ci-all failed (but not if the run was cancelled), so one red run still shows whether
+        # freshness passes — the same "report every failure" posture as the ci-all runner itself.
+        if: ${{ !cancelled() }}
         run: dotnet src/housecarl-generator/bin/Release/net9.0/housecarl-generator.dll freshness-capture-guard

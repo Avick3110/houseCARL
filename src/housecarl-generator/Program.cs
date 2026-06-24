@@ -13,6 +13,11 @@ using HousecarlGenerator;
 // invocation. See CiAll + dev/plans/CI_OPTIMIZATION_RESEARCH_2026-06-24.md.
 if (args.Length > 0 && args[0] == "ci-all") return CiAll.RunAll(args[1..]);
 
+// Single-probe runs of any CI guard dispatch through CiAll.Probes (the ONE CI source of truth), so a guard can't
+// be runnable locally yet missing from the CI run (the Q3 coverage-gap class). freshness-capture-guard (the cold
+// carve-out) and the manual/exploratory probes below keep their own explicit dispatch.
+if (args.Length > 0 && CiAll.TryDispatch(args[0], args[1..], out var ciRc)) return ciRc;
+
 // Maintenance diagnostic: re-verify the mutable-collection whitelist on a Mutagen bump.
 if (args.Length > 0 && args[0] == "vocab") return Probe.RunVocab();
 
@@ -25,189 +30,17 @@ if (args.Length > 0 && args[0] == "pkcu-fix-proof") return PkcuProbe.RunFixProof
 // Index-build resilience (Nexus bug): real-scale proof — full MO2 order + 1 malformed plugin, only it excluded.
 if (args.Length > 0 && args[0] == "pkcu-scale-proof") return PkcuProbe.RunScaleProof(args[1..]);
 
-// Index-build resilience (Nexus bug): SELF-CONTAINED CI regression guard — synthesizes the malformed PKCU, asserts isolation.
-if (args.Length > 0 && args[0] == "pkcu-regression") return PkcuProbe.RunRegression(args[1..]);
-
-// Depth-walker reflection leak (HCBR-2026-06-08-01): SELF-CONTAINED CI regression guard — synthesizes a CTDA
-// condition whose arm carries a System.Type Parameter1Type, asserts a deep read renders it as one opaque token.
-if (args.Length > 0 && args[0] == "depth-leak-guard") return DepthLeakProbe.RunGuard(args[1..]);
-
-// VMAD script-property VALUE read (1.3.1 item 2): SELF-CONTAINED CI regression guard — synthesizes an INFO whose
-// VMAD carries object/null/scalar script properties, asserts a depth=2 read surfaces each property's value one
-// bounded level deeper (Object FormLink, "(null link)" for declared-but-None, Data scalar) while the summary line
-// is kept and a non-property substruct still stops at the floor.
-if (args.Length > 0 && args[0] == "vmad-property-read-guard") return VmadPropertyReadProbe.RunGuard(args[1..]);
-
-// ConditionData form-link parameter read (HCBR-2026-06-09-02): SELF-CONTAINED CI regression guard — synthesizes a
-// COBJ HasPerk gate, asserts the form-mode FLOI renders its FormKey (and alias mode its index) on overlay + mutable.
-if (args.Length > 0 && args[0] == "floi-read-guard") return FloiReadProbe.RunGuard(args[1..]);
-
-// Condition FLOI target via the flat compose fields: shorthand (HCBR-2026-06-22): SELF-CONTAINED CI regression guard —
-// composes a GetEquipped.ItemOrList via fields: AND sets:, asserts both land (form + index mode) and are byte-identical.
-if (args.Length > 0 && args[0] == "floi-fields-guard") return FloiFieldsProbe.RunGuard(args[1..]);
-
-// Forward a NAMED plugin's version of a record as an override (HCBR-2026-06-21): SELF-CONTAINED CI regression guard —
-// synthesizes a master + earlier-override + winner-override + a non-toucher, drives the REAL WritePatchBuilder.ForwardRecords,
-// asserts the EARLIER plugin's version (not the winner) is copied, the header carries only the origin master, revert-to-vanilla
-// (forward a master) + already-winner + multi + into= work, originals untouched, and the 4 Q3 rejects.
-if (args.Length > 0 && args[0] == "forward-from-plugin-guard") return ForwardFromPluginProbe.RunGuard(args[1..]);
-
-// into=-extend RESOLVER (HCBR-2026-06-23): SELF-CONTAINED CI regression guard — a renamed houseCARL mod folder is still
-// found by the .esp basename it holds (the fixed name) AND by the folder name itself (names need not match); two owned
-// folders sharing an .esp refuse loud + disambiguate by folder; an un-owned folder stays refused (originals untouched); the master is byte-untouched.
-if (args.Length > 0 && args[0] == "extend-resolve-guard") return ExtendResolveProbe.RunGuard(args[1..]);
-
-// Author an EMPTY, header-only (trigger) plugin (HCBR-2026-06-19-02): SELF-CONTAINED CI regression guard — core arms
-// write a header-only plugin straight to temp (0 records, 0 masters, ESL flag round-trip, sig TES4, author/desc), and
-// service arms drive the REAL LoadOrderService.CreatePlugin over a synthetic MO2 instance (exact-name no-suffix +
-// the two collision refusals: an already-active basename, and an existing houseCARL folder).
-if (args.Length > 0 && args[0] == "create-plugin-guard") return CreatePluginGuardProbe.RunGuard(args[1..]);
-
-// Field-value query predicate (cross_plugin_query where=): SELF-CONTAINED CI regression guard — synthesizes records
-// with known field values, asserts the evaluator's matched set == a brute-force reference + the Q3 teeth.
-if (args.Length > 0 && args[0] == "value-predicate-guard") return ValuePredicateProbe.RunGuard(args[1..]);
-
-// Effect-chain resolver (housecarl_effect_chain, gap 2026-06-08): SELF-CONTAINED CI regression guard — synthesizes
-// MGEFs + the five effect-bearing records (SPEL/ENCH/ALCH/SCRL/INGR) with KNOWN magnitudes referencing them, asserts
-// Resolve's carrier rows == a brute-force oracle, multi-entry + null-base + types-narrow + the Q3 gate (non-MGEF /
-// absent → loud, unused → clean zero).
-if (args.Length > 0 && args[0] == "effect-chain-guard") return EffectChainProbe.RunGuard(args[1..]);
-
-// Winner-vs-source display (wishlist #8): SELF-CONTAINED CI regression guard — synthesizes a master + two overrides
-// (B wins) and asserts RecordsIn pairs each yielded body with its OWN source plugin, the winner stream with the winner.
-if (args.Length > 0 && args[0] == "source-display-guard") return SourceDisplayProbe.RunGuard(args[1..]);
-
-// Tool-argument binding shim (HCBR-2026-06-11-01): drives the REAL housecarl-mcp.exe over stdio with the report's
-// exact malformed argument shapes — string-for-array coerces, missing-required refuses by name, uncoercible fails named.
-if (args.Length > 0 && args[0] == "binding-shim-guard") return BindingShimProbe.RunGuard(args[1..]);
-
-// Snapshot-view capture (HCBR-2026-06-11-02): SELF-CONTAINED CI regression guard — a captured IndexView answers
-// winner/touching/counters from ONE build even when the index rebuilds mid-operation; the real service rides it.
-if (args.Length > 0 && args[0] == "snapshot-view-guard") return SnapshotViewProbe.RunGuard(args[1..]);
-
-// Verify-loop wave (HCBR-2026-06-11-02, Option A): SELF-CONTAINED CI regression guard — a plugin= read naming a
-// not-in-order plugin gets the TRUE taxonomy (never "does not define"), and the write cleave's opt-in fullReadback
-// hands back every touched/created record IN FULL off the written file (the pre-enable verify loop).
-if (args.Length > 0 && args[0] == "verify-loop-guard") return VerifyLoopProbe.RunGuard(args[1..]);
-
-// Polymorphic-element validator surface (#35 — the VMAD write gap): arm-field paths + arm-element composes
-// pass pre-flight; non-arm fields/specs still reject named. --source <Skyrim.esm> adds the end-to-end engine proof.
-if (args.Length > 0 && args[0] == "vmad-poly-guard") return VmadPolyProbe.RunGuard(args[1..]);
-
-// Standalone-polymorphic-field descend (HCBR 1.1 + 1.3 / PR-A): a plain hop through a STANDALONE poly field
-// (NpcConfiguration.Level, Npc.Sound, DialogResponsesAdapter.ScriptFragments) descends to its poly-base so the
-// over-arms search resolves the next hop; a field on no arm still rejects naming the arms; the same path applies
-// end-to-end through a live arm (asserted IN CI on an in-memory NPC, not behind --source).
-if (args.Length > 0 && args[0] == "poly-field-descend-guard") return PolyFieldDescendProbe.RunGuard(args[1..]);
-
-// SameShape write-legality equivalence (HCBR 1.2 / PR-B): a field shared across a poly base's arms that differs
-// ONLY by the Nullable<T> wrapper (APerkEffect.Value: float vs float?) now AGREES at pre-flight (the engine
-// unwraps Nullable<T> when it coerces); genuine conflicts on either axis the AQ check defends stay rejected
-// (cardinality: Condition.ComparisonValue; underlying type: APackageData.Data). Apply-1 drives the now-admitted
-// request end-to-end on an in-memory Perk. Self-contained (generated corpus + in-memory Mutagen).
-if (args.Length > 0 && args[0] == "sameshape-agree-guard") return SameShapeAgreeProbe.RunGuard(args[1..]);
-
-// Nested compose + serialize-boundary null-arm refusal (HCBR 1.1 null-arm half + serialize-NRE / PR-C): a compose's
-// nested set can SELECT a polymorphic sub-arm (NestedSet.compose → MapStruct propagates it into WriteRequest.Struct,
-// which the core already applies + validates end-to-end); and a COMPOSED record left with a required polymorphic
-// sub-field null fails serialize as a NAMED NullArmSerializeException (not a bare NRE), all-or-nothing, while a
-// genuinely-optional null poly field still serializes fine. Self-contained (in-memory Mutagen + generated corpus).
-if (args.Length > 0 && args[0] == "nullarm-guard") return NullArmGuardProbe.RunGuard(args[1..]);
-
-// FormLink null-clear (HCBR 1.6 / PR-F): a Set clearing a FormLink with a null-synonym ("00000000"/"0") threw at
-// apply (FormKey.Factory) while pre-flight ACCEPTED it (type-only CoercibilityReject) — a Q3 accept-then-throw hole,
-// and a required link had no clear path. ONE shared recognizer (IsFormKeyNullSynonym) routes a synonym to
-// FormKey.Null on apply and validates the formlink value shape at pre-flight; a real 6-hex FormID is never swallowed.
-// Self-contained: apply/serialize arms are pure in-memory Mutagen; pre-flight arms generate the corpus into a temp dir.
-if (args.Length > 0 && args[0] == "formlink-null-guard") return FormLinkNullProbe.RunGuard(args[1..]);
-
-// Gendered-item [0]/[1] navigable alias (HCBR 2.4+4.4 / PR-H): a GenderedItem<T> field renders as Field[0]/[1] but
-// was unreadable + unwritable in that form; the fix makes [0]=male/[1]=female a true read+write alias (materialize-
-// and-write-back on write, render via the same index→arm mapping). Self-contained: in-memory records + temp corpus.
-if (args.Length > 0 && args[0] == "gendered-nav-guard") return GenderedNavProbe.RunGuard(args[1..]);
-
-// BSA bridge contract guard (2026-06-12 adversarial hunt): unpack success = entries THIS RUN (the pre-seeded
-// meta.ini no longer reads as success), pack provenance (stuck stale scratch refuses), unknown format= refuses.
-if (args.Length > 0 && args[0] == "bsa-contract-guard") return BsaContractProbe.RunGuard(args[1..]);
-
-// Hierarchy-cache lifecycle (2026-06-12 hunt F1): a decompile-first session must NOT cache a baseline-only
-// class-parents map for process lifetime — paths derive before the build; the first derivation invalidates.
-if (args.Length > 0 && args[0] == "hierarchy-cache-guard") return HierarchyCacheProbe.RunGuard(args[1..]);
-
-// Write-path mutex + orphan folders (2026-06-12 hunt F2+F4): concurrent writes serialize (distinct outputs, own
-// bytes, no lost extend), and a pre-flight-refused fresh write removes the folder it created (no _NNN accretion).
-if (args.Length > 0 && args[0] == "write-mutex-guard") return WriteMutexProbe.RunGuard(args[1..]);
-
 // Freshness + write-capture guard (2026-06-12 hunt F5–F8 + PR #51 review note): restored-backup profile/ini
 // changes (older mtimes) are seen; one status line / one multi-op write composes from ONE build; a concurrent
 // read's freshness refresh defers while a write is in flight (never rebuilds under a serialize).
 if (args.Length > 0 && args[0] == "freshness-capture-guard") return FreshnessCaptureProbe.RunGuard(args[1..]);
 
-// Instance-describe + named-profile read (HCBR-2026-06-15-01 item 9.2 / PR-I): load_order_status now surfaces the
-// resolved MO2 instance PATH (captured in the same gated snapshot) and reads any sibling profile's composition WITHOUT
-// switching (cheap text parse, no index build) — explicit-paths mode refuses loud (no profiles root), an unknown name
-// names the available ones (Q3). Self-contained: synthetic instances + one synthesized master, no game data / no corpus.
-if (args.Length > 0 && args[0] == "loadorder-status-guard") return LoadOrderStatusProbe.RunGuard(args[1..]);
-
-// Compile-rider ergonomics (HCBR-2026-06-15-01 / PR-J, items 6.2 + 6.3): the service-layer half — GameDirOrNull is
-// NULL-SAFE (the compiler auto-detect hint falls through to the forcing prompt, never throws), and the output_dir=
-// contract appends Scripts\ with a double-Scripts guard + a Q3 deployability warning, WITHOUT cutting a houseCARL mod
-// folder. Pure synthetic paths; the pure-core ToolBridge half is in the tool-bridge probe.
-if (args.Length > 0 && args[0] == "compile-ergonomics-guard") return CompileErgonomicsProbe.RunGuard(args[1..]);
-
-// Setup update-lock pre-flight (HCBR-2026-06-15-01 item 9.1 / PR-M): re-running houseCARL-Setup over a LIVE
-// install used to overwrite the running housecarl-mcp.exe (CopyDirectory's File.Copy overwrite:true), throw
-// mid-copy, and leave a half-updated tree. Drives the now-probeable Program.TryInstall: a clean install
-// succeeds, a held server exe refuses at PRE-FLIGHT before any copy (both Claude + Codex), and a held sibling
-// DLL is caught mid-copy as defense in depth. Self-contained: synthetic package + temp home, no game data.
-if (args.Length > 0 && args[0] == "setup-update-lock-guard") return SetupUpdateLockProbe.RunGuard(args[1..]);
-
-// MO2 overwrite-folder resolution (2026-06-12 hunt F9): plugins living in MO2's overwrite layer resolve at
-// HIGHEST priority (top of the VFS — where Synthesis/xEdit tool outputs land), and the can't-resolve warning
-// names overwrite among the places searched.
-if (args.Length > 0 && args[0] == "overwrite-resolve-guard") return OverwriteResolveProbe.RunGuard(args[1..]);
-
-// Asset resolver (facegen-diagnostics step 1): VFS-aware "which mod/BSA provides this asset and which copy WINS"
-// (loose: overwrite>mod-priority>Data; loose beats BSA; BSA by plugin rank). Self-contained: loose, committed-
-// .bsa-fixture (native-Mutagen read, no BSArch), at-rest, and negative arms all run on CI; an optional BSArch
-// path adds the repack/mtime arm.
-if (args.Length > 0 && args[0] == "asset-resolver-guard") return AssetResolverProbe.RunGuard(args[1..]);
-
-// Asset status (facegen-diagnostics Phase 2 — housecarl_asset_status): ArchiveDiscovery turns the MO2 profile into the
-// active-BSA list (co-name "X.bsa"/"X - Textures.bsa" + Skyrim.ini base archives, VFS-resolved + ranked), and
-// LoadOrderService wraps the AssetResolver into the tool response — kept fresh on a profile change and DECOUPLED from
-// the heavy record index. Self-contained: synthetic folders/instances + the committed .bsa fixtures, NO BSArch.
-if (args.Length > 0 && args[0] == "asset-status-guard") return AssetStatusProbe.RunGuard(args[1..]);
-
-// Place asset (facegen-diagnostics Phase 3 — housecarl_place_asset / housecarl_bulk_place_asset): the FormKey→FaceGen-path
-// keystone (defining-master folder + masked id), native BSA single-entry extraction with ZERO handles at rest, the
-// crash-atomic non-destructive place, the precise placer (explicit + auto-resolved source; ambiguity refused, not
-// guessed), the wins-VFS end-to-end story through the REAL service, and the Q3 refusals. Self-contained: synthetic
-// folders/instances + the committed FixtureA.bsa, NO BSArch.
-if (args.Length > 0 && args[0] == "place-asset-guard") return PlaceAssetProbe.RunGuard(args[1..]);
-
-// Compile-tool import order: caller import_dirs OUTRANK the vanilla auto-import (first match wins, so
-// SKSE-extended copies of vanilla sources must win). Pure order arm always runs; real-compile arm self-skips.
-if (args.Length > 0 && args[0] == "import-order-guard") return ImportOrderProbe.RunGuard(args[1..]);
-
-// Render-clamp guard (2026-06-13 cosmetic sweep, render NOTEs N2+N3): the Nexus description renderer
-// truncates surrogate-safe (an emoji at the clamp boundary is never split into a lone half-glyph) and
-// decodes &amp; LAST so a double-encoded "&amp;lt;" renders the literal "&lt;", not "<". Pure strings.
-if (args.Length > 0 && args[0] == "render-clamp-guard") return RenderClampProbe.RunGuard(args[1..]);
-
 // Decompiler baseline hierarchy: emit vanilla-class-parents.json from the CK vanilla sources' own
 // ScriptName-extends headers (committed asset — vanilla sources don't exist on CI; regenerate on game updates).
 if (args.Length > 0 && args[0] == "class-parents") return ClassParentsEmitter.Run(args[1..]);
 
-// Decompile guard: committed-fixture contract for housecarl_decompile_script — construct fidelity vs golden,
-// unreadable-pex loud, never-overwrite, soft hierarchy degradation. Self-contained (fixtures are ours, committed).
-if (args.Length > 0 && args[0] == "decompile-guard") return DecompileGuardProbe.RunGuard(args[1..]);
-
 // Localized-strings read fix (Heisen 2026-06-24): DLC master resolved to a strings-less mod folder reads Name EMPTY.
 if (args.Length > 0 && args[0] == "strings-resolve-probe") return StringsResolveProbe.Run(args[1..]);
-
-// Localized-strings redirect DECISION (HCBR 2026-06-24): SELF-CONTAINED CI guard — FolderHasOwnStrings + ComputeDataDir over temp dirs.
-if (args.Length > 0 && args[0] == "strings-decision-guard") return StringsDecisionProbe.RunGuard(args[1..]);
 
 // One-shot verify (decision #1): confirm the xEdit 4-char signature reflection path.
 if (args.Length > 0 && args[0] == "sig") return Probe.RunSig();
@@ -244,11 +77,6 @@ if (args.Length > 0 && args[0] == "nested-create-proof") return NestedCreateProo
 // constructed cell into find-or-built WorldspaceBlock/SubBlock (exterior, floor(grid/32|8)) and CellBlock/SubBlock
 // (interior, FormID digits), checks override is thin, block math vs vanilla, OFST regen, source byte-unchanged.
 if (args.Length > 0 && args[0] == "coord-cell-probe") return CoordCellProbe.RunProbe(args[1..]);
-
-// CI regression guard for coordinate-keyed cell create (§4-(b)): drives the REAL CreateRecords path against a
-// synthesized Worldspace+Weapon master in TEMP (no Skyrim.esm) — exterior by grid, interior by FormID digits,
-// placed-into-new-cell, + the malformed rejects (no-worldspace / no-grid / bad-grid / non-worldspace-parent).
-if (args.Length > 0 && args[0] == "coord-cell-guard") return CoordCellGuardProbe.RunGuard(args[1..]);
 
 // Wave 4 scout: recon Mutagen's IFormLinkOrIndex condition-target API — the form-vs-index discriminator (condition oracle), the wave-4 unknown.
 if (args.Length > 0 && args[0] == "condition-probe") return ConditionProbe.RunConditionProbe(args[1..]);
@@ -319,17 +147,8 @@ if (args.Length > 0 && args[0] == "create-probe") return CreateProbe.RunProbe(ar
 // Capability arc create proof: drive WritePatchBuilder.CreateRecords (the core housecarl_create_record calls) vs a real, large load order.
 if (args.Length > 0 && args[0] == "create-proof") return CreateProof.RunCreateProof(args[1..]);
 
-// Create a CONCRETE SUBTYPE of an ABSTRACT record group (HCBR 2.2 / PR-D): SELF-CONTAINED CI regression guard —
-// create_record 'GlobalFloat' + 'GameSettingFloat' succeed (the by-construction generality: two distinct abstract
-// groups off ONE branch, never a GLOB special-case), set Data + round-trip, upsert-replace in place, and the bare
-// abstract base ('Global') refuses loud naming the arms.
-if (args.Length > 0 && args[0] == "create-abstract-group-guard") return CreateGlobalProbe.RunGuard(args[1..]);
-
 // Master-baseline scout: how to FORCE Skyrim.esm onto every written plugin (Mutagen strips unreferenced masters) — Aaron-flagged bug.
 if (args.Length > 0 && args[0] == "master-probe") return MasterProbe.RunProbe(args[1..]);
-
-// Launch-arc item 3 proof: derive the load-order roots + active profile from ONE MO2 instance path (ModOrganizer.ini).
-if (args.Length > 0 && args[0] == "mo2instance-probe") return Mo2InstanceProbe.RunProbe(args[1..]);
 
 // Cleanup-gotcha / Option-B viability: prove a plain overlay LOCKS a plugin, Dispose() RELEASES it promptly, and open->read->dispose latency is invisible (de-risks the LOCKED Option-B fix).
 if (args.Length > 0 && args[0] == "handle-probe") return HandleProbe.RunProbe(args[1..]);
@@ -341,10 +160,6 @@ if (args.Length > 0 && args[0] == "atrest-probe") return AtRestProbe.RunProbe(ar
 // into a patch whose own overlay is held by AllMasters() (direct vs temp+Replace vs release-then-write). Decides the fix.
 if (args.Length > 0 && args[0] == "writelock-probe") return WriteLockProbe.RunProbe(args[1..]);
 
-// Active-patch write self-lock (Heisen bug 2026-06-08): SELF-CONTAINED CI regression guard — drives a real product write
-// (RemoveRecords + the Apply winner-fetch path) into an ACTIVE patch, asserts success (a control proves the lock reproduces).
-if (args.Length > 0 && args[0] == "writelock-guard") return WriteLockProbe.RunGuard(args[1..]);
-
 // Active-patch write self-lock follow-up (PR #24 review): EXPLORATORY — prove Apply's Phase-1 winner-fetch opens a SECOND
 // overlay on the target (when re-editing an own override) that survives AllMastersExcept and still self-locks the serialize.
 if (args.Length > 0 && args[0] == "writelock-apply-probe") return WriteLockProbe.RunApplyResidualProbe(args[1..]);
@@ -352,11 +167,6 @@ if (args.Length > 0 && args[0] == "writelock-apply-probe") return WriteLockProbe
 // Active-patch write self-lock follow-up (PR #24 review #2): REAL-DATA proof that a NESTED record (PlacedObject, via the
 // link-cache context path) survives the re-edit-own-override case under the new "release overlay before serialize" invariant.
 if (args.Length > 0 && args[0] == "writelock-nested-proof") return WriteLockProbe.RunNestedProof(args[1..]);
-
-// In-place write lane Wave 1: SELF-CONTAINED CI regression guard — drives the REAL WritePatchBuilder.ApplyInPlace + the
-// REAL LoadOrderService in-place branch (content-source/winner-injection, counter+master preservation, flat lock, the
-// persistent consent handshake, the resolver/contract refusals, opt-in-by-construction). No game data.
-if (args.Length > 0 && args[0] == "inplace-guard") return InPlaceProbe.RunGuard(args[1..]);
 
 // In-place write lane Wave 1: REAL-DATA proof of the NESTED own-override re-edit IN PLACE (the LinkCacheFor-on-a-foreign-
 // target overlay path), the one arm the self-contained guard can't synthesize. Needs Skyrim.esm; self-skips on the runner.
@@ -370,17 +180,9 @@ if (args.Length > 0 && args[0] == "inplace-remove-nested-proof") return InPlaceP
 // real plugin, report which records throw and with what (the evidence the fix is designed from). Skips without Skyrim.esm.
 if (args.Length > 0 && args[0] == "perk-refs-diagnose") return PerkRefsProbe.RunDiagnose(args[1..]);
 
-// Perk references= crash (HCBR-2026-06-09-03): SELF-CONTAINED CI regression guard — synthesizes a corrupted-EPFT perk,
-// drives the REAL service-layer scan (CrossQuery via ForGuard), asserts matches + the unscannable record's accounting.
-if (args.Length > 0 && args[0] == "perk-refs-guard") return PerkRefsProbe.RunGuard(args[1..]);
-
 // Perk references= crash (HCBR-2026-06-09-03): REAL-DATA proof — the report's exact failing call (type=Perk references=)
 // over a live MO2 order through the service layer. Manual; needs --mo2 + --corpus (skips without).
 if (args.Length > 0 && args[0] == "perk-refs-proof") return PerkRefsProbe.RunProof(args[1..]);
-
-// Conflict-tree content diff (HCBR-2026-06-09-01): SELF-CONTAINED CI regression guard — synthesizes a master + override
-// with equal-count/reordered/count/scalar list arms, drives the REAL ResolveTree (deep) + FieldsDiff, asserts each arm.
-if (args.Length > 0 && args[0] == "conflict-diff-guard") return ConflictDiffProbe.RunGuard(args[1..]);
 
 // Conflict-tree content diff (HCBR-2026-06-09-01): REAL-DATA proof — the report's exact repro (MM_RelentlessFury's
 // "(identical to winner)" false ITM) over a live MO2 order. Manual; needs --mo2 (skips without).
@@ -399,84 +201,12 @@ if (args.Length > 0 && args[0] == "esl-formid-probe") return EslFormIdProbe.RunP
 // whether SSE stores light-master references in FE-space on disk (0xFE high byte) or by master-list index.
 if (args.Length > 0 && args[0] == "esl-real-scan") return EslFormIdProbe.RunRealScan(args[1..]);
 
-// ESL / FE-space FormID handling (HCBR-2026-06-15-01 item 5.1): SELF-CONTAINED CI regression guard — pins the
-// correct-by-construction behavior (master-index on-disk encode never 0xFE, light/full discriminated by the master's
-// own header flag, round-trip via Apply + the resolver, FormKey index-independence) measured over 1,399 real ESL plugins.
-if (args.Length > 0 && args[0] == "esl-formid-guard") return EslFormIdProbe.RunGuard(args[1..]);
-
-// FormID allocation floor (HCBR-2026-06-09-04): SELF-CONTAINED CI regression guard — drives the report's exact
-// workflow (Apply-born patch → CreateRecords into=) through the real product paths, asserts the 0x800+ contract.
-if (args.Length > 0 && args[0] == "formid-floor-guard") return FormIdFloorProbe.RunGuard(args[1..]);
-
-// create_record into= upsert + atomic staged write (PR #44, hardened in review): SELF-CONTAINED CI regression
-// guard — re-runs replace loudly in place; override/duplicate/cross-type collisions refuse loud; a blocked commit
-// leaves the old file intact with no temp residue.
-if (args.Length > 0 && args[0] == "upsert-guard") return UpsertGuardProbe.RunGuard(args[1..]);
-
-// nested-record CREATE (nested/dialogue plan, Layer A): SELF-CONTAINED CI regression guard — synthesizes a master
-// (weapon + topic + interior cell), drives the REAL CreateRecords for the one-shot/multi-child/field-edit/into-existing
-// happy paths + the 4 Q3 rejects + the patch-carried-parent extend (the former N9 gap) (NO Skyrim.esm, unlike nested-create-proof).
-if (args.Length > 0 && args[0] == "nested-create-guard") return NestedCreateGuardProbe.RunGuard(args[1..]);
-
-// on-demand dialogue-graph VALIDATOR (nested-dialogue plan §3.6, Layer B unit C2 — housecarl_validate_dialogue):
-// SELF-CONTAINED CI regression guard — synthesizes a master with one topic per validation shape, drives the REAL
-// DialogueValidate.Run for the graph checks (PNAM chain, quest + branch wiring), the reused voice/script per-INFO
-// teeth over EXISTING lines, the quest fan-out, and the named not-found / wrong-type rejects (NO Skyrim.esm).
-if (args.Length > 0 && args[0] == "dialogue-validate-guard") return DialogueValidateGuardProbe.RunGuard(args[1..]);
-
-// SEQ writer (nested-dialogue plan Layer B unit D — housecarl_write_seq): SELF-CONTAINED CI regression guard — synthesizes
-// masters + a patch (own/override/non-SGE/deleted quests), drives core SeqFile.Build + the REAL LoadOrderService.WriteSeq
-// over a synthetic MO2 instance, and verifies the master-index on-disk FormID encoding against the plugin's ACTUAL record
-// bytes (own=master count, override=master index, never 0xFE) — load-order-independent, no runtime-FormID bridge.
-if (args.Length > 0 && args[0] == "seq-write-guard") return SeqWriteGuardProbe.RunGuard(args[1..]);
-
-// SEQ staleness/coverage lint (1.3.1 item 7 — housecarl_validate_dialogue): SELF-CONTAINED CI regression guard —
-// synthesizes base masters with SGE quests + planted/omitted/aged .seq files under a temp Data root, drives the REAL
-// DialogueValidate.Run, and asserts the per-quest SeqLintFinding (missing / not-listed / stale / covered-ok / a
-// non-SGE quest yields no lint). No Skyrim.esm.
-if (args.Length > 0 && args[0] == "seq-staleness-guard") return SeqStalenessProbe.RunGuard(args[1..]);
-
-// create-tool WIRE (nested/dialogue plan, Layer A): SELF-CONTAINED CI regression guard — drives the REAL
-// LoadOrderService.CreateRecords (single, parent/collection) + CreateRecordsBatch (the bulk_create array) over a
-// synthetic MO2 instance: flat-still-works, parent passthrough, the same-call one-shot, batch all-or-nothing, the
-// nested-no-parent guidance copy.
-if (args.Length > 0 && args[0] == "bulk-create-guard") return BulkCreateGuardProbe.RunGuard(args[1..]);
-
-// crash-atomic final-swap primitive (in-place-write-lane fix): SELF-CONTAINED CI guard for AtomicFile.Commit — the
-// File.Replace-over-existing / rename-onto-fresh swap every houseCARL FINAL-SWAP write (commit of a staged temp over the
-// target) now funnels through, replacing the product-wide File.Move(overwrite:true). Overwrite arm is RED-sensitive to a
-// File.Move regression via the destination's preserved creation time, self-skipping that one check (with a note) on a
-// file-system-tunneling host; arm C2 proves the locked-target mid-swap fails loud + non-destructive.
-if (args.Length > 0 && args[0] == "atomic-commit-guard") return AtomicCommitProbe.RunGuard(args[1..]);
-
 // IN-PLACE WRITE LANE, Wave 0 (design-gating, IN_PLACE_WRITE_LANE_PLAN §5.3/§9 STEP-2): MANUAL/REAL-DATA probe —
 // no-op re-serialize a sample of REAL plugins (counter-preserving, the §5.1-correct in-place shape) and measure the
 // whole-plugin byte divergence surface (identical / header-only / body / records-changed / unloadable), so fork #1's
 // round-trip accept/refuse threshold is calibrated on measured reality. Needs --mo2 <instance>; SKIPs without (a
 // synthetic fixture round-trips clean and would reveal nothing). Writes only to temp; read-only on the load order.
 if (args.Length > 0 && args[0] == "roundtrip-probe") return RoundTripProbe.RunProbe(args[1..]);
-
-// External-tool bridge (step 1) proof: the pure core pieces housecarl_set_tool_path + the riders ride — shared-config
-// clobber-safety, path validation, the missing-dependency forcing prompt, and canonical-home auto-detect.
-if (args.Length > 0 && args[0] == "tool-bridge") return ToolBridgeProbe.Run(args[1..]);
-
-// External-tool bridge (step 2) proof: the compile rider's stderr parser + a real .psc → .pex against the CK compiler.
-if (args.Length > 0 && args[0] == "compile-probe") return CompileProbe.Run(args[1..]);
-
-// External-tool bridge (step 3) proof: the BSA riders' list→unpack→pack→re-list round-trip against real BSArch.
-if (args.Length > 0 && args[0] == "bsa-probe") return BsaProbe.Run(args[1..]);
-
-// Corpus structural hygiene: regenerates the corpus into temp and asserts the five shape invariants the
-// reflection walk must satisfy (no self-listing arm, no indexer-named field, no non-modeled type, no
-// read-only projection arm, no degenerate field-less struct) — each RED-proven against a synthetic violation.
-if (args.Length > 0 && args[0] == "corpus-hygiene-guard") return CorpusHygieneProbe.RunGuard(args[1..]);
-
-// Plugin packaging validation (the 1.3 pre-release gate catch): SELF-CONTAINED CI regression guard — every shipped
-// SKILL.md frontmatter parses as YAML with name+description (the harness silently drops ALL metadata on a parse
-// failure — the dialogue-authoring colon-space bug, present-on-disk-but-invisible-to-triggering), and the plugin
-// manifest carries name+version. RED-proven against the exact colon-space, a missing key, and a missing fence.
-// Reads the REAL repo artifacts (.claude/skills/*/SKILL.md + plugin.json; CWD = repo root, as the corpus gen assumes).
-if (args.Length > 0 && args[0] == "plugin-validate-guard") return PluginValidateProbe.RunGuard(args[1..]);
 
 var outputDir = Path.GetFullPath(args.Length > 0 ? args[0] : "generated");
 // The slim reference tree ships INSIDE the skill (tracked); corpus.json + summary stay in generated/.
