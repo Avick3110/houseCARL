@@ -108,8 +108,31 @@ public static class WritePatchBuilder
         bool Success, string? Error, string OutputPath,
         IReadOnlyList<RemovedRecord> Removed, IReadOnlyList<string> Masters, int RemainingRecords, long Bytes)
     {
+        /// <summary>True ⇒ this outcome came from the IN-PLACE remove lane (<see cref="RemoveRecords"/>'s sibling
+        /// <see cref="RemoveRecordsInPlace"/>) — the records were dropped from the USER's own file at
+        /// <see cref="OutputPath"/>, not a houseCARL patch. Drives the distinct "removed in place" confirmation (and the
+        /// "no undo; keep your own backup" note). Mirrors <see cref="PatchOutcome.InPlace"/>.</summary>
+        public bool InPlace { get; init; }
+
+        /// <summary>True ⇒ NOT a write and NOT an error: the server-enforced first-touch in-place CONSENT handshake. The
+        /// in-place lane refused to write this plugin until the user acknowledges the trade-off; <see cref="Error"/>
+        /// carries the prompt verbatim (re-call with acknowledge=true). Rendered as a confirmation prompt, never "error:"
+        /// (Q3 — a required confirmation is not a failure). Nothing was written; the original is untouched.</summary>
+        public bool NeedsAcknowledge { get; init; }
+
+        /// <summary>An optional Q3 honesty note appended to a SUCCESSFUL outcome — a side effect that didn't land cleanly
+        /// even though the removal did (e.g. the in-place acknowledgement couldn't be persisted, or the editedInPlace
+        /// audit marker couldn't be written). Null when there's nothing to add.</summary>
+        public string? Note { get; init; }
+
         public static RemovalOutcome Fail(string error) =>
             new(false, error, "", Array.Empty<RemovedRecord>(), Array.Empty<string>(), 0, 0);
+
+        /// <summary>The first-touch in-place consent handshake: no write, no error — a required confirmation carrying the
+        /// trade-off <paramref name="prompt"/> (the caller re-calls with acknowledge=true). Success=false so no
+        /// downstream success path runs; <see cref="NeedsAcknowledge"/> tells the renderer to show it as a prompt.</summary>
+        public static RemovalOutcome NeedsAck(string prompt) =>
+            new(false, prompt, "", Array.Empty<RemovedRecord>(), Array.Empty<string>(), 0, 0) { NeedsAcknowledge = true };
     }
 
     /// <summary>One brand-new record to create: its (caller-DECLARED) <see cref="RecordType"/> catalog name, the required
@@ -661,6 +684,152 @@ public static class WritePatchBuilder
         finally { (back as IDisposable)?.Dispose(); }
 
         return new RemovalOutcome(true, null, outPath, toRemove, masters, remaining, bytes);
+    }
+
+    /// <summary>
+    /// Remove WHOLE records IN PLACE — the in-place write lane's Wave-2 sibling of <see cref="RemoveRecords"/> and the
+    /// remove counterpart of <see cref="ApplyInPlace"/>. Drops a record the TARGET's own file carries (one it DEFINES, or
+    /// an override it HOLDS) back over the user's ORIGINAL file, instead of dropping it from a houseCARL patch. REUSES
+    /// every in-place mechanic <see cref="ApplyInPlace"/> proved: a per-call overlay session, the ContainsPlugin/
+    /// ExcludedPlugins refusal (never re-serialize a plugin Mutagen can't fully parse — that would risk dropping the
+    /// record it couldn't read, Q3), an EAGER CreateFromBinary of the SINGLE target (NEVER the order — the legacy
+    /// 12–14 GB RAM trap), <see cref="LoadOrderResolver.OverlaySession.ReleaseOverlay"/> before the swap (the self-lock
+    /// guard, here on a FOREIGN target), own-declared-masters re-emit via <see cref="WriteEngine.WriteInPlace"/> (NOT
+    /// WritePatch — no Skyrim.esm/Update.esm baseline force-include, the author's HEDR.NextObjectID preserved), and the
+    /// crash-atomic swap.
+    ///
+    /// <para>REMOVAL SEMANTICS are <see cref="RemoveRecords"/>'s, unchanged: PRESENT-CHECK FIRST against what the TARGET
+    /// carries (Q3 — a key the file doesn't carry is REFUSED, the whole call, nothing written; <c>Remove</c> is a silent
+    /// no-op otherwise), then the typed <c>Remove(FormKey, Type, throwIfUnknown)</c> that reaches every group (flat AND
+    /// nested). MASTER-PRUNE rides along for free exactly as the patch lane gets it: <see cref="WriteEngine.WriteInPlace"/>
+    /// hands Mutagen the target's own masters as the resolution context and lean-derives the emitted header from the
+    /// SURVIVING records' links, so a master the removal orphaned drops from the header automatically. The model-C
+    /// touched-record verify is applied to a removal as ABSENCE — every removed FormKey is confirmed GONE on the
+    /// re-opened on-disk file (confirm what you DROPPED actually went; Mutagen is trusted for the untouched rest).</para>
+    ///
+    /// <para>The caller (the service in-place branch) has already resolved <paramref name="targetPath"/> to the real
+    /// active-plugin path, run the consent handshake, and checked the writable parent — exactly as it does for
+    /// <see cref="ApplyInPlace"/>. Returns <see cref="RemovalOutcome.InPlace"/>=true on success.</para>
+    /// </summary>
+    public static RemovalOutcome RemoveRecordsInPlace(
+        LoadOrderResolver resolver, IReadOnlyList<FormKey> targets, string targetPath, string targetName)
+    {
+        if (targets.Count == 0) return RemovalOutcome.Fail("no records to remove supplied.");
+
+        // Per-call overlay session (Option B), same as ApplyInPlace: every read (the master set for the re-serialize) is
+        // opened THROUGH it and disposed when the method returns — no handle held at rest.
+        using var session = resolver.OpenSession();
+        var fileName = Path.GetFileName(targetPath);
+
+        // --- Phase 1: the target must be an active, FULLY-PARSEABLE plugin (the ApplyInPlace guard — never re-serialize a
+        //     plugin Mutagen excluded, which would risk dropping the record it couldn't read on the rewrite, Q3). ---
+        var view = resolver.Capture();
+        if (!view.ContainsPlugin(targetName))
+            return RemovalOutcome.Fail($"in-place target '{targetName}' is not an active plugin in the load order.");
+        if (view.ExcludedPlugins.TryGetValue(targetName, out var excluded))
+            return RemovalOutcome.Fail(
+                $"cannot remove from '{targetName}' in place: it was EXCLUDED from this session ({excluded}) — houseCARL won't " +
+                "re-serialize a plugin it can't fully parse (that would risk dropping a record it couldn't read, Q3). The file is UNTOUCHED.");
+
+        // --- Phase 2: open the TARGET mutably. EAGER, the SINGLE plugin only — NEVER the load order. CreateFromBinary is
+        //     the same call ApplyInPlace uses; an unparseable plugin throws here and is REFUSED, never silently
+        //     re-emitted minus the record Mutagen couldn't read (Q3). ---
+        if (!File.Exists(targetPath))
+            return RemovalOutcome.Fail($"in-place target '{fileName}' not found on disk at {targetPath} — the file is untouched.");
+        SkyrimMod targetMod;
+        try { targetMod = SkyrimMod.CreateFromBinary(targetPath, SkyrimRelease.SkyrimSE); }
+        catch (Exception ex)
+            { return RemovalOutcome.Fail($"cannot open '{fileName}' to remove from in place ({WriteEngine.Describe(ex)}) — a plugin Mutagen can't parse is refused, not re-emitted minus what it couldn't read (Q3). The file is UNTOUCHED."); }
+        if (!string.Equals(targetMod.ModKey.FileName.String, fileName, StringComparison.OrdinalIgnoreCase))
+            return RemovalOutcome.Fail($"in-place ModKey '{targetMod.ModKey.FileName}' must match the target filename '{fileName}'.");
+
+        // --- Phase 3: present-check against what the TARGET carries (RemoveRecords' contract, unchanged). One enumeration
+        //     (flat + nested) captures type+editorid for the report AND the runtime type that routes the typed Remove. A
+        //     key the file doesn't define/override is REFUSED loud — in-place removes only what the file OWNS. ---
+        var carried = new Dictionary<FormKey, (string type, string? edid, Type runtime)>();
+        foreach (var r in targetMod.EnumerateMajorRecords())
+            carried[r.FormKey] = (RecordNaming.StripOverlay(r.GetType().Name), r.EditorID, r.GetType());
+
+        var problems = new List<string>();
+        var toRemove = new List<RemovedRecord>(targets.Count);
+        var seen = new HashSet<FormKey>();
+        foreach (var fk in targets)
+        {
+            if (!seen.Add(fk)) continue;   // de-dup repeated targets in one call
+            if (!carried.TryGetValue(fk, out var info))
+            {
+                problems.Add(
+                    $"{fk}: not carried by '{fileName}' — in-place removes only a record the file ITSELF defines or " +
+                    "overrides. To stop ANOTHER plugin's record from winning, use the default patch lane (forward the " +
+                    "master version, or override it) instead.");
+                continue;
+            }
+            toRemove.Add(new RemovedRecord(fk, info.type, info.edid));
+        }
+        if (problems.Count > 0)
+            return RemovalOutcome.Fail(
+                $"refused — {problems.Count} of {targets.Count} target(s) not carried by '{fileName}'; NOTHING removed:\n  - "
+                + string.Join("\n  - ", problems));
+
+        // --- Phase 4: literal drop-from-group (NOT flag-as-deleted), the typed overload RemoveRecords proved reaches
+        //     nested groups (Cell/Placed*/INFO/Navmesh/Landscape) too. throwIfUnknown:true keeps an unrecognized type
+        //     loud (Q3). A throw AFTER the present-check passed is a real engine inconsistency — surfaced, not swallowed. ---
+        try
+        {
+            foreach (var rr in toRemove)
+                ((IMajorRecordEnumerable)targetMod).Remove(rr.Target, carried[rr.Target].runtime, throwIfUnknown: true);
+        }
+        catch (Exception ex)
+        {
+            return RemovalOutcome.Fail(
+                $"present-check passed but Remove threw — a real engine inconsistency, surfaced not swallowed (Q3): "
+                + $"{ex.GetType().Name}: {ex.Message}");
+        }
+
+        // --- Phase 5: re-serialize the WHOLE target back over itself (model C — WriteInPlace, NOT WritePatch). Release
+        //     the target overlay first (the self-lock guard on a FOREIGN target: ReleaseOverlay disposes every session
+        //     overlay on the target — none here, since the present-check read targetMod directly, not via an overlay, but
+        //     the discipline is kept identical to ApplyInPlace). Resolve the target's OWN declared masters; Mutagen orders
+        //     against them and lean-derives the emitted header from the SURVIVING records, so an orphaned master drops. ---
+        session.ReleaseOverlay(fileName);
+        var masterOverlays = new List<IDisposable>();
+        try
+        {
+            ISkyrimModGetter[] ownMasters = ResolveOwnMasters(view, targetMod, masterOverlays, out var missing);
+            if (missing is not null) return RemovalOutcome.Fail(missing);
+            try { WriteEngine.WriteInPlace(targetMod, ownMasters, targetPath); }
+            catch (Exception ex)
+                { return RemovalOutcome.Fail($"writing '{fileName}' in place after removal failed (serialize or commit; the existing file is untouched): {WriteEngine.Describe(ex)}"); }
+        }
+        finally { foreach (var d in masterOverlays) { try { d.Dispose(); } catch { /* best-effort; never mask the write result */ } } }
+
+        // --- Phase 6: re-open the now-rewritten file; report its (possibly shrunk) master header + how many records
+        //     remain, and VERIFY each removed FormKey is ABSENT (the model-C touched-record verify applied to a removal
+        //     as absence). One enumeration counts survivors AND catches any removed key that wrongly survived. ---
+        IReadOnlyList<string> masters = Array.Empty<string>();
+        int remaining = 0; long bytes = 0;
+        ISkyrimModGetter? back = null;
+        try
+        {
+            back = SkyrimMod.CreateFromBinaryOverlay(targetPath, SkyrimRelease.SkyrimSE);
+            var removedKeys = toRemove.Select(rr => rr.Target).ToHashSet();
+            var stillThere = new List<FormKey>();
+            foreach (var r in back.EnumerateMajorRecords())
+            {
+                remaining++;
+                if (removedKeys.Contains(r.FormKey)) stillThere.Add(r.FormKey);
+            }
+            if (stillThere.Count > 0)
+                return RemovalOutcome.Fail(
+                    $"'{fileName}' was rewritten but the verify found {stillThere.Count} record(s) that should have been removed still present " +
+                    $"({string.Join(", ", stillThere)}) — a real inconsistency surfaced, not swallowed (Q3). The on-disk file may differ from intent; re-check in xEdit.");
+            masters = back.ModHeader.MasterReferences.Select(m => m.Master.FileName.ToString()).ToList();
+            bytes = new FileInfo(targetPath).Length;
+        }
+        catch (Exception ex) { return RemovalOutcome.Fail($"records removed + written but '{fileName}' could not be re-opened to verify: {ex.Message}"); }
+        finally { (back as IDisposable)?.Dispose(); }
+
+        return new RemovalOutcome(true, null, targetPath, toRemove, masters, remaining, bytes) { InPlace = true };
     }
 
     /// <summary>One record to FORWARD: take plugin <see cref="FromPlugin"/>'s version of <see cref="Target"/> and carry

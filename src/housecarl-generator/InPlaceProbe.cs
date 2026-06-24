@@ -7,11 +7,12 @@ using HousecarlMcp;
 namespace HousecarlGenerator;
 
 /// <summary>
-/// SELF-CONTAINED CI REGRESSION GUARD for the IN-PLACE WRITE LANE, Waves 1 + 1b (dev/plans/IN_PLACE_WRITE_LANE_PLAN_2026-06-13.md
+/// SELF-CONTAINED CI REGRESSION GUARD for the IN-PLACE WRITE LANE, Waves 1 + 1b + 2 (dev/plans/IN_PLACE_WRITE_LANE_PLAN_2026-06-13.md
 /// §10 CI teeth). The in-place EDIT lane (set_field/bulk_apply, Wave 1) edits an EXISTING plugin the user owns — incl. one
 /// houseCARL didn't author — back over itself; the in-place CREATE lane (create_record/bulk_create, Wave 1b) allocates
-/// BRAND-NEW records into it the same way. Both touch the user's ORIGINAL file, so the safety properties are load-bearing
-/// and each is RED-provable here:
+/// BRAND-NEW records into it the same way; the in-place REMOVE lane (remove_record, Wave 2) drops a record the file carries
+/// back out of it. All three touch the user's ORIGINAL file, so the safety properties are load-bearing and each is
+/// RED-provable here:
 ///
 ///   CONTENT-SOURCE (§4.1)  — the EDIT's body is the TARGET's OWN record, NEVER the load-order winner; a record the
 ///                            target doesn't define is REFUSED (no foreign content injected). RED if sourced from winner.
@@ -31,13 +32,20 @@ namespace HousecarlGenerator;
 ///                            sourced from the target; a FOREIGN parent is overridden IN to host the child, as xEdit/the patch lane do.
 ///   RESOLVER / CONTRACT    — target= resolves the REAL active-plugin path (a non-load-order name REFUSES, never
 ///                            retargets); in_place needs target=, is mutually exclusive with into=; opt-in defaults OFF.
+///   REMOVE (Wave 2)        — drop a record the target CARRIES back out of its own file: an override removed PRUNES the
+///                            master it orphaned (R), a record the file doesn't carry is REFUSED (S), a surgical drop keeps
+///                            the rest + a still-referenced master (T), and the consent handshake is SHARED with the edit
+///                            lane (one ack covers edit+create+remove — W). RED if it removed from a winner not the target,
+///                            kept an orphaned master, over-pruned a referenced one, or skipped the handshake.
 ///
 /// Self-contained: synthesizes a master + a user override + a higher override in TEMP and generates the validator corpus
 /// BY CONSTRUCTION in-process (no game data, no checked-in corpus.json). Drives the REAL WritePatchBuilder.ApplyInPlace /
-/// CreateRecordsInPlace (builder arms) and the REAL LoadOrderService in-place branches (service arms, via the ForGuard seam).
+/// CreateRecordsInPlace / RemoveRecordsInPlace (builder arms) and the REAL LoadOrderService in-place branches (service
+/// arms, via the ForGuard seam).
 /// Arms A–I cover the EDIT lane; J–Q cover the CREATE lane (J create+counter, O cross-master, M nested-under-a-foreign-parent,
 /// P same-call nested unit, Q exterior-cell-under-a-foreign-worldspace, K handshake, L contract, N opt-in) and arm I also
-/// proves the create lane shares the marker + handshake.
+/// proves the create lane shares the marker + handshake; R–X cover the REMOVE lane (R override-remove+prune, S refuse-if-
+/// not-carried, T surgical-remove+keep-master, U contract, V resolver, W handshake+cross-lane-share, X opt-in).
 /// Run: dotnet run --project src/housecarl-generator inplace-guard
 ///
 /// The NESTED lock arm (the LinkCacheFor-on-a-foreign-target path) needs a real nested record + master, so it lives in
@@ -51,7 +59,7 @@ public static class InPlaceProbe
 
     public static int RunGuard(string[] args)
     {
-        Console.WriteLine("################  REGRESSION GUARD — in-place write lane, Waves 1 + 1b  ################");
+        Console.WriteLine("################  REGRESSION GUARD — in-place write lane, Waves 1 + 1b + 2  ################");
         Console.WriteLine();
 
         var tmpDir = Path.Combine(Path.GetTempPath(), "hc-inplace-guard");
@@ -436,6 +444,136 @@ public static class InPlaceProbe
                 $"success={o.Success} inPlace={o.InPlace} cellFk={cellFk}(in {UserName}) worldOverriddenIn={worldOverriddenIn}  [{o.Error ?? "ok"}]"));
         }
 
+        // ============================ WAVE 2 — REMOVE-IN-PLACE (arms R–X) ============================
+        // remove_record gains target=+in_place=, reusing every Wave-1 seam (resolver + persistent consent handshake +
+        // editedInPlace marker + writable-parent pre-flight). Semantics = the patch lane's RemoveRecords, pointed at the
+        // user's OWN file: drop a record the TARGET carries (defines OR overrides), refuse what it doesn't, prune orphaned
+        // masters on the WriteInPlace rewrite, and VERIFY each removed FormKey is absent on read-back (model-C as absence).
+
+        // ===== R — REMOVE an OVERRIDE the target HOLDS → record gone, orphaned master PRUNED, winner reverts =====
+        // The fresh user mod carries ONE record: its override of the master weapon (its only master ref). Removing it in
+        // place drops the record AND orphans HcInPlaceMaster, which must be PRUNED on the rewrite (the patch-lane prune,
+        // here via WriteInPlace's lean-derive). RemainingRecords→0 (inert shell); the master file stays untouched (dmg 10).
+        {
+            var userR = FreshUser(tmpDir, "R", userPristine);
+            using var r = LoadOrderResolver.Build(new[] { masterPath, userR });   // [master, user] — user IS the winner of wfk
+            var o = WritePatchBuilder.RemoveRecordsInPlace(r, new[] { wfk }, userR, UserName);
+            bool gone = !RecordPresent(userR, wfk);
+            var masters = ReadMasters(userR);
+            bool pruned = !masters.Any(m => m.Equals(MasterName, StringComparison.OrdinalIgnoreCase));
+            bool masterUntouched = ReadDamage(masterPath, wfk) == 10;
+            bool pass = o.Success && o.InPlace && gone && o.Removed.Count == 1 && o.RemainingRecords == 0 && pruned && masterUntouched;
+            results.Add(("R remove an override in place (record gone, orphaned master pruned, inert shell)", pass,
+                $"success={o.Success} inPlace={o.InPlace} recordGone={gone} removed={o.Removed.Count}(want 1) remaining={o.RemainingRecords}(want 0) masterPruned={pruned} masters=[{string.Join(",", masters)}] masterFileUntouched={masterUntouched}  [{o.Error ?? "ok"}]"));
+        }
+
+        // ===== S — REFUSE a FormKey the target doesn't carry (the "only what the file owns" gate) =====
+        // W2 lives only in the master; the user never overrides it. In-place remove must REFUSE, file byte-untouched.
+        {
+            var userS = FreshUser(tmpDir, "S", userPristine);
+            var before = File.ReadAllBytes(userS);
+            using var r = LoadOrderResolver.Build(new[] { masterPath, userS, highPath });
+            var o = WritePatchBuilder.RemoveRecordsInPlace(r, new[] { w2fk }, userS, UserName);
+            bool untouched = File.ReadAllBytes(userS).AsSpan().SequenceEqual(before);
+            bool pass = !o.Success && (o.Error?.Contains("not carried by") ?? false) && untouched;
+            results.Add(("S refuse-if-not-carried (remove only what the file owns)", pass,
+                $"refused={!o.Success} untouched={untouched}  [{o.Error ?? "(wrote — WRONG)"}]"));
+        }
+
+        // ===== T — SURGICAL removal: drop ONE own record, keep the rest + a still-referenced master =====
+        // Set up a user mod with TWO records: the weapon override (refs HcInPlaceMaster) + a NEW own keyword (refs nothing).
+        // Remove ONLY the keyword in place. The weapon override survives (dmg 20), RemainingRecords→1, and HcInPlaceMaster
+        // is KEPT (still referenced by the weapon) — proving the prune is surgical, never over-eager.
+        {
+            var userT = FreshUser(tmpDir, "T", userPristine);
+            FormKey kwFk;
+            using (var rc = LoadOrderResolver.Build(new[] { masterPath, userT, highPath }))
+            {
+                var c = WritePatchBuilder.CreateRecordsInPlace(rc, rulebook,
+                    new[] { new WritePatchBuilder.CreateSpec { RecordType = "Keyword", EditorId = "HcIP_RmKw", Edits = Array.Empty<WriteRequest>() } },
+                    userT, UserName);
+                kwFk = c.Created.Count > 0 ? c.Created[0].FormKey : default;
+            }
+            using var r = LoadOrderResolver.Build(new[] { masterPath, userT, highPath });
+            var o = WritePatchBuilder.RemoveRecordsInPlace(r, new[] { kwFk }, userT, UserName);
+            bool kwGone = !RecordPresent(userT, kwFk);
+            bool weaponKept = ReadDamage(userT, wfk) == 20 && ReadName(userT, wfk) == "UserSword";
+            var masters = ReadMasters(userT);
+            bool masterKept = masters.Any(m => m.Equals(MasterName, StringComparison.OrdinalIgnoreCase));
+            bool pass = o.Success && o.InPlace && o.Removed.Count == 1 && kwGone && weaponKept && o.RemainingRecords == 1 && masterKept;
+            results.Add(("T surgical remove (drop one own record, keep the rest + referenced master)", pass,
+                $"success={o.Success} inPlace={o.InPlace} keywordGone={kwGone} weaponKept={weaponKept} remaining={o.RemainingRecords}(want 1) masterKept={masterKept}  [{o.Error ?? "ok"}]"));
+        }
+
+        // ===== U — CONTRACT validation for remove (mirror the edit lane's E / create's L) =====
+        {
+            var userU = FreshUser(tmpDir, "U", userPristine);
+            using var r = LoadOrderResolver.Build(new[] { masterPath, userU, highPath });
+            var svc = LoadOrderService.ForGuard(r, new UserConfigStore(Path.Combine(tmpDir, "U.user.json")));
+            var noTarget = svc.RemoveRecords(new[] { fmtWfk }, null, target: null, inPlace: true, acknowledge: true);          // in_place w/o target
+            var withPatch = svc.RemoveRecords(new[] { fmtWfk }, "somepatch", target: UserName, inPlace: true, acknowledge: true); // in_place + patch=
+            var targetNoFlag = svc.RemoveRecords(new[] { fmtWfk }, null, target: UserName, inPlace: false);                     // target w/o in_place
+            bool pass = !noTarget.Success && (noTarget.Error?.Contains("requires target=") ?? false)
+                     && !withPatch.Success && (withPatch.Error?.Contains("mutually exclusive") ?? false)
+                     && !targetNoFlag.Success && (targetNoFlag.Error?.Contains("only meaningful with in_place") ?? false);
+            results.Add(("U contract (in_place<->target, _|_ patch=) — remove", pass,
+                $"noTarget={Trim(noTarget.Error)} | patch={Trim(withPatch.Error)} | noFlag={Trim(targetNoFlag.Error)}"));
+        }
+
+        // ===== V — RESOLVER: a non-load-order target REFUSES (never retargets) =====
+        {
+            var userV = FreshUser(tmpDir, "V", userPristine);
+            using var r = LoadOrderResolver.Build(new[] { masterPath, userV, highPath });
+            var svc = LoadOrderService.ForGuard(r, new UserConfigStore(Path.Combine(tmpDir, "V.user.json")));
+            var o = svc.RemoveRecords(new[] { fmtWfk }, null, target: "NotAReal.esp", inPlace: true, acknowledge: true);
+            bool pass = !o.Success && (o.Error?.Contains("not an active plugin") ?? false);
+            results.Add(("V resolver refuses a non-load-order target — remove", pass, Trim(o.Error)));
+        }
+
+        // ===== W — CONSENT HANDSHAKE: remove's own RED→GREEN, AND it SHARES the edit lane's ack (keyed off the path) =====
+        {
+            // W-part-1: remove's own first-touch RED→GREEN.
+            var userW = FreshUser(tmpDir, "W", userPristine);
+            byte[] before = File.ReadAllBytes(userW);
+            bool red, untouched, green, removed;
+            using (var r = LoadOrderResolver.Build(new[] { masterPath, userW }))
+            {
+                var svc = LoadOrderService.ForGuard(r, new UserConfigStore(Path.Combine(tmpDir, "W.user.json")));
+                var first = svc.RemoveRecords(new[] { fmtWfk }, null, target: UserName, inPlace: true, acknowledge: false);
+                red = first.NeedsAcknowledge && !first.Success;
+                untouched = File.ReadAllBytes(userW).AsSpan().SequenceEqual(before);
+                var ack = svc.RemoveRecords(new[] { fmtWfk }, null, target: UserName, inPlace: true, acknowledge: true);
+                green = ack.Success && ack.InPlace; removed = !RecordPresent(userW, wfk);
+            }
+            // W-part-2: SHARED handshake — an EDIT acks the plugin, then a REMOVE in place does NOT re-prompt (one ack
+            // covers edit + create + remove, keyed off the resolved path — the cross-lane share, the remove half of arm I).
+            var userW2 = FreshUser(tmpDir, "W2", userPristine);
+            bool editAck, removeNoPrompt, removeLanded;
+            using (var r = LoadOrderResolver.Build(new[] { masterPath, userW2 }))
+            {
+                var svc = LoadOrderService.ForGuard(r, new UserConfigStore(Path.Combine(tmpDir, "W2.user.json")));
+                var e = svc.ApplyEdits(new[] { new BulkOp { Formid = fmtWfk, FieldPath = "BasicStats.Damage", Verb = "Set", Value = "33" } },
+                    null, null, fullReadback: false, target: UserName, inPlace: true, acknowledge: true);
+                editAck = e.Success && e.InPlace;
+                var rm = svc.RemoveRecords(new[] { fmtWfk }, null, target: UserName, inPlace: true, acknowledge: false);
+                removeNoPrompt = rm.Success && !rm.NeedsAcknowledge; removeLanded = !RecordPresent(userW2, wfk);
+            }
+            bool pass = red && untouched && green && removed && editAck && removeNoPrompt && removeLanded;
+            results.Add(("W remove handshake RED->GREEN + SHARED with edit lane (one ack covers both)", pass,
+                $"firstRefused={red} untouched={untouched} ackRemoved={green && removed} | editAcked={editAck} removeNoReprompt={removeNoPrompt} removeLanded={removeLanded}"));
+        }
+
+        // ===== X — OPT-IN BY CONSTRUCTION (remove): remove_record defaults the three in-place params OFF =====
+        {
+            var rr = typeof(WriteTools).GetMethod(nameof(WriteTools.RemoveRecord))!;
+            bool DefOff(System.Reflection.MethodInfo m) =>
+                m.GetParameters().First(p => p.Name == "in_place").DefaultValue is false
+                && m.GetParameters().First(p => p.Name == "target").DefaultValue is null
+                && m.GetParameters().First(p => p.Name == "acknowledge").DefaultValue is false;
+            bool pass = DefOff(rr);
+            results.Add(("X opt-in by construction (remove_record defaults OFF)", pass, $"remove_record={DefOff(rr)}"));
+        }
+
         Console.WriteLine("── ARMS ──");
         bool all = true;
         foreach (var (name, pass, detail) in results)
@@ -510,6 +648,70 @@ public static class InPlaceProbe
 
         bool pass = ok && landed;
         Console.WriteLine($"=== inplace-nested-proof: {(pass ? "PASS — nested in-place survives ReleaseOverlay-before-serialize on a foreign target" : "FAIL")} ===");
+        try { Directory.Delete(tmpDir, recursive: true); } catch { }
+        return pass ? 0 : 1;
+    }
+
+    /// <summary>
+    /// REAL-DATA proof for WAVE 2 (remove-in-place): the in-place REMOVE of a NESTED own-override (a PlacedObject — lives
+    /// in a Cell). Confirms the typed nested <c>Remove(FormKey, Type)</c> drops a nested record AND the WriteInPlace
+    /// rewrite re-emits the rest of the foreign target faithfully on REAL data — the remove counterpart of
+    /// <see cref="RunNestedProof"/>. (Remove's present-check reads the mutable mod directly via CreateFromBinary, so it
+    /// opens no LinkCacheFor overlay on the target — the nested-LOCK hazard the edit proof guards is lighter here; what
+    /// this adds is the nested-Remove + real-data re-serialize on a third-party file.) Needs a real master (Skyrim.esm);
+    /// self-SKIPs on the CI runner.
+    /// Run: dotnet run --project src/housecarl-generator inplace-remove-nested-proof ["&lt;Data dir with Skyrim.esm&gt;"]
+    /// </summary>
+    public static int RunRemoveNestedProof(string[] args)
+    {
+        Console.WriteLine("=== inplace-remove-nested-proof — in-place REMOVE of a NESTED own-override (real data) ===");
+        string dataDir = args.Length > 0 ? args[0] : @"E:\Skyrim Modding\ARR 2.0\Stock Game\Data";
+        string skyrim = Path.Combine(dataDir, "Skyrim.esm");
+        if (!File.Exists(skyrim))
+        {
+            Console.WriteLine($"SKIP: need Skyrim.esm; not found at {skyrim} (pass the Data dir as arg 1). A real nested record + master");
+            Console.WriteLine("      can't be synthesized for the nested-remove arm — the same posture as inplace-nested-proof.");
+            return 0;
+        }
+
+        var tmpDir = Path.Combine(Path.GetTempPath(), "hc-inplace-remove-nested");
+        if (Directory.Exists(tmpDir)) Directory.Delete(tmpDir, recursive: true);
+        Directory.CreateDirectory(tmpDir);
+        var rulebook = CorpusRulebook.Load(GenerateCorpus(tmpDir));
+
+        FormKey refrFk;
+        using (var r0 = LoadOrderResolver.Build(new[] { skyrim }))
+        {
+            refrFk = r0.WinnerRecordsOfType(new[] { typeof(IPlacedObjectGetter) }).Select(x => x.fk).FirstOrDefault();
+            if (refrFk.IsNull) { Console.Error.WriteLine("no PlacedObject in Skyrim.esm"); return 1; }
+        }
+        Console.WriteLine($"-- real nested record: PlacedObject {refrFk} --");
+        string userPath = Path.Combine(tmpDir, "HcInPlaceRmNested.esp");
+
+        // STEP 1 — author a foreign-style user mod that OVERRIDES the nested record (winner=Skyrim.esm; the patch lane).
+        using (var r1 = LoadOrderResolver.Build(new[] { skyrim }))
+        {
+            var o = WritePatchBuilder.Apply(r1, rulebook,
+                new[] { new WritePatchBuilder.PatchEdit { Target = refrFk, Path = new[] { "Scale" }, Verb = "Set", Value = "1.5" } },
+                userPath, extend: false);
+            Console.WriteLine($"   step 1  author the nested override (winner=Skyrim.esm) : {(o.Success ? "OK" : "FAIL — " + o.Error)}");
+            if (!o.Success) return 1;
+        }
+        bool present0 = RecordPresent(userPath, refrFk);
+
+        // STEP 2 — THE TEST: REMOVE that nested record IN PLACE (drop the override from the foreign target's own file).
+        bool ok; string err;
+        using (var r2 = LoadOrderResolver.Build(new[] { skyrim, userPath }))
+        {
+            var o = WritePatchBuilder.RemoveRecordsInPlace(r2, new[] { refrFk }, userPath, Path.GetFileName(userPath));
+            ok = o.Success; err = o.Error ?? "ok";
+            Console.WriteLine($"   step 2  REMOVE the NESTED record IN PLACE : {(ok ? "OK" : "FAIL — " + err)}");
+        }
+        bool gone = !RecordPresent(userPath, refrFk);
+        Console.WriteLine($"   nested record present after step 1 : {present0} ;  gone after in-place remove : {gone}");
+
+        bool pass = ok && present0 && gone;
+        Console.WriteLine($"=== inplace-remove-nested-proof: {(pass ? "PASS — nested in-place remove drops the record + re-serializes faithfully on a foreign target" : "FAIL")} ===");
         try { Directory.Delete(tmpDir, recursive: true); } catch { }
         return pass ? 0 : 1;
     }
