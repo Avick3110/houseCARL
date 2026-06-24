@@ -1,8 +1,10 @@
 using Mutagen.Bethesda;
 using Mutagen.Bethesda.Plugins;
+using Mutagen.Bethesda.Plugins.Binary.Parameters;
 using Mutagen.Bethesda.Plugins.Cache;
 using Mutagen.Bethesda.Plugins.Records;
 using Mutagen.Bethesda.Skyrim;
+using Mutagen.Bethesda.Strings;
 
 namespace HousecarlCore;
 
@@ -73,6 +75,7 @@ public sealed class LoadOrderResolver : IDisposable
     readonly string[] _names;                          // index → plugin filename (e.g. "Skyrim.esm"); == Path.GetFileName(path)
     readonly Dictionary<string, int> _nameToIdx;       // plugin filename → index (last copy of a duplicate name wins = priority)
     DateTime[] _mtimes;                                // last-write at the last index build, per path (freshness baseline)
+    readonly string? _dataDir;                         // real game-Data folder (Skyrim.esm's dir) — localized-strings fallback source (OpenOverlay)
 
     /// <summary>One index build's ENTIRE output, swapped in as a SINGLE reference write. The service refreshes the
     /// index under its own gate, but READERS run outside that gate (concurrent tool calls hold the resolver while a
@@ -141,7 +144,7 @@ public sealed class LoadOrderResolver : IDisposable
         internal ISkyrimModGetter Overlay(int idx)
         {
             if (!_open.TryGetValue(idx, out var ov))
-                _open[idx] = ov = SkyrimMod.CreateFromBinaryOverlay(_r._paths[idx], SkyrimRelease.SkyrimSE);
+                _open[idx] = ov = OpenOverlay(_r._paths[idx], _r._dataDir);
             return ov;
         }
 
@@ -232,7 +235,60 @@ public sealed class LoadOrderResolver : IDisposable
     LoadOrderResolver(string[] paths, string[] names, Dictionary<string, int> nameToIdx, DateTime[] mtimes)
     {
         _paths = paths; _names = names; _nameToIdx = nameToIdx; _mtimes = mtimes;
+        _dataDir = ComputeDataDir(nameToIdx, paths);
         _snap = BuildIndex();
+    }
+
+    /// <summary>The real game-Data directory — the folder holding the vanilla BSAs (<c>Skyrim - Interface.bsa</c> et al.,
+    /// which carry the base AND DLC <c>.STRINGS</c>). Derived as the folder of the resolved <c>Skyrim.esm</c>: the base
+    /// master is never cleaned/relocated, so it resolves to the true game-Data root in both MO2 and explicit-paths modes.
+    /// The localized-strings fallback target in <see cref="OpenOverlay"/>; null (→ unchanged folder-adjacent opens
+    /// everywhere) only if the order somehow lacks Skyrim.esm.</summary>
+    static string? ComputeDataDir(Dictionary<string, int> nameToIdx, string[] paths)
+        => nameToIdx.TryGetValue("Skyrim.esm", out var i) ? Path.GetDirectoryName(paths[i]) : null;
+
+    /// <summary>Open one plugin as a lazy binary overlay — THE single overlay-open choke point (every read/scan/index
+    /// path routes through here) — wiring localized-string (FULL/DESC/…) resolution so a plugin resolved to a folder
+    /// WITHOUT its own strings still reads its names. Mutagen's bare overload only scans the plugin's OWN folder for
+    /// strings (loose <c>Strings\</c> + BSAs there); a localized master that MO2 resolves to a strings-less mod folder
+    /// — the near-universal "Cleaned Base Game Masters" pattern, whose <c>.STRINGS</c> live in the game-Data BSAs beside
+    /// Skyrim.esm — otherwise reads every localized field EMPTY (HCBR-2026-06-24: <c>where Name contains</c> silently
+    /// 0-matched the DLC masters; <see cref="ReadEngine.EmitToken"/> turned the unresolved <c>TranslatedString</c> into
+    /// a blank token). When the plugin's own folder carries NO strings source, point the lookup at the real game-Data
+    /// folder so those archived strings resolve; otherwise leave the folder-adjacent default UNTOUCHED, so a mod whose
+    /// strings sit in its own folder (loose OR in its own BSA) is never redirected away from them — no regression. A
+    /// non-localized plugin needs no strings at all, so the override is simply never consulted.</summary>
+    internal static ISkyrimModGetter OpenOverlay(string path, string? dataDir)
+    {
+        if (dataDir is not null && !FolderHasOwnStrings(path))
+        {
+            var prm = BinaryReadParameters.Default with
+            {
+                StringsParam = new StringsReadParameters
+                {
+                    BsaFolderOverride = dataDir,
+                    StringsFolderOverride = Path.Combine(dataDir, "Strings"),
+                },
+            };
+            return SkyrimMod.CreateFromBinaryOverlay(path, SkyrimRelease.SkyrimSE, prm);
+        }
+        return SkyrimMod.CreateFromBinaryOverlay(path, SkyrimRelease.SkyrimSE);
+    }
+
+    /// <summary>True if the plugin's OWN folder carries a strings source Mutagen's folder-adjacent default would find —
+    /// a loose <c>Strings\</c> subfolder or any <c>.bsa</c> (which may embed strings). Cheap (one dir stat + a lazy,
+    /// short-circuited <c>.bsa</c> scan; negligible beside the per-plugin overlay open it precedes). Defensive: any IO
+    /// fault answers "has its own", keeping the unchanged default open — we only ever REDIRECT on a clean, empty read.</summary>
+    static bool FolderHasOwnStrings(string path)
+    {
+        try
+        {
+            var folder = Path.GetDirectoryName(path);
+            if (folder is null) return true;
+            if (Directory.Exists(Path.Combine(folder, "Strings"))) return true;
+            return Directory.EnumerateFiles(folder, "*.bsa").Any();
+        }
+        catch { return true; }
     }
 
     /// <summary>Take the plugin paths already in priority order and build the index — WITHOUT holding any plugin open
@@ -285,7 +341,7 @@ public sealed class LoadOrderResolver : IDisposable
         for (int i = 0; i < _paths.Length; i++)
         {
             ISkyrimModGetter ov;
-            try { ov = SkyrimMod.CreateFromBinaryOverlay(_paths[i], SkyrimRelease.SkyrimSE); }
+            try { ov = OpenOverlay(_paths[i], _dataDir); }
             catch (Exception ex)
             {
                 Exclude(i, $"could not be opened — {Concise(ex)}", failures, excluded, excludedPlugins);
@@ -481,7 +537,7 @@ public sealed class LoadOrderResolver : IDisposable
             throw new ArgumentException($"plugin not in the load order: {pluginName}");
         if (s.Excluded.Contains(idx))
             throw new ArgumentException($"plugin '{pluginName}' was excluded from this session: {s.ExcludedPlugins[pluginName]}");
-        var ov = SkyrimMod.CreateFromBinaryOverlay(_paths[idx], SkyrimRelease.SkyrimSE);
+        var ov = OpenOverlay(_paths[idx], _dataDir);
         try
         {
             foreach (var rec in ov.EnumerateMajorRecords())
@@ -547,7 +603,7 @@ public sealed class LoadOrderResolver : IDisposable
         {
             if (s.Excluded.Contains(i)) continue;                          // excluded at build (unparseable/unopenable) — wins nothing; never re-touch (would re-throw)
             ISkyrimModGetter ov;
-            try { ov = SkyrimMod.CreateFromBinaryOverlay(_paths[i], SkyrimRelease.SkyrimSE); }
+            try { ov = OpenOverlay(_paths[i], _dataDir); }
             catch { continue; }                                            // an unopenable plugin wins nothing (surfaced at build)
             try
             {
@@ -575,7 +631,7 @@ public sealed class LoadOrderResolver : IDisposable
         foreach (int i in ScopeIndices(plugins, s))
         {
             ISkyrimModGetter ov;
-            try { ov = SkyrimMod.CreateFromBinaryOverlay(_paths[i], SkyrimRelease.SkyrimSE); }
+            try { ov = OpenOverlay(_paths[i], _dataDir); }
             catch { continue; }
             try
             {
