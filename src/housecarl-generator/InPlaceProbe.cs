@@ -7,26 +7,36 @@ using HousecarlMcp;
 namespace HousecarlGenerator;
 
 /// <summary>
-/// SELF-CONTAINED CI REGRESSION GUARD for the IN-PLACE WRITE LANE, Wave 1 (dev/plans/IN_PLACE_WRITE_LANE_PLAN_2026-06-13.md
-/// §10 CI teeth). The in-place lane (set_field/bulk_apply with target=+in_place=true) edits an EXISTING plugin the user
-/// owns — incl. one houseCARL didn't author — back over itself, instead of writing a new patch. It is the one write lane
-/// that touches the user's ORIGINAL file, so the safety properties are load-bearing and each is RED-provable here:
+/// SELF-CONTAINED CI REGRESSION GUARD for the IN-PLACE WRITE LANE, Waves 1 + 1b (dev/plans/IN_PLACE_WRITE_LANE_PLAN_2026-06-13.md
+/// §10 CI teeth). The in-place EDIT lane (set_field/bulk_apply, Wave 1) edits an EXISTING plugin the user owns — incl. one
+/// houseCARL didn't author — back over itself; the in-place CREATE lane (create_record/bulk_create, Wave 1b) allocates
+/// BRAND-NEW records into it the same way. Both touch the user's ORIGINAL file, so the safety properties are load-bearing
+/// and each is RED-provable here:
 ///
-///   CONTENT-SOURCE (§4.1)  — the edit's body is the TARGET's OWN record, NEVER the load-order winner; a record the
+///   CONTENT-SOURCE (§4.1)  — the EDIT's body is the TARGET's OWN record, NEVER the load-order winner; a record the
 ///                            target doesn't define is REFUSED (no foreign content injected). RED if sourced from winner.
-///   COUNTER PRESERVED      — the author's HEDR.NextObjectID survives verbatim (WriteInPlace skips EnsureFormIdFloor). RED
+///   COUNTER (edit)         — the author's HEDR.NextObjectID survives verbatim (WriteInPlace skips EnsureFormIdFloor). RED
 ///                            if the patch-lane floor ran (a sub-0x800 author counter would jump to 0x800).
-///   MASTERS PRESERVED      — no Skyrim.esm/Update.esm baseline force-include (WriteInPlace ≠ WritePatch). RED if baseline added.
+///   COUNTER (create)       — a new record allocates a fresh FormID in the TARGET's OWN range; the allocation path floors
+///                            the target's counter and ADVANCES it (the opposite of edit's preserve). RED if it kept 0x123.
+///   MASTERS (edit)         — no Skyrim.esm/Update.esm baseline force-include (WriteInPlace ≠ WritePatch). RED if baseline added.
+///   MASTERS (create)       — a new record's cross-mod reference resolves + pulls its origin into the lean derived header
+///                            (the WHOLE known-master set is the serialize's resolution context). RED if own-masters-only.
 ///   FLAT LOCK (winner==target) — re-editing a record the ACTIVE target itself owns: Phase-1 fetch opens the target
 ///                            overlay, ReleaseOverlay must close it before the File.Replace swap. RED if it stays mapped.
 ///   CONSENT HANDSHAKE      — first in-place touch of a plugin REFUSES-and-explains (writes nothing); acknowledge=true
-///                            proceeds; a second edit does NOT re-prompt (persisted, cross-session via UserConfig).
+///                            proceeds; a second touch does NOT re-prompt (persisted, cross-session via UserConfig). The
+///                            acknowledgement is SHARED across the edit + create lanes (keyed off the resolved path).
+///   NESTED (create)        — a new child under ANY parent works in place (full create parity): a parent the target OWNS is
+///                            sourced from the target; a FOREIGN parent is overridden IN to host the child, as xEdit/the patch lane do.
 ///   RESOLVER / CONTRACT    — target= resolves the REAL active-plugin path (a non-load-order name REFUSES, never
 ///                            retargets); in_place needs target=, is mutually exclusive with into=; opt-in defaults OFF.
 ///
 /// Self-contained: synthesizes a master + a user override + a higher override in TEMP and generates the validator corpus
-/// BY CONSTRUCTION in-process (no game data, no checked-in corpus.json). Drives the REAL WritePatchBuilder.ApplyInPlace
-/// (builder arms) and the REAL LoadOrderService.ApplyEdits in-place branch (service arms, via the ForGuard seam).
+/// BY CONSTRUCTION in-process (no game data, no checked-in corpus.json). Drives the REAL WritePatchBuilder.ApplyInPlace /
+/// CreateRecordsInPlace (builder arms) and the REAL LoadOrderService in-place branches (service arms, via the ForGuard seam).
+/// Arms A–I cover the EDIT lane; J–P cover the CREATE lane (J create+counter, O cross-master, M nested-under-a-foreign-parent,
+/// P same-call nested unit, K handshake, L contract, N opt-in) and arm I also proves the create lane shares the marker + handshake.
 /// Run: dotnet run --project src/housecarl-generator inplace-guard
 ///
 /// The NESTED lock arm (the LinkCacheFor-on-a-foreign-target path) needs a real nested record + master, so it lives in
@@ -40,7 +50,7 @@ public static class InPlaceProbe
 
     public static int RunGuard(string[] args)
     {
-        Console.WriteLine("################  REGRESSION GUARD — in-place write lane, Wave 1  ################");
+        Console.WriteLine("################  REGRESSION GUARD — in-place write lane, Waves 1 + 1b  ################");
         Console.WriteLine();
 
         var tmpDir = Path.Combine(Path.GetTempPath(), "hc-inplace-guard");
@@ -61,12 +71,13 @@ public static class InPlaceProbe
         Directory.CreateDirectory(Path.GetDirectoryName(userPristine)!);
 
         var masterKey = new ModKey("HcInPlaceMaster", ModType.Master);
-        FormKey wfk, w2fk;
+        FormKey wfk, w2fk, tfk;
         {
             var m = new SkyrimMod(masterKey, SkyrimRelease.SkyrimSE);
             var w = m.Weapons.AddNew(); w.EditorID = "HcIP_Weap"; w.BasicStats = new WeaponBasicStats { Damage = 10 }; w.Name = "MasterSword";
             var w2 = m.Weapons.AddNew(); w2.EditorID = "HcIP_Weap2"; w2.BasicStats = new WeaponBasicStats { Damage = 5 };
-            wfk = w.FormKey; w2fk = w2.FormKey;
+            var t = m.DialogTopics.AddNew(); t.EditorID = "HcIP_Topic";   // a FOREIGN parent for the nested-in-place arm (M)
+            wfk = w.FormKey; w2fk = w2.FormKey; tfk = t.FormKey;
             m.BeginWrite.ToPath(masterPath).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
         }
         using (var mOv = SkyrimMod.CreateFromBinaryOverlay(masterPath, SkyrimRelease.SkyrimSE))
@@ -87,6 +98,7 @@ public static class InPlaceProbe
 
         string fmtWfk = $"{wfk.ID:X6}:{MasterName}";       // the FormID the tools take (6 hex : defining master)
         string fmtW2fk = $"{w2fk.ID:X6}:{MasterName}";
+        string fmtTfk = $"{tfk.ID:X6}:{MasterName}";       // the foreign DialogTopic parent (arm M)
         var results = new List<(string name, bool pass, string detail)>();
 
         // ===== A — CONTENT-SOURCE / winner-injection: edit the USER's body, NOT the winner's =====
@@ -255,9 +267,152 @@ public static class InPlaceProbe
             var intoTry = svc.ApplyEdits(edit, null, UserName, fullReadback: false);
             bool ownedStaysFalse = !intoTry.Success;
             bool landed = ReadDamage(Path.Combine(uMod, UserName), wfk) == 61;
-            bool pass = wrote.Success && wrote.InPlace && landed && markerWritten && noGenerated && sentinelKept && ownedStaysFalse;
-            results.Add(("I editedInPlace marker + into= boundary (never generated=true)", pass,
-                $"wrote={wrote.Success} landed61={landed} marker={markerWritten} noGenerated={noGenerated} userSentinelKept={sentinelKept} into=StillRefusesUnowned={ownedStaysFalse}  [{Trim(wrote.Error)}]"));
+
+            // The CREATE lane shares this user mod's acknowledgement (keyed off the resolved path, recorded by the edit
+            // above) AND stamps the SAME editedInPlace marker via the SAME helper: a create-in-place here must NOT re-prompt
+            // (edit's ack covers it — the cross-lane handshake share, end-to-end) and must keep generated=true absent.
+            var createIP = svc.CreateRecords("Keyword", "HcIP_InstKw", Array.Empty<BulkOp>(), null, null, false, null, null, null, target: UserName, inPlace: true, acknowledge: false);
+            bool createShared = createIP.Success && createIP.InPlace && !createIP.NeedsAcknowledge;
+            string meta2 = File.Exists(userMeta) ? File.ReadAllText(userMeta) : "";
+            bool createNoGenerated = !meta2.Replace(" ", "").Contains("generated=true", StringComparison.OrdinalIgnoreCase) && meta2.Contains("editedInPlace=");
+
+            bool pass = wrote.Success && wrote.InPlace && landed && markerWritten && noGenerated && sentinelKept && ownedStaysFalse
+                     && createShared && createNoGenerated;
+            results.Add(("I editedInPlace marker + into= boundary + create-lane share (never generated=true)", pass,
+                $"wrote={wrote.Success} landed61={landed} marker={markerWritten} noGenerated={noGenerated} userSentinelKept={sentinelKept} into=StillRefusesUnowned={ownedStaysFalse} createSharesAck={createShared} createKeepsMarkerSafe={createNoGenerated}  [{Trim(wrote.Error)}]"));
+        }
+
+        // ===== J — CREATE-INTO-TARGET: a new flat record allocates a fresh FormID IN THE TARGET; the counter ADVANCES =====
+        // The create-side counter behaviour is the OPPOSITE of the edit lane's preserve: the allocation path floors the
+        // target's OWN counter (the author's sub-0x800 0x123 → 0x800) and advances it. A new Keyword lands in the USER
+        // mod's own range (FormKey.ModKey == the user mod), the counter jumps to keywordId+1, and the user's existing
+        // weapon override stays intact. RED if nothing was allocated, it allocated in the wrong plugin, or kept 0x123.
+        {
+            var userJ = FreshUser(tmpDir, "J", userPristine);
+            using var r = LoadOrderResolver.Build(new[] { masterPath, userJ, highPath });
+            var o = WritePatchBuilder.CreateRecordsInPlace(r, rulebook,
+                new[] { new WritePatchBuilder.CreateSpec { RecordType = "Keyword", EditorId = "HcIP_NewKw", Edits = Array.Empty<WriteRequest>() } },
+                userJ, UserName);
+            var newFk = o.Created.Count > 0 ? o.Created[0].FormKey : default;
+            bool inTarget = newFk.ModKey.FileName.String.Equals(UserName, StringComparison.OrdinalIgnoreCase) && newFk.ID >= 0x800;
+            uint nextId = ReadNextFormId(userJ);
+            string newEdid = ReadEditorIdAt(userJ, newFk);
+            int wDmg = ReadDamage(userJ, wfk); string wName = ReadName(userJ, wfk);
+            bool pass = o.Success && o.InPlace && inTarget && nextId == newFk.ID + 1 && newEdid == "HcIP_NewKw" && wDmg == 20 && wName == "UserSword";
+            results.Add(("J create-into-target (fresh FormID in target, counter advances)", pass,
+                $"success={o.Success} inPlace={o.InPlace} newFk={newFk}(want ID>=0x800 in {UserName}) counter=0x{nextId:X}(want 0x{newFk.ID + 1:X}, NOT 0x123) edid='{newEdid}' weaponOverride=dmg{wDmg}/'{wName}'(want 20/UserSword)  [{o.Error ?? "ok"}]"));
+        }
+
+        // ===== O — CROSS-MASTER REFERENCE: a new record referencing another plugin ADDS that plugin as a master =====
+        // The model-C create serialize hands WriteInPlace the WHOLE known-master set (AllMastersExcept the target), exactly
+        // as xEdit/the patch lane do, so a created record's reference resolves and its origin is pulled into the lean
+        // derived header. Into a BARE user mod with NO masters: a new FormList whose Items reference the master weapon must
+        // make HcInPlaceMaster.esm a master. RED if the serialize used own-masters-only (a bare mod has none → the
+        // reference can't resolve → the write throws or the master is absent).
+        {
+            var bareDir = Path.Combine(tmpDir, "arm-O"); Directory.CreateDirectory(bareDir);
+            var bare = Path.Combine(bareDir, "HcInPlaceBare.esp");
+            new SkyrimMod(new ModKey("HcInPlaceBare", ModType.Plugin), SkyrimRelease.SkyrimSE)
+                .BeginWrite.ToPath(bare).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
+            using var r = LoadOrderResolver.Build(new[] { masterPath, bare });
+            var o = WritePatchBuilder.CreateRecordsInPlace(r, rulebook,
+                new[] { new WritePatchBuilder.CreateSpec { RecordType = "FormList", EditorId = "HcIP_RefFlst",
+                    Edits = new[] { new WriteRequest { RecordType = "FormList", Path = new[] { "Items" }, Verb = "Add", Value = fmtWfk } } } },
+                bare, "HcInPlaceBare.esp");
+            var masters = ReadMasters(bare);
+            bool added = masters.Any(m => m.Equals(MasterName, StringComparison.OrdinalIgnoreCase));
+            bool pass = o.Success && o.InPlace && added;
+            results.Add(("O cross-master reference adds the master (xEdit-parity serialize)", pass,
+                $"success={o.Success} inPlace={o.InPlace} masters=[{string.Join(",", masters)}](want incl. {MasterName})  [{o.Error ?? "ok"}]"));
+        }
+
+        // ===== M — NESTED UNDER A FOREIGN PARENT works in place (full create parity — the corrected scope) =====
+        // Add a NEW dialogue line (DialogResponses/INFO) under the MASTER's topic — a parent the user mod does NOT own —
+        // straight into the user mod in place. This is normal authoring (xEdit/the patch lane do exactly it): the foreign
+        // parent is OVERRIDDEN INTO the user mod to host the child, the child gets a fresh FormID in the user's range, and
+        // the user's existing records stay intact. RED if it refused, or didn't override the parent in / land the child.
+        {
+            var userM = FreshUser(tmpDir, "M", userPristine);
+            using var r = LoadOrderResolver.Build(new[] { masterPath, userM, highPath });
+            var o = WritePatchBuilder.CreateRecordsInPlace(r, rulebook,
+                new[] { new WritePatchBuilder.CreateSpec { RecordType = "DialogResponses", EditorId = "HcIP_NewLine", Edits = Array.Empty<WriteRequest>(), ParentRef = fmtTfk } },
+                userM, UserName);
+            var infoFk = o.Created.Count > 0 ? o.Created[0].FormKey : default;
+            bool childInTarget = infoFk.ModKey.FileName.String.Equals(UserName, StringComparison.OrdinalIgnoreCase) && infoFk.ID >= 0x800;
+            bool parentOverriddenIn = RecordPresent(userM, tfk);   // the foreign topic is now carried (as an override) by the user mod
+            int wDmg = ReadDamage(userM, wfk);                     // the user's existing weapon override stays intact
+            bool pass = o.Success && o.InPlace && childInTarget && parentOverriddenIn && wDmg == 20;
+            results.Add(("M nested under a FOREIGN parent works in place (parent overridden in + child)", pass,
+                $"success={o.Success} inPlace={o.InPlace} childFk={infoFk}(in {UserName}) foreignTopicOverriddenIn={parentOverriddenIn} weaponIntact={wDmg == 20}  [{o.Error ?? "ok"}]"));
+        }
+
+        // ===== K — CONSENT HANDSHAKE for create: RED (first refuses) → GREEN (acknowledge writes) → no re-prompt =====
+        {
+            var userK = FreshUser(tmpDir, "K", userPristine);
+            byte[] before = File.ReadAllBytes(userK);
+            bool red, untouched, green, noReprompt;
+            using (var r = LoadOrderResolver.Build(new[] { masterPath, userK }))
+            {
+                var svc = LoadOrderService.ForGuard(r, new UserConfigStore(Path.Combine(tmpDir, "K.user.json")));
+                var first = svc.CreateRecords("Keyword", "HcIP_KwA", Array.Empty<BulkOp>(), null, null, false, null, null, null, target: UserName, inPlace: true, acknowledge: false);
+                red = first.NeedsAcknowledge && !first.Success;
+                untouched = File.ReadAllBytes(userK).AsSpan().SequenceEqual(before);
+                var ack = svc.CreateRecords("Keyword", "HcIP_KwA", Array.Empty<BulkOp>(), null, null, false, null, null, null, target: UserName, inPlace: true, acknowledge: true);
+                green = ack.Success && ack.InPlace;
+                var again = svc.CreateRecords("Keyword", "HcIP_KwB", Array.Empty<BulkOp>(), null, null, false, null, null, null, target: UserName, inPlace: true, acknowledge: false);
+                noReprompt = again.Success && !again.NeedsAcknowledge;
+            }
+            bool pass = red && untouched && green && noReprompt;
+            results.Add(("K create handshake RED->GREEN->no-reprompt", pass,
+                $"firstRefused={red} untouched={untouched} ackWrote={green} secondNoPrompt={noReprompt}"));
+        }
+
+        // ===== L — CONTRACT validation for create (mirror the edit lane's E) =====
+        {
+            var userL = FreshUser(tmpDir, "L", userPristine);
+            using var r = LoadOrderResolver.Build(new[] { masterPath, userL, highPath });
+            var svc = LoadOrderService.ForGuard(r, new UserConfigStore(Path.Combine(tmpDir, "L.user.json")));
+            var noTarget = svc.CreateRecords("Keyword", "HcIP_K", Array.Empty<BulkOp>(), null, null, false, null, null, null, target: null, inPlace: true, acknowledge: true);
+            var withInto = svc.CreateRecords("Keyword", "HcIP_K", Array.Empty<BulkOp>(), null, "somepatch", false, null, null, null, target: UserName, inPlace: true, acknowledge: true);
+            var targetNoFlag = svc.CreateRecords("Keyword", "HcIP_K", Array.Empty<BulkOp>(), null, null, false, null, null, null, target: UserName, inPlace: false, acknowledge: false);
+            bool pass = !noTarget.Success && (noTarget.Error?.Contains("requires target=") ?? false)
+                     && !withInto.Success && (withInto.Error?.Contains("mutually exclusive") ?? false)
+                     && !targetNoFlag.Success && (targetNoFlag.Error?.Contains("only meaningful with in_place") ?? false);
+            results.Add(("L contract (in_place<->target, _|_ into=) — create", pass,
+                $"noTarget={Trim(noTarget.Error)} | into={Trim(withInto.Error)} | noFlag={Trim(targetNoFlag.Error)}"));
+        }
+
+        // ===== N — OPT-IN BY CONSTRUCTION (create): create_record + bulk_create default the three params OFF =====
+        {
+            var cr = typeof(WriteTools).GetMethod(nameof(WriteTools.CreateRecord))!;
+            var bc = typeof(WriteTools).GetMethod(nameof(WriteTools.BulkCreate))!;
+            bool DefOff(System.Reflection.MethodInfo m) =>
+                m.GetParameters().First(p => p.Name == "in_place").DefaultValue is false
+                && m.GetParameters().First(p => p.Name == "target").DefaultValue is null
+                && m.GetParameters().First(p => p.Name == "acknowledge").DefaultValue is false;
+            bool pass = DefOff(cr) && DefOff(bc);
+            results.Add(("N opt-in by construction (create_record/bulk_create default OFF)", pass,
+                $"create_record={DefOff(cr)} bulk_create={DefOff(bc)}"));
+        }
+
+        // ===== P — SAME-CALL nested unit in place (a NEW topic + its NEW line, both into the user mod) =====
+        // The headline "author a new dialogue unit straight into my mod" case: bulk-create a topic AND a line under it
+        // (a same-call SIBLING parent), both net-new, in place. RED if either didn't land or the sibling-parent wiring
+        // broke under the in-place lane.
+        {
+            var userP = FreshUser(tmpDir, "P", userPristine);
+            using var r = LoadOrderResolver.Build(new[] { masterPath, userP });
+            var o = WritePatchBuilder.CreateRecordsInPlace(r, rulebook, new[]
+            {
+                new WritePatchBuilder.CreateSpec { RecordType = "DialogTopic", EditorId = "HcIP_NewTopic", Edits = Array.Empty<WriteRequest>() },
+                new WritePatchBuilder.CreateSpec { RecordType = "DialogResponses", EditorId = "HcIP_TopicLine", Edits = Array.Empty<WriteRequest>(), ParentRef = "HcIP_NewTopic" },
+            }, userP, UserName);
+            bool bothInTarget = o.Created.Count == 2 && o.Created.All(c => c.FormKey.ModKey.FileName.String.Equals(UserName, StringComparison.OrdinalIgnoreCase));
+            bool topicPresent = o.Created.Count > 0 && RecordPresent(userP, o.Created[0].FormKey);
+            bool linePresent = o.Created.Count > 1 && RecordPresent(userP, o.Created[1].FormKey);
+            bool pass = o.Success && o.InPlace && bothInTarget && topicPresent && linePresent;
+            results.Add(("P same-call nested unit (new topic + line) in place", pass,
+                $"success={o.Success} inPlace={o.InPlace} created={o.Created.Count}(want 2) bothInTarget={bothInTarget} topic={topicPresent} line={linePresent}  [{o.Error ?? "ok"}]"));
         }
 
         Console.WriteLine("── ARMS ──");
@@ -369,6 +524,22 @@ public static class InPlaceProbe
         ISkyrimModGetter? ov = null;
         try { ov = SkyrimMod.CreateFromBinaryOverlay(path, SkyrimRelease.SkyrimSE); return ov.Weapons.FirstOrDefault(x => x.FormKey == fk)?.Name?.String ?? "(none)"; }
         catch { return "(read failed)"; }
+        finally { (ov as IDisposable)?.Dispose(); }
+    }
+
+    static string ReadEditorIdAt(string path, FormKey fk)
+    {
+        ISkyrimModGetter? ov = null;
+        try { ov = SkyrimMod.CreateFromBinaryOverlay(path, SkyrimRelease.SkyrimSE); return ov.EnumerateMajorRecords().FirstOrDefault(r => r.FormKey == fk)?.EditorID ?? "(none)"; }
+        catch { return "(read failed)"; }
+        finally { (ov as IDisposable)?.Dispose(); }
+    }
+
+    static bool RecordPresent(string path, FormKey fk)
+    {
+        ISkyrimModGetter? ov = null;
+        try { ov = SkyrimMod.CreateFromBinaryOverlay(path, SkyrimRelease.SkyrimSE); return ov.EnumerateMajorRecords().Any(r => r.FormKey == fk); }
+        catch { return false; }
         finally { (ov as IDisposable)?.Dispose(); }
     }
 

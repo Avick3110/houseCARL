@@ -163,6 +163,24 @@ public static class WritePatchBuilder
     {
         public IReadOnlyList<FullReadback>? ReadBack { get; init; }
 
+        /// <summary>True ⇒ this outcome came from the IN-PLACE create lane (<see cref="CreateRecords"/>'s sibling
+        /// <see cref="CreateRecordsInPlace"/>) — the new records were allocated into the USER's own file at
+        /// <see cref="OutputPath"/>, not a new patch. Drives the distinct "created in place" confirmation (and the
+        /// "no undo; keep your own backup" note). Mirrors <see cref="PatchOutcome.InPlace"/>.</summary>
+        public bool InPlace { get; init; }
+
+        /// <summary>True ⇒ NOT a write and NOT an error: the server-enforced first-touch in-place CONSENT handshake.
+        /// The in-place create lane refused to write this plugin until the user acknowledges the trade-off;
+        /// <see cref="Error"/> carries the prompt verbatim (re-call with acknowledge=true). Rendered as a confirmation
+        /// prompt, never "error:" (Q3). Nothing was written; the original is untouched. Mirrors
+        /// <see cref="PatchOutcome.NeedsAcknowledge"/>.</summary>
+        public bool NeedsAcknowledge { get; init; }
+
+        /// <summary>An optional Q3 honesty note appended to a SUCCESSFUL outcome — a side effect that didn't land cleanly
+        /// even though the write did (e.g. the in-place acknowledgement couldn't be persisted, or the editedInPlace audit
+        /// marker couldn't be written). Null when there's nothing to add. Mirrors <see cref="PatchOutcome.Note"/>.</summary>
+        public string? Note { get; init; }
+
         /// <summary>The voice-coverage report for the INFOs this call created (Layer B unit B) — null unless the call
         /// created ≥1 dialogue line. Filled by the SERVICE post-write (it owns the live AssetResolver), NOT by the core
         /// create path: a `with { Voice = … }` enrich on the returned outcome, so <see cref="CreateRecords"/> stays a
@@ -183,6 +201,13 @@ public static class WritePatchBuilder
 
         public static CreateOutcome Fail(string error) =>
             new(false, error, "", false, Array.Empty<CreatedRecord>(), Array.Empty<string>(), 0);
+
+        /// <summary>The first-touch in-place consent handshake: no write, no error — a required confirmation carrying the
+        /// trade-off <paramref name="prompt"/> (the caller re-calls with acknowledge=true). Success=false so no downstream
+        /// success path runs; <see cref="NeedsAcknowledge"/> tells the renderer to show it as a prompt. Mirrors
+        /// <see cref="PatchOutcome.NeedsAck"/>.</summary>
+        public static CreateOutcome NeedsAck(string prompt) =>
+            new(false, prompt, "", false, Array.Empty<CreatedRecord>(), Array.Empty<string>(), 0) { NeedsAcknowledge = true };
     }
 
     /// <summary>How deep the full read-back reads each written record — the same rationale as the conflict diff's
@@ -911,25 +936,51 @@ public static class WritePatchBuilder
     /// <see cref="WriteEngine.CanCreateNested"/>. <paramref name="extend"/>=false writes a fresh patch (ModKey = filename);
     /// =true adds to an existing one (the into= path). ALL-OR-NOTHING (Q3): any pre-flight problem — missing editorid, an
     /// un-createable type, an unresolvable parent, a rejected edit — refuses the WHOLE call with no file written.
+    ///
+    /// <paramref name="inPlaceTarget"/> (non-null) switches to the IN-PLACE lane (Wave 1b): <paramref name="outPath"/> IS
+    /// the target plugin's real on-disk path and the records are allocated INTO it + the whole plugin re-serialized over
+    /// itself (model C, <see cref="WriteEngine.WriteInPlace"/>) instead of a new patch — full create parity, incl. nesting
+    /// under a parent the target doesn't itself own (the parent is overridden IN, exactly as the patch lane does into a new
+    /// patch; a parent the target DOES own is sourced from the target so its content is preserved). Every in-place fork is
+    /// additive + gated on this param: the patch lane (inPlaceTarget null) is behaviourally unchanged.
     /// </summary>
     public static CreateOutcome CreateRecords(
         LoadOrderResolver resolver, CorpusRulebook rulebook,
-        IReadOnlyList<CreateSpec> specs, string outPath, bool extend, bool fullReadback = false)
+        IReadOnlyList<CreateSpec> specs, string outPath, bool extend, bool fullReadback = false, string? inPlaceTarget = null)
     {
         if (specs.Count == 0) return CreateOutcome.Fail("no records to create supplied.");
+        bool inPlace = inPlaceTarget is not null;
 
         // Per-call overlay session (Option B): the known-master set for the serialize is opened through it and disposed
-        // when the method returns — no handle held at rest.
+        // when the method returns — no handle held at rest. The view is captured up front (the in-place Phase-0 guard needs
+        // it; the patch lane uses it identically in Phase 1).
         using var session = resolver.OpenSession();
+        var view = resolver.Capture();
 
-        // --- Phase 0: open (extend) or create the patch mod FIRST — moved AHEAD of pre-flight so a FormKey parent can
-        //     resolve from the PATCH being extended (a parent created in a PRIOR into= call), not the load order alone
-        //     (the former N9 gap). CreateFromBinary reads the file fully into memory and holds NO handle at rest (the
-        //     active-patch self-lock invariant is untouched — Phase 4's ReleaseOverlay + AllMastersExcept still guard the
-        //     serialize); nothing is mutated until Phase 3 and nothing serialized until Phase 4, so all-or-nothing holds. ---
+        // --- Phase 0: open the destination FIRST — moved AHEAD of pre-flight so a FormKey parent can resolve from it (a
+        //     parent created in a PRIOR into= call, or — in place — a parent the target itself owns). CreateFromBinary reads
+        //     the file fully into memory and holds NO handle at rest (the active-patch self-lock invariant is untouched —
+        //     Phase 4's ReleaseOverlay + AllMastersExcept still guard the serialize); nothing is mutated until Phase 3 and
+        //     nothing serialized until Phase 4, so all-or-nothing holds. IN-PLACE: the destination IS the target plugin. ---
         var fileName = Path.GetFileName(outPath);
         SkyrimMod patchMod;
-        if (extend)
+        if (inPlace)
+        {
+            // The target must be an active, fully-parseable plugin (the excluded-plugin guard, same as ApplyInPlace):
+            // houseCARL won't re-serialize a plugin it can't fully parse — that would risk DROPPING a record it couldn't read (Q3).
+            if (!view.ContainsPlugin(inPlaceTarget!))
+                return CreateOutcome.Fail($"in-place target '{inPlaceTarget}' is not an active plugin in the load order.");
+            if (view.ExcludedPlugins.TryGetValue(inPlaceTarget!, out var excluded))
+                return CreateOutcome.Fail(
+                    $"cannot create into '{inPlaceTarget}' in place: it was EXCLUDED from this session ({excluded}) — houseCARL won't " +
+                    "re-serialize a plugin it can't fully parse (that would risk dropping a record it couldn't read, Q3). The file is UNTOUCHED.");
+            if (!File.Exists(outPath))
+                return CreateOutcome.Fail($"in-place target '{fileName}' not found on disk at {outPath} — the file is untouched.");
+            try { patchMod = SkyrimMod.CreateFromBinary(outPath, SkyrimRelease.SkyrimSE); }
+            catch (Exception ex)
+                { return CreateOutcome.Fail($"cannot open '{fileName}' to create into it in place ({WriteEngine.Describe(ex)}) — a plugin Mutagen can't parse is refused, not re-emitted minus what it couldn't read (Q3). The file is UNTOUCHED."); }
+        }
+        else if (extend)
         {
             if (!File.Exists(outPath))
                 return CreateOutcome.Fail($"cannot extend: no existing patch at {outPath}. Omit into= to create it fresh.");
@@ -941,7 +992,7 @@ public static class WritePatchBuilder
             patchMod = new SkyrimMod(new ModKey(Path.GetFileNameWithoutExtension(outPath), ModType.Plugin), SkyrimRelease.SkyrimSE);
         }
         if (!string.Equals(patchMod.ModKey.FileName.String, fileName, StringComparison.OrdinalIgnoreCase))
-            return CreateOutcome.Fail($"patch ModKey '{patchMod.ModKey.FileName}' must match output filename '{fileName}'.");
+            return CreateOutcome.Fail($"{(inPlace ? "in-place" : "patch")} ModKey '{patchMod.ModKey.FileName}' must match {(inPlace ? "the target filename" : "output filename")} '{fileName}'.");
 
         // --- Phase 1: pre-flight EVERY spec before any mutation (Q3, all-or-nothing). editorid required + unique; the
         //     type must be createable — a FLAT top-level type (CanCreateType), OR a NESTED child given a valid parent
@@ -951,7 +1002,6 @@ public static class WritePatchBuilder
         //     edit is validated by the rulebook rooted at the create type. The new FormID isn't known until allocation
         //     (Phase 3), so creatability is STRUCTURAL; a FormKey parent is resolved here only to learn its TYPE + stash
         //     the route to make it settable in Phase 3. ONE captured build answers every parent resolve (hunt-F5). ---
-        var view = resolver.Capture();
         var problems = new List<string>();
         var seenEdid = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var declaredEdidType = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);   // editorid -> RecordType (same-call sibling parents)
@@ -985,14 +1035,26 @@ public static class WritePatchBuilder
                 Type? parentType = null;
                 if (FormKey.TryFactory(s.ParentRef, out var parentFk))
                 {
-                    var w = view.ResolveWinner(parentFk);
-                    if (w is not null)
+                    // IN-PLACE target-owned parent (the create-side of the edit lane's content-source guard): if the TARGET
+                    // itself carries the parent (defines or overrides it), use ITS OWN copy directly — preserve the user's
+                    // parent content + just add the child. The winner-source path below would instead override the load-order
+                    // WINNER in, clobbering the user's content for a parent they own but don't win. (Patch lane: inPlace false
+                    // => skips this; the prior-into= patchMod-carries branch still serves it, unchanged.)
+                    if (inPlace && patchMod.EnumerateMajorRecords().FirstOrDefault(r => r.FormKey == parentFk) is { } ownParent)
                     {
-                        // An EXISTING load-order parent (a topic/cell from a master or mod): override it INTO the patch in Phase 3.
-                        var parentBody = view.GetRecord(session, w.Value.WinnerPlugin, parentFk);
-                        if (parentBody is null) { problems.Add($"{s.RecordType} '{s.EditorId}': parent {parentFk} winner '{w.Value.WinnerPlugin}' did not yield it on fetch (a load-order inconsistency)."); continue; }
+                        parentType = WriteEngine.ResolveConcreteRecordType(RecordNaming.StripOverlay(ownParent.GetType().Name));
+                        parentPlans[i] = (null, null, null, ownParent);
+                    }
+                    else if (view.ResolveWinner(parentFk) is { } w)
+                    {
+                        // An EXISTING load-order parent (a topic/cell from a master or mod): override it INTO the destination
+                        // in Phase 3. In place, this is the FOREIGN-parent case — the parent the target doesn't own — and
+                        // overriding it in to host the child is exactly what the patch lane does into a new patch (correct,
+                        // necessary nesting, NOT injection: the user explicitly named the parent; the override is reported).
+                        var parentBody = view.GetRecord(session, w.WinnerPlugin, parentFk);
+                        if (parentBody is null) { problems.Add($"{s.RecordType} '{s.EditorId}': parent {parentFk} winner '{w.WinnerPlugin}' did not yield it on fetch (a load-order inconsistency)."); continue; }
                         parentType = WriteEngine.ResolveConcreteRecordType(RecordNaming.StripOverlay(parentBody.GetType().Name));
-                        parentPlans[i] = (parentBody, w.Value.WinnerPlugin, null, null);
+                        parentPlans[i] = (parentBody, w.WinnerPlugin, null, null);
                     }
                     else if (patchMod.EnumerateMajorRecords().FirstOrDefault(r => r.FormKey == parentFk) is { } patchParent)
                     {
@@ -1004,10 +1066,10 @@ public static class WritePatchBuilder
                     }
                     else
                     {
-                        // Genuinely absent from BOTH the load order and the patch — the surviving loud refusal (Q3, never a
+                        // Genuinely absent from the load order AND the destination — the surviving loud refusal (Q3, never a
                         // misleading "wrong FormID"). Name the one-call workaround for the common new-topic case.
                         problems.Add($"{s.RecordType} '{s.EditorId}': parent {parentFk} is not present in the load order"
-                            + (extend ? " or this patch" : "") + " — name an existing parent, or create the parent and this "
+                            + (extend ? " or this patch" : "") + (inPlace ? " or the target plugin" : "") + " — name an existing parent, or create the parent and this "
                             + "child in ONE call (a same-call sibling parent, by the parent's editorid).");
                         continue;
                     }
@@ -1174,8 +1236,18 @@ public static class WritePatchBuilder
         // Phase-1 winner fetch, when re-editing the patch's OWN override — there the winner IS the target); AllMastersExcept
         // keeps the target out of the master set. (writelock-probe / writelock-apply-probe; both halves guarded.)
         session.ReleaseOverlay(patchMod.ModKey.FileName.String);
-        try { WriteEngine.WritePatch(patchMod, session.AllMastersExcept(patchMod.ModKey.FileName.String), outPath); }
-        catch (Exception ex) { return CreateOutcome.Fail($"writing the patch after create failed (serialize or commit; the existing file is untouched): {WriteEngine.Describe(ex)}"); }
+        try
+        {
+            if (inPlace)
+                // Model C (the Wave 0 probe's incantation): re-emit the WHOLE target over itself — the author's counter
+                // preserved (NoNextFormIDProcessing, no re-floor; the allocation already floored+advanced it), no baseline
+                // force-include. Handed the SAME whole-master set as WritePatch, so a new record's cross-mod reference (incl.
+                // an overridden-in foreign parent) resolves + pulls its master into the lean derived header — xEdit-parity.
+                WriteEngine.WriteInPlace(patchMod, session.AllMastersExcept(patchMod.ModKey.FileName.String), outPath);
+            else
+                WriteEngine.WritePatch(patchMod, session.AllMastersExcept(patchMod.ModKey.FileName.String), outPath);
+        }
+        catch (Exception ex) { return CreateOutcome.Fail($"writing {(inPlace ? $"'{fileName}' in place" : "the patch")} after create failed (serialize or commit; the existing file is untouched): {WriteEngine.Describe(ex)}"); }
 
         // --- Phase 5: re-open + report the (derived) master header + bytes — and, on request, each created record's
         //     FULL read-back off that same re-opened file (see Apply's Phase 5). Dispose the overlay so the file isn't
@@ -1194,8 +1266,21 @@ public static class WritePatchBuilder
         catch (Exception ex) { return CreateOutcome.Fail($"records created + written but the patch could not be re-opened to confirm: {ex.Message}"); }
         finally { (back as IDisposable)?.Dispose(); }
 
-        return new CreateOutcome(true, null, outPath, extend, created, masters, bytes) { ReadBack = readBack };
+        return new CreateOutcome(true, null, outPath, extend, created, masters, bytes) { ReadBack = readBack, InPlace = inPlace };
     }
+
+    /// <summary>Create BRAND-NEW records IN PLACE inside an EXISTING plugin the user owns (in-place write lane, Wave 1b) —
+    /// the create sibling of <see cref="ApplyInPlace"/>, and the in-place ENTRY POINT into the shared
+    /// <see cref="CreateRecords"/> core: it forwards with <paramref name="targetName"/> as the in-place target, so the FULL
+    /// create capability — flat, nested (incl. under a parent the target doesn't own, overridden in to host the child), and
+    /// cells — runs the SAME proven path as the patch lane, pointed at <paramref name="targetPath"/> and serialized model-C
+    /// over the file itself (<see cref="WriteEngine.WriteInPlace"/>). The created-record verify
+    /// (<paramref name="fullReadback"/>) defaults ON. CONSENT + the persistent acknowledge handshake are enforced by the
+    /// SERVICE before this is reached.</summary>
+    public static CreateOutcome CreateRecordsInPlace(
+        LoadOrderResolver resolver, CorpusRulebook rulebook,
+        IReadOnlyList<CreateSpec> specs, string targetPath, string targetName, bool fullReadback = true)
+        => CreateRecords(resolver, rulebook, specs, targetPath, extend: false, fullReadback, inPlaceTarget: targetName);
 
     /// <summary>Read each just-written record IN FULL off the re-opened written file — the overlay Phase 5 already
     /// opens to confirm masters, so no new handle class (opened AFTER the serialize, disposed with Phase 5; the

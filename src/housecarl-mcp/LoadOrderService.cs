@@ -1444,14 +1444,15 @@ public sealed class LoadOrderService : IDisposable
     /// fitting child-list, <paramref name="collection"/>. For a parent + its children in ONE call (a topic + its lines, a
     /// child's parent= naming a same-call sibling), see <see cref="CreateRecordsBatch"/>.</summary>
     public WritePatchBuilder.CreateOutcome CreateRecords(string recordType, string editorid, IReadOnlyList<BulkOp> operations,
-        string? patchName, string? into, bool fullReadback = false, string? parent = null, string? collection = null, string? grid = null)
+        string? patchName, string? into, bool fullReadback = false, string? parent = null, string? collection = null, string? grid = null,
+        string? target = null, bool inPlace = false, bool acknowledge = false)
     {
         var problems = new List<string>();
         var spec = BuildCreateSpec(recordType, editorid, operations, parent, collection, grid, where: null, problems);
         if (spec is null)
             return WritePatchBuilder.CreateOutcome.Fail(
                 $"refused — {problems.Count} problem(s) creating the record; NOTHING created:\n  - " + string.Join("\n  - ", problems));
-        return CommitCreate(new[] { spec }, patchName, into, fullReadback);
+        return CommitCreate(new[] { spec }, patchName, into, fullReadback, target, inPlace, acknowledge);
     }
 
     /// <summary>Create MANY new records in ONE patch (housecarl_bulk_create) — the batch sibling of
@@ -1460,7 +1461,8 @@ public sealed class LoadOrderService : IDisposable
     /// the single create (type resolution + field-op mapping + parent/collection); ALL-OR-NOTHING (Q3) — any malformed
     /// spec refuses the whole call (with per-record reasons) and the core <see cref="WritePatchBuilder.CreateRecords"/>
     /// likewise refuses the whole batch on any creatability/parent problem. One serialize for the lot.</summary>
-    public WritePatchBuilder.CreateOutcome CreateRecordsBatch(IReadOnlyList<CreateOp> records, string? patchName, string? into, bool fullReadback = false)
+    public WritePatchBuilder.CreateOutcome CreateRecordsBatch(IReadOnlyList<CreateOp> records, string? patchName, string? into, bool fullReadback = false,
+        string? target = null, bool inPlace = false, bool acknowledge = false)
     {
         if (records is null || records.Count == 0)
             return WritePatchBuilder.CreateOutcome.Fail("no records to create supplied — pass one or more {record_type, editorid, operations?, parent?, collection?} specs.");
@@ -1476,7 +1478,7 @@ public sealed class LoadOrderService : IDisposable
         if (problems.Count > 0)
             return WritePatchBuilder.CreateOutcome.Fail(
                 $"refused — {problems.Count} problem(s) across {records.Count} record(s); NOTHING created:\n  - " + string.Join("\n  - ", problems));
-        return CommitCreate(specs, patchName, into, fullReadback);
+        return CommitCreate(specs, patchName, into, fullReadback, target, inPlace, acknowledge);
     }
 
     /// <summary>Build ONE core <see cref="WritePatchBuilder.CreateSpec"/> from wire parts (shared by the single create and
@@ -1530,12 +1532,31 @@ public sealed class LoadOrderService : IDisposable
     /// <summary>Resolve the folder-per-patch output (fresh, or <paramref name="into"/> an existing houseCARL-owned patch),
     /// then drive the core multi-record create + serialize under the write gate (hunt F2: one write at a time). A refused
     /// create that just created the output folder leaves no orphan (hunt F4). Shared by the single + batch create.</summary>
-    WritePatchBuilder.CreateOutcome CommitCreate(IReadOnlyList<WritePatchBuilder.CreateSpec> specs, string? patchName, string? into, bool fullReadback)
+    WritePatchBuilder.CreateOutcome CommitCreate(IReadOnlyList<WritePatchBuilder.CreateSpec> specs, string? patchName, string? into, bool fullReadback,
+        string? target = null, bool inPlace = false, bool acknowledge = false)
     {
+        // In-place is the explicit, named-file opt-in (the SECOND write lane — create into an existing plugin, incl. one
+        // houseCARL didn't author, instead of writing a new patch). Validate the contract up front (Q3): it REQUIRES a
+        // target=, is mutually exclusive with into= (which EXTENDS a houseCARL patch — a different lane), and target=
+        // without in_place is a no-op the caller likely didn't mean — name it rather than silently ignore it. (Mirrors
+        // ApplyEdits' in-place contract exactly.)
+        if (inPlace && string.IsNullOrWhiteSpace(target))
+            return WritePatchBuilder.CreateOutcome.Fail(
+                "in_place=true requires target=<plugin filename> — name the existing plugin to create into in place. (Omit in_place to write a new patch instead — the default, originals untouched.)");
+        if (inPlace && !string.IsNullOrWhiteSpace(into))
+            return WritePatchBuilder.CreateOutcome.Fail(
+                "in_place=true and into= are mutually exclusive: into= EXTENDS a houseCARL patch, while in_place creates into an existing plugin in place. Use one lane or the other.");
+        if (!inPlace && !string.IsNullOrWhiteSpace(target))
+            return WritePatchBuilder.CreateOutcome.Fail(
+                "target= is only meaningful with in_place=true (it names the plugin to create into in place). For the default patch lane omit target=; use into= to extend an existing houseCARL patch.");
+
         lock (_writeGate)                                                 // hunt F2: one write at a time, resolve→commit
         {
             var resolver = Resolver;
             var rulebook = Rulebook;
+
+            if (inPlace)
+                return CommitCreateInPlace(resolver, rulebook, specs, target!.Trim(), acknowledge);
 
             string outPath; bool extend, created;
             try { outPath = ResolveOutputPath(patchName, into, out extend, out created); }
@@ -1549,6 +1570,69 @@ public sealed class LoadOrderService : IDisposable
             // (a dialogue line / a cell); none can fail the create (the write already succeeded).
             return outcome.Success ? EnrichWithCellShell(EnrichWithScriptCheck(EnrichWithVoiceCheck(outcome, resolver))) : outcome;
         }
+    }
+
+    /// <summary>The in-place branch of <see cref="CommitCreate"/> (in-place write lane, Wave 1b) — the create-side
+    /// companion of <see cref="ApplyEditsInPlace"/>, and it REUSES every Wave-1 in-place seam: the same foreign-target
+    /// resolver (<see cref="ResolveActivePluginPath"/>), the same PERSISTENT first-touch CONSENT handshake (keyed off the
+    /// resolved path in <see cref="UserConfigStore"/>), the same writable-parent pre-flight, and the same distinct
+    /// <c>editedInPlace=</c> marker (NEVER <c>generated=true</c> — the user mod keeps failing
+    /// <see cref="IsHouseCarlOwned"/> so a later into= can't blind-overwrite it). The ONLY divergences from
+    /// <see cref="ApplyEditsInPlace"/>: it drives <see cref="WritePatchBuilder.CreateRecordsInPlace"/> (allocate-into-target,
+    /// not edit-own-record) and returns a <see cref="WritePatchBuilder.CreateOutcome"/>. The created-record verify is forced
+    /// ON (the model-C substitute for the dropped whole-plugin floor). <paramref name="acknowledge"/> waives the CONSENT
+    /// axis ONLY — the verify is a corruption-axis fact no acknowledgement overrides. Runs under <c>_writeGate</c> (the
+    /// caller holds it). No post-write dialogue/cell teeth — Wave 1b is flat top-level records only, so no INFO/Cell can be
+    /// created here.</summary>
+    WritePatchBuilder.CreateOutcome CommitCreateInPlace(
+        LoadOrderResolver resolver, CorpusRulebook rulebook, IReadOnlyList<WritePatchBuilder.CreateSpec> specs,
+        string target, bool acknowledge)
+    {
+        // (1) Resolve target -> real on-disk path via the load order (by plugin FILENAME). Refuse loud if it isn't a real
+        //     active plugin (closes the coincidental-folder collision the into= lane can hit). Same resolver as the edit lane.
+        var view = resolver.Capture();
+        var targetPath = ResolveActivePluginPath(view, Path.GetFileName(target.Trim()), out var targetName);
+        if (targetPath is null)
+            return WritePatchBuilder.CreateOutcome.Fail(
+                $"in-place target '{target}' is not an active plugin in the load order — name a plugin enabled in MO2, by its " +
+                "plugin filename (e.g. 'CoolWeapons.esp'). in-place creates into the file the game actually loads. Nothing was written.");
+
+        // (2) CONSENT axis — the persistent, server-enforced first-touch handshake, keyed off the resolved path (shared with
+        //     the edit lane: acknowledging a plugin once covers BOTH editing and creating into it in place — it's the same
+        //     "touch your original" trade-off).
+        bool already = _store.IsInPlaceAcknowledged(targetPath);
+        if (!already && !acknowledge)
+            return WritePatchBuilder.CreateOutcome.NeedsAck(InPlaceHandshakeText(targetName, targetPath));
+        string? ackNote = null;
+        if (!already && acknowledge)
+        {
+            var (ok, err) = _store.RecordInPlaceAcknowledged(targetPath);
+            if (!ok) ackNote = $"the in-place acknowledgement could not be saved ({err}) — the create proceeded, but a future session will re-prompt for this plugin.";
+        }
+
+        // (3) Writable, same-volume parent pre-flight — refuse rather than degrade (the swap stages a sibling temp here).
+        if (InPlaceParentUnwritable(targetPath, out var why))
+            return WritePatchBuilder.CreateOutcome.Fail(why);
+
+        // (4) The write — created-record verify forced ON (the model-C substitute for the dropped whole-plugin floor).
+        var outcome = WritePatchBuilder.CreateRecordsInPlace(resolver, rulebook, specs, targetPath, targetName, fullReadback: true);
+
+        // (5) On success: run the SAME post-write teeth the patch lane runs (the service owns the live AssetResolver) —
+        //     in-place create can now author dialogue lines / cells under any parent, so voice (.fuz) + result-script +
+        //     cell-shell coverage must be checked here too (each a no-op unless that record kind was created; none can
+        //     fail the write, which already succeeded). Then stamp the distinct audit marker (best-effort; a marker miss
+        //     never fails the done create, Q3-noted).
+        if (outcome.Success)
+        {
+            var enriched = EnrichWithCellShell(EnrichWithScriptCheck(EnrichWithVoiceCheck(outcome, resolver)));
+            var markerNote = MergeEditedInPlaceMarker(Path.GetDirectoryName(targetPath));
+            var note = JoinNotes(ackNote, markerNote);
+            return note is not null ? enriched with { Note = note } : enriched;
+        }
+        if (ackNote is not null)
+            // The acknowledgement was recorded but the write then failed — keep the (now-honest) note alongside the error.
+            return outcome with { Note = ackNote };
+        return outcome;
     }
 
     /// <summary>Layer B unit B — the on-disk voice (.fuz/.lip) presence check, run as a POST-WRITE step on a SUCCESSFUL
