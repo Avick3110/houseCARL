@@ -35,8 +35,9 @@ namespace HousecarlGenerator;
 /// Self-contained: synthesizes a master + a user override + a higher override in TEMP and generates the validator corpus
 /// BY CONSTRUCTION in-process (no game data, no checked-in corpus.json). Drives the REAL WritePatchBuilder.ApplyInPlace /
 /// CreateRecordsInPlace (builder arms) and the REAL LoadOrderService in-place branches (service arms, via the ForGuard seam).
-/// Arms A–I cover the EDIT lane; J–P cover the CREATE lane (J create+counter, O cross-master, M nested-under-a-foreign-parent,
-/// P same-call nested unit, K handshake, L contract, N opt-in) and arm I also proves the create lane shares the marker + handshake.
+/// Arms A–I cover the EDIT lane; J–Q cover the CREATE lane (J create+counter, O cross-master, M nested-under-a-foreign-parent,
+/// P same-call nested unit, Q exterior-cell-under-a-foreign-worldspace, K handshake, L contract, N opt-in) and arm I also
+/// proves the create lane shares the marker + handshake.
 /// Run: dotnet run --project src/housecarl-generator inplace-guard
 ///
 /// The NESTED lock arm (the LinkCacheFor-on-a-foreign-target path) needs a real nested record + master, so it lives in
@@ -71,13 +72,14 @@ public static class InPlaceProbe
         Directory.CreateDirectory(Path.GetDirectoryName(userPristine)!);
 
         var masterKey = new ModKey("HcInPlaceMaster", ModType.Master);
-        FormKey wfk, w2fk, tfk;
+        FormKey wfk, w2fk, tfk, wsfk;
         {
             var m = new SkyrimMod(masterKey, SkyrimRelease.SkyrimSE);
             var w = m.Weapons.AddNew(); w.EditorID = "HcIP_Weap"; w.BasicStats = new WeaponBasicStats { Damage = 10 }; w.Name = "MasterSword";
             var w2 = m.Weapons.AddNew(); w2.EditorID = "HcIP_Weap2"; w2.BasicStats = new WeaponBasicStats { Damage = 5 };
             var t = m.DialogTopics.AddNew(); t.EditorID = "HcIP_Topic";   // a FOREIGN parent for the nested-in-place arm (M)
-            wfk = w.FormKey; w2fk = w2.FormKey; tfk = t.FormKey;
+            var ws = m.Worldspaces.AddNew(); ws.EditorID = "HcIP_World";  // a FOREIGN worldspace for the exterior-cell-in-place arm (Q)
+            wfk = w.FormKey; w2fk = w2.FormKey; tfk = t.FormKey; wsfk = ws.FormKey;
             m.BeginWrite.ToPath(masterPath).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
         }
         using (var mOv = SkyrimMod.CreateFromBinaryOverlay(masterPath, SkyrimRelease.SkyrimSE))
@@ -99,6 +101,7 @@ public static class InPlaceProbe
         string fmtWfk = $"{wfk.ID:X6}:{MasterName}";       // the FormID the tools take (6 hex : defining master)
         string fmtW2fk = $"{w2fk.ID:X6}:{MasterName}";
         string fmtTfk = $"{tfk.ID:X6}:{MasterName}";       // the foreign DialogTopic parent (arm M)
+        string fmtWsfk = $"{wsfk.ID:X6}:{MasterName}";     // the foreign Worldspace parent (arm Q)
         var results = new List<(string name, bool pass, string detail)>();
 
         // ===== A — CONTENT-SOURCE / winner-injection: edit the USER's body, NOT the winner's =====
@@ -413,6 +416,24 @@ public static class InPlaceProbe
             bool pass = o.Success && o.InPlace && bothInTarget && topicPresent && linePresent;
             results.Add(("P same-call nested unit (new topic + line) in place", pass,
                 $"success={o.Success} inPlace={o.InPlace} created={o.Created.Count}(want 2) bothInTarget={bothInTarget} topic={topicPresent} line={linePresent}  [{o.Error ?? "ok"}]"));
+        }
+
+        // ===== Q — EXTERIOR CELL create in place under a FOREIGN worldspace (closes the disclosed cell gap) =====
+        // Create a new EXTERIOR cell (grid=) under the MASTER's worldspace — a foreign parent that NEEDS a source link
+        // cache (LinkCacheFor on the foreign winner, the one nesting path arm M's topic parent doesn't exercise) — straight
+        // into the user mod in place. RED if it refused, didn't place the cell, or didn't override the worldspace in.
+        {
+            var userQ = FreshUser(tmpDir, "Q", userPristine);
+            using var r = LoadOrderResolver.Build(new[] { masterPath, userQ });
+            var o = WritePatchBuilder.CreateRecordsInPlace(r, rulebook,
+                new[] { new WritePatchBuilder.CreateSpec { RecordType = "Cell", EditorId = "HcIP_ExtCell", Edits = Array.Empty<WriteRequest>(), ParentRef = fmtWsfk, Grid = "5,-12" } },
+                userQ, UserName);
+            var cellFk = o.Created.Count > 0 ? o.Created[0].FormKey : default;
+            bool cellInTarget = cellFk.ModKey.FileName.String.Equals(UserName, StringComparison.OrdinalIgnoreCase) && cellFk.ID >= 0x800;
+            bool worldOverriddenIn = RecordPresent(userQ, wsfk);   // the foreign worldspace is now carried (as an override) by the user mod
+            bool pass = o.Success && o.InPlace && cellInTarget && worldOverriddenIn;
+            results.Add(("Q exterior cell in place under a foreign worldspace (LinkCacheFor + placement)", pass,
+                $"success={o.Success} inPlace={o.InPlace} cellFk={cellFk}(in {UserName}) worldOverriddenIn={worldOverriddenIn}  [{o.Error ?? "ok"}]"));
         }
 
         Console.WriteLine("── ARMS ──");
