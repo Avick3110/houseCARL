@@ -1577,13 +1577,14 @@ public sealed class LoadOrderService : IDisposable
     /// resolver (<see cref="ResolveActivePluginPath"/>), the same PERSISTENT first-touch CONSENT handshake (keyed off the
     /// resolved path in <see cref="UserConfigStore"/>), the same writable-parent pre-flight, and the same distinct
     /// <c>editedInPlace=</c> marker (NEVER <c>generated=true</c> — the user mod keeps failing
-    /// <see cref="IsHouseCarlOwned"/> so a later into= can't blind-overwrite it). The ONLY divergences from
-    /// <see cref="ApplyEditsInPlace"/>: it drives <see cref="WritePatchBuilder.CreateRecordsInPlace"/> (allocate-into-target,
-    /// not edit-own-record) and returns a <see cref="WritePatchBuilder.CreateOutcome"/>. The created-record verify is forced
-    /// ON (the model-C substitute for the dropped whole-plugin floor). <paramref name="acknowledge"/> waives the CONSENT
-    /// axis ONLY — the verify is a corruption-axis fact no acknowledgement overrides. Runs under <c>_writeGate</c> (the
-    /// caller holds it). No post-write dialogue/cell teeth — Wave 1b is flat top-level records only, so no INFO/Cell can be
-    /// created here.</summary>
+    /// <see cref="IsHouseCarlOwned"/> so a later into= can't blind-overwrite it). THREE divergences from
+    /// <see cref="ApplyEditsInPlace"/>: (1) it drives <see cref="WritePatchBuilder.CreateRecordsInPlace"/>
+    /// (allocate-into-target, not edit-own-record); (2) it returns a <see cref="WritePatchBuilder.CreateOutcome"/>; and
+    /// (3) because in-place create has FULL parity — it can author dialogue lines / cells under any parent, unlike
+    /// <c>set_field</c> — it runs the SAME post-write voice/result-script/cell-shell coverage teeth the patch-lane create
+    /// runs (<see cref="ApplyEditsInPlace"/> is marker-only). The created-record verify is forced ON (the model-C
+    /// substitute for the dropped whole-plugin floor). <paramref name="acknowledge"/> waives the CONSENT axis ONLY — the
+    /// verify is a corruption-axis fact no acknowledgement overrides. Runs under <c>_writeGate</c> (the caller holds it).</summary>
     WritePatchBuilder.CreateOutcome CommitCreateInPlace(
         LoadOrderResolver resolver, CorpusRulebook rulebook, IReadOnlyList<WritePatchBuilder.CreateSpec> specs,
         string target, bool acknowledge)
