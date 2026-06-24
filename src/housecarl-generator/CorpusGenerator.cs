@@ -22,8 +22,24 @@ public static class CorpusGenerator
 
     static readonly List<string> Warnings = new();
 
+    // The reflection walk over Mutagen's whole type library is the dominant CI cost (~11.5s) and is
+    // PROCESS-DETERMINISTIC (same assembly -> same corpus). Memoize it: the first GenerateAll in a process
+    // does the real walk and caches the Corpus; later calls reuse it and only re-emit the outputs to the
+    // caller's dir. Transparent to every caller — a standalone probe process calls GenerateAll once (cache
+    // empty -> full walk, unchanged), while the in-process CI runner (ci-all) calls it ~21x and reflects ONCE.
+    static Corpus? _cachedCorpus;
+    static readonly object _corpusCacheLock = new();
+
     public static int GenerateAll(string outputDir, string refDir)
     {
+        lock (_corpusCacheLock)
+        {
+            if (_cachedCorpus != null)
+            {
+                Console.WriteLine("Reusing the in-process Mutagen corpus (reflected once this run) — re-emitting outputs only.");
+                return EmitCorpus(_cachedCorpus, outputDir, refDir);
+            }
+        }
         Warnings.Clear();
         var asm = typeof(IArmorGetter).Assembly; // Mutagen.Bethesda.Skyrim
         Console.WriteLine($"Walking the full Mutagen type corpus via reflection...");
@@ -142,17 +158,22 @@ public static class CorpusGenerator
         // setter — a content field silently dropping out of the writable surface).
         AuditWritability(corpus);
 
+        lock (_corpusCacheLock) { _cachedCorpus = corpus; }
+        return EmitCorpus(corpus, outputDir, refDir);
+    }
+
+    /// <summary>Write the corpus' artifacts (corpus.json + summary + the slim reference tree) into the
+    /// requested dirs and print the report. Split out of <see cref="GenerateAll"/> so a memoized (already-walked)
+    /// corpus re-emits to a fresh caller's dir without re-reflecting. corpus.json (full, for the write tool) and
+    /// the skill's read view come out of one walk, so they physically can't disagree about field names or types.</summary>
+    static int EmitCorpus(Corpus corpus, string outputDir, string refDir)
+    {
         Directory.CreateDirectory(outputDir);
         var jsonPath = Path.Combine(outputDir, "corpus.json");
         var sumPath = Path.Combine(outputDir, "corpus.summary.md");
         File.WriteAllText(jsonPath, JsonSerializer.Serialize(corpus, JsonOpts));
         File.WriteAllText(sumPath, BuildSummary(corpus));
-
-        // The slim reference tree the mutagen-reference skill ships (index.jsonl + per-kind JSONL shards),
-        // emitted from the SAME catalog — corpus.json (full, for the write tool) and the skill's read view
-        // come out of one walk, so they physically can't disagree about field names or types.
         ReferenceEmitter.Emit(corpus, refDir);
-
         Report(corpus, jsonPath, sumPath, refDir);
         return 0;
     }
