@@ -37,6 +37,14 @@ public static class ValuePredicateProbe
         public FormKey Fk => Rec.FormKey;
     }
 
+    /// <summary>One synthesized Armor plus the known BodyTemplate.FirstPersonFlags bits it was built with — the
+    /// independent ground truth for the bitwise <c>has</c> / flags-aware compare (the brute force ANDs these bits,
+    /// never the record).</summary>
+    sealed record Armo(IArmorGetter Rec, ulong Bits)
+    {
+        public FormKey Fk => Rec.FormKey;
+    }
+
     static int _pass, _fail;
 
     public static int RunGuard(string[] args)
@@ -67,7 +75,22 @@ public static class ValuePredicateProbe
         };
         var weapBodies = weaps.Select(w => (IMajorRecordGetter)w.Rec).ToList();
 
-        Console.WriteLine($"-- synthesized {mgefs.Count} MagicEffect + {weaps.Count} Weapon records --");
+        // ---- ARMO cohort: known BodyTemplate.FirstPersonFlags (a [Flags] BipedObjectFlag) --------------------
+        // A mix of NAMED vanilla slots (render "Body"/"Forearms"), UNNAMED modder slots (render numeric), and a
+        // body+modder-slot COMBO (renders as one number) — the exact name/number split HCBR 2026-06-24 reported.
+        const uint slot52 = 0x400000;  // bit 22 — unnamed modder slot ("slot 52") -> "4194304"
+        const uint slot53 = 0x800000;  // bit 23 — unnamed modder slot ("slot 53") -> "8388608"
+        var armos = new List<Armo>
+        {
+            MakeArmo(mod, BipedObjectFlag.Body),                             // 4       -> "Body"
+            MakeArmo(mod, BipedObjectFlag.Forearms),                        // 16      -> "Forearms"
+            MakeArmo(mod, (BipedObjectFlag)slot53),                         // 8388608 -> "8388608"
+            MakeArmo(mod, (BipedObjectFlag)slot52),                         // 4194304 -> "4194304"
+            MakeArmo(mod, BipedObjectFlag.Body | (BipedObjectFlag)slot53),  // 8388612 -> "8388612" (combo)
+        };
+        var armoBodies = armos.Select(a => (IMajorRecordGetter)a.Rec).ToList();
+
+        Console.WriteLine($"-- synthesized {mgefs.Count} MagicEffect + {weaps.Count} Weapon + {armos.Count} Armor records --");
         Console.WriteLine();
 
         // ============================ FILTER-CORRECTNESS (matched set == brute force) ============================
@@ -134,6 +157,62 @@ public static class ValuePredicateProbe
         CheckSet("BasicStats.Damage <= 50",
             Run(new[] { "BasicStats.Damage <= 50" }, weapBodies),
             Expect(weaps, w => w.Damage <= 50));
+
+        // ============== BITWISE `has` + flags-aware compare on a [Flags] enum (HCBR 2026-06-24) ==============
+        Console.WriteLine();
+        Console.WriteLine("-- bitwise `has` + flags-aware compare on BodyTemplate.FirstPersonFlags --");
+
+        // `has <bit value>` — matches every record with that slot bit set, INCLUDING combos (what `=` misses).
+        CheckSet("FirstPersonFlags has 8388608  (slot 53, incl. combos)",
+            Run(new[] { "BodyTemplate.FirstPersonFlags has 8388608" }, armoBodies),
+            Expect(armos, a => (a.Bits & slot53) == slot53));
+
+        // the same bit in HEX — bitmasks read naturally in hex.
+        CheckSet("FirstPersonFlags has 0x800000  (hex form of slot 53)",
+            Run(new[] { "BodyTemplate.FirstPersonFlags has 0x800000" }, armoBodies),
+            Expect(armos, a => (a.Bits & slot53) == slot53));
+
+        // `has <flag name>` — a named vanilla slot by name, combo-tolerant (Body = bit 2 = 4).
+        CheckSet("FirstPersonFlags has Body  (named slot, incl. combos)",
+            Run(new[] { "BodyTemplate.FirstPersonFlags has Body" }, armoBodies),
+            Expect(armos, a => (a.Bits & 4UL) == 4UL));
+
+        // the CONTRAST that motivated the op: `=` is exact (excludes the combo); `has` finds it.
+        CheckSet("FirstPersonFlags = 8388608  (exact — slot-53-ONLY, excludes the combo)",
+            Run(new[] { "BodyTemplate.FirstPersonFlags = 8388608" }, armoBodies),
+            Expect(armos, a => a.Bits == slot53));
+
+        // flags `=` against a NUMERIC operand now matches a NAME-rendered field (the report's `= 16` case).
+        CheckSet("FirstPersonFlags = 16  (matches the name-rendered Forearms)",
+            Run(new[] { "BodyTemplate.FirstPersonFlags = 16" }, armoBodies),
+            Expect(armos, a => a.Bits == 16UL));
+        CheckSet("FirstPersonFlags = Forearms  (name still works)",
+            Run(new[] { "BodyTemplate.FirstPersonFlags = Forearms" }, armoBodies),
+            Expect(armos, a => a.Bits == 16UL));
+
+        // numeric RANGE op no longer ERRORS on a flags field that renders as a name (the report's `>= 65536`).
+        {
+            var (matched, set) = RunWithSet(new[] { "BodyTemplate.FirstPersonFlags >= 65536" }, armoBodies);
+            CheckSet("FirstPersonFlags >= 65536  (modder-range slots; no longer a type error)",
+                matched, Expect(armos, a => a.Bits >= 65536UL));
+            Check("FirstPersonFlags >= 65536: no FatalError (flags compare numerically now)", set.FatalError is null);
+        }
+
+        // `has` on a plain INTEGER leaf (ushort Damage) — generalizes beyond enums (50 = ...110010 has bit 4).
+        CheckSet("BasicStats.Damage has 16  (integer bit-test)",
+            Run(new[] { "BasicStats.Damage has 16" }, weapBodies),
+            Expect(weaps, w => (w.Damage & 16) == 16));
+
+        // Q3: `has` on a NON-bitmask field (a non-[Flags] enum) is a fast typed error, not a silent non-match.
+        {
+            var (matched, set) = RunWithSet(new[] { "MagicSkill has 4" }, mgefBodies);
+            Check("has on non-flags enum: FatalError set", set.FatalError is not null);
+            Check("has on non-flags enum: 0 matches", matched.Count == 0);
+            Console.WriteLine($"     fatal: {Trunc(set.FatalError)}");
+        }
+
+        // parse: `has` is a recognized operator.
+        Check("parse: `has` accepted", FieldPredicateSet.Parse(new[] { "BodyTemplate.FirstPersonFlags has 16" }).Error is null);
 
         // ============================ Q3 TEETH (no silent wrong answer) ============================
         Console.WriteLine();
@@ -220,6 +299,13 @@ public static class ValuePredicateProbe
         return new Weap(w, damage);
     }
 
+    static Armo MakeArmo(SkyrimMod mod, BipedObjectFlag flags)
+    {
+        var a = mod.Armors.AddNew();
+        a.BodyTemplate = new BodyTemplate { FirstPersonFlags = flags };
+        return new Armo(a, (ulong)flags);
+    }
+
     /// <summary>Parse + evaluate the predicate set over a cohort; return the matched FormKey set. Throws if the
     /// predicates don't parse (these call sites pass well-formed predicates — a parse failure is a real bug).</summary>
     static HashSet<FormKey> Run(string[] where, IEnumerable<IMajorRecordGetter> cohort) => RunWithSet(where, cohort).matched;
@@ -238,6 +324,9 @@ public static class ValuePredicateProbe
 
     static HashSet<FormKey> Expect(IEnumerable<Weap> cohort, Func<Weap, bool> pred)
         => cohort.Where(pred).Select(w => w.Fk).ToHashSet();
+
+    static HashSet<FormKey> Expect(IEnumerable<Armo> cohort, Func<Armo, bool> pred)
+        => cohort.Where(pred).Select(a => a.Fk).ToHashSet();
 
     static void CheckSet(string label, HashSet<FormKey> actual, HashSet<FormKey> expected)
     {
