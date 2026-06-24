@@ -7,8 +7,9 @@ description: Author or interpret Skyrim dialogue at the data layer via houseCARL
 
 ## Overview
 
-Authoring dialogue means creating `DialogTopic` (DIAL) and `DialogResponses` (INFO) records in a new
-plugin (originals untouched) and doing the bookkeeping that makes them actually play. The load-bearing
+Authoring dialogue means creating `DialogTopic` (DIAL) and `DialogResponses` (INFO) records — by default in
+a new plugin (originals untouched), or, with the write tools' in-place lane, straight into an existing
+plugin — and doing the bookkeeping that makes them actually play. The load-bearing
 truth: **a byte-valid INFO that passes xEdit but skips the Creation Kit's bookkeeping plays nothing in
 game** — the exact silent-failure class houseCARL refuses (Q3). This skill drives houseCARL's tools through
 the five jobs and then validates the result; the dialogue *policy* lives here, the mechanism lives in the
@@ -191,6 +192,13 @@ in game**. So when extending an existing topic, carry forward every line it shou
 new one. `housecarl_validate_dialogue` validates the *winning* topic's `Responses` and warns about this,
 but a record-only glance won't show the loss. This is the classic "two mods touched one topic and lines
 vanished" conflict.
+
+**The in-place lane sidesteps this trap.** If the topic lives in a plugin you own (or are willing to edit
+directly), the write tools' in-place lane (`target=<plugin>`, `in_place=true`, `acknowledge=`) edits the
+original DIAL/INFO records instead of authoring an override — so there is no override line-set to keep
+complete and no line can be dropped. The override lane above (the default, originals untouched) is still the
+right choice for patching a *third-party* plugin you don't want to rewrite — there you must carry forward
+every line the topic should keep.
 
 ## Write-side recipes — clone a condition gate, write a CK-refused subtype
 

@@ -73,4 +73,5 @@ This skill **locates and filters** records by their biped slot. It does not dist
 - distribute a **keyword** to the items you found → `kid-authoring`.
 - distribute a spell / perk / item to **NPCs** → `spid-authoring`.
 - change a record's **own fields** (including its FirstPersonFlags) → `skypatcher-authoring`, or a
-  houseCARL write into a new plugin.
+  houseCARL record write (a new patch plugin by default, or in place into an existing plugin via the
+  in-place lane).

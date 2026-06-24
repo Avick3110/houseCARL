@@ -182,8 +182,11 @@ Step 5).
 
 ### Fix C — Forward NPC appearance into a winning override record — **houseCARL-record**
 When a behavior/other plugin won the record while the intended appearance mod's facegen files are present
-(Cause C/J; record side of A). `read_record` the winner and the appearance source, then
-`create_record`/`set_field` to write an override copying the appearance set.
+(Cause C/J; record side of A). The one-call way to re-assert the appearance mod's whole record is
+**`housecarl_forward_record`** — name the appearance plugin as the source and it copies that plugin's `NPC_`
+verbatim into a winning override (nested appearance fields included). For a *partial* appearance mask —
+forwarding only some of the face-determining fields onto a different base record — `read_record` the winner
+and the appearance source, then `create_record`/`set_field` to write an override copying just that subset.
 
 > **The face-determining minimal set is houseCARL's OWN editorial set** (all real, writable NPC_ fields,
 > Mutagen spellings): **`HeadParts, FaceMorph, FaceParts, TintLayers, HairColor, HeadTexture,
