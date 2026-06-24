@@ -66,6 +66,16 @@ public static class ReadEngine
     /// both as "no value here" (see <c>FieldsDiff.IsAbsentSentinel</c>).</summary>
     internal const string NullLinkNote = "(null link)";
 
+    /// <summary>A present <c>TranslatedString</c> (FULL/DESC/…) whose <c>.String</c> resolves to null — a localized
+    /// string whose <c>.STRINGS</c> entry for the target language is not in the workspace. After the
+    /// <see cref="LoadOrderResolver.OpenOverlay"/> strings-source fix this is the genuinely-absent residue (no
+    /// strings anywhere for it), NOT the cleaned-masters case that fix resolves. Surfaced as a no-value NOTE — never
+    /// a blank token — so a value predicate's Q3 accounting fires on it (a `where Name contains …` can't silently
+    /// treat it as a real non-matching value → false "0 matches") and a read renders it loud, not as an empty Name
+    /// indistinguishable from a record that truly has none (HCBR-2026-06-24). Like <see cref="AbsentNote"/> /
+    /// <see cref="NullLinkNote"/>, the conflict diff treats it as "no value here" (<c>FieldsDiff.IsAbsentSentinel</c>).</summary>
+    internal const string UnresolvedStringNote = "(unresolved localized string)";
+
     // ======================================================================
     //  `read` MODE — resolve a record in one plugin and emit its fields.
     //    dotnet run --project src/housecarl-generator read \
@@ -481,6 +491,17 @@ public static class ReadEngine
         // FormKey, never "Null"), so surface it as no-value — consistent with what Coerce accepts.
         if (val is IFormLinkGetter fl)
             return fl.FormKey.IsNull ? LeafRead.None(NullLinkNote) : LeafRead.Value(fl.FormKey.ToString());
+        // TranslatedString (FULL/DESC) — emit the resolved .String (the inverse of Coerce's implicit
+        // `record.Name = "x"`). A genuinely-empty "" still round-trips as a value; a NULL .String is an
+        // UNRESOLVED localized string (no .STRINGS entry for the target language in the workspace) and is
+        // surfaced LOUD as no-value, never a blank token — so the Q3 accounting fires instead of a silent
+        // non-match (HCBR-2026-06-24). Checked before TryEmitValueType, which previously folded the null
+        // into "" here.
+        if (val.GetType().FullName == "Mutagen.Bethesda.Strings.TranslatedString")
+        {
+            var s = ReflectString(val, "String");
+            return s is null ? LeafRead.None(UnresolvedStringNote) : LeafRead.Value(s);
+        }
         // value types (inverse of TryValueType)
         if (TryEmitValueType(val, out var vt)) return LeafRead.Value(vt);
 
@@ -528,9 +549,8 @@ public static class ReadEngine
         var rt2 = val.GetType();
         var fn = rt2.FullName;
 
-        // TranslatedString — emit the plain .String the implicit `record.Name = "x"` conversion stored.
-        if (fn == "Mutagen.Bethesda.Strings.TranslatedString")
-        { token = ReflectString(val, "String") ?? ""; return true; }
+        // (TranslatedString is handled earlier in EmitToken — a null .String surfaces as a loud no-value note,
+        //  not the blank token this branch used to fold it into; see UnresolvedStringNote.)
 
         // Noggog.Percent — emit the [0..1] fraction its single-arg ctor takes. Find the underlying
         // numeric member BY TYPE, not a guessed name: Percent stores exactly one double (its ToString

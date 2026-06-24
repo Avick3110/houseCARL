@@ -53,7 +53,7 @@ public static class FieldsDiff
     /// first-class state, never compared as if it were a real token value. References the <see cref="ReadEngine"/>
     /// constants directly (same assembly) — single source of truth, compile-time coupling, no drift.</summary>
     static bool IsAbsentSentinel(string val) =>
-        val == ReadEngine.AbsentNote || val == ReadEngine.NullLinkNote;
+        val == ReadEngine.AbsentNote || val == ReadEngine.NullLinkNote || val == ReadEngine.UnresolvedStringNote;
 
     /// <summary>Compare one plugin's deep-read fields against the winner's. Both sides should be read by the
     /// same <see cref="ReadEngine.ReadFields"/> call shape (same paths, same depth) so line sets correspond.</summary>

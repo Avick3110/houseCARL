@@ -115,9 +115,39 @@ public static class StringsResolveProbe
         else
             Console.WriteLine($"   (skip NO-REGRESSION: {skyrim} not present)");
 
+        // Q3 arm: a genuinely-unresolved localized string (bare overlay, no strings source) must surface LOUD —
+        // a no-value note + the predicate's "no readable value" accounting — NEVER a silent blank-token non-match.
+        ok &= Q3Check(plugin, edidSub);
+
         Console.WriteLine();
-        Console.WriteLine(ok ? "PROBE PASS — product path resolves localized names + predicate matches." : "PROBE FAIL — see above.");
+        Console.WriteLine(ok ? "PROBE PASS — resolves localized names, predicate matches, unresolved fails loud." : "PROBE FAIL — see above.");
         return ok ? 0 : 1;
+    }
+
+    /// <summary>With NO strings source (the bare overlay), the cleaned DLC master's Name is an UNRESOLVED localized
+    /// string. ReadEngine must surface it as a no-value note (<see cref="ReadEngine.UnresolvedStringNote"/>), the
+    /// predicate must NOT match it, and the predicate's Q3 accounting must FIRE — never a silent "0 matches".</summary>
+    static bool Q3Check(string plugin, string edidSub)
+    {
+        Console.WriteLine();
+        Console.WriteLine("== Q3: unresolved localized string surfaces LOUD (bare overlay, no strings) ==");
+        var ov = SkyrimMod.CreateFromBinaryOverlay(plugin, SkyrimRelease.SkyrimSE);   // deliberately strings-less
+        var (set, perr) = HousecarlCore.FieldPredicateSet.Parse(new[] { $"Name contains {edidSub}" });
+        if (perr is not null) { Console.WriteLine($"   predicate parse error: {perr}"); return false; }
+        foreach (var rec in ov.EnumerateMajorRecords(typeof(IArmorGetter), throwIfUnknown: true))
+        {
+            if (rec.EditorID is null || rec.EditorID.IndexOf(edidSub, StringComparison.OrdinalIgnoreCase) < 0) continue;
+            var fv = HousecarlCore.ReadEngine.ReadFields(rec, new[] { "Name" }).Fields[0];
+            bool loud = !fv.HasValue && fv.Note == HousecarlCore.ReadEngine.UnresolvedStringNote;
+            bool noMatch = !set!.Matches(rec);
+            var note = set.AccountingNote();
+            bool pass = loud && noMatch && note is not null;
+            Console.WriteLine($"   {rec.FormKey} Name.HasValue={fv.HasValue} Note='{fv.Note}' predicateMatch={!noMatch} accounting={(note is null ? "<SILENT>" : "FIRED")} => {(pass ? "PASS" : "FAIL")}");
+            if (note is not null) Console.WriteLine($"      accounting: {Trunc(note)}");
+            return pass;
+        }
+        Console.WriteLine("   (no matching armor) => FAIL");
+        return false;
     }
 
     /// <summary>Open <paramref name="plugin"/> through the REAL product helper, read the first edid~<paramref
