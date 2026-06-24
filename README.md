@@ -5,8 +5,9 @@
 houseCARL runs a local MCP server with [Mutagen](https://github.com/Mutagen-Modding/Mutagen) — the
 Bethesda-format library — kept warm in memory, giving your AI assistant direct access to every plugin
 record across your Mod Organizer 2 load order, at the **true load-order winner**, with the full conflict
-tree on request. You describe what you want in plain English; houseCARL does the mechanical work and
-writes results into a **new** plugin you review and enable in MO2 — your originals are never touched.
+tree on request. You describe what you want in plain English; houseCARL does the mechanical work and, by
+default, writes results into a **new** plugin you review and enable in MO2 — your originals untouched. When
+you ask for it, an opt-in **in-place lane** edits an existing plugin directly instead (see below).
 
 Coverage is **reflection-driven**: a build-time generator walks Mutagen's record interfaces and emits
 houseCARL's schema automatically, so the set of record types houseCARL understands *is* the set Mutagen
@@ -17,10 +18,19 @@ models — by construction, not a hand-maintained subset.
 - **Read any record** at the true load-order winner, with the full conflict tree on request — plus batch
   record detail and cross-plugin queries.
 - **Author patches** — set / add / remove fields, edit leveled lists and containers, retune records,
-  re-target conditions — emitted as a new MO2 mod folder (`houseCARL - <name>`).
+  re-target conditions — emitted as a new MO2 mod folder (`houseCARL - <name>`). Or **forward a named
+  plugin's version of a record** as a winning override (xEdit's "copy as override into"), or revert a record
+  to vanilla.
 - **Create new records** (new FormIDs) and **remove** records or individual entries; unused masters are
   cleaned automatically. Author a whole nested dialogue conversation in one call, validate a dialogue
-  graph on demand, and write the `.seq` file a plugin's start-game-enabled quests need.
+  graph on demand, and write the `.seq` file a plugin's start-game-enabled quests need. Author an empty
+  header-only **trigger plugin** when a mod just needs `Foo.esp` to exist.
+- **Edit an existing plugin in place** — when you ask, houseCARL edits, creates, and removes records
+  directly inside an existing plugin (including one it didn't author) instead of writing a separate patch.
+  Opt-in, gated by a one-time per-plugin consent prompt, and it keeps **no backup** — so the default
+  new-patch lane above stays the default.
+- **Trace a magic effect** — resolve a MagicEffect to every spell, enchantment, potion, scroll, and
+  ingredient that carries it, with each one's magnitude, in a single call.
 - **VFS asset layer** — read which copy of any Data-relative file (mesh, texture, script, sound,
   interface) actually wins your load order (the overwrite folder, a specific mod, Data, or inside a BSA),
   and place a file as a winning override into a new MO2 mod folder; loose-vs-BSA aware, with FaceGen as the
@@ -35,10 +45,10 @@ models — by construction, not a hand-maintained subset.
 - **Look mods up on Nexus** — search the Skyrim SE catalogue and pull any mod's version, requirements,
   and *true* latest release straight from Nexus Mods, without opening a browser. Read-only: it finds
   and informs; downloading stays your mod manager's "Mod Manager Download" handoff.
-- **Look things up, author distributor files, and review scripts** through bundled, namespaced skills:
+- **Look things up, author distributor files, and review scripts** through 11 bundled, namespaced skills:
   record schemas (every type Mutagen models), Papyrus / SKSE signatures, SkyPatcher / SPID / KID
   distributor grammars, Skyrim dialogue authoring, Open Animation Replacer config authoring, Papyrus
-  performance review, and dark-face NPC diagnosis.
+  performance review, dark-face NPC diagnosis, equip-slot lookup, and tool-output awareness.
 
 ## Requirements
 
@@ -59,7 +69,7 @@ models — by construction, not a hand-maintained subset.
 
 ### Download — recommended (modders)
 
-1. Download **`houseCARL-1.3.0.zip`** from the [latest release](https://github.com/Avick3110/houseCARL/releases).
+1. Download **`houseCARL-1.4.0.zip`** from the [latest release](https://github.com/Avick3110/houseCARL/releases).
 2. Unzip it and run **`houseCARL-Setup.exe`**.
 3. Pick your host — **`[1] Claude Code`**, **`[2] Codex`**, or **`[3] Both`**. The installer wires
    everything up:
@@ -89,7 +99,7 @@ cd houseCARL
 
 The script regenerates the reflection rulebook, publishes the server framework-dependent (trimming **off**
 — houseCARL is reflection-driven, so trimming would strip types and silently lose coverage), bundles the
-skills, builds the setup utility, and packs `release/houseCARL-1.3.0.zip`. Install the output with
+skills, builds the setup utility, and packs `release/houseCARL-1.4.0.zip`. Install the output with
 `houseCARL-Setup.exe`, `claude --plugin-dir ./dist/housecarl`, or the bundled local-marketplace
 descriptor — see the script header for details.
 
@@ -140,6 +150,14 @@ Namespaced under `/housecarl:` in Claude (and reachable via `$housecarl` in Code
   `user.json`, condition sets, submod priorities (OAR ignores load order — higher priority wins), the
   source-verified `IsEquippedType` enum, addon conditions (Math / RaySense / IED / …), and DAR legacy
   folders. File-based; uses houseCARL only to resolve the forms a condition references. (DrHeisen.)
+- **`tool-output-awareness`** — recognize the plugins and assets that generated tools produce (Reqtificator,
+  ParallaxGen, DynDOLOD, Synthesis, TexGen, xLODGen, NPC Plugin Chooser 2) and keep their re-derived records
+  and asset paths out of an authored patch — so you never bake a regenerable artifact into a hand patch that
+  goes stale the next time the tool runs. (DrHeisen.)
+- **`biped-slot-reference`** — turn a biped slot (a number like 52, a vanilla name like Body, or a community
+  label like SOS / pelvis) into the `FirstPersonFlags` bit to query on, so finding every armor on an equip
+  slot — multi-slot pieces an exact match misses included — is one `cross_plugin_query ... has` lookup
+  instead of power-of-two mental math.
 
 ## License
 
@@ -157,5 +175,6 @@ pointers.
 - **Zzyxzz** (SkyPatcher) and **powerofthree** (SPID and KID) — whose public documentation the
   distributor-authoring grammar facts were drawn from.
 - **DrHeisen** — contributed the `papyrus-optimization` skill (houseCARL's first community-contributed
-  skill, a Papyrus performance reviewer) and the `oar-authoring` skill (Open Animation Replacer config
-  authoring). Thank you.
+  skill, a Papyrus performance reviewer), the `oar-authoring` skill (Open Animation Replacer config
+  authoring), and the `tool-output-awareness` skill (keeping generated-tool output out of authored patches).
+  Thank you.

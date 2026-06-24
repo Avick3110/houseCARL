@@ -4,31 +4,146 @@ All notable changes to houseCARL are documented here. Versioning is [semantic](h
 the `version` in `.claude-plugin/plugin.json` is bumped on each release, so installed users update only
 when it changes.
 
-## 1.4.0 — 2026-06-23
+## 1.4.0 — 2026-06-24
 
-Adds a ninth bundled skill — **`oar-authoring`** — houseCARL's second community-contributed skill, from
-**DrHeisen**. No change to the tool set.
+houseCARL can now **edit an existing plugin in place** — including a mod it didn't author — instead of
+only ever writing a separate patch, rounding out the write surface with the same fail-loud,
+verify-what-you-touched discipline as the patch lane. Alongside it: three new tools (forward a named
+plugin's record as an override, resolve a magic effect's carriers, author an empty trigger plugin), three
+new bundled skills (→ **11**), a wider and sharper dialogue validator, a bitwise query predicate for
+equip-slot and flag fields, and several silent-wrong-answer fixes. **Three new tools (→ 26), three new
+skills (→ 11).** Carries further community contributions from **DrHeisen**.
 
-- **New `oar-authoring` skill.** Author or interpret Open Animation Replacer (OAR) configs — the runtime,
-  condition-driven animation system (`config.json` / `user.json`) that supersedes DAR and still reads its
-  legacy `_conditions.txt` folders. It ships a source-verified reference (the full schema, the ~120-condition
-  roster, the authoritative `IsEquippedType` enum — which OAR deliberately diverges from the vanilla
-  `GetEquippedItemType` enum at values 6/9/10/11 — value components, the DAR grammar, and the global INI),
-  plus a playbook for the counter-intuitive parts: OAR ignores plugin load order and picks winners purely by
-  the `priority` integer; the submod's top-level array is lowercase `conditions` while a nested `AND`/`OR`
-  child array is capital-C `Conditions`; `user.json` is a full-document shadow of `config.json`, not a field
-  merge; and an addon condition (Math / RaySense / IED / Detection / Dialogue) is a hard dependency that
-  silently no-ops when its DLL is absent. OAR is file-based, so the skill works the files directly
-  (Read / Glob / Write) and uses houseCARL only to resolve the forms a condition references. It complements
-  the distributor skills — it authors animation CONFIGS, while distributing forms to NPCs is SPID, keywords
-  to items is KID, and editing record fields is SkyPatcher.
-- **Validation.** Passes the `HOUSECARL_SKILL_AUTHORING.md` §8 reviewer checklist; trigger reliability via the
-  §6.5 manual fallback plus an independent cold peer-prediction (recall 10/10, specificity 10/10); §6.6
-  outcome correctness via a round-trip over 9 real-world configs (blind-interpret, diff vs ground truth) at
-  9/9 pass, 0 silent-wrong. Empirical `run_loop` re-validation on a non-Windows host is still owed, as for the
-  other skills.
+**In-place write lane — edit, create, and remove records directly in an existing plugin**
 
-## 1.3.0 — 2026-06-20
+- **houseCARL can now write straight into a plugin you point it at — including one it didn't author —
+  instead of always emitting a separate patch.** The five write tools (`housecarl_set_field`,
+  `housecarl_bulk_apply`, `housecarl_create_record`, `housecarl_bulk_create`, `housecarl_remove_record`)
+  gain `target=`, `in_place=true`, and `acknowledge=`. With them houseCARL edits existing records, creates
+  brand-new ones (flat, nested children like a dialogue line or a placed reference, or a whole cell), and
+  removes records the file carries — rewriting the original plugin the way xEdit or the Creation Kit do on
+  save (the author's master list and FormID counter preserved, every record it touched verified on
+  read-back). The default new-patch lane is unchanged and stays the default.
+- **Behavior change worth knowing:** the in-place lane edits your original file and keeps **no backup** — a
+  deliberate departure from houseCARL's default "originals are never touched." It is strictly opt-in
+  (`in_place=true`) and gated by a one-time consent handshake per plugin: the first in-place touch of a
+  given file names the exact path and the no-undo trade-off and writes nothing until you re-call with
+  `acknowledge=true`, then never asks again for that plugin (the consent is remembered across sessions and
+  shared across edit / create / remove). Keep your own backup of anything you edit in place. Files edited
+  this way are marked `editedInPlace` (never houseCARL-owned), so a later `into=` extend can't
+  blind-overwrite your mod. A plugin whose own records use reserved sub-`0x800` FormIDs (vanilla / Creation
+  Club) is refused in place — you override those, you don't edit them.
+
+**New tools**
+
+- **`housecarl_forward_record` — copy a named plugin's version of a record as an override.** The inverse of
+  `set_field` / `bulk_apply`, and the data-layer equivalent of xEdit's "copy as override into": it copies a
+  *named* earlier plugin's whole record verbatim into a patch so it wins again — re-assert one mod's version
+  of a record over a later override, or name a master to revert a record to vanilla. Works for every record
+  type, nested Cell / Placed / INFO families included. It refuses loudly (writing no file) on a bad source —
+  one not in the load order, the output patch itself, a source that doesn't define the record, the same
+  target named twice — and flags a forward whose version already wins as redundant.
+- **`housecarl_effect_chain` — a magic effect's carriers and magnitudes in one call.** Point it at a
+  MagicEffect (MGEF) and it resolves every spell, enchantment, potion, scroll, and ingredient across the
+  load order that applies it, each with the magnitude / area / duration from the matching effect entry (as
+  authored — conditions are not evaluated). It collapses the old "query references, then read each hit" loop
+  across five record types into one read, and fails loud rather than returning a silent zero: a
+  non-MagicEffect FormID errors naming the real type, an absent FormID errors, and a genuinely unused effect
+  returns a clean, distinguishable zero.
+- **`housecarl_create_plugin` — author an empty header-only "trigger" plugin.** Emits a valid plugin with a
+  TES4 header and zero records — the clean primitive for "I just need `Foo.esp` to exist": a basename-bound
+  SKSE config trigger (the CraftingCategories-style pattern where a config loads because `Foo.esp` is
+  present), a placeholder ESL for FormID reservation, or a dummy master. Before, a trigger plugin had to
+  carry a junk filler record that polluted the conflict tree. The name is used verbatim (the basename is
+  load-bearing, so no auto-suffix) and a collision refuses loudly rather than renaming or overwriting;
+  `esl=true` flags it a light master.
+
+**Dialogue validation & authoring**
+
+- **`housecarl_validate_dialogue` gained five new lint families** (all advisory — it warns, never blocks,
+  never auto-fixes): text-encoding (a player-facing string carrying a non-ASCII character that would render
+  as in-game mojibake, with the offending character and an ASCII substitute named); result-script fragment
+  presence (how many of a topic's lines actually carry a script fragment, so you know whether to expect
+  runtime behavior); SEQ staleness / coverage (a Start-Game-Enabled quest whose plugin has no `.seq`, a
+  `.seq` that doesn't list it, or one older than the plugin — meaning the quest and all its dialogue
+  silently never start on a fresh save — and it also tells you when a regen is *not* needed); and static
+  condition (CTDA) well-formedness (dead run-on references, dead alias indices, dangling form / global
+  parameters, GetIsID pointed at a placed reference instead of a base object).
+- **Deep reads now show VMAD script-property values.** A `depth>=2` read of a script's Properties prints
+  each property's value — the Object FormLink, the Data scalar, the alias — instead of stopping at the
+  identity line, matching xEdit; a declared-but-unset Object shows a named `(null link)` rather than
+  vanishing.
+- **Condition form targets accept the flat `fields:` shorthand.** Composing a condition's data arm and
+  setting its form-link-or-index target through the flat `fields:` map (e.g.
+  `GetEquipped {ItemOrList: "0001F4:Skyrim.esm"}`) was wrongly refused at pre-flight; it now lands a target
+  in both form and alias-index mode, byte-identical to the verbose path, across the whole FLOI
+  condition-parameter class.
+- **The `dialogue-authoring` skill gained substantial reference depth** — CK pages for decoding a CTDA
+  condition (a ~40-function dialogue table), the DLBR branch entry point and its Exclusive-branch deadlock,
+  and the quest stage / objective model; a set of authoring traps the flow model implies but the validator
+  can't catch (Stop() resets a quest's stage, a monologue is several Responses in one line, CK conditions
+  can't express (A AND B) OR (C AND D), GetStageDone vs GetStage); and write-side recipes for cloning a
+  verified condition gate across many lines and writing a CK-refused INFO subtype.
+
+**Querying & equip slots**
+
+- **`housecarl_cross_plugin_query` gained a `has` bitwise predicate** for bitmask / flag fields:
+  `where ... has Body` (or a bit value, decimal or `0x` hex) matches if that bit is set regardless of the
+  others — so a multi-slot armor whose `BodyTemplate.FirstPersonFlags` carries body *plus* a modder slot is
+  now findable, where exact `=` only matched a single-slot piece. For `[Flags]` enum fields, range operators
+  now compare the numeric value (`>= 65536` no longer errors) and `=` / `!=` equate by resolved bits (so
+  `= 16` matches a field that renders as the flag name). **Behavior change:** a query that relied on the old
+  exact-string-or-error behavior for a `[Flags]` field may now return different results; non-flags enums are
+  unchanged.
+- **New `biped-slot-reference` skill** — the ergonomic layer over `has`: it turns a biped slot (a number
+  like 52, a vanilla name like Body, or a community label like SOS / pelvis) into the `FirstPersonFlags` bit
+  to query on, so finding every armor on a slot is a lookup instead of power-of-two mental math. Ships a
+  verified slot 30–61 table (the named bits are non-contiguous — the trap a from-memory table gets wrong)
+  and the multi-slot query pattern.
+
+**Correctness fixes**
+
+- **Localized fields on cleaned base-game masters read correctly again.** A localized master sitting in a
+  folder with no strings of its own — the near-universal "Cleaned Base Game Masters" setup, where a cleaned
+  DLC / Update `.esm` lives in a bare folder while its `.STRINGS` stay in the game-Data BSAs — was reading
+  every localized field (Name, DESC, …) as **empty**, so `where Name contains …` silently zero-matched the
+  DLC masters and a read showed a blank Name. houseCARL now points the strings lookup at the real game-Data
+  folder when (and only when) the plugin's own folder carries no strings source. **Behavior change:**
+  queries and reads against those masters can now return matches and content where they used to find
+  nothing. As defense-in-depth, a genuinely unresolved localized string now renders the loud
+  `(unresolved localized string)` note instead of a blank that looked like a real value.
+- **`into=` resolves a renamed patch folder.** Extending your own houseCARL patch after you renamed its MO2
+  mod folder for organization used to fail — `into=` demanded folder name, suffix, and `.esp` basename all
+  match. It now resolves by plugin name (the folder holding `<stem>.esp`, whatever it's now called) then
+  folder name, refusing loud only if two owned folders are genuinely ambiguous. The same fix was extended to
+  the rider / asset write path behind `compile_script`, `decompile_script`, `bsa_repack`, `place_asset`, and
+  `bulk_place_asset`, which had still carried the old three-way match. A foreign, un-owned plugin stays
+  refused.
+
+**New skills & reference depth**
+
+- **New `oar-authoring` skill** *(DrHeisen)* — author or interpret Open Animation Replacer (OAR) configs:
+  the runtime, condition-driven animation system (`config.json` / `user.json`) that supersedes DAR and still
+  reads its legacy `_conditions.txt` folders. Ships a source-verified reference (the full schema, the
+  ~120-condition roster, the authoritative `IsEquippedType` enum — which OAR deliberately diverges from the
+  vanilla `GetEquippedItemType` enum — the DAR grammar, and the global INI) plus a playbook for the
+  counter-intuitive parts: OAR ignores plugin load order and picks winners purely by `priority`; the
+  top-level array is lowercase `conditions` while a nested `AND`/`OR` child array is capital-C `Conditions`;
+  `user.json` is a full-document shadow of `config.json`; and an addon condition (Math / RaySense / IED /
+  Detection / Dialogue) silently no-ops when its DLL is absent. It complements the distributor skills — it
+  authors animation CONFIGS, while forms-to-NPCs is SPID, keywords-to-items is KID, and record fields is
+  SkyPatcher.
+- **New `tool-output-awareness` skill** *(DrHeisen)* — recognize the plugins and assets that generated tools
+  produce (Reqtificator, ParallaxGen, DynDOLOD, Synthesis, TexGen, xLODGen, NPC Plugin Chooser 2) and keep
+  their re-derived records and asset paths out of an authored patch, so you never bake a regenerable
+  artifact into a hand patch that goes stale — or silently breaks — the next time the tool runs.
+- **`papyrus-reference` now loads before any `.psc` read *or* edit** — including an edit that only reuses a
+  call already in the file (a copied call is not a verified call; "the compiler will catch it" covers
+  signatures, not semantics) — and bundles a new "silent-biters" reference of Papyrus traps that compile
+  clean but misbehave at runtime (GetFormEx vs GetForm for the ESL range, SendModEvent handler arity,
+  FormList.HasForm missing base NPCs, Utility.Wait in a paused-menu handler, and more).
+
+## 1.3.0 — 2026-06-21
 
 The biggest release since 1.0: a VFS-aware **asset layer** (read which copy of any file wins; place a file
 as a winning override), end-to-end **dialogue authoring** (compose a whole conversation in one call, audit a
