@@ -46,8 +46,10 @@ If a change pressures any of the above, stop and raise it via the PRFAQ revalida
   names follow `standards/HOUSECARL_NAMING.md`.
 - The brand string **"houseCARL"** lives in exactly one place in code (the server's config).
 - **Atomic, focused commits** — one logical change per commit.
-- **Writes never mutate originals** — every patch is a **new** MO2 mod folder; sources are
-  read-only.
+- **Writes are non-destructive by default** — every patch is a **new** MO2 mod folder; sources
+  read-only. The one sanctioned exception is the **opt-in in-place lane** (`target=` +
+  `in_place=true`, per-plugin consent, no backup), which rewrites an existing plugin only when the
+  user explicitly asks.
 
 ## Review guidelines (for pull requests)
 
@@ -59,8 +61,14 @@ Reviewing a change to houseCARL — human's or agent's — check, in priority or
    can't do the thing says so plainly. A swallowed error or quiet fallback is a defect.
 3. **No silent workarounds** — a stumbling block should have been *surfaced* (`CLAUDE.md §4`),
    not patched around in a way that trades away something that was supposed to hold.
-4. **Writes stay non-destructive** — changes go to a new plugin; originals untouched; masters
-   are derived from the FormIDs actually referenced (plus the Skyrim.esm + Update.esm baseline every plugin carries, as the Creation Kit does), never hand-specified.
+4. **Writes stay non-destructive — or, in the in-place lane, safe-by-contract** — default writes go
+   to a new plugin (originals untouched). The opt-in in-place lane (`target=` + `in_place=true`)
+   deliberately rewrites an existing plugin and is sanctioned **only with its guards intact**: the
+   explicit per-call flag, the persistent per-plugin consent handshake, the non-bypassable
+   round-trip floor (verify the touched records, trust Mutagen for the rest), and the
+   `editedInPlace` marker (never houseCARL-owned). Either way, masters are derived from the FormIDs
+   actually referenced (plus the Skyrim.esm + Update.esm baseline every plugin carries, as the
+   Creation Kit does), never hand-specified.
 5. **Atomic & focused** — one logical change; the diff does what the message says, nothing extra.
 6. **Correctness over performance** — where they conflict, correctness wins; perf concerns are
    raised factually, not as blockers.
