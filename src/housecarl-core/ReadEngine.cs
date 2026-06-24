@@ -47,13 +47,25 @@ public static class ReadEngine
     /// <summary>The outcome of reading one leaf. <see cref="HasValue"/> ⇒ <see cref="Token"/> is a
     /// round-trippable value (the inverse of Coerce). Otherwise <see cref="Note"/> explains why there
     /// is no value to round-trip (absent optional, no such field, a non-leaf container, or an
-    /// isolated read fault). The round-trip oracle drives ONLY <see cref="HasValue"/> reads.</summary>
-    internal readonly record struct LeafRead(bool HasValue, string Token, string? Note)
+    /// isolated read fault). The round-trip oracle drives ONLY <see cref="HasValue"/> reads.
+    ///
+    /// <para><see cref="Flags"/> is additive METADATA carried only for a <c>[Flags]</c> enum leaf: the underlying
+    /// bit pattern + enum type, so the query predicate (<c>where=</c>) can bit-test (<c>has</c>) and compare
+    /// numerically WITHOUT tripping over the name/number rendering split that <c>[Flags].ToString()</c> produces
+    /// (named bits → "Body"; an unnamed modder slot → "8388608"). The <see cref="Token"/> is unchanged — the
+    /// round-trip oracle still drives the same display token — so this is invisible to read/write/diff.</para></summary>
+    internal readonly record struct LeafRead(bool HasValue, string Token, string? Note, FlagBits? Flags = null)
     {
         public static LeafRead Value(string token) => new(true, token, null);
+        public static LeafRead FlagsValue(string token, FlagBits bits) => new(true, token, null, bits);
         public static LeafRead None(string note) => new(false, "", note);
         public override string ToString() => HasValue ? Token : Note ?? "(none)";
     }
+
+    /// <summary>The bit-test view of a <c>[Flags]</c> enum leaf — the unsigned bit pattern plus the enum
+    /// <see cref="Type"/> (so a predicate's operand given as a flag NAME, e.g. <c>has Body</c>, resolves against
+    /// the same enum). Populated by <see cref="EmitToken"/> for flags enums only; null for every other leaf.</summary>
+    internal readonly record struct FlagBits(ulong Bits, Type EnumType);
 
     /// <summary>A modeled leaf that exists but holds no value on this record (absent optional substruct,
     /// empty optional). Distinct from a real token; the oracle skips it — write-proof owns the absent
@@ -484,8 +496,17 @@ public static class ReadEngine
         // primitive (inverse of TryPrimitive)
         if (TryEmitPrimitive(val, out var prim)) return LeafRead.Value(prim);
         // enum (inverse of TryEnum) — ToString gives the name(s); Enum.Parse(ignoreCase) re-accepts,
-        // including the comma form for a [Flags] combination.
-        if (u.IsEnum || val.GetType().IsEnum) return LeafRead.Value(val.ToString() ?? "");
+        // including the comma form for a [Flags] combination. For a [Flags] enum we ALSO carry the underlying
+        // bit pattern + type (the display token is unchanged) so the query predicate can bit-test (`has`) and
+        // compare numerically without tripping over the name-vs-number rendering split (HCBR 2026-06-24).
+        if (u.IsEnum || val.GetType().IsEnum)
+        {
+            var token = val.ToString() ?? "";
+            var enumType = u.IsEnum ? u : val.GetType();
+            if (enumType.IsDefined(typeof(FlagsAttribute), false) && TryEnumBits(val, enumType, out var bits))
+                return LeafRead.FlagsValue(token, new FlagBits(bits, enumType));
+            return LeafRead.Value(token);
+        }
         // formlink (inverse of TryFormLink) — FormKey.ToString() ↔ FormKey.Factory. A present-but-null
         // link (FormKey.Null) is NOT a round-trippable token (the write surface sets links to a real
         // FormKey, never "Null"), so surface it as no-value — consistent with what Coerce accepts.
@@ -511,6 +532,43 @@ public static class ReadEngine
         return LeafRead.None(SummariseContainer(val,
             WriteEngine.ClosedInterface(val.GetType(), typeof(IDictionary<,>)) is not null
             || WriteEngine.ClosedInterface(val.GetType(), typeof(IReadOnlyDictionary<,>)) is not null));
+    }
+
+    /// <summary>The unsigned bit pattern of a boxed enum value, robust across every underlying integer type
+    /// (signed or unsigned) — the bits a <c>has</c> predicate ANDs against. Read through the declared underlying
+    /// type so a high-bit-set signed enum yields its two's-complement pattern rather than overflowing.</summary>
+    static bool TryEnumBits(object val, Type enumType, out ulong bits)
+    {
+        bits = 0;
+        try
+        {
+            var prim = Convert.ChangeType(val, Enum.GetUnderlyingType(enumType), CultureInfo.InvariantCulture);
+            bits = prim switch
+            {
+                ulong ul => ul,
+                long l => unchecked((ulong)l),
+                uint ui => ui,
+                int i => unchecked((ulong)(long)i),
+                ushort us => us,
+                short s => unchecked((ulong)(long)s),
+                byte b => b,
+                sbyte sb => unchecked((ulong)(long)sb),
+                _ => Convert.ToUInt64(prim, CultureInfo.InvariantCulture),
+            };
+            return true;
+        }
+        catch { return false; }
+    }
+
+    /// <summary>Resolve a flag NAME (or a comma-combo, case-insensitive) against a <c>[Flags]</c> enum type to its
+    /// bit pattern — the name-operand path for the query predicate's <c>has</c>/<c>=</c> (e.g. <c>has Body</c>).
+    /// False if the text is not a member (or combo of members) of the enum. A numeric string also parses here, but
+    /// the caller resolves numerics first, so this only ever sees names.</summary>
+    internal static bool TryEnumBitsFromName(Type enumType, string name, out ulong bits)
+    {
+        bits = 0;
+        try { return TryEnumBits(Enum.Parse(enumType, name.Trim(), ignoreCase: true), enumType, out bits); }
+        catch { return false; }
     }
 
     // -- primitive family (mirror TryPrimitive) --------------------------------

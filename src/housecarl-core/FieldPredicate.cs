@@ -35,10 +35,14 @@ namespace HousecarlCore;
 /// </summary>
 public sealed class FieldPredicateSet
 {
-    /// <summary>The seven v1 operators. <see cref="Gt"/>/<see cref="Ge"/>/<see cref="Lt"/>/<see cref="Le"/> are
+    /// <summary>The eight v1 operators. <see cref="Gt"/>/<see cref="Ge"/>/<see cref="Lt"/>/<see cref="Le"/> are
     /// numeric-only; <see cref="Contains"/> is a case-insensitive substring; <see cref="Eq"/>/<see cref="Ne"/>
-    /// compare across the whole token vocabulary (FormKey-canonical, else numeric, else case-insensitive string).</summary>
-    enum Op { Eq, Ne, Gt, Ge, Lt, Le, Contains }
+    /// compare across the whole token vocabulary (FormKey-canonical, else numeric, else case-insensitive string).
+    /// <see cref="Has"/> is a BITWISE set-test for a <c>[Flags]</c> enum (or plain integer) leaf — true iff every
+    /// bit of the operand is set on the field, regardless of other bits — so a multi-slot BodyTemplate still
+    /// matches the one slot asked for, which <see cref="Eq"/> (exact value) and the range ops cannot express. Its
+    /// operand is a bit value (decimal or <c>0x</c> hex) or a flag NAME.</summary>
+    enum Op { Eq, Ne, Gt, Ge, Lt, Le, Contains, Has }
 
     /// <summary>One parsed predicate: the split path segments (fed straight to <see cref="ReadEngine.ReadLeaf"/>),
     /// the operator, the raw operand, and — for a numeric operator — the operand pre-parsed to a double (validated
@@ -104,7 +108,7 @@ public sealed class FieldPredicateSet
         // 2. skip whitespace to the operator.
         while (i < text.Length && char.IsWhiteSpace(text[i])) i++;
         if (i >= text.Length)
-            return (null, $"predicate '{raw}': no operator. Use one of = != > >= < <= contains, e.g. \"{path} = <value>\".");
+            return (null, $"predicate '{raw}': no operator. Use one of = != > >= < <= contains has, e.g. \"{path} = <value>\".");
 
         // 3. operator — symbolic (longest match) or the 'contains' word.
         Op op;
@@ -117,16 +121,17 @@ public sealed class FieldPredicateSet
             else if (text[i] == '=') { op = Op.Eq; after = i + 1; }
             else if (text[i] == '>') { op = Op.Gt; after = i + 1; }
             else if (text[i] == '<') { op = Op.Lt; after = i + 1; }
-            else return (null, $"predicate '{raw}': unrecognized operator at '{text.Substring(i)}'. Use = != > >= < <= contains.");
+            else return (null, $"predicate '{raw}': unrecognized operator at '{text.Substring(i)}'. Use = != > >= < <= contains has.");
         }
         else
         {
             int w = i;
             while (w < text.Length && !char.IsWhiteSpace(text[w])) w++;
             var word = text.Substring(i, w - i);
-            if (!word.Equals("contains", StringComparison.OrdinalIgnoreCase))
-                return (null, $"predicate '{raw}': unrecognized operator '{word}'. Use = != > >= < <= or contains.");
-            op = Op.Contains;
+            if (word.Equals("contains", StringComparison.OrdinalIgnoreCase)) op = Op.Contains;
+            else if (word.Equals("has", StringComparison.OrdinalIgnoreCase)) op = Op.Has;
+            else
+                return (null, $"predicate '{raw}': unrecognized operator '{word}'. Use = != > >= < <= contains or has.");
             after = w;
         }
 
@@ -173,19 +178,29 @@ public sealed class FieldPredicateSet
             var leaf = ReadEngine.ReadLeaf(body, p.PathSegments);   // internal, same assembly — the by-construction read walk
             if (!leaf.HasValue) { _noValue[k]++; all = false; continue; }
             _valueRead[k]++;
-            var (satisfied, err) = Compare(p, leaf.Token);
+            var (satisfied, err) = Compare(p, leaf);
             if (err is not null) { _fatal ??= err; return false; }
             if (!satisfied) all = false;
         }
         return all;
     }
 
-    static (bool satisfied, string? error) Compare(Predicate p, string token)
+    static (bool satisfied, string? error) Compare(Predicate p, ReadEngine.LeafRead leaf)
     {
+        var token = leaf.Token;
+        var flags = leaf.Flags;   // non-null iff the leaf is a [Flags] enum — carries (bit pattern, enum type)
         switch (p.Op)
         {
+            case Op.Has:
+                return CompareHas(p, token, flags);
+
             case Op.Gt or Op.Ge or Op.Lt or Op.Le:
-                if (!TryNum(token, out var tv))
+                // A [Flags] enum compares on its underlying numeric value — so `>= 65536` no longer ERRORS on a
+                // field that renders as "Body". Every other leaf compares on its numeric token, exactly as before
+                // (a non-numeric, non-flags field is still the fast typed FatalError — Q3).
+                double tv;
+                if (flags is { } fnum) tv = fnum.Bits;
+                else if (!TryNum(token, out tv))
                     return (false, $"predicate '{p.Text}': operator '{OpStr(p.Op)}' needs a numeric field, but '{p.PathDisplay}' read '{Trunc(token)}', not a number.");
                 double ov = p.NumericOperand;
                 bool num = p.Op switch { Op.Gt => tv > ov, Op.Ge => tv >= ov, Op.Lt => tv < ov, Op.Le => tv <= ov, _ => false };
@@ -195,9 +210,59 @@ public sealed class FieldPredicateSet
                 return (token.Contains(p.Operand, StringComparison.OrdinalIgnoreCase), null);
 
             default: // Eq / Ne
-                bool eq = ValueEquals(token, p.Operand);
+                // On a [Flags] enum, equate by RESOLVED bit pattern so a numeric operand matches a name-rendered
+                // field (`= 16` matches "Forearms"), a name matches a number-rendered one, and order/spacing of a
+                // comma-combo stops mattering. Every other leaf keeps the token-vocabulary equality unchanged.
+                bool eq;
+                if (flags is { } feq && TryResolveBits(p.Operand, feq.EnumType, out var opBits))
+                    eq = feq.Bits == opBits;
+                else
+                    eq = ValueEquals(token, p.Operand);
                 return (p.Op == Op.Eq ? eq : !eq, null);
         }
+    }
+
+    /// <summary>The bitwise set-test (<c>has</c>): true iff EVERY bit of the operand is set on the field, other
+    /// bits free — so a multi-slot BodyTemplate still matches the one slot asked for, the case <c>=</c> (exact
+    /// value) and the range ops miss. On a [Flags] enum the operand is a bit value (decimal or <c>0x</c> hex) or a
+    /// flag NAME; on a plain integer leaf it must be a bit value. A non-bitmask field, an unresolvable operand, or
+    /// a zero mask is a typed error — never a silent non-match (Q3).</summary>
+    static (bool satisfied, string? error) CompareHas(Predicate p, string token, ReadEngine.FlagBits? flags)
+    {
+        ulong leafBits, opBits;
+        if (flags is { } fi)
+        {
+            leafBits = fi.Bits;
+            if (!TryResolveBits(p.Operand, fi.EnumType, out opBits))
+                return (false, $"predicate '{p.Text}': 'has' value '{p.Operand}' is not a bit value or a valid {fi.EnumType.Name} flag name.");
+        }
+        else if (TryBits(token, out leafBits))   // a plain integer leaf — bit-test its numeric value
+        {
+            if (!TryBits(p.Operand, out opBits))
+                return (false, $"predicate '{p.Text}': 'has' value '{p.Operand}' must be a bit value (decimal or 0x hex) for the integer field '{p.PathDisplay}'.");
+        }
+        else
+            return (false, $"predicate '{p.Text}': 'has' needs a flags/bitmask or integer field, but '{p.PathDisplay}' read '{Trunc(token)}', not a number.");
+
+        if (opBits == 0)
+            return (false, $"predicate '{p.Text}': 'has 0' tests no bits — give a non-zero bit value or a flag name.");
+        return ((leafBits & opBits) == opBits, null);
+    }
+
+    /// <summary>Resolve a <c>has</c>/<c>=</c> operand against a [Flags] enum to its bit pattern: a numeric literal
+    /// (decimal or <c>0x</c> hex) is the bits directly; otherwise it is parsed as a flag NAME (or comma-combo)
+    /// against that enum. False if it is neither — the caller turns that into a typed error.</summary>
+    static bool TryResolveBits(string operand, Type enumType, out ulong bits)
+        => TryBits(operand, out bits) || ReadEngine.TryEnumBitsFromName(enumType, operand, out bits);
+
+    /// <summary>Parse a bit value — decimal, or <c>0x</c>-prefixed hex (bitmasks read naturally in hex). Unsigned;
+    /// a sign or a non-integer is rejected (those fall through to the flag-name path).</summary>
+    static bool TryBits(string s, out ulong bits)
+    {
+        s = s.Trim();
+        if (s.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+            return ulong.TryParse(s.AsSpan(2), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out bits);
+        return ulong.TryParse(s, NumberStyles.None, CultureInfo.InvariantCulture, out bits);
     }
 
     /// <summary>Equality across the token vocabulary: FormKey-canonical if BOTH sides are FormKeys (so a link
