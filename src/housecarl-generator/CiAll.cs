@@ -93,6 +93,19 @@ public static class CiAll
         ("strings-decision-guard", StringsDecisionProbe.RunGuard),
     };
 
+    /// <summary>Dispatch a single CI guard by name through the registry — the ONE place a CI probe is listed, so
+    /// Program.cs routes local single-probe runs here instead of keeping a parallel if-chain that could silently
+    /// drift out of sync with the CI set (a guard runnable locally but missing from CI — the Q3 coverage-gap
+    /// class). Returns false if the name isn't a registry probe; the caller then tries its own dispatches (the
+    /// cold freshness-capture-guard carve-out + the manual/exploratory probes).</summary>
+    public static bool TryDispatch(string name, string[] args, out int rc)
+    {
+        foreach (var (n, run) in Probes)
+            if (n == name) { rc = run(args); return true; }
+        rc = 0;
+        return false;
+    }
+
     public static int RunAll(string[] args)
     {
         var swAll = Stopwatch.StartNew();
