@@ -151,7 +151,10 @@ public static class WriteTools
          "the CONCRETE subtype directly ('GlobalFloat'/'GlobalInt'/'GlobalShort', 'GameSettingFloat'/'GameSettingInt'/'GameSettingString') " +
          "— that's how a global variable or game setting is created. The new FormID is reported back; to make ANOTHER record " +
          "reference it, call this or set_field again with into='<this patch>' using that FormID. By default writes a fresh patch " +
-         "named patch_name; into= extends an existing houseCARL patch (accumulate across calls/sessions). ALL-OR-NOTHING (Q3): " +
+         "named patch_name; into= extends an existing houseCARL patch (accumulate across calls/sessions). To create the new " +
+         "record straight INTO an EXISTING plugin IN PLACE instead — rewriting your ORIGINAL file (incl. a mod houseCARL didn't " +
+         "make), not a patch — pass target=<plugin filename> + in_place=true (opt-in; the " +
+         "default patch lane leaves originals untouched). ALL-OR-NOTHING (Q3): " +
          "the whole call is refused with a reason and nothing is written if the type can't be created (an EXTERIOR cell nests " +
          "under FormKey-less worldspace structs — a separate capability; the bare abstract base 'Global'/'GameSetting' needs a concrete subtype — the refusal names them), if " +
          "a nested type is given no parent, if editorid is missing, or if any field op is illegal. Returns the new record's " +
@@ -174,13 +177,19 @@ public static class WriteTools
             string patch_name = "houseCARL_Patch",
         [Description("Optional. Filename of an existing houseCARL patch to add this new record to instead of writing a fresh one (accumulate across calls/sessions). Found by the plugin's filename even if you've renamed its MO2 mod folder; for two patches sharing a filename, pass the mod-folder name here instead (folder & plugin names need not match).")]
             string? into = null,
+        [Description("Optional. IN-PLACE LANE (opt-in): the filename of an EXISTING active plugin to create the new record straight INTO, IN PLACE — including one houseCARL didn't author — instead of writing a new patch (e.g. 'CoolWeapons.esp'). Requires in_place=true; mutually exclusive with into=. Full create parity in place — incl. a nested record (parent=): a parent the target already owns is edited to host the child, a parent from another plugin is overridden in (exactly as the patch lane does). OMIT this (the default) to write a NEW patch and leave every original untouched — the recommended lane.")]
+            string? target = null,
+        [Description("Optional, default false. With target=, create the new record straight INTO that plugin IN PLACE: houseCARL rewrites your ORIGINAL file — no new patch, and NO houseCARL backup or undo (keep your own). The new record gets a fresh FormID in that plugin's OWN range; houseCARL re-lays-out the whole plugin the way xEdit/CK do on save, VERIFIES the record it created, and trusts Mutagen for the untouched rest; it refuses a file it can't parse or that holds engine-reserved (sub-0x800) records. The FIRST in-place write to a given plugin returns a one-time confirmation prompt (re-call with acknowledge=true).")]
+            bool in_place = false,
+        [Description("Optional, default false. Confirms the one-time in-place trade-off for target (see in_place) — needed only on the FIRST in-place write to a given plugin (edit OR create), never again for it. Waives the consent to touch your original ONLY; it NEVER skips the record verify.")]
+            bool acknowledge = false,
         [Description("When true, the response ALSO returns the ENTIRE created record read back from the written patch file on disk (every field, deep — not just the fields you set). The pre-enable verification, WITHOUT enabling the patch in MO2. (The patch wins nothing until enabled + sorted in MO2 — this read-back is the written file's content, not load-order truth.)")]
             bool full_readback = false,
         [Description("Optional. Max characters for the whole response; past it the full read-back section is cut with an explicit notice (never silent). 0 = the server default (~80k). Only matters with full_readback=true.")]
             int max_chars = 0) => Guard.Tool("housecarl_create_record", () =>
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
-        return RenderCreate(svc.CreateRecords(record_type, editorid, operations ?? Array.Empty<BulkOp>(), patch_name, into, full_readback, parent, collection, grid), max_chars);
+        return RenderCreate(svc.CreateRecords(record_type, editorid, operations ?? Array.Empty<BulkOp>(), patch_name, into, full_readback, parent, collection, grid, target, in_place, acknowledge), max_chars);
     });
 
     [McpServerTool(Name = "housecarl_bulk_create", Title = "Create many records (incl. a nested one-shot) in one patch"),
@@ -203,6 +212,9 @@ public static class WriteTools
          "ambiguous collection), the whole call is refused with per-record reasons and nothing is written — no partial patches. " +
          "By default writes a fresh patch named patch_name; into= extends an existing houseCARL patch — and a parent created in " +
          "a PRIOR into= call CAN be the parent here too (it's resolved from the patch being extended, not only the load order). " +
+         "To create the new records straight INTO an EXISTING plugin IN PLACE instead — rewriting your ORIGINAL file (incl. a mod " +
+         "houseCARL didn't make), not a patch — pass target=<plugin filename> + in_place=true (opt-in; the default patch lane " +
+         "leaves originals untouched). " +
          "Returns each new record's FormID + editorid, the patch path, and its (derived) masters.")]
     public static string BulkCreate(
         LoadOrderService svc,
@@ -212,6 +224,12 @@ public static class WriteTools
             string patch_name = "houseCARL_Patch",
         [Description("Optional. Filename of an existing houseCARL patch to add these new records to instead of writing a fresh one (accumulate across calls/sessions). Found by the plugin's filename even if you've renamed its MO2 mod folder; for two patches sharing a filename, pass the mod-folder name here instead (folder & plugin names need not match).")]
             string? into = null,
+        [Description("Optional. IN-PLACE LANE (opt-in): the filename of an EXISTING active plugin to create the new records straight INTO, IN PLACE — including one houseCARL didn't author — instead of writing a new patch (e.g. 'CoolWeapons.esp'). Requires in_place=true; mutually exclusive with into=. Full create parity in place — incl. a nested one-shot (a topic AND its lines, a cell AND its refs): a same-call or target-owned parent hosts the child, a parent from another plugin is overridden in (exactly as the patch lane does). OMIT this (the default) to write a NEW patch and leave every original untouched — the recommended lane.")]
+            string? target = null,
+        [Description("Optional, default false. With target=, create the new records straight INTO that plugin IN PLACE: houseCARL rewrites your ORIGINAL file — no new patch, and NO houseCARL backup or undo (keep your own). Each new record gets a fresh FormID in that plugin's OWN range; houseCARL re-lays-out the whole plugin the way xEdit/CK do on save, VERIFIES the records it created, and trusts Mutagen for the untouched rest; it refuses a file it can't parse or that holds engine-reserved (sub-0x800) records. The FIRST in-place write to a given plugin returns a one-time confirmation prompt (re-call with acknowledge=true).")]
+            bool in_place = false,
+        [Description("Optional, default false. Confirms the one-time in-place trade-off for target (see in_place) — needed only on the FIRST in-place write to a given plugin (edit OR create), never again for it. Waives the consent to touch your original ONLY; it NEVER skips the record verify.")]
+            bool acknowledge = false,
         [Description("When true, the response ALSO returns each created record IN FULL, read back from the written patch file on disk (every field, deep). The pre-enable verification, WITHOUT enabling the patch in MO2 (the written file's content, not load-order truth).")]
             bool full_readback = false,
         [Description("Optional. Max characters for the whole response; past it the full read-back section is cut with an explicit notice (never silent). 0 = the server default (~80k). Only matters with full_readback=true.")]
@@ -220,7 +238,7 @@ public static class WriteTools
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
         if (records is null || records.Length == 0)
             return "error: records is empty. Pass one or more {record_type, editorid, operations?, parent?, collection?} specs.";
-        return RenderCreate(svc.CreateRecordsBatch(records, patch_name, into, full_readback), max_chars);
+        return RenderCreate(svc.CreateRecordsBatch(records, patch_name, into, full_readback, target, in_place, acknowledge), max_chars);
     });
 
     [McpServerTool(Name = "housecarl_forward_record", Title = "Forward a plugin's version of a record as an override"),
@@ -450,14 +468,22 @@ public static class WriteTools
     /// fields applied. On refusal, the named reason (Q3) so the caller can fix and retry.</summary>
     static string RenderCreate(WritePatchBuilder.CreateOutcome o, int maxChars = 0)
     {
+        if (o.NeedsAcknowledge) return o.Error!;            // the first-touch in-place CONSENT prompt — a required confirmation, NOT an error (Q3)
         if (!o.Success) return "error: " + o.Error;
         var file = Path.GetFileName(o.OutputPath);
         var modFolder = Path.GetFileName(Path.GetDirectoryName(o.OutputPath) ?? "");
         var sb = new StringBuilder();
-        sb.Append(o.Extended ? "extended " : "wrote ").Append(file)
-          .Append(o.Extended ? " (existing patch grown; " : " (new patch; ").Append(o.Bytes).Append(" bytes)\n");
-        sb.Append("mod folder: ").Append(modFolder)
-          .Append(o.Extended ? "\n" : "  — enable + sort it in MO2 to use the patch\n");
+        if (o.InPlace)
+            sb.Append(file).Append(" rewritten IN PLACE (").Append(o.Bytes)
+              .Append(" bytes — your ORIGINAL file; no houseCARL backup or undo)\n")
+              .Append("mod folder: ").Append(modFolder).Append("  — already active in your load order; re-sort only if a winner changed\n");
+        else
+        {
+            sb.Append(o.Extended ? "extended " : "wrote ").Append(file)
+              .Append(o.Extended ? " (existing patch grown; " : " (new patch; ").Append(o.Bytes).Append(" bytes)\n");
+            sb.Append("mod folder: ").Append(modFolder)
+              .Append(o.Extended ? "\n" : "  — enable + sort it in MO2 to use the patch\n");
+        }
         sb.Append("masters: ").Append(o.Masters.Count == 0 ? "(none)" : string.Join(", ", o.Masters)).Append('\n');
         var replacedCount = o.Created.Count(c => c.ReplacedExisting);
         sb.Append("created ").Append(o.Created.Count).Append(o.Created.Count == 1 ? " record" : " records");
@@ -477,8 +503,11 @@ public static class WriteTools
         AppendScriptBindingReport(sb, o.ScriptBinding, maxChars);
         AppendCellShellReport(sb, o.CellShell);
         if (o.ReadBack is { } rb) AppendFullReadback(sb, rb, maxChars);
-        sb.Append("the new FormID above is how you reference this record (SkyPatcher/SPID, or a follow-up edit). ")
-          .Append("To add more to THIS patch, pass into=\"").Append(file).Append("\".");
+        if (o.Note is { } note) sb.Append("note: ").Append(note).Append('\n');
+        sb.Append("the new FormID above is how you reference this record (SkyPatcher/SPID, or a follow-up edit). ");
+        sb.Append(o.InPlace
+            ? $"To create more records in this plugin, pass target=\"{file}\" in_place=true (no further confirmation needed for it)."
+            : $"To add more to THIS patch, pass into=\"{file}\".");
         return sb.ToString();
     }
 
