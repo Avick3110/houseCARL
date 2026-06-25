@@ -59,6 +59,11 @@ public static class AssetLinkWriteProbe
             replaceAll: new[] { @"Sound\fx\hc\bardsong\one.wav", @"Sound\fx\hc\bardsong\two.wav", @"Sound\fx\hc\bardsong\three.wav" },
             add: @"Sound\fx\hc\bardsong\four.wav");
 
+        // The OTHER asset-link list, Weather.CloudTextures, is ARRAY-backed (IAssetLink<T>[]) — a separate, not-yet-built
+        // write mechanism. It must refuse LOUD and NAMED at apply (an "array-backed" ExpectedApplyRejection), NOT the
+        // silent NRE it threw before this guard. Asserts the honest boundary, so a future array-write build flips it green.
+        RunArrayRefusalCase(results, rulebook);
+
         Console.WriteLine();
         bool allPass = true;
         foreach (var (name, pass, detail) in results)
@@ -69,8 +74,8 @@ public static class AssetLinkWriteProbe
         }
         Console.WriteLine();
         Console.WriteLine(allPass
-            ? "=== PASS: asset-link list elements author end-to-end (gate accepts, apply coerces, paths round-trip) ==="
-            : "=== FAIL: an asset-link list element did not author cleanly (read the !! lines) ===");
+            ? "=== PASS: ExtendedList asset-link element authors end-to-end (round-trips); array-backed one refuses LOUD ==="
+            : "=== FAIL: an asset-link list element did not behave as required (read the !! lines) ===");
         return allPass ? 0 : 1;
     }
 
@@ -124,6 +129,42 @@ public static class AssetLinkWriteProbe
         {
             var e = ex.InnerException ?? ex;
             results.Add((label, false, $"threw {e.GetType().Name}: {e.Message}"));
+        }
+    }
+
+    /// <summary>The honest-boundary arm: an ARRAY-backed asset-link list (Weather.CloudTextures, IAssetLink&lt;T&gt;[])
+    /// must refuse a list verb with a clean, NAMED <see cref="ExpectedApplyRejectionException"/> ("array-backed"), NOT
+    /// the silent NullReferenceException it threw before the guard. Drives the REAL ApplyVerb and asserts the refusal
+    /// kind + wording (RED if it NREs again, or wrongly succeeds — which is the signal a future array-write build is in).</summary>
+    static void RunArrayRefusalCase(List<(string, bool, string)> results, CorpusRulebook rulebook)
+    {
+        const string label = "Weather.CloudTextures (array-backed) — refuses LOUD, not NRE";
+        try
+        {
+            var pc = new SkyrimMod(new ModKey("HcAssetLinkWthr", ModType.Plugin), SkyrimRelease.SkyrimSE);
+            var wthr = pc.Weathers.AddNew("HC_WTHR_AssetLink");
+            var op = new WriteRequest { RecordType = "Weather", Path = new[] { "CloudTextures" }, Verb = "ReplaceAll",
+                                        Values = new[] { @"textures\hc\sky\cloud0.dds", @"textures\hc\sky\cloud1.dds" } };
+            try
+            {
+                WriteEngine.ApplyVerb(wthr, op);
+                results.Add((label, false, "ApplyVerb SUCCEEDED on an array-backed list — array-write may now be implemented; update this guard."));
+            }
+            catch (ExpectedApplyRejectionException ex)
+            {
+                bool named = ex.Message.Contains("array-backed", StringComparison.OrdinalIgnoreCase);
+                results.Add((label, named, $"refused as {nameof(ExpectedApplyRejectionException)}: \"{ex.Message}\""));
+            }
+            catch (Exception ex)
+            {
+                var e = ex.InnerException ?? ex;
+                results.Add((label, false, $"threw {e.GetType().Name} (want a NAMED ExpectedApplyRejectionException, not this): {e.Message}"));
+            }
+        }
+        catch (Exception ex)
+        {
+            var e = ex.InnerException ?? ex;
+            results.Add((label, false, $"setup threw {e.GetType().Name}: {e.Message}"));
         }
     }
 }
