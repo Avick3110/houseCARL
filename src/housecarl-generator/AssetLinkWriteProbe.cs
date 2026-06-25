@@ -29,8 +29,10 @@ namespace HousecarlGenerator;
 /// (Clear/Add) at all (a SEPARATE, pre-existing array-backed-collection write gap, shared with <c>Weather.Clouds</c>,
 /// independent of asset-link coercion). It is deliberately NOT tested here; the coercion fix is proven by the sound case.
 ///
-/// Self-contained: synthesises the record in a fresh plugin in TEMP and generates the validator corpus BY CONSTRUCTION
-/// in-process (no game data, no checked-in corpus.json). Run: dotnet run --project src/housecarl-generator assetlink-write-guard
+/// Self-contained: synthesises the record + plugin in a fresh <c>SkyrimMod</c> in TEMP (no game data). The validator
+/// corpus is the SHARED one loaded via <see cref="CorpusRulebook.Load"/> (<c>CorpusRulebook.CorpusPath</c> — the
+/// canonicalCorpus the ci-all runner pre-generates, or <c>generated/corpus.json</c> for a standalone run); this probe
+/// does NOT generate it. Run: dotnet run --project src/housecarl-generator assetlink-write-guard
 /// </summary>
 public static class AssetLinkWriteProbe
 {

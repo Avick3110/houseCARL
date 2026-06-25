@@ -2748,8 +2748,14 @@ public static class WriteEngine
                     // that let the asset-link LIST element ship uncoercible (Heisen 2026-06-26). Route a whole-
                     // coercible element to the SAME resolve+CanCoerce path the scalar elements take, recognised by the
                     // SAME predicate the rulebook/classifier use (no drift on what a whole-coercible element is); its
-                    // getter-interface AQ resolves at runtime (verified), so it lands on CanCoerce, not the
-                    // unresolved bucket.
+                    // getter-interface AQ resolves at runtime (verified — ci-all green on Linux too), so it lands on
+                    // CanCoerce, not the unresolved bucket.
+                    // COUPLING NOTE: this routes the getter AQ through the shared ResolveType, so the audit here is
+                    // STRICTER than IsWholeCoercibleElement itself — that predicate carries a by-NAME fallback for when
+                    // the cross-assembly nested-generic getter AQ does NOT resolve via Type.GetType, which this branch
+                    // does not. Today every asset-link element's AQ resolves; if a future Mutagen shape stops resolving,
+                    // it lands in `unresolved` → audit RED (loud, Q3-fine — never a silent skip), which is the cue to
+                    // mirror the name-fallback here.
                     if (f.ElementTypeRef is null && f.ElementTypeAssemblyQualified is { } eaq) aq = eaq;
                     else if (IsWholeCoercibleElement(f.ElementTypeRef, f.ElementTypeAssemblyQualified)
                              && f.ElementTypeAssemblyQualified is { } weaq) aq = weaq;
