@@ -153,6 +153,32 @@ public static class ReadTools
         var result = svc.ResolveEffectChain(fk, types, limit <= 0 ? 500 : limit);
         return Wire.RenderEffectChain(result, max_chars);
     });
+
+    [McpServerTool(Name = "housecarl_check_errors", ReadOnly = true, Title = "Check the load order for record errors"),
+     Description(
+         "Load-order integrity sweep — the data-layer twin of the Creation Kit's 'Check For Errors' / xEdit's error " +
+         "check. For each plugin in scope it walks every record's FormLinks and reports three error classes: (1) DANGLING " +
+         "references — a non-null link whose target NO plugin in the ACTIVE order defines (a broken reference); (2) " +
+         "MISSING MASTERS — a master a plugin DECLARES that is not present in the active order (its dependency is not " +
+         "installed/enabled — the most common load-order break); (3) PARSE failures — records houseCARL/Mutagen could not " +
+         "read (per record), plus whole plugins the index excluded as unparseable. Read-only — writes nothing. BOUNDARY " +
+         "(never a silent claim of more — Q3): this covers the FormLink-resolution / missing-master / parse class. It does " +
+         "NOT verify navmesh or terrain spatial integrity (CRC/grid — a Mutagen-delta residual), does NOT flag a required " +
+         "field left null (a null FormLink is a legal optional, not an error), and does NOT list unused-master cleanup " +
+         "(a FormLink scan cannot prove a master is unused). Results cap at limit= and max_chars (both overruns explicit).")]
+    public static string CheckErrorsTool(
+        LoadOrderService svc,
+        [Description("Optional. Plugin filenames to check (e.g. 'MyMod.esp'). A name not in the load order is an error. Omit to sweep the WHOLE active order (every non-excluded plugin) — thorough but heavier; scope to one plugin for a fast, focused check like the CK's per-plugin 'Check For Errors'.")]
+            string[]? plugins = null,
+        [Description("Optional. Max dangling references to list across the whole sweep (default 1000). The TRUE total is always reported; over the cap it says so. Master-table findings are always listed in full (they are few).")]
+            int limit = 1000,
+        [Description("Optional. Max characters before the response stops with an explicit notice. 0 = the server default (~80k).")]
+            int max_chars = 0) => Guard.Tool("housecarl_check_errors", () =>
+    {
+        if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
+        var result = svc.CheckErrors(plugins, limit <= 0 ? 1000 : limit);
+        return Wire.RenderCheckErrors(result, max_chars);
+    });
 }
 
 /// <summary>Compact, parseable `key = value` rendering (Q4.8 lever 1) + the winner-relative conflict diff
@@ -287,6 +313,77 @@ static class Wire
                 rendered++;
             }
         }
+        return sb.ToString().TrimEnd('\n');
+    }
+
+    // ---- housecarl_check_errors ---------------------------------------------------------------------
+    public static string RenderCheckErrors(ErrorCheckResult r, int maxChars)
+    {
+        if (r.Error is not null) return "error: " + r.Error;
+        int cap = Cap(maxChars);
+        var sb = new StringBuilder();
+
+        sb.Append("check_errors — load-order integrity sweep\n");
+        sb.Append("scanned ").Append(r.PluginsScanned).Append(r.PluginsScanned == 1 ? " plugin · " : " plugins · ")
+          .Append(r.TotalDangling).Append(" dangling ref(s) · ")
+          .Append(r.TotalMissingMasters).Append(" missing master(s) · ")
+          .Append(r.TotalUnscannableRecords).Append(" unscannable record(s)");
+        if (r.ExcludedPlugins.Count > 0)
+            sb.Append(" · ").Append(r.ExcludedPlugins.Count).Append(" plugin(s) excluded (unparseable)");
+        sb.Append('\n');
+
+        if (r.Reports.Count == 0 && r.ExcludedPlugins.Count == 0)
+            sb.Append("\nNo errors found in the scanned scope.\n");
+
+        bool truncated = false;
+        foreach (var p in r.Reports)
+        {
+            if (sb.Length >= cap)
+            {
+                sb.Append("\n... [truncated at max_chars=").Append(cap).Append("; scope plugins= or raise max_chars to see the rest]\n");
+                truncated = true;
+                break;
+            }
+            sb.Append("\n[ERROR] ").Append(p.Plugin).Append('\n');
+            if (p.ScanError is not null)
+                sb.Append("  scan error: ").Append(p.ScanError).Append('\n');
+            if (p.MissingMasters.Count > 0)
+                sb.Append("  missing master(s): ").Append(string.Join(", ", p.MissingMasters))
+                  .Append("   [declared as a dependency but not present in the active order — install/enable it, or this plugin's refs into it dangle]\n");
+            if (p.Dangling.Count > 0)
+            {
+                sb.Append("  dangling reference(s) (").Append(p.Dangling.Count).Append("):\n");
+                foreach (var d in p.Dangling)
+                {
+                    if (sb.Length >= cap) break;
+                    sb.Append("    ").Append(d.Source).Append(" (").Append(d.SourceType);
+                    if (!string.IsNullOrEmpty(d.SourceEditorId)) sb.Append(" '").Append(d.SourceEditorId).Append('\'');
+                    sb.Append(") -> ").Append(d.Target).Append("   [target not defined by any active plugin]\n");
+                }
+            }
+            if (p.UnscannableRecords > 0)
+            {
+                sb.Append("  ").Append(p.UnscannableRecords).Append(" record(s) could not be scanned (Mutagen could not parse their content)");
+                if (p.UnscannableSamples.Count > 0) sb.Append(": ").Append(string.Join("; ", p.UnscannableSamples));
+                sb.Append('\n');
+            }
+        }
+
+        if (r.Capped)
+            sb.Append("\n[dangling list capped at limit; true total = ").Append(r.TotalDangling).Append(" — raise limit= to see all]\n");
+
+        if (!truncated && r.ExcludedPlugins.Count > 0)
+        {
+            sb.Append("\nexcluded plugins (could not be parsed — NOT checked):\n");
+            foreach (var kv in r.ExcludedPlugins)
+            {
+                if (sb.Length >= cap) break;
+                sb.Append("  ").Append(kv.Key).Append(": ").Append(kv.Value).Append('\n');
+            }
+        }
+
+        sb.Append("\nboundary: checks FormLink resolution, missing masters, and parse failures. Does NOT verify navmesh/terrain ")
+          .Append("spatial integrity (CRC/grid), flag required-but-null fields, or list unused-master cleanup; a null FormLink is a legal optional.\n");
         return sb.ToString().TrimEnd('\n');
     }
 

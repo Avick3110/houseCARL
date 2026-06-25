@@ -490,6 +490,12 @@ public sealed class LoadOrderResolver : IDisposable
         /// every edit of one call off ONE view; reads pin their fetch to the same view they resolved with).</summary>
         public IMajorRecordGetter? GetRecord(OverlaySession session, string pluginName, FormKey fk)
             => _r.GetRecord(session, pluginName, fk, _s);
+
+        /// <summary>The master filenames a plugin DECLARES in its header (the master table), in declared order — opens
+        /// the overlay, reads the header, disposes (Option B; the header parses without enumerating records). Throws
+        /// (Q3) on a name not in the order or excluded this build. The integrity sweep diffs this against the masters a
+        /// plugin's records actually reference; judged against THIS view's build (same exclusion set as the scan).</summary>
+        public IReadOnlyList<string> DeclaredMasters(string pluginName) => _r.DeclaredMasters(pluginName, _s);
     }
 
     // ---- Queries -------------------------------------------------------
@@ -569,6 +575,23 @@ public sealed class LoadOrderResolver : IDisposable
         foreach (var rec in session.Overlay(idx).EnumerateMajorRecords())
             if (rec.FormKey == fk) return rec;
         return null;
+    }
+
+    /// <summary>The master filenames a plugin declares in its header (the master TABLE). Opens the overlay, reads
+    /// <c>ModHeader.MasterReferences</c>, disposes (Option B — the header parses without enumerating records). Throws
+    /// (Q3) on a name not in the order or excluded this build, mirroring <see cref="PluginRecordStatus"/>. The
+    /// integrity sweep (housecarl_check_errors) diffs this against the masters a plugin's records actually reference.</summary>
+    public IReadOnlyList<string> DeclaredMasters(string pluginName) => DeclaredMasters(pluginName, _snap);
+
+    IReadOnlyList<string> DeclaredMasters(string pluginName, IndexSnapshot s)
+    {
+        if (!_nameToIdx.TryGetValue(pluginName, out int idx))
+            throw new ArgumentException($"plugin not in the load order: {pluginName}");
+        if (s.Excluded.Contains(idx))
+            throw new ArgumentException($"plugin '{pluginName}' was excluded from this session: {s.ExcludedPlugins[pluginName]}");
+        var ov = OpenOverlay(_paths[idx], _dataDir);
+        try { return ov.ModHeader.MasterReferences.Select(m => m.Master.FileName.ToString()).ToList(); }
+        finally { (ov as IDisposable)?.Dispose(); }
     }
 
     /// <summary>Fetch one record body from one overlay by re-enumerating it (primitive B — into the session). Throws if

@@ -1050,6 +1050,15 @@ public sealed class LoadOrderService : IDisposable
         return EffectChain.Resolve(Resolver, mgef, scope, limit);
     }
 
+    // ---- integrity sweep (housecarl_check_errors — audit A1) --------------------------------------------
+
+    /// <summary>Sweep the active order (or the given <paramref name="plugins"/> scope) for record integrity errors —
+    /// dangling FormLinks, missing masters, and parse failures (housecarl_check_errors). Thin wiring over the
+    /// core <see cref="ErrorCheck.Run"/>, which holds all the scan logic + Q3 teeth so the self-contained guard drives
+    /// this same path over synthetic plugins. Read-only; composes existing primitives, no new dependency.</summary>
+    public ErrorCheckResult CheckErrors(IReadOnlyList<string>? plugins, int limit)
+        => ErrorCheck.Run(Resolver, plugins, limit);
+
     // ---- writes (§8.4 Beat C: housecarl_set_field / housecarl_bulk_apply) -------------------------------
 
     /// <summary>Apply one-or-more edits as a single patch (housecarl_set_field = one op; housecarl_bulk_apply = many).
