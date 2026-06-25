@@ -93,6 +93,12 @@ public static class CiAll
         ("place-asset-guard", PlaceAssetProbe.RunGuard),
         ("strings-decision-guard", StringsDecisionProbe.RunGuard),
         ("assetlink-write-guard", AssetLinkWriteProbe.RunGuard),
+        // The two coercion COMPLETENESS proofs, now CI guards (were manual-only — the coerce-audit blind spot that
+        // shipped the asset-link gap showed a manual proof silently goes stale). Both are self-contained: selftest is
+        // pure; audit reads the shared canonicalCorpus via CorpusRulebook.CorpusPath (set per-probe by RunAll, empty
+        // args here → it uses that path). Each returns 0/1 like any guard.
+        ("coerce-selftest", WriteEngine.RunCoerceSelftest),
+        ("coerce-audit", WriteEngine.RunCoerceAudit),
     };
 
     /// <summary>Dispatch a single CI guard by name through the registry — the ONE place a CI probe is listed, so

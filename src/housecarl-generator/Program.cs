@@ -87,11 +87,8 @@ if (args.Length > 0 && args[0] == "header-probe") return Wave5Probe.RunHeaderPro
 // Wave 5 scout: the PEX read->write round-trip GATE (project_pex_prefer_source_policy) — the wave-5 unknown.
 if (args.Length > 0 && args[0] == "pex-probe") return Wave5Probe.RunPexProbe(args[1..]);
 
-// Coercion completeness guard: corpus-derived audit of every writable value-leaf's coercibility.
-if (args.Length > 0 && args[0] == "coerce-audit") return WriteEngine.RunCoerceAudit(args[1..]);
-
-// Coercion construction self-test: confirms each value-type rule builds a valid, assignable instance.
-if (args.Length > 0 && args[0] == "coerce-selftest") return WriteEngine.RunCoerceSelftest(args[1..]);
+// NOTE: coerce-audit + coerce-selftest are now CI guards in CiAll.Probes (the ONE CI source of truth, dispatched
+// for single runs via CiAll.TryDispatch at the top of this file) — no separate dispatch here, by design.
 
 // Step 7 write-surface census: corpus-derived reachability map of every writable leaf (the completeness scoreboard).
 if (args.Length > 0 && args[0] == "write-census") return WriteCensus.Run(args[1..]);
