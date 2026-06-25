@@ -1951,6 +1951,23 @@ public static class WriteEngine
 
     static void ApplyListVerb(object parent, PropertyInfo prop, Type listIface, WriteRequest req)
     {
+        // ARRAY-backed collection (a C# T[], e.g. Weather.CloudTextures / Weather.Clouds — fixed-size game
+        // structures Mutagen models as a plain array, not a growable ExtendedList). The list verbs assume
+        // ExtendedList semantics (Clear / Add / RemoveAt); an array has none, so without this guard Add / ReplaceAll /
+        // Remove NRE at apply on the missing method, and even materialize of an absent array throws (arrays need a
+        // length) — an UNNAMED accept-then-throw (the schema-only gate accepts the verb). Refuse LOUD and NAMED (Q3):
+        // array-collection mutation is a distinct write mechanism not yet built (some, like Weather clouds, are a
+        // fixed 29-layer format, so an arbitrary-length write may not even serialize validly — it needs its own
+        // investigation). SetAtIndex is refused too: the array may be absent (can't index a null) and a set-only
+        // surface would surprise. Element COERCION is unaffected — this is the collection-shape gap, not the value
+        // gap (an asset-link element coerces fine; see IsAssetLinkFamily). The gate could pre-check IsArray later
+        // (array-ness is schema-visible) to move this to pre-flight — tracked.
+        if (prop.PropertyType.IsArray)
+            throw new ExpectedApplyRejectionException(
+                $"'{prop.Name}' is an array-backed collection ({Pretty(prop.PropertyType)}); Add / ReplaceAll / Remove / " +
+                "SetAtIndex are not yet supported on arrays (some, like Weather clouds, are fixed-size game structures). " +
+                "Tracked gap — array-collection mutation is a distinct write mechanism not yet built.");
+
         // Writable-by-construction: an ABSENT optional list (null) is materialized so a first element can be
         // added — "add a keyword to a record that has none" must work, not throw. Remove on an absent list SURFACES
         // "nothing to remove" (Gap 3 — no silent no-op; the value/index is trivially not present when the whole list is
