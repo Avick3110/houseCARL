@@ -1872,6 +1872,21 @@ public static class WriteEngine
         return elementRef is not null && elementRef.StartsWith("AssetLink", StringComparison.Ordinal);
     }
 
+    /// <summary>True iff <paramref name="t"/> is a Mutagen <c>AssetLink&lt;T&gt;</c> family type — the mutable
+    /// concrete <c>AssetLink&lt;T&gt;</c>, its getter overlay <c>AssetLinkGetter&lt;T&gt;</c>, or the
+    /// <c>IAssetLink(Getter)&lt;T&gt;</c> interfaces a collection element exposes. Recognised by generic-definition
+    /// NAME (the same shape the FLOI family uses, and the cross-assembly nested-generic getter interface does not
+    /// always resolve by AQ), so the recogniser is robust to which interface arm a list/dict element happens to
+    /// surface. SHARED by the read path (<see cref="ReadEngine"/> emits the stored path) and the write coercion
+    /// (<see cref="TryValueType"/> builds a new AssetLink from a path) so the two can't drift on what an asset link
+    /// is — the same one-recogniser discipline the FormLink family uses.</summary>
+    internal static bool IsAssetLinkFamily(Type t)
+    {
+        if (!t.IsGenericType) return false;
+        var n = t.GetGenericTypeDefinition().Name;
+        return n.StartsWith("AssetLink", StringComparison.Ordinal) || n.StartsWith("IAssetLink", StringComparison.Ordinal);
+    }
+
     static void ApplyDictVerb(object parent, PropertyInfo prop, Type dictIface, WriteRequest req)
     {
         // Writable-by-construction: an ABSENT optional dict (null) is materialized so a first entry can be set.
@@ -2519,10 +2534,22 @@ public static class WriteEngine
             return true;
         }
 
-        // Mutagen AssetLink<T> — a path string (texture / model / behavior / …).
-        if (u.IsGenericType && u.GetGenericTypeDefinition() == typeof(Mutagen.Bethesda.Plugins.Assets.AssetLink<>))
+        // Mutagen AssetLink<T> family — a path string (texture / model / sound / …). Recognises the mutable concrete
+        // AssetLink<T>, its getter overlay AssetLinkGetter<T>, AND the IAssetLink(Getter)<T> INTERFACES — because a
+        // COLLECTION element's runtime type is the interface, not the concrete (List<IAssetLinkGetter<T>> /
+        // ExtendedList<IAssetLink<T>>), so the concrete-only check missed every asset-link LIST element (Heisen
+        // 2026-06-26: SoundDescriptor.SoundFiles). Every arm maps to the MUTABLE AssetLink<T> we construct — the same
+        // getter-interface→concrete map TryFormLink does for IFormLinkGetter<T>→FormLink<T> — and AssetLink<T>
+        // implements both interfaces, so the built element assigns into either list. Recognised by the SAME by-name
+        // family predicate the read path uses (IsAssetLinkFamily), so the two surfaces can't drift on what an asset
+        // link is.
+        if (u.IsGenericType && IsAssetLinkFamily(u))
         {
-            if (text != null) result = ConstructFromString(u, text);
+            if (text != null)
+            {
+                var concrete = typeof(Mutagen.Bethesda.Plugins.Assets.AssetLink<>).MakeGenericType(u.GetGenericArguments()[0]);
+                result = ConstructFromString(concrete, text);
+            }
             return true;
         }
 
@@ -2696,8 +2723,19 @@ public static class WriteEngine
                     break;
                 case "list":
                 case "dict":
-                    // scalar/enum/formlink elements are coercion targets; struct elements (ElementTypeRef) are build-cases.
+                    // scalar/enum/formlink elements are coercion targets; modeled-struct/arm/record elements
+                    // (ElementTypeRef) are build-cases — EXCEPT a WHOLE-COERCIBLE element (an AssetLink path), which
+                    // carries an ElementTypeRef yet is SET as one coerced value, not built from parts. The bare
+                    // `ElementTypeRef is null` test mis-skipped those (SoundDescriptor.SoundFiles,
+                    // Weather.CloudTextures) into navOrBuild, hiding them from the audit denominator — the blind spot
+                    // that let the asset-link LIST element ship uncoercible (Heisen 2026-06-26). Route a whole-
+                    // coercible element to the SAME resolve+CanCoerce path the scalar elements take, recognised by the
+                    // SAME predicate the rulebook/classifier use (no drift on what a whole-coercible element is); its
+                    // getter-interface AQ resolves at runtime (verified), so it lands on CanCoerce, not the
+                    // unresolved bucket.
                     if (f.ElementTypeRef is null && f.ElementTypeAssemblyQualified is { } eaq) aq = eaq;
+                    else if (IsWholeCoercibleElement(f.ElementTypeRef, f.ElementTypeAssemblyQualified)
+                             && f.ElementTypeAssemblyQualified is { } weaq) aq = weaq;
                     else { navOrBuild++; continue; }
                     break;
                 case "substruct":
@@ -2811,6 +2849,23 @@ public static class WriteEngine
         };
         if (texAsset is not null)
             samples.Add(("AssetLink<Texture>", typeof(Mutagen.Bethesda.Plugins.Assets.AssetLink<>).MakeGenericType(texAsset), @"textures\hc\test.dds"));
+        // AssetLink INTERFACE forms — the runtime type a COLLECTION element exposes, NOT the concrete: a
+        // List<IAssetLinkGetter<T>> / ExtendedList<IAssetLink<T>> element coerces to the getter/setter INTERFACE,
+        // which the concrete-only rule missed (Heisen 2026-06-26: SoundDescriptor.SoundFiles). Each must build the
+        // mutable AssetLink<T> and be assignable to its interface (what list .Add demands). Both asset TYPES (sound +
+        // texture) and both interface arms (setter + getter) are covered, so the family fix is proven generic, not
+        // sound-special.
+        var sndAsset = typeof(SkyrimMod).Assembly.GetType("Mutagen.Bethesda.Skyrim.Assets.SkyrimSoundAssetType");
+        if (sndAsset is not null)
+        {
+            samples.Add(("IAssetLink<Sound> (setter iface)", typeof(Mutagen.Bethesda.Plugins.Assets.IAssetLink<>).MakeGenericType(sndAsset), @"Sound\fx\hc\test.wav"));
+            samples.Add(("IAssetLinkGetter<Sound> (getter iface)", typeof(Mutagen.Bethesda.Plugins.Assets.IAssetLinkGetter<>).MakeGenericType(sndAsset), @"Sound\fx\hc\test.wav"));
+        }
+        if (texAsset is not null)
+        {
+            samples.Add(("IAssetLink<Texture> (setter iface)", typeof(Mutagen.Bethesda.Plugins.Assets.IAssetLink<>).MakeGenericType(texAsset), @"textures\hc\test2.dds"));
+            samples.Add(("IAssetLinkGetter<Texture> (getter iface)", typeof(Mutagen.Bethesda.Plugins.Assets.IAssetLinkGetter<>).MakeGenericType(texAsset), @"textures\hc\test2.dds"));
+        }
 
         int ok = 0;
         foreach (var (label, type, text) in samples)

@@ -626,8 +626,9 @@ public static class ReadEngine
         // AssetLink<T> family — the stored path string. Recognised by generic-definition NAME (the mutable
         // AssetLink<T> Coerce builds, the getter overlay's AssetLinkGetter<T>, or the IAssetLink(Getter)<T>
         // interfaces) so the value READ off a getter is handled, not only the mutable type — the same
-        // by-name recognition the engine uses for the FLOI family.
-        if (IsAssetLinkFamily(rt2))
+        // by-name recognition the engine uses for the FLOI family. Shares ONE predicate with the write
+        // coercion (WriteEngine.IsAssetLinkFamily) so read and write can't drift on what an asset link is.
+        if (WriteEngine.IsAssetLinkFamily(rt2))
         { token = ReflectString(val, "GivenPath", "RawPath", "DataRelativePath") ?? val.ToString() ?? ""; return true; }
 
         return false;
@@ -737,12 +738,8 @@ public static class ReadEngine
            && (t.GetGenericTypeDefinition() == typeof(Noggog.MemorySlice<>) || t.GetGenericTypeDefinition() == typeof(Noggog.ReadOnlyMemorySlice<>))
            && t.GetGenericArguments()[0] == typeof(byte);
 
-    static bool IsAssetLinkFamily(Type t)
-    {
-        if (!t.IsGenericType) return false;
-        var n = t.GetGenericTypeDefinition().Name;
-        return n.StartsWith("AssetLink", StringComparison.Ordinal) || n.StartsWith("IAssetLink", StringComparison.Ordinal);
-    }
+    // AssetLink-family recognition lives in WriteEngine.IsAssetLinkFamily (ONE predicate, shared with write
+    // coercion — read emits the path, write builds the link from it; they must agree on the family).
 
     /// <summary>True if <paramref name="t"/> is a VMAD script-property arm (ScriptObjectProperty, the scalar
     /// ScriptInt/Float/Bool/StringProperty arms, and the *ListProperty arms) — recognised by the shared getter

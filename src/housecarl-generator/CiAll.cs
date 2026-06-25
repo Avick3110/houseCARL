@@ -92,6 +92,7 @@ public static class CiAll
         ("atomic-commit-guard", AtomicCommitProbe.RunGuard),
         ("place-asset-guard", PlaceAssetProbe.RunGuard),
         ("strings-decision-guard", StringsDecisionProbe.RunGuard),
+        ("assetlink-write-guard", AssetLinkWriteProbe.RunGuard),
     };
 
     /// <summary>Dispatch a single CI guard by name through the registry — the ONE place a CI probe is listed, so
