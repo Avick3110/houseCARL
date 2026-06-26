@@ -40,6 +40,37 @@ public static class PapyrusCompile
 {
     static readonly Regex DiagLine = new(@"^(?<file>.*?)\((?<line>\d+),(?<col>\d+)\):\s*(?<msg>.*)$", RegexOptions.Compiled);
 
+    // The "symbol/type could not be resolved" message fragments — the SIGNATURE of a MISSING IMPORT (a dependency's
+    // Source\Scripts folder not on the import path), as opposed to a syntax error. Grounded in the REAL CK compiler's
+    // wording, captured 2026-06-26 against deliberately-missing PO3 / SkyUI / JContainers sources:
+    //   "unknown type po3_sksefunctions"                     — a declared/return/param type whose source isn't found
+    //   "variable JValue is undefined"                       — a static call on a script namespace not on the path
+    //   "none is not a known user-defined type"              — the cascade when an unresolved expression types to none
+    //   "X is not a function or does not exist"              — an extended function whose source copy isn't found
+    //                                                          (captured during the import-order PEX gate; spike §5.12)
+    // Contrast SYNTAX errors, which are NOT this class: "no viable alternative", "missing EOF", "mismatched input",
+    // "unknown user flag" — a code/grammar defect the import path can't fix.
+    static readonly string[] UnresolvedSymbolFragments =
+    {
+        "unknown type ",
+        " is undefined",
+        "is not a known user-defined type",
+        "is not a function or does not exist",
+    };
+
+    /// <summary>True if a compiler diagnostic message is the "symbol/type could not be resolved" class — the signature of
+    /// a MISSING IMPORT (the script is fine; a dependency's Source\Scripts folder just isn't on the import path), as
+    /// distinct from a syntax error. Used to LEAD a dominated failure with the import-path hint instead of letting the AI
+    /// read an avalanche of resolution errors as code bugs. Grounded in the real compiler's wording (see
+    /// <see cref="UnresolvedSymbolFragments"/>); case-insensitive.</summary>
+    public static bool IsUnresolvedSymbol(string? message)
+    {
+        if (string.IsNullOrEmpty(message)) return false;
+        foreach (var frag in UnresolvedSymbolFragments)
+            if (message.Contains(frag, StringComparison.OrdinalIgnoreCase)) return true;
+        return false;
+    }
+
     /// <summary>Parse PapyrusCompiler stderr into diagnostics. The format is `&lt;fullpath&gt;(line,col): message`, one per
     /// line (measured against the real compiler). Lines that don't match the shape are ignored (non-diagnostic noise).</summary>
     public static IReadOnlyList<PapyrusDiagnostic> ParseDiagnostics(string? stderr)

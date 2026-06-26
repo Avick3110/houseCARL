@@ -171,6 +171,67 @@ internal static class CompileErgonomicsProbe
         Check(outDirMsg.Contains("output folder you chose") && !outDirMsg.Contains("houseCARL patch-mod folder"),
               "output_dir= destination: success names the user's chosen folder, NOT a houseCARL patch folder (no over-claim)");
 
+        // ---------------------------------------------------------- D: missing-imports LEAD on a dominated failure (HCBR-2026-06-25)
+        Console.WriteLine();
+        Console.WriteLine("--- D: a failure dominated by unresolved-symbol errors LEADS with the import_dirs hint (not 'fix the code') ---");
+
+        // D1: PapyrusCompile.IsUnresolvedSymbol on the REAL captured CK compiler wording (missing PO3/SkyUI/JContainers
+        // sources, 2026-06-26) — the four resolution-error shapes are import-class; the syntax shapes are NOT.
+        Check(HousecarlCore.PapyrusCompile.IsUnresolvedSymbol("unknown type po3_sksefunctions"), "import-class: 'unknown type …'");
+        Check(HousecarlCore.PapyrusCompile.IsUnresolvedSymbol("variable JValue is undefined"), "import-class: '… is undefined'");
+        Check(HousecarlCore.PapyrusCompile.IsUnresolvedSymbol("none is not a known user-defined type"), "import-class: '… is not a known user-defined type' (cascade)");
+        Check(HousecarlCore.PapyrusCompile.IsUnresolvedSymbol("HC_ImportOrderProbeExt is not a function or does not exist"), "import-class: '… is not a function or does not exist'");
+        Check(!HousecarlCore.PapyrusCompile.IsUnresolvedSymbol("no viable alternative at character '@'"), "syntax (NOT import): 'no viable alternative …'");
+        Check(!HousecarlCore.PapyrusCompile.IsUnresolvedSymbol("missing EOF at 'EndFunction'"), "syntax (NOT import): 'missing EOF …'");
+        Check(!HousecarlCore.PapyrusCompile.IsUnresolvedSymbol("Unknown user flag papyrus"), "syntax (NOT import): 'Unknown user flag …'");
+
+        // D2: a FAILED compile whose diagnostics are the real missing-import avalanche → Render LEADS with the banner + count.
+        HousecarlCore.PapyrusDiagnostic Diag(string msg) => new(@"C:\mod\Scripts\HCMissingImports.psc", 8, 1, msg);
+        var missingImports = new HousecarlCore.CompileResult(
+            Success: false, ObjectName: "HCMissingImports", PexPath: null,
+            Diagnostics: new[]
+            {
+                Diag("unknown type po3_sksefunctions"),
+                Diag("unknown type ski_configbase"),
+                Diag("variable PO3_SKSEFunctions is undefined"),
+                Diag("none is not a known user-defined type"),
+                Diag("variable JValue is undefined"),
+                Diag("variable JMap is undefined"),
+            },
+            Stdout: "", Stderr: "", ExitCode: 0, RunError: null);
+        var miMsg = CompileTools.Render(missingImports, Array.Empty<string>(), userChoseOutputDir: false);
+        Check(miMsg.Contains("INCOMPLETE import_dirs"), "dominated failure LEADS with the 'INCOMPLETE import_dirs' banner");
+        Check(miMsg.Contains("6 of 6") && miMsg.IndexOf("INCOMPLETE import_dirs", StringComparison.Ordinal) < miMsg.IndexOf("diagnostic(s)", StringComparison.Ordinal),
+              "the banner names the count (6 of 6) and precedes the diagnostic list");
+
+        // D3: a SYNTAX failure (the real captured broken-script wording) must NOT mislabel a code bug as a missing import —
+        // no banner, and the generic import tail still rides along as the fallback hint.
+        var syntaxFail = new HousecarlCore.CompileResult(
+            Success: false, ObjectName: "HCBad", PexPath: null,
+            Diagnostics: new[]
+            {
+                Diag("no viable alternative at character '@'"),
+                Diag("no viable alternative at input 'papyrus'"),
+                Diag("Unknown user flag papyrus"),
+                Diag("missing EOF at 'EndFunction'"),
+            },
+            Stdout: "", Stderr: "", ExitCode: 0, RunError: null);
+        var synMsg = CompileTools.Render(syntaxFail, Array.Empty<string>(), userChoseOutputDir: false);
+        Check(!synMsg.Contains("INCOMPLETE import_dirs"), "a syntax-only failure does NOT trigger the missing-imports banner (no false positive)");
+        Check(synMsg.Contains("import path") && synMsg.Contains("import_dirs="), "a syntax-only failure keeps the generic import-path tail as the fallback hint");
+
+        // D4: the gate is a STRONG majority + count — 2 resolution errors mixed with 3 syntax errors is NOT dominated.
+        var mixed = new HousecarlCore.CompileResult(
+            Success: false, ObjectName: "HCMixed", PexPath: null,
+            Diagnostics: new[]
+            {
+                Diag("unknown type foo"), Diag("variable bar is undefined"),
+                Diag("no viable alternative at input 'x'"), Diag("missing EOF at 'y'"), Diag("mismatched input 'z'"),
+            },
+            Stdout: "", Stderr: "", ExitCode: 0, RunError: null);
+        Check(!CompileTools.Render(mixed, Array.Empty<string>(), userChoseOutputDir: false).Contains("INCOMPLETE import_dirs"),
+              "2 resolution errors among 5 is NOT a strong majority → no banner (the gate needs >=3 AND a majority)");
+
         Console.WriteLine();
         Console.WriteLine(fail == 0
             ? "================ ALL PASS ================"

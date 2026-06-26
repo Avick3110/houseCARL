@@ -166,12 +166,32 @@ public static class CompileTools
         sb.Append("compile FAILED: ").Append(r.ObjectName).Append(".psc — no new .pex produced (any previous build is left unchanged).");
         if (r.Diagnostics.Count > 0)
         {
+            // MISSING-IMPORTS LEAD (HCBR-2026-06-25): when the failure is DOMINATED by unresolved-symbol/type errors, the
+            // overwhelmingly likely cause is an incomplete import_dirs — NOT a bug in the script (a single missing framework
+            // header cascades into dozens of "unknown type / is undefined" lines that read like code errors). Surface that
+            // FIRST so the AI fixes the import path instead of "fixing" correct code. Gated on a strong majority + a real
+            // count (>=3) so a one-off typo's 1-2 resolution errors never mislabel a genuine code bug as a missing import.
+            int unresolved = 0;
+            foreach (var d in r.Diagnostics) if (HousecarlCore.PapyrusCompile.IsUnresolvedSymbol(d.Message)) unresolved++;
+            bool dominatedByMissingImports = unresolved >= 3 && unresolved * 2 >= r.Diagnostics.Count;
+            if (dominatedByMissingImports)
+                sb.Append("\n⚠ This looks like INCOMPLETE import_dirs, not a bug in the script: ")
+                  .Append(unresolved).Append(" of ").Append(r.Diagnostics.Count)
+                  .Append(" diagnostics are unresolved-symbol/type errors (e.g. 'unknown type …', '… is undefined'). The CK " +
+                          "compiler resolves every referenced script against the import path, so a dependency whose Source\\Scripts " +
+                          "folder is missing makes ALL its calls/types fail. Re-run with import_dirs= listing EVERY dependency's " +
+                          "source folder (SKSE, SkyUI, PapyrusUtil, PO3, JContainers, …; ';'-separated) — the same set your " +
+                          "project's compile .bat passes via -i=.");
+
             // "diagnostic(s)", not "error(s)": the CK compiler mixes warnings into a failed run's output and the
             // parser doesn't split severities — labelling them all errors over-claims (2026-06-12 hunt render wave).
             sb.Append('\n').Append(r.Diagnostics.Count).Append(" diagnostic(s) (errors and possibly warnings — the CK compiler mixes them):");
             foreach (var d in r.Diagnostics) sb.Append("\n  ").Append(d);
-            sb.Append("\nfix the .psc and recompile (look unfamiliar functions/types up with the papyrus-reference skill). " +
-                      "If a dependency type is 'not found', its source folder may be missing from the import path — pass it via import_dirs=.");
+            // The generic tail stays for the NON-dominated case (a few resolution errors mixed with real ones); when we
+            // already led with the strong missing-imports banner, don't repeat the import line.
+            sb.Append("\nfix the .psc and recompile (look unfamiliar functions/types up with the papyrus-reference skill).");
+            if (!dominatedByMissingImports)
+                sb.Append(" If a dependency type is 'not found', its source folder may be missing from the import path — pass it via import_dirs=.");
         }
         else
         {
