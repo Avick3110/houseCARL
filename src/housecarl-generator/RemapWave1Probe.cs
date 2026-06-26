@@ -321,8 +321,74 @@ public static class RemapWave1Probe
             Console.WriteLine($"   NESTED  nested-only record refused: {(nestedOk ? "PASS" : "FAIL")}  ({(ren.Success ? "did NOT refuse" : ren.Error)})");
         }
 
+        // --- ABSTRACT: a Global (abstract SkyrimGroup<Global>) renumbers + places via TryAddToFlatGroup's abstract-group
+        //     arm — Global.IsInstanceOfType(GlobalFloat) matches and Add(Global) accepts the concrete arm. Globals/GMSTs
+        //     are real compaction targets and this is the most novel reflection in the engine, so it gets its own arm. ---
+        bool abstractOk;
+        {
+            var gOld = new FormKey(donorKey, 0xBBB);
+            var gNew = new FormKey(donorKey, 0x800);
+            var gf = new GlobalFloat(gOld, SkyrimRelease.SkyrimSE) { EditorID = "HcGlobalF", Data = 2.5f };
+            var target = new SkyrimMod(donorKey, SkyrimRelease.SkyrimSE);
+            var ren = RemapEngine.RenumberRecordsInto(target, new IMajorRecordGetter[] { gf }, new Dictionary<FormKey, FormKey> { [gOld] = gNew });
+            bool placed = target.Globals.ContainsKey(gNew) && !target.Globals.ContainsKey(gOld) && target.Globals.FirstOrDefault() is GlobalFloat;
+            abstractOk = ren.Success && ren.RecordsRenumbered == 1 && placed;
+            Console.WriteLine($"   ABSTRACT global placed via abstract-group arm: {(abstractOk ? "PASS" : "FAIL")}  (globals=[{string.Join(",", target.Globals.Select(g => g.FormKey))}], renum {ren.RecordsRenumbered}{(ren.Success ? "" : "; " + ren.Error)})");
+        }
+
+        // --- OVERRIDE: a compaction renumbers a plugin's ORIGINATING records but leaves an OVERRIDE at its master's key
+        //     (the override isn't in the remap dict → RenumberRecordsInto copies it at its OWN key). Base.esp {WB@0x801};
+        //     Over.esp overrides WB + originates WO@0xAAA; compacting Over must yield WO@0x800 AND WB@0x801:Base intact. ---
+        bool overrideOk;
+        {
+            var baseKey = new ModKey("HcRemapBase", ModType.Master);
+            var wbKey = new FormKey(baseKey, 0x801);
+            string basePath = Path.Combine(tmpDir, baseKey.FileName.String);
+            {
+                var b = new SkyrimMod(baseKey, SkyrimRelease.SkyrimSE);
+                b.Weapons.Add(new Weapon(wbKey, SkyrimRelease.SkyrimSE) { EditorID = "HcWeapB", BasicStats = new WeaponBasicStats { Damage = 7 } });
+                b.ModHeader.Stats.NextFormID = 0x802;
+                b.BeginWrite.ToPath(basePath).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).NoNextFormIDProcessing().Write();
+            }
+            var overKey = new ModKey("HcRemapOver", ModType.Plugin);
+            var woOld = new FormKey(overKey, 0xAAA);
+            string overPath = Path.Combine(tmpDir, overKey.FileName.String);
+            using (var baseOv = SkyrimMod.CreateFromBinaryOverlay(basePath, SkyrimRelease.SkyrimSE))
+            {
+                var o = new SkyrimMod(overKey, SkyrimRelease.SkyrimSE);
+                o.Weapons.GetOrAddAsOverride(baseOv.Weapons.First(w => w.FormKey == wbKey));
+                o.Weapons.Add(new Weapon(woOld, SkyrimRelease.SkyrimSE) { EditorID = "HcWeapO", BasicStats = new WeaponBasicStats { Damage = 9 } });
+                o.ModHeader.Stats.NextFormID = 0xAAB;
+                o.BeginWrite.ToPath(overPath).WithLoadOrder(new[] { baseOv }).NoNextFormIDProcessing().Write();
+            }
+            using (var overOv = SkyrimMod.CreateFromBinaryOverlay(overPath, SkyrimRelease.SkyrimSE))
+            {
+                var origKeys = overOv.EnumerateMajorRecords().Where(r => r.FormKey.ModKey == overKey).Select(r => r.FormKey).ToList();
+                var plan = RemapEngine.BuildSequentialRemap(origKeys, overKey, RemapEngine.EslFloor, RemapEngine.EslCeiling);
+                var pPrime = new SkyrimMod(overKey, SkyrimRelease.SkyrimSE);
+                var ren = RemapEngine.RenumberRecordsInto(pPrime, overOv.EnumerateMajorRecords(), plan.Dict);
+                bool woRenum = plan.Success && pPrime.Weapons.ContainsKey(plan.Dict[woOld]);   // originating WO -> 0x800:Over
+                bool wbPreserved = pPrime.Weapons.ContainsKey(wbKey);                          // override WB stays at 0x801:Base
+                overrideOk = ren.Success && ren.RecordsCopied == 2 && ren.RecordsRenumbered == 1 && woRenum && wbPreserved;
+                Console.WriteLine($"   OVERRIDE override copied at master key: {(overrideOk ? "PASS" : "FAIL")}  (P′ weapons=[{string.Join(",", pPrime.Weapons.Select(w => w.FormKey))}], copied {ren.RecordsCopied}/renum {ren.RecordsRenumbered}{(ren.Success ? "" : "; " + ren.Error)})");
+            }
+        }
+
+        // --- REFUSAL: RepointInPlace fails LOUD on bad input — a name not in the order, and an empty remap dict — with
+        //     the file untouched (Q3). The opt-in rewrite's guardrails, pinned. ---
+        bool refusalOk;
+        {
+            using var resolver = LoadOrderResolver.Build(new[] { donorPath, extPath });
+            var someDict = new Dictionary<FormKey, FormKey> { [waOld] = new FormKey(donorKey, 0x800) };
+            var notActive = RemapEngine.RepointInPlace(resolver, "HcDoesNotExist.esp", someDict);
+            var emptyDict = RemapEngine.RepointInPlace(resolver, extKey.FileName.String, new Dictionary<FormKey, FormKey>());
+            refusalOk = !notActive.Success && (notActive.Error?.Contains("not an active plugin", StringComparison.OrdinalIgnoreCase) ?? false)
+                     && !emptyDict.Success && (emptyDict.Error?.Contains("no remap", StringComparison.OrdinalIgnoreCase) ?? false);
+            Console.WriteLine($"   REFUSAL RepointInPlace loud on bad input  : {(refusalOk ? "PASS" : "FAIL")}  (not-active: {notActive.Error?.Split('.')[0]}; empty-dict: {emptyDict.Error})");
+        }
+
         Console.WriteLine();
-        bool pass = happyOk && capacityOk && nestedOk;
+        bool pass = happyOk && capacityOk && nestedOk && abstractOk && overrideOk && refusalOk;
         Console.WriteLine($"=== remap-wave1-guard: {(pass ? "PASS" : "FAIL")} ===");
         try { Directory.Delete(tmpDir, true); } catch { }
         return pass ? 0 : 1;
