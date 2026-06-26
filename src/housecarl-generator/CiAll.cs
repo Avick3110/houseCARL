@@ -103,6 +103,11 @@ public static class CiAll
         // into the ESL window + identify external referencers + in-place repoint) plus the two loud-refusal boundaries
         // (ESL capacity overflow, nested-only record). Pins the foundation the compact/merge tools (later waves) ride on.
         ("remap-wave1-guard", RemapWave1Probe.RunGuard),
+        // COMPACT/MERGE Wave 2 GATE: the NESTED compact end-to-end (RemapEngine.RenumberModInto) — a synthetic mod with
+        // a flat record, a FormList internal ref, an interior cell + placed, a worldspace + exterior cell + placed, and a
+        // dialog topic + INFO is compacted into the ESL window (nesting preserved, internal refs repointed), then its
+        // external referencer is found + repointed in place. Pins the housecarl_compact_plugin tool's cell-bearing path.
+        ("remap-wave2-compact-guard", RemapWave2NestedMechProbe.RunCompactGuard),
     };
 
     /// <summary>Dispatch a single CI guard by name through the registry — the ONE place a CI probe is listed, so
