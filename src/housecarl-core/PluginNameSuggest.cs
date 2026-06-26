@@ -56,7 +56,9 @@ public static class PluginNameSuggest
     {
         var hits = Nearest(query, candidates, max);
         if (hits.Count == 0) return "";
-        var quoted = string.Join(", ", hits.Select(h => "'" + h + "'"));
+        // Backtick-delimit (not single-quote): mod names routinely carry an apostrophe ("Sanguine's Trade…") that
+        // would collide with a wrapping ' and read as a broken quote. Backticks never collide with the name's own text.
+        var quoted = string.Join(", ", hits.Select(h => "`" + h + "`"));
         return hits.Count == 1 ? $" Did you mean {quoted}?" : $" Did you mean one of: {quoted}?";
     }
 
@@ -83,7 +85,9 @@ public static class PluginNameSuggest
         int threshold = Math.Max(2, Math.Min(qb.Length, cb.Length) / 4);
         if (Math.Abs(qb.Length - cb.Length) > threshold) return (0, 0);
         int d = Levenshtein(qb, cb, threshold);
-        if (d >= 0 && d <= threshold) return (500 - d * 10, d);
+        // Floor at 1: keep a genuine edit-distance match POSITIVE so Nearest's `score > 0` never silently drops it. The
+        // raw 500 - d*10 only reaches 0 at d>=50 — unreachable for .esp filenames (needs ~200-char stems) but free to guard.
+        if (d >= 0 && d <= threshold) return (Math.Max(1, 500 - d * 10), d);
         return (0, 0);
     }
 

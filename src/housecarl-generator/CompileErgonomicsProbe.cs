@@ -220,17 +220,28 @@ internal static class CompileErgonomicsProbe
         Check(!synMsg.Contains("INCOMPLETE import_dirs"), "a syntax-only failure does NOT trigger the missing-imports banner (no false positive)");
         Check(synMsg.Contains("import path") && synMsg.Contains("import_dirs="), "a syntax-only failure keeps the generic import-path tail as the fallback hint");
 
-        // D4: the gate is a STRONG majority + count — 2 resolution errors mixed with 3 syntax errors is NOT dominated.
-        var mixed = new HousecarlCore.CompileResult(
-            Success: false, ObjectName: "HCMixed", PexPath: null,
-            Diagnostics: new[]
-            {
-                Diag("unknown type foo"), Diag("variable bar is undefined"),
-                Diag("no viable alternative at input 'x'"), Diag("missing EOF at 'y'"), Diag("mismatched input 'z'"),
-            },
-            Stdout: "", Stderr: "", ExitCode: 0, RunError: null);
-        Check(!CompileTools.Render(mixed, Array.Empty<string>(), userChoseOutputDir: false).Contains("INCOMPLETE import_dirs"),
-              "2 resolution errors among 5 is NOT a strong majority → no banner (the gate needs >=3 AND a majority)");
+        // Helper: build a failed compile from N unresolved + M syntax diagnostics, to pin the gate boundary exactly.
+        HousecarlCore.CompileResult Fail(int unresolved, int syntax)
+        {
+            var ds = new List<HousecarlCore.PapyrusDiagnostic>();
+            for (int i = 0; i < unresolved; i++) ds.Add(Diag($"unknown type frameworktype{i}"));
+            for (int i = 0; i < syntax; i++) ds.Add(Diag($"no viable alternative at input 'tok{i}'"));
+            return new HousecarlCore.CompileResult(false, "HCBoundary", null, ds, "", "", 0, null);
+        }
+        bool Banner(HousecarlCore.CompileResult r) =>
+            CompileTools.Render(r, Array.Empty<string>(), userChoseOutputDir: false).Contains("INCOMPLETE import_dirs");
+
+        // D4: COUNT floor — 2 unresolved is below the >=3 minimum regardless of ratio, so no banner (a 1-2 error typo).
+        Check(!Banner(Fail(unresolved: 2, syntax: 0)), "2 unresolved (100% but < 3) → no banner (the >=3 count floor)");
+
+        // D5: the reviewer's boundary — a near-EVEN 3-of-6 split (half could be real syntax bugs) must NOT earn the
+        // confident "not a bug" banner under the >=2/3 gate (3/6 = 50% < 66%). It falls to the generic import tail instead.
+        Check(!Banner(Fail(unresolved: 3, syntax: 3)), "3-of-6 (50%) → NO banner: a near-even split is below the 2/3 supermajority bar");
+
+        // D6: exactly AT the 2/3 bar (4-of-6) DOES fire — the gate is inclusive at two-thirds.
+        Check(Banner(Fail(unresolved: 4, syntax: 2)), "4-of-6 (exactly 2/3) → banner fires (the gate is inclusive at two-thirds)");
+        // …and just over keeps firing (the overwhelming real signature: ~all unresolved).
+        Check(Banner(Fail(unresolved: 5, syntax: 1)), "5-of-6 (>2/3) → banner fires");
 
         Console.WriteLine();
         Console.WriteLine(fail == 0

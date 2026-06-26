@@ -241,6 +241,9 @@ static class StatusWire
     {
         sb.Append("\nlookup '").Append(name).Append("':\n");
 
+        // modMiss / pluginMiss MUST stay in sync with the not-found arm of their respective ternary below (each is the
+        // negation of every hit case) — they drive whether a "did you mean" fires, so a reordering that desynced them
+        // could surface a suggestion on a non-miss. Kept adjacent + mirrored so the pairing is obvious.
         bool modMiss = !Contains(c.EnabledMods, name) && !Contains(c.DisabledMods, name);
         string asMod =
             Contains(c.EnabledMods, name)  ? "ENABLED (mod present + switched on)" :
