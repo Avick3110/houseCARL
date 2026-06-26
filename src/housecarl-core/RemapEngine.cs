@@ -329,6 +329,11 @@ public static class RemapEngine
                             var renCell = (Cell)RenumberOne(cell, dict, stats);
                             FileInteriorCellByNewId(target, renCell);
                         }
+
+            // 3. Repoint every internal reference among the copied records (flat AND nested links) to the new keys.
+            //    Inside the try so a RemapLinks throw is the SAME structured Q3 refusal as steps 1–2 — a direct engine
+            //    caller (e.g. the guard) gets a FAIL result, not a raw crash (PR #122 review #4).
+            target.RemapLinks(dict);
         }
         catch (Exception ex)
         {
@@ -336,8 +341,6 @@ public static class RemapEngine
                 $"the structural renumber failed ({WriteEngine.Describe(ex)}) — abandoned with nothing shippable (Q3).");
         }
 
-        // 3. Repoint every internal reference among the copied records (flat AND nested links) to the new keys.
-        target.RemapLinks(dict);
         return new RenumberResult(true, null, stats.Copied, stats.Renumbered);
     }
 
@@ -363,7 +366,15 @@ public static class RemapEngine
     /// records (<see cref="IMajorRecordGetterEnumerable"/> but not a record itself — the FormKey-less block-tree structs
     /// WorldspaceBlock/SubBlock, CellBlock/SubBlock) is recursed THROUGH. Everything else (scalars, FormLinks, value
     /// structs) is skipped — <c>RemapLinks</c> repoints outgoing links separately. By construction: no hand-coded family
-    /// list; the discriminator is Mutagen's own enumerable marker (remap-wave2-nested-mech).</summary>
+    /// list; the discriminator is Mutagen's own enumerable marker (remap-wave2-nested-mech).
+    ///
+    /// <para>Two load-bearing Mutagen assumptions (PR #122 review #5), both confirmed for the tested shapes by
+    /// remap-wave2-nested-mech and stable across the corpus by construction: (1) record-container list/property values are
+    /// REFERENCE types, so reflective <c>list[i] = …</c> / <c>prop.SetValue</c> writes the renumbered duplicate back into
+    /// the parent (never into a boxed struct copy); (2) the child collections implement the non-generic
+    /// <see cref="IList"/> (<c>ExtendedList&lt;T&gt;</c> does), so the <c>val is IList</c> gate reaches them. If Mutagen
+    /// ever broke either, the affected records would be SKIPPED (left at old keys) rather than fail loud — which is why the
+    /// guard pins every nesting shape on disk.</para></summary>
     static void RenumberDescendants(object container, IReadOnlyDictionary<FormKey, FormKey> dict, RenumberStats stats)
     {
         foreach (var prop in container.GetType().GetProperties(BindingFlags.Public | BindingFlags.Instance))
