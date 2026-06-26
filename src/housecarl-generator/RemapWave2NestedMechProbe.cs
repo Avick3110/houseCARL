@@ -317,7 +317,7 @@ public static class RemapWave2NestedMechProbe
                                 && intRef?.Base.FormKey == New(waOld);                      // placed.Base -> weapon (nested internal)
             bool inWindow = new[] { weap?.FormKey, list?.FormKey, intCell?.FormKey, intRef?.FormKey, ws?.FormKey, extCell?.FormKey, extRef?.FormKey, topic?.FormKey, info?.FormKey }
                             .All(k => k is { } fk && fk.ID >= RemapEngine.EslFloor && fk.ID <= RemapEngine.EslCeiling);
-            nestedOk = keys && internalRefs && inWindow;
+            nestedOk = keys && internalRefs && inWindow && ren.RecordsCopied == 9 && ren.RecordsRenumbered == 9;   // all 9 originating, none overrides
             nestedDetail = $"copied {ren.RecordsCopied}, renumbered {ren.RecordsRenumbered}; keys={keys} internalRefs={internalRefs} inWindow={inWindow}; " +
                            $"weap={weap?.FormKey} intRef={intRef?.FormKey} extRef={extRef?.FormKey} info={info?.FormKey}";
         }

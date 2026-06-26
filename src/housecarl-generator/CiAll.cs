@@ -108,6 +108,10 @@ public static class CiAll
         // dialog topic + INFO is compacted into the ESL window (nesting preserved, internal refs repointed), then its
         // external referencer is found + repointed in place. Pins the housecarl_compact_plugin tool's cell-bearing path.
         ("remap-wave2-compact-guard", RemapWave2NestedMechProbe.RunCompactGuard),
+        // COMPACT Wave 2 SERVICE-POLICY gate (PR #122 review #3): drives LoadOrderService.CompactPlugin over a synthetic
+        // MO2 instance — the clean new-file lane, esl=false, override-of-master-cell-with-new-child, external refusal, the
+        // repoint→in_place gate, not-active, and the in_place+repoint consent handshake. Covers the policy the engine guard bypasses.
+        ("compact-service-guard", CompactServiceGuardProbe.RunGuard),
     };
 
     /// <summary>Dispatch a single CI guard by name through the registry — the ONE place a CI probe is listed, so
