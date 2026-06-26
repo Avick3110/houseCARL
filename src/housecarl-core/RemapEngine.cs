@@ -1,3 +1,4 @@
+using System.Collections;
 using System.Reflection;
 using Mutagen.Bethesda;
 using Mutagen.Bethesda.Plugins;
@@ -261,6 +262,151 @@ public static class RemapEngine
             return true;
         }
         return false;
+    }
+
+    // ======================================================================
+    //  3a-NESTED. WHOLE-MOD STRUCTURAL RENUMBER — build P′ incl. nested records
+    //  (Wave 2: the gap RenumberRecordsInto refuses loud on). Walks the source mod's
+    //  STRUCTURE (not a flat record stream, which loses parentage): each flat-group
+    //  record AND its nested children (a worldspace's exterior cells + placed refs,
+    //  a dialog topic's INFOs), plus the interior-cell block tree. Renumber mechanism
+    //  pinned by remap-wave2-nested-mech: record.Duplicate(newKey) DEEP-COPIES a
+    //  record's nested children (at their OLD keys), so we Duplicate the container
+    //  then recursively REPLACE each originating child with its own renumbered
+    //  Duplicate; IMajorRecordGetterEnumerable is the by-construction discriminator
+    //  for "contains records but isn't one" (the FormKey-less block-tree structs we
+    //  recurse THROUGH). RemapLinks at the end repoints every internal reference.
+    // ======================================================================
+
+    /// <summary>Per-call accounting for the structural renumber: total records placed (flat + nested) and how many of
+    /// those were actually renumbered (their key was in the dict — i.e. originating, vs an override copied at its own key).</summary>
+    sealed class RenumberStats { public int Copied; public int Renumbered; }
+
+    /// <summary>
+    /// Copy EVERY record of <paramref name="source"/> into the (fresh) mod <paramref name="target"/> under its remapped
+    /// FormKey from <paramref name="dict"/> (a record NOT in the dict — an override the compaction leaves at its master's
+    /// FormID — is copied at its OWN key), reconstructing the FULL nesting: flat top-level records + their nested children
+    /// (worldspace→exterior cells→placed refs, dialog topic→INFOs) AND the interior-cell block tree. Then
+    /// <c>RemapLinks(dict)</c> over the whole target so every INTERNAL reference resolves to the new keys. This is the
+    /// compact tool's core — the structural superset of the flat <see cref="RenumberRecordsInto"/> (which has no parentage
+    /// and so refuses nested-only records); both share the <c>Duplicate(newKey)</c> mechanism and <see cref="TryAddToFlatGroup"/>.
+    ///
+    /// Coverage (Q3): handles every record type — flat groups via <see cref="WriteEngine.EnumerateFlatGroups"/>, interior
+    /// cells via the block tree, and any nested child via the generic <see cref="RenumberDescendants"/> walk (no hand-coded
+    /// per-family list). A flat record whose group can't be resolved on the target (an engine inconsistency that should be
+    /// impossible by construction) is REFUSED LOUD with nothing half-shippable, never a silent drop.
+    /// </summary>
+    public static RenumberResult RenumberModInto(
+        SkyrimMod target, ISkyrimModGetter source, IReadOnlyDictionary<FormKey, FormKey> dict)
+    {
+        var stats = new RenumberStats();
+        try
+        {
+            // 1. FLAT top-level groups (weapons … AND worldspaces, dialog topics — each carries its nested children).
+            foreach (var (prop, _, _) in WriteEngine.EnumerateFlatGroups(typeof(SkyrimMod)))
+            {
+                var srcProp = source.GetType().GetProperty(prop.Name);
+                if (srcProp?.GetValue(source) is not IEnumerable srcGroup) continue;      // group absent on the getter — nothing to copy
+                foreach (var item in srcGroup)
+                {
+                    if (item is not IMajorRecordGetter rec) continue;
+                    var dup = RenumberOne(rec, dict, stats);
+                    if (!TryAddToFlatGroup(target, dup))
+                        return RenumberResult.Fail(
+                            $"{RecordNaming.StripOverlay(rec.GetType().Name)} {rec.FormKey} is a flat top-level record but no matching " +
+                            $"group was found on the target mod to place its renumbered copy (engine inconsistency, Q3) — the renumber is abandoned with nothing shippable.");
+                }
+            }
+
+            // 2. INTERIOR cells (mod.Cells block tree — the nested-only family that has no flat group). Each cell carries
+            //    its own placed refs / navmesh / landscape; re-file the renumbered cell by its NEW FormID digits (the
+            //    vanilla interior block convention, mirroring WriteEngine.AddInteriorCell).
+            if (source.Cells is { } cellsGroup)
+                foreach (var block in cellsGroup.Records)
+                    foreach (var sub in block.SubBlocks)
+                        foreach (var cell in sub.Cells)
+                        {
+                            var renCell = (Cell)RenumberOne(cell, dict, stats);
+                            FileInteriorCellByNewId(target, renCell);
+                        }
+        }
+        catch (Exception ex)
+        {
+            return RenumberResult.Fail(
+                $"the structural renumber failed ({WriteEngine.Describe(ex)}) — abandoned with nothing shippable (Q3).");
+        }
+
+        // 3. Repoint every internal reference among the copied records (flat AND nested links) to the new keys.
+        target.RemapLinks(dict);
+        return new RenumberResult(true, null, stats.Copied, stats.Renumbered);
+    }
+
+    /// <summary>Renumber ONE record: <c>Duplicate(newKey)</c> it under its new-or-same FormKey (Mutagen's deep-copy under
+    /// a new identity — its nested children come along at their OLD keys), then recursively renumber those descendants in
+    /// place. Counted once per record (itself, before its descendants) into <paramref name="stats"/>. Mechanism pinned by
+    /// remap-wave2-nested-mech.</summary>
+    static IMajorRecord RenumberOne(IMajorRecordGetter rec, IReadOnlyDictionary<FormKey, FormKey> dict, RenumberStats stats)
+    {
+        bool isRenumber = dict.TryGetValue(rec.FormKey, out var newKey);
+        if (!isRenumber) newKey = rec.FormKey;                                            // unmapped (an override) — copy at its own key
+        var dup = rec.Duplicate(newKey);
+        stats.Copied++;
+        if (isRenumber) stats.Renumbered++;
+        // Only records that actually CONTAIN nested records pay the property-walk cost (Any() short-circuits flat records).
+        if (dup is IMajorRecordGetterEnumerable e && e.EnumerateMajorRecords().Any())
+            RenumberDescendants(dup, dict, stats);
+        return dup;
+    }
+
+    /// <summary>Walk a container's child records and renumber each in place. A list/property element that IS a record
+    /// (<see cref="IMajorRecordGetter"/>) is REPLACED by its renumbered <see cref="RenumberOne"/>; one that merely CONTAINS
+    /// records (<see cref="IMajorRecordGetterEnumerable"/> but not a record itself — the FormKey-less block-tree structs
+    /// WorldspaceBlock/SubBlock, CellBlock/SubBlock) is recursed THROUGH. Everything else (scalars, FormLinks, value
+    /// structs) is skipped — <c>RemapLinks</c> repoints outgoing links separately. By construction: no hand-coded family
+    /// list; the discriminator is Mutagen's own enumerable marker (remap-wave2-nested-mech).</summary>
+    static void RenumberDescendants(object container, IReadOnlyDictionary<FormKey, FormKey> dict, RenumberStats stats)
+    {
+        foreach (var prop in container.GetType().GetProperties(BindingFlags.Public | BindingFlags.Instance))
+        {
+            if (prop.GetIndexParameters().Length != 0 || prop.GetGetMethod() is null) continue;
+            object? val;
+            try { val = prop.GetValue(container); } catch { continue; }
+            if (val is null) continue;
+
+            if (val is IList list && val is not string)
+            {
+                for (int i = 0; i < list.Count; i++)
+                {
+                    var el = list[i];
+                    if (el is IMajorRecordGetter childRec) list[i] = RenumberOne(childRec, dict, stats);
+                    else if (el is IMajorRecordGetterEnumerable) RenumberDescendants(el, dict, stats);
+                }
+            }
+            else if (val is IMajorRecordGetter singleRec)
+            {
+                if (prop.CanWrite) prop.SetValue(container, RenumberOne(singleRec, dict, stats));
+            }
+            else if (val is IMajorRecordGetterEnumerable nestedContainer)
+            {
+                RenumberDescendants(nestedContainer, dict, stats);
+            }
+        }
+    }
+
+    /// <summary>File an already-renumbered INTERIOR cell into <paramref name="target"/>'s top-level Cells block tree by
+    /// its NEW FormID digits (block = id%10, subblock = (id/10)%10 — the vanilla interior convention, mirroring
+    /// <see cref="WriteEngine.AddInteriorCell"/>'s STEP-0-proven math). The renumber re-files by the new id, so a cell
+    /// moved into the ESL window lands in the block its new id keys — what the CK expects on re-save.</summary>
+    static void FileInteriorCellByNewId(SkyrimMod target, Cell cell)
+    {
+        uint id = cell.FormKey.ID;
+        int blockN = (int)(id % 10), subN = (int)((id / 10) % 10);
+        var records = target.Cells.Records;
+        var block = records.FirstOrDefault(b => b.BlockNumber == blockN);
+        if (block is null) { block = new CellBlock { BlockNumber = blockN, GroupType = GroupTypeEnum.InteriorCellBlock }; records.Add(block); }
+        var sub = block.SubBlocks.FirstOrDefault(s => s.BlockNumber == subN);
+        if (sub is null) { sub = new CellSubBlock { BlockNumber = subN, GroupType = GroupTypeEnum.InteriorCellSubBlock }; block.SubBlocks.Add(sub); }
+        sub.Cells.Add(cell);
     }
 
     // ======================================================================
