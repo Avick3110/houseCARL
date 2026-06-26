@@ -223,6 +223,39 @@ internal static class LoadOrderStatusProbe
                 var text = Render(svc, partial, "Partial");
                 Check(text.Contains("[!]") && text.Contains("modlist.txt"), "render shows the warning under the inspection block");
             }
+
+            // ---- J: a near-miss lookup is pointed at the nearest real plugin (HCBR-2026-06-25 ergonomics note) ----
+            Console.WriteLine();
+            Console.WriteLine("--- J: a near-miss plugin/mod lookup suggests the nearest real name (no more flat 'not in the load order') ---");
+
+            // J1: PluginNameSuggest ranking on the REPORT's real names (the apostrophe slip + the mod-folder-vs-filename mix-up).
+            const string real = "Sanguine's Trade - An Economy Mod.esp";
+            var pool = new[] { "Skyrim.esm", real, "Requiem.esp" };
+            Check(PluginNameSuggest.Nearest("Sanguines Trade - An Economy Mod.esp", pool).FirstOrDefault() == real,
+                  "apostrophe slip (edit-distance 1) → suggests the real .esp");
+            Check(PluginNameSuggest.Nearest("Sanguine's Trade - An Economy Mod", pool).FirstOrDefault() == real,
+                  "the MOD FOLDER name (no extension) → suggests the matching .esp (extension-difference rule)");
+            Check(PluginNameSuggest.Nearest("Totally Unrelated Content Pack.esp", pool).Count == 0,
+                  "a far miss yields NO suggestion (a wrong 'did you mean' is worse than none)");
+            Check(PluginNameSuggest.Nearest(real, pool).Count == 0, "an EXACT match is not a miss → no suggestion");
+            Check(PluginNameSuggest.DidYouMean("Sanguines Trade - An Economy Mod.esp", pool).Contains("Did you mean")
+                  && PluginNameSuggest.DidYouMean("Sanguines Trade - An Economy Mod.esp", pool).Contains(real),
+                  "DidYouMean renders the clause naming the real plugin");
+
+            // J2: the suggestion reaches the RENDERED lookup= verdict the user actually sees.
+            string instJ = MakeInstance("inst-j");
+            WriteProfile(Path.Combine(instJ, "profiles", "Default"), new[] { masterName }, new[] { "*" + masterName }, new[] { "+MasterMod" });
+            using (var svc = LoadOrderService.WithInstance(instJ, 0, store))
+            {
+                // masterName is "HcLosMaster.esm" — look it up WITHOUT the extension (the bare folder/no-ext case).
+                string noExt = Path.GetFileNameWithoutExtension(masterName);
+                var hit = StatusWire.Render(svc.StatusData(), logs, svc.NamedProfileComposition(null), lookup: noExt, cap: 80_000);
+                Check(hit.Contains("not in the load order") && hit.Contains("Did you mean") && hit.Contains(masterName),
+                      $"lookup='{noExt}' (no extension) → the plugin-miss line suggests '{masterName}'");
+                var farMiss = StatusWire.Render(svc.StatusData(), logs, svc.NamedProfileComposition(null), lookup: "ZzzNothingLikeIt.esp", cap: 80_000);
+                Check(farMiss.Contains("not in the load order") && !farMiss.Contains("Did you mean"),
+                      "an unrelated lookup renders the miss with NO suggestion (no spurious 'did you mean')");
+            }
         }
         finally { try { Directory.Delete(root, recursive: true); } catch { /* temp scratch */ } }
 

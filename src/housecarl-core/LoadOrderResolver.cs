@@ -540,7 +540,7 @@ public sealed class LoadOrderResolver : IDisposable
     {
         var s = _snap;                                                 // ONE build, captured for the whole enumeration
         if (!_nameToIdx.TryGetValue(pluginName, out int idx))
-            throw new ArgumentException($"plugin not in the load order: {pluginName}");
+            throw new ArgumentException($"plugin not in the load order: {pluginName}.{PluginNameSuggest.DidYouMean(pluginName, _names)}");
         if (s.Excluded.Contains(idx))
             throw new ArgumentException($"plugin '{pluginName}' was excluded from this session: {s.ExcludedPlugins[pluginName]}");
         var ov = OpenOverlay(_paths[idx], _dataDir);
@@ -586,7 +586,7 @@ public sealed class LoadOrderResolver : IDisposable
     IReadOnlyList<string> DeclaredMasters(string pluginName, IndexSnapshot s)
     {
         if (!_nameToIdx.TryGetValue(pluginName, out int idx))
-            throw new ArgumentException($"plugin not in the load order: {pluginName}");
+            throw new ArgumentException($"plugin not in the load order: {pluginName}.{PluginNameSuggest.DidYouMean(pluginName, _names)}");
         if (s.Excluded.Contains(idx))
             throw new ArgumentException($"plugin '{pluginName}' was excluded from this session: {s.ExcludedPlugins[pluginName]}");
         var ov = OpenOverlay(_paths[idx], _dataDir);
@@ -680,7 +680,7 @@ public sealed class LoadOrderResolver : IDisposable
         foreach (var name in scopePlugins)
         {
             if (!_nameToIdx.TryGetValue(name, out int i))
-                throw new ArgumentException($"plugin not in the load order: {name}");
+                throw new ArgumentException($"plugin not in the load order: {name}.{PluginNameSuggest.DidYouMean(name, _names)}");
             if (s.Excluded.Contains(i))                                    // explicitly scoped to an excluded plugin → fail loud with the reason (Q3), don't silently scan nothing
                 throw new ArgumentException($"plugin '{name}' was excluded from this session: {s.ExcludedPlugins[name]}");
             idxs.Add(i);

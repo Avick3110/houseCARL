@@ -241,18 +241,30 @@ static class StatusWire
     {
         sb.Append("\nlookup '").Append(name).Append("':\n");
 
+        bool modMiss = !Contains(c.EnabledMods, name) && !Contains(c.DisabledMods, name);
         string asMod =
             Contains(c.EnabledMods, name)  ? "ENABLED (mod present + switched on)" :
             Contains(c.DisabledMods, name) ? "DISABLED (mod present but switched OFF — houseCARL excludes it)" :
                                              "not found in modlist.txt (not a managed mod folder name, or a UI separator)";
-        sb.Append("  as a mod:    ").Append(asMod).Append('\n');
+        sb.Append("  as a mod:    ").Append(asMod);
+        // A near-miss is an easy slip (apostrophe dropped, a stray word) — point at the nearest real mod folder(s) rather
+        // than leave a flat "not found" (HCBR-2026-06-25). Suggest across both the enabled and disabled lists.
+        if (modMiss) sb.Append(HousecarlCore.PluginNameSuggest.DidYouMean(name, c.EnabledMods.Concat(c.DisabledMods)));
+        sb.Append('\n');
 
+        bool pluginMiss = !c.ActivePluginNames.Contains(name) && !Contains(c.ImplicitPluginNames, name)
+                          && !Contains(c.InactivePluginNames, name);
         string asPlugin =
             c.ActivePluginNames.Contains(name)   ? "ACTIVE (checked in plugins.txt — houseCARL reads/writes it)" :
             Contains(c.ImplicitPluginNames, name) ? "ACTIVE (implicit master/CC, force-loaded — houseCARL reads/writes it)" :
             Contains(c.InactivePluginNames, name) ? "INACTIVE (present but unchecked — houseCARL EXCLUDES it)" :
                                                     "not in the load order (no such plugin in loadorder.txt)";
-        sb.Append("  as a plugin: ").Append(asPlugin).Append('\n');
+        sb.Append("  as a plugin: ").Append(asPlugin);
+        // The documented pain: the MOD FOLDER name passed where the .esp FILENAME was wanted, or an apostrophe slip, hits
+        // this miss and used to cost several dead-end calls. The suggester's extension-difference + prefix rules turn
+        // "Sanguine's Trade - An Economy Mod" → "Sanguine's Trade - An Economy Mod.esp" here. Match across the whole order.
+        if (pluginMiss) sb.Append(HousecarlCore.PluginNameSuggest.DidYouMean(name, c.OrderedPluginNames));
+        sb.Append('\n');
 
         // An active plugin can still be EXCLUDED from the index (a record Mutagen can't parse) — say so (Q3), so the
         // "ACTIVE … houseCARL reads/writes it" line above isn't taken as the whole truth.
