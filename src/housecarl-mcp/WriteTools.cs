@@ -323,6 +323,46 @@ public static class WriteTools
         return RenderCreatePlugin(svc.CreatePlugin(plugin_name, esl, author, description));
     });
 
+    [McpServerTool(Name = "housecarl_compact_plugin", Title = "Compact / ESL-renumber a plugin's FormIDs"),
+     Description(
+         "COMPACT a plugin's FormIDs — the data-layer twin of xEdit's \"Compact FormIDs for ESL\". Renumbers EVERY record " +
+         "the plugin DEFINES (its originating records — flat AND nested: cells, placed references, dialogue lines, navmesh, " +
+         "landscape) into the light/ESL range 0x800–0xFFF (the 2048-ID window), repoints every reference WITHIN the plugin, " +
+         "leaves its overrides of other mods at their master FormIDs, and flags the result a light master (ESPFE) so it " +
+         "frees a load-order slot. esl=false instead renumbers contiguously from 0x800 with NO light flag/ceiling (to close " +
+         "FormID gaps). OUTPUT (default): a NEW plugin keeping the SOURCE'S EXACT basename (so other mods that list it as a " +
+         "master still resolve) in a fresh houseCARL mod folder — your ORIGINAL is untouched; review the new one in xEdit, " +
+         "then in MO2 enable its folder and DISABLE the original mod (same basename — MO2 serves one). in_place=true instead " +
+         "OVERWRITES the original (xEdit's norm; rides the in-place consent, NO backup; needs acknowledge=true). " +
+         "THE SAFETY (Q3): renumbering breaks any reference from OUTSIDE this plugin (they'd point at FormIDs that vanish). " +
+         "houseCARL scans the WHOLE load order for such external referencers (a one-pass walk — can take ~25s on a big order): " +
+         "if NONE, it's a clean compaction; if SOME, the call is REFUSED and lists them, UNLESS repoint_externals=true, which " +
+         "ALSO rewrites each of them in place to follow the renumber (needs acknowledge=true; no backup of them either). " +
+         "Refuses loud + writes nothing on: the plugin not active / unparseable / not on disk; MORE records than the light " +
+         "range holds (the hard 2048 ESL ceiling — named, never truncated); a declared master not active; a serialize fault. " +
+         "Note: references compiled into Papyrus scripts (.pex hardcoded FormIDs / GetFormFromFile) are NOT remappable — " +
+         "verify scripted records after compacting.")]
+    public static string CompactPlugin(
+        LoadOrderService svc,
+        [Description("The plugin's filename to compact (e.g. 'CoolMod.esp') — must be active in your load order. The compacted output keeps this EXACT basename.")]
+            string plugin,
+        [Description("When true (default), renumber into the light/ESL range (0x800–0xFFF, 2048 IDs) and flag the result a light master (ESPFE) — the canonical 'compact for ESL'. false = renumber contiguously from 0x800 with no light flag or 2048 ceiling (just closes FormID gaps).")]
+            bool esl = true,
+        [Description("Optional, default false. IN-PLACE LANE (opt-in): OVERWRITE the original plugin with its compacted form (xEdit's norm) instead of writing a new file — NO houseCARL backup or undo (keep your own). Requires acknowledge=true. OMIT (the default) to write a NEW plugin (same basename, fresh mod folder) and leave the original untouched for review.")]
+            bool in_place = false,
+        [Description("Optional, default false. If OTHER plugins reference records being renumbered, compaction would break them and the call REFUSES (listing them) by default. Set true to ALSO rewrite those external referencers IN PLACE to follow the renumber (requires acknowledge=true; no backup of them either).")]
+            bool repoint_externals = false,
+        [Description("Optional, default false. Confirms the in-place trade-off when in_place=true OR repoint_externals=true (your original file(s) get rewritten, no backup). The FIRST such call without it returns a CONFIRM prompt listing exactly what will be overwritten — re-call with acknowledge=true to proceed.")]
+            bool acknowledge = false,
+        [Description("Optional. Base name for the NEW mod folder (new-file lane only; auto-suffixed if taken). Ignored with in_place=true. The PLUGIN inside ALWAYS keeps the source's exact basename so external masters still resolve.")]
+            string? patch_name = null) => Guard.Tool("housecarl_compact_plugin", () =>
+    {
+        if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
+        if (string.IsNullOrWhiteSpace(plugin))
+            return "error: plugin is empty. Name the plugin filename to compact (e.g. 'CoolMod.esp').";
+        return RenderCompact(svc.CompactPlugin(plugin, esl, in_place, repoint_externals, acknowledge, patch_name));
+    });
+
     /// <summary>Compact, parseable confirmation (rulebook: short mutation confirmation + the IDs needed for follow-up).
     /// On refusal, the full reason (every malformed/rejected op) so the caller can fix and retry.</summary>
     static string Render(WritePatchBuilder.PatchOutcome o, int maxChars = 0)
@@ -486,6 +526,63 @@ public static class WriteTools
         sb.Append("this is a trigger/placeholder plugin: it carries no records, so it changes nothing in game by itself — ")
           .Append("its only job is to make the basename '").Append(Path.GetFileNameWithoutExtension(file))
           .Append("' present in the load order (so a basename-bound SKSE config resolves, a FormID range is reserved, etc.).");
+        return sb.ToString();
+    }
+
+    /// <summary>Confirmation for housecarl_compact_plugin: where the compacted P′ landed (new file vs in place), the
+    /// record accounting (originating renumbered / overrides kept), masters, the external-referencer verdict (clean,
+    /// or the per-plugin repoint results), the identify-pass coverage, and the un-remappable-script reminder (Q3). The
+    /// NeedsAcknowledge prompt (a required in-place consent) is returned verbatim, not as an error; on refusal the named
+    /// reason so the caller can fix and retry.</summary>
+    static string RenderCompact(WritePatchBuilder.CompactOutcome o)
+    {
+        if (o.NeedsAcknowledge) return o.Error!;            // the in-place CONSENT prompt — a required confirmation, NOT an error (Q3)
+        if (!o.Success) return "error: " + o.Error;
+        var file = Path.GetFileName(o.OutputPath);
+        var modFolder = Path.GetFileName(Path.GetDirectoryName(o.OutputPath) ?? "");
+        var sb = new StringBuilder();
+        if (o.InPlace)
+            sb.Append("compacted ").Append(file).Append(" IN PLACE (").Append(o.Bytes)
+              .Append(" bytes — your ORIGINAL file was rewritten; no houseCARL backup or undo)\n")
+              .Append("mod folder: ").Append(modFolder).Append("  — already active; re-sort only if a winner changed\n");
+        else
+            sb.Append("wrote compacted ").Append(file).Append(" (new plugin; ").Append(o.Bytes).Append(" bytes)\n")
+              .Append("mod folder: ").Append(modFolder).Append("  — enable it and DISABLE the original '").Append(file)
+              .Append("' mod in MO2 (same basename — MO2 serves one). Review in xEdit first.\n");
+
+        int overrides = o.RecordsCopied - o.RecordsRenumbered;
+        sb.Append(o.Esl ? "light master (ESPFE): yes — " : "renumbered (not light-flagged): ");
+        sb.Append(o.RecordsRenumbered).Append(o.RecordsRenumbered == 1 ? " originating record renumbered " : " originating records renumbered ");
+        sb.Append(o.Esl ? "into the light range 0x800–0xFFF" : "contiguously from 0x800");
+        if (overrides > 0) sb.Append("; ").Append(overrides).Append(overrides == 1 ? " override kept at its master FormID" : " overrides kept at their master FormIDs");
+        sb.Append(".\n");
+        sb.Append("masters: ").Append(o.Masters.Count == 0 ? "(none)" : string.Join(", ", o.Masters)).Append('\n');
+
+        if (o.ExternalPlugins.Count == 0)
+            sb.Append("external referencers: none — clean compaction (nothing outside this plugin pointed at a renumbered record).\n");
+        else if (o.Repointed.Count > 0)
+        {
+            int ok = o.Repointed.Count(r => r.Success);
+            sb.Append("external referencers repointed in place: ").Append(ok).Append('/').Append(o.Repointed.Count).Append(" succeeded\n");
+            foreach (var rep in o.Repointed)
+                sb.Append("  ").Append(rep.Success ? "OK   " : "FAIL ").Append(rep.Plugin)
+                  .Append(rep.Success ? "" : "  — " + rep.Error).Append('\n');
+        }
+        else
+        {
+            sb.Append("external referencers (").Append(o.ExternalPlugins.Count).Append(", NOT repointed):\n");
+            foreach (var pl in o.ExternalPlugins.Take(25)) sb.Append("  - ").Append(pl).Append('\n');
+            if (o.ExternalPlugins.Count > 25) sb.Append("  - … (+").Append(o.ExternalPlugins.Count - 25).Append(" more)\n");
+        }
+
+        if (o.UnscannableRecords > 0)
+        {
+            sb.Append("note: ").Append(o.UnscannableRecords).Append(" record(s) couldn't be scanned in the external-reference pass, so an ")
+              .Append("'external referencers: none' may be incomplete — verify in xEdit. Samples: ").Append(string.Join("; ", o.UnscannableSamples)).Append('\n');
+        }
+        sb.Append("identify-pass scanned ").Append(o.PluginsScanned).Append(" plugin(s) for external references.\n");
+        sb.Append("reminder: FormIDs compiled into Papyrus (.pex hardcoded / GetFormFromFile) and any Mutagen-delta residual ")
+          .Append("are NOT remappable — verify scripted records after compacting.");
         return sb.ToString();
     }
 
