@@ -217,6 +217,11 @@ if (args.Length > 0 && args[0] == "remap-wave1-mech") return RemapWave1Probe.Run
 // time the identify-pass over the live order. Needs --mo2 <inst> --plugin <Name.esp>; SKIPs without.
 if (args.Length > 0 && args[0] == "remap-wave1-real") return RemapWave1Probe.RunReal(args[1..]);
 
+// COMPACT/MERGE Wave 2 (COMPACT_MERGE_PLAN §4): EXPLORATORY mechanism pin — settle, self-contained, whether the
+// recursive Duplicate-and-replace renumber closes the nested-record gap (cell/worldspace/topic children renumber +
+// round-trip on disk), and whether IMajorRecordGetterEnumerable is the by-construction recurse discriminator.
+if (args.Length > 0 && args[0] == "remap-wave2-nested-mech") return RemapWave2NestedMechProbe.RunMechanism(args[1..]);
+
 var outputDir = Path.GetFullPath(args.Length > 0 ? args[0] : "generated");
 // The slim reference tree ships INSIDE the skill (tracked); corpus.json + summary stay in generated/.
 // Default assumes the generator is run from the repo root (as `dotnet run --project src/housecarl-generator`).
