@@ -168,12 +168,15 @@ public static class CompileTools
         {
             // MISSING-IMPORTS LEAD (HCBR-2026-06-25): when the failure is DOMINATED by unresolved-symbol/type errors, the
             // overwhelmingly likely cause is an incomplete import_dirs — NOT a bug in the script (a single missing framework
-            // header cascades into dozens of "unknown type / is undefined" lines that read like code errors). Surface that
-            // FIRST so the AI fixes the import path instead of "fixing" correct code. Gated on a strong majority + a real
-            // count (>=3) so a one-off typo's 1-2 resolution errors never mislabel a genuine code bug as a missing import.
+            // header cascades into dozens of "unknown type / is undefined" lines, plus secondary type-mismatch noise, that
+            // read like code errors). Surface that FIRST so the AI fixes the import path instead of "fixing" correct code.
+            // Gated on a >=2/3 SUPERMAJORITY of the diagnostics AND a real count (>=3): a genuine missing import is
+            // overwhelmingly unresolved (~all of the ~360 in the report), so a near-EVEN split — which could be half real
+            // syntax bugs — must NOT earn the confident "not a bug" banner (it falls to the generic tail instead). The full
+            // diagnostic list prints either way, so a missed banner only costs the lead hint, never the errors themselves.
             int unresolved = 0;
             foreach (var d in r.Diagnostics) if (HousecarlCore.PapyrusCompile.IsUnresolvedSymbol(d.Message)) unresolved++;
-            bool dominatedByMissingImports = unresolved >= 3 && unresolved * 2 >= r.Diagnostics.Count;
+            bool dominatedByMissingImports = unresolved >= 3 && unresolved * 3 >= r.Diagnostics.Count * 2;
             if (dominatedByMissingImports)
                 sb.Append("\n⚠ This looks like INCOMPLETE import_dirs, not a bug in the script: ")
                   .Append(unresolved).Append(" of ").Append(r.Diagnostics.Count)
