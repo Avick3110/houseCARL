@@ -899,7 +899,7 @@ public static class WritePatchBuilder
         bool Success, string? Error, bool NeedsAcknowledge, string OutputPath, string PluginName, bool InPlace, bool Esl,
         IReadOnlyList<string> Masters, int RecordsCopied, int RecordsRenumbered, long Bytes,
         IReadOnlyList<string> ExternalPlugins, IReadOnlyList<RepointReport> Repointed,
-        int PluginsScanned, int UnscannableRecords, IReadOnlyList<string> UnscannableSamples)
+        int PluginsScanned, int UnscannableRecords, IReadOnlyList<string> UnscannableSamples, string? Note = null)
     {
         public static CompactOutcome Fail(string error) =>
             new(false, error, false, "", "", false, false, Array.Empty<string>(), 0, 0, 0,
@@ -1197,7 +1197,9 @@ public static class WritePatchBuilder
         if (!ren.Success) return CompactBuildResult.Fail(ren.Error!);
 
         // NextObjectID = the next free originating id above the renumbered run (floor + #originating). WriteInPlace
-        // persists it verbatim (NoNextFormIDProcessing) — the CK reads it on the next save.
+        // persists it verbatim (NoNextFormIDProcessing) — the CK reads it on the next save. Note (PR #122 review #6): for
+        // an exactly-full light master (2048 records) this lands at 0x1000, one past the ESL ceiling — INTENTIONAL and
+        // harmless: it's only header metadata for the NEXT new record, and compact creates none (it renumbers existing ones).
         pPrime.ModHeader.Stats.NextFormID = Math.Max(floor, (uint)(floor + dict.Count));
 
         // 2. Resolve P's OWN declared masters to overlays (the faithful re-serialize set). A declared master absent from

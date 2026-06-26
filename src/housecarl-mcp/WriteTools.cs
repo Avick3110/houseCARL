@@ -581,6 +581,7 @@ public static class WriteTools
               .Append("'external referencers: none' may be incomplete — verify in xEdit. Samples: ").Append(string.Join("; ", o.UnscannableSamples)).Append('\n');
         }
         sb.Append("identify-pass scanned ").Append(o.PluginsScanned).Append(" plugin(s) for external references.\n");
+        if (o.Note is { } note) sb.Append("note: ").Append(note).Append('\n');
         sb.Append("reminder: FormIDs compiled into Papyrus (.pex hardcoded / GetFormFromFile) and any Mutagen-delta residual ")
           .Append("are NOT remappable — verify scripted records after compacting.");
         return sb.ToString();

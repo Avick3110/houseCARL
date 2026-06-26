@@ -1589,13 +1589,25 @@ public sealed class LoadOrderService : IDisposable
             var id = RemapEngine.IdentifyExternalReferencers(resolver, targets, transformSet);
 
             // 3. external-referencer policy (Q3 — never silently ship a compaction that dangles an external reference).
-            if (id.HasExternalReferencers && !repointExternals)
-                return WritePatchBuilder.CompactOutcome.Fail(
-                    $"refused — {id.ExternalPlugins.Count} plugin(s) outside '{name}' reference records it is about to renumber; compacting it " +
-                    "WOULD BREAK those references (they would point at FormIDs that no longer exist). Referencers: " +
-                    $"{string.Join(", ", id.ExternalPlugins.Take(25))}{(id.ExternalPlugins.Count > 25 ? $", … (+{id.ExternalPlugins.Count - 25} more)" : "")}. " +
-                    "Re-run with repoint_externals=true AND acknowledge=true to ALSO rewrite those plugins in place to follow the renumber, " +
-                    "or handle them yourself first. Nothing was written.");
+            if (id.HasExternalReferencers)
+            {
+                var refList = $"{string.Join(", ", id.ExternalPlugins.Take(25))}{(id.ExternalPlugins.Count > 25 ? $", … (+{id.ExternalPlugins.Count - 25} more)" : "")}";
+                if (!repointExternals)
+                    return WritePatchBuilder.CompactOutcome.Fail(
+                        $"refused — {id.ExternalPlugins.Count} plugin(s) outside '{name}' reference records it is about to renumber; compacting it " +
+                        $"WOULD BREAK those references (they would point at FormIDs that no longer exist). Referencers: {refList}. " +
+                        "Re-run with repoint_externals=true AND in_place=true (+ acknowledge=true) to ALSO rewrite those plugins in place to follow " +
+                        "the renumber, or handle them yourself first. Nothing was written.");
+                // repoint is only COHERENT paired with in_place (PR #122 review #1): in the new-file lane the renumbered
+                // records live ONLY in the not-yet-active P′, so repointing the externals now would leave them dangling
+                // against the still-active original until the MO2 swap — and broken if the user rejects P′. Couple them.
+                if (!inPlace)
+                    return WritePatchBuilder.CompactOutcome.Fail(
+                        $"refused — repoint_externals requires in_place=true. {id.ExternalPlugins.Count} plugin(s) reference records being renumbered " +
+                        $"({refList}); in the new-file lane those records exist ONLY in the not-yet-active P′, so repointing the externals now would leave " +
+                        "them dangling against the still-active original until you complete the MO2 swap (and broken if you reject P′). Either compact IN " +
+                        "PLACE (in_place=true) so the target and its referrers move together, or handle the externals yourself after enabling P′. Nothing was written.");
+            }
 
             // 4. consent gate — any in-place overwrite (the target, and/or the external referencers) needs acknowledge=true.
             bool willOverwriteTarget = inPlace;
@@ -1614,6 +1626,12 @@ public sealed class LoadOrderService : IDisposable
                 c.Append("Re-call with acknowledge=true to proceed.");
                 return WritePatchBuilder.CompactOutcome.Confirm(c.ToString());
             }
+
+            // pre-flight the in-place target's parent is writable BEFORE any work — the in-place edit lane's layer-3 check,
+            // a nicer early refusal than failing deep in the atomic swap (PR #122 review #2). Each external referencer gets
+            // the same guarantee inside RepointInPlace's own all-or-nothing write.
+            if (inPlace && InPlaceParentUnwritable(srcPath, out var unwritable))
+                return WritePatchBuilder.CompactOutcome.Fail(unwritable);
 
             // 5. output location — in-place (overwrite the original) or a NEW file keeping the source's EXACT basename in
             //    a fresh houseCARL mod folder (so its masters still resolve; the user swaps the folder in MO2 to use it).
@@ -1645,9 +1663,25 @@ public sealed class LoadOrderService : IDisposable
                     repointed.Add(new WritePatchBuilder.RepointReport(ext, rep.Success, rep.Error));
                 }
 
+            // 8. audit markers (PR #122 review #2): stamp the distinct editedInPlace= breadcrumb into the meta.ini of EVERY
+            //    file rewritten IN PLACE — the target (in-place lane) + each successfully repointed external — matching the
+            //    traceability the in-place EDIT lane gives. The CONSENT model deliberately stays compact's own per-call
+            //    confirm (NOT the persistent _store ack the edit lane uses): a compaction can rewrite a broad surface (the
+            //    target + N externals), so each one re-confirms with its exact overwrite list rather than letting a stale
+            //    field-edit ack silently authorize a full renumber. Markers are best-effort (a miss never fails the done
+            //    write, Q3) — any miss is surfaced in Note.
+            var markerNotes = new List<string>();
+            if (inPlace) { var n = MergeEditedInPlaceMarker(Path.GetDirectoryName(srcPath)); if (n is not null) markerNotes.Add(n); }
+            foreach (var r in repointed.Where(r => r.Success))
+            {
+                var rp = view.PluginPath(r.Plugin);
+                if (rp is not null) { var n = MergeEditedInPlaceMarker(Path.GetDirectoryName(rp)); if (n is not null) markerNotes.Add(n); }
+            }
+
             return new WritePatchBuilder.CompactOutcome(
                 true, null, false, outPath, name, inPlace, esl, build.Masters, build.RecordsCopied, build.RecordsRenumbered,
-                build.Bytes, id.ExternalPlugins, repointed, id.PluginsScanned, id.UnscannableRecords, id.UnscannableSamples);
+                build.Bytes, id.ExternalPlugins, repointed, id.PluginsScanned, id.UnscannableRecords, id.UnscannableSamples,
+                markerNotes.Count > 0 ? string.Join(" ", markerNotes) : null);
         }
     }
 
