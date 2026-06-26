@@ -1520,6 +1520,137 @@ public sealed class LoadOrderService : IDisposable
         }
     }
 
+    /// <summary>COMPACT / ESL-renumber a plugin (housecarl_compact_plugin, A2) — the data-layer twin of xEdit's "Compact
+    /// FormIDs for ESL". Renumbers <paramref name="pluginName"/>'s ORIGINATING records (flat AND nested — cells, placed
+    /// refs, dialog INFOs) into the light range 0x800–0xFFF (the 2048-ID window; <paramref name="esl"/>=false renumbers
+    /// contiguously without the light flag / ceiling), repoints every internal reference, keeps overrides at their master
+    /// FormIDs, and emits the result. Output model (Aaron 2026-06-26): a NEW plugin P′ keeping the source's EXACT basename
+    /// (so external masters still resolve) in a fresh houseCARL mod folder by default — original UNTOUCHED, reviewable in
+    /// xEdit before you swap; <paramref name="inPlace"/>=true overwrites the original instead (the xEdit norm; rides the
+    /// in-place consent, no backup).
+    ///
+    /// <para>The load-bearing safety (Q3, plan §2): renumbering breaks any reference from OUTSIDE the plugin (they'd point
+    /// at FormIDs that no longer exist). The identify-pass finds those external referencers across the whole order. NO
+    /// external referencers ⇒ the clean default path (emit P′, done). External referencers present ⇒ REFUSED LOUD with the
+    /// list, UNLESS <paramref name="repointExternals"/>=true, which ALSO rewrites each of them in place to follow the
+    /// renumber. Any in-place overwrite (the target in the in-place lane, and/or the external referencers) requires
+    /// <paramref name="acknowledge"/>=true — a first call without it returns a CONFIRM prompt listing exactly what will be
+    /// rewritten (never a silent original-file edit).</para>
+    ///
+    /// <para>Refuses loud + writes nothing on: the plugin not active / excluded (unparseable) / not on disk; MORE than the
+    /// light window holds (the hard ESL ceiling — named, never truncated); a declared master not active; a serialize fault.
+    /// Renumber mechanism + nested coverage: <see cref="RemapEngine.RenumberModInto"/> (remap-wave1/2). Serialized on the
+    /// write gate; the identify-pass is one whole-order link walk (~25s at full scale — a deliberate, one-shot operation).</para></summary>
+    public WritePatchBuilder.CompactOutcome CompactPlugin(
+        string pluginName, bool esl = true, bool inPlace = false, bool repointExternals = false,
+        bool acknowledge = false, string? patchName = null)
+    {
+        if (string.IsNullOrWhiteSpace(pluginName))
+            return WritePatchBuilder.CompactOutcome.Fail("plugin is required — name the plugin filename to compact (e.g. 'CoolMod.esp').");
+
+        lock (_writeGate)                                                 // one write at a time; the whole resolve→build→repoint runs under it
+        {
+            var resolver = Resolver;                                      // builds/refreshes; reentrant with _writeGate
+            var view = resolver.Capture();
+            if (!Directory.Exists(_modsDir))
+                return WritePatchBuilder.CompactOutcome.Fail($"cannot write: ModsDir '{_modsDir}' does not exist. Check HouseCarl:ModsDir.");
+
+            var name = pluginName.Trim();
+            if (!view.ContainsPlugin(name))
+                return WritePatchBuilder.CompactOutcome.Fail(
+                    $"'{name}' is not an active plugin in your load order — compact targets an active plugin (so its records, and the plugins that reference it, can be read). Pass the exact filename (e.g. 'CoolMod.esp').");
+            if (view.ExcludedPlugins.TryGetValue(name, out var excluded))
+                return WritePatchBuilder.CompactOutcome.Fail(
+                    $"cannot compact '{name}': it was EXCLUDED from this session ({excluded}) — houseCARL won't renumber a plugin it can't fully parse. The file is untouched.");
+
+            var srcPath = view.PluginPath(name);
+            if (srcPath is null || !File.Exists(srcPath))
+                return WritePatchBuilder.CompactOutcome.Fail($"'{name}' not found on disk at {srcPath ?? "<unresolved>"} — nothing to compact.");
+
+            ModKey modKey;
+            try { modKey = ModKey.FromFileName(name); }
+            catch (Exception ex) { return WritePatchBuilder.CompactOutcome.Fail($"'{name}' is not a valid plugin filename ({ex.Message})."); }
+
+            // 1. originating record keys + the remap into the (light, by default) window.
+            if (!WritePatchBuilder.TryReadOriginatingKeys(srcPath, modKey, out var keys, out var keyErr))
+                return WritePatchBuilder.CompactOutcome.Fail(keyErr!);
+            if (keys.Count == 0)
+                return WritePatchBuilder.CompactOutcome.Fail(
+                    $"'{name}' defines no originating records to renumber (it carries only overrides, or is empty) — nothing to compact.");
+
+            uint floor = RemapEngine.EslFloor;
+            uint ceiling = esl ? RemapEngine.EslCeiling : 0xFFFFFFu;      // light window, or the full 24-bit object-ID range
+            var plan = RemapEngine.BuildSequentialRemap(keys, modKey, floor, ceiling);
+            if (!plan.Success) return WritePatchBuilder.CompactOutcome.Fail(plan.Error!);
+
+            // 2. identify-pass — which plugins OUTSIDE the target reference a record being renumbered (the break risk).
+            var targets = plan.Dict.Keys.ToHashSet();
+            var transformSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { name };
+            var id = RemapEngine.IdentifyExternalReferencers(resolver, targets, transformSet);
+
+            // 3. external-referencer policy (Q3 — never silently ship a compaction that dangles an external reference).
+            if (id.HasExternalReferencers && !repointExternals)
+                return WritePatchBuilder.CompactOutcome.Fail(
+                    $"refused — {id.ExternalPlugins.Count} plugin(s) outside '{name}' reference records it is about to renumber; compacting it " +
+                    "WOULD BREAK those references (they would point at FormIDs that no longer exist). Referencers: " +
+                    $"{string.Join(", ", id.ExternalPlugins.Take(25))}{(id.ExternalPlugins.Count > 25 ? $", … (+{id.ExternalPlugins.Count - 25} more)" : "")}. " +
+                    "Re-run with repoint_externals=true AND acknowledge=true to ALSO rewrite those plugins in place to follow the renumber, " +
+                    "or handle them yourself first. Nothing was written.");
+
+            // 4. consent gate — any in-place overwrite (the target, and/or the external referencers) needs acknowledge=true.
+            bool willOverwriteTarget = inPlace;
+            bool willRepoint = id.HasExternalReferencers && repointExternals;
+            if ((willOverwriteTarget || willRepoint) && !acknowledge)
+            {
+                var c = new System.Text.StringBuilder();
+                c.Append("CONFIRM in-place rewrite (your ORIGINAL file(s) will be rewritten — no houseCARL backup or undo; keep your own):\n");
+                if (willOverwriteTarget) c.Append($"  - '{name}' will be OVERWRITTEN in place with its compacted form.\n");
+                if (willRepoint)
+                {
+                    c.Append($"  - {id.ExternalPlugins.Count} external referencer(s) will be REWRITTEN in place to repoint to the new FormIDs:\n");
+                    foreach (var pl in id.ExternalPlugins.Take(25)) c.Append($"      · {pl}\n");
+                    if (id.ExternalPlugins.Count > 25) c.Append($"      · … (+{id.ExternalPlugins.Count - 25} more)\n");
+                }
+                c.Append("Re-call with acknowledge=true to proceed.");
+                return WritePatchBuilder.CompactOutcome.Confirm(c.ToString());
+            }
+
+            // 5. output location — in-place (overwrite the original) or a NEW file keeping the source's EXACT basename in
+            //    a fresh houseCARL mod folder (so its masters still resolve; the user swaps the folder in MO2 to use it).
+            string outPath; bool createdFresh = false; RiderFolder rf = default;
+            if (inPlace) outPath = srcPath;
+            else
+            {
+                try { rf = ResolvePatchModFolder(patchName, null, Path.GetFileNameWithoutExtension(name) + " compacted"); }
+                catch (InvalidOperationException ex) { return WritePatchBuilder.CompactOutcome.Fail(ex.Message); }
+                createdFresh = rf.CreatedFresh;
+                WriteOwnerMeta(rf.ModFolder, name);                       // P′ keeps the source's exact basename
+                outPath = Path.Combine(rf.OutputDir, name);
+            }
+
+            // 6. build + write the compacted plugin.
+            var build = WritePatchBuilder.CompactBuild(srcPath, modKey, plan.Dict, view.PluginPath, outPath, esl, floor);
+            if (!build.Success)
+            {
+                if (!inPlace && createdFresh) RemoveOrNameRiderResidue(rf);   // a refused build leaves no orphan folder
+                return WritePatchBuilder.CompactOutcome.Fail(build.Error!);
+            }
+
+            // 7. opt-in: repoint each external referencer in place (per-plugin all-or-nothing; every result reported, Q3).
+            var repointed = new List<WritePatchBuilder.RepointReport>();
+            if (willRepoint)
+                foreach (var ext in id.ExternalPlugins)
+                {
+                    var rep = RemapEngine.RepointInPlace(resolver, ext, plan.Dict);
+                    repointed.Add(new WritePatchBuilder.RepointReport(ext, rep.Success, rep.Error));
+                }
+
+            return new WritePatchBuilder.CompactOutcome(
+                true, null, false, outPath, name, inPlace, esl, build.Masters, build.RecordsCopied, build.RecordsRenumbered,
+                build.Bytes, id.ExternalPlugins, repointed, id.PluginsScanned, id.UnscannableRecords, id.UnscannableSamples);
+        }
+    }
+
     /// <summary>Create a BRAND-NEW record (housecarl_create_record) — the net-new authoring capability, the sibling of
     /// <see cref="ApplyEdits"/>. Resolves <paramref name="recordType"/> (catalog name or 4-char signature) to ONE concrete
     /// catalog name (unknown/ambiguous → Q3), maps the field <paramref name="operations"/> to core <see cref="WriteRequest"/>s

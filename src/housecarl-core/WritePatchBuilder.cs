@@ -879,6 +879,36 @@ public static class WritePatchBuilder
             new(false, error, "", "", false, Array.Empty<string>(), 0, 0);
     }
 
+    /// <summary>One external referencer's in-place repoint result (the opt-in compact rewrite): the plugin, whether its
+    /// references were successfully rewritten to the new keys, and the named reason if not (Q3 — a per-plugin failure is
+    /// reported, never silent; the file is left untouched on failure by <see cref="RemapEngine.RepointInPlace"/>).</summary>
+    public sealed record RepointReport(string Plugin, bool Success, string? Error);
+
+    /// <summary>The outcome of a <see cref="LoadOrderService.CompactPlugin"/> call (the compact/ESL-renumber tool).
+    /// <see cref="NeedsAcknowledge"/> ⇒ a required first-time in-place CONSENT prompt (the operation will overwrite an
+    /// existing file — the target in the in-place lane, and/or each external referencer being repointed — so the caller
+    /// must re-call with acknowledge=true); it is NOT an error (Q3). <see cref="Error"/> non-null (with NeedsAcknowledge
+    /// false) ⇒ refused, nothing written, named reason. On success the compacted P′ is at <see cref="OutputPath"/>
+    /// (<see cref="InPlace"/> ⇒ the original file was overwritten; else a NEW file keeping the source's basename in a fresh
+    /// mod folder). <see cref="RecordsRenumbered"/> originating records moved into the (light if <see cref="Esl"/>) window;
+    /// <see cref="RecordsCopied"/> total (originating + overrides copied at their master keys). <see cref="ExternalPlugins"/>
+    /// lists plugins outside the target that reference a renumbered record — empty on the clean path; on the refused path
+    /// (externals present, no opt-in) the list IS the refusal detail; with opt-in repoint, <see cref="Repointed"/> reports
+    /// each. <see cref="PluginsScanned"/>/<see cref="UnscannableRecords"/> are the identify-pass coverage accounting.</summary>
+    public sealed record CompactOutcome(
+        bool Success, string? Error, bool NeedsAcknowledge, string OutputPath, string PluginName, bool InPlace, bool Esl,
+        IReadOnlyList<string> Masters, int RecordsCopied, int RecordsRenumbered, long Bytes,
+        IReadOnlyList<string> ExternalPlugins, IReadOnlyList<RepointReport> Repointed,
+        int PluginsScanned, int UnscannableRecords, IReadOnlyList<string> UnscannableSamples)
+    {
+        public static CompactOutcome Fail(string error) =>
+            new(false, error, false, "", "", false, false, Array.Empty<string>(), 0, 0, 0,
+                Array.Empty<string>(), Array.Empty<RepointReport>(), 0, 0, Array.Empty<string>());
+        public static CompactOutcome Confirm(string prompt) =>
+            new(false, prompt, true, "", "", false, false, Array.Empty<string>(), 0, 0, 0,
+                Array.Empty<string>(), Array.Empty<RepointReport>(), 0, 0, Array.Empty<string>());
+    }
+
     /// <summary>
     /// FORWARD a NAMED plugin's version of each record INTO the patch as an override — xEdit's "copy as override into",
     /// the inverse of <see cref="Apply"/>'s winner-override. Where Apply/Create author NEW content, this re-asserts an
@@ -1088,6 +1118,116 @@ public static class WritePatchBuilder
         }
 
         return new CreatePluginOutcome(true, null, outPath, fileName, esl, masters, recordCount, bytes);
+    }
+
+    // ======================================================================
+    //  COMPACT (A2) — the core build half of housecarl_compact_plugin (the
+    //  service does the policy half: resolve P, identify externals, consent,
+    //  folder allocation, opt-in external repoint). Renumber-mechanism + nested
+    //  coverage live in RemapEngine (remap-wave1/2). Output model = a NEW P′ or
+    //  an in-place overwrite (Aaron 2026-06-26: new-file default, in-place opt-in).
+    // ======================================================================
+
+    /// <summary>Read a plugin's ORIGINATING record FormKeys (<c>FormKey.ModKey == modKey</c>) in document order — the set
+    /// a compaction renumbers (overrides, which reference a master's record, are NOT renumbered). Opens the plugin as a
+    /// binary overlay (the lazy read path) and disposes it before returning, so no handle is held at rest (Option B).
+    /// Returns false with a named reason (Q3) if the plugin can't be parsed — the same honesty the in-place lane uses
+    /// (houseCARL won't renumber a plugin it can't fully read, lest it drop a record it couldn't parse).</summary>
+    public static bool TryReadOriginatingKeys(string srcPath, ModKey modKey, out IReadOnlyList<FormKey> keys, out string? error)
+    {
+        keys = Array.Empty<FormKey>(); error = null;
+        ISkyrimModGetter? ov = null;
+        try
+        {
+            ov = SkyrimMod.CreateFromBinaryOverlay(srcPath, SkyrimRelease.SkyrimSE);
+            keys = ov.EnumerateMajorRecords().Where(r => r.FormKey.ModKey == modKey).Select(r => r.FormKey).ToList();
+            return true;
+        }
+        catch (Exception ex)
+        {
+            error = $"cannot parse '{modKey.FileName}' to compact it ({WriteEngine.Describe(ex)}) — houseCARL won't renumber a " +
+                    "plugin it can't fully read (it would risk dropping a record it couldn't parse, Q3).";
+            return false;
+        }
+        finally { (ov as IDisposable)?.Dispose(); }
+    }
+
+    /// <summary>The result of the core compact build: success + the written file's masters / record accounting / byte
+    /// size, or a loud Q3 refusal with the file UNTOUCHED (a missing master, a renumber fault, a serialize fault).</summary>
+    public sealed record CompactBuildResult(
+        bool Success, string? Error, IReadOnlyList<string> Masters, int RecordsCopied, int RecordsRenumbered, long Bytes)
+    {
+        public static CompactBuildResult Fail(string error) => new(false, error, Array.Empty<string>(), 0, 0, 0);
+    }
+
+    /// <summary>
+    /// Build the compacted plugin P′ from <paramref name="srcPath"/> and write it to <paramref name="outPath"/> (a NEW
+    /// file, or — in the in-place lane — <paramref name="srcPath"/> itself). EAGER-loads the source mutable overlay,
+    /// renumbers EVERY record (flat + nested) into a fresh <see cref="SkyrimMod"/> via
+    /// <see cref="RemapEngine.RenumberModInto"/> under <paramref name="dict"/> (originating records → the window; overrides
+    /// copied at their master keys), sets the light flag (<paramref name="esl"/>) and the NextObjectID, resolves P's OWN
+    /// declared masters to overlays via <paramref name="resolveMasterPath"/>, and re-serializes through
+    /// <see cref="WriteEngine.WriteInPlace"/> (own masters, no baseline force, crash-atomic staged swap — the faithful
+    /// re-emit). The source overlay is DISPOSED before the write so the in-place lane (outPath == srcPath) can swap over
+    /// it. All-or-nothing (Q3): any refusal or fault leaves <paramref name="outPath"/> untouched.
+    /// </summary>
+    public static CompactBuildResult CompactBuild(
+        string srcPath, ModKey modKey, IReadOnlyDictionary<FormKey, FormKey> dict,
+        Func<string, string?> resolveMasterPath, string outPath, bool esl, uint floor)
+    {
+        // 1. Build P′ in memory, then DISPOSE the source overlay (the in-place lane overwrites srcPath — its handle must
+        //    be released before the atomic swap).
+        SkyrimMod pPrime;
+        RemapEngine.RenumberResult ren;
+        List<string> declaredMasters;
+        ISkyrimModGetter? srcOv = null;
+        try
+        {
+            srcOv = SkyrimMod.CreateFromBinaryOverlay(srcPath, SkyrimRelease.SkyrimSE);
+            declaredMasters = srcOv.ModHeader.MasterReferences.Select(m => m.Master.FileName.String).ToList();
+            pPrime = new SkyrimMod(modKey, SkyrimRelease.SkyrimSE) { IsSmallMaster = esl };
+            ren = RemapEngine.RenumberModInto(pPrime, srcOv, dict);
+        }
+        catch (Exception ex)
+        {
+            return CompactBuildResult.Fail($"cannot open/renumber '{modKey.FileName}' to compact it ({WriteEngine.Describe(ex)}) — nothing written.");
+        }
+        finally { (srcOv as IDisposable)?.Dispose(); }
+
+        if (!ren.Success) return CompactBuildResult.Fail(ren.Error!);
+
+        // NextObjectID = the next free originating id above the renumbered run (floor + #originating). WriteInPlace
+        // persists it verbatim (NoNextFormIDProcessing) — the CK reads it on the next save.
+        pPrime.ModHeader.Stats.NextFormID = Math.Max(floor, (uint)(floor + dict.Count));
+
+        // 2. Resolve P's OWN declared masters to overlays (the faithful re-serialize set). A declared master absent from
+        //    the active order is a loud refusal (the refs into it can't resolve), file untouched.
+        var overlays = new List<IDisposable>();
+        try
+        {
+            var resolved = new List<ISkyrimModGetter>();
+            foreach (var mfn in declaredMasters)
+            {
+                var mp = resolveMasterPath(mfn);
+                if (mp is null)
+                    return CompactBuildResult.Fail(
+                        $"cannot compact '{modKey.FileName}': its declared master '{mfn}' is not active in the load order, so a " +
+                        "faithful re-serialize can't resolve the references into it. Enable that master (or fix the masters in xEdit) first. Nothing was written.");
+                var mov = SkyrimMod.CreateFromBinaryOverlay(mp, SkyrimRelease.SkyrimSE);
+                overlays.Add((IDisposable)mov); resolved.Add(mov);
+            }
+            try { WriteEngine.WriteInPlace(pPrime, resolved, outPath); }
+            catch (Exception ex)
+            {
+                return CompactBuildResult.Fail(
+                    $"writing the compacted plugin failed (serialize or commit; nothing partial left): {WriteEngine.Describe(ex)} — " +
+                    $"note: a sub-0x{RemapEngine.EslFloor:X} originating record, or (for the light range) one above 0x{RemapEngine.EslCeiling:X}, is rejected by the light-/master-aware write here.");
+            }
+        }
+        finally { foreach (var d in overlays) { try { d.Dispose(); } catch { /* best-effort; never mask the write result */ } } }
+
+        long bytes = 0; try { bytes = new FileInfo(outPath).Length; } catch { }
+        return new CompactBuildResult(true, null, declaredMasters, ren.RecordsCopied, ren.RecordsRenumbered, bytes);
     }
 
     /// <summary>
