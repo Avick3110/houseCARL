@@ -205,6 +205,18 @@ if (args.Length > 0 && args[0] == "esl-real-scan") return EslFormIdProbe.RunReal
 // synthetic fixture round-trips clean and would reveal nothing). Writes only to temp; read-only on the load order.
 if (args.Length > 0 && args[0] == "roundtrip-probe") return RoundTripProbe.RunProbe(args[1..]);
 
+// COMPACT/MERGE Wave 1 (COMPACT_MERGE_PLAN §3/§4): EXPLORATORY mechanism pin — settle, self-contained, whether
+// RemapLinks changes a record's OWN identity or only its references, whether MajorRecord.FormKey is settable, and
+// which Mutagen affordance compact must use to renumber a record into the ESL range. Run before building RemapEngine.
+if (args.Length > 0 && args[0] == "remap-wave1-mech") return RemapWave1Probe.RunMechanism(args[1..]);
+
+// COMPACT/MERGE Wave 1 GATE (self-contained, CI-able) lives in the CiAll.Probes registry as `remap-wave1-guard` —
+// it dispatches through CiAll.TryDispatch above (the ONE CI source of truth), so it is NOT listed here.
+
+// COMPACT/MERGE Wave 1 real-data run (MANUAL): ESL-compact a real plugin to a NEW P′ for Aaron to xEdit-verify, and
+// time the identify-pass over the live order. Needs --mo2 <inst> --plugin <Name.esp>; SKIPs without.
+if (args.Length > 0 && args[0] == "remap-wave1-real") return RemapWave1Probe.RunReal(args[1..]);
+
 var outputDir = Path.GetFullPath(args.Length > 0 ? args[0] : "generated");
 // The slim reference tree ships INSIDE the skill (tracked); corpus.json + summary stay in generated/.
 // Default assumes the generator is run from the repo root (as `dotnet run --project src/housecarl-generator`).
