@@ -99,6 +99,10 @@ public static class CiAll
         // args here → it uses that path). Each returns 0/1 like any guard.
         ("coerce-selftest", WriteEngine.RunCoerceSelftest),
         ("coerce-audit", WriteEngine.RunCoerceAudit),
+        // Compact/merge foundation (RemapEngine, Wave 1): a self-contained multi-plugin compact end-to-end (renumber
+        // into the ESL window + identify external referencers + in-place repoint) plus the two loud-refusal boundaries
+        // (ESL capacity overflow, nested-only record). Pins the foundation the compact/merge tools (later waves) ride on.
+        ("remap-wave1-guard", RemapWave1Probe.RunGuard),
     };
 
     /// <summary>Dispatch a single CI guard by name through the registry — the ONE place a CI probe is listed, so
