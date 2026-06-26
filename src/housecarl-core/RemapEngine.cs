@@ -89,11 +89,16 @@ public static class RemapEngine
         var externalPlugins = new List<string>();        // load-order order, distinct
         int scanned = 0, unscannable = 0;
         var unscannableSamples = new List<string>();
+        // PluginNames CAN list a filename more than once in a degenerate order; scanning a name twice would
+        // double-count + double-list it. A real MO2 VFS yields unique filenames, so this is belt-and-braces — but
+        // it keeps the result correct regardless (the listing is, by contract, DISTINCT).
+        var scannedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var plugin in resolver.PluginNames)
         {
             if (transformSet.Contains(plugin)) continue;                 // inside the set → its refs are INTERNAL (RemapLinks handles them)
             if (view.ExcludedPlugins.ContainsKey(plugin)) continue;      // unparseable at build — already surfaced by the resolver
+            if (!scannedNames.Add(plugin)) continue;                     // a duplicate name in the order — scan/list it once (Q3: no double-count)
             scanned++;
             bool pluginListed = false;
 
@@ -265,7 +270,9 @@ public static class RemapEngine
     /// <summary>The result of an in-place repoint: success + the on-disk byte size, or a loud Q3 refusal (target not
     /// active / excluded / not on disk / a declared master absent / a sub-0x800 originating record / a serialize fault)
     /// with the file UNTOUCHED.</summary>
-    public sealed record RepointResult(bool Success, string? Error, long Bytes, int LinksConsidered)
+    /// <summary><paramref name="RemapEntries"/> is the size of the remap dict applied — NOT the count of links actually
+    /// rewritten in the file (Mutagen's RemapLinks does not report that); a caller must not read it as "links changed".</summary>
+    public sealed record RepointResult(bool Success, string? Error, long Bytes, int RemapEntries)
     {
         public static RepointResult Fail(string error) => new(false, error, 0, 0);
     }
@@ -316,8 +323,11 @@ public static class RemapEngine
         }
 
         // Resolve the target's OWN declared masters to overlays in load order — the faithful re-serialize set
-        // WriteInPlace hands Mutagen (mirrors WritePatchBuilder.ResolveOwnMasters). A declared master ABSENT from the
-        // active order is a loud Q3 refusal (a re-serialize couldn't resolve the references into it), file untouched.
+        // WriteInPlace hands Mutagen (mirrors WritePatchBuilder.ResolveOwnMasters, which opens them the same way). A
+        // declared master ABSENT from the active order is a loud Q3 refusal (a re-serialize couldn't resolve the
+        // references into it), file untouched. These overlays exist ONLY to resolve FormID/master-table references on
+        // re-serialize — they are not read for localized strings — so the bare CreateFromBinaryOverlay is correct here
+        // and the resolver's strings-wiring OpenOverlay choke point is deliberately not needed (matches the in-place lane).
         var overlays = new List<IDisposable>();
         try
         {
