@@ -331,6 +331,42 @@ public sealed class AssetResolver : IDisposable
         return relPaths.Select(p => Resolve(p, snap)).ToList();
     }
 
+    /// <summary>Every DISTINCT Data-relative file path that exists anywhere under <paramref name="prefix"/> (recursively),
+    /// across all loose roots and all active BSAs — the directory ENUMERATION the voice carry needs (Resolve answers ONE
+    /// path; this lists what's there). The winner per path is left to <see cref="ResolveForPlacement"/>; here we only need
+    /// the set of paths that exist in ANY source. Reuses the <see cref="NormalizeQueryPath"/> escape guard. Pure read of the
+    /// snapshot's BSA tables + a bounded recursive loose walk under the prefix; holds nothing. A loose root that won't
+    /// enumerate contributes nothing (its absence flows through <see cref="ReadIncomplete"/>, never a silent half-answer).</summary>
+    public IReadOnlyCollection<string> EnumerateUnder(string prefix) => EnumerateUnder(prefix, _snap);
+
+    IReadOnlyCollection<string> EnumerateUnder(string prefix, Snapshot snap)
+    {
+        var pre = NormalizeQueryPath(prefix);                    // drive-root / '..' rejected loud (Q3), backslash-normalized
+        var withSep = pre + "\\";                                // match a SUBTREE, not a sibling whose name starts with 'pre'
+        var found = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        // loose: recurse each root's copy of the prefix dir (set-UNION across roots — the per-path winner is decided later).
+        foreach (var (_, rootDir) in _looseRoots)
+        {
+            var baseDir = Path.Combine(rootDir, pre);
+            if (!Directory.Exists(baseDir)) continue;
+            try
+            {
+                foreach (var f in Directory.EnumerateFiles(baseDir, "*", SearchOption.AllDirectories))
+                    found.Add(Normalize(f.Substring(rootDir.Length)));       // f starts with rootDir → the remainder is Data-relative
+            }
+            catch { /* a root that won't enumerate contributes nothing; not silently trusted (see the summary) */ }
+        }
+
+        // BSA: every table entry under the prefix (the cached tables ARE the authoritative archive listing, zero handle at rest).
+        foreach (var t in snap.Tables.Values)
+            foreach (var entry in t)
+                if (entry.StartsWith(withSep, StringComparison.OrdinalIgnoreCase))
+                    found.Add(entry);
+
+        return found;
+    }
+
     /// <summary>Capture the CURRENT build as a pinned read view (the LoadOrderResolver.Capture discipline): a bulk
     /// facegen scan and its read-failure list answer from ONE build, so a RefreshIfStale landing mid-scan cannot make
     /// the scan's hits and <see cref="BsaFailures"/> describe two different builds. Pure data over the immutable snapshot.</summary>
@@ -363,6 +399,11 @@ public sealed class AssetResolver : IDisposable
             var r = _r; var s = _s;                              // locals — a struct's lambda can't capture 'this'
             return relPaths.Select(p => r.Resolve(p, s)).ToList();
         }
+
+        /// <summary>Enumerate every Data-relative path under <paramref name="prefix"/> pinned to THIS view's build — see
+        /// <see cref="AssetResolver.EnumerateUnder(string)"/>. The voice carry lists the plugin's voice files off the same
+        /// capture it resolves their winners from, so the scan and its <see cref="ReadIncomplete"/> caveat agree.</summary>
+        public IReadOnlyCollection<string> EnumerateUnder(string prefix) => _r.EnumerateUnder(prefix, _s);
     }
 
     /// <summary>Re-stat the inputs; if any changed, rebuild the snapshot and return true. Inputs = the active archives
