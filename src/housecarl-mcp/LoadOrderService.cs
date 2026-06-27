@@ -1677,14 +1677,14 @@ public sealed class LoadOrderService : IDisposable
             //   never a loose File.Exists on the source folder — which would miss both and re-open the silent failure A3 closes.
             AssetRenameOutcome assetRename;
             VoiceCarryOutcome voiceRename;
-            bool sourceHadSeq;
+            bool? seqGate = null;                                          // the VFS gate result — SET the moment the view resolves, BEFORE the carries
             var srcSeqRel = $@"SEQ\{Path.GetFileNameWithoutExtension(srcPath)}.seq";
             try
             {
                 AssetResolver assetResolver;
                 lock (_gate) { assetResolver = Assets; }                  // reentrant under the held _writeGate (the PlaceAssets idiom)
                 var assetView = assetResolver.Capture();
-                sourceHadSeq = assetView.ResolveForPlacement(srcSeqRel).Sources.Count > 0;   // VFS-aware (loose roots + active BSAs)
+                seqGate = assetView.ResolveForPlacement(srcSeqRel).Sources.Count > 0;   // VFS-aware (loose roots + active BSAs)
                 var outDir = Path.GetDirectoryName(outPath)!;
                 assetRename = AssetRenameService.CarryFaceGen(outPath, plan.Dict, assetView, outDir);
                 voiceRename = AssetRenameService.CarryVoice(outPath, plan.Dict, assetView, outDir);
@@ -1695,8 +1695,11 @@ public sealed class LoadOrderService : IDisposable
                     new[] { $"facegen carry skipped — the asset layer could not be built ({ex.Message}); verify NPC faces in-game." }, false);
                 voiceRename = new VoiceCarryOutcome(0, 0, 0,
                     new[] { $"voice carry skipped — the asset layer could not be built ({ex.Message}); verify voiced lines in-game." }, false);
-                sourceHadSeq = File.Exists(Path.Combine(Path.GetDirectoryName(srcPath)!, srcSeqRel));   // asset layer unavailable → loose-only fallback (no worse than pre-fix)
             }
+            // The gate is the VFS answer whenever the view resolved — even if a LATER carry threw, a carry failure must NOT
+            // downgrade a good gate result (re-review). Only when the view never resolved (seqGate still null — the asset layer
+            // couldn't be built) fall back to the loose-only check (degraded, never worse than the pre-fix behavior).
+            bool sourceHadSeq = seqGate ?? File.Exists(Path.Combine(Path.GetDirectoryName(srcPath)!, srcSeqRel));
 
             // 7c. REFRESH the start-game-enabled-quest .seq from the RENUMBERED plugin when the source SHIPPED one (the VFS
             //     gate above). A renumber shifts every SGE quest's master-relative on-disk FormID, so a shipped .seq is now
