@@ -242,7 +242,10 @@ public static class AssetRenameService
                 new[] { $"could not read '{Path.GetFileName(pPrimePath)}' back to (re)build its .seq ({ex.Message}) — if it has start-game-enabled quests, run housecarl_write_seq on the compacted plugin." });
         }
 
-        if (built.Quests.Count == 0) return SeqRegenOutcome.None();        // no SGE quests → no .seq needed (the write_seq no-op)
+        // No SGE quests → no .seq needed (the write_seq no-op). NOTE: returns BEFORE the sourceHadSeq gate, so a source that
+        // shipped a .seq for a quest whose SGE flag is since GONE would leave that stale .seq in place. Unreachable via compact
+        // (a renumber never clears SGE flags); a latent edge only if this spine is reused for merge, called out not fixed here.
+        if (built.Quests.Count == 0) return SeqRegenOutcome.None();
 
         if (!sourceHadSeq)
             // REFRESH-ONLY: P′ has SGE quests but the source shipped no .seq — do NOT invent one (xEdit-compaction parity).

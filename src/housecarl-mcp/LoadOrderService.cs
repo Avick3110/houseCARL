@@ -1666,18 +1666,25 @@ public sealed class LoadOrderService : IDisposable
             // 7b. carry the FormID-keyed assets a renumber moves — FaceGen head mesh/tint (A1) + voice .fuz/.lip (A2). The
             //     records renumbered, so the asset FILES the engine looks up BY FormID must follow, or a compacted NPC mod
             //     silently dark-faces and a voiced mod goes mute (the gap this research exposed in the shipped tool). ONE
-            //     captured asset view feeds both carries (so the scan and its read-failure caveat agree). Best-effort +
-            //     REPORTED (Q3): the records are already written, so an asset we can't carry is a NAMED warning in the
+            //     captured asset view feeds both carries AND the 7c SEQ gate, so all three agree on what's in the VFS. Best-
+            //     effort + REPORTED (Q3): the records are already written, so an asset we can't carry is a NAMED warning in the
             //     outcome, never a failure of the compaction — and the asset layer failing to build never fails the compact
             //     either. outDir = the P′ mod-folder root (the directory holding the plugin) in BOTH lanes (new-file: the
             //     fresh folder; in-place: the target's own folder).
+            //   SEQ-gate (for 7c, refresh-only): "did the source SHIP a .seq?" is a VFS question, not a single-folder one — a
+            //   prior housecarl_write_seq run files the .seq in its OWN houseCARL_SEQ mod folder, and a packed mod ships it in
+            //   a BSA. So resolve SEQ\<basename>.seq through the SAME captured view (mirrors the dialogue validator's CheckSeq),
+            //   never a loose File.Exists on the source folder — which would miss both and re-open the silent failure A3 closes.
             AssetRenameOutcome assetRename;
             VoiceCarryOutcome voiceRename;
+            bool sourceHadSeq;
+            var srcSeqRel = $@"SEQ\{Path.GetFileNameWithoutExtension(srcPath)}.seq";
             try
             {
                 AssetResolver assetResolver;
                 lock (_gate) { assetResolver = Assets; }                  // reentrant under the held _writeGate (the PlaceAssets idiom)
                 var assetView = assetResolver.Capture();
+                sourceHadSeq = assetView.ResolveForPlacement(srcSeqRel).Sources.Count > 0;   // VFS-aware (loose roots + active BSAs)
                 var outDir = Path.GetDirectoryName(outPath)!;
                 assetRename = AssetRenameService.CarryFaceGen(outPath, plan.Dict, assetView, outDir);
                 voiceRename = AssetRenameService.CarryVoice(outPath, plan.Dict, assetView, outDir);
@@ -1688,19 +1695,16 @@ public sealed class LoadOrderService : IDisposable
                     new[] { $"facegen carry skipped — the asset layer could not be built ({ex.Message}); verify NPC faces in-game." }, false);
                 voiceRename = new VoiceCarryOutcome(0, 0, 0,
                     new[] { $"voice carry skipped — the asset layer could not be built ({ex.Message}); verify voiced lines in-game." }, false);
+                sourceHadSeq = File.Exists(Path.Combine(Path.GetDirectoryName(srcPath)!, srcSeqRel));   // asset layer unavailable → loose-only fallback (no worse than pre-fix)
             }
 
-            // 7c. REFRESH the start-game-enabled-quest .seq when the source SHIPPED one (A3). A renumber shifts every SGE
-            //     quest's master-relative on-disk FormID, so a .seq the source shipped is now STALE — its quests would
-            //     silently never start (the failure SeqFile exists to prevent). REFRESH-ONLY (maintainer's call): if the
-            //     source had NO .seq we do NOT invent one (xEdit-compaction parity) — RegenerateSeq returns a named advisory.
-            //     The gate is whether the SOURCE plugin's folder shipped a .seq (in-place: the donor folder == outDir; new-
-            //     file: the ORIGINAL mod folder, NOT the fresh output) — both derive from srcPath, which is the original
-            //     plugin path in both lanes. Unlike the asset CARRIES (7b) this is a REGEN off P′ (SeqFile.Build — the
-            //     write_seq path), needs no resolver/AssetView, and is independent of whether the asset layer built. Best-
-            //     effort + REPORTED (Q3): RegenerateSeq never throws and never fails the compact; the outer guard is belt-and-suspenders.
-            bool sourceHadSeq = File.Exists(Path.Combine(
-                Path.GetDirectoryName(srcPath)!, "SEQ", Path.GetFileNameWithoutExtension(srcPath) + ".seq"));
+            // 7c. REFRESH the start-game-enabled-quest .seq from the RENUMBERED plugin when the source SHIPPED one (the VFS
+            //     gate above). A renumber shifts every SGE quest's master-relative on-disk FormID, so a shipped .seq is now
+            //     STALE — its quests would silently never start (the failure SeqFile exists to prevent). REFRESH-ONLY
+            //     (maintainer's call): if the source shipped NO .seq we do NOT invent one (xEdit-compaction parity) —
+            //     RegenerateSeq returns a named advisory. The REGEN itself is off P′ (SeqFile.Build — the write_seq path) and
+            //     needs no resolver; only the gate consults the view. Best-effort + REPORTED (Q3): RegenerateSeq never throws
+            //     and never fails the compact; the outer guard is belt-and-suspenders.
             SeqRegenOutcome seqRegen;
             try { seqRegen = AssetRenameService.RegenerateSeq(outPath, Path.GetDirectoryName(outPath)!, sourceHadSeq); }
             catch (Exception ex)
