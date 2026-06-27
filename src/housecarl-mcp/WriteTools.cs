@@ -630,6 +630,19 @@ public static class WriteTools
                 sb.Append("  note: a BSA failed to read this scan, so a 'no voice' result may be incomplete — verify voiced lines in-game.\n");
         }
 
+        // SEQ (.seq) REBUILT from the renumbered plugin (compact/merge Wave A3) — a renumber shifts every start-game-
+        // enabled quest's on-disk FormID, so a pre-existing .seq goes stale and its quests silently never start; the regen
+        // writes a fresh, correct .seq next to P′. Unlike facegen/voice this REPLACES the file wholesale (no orphan). A
+        // plugin with no SGE quests renders nothing (the common case). Reported, not silent (Q3).
+        if (o.SeqRegen is { } sr)
+        {
+            if (sr.Written)
+                sb.Append("SEQ: regenerated — ").Append(sr.SgeQuestCount).Append(sr.SgeQuestCount == 1 ? " start-game-enabled quest" : " start-game-enabled quests")
+                  .Append(o.InPlace ? " (.seq rewritten in place).\n" : " (.seq in the new mod folder's SEQ\\ — enabling it starts the quests).\n");
+            foreach (var f in sr.Failures.Take(25)) sb.Append("  SEQ WARN: ").Append(f).Append('\n');
+            if (sr.Failures.Count > 25) sb.Append("  SEQ WARN: … (+").Append(sr.Failures.Count - 25).Append(" more)\n");
+        }
+
         if (o.Note is { } note) sb.Append("note: ").Append(note).Append('\n');
         sb.Append("reminder: FormIDs compiled into Papyrus (.pex hardcoded / GetFormFromFile) and any Mutagen-delta ")
           .Append("residual are NOT remappable — verify scripted records after compacting.");
