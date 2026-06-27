@@ -87,12 +87,19 @@ public static class AssetRenameService
 
         if (npcs.Count == 0) return AssetRenameOutcome.None(assets.ReadIncomplete);
 
-        // 2. Carry each NPC's mesh + tint from the old path's WINNING copy to the new path.
+        // 2. Carry each NPC's mesh + tint from the old path's WINNING copy to the new path — in TWO PHASES so that ALL
+        //    reads complete before ANY commit. The renumber packs the new IDs into the same 0x800–0xFFF window the source
+        //    already used, so in the IN-PLACE lane (outDir == the target's OWN folder) a new-FormID write would otherwise
+        //    CLOBBER a not-yet-read old-FormID facegen of a DIFFERENT NPC — handing that NPC another's face, a Q3 silent
+        //    wrong answer (PR #123 review). Phase 1 stages each new file to a '.houseCARL-tmp' SIBLING (a name that never
+        //    collides with an old '00<hex>.nif' read path), so every read sees the original bytes; phase 2 commits the
+        //    temps via AtomicFile.Commit once all reads are done. O(1) memory per file (staged to disk, not buffered).
+        //    The new-file lane (fresh folder, no old facegen to clobber) is already safe but rides the same correct path.
         var failures = new List<string>();
-        int npcsCarried = 0, files = 0;
+        var pending = new List<(string Staged, string Final, FormKey NewKey)>();
+
+        // ---- phase 1: read every old facegen + stage it to a temp (writes ONLY '.houseCARL-tmp', never an old '00<hex>.nif') ----
         foreach (var (oldKey, newKey) in npcs)
-        {
-            int carriedForNpc = 0;
             foreach (var (slot, oldPath) in FaceGenPath.Both(oldKey))      // (Mesh, …), (Tint, …) — the dark-face pair
             {
                 var res = assets.ResolveForPlacement(oldPath);
@@ -101,22 +108,44 @@ public static class AssetRenameService
                 var (bytes, err) = ReadWinner(res.Sources[0]);             // the copy that currently displays in-game
                 if (err is not null) { failures.Add($"{oldKey.ID:X6} {slot}: {err}"); continue; }
 
-                var dest = Path.Combine(outDir, FaceGenPath.For(newKey, slot));
+                var rel = FaceGenPath.For(newKey, slot);
+                var final = Path.Combine(outDir, rel);
+                var staged = final + ".houseCARL-tmp";                     // sibling temp — distinct from every '00<hex>.nif' read path
                 try
                 {
-                    Directory.CreateDirectory(Path.GetDirectoryName(dest)!);
-                    AtomicFile.WriteAllBytes(dest, bytes!);
-                    // Belt-and-braces truncation guard (the PlaceOne idiom): a size mismatch means a short write.
-                    long size; try { size = new FileInfo(dest).Length; } catch { size = -1; }
+                    Directory.CreateDirectory(Path.GetDirectoryName(final)!);
+                    try { if (File.Exists(staged)) File.Delete(staged); } catch { /* a stuck temp surfaces on the write below */ }
+                    File.WriteAllBytes(staged, bytes!);
+                    // Truncation guard on the TEMP (the commit is an atomic rename, which can't truncate): a short stage is caught here.
+                    long size; try { size = new FileInfo(staged).Length; } catch { size = -1; }
                     if (size != bytes!.Length)
-                    { failures.Add($"{newKey.ID:X6} {slot}: wrote {size} byte(s), expected {bytes.Length} — verify."); continue; }
-                    files++; carriedForNpc++;
+                    {
+                        failures.Add($"{newKey.ID:X6} {slot}: staged {size} byte(s), expected {bytes.Length} — verify.");
+                        try { File.Delete(staged); } catch { }
+                        continue;
+                    }
+                    pending.Add((staged, final, newKey));
                 }
-                catch (Exception ex) { failures.Add($"{newKey.ID:X6} {slot}: could not write '{FaceGenPath.For(newKey, slot)}' — {ex.Message}"); }
+                catch (Exception ex)
+                {
+                    failures.Add($"{newKey.ID:X6} {slot}: could not stage '{rel}' — {ex.Message}");
+                    try { if (File.Exists(staged)) File.Delete(staged); } catch { }
+                }
             }
-            if (carriedForNpc > 0) npcsCarried++;
+
+        // ---- phase 2: commit every staged temp (all reads done → overwriting an old facegen at a now-reused name is safe) ----
+        int files = 0;
+        var carriedKeys = new HashSet<FormKey>();
+        foreach (var (staged, final, newKey) in pending)
+        {
+            try { AtomicFile.Commit(staged, final); files++; carriedKeys.Add(newKey); }
+            catch (Exception ex)
+            {
+                failures.Add($"{newKey.ID:X6}: could not commit '{Path.GetFileName(final)}' — {ex.Message}");
+                try { if (File.Exists(staged)) File.Delete(staged); } catch { }
+            }
         }
-        return new AssetRenameOutcome(npcs.Count, npcsCarried, files, failures, assets.ReadIncomplete);
+        return new AssetRenameOutcome(npcs.Count, carriedKeys.Count, files, failures, assets.ReadIncomplete);
     }
 
     /// <summary>Read the bytes of a resolved WINNING provider — a loose file off disk, or a single BSA entry via native
