@@ -22,6 +22,8 @@ namespace HousecarlGenerator;
 ///                the NEW on-disk FormID and the old one is GONE (the staleness fix A3 ships, proven directly).
 ///   MULTI-QUEST— two SGE quests both land in the .seq; a RunOnce-only quest is EXCLUDED (SGE filtering survives compact).
 ///   NO-SGE     — a plugin with no SGE quests writes NO .seq and is NOT a failure (SgeQuestCount 0, Written false, 0 WARN).
+///   SEQ-WARN   — an UNWRITABLE .seq destination DEGRADES to a named WARN (in the outcome AND the rendered output) while the
+///                compact STILL succeeds — A3's Q3 contract: a .seq it can't write is never a silent stale/missing .seq.
 /// Run: dotnet run --project src/housecarl-generator -- seq-regen-guard
 /// </summary>
 public static class SeqRegenProbe
@@ -158,6 +160,31 @@ public static class SeqRegenProbe
                 var sr = o.SeqRegen;
                 Check(o.Success && noSeq && sr is { SgeQuestCount: 0, Written: false } && sr.Failures.Count == 0,
                       $"NO-SGE no start-game-enabled quests → no .seq written, not a failure (noSeq {noSeq}, report {sr?.SgeQuestCount}q/written={sr?.Written}, warns {sr?.Failures.Count}{(o.Success ? "" : "; ERR " + o.Error)})");
+            }
+
+            // ================= SEQ-WARN: an UNWRITABLE .seq destination DEGRADES to a named WARN, the compact STILL succeeds =================
+            // A3's load-bearing Q3 contract: a .seq it CANNOT write is a NAMED warning, never a silent stale/missing .seq, and
+            // never a failure of the already-written compaction. Force the write to fail by pre-creating <donorFolder>\SEQ as a
+            // FILE (not a directory) so RegenerateSeq's Directory.CreateDirectory throws — then assert it degrades, not aborts,
+            // AND that the warning reaches the user-visible tool output (RenderCompact), not just the outcome object.
+            {
+                var (mods, prof) = MakeInstance(Path.Combine(root, "warn"));
+                var key = new ModKey("SeqWarn", ModType.Plugin);
+                var qOld = new FormKey(key, 0x900);
+                WriteMod(mods, "SeqWarn", key, m => AddSgeQuest(m, qOld, "HcSeqQ"));
+                WriteProfile(prof, new[] { key.FileName.String }, new[] { "*" + key.FileName }, new[] { "+SeqWarn" });
+                WriteSkyrimIni(prof);
+                File.WriteAllText(Path.Combine(mods, "SeqWarn", "SEQ"), "blocking file — not a directory");   // the SEQ\ dir now can't be created
+
+                using var svc = LoadOrderService.WithInstance(Path.Combine(root, "warn"), 0, new UserConfigStore(Path.Combine(root, "user-warn.json")));
+                svc.Stats();
+
+                var o = svc.CompactPlugin("SeqWarn.esp", inPlace: true, acknowledge: true);
+                var sr = o.SeqRegen;
+                var rendered = WriteTools.RenderCompact(o);               // the WARN must reach the user-visible output, not just the outcome
+                Check(o.Success && sr is { Written: false, SgeQuestCount: 1 } && sr.Failures.Count >= 1
+                      && rendered.Contains("SEQ WARN") && !rendered.StartsWith("error:"),
+                      $"SEQ-WARN unwritable .seq dest → named WARN, compact STILL succeeds (success {o.Success}, written {sr?.Written}, warns {sr?.Failures.Count}, rendered-warn {rendered.Contains("SEQ WARN")}{(o.Success ? "" : "; ERR " + o.Error)})");
             }
         }
         finally { try { Directory.Delete(root, true); } catch { } }

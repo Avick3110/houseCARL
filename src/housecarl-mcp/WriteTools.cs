@@ -534,7 +534,7 @@ public static class WriteTools
     /// or the per-plugin repoint results), the identify-pass coverage, and the un-remappable-script reminder (Q3). The
     /// NeedsAcknowledge prompt (a required in-place consent) is returned verbatim, not as an error; on refusal the named
     /// reason so the caller can fix and retry.</summary>
-    static string RenderCompact(WritePatchBuilder.CompactOutcome o)
+    internal static string RenderCompact(WritePatchBuilder.CompactOutcome o)   // internal: the seq-regen-guard renders a failure outcome to prove the SEQ WARN reaches user output
     {
         if (o.NeedsAcknowledge) return o.Error!;            // the in-place CONSENT prompt — a required confirmation, NOT an error (Q3)
         if (!o.Success) return "error: " + o.Error;
