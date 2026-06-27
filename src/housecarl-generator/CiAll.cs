@@ -112,6 +112,10 @@ public static class CiAll
         // MO2 instance — the clean new-file lane, esl=false, override-of-master-cell-with-new-child, external refusal, the
         // repoint→in_place gate, not-active, and the in_place+repoint consent handshake. Covers the policy the engine guard bypasses.
         ("compact-service-guard", CompactServiceGuardProbe.RunGuard),
+        // COMPACT/MERGE Wave A1 — the asset-rename SPINE's first category: compacting an NPC mod carries its FormID-keyed
+        // FaceGen (head mesh + face tint) to the new FormID, end-to-end through the real service, so it no longer silently
+        // dark-faces (the gap MERGE_REFERENCE_RESEARCH §3/§8 exposed in the shipped tool). New-file + in-place + no-facegen.
+        ("facegen-carry-guard", FacegenCarryProbe.RunGuard),
     };
 
     /// <summary>Dispatch a single CI guard by name through the registry — the ONE place a CI probe is listed, so
