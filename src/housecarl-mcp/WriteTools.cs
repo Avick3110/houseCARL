@@ -630,10 +630,11 @@ public static class WriteTools
                 sb.Append("  note: a BSA failed to read this scan, so a 'no voice' result may be incomplete — verify voiced lines in-game.\n");
         }
 
-        // SEQ (.seq) REBUILT from the renumbered plugin (compact/merge Wave A3) — a renumber shifts every start-game-
-        // enabled quest's on-disk FormID, so a pre-existing .seq goes stale and its quests silently never start; the regen
-        // writes a fresh, correct .seq next to P′. Unlike facegen/voice this REPLACES the file wholesale (no orphan). A
-        // plugin with no SGE quests renders nothing (the common case). Reported, not silent (Q3).
+        // SEQ (.seq) REFRESHED from the renumbered plugin (compact/merge Wave A3) — a renumber shifts every start-game-
+        // enabled quest's on-disk FormID, so a .seq the source SHIPPED goes stale and its quests silently never start; the
+        // regen writes a fresh, correct .seq next to P′ (refresh-only — a source with no .seq gets a named WARN advising
+        // write_seq, never an invented file). A plugin with no SGE quests renders nothing (the common case). The WARN loop
+        // surfaces both a write-failure and the missing-source-.seq advisory. Reported, not silent (Q3).
         if (o.SeqRegen is { } sr)
         {
             if (sr.Written)

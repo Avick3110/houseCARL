@@ -1690,14 +1690,19 @@ public sealed class LoadOrderService : IDisposable
                     new[] { $"voice carry skipped — the asset layer could not be built ({ex.Message}); verify voiced lines in-game." }, false);
             }
 
-            // 7c. (re)build the start-game-enabled-quest .seq from the RENUMBERED plugin (A3). A renumber shifts every SGE
-            //     quest's master-relative on-disk FormID, so any pre-existing .seq is now STALE — its quests would silently
-            //     never start (the failure SeqFile exists to prevent). Unlike the asset CARRIES (7b) this is a REGEN off P′
-            //     (SeqFile.Build — the write_seq path), not a map-rename, so it needs no resolver/AssetView and is independent
-            //     of whether the asset layer built. A plugin with no SGE quests is a clean no-op. Best-effort + REPORTED (Q3):
-            //     RegenerateSeq never throws and never fails the compact; the outer guard is belt-and-suspenders.
+            // 7c. REFRESH the start-game-enabled-quest .seq when the source SHIPPED one (A3). A renumber shifts every SGE
+            //     quest's master-relative on-disk FormID, so a .seq the source shipped is now STALE — its quests would
+            //     silently never start (the failure SeqFile exists to prevent). REFRESH-ONLY (maintainer's call): if the
+            //     source had NO .seq we do NOT invent one (xEdit-compaction parity) — RegenerateSeq returns a named advisory.
+            //     The gate is whether the SOURCE plugin's folder shipped a .seq (in-place: the donor folder == outDir; new-
+            //     file: the ORIGINAL mod folder, NOT the fresh output) — both derive from srcPath, which is the original
+            //     plugin path in both lanes. Unlike the asset CARRIES (7b) this is a REGEN off P′ (SeqFile.Build — the
+            //     write_seq path), needs no resolver/AssetView, and is independent of whether the asset layer built. Best-
+            //     effort + REPORTED (Q3): RegenerateSeq never throws and never fails the compact; the outer guard is belt-and-suspenders.
+            bool sourceHadSeq = File.Exists(Path.Combine(
+                Path.GetDirectoryName(srcPath)!, "SEQ", Path.GetFileNameWithoutExtension(srcPath) + ".seq"));
             SeqRegenOutcome seqRegen;
-            try { seqRegen = AssetRenameService.RegenerateSeq(outPath, Path.GetDirectoryName(outPath)!); }
+            try { seqRegen = AssetRenameService.RegenerateSeq(outPath, Path.GetDirectoryName(outPath)!, sourceHadSeq); }
             catch (Exception ex)
             {
                 seqRegen = new SeqRegenOutcome(0, false, null,

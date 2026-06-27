@@ -16,14 +16,16 @@ namespace HousecarlGenerator;
 /// already-renumbered P′ (SeqFile.Build, the housecarl_write_seq path) — the FormIDs come out correct because they're
 /// read from the renumbered plugin. Drives the REAL <see cref="LoadOrderService.CompactPlugin"/> over a synthetic MO2
 /// instance (the FacegenCarry / VoiceCarry pattern), so it pins the END-TO-END wiring, not the service in isolation.
-///   NEW-FILE   — compacting an SGE-quest mod writes a fresh, correct &lt;modRoot&gt;\SEQ\&lt;plugin&gt;.seq listing the
-///                renumbered quest's new on-disk FormID; the outcome reports 1 quest / Written=true.
-///   IN-PLACE   — a STALE .seq (old FormID) planted beside the plugin is REPLACED in place: the regenerated .seq lists
-///                the NEW on-disk FormID and the old one is GONE (the staleness fix A3 ships, proven directly).
-///   MULTI-QUEST— two SGE quests both land in the .seq; a RunOnce-only quest is EXCLUDED (SGE filtering survives compact).
+///   NEW-FILE   — a source that SHIPPED a (stale) .seq is REFRESHED: compact writes a fresh &lt;modRoot&gt;\SEQ\&lt;plugin&gt;.seq
+///                listing the renumbered quest's NEW on-disk FormID; the outcome reports 1 quest / Written=true.
+///   IN-PLACE   — a STALE .seq (old FormID) beside the plugin is REPLACED in place: the refreshed .seq lists the NEW
+///                on-disk FormID and the old one is GONE (the staleness fix A3 ships, proven directly).
+///   MULTI-QUEST— two SGE quests both land in the refreshed .seq; a RunOnce-only quest is EXCLUDED (SGE filtering survives).
 ///   NO-SGE     — a plugin with no SGE quests writes NO .seq and is NOT a failure (SgeQuestCount 0, Written false, 0 WARN).
-///   SEQ-WARN   — an UNWRITABLE .seq destination DEGRADES to a named WARN (in the outcome AND the rendered output) while the
-///                compact STILL succeeds — A3's Q3 contract: a .seq it can't write is never a silent stale/missing .seq.
+///   NO-SOURCE-SEQ — SGE quests but NO source .seq → a named WARN advising write_seq, NOT an invented file (the maintainer's
+///                refresh-only narrowing): no .seq is written anywhere and the compact still succeeds.
+///   SEQ-WARN   — a source .seq that exists but whose write FAILS (held under an exclusive lock) DEGRADES to a named WARN
+///                (in the outcome AND the rendered output) while the compact STILL succeeds — A3's core Q3 contract.
 /// Run: dotnet run --project src/housecarl-generator -- seq-regen-guard
 /// </summary>
 public static class SeqRegenProbe
@@ -38,7 +40,7 @@ public static class SeqRegenProbe
         var root = Path.Combine(Path.GetTempPath(), "hc-seq-regen-guard-" + Guid.NewGuid().ToString("N"));
         try
         {
-            // ================= NEW-FILE: compact writes a fresh, correct .seq for the renumbered SGE quest =================
+            // ================= NEW-FILE: a source that SHIPPED a (stale) .seq is REFRESHED into the fresh output folder =================
             {
                 var (mods, prof) = MakeInstance(Path.Combine(root, "newfile"));
                 var key = new ModKey("SeqNf", ModType.Plugin);
@@ -46,6 +48,7 @@ public static class SeqRegenProbe
                 WriteMod(mods, "SeqNf", key, m => AddSgeQuest(m, qOld, "HcSeqQ"));
                 WriteProfile(prof, new[] { key.FileName.String }, new[] { "*" + key.FileName }, new[] { "+SeqNf" });
                 WriteSkyrimIni(prof);
+                PlantSourceSeq(mods, "SeqNf", qOld);                       // the source mod SHIPPED a (now-stale) .seq → the refresh-only gate fires
 
                 using var svc = LoadOrderService.WithInstance(Path.Combine(root, "newfile"), 0, new UserConfigStore(Path.Combine(root, "user-nf.json")));
                 svc.Stats();
@@ -116,6 +119,7 @@ public static class SeqRegenProbe
                 WriteMod(mods, "SeqMl", key, m => { AddSgeQuest(m, qa, "HcSeqA"); AddSgeQuest(m, qb, "HcSeqB"); AddPlainQuest(m, qPlain, "HcSeqPlain"); });
                 WriteProfile(prof, new[] { key.FileName.String }, new[] { "*" + key.FileName }, new[] { "+SeqMl" });
                 WriteSkyrimIni(prof);
+                PlantSourceSeq(mods, "SeqMl", qa);                         // the source SHIPPED a .seq → the refresh-only gate fires
 
                 using var svc = LoadOrderService.WithInstance(Path.Combine(root, "multi"), 0, new UserConfigStore(Path.Combine(root, "user-ml.json")));
                 svc.Stats();
@@ -162,11 +166,37 @@ public static class SeqRegenProbe
                       $"NO-SGE no start-game-enabled quests → no .seq written, not a failure (noSeq {noSeq}, report {sr?.SgeQuestCount}q/written={sr?.Written}, warns {sr?.Failures.Count}{(o.Success ? "" : "; ERR " + o.Error)})");
             }
 
-            // ================= SEQ-WARN: an UNWRITABLE .seq destination DEGRADES to a named WARN, the compact STILL succeeds =================
+            // ================= NO-SOURCE-SEQ: SGE quests but NO source .seq → write nothing, advise (the refresh-only narrowing) =================
+            // The maintainer's call: compaction never INVENTS a .seq. A mod with SGE quests that never shipped one gets a NAMED
+            // advisory (run write_seq), not a silently-created file — and no .seq lands anywhere. This is the behavior under test.
+            {
+                var (mods, prof) = MakeInstance(Path.Combine(root, "nosrc"));
+                var key = new ModKey("SeqNoSrc", ModType.Plugin);
+                var qOld = new FormKey(key, 0x900);
+                WriteMod(mods, "SeqNoSrc", key, m => AddSgeQuest(m, qOld, "HcSeqQ"));    // has an SGE quest, but NO source .seq is planted
+                WriteProfile(prof, new[] { key.FileName.String }, new[] { "*" + key.FileName }, new[] { "+SeqNoSrc" });
+                WriteSkyrimIni(prof);
+
+                using var svc = LoadOrderService.WithInstance(Path.Combine(root, "nosrc"), 0, new UserConfigStore(Path.Combine(root, "user-nosrc.json")));
+                svc.Stats();
+
+                var o = svc.CompactPlugin("SeqNoSrc.esp");
+                bool noSeqWritten = o.Success && File.Exists(o.OutputPath)
+                                    && !File.Exists(Path.Combine(Path.GetDirectoryName(o.OutputPath)!, "SEQ", "SeqNoSrc.seq"));
+                var sr = o.SeqRegen;
+                var rendered = o.Success ? WriteTools.RenderCompact(o) : "";
+                Check(o.Success && noSeqWritten && sr is { Written: false, SgeQuestCount: 1 } && sr.Failures.Count >= 1
+                      && rendered.Contains("SEQ WARN") && rendered.Contains("housecarl_write_seq"),
+                      $"NO-SOURCE-SEQ SGE quests but no source .seq → no file invented, advisory WARN, compact succeeds (no-file {noSeqWritten}, written {sr?.Written}, warns {sr?.Failures.Count}{(o.Success ? "" : "; ERR " + o.Error)})");
+            }
+
+            // ================= SEQ-WARN: a source .seq exists but its write FAILS → DEGRADES to a named WARN, compact STILL succeeds =================
             // A3's load-bearing Q3 contract: a .seq it CANNOT write is a NAMED warning, never a silent stale/missing .seq, and
-            // never a failure of the already-written compaction. Force the write to fail by pre-creating <donorFolder>\SEQ as a
-            // FILE (not a directory) so RegenerateSeq's Directory.CreateDirectory throws — then assert it degrades, not aborts,
-            // AND that the warning reaches the user-visible tool output (RenderCompact), not just the outcome object.
+            // never a failure of the already-written compaction. Under the refresh-only gate the source must SHIP a .seq for the
+            // refresh to be attempted, so keep a real source .seq AND hold an EXCLUSIVE lock on it (a realistic "file in use" —
+            // MO2/the game holding it) so the write fails. Assert it degrades, not aborts, AND that the warning reaches the
+            // user-visible tool output (RenderCompact). CI is windows-latest: File.Replace onto a FileShare.None-locked dest
+            // throws a sharing violation, while File.Exists still satisfies the gate.
             {
                 var (mods, prof) = MakeInstance(Path.Combine(root, "warn"));
                 var key = new ModKey("SeqWarn", ModType.Plugin);
@@ -174,17 +204,20 @@ public static class SeqRegenProbe
                 WriteMod(mods, "SeqWarn", key, m => AddSgeQuest(m, qOld, "HcSeqQ"));
                 WriteProfile(prof, new[] { key.FileName.String }, new[] { "*" + key.FileName }, new[] { "+SeqWarn" });
                 WriteSkyrimIni(prof);
-                File.WriteAllText(Path.Combine(mods, "SeqWarn", "SEQ"), "blocking file — not a directory");   // the SEQ\ dir now can't be created
+                var seqPath = PlantSourceSeq(mods, "SeqWarn", qOld);       // the source SHIPPED a .seq (gate satisfied) — but we lock it so the write fails
 
-                using var svc = LoadOrderService.WithInstance(Path.Combine(root, "warn"), 0, new UserConfigStore(Path.Combine(root, "user-warn.json")));
-                svc.Stats();
+                using (new FileStream(seqPath, FileMode.Open, FileAccess.ReadWrite, FileShare.None))   // exclusive lock → the refresh write fails
+                {
+                    using var svc = LoadOrderService.WithInstance(Path.Combine(root, "warn"), 0, new UserConfigStore(Path.Combine(root, "user-warn.json")));
+                    svc.Stats();
 
-                var o = svc.CompactPlugin("SeqWarn.esp", inPlace: true, acknowledge: true);
-                var sr = o.SeqRegen;
-                var rendered = WriteTools.RenderCompact(o);               // the WARN must reach the user-visible output, not just the outcome
-                Check(o.Success && sr is { Written: false, SgeQuestCount: 1 } && sr.Failures.Count >= 1
-                      && rendered.Contains("SEQ WARN") && !rendered.StartsWith("error:"),
-                      $"SEQ-WARN unwritable .seq dest → named WARN, compact STILL succeeds (success {o.Success}, written {sr?.Written}, warns {sr?.Failures.Count}, rendered-warn {rendered.Contains("SEQ WARN")}{(o.Success ? "" : "; ERR " + o.Error)})");
+                    var o = svc.CompactPlugin("SeqWarn.esp", inPlace: true, acknowledge: true);
+                    var sr = o.SeqRegen;
+                    var rendered = WriteTools.RenderCompact(o);           // the WARN must reach the user-visible output, not just the outcome
+                    Check(o.Success && sr is { Written: false, SgeQuestCount: 1 } && sr.Failures.Count >= 1
+                          && rendered.Contains("SEQ WARN") && !rendered.StartsWith("error:"),
+                          $"SEQ-WARN locked .seq dest → named WARN, compact STILL succeeds (success {o.Success}, written {sr?.Written}, warns {sr?.Failures.Count}, rendered-warn {rendered.Contains("SEQ WARN")}{(o.Success ? "" : "; ERR " + o.Error)})");
+                }
             }
         }
         finally { try { Directory.Delete(root, true); } catch { } }
@@ -211,6 +244,18 @@ public static class SeqRegenProbe
     {
         using var pp = SkyrimMod.CreateFromBinaryOverlay(pPrimePath, SkyrimRelease.SkyrimSE);
         return pp.Quests.FirstOrDefault(q => q.EditorID == edid)?.FormKey;
+    }
+
+    /// <summary>Plant a (now-stale) source <c>.seq</c> at <c>&lt;mods&gt;\&lt;folder&gt;\SEQ\&lt;folder&gt;.seq</c> listing
+    /// <paramref name="questKey"/>'s OLD on-disk FormID — the "the source mod SHIPPED a .seq" precondition the refresh-only
+    /// gate checks (File.Exists on the source plugin's SEQ\&lt;basename&gt;.seq). Returns the planted path.</summary>
+    static string PlantSourceSeq(string mods, string folder, FormKey questKey)
+    {
+        var pluginPath = Path.Combine(mods, folder, folder + ".esp");
+        var seqPath = Path.Combine(mods, folder, "SEQ", folder + ".seq");
+        Directory.CreateDirectory(Path.GetDirectoryName(seqPath)!);
+        File.WriteAllBytes(seqPath, SeqFile.Serialize(new[] { SeqFile.OnDiskFormIdFromPlugin(pluginPath, questKey) }));
+        return seqPath;
     }
 
     // ---- synthetic MO2 layout helpers (the FacegenCarry / VoiceCarry probe pattern) ----

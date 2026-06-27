@@ -902,8 +902,9 @@ public static class WritePatchBuilder
     /// (gap #2) are plugins OUTSIDE the target that OVERRIDE a renumbered record — surfaced as a WARN (they orphan after
     /// the renumber and houseCARL can't auto-repoint an override's identity); they never gate the compaction.
     /// <see cref="SeqRegen"/> (A3, null until the regen runs) is the start-game-enabled-quest <c>.seq</c> accounting — a
-    /// renumber shifts the on-disk FormIDs a <c>.seq</c> lists, so it is REBUILT from P′ (not carried) so those quests still
-    /// start; a plugin with no SGE quests is a clean no-op.</summary>
+    /// renumber shifts the on-disk FormIDs a <c>.seq</c> lists, so a <c>.seq</c> the source SHIPPED is REBUILT from P′ (not
+    /// carried) so those quests still start; REFRESH-ONLY — a source with no <c>.seq</c> gets a named advisory, not an
+    /// invented file; a plugin with no SGE quests is a clean no-op.</summary>
     public sealed record CompactOutcome(
         bool Success, string? Error, bool NeedsAcknowledge, string OutputPath, string PluginName, bool InPlace, bool Esl,
         IReadOnlyList<string> Masters, int RecordsCopied, int RecordsRenumbered, long Bytes,
