@@ -18,19 +18,31 @@ namespace HousecarlCore;
 //  This is the shared SPINE both compact and merge ride: given the renumber's old→new FormKey map
 //  and the written P′, carry each renumbered record's FormID-keyed assets to their NEW-FormID
 //  paths under the P′ mod folder. A1 covers FACEGEN (the dominant break — the dark-face bug);
-//  voice (A2), SEQ + strings (A3) extend the same service.
+//  A2 covers VOICE (.fuz/.lip — a compacted voiced mod otherwise goes mute); SEQ + strings (A3)
+//  extend the same service. Both categories ride ONE shared two-phase carry (CarryItems) — the
+//  in-place aliasing fix (PR #123) lives in exactly one place, never two diverging copies.
 //
 //  COMPOSES existing, Aaron-locked primitives — NO new path logic:
-//    • FaceGenPath.For (the pure FormKey→path transform; folder = the FormKey's defining master,
-//      so For(oldKey) and For(newKey) give the correct OLD and NEW paths automatically).
-//    • AssetResolver (resolve the OLD path to its load-order WINNING on-disk bytes, loose or BSA).
-//    • AtomicFile.WriteAllBytes (the same crash-atomic place_asset uses).
+//    • FaceGenPath.For / VoicePath (the pure FormKey→path transforms; folder = the FormKey's
+//      defining master, so For(oldKey) and For(newKey) give the correct OLD and NEW paths).
+//    • AssetResolver (resolve the OLD path to its load-order WINNING on-disk bytes, loose or BSA;
+//      EnumerateUnder lists what voice files actually exist under the plugin's voice prefix).
+//    • AtomicFile.WriteAllBytes / Commit (the same crash-atomic place_asset uses).
 //
 //  Q3 — NEVER throws and NEVER fails the compact: the RECORDS are already written correctly by the
-//  time this runs; a facegen it can't carry is a NAMED warning in the outcome, not a crash. An NPC
-//  with NO own facegen is NORMAL (vanilla/inherited head), not a failure — only a facegen that was
+//  time this runs; an asset it can't carry is a NAMED warning in the outcome, not a crash. An NPC
+//  with NO own facegen is NORMAL (vanilla/inherited head), not a failure — only an asset that was
 //  FOUND but couldn't be written is a warning. A BSA that failed to read is surfaced (ReadIncomplete)
-//  so "no facegen" is never silently trusted.
+//  so "no facegen"/"no voice" is never silently trusted.
+//
+//  WHY VOICE SCANS DISK (A2 discovery, strategy b): a facegen path is a PURE FormKey transform, but a
+//  voice filename embeds the parent quest/topic EditorIDs, the voice type, AND a response number —
+//  none of which a renumber changes. On a compact the plugin keeps its basename, so ONLY the
+//  '00<6hex>' id segment differs old→new. So instead of re-deriving the dialogue graph per INFO
+//  (which silently misses radiant/quest-alias lines whose graph won't resolve), CarryVoice ENUMERATES
+//  the voice files actually present under Sound\Voice\<plugin>\ and rewrites the id segment of each
+//  whose embedded FormID was renumbered — catching every file the engine would lose, the way
+//  zMerge/xEdit do it. Matching is purely by the on-disk filename, so it needs no record readback.
 //
 //  NON-DESTRUCTIVE: writes only the NEW-FormID copies under the P′ mod folder (the fresh folder in
 //  the new-file lane; the target's own folder in the in-place lane). The OLD-FormID files are left
@@ -48,6 +60,21 @@ public sealed record AssetRenameOutcome(
 {
     /// <summary>Nothing carried (no renumbered NPCs, or the carry was not run) — a clean zero, ReadIncomplete propagated.</summary>
     public static AssetRenameOutcome None(bool readIncomplete = false) =>
+        new(0, 0, 0, Array.Empty<string>(), readIncomplete);
+}
+
+/// <summary>The accounting of the voice-carry pass (A2). <see cref="FilesScanned"/> = voice files found under the
+/// plugin's <c>Sound\Voice\&lt;plugin&gt;\</c> prefix (the denominator). <see cref="FilesCarried"/> = those whose
+/// embedded FormID was renumbered and that were written to the new id; <see cref="LinesCarried"/> = the distinct
+/// dialogue lines (INFOs) those files belong to. <see cref="Failures"/> = a voice file FOUND but not writable (Q3 —
+/// a file simply NOT keyed to a renumbered line is not a failure). <see cref="ReadIncomplete"/> = a BSA failed to
+/// read this scan, so a "no voice" answer may be incomplete (audio present only in an unreadable archive looks absent).</summary>
+public sealed record VoiceCarryOutcome(
+    int FilesScanned, int FilesCarried, int LinesCarried,
+    IReadOnlyList<string> Failures, bool ReadIncomplete)
+{
+    /// <summary>Nothing carried (no renumbered records, or no voice files) — a clean zero, ReadIncomplete propagated.</summary>
+    public static VoiceCarryOutcome None(bool readIncomplete = false) =>
         new(0, 0, 0, Array.Empty<string>(), readIncomplete);
 }
 
@@ -87,66 +114,158 @@ public static class AssetRenameService
 
         if (npcs.Count == 0) return AssetRenameOutcome.None(assets.ReadIncomplete);
 
-        // 2. Carry each NPC's mesh + tint from the old path's WINNING copy to the new path — in TWO PHASES so that ALL
-        //    reads complete before ANY commit. The renumber packs the new IDs into the same 0x800–0xFFF window the source
-        //    already used, so in the IN-PLACE lane (outDir == the target's OWN folder) a new-FormID write would otherwise
-        //    CLOBBER a not-yet-read old-FormID facegen of a DIFFERENT NPC — handing that NPC another's face, a Q3 silent
-        //    wrong answer (PR #123 review). Phase 1 stages each new file to a '.houseCARL-tmp' SIBLING (a name that never
-        //    collides with an old '00<hex>.nif' read path), so every read sees the original bytes; phase 2 commits the
-        //    temps via AtomicFile.Commit once all reads are done. O(1) memory per file (staged to disk, not buffered).
-        //    The new-file lane (fresh folder, no old facegen to clobber) is already safe but rides the same correct path.
-        var failures = new List<string>();
-        var pending = new List<(string Staged, string Final, FormKey NewKey)>();
-
-        // ---- phase 1: read every old facegen + stage it to a temp (writes ONLY '.houseCARL-tmp', never an old '00<hex>.nif') ----
+        // 2. Build the carry list — each renumbered NPC's mesh + tint, OLD path → NEW path — and run it through the shared
+        //    two-phase carry (CarryItems): all reads stage to temps before ANY commit, so the in-place lane can't read-after
+        //    -write alias one NPC's facegen over another's not-yet-read file (PR #123). The dark-face pair is placed together.
+        var items = new List<CarryItem>();
         foreach (var (oldKey, newKey) in npcs)
             foreach (var (slot, oldPath) in FaceGenPath.Both(oldKey))      // (Mesh, …), (Tint, …) — the dark-face pair
-            {
-                var res = assets.ResolveForPlacement(oldPath);
-                if (res.Sources.Count == 0) continue;                      // no facegen for this slot — NORMAL (vanilla/inherited head)
+                items.Add(new CarryItem(oldPath, FaceGenPath.For(newKey, slot), newKey, $"{oldKey.ID:X6}→{newKey.ID:X6} {slot}"));
 
-                var (bytes, err) = ReadWinner(res.Sources[0]);             // the copy that currently displays in-game
-                if (err is not null) { failures.Add($"{oldKey.ID:X6} {slot}: {err}"); continue; }
+        var failures = new List<string>();
+        var (files, carried) = CarryItems(items, assets, outDir, failures);
+        return new AssetRenameOutcome(npcs.Count, carried.Count, files, failures, assets.ReadIncomplete);
+    }
 
-                var rel = FaceGenPath.For(newKey, slot);
-                var final = Path.Combine(outDir, rel);
-                var staged = final + ".houseCARL-tmp";                     // sibling temp — distinct from every '00<hex>.nif' read path
-                try
-                {
-                    Directory.CreateDirectory(Path.GetDirectoryName(final)!);
-                    try { if (File.Exists(staged)) File.Delete(staged); } catch { /* a stuck temp surfaces on the write below */ }
-                    File.WriteAllBytes(staged, bytes!);
-                    // Truncation guard on the TEMP (the commit is an atomic rename, which can't truncate): a short stage is caught here.
-                    long size; try { size = new FileInfo(staged).Length; } catch { size = -1; }
-                    if (size != bytes!.Length)
-                    {
-                        failures.Add($"{newKey.ID:X6} {slot}: staged {size} byte(s), expected {bytes.Length} — verify.");
-                        try { File.Delete(staged); } catch { }
-                        continue;
-                    }
-                    pending.Add((staged, final, newKey));
-                }
-                catch (Exception ex)
-                {
-                    failures.Add($"{newKey.ID:X6} {slot}: could not stage '{rel}' — {ex.Message}");
-                    try { if (File.Exists(staged)) File.Delete(staged); } catch { }
-                }
-            }
+    /// <summary>Carry the VOICE files (.fuz/.lip/…) of every RENUMBERED dialogue line (INFO) in <paramref name="pPrimePath"/>
+    /// from their OLD-FormID name to their NEW-FormID name, writing the new copies under <paramref name="outDir"/> (the P′
+    /// mod-folder root, as <see cref="CarryFaceGen"/>). DISCOVERS by SCANNING the plugin's voice prefix rather than re-deriving
+    /// the dialogue graph (see the file header): every file under <c>Sound\Voice\&lt;basename&gt;\</c> whose embedded local
+    /// FormID is a renumbered key in <paramref name="map"/> gets its id segment rewritten to the new id. On a compact the
+    /// plugin keeps its basename, so the folder + voice-type + quest/topic + response-number segments are unchanged — ONLY the
+    /// id moves. Rides the same two-phase <see cref="CarryItems"/> as facegen (same in-place aliasing guard). Best-effort +
+    /// reported (Q3): records are already written, so this never throws and never fails the compact.</summary>
+    public static VoiceCarryOutcome CarryVoice(
+        string pPrimePath, IReadOnlyDictionary<FormKey, FormKey> map, AssetResolver.AssetView assets, string outDir)
+    {
+        var basename = Path.GetFileName(pPrimePath);                        // P′ keeps the source basename → the voice folder name (with ext)
 
-        // ---- phase 2: commit every staged temp (all reads done → overwriting an old facegen at a now-reused name is safe) ----
-        int files = 0;
-        var carriedKeys = new HashSet<FormKey>();
-        foreach (var (staged, final, newKey) in pending)
+        // local-id → new-local-id for THIS plugin's renumbered records — the only ones whose voice lives under
+        // Sound\Voice\<basename>\ (an override kept at a master key has its voice under the MASTER's folder, untouched).
+        var idMap = new Dictionary<uint, uint>();
+        foreach (var kv in map)
+            if (string.Equals(kv.Key.ModKey.FileName.ToString(), basename, StringComparison.OrdinalIgnoreCase))
+                idMap[kv.Key.ID] = kv.Value.ID;
+        if (idMap.Count == 0) return VoiceCarryOutcome.None(assets.ReadIncomplete);
+
+        // The new INFO FormKeys need a ModKey for the distinct-line accounting; basename came from a real plugin path, so
+        // this is valid (a malformed name is surfaced rather than silently producing a zero pass — Q3).
+        ModKey modKey;
+        try { modKey = ModKey.FromFileName(basename); }
+        catch (Exception ex)
         {
-            try { AtomicFile.Commit(staged, final); files++; carriedKeys.Add(newKey); }
+            return new VoiceCarryOutcome(0, 0, 0,
+                new[] { $"'{basename}' is not a valid plugin filename for voice carry ({ex.Message}) — verify voiced lines in-game." },
+                assets.ReadIncomplete);
+        }
+
+        IReadOnlyCollection<string> files;
+        try { files = assets.EnumerateUnder($@"Sound\Voice\{basename}"); }
+        catch (Exception ex)
+        {
+            return new VoiceCarryOutcome(0, 0, 0,
+                new[] { $@"could not scan 'Sound\Voice\{basename}' for voice files ({ex.Message}) — verify voiced lines in-game." },
+                assets.ReadIncomplete);
+        }
+        if (files.Count == 0) return VoiceCarryOutcome.None(assets.ReadIncomplete);
+
+        // Build the carry list: each voice file whose embedded id was renumbered → its new-id name (ONLY the id segment
+        // changes — see the header). A file with no '_<8hex>_<num>.<ext>' tail, or whose id wasn't renumbered, is left alone.
+        var items = new List<CarryItem>();
+        foreach (var oldRel in files)
+        {
+            var fname = Path.GetFileName(oldRel);
+            var m = VoiceIdRx.Match(fname);
+            if (!m.Success) continue;                                      // not an INFO-keyed voice file — nothing to remap
+            uint full;
+            try { full = Convert.ToUInt32(m.Groups[1].Value, 16); } catch { continue; }
+            uint oldLocal = full & 0xFFFFFFu;                              // mask the index byte, exactly like VoicePath emits "00"+6hex
+            if (!idMap.TryGetValue(oldLocal, out var newLocal)) continue;  // id not renumbered → filename unchanged → no carry
+
+            var newId = "00" + newLocal.ToString("X6");
+            var newFname = fname.Substring(0, m.Groups[1].Index) + newId + fname.Substring(m.Groups[1].Index + m.Groups[1].Length);
+            var dir = Path.GetDirectoryName(oldRel) ?? "";                 // same voice-type folder — only the filename's id moves
+            var newRel = dir.Length == 0 ? newFname : Path.Combine(dir, newFname);
+            items.Add(new CarryItem(oldRel, newRel, new FormKey(modKey, newLocal), $"{oldLocal:X6}→{newLocal:X6} {fname}"));
+        }
+
+        var failures = new List<string>();
+        var (carriedFiles, carriedLines) = CarryItems(items, assets, outDir, failures);
+        return new VoiceCarryOutcome(files.Count, carriedFiles, carriedLines.Count, failures, assets.ReadIncomplete);
+    }
+
+    /// <summary>One asset to carry: read <see cref="OldPath"/>'s winning on-disk copy and place its bytes at
+    /// <see cref="NewPath"/> under the output dir. <see cref="Owner"/> is the renumbered record the asset belongs to (the
+    /// distinct-owner count = NPCs-carried for facegen, lines-carried for voice); <see cref="Label"/> prefixes any failure.</summary>
+    readonly record struct CarryItem(string OldPath, string NewPath, FormKey Owner, string Label);
+
+    /// <summary>The shared TWO-PHASE carry both facegen (A1) and voice (A2) ride. Phase 1: resolve each item's OLD path to
+    /// its WINNING on-disk bytes and stage them to a '.houseCARL-tmp' SIBLING of the final new path (a name that never
+    /// collides with an old '00&lt;hex&gt;.ext' read path). Phase 2: once EVERY read is done, commit the temps via
+    /// <see cref="AtomicFile.Commit"/>. Staging-before-committing is the in-place-aliasing fix (PR #123): the renumber packs
+    /// the new ids into the same window the source used, so in the in-place lane (outDir == the donor's own folder) a direct
+    /// new-id write could clobber a DIFFERENT record's not-yet-read old-id file — handing it the wrong face/voice (a Q3 silent
+    /// wrong answer). O(1) memory per file (staged to disk, not buffered). A resolve MISS is skipped silently (the caller
+    /// decides whether "absent" is normal); a FOUND-but-unwritable file is a NAMED failure. Returns (files committed, the set
+    /// of distinct owners that had ≥1 file committed). Never throws — the records are already written.</summary>
+    static (int Files, HashSet<FormKey> Owners) CarryItems(
+        IReadOnlyList<CarryItem> items, AssetResolver.AssetView assets, string outDir, List<string> failures)
+    {
+        var pending = new List<(string Staged, string Final, FormKey Owner)>();
+
+        // ---- phase 1: read every old asset + stage it to a temp (writes ONLY '.houseCARL-tmp', never an old read path) ----
+        foreach (var it in items)
+        {
+            var res = assets.ResolveForPlacement(it.OldPath);
+            if (res.Sources.Count == 0) continue;                          // not on disk — the caller decides if that's normal
+
+            var (bytes, err) = ReadWinner(res.Sources[0]);                 // the copy that currently displays/plays in-game
+            if (err is not null) { failures.Add($"{it.Label}: {err}"); continue; }
+
+            var final = Path.Combine(outDir, it.NewPath);
+            var staged = final + ".houseCARL-tmp";                         // sibling temp — distinct from every old read path
+            try
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(final)!);
+                try { if (File.Exists(staged)) File.Delete(staged); } catch { /* a stuck temp surfaces on the write below */ }
+                File.WriteAllBytes(staged, bytes!);
+                // Truncation guard on the TEMP (the commit is an atomic rename, which can't truncate): a short stage is caught here.
+                long size; try { size = new FileInfo(staged).Length; } catch { size = -1; }
+                if (size != bytes!.Length)
+                {
+                    failures.Add($"{it.Label}: staged {size} byte(s), expected {bytes.Length} — verify.");
+                    try { File.Delete(staged); } catch { }
+                    continue;
+                }
+                pending.Add((staged, final, it.Owner));
+            }
             catch (Exception ex)
             {
-                failures.Add($"{newKey.ID:X6}: could not commit '{Path.GetFileName(final)}' — {ex.Message}");
+                failures.Add($"{it.Label}: could not stage '{it.NewPath}' — {ex.Message}");
                 try { if (File.Exists(staged)) File.Delete(staged); } catch { }
             }
         }
-        return new AssetRenameOutcome(npcs.Count, carriedKeys.Count, files, failures, assets.ReadIncomplete);
+
+        // ---- phase 2: commit every staged temp (all reads done → overwriting an old file at a now-reused name is safe) ----
+        int files = 0;
+        var owners = new HashSet<FormKey>();
+        foreach (var (staged, final, owner) in pending)
+        {
+            try { AtomicFile.Commit(staged, final); files++; owners.Add(owner); }
+            catch (Exception ex)
+            {
+                failures.Add($"could not commit '{Path.GetFileName(final)}' — {ex.Message}");
+                try { if (File.Exists(staged)) File.Delete(staged); } catch { }
+            }
+        }
+        return (files, owners);
     }
+
+    /// <summary>Matches a voice file's '_&lt;8hex&gt;_&lt;response&gt;.&lt;ext&gt;' tail (anchored to the end, so quest/topic
+    /// EditorID segments that themselves contain underscores or hex don't confuse it). Group 1 is the 8-hex FormID segment —
+    /// the only part a renumber moves. Compiled: CarryVoice runs it once per discovered file.</summary>
+    static readonly System.Text.RegularExpressions.Regex VoiceIdRx =
+        new(@"_([0-9A-Fa-f]{8})_\d+\.[A-Za-z0-9]+$", System.Text.RegularExpressions.RegexOptions.Compiled);
 
     /// <summary>Read the bytes of a resolved WINNING provider — a loose file off disk, or a single BSA entry via native
     /// Mutagen (zero handle at rest, the AssetResolver.TryReadArchiveEntry cornerstone). Mirrors LoadOrderService.ReadResolvedSource

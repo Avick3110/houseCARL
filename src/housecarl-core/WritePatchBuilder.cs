@@ -896,7 +896,9 @@ public static class WritePatchBuilder
     /// (externals present, no opt-in) the list IS the refusal detail; with opt-in repoint, <see cref="Repointed"/> reports
     /// each. <see cref="PluginsScanned"/>/<see cref="UnscannableRecords"/> are the identify-pass coverage accounting.
     /// <see cref="AssetRename"/> (null until the asset-carry runs) is the FormID-keyed-asset accounting — A1: facegen
-    /// carried to the new FormIDs (so a compacted NPC mod no longer silently dark-faces). <see cref="ExternalOverriders"/>
+    /// carried to the new FormIDs (so a compacted NPC mod no longer silently dark-faces). <see cref="VoiceRename"/>
+    /// (A2, null until the carry runs) is the same for voice (.fuz/.lip), so a compacted voiced mod no longer goes mute.
+    /// <see cref="ExternalOverriders"/>
     /// (gap #2) are plugins OUTSIDE the target that OVERRIDE a renumbered record — surfaced as a WARN (they orphan after
     /// the renumber and houseCARL can't auto-repoint an override's identity); they never gate the compaction.</summary>
     public sealed record CompactOutcome(
@@ -904,7 +906,8 @@ public static class WritePatchBuilder
         IReadOnlyList<string> Masters, int RecordsCopied, int RecordsRenumbered, long Bytes,
         IReadOnlyList<string> ExternalPlugins, IReadOnlyList<RepointReport> Repointed,
         int PluginsScanned, int UnscannableRecords, IReadOnlyList<string> UnscannableSamples, string? Note = null,
-        AssetRenameOutcome? AssetRename = null, IReadOnlyList<string>? ExternalOverriders = null)
+        AssetRenameOutcome? AssetRename = null, IReadOnlyList<string>? ExternalOverriders = null,
+        VoiceCarryOutcome? VoiceRename = null)
     {
         public static CompactOutcome Fail(string error) =>
             new(false, error, false, "", "", false, false, Array.Empty<string>(), 0, 0, 0,

@@ -116,6 +116,10 @@ public static class CiAll
         // FaceGen (head mesh + face tint) to the new FormID, end-to-end through the real service, so it no longer silently
         // dark-faces (the gap MERGE_REFERENCE_RESEARCH §3/§8 exposed in the shipped tool). New-file + in-place + no-facegen.
         ("facegen-carry-guard", FacegenCarryProbe.RunGuard),
+        // COMPACT/MERGE Wave A2 — the asset-rename spine's SECOND category: compacting a VOICED mod carries its FormID-keyed
+        // voice (.fuz spoken audio + .lip lip-sync) to the new INFO FormID, end-to-end through the real service, so it no
+        // longer silently goes mute. New-file + in-place + multi-line + no-voice; rides the same two-phase carry as facegen.
+        ("voice-carry-guard", VoiceCarryProbe.RunGuard),
         // COMPACT gap #2 — the identify-pass now detects external OVERRIDERS (a plugin that overrides a renumbered record,
         // not just one that FormLinks to it), surfaced as a WARN (warn-and-proceed, xEdit parity) distinct from the
         // referencer refuse/repoint. Proves overrider→success+named and referencer→refused stay separate.

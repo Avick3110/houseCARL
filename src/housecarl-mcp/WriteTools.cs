@@ -612,10 +612,27 @@ public static class WriteTools
                 sb.Append("  note: a BSA failed to read this scan, so a 'no facegen' result may be incomplete — verify NPC faces in-game.\n");
         }
 
+        // Voice (.fuz/.lip) carried WITH the renumber (compact/merge Wave A2) — the renumber moved every INFO to a new
+        // FormID, and a voice filename is keyed by the OLD FormID, so carrying it is what stops a compacted voiced mod
+        // going mute. Reported, not silent (Q3) — and the old "voice NOT carried, verify yourself" reminder is now retired.
+        if (o.VoiceRename is { } vr)
+        {
+            if (vr.FilesCarried > 0)
+                sb.Append("voice: carried ").Append(vr.FilesCarried).Append(vr.FilesCarried == 1 ? " file for " : " files for ")
+                  .Append(vr.LinesCarried).Append(vr.LinesCarried == 1 ? " dialogue line to the new FormIDs" : " dialogue lines to the new FormIDs")
+                  .Append(o.InPlace ? " (old-FormID voice left as harmless orphans).\n" : " (in the new mod folder — enabling it carries the voice).\n");
+            else if (vr.FilesScanned > 0 && vr.Failures.Count == 0)
+                sb.Append("voice: ").Append(vr.FilesScanned).Append(vr.FilesScanned == 1 ? " voice file found, none keyed to a renumbered line" : " voice files found, none keyed to a renumbered line")
+                  .Append(" — nothing to carry.\n");
+            foreach (var f in vr.Failures.Take(25)) sb.Append("  voice WARN: ").Append(f).Append('\n');
+            if (vr.Failures.Count > 25) sb.Append("  voice WARN: … (+").Append(vr.Failures.Count - 25).Append(" more)\n");
+            if (vr.ReadIncomplete)
+                sb.Append("  note: a BSA failed to read this scan, so a 'no voice' result may be incomplete — verify voiced lines in-game.\n");
+        }
+
         if (o.Note is { } note) sb.Append("note: ").Append(note).Append('\n');
-        sb.Append("reminder: voiced dialogue files (.fuz/.lip, named by the OLD FormID) are NOT yet carried by compact — ")
-          .Append("verify voiced lines after compacting. FormIDs compiled into Papyrus (.pex hardcoded / GetFormFromFile) and ")
-          .Append("any Mutagen-delta residual are NOT remappable — verify scripted records too.");
+        sb.Append("reminder: FormIDs compiled into Papyrus (.pex hardcoded / GetFormFromFile) and any Mutagen-delta ")
+          .Append("residual are NOT remappable — verify scripted records after compacting.");
         return sb.ToString();
     }
 
