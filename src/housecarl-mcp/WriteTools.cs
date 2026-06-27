@@ -581,9 +581,28 @@ public static class WriteTools
               .Append("'external referencers: none' may be incomplete — verify in xEdit. Samples: ").Append(string.Join("; ", o.UnscannableSamples)).Append('\n');
         }
         sb.Append("identify-pass scanned ").Append(o.PluginsScanned).Append(" plugin(s) for external references.\n");
+
+        // FormID-keyed assets carried WITH the renumber (compact/merge Wave A1: facegen) — the renumber moved every record
+        // to a new FormID, so the engine looks the head mesh/tint up under the NEW name; carrying them is what stops a
+        // compacted NPC mod silently dark-facing. Reported, not silent (Q3).
+        if (o.AssetRename is { } ar)
+        {
+            if (ar.FacegenFilesCarried > 0)
+                sb.Append("facegen: carried ").Append(ar.FacegenFilesCarried).Append(ar.FacegenFilesCarried == 1 ? " file for " : " files for ")
+                  .Append(ar.FacegenNpcsCarried).Append(ar.FacegenNpcsCarried == 1 ? " NPC to the new FormIDs" : " NPCs to the new FormIDs")
+                  .Append(o.InPlace ? " (old-FormID facegen left as harmless orphans).\n" : " (in the new mod folder — enabling it carries the faces).\n");
+            else if (ar.NpcCount > 0)
+                sb.Append("facegen: none found for this plugin's ").Append(ar.NpcCount).Append(ar.NpcCount == 1 ? " NPC — nothing to carry.\n" : " NPCs — nothing to carry.\n");
+            foreach (var f in ar.Failures.Take(25)) sb.Append("  facegen WARN: ").Append(f).Append('\n');
+            if (ar.Failures.Count > 25) sb.Append("  facegen WARN: … (+").Append(ar.Failures.Count - 25).Append(" more)\n");
+            if (ar.ReadIncomplete)
+                sb.Append("  note: a BSA failed to read this scan, so a 'no facegen' result may be incomplete — verify NPC faces in-game.\n");
+        }
+
         if (o.Note is { } note) sb.Append("note: ").Append(note).Append('\n');
-        sb.Append("reminder: FormIDs compiled into Papyrus (.pex hardcoded / GetFormFromFile) and any Mutagen-delta residual ")
-          .Append("are NOT remappable — verify scripted records after compacting.");
+        sb.Append("reminder: voiced dialogue files (.fuz/.lip, named by the OLD FormID) are NOT yet carried by compact — ")
+          .Append("verify voiced lines after compacting. FormIDs compiled into Papyrus (.pex hardcoded / GetFormFromFile) and ")
+          .Append("any Mutagen-delta residual are NOT remappable — verify scripted records too.");
         return sb.ToString();
     }
 

@@ -1663,6 +1663,25 @@ public sealed class LoadOrderService : IDisposable
                     repointed.Add(new WritePatchBuilder.RepointReport(ext, rep.Success, rep.Error));
                 }
 
+            // 7b. carry FormID-keyed assets (compact/merge Wave A1: facegen). The records renumbered, so the asset FILES the
+            //     engine looks up BY FormID — FaceGen head mesh/tint — must follow, or a compacted NPC mod silently dark-faces
+            //     (the gap this research exposed in the shipped tool). Best-effort + REPORTED (Q3): the records are already
+            //     written, so a facegen we can't carry is a NAMED warning in the outcome, never a failure of the compaction —
+            //     and the asset layer failing to build never fails the compact either. outDir = the P′ mod-folder root (the
+            //     directory holding the plugin) in BOTH lanes (new-file: the fresh folder; in-place: the target's own folder).
+            AssetRenameOutcome assetRename;
+            try
+            {
+                AssetResolver assetResolver;
+                lock (_gate) { assetResolver = Assets; }                  // reentrant under the held _writeGate (the PlaceAssets idiom)
+                assetRename = AssetRenameService.CarryFaceGen(outPath, plan.Dict, assetResolver.Capture(), Path.GetDirectoryName(outPath)!);
+            }
+            catch (Exception ex)
+            {
+                assetRename = new AssetRenameOutcome(0, 0, 0,
+                    new[] { $"facegen carry skipped — the asset layer could not be built ({ex.Message}); verify NPC faces in-game." }, false);
+            }
+
             // 8. audit markers (PR #122 review #2): stamp the distinct editedInPlace= breadcrumb into the meta.ini of EVERY
             //    file rewritten IN PLACE — the target (in-place lane) + each successfully repointed external — matching the
             //    traceability the in-place EDIT lane gives. The CONSENT model deliberately stays compact's own per-call
@@ -1681,7 +1700,7 @@ public sealed class LoadOrderService : IDisposable
             return new WritePatchBuilder.CompactOutcome(
                 true, null, false, outPath, name, inPlace, esl, build.Masters, build.RecordsCopied, build.RecordsRenumbered,
                 build.Bytes, id.ExternalPlugins, repointed, id.PluginsScanned, id.UnscannableRecords, id.UnscannableSamples,
-                markerNotes.Count > 0 ? string.Join(" ", markerNotes) : null);
+                markerNotes.Count > 0 ? string.Join(" ", markerNotes) : null, assetRename);
         }
     }
 
