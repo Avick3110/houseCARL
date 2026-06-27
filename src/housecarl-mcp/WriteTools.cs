@@ -575,6 +575,19 @@ public static class WriteTools
             if (o.ExternalPlugins.Count > 25) sb.Append("  - … (+").Append(o.ExternalPlugins.Count - 25).Append(" more)\n");
         }
 
+        // External OVERRIDERS (gap #2) — plugins that OVERRIDE a renumbered record (not just reference it). They orphan
+        // after the renumber (the override points at a base FormID that no longer exists), and houseCARL CANNOT auto-repoint
+        // an override — that's an identity change, not a link rewrite — so this is a WARN (xEdit parity), not the referencer
+        // refuse/repoint path. Named per-plugin so the user can re-point or rebuild them (better than xEdit's blanket warning).
+        if (o.ExternalOverriders is { Count: > 0 } overriders)
+        {
+            sb.Append("external OVERRIDERS (").Append(overriders.Count).Append("): these plugins OVERRIDE a renumbered record and will ")
+              .Append("ORPHAN after the renumber — houseCARL can't auto-repoint an override (identity change, not a link). ")
+              .Append("Re-point or rebuild them against the new FormIDs, or don't enable the compacted plugin over them:\n");
+            foreach (var pl in overriders.Take(25)) sb.Append("  ! ").Append(pl).Append('\n');
+            if (overriders.Count > 25) sb.Append("  ! … (+").Append(overriders.Count - 25).Append(" more)\n");
+        }
+
         if (o.UnscannableRecords > 0)
         {
             sb.Append("note: ").Append(o.UnscannableRecords).Append(" record(s) couldn't be scanned in the external-reference pass, so an ")

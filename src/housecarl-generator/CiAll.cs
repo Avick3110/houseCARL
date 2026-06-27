@@ -116,6 +116,10 @@ public static class CiAll
         // FaceGen (head mesh + face tint) to the new FormID, end-to-end through the real service, so it no longer silently
         // dark-faces (the gap MERGE_REFERENCE_RESEARCH §3/§8 exposed in the shipped tool). New-file + in-place + no-facegen.
         ("facegen-carry-guard", FacegenCarryProbe.RunGuard),
+        // COMPACT gap #2 — the identify-pass now detects external OVERRIDERS (a plugin that overrides a renumbered record,
+        // not just one that FormLinks to it), surfaced as a WARN (warn-and-proceed, xEdit parity) distinct from the
+        // referencer refuse/repoint. Proves overrider→success+named and referencer→refused stay separate.
+        ("overrider-detect-guard", OverriderDetectProbe.RunGuard),
     };
 
     /// <summary>Dispatch a single CI guard by name through the registry — the ONE place a CI probe is listed, so
