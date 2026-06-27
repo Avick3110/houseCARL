@@ -24,6 +24,8 @@ namespace HousecarlGenerator;
 ///   NO-SGE     — a plugin with no SGE quests writes NO .seq and is NOT a failure (SgeQuestCount 0, Written false, 0 WARN).
 ///   NO-SOURCE-SEQ — SGE quests but NO source .seq → a named WARN advising write_seq, NOT an invented file (the maintainer's
 ///                refresh-only narrowing): no .seq is written anywhere and the compact still succeeds.
+///   SEPARATE-FOLDER-SEQ — a .seq in a DIFFERENT active mod folder (a prior write_seq's houseCARL_SEQ default) is still
+///                detected by the VFS-aware gate → the refresh fires (re-review Finding 1: RED under a loose File.Exists).
 ///   SEQ-WARN   — a source .seq that exists but whose write FAILS (held under an exclusive lock) DEGRADES to a named WARN
 ///                (in the outcome AND the rendered output) while the compact STILL succeeds — A3's core Q3 contract.
 /// Run: dotnet run --project src/housecarl-generator -- seq-regen-guard
@@ -186,8 +188,42 @@ public static class SeqRegenProbe
                 var sr = o.SeqRegen;
                 var rendered = o.Success ? WriteTools.RenderCompact(o) : "";
                 Check(o.Success && noSeqWritten && sr is { Written: false, SgeQuestCount: 1 } && sr.Failures.Count >= 1
-                      && rendered.Contains("SEQ WARN") && rendered.Contains("housecarl_write_seq"),
+                      && rendered.Contains("SEQ WARN") && rendered.Contains("but no .seq"),
                       $"NO-SOURCE-SEQ SGE quests but no source .seq → no file invented, advisory WARN, compact succeeds (no-file {noSeqWritten}, written {sr?.Written}, warns {sr?.Failures.Count}{(o.Success ? "" : "; ERR " + o.Error)})");
+            }
+
+            // ================= SEPARATE-FOLDER-SEQ (re-review Finding 1): a .seq in a DIFFERENT active mod folder is detected (VFS gate) =================
+            // The refresh-only gate must see a .seq anywhere the engine reads (loose roots + BSAs), not just the source mod
+            // folder — else the write_seq→compact workflow (write_seq files the .seq in its OWN houseCARL_SEQ mod folder for a
+            // non-houseCARL plugin) wrongly advises, and the stale .seq elsewhere breaks the renumbered quests. Plant the .seq
+            // in a SEPARATE active mod folder and prove the refresh STILL fires. RED under a loose File.Exists on the source folder.
+            {
+                var (mods, prof) = MakeInstance(Path.Combine(root, "sep"));
+                var key = new ModKey("SeqSep", ModType.Plugin);
+                var qOld = new FormKey(key, 0x900);
+                WriteMod(mods, "SeqSep", key, m => AddSgeQuest(m, qOld, "HcSeqQ"));
+                var sepSeqDir = Path.Combine(mods, "SeqSepSeq", "SEQ");     // a SEPARATE, plugin-less, ACTIVE mod folder holds the .seq
+                Directory.CreateDirectory(sepSeqDir);
+                File.WriteAllBytes(Path.Combine(sepSeqDir, "SeqSep.seq"),
+                    SeqFile.Serialize(new[] { SeqFile.OnDiskFormIdFromPlugin(Path.Combine(mods, "SeqSep", "SeqSep.esp"), qOld) }));
+                WriteProfile(prof, new[] { key.FileName.String }, new[] { "*" + key.FileName }, new[] { "+SeqSepSeq", "+SeqSep" });
+                WriteSkyrimIni(prof);
+
+                using var svc = LoadOrderService.WithInstance(Path.Combine(root, "sep"), 0, new UserConfigStore(Path.Combine(root, "user-sep.json")));
+                svc.Stats();
+
+                var o = svc.CompactPlugin("SeqSep.esp");
+                FormKey? qNew = null; bool refreshed = false;
+                if (o.Success && File.Exists(o.OutputPath))
+                {
+                    qNew = ReadQuestKey(o.OutputPath, "HcSeqQ");
+                    var outSeq = Path.Combine(Path.GetDirectoryName(o.OutputPath)!, "SEQ", "SeqSep.seq");
+                    if (qNew is { } nk && File.Exists(outSeq))
+                        refreshed = SeqFile.SeqContains(File.ReadAllBytes(outSeq), SeqFile.OnDiskFormIdFromPlugin(o.OutputPath, nk));
+                }
+                var sr = o.SeqRegen;
+                Check(o.Success && refreshed && sr is { Written: true, SgeQuestCount: 1 },
+                      $"SEPARATE-FOLDER-SEQ a .seq in a different active mod folder is detected → refresh fires (refreshed {refreshed}, written {sr?.Written}{(o.Success ? "" : "; ERR " + o.Error)})");
             }
 
             // ================= SEQ-WARN: a source .seq exists but its write FAILS → DEGRADES to a named WARN, compact STILL succeeds =================
@@ -215,8 +251,8 @@ public static class SeqRegenProbe
                     var sr = o.SeqRegen;
                     var rendered = WriteTools.RenderCompact(o);           // the WARN must reach the user-visible output, not just the outcome
                     Check(o.Success && sr is { Written: false, SgeQuestCount: 1 } && sr.Failures.Count >= 1
-                          && rendered.Contains("SEQ WARN") && !rendered.StartsWith("error:"),
-                          $"SEQ-WARN locked .seq dest → named WARN, compact STILL succeeds (success {o.Success}, written {sr?.Written}, warns {sr?.Failures.Count}, rendered-warn {rendered.Contains("SEQ WARN")}{(o.Success ? "" : "; ERR " + o.Error)})");
+                          && rendered.Contains("SEQ WARN") && rendered.Contains("could not write") && !rendered.StartsWith("error:"),
+                          $"SEQ-WARN locked .seq dest → named write-failure WARN, compact STILL succeeds (success {o.Success}, written {sr?.Written}, warns {sr?.Failures.Count}, rendered-warn {rendered.Contains("SEQ WARN")}{(o.Success ? "" : "; ERR " + o.Error)})");
                 }
             }
         }
