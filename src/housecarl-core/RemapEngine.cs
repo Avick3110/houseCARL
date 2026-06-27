@@ -57,19 +57,35 @@ public static class RemapEngine
     /// is repointed too (<see cref="RepointInPlace"/>).</summary>
     public sealed record ExternalRef(string Plugin, FormKey Source, string SourceType, FormKey Target);
 
+    /// <summary>One external OVERRIDE of a record being remapped: a record in a plugin OUTSIDE the set whose OWN FormKey
+    /// is in the remap set — it OVERRIDES a record about to be renumbered (gap #2). After the renumber that override points
+    /// at a base FormID that no longer exists → orphaned override + missing master. Unlike <see cref="ExternalRef"/> it
+    /// CANNOT be auto-repointed: fixing it means changing the override's OWN identity, not rewriting an outgoing link
+    /// (<see cref="RepointInPlace"/>/RemapLinks only do links), so it is surfaced as a WARN, never routed through the
+    /// repoint path (Q3 — that would report a false success). <paramref name="Record"/> is the overridden FormKey.</summary>
+    public sealed record ExternalOverride(string Plugin, FormKey Record, string RecordType);
+
     /// <summary>The identify-pass result: every external reference found, the DISTINCT referencing plugins (load order,
-    /// the opt-in-rewrite set), how many plugins were scanned, and the per-record fault-isolation accounting (a record
-    /// whose link walk threw is counted + sampled, never a silent skip — Q3).</summary>
+    /// the opt-in-rewrite set), the external OVERRIDERS (gap #2 — detect + warn, NOT repointable), how many plugins were
+    /// scanned, and the per-record fault-isolation accounting (a record whose link walk threw is counted + sampled, never
+    /// a silent skip — Q3).</summary>
     public sealed record IdentifyResult(
         IReadOnlyList<ExternalRef> Refs,
         IReadOnlyList<string> ExternalPlugins,
         int PluginsScanned,
         int UnscannableRecords,
-        IReadOnlyList<string> UnscannableSamples)
+        IReadOnlyList<string> UnscannableSamples,
+        IReadOnlyList<ExternalOverride> Overrides,
+        IReadOnlyList<string> ExternalOverriders)
     {
         /// <summary>True when at least one plugin OUTSIDE the transform set references a remapped FormKey — the
         /// signal the default new-plugin path must NOT take silently (plan §2: fail loud + offer opt-in rewrite).</summary>
         public bool HasExternalReferencers => ExternalPlugins.Count > 0;
+
+        /// <summary>True when at least one plugin OUTSIDE the transform set OVERRIDES a remapped record (gap #2). Unlike
+        /// <see cref="HasExternalReferencers"/> this does NOT gate the operation — an override can't be auto-fixed, so the
+        /// posture is warn-and-proceed (xEdit parity), never refuse.</summary>
+        public bool HasExternalOverriders => ExternalOverriders.Count > 0;
     }
 
     /// <summary>
@@ -88,6 +104,8 @@ public static class RemapEngine
         var view = resolver.Capture();
         var refs = new List<ExternalRef>();
         var externalPlugins = new List<string>();        // load-order order, distinct
+        var overrides = new List<ExternalOverride>();     // gap #2: external plugins that OVERRIDE a remapped record
+        var externalOverriders = new List<string>();      // distinct overriding plugins, load-order order
         int scanned = 0, unscannable = 0;
         var unscannableSamples = new List<string>();
         // PluginNames CAN list a filename more than once in a degenerate order; scanning a name twice would
@@ -102,6 +120,7 @@ public static class RemapEngine
             if (!scannedNames.Add(plugin)) continue;                     // a duplicate name in the order — scan/list it once (Q3: no double-count)
             scanned++;
             bool pluginListed = false;
+            bool pluginListedOverride = false;
 
             try
             {
@@ -112,6 +131,17 @@ public static class RemapEngine
                     // whole-call abort and never a silent skip (Q3).
                     try
                     {
+                        // OVERRIDER (gap #2): this external plugin's record shares a FormKey being remapped → it OVERRIDES
+                        // a record about to be renumbered. Detected by IDENTITY (fk), independent of outgoing links, so it
+                        // is checked BEFORE the FormLinkContainer guard (an override with no outgoing ref into the set is
+                        // still a dependent the old link-only walk missed). It CANNOT be auto-repointed (identity change,
+                        // not a link rewrite) → collected for a WARN, never routed through the referencer repoint (Q3).
+                        if (targets.Contains(fk))
+                        {
+                            overrides.Add(new ExternalOverride(plugin, fk, RecordNaming.StripOverlay(body.GetType().Name)));
+                            if (!pluginListedOverride) { externalOverriders.Add(plugin); pluginListedOverride = true; }
+                        }
+                        // REFERENCER: an outgoing link whose target is being remapped (after the transform it dangles).
                         if (body is not IFormLinkContainerGetter flc) continue;
                         foreach (var link in flc.EnumerateFormLinks())
                         {
@@ -137,7 +167,7 @@ public static class RemapEngine
             }
         }
 
-        return new IdentifyResult(refs, externalPlugins, scanned, unscannable, unscannableSamples);
+        return new IdentifyResult(refs, externalPlugins, scanned, unscannable, unscannableSamples, overrides, externalOverriders);
     }
 
     // ======================================================================
