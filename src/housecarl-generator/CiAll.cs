@@ -124,6 +124,10 @@ public static class CiAll
         // not just one that FormLinks to it), surfaced as a WARN (warn-and-proceed, xEdit parity) distinct from the
         // referencer refuse/repoint. Proves overrider→success+named and referencer→refused stay separate.
         ("overrider-detect-guard", OverriderDetectProbe.RunGuard),
+        // COMPACT/MERGE Wave A3 — the asset-rename spine's THIRD category: compacting a start-game-enabled-quest mod
+        // REGENERATES its .seq from the renumbered plugin (a renumber shifts the on-disk FormIDs a stale .seq lists, so its
+        // quests would silently never start). NOT a map-rename — rebuilt from P′. New-file + in-place-stale-replace + multi-quest + no-SGE.
+        ("seq-regen-guard", SeqRegenProbe.RunGuard),
     };
 
     /// <summary>Dispatch a single CI guard by name through the registry — the ONE place a CI probe is listed, so

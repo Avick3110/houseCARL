@@ -1690,6 +1690,20 @@ public sealed class LoadOrderService : IDisposable
                     new[] { $"voice carry skipped — the asset layer could not be built ({ex.Message}); verify voiced lines in-game." }, false);
             }
 
+            // 7c. (re)build the start-game-enabled-quest .seq from the RENUMBERED plugin (A3). A renumber shifts every SGE
+            //     quest's master-relative on-disk FormID, so any pre-existing .seq is now STALE — its quests would silently
+            //     never start (the failure SeqFile exists to prevent). Unlike the asset CARRIES (7b) this is a REGEN off P′
+            //     (SeqFile.Build — the write_seq path), not a map-rename, so it needs no resolver/AssetView and is independent
+            //     of whether the asset layer built. A plugin with no SGE quests is a clean no-op. Best-effort + REPORTED (Q3):
+            //     RegenerateSeq never throws and never fails the compact; the outer guard is belt-and-suspenders.
+            SeqRegenOutcome seqRegen;
+            try { seqRegen = AssetRenameService.RegenerateSeq(outPath, Path.GetDirectoryName(outPath)!); }
+            catch (Exception ex)
+            {
+                seqRegen = new SeqRegenOutcome(0, false, null,
+                    new[] { $"SEQ regenerate skipped ({ex.Message}) — if '{name}' has start-game-enabled quests, run housecarl_write_seq on the compacted plugin." });
+            }
+
             // 8. audit markers (PR #122 review #2): stamp the distinct editedInPlace= breadcrumb into the meta.ini of EVERY
             //    file rewritten IN PLACE — the target (in-place lane) + each successfully repointed external — matching the
             //    traceability the in-place EDIT lane gives. The CONSENT model deliberately stays compact's own per-call
@@ -1708,7 +1722,7 @@ public sealed class LoadOrderService : IDisposable
             return new WritePatchBuilder.CompactOutcome(
                 true, null, false, outPath, name, inPlace, esl, build.Masters, build.RecordsCopied, build.RecordsRenumbered,
                 build.Bytes, id.ExternalPlugins, repointed, id.PluginsScanned, id.UnscannableRecords, id.UnscannableSamples,
-                markerNotes.Count > 0 ? string.Join(" ", markerNotes) : null, assetRename, id.ExternalOverriders, voiceRename);
+                markerNotes.Count > 0 ? string.Join(" ", markerNotes) : null, assetRename, id.ExternalOverriders, voiceRename, seqRegen);
         }
     }
 

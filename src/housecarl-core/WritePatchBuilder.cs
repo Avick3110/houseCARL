@@ -900,14 +900,17 @@ public static class WritePatchBuilder
     /// (A2, null until the carry runs) is the same for voice (.fuz/.lip), so a compacted voiced mod no longer goes mute.
     /// <see cref="ExternalOverriders"/>
     /// (gap #2) are plugins OUTSIDE the target that OVERRIDE a renumbered record — surfaced as a WARN (they orphan after
-    /// the renumber and houseCARL can't auto-repoint an override's identity); they never gate the compaction.</summary>
+    /// the renumber and houseCARL can't auto-repoint an override's identity); they never gate the compaction.
+    /// <see cref="SeqRegen"/> (A3, null until the regen runs) is the start-game-enabled-quest <c>.seq</c> accounting — a
+    /// renumber shifts the on-disk FormIDs a <c>.seq</c> lists, so it is REBUILT from P′ (not carried) so those quests still
+    /// start; a plugin with no SGE quests is a clean no-op.</summary>
     public sealed record CompactOutcome(
         bool Success, string? Error, bool NeedsAcknowledge, string OutputPath, string PluginName, bool InPlace, bool Esl,
         IReadOnlyList<string> Masters, int RecordsCopied, int RecordsRenumbered, long Bytes,
         IReadOnlyList<string> ExternalPlugins, IReadOnlyList<RepointReport> Repointed,
         int PluginsScanned, int UnscannableRecords, IReadOnlyList<string> UnscannableSamples, string? Note = null,
         AssetRenameOutcome? AssetRename = null, IReadOnlyList<string>? ExternalOverriders = null,
-        VoiceCarryOutcome? VoiceRename = null)
+        VoiceCarryOutcome? VoiceRename = null, SeqRegenOutcome? SeqRegen = null)
     {
         public static CompactOutcome Fail(string error) =>
             new(false, error, false, "", "", false, false, Array.Empty<string>(), 0, 0, 0,
