@@ -22,8 +22,11 @@ namespace HousecarlCore;
 //  two-phase carry (CarryItems), so the in-place aliasing fix (PR #123) lives in exactly one place,
 //  never two diverging copies. A3 covers SEQ (RegenerateSeq) — NOT a map-rename carry: a .seq lists
 //  each start-game-enabled quest's master-relative on-disk FormID, every one of which a renumber
-//  shifts, so it is REBUILT from P′ (SeqFile.Build), not renamed. Strings stay OUT of the spine —
-//  they're plugin-name-keyed, untouched by a renumber (a merge-only edge, not a compact break).
+//  shifts, so a .seq the source SHIPPED is REBUILT from P′ (SeqFile.Build), not renamed. It is
+//  REFRESH-ONLY — if the source shipped no .seq, compaction does NOT invent one (parity with xEdit's
+//  ESL compaction, which never touches the .seq); inventing a file other compaction tools don't is
+//  the surprise we avoid. The missing-.seq case is a NAMED advisory, never a silent write. Strings
+//  stay OUT of the spine — plugin-name-keyed, untouched by a renumber (a merge-only edge, not a break).
 //
 //  COMPOSES existing, Aaron-locked primitives — NO new path logic:
 //    • FaceGenPath.For / VoicePath (the pure FormKey→path transforms; folder = the FormKey's
@@ -84,10 +87,12 @@ public sealed record VoiceCarryOutcome(
 /// <summary>The accounting of the SEQ-regeneration pass (A3). A compact renumbers a plugin's start-game-enabled quests,
 /// so the master-relative on-disk FormIDs any pre-existing <c>.seq</c> lists go STALE and those quests would then never
 /// start (the silent-failure class <see cref="SeqFile"/> exists to prevent). Unlike facegen/voice this is NOT a map-rename
-/// — the <c>.seq</c> is REBUILT from the renumbered plugin. <see cref="SgeQuestCount"/> = start-game-enabled quests written
-/// into the <c>.seq</c> (0 ⇒ the plugin has none → a clean no-op, no file written). <see cref="Written"/> ⇒ a fresh,
-/// correct <c>.seq</c> was committed at <see cref="SeqPath"/>. <see cref="Failures"/> = the regen was NEEDED (SGE quests
-/// present) but the <c>.seq</c> could not be built/written (Q3 — named, never a silent stale <c>.seq</c>).</summary>
+/// — the <c>.seq</c> is REBUILT from the renumbered plugin — and it is REFRESH-ONLY: it rebuilds a <c>.seq</c> the source
+/// SHIPPED, never invents one the source lacked (xEdit-compaction parity). <see cref="SgeQuestCount"/> = start-game-enabled
+/// quests the plugin has (0 ⇒ none → a clean no-op, no file written). <see cref="Written"/> ⇒ a fresh, correct <c>.seq</c>
+/// was committed at <see cref="SeqPath"/> (the source shipped one, so it was refreshed). <see cref="Failures"/> = named
+/// warnings (Q3, never silent): EITHER the source shipped a <c>.seq</c> and the refresh could not be built/written, OR the
+/// source shipped NO <c>.seq</c> so none was written and the user is advised to run <c>housecarl_write_seq</c>.</summary>
 public sealed record SeqRegenOutcome(
     int SgeQuestCount, bool Written, string? SeqPath, IReadOnlyList<string> Failures)
 {
@@ -211,18 +216,21 @@ public static class AssetRenameService
         return new VoiceCarryOutcome(files.Count, carriedFiles, carriedLines.Count, failures, assets.ReadIncomplete);
     }
 
-    /// <summary>(Re)generate the start-game-enabled-quest <c>.seq</c> for the RENUMBERED plugin <paramref name="pPrimePath"/>,
-    /// writing it to <c>&lt;outDir&gt;\SEQ\&lt;basename&gt;.seq</c> (<paramref name="outDir"/> = the P′ mod-folder root, as the
-    /// carry methods take — <c>Path.GetDirectoryName(outPath)</c>, that root in BOTH lanes). Unlike <see cref="CarryFaceGen"/>/
-    /// <see cref="CarryVoice"/> this is NOT a map-rename and needs no map/resolver/AssetView: a <c>.seq</c> lists each SGE
-    /// quest's master-relative ON-DISK FormID, and a renumber shifts every one, so the file is REBUILT from scratch off P′ via
-    /// <see cref="SeqFile.Build"/> — the same regeneration <c>housecarl_write_seq</c> runs — and the FormIDs come out correct
-    /// because they're read from the already-renumbered plugin. A plugin with NO SGE quests writes nothing and cuts no folder
-    /// (a clean no-op, mirroring write_seq). Engine-correct placement: the game reads <c>Data\SEQ\</c>, so the <c>.seq</c> lands
-    /// in a <c>SEQ\</c> subfolder of the mod root (NOT the root, where facegen/voice files sit at their own Data-relative paths).
-    /// Best-effort + reported (Q3): the records are already written, so a <c>.seq</c> it can't build/write is a NAMED warning,
+    /// <summary>REFRESH the start-game-enabled-quest <c>.seq</c> of the RENUMBERED plugin <paramref name="pPrimePath"/> when
+    /// the source already SHIPPED one (<paramref name="sourceHadSeq"/>), writing it to <c>&lt;outDir&gt;\SEQ\&lt;basename&gt;.seq</c>
+    /// (<paramref name="outDir"/> = the P′ mod-folder root, as the carry methods take — <c>Path.GetDirectoryName(outPath)</c>,
+    /// that root in BOTH lanes). Unlike <see cref="CarryFaceGen"/>/<see cref="CarryVoice"/> this is NOT a map-rename and needs
+    /// no map/resolver/AssetView: a <c>.seq</c> lists each SGE quest's master-relative ON-DISK FormID, and a renumber shifts
+    /// every one, so the file is REBUILT from scratch off P′ via <see cref="SeqFile.Build"/> — the same regeneration
+    /// <c>housecarl_write_seq</c> runs — and the FormIDs come out correct because they're read from the already-renumbered
+    /// plugin. REFRESH-ONLY (the maintainer's call): if the source shipped NO <c>.seq</c> (<paramref name="sourceHadSeq"/>
+    /// false) but P′ has SGE quests, compaction does NOT invent one — it writes nothing and returns a NAMED advisory (run
+    /// write_seq) instead, so compaction never surprises a modder with a file other compaction tools don't create (xEdit
+    /// parity). A plugin with NO SGE quests is a clean no-op. Engine-correct placement: the game reads <c>Data\SEQ\</c>, so a
+    /// refreshed <c>.seq</c> lands in a <c>SEQ\</c> subfolder of the mod root. Best-effort + reported (Q3): the records are
+    /// already written, so a <c>.seq</c> it can't build/write — and the missing-source-.seq advisory — are NAMED warnings,
     /// never a failure of the compact; never throws.</summary>
-    public static SeqRegenOutcome RegenerateSeq(string pPrimePath, string outDir)
+    public static SeqRegenOutcome RegenerateSeq(string pPrimePath, string outDir, bool sourceHadSeq)
     {
         SeqFile.SeqBuild built;
         try { built = SeqFile.Build(pPrimePath); }
@@ -235,6 +243,12 @@ public static class AssetRenameService
         }
 
         if (built.Quests.Count == 0) return SeqRegenOutcome.None();        // no SGE quests → no .seq needed (the write_seq no-op)
+
+        if (!sourceHadSeq)
+            // REFRESH-ONLY: P′ has SGE quests but the source shipped no .seq — do NOT invent one (xEdit-compaction parity).
+            // Advise rather than silently write: the quests likely weren't starting even before compaction (Q3, named).
+            return new SeqRegenOutcome(built.Quests.Count, false, null,
+                new[] { $"'{Path.GetFileName(pPrimePath)}' has {built.Quests.Count} start-game-enabled quest(s) but no .seq — they likely weren't starting even before compaction; run housecarl_write_seq on the compacted plugin to add one." });
 
         var dest = Path.Combine(outDir, "SEQ", Path.GetFileNameWithoutExtension(pPrimePath) + ".seq");
         try
