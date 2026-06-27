@@ -108,6 +108,50 @@ public static class FacegenCarryProbe
                 Check(oldOrphan, "IN-PLACE the OLD-FormID facegen is left as a harmless orphan (non-destructive)");
             }
 
+            // ===== IN-PLACE ALIASING (PR #123 review blocker): 2 NPCs whose NEW-id window overlaps their OLD ids =====
+            // NpcP (old 0x900, enumerated FIRST) renumbers to new 0x800 — which is NpcQ's OLD id. A naive single-phase
+            // carry processes P first and writes P's new-0x800 facegen OVER NpcQ's not-yet-read old-0x800 file, so Q then
+            // reads P's bytes and inherits P's face (a Q3 silent wrong answer). Two-phase staging must keep them distinct.
+            {
+                var (mods, prof) = MakeInstance(Path.Combine(root, "alias"));
+                var faceKey = new ModKey("FaceAlias", ModType.Plugin);
+                var pOld = new FormKey(faceKey, 0x900);                  // enumerated first → renumbers to 0x800
+                var qOld = new FormKey(faceKey, 0x800);                  // enumerated second → its OLD 0x800 == P's NEW id
+                var meshP = new byte[] { 0x50, 0x01 }; var tintP = new byte[] { 0x50, 0x02 };
+                var meshQ = new byte[] { 0x51, 0x01 }; var tintQ = new byte[] { 0x51, 0x02 };
+                WriteMod(mods, "FaceAlias", faceKey, m =>
+                {
+                    m.Npcs.Add(new Npc(pOld, SkyrimRelease.SkyrimSE) { EditorID = "NpcP" });   // added FIRST
+                    m.Npcs.Add(new Npc(qOld, SkyrimRelease.SkyrimSE) { EditorID = "NpcQ" });   // added SECOND
+                });
+                WriteLoose(Path.Combine(mods, "FaceAlias"), FaceGenPath.For(pOld, FaceGenSlot.Mesh), meshP);
+                WriteLoose(Path.Combine(mods, "FaceAlias"), FaceGenPath.For(pOld, FaceGenSlot.Tint), tintP);
+                WriteLoose(Path.Combine(mods, "FaceAlias"), FaceGenPath.For(qOld, FaceGenSlot.Mesh), meshQ);
+                WriteLoose(Path.Combine(mods, "FaceAlias"), FaceGenPath.For(qOld, FaceGenSlot.Tint), tintQ);
+                WriteProfile(prof, new[] { faceKey.FileName.String }, new[] { "*" + faceKey.FileName }, new[] { "+FaceAlias" });
+                WriteSkyrimIni(prof);
+
+                using var svc = LoadOrderService.WithInstance(Path.Combine(root, "alias"), 0, new UserConfigStore(Path.Combine(root, "user-alias.json")));
+                svc.Stats();
+
+                var o = svc.CompactPlugin("FaceAlias.esp", inPlace: true, acknowledge: true);
+                bool pOk = false, qOk = false;
+                if (o.Success)
+                {
+                    FormKey? pNew = null, qNew = null;
+                    using (var pp = SkyrimMod.CreateFromBinaryOverlay(o.OutputPath, SkyrimRelease.SkyrimSE))
+                    {
+                        pNew = pp.Npcs.FirstOrDefault(n => n.EditorID == "NpcP")?.FormKey;
+                        qNew = pp.Npcs.FirstOrDefault(n => n.EditorID == "NpcQ")?.FormKey;
+                    }
+                    var modRoot = Path.GetDirectoryName(o.OutputPath)!;
+                    if (pNew is { } pk) pOk = File.ReadAllBytes(Path.Combine(modRoot, FaceGenPath.For(pk, FaceGenSlot.Mesh))).SequenceEqual(meshP);
+                    if (qNew is { } qk) qOk = File.ReadAllBytes(Path.Combine(modRoot, FaceGenPath.For(qk, FaceGenSlot.Mesh))).SequenceEqual(meshQ);
+                }
+                Check(o.Success && pOk && qOk,
+                      $"IN-PLACE ALIASING each NPC keeps its OWN face across overlapping old/new IDs (P {pOk}, Q {qOk}{(o.Success ? "" : "; ERR " + o.Error)})");
+            }
+
             // ================= NO-FACEGEN: an NPC with no facegen carries nothing and is NOT a failure =================
             {
                 var (mods, prof) = MakeInstance(Path.Combine(root, "nofg"));
