@@ -34,6 +34,8 @@ A session picking up work reads:
 2. **The latest handoff** in `dev/session-handoffs/` — what the last session did and what to pick up. The most important transition read; start here for "where are we."
 3. **The PRFAQ corpus** (`dev/PRFAQ/`) — read once when new to the project, then consult on demand (it's ~60k tokens — not a per-session read). Product: P1 + P2. Direction: P7 + rebuild plan v1. Proof: spike findings (code at `dev/references/spike/`). Deeper, on demand: FAQs (P3/P4), Housecarl-HEAD eval (P5), pivot doc (§5's source).
 
+**Sub-project sessions.** Some work runs as a self-contained sub-project under `dev/projects/<name>/` (its own tracking, walled off from the main gap/bug/release lane — see `dev/projects/README.md`). If a session is for one, the user will name it ("the follower skill", "the `<name>` project"); then read `dev/projects/<name>/STATUS.md` **instead of** the latest `dev/session-handoffs/` handoff (item 2), and stay in that lane. Absent that, boot normally — the default is unchanged.
+
 The cornerstone (§3) and revalidation protocol (§4) are restated in this file, so you operate correctly from CLAUDE.md alone — the corpus is the authority you re-read when the protocol sends you there, not a tax every session pays.
 
 ---
