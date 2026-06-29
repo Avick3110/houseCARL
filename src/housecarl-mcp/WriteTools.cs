@@ -54,9 +54,9 @@ public static class WriteTools
             bool in_place = false,
         [Description("Optional, default false. Confirms the one-time in-place trade-off for target (see in_place) — needed only on the FIRST in-place edit of a given plugin, never again for it. Waives the consent to touch your original ONLY; it NEVER skips the record verify.")]
             bool acknowledge = false,
-        [Description("When true, the response ALSO returns the ENTIRE edited record read back from the written patch file on disk (every field, deep — not just the edited leaf). The pre-enable verification: confirm the write landed exactly and nothing else in the record was disturbed, WITHOUT enabling the patch in MO2. (The patch wins nothing until enabled + sorted in MO2 — this read-back is the written file's content, not load-order truth.)")]
+        [Description("When true, the read-back is the FULL deep field-by-field dump of the touched record (every field, not just the edited leaf) — confirm the write landed and nothing else was disturbed, WITHOUT enabling the patch in MO2. For an IN-PLACE edit the touched-record verify ALWAYS runs and is shown COMPACTLY by default (re-read-clean + what landed, every record); true expands it to the deep dump. (The read-back is the written file's content, NOT load-order truth — the patch/edit wins nothing until enabled + sorted in MO2.)")]
             bool full_readback = false,
-        [Description("Optional. Max characters for the whole response; past it the full read-back section is cut with an explicit notice (never silent). 0 = the server default (~80k). Only matters with full_readback=true.")]
+        [Description("Optional. Max characters for the whole response; past it the read-back is cut with an explicit notice (never silent). 0 = a safe default kept under the host's per-response token limit; raise it to widen a full_readback=true dump.")]
             int max_chars = 0) => Guard.Tool("housecarl_set_field", () =>
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
@@ -64,7 +64,7 @@ public static class WriteTools
         {
             Formid = formid, FieldPath = field_path, Verb = verb, Value = value, Key = key, Values = values,
         };
-        return Render(svc.ApplyEdits(new[] { op }, patch_name, into, full_readback, target, in_place, acknowledge), max_chars);
+        return Render(svc.ApplyEdits(new[] { op }, patch_name, into, full_readback, target, in_place, acknowledge), max_chars, full_readback);
     });
 
     [McpServerTool(Name = "housecarl_bulk_apply", Title = "Apply many edits in one patch"),
@@ -99,15 +99,15 @@ public static class WriteTools
             bool in_place = false,
         [Description("Optional, default false. Confirms the one-time in-place trade-off for target (see in_place) — needed only on the FIRST in-place edit of a given plugin, never again for it. Waives the consent to touch your original ONLY; it NEVER skips the record verify.")]
             bool acknowledge = false,
-        [Description("When true, the response ALSO returns the ENTIRE record(s) this call touched, read back from the written patch file on disk (every field, deep — not just the edited leaves). The pre-enable verification: confirm composed structures (conditions, container entries) landed exactly and nothing else in each record was disturbed, WITHOUT enabling the patch in MO2. (The patch wins nothing until enabled + sorted in MO2 — this read-back is the written file's content, not load-order truth.)")]
+        [Description("When true, the read-back is the FULL deep field-by-field dump of every record this call touched (not just the edited leaves) — confirm composed structures (conditions, container entries) landed and nothing else was disturbed, WITHOUT enabling the patch in MO2. For an IN-PLACE edit the touched-record verify ALWAYS runs and is shown COMPACTLY by default (per record: re-read-clean + what landed, covering ALL of them); true expands it to the deep dump. (The read-back is the written file's content, NOT load-order truth — the patch/edit wins nothing until enabled + sorted in MO2.)")]
             bool full_readback = false,
-        [Description("Optional. Max characters for the whole response; past it the full read-back section is cut with an explicit notice (never silent). 0 = the server default (~80k). Only matters with full_readback=true.")]
+        [Description("Optional. Max characters for the whole response; past it the read-back is cut with an explicit notice (never silent). 0 = a safe default kept under the host's per-response token limit; raise it to widen a full_readback=true dump.")]
             int max_chars = 0) => Guard.Tool("housecarl_bulk_apply", () =>
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
         if (operations is null || operations.Length == 0)
             return "error: operations is empty. Pass one or more {formid, field_path, verb, ...} edits.";
-        return Render(svc.ApplyEdits(operations, patch_name, into, full_readback, target, in_place, acknowledge), max_chars);
+        return Render(svc.ApplyEdits(operations, patch_name, into, full_readback, target, in_place, acknowledge), max_chars, full_readback);
     });
 
     [McpServerTool(Name = "housecarl_remove_record", Title = "Remove a whole record from a patch (or a plugin in place)"),
@@ -193,13 +193,13 @@ public static class WriteTools
             bool in_place = false,
         [Description("Optional, default false. Confirms the one-time in-place trade-off for target (see in_place) — needed only on the FIRST in-place write to a given plugin (edit OR create), never again for it. Waives the consent to touch your original ONLY; it NEVER skips the record verify.")]
             bool acknowledge = false,
-        [Description("When true, the response ALSO returns the ENTIRE created record read back from the written patch file on disk (every field, deep — not just the fields you set). The pre-enable verification, WITHOUT enabling the patch in MO2. (The patch wins nothing until enabled + sorted in MO2 — this read-back is the written file's content, not load-order truth.)")]
+        [Description("When true, the read-back is the FULL deep field-by-field dump of the created record (every field, not just the fields you set). For an IN-PLACE create the touched-record verify ALWAYS runs and is shown COMPACTLY by default (re-read-clean + field count per record); true expands it to the deep dump. (The read-back is the written file's content, NOT load-order truth — the patch/edit wins nothing until enabled + sorted in MO2.)")]
             bool full_readback = false,
-        [Description("Optional. Max characters for the whole response; past it the full read-back section is cut with an explicit notice (never silent). 0 = the server default (~80k). Only matters with full_readback=true.")]
+        [Description("Optional. Max characters for the whole response; past it the read-back is cut with an explicit notice (never silent). 0 = a safe default kept under the host's per-response token limit; raise it to widen a full_readback=true dump.")]
             int max_chars = 0) => Guard.Tool("housecarl_create_record", () =>
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
-        return RenderCreate(svc.CreateRecords(record_type, editorid, operations ?? Array.Empty<BulkOp>(), patch_name, into, full_readback, parent, collection, grid, target, in_place, acknowledge), max_chars);
+        return RenderCreate(svc.CreateRecords(record_type, editorid, operations ?? Array.Empty<BulkOp>(), patch_name, into, full_readback, parent, collection, grid, target, in_place, acknowledge), max_chars, full_readback);
     });
 
     [McpServerTool(Name = "housecarl_bulk_create", Title = "Create many records (incl. a nested one-shot) in one patch"),
@@ -240,15 +240,15 @@ public static class WriteTools
             bool in_place = false,
         [Description("Optional, default false. Confirms the one-time in-place trade-off for target (see in_place) — needed only on the FIRST in-place write to a given plugin (edit OR create), never again for it. Waives the consent to touch your original ONLY; it NEVER skips the record verify.")]
             bool acknowledge = false,
-        [Description("When true, the response ALSO returns each created record IN FULL, read back from the written patch file on disk (every field, deep). The pre-enable verification, WITHOUT enabling the patch in MO2 (the written file's content, not load-order truth).")]
+        [Description("When true, the read-back is the FULL deep field-by-field dump of each created record. For an IN-PLACE create the touched-record verify ALWAYS runs and is shown COMPACTLY by default (re-read-clean + field count per record); true expands it to the deep dump. (The read-back is the written file's content, NOT load-order truth — the patch/edit wins nothing until enabled + sorted in MO2.)")]
             bool full_readback = false,
-        [Description("Optional. Max characters for the whole response; past it the full read-back section is cut with an explicit notice (never silent). 0 = the server default (~80k). Only matters with full_readback=true.")]
+        [Description("Optional. Max characters for the whole response; past it the read-back is cut with an explicit notice (never silent). 0 = a safe default kept under the host's per-response token limit; raise it to widen a full_readback=true dump.")]
             int max_chars = 0) => Guard.Tool("housecarl_bulk_create", () =>
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
         if (records is null || records.Length == 0)
             return "error: records is empty. Pass one or more {record_type, editorid, operations?, parent?, collection?} specs.";
-        return RenderCreate(svc.CreateRecordsBatch(records, patch_name, into, full_readback, target, in_place, acknowledge), max_chars);
+        return RenderCreate(svc.CreateRecordsBatch(records, patch_name, into, full_readback, target, in_place, acknowledge), max_chars, full_readback);
     });
 
     [McpServerTool(Name = "housecarl_forward_record", Title = "Forward a plugin's version of a record as an override"),
@@ -281,7 +281,7 @@ public static class WriteTools
             string? into = null,
         [Description("When true, the response ALSO returns each forwarded record IN FULL, read back from the written patch file on disk (every field, deep). The pre-enable verification: confirm the copied version is exactly the source's, WITHOUT enabling the patch in MO2 (the written file's content, not load-order truth).")]
             bool full_readback = false,
-        [Description("Optional. Max characters for the whole response; past it the full read-back section is cut with an explicit notice (never silent). 0 = the server default (~80k). Only matters with full_readback=true.")]
+        [Description("Optional. Max characters for the whole response; past it the read-back is cut with an explicit notice (never silent). 0 = a safe default kept under the host's per-response token limit; raise it to widen a full_readback=true dump.")]
             int max_chars = 0) => Guard.Tool("housecarl_forward_record", () =>
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
@@ -365,7 +365,7 @@ public static class WriteTools
 
     /// <summary>Compact, parseable confirmation (rulebook: short mutation confirmation + the IDs needed for follow-up).
     /// On refusal, the full reason (every malformed/rejected op) so the caller can fix and retry.</summary>
-    static string Render(WritePatchBuilder.PatchOutcome o, int maxChars = 0)
+    internal static string Render(WritePatchBuilder.PatchOutcome o, int maxChars = 0, bool fullDump = false)   // internal: the compact-readback guard renders one outcome three ways
     {
         if (o.NeedsAcknowledge) return o.Error!;            // the first-touch in-place CONSENT prompt — a required confirmation, NOT an error (Q3)
         if (!o.Success) return "error: " + o.Error;
@@ -397,7 +397,15 @@ public static class WriteTools
         if (o.Ops.Any(op => string.Equals(op.RecordType, VoiceCheck.InfoCatalogName, StringComparison.Ordinal)))
             sb.Append("note: this edit touched a dialogue line (INFO). Voice (.fuz) and result-script coverage are checked on CREATE, not on edits — ")
               .Append("run housecarl_validate_dialogue on the topic (or its owning quest) to audit voice + result-script coverage and the topic graph over the edited line and every other line in the topic.\n");
-        if (o.ReadBack is { } rb) AppendFullReadback(sb, rb, maxChars);
+        // The touched-record verify (forced ON for in-place — the model-C floor substitute — and opt-in for the new-file
+        // lane) renders COMPACT by default and the full field-by-field dump only on full_readback=true (HCBR-2026-06-28-01):
+        // the deep dump of N records with large list fields blew past the host token cap and spilled to a file, reading as
+        // "only some ops applied". The verify itself is unchanged — this is its OUTPUT, not its detection.
+        if (o.ReadBack is { } rb)
+        {
+            if (fullDump) AppendFullReadback(sb, rb, maxChars);
+            else AppendCompactReadback(sb, o.Ops, rb, maxChars);
+        }
         if (o.Note is { } note) sb.Append("note: ").Append(note).Append('\n');
         sb.Append(o.InPlace
             ? $"to make more in-place edits to this plugin, pass target=\"{file}\" in_place=true (no further confirmation needed for it)."
@@ -405,13 +413,15 @@ public static class WriteTools
         return sb.ToString();
     }
 
-    /// <summary>The opt-in full read-back section (HCBR-2026-06-11-02 wave (b)): each touched/created record IN FULL,
+    /// <summary>The full_readback=true read-back section (HCBR-2026-06-11-02 wave (b)): each touched/created record IN FULL,
     /// re-read from the written file on disk. Labeled as exactly that — the written file's content, NOT load-order
     /// truth (the patch wins nothing until enabled in MO2) — so the caller can't mistake it for a winner read.
-    /// Char-budget-bounded with an explicit notice (Q3), same convention as the read tools.</summary>
+    /// Char-budget-bounded with an explicit notice (Q3), same convention as the read tools — now at the LOWER
+    /// <see cref="Wire.ReadbackMaxChars"/> default so the cut-off output stays under the host token ceiling and the
+    /// truncation note actually reaches the caller (HCBR-2026-06-28-01).</summary>
     static void AppendFullReadback(StringBuilder sb, IReadOnlyList<WritePatchBuilder.FullReadback> rb, int maxChars)
     {
-        int cap = maxChars > 0 ? maxChars : Wire.DefaultMaxChars;
+        int cap = maxChars > 0 ? maxChars : Wire.ReadbackMaxChars;
         sb.Append("full read-back — the ENTIRE record(s) as written, re-read from the patch file on disk ")
           .Append("(the written file's content, NOT load-order truth; the patch wins nothing until enabled + sorted in MO2):\n");
         for (int i = 0; i < rb.Count; i++)
@@ -438,6 +448,41 @@ public static class WriteTools
                 }
                 sb.Append("    ").Append(f.Path).Append(" = ").Append(f.HasValue ? f.Token : f.Note).Append('\n');
             }
+        }
+    }
+
+    /// <summary>The DEFAULT (full_readback=false) render of the touched-record verify (HCBR-2026-06-28-01). The forced
+    /// in-place re-read still RAN — corruption DETECTION is unchanged; this only reports it COMPACTLY so it can't overflow
+    /// the host token cap the way the deep dump did (which spilled to a file and read as "only some ops applied"). One line
+    /// per record: a re-read-CLEAN marker + field count, OR the NAMED re-read failure (Q3); then the "what landed" identity
+    /// (the new scalar value, or the touched list element + new count) for each op that touched that record. Covers ALL N
+    /// records — bounded by the same char cap with an explicit truncation note, never the silent spill the forced deep dump
+    /// produced. The full field-by-field dump is one full_readback=true away.</summary>
+    static void AppendCompactReadback(StringBuilder sb, IReadOnlyList<WritePatchBuilder.OpResult> ops,
+        IReadOnlyList<WritePatchBuilder.FullReadback> rb, int maxChars)
+    {
+        int cap = maxChars > 0 ? maxChars : Wire.ReadbackMaxChars;
+        sb.Append("verified — every edited record re-read off the written file (compact; pass full_readback=true for the ")
+          .Append("full field-by-field dump):\n");
+        for (int i = 0; i < rb.Count; i++)
+        {
+            if (sb.Length >= cap)
+            {
+                sb.Append("  ... [truncated: ").Append(i).Append(" of ").Append(rb.Count)
+                  .Append(" record(s) shown at max_chars=").Append(cap).Append("; raise max_chars]\n");
+                return;
+            }
+            var r = rb[i];
+            // A re-read that failed is a real inconsistency — surface it LOUD and NAMED (the whole reason the in-place
+            // verify is forced on), never folded into the clean count.
+            if (r.Error is not null) { sb.Append("  ✗ ").Append(r.Target).Append(" — ").Append(r.Error).Append('\n'); continue; }
+            var rec = r.Record!;
+            sb.Append("  ✓ ").Append(rec.Type).Append(' ').Append(rec.FormKey)
+              .Append(" — re-read clean (").Append(rec.Fields.Count).Append(" field(s))");
+            var landed = ops.Where(op => op.Target == r.Target && op.Landed is not null)
+                            .Select(op => $"{op.Label}: {op.Landed}").ToList();
+            if (landed.Count > 0) sb.Append("; ").Append(string.Join("; ", landed));
+            sb.Append('\n');
         }
     }
 
@@ -653,7 +698,7 @@ public static class WriteTools
     /// <summary>Confirmation for housecarl_create_record: the new record's ALLOCATED FormID + editorid + type (the FormID
     /// is the key output — the caller references the new record by it), the patch path + its (derived) masters, and the
     /// fields applied. On refusal, the named reason (Q3) so the caller can fix and retry.</summary>
-    static string RenderCreate(WritePatchBuilder.CreateOutcome o, int maxChars = 0)
+    static string RenderCreate(WritePatchBuilder.CreateOutcome o, int maxChars = 0, bool fullDump = false)
     {
         if (o.NeedsAcknowledge) return o.Error!;            // the first-touch in-place CONSENT prompt — a required confirmation, NOT an error (Q3)
         if (!o.Success) return "error: " + o.Error;
@@ -689,7 +734,14 @@ public static class WriteTools
         AppendVoiceReport(sb, o.Voice, maxChars);
         AppendScriptBindingReport(sb, o.ScriptBinding, maxChars);
         AppendCellShellReport(sb, o.CellShell);
-        if (o.ReadBack is { } rb) AppendFullReadback(sb, rb, maxChars);
+        // Same compact-by-default verify as the edit lane (HCBR-2026-06-28-01): the forced create-in-place re-read still
+        // runs; full_readback=true gives the deep dump, the default reports it compactly (per created record: re-read clean
+        // + field count, or a named failure). The created records' set fields are already listed above.
+        if (o.ReadBack is { } rb)
+        {
+            if (fullDump) AppendFullReadback(sb, rb, maxChars);
+            else AppendCompactReadback(sb, Array.Empty<WritePatchBuilder.OpResult>(), rb, maxChars);
+        }
         if (o.Note is { } note) sb.Append("note: ").Append(note).Append('\n');
         sb.Append("the new FormID above is how you reference this record (SkyPatcher/SPID, or a follow-up edit). ");
         sb.Append(o.InPlace

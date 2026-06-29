@@ -403,6 +403,43 @@ public static class ReadEngine
         catch (Exception ex) { return (false, null, typeof(object), record, $"(unreadable: {ex.Message})"); }
     }
 
+    /// <summary>Best-effort COMPACT identity of the element a list/dict verb just acted on — the write-verify's
+    /// "what landed" line (HCBR-2026-06-28-01, the compact in-place readback). For a list <c>Add</c>, the new last
+    /// element + the new count (<c>now 29 (+1), new [28] = …</c>); for a keyed <c>SetAtIndex</c>/<c>Remove</c>, the
+    /// touched key + new count; else the new count. Names the element as specifically as the model allows — a
+    /// formlink element renders its FormKey, an identity-bearing struct its Name/EditorID, an anonymous struct (a
+    /// condition) its <c>[Type]</c>. Read-only; NEVER throws (null on any difficulty) — a display nicety on an
+    /// ALREADY-succeeded write, never load-bearing. <paramref name="leafPath"/> is the verb's path to the collection
+    /// (the engine's <see cref="WriteRequest.Path"/>); <paramref name="key"/> its list index / dict key, if any.</summary>
+    internal static string? TouchedElement(object record, string[] leafPath, string verb, string? key)
+    {
+        try
+        {
+            var nav = NavigateValue(record, leafPath);
+            if (!nav.ok || nav.val is not System.Collections.IEnumerable en || nav.val is string) return null;
+            int count = 0; object? last = null;
+            foreach (var e in en) { count++; last = e; }
+            return verb switch
+            {
+                "Add"        => last is null ? $"now {count} item(s)" : $"now {count} (+1), new [{count - 1}] = {ElementId(last, record)}",
+                "ReplaceAll" => $"now {count} item(s) (replaced)",
+                "SetAtIndex" => key is not null ? $"now {count} item(s), set [{key}]" : $"now {count} item(s)",
+                "Remove"     => key is not null ? $"now {count} item(s), removed [{key}]" : $"now {count} item(s) (-1)",
+                _            => $"now {count} item(s)",
+            };
+        }
+        catch { return null; }
+    }
+
+    /// <summary>The compact identity of ONE element for <see cref="TouchedElement"/>: a value/formlink element via its
+    /// own round-trip token (a keyword → its FormKey), an identity-bearing or anonymous struct via
+    /// <see cref="ElementSummary"/> (<c>[Type] Name=…</c> / <c>[Type]</c>).</summary>
+    static string ElementId(object elem, object parent)
+    {
+        var lr = EmitToken(elem, elem.GetType(), parent);
+        return lr.HasValue ? lr.Token : ElementSummary(elem);
+    }
+
     /// <summary>A compact summary for a container/struct value: for a collection, the count form
     /// (<see cref="SummariseContainer"/>); for a struct, <c>[TypeName]</c> plus a representative identity
     /// field (Name/EditorID/Title) where present — so a list line like
