@@ -50,8 +50,10 @@ public static class WritePatchBuilder
     }
 
     /// <summary>Per-edit result. On a successful call every op has <see cref="Applied"/>=true (all-or-nothing);
-    /// <see cref="After"/> is a best-effort read-back of the edited leaf (xEdit remains the authority).</summary>
-    public sealed record OpResult(FormKey Target, string RecordType, string Label, bool Applied, string? Error, string? After);
+    /// <see cref="After"/> is a best-effort read-back of the edited leaf (xEdit remains the authority).
+    /// <see cref="Landed"/> is the compact "what landed" descriptor the in-place verify renders by default
+    /// (HCBR-2026-06-28-01) — the new scalar value, or the touched list element + new count; null when not derivable.</summary>
+    public sealed record OpResult(FormKey Target, string RecordType, string Label, bool Applied, string? Error, string? After, string? Landed = null);
 
     /// <summary>One record read back IN FULL from the WRITTEN patch file (opt-in — the pre-enable verify loop,
     /// wishlist #3 re-scoped / HCBR-2026-06-11-02 wave (b)): every modeled field, deep, read off the re-opened
@@ -336,7 +338,7 @@ public static class WritePatchBuilder
                 ILinkCache? cache = WriteEngine.RecordNeedsSourceCache(body) ? session.LinkCacheFor(winnerPlugin) : null;
                 var ov = WriteEngine.GenericGetOrAddAsOverride(patchMod, body, cache);
                 WriteEngine.ApplyVerb(ov, req);
-                ops.Add(new OpResult(e.Target, req.RecordType, label, true, null, TryReadAfter(ov, req)));
+                ops.Add(new OpResult(e.Target, req.RecordType, label, true, null, TryReadAfter(ov, req), DescribeLanded(ov, req)));
             }
             catch (ExpectedApplyRejectionException ex)
             {
@@ -490,7 +492,7 @@ public static class WritePatchBuilder
                 ILinkCache? cache = WriteEngine.RecordNeedsSourceCache(body) ? session.LinkCacheFor(targetName) : null;
                 var ov = WriteEngine.GenericGetOrAddAsOverride(targetMod, body, cache);
                 WriteEngine.ApplyVerb(ov, req);
-                ops.Add(new OpResult(e.Target, req.RecordType, label, true, null, TryReadAfter(ov, req)));
+                ops.Add(new OpResult(e.Target, req.RecordType, label, true, null, TryReadAfter(ov, req), DescribeLanded(ov, req)));
             }
             catch (ExpectedApplyRejectionException ex)
             {
@@ -1663,6 +1665,25 @@ public static class WritePatchBuilder
             var read = ReadEngine.ReadFields(ov, new[] { leaf });
             var f = read.Fields.FirstOrDefault(x => x.Path == leaf) ?? read.Fields.FirstOrDefault();
             return f is null ? null : (f.HasValue ? f.Token : f.Note);
+        }
+        catch { return null; }
+    }
+
+    /// <summary>The compact "what landed" descriptor for the in-place verify's DEFAULT render (HCBR-2026-06-28-01).
+    /// A SCALAR leaf → the new value itself (names exactly what was set); a LIST/DICT leaf → the touched element +
+    /// the new cardinality via <see cref="ReadEngine.TouchedElement"/> (the element you Added/Set, not the whole
+    /// list — the report's "not the whole record"), falling back to the container's count summary. Best-effort and
+    /// read-only like <see cref="TryReadAfter"/>: null on any difficulty, never throws into the write result.</summary>
+    static string? DescribeLanded(IMajorRecord ov, WriteRequest req)
+    {
+        try
+        {
+            var leaf = string.Join('.', req.Path);
+            var read = ReadEngine.ReadFields(ov, new[] { leaf });
+            var f = read.Fields.FirstOrDefault(x => x.Path == leaf) ?? read.Fields.FirstOrDefault();
+            if (f is { HasValue: true }) return f.Token;                          // scalar — the new value names what landed
+            return ReadEngine.TouchedElement(ov, req.Path, req.Verb, req.Key)     // list/dict — touched element + new count
+                   ?? f?.Note;                                                    // fall back to the container summary
         }
         catch { return null; }
     }

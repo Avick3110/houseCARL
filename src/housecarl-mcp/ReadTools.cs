@@ -188,6 +188,13 @@ static class Wire
     /// <summary>Server default char budget for one tool response (~20k tokens). A caller raises it per-call via max_chars.</summary>
     public const int DefaultMaxChars = 80_000;
 
+    /// <summary>Default char budget for a write-tool READ-BACK section (HCBR-2026-06-28-01). Deliberately well BELOW
+    /// <see cref="DefaultMaxChars"/> / the host's per-result token ceiling: the forced in-place verify deep-dumped
+    /// every touched record and, at the 80k default, the "gracefully truncated" 80k string STILL exceeded the host
+    /// limit and spilled to a file (silent, Q3-breaking). The compact default render is tiny; this only bounds the
+    /// opt-in full_readback=true dump, whose truncation note now actually reaches the caller. A caller raises it via max_chars.</summary>
+    public const int ReadbackMaxChars = 24_000;
+
     static int Cap(int maxChars) => maxChars > 0 ? maxChars : DefaultMaxChars;
 
     // ---- housecarl_read_record ----------------------------------------------------------------------

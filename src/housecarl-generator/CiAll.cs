@@ -128,6 +128,11 @@ public static class CiAll
         // REGENERATES its .seq from the renumbered plugin (a renumber shifts the on-disk FormIDs a stale .seq lists, so its
         // quests would silently never start). NOT a map-rename — rebuilt from P′. New-file + in-place-stale-replace + multi-quest + no-SGE.
         ("seq-regen-guard", SeqRegenProbe.RunGuard),
+        // COMPACT in-place verify read-back (HCBR-2026-06-28-01) — a multi-op in-place edit's forced touched-record verify
+        // renders COMPACT by default (one re-read-clean line per record, all N, names what landed) instead of a deep
+        // whole-record dump that overflowed the host token cap and spilled to a file (reading as "only some ops applied").
+        // full_readback=true still gives the deep dump, now bounded under the host limit with an explicit truncation note.
+        ("compact-readback-guard", CompactReadbackProbe.RunGuard),
     };
 
     /// <summary>Dispatch a single CI guard by name through the registry — the ONE place a CI probe is listed, so
