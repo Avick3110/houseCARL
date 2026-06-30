@@ -13,10 +13,11 @@ namespace HousecarlGenerator;
 ///       profile. This is the load-bearing assertion: the derivation == the old hardcoding, by construction.
 ///   E6 (cheap profile detect) — ReadSelectedProfile() returns the active profile name alone (what the freshness check
 ///       reads after the ini's mtime moves, to learn a profile was switched).
-///   E1–E4, E7 (Qt quirks + edges, synthetic) — a temp instance exercises the @ByteArray(...) unwrap, the doubled-
+///   E1–E4, E7–E8 (Qt quirks + edges, synthetic) — a temp instance exercises the @ByteArray(...) unwrap, the doubled-
 ///       backslash unescape, a profile name with spaces, the base_directory override, a base_directory set-but-MISSING
-///       (still usable via fallback, but NAMED — hunt H1), and the loud-fail paths (missing ini, missing/unset
-///       selected_profile) — each NAMED in the problem list (Q3), never a silent half-derivation or silent fallback.
+///       (still usable via fallback, but NAMED — hunt H1), the MO2 2.5.x "key = value" spaced-assignment form
+///       (regression for issue #128), and the loud-fail paths (missing ini, missing/unset selected_profile) — each
+///       NAMED in the problem list (Q3), never a silent half-derivation or silent fallback.
 /// </summary>
 public static class Mo2InstanceProbe
 {
@@ -154,6 +155,29 @@ public static class Mo2InstanceProbe
         }
         Console.WriteLine();
 
+        // ---------------------------------------------------------- E8: MO2 2.5.x "key = value" (spaces around '=') — regression for issue #128
+        Console.WriteLine("--- E8: an instance written the MO2 2.5.x way (spaces around '=') resolves identically (regression: issue #128) ---");
+        {
+            var inst = Path.Combine(tmp, "e8");
+            var game = Path.Combine(inst, "Stock Game");
+            const string prof = "Default";
+            MakeInstance(inst, game, prof, baseDirOverride: null, spaced: true);   // "selected_profile = @ByteArray(Default)", "gamePath = @ByteArray(...)"
+            try
+            {
+                var p = Mo2Instance.Resolve(inst);
+                Console.WriteLine($"   profile={p.ProfileName}  ProfileDir={p.ProfileDir}  ModsDir={p.ModsDir}  DataDir={p.DataDir}");
+                Pass(ref allPass, "E8a profile parsed from the spaced 'key = value' form", p.ProfileName == prof);
+                Pass(ref allPass, "E8b ProfileDir derived under the instance", SamePath(p.ProfileDir, Path.Combine(inst, "profiles", prof)));
+                Pass(ref allPass, "E8c spaced gamePath \\\\-unescaped → DataDir = gamePath\\Data", SamePath(p.DataDir, Path.Combine(game, "Data")));
+                Pass(ref allPass, "E8d ModsDir = instance\\mods", SamePath(p.ModsDir, Path.Combine(inst, "mods")));
+                // Validate (the non-throwing setup-tool path) must agree: usable, zero problems on the spaced form.
+                var (ok, _, problems) = Mo2Instance.Validate(inst);
+                Pass(ref allPass, "E8e Validate → usable, no problems on the spaced form", ok && problems.Count == 0);
+            }
+            catch (Exception ex) { Console.WriteLine($"   !! Resolve threw: {ex.Message}"); allPass = false; }
+        }
+        Console.WriteLine();
+
         Directory.Delete(tmp, recursive: true);
         Console.WriteLine(allPass
             ? "=== PASS: one instance path → the load-order roots + active profile, by construction (real == old hardcoding); Qt quirks + loud-fail edges proven. ==="
@@ -168,7 +192,7 @@ public static class Mo2InstanceProbe
     /// profiles/&lt;profile&gt;/loadorder.txt under <paramref name="baseDirOverride"/> if given (and the ini carries
     /// base_directory) else under the instance; and a Stock Game\Data so the existence checks pass. profile=null writes
     /// selected_profile=@Invalid() (the unset case).</summary>
-    static void MakeInstance(string instanceDir, string gamePath, string? profile, string? baseDirOverride)
+    static void MakeInstance(string instanceDir, string gamePath, string? profile, string? baseDirOverride, bool spaced = false)
     {
         Directory.CreateDirectory(instanceDir);
         Directory.CreateDirectory(Path.Combine(gamePath, "Data"));
@@ -181,22 +205,24 @@ public static class Mo2InstanceProbe
             File.WriteAllText(Path.Combine(profDir, "loadorder.txt"), "# header\nSkyrim.esm\n");
         }
 
-        // Mimic Qt/QSettings: @ByteArray wrapper + doubled backslashes (what MO2 writes).
+        // Mimic Qt/QSettings: @ByteArray wrapper + doubled backslashes (what MO2 writes). spaced:true mimics MO2 2.5.x's
+        // "key = value" (spaces around '='); the default false keeps older MO2's "key=value". Section headers carry no '='.
         var lines = new List<string>
         {
             "[General]",
-            "gameName=Skyrim Special Edition",
-            profile is null ? "selected_profile=@Invalid()" : $"selected_profile=@ByteArray({profile})",
-            $"gamePath=@ByteArray({Escape(gamePath)})",
-            "game_edition=Steam",
+            Kv("gameName", "Skyrim Special Edition"),
+            Kv("selected_profile", profile is null ? "@Invalid()" : $"@ByteArray({profile})"),
+            Kv("gamePath", $"@ByteArray({Escape(gamePath)})"),
+            Kv("game_edition", "Steam"),
         };
         if (baseDirOverride is not null)
         {
             lines.Add("[Settings]");
-            lines.Add($"base_directory=@ByteArray({Escape(baseDirOverride)})");
+            lines.Add(Kv("base_directory", $"@ByteArray({Escape(baseDirOverride)})"));
         }
         File.WriteAllLines(Mo2Instance.IniPath(instanceDir), lines);
 
+        string Kv(string k, string v) => spaced ? $"{k} = {v}" : $"{k}={v}";   // MO2 2.5.x spaces around '='; older MO2 doesn't
         static string Escape(string p) => p.Replace(@"\", @"\\");   // MO2 stores paths with doubled backslashes
     }
 
