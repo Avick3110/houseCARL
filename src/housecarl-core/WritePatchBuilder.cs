@@ -338,7 +338,8 @@ public static class WritePatchBuilder
                 ILinkCache? cache = WriteEngine.RecordNeedsSourceCache(body) ? session.LinkCacheFor(winnerPlugin) : null;
                 var ov = WriteEngine.GenericGetOrAddAsOverride(patchMod, body, cache);
                 WriteEngine.ApplyVerb(ov, req);
-                ops.Add(new OpResult(e.Target, req.RecordType, label, true, null, TryReadAfter(ov, req), DescribeLanded(ov, req)));
+                var (after, landed) = DescribeApplied(ov, req);
+                ops.Add(new OpResult(e.Target, req.RecordType, label, true, null, after, landed));
             }
             catch (ExpectedApplyRejectionException ex)
             {
@@ -492,7 +493,8 @@ public static class WritePatchBuilder
                 ILinkCache? cache = WriteEngine.RecordNeedsSourceCache(body) ? session.LinkCacheFor(targetName) : null;
                 var ov = WriteEngine.GenericGetOrAddAsOverride(targetMod, body, cache);
                 WriteEngine.ApplyVerb(ov, req);
-                ops.Add(new OpResult(e.Target, req.RecordType, label, true, null, TryReadAfter(ov, req), DescribeLanded(ov, req)));
+                var (after, landed) = DescribeApplied(ov, req);
+                ops.Add(new OpResult(e.Target, req.RecordType, label, true, null, after, landed));
             }
             catch (ExpectedApplyRejectionException ex)
             {
@@ -1669,22 +1671,27 @@ public static class WritePatchBuilder
         catch { return null; }
     }
 
-    /// <summary>The compact "what landed" descriptor for the in-place verify's DEFAULT render (HCBR-2026-06-28-01).
-    /// A SCALAR leaf → the new value itself (names exactly what was set); a LIST/DICT leaf → the touched element +
-    /// the new cardinality via <see cref="ReadEngine.TouchedElement"/> (the element you Added/Set, not the whole
-    /// list — the report's "not the whole record"), falling back to the container's count summary. Best-effort and
-    /// read-only like <see cref="TryReadAfter"/>: null on any difficulty, never throws into the write result.</summary>
-    static string? DescribeLanded(IMajorRecord ov, WriteRequest req)
+    /// <summary>Read the edited leaf ONCE and derive BOTH best-effort descriptors an edit-lane <see cref="OpResult"/>
+    /// carries (PR #127 review #1 — previously two identical reflective reads of the same leaf per op, doubling the very
+    /// readback cost on the large-list records the report was about). <c>After</c> = the leaf read-back (xEdit remains
+    /// the authority). <c>Landed</c> = the compact "what landed" line the in-place verify renders by default
+    /// (HCBR-2026-06-28-01): a SCALAR leaf reuses the value just read (names exactly what was set); a LIST/DICT leaf names
+    /// the touched element + new count via <see cref="ReadEngine.TouchedElement"/> (the element you Added/Set, NOT the
+    /// whole list), falling back to the container summary. Read-only; NEVER throws into the write result (both null on any
+    /// difficulty). The create lane keeps <see cref="TryReadAfter"/> (it needs only <c>After</c>, never <c>Landed</c>).</summary>
+    static (string? After, string? Landed) DescribeApplied(IMajorRecord ov, WriteRequest req)
     {
         try
         {
             var leaf = string.Join('.', req.Path);
             var read = ReadEngine.ReadFields(ov, new[] { leaf });
             var f = read.Fields.FirstOrDefault(x => x.Path == leaf) ?? read.Fields.FirstOrDefault();
-            if (f is { HasValue: true }) return f.Token;                          // scalar — the new value names what landed
-            return ReadEngine.TouchedElement(ov, req.Path, req.Verb, req.Key)     // list/dict — touched element + new count
-                   ?? f?.Note;                                                    // fall back to the container summary
+            if (f is null) return (null, null);
+            var after = f.HasValue ? f.Token : f.Note;
+            // Scalar: Landed reuses the token just read. List/dict: name the touched element (+ new count); else the summary.
+            var landed = f.HasValue ? f.Token : (ReadEngine.TouchedElement(ov, req.Path, req.Verb, req.Key) ?? f.Note);
+            return (after, landed);
         }
-        catch { return null; }
+        catch { return (null, null); }
     }
 }
