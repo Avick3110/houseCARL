@@ -164,9 +164,11 @@ public static class Mo2Instance
         foreach (var raw in lines)
         {
             var line = raw.TrimStart();
-            if (line.Length <= key.Length || line[key.Length] != '=') continue;
-            if (line.AsSpan(0, key.Length).Equals(key, StringComparison.OrdinalIgnoreCase))
-                return line[(key.Length + 1)..];
+            int eq = line.IndexOf('=');
+            if (eq < 0) continue;
+            // Tolerate whitespace around '=' — MO2 2.5.x writes "key = value"; older MO2 wrote "key=value".
+            if (line.AsSpan(0, eq).TrimEnd().Equals(key, StringComparison.OrdinalIgnoreCase))
+                return line[(eq + 1)..];
         }
         return null;
     }
