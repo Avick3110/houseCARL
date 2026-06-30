@@ -97,8 +97,11 @@ public static class CompactReadbackProbe
                   compact.Contains("now ") && compact.Contains(kwAddFk.ToString()));
             Check($"COMPACT: the whole response stays small even with {N} non-trivial records (the headline fix: no 80k spill)",
                   compact.Length < 6_000);
-            Check("COMPACT: stays under the lowered read-back cap (so the host never bounces it to a file)",
-                  compact.Length < Wire_ReadbackMaxChars());
+            // Guard the CAP VALUE itself against the real consts (PR #127 review #2 — the prior check compared against a
+            // hand-copied 24k mirror BELOW a stricter < 6_000 literal, so it could never fail and the cap was unguarded).
+            // This fails if ReadbackMaxChars ever creeps back toward the 80k DefaultMaxChars that caused the host spill.
+            Check("CAP: the read-back default cap is well under the host token ceiling (the 80k-spill regression guard)",
+                  Wire.ReadbackMaxChars < Wire.DefaultMaxChars && Wire.ReadbackMaxChars <= 32_000);
             Console.WriteLine($"   -- compact render: {compact.Length} chars, {CountOccurrences(compact, "\n") + 1} lines --");
             Console.WriteLine();
 
@@ -134,10 +137,6 @@ public static class CompactReadbackProbe
         catch (Exception ex) { Console.WriteLine($"   FAIL (unexpected): {ex.GetType().Name}: {ex.Message}\n{ex.StackTrace}"); return 1; }
         finally { try { Directory.Delete(dir, recursive: true); } catch { } }
     }
-
-    // The read-back cap the fix lowered DefaultMaxChars to — mirrored here so the guard asserts against the real value
-    // without making the const public (it lives in the internal Wire helper).
-    static int Wire_ReadbackMaxChars() => 24_000;
 
     static bool AllWeaponsGainedKeyword(string path, IReadOnlyList<FormKey> weaponFks, FormKey kwFk)
     {
