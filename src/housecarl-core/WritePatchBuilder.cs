@@ -1552,6 +1552,15 @@ public static class WritePatchBuilder
                         $"pre-flight ACCEPTED it but the apply threw — a real inconsistency, surfaced not swallowed (Q3): {ex.GetType().Name}: {ex.Message}");
                 }
             }
+            // #131 — auto-fill the DialogTopic SNAM subtype marker. A topic with a Subtype but a blank SNAM marker
+            // (the default when only Subtype is set — or nothing, which defaults to Custom) is a GUARANTEED load CTD:
+            // the engine buckets topics by the 4-char marker, and a blank one walks an invalid list. This COMPLETES
+            // the write the author under-specified (never overriding an explicit marker) and surfaces it as an op —
+            // auto-filled, not silent (Q3). The authority + why-not-derivable live in DialogueSubtype.
+            if (rec is IDialogTopic dtopic && DialogueSubtype.NormalizeMarker(dtopic) is { } marker)
+                ops.Add(new OpResult(rec.FormKey, s.RecordType,
+                    $"SubtypeName (SNAM subtype marker) auto-set to {marker}", true, null,
+                    $"{marker} — derived from Subtype={dtopic.Subtype}; required, a blank marker is a guaranteed load CTD (#131)"));
             created.Add(new CreatedRecord(rec.FormKey, s.RecordType, s.EditorId, ops, replaced));
         }
 

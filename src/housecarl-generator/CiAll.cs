@@ -57,6 +57,7 @@ public static class CiAll
         ("nested-create-guard", NestedCreateGuardProbe.RunGuard),
         ("coord-cell-guard", CoordCellGuardProbe.RunGuard),
         ("dialogue-validate-guard", DialogueValidateGuardProbe.RunGuard),
+        ("dialogue-subtype-marker-guard", DialogueSubtypeMarkerGuardProbe.RunGuard),
         ("seq-write-guard", SeqWriteGuardProbe.RunGuard),
         ("seq-staleness-guard", SeqStalenessProbe.RunGuard),
         ("bulk-create-guard", BulkCreateGuardProbe.RunGuard),

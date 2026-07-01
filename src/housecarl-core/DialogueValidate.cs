@@ -261,6 +261,22 @@ public static class DialogueValidate
             issues.Add(new(DialogueIssueSeverity.Problem,
                 $"DialogTopic.Branch points at {branchFk.Value}, which {bwhy} — the branch wiring is broken."));
 
+        // --- SNAM subtype marker: a blank one (0000) is a GUARANTEED load CTD (#131) — the engine buckets topics by
+        //     this 4-char marker and a blank one walks an invalid topic list. Escalated from a neutral fact to a
+        //     Problem: it's the highest-severity, always-fatal defect this validator sees. The blank test is
+        //     DialogueSubtype's (the same authority the create-path auto-fill uses, so the two can't drift), and the
+        //     expected marker for this topic's Subtype is named so the fix is a copy-paste, never a bare "invalid" (Q3).
+        if (DialogueSubtype.IsBlankMarker(topic.SubtypeName))
+        {
+            var expected = DialogueSubtype.MarkerFor((int)topic.Subtype);
+            issues.Add(new(DialogueIssueSeverity.Problem,
+                $"DialogTopic.SubtypeName (the SNAM subtype marker) is empty (0000) — the game buckets topics by this "
+                + "4-char marker, so a blank one is a guaranteed access-violation crash on load. "
+                + (expected is not null
+                    ? $"Set it to {expected} (the marker for Subtype={topic.Subtype}); houseCARL's create tools now auto-fill it, or set_field SubtypeName={expected}."
+                    : $"Set it to the correct 4-char marker for Subtype={topic.Subtype} via set_field SubtypeName.")));
+        }
+
         // Static condition lints (item 4) need the owning quest's reference-alias IDs — resolved ONCE here off the
         // load-order WINNER quest (an alias index in a condition is quest-relative, so it's the owning quest's set
         // that decides whether the index is live). NULL when the quest is unset or unresolvable (already surfaced
@@ -381,12 +397,9 @@ public static class DialogueValidate
     }
 
     /// <summary>A 4-char SubtypeName marker as text, or "&lt;none&gt;" for the empty/default RecordType — so a
-    /// missing marker reads as a fact, never as a blank (Q3).</summary>
-    static string DescribeSubtypeName(RecordType rt)
-    {
-        var s = rt.ToString();
-        return string.IsNullOrWhiteSpace(s) || s.All(c => c == '\0') ? "<none>" : s;
-    }
+    /// missing marker reads as a fact, never as a blank (Q3). The blank test is <see cref="DialogueSubtype.IsBlankMarker"/>
+    /// (shared with the create-path auto-fill and the Problem escalation, so all three agree on "no marker").</summary>
+    static string DescribeSubtypeName(RecordType rt) => DialogueSubtype.IsBlankMarker(rt) ? "<none>" : rt.Type;
 
     /// <summary>A nullable FormLink's target as a real FormKey, or null when the link is unset OR explicitly Null
     /// (00000000) — both mean "no target". Mirrors <see cref="VoiceCheck"/>'s sibling so the two read links the
