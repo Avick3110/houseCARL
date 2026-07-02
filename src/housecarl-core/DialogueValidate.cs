@@ -261,20 +261,23 @@ public static class DialogueValidate
             issues.Add(new(DialogueIssueSeverity.Problem,
                 $"DialogTopic.Branch points at {branchFk.Value}, which {bwhy} — the branch wiring is broken."));
 
-        // --- SNAM subtype marker: a blank one (0000) is a GUARANTEED load CTD (#131) — the engine buckets topics by
-        //     this 4-char marker and a blank one walks an invalid topic list. Escalated from a neutral fact to a
-        //     Problem: it's the highest-severity, always-fatal defect this validator sees. The blank test is
-        //     DialogueSubtype's (the same authority the create-path auto-fill uses, so the two can't drift), and the
-        //     expected marker for this topic's Subtype is named so the fix is a copy-paste, never a bare "invalid" (Q3).
+        // --- SNAM subtype marker: a blank one (0000) is malformed (#131) — the engine buckets topics by this 4-char
+        //     marker. Escalated from a neutral fact to a Problem. On a NEWLY-AUTHORED topic a blank marker is a load
+        //     CTD; on an OVERRIDE of an existing topic it has been observed shipping in a working mod (the base
+        //     record's marker plausibly still applies), so the wording is "malformed, a load CTD on a new topic"
+        //     rather than a universal "guaranteed crash" (a blank-SNAM override sweep turned up a live counterexample —
+        //     see DialogueSubtype's header). The blank test is DialogueSubtype's (the same authority the create-path
+        //     auto-fill uses, so the two can't drift), and the expected marker is named so the fix is a copy-paste (Q3).
         if (DialogueSubtype.IsBlankMarker(topic.SubtypeName))
         {
             var expected = DialogueSubtype.MarkerFor((int)topic.Subtype);
             issues.Add(new(DialogueIssueSeverity.Problem,
-                $"DialogTopic.SubtypeName (the SNAM subtype marker) is empty (0000) — the game buckets topics by this "
-                + "4-char marker, so a blank one is a guaranteed access-violation crash on load. "
+                "DialogTopic.SubtypeName (the SNAM subtype marker) is empty (0000) — the game buckets topics by this "
+                + "4-char marker. A newly-authored topic with a blank marker is a load CTD (#131); on an override it may "
+                + "be tolerated (the base record's marker can still apply) but the record is malformed either way. "
                 + (expected is not null
-                    ? $"Set it to {expected} (the marker for Subtype={topic.Subtype}); houseCARL's create tools now auto-fill it, or set_field SubtypeName={expected}."
-                    : $"Set it to the correct 4-char marker for Subtype={topic.Subtype} via set_field SubtypeName.")));
+                    ? $"Set it to {expected} (the marker for Subtype={topic.Subtype}); houseCARL's create tools now auto-fill it, or housecarl_set_field SubtypeName={expected}."
+                    : $"Set it to the correct 4-char marker for Subtype={topic.Subtype} via housecarl_set_field SubtypeName.")));
         }
 
         // Static condition lints (item 4) need the owning quest's reference-alias IDs — resolved ONCE here off the

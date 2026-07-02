@@ -1552,15 +1552,34 @@ public static class WritePatchBuilder
                         $"pre-flight ACCEPTED it but the apply threw — a real inconsistency, surfaced not swallowed (Q3): {ex.GetType().Name}: {ex.Message}");
                 }
             }
-            // #131 — auto-fill the DialogTopic SNAM subtype marker. A topic with a Subtype but a blank SNAM marker
-            // (the default when only Subtype is set — or nothing, which defaults to Custom) is a GUARANTEED load CTD:
-            // the engine buckets topics by the 4-char marker, and a blank one walks an invalid list. This COMPLETES
-            // the write the author under-specified (never overriding an explicit marker) and surfaces it as an op —
-            // auto-filled, not silent (Q3). The authority + why-not-derivable live in DialogueSubtype.
-            if (rec is IDialogTopic dtopic && DialogueSubtype.NormalizeMarker(dtopic) is { } marker)
-                ops.Add(new OpResult(rec.FormKey, s.RecordType,
-                    $"SubtypeName (SNAM subtype marker) auto-set to {marker}", true, null,
-                    $"{marker} — derived from Subtype={dtopic.Subtype}; required, a blank marker is a guaranteed load CTD (#131)"));
+            // #131 — auto-fill the DialogTopic SNAM subtype marker. A new topic with a Subtype but a blank SNAM marker
+            // (the default when only Subtype is set — or nothing, which defaults to Custom) is a load CTD: the engine
+            // buckets topics by the 4-char marker, and a new topic with a blank one walks an invalid list. This
+            // COMPLETES the write the author under-specified (never overriding an explicit marker) and surfaces it as
+            // an op — auto-filled, not silent (Q3). The authority + why-not-derivable live in DialogueSubtype.
+            if (rec is IDialogTopic dtopic)
+            {
+                switch (DialogueSubtype.NormalizeMarker(dtopic, out var marker))
+                {
+                    case MarkerFill.Filled:
+                        ops.Add(new OpResult(rec.FormKey, s.RecordType,
+                            $"SubtypeName (SNAM subtype marker) auto-set to {marker}", true, null,
+                            $"{marker} — derived from Subtype={dtopic.Subtype}; a new topic with a blank marker is a load CTD (#131)"));
+                        break;
+                    case MarkerFill.Unmodeled:
+                        // Fail loud, never ship a silent blank (Q3 + the cornerstone's "fail loud on a Mutagen/xEdit
+                        // delta"): the ONLY way here is a Subtype outside the modeled 0..N (an out-of-range enum value
+                        // that coerced past pre-flight, or a future Mutagen addition the table doesn't cover yet). We
+                        // can't derive its marker and a blank SNAM is malformed — refuse with actionable guidance
+                        // rather than write a crash-prone record (nothing serialized; the guard pins that every real
+                        // enum value IS modeled, so this only bites genuinely-out-of-range input).
+                        return CreateOutcome.Fail(
+                            $"cannot create DialogTopic '{s.EditorId}': no SNAM subtype marker is modeled for Subtype={dtopic.Subtype} " +
+                            $"((int){(int)dtopic.Subtype}, outside the known 0..{DialogueSubtype.Count - 1}). A blank marker is malformed " +
+                            "(a new topic with a blank marker is a load CTD, #131). Use a valid Subtype, or set SubtypeName explicitly to the correct 4-char marker (nothing created).");
+                    // AlreadySet: an explicit marker the author set — never overridden, nothing to report.
+                }
+            }
             created.Add(new CreatedRecord(rec.FormKey, s.RecordType, s.EditorId, ops, replaced));
         }
 
