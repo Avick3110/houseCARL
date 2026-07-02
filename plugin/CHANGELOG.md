@@ -4,6 +4,27 @@ All notable changes to houseCARL are documented here. Versioning is [semantic](h
 the `version` in `.claude-plugin/plugin.json` is bumped on each release, so installed users update only
 when it changes.
 
+## Unreleased
+
+_Accumulating toward the next release — not yet shipped._
+
+**Dialogue fixes.** A dialogue topic (DIAL) carries its subtype in two places that must agree — the numeric
+`Subtype` and a 4-character `SubtypeName` (SNAM) marker the game actually buckets topics by. houseCARL wrote
+the number but left the marker blank, so a newly-authored topic crashed on load (community report #131, by
+matashina).
+
+- `housecarl_create_record` / `housecarl_bulk_create` — a new DIAL now gets its **SNAM marker auto-filled**
+  from its `Subtype` (`Hello`→`HELO`, `Goodbye`→`GBYE`, a bare/`Custom` topic → `CUST`, …) and reported, so
+  it's never silent; an explicit `SubtypeName` you set is never overridden. The subtype→marker table is
+  sourced **by construction** from xEdit's DIAL definition (all ~100 subtypes) and CI-guarded against drift.
+  A subtype with no modeled marker (an out-of-range value) fails loud instead of writing a blank marker.
+- `housecarl_set_field` / `housecarl_bulk_apply` — changing an existing topic's `Subtype` without also setting
+  `SubtypeName` now **syncs the marker** to match (both the new-patch and in-place lanes), so a subtype change
+  isn't a silent in-game no-op.
+- `housecarl_validate_dialogue` — a blank SNAM marker is now a reported issue that names the expected marker:
+  an **error** on a newly-authored topic (the #131 crash), a **warning** on an override (where the base
+  record's marker can still apply).
+
 ## 1.4.0 — 2026-06-24
 
 houseCARL can now **edit an existing plugin in place** — including a mod it didn't author — instead of
