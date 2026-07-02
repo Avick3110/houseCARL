@@ -4,9 +4,12 @@ All notable changes to houseCARL are documented here. Versioning is [semantic](h
 the `version` in `.claude-plugin/plugin.json` is bumped on each release, so installed users update only
 when it changes.
 
-## Unreleased
+## 1.5.0 — 2026-07-02
 
-_Accumulating toward the next release — not yet shipped._
+houseCARL gains **plugin surgery**: ESL-compact a plugin with its FormID-keyed assets (facegen, voice, SEQ)
+carried along automatically, and sweep the whole load order for record errors. **Two new tools (→ 28).**
+Plus a crash fix for newly-authored dialogue topics, a compact in-place verify read-back, and a batch of
+silent-failure and ergonomics fixes.
 
 **Two new tools (→ 28) — plugin surgery arrives**
 
