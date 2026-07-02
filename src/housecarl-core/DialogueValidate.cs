@@ -262,22 +262,30 @@ public static class DialogueValidate
                 $"DialogTopic.Branch points at {branchFk.Value}, which {bwhy} — the branch wiring is broken."));
 
         // --- SNAM subtype marker: a blank one (0000) is malformed (#131) — the engine buckets topics by this 4-char
-        //     marker. Escalated from a neutral fact to a Problem. On a NEWLY-AUTHORED topic a blank marker is a load
-        //     CTD; on an OVERRIDE of an existing topic it has been observed shipping in a working mod (the base
-        //     record's marker plausibly still applies), so the wording is "malformed, a load CTD on a new topic"
-        //     rather than a universal "guaranteed crash" (a blank-SNAM override sweep turned up a live counterexample —
-        //     see DialogueSubtype's header). The blank test is DialogueSubtype's (the same authority the create-path
-        //     auto-fill uses, so the two can't drift), and the expected marker is named so the fix is a copy-paste (Q3).
+        //     marker. Severity is scoped by whether the WINNING record ORIGINATES here or is an OVERRIDE (F3):
+        //       • OWN/new topic (the winner defines the FormKey — winner == the FormKey's defining master): a blank
+        //         marker is the #131 LOAD CTD → Problem.
+        //       • OVERRIDE of a topic defined in a master: the base record's marker plausibly still applies — a
+        //         blank-SNAM override has been observed shipping in a working, actively-played mod — so it's malformed
+        //         but not a confirmed crash → Warning (don't cry "guaranteed CTD" over working content). See
+        //         DialogueSubtype's header for the live counterexample that falsified the universal claim.
+        //     The blank test is DialogueSubtype's (shared with the create-path auto-fill so they can't drift), and the
+        //     expected marker is named so the fix is a copy-paste, never a bare "invalid" (Q3).
         if (DialogueSubtype.IsBlankMarker(topic.SubtypeName))
         {
             var expected = DialogueSubtype.MarkerFor((int)topic.Subtype);
-            issues.Add(new(DialogueIssueSeverity.Problem,
-                "DialogTopic.SubtypeName (the SNAM subtype marker) is empty (0000) — the game buckets topics by this "
-                + "4-char marker. A newly-authored topic with a blank marker is a load CTD (#131); on an override it may "
-                + "be tolerated (the base record's marker can still apply) but the record is malformed either way. "
-                + (expected is not null
-                    ? $"Set it to {expected} (the marker for Subtype={topic.Subtype}); houseCARL's create tools now auto-fill it, or housecarl_set_field SubtypeName={expected}."
-                    : $"Set it to the correct 4-char marker for Subtype={topic.Subtype} via housecarl_set_field SubtypeName.")));
+            bool isOverride = !string.Equals(topic.FormKey.ModKey.FileName.String, winnerPlugin, StringComparison.OrdinalIgnoreCase);
+            var fix = expected is not null
+                ? $"Set it to {expected} (the marker for Subtype={topic.Subtype}); houseCARL's create tools now auto-fill it, or housecarl_set_field SubtypeName={expected}."
+                : $"Set it to the correct 4-char marker for Subtype={topic.Subtype} via housecarl_set_field SubtypeName.";
+            issues.Add(isOverride
+                ? new(DialogueIssueSeverity.Warning,
+                    $"DialogTopic.SubtypeName (the SNAM subtype marker) is empty (0000) on this OVERRIDE of {topic.FormKey.ModKey.FileName} — "
+                    + "the game buckets topics by this 4-char marker; the base record's marker may still apply (a blank-SNAM override ships in "
+                    + $"some working mods), but the record is malformed. {fix}")
+                : new(DialogueIssueSeverity.Problem,
+                    "DialogTopic.SubtypeName (the SNAM subtype marker) is empty (0000) — the game buckets topics by this 4-char marker, "
+                    + $"and this plugin DEFINES the topic, so a blank marker is a load CTD on load (#131); the record is malformed. {fix}"));
         }
 
         // Static condition lints (item 4) need the owning quest's reference-alias IDs — resolved ONCE here off the

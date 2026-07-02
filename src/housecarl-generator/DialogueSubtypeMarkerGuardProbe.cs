@@ -101,8 +101,9 @@ internal static class DialogueSubtypeMarkerGuardProbe
 
             var mKey = new ModKey("HcSnamMaster", ModType.Master);
             var modDir = Path.Combine(mods, "MasterMod");
+            var masterPath = Path.Combine(modDir, mKey.FileName.String);
             Directory.CreateDirectory(modDir);
-            FormKey blankTopicFk, okTopicFk;
+            FormKey blankTopicFk, okTopicFk, overridableFk;
             {
                 var m = new SkyrimMod(mKey, SkyrimRelease.SkyrimSE);
                 var blank = m.DialogTopics.AddNew(); blank.EditorID = "HcSnamBlank";
@@ -112,11 +113,30 @@ internal static class DialogueSubtypeMarkerGuardProbe
                 okTopic.Subtype = DialogTopic.SubtypeEnum.Hello;
                 okTopic.SubtypeName = new RecordType("HELO");               // a well-formed marker
                 okTopicFk = okTopic.FormKey;
-                m.BeginWrite.ToPath(Path.Combine(modDir, mKey.FileName.String)).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
+                var ovbl = m.DialogTopics.AddNew(); ovbl.EditorID = "HcSnamOverridable";  // a well-formed master topic an .esp will override + blank
+                ovbl.Subtype = DialogTopic.SubtypeEnum.Hello;
+                ovbl.SubtypeName = new RecordType("HELO");
+                overridableFk = ovbl.FormKey;
+                m.BeginWrite.ToPath(masterPath).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
             }
-            File.WriteAllText(Path.Combine(profiles, "loadorder.txt"), "# header\r\n" + mKey.FileName + "\r\n");
-            File.WriteAllText(Path.Combine(profiles, "plugins.txt"), "*" + mKey.FileName + "\r\n");
-            File.WriteAllText(Path.Combine(profiles, "modlist.txt"), "# header\r\n+MasterMod\r\n");
+
+            // An OVERRIDE plugin that overrides the master's well-formed topic but BLANKS its SNAM marker — the F3
+            // counterexample shape (a blank-SNAM override, observed shipping in a working mod). Its winner is the .esp,
+            // so its FormKey's defining master (the .esm) != winner → the validator must treat it as an override (Warning).
+            var oKey = new ModKey("HcSnamOverride", ModType.Plugin);
+            var oDir = Path.Combine(mods, "OverrideMod");
+            Directory.CreateDirectory(oDir);
+            {
+                using var masterGetter = SkyrimMod.CreateFromBinaryOverlay(masterPath, SkyrimRelease.SkyrimSE);
+                var om = new SkyrimMod(oKey, SkyrimRelease.SkyrimSE);
+                var ov = om.DialogTopics.GetOrAddAsOverride(masterGetter.DialogTopics.First(t => t.FormKey == overridableFk));
+                ov.SubtypeName = RecordType.Null;                           // blank the marker on the override
+                om.BeginWrite.ToPath(Path.Combine(oDir, oKey.FileName.String)).WithLoadOrder(new ISkyrimModGetter[] { masterGetter }).Write();
+            }
+
+            File.WriteAllText(Path.Combine(profiles, "loadorder.txt"), "# header\r\n" + mKey.FileName + "\r\n" + oKey.FileName + "\r\n");
+            File.WriteAllText(Path.Combine(profiles, "plugins.txt"), "*" + mKey.FileName + "\r\n*" + oKey.FileName + "\r\n");
+            File.WriteAllText(Path.Combine(profiles, "modlist.txt"), "# header\r\n+OverrideMod\r\n+MasterMod\r\n");
 
             var genDir = Path.Combine(root, "corpus-gen");
             CorpusGenerator.GenerateAll(genDir, Path.Combine(root, "corpus-ref"));
@@ -167,6 +187,42 @@ internal static class DialogueSubtypeMarkerGuardProbe
                     $"UNMODELED-REFUSE out-of-range Subtype refused loud, nothing written — refused={refused} noFolder={noFolder} err=[{o.Error}]");
             }
 
+            // ---- EDIT-SYNC (F1): editing an existing topic's Subtype (without setting SubtypeName) syncs the SNAM
+            //      marker to match, so the change isn't a silent in-game no-op. HcSnamOk is Hello/HELO in the master;
+            //      set Subtype=Goodbye → the written override's SNAM must become GBYE, and the sync is reported. ----
+            {
+                var ops = new[] { new BulkOp { Formid = okTopicFk.ToString(), FieldPath = "Subtype", Verb = "Set", Value = "Goodbye" } };
+                var o = svc.ApplyEdits(ops, "HcSnamEdit", null);
+                string? snam = o.Success ? TopicSnam(o.OutputPath, okTopicFk) : null;
+                bool reported = o.Success && o.Ops.Any(op => op.Label.Contains("SubtypeName", StringComparison.OrdinalIgnoreCase));
+                Check(o.Success && snam == "GBYE" && reported,
+                    $"EDIT-SYNC set Subtype=Goodbye → SNAM synced to GBYE + reported — {(o.Success ? $"snam={snam} reported={reported}" : "err=[" + o.Error + "]")}");
+            }
+
+            // ---- EDIT-EXPLICIT-WINS (F1): setting Subtype AND SubtypeName in the SAME call keeps the explicit marker
+            //      (the sync only fires when SubtypeName was NOT set) — set Subtype=Goodbye + SubtypeName=IDLE → IDLE. ----
+            {
+                var ops = new[]
+                {
+                    new BulkOp { Formid = okTopicFk.ToString(), FieldPath = "Subtype", Verb = "Set", Value = "Goodbye" },
+                    new BulkOp { Formid = okTopicFk.ToString(), FieldPath = "SubtypeName", Verb = "Set", Value = "IDLE" },
+                };
+                var o = svc.ApplyEdits(ops, "HcSnamEditExplicit", null);
+                string? snam = o.Success ? TopicSnam(o.OutputPath, okTopicFk) : null;
+                Check(o.Success && snam == "IDLE",
+                    $"EDIT-EXPLICIT-WINS Subtype+SubtypeName in one call keeps explicit IDLE (not synced to GBYE) — {(o.Success ? $"snam={snam}" : "err=[" + o.Error + "]")}");
+            }
+
+            // ---- EDIT-NO-TOUCH (F1): editing a NON-Subtype field must NOT touch the SNAM marker (no false sync on the
+            //      countless topics whose subtype the call didn't change) — set Priority, SNAM stays HELO. ----
+            {
+                var ops = new[] { new BulkOp { Formid = okTopicFk.ToString(), FieldPath = "Priority", Verb = "Set", Value = "80" } };
+                var o = svc.ApplyEdits(ops, "HcSnamEditPriority", null);
+                string? snam = o.Success ? TopicSnam(o.OutputPath, okTopicFk) : null;
+                Check(o.Success && snam == "HELO",
+                    $"EDIT-NO-TOUCH non-Subtype edit leaves SNAM untouched (HELO) — {(o.Success ? $"snam={snam}" : "err=[" + o.Error + "]")}");
+            }
+
             // ---- VALIDATE-BLANK: validate a topic shipped with a blank marker → a Problem naming the marker; the
             //      well-formed sibling raises no such Problem. ----
             {
@@ -180,6 +236,21 @@ internal static class DialogueSubtypeMarkerGuardProbe
                     i.Message.Contains("SubtypeName", StringComparison.OrdinalIgnoreCase));
                 Check(blankFlagged && okClean,
                     $"VALIDATE-BLANK blank marker → Problem, HELO marker → clean — blankFlagged={blankFlagged} okClean={okClean}");
+            }
+
+            // ---- OVERRIDE-WARN (F3): a blank-SNAM OVERRIDE of a master topic → a WARNING (not a Problem). The base
+            //      record's marker may still apply (this exact shape ships in working, actively-played mods), so the
+            //      validator must not cry "guaranteed CTD" over it — but it's still malformed, so it's surfaced. ----
+            {
+                var rOv = svc.ValidateDialogue(overridableFk);
+                var markerIssues = rOv.Topics.Count == 1
+                    ? rOv.Topics[0].Issues.Where(i => i.Message.Contains("SubtypeName", StringComparison.OrdinalIgnoreCase)).ToList()
+                    : new List<DialogueIssue>();
+                bool warnNotProblem = markerIssues.Count == 1
+                    && markerIssues[0].Severity == DialogueIssueSeverity.Warning
+                    && markerIssues[0].Message.Contains("override", StringComparison.OrdinalIgnoreCase);
+                Check(warnNotProblem,
+                    $"OVERRIDE-WARN blank-SNAM override → Warning (not Problem), names 'override' — {(markerIssues.Count == 1 ? $"sev={markerIssues[0].Severity}" : $"markerIssues={markerIssues.Count}")}");
             }
         }
         catch (Exception ex)

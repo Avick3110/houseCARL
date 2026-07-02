@@ -366,6 +366,12 @@ public static class WritePatchBuilder
             }
         }
 
+        // #131 F1 — edit-lane intent-following: if this call changed a DialogTopic's Subtype without also setting its
+        // SubtypeName, sync the SNAM marker so the change isn't a silent in-game no-op. Refuses loud on an unmodeled
+        // Subtype (no partial patch written).
+        if (SyncEditedTopicMarkers(patchMod, edits, ops) is { } syncErr)
+            return PatchOutcome.Fail($"refused — {syncErr} (no patch written).");
+
         // --- Phase 4: serialize ONCE with the FULL known-master set (multi-master). Mutagen keeps the header lean
         //     (only-referenced); a referenced master genuinely absent from the order still fails loud (Q3). ---
         // Two-part active-patch self-lock guard (Heisen 2026-06-08 + PR #24 review): no mapped handle on the file we're
@@ -397,6 +403,44 @@ public static class WritePatchBuilder
         finally { (back as IDisposable)?.Dispose(); }
 
         return new PatchOutcome(true, null, outPath, extend, masters, ops, bytes) { ReadBack = readBack };
+    }
+
+    /// <summary>#131 F1 (edit-lane intent-following), shared by <see cref="Apply"/> and <see cref="ApplyInPlace"/>:
+    /// after the edits are applied, for each DialogTopic this call edited where it SET <c>Subtype</c> but NOT
+    /// <c>SubtypeName</c>, sync the SNAM marker to the new Subtype — otherwise the change is a silent in-game no-op
+    /// (the engine buckets topics by the SNAM marker, so a stale marker keeps the old bucket; #131). It fires ONLY
+    /// when Subtype was actively set in THIS call, so it never rewrites the SNAM of a topic whose subtype the call
+    /// didn't touch — which is what keeps it off the countless vanilla topics whose DATA\Subtype is legitimately
+    /// noisy (a blanket "SubtypeName != marker" lint would false-positive on those). Adds a report op on a real
+    /// change (Q3 — never silent); returns a non-null error to FAIL the whole call on an unmodeled Subtype (never
+    /// leave a mismatched/blank marker), else null. <paramref name="mod"/> is the mutable mod the overrides live in.</summary>
+    static string? SyncEditedTopicMarkers(SkyrimMod mod, IReadOnlyList<PatchEdit> edits, List<OpResult> ops)
+    {
+        // Which top-level fields did this call edit, per target? (path[0]; Subtype/SubtypeName are scalar leaves.)
+        var editedTop = new Dictionary<FormKey, HashSet<string>>();
+        foreach (var e in edits)
+        {
+            if (e.Path.Length == 0) continue;
+            if (!editedTop.TryGetValue(e.Target, out var set)) editedTop[e.Target] = set = new(StringComparer.OrdinalIgnoreCase);
+            set.Add(e.Path[0]);
+        }
+        foreach (var (fk, set) in editedTop)
+        {
+            if (!set.Contains("Subtype") || set.Contains("SubtypeName")) continue;   // only Subtype-set-without-marker
+            if (mod.DialogTopics.FirstOrDefault(t => t.FormKey == fk) is not { } dt) continue;   // not a DialogTopic
+            switch (DialogueSubtype.SyncMarkerToSubtype(dt, out var marker))
+            {
+                case MarkerFill.Filled:
+                    ops.Add(new OpResult(fk, "DialogTopic",
+                        $"SubtypeName (SNAM subtype marker) synced to {marker}", true, null,
+                        $"{marker} — you set Subtype={dt.Subtype}; the game buckets by the SNAM marker, so it was synced to match (#131 — otherwise the Subtype change is a silent no-op)"));
+                    break;
+                case MarkerFill.Unmodeled:
+                    return $"cannot set Subtype on DialogTopic {fk}: no SNAM marker is modeled for Subtype={dt.Subtype} " +
+                           $"((int){(int)dt.Subtype}, outside the known 0..{DialogueSubtype.Count - 1}). Use a valid Subtype, or set SubtypeName explicitly";
+            }
+        }
+        return null;
     }
 
     /// <summary>
@@ -513,6 +557,12 @@ public static class WritePatchBuilder
                     $"threw — a real inconsistency, surfaced not swallowed (Q3): {ex.GetType().Name}: {ex.Message}");
             }
         }
+
+        // #131 F1 — edit-lane intent-following (same as Apply): a Subtype change without a SubtypeName in this call
+        // syncs the SNAM marker, so the edit isn't a silent in-game no-op. Refuses loud on an unmodeled Subtype (the
+        // original file stays UNTOUCHED — nothing serialized yet).
+        if (SyncEditedTopicMarkers(targetMod, edits, ops) is { } syncErr)
+            return PatchOutcome.Fail($"refused — {syncErr} ('{fileName}' is UNTOUCHED).");
 
         // --- Phase 4: re-serialize the WHOLE target back over itself (model C — the probe's incantation via WriteInPlace,
         //     NOT WritePatch). Release the target overlay first (the winner-IS-the-target common case made common — the

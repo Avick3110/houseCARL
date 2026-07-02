@@ -213,4 +213,23 @@ public static class DialogueSubtype
         marker = tag;
         return MarkerFill.Filled;
     }
+
+    /// <summary>Edit-path intent-following (#131, F1): force a topic's SNAM marker to MATCH its current <c>Subtype</c>,
+    /// overwriting a stale one. Unlike <see cref="NormalizeMarker"/> (which only fills a BLANK marker, for create),
+    /// this is called by the edit lane ONLY after a call that SET <c>Subtype</c> and did NOT set <c>SubtypeName</c> —
+    /// so the change actually takes effect (the engine buckets by SNAM, so a stale marker makes a Subtype edit a
+    /// silent in-game no-op). Gating on "this call set Subtype" is the CALLER's job; that's what keeps it from
+    /// firing on the countless vanilla topics whose DATA\Subtype is legitimately noisy. Returns
+    /// <see cref="MarkerFill.Filled"/> (marker changed — carries the tag), <see cref="MarkerFill.AlreadySet"/>
+    /// (already the right marker, nothing changed), or <see cref="MarkerFill.Unmodeled"/> (Subtype out of the modeled
+    /// range — caller must fail loud, never leave a mismatched/blank marker silently).</summary>
+    public static MarkerFill SyncMarkerToSubtype(IDialogTopic topic, out string? marker)
+    {
+        marker = null;
+        if (MarkerFor((int)topic.Subtype) is not { } tag) return MarkerFill.Unmodeled;
+        if (string.Equals(topic.SubtypeName.Type, tag, StringComparison.Ordinal)) return MarkerFill.AlreadySet;
+        topic.SubtypeName = new RecordType(tag);
+        marker = tag;
+        return MarkerFill.Filled;
+    }
 }
