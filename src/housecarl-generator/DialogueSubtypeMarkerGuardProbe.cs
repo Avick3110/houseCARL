@@ -73,6 +73,19 @@ internal static class DialogueSubtypeMarkerGuardProbe
             Check(ok, $"TABLE-ANCHOR common markers correct{(ok ? "" : " — MISMATCH: " + string.Join(", ", bad))}");
         }
 
+        // ---- TABLE-NAMES: every Mutagen SubtypeEnum value maps to a non-null marker AND sits at its own row
+        //      (NameAt((int)v) == v.ToString()). This machine-verifies the row ORDER, so a transposition of any of
+        //      the ~100 non-anchor rows (the realistic merge-conflict slip) is CI-fatal, not silently wrong-bucketing.
+        //      It also fails loud if a future Mutagen version adds a subtype the table doesn't model (cornerstone). ----
+        {
+            var vals = Enum.GetValues<DialogTopic.SubtypeEnum>();
+            var mismatches = vals.Where(v => DialogueSubtype.MarkerFor(v) is null || DialogueSubtype.NameAt((int)v) != v.ToString())
+                                 .Select(v => $"{v}(={(int)v}) name='{DialogueSubtype.NameAt((int)v)}' marker={DialogueSubtype.MarkerFor(v) ?? "<null>"}")
+                                 .ToList();
+            Check(mismatches.Count == 0,
+                $"TABLE-NAMES all {vals.Length} Mutagen SubtypeEnum values map to their own row{(mismatches.Count == 0 ? "" : " — DRIFT: " + string.Join("; ", mismatches))}");
+        }
+
         var root = Path.Combine(Path.GetTempPath(), "hc-dial-snam-guard-" + Guid.NewGuid().ToString("N"));
         try
         {
@@ -140,6 +153,20 @@ internal static class DialogueSubtypeMarkerGuardProbe
                     $"EXPLICIT-WINS explicit SubtypeName=GBYE kept (not overridden to CUST) — {(o.Success ? $"snam={snam}" : "err=[" + o.Error + "]")}");
             }
 
+            // ---- UNMODELED-REFUSE: a Subtype outside the modeled range with no explicit marker → FAIL LOUD, nothing
+            //      written (never ship a silent blank SNAM; the pre-flight accepts undefined numeric enum values, so a
+            //      Subtype=105 coerces — the create must catch it, not the enum parse). ----
+            {
+                var ops = new[] { new BulkOp { FieldPath = "Subtype", Verb = "Set", Value = "105" } };
+                var o = svc.CreateRecords("DialogTopic", "HcSnamOob", ops, "HcSnamOob", null);
+                bool refused = !o.Success && o.Error is not null
+                    && o.Error.Contains("marker", StringComparison.OrdinalIgnoreCase)
+                    && o.Error.Contains("modeled", StringComparison.OrdinalIgnoreCase);
+                bool noFolder = !Directory.EnumerateDirectories(mods, "houseCARL - HcSnamOob*").Any();
+                Check(refused && noFolder,
+                    $"UNMODELED-REFUSE out-of-range Subtype refused loud, nothing written — refused={refused} noFolder={noFolder} err=[{o.Error}]");
+            }
+
             // ---- VALIDATE-BLANK: validate a topic shipped with a blank marker → a Problem naming the marker; the
             //      well-formed sibling raises no such Problem. ----
             {
@@ -147,7 +174,7 @@ internal static class DialogueSubtypeMarkerGuardProbe
                 bool blankFlagged = rBlank.Topics.Count == 1 && rBlank.Topics[0].Issues.Any(i =>
                     i.Severity == DialogueIssueSeverity.Problem &&
                     i.Message.Contains("SubtypeName", StringComparison.OrdinalIgnoreCase) &&
-                    i.Message.Contains("crash", StringComparison.OrdinalIgnoreCase));
+                    i.Message.Contains("malformed", StringComparison.OrdinalIgnoreCase));
                 var rOk = svc.ValidateDialogue(okTopicFk);
                 bool okClean = rOk.Topics.Count == 1 && !rOk.Topics[0].Issues.Any(i =>
                     i.Message.Contains("SubtypeName", StringComparison.OrdinalIgnoreCase));
