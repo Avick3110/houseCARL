@@ -8,6 +8,53 @@ when it changes.
 
 _Accumulating toward the next release — not yet shipped._
 
+**Two new tools (→ 28) — plugin surgery arrives**
+
+- **`housecarl_compact_plugin` — ESL-compact a plugin, records AND the files keyed to them.** Renumbers a
+  plugin's own records into the ESL FormID window (`0x800`–`0xFFF`), sets the small-master flag, and repoints
+  every internal reference — writing a **new** compacted file by default, with the original untouched; editing
+  the original in place is opt-in and gated by the same consent handshake as the in-place write lane. What
+  sets it apart from a manual compact: **the assets whose filenames encode a FormID move with the records** —
+  facegen pairs (facegeom `.nif` + facetint `.dds`) and voice files (`.fuz`/`.lip`) are carried to the new
+  FormID paths, and the plugin's `.seq` is regenerated (refresh-only — houseCARL updates a `.seq` that exists
+  and warns if one is needed, it never invents one). Renumbering an NPC without renaming its facegen is how a
+  compacted mod's faces go dark; the tool closes that whole failure class in one operation. If **other
+  plugins** reference the records being renumbered, the tool identifies them by name and fails loud —
+  repointing them is a separate opt-in, never a surprise edit.
+- **`housecarl_check_errors` — load-order integrity sweep.** The data-layer twin of the Creation Kit's "Check
+  For Errors" / xEdit's error check: for every plugin in scope (one, several, or the whole active order) it
+  walks every record's FormLinks and reports **dangling references** (a link no active plugin defines),
+  **missing masters** (a declared dependency not installed/enabled — the most common load-order break), and
+  **parse failures** (records or whole plugins that couldn't be read). Read-only, and explicit about its
+  boundary: it covers the reference/master/parse class, not navmesh or terrain spatial integrity.
+
+**Write-lane fixes**
+
+- **In-place verify read-back is now compact by default.** The forced post-write verify on an in-place edit
+  used to deep-dump every touched record — on records already carrying big lists it overflowed the response
+  budget and could read as "only some of your edits applied" when all of them had. It now renders one
+  confirmation line per record (what landed, re-read clean), covering **all** touched records; the full
+  field-by-field dump stays behind `full_readback=true`, now bounded so its truncation notice actually reaches
+  you. Corruption detection is unchanged — every record is still deep re-read, only the output slimmed.
+- **Silent write failures made loud.** A collection verb against an array-backed field now refuses with a
+  clear message instead of crashing mid-write, and list elements typed as `IAssetLink` interface forms now
+  coerce correctly on write.
+
+**Ergonomics**
+
+- **`housecarl_compile_script` names the real cause of a missing-import failure.** When a compile fails with
+  errors dominated by unresolved symbols/types — the signature of an incomplete `import_dirs`, which can
+  produce hundreds of errors that look like code bugs — the result now leads with a prominent "incomplete
+  import_dirs, not a bug in the script" banner. The classifier is keyed on the compiler's actual error wording
+  and gated on a supermajority, so a genuine typo is never mislabeled.
+- **A near-miss plugin name now gets a "did you mean."** A `lookup=`/`plugins=`/FormID plugin name that isn't
+  in the load order — an apostrophe slip, a typo, or the mod *folder* name passed for the plugin *filename* —
+  now suggests the nearest real plugin(s) instead of a flat "not in the load order," across
+  `housecarl_load_order_status`, `housecarl_cross_plugin_query`, and `housecarl_read_record`. No suggestion is
+  offered unless a candidate genuinely clears the bar — a wrong "did you mean" is worse than none.
+- **MO2 2.5.x instances are recognized.** `ModOrganizer.ini` files written in the spaced `key = value` form
+  (MO2 2.5.x) now parse correctly.
+
 **Dialogue fixes.** A dialogue topic (DIAL) carries its subtype in two places that must agree — the numeric
 `Subtype` and a 4-character `SubtypeName` (SNAM) marker the game actually buckets topics by. houseCARL wrote
 the number but left the marker blank, so a newly-authored topic crashed on load (community report #131, by
