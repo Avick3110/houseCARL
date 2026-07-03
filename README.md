@@ -158,6 +158,12 @@ Namespaced under `/housecarl:` in Claude (and reachable via `$housecarl` in Code
   label like SOS / pelvis) into the `FirstPersonFlags` bit to query on, so finding every armor on an equip
   slot — multi-slot pieces an exact match misses included — is one `cross_plugin_query ... has` lookup
   instead of power-of-two mental math.
+- **`skse-plugin-authoring`** — author, build, or audit a native **SKSE plugin DLL** (C++ on CommonLibSSE-NG:
+  the layer beneath every SPID / KID / SkyPatcher distributor, framework, and crash logger) — scaffold the
+  MSVC / CMake / vcpkg toolchain, write a plugin from scratch (lifecycle, event sinks, hooks), expose new
+  native Papyrus functions from C++, target SE + AE + VR from one DLL, or read an open-source plugin's source
+  to explain what it does. Distinct from ESP/record work and from `.psc` Papyrus (owned by `papyrus-reference`);
+  its runtime claims still await an in-game validation pass.
 
 ## License
 

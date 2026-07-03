@@ -1,0 +1,37 @@
+{
+  "skill_name": "skse-plugin-authoring",
+  "method": "houseCARL HOUSECARL_SKILL_AUTHORING.md §6.5 — anonymized fresh-agent relevance fan-out; adjudicate on reasoning, not verdict token; recall >=80%, specificity >=50%.",
+  "capability_statement_anonymized": "A specialized capability for authoring, building, and auditing NATIVE SKSE PLUGIN DLLs for Skyrim — C++ code compiled against the CommonLibSSE(-NG) library into a .dll that loads under SKSE. In scope: writing a new SKSE plugin from scratch (plugin lifecycle, event sinks that react to game events, code hooks/trampolines that patch the running game), exposing brand-new native functions to Papyrus FROM C++ (the C++ producer side of the function), making one DLL run across Skyrim SE/AE/VR (Address Library, multi-runtime discipline), setting up the C++ build toolchain (MSVC/CMake/vcpkg) for such a project, and reading an existing open-source SKSE plugin's C++ SOURCE to explain what its compiled DLL does. OUT OF SCOPE: editing record data in .esp/.esm files (armor/weapon/NPC/dialogue records), merging or ESL-flagging .esp plugins, writing .psc Papyrus SCRIPTS themselves (the script-language side / signatures), authoring distributor config files (SPID/KID/SkyPatcher .ini), diagnosing a user's game crash from a crash log, and end-user SKSE installation.",
+  "evals": [
+    { "id": 1,  "should_trigger": true,  "query": "i wanna make an skse plugin that plays a sound whenever the player picks up a septim. no idea where to start on the c++ side, help?" },
+    { "id": 2,  "should_trigger": true,  "query": "I need to expose a function to papyrus from a DLL — something like MyUtil.GetActorTemperature(akActor) my quest script can call, vanilla papyrus can't do it. how do I register it?" },
+    { "id": 3,  "should_trigger": true,  "query": "my SKSE dll builds and runs fine on SE but CTDs on AE only. pretty sure it's a struct member offset thing. how do people handle this" },
+    { "id": 4,  "should_trigger": true,  "query": "can you scaffold a CommonLibSSE-NG project for me — vcpkg + cmake, targeting 1.6.1170, just a hello-world that logs on load" },
+    { "id": 5,  "should_trigger": true,  "query": "I want to hook the game so my code runs whenever an actor takes a hit. trampoline or vtable hook? and how do I not break the original call" },
+    { "id": 6,  "should_trigger": true,  "query": "here's the github for an open-source combat overhaul's SKSE dll. can you read the source and tell me what it actually patches in the engine" },
+    { "id": 7,  "should_trigger": true,  "query": "my plugin needs to remember a set of formIDs across save/load. how do the skse co-save serialization callbacks work" },
+    { "id": 8,  "should_trigger": true,  "query": "writing a BSTEventSink for TESDeathEvent — when exactly should I register it so I don't miss deaths early in the load?" },
+    { "id": 9,  "should_trigger": true,  "query": "how do I ship one skse dll that works on skyrim SE, AE and VR instead of maintaining three separate builds" },
+    { "id": 10, "should_trigger": true,  "query": "my compiled plugin just isn't showing up in the skse log at all — no error, it's like it doesn't exist. the build succeeded. what makes skse skip a dll" },
+
+    { "id": 11, "should_trigger": false, "query": "add the MagicDisallowEnchanting keyword to every daedric weapon in my load order" },
+    { "id": 12, "should_trigger": false, "query": "write me a papyrus script that starts MyQuest when the player first walks into Whiterun" },
+    { "id": 13, "should_trigger": false, "query": "my game keeps crashing to desktop. i've got the crash log from Crash Logger SSE right here, can you figure out which mod is doing it" },
+    { "id": 14, "should_trigger": false, "query": "create an esp that makes iron swords do 20 damage instead of 7" },
+    { "id": 15, "should_trigger": false, "query": "i've got two esp plugins that both edit the same leveled lists, can you merge them into one patch" },
+    { "id": 16, "should_trigger": false, "query": "write a SPID _DISTR.ini to give all bandits a fire cloak ability" },
+    { "id": 17, "should_trigger": false, "query": "my papyrus script won't compile — it says GetActorValue is not a function or the number of arguments is wrong" },
+    { "id": 18, "should_trigger": false, "query": "can you install SKSE for me and check that it's actually working with my skyrim version" },
+    { "id": 19, "should_trigger": false, "query": "what does USSEP actually change about the Whiterun guards? i want to know before i patch over it" },
+    { "id": 20, "should_trigger": false, "query": "convert my armor mod's esp to be ESL-flagged so it doesn't eat a load order slot" }
+  ],
+  "last_run": {
+    "date": "2026-07-03",
+    "model": "claude-opus-4-8",
+    "method": "anonymized fresh-agent relevance fan-out (20 agents, one per query; judged on reasoning)",
+    "recall": "10/10 (100%) — gate >=80% PASS",
+    "specificity": "10/10 (100%) — gate >=50% PASS",
+    "misclassifications": "none",
+    "notes": "Hard near-misses all correctly excluded: crash-log (#13, crash-diagnostics adjacency), USSEP 'what does this plugin do' (#19, audit adjacency), papyrus-script-compile (#17). Hard positives all correctly included: expose-function-to-Papyrus (#2, .psc adjacency but C++ producer side), SE-vs-AE CTD (#3, mentions a crash but is own-plugin multi-runtime debugging). Description unchanged after run; re-run only required if the description text changes."
+  }
+}
