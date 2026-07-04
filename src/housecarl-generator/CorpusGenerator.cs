@@ -195,18 +195,23 @@ public static class CorpusGenerator
             var f = ClassifyField(p.PropertyType, referenced, catalogName, p.Name);
             f.Name = p.Name;
             f.Writable = writable;
-            // SUBSTRUCT nullability. A substruct is a reference-typed interface property (IVmadGetter?, ITranslatedStringGetter?,
-            // …), NOT a Nullable<T> value type — so ClassifyField (which reads only Nullable.GetUnderlyingType) always leaves
-            // it non-nullable, and Mutagen's real "?" annotation is lost. Read it back from the getter property's NRT metadata
-            // via NullabilityInfoContext. A nullable substruct is then Remove-able BY CONSTRUCTION: VerbLegality already allows
-            // Remove on a nullable leaf, and ApplyScalarVerb's Remove sets the property null — so correcting the schema's
-            // nullability completes the "clear/un-fragment a sub-object" capability (e.g. INFO.VirtualMachineAdapter) with no
-            // new write path. Same Mutagen reflection that builds the write surface, so schema and engine can't disagree.
-            // SCOPE: substruct only. value/enum/formlink already carry correct nullability (Nullable<T> + the FormLinkNullable
-            // name-check in ClassifyField); standalone POLYMORPHIC fields are a distinct, more delicate surface — the
-            // serialize-required signal (WriteEngine RunPatch / the composed-arm NRE catch) relies on poly fields staying
-            // Nullable=false, so flipping them here would need that audited first. Deliberate boundary, left as-is.
-            if (f.Cardinality == "substruct" && !f.Nullable
+            // SUBSTRUCT / POLYMORPHIC nullability. A substruct or a polymorphic-union field is a reference-typed interface
+            // property (IVmadGetter?, ITranslatedStringGetter?, …), NOT a Nullable<T> value type — so ClassifyField (which
+            // reads only Nullable.GetUnderlyingType) always leaves it non-nullable, and Mutagen's real "?" annotation is
+            // lost. Read it back from the getter property's NRT metadata via NullabilityInfoContext. A nullable such field
+            // is then Remove-able BY CONSTRUCTION: VerbLegality already allows Remove on a nullable leaf, and
+            // ApplyScalarVerb's Remove sets the property null — so correcting the schema's nullability completes the
+            // "clear/un-fragment a sub-object" capability (INFO.VirtualMachineAdapter; a poly arm like
+            // DialogResponsesAdapter.ScriptFragments or Npc.Sound) with no new write path. Same Mutagen reflection that
+            // builds the write surface, so schema and engine can't disagree. value/enum/formlink already carry correct
+            // nullability (Nullable<T> + the FormLinkNullable name-check in ClassifyField).
+            // NOT A REQUIRED-ARM SIGNAL: this poly nullability is a faithful "can this field be absent?", but it is NOT a
+            // "required arm at serialize" predicate, and NO pre-flight gate keys on it. NpcConfiguration.Level reads
+            // Nullable=false yet a null Level serializes fine (nullarm-guard B2), while Condition.Data (also Nullable=false)
+            // throws — same flag, opposite serialize behavior. A gate on the flag would over-reject a legitimately-absent
+            // field or need a hand-curated required-arm list (cornerstone §3), so a genuinely-missing required arm stays
+            // caught at the serialize boundary (WriteEngine.WritePatch's NullArmSerializeException), the honest failure point.
+            if ((f.Cardinality is "substruct" or "polymorphic") && !f.Nullable
                 && nullCtx.Create(p).ReadState == System.Reflection.NullabilityState.Nullable)
                 f.Nullable = true;
             f.GetterTypeAssemblyQualified = p.PropertyType.AssemblyQualifiedName ?? p.PropertyType.FullName ?? p.PropertyType.Name;
