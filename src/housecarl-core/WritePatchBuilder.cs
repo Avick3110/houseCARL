@@ -1570,7 +1570,10 @@ public static class WritePatchBuilder
                 // (Phase 1) already guaranteed any surviving @-token is on a FormLink leaf AND names a record created
                 // EARLIER in this call — so it is already in createdByEditorId; a miss here is a real engine
                 // inconsistency, surfaced not swallowed (Q3). The substituted value is a normal intra-patch FormKey
-                // that ApplyVerb coerces exactly as a literal FormID would (no apply-path change).
+                // that ApplyVerb coerces exactly as a literal FormID would (no apply-path change). Two slots carry a
+                // sibling ref (both gated to FormLink targets in pre-flight): the SINGULAR req.Value (a Set on a link,
+                // or — S4 Track D — an Add to a link list), and req.Values (S4 Track D: a ReplaceAll on a link list,
+                // where siblings may mix with literal FormIDs).
                 var req = rawReq;
                 if (WriteEngine.IsSameCallSiblingRef(rawReq.Value, out var sibEdid))
                 {
@@ -1579,6 +1582,24 @@ public static class WritePatchBuilder
                             $"internal: same-call reference '@{sibEdid}' on new {s.RecordType} '{s.EditorId}' resolved to no " +
                             "record created in this call — pre-flight should have caught it; surfaced, not swallowed (Q3).");
                     req = CopyWithValue(rawReq, sibRec.FormKey.ToString());
+                }
+                else if (rawReq.Values is { } rawVals && Array.Exists(rawVals, v => WriteEngine.IsSameCallSiblingRef(v, out _)))
+                {
+                    // ReplaceAll on a FormLink list — resolve each @-entry to its allocated FormKey; literals pass through.
+                    var resolved = new string[rawVals.Length];
+                    for (int vi = 0; vi < rawVals.Length; vi++)
+                    {
+                        if (WriteEngine.IsSameCallSiblingRef(rawVals[vi], out var vEd))
+                        {
+                            if (!createdByEditorId.TryGetValue(vEd, out var vRec))
+                                return CreateOutcome.Fail(
+                                    $"internal: same-call reference '@{vEd}' in a list value on new {s.RecordType} '{s.EditorId}' " +
+                                    "resolved to no record created in this call — pre-flight should have caught it; surfaced, not swallowed (Q3).");
+                            resolved[vi] = vRec.FormKey.ToString();
+                        }
+                        else resolved[vi] = rawVals[vi];
+                    }
+                    req = CopyWithValues(rawReq, resolved);
                 }
                 try { WriteEngine.ApplyVerb(rec, req); ops.Add(new OpResult(rec.FormKey, s.RecordType, Label(req), true, null, TryReadAfter(rec, req))); }
                 catch (ExpectedApplyRejectionException ex)
@@ -1769,6 +1790,15 @@ public static class WritePatchBuilder
     {
         RecordType = r.RecordType, Path = r.Path, Verb = r.Verb, Key = r.Key,
         Value = value, Values = r.Values, Entries = r.Entries, Struct = r.Struct,
+    };
+
+    /// <summary>The <see cref="WriteRequest.Values"/> twin of <see cref="CopyWithValue"/> — clone changing ONLY the
+    /// list contents. Used to substitute resolved same-call sibling FormKeys for <c>@editorid</c> tokens inside a
+    /// FormLink-list ReplaceAll before apply (S4 Track D); every other field is carried verbatim.</summary>
+    static WriteRequest CopyWithValues(WriteRequest r, string[] values) => new()
+    {
+        RecordType = r.RecordType, Path = r.Path, Verb = r.Verb, Key = r.Key,
+        Value = r.Value, Values = values, Entries = r.Entries, Struct = r.Struct,
     };
 
     /// <summary>Best-effort read-back of the edited leaf off the override (so the caller sees the value landed without a
