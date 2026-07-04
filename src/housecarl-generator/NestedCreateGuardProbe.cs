@@ -37,20 +37,25 @@ namespace HousecarlGenerator;
 ///                    refuses loud, naming both.
 ///
 /// Layer B unit A — same-call sibling reference (@editorid) as a FormLink VALUE (the PNAM order-chain + Topic back-link
-/// in ONE bulk_create):
-///   SIBREF        — topic + 2 lines; line 1's Topic=@topic and line 2's PreviousDialog=@line1 BOTH resolve to the
-///                   right same-call 0x800+ FormKeys on disk (the keystone).
-///   REJ-SIBFWD    — a field @ref to a sibling declared LATER refuses loud ('EARLIER in this call' — the declared-earlier rule).
-///   REJ-SIBNONFL  — an @ref on a NON-FormLink field (FavorLevel) refuses loud ('only valid on a FormLink field' — the
-///                   string-collision guard that keeps Phase-3 substitution scoped to formlinks).
-///   REJ-SIBLIST   — an @ref inside a COLLECTION value (a list ReplaceAll's Values) refuses loud ('only supported as a
-///                   single Set value') — the create path resolves only the singular Value, so a list/dict token must
-///                   fail at the gate, not accept-then-throw at apply (Q3).
-///   REJ-SIBDICT   — the dict half of that gate: an @ref inside a dict Merge's Entries values refuses loud the same way.
-///   REJ-SIBAPPLY  — an @ref validated with a NULL sibling set (the Apply/set_field context) refuses at the rulebook —
-///                   create-only scoping, so @editorid never becomes an accept-then-substitute-nothing hole (Q3).
+/// in ONE bulk_create; S4 Track D extends it to FormLink-LIST Add/ReplaceAll):
+///   SIBREF             — topic + 2 lines; line 1's Topic=@topic and line 2's PreviousDialog=@line1 BOTH resolve to the
+///                        right same-call 0x800+ FormKeys on disk (the singular-Set keystone).
+///   SIBREF-LISTADD     — a line's LinkTo Add=@sub-topic resolves to the same-call sub-topic's FormKey on disk (S4 Track
+///                        D: the report's linked-menu scenario in ONE bulk_create — no two-pass create-then-bulk_apply).
+///   SIBREF-LISTREPLACE — a line's LinkTo ReplaceAll=[@subA,@subB] resolves BOTH @-entries to same-call FormKeys (the
+///                        whole-list gate accepts siblings mixed with literals; here both are siblings).
+///   REJ-SIBFWD         — a field @ref to a sibling declared LATER refuses loud ('EARLIER in this call' — declared-earlier).
+///   REJ-SIBFWD-LIST    — the list twin: a LinkTo Add=@laterSibling refuses the same way (declared-earlier holds on the list path).
+///   REJ-SIBNONFL       — an @ref on a NON-FormLink field (FavorLevel) refuses loud ('only valid on a FormLink field' — the
+///                        string-collision guard that keeps substitution scoped to formlinks).
+///   REJ-SIBLIST-SETIDX — an @ref via a non-Add list verb (SetAtIndex, which IS verb-legal on a list) refuses — the sibling
+///                        gate opens ONLY for Add (proves S4 Track D didn't over-widen to every list verb).
+///   REJ-SIBDICT        — an @ref inside a dict Merge's Entries values refuses loud ('not inside a dict value' — no
+///                        formlink-valued dict is modeled, so the dict half stays dormant-by-construction).
+///   REJ-SIBAPPLY       — an @ref validated with a NULL sibling set (the Apply/set_field context) refuses at the rulebook —
+///                        create-only scoping, so @editorid never becomes an accept-then-substitute-nothing hole (Q3).
 ///
-/// GENERAL FormLink-ELEMENT collection value-shape — the BROADER pre-existing gap REJ-SIBLIST/REJ-SIBDICT named: ANY
+/// GENERAL FormLink-ELEMENT collection value-shape — the BROADER pre-existing gap the sibling-ref collection gate named: ANY
 /// malformed FormLink ELEMENT (not just an @editorid sibling token) in a collection value was accepted at pre-flight
 /// then threw "Malformed FormKey string" at apply (a Q3 accept-then-throw). The gate now validates each element with
 /// the SAME recognizer the singular formlink Set uses (DialogResponses.LinkTo = List&lt;FormLink&lt;DialogTopic&gt;&gt;):
@@ -590,22 +595,81 @@ public static class NestedCreateGuardProbe
             },
             msg => msg.Contains("only valid on a FormLink field", StringComparison.OrdinalIgnoreCase));
 
-        // ---------- REJ-SIBLIST: an @ref inside a COLLECTION value (list ReplaceAll) refuses loud, not accept-then-throw ----------
-        // The create path substitutes only the singular Set Value; a sibling token in req.Values would otherwise slip
-        // past pre-flight and throw FormKey.Factory at apply (a Q3 accept-then-throw). Caught loud at the gate instead.
-        bool sibRejListOk = RejectArm("REJ-SIBLIST @ref in list value     ", tmpDir, "SibList", mPath, rulebook,
+        // ---------- SIBREF-LISTADD (S4 Track D): @editorid as an Add value on a FormLink list resolves E2E ----------
+        // The report's exact scenario: a hub line's LinkTo Add's a same-call sub-topic by @editorid — resolved to the
+        // sub-topic's allocated 0x800+ FormKey on disk, in ONE bulk_create (no two-pass create-then-bulk_apply).
+        bool sibRefListAddOk = false;
+        {
+            string pPath = Path.Combine(tmpDir, "HcNcSlAdd.esp");
+            var specs = new[]
+            {
+                new WritePatchBuilder.CreateSpec { RecordType = "DialogTopic", EditorId = "HcNcSlaHub", Edits = Array.Empty<WriteRequest>() },
+                new WritePatchBuilder.CreateSpec { RecordType = "DialogTopic", EditorId = "HcNcSlaSub", Edits = Array.Empty<WriteRequest>() },
+                new WritePatchBuilder.CreateSpec { RecordType = "DialogResponses", EditorId = "HcNcSlaL1", ParentRef = "HcNcSlaHub",
+                    Edits = new[] { new WriteRequest { RecordType = "DialogResponses", Path = new[] { "LinkTo" }, Verb = "Add", Value = "@HcNcSlaSub" } } },
+            };
+            using var r = LoadOrderResolver.Build(new[] { mPath });
+            var o = WritePatchBuilder.CreateRecords(r, rulebook, specs, pPath, extend: false);
+            FormKey subFk = o.Success && o.Created.Count > 1 ? o.Created[1].FormKey : default;
+            var linkTo = o.Success && o.Created.Count > 2 ? InfoLinkTo(pPath, o.Created[2].FormKey) : null;
+            sibRefListAddOk = o.Success && o.Created.Count == 3 && subFk != default && linkTo is not null && linkTo.Contains(subFk);
+            Console.WriteLine($"   SIBREF-LISTADD @ref Add to link list : {(sibRefListAddOk ? "PASS — LinkTo Add @sub-topic resolved to the same-call FormKey" : $"FAIL — success={o.Success} sub=[{subFk}] linkTo=[{(linkTo is null ? "null" : string.Join(",", linkTo))}] err=[{o.Error}]")}");
+        }
+
+        // ---------- SIBREF-LISTREPLACE (S4 Track D): @editorid entries in a FormLink-list ReplaceAll resolve E2E ----------
+        // Two sub-topics + a hub line whose LinkTo ReplaceAll = [@subA, @subB] — BOTH @-entries substituted with their
+        // allocated FormKeys (the whole-list gate accepts siblings + literals; here both are siblings).
+        bool sibRefListReplaceOk = false;
+        {
+            string pPath = Path.Combine(tmpDir, "HcNcSlRep.esp");
+            var specs = new[]
+            {
+                new WritePatchBuilder.CreateSpec { RecordType = "DialogTopic", EditorId = "HcNcSlrHub", Edits = Array.Empty<WriteRequest>() },
+                new WritePatchBuilder.CreateSpec { RecordType = "DialogTopic", EditorId = "HcNcSlrSubA", Edits = Array.Empty<WriteRequest>() },
+                new WritePatchBuilder.CreateSpec { RecordType = "DialogTopic", EditorId = "HcNcSlrSubB", Edits = Array.Empty<WriteRequest>() },
+                new WritePatchBuilder.CreateSpec { RecordType = "DialogResponses", EditorId = "HcNcSlrL1", ParentRef = "HcNcSlrHub",
+                    Edits = new[] { new WriteRequest { RecordType = "DialogResponses", Path = new[] { "LinkTo" }, Verb = "ReplaceAll",
+                        Values = new[] { "@HcNcSlrSubA", "@HcNcSlrSubB" } } } },
+            };
+            using var r = LoadOrderResolver.Build(new[] { mPath });
+            var o = WritePatchBuilder.CreateRecords(r, rulebook, specs, pPath, extend: false);
+            FormKey subAFk = o.Success && o.Created.Count > 1 ? o.Created[1].FormKey : default;
+            FormKey subBFk = o.Success && o.Created.Count > 2 ? o.Created[2].FormKey : default;
+            var linkTo = o.Success && o.Created.Count > 3 ? InfoLinkTo(pPath, o.Created[3].FormKey) : null;
+            sibRefListReplaceOk = o.Success && o.Created.Count == 4 && subAFk != subBFk
+                                  && linkTo is not null && linkTo.Contains(subAFk) && linkTo.Contains(subBFk);
+            Console.WriteLine($"   SIBREF-LISTREPLACE @refs in ReplaceAll: {(sibRefListReplaceOk ? "PASS — both @sub-topics resolved to same-call FormKeys" : $"FAIL — success={o.Success} subA=[{subAFk}] subB=[{subBFk}] linkTo=[{(linkTo is null ? "null" : string.Join(",", linkTo))}] err=[{o.Error}]")}");
+        }
+
+        // ---------- REJ-SIBLIST-SETIDX: an @ref via a non-Add list verb (SetAtIndex) refuses — the gate opens ONLY for Add ----------
+        // SetAtIndex is verb-legal on a list (unlike Set, which verb-legality rejects up front), so it REACHES the sibling
+        // gate — which admits a list sibling ref ONLY for Add (Set is the singular-leaf verb). Proves the S4 Track D
+        // opening didn't over-widen to every list verb; the gate names Add on a FormLink list.
+        bool sibRejListSetOk = RejectArm("REJ-SIBLIST-SETIDX @ref non-Add    ", tmpDir, "SibListSetIdx", mPath, rulebook,
             new[]
             {
-                new WritePatchBuilder.CreateSpec { RecordType = "DialogTopic", EditorId = "HcNcSlTopic", Edits = Array.Empty<WriteRequest>() },
-                new WritePatchBuilder.CreateSpec { RecordType = "DialogResponses", EditorId = "HcNcSlL1", ParentRef = "HcNcSlTopic",
-                    Edits = new[] { new WriteRequest { RecordType = "DialogResponses", Path = new[] { "LinkTo" }, Verb = "ReplaceAll", Values = new[] { "@HcNcSlTopic" } } } },
+                new WritePatchBuilder.CreateSpec { RecordType = "DialogTopic", EditorId = "HcNcSlsTopic", Edits = Array.Empty<WriteRequest>() },
+                new WritePatchBuilder.CreateSpec { RecordType = "DialogResponses", EditorId = "HcNcSlsL1", ParentRef = "HcNcSlsTopic",
+                    Edits = new[] { new WriteRequest { RecordType = "DialogResponses", Path = new[] { "LinkTo" }, Verb = "SetAtIndex", Key = "0", Value = "@HcNcSlsTopic" } } },
             },
-            msg => msg.Contains("only supported as a single Set value", StringComparison.OrdinalIgnoreCase));
+            msg => msg.Contains("Add value on a FormLink list", StringComparison.OrdinalIgnoreCase));
 
-        // ---------- REJ-SIBDICT: an @ref inside a DICT value (Merge Entries) refuses loud — the dict half of the gate ----------
-        // Sibling tokens in a dict Entries' VALUES are caught by the same collection gate as the list case (the |
-        // req.Entries branch). Class.SkillWeights (Dictionary<Skill,Byte>) is a flat dict leaf; the gate fires on the
-        // '@' in the Entries value before any key/value coercion, so the dict key need not be a valid Skill.
+        // ---------- REJ-SIBFWD-LIST: an @ref Add to a sibling declared LATER refuses (declared-earlier rule, list path) ----------
+        bool sibRejFwdListOk = RejectArm("REJ-SIBFWD-LIST @ref Add to later  ", tmpDir, "SibFwdList", mPath, rulebook,
+            new[]
+            {
+                new WritePatchBuilder.CreateSpec { RecordType = "DialogTopic", EditorId = "HcNcSflTopic", Edits = Array.Empty<WriteRequest>() },
+                new WritePatchBuilder.CreateSpec { RecordType = "DialogResponses", EditorId = "HcNcSflL1", ParentRef = "HcNcSflTopic",
+                    Edits = new[] { new WriteRequest { RecordType = "DialogResponses", Path = new[] { "LinkTo" }, Verb = "Add", Value = "@HcNcSflLater" } } },
+                new WritePatchBuilder.CreateSpec { RecordType = "DialogTopic", EditorId = "HcNcSflLater", Edits = Array.Empty<WriteRequest>() },
+            },
+            msg => msg.Contains("EARLIER in this call", StringComparison.OrdinalIgnoreCase));
+
+        // ---------- REJ-SIBDICT: an @ref inside a DICT value (Merge Entries) refuses loud — the dict half stays refused ----------
+        // With the list half now SUPPORTED (S4 Track D), the dict half is its own gate branch: no formlink-VALUED dict is
+        // modeled (0 fields), so a sibling token in a dict Entries' VALUES stays refused. Class.SkillWeights
+        // (Dictionary<Skill,Byte>) is a flat dict leaf; the gate fires on the '@' before any key/value coercion, so the
+        // dict key need not be a valid Skill.
         bool sibRejDictOk = RejectArm("REJ-SIBDICT @ref in dict value     ", tmpDir, "SibDict", mPath, rulebook,
             new[]
             {
@@ -613,7 +677,7 @@ public static class NestedCreateGuardProbe
                     Edits = new[] { new WriteRequest { RecordType = "Class", Path = new[] { "SkillWeights" }, Verb = "Merge",
                         Entries = new Dictionary<string, string> { ["OneHanded"] = "@HcNcSdClass" } } } },
             },
-            msg => msg.Contains("only supported as a single Set value", StringComparison.OrdinalIgnoreCase));
+            msg => msg.Contains("not inside a dict value", StringComparison.OrdinalIgnoreCase));
 
         // ---------- REJ-SIBAPPLY: an @ref on the Apply/set_field path (no siblings) refuses at the rulebook ----------
         // Drives the rulebook DIRECTLY with a null sibling set (the override/set_field context) — proves the create-only
@@ -2137,7 +2201,8 @@ public static class NestedCreateGuardProbe
         Console.WriteLine();
         bool pass = fixturesOk && oneshotOk && multiOk && intoTopicOk && intoCellOk
                     && rejNoParentOk && rejBadParentOk && rejAmbigOk && rejFwdSibOk && extendOk
-                    && sibrefOk && sibRejFwdOk && sibRejNonflOk && sibRejListOk && sibRejDictOk && sibRejApplyOk
+                    && sibrefOk && sibRefListAddOk && sibRefListReplaceOk && sibRejFwdOk && sibRejFwdListOk
+                    && sibRejNonflOk && sibRejListSetOk && sibRejDictOk && sibRejApplyOk
                     && flElemRejGateOk && flElemRejAddOk && flElemNullClearOk && flElemOkE2eOk && flElemRejE2eOk
                     && flElemRejNullAddOk && flElemRejNullAddPlainOk && flElemRejNullSetIdxOk && flElemRejNullAddE2eOk
                     && keyIdxRejDictAddOk && keyIdxRejDictRemoveOk && keyIdxRejSetIdxOk && keyIdxOkListRemoveOk && keyIdxRejSetIdxE2eOk

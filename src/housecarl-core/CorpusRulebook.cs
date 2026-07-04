@@ -313,39 +313,68 @@ public sealed class CorpusRulebook
     string? ValueLegality(FieldSchema leaf, WriteRequest req, IReadOnlyCollection<string>? siblingEditorIds = null)
     {
         // Same-call sibling reference ("@editorid", create-context forward-ref — HCBR Layer B unit A). Gate it BEFORE
-        // any verb/cardinality dispatch: it is a Set VALUE naming a record created earlier in this same create call,
-        // substituted with that record's real FormKey AFTER allocation (WritePatchBuilder.CreateRecords). It is ONLY
-        // legal as a singular Set Value on a FormLink leaf, and ONLY in create context (siblingEditorIds non-null) —
-        // everywhere else it rejects loud (the Apply/set_field path has no siblings, so never an
-        // accept-then-substitute-nothing, Q3). The create path resolves ONLY the singular req.Value; a sibling token
-        // in a COLLECTION value (a list ReplaceAll's req.Values, or dict req.Entries) is therefore caught here too and
-        // refused loud — otherwise it would slip past pre-flight and throw FormKey.Factory at apply (a Q3
-        // accept-then-throw). Both gates sit ahead of the cardinality branches so no sibling token reaches them.
+        // any verb/cardinality dispatch: it names a record created EARLIER in this same create call, substituted with
+        // that record's real FormKey AFTER allocation (WritePatchBuilder.CreateRecords), and ONLY in create context
+        // (siblingEditorIds non-null) — the Apply/set_field path has no siblings, so an @editorid there rejects loud
+        // (never an accept-then-substitute-nothing, Q3). Legal placements, all resolved with identical timing:
+        //   • a SINGULAR value — Set on a singular FormLink leaf, OR Add on a FormLink LIST leaf (S4 Track D: LinkTo
+        //     etc.; the substitution replaces the singular req.Value either way — ApplyListVerb's Add coerces it).
+        //   • inside a ReplaceAll's req.Values on a FormLink LIST (S4 Track D) — each @-entry substituted in place.
+        // Anywhere else a sibling token would slip past pre-flight and throw FormKey.Factory at apply (a Q3
+        // accept-then-throw), so those cases stay refused loud below. Both gates sit ahead of the cardinality branches.
         if (WriteEngine.IsSameCallSiblingRef(req.Value, out var sibEdid))
         {
             if (siblingEditorIds is null)
                 return $"'{req.Value}' for '{leaf.Name}': a '@editorid' same-call reference is only valid when creating " +
                        "records in ONE call (housecarl_bulk_create) — it has no meaning when editing an existing record.";
-            if (req.Verb != "Set")
-                return $"Same-call reference '{req.Value}' for '{leaf.Name}' is only valid as a Set value (the verb was '{req.Verb}').";
-            if (leaf.Cardinality != "formlink")
+            // The singular value must land on a FormLink TARGET — a singular formlink leaf or a formlink-element list.
+            var onFormLink = leaf.Cardinality == "formlink"
+                          || (leaf.Cardinality == "list" && leaf.FormLinkTarget is not null);
+            if (!onFormLink)
                 return $"Same-call reference '{req.Value}' for '{leaf.Name}' is only valid on a FormLink field, but " +
                        $"'{leaf.Name}' is a {leaf.Cardinality}.";
+            // …and the verb must fit the target's shape: Set a singular link, Add to a link list (S4 Track D).
+            var verbFits = (leaf.Cardinality == "formlink" && req.Verb == "Set")
+                        || (leaf.Cardinality == "list" && req.Verb == "Add");
+            if (!verbFits)
+                return $"Same-call reference '{req.Value}' for '{leaf.Name}' is only valid as a Set value on a singular " +
+                       $"FormLink field or an Add value on a FormLink list (the verb was '{req.Verb}', '{leaf.Name}' " +
+                       $"is a {leaf.Cardinality}).";
             return siblingEditorIds.Contains(sibEdid) ? null
                 : $"Same-call reference '{req.Value}' for '{leaf.Name}': no record with editorid '{sibEdid}' is created " +
                   "EARLIER in this call — declare it before the record that references it (in spec order).";
         }
-        // A sibling token inside a COLLECTION value (a list ReplaceAll's Values, or a dict Entries' VALUES) is NOT
-        // substituted (only the singular Set Value is) — refuse loud rather than accept-then-throw at apply (Q3).
-        // Unconditional: never supported, on either the create or the edit-existing path. List/dict sibling-refs are a
-        // deliberate later surface. (A '@editorid' in a dict KEY — Set/Add/Remove req.Key, or a Merge/ReplaceAll Entries
-        // key — is now caught by the step-4-key key-shape gate below: '@…' won't coerce to any modeled key type, so it
-        // rejects there by construction, never reaching apply. The "parked key value-shape" task this note once pointed
-        // at IS that gate.)
-        if ((req.Values is { } vals && vals.Any(v => WriteEngine.IsSameCallSiblingRef(v, out _)))
-            || (req.Entries is { } ents && ents.Values.Any(v => WriteEngine.IsSameCallSiblingRef(v, out _))))
-            return $"a '@editorid' same-call reference for '{leaf.Name}' is only supported as a single Set value on a " +
-                   "FormLink field, not inside a list/dict value — list/dict sibling-refs are a later surface.";
+        // A sibling token inside req.Values — legal ONLY as a ReplaceAll on a FormLink LIST (S4 Track D); each entry is
+        // substituted with its sibling's allocated FormKey (WritePatchBuilder.CreateRecords). Validate the WHOLE list
+        // here (siblings + literal FormIDs may mix) and RETURN — do NOT fall through to step-4a, which would reject the
+        // '@' tokens as malformed FormLinks. Any other placement (wrong verb, a non-FormLink list) stays refused loud
+        // rather than slipping to a FormKey.Factory throw at apply (Q3).
+        if (req.Values is { } vals && vals.Any(v => WriteEngine.IsSameCallSiblingRef(v, out _)))
+        {
+            if (siblingEditorIds is null)
+                return $"a '@editorid' same-call reference for '{leaf.Name}' is only valid when creating records in ONE " +
+                       "call (housecarl_bulk_create) — it has no meaning when editing an existing record.";
+            if (!(req.Verb == "ReplaceAll" && leaf.Cardinality == "list" && leaf.FormLinkTarget is not null))
+                return $"a '@editorid' same-call reference for '{leaf.Name}' is only supported as an Add value or a " +
+                       $"ReplaceAll value on a FormLink list (the verb was '{req.Verb}', '{leaf.Name}' is a {leaf.Cardinality}).";
+            foreach (var v in vals)
+            {
+                if (WriteEngine.IsSameCallSiblingRef(v, out var vEd))
+                {
+                    if (!siblingEditorIds.Contains(vEd))
+                        return $"Same-call reference '@{vEd}' for '{leaf.Name}': no record with editorid '{vEd}' is " +
+                               "created EARLIER in this call — declare it before the record that references it (in spec order).";
+                }
+                else if (!WriteEngine.IsValidFormLinkValue(v)) return FormLinkElementReject(v, leaf);
+            }
+            return null;
+        }
+        // A sibling token inside a dict Entries' VALUES — no formlink-VALUED dict is modeled (0 fields in the corpus),
+        // so this stays refused loud (the dormant-by-construction dict half; a dict KEY '@…' is caught by the step-4-key
+        // shape gate below, which won't coerce '@…' to any modeled key type).
+        if (req.Entries is { } ents && ents.Values.Any(v => WriteEngine.IsSameCallSiblingRef(v, out _)))
+            return $"a '@editorid' same-call reference for '{leaf.Name}' is only supported on a FormLink list, not " +
+                   "inside a dict value — no formlink-valued dict is modeled.";
         // (step 4-key) KEY / INDEX VALUE-SHAPE — the shape twin of the key/index PRESENCE gate (VerbLegality's
         // missing-key rejects). A PRESENT-but-malformed dict key / list index passes presence but throws UNNAMED at
         // apply: a dict Set/Add/Remove coerces req.Key into the entry (ApplyDictVerb -> Coerce(req.Key!, KeyType)) and
