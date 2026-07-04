@@ -31,7 +31,9 @@ tools.
 **What houseCARL CANNOT do — say it, never paper over it:**
 - **Evaluate `Conditions` (CTDA).** Conditions decide *when* a line fires. houseCARL **can** statically catch a
   meaningful subset of **malformed** conditions — `housecarl_validate_dialogue` flags a dangling form reference,
-  a dead quest-alias index, an unset Run On reference, and a `GetIsID` pointed at a placed instance — and it can
+  a dead quest-alias index, an unset Run On reference, and a `GetIsID` pointed at a placed instance (it recognizes
+  the engine-implicit `PlayerRef` `000014`/`Player` `000007` forms, so a standard player-state gate — `HasSpell` or
+  an actor-value check Run On `PlayerRef` — validates clean, not false-flagged as missing) — and it can
   read a condition back and **decode** it (the function, its parameters, its Run On scope —
   [`references/condition-functions.md`](references/condition-functions.md)) so you can check it by eye. What it
   **cannot** do is **evaluate** whether a *well-formed* condition passes — only the running game can. So a
@@ -177,11 +179,15 @@ this skill's job.
 
 6. **SEQ, if the quest starts at game start.** Set the quest's Start-Game-Enabled flag, then run
    `housecarl_write_seq` against the plugin. Without it the quest — and all its dialogue — silently never
-   starts. (A plugin with no such quests needs no `.seq`; the tool reports that.)
+   starts. (A plugin with no such quests needs no `.seq`; the tool reports that.) If a later **in-place** edit
+   or removal prunes a master, the on-disk FormIDs shift and the existing `.seq` goes stale — houseCARL flags
+   this in the write's read-back note so you re-run `housecarl_write_seq` (it flags, never silently rewrites).
 
 7. **Validate, then verify.** Run `housecarl_validate_dialogue` on the topic (a DIAL FormID) or the whole
    quest (a QUST FormID). It checks what it can — quest/branch wiring, `LinkTo` and PNAM resolve, voice
-   present, scripts bound — and **prints a standing-limits footer for what it cannot** (the CTDA conditions,
+   present, scripts bound, and every `<Global=X>` text-replacement tag backed by a global in the quest's
+   `TextDisplayGlobals` (an unbacked tag renders as `[...]` in game — a silent failure it now warns on) — and
+   **prints a standing-limits footer for what it cannot** (the CTDA conditions,
    lip-sync, and the dropped-line caveat). Treat the footer as real: a clean pass is not "this will play."
    Read the new records back (`full_readback` on the create call) before telling the user to enable + sort
    the patch in MO2.

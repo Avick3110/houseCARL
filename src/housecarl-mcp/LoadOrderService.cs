@@ -1166,11 +1166,14 @@ public sealed class LoadOrderService : IDisposable
         // (4) The write — touched-record verify forced ON (the model-C substitute for the dropped whole-plugin floor).
         var outcome = WritePatchBuilder.ApplyInPlace(resolver, rulebook, edits, targetPath, targetName, fullReadback: true);
 
-        // (5) On success, stamp the distinct audit marker (best-effort; a marker miss never fails the done edit, Q3-noted).
+        // (5) On success, stamp the distinct audit marker + auto-flag a now-stale .seq (both best-effort; neither miss
+        //     fails the done edit, Q3-noted). SEQ flag (Track C): an in-place edit can prune a master and shift the own
+        //     records' on-disk FormIDs, staling the plugin's .seq — surfaced as a note, never auto-regen'd (Aaron 2026-07-04).
         if (outcome.Success)
         {
             var markerNote = MergeEditedInPlaceMarker(Path.GetDirectoryName(targetPath));
-            var note = JoinNotes(ackNote, markerNote);
+            var seqNote = SeqStaleInPlaceNote(targetPath, targetName);
+            var note = JoinNotes(ackNote, markerNote, seqNote);
             if (note is not null) return outcome with { Note = note };
         }
         else if (ackNote is not null)
@@ -1299,9 +1302,50 @@ public sealed class LoadOrderService : IDisposable
         catch { return false; }
     }
 
-    /// <summary>Join two optional Q3 notes into one (space-separated), or null when both are absent.</summary>
-    static string? JoinNotes(string? a, string? b)
-        => (a, b) switch { (null, null) => null, (null, _) => b, (_, null) => a, _ => a + " " + b };
+    /// <summary>Join any number of optional Q3 notes into one (space-separated), skipping the null/blank ones; null when
+    /// none are present. Variadic so a lane can fold several best-effort side-effect notes (ack + audit marker + the SEQ
+    /// staleness auto-flag) into the single <c>Note</c> the outcome carries.</summary>
+    static string? JoinNotes(params string?[] notes)
+    {
+        var present = notes.Where(n => !string.IsNullOrWhiteSpace(n)).ToArray();
+        return present.Length == 0 ? null : string.Join(" ", present);
+    }
+
+    /// <summary>The in-place SEQ auto-flag (Track C / Heisen §3 gap-4, Aaron 2026-07-04: FLAG, never auto-regen). After an
+    /// in-place write that re-serialized <paramref name="targetPath"/>, a master-prune may have shifted every own record's
+    /// on-disk FormID and staled the plugin's <c>.seq</c> — its Start-Game-Enabled quests would then silently never start
+    /// on a fresh save. Resolve the plugin's <c>.seq</c> through the SAME captured VFS view the compact SEQ gate uses
+    /// (loose roots + active BSAs — not a bare folder check, which would miss a <c>write_seq</c>-filed or BSA-packed .seq),
+    /// and if a LOOSE <c>.seq</c> exists but no longer lists one or more SGE quests at their CURRENT on-disk FormIDs,
+    /// return a WARNING naming them + the fix (<c>housecarl_write_seq</c>). Null when there's nothing to flag (no .seq, a
+    /// BSA-only .seq whose bytes we can't check here, or every SGE quest still covered — an ordinary in-place edit that
+    /// changed no masters leaves the FormIDs put, so a previously-valid .seq stays covered and this stays quiet). BEST-
+    /// EFFORT (Q3): any failure yields a soft advisory, never a throw — the write already succeeded, and a freshness check
+    /// that couldn't run must not fail the done edit, but it says so rather than going silent.</summary>
+    string? SeqStaleInPlaceNote(string targetPath, string targetName)
+    {
+        try
+        {
+            AssetResolver assetResolver;
+            lock (_gate) { assetResolver = Assets; }                          // reentrant under the held _writeGate (the PlaceAssets idiom)
+            var av = assetResolver.Capture();
+            var seqRel = $@"SEQ\{Path.GetFileNameWithoutExtension(targetPath)}.seq";
+            var seqSource = av.ResolveForPlacement(seqRel).Sources.FirstOrDefault();
+            if (seqSource?.LooseFilePath is not { } seqPath) return null;      // no .seq, or a BSA-only one (bytes uncheckable here) → nothing to flag
+            var uncovered = SeqFile.UncoveredSgeQuests(targetPath, File.ReadAllBytes(seqPath));
+            if (uncovered.Count == 0) return null;                            // the .seq still lists every SGE quest → not staled
+            var names = string.Join(", ", uncovered.Select(q => q.EditorId ?? q.FormKey.ToString()));
+            bool one = uncovered.Count == 1;
+            return $"the .seq for '{targetName}' no longer lists {(one ? "its start-game-enabled quest" : $"{uncovered.Count} of its start-game-enabled quests")} "
+                 + $"at {(one ? "its" : "their")} current on-disk FormID(s) ({names}), so {(one ? "it" : "they")} would silently never start on a fresh save "
+                 + "(a master prune in an in-place write shifts these FormIDs; the .seq may also have been stale before this edit). Regenerate it with housecarl_write_seq.";
+        }
+        catch (Exception ex)
+        {
+            return $"could not check whether '{targetName}'s .seq is still current after this edit ({ex.GetType().Name}) — "
+                 + "if it has start-game-enabled quests, run housecarl_validate_dialogue on the quest to confirm the .seq still lists them.";
+        }
+    }
 
     /// <summary>Remove WHOLE records a houseCARL patch carries (housecarl_remove_record) — literal drop-from-plugin, the
     /// companion to <see cref="ApplyEdits"/>. In the DEFAULT lane <paramref name="patch"/> is REQUIRED and names an existing
@@ -1407,11 +1451,14 @@ public sealed class LoadOrderService : IDisposable
         // (4) The write — absence verify forced ON (the model-C substitute for the dropped whole-plugin floor).
         var outcome = WritePatchBuilder.RemoveRecordsInPlace(resolver, keys, targetPath, targetName);
 
-        // (5) On success, stamp the distinct audit marker (best-effort; a marker miss never fails the done removal, Q3-noted).
+        // (5) On success, stamp the distinct audit marker + auto-flag a now-stale .seq (both best-effort; neither miss
+        //     fails the done removal, Q3-noted). SEQ flag (Track C): a removal can drop the last reference to a master
+        //     (a prune) and shift on-disk FormIDs, staling the plugin's .seq — surfaced, never auto-regenerated.
         if (outcome.Success)
         {
             var markerNote = MergeEditedInPlaceMarker(Path.GetDirectoryName(targetPath));
-            var note = JoinNotes(ackNote, markerNote);
+            var seqNote = SeqStaleInPlaceNote(targetPath, targetName);
+            var note = JoinNotes(ackNote, markerNote, seqNote);
             if (note is not null) return outcome with { Note = note };
         }
         else if (ackNote is not null)

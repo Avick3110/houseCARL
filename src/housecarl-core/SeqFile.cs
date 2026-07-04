@@ -99,4 +99,23 @@ public static class SeqFile
             if (BinaryPrimitives.ReadUInt32LittleEndian(seqBytes.Slice(i)) == onDiskFormId) return true;
         return false;
     }
+
+    /// <summary>Post-write staleness check (the in-place SEQ auto-flag): given a freshly-written <paramref name="pluginPath"/>
+    /// and the bytes of an EXISTING <c>.seq</c> resolved for it, return every Start-Game-Enabled quest whose CURRENT on-disk
+    /// FormID is NOT listed in that <c>.seq</c> — the quests the stale <c>.seq</c> would silently fail to start on a fresh
+    /// save. EMPTY ⇒ the <c>.seq</c> is consistent with the plugin (or the plugin has no SGE quests). This is the exact
+    /// condition an in-place master-prune creates: dropping a master shifts every own record's master-index slot, so each
+    /// SGE quest's on-disk FormID moves and the shipped <c>.seq</c> no longer lists it (Heisen §3 gap-4 — Update.esm pruned
+    /// → 0x02000806 became 0x01000806). Reuses <see cref="Build"/> (the same SGE enumeration + on-disk-FormID encoding the
+    /// author-time <c>.seq</c> write uses) and <see cref="SeqContains"/>, so the write-time flag and a <c>write_seq</c>
+    /// regen can never disagree about which quests a <c>.seq</c> must list. Read-only; opens + disposes the overlay
+    /// (Option B). The CALLER decides to warn (auto-flag, Aaron 2026-07-04) — this never mutates the <c>.seq</c>.</summary>
+    public static IReadOnlyList<SeqQuest> UncoveredSgeQuests(string pluginPath, ReadOnlySpan<byte> existingSeqBytes)
+    {
+        var build = Build(pluginPath);                       // SGE quests + their current on-disk FormIDs, off the written plugin
+        var uncovered = new List<SeqQuest>();
+        foreach (var q in build.Quests)
+            if (!SeqContains(existingSeqBytes, q.OnDiskFormId)) uncovered.Add(q);
+        return uncovered;
+    }
 }

@@ -49,6 +49,11 @@ namespace HousecarlGenerator;
 ///   COND-GETISID-PLACED— GetIsID pointed at a PLACED reference WARNs ('placed reference'), NOT the dangling-param lint (item 4).
 ///   TEXT-MOJIBAKE— a line whose player-facing text carries non-ASCII chars (ellipsis/em-dash) WARNs, naming them (item 1).
 ///   TEXT-CLEAN   — pure-ASCII player-facing text is NOT flagged — the lint keys on >0x7F, not "has text" (item 1).
+///   GLOBAL-TAG-OK — a <Global=X> whose X IS in the owning quest's TextDisplayGlobals is NOT flagged (the no-false-positive lock).
+///   GLOBAL-TAG-MISSING— a <Global=X> whose X is NOT in TextDisplayGlobals WARNs (naming it) — the [...]-in-game teeth (Track B).
+///   GLOBAL-TAG-SUBTAG — a CK formatting-subtag form <Global.Time=X> (modifier before the =) with an uncovered global ALSO WARNs (regex covers the pre-= subtag; PR #139 review).
+///   PLAYERREF-WHITELIST— Run On the engine-implicit PlayerRef (000014:Skyrim.esm), absent from the order, is NOT flagged (the sub-0x800 whitelist, Junti false-positive fix).
+///   PLAYERREF-CONTROL— Run On a NON-whitelisted missing reference still WARNs — the whitelist is a precise 2-form set, not the whole reserved range.
 ///   QUEST-FANOUT — validating a QUEST fans out to EXACTLY the topics it owns (2 here), kind="quest".
 ///   REJ-NOTFOUND — a FormID not in the active order is a NAMED error ('not in the active load order').
 ///   REJ-WRONGTYPE— a FormID resolving to neither a DIAL nor a QUST (a Weapon) is a NAMED error ('not a dialogue topic').
@@ -68,6 +73,7 @@ public static class DialogueValidateGuardProbe
         string mPath = Path.Combine(tmpDir, mKey.FileName.String);
         FormKey cleanFk, linkBadFk, pnamBadFk, pnamOkFk, deletedFk, noQuestFk, badBranchFk, voicedFk, scriptedFk, condFk, qFanFk, weapFk, encBadFk, encOkFk;
         FormKey condCleanFk, condRefUnsetFk, condDeadAliasFk, condDeadLocAliasFk, condDeadQAliasFk, condAliasOkFk, condAliasFloiFk, condDanglingFk, condGlobalFk, condGetIsIdOkFk, condGetIsIdFk;
+        FormKey globOkFk, globBadFk, globSubFk, playerRefFk, playerRefCtlFk;
         try
         {
             var m = new SkyrimMod(mKey, SkyrimRelease.SkyrimSE);
@@ -290,6 +296,44 @@ public static class DialogueValidateGuardProbe
             var tf1 = m.DialogTopics.AddNew(); tf1.EditorID = "HcDvFan1"; tf1.Quest.SetTo(qFan.FormKey); tf1.Responses.Add(Info("HcDvFan1I"));
             var tf2 = m.DialogTopics.AddNew(); tf2.EditorID = "HcDvFan2"; tf2.Quest.SetTo(qFan.FormKey); tf2.Responses.Add(Info("HcDvFan2I"));
 
+            // GLOBAL-TAG lint (Track B): qMain gains one GLOB in its TextDisplayGlobals. One topic tags <Global=HcDvKnownGlobal>
+            // (COVERED — not flagged), another tags <Global=HcDvUnknownGlobal> (UNCOVERED — WARN; renders as [...] in game).
+            // Both owned by qMain so the lint has a resolvable TextDisplayGlobals set. ASCII text only (no encoding false flag).
+            var knownGlob = new GlobalShort(m.GetNextFormKey(), SkyrimRelease.SkyrimSE) { EditorID = "HcDvKnownGlobal" };
+            m.Globals.Add(knownGlob);
+            qMain.TextDisplayGlobals.Add(new FormLink<IGlobalGetter>(knownGlob.FormKey));
+
+            var tGlobOk = m.DialogTopics.AddNew(); tGlobOk.EditorID = "HcDvGlobOk"; tGlobOk.Quest.SetTo(qMain.FormKey);
+            { var i = Info("HcDvGlobOkI"); i.Prompt = "It will cost <Global=HcDvKnownGlobal> gold."; tGlobOk.Responses.Add(i); globOkFk = tGlobOk.FormKey; }
+
+            var tGlobBad = m.DialogTopics.AddNew(); tGlobBad.EditorID = "HcDvGlobBad"; tGlobBad.Quest.SetTo(qMain.FormKey);
+            { var i = Info("HcDvGlobBadI"); i.Prompt = "It will cost <Global=HcDvUnknownGlobal> gold."; tGlobBad.Responses.Add(i); globBadFk = tGlobBad.FormKey; }
+
+            // The CK formatting-subtag form <Global.Time=X> (modifier BEFORE the =) naming an uncovered global must ALSO
+            // WARN — those produce the same silent [...] failure, so the plain <Global= anchor would miss them (PR #139 review).
+            var tGlobSub = m.DialogTopics.AddNew(); tGlobSub.EditorID = "HcDvGlobSub"; tGlobSub.Quest.SetTo(qMain.FormKey);
+            { var i = Info("HcDvGlobSubI"); i.Prompt = "Opens in <Global.Time=HcDvUnknownGlobal> hours."; tGlobSub.Responses.Add(i); globSubFk = tGlobSub.FormKey; }
+
+            // PLAYERREF whitelist (Track B — engine-implicit sub-0x800 forms): a condition Run On PlayerRef (000014:Skyrim.esm),
+            // which is NOT in this synthetic order, must NOT warn (the whitelist — the false-positive fix). The CONTROL runs on
+            // a NON-whitelisted missing ref and MUST still warn, proving the whitelist is a precise 2-form set, not blanket.
+            var tPlayerRef = m.DialogTopics.AddNew(); tPlayerRef.EditorID = "HcDvPlayerRef"; tPlayerRef.Quest.SetTo(qMain.FormKey);
+            {
+                var i = Info("HcDvPlayerRefI");
+                var d = new GetActorValueConditionData { ActorValue = ActorValue.Health, RunOnType = Condition.RunOnType.Reference };
+                d.Reference.SetTo(new FormKey(new ModKey("Skyrim", ModType.Master), 0x14));   // PlayerRef 000014:Skyrim.esm (engine-implicit)
+                i.Conditions.Add(new ConditionFloat { CompareOperator = CompareOperator.GreaterThan, ComparisonValue = 0f, Data = d });
+                tPlayerRef.Responses.Add(i); playerRefFk = tPlayerRef.FormKey;
+            }
+            var tPlayerRefCtl = m.DialogTopics.AddNew(); tPlayerRefCtl.EditorID = "HcDvPlayerRefCtl"; tPlayerRefCtl.Quest.SetTo(qMain.FormKey);
+            {
+                var i = Info("HcDvPlayerRefCtlI");
+                var d = new GetActorValueConditionData { ActorValue = ActorValue.Health, RunOnType = Condition.RunOnType.Reference };
+                d.Reference.SetTo(new FormKey(mKey, 0x00BBBB01));   // a synthetic-master ref that is NOT a record → dangling AND not whitelisted
+                i.Conditions.Add(new ConditionFloat { CompareOperator = CompareOperator.GreaterThan, ComparisonValue = 0f, Data = d });
+                tPlayerRefCtl.Responses.Add(i); playerRefCtlFk = tPlayerRefCtl.FormKey;
+            }
+
             // Give every branch-LESS fixture topic the shared well-formed branch — SAME reason as the SNAM loop
             // below: this guard tests the GRAPH/CONDITION/VOICE lints, not the BNAM-absent lint (that's
             // dialogue-ckparity-guard's job), so its Custom topics must be branch-clean or a "no issues" arm would
@@ -500,6 +544,44 @@ public static class DialogueValidateGuardProbe
             all &= Pass("TEXT-CLEAN no false flag", ok, t is null ? "no topic" : Issues(t));
         }
 
+        // ---------- GLOBAL-TAG-OK (Track B): a <Global=X> covered by the quest's TextDisplayGlobals is NOT flagged ----------
+        {
+            var t = One(DialogueValidate.Run(resolver, assets, globOkFk));
+            bool ok = t is not null && !t.Issues.Any(i => i.Message.Contains("TextDisplayGlobals", StringComparison.Ordinal));
+            all &= Pass("GLOBAL-TAG-OK not flagged", ok, t is null ? "no topic" : $"issues={t.Issues.Count}: {Issues(t)}");
+        }
+
+        // ---------- GLOBAL-TAG-MISSING (Track B): a <Global=X> NOT in TextDisplayGlobals WARNs, naming X ----------
+        {
+            var t = One(DialogueValidate.Run(resolver, assets, globBadFk));
+            bool ok = t is not null && t.Issues.Any(i => i.Severity == DialogueIssueSeverity.Warning
+                && i.Message.Contains("TextDisplayGlobals", StringComparison.Ordinal) && i.Message.Contains("HcDvUnknownGlobal", StringComparison.Ordinal));
+            all &= Pass("GLOBAL-TAG-MISSING warns", ok, t is null ? "no topic" : Issues(t));
+        }
+
+        // ---------- GLOBAL-TAG-SUBTAG (Track B): a <Global.Time=X> subtag form (modifier before =) with an uncovered global WARNs ----------
+        {
+            var t = One(DialogueValidate.Run(resolver, assets, globSubFk));
+            bool ok = t is not null && t.Issues.Any(i => i.Severity == DialogueIssueSeverity.Warning
+                && i.Message.Contains("TextDisplayGlobals", StringComparison.Ordinal) && i.Message.Contains("HcDvUnknownGlobal", StringComparison.Ordinal));
+            all &= Pass("GLOBAL-TAG-SUBTAG warns", ok, t is null ? "no topic" : Issues(t));
+        }
+
+        // ---------- PLAYERREF-WHITELIST (Track B): Run On engine-implicit PlayerRef (000014:Skyrim.esm) is NOT flagged ----------
+        {
+            var t = One(DialogueValidate.Run(resolver, assets, playerRefFk));
+            bool ok = t is not null && t.Issues.Count == 0;
+            all &= Pass("PLAYERREF-WHITELIST not flagged", ok, t is null ? "no topic" : $"issues={t.Issues.Count}: {Issues(t)}");
+        }
+
+        // ---------- PLAYERREF-CONTROL (Track B): Run On a non-whitelisted missing ref still WARNs (precise, not blanket) ----------
+        {
+            var t = One(DialogueValidate.Run(resolver, assets, playerRefCtlFk));
+            bool ok = t is not null && t.Issues.Any(i => i.Severity == DialogueIssueSeverity.Warning
+                && i.Message.Contains("Run On reference", StringComparison.Ordinal) && i.Message.Contains("not in the active load order", StringComparison.Ordinal));
+            all &= Pass("PLAYERREF-CONTROL warns missing", ok, t is null ? "no topic" : Issues(t));
+        }
+
         // ---------- QUEST-FANOUT: validating a quest fans out to EXACTLY its 2 topics ----------
         {
             var r = DialogueValidate.Run(resolver, assets, qFanFk);
@@ -524,7 +606,7 @@ public static class DialogueValidateGuardProbe
 
         Console.WriteLine();
         Console.WriteLine(all
-            ? "RESULT: PASS — the dialogue-graph validator holds (no false PNAM-absence flag, LinkTo + dangling-PNAM teeth, deleted-skip, voice/script reuse, encoding lint, condition lints (item 4), fan-out, named rejects)."
+            ? "RESULT: PASS — the dialogue-graph validator holds (no false PNAM-absence flag, LinkTo + dangling-PNAM teeth, deleted-skip, voice/script reuse, encoding lint, condition lints (item 4), <Global=X>/TextDisplayGlobals + PlayerRef-whitelist lints (Track B), fan-out, named rejects)."
             : "RESULT: FAIL — at least one arm regressed (see above).");
         try { Directory.Delete(tmpDir, recursive: true); } catch { }
         return all ? 0 : 1;
