@@ -21,9 +21,11 @@ namespace HousecarlGenerator;
 /// PART B — the serialize-boundary NULL-ARM refusal. A COMPOSED record that leaves a REQUIRED polymorphic
 /// sub-field unset (the canonical case: a Condition composed without its <c>Data</c> arm) is null when
 /// Mutagen's binary writer dereferences it → a bare <see cref="NullReferenceException"/> with NO field name.
-/// Pre-flight can't reject it: the corpus models every polymorphic field as <c>Nullable=false</c>, so there is
-/// no required/optional signal to gate on (such a predicate would over-reject every legitimately-OPTIONAL null
-/// poly field — empirically a bare NPC with Sound/Level null serializes fine). THE FIX: <c>WriteEngine.WritePatch</c>
+/// Pre-flight can't reject it: the corpus now carries faithful polymorphic nullability (S4 Track D), but that flag
+/// is NOT a "required arm at serialize" signal — this guard's own B2 proves NpcConfiguration.Level reads
+/// <c>Nullable=false</c> yet serializes fine when null, while Condition.Data (also <c>Nullable=false</c>) throws. A
+/// gate on the flag would over-reject a legitimately-absent field or need a hand-curated list (cornerstone §3), so
+/// there is still no by-construction required/optional signal to gate on. THE FIX: <c>WriteEngine.WritePatch</c>
 /// re-stamps the serialize-boundary NRE as a loud, NAMED <see cref="NullArmSerializeException"/> — all-or-nothing
 /// (the staged temp is already discarded; the target is untouched), preserving the NRE as <c>InnerException</c>. Q3.
 ///
