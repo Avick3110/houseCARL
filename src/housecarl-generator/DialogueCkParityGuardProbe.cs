@@ -7,14 +7,16 @@ using HousecarlMcp;
 namespace HousecarlGenerator;
 
 /// <summary>
-/// SELF-CONTAINED CI REGRESSION GUARD for the CK-parity default-populate fix (S1 — the confirmed-CK-crash tier;
-/// the #131 SNAM fix generalised to the rest of the DIAL/INFO/DLVW family). Mutagen omits a null optional subrecord
-/// on write; the Creation Kit writes it unconditionally — so an INFO created without CNAM (FavorLevel) / ENAM (Flags)
-/// crashes the CK when its topic is opened, and a bare DLVW crashes the CK Dialogue Views editor. This guard pins the
-/// whole S1 surface so it can't drift:
-///   • the create-path AUTO-FILL — create INFO/DLVW through the service and read the written subrecords back off disk,
+/// SELF-CONTAINED CI REGRESSION GUARD for the CK-parity default-populate fix across the DIAL/INFO/DLVW/DLBR/QUST
+/// family (S1 — the confirmed-CK-crash tier; S2 — the byte-only tier; the #131 SNAM fix generalised). Mutagen omits a
+/// null optional subrecord on write; the Creation Kit writes it unconditionally — so an INFO created without CNAM
+/// (FavorLevel) / ENAM (Flags) crashes the CK when its topic is opened, and a bare DLVW crashes the CK Dialogue Views
+/// editor (S1); the S2 fields (DLBR Category, DIAL Priority, QUST NextAliasID + objective Flags) are byte-parity only
+/// (no crash) but complete the write the same way. This guard pins the whole surface so it can't drift:
+///   • the create-path AUTO-FILL — create the record through the service and read the written subrecords back off disk,
 ///   • the create-path NON-OVERRIDE — an explicit value is never clobbered,
-///   • the QUALIFYING VALUES — FavorLevel=None, materialized Flags, DNAM=00, ENAM=00000000 (the CK's own defaults),
+///   • the QUALIFYING VALUES — FavorLevel=None, materialized Flags, DNAM=00, ENAM=00000000 (S1); Category=Player,
+///     Priority=50, NextAliasID=max+1/0, objective Flags=0 (S2) — the CK's own defaults, byte-verified vs vanilla,
 ///   • the BNAM lint — housecarl_validate_dialogue WARNS a Custom topic with no Branch (the CK-views-crash catch),
 ///     and does NOT warn a Custom topic that HAS a branch.
 /// Driven over a synthetic MO2 instance in temp (the dialogue-subtype-marker-guard synth pattern; no game files needed).
@@ -29,12 +31,22 @@ namespace HousecarlGenerator;
 ///   DLVW-DNAM-WINS    — an explicit DNAM=FF is NOT overridden to 00 (ENAM still auto-fills).
 ///   BNAM-LINT         — a Custom topic with no Branch → validate_dialogue raises a Warning naming Branch (BNAM); a
 ///                       Custom topic WITH a branch raises no such Warning.
+///   DLBR-TNAM-AUTOFILL — create a bare DialogBranch → written Category=Player (TNAM), REPORTED.
+///   DLBR-TNAM-WINS     — an explicit Category=Command is NOT overridden to Player.
+///   DIAL-PNAM-AUTOFILL — create a Custom topic with no Priority → written Priority=50 (PNAM), REPORTED.
+///   DIAL-PNAM-WINS     — an explicit Priority=10 is NOT overridden to 50, AND an explicit Priority=0 STAYS 0 (the
+///                       non-nullable-float edge: author-set-0 is distinguished from unset, no fill, no op).
+///   QUST-ANAM-EMPTY    — create an alias-less Quest → written NextAliasID=0 (ANAM), REPORTED.
+///   QUST-ANAM-DERIVE   — (direct) ApplyQuestDefaults on a quest with alias IDs {0,3} → NextAliasID=4 (max+1).
+///   QUST-ANAM-WINS     — (direct) an explicit NextAliasID=9 is NOT overridden by the derive.
+///   QUST-FNAM-AUTOFILL — (direct) an objective with no Flags → Flags materialised to 0, REPORTED; an explicit
+///                       objective Flags=OrWithPrevious is NOT reset.
 /// </summary>
 internal static class DialogueCkParityGuardProbe
 {
     public static int RunGuard(string[] args)
     {
-        Console.WriteLine("################  REGRESSION GUARD — dialogue CK-parity default-populate (S1)  ################");
+        Console.WriteLine("################  REGRESSION GUARD — dialogue CK-parity default-populate (S1+S2)  ################");
         Console.WriteLine();
         int fail = 0;
         void Check(bool c, string label) { Console.WriteLine((c ? "  PASS  " : "  FAIL  ") + label); if (!c) fail++; }
@@ -42,6 +54,10 @@ internal static class DialogueCkParityGuardProbe
         // ---- CONST-SHAPE: the pinned byte defaults are exactly what a CK-authored DialogView carries. ----
         Check(DialogueCkParity.ViewDnamHex == "00" && DialogueCkParity.ViewEnamHex == "00000000",
             $"CONST-SHAPE DLVW DNAM/ENAM defaults are 00 / 00000000 — dnam={DialogueCkParity.ViewDnamHex} enam={DialogueCkParity.ViewEnamHex}");
+
+        // ---- CONST-SHAPE (S2): the pinned seed values are the CK-authored/vanilla defaults (byte-verified 2026-07-04). ----
+        Check(DialogueCkParity.TopicPrioritySeed == 50f && DialogueCkParity.BranchCategoryDefault == DialogBranch.CategoryType.Player,
+            $"CONST-SHAPE S2 seeds — DIAL Priority=50, DLBR Category=Player — priority={DialogueCkParity.TopicPrioritySeed} category={DialogueCkParity.BranchCategoryDefault}");
 
         var root = Path.Combine(Path.GetTempPath(), "hc-dial-ckparity-guard-" + Guid.NewGuid().ToString("N"));
         try
@@ -177,6 +193,104 @@ internal static class DialogueCkParityGuardProbe
                 Check(warned && clean,
                     $"BNAM-LINT branch-less Custom topic → Warning; branched Custom topic → clean — warned={warned} clean={clean}");
             }
+
+            // ================================  S2 — the byte-only tier  ================================
+
+            // ---- DLBR-TNAM-AUTOFILL: create a bare DialogBranch → written Category=Player (TNAM), REPORTED. ----
+            {
+                var o = svc.CreateRecords("DialogBranch", "HcCkpBr", Array.Empty<BulkOp>(), "HcCkpBr", null);
+                var cat = o.Success ? ReadBranch(o.OutputPath, o.Created[0].FormKey) : null;
+                bool reported = o.Success && o.Created[0].Ops.Any(op => op.Label.Contains("Category (TNAM", StringComparison.OrdinalIgnoreCase));
+                Check(o.Success && cat == DialogBranch.CategoryType.Player && reported,
+                    $"DLBR-TNAM-AUTOFILL bare DialogBranch → Category=Player, reported — {(o.Success ? $"category={cat} reported={reported}" : "err=[" + o.Error + "]")}");
+            }
+
+            // ---- DLBR-TNAM-WINS: an explicit Category=Command is NOT overridden to Player. ----
+            {
+                var ops = new[] { new BulkOp { FieldPath = "Category", Verb = "Set", Value = "Command" } };
+                var o = svc.CreateRecords("DialogBranch", "HcCkpBrCmd", ops, "HcCkpBrCmd", null);
+                var cat = o.Success ? ReadBranch(o.OutputPath, o.Created[0].FormKey) : null;
+                Check(o.Success && cat == DialogBranch.CategoryType.Command,
+                    $"DLBR-TNAM-WINS explicit Category=Command kept (not overridden to Player) — {(o.Success ? $"category={cat}" : "err=[" + o.Error + "]")}");
+            }
+
+            // ---- DIAL-PNAM-AUTOFILL: create a Custom topic with no Priority → written Priority=50 (PNAM), REPORTED. ----
+            {
+                var ops = new[] { new BulkOp { FieldPath = "Subtype", Verb = "Set", Value = "Custom" } };
+                var o = svc.CreateRecords("DialogTopic", "HcCkpPnam", ops, "HcCkpPnam", null);
+                var prio = o.Success ? ReadTopicPriority(o.OutputPath, o.Created[0].FormKey) : (float?)null;
+                bool reported = o.Success && o.Created[0].Ops.Any(op => op.Label.Contains("Priority (PNAM", StringComparison.OrdinalIgnoreCase));
+                Check(o.Success && prio == 50f && reported,
+                    $"DIAL-PNAM-AUTOFILL bare Custom topic → Priority=50, reported — {(o.Success ? $"priority={prio} reported={reported}" : "err=[" + o.Error + "]")}");
+            }
+
+            // ---- DIAL-PNAM-WINS: explicit Priority=10 kept (not overridden to 50), AND explicit Priority=0 STAYS 0
+            //      (the non-nullable-float edge — author-set-0 is distinguished from unset: no fill, no op). ----
+            {
+                var ops10 = new[]
+                {
+                    new BulkOp { FieldPath = "Subtype", Verb = "Set", Value = "Custom" },
+                    new BulkOp { FieldPath = "Priority", Verb = "Set", Value = "10" },
+                };
+                var o10 = svc.CreateRecords("DialogTopic", "HcCkpPnam10", ops10, "HcCkpPnam10", null);
+                var prio10 = o10.Success ? ReadTopicPriority(o10.OutputPath, o10.Created[0].FormKey) : (float?)null;
+
+                var ops0 = new[]
+                {
+                    new BulkOp { FieldPath = "Subtype", Verb = "Set", Value = "Custom" },
+                    new BulkOp { FieldPath = "Priority", Verb = "Set", Value = "0" },
+                };
+                var o0 = svc.CreateRecords("DialogTopic", "HcCkpPnam0", ops0, "HcCkpPnam0", null);
+                var prio0 = o0.Success ? ReadTopicPriority(o0.OutputPath, o0.Created[0].FormKey) : (float?)null;
+                bool zeroNotReported = o0.Success && !o0.Created[0].Ops.Any(op => op.Label.Contains("Priority (PNAM", StringComparison.OrdinalIgnoreCase));
+                Check(o10.Success && prio10 == 10f && o0.Success && prio0 == 0f && zeroNotReported,
+                    $"DIAL-PNAM-WINS explicit Priority=10 kept + explicit Priority=0 stays 0 (no fill/op) — {(o10.Success && o0.Success ? $"p10={prio10} p0={prio0} zeroNotReported={zeroNotReported}" : "err10=[" + o10.Error + "] err0=[" + o0.Error + "]")}");
+            }
+
+            // ---- QUST-ANAM-EMPTY: create an alias-less Quest → written NextAliasID=0 (ANAM), REPORTED. ----
+            {
+                var o = svc.CreateRecords("Quest", "HcCkpQ", Array.Empty<BulkOp>(), "HcCkpQ", null);
+                var (nextId, _) = o.Success ? ReadQuest(o.OutputPath, o.Created[0].FormKey) : (null, 0);
+                bool reported = o.Success && o.Created[0].Ops.Any(op => op.Label.Contains("NextAliasID (ANAM", StringComparison.OrdinalIgnoreCase));
+                Check(o.Success && nextId == 0u && reported,
+                    $"QUST-ANAM-EMPTY alias-less Quest → NextAliasID=0, reported — {(o.Success ? $"nextId={nextId} reported={reported}" : "err=[" + o.Error + "]")}");
+            }
+
+            // ---- QUST-ANAM-DERIVE + QUST-ANAM-WINS (direct): ApplyQuestDefaults on hand-built quests. The max+1 derive
+            //      needs aliases with chosen IDs, cleanest asserted against the authority directly (the create-lane
+            //      WIRING is already proven by QUST-ANAM-EMPTY above). ----
+            {
+                var m2 = new SkyrimMod(new ModKey("HcCkpDirect", ModType.Master), SkyrimRelease.SkyrimSE);
+
+                var qDerive = m2.Quests.AddNew();
+                qDerive.Aliases.Add(new QuestAlias { ID = 0 });
+                qDerive.Aliases.Add(new QuestAlias { ID = 3 });   // sparse: max is 3, not count-1
+                var dfills = DialogueCkParity.ApplyQuestDefaults(qDerive);
+                bool deriveReported = dfills.Any(f => f.Label.Contains("NextAliasID (ANAM", StringComparison.OrdinalIgnoreCase));
+                Check(qDerive.NextAliasID == 4u && deriveReported,
+                    $"QUST-ANAM-DERIVE alias IDs {{0,3}} → NextAliasID=4 (max+1), reported — nextId={qDerive.NextAliasID} reported={deriveReported}");
+
+                var qWins = m2.Quests.AddNew();
+                qWins.NextAliasID = 9;
+                qWins.Aliases.Add(new QuestAlias { ID = 0 });
+                var wfills = DialogueCkParity.ApplyQuestDefaults(qWins);
+                bool anamWinNotReported = !wfills.Any(f => f.Label.Contains("NextAliasID (ANAM", StringComparison.OrdinalIgnoreCase));
+                Check(qWins.NextAliasID == 9u && anamWinNotReported,
+                    $"QUST-ANAM-WINS explicit NextAliasID=9 kept (not derived to 1) — nextId={qWins.NextAliasID} notReported={anamWinNotReported}");
+
+                // ---- QUST-FNAM-AUTOFILL: an objective with no Flags → materialised to 0, REPORTED; an explicit
+                //      Flags=OrWithPrevious is NOT reset. ----
+                var qObj = m2.Quests.AddNew();
+                qObj.NextAliasID = 0;                                  // isolate the FNAM finding (no ANAM fill)
+                qObj.Objectives.Add(new QuestObjective { Index = 10 });                                   // Flags null
+                qObj.Objectives.Add(new QuestObjective { Index = 20, Flags = QuestObjective.Flag.OrWithPrevious }); // explicit
+                var ofills = DialogueCkParity.ApplyQuestDefaults(qObj);
+                bool obj0Filled = qObj.Objectives[0].Flags == default(QuestObjective.Flag);
+                bool obj1Kept = qObj.Objectives[1].Flags == QuestObjective.Flag.OrWithPrevious;
+                bool fnamReported = ofills.Count(f => f.Label.Contains("Flags (FNAM", StringComparison.OrdinalIgnoreCase)) == 1;
+                Check(obj0Filled && obj1Kept && fnamReported,
+                    $"QUST-FNAM-AUTOFILL null objective Flags→0 (reported), explicit OrWithPrevious kept — obj0={qObj.Objectives[0].Flags} obj1={qObj.Objectives[1].Flags} reportedOnce={fnamReported}");
+            }
         }
         catch (Exception ex)
         {
@@ -221,6 +335,50 @@ internal static class DialogueCkParityGuardProbe
             return (Hex(view.DNAM), Hex(view.ENAM));
         }
         catch { return (null, null); }
+        finally { (ov as IDisposable)?.Dispose(); }
+    }
+
+    /// <summary>Read a created DialogBranch's Category (TNAM) back off the written patch — null when the subrecord is
+    /// absent (Mutagen omits it when Category is unset), else the CategoryType the bytes carry.</summary>
+    static DialogBranch.CategoryType? ReadBranch(string patchPath, FormKey branchFk)
+    {
+        ISkyrimModGetter? ov = null;
+        try
+        {
+            ov = SkyrimMod.CreateFromBinaryOverlay(patchPath, SkyrimRelease.SkyrimSE);
+            return ov.DialogBranches.FirstOrDefault(x => x.FormKey == branchFk)?.Category;
+        }
+        catch { return null; }
+        finally { (ov as IDisposable)?.Dispose(); }
+    }
+
+    /// <summary>Read a created DialogTopic's Priority (PNAM) back off the written patch — null only when the record
+    /// can't be found (Priority is a non-nullable float, so a found topic always yields one).</summary>
+    static float? ReadTopicPriority(string patchPath, FormKey topicFk)
+    {
+        ISkyrimModGetter? ov = null;
+        try
+        {
+            ov = SkyrimMod.CreateFromBinaryOverlay(patchPath, SkyrimRelease.SkyrimSE);
+            return ov.DialogTopics.FirstOrDefault(x => x.FormKey == topicFk)?.Priority;
+        }
+        catch { return null; }
+        finally { (ov as IDisposable)?.Dispose(); }
+    }
+
+    /// <summary>Read a created Quest's CK-parity fields back off the written patch: (NextAliasID?, objective count).
+    /// NextAliasID is null when the ANAM subrecord is absent (Mutagen omits it when unset).</summary>
+    static (uint? nextAliasId, int objectiveCount) ReadQuest(string patchPath, FormKey questFk)
+    {
+        ISkyrimModGetter? ov = null;
+        try
+        {
+            ov = SkyrimMod.CreateFromBinaryOverlay(patchPath, SkyrimRelease.SkyrimSE);
+            var q = ov.Quests.FirstOrDefault(x => x.FormKey == questFk);
+            if (q is null) return (null, 0);
+            return (q.NextAliasID, q.Objectives.Count);
+        }
+        catch { return (null, 0); }
         finally { (ov as IDisposable)?.Dispose(); }
     }
 }
