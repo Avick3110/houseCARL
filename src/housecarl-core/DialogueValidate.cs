@@ -261,6 +261,22 @@ public static class DialogueValidate
             issues.Add(new(DialogueIssueSeverity.Problem,
                 $"DialogTopic.Branch points at {branchFk.Value}, which {bwhy} — the branch wiring is broken."));
 
+        // --- BNAM absent on a Custom topic (Track B #2): a Custom (player-authored) topic with NO Branch back-link
+        //     is byte-valid and plays fine in game, but the Creation Kit's Dialogue Views editor auto-wraps a
+        //     branch-less topic in a "container branch" and then null-derefs rendering the flowchart (a CKPE
+        //     FlowchartX64 crash; Heisen §3 gap-3a — the fix that reopened the views editor was BNAM on every topic,
+        //     including non-starting LinkTo targets, + the DLVW DNAM/ENAM bytes the create path now auto-fills).
+        //     Unlike those byte fields, BNAM is AUTHOR-SUPPLIED (the owning DLBR — houseCARL cannot reliably derive
+        //     which branch a topic belongs to), so this is a WARN, not an auto-fill: a heads-up to wire the topic to
+        //     its branch before opening the CK, harmless at runtime. Gated on Custom because the branch-less crash is
+        //     the player-topic/dialogue-views case; system subtypes (Hello/Goodbye/combat) don't live in views.
+        if (topic.Subtype == DialogTopic.SubtypeEnum.Custom && branchFk is null)
+            issues.Add(new(DialogueIssueSeverity.Warning,
+                "DialogTopic.Branch (BNAM) is unset on this Custom topic — it plays fine in game, but the Creation "
+                + "Kit's Dialogue Views editor auto-wraps a branch-less topic in a container branch and then crashes "
+                + "rendering the flowchart (FlowchartX64). Set Branch to the owning DialogBranch (DLBR) before opening "
+                + "this topic in the CK."));
+
         // --- SNAM subtype marker: a blank one (0000) is malformed (#131) — the engine buckets topics by this 4-char
         //     marker. Severity is scoped by whether the WINNING record ORIGINATES here or is an OVERRIDE (F3):
         //       • OWN/new topic (the winner defines the FormKey — winner == the FormKey's defining master): a blank

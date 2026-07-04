@@ -290,6 +290,13 @@ public static class DialogueValidateGuardProbe
             var tf1 = m.DialogTopics.AddNew(); tf1.EditorID = "HcDvFan1"; tf1.Quest.SetTo(qFan.FormKey); tf1.Responses.Add(Info("HcDvFan1I"));
             var tf2 = m.DialogTopics.AddNew(); tf2.EditorID = "HcDvFan2"; tf2.Quest.SetTo(qFan.FormKey); tf2.Responses.Add(Info("HcDvFan2I"));
 
+            // Give every branch-LESS fixture topic the shared well-formed branch — SAME reason as the SNAM loop
+            // below: this guard tests the GRAPH/CONDITION/VOICE lints, not the BNAM-absent lint (that's
+            // dialogue-ckparity-guard's job), so its Custom topics must be branch-clean or a "no issues" arm would
+            // trip on that unrelated Warning. tBadBranch keeps its deliberately-bad branch (its link IsNull is false),
+            // so it's skipped and BAD-BRANCH still fires.
+            foreach (var t in m.DialogTopics) if (t.Branch.IsNull) t.Branch.SetTo(branch.FormKey);
+
             // Give every fixture topic a well-formed SNAM marker (#131) so the new blank-marker Problem never fires
             // here — this guard tests the GRAPH/CONDITION/VOICE lints, not the marker (that's dialogue-subtype-marker-guard),
             // so its topics must be marker-clean or a "no issues" arm would trip on an unrelated defect.

@@ -1630,6 +1630,22 @@ public static class WritePatchBuilder
                     // AlreadySet: an explicit marker the author set — never overridden, nothing to report.
                 }
             }
+            // CK-parity default-populate (S1 — the confirmed-CK-crash tier; same #131 asymmetry generalised to the
+            // rest of the family: Mutagen omits null optionals, the CK writes them unconditionally). An INFO created
+            // without CNAM (FavorLevel) / ENAM (Flags) crashes the CK when its topic is opened; a bare DLVW crashes
+            // the CK Dialogue Views editor. These COMPLETE the write the author under-specified (never overriding an
+            // explicit value) and surface each fill as an op — auto-filled, not silent (Q3). The authority + the
+            // by-construction values live in DialogueCkParity (else-if: a record is exactly one of these types).
+            else if (rec is IDialogResponses infoRec)
+            {
+                foreach (var fill in DialogueCkParity.ApplyInfoDefaults(infoRec))
+                    ops.Add(new OpResult(rec.FormKey, s.RecordType, fill.Label, true, null, fill.Reason));
+            }
+            else if (rec is IDialogView viewRec)
+            {
+                foreach (var fill in DialogueCkParity.ApplyViewDefaults(viewRec))
+                    ops.Add(new OpResult(rec.FormKey, s.RecordType, fill.Label, true, null, fill.Reason));
+            }
             created.Add(new CreatedRecord(rec.FormKey, s.RecordType, s.EditorId, ops, replaced));
         }
 
