@@ -1629,13 +1629,24 @@ public static class WritePatchBuilder
                             "(a new topic with a blank marker is a load CTD, #131). Use a valid Subtype, or set SubtypeName explicitly to the correct 4-char marker (nothing created).");
                     // AlreadySet: an explicit marker the author set — never overridden, nothing to report.
                 }
+
+                // CK-parity seed (S2 — the byte-only tier): DIAL Priority (PNAM). Priority is a NON-NULLABLE float
+                // (defaults to 0), so "the author left it unset" is NOT is-null — it's "no edit touched the Priority
+                // path." Compute that from this record's op list and let DialogueCkParity seed the CK's 50 only when
+                // Priority was never mentioned; an explicit value (including 0) always wins. Surfaced as an op (Q3).
+                bool authorSetPriority = s.Edits.Any(e => e.Path.Length >= 1 &&
+                    string.Equals(e.Path[0], "Priority", StringComparison.OrdinalIgnoreCase));
+                if (DialogueCkParity.ApplyTopicPriorityDefault(dtopic, authorSetPriority) is { } pfill)
+                    ops.Add(new OpResult(rec.FormKey, s.RecordType, pfill.Label, true, null, pfill.Reason));
             }
-            // CK-parity default-populate (S1 — the confirmed-CK-crash tier; same #131 asymmetry generalised to the
-            // rest of the family: Mutagen omits null optionals, the CK writes them unconditionally). An INFO created
-            // without CNAM (FavorLevel) / ENAM (Flags) crashes the CK when its topic is opened; a bare DLVW crashes
-            // the CK Dialogue Views editor. These COMPLETE the write the author under-specified (never overriding an
-            // explicit value) and surface each fill as an op — auto-filled, not silent (Q3). The authority + the
-            // by-construction values live in DialogueCkParity (else-if: a record is exactly one of these types).
+            // CK-parity default-populate (S1 confirmed-CK-crash tier + S2 byte-only tier; same #131 asymmetry across
+            // the whole DIAL/INFO/DLVW/DLBR/QUST family: Mutagen omits null optionals, the CK writes them
+            // unconditionally). An INFO created without CNAM (FavorLevel) / ENAM (Flags) crashes the CK when its topic
+            // is opened; a bare DLVW crashes the CK Dialogue Views editor; the S2 fields (DLBR Category, QUST
+            // NextAliasID + objective Flags) are byte-parity only (no crash) but complete the write the same way.
+            // These COMPLETE the write the author under-specified (never overriding an explicit value) and surface each
+            // fill as an op — auto-filled, not silent (Q3). The authority + by-construction values live in
+            // DialogueCkParity (else-if: a record is exactly one of these types).
             else if (rec is IDialogResponses infoRec)
             {
                 foreach (var fill in DialogueCkParity.ApplyInfoDefaults(infoRec))
@@ -1644,6 +1655,16 @@ public static class WritePatchBuilder
             else if (rec is IDialogView viewRec)
             {
                 foreach (var fill in DialogueCkParity.ApplyViewDefaults(viewRec))
+                    ops.Add(new OpResult(rec.FormKey, s.RecordType, fill.Label, true, null, fill.Reason));
+            }
+            else if (rec is IDialogBranch branchRec)   // S2 — DLBR Category (TNAM)
+            {
+                foreach (var fill in DialogueCkParity.ApplyBranchDefaults(branchRec))
+                    ops.Add(new OpResult(rec.FormKey, s.RecordType, fill.Label, true, null, fill.Reason));
+            }
+            else if (rec is IQuest questRec)           // S2 — QUST NextAliasID (ANAM) + objective Flags (FNAM)
+            {
+                foreach (var fill in DialogueCkParity.ApplyQuestDefaults(questRec))
                     ops.Add(new OpResult(rec.FormKey, s.RecordType, fill.Label, true, null, fill.Reason));
             }
             created.Add(new CreatedRecord(rec.FormKey, s.RecordType, s.EditorId, ops, replaced));

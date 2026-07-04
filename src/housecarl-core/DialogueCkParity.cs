@@ -29,8 +29,24 @@ namespace HousecarlCore;
 //    • INFO (DialogResponses) Flags    (ENAM)     → empty DialogResponseFlags (Flags=0, ResetHours=0)
 //    • DLVW (DialogView)      DNAM                → 0x00
 //    • DLVW (DialogView)      ENAM                → 0x00000000
-//  The byte-only tier (DLBR Category/TNAM, QUST NextAliasID/ANAM + objective FNAM, DIAL Priority/PNAM) is a
-//  deliberate follow-on (S2) that EXTENDS this same authority — add its methods here, do not fork a parallel path.
+//
+//  SCOPE (S2 — the byte-only tier). Same asymmetry, no confirmed crash — a byte mismatch vs a CK-authored record
+//  (Confidence BYTE). Every default VALUE below was byte-verified against CK-authored vanilla records in a live load
+//  order (2026-07-04) before it was committed, per the plan's "fill the correct value, not a guessed one" gate:
+//    • DLBR (DialogBranch)   Category   (TNAM)     → Player  (the enum's zero-value AND 3059/3061 vanilla branches,
+//                                                    across all Flags; the rare Command branch is author-set → non-override)
+//    • DIAL (DialogTopic)    Priority   (PNAM)     → 50      (the CK seed for an untouched topic; the dominant value
+//                                                    on vanilla Custom topics — NON-NULLABLE float, see below)
+//    • QUST (Quest)          NextAliasID (ANAM)    → next-alias-ID counter: max(existing alias ID)+1, else 0
+//    • QUST QuestObjective   Flags      (FNAM)     → 0 (no flags), materialised per objective
+//
+//  ONE S2 FIELD IS NOT NULLABLE — DIAL Priority is a plain float that defaults to 0, so "the author left it unset"
+//  can't be read off is-null the way every other field here is. The create path detects it from the AUTHOR'S OP LIST
+//  (did any edit touch the Priority path?) and passes that in; a fill happens only when Priority was never mentioned,
+//  and an explicit value — INCLUDING 0 — always wins. That's why ApplyTopicPriorityDefault takes an authorSetPriority
+//  flag while the nullable-field methods don't. See ApplyTopicPriorityDefault + the create-lane call.
+//
+//  Add S3+ defaults here too — do not fork a parallel path.
 //
 //  A SEMANTIC NON-DEFAULT worth stating: the `Goodbye` conversation-ender flag lives INSIDE the INFO Flags
 //  struct this fills. Materialising Flags to all-zero does NOT set Goodbye — a conversation-ending line still
@@ -124,6 +140,111 @@ public static class DialogueCkParity
                 $"ENAM subrecord auto-set to {ViewEnamHex}",
                 $"0x{ViewEnamHex} — every CK-authored DialogView carries the ENAM byte subrecord; pairs with DNAM for "
                 + "Creation Kit Dialogue Views parity. CK-parity default-populate."));
+        }
+
+        return fills;
+    }
+
+    // ==================================================================================================
+    //  S2 — the byte-only tier. No confirmed crash; a byte mismatch vs a CK-authored record. Same asymmetry,
+    //  same #131 invariants (non-override · never silent · by-construction). Values byte-verified against
+    //  CK-authored vanilla records (2026-07-04) — see the header SCOPE (S2) block.
+    // ==================================================================================================
+
+    /// <summary>DIAL Priority (PNAM) CK seed value — 50. The dominant value on vanilla Custom topics; the CK's seed
+    /// for an untouched topic (authors raise/lower it to order competing lines). Pinned by the guard.</summary>
+    public const float TopicPrioritySeed = 50f;
+
+    /// <summary>DLBR Category (TNAM) CK-parity default — Player. Both the enum's zero-value (a fresh CK branch's
+    /// default) and the value 3059/3061 vanilla DialogBranches carry (all Flags; big-three masters, 2026-07-04);
+    /// Command appears on just 2 vanilla branches, both deliberately authored. Pinned by the guard.</summary>
+    public const DialogBranch.CategoryType BranchCategoryDefault = DialogBranch.CategoryType.Player;
+
+    /// <summary>DLBR (DialogBranch) CK-parity default — the Category (TNAM) enum, nullable and omitted by Mutagen when
+    /// unset; a CK-authored DialogBranch always carries it. Fill Player (the near-universal value + the enum's
+    /// zero-value) UNCONDITIONALLY when the author left it null. A Command branch (a bribe/intimidate speech-challenge
+    /// — the only 2 vanilla cases) is a deliberate authored choice that sets Category=Command explicitly, so
+    /// non-override leaves it untouched (Aaron-decided 2026-07-04 after the vanilla data falsified the earlier
+    /// TopLevel-gated plan: TopLevel doesn't distinguish Player from Command — both Command cases are TopLevel — and
+    /// non-TopLevel branches are reliably Player). Returns the fills applied (empty when the author set a Category).</summary>
+    public static IReadOnlyList<CkParityFill> ApplyBranchDefaults(IDialogBranch branch)
+    {
+        var fills = new List<CkParityFill>(1);
+
+        if (branch.Category is null)
+        {
+            branch.Category = BranchCategoryDefault;
+            fills.Add(new CkParityFill(
+                $"Category (TNAM subrecord) auto-set to {BranchCategoryDefault}",
+                $"{BranchCategoryDefault} — every CK-authored DialogBranch carries the TNAM (Category) subrecord; "
+                + "Player is both the enum's zero-value (a fresh CK branch's default) and the value ~all vanilla "
+                + "branches carry across every Flags combination. A Command branch (a bribe/intimidate speech-challenge) "
+                + "is a deliberate authored case that sets Category=Command explicitly; non-override leaves that "
+                + "untouched. CK-parity default-populate, in-model (#131 pattern)."));
+        }
+
+        return fills;
+    }
+
+    /// <summary>DIAL (DialogTopic) Priority (PNAM) CK seed. UNLIKE every other field here, Priority is a NON-NULLABLE
+    /// float (defaults to 0), so there is no is-null signal for "the author left it unset" — the create path decides
+    /// that from the author's OP LIST and passes it in as <paramref name="authorSetPriority"/>. Fill the CK seed
+    /// (50) ONLY when the author never touched Priority; an explicit value — including 0 — always wins (non-override).
+    /// Returns the single fill applied, or null when Priority was author-set (nothing to report).</summary>
+    public static CkParityFill? ApplyTopicPriorityDefault(IDialogTopic topic, bool authorSetPriority)
+    {
+        if (authorSetPriority) return null;                 // author set Priority (even to 0) — non-override, no fill
+        topic.Priority = TopicPrioritySeed;                 // was 0 (the non-nullable default); seed to the CK's 50
+        return new CkParityFill(
+            $"Priority (PNAM subrecord) auto-set to {TopicPrioritySeed:0} (CK seed default)",
+            $"{TopicPrioritySeed:0} — a CK-authored DialogTopic always writes PNAM (Priority), and 50 is the CK's seed "
+            + "for an untouched topic (the dominant value on vanilla Custom topics; authors raise/lower it to order "
+            + "competing lines). Priority is a non-nullable float, so this seeds 50 only when the author set no "
+            + "Priority at all — an explicit value, including 0, always wins. CK-parity seed.");
+    }
+
+    /// <summary>QUST (Quest) CK-parity defaults — the NextAliasID (ANAM) counter and each objective's Flags (FNAM),
+    /// both nullable and omitted by Mutagen when unset; a CK-authored Quest carries both. NON-OVERRIDE throughout.
+    ///
+    /// NextAliasID (ANAM): the next alias ID the CK would hand out. For a FRESHLY-created quest (no deletion history)
+    /// that is max(existing alias ID)+1, or 0 for an alias-less quest (160 vanilla alias-less quests read 0). NOTE the
+    /// value is create-lane-correct only: on an EDITED quest the CK keeps ANAM as a monotonic high-water mark that can
+    /// exceed max+1 (a deleted high-ID alias strands it — e.g. vanilla CRTwinsPostQuest has aliases {0,1} but ANAM=3),
+    /// but no alias can be deleted inside a single create call, so max+1 is exact here. This does NOT reconstruct a
+    /// general quest's ANAM — it seeds a new one.
+    ///
+    /// QuestObjective.Flags (FNAM): materialise 0 (no flags) on each objective the author left null — the value every
+    /// vanilla objective carries. The sole flag (OrWithPrevious) stays an explicit authoring choice a 0-fill does NOT
+    /// set (like Goodbye on the INFO Flags struct). Returns every fill applied (ANAM + one per materialised objective).</summary>
+    public static IReadOnlyList<CkParityFill> ApplyQuestDefaults(IQuest quest)
+    {
+        var fills = new List<CkParityFill>();
+
+        if (quest.NextAliasID is null)
+        {
+            bool hasAliases = quest.Aliases.Count > 0;
+            uint next = hasAliases ? quest.Aliases.Max(a => a.ID) + 1u : 0u;
+            quest.NextAliasID = next;
+            fills.Add(new CkParityFill(
+                $"NextAliasID (ANAM subrecord) auto-set to {next}",
+                $"{next} — every CK-authored Quest carries the ANAM (next-alias-ID) subrecord, seeded to the next alias "
+                + $"ID the CK would hand out ({(hasAliases ? $"max of the {quest.Aliases.Count} alias ID(s) + 1" : "0 for an alias-less quest")}). "
+                + "Non-override: fills only when the author set no NextAliasID. CK-parity default-populate."));
+        }
+
+        int idx = 0;
+        foreach (var objective in quest.Objectives)
+        {
+            if (objective.Flags is null)
+            {
+                objective.Flags = default(QuestObjective.Flag);   // (QuestObjective.Flag)0 — no flags set
+                fills.Add(new CkParityFill(
+                    $"Objectives[{idx}] (Index {objective.Index}) Flags (FNAM subrecord) auto-set to 0 (no flags)",
+                    "0 — every CK-authored quest objective carries the FNAM (flags) subrecord, and vanilla objectives "
+                    + "carry 0. This materialises the subrecord only; the OrWithPrevious flag stays an explicit "
+                    + "authoring choice. CK-parity default-populate."));
+            }
+            idx++;
         }
 
         return fills;
