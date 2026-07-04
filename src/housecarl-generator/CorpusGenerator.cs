@@ -185,6 +185,7 @@ public static class CorpusGenerator
 
         var referenced = new List<RefItem>();
         var fields = new List<FieldSchema>();
+        var nullCtx = new System.Reflection.NullabilityInfoContext();
 
         foreach (var p in getterProps.OrderBy(p => p.Name, StringComparer.Ordinal))
         {
@@ -194,6 +195,20 @@ public static class CorpusGenerator
             var f = ClassifyField(p.PropertyType, referenced, catalogName, p.Name);
             f.Name = p.Name;
             f.Writable = writable;
+            // SUBSTRUCT nullability. A substruct is a reference-typed interface property (IVmadGetter?, ITranslatedStringGetter?,
+            // …), NOT a Nullable<T> value type — so ClassifyField (which reads only Nullable.GetUnderlyingType) always leaves
+            // it non-nullable, and Mutagen's real "?" annotation is lost. Read it back from the getter property's NRT metadata
+            // via NullabilityInfoContext. A nullable substruct is then Remove-able BY CONSTRUCTION: VerbLegality already allows
+            // Remove on a nullable leaf, and ApplyScalarVerb's Remove sets the property null — so correcting the schema's
+            // nullability completes the "clear/un-fragment a sub-object" capability (e.g. INFO.VirtualMachineAdapter) with no
+            // new write path. Same Mutagen reflection that builds the write surface, so schema and engine can't disagree.
+            // SCOPE: substruct only. value/enum/formlink already carry correct nullability (Nullable<T> + the FormLinkNullable
+            // name-check in ClassifyField); standalone POLYMORPHIC fields are a distinct, more delicate surface — the
+            // serialize-required signal (WriteEngine RunPatch / the composed-arm NRE catch) relies on poly fields staying
+            // Nullable=false, so flipping them here would need that audited first. Deliberate boundary, left as-is.
+            if (f.Cardinality == "substruct" && !f.Nullable
+                && nullCtx.Create(p).ReadState == System.Reflection.NullabilityState.Nullable)
+                f.Nullable = true;
             f.GetterTypeAssemblyQualified = p.PropertyType.AssemblyQualifiedName ?? p.PropertyType.FullName ?? p.PropertyType.Name;
             f.MutableTypeAssemblyQualified = hasMutable ? (mp!.PropertyType.AssemblyQualifiedName ?? mp.PropertyType.FullName) : null;
             fields.Add(f);
