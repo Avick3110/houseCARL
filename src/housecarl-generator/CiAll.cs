@@ -55,6 +55,7 @@ public static class CiAll
         ("esl-formid-guard", EslFormIdProbe.RunGuard),
         ("upsert-guard", UpsertGuardProbe.RunGuard),
         ("nested-create-guard", NestedCreateGuardProbe.RunGuard),
+        ("substruct-nullable-clear-guard", SubstructNullableClearProbe.RunGuard),
         ("coord-cell-guard", CoordCellGuardProbe.RunGuard),
         ("dialogue-validate-guard", DialogueValidateGuardProbe.RunGuard),
         ("dialogue-subtype-marker-guard", DialogueSubtypeMarkerGuardProbe.RunGuard),
