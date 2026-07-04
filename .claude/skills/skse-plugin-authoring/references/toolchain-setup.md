@@ -176,7 +176,7 @@ the entire authored entry point can be four lines:
 
 ```cpp
 // src/main.cpp — the WHOLE authored entry point
-SKSE_PLUGIN_LOAD(const SKSE::LoadInterface* a_skse) {
+SKSEPluginLoad(const SKSE::LoadInterface* a_skse) {
     SKSE::Init(a_skse);            // NG: SKSE::Init(const LoadInterface*, bool a_log = true)
     logs::info("Hello World!");
     return true;
