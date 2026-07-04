@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Text.RegularExpressions;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Plugins.Records;
 using Mutagen.Bethesda.Skyrim;
@@ -311,10 +312,22 @@ public static class DialogueValidate
         // false "dead alias" against a quest we couldn't read). Non-alias condition lints don't need this and run
         // regardless.
         HashSet<uint>? ownerAliasIds = null;
+        // The EditorIDs of the globals in the owning quest's TextDisplayGlobals list — the set a `<Global=X>` dialogue-text
+        // tag must name to render in game (item: the <Global=X>/TextDisplayGlobals lint). NULL when the owning quest is
+        // unresolvable (unset or not in the order): then we SKIP the tag lint rather than guess (Q3 — never a false
+        // "not in TextDisplayGlobals" against a quest we couldn't read), exactly as the alias-index lints skip.
+        HashSet<string>? ownerTextGlobals = null;
         string ownerQuestLabel = "the owning quest";
         if (questFk is { } ownerFk && resolve(ownerFk) is IQuestGetter ownerQuest)
         {
             ownerAliasIds = ownerQuest.Aliases.Select(a => a.ID).ToHashSet();
+            // Resolve each TextDisplayGlobals FormLink to its GLOB and collect the EditorID (case-insensitive — the engine's
+            // tag match is). A null/unresolvable entry contributes no name (it can't cover a tag anyway); globals resolve
+            // reliably, so this doesn't spuriously mark a real one absent.
+            ownerTextGlobals = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var g in ownerQuest.TextDisplayGlobals)
+                if (!g.FormKey.IsNull && resolve(g.FormKey) is IGlobalGetter glob && glob.EditorID is { Length: > 0 } gid)
+                    ownerTextGlobals.Add(gid);
             ownerQuestLabel = $"the owning quest {ownerQuest.EditorID ?? ownerFk.ToString()}";
         }
 
@@ -337,6 +350,13 @@ public static class DialogueValidate
             int rnum = 0;
             foreach (var resp in info.Responses)
                 CheckEncoding(resp.Text?.String, $"INFO {info.FormKey} response {++rnum} text", issues);
+
+            // <Global=X> text-replacement lint: a `<Global=X>` tag in a Prompt/response renders as `[...]` in game unless
+            // X names a global in the owning quest's TextDisplayGlobals (Heisen §3 non-gap). A silent failure — the record
+            // is byte-valid and the tag just fails to substitute — so it's a WARN. Skipped when the owning quest is
+            // unresolvable (ownerTextGlobals null — never guessed, Q3).
+            if (ownerTextGlobals is not null)
+                CheckGlobalTags(info, ownerTextGlobals, ownerQuestLabel, issues);
 
             // PNAM (PreviousDialog): vanilla leaves it empty and orders intra-topic by Conditions, so ABSENCE is the
             // norm and is NEVER flagged. Only a SET previous-link that doesn't resolve to an INFO is a real defect.
@@ -466,6 +486,64 @@ public static class DialogueValidate
             $"{locus} contains non-ASCII char(s) {desc} — the CK/Papyrus user-facing text surface is Windows-1252/ASCII, so these usually render as in-game mojibake.{sug}"));
     }
 
+    /// <summary>The <c>&lt;Global=X&gt;</c> text-replacement tags in a Prompt/response — the engine substitutes each
+    /// with the named global's value at runtime. Group 1 is the global's EditorID (<c>[^&lt;&gt;]+</c> — everything up
+    /// to the closing bracket, trimmed by the caller). The optional <c>(?:\.\w+)?</c> covers the CK's formatting-subtag
+    /// variants — <c>&lt;Global.Time=X&gt;</c>, <c>&lt;Global.Hour12=X&gt;</c>, <c>&lt;Global.Minutes=X&gt;</c> — where
+    /// the modifier sits BEFORE the <c>=</c> and the EditorID after it (CK wiki: Text Replacement). Those name a global
+    /// that ALSO must be in the quest's TextDisplayGlobals, so the lint must catch a missing one there too — a plain
+    /// <c>&lt;Global=</c> anchor would silently skip them (the exact <c>[...]</c> failure this lint exists to catch).
+    /// Case-insensitive on the tag word.</summary>
+    static readonly Regex GlobalTagRx = new(@"<Global(?:\.\w+)?=([^<>]+)>", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    /// <summary><c>&lt;Global=X&gt;</c> text-replacement lint: scan this INFO's player-facing strings (menu Prompt +
+    /// each spoken response) for <c>&lt;Global=X&gt;</c> tags and WARN on any X that is NOT the EditorID of a global in
+    /// the owning quest's <see cref="IQuestGetter.TextDisplayGlobals"/> — such a tag renders as <c>[...]</c> in game
+    /// (the global is never substituted; a SILENT failure the record's byte-validity hides — Heisen §3 non-gap). WARN
+    /// and report-only (the validator never rewrites); one WARN per distinct missing name per INFO (a name repeated in
+    /// the line is not nagged twice). The caller invokes this only when the owning quest resolved, so
+    /// <paramref name="ownerTextGlobals"/> is the real set — possibly EMPTY, which correctly means every tag is
+    /// uncovered — never a guess (Q3).</summary>
+    static void CheckGlobalTags(IDialogResponsesGetter info, HashSet<string> ownerTextGlobals, string ownerQuestLabel, List<DialogueIssue> issues)
+    {
+        var flagged = new HashSet<string>(StringComparer.OrdinalIgnoreCase);   // one WARN per distinct missing name per INFO
+        void Scan(string? text, string locus)
+        {
+            if (string.IsNullOrEmpty(text)) return;
+            foreach (Match m in GlobalTagRx.Matches(text))
+            {
+                var name = m.Groups[1].Value.Trim();
+                if (name.Length == 0 || ownerTextGlobals.Contains(name) || !flagged.Add(name)) continue;
+                issues.Add(new(DialogueIssueSeverity.Warning,
+                    $"INFO {info.FormKey} {locus} uses the text-replacement tag {m.Value}, but {name} is not a "
+                    + $"global in {ownerQuestLabel}'s TextDisplayGlobals — in game the tag renders as [...] (the global is "
+                    + $"never substituted). Add {name} to the quest's Text Display Globals."));
+            }
+        }
+        Scan(info.Prompt?.String, "Prompt");
+        int rnum = 0;
+        foreach (var resp in info.Responses) Scan(resp.Text?.String, $"response {++rnum} text");
+    }
+
+    /// <summary>Engine-implicit forms — the sub-0x800 hardcoded references the engine defines but that are NOT normal
+    /// records in the base master's data, so the load-order index can't resolve them (a false "not in the active load
+    /// order"). A dialogue condition legitimately Runs On / points at these: PlayerRef (the player's placed reference,
+    /// for HasSpell / actor-value player-state gates) and the Player base NPC_ (a GetIsID Player form param). The
+    /// condition lints (1 + 3) treat them as valid targets so a standard player-state gate validates clean (Junti
+    /// 2026-07-03: xEdit resolves 000014 as PlayerRef; the gates are proven working in game). Scoped to the two the
+    /// report proves — a PRECISE set, NOT the whole reserved range, so a genuinely-typo'd sub-0x800 FormID still WARNs.
+    /// Skyrim.esm is the SSE base master (houseCARL is SSE-only). Extend if more engine-implicit forms surface.</summary>
+    static readonly ModKey SkyrimBaseMaster = new("Skyrim", ModType.Master);
+    static readonly HashSet<FormKey> EngineImplicitForms = new()
+    {
+        new FormKey(SkyrimBaseMaster, 0x14),   // PlayerRef — the player's placed reference (a Run On Reference target)
+        new FormKey(SkyrimBaseMaster, 0x07),   // Player    — the player base NPC_ (a GetIsID / form-param target)
+    };
+
+    /// <summary>True when <paramref name="fk"/> is one of the <see cref="EngineImplicitForms"/> — a hardcoded engine
+    /// reference the index can't resolve, so the condition lints must not mistake it for a dangling reference.</summary>
+    static bool IsEngineImplicit(FormKey fk) => EngineImplicitForms.Contains(fk);
+
     /// <summary>Static condition-lint suite (item 4) over one INFO's <c>Conditions</c> (CTDA rows) — the
     /// data-layer-decidable subset the §4 design decision (A-iii) authorises. Every lint here is a TRUE-positive
     /// STRUCTURAL defect (a malformed condition), never a behavioural guess: houseCARL still cannot EVALUATE whether
@@ -517,7 +595,7 @@ public static class DialogueValidate
                 if (data.Reference.IsNull)
                     issues.Add(new(DialogueIssueSeverity.Warning,
                         $"INFO {info.FormKey} condition #{n} ({fn}) is set to Run On a specific reference, but no reference is set — it evaluates against nothing, so the gate never behaves as intended."));
-                else if (!inOrder(refKey))
+                else if (!inOrder(refKey) && !IsEngineImplicit(refKey))
                     issues.Add(new(DialogueIssueSeverity.Warning,
                         $"INFO {info.FormKey} condition #{n} ({fn}) Run On reference {refKey} is not in the active load order — the gate evaluates against nothing."));
             }
@@ -554,7 +632,7 @@ public static class DialogueValidate
                 FormKey? paramFk =
                     v is IFormLinkGetter fl && !fl.IsNull ? fl.FormKey
                     : floiIsForm && WriteEngine.IsFormLinkOrIndex(p.PropertyType) ? WriteEngine.ReadFloiFormKey(v) : null;
-                if (paramFk is { } pk && !inOrder(pk))
+                if (paramFk is { } pk && !inOrder(pk) && !IsEngineImplicit(pk))
                     issues.Add(new(DialogueIssueSeverity.Warning,
                         $"INFO {info.FormKey} condition #{n} ({fn}) references {pk}, which is not in the active load order — a deleted/disabled form or a wrong FormID, so the condition can't evaluate as intended."));
             }

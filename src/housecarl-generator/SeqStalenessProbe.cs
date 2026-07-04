@@ -20,6 +20,11 @@ namespace HousecarlGenerator;
 ///   SEQ-CLEAN-NO-FLAG — a NON-SGE quest yields NO lint (SeqLint null) — fires ONLY for SGE quests, never nags.
 ///   SEQ-OVERRIDE-AMBIGUOUS — an override that ADDS SGE the master lacks → winner != defining, so the render softens
 ///                    to a [?] ambiguity instead of a false "dormant" against the defining master (Q3, review fold).
+/// Plus the Track C in-place SEQ auto-flag DETECTOR (SeqFile.UncoveredSgeQuests — the post-write staleness check the
+/// in-place edit/remove lanes surface as a note, Aaron 2026-07-04):
+///   SEQ-INPLACE-UNCOVERED — an SGE quest absent from the .seq is returned, a covered one is not, a non-SGE is ignored.
+///   SEQ-INPLACE-FRESH     — a .seq listing every SGE quest at its CURRENT on-disk FormID → none uncovered (masters-unchanged edit stays quiet).
+///   SEQ-INPLACE-ALL-STALE — a .seq matching no current FormID (the master-prune shift) → every SGE quest uncovered.
 ///
 /// Run: dotnet run --project src/housecarl-generator -- seq-staleness-guard
 /// </summary>
@@ -113,12 +118,28 @@ public static class SeqStalenessProbe
             Check(ovr is { QuestIsSge: true, SeqExists: false }
                   && !string.Equals(ovr.WinnerPlugin, ovr.DefiningPlugin, StringComparison.OrdinalIgnoreCase),
                 $"SEQ-OVERRIDE-AMBIGUOUS override adds SGE → winner!=defining (render softens to [?], not a false dormant against the master) — {Show(ovr)}");
+
+            // ---- Track C: the in-place SEQ auto-flag DETECTOR (SeqFile.UncoveredSgeQuests). Reuses the OK master (qOk +
+            // qNotListed are SGE; qPlain is RunOnce) and its .seq (lists qOk only). The detector reuses the SAME on-disk
+            // FormID encoding as the author-time .seq write, so the write-time flag and a write_seq regen can't disagree.
+            var okBytes = File.ReadAllBytes(okSeq);
+            var uncovered = SeqFile.UncoveredSgeQuests(okPath, okBytes);
+            Check(uncovered.Count == 1 && uncovered[0].FormKey == qNotListedFk,
+                $"SEQ-INPLACE-UNCOVERED an SGE quest absent from the .seq is returned (qNotListed), a covered one (qOk) is not, non-SGE ignored — count={uncovered.Count}");
+
+            var fullBytes = SeqFile.Serialize(new[] { SeqFile.OnDiskFormIdFromPlugin(okPath, qOkFk), SeqFile.OnDiskFormIdFromPlugin(okPath, qNotListedFk) });
+            Check(SeqFile.UncoveredSgeQuests(okPath, fullBytes).Count == 0,
+                "SEQ-INPLACE-FRESH a .seq listing every SGE quest at its current on-disk FormID → none uncovered (a masters-unchanged edit stays quiet)");
+
+            var staleBytes = SeqFile.Serialize(new[] { 0xDEADBEEFu });   // a .seq matching no current FormID — the master-prune shift
+            Check(SeqFile.UncoveredSgeQuests(okPath, staleBytes).Count == 2,
+                "SEQ-INPLACE-ALL-STALE a .seq matching no current FormID → both SGE quests uncovered (the flag the in-place lanes raise)");
         }
         catch (Exception ex) { Console.WriteLine("  FAIL  guard threw: " + ex); fail++; }
         finally { try { Directory.Delete(root, recursive: true); } catch { /* best-effort temp cleanup */ } }
 
         Console.WriteLine();
-        Console.WriteLine(fail == 0 ? "ALL SEQ-STALENESS GUARD ARMS PASSED" : $"SEQ-STALENESS GUARD: {fail} ARM(S) FAILED");
+        Console.WriteLine(fail == 0 ? "ALL SEQ-STALENESS GUARD ARMS PASSED (incl. Track C in-place auto-flag detector)" : $"SEQ-STALENESS GUARD: {fail} ARM(S) FAILED");
         return fail == 0 ? 0 : 1;
     }
 
