@@ -231,6 +231,35 @@ public static class NullArmGuardProbe
         });
         Check("B5: SkinTexture.Female + Male cleared ('0') serializes fine — the single-gender escape the refusal recommends", b5ok, b5Detail);
 
+        // ---- B6: the EDIT-EXISTING path is SAFE — only fresh CREATE bites. Author a single-gender skin AA on disk
+        //          (Female texture set, Male cleared), re-open it as a BinaryOverlay, deep-copy it into a fresh patch
+        //          (exactly what forward_record / any in-place edit does), and serialize. Mutagen's binary READER fills
+        //          the absent gender half with a NON-NULL empty FormLinkNullable (NOT the null interface the create
+        //          materializer leaves), so the read->copy->serialize round-trip does NOT hit the null-arm refusal.
+        //          GREEN before+after — the refusal is CREATE-only; existing mods' single-gender skin AAs (TSOSRefined
+        //          NPC torsos, NPC hand-skins, …) forward/edit/compact fine. Confirmed live on 0UlfricNakedSkinTorso. ----
+        string b6src = OutPath("hc_nullarm_b6src");
+        bool b6ok = false; string? b6Detail = null;
+        try
+        {
+            SerializeTo(b6src, mod =>
+            {
+                var arma = mod.ArmorAddons.AddNew();
+                WriteEngine.ApplyVerb(arma, new WriteRequest { RecordType = "ArmorAddon", Path = new[] { "SkinTexture", "Female" }, Verb = "Set", Value = "000801:hc_nullarm_b6src.esp" });
+                WriteEngine.ApplyVerb(arma, new WriteRequest { RecordType = "ArmorAddon", Path = new[] { "SkinTexture", "Male" }, Verb = "Set", Value = "0" });
+            });
+            using var overlay = SkyrimMod.CreateFromBinaryOverlay(b6src, SkyrimRelease.SkyrimSE);
+            var b6out = OutPath("hc_nullarm_b6out");
+            var patch = new SkyrimMod(new ModKey(Path.GetFileNameWithoutExtension(b6out), ModType.Plugin), SkyrimRelease.SkyrimSE);
+            patch.ArmorAddons.Add(overlay.ArmorAddons.First().DeepCopy());   // the forward/edit deep-copy of an overlay getter
+            WriteEngine.WritePatch(patch, new ISkyrimModGetter[] { overlay }, b6out);
+            b6ok = File.Exists(b6out);
+            CleanOut(b6out);
+        }
+        catch (Exception ex) { b6Detail = $"{ex.GetType().Name}: {ex.Message}"; }
+        finally { CleanOut(b6src); }
+        Check("B6: an on-disk single-gender skin AA round-trips (overlay -> deep-copy -> serialize) without a null-arm refusal — edit-existing is safe, only CREATE bites", b6ok, b6Detail);
+
         Console.WriteLine();
         Console.WriteLine(failures == 0 ? "nullarm-guard: ALL PASS" : $"nullarm-guard: {failures} FAILURE(S)");
         return failures == 0 ? 0 : 1;
