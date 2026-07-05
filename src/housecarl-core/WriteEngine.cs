@@ -1471,12 +1471,14 @@ public static class WriteEngine
         // fine when null (nullarm-guard B2). A pre-flight gate on the flag would over-reject a legitimately-absent field
         // like Level, or need a hand-curated required-arm list (cornerstone §3) — so there is still no by-construction
         // required/optional signal to gate on. The serialize boundary is the honest place to fail it (Q3). WritePatchStaged
-        // already discards its temp on any throw, so nothing is on disk; re-stamp ONLY the opaque NRE as a NAMED refusal
-        // (other serialize errors keep their own type/message). The existing WritePatchBuilder serialize catches render it
-        // loud + all-or-nothing.
+        // already discards its temp on any throw, so nothing is on disk; re-stamp ONLY a null-arm NRE — whether BARE (the
+        // synchronous case, e.g. Condition.Data) OR wrapped in the parallel writer's nested AggregateException
+        // (HCBR-2026-07-04: a single-gender GenderedItem formlink half, ArmorAddon SkinTexture) — as a NAMED refusal via
+        // RootNullArm; other serialize errors keep their own type/message. The existing WritePatchBuilder serialize
+        // catches render it loud + all-or-nothing.
         string staged;
         try { staged = WritePatchStaged(patchMod, ordered, baseline, outputPath); }
-        catch (NullReferenceException ex) { throw new NullArmSerializeException(ex); }
+        catch (Exception ex) when (RootNullArm(ex) is { } nre) { throw new NullArmSerializeException(nre); }
         CommitStagedPatch(staged, outputPath);
     }
 
@@ -1489,6 +1491,41 @@ public static class WriteEngine
         => ex.InnerException is { } inner
             ? $"{ex.GetType().Name}: {ex.Message} [inner: {inner.GetType().Name}: {inner.Message}]"
             : $"{ex.GetType().Name}: {ex.Message}";
+
+    /// <summary>Unwrap a serialize-boundary throw to the root <see cref="NullReferenceException"/> that signals a
+    /// composed-null-arm failure — or null when the failure is NOT purely a null-arm one. The SYNCHRONOUS case is a
+    /// bare NRE (a Condition missing its Data arm). But Mutagen's binary writer runs record writes through a PARALLEL
+    /// path, so a null required sub-field can also surface WRAPPED: HCBR-2026-07-04 captured a DOUBLY-nested
+    /// <see cref="AggregateException"/> whose leaf was a Mutagen <c>SubrecordException</c> wrapping the NRE — for an
+    /// ArmorAddon whose <c>SkinTexture</c> (a GenderedItem of a FormLink) had only its Female half set, leaving the
+    /// Male half a null formlink the writer dereferenced. A bare-NRE catch misses that, so the opaque AggregateException
+    /// rendered raw instead of as the loud NAMED refusal the codebase already built. This flattens the aggregate nesting
+    /// (<see cref="AggregateException.Flatten"/>) and, for each leaf, walks its <see cref="Exception.InnerException"/>
+    /// chain to the ROOT cause — re-stamping ONLY when EVERY leaf's root is a <see cref="NullReferenceException"/> (the
+    /// whole failure IS the null-arm case), returning the first such NRE as the preserved inner. Any leaf whose root is
+    /// NOT an NRE returns null, so that genuine other error keeps its own type + message (Q3 — never mask an unrelated
+    /// throw behind the null-arm refusal). A non-NRE-rooted throw returns null and propagates unchanged.</summary>
+    static NullReferenceException? RootNullArm(Exception ex)
+    {
+        static NullReferenceException? Root(Exception e)
+        {
+            while (e.InnerException is { } inner) e = inner;   // Mutagen wraps the writer NRE in a SubrecordException (parallel path)
+            return e as NullReferenceException;
+        }
+        if (ex is AggregateException agg)
+        {
+            var leaves = agg.Flatten().InnerExceptions;
+            if (leaves.Count == 0) return null;
+            NullReferenceException? first = null;
+            foreach (var leaf in leaves)
+            {
+                if (Root(leaf) is not { } nre) return null;   // a non-NRE-rooted leaf → not purely a null-arm failure
+                first ??= nre;
+            }
+            return first;
+        }
+        return Root(ex);
+    }
 
     /// <summary>Stage 1 of the atomic write: serialize the patch into a temp SUBDIRECTORY beside the target —
     /// same filename (Mutagen's writer ties filename to ModKey), same parent directory (guarantees same NTFS
@@ -1562,11 +1599,12 @@ public static class WriteEngine
         Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
         var ordered = ownMasters as ISkyrimModGetter[] ?? ownMasters.ToArray();
         // Same composed-null-arm serialize guard as WritePatch (an in-place edit can compose a record too): a required
-        // polymorphic sub-field left null surfaces as a bare NRE at the writer deref — re-stamp ONLY that as a NAMED
-        // refusal; the staged temp is already discarded on any throw (nothing on disk), original byte-intact.
+        // sub-field left null surfaces as a bare NRE at the writer deref, OR — from the parallel writer — as an
+        // AggregateException-wrapped one (a single-gender GenderedItem formlink half); RootNullArm unwraps both and
+        // re-stamps ONLY that as a NAMED refusal; the staged temp is already discarded on any throw (nothing on disk), original byte-intact.
         string staged;
         try { staged = WriteInPlaceStaged(targetMod, ordered, outputPath); }
-        catch (NullReferenceException ex) { throw new NullArmSerializeException(ex); }
+        catch (Exception ex) when (RootNullArm(ex) is { } nre) { throw new NullArmSerializeException(nre); }
         CommitStagedPatch(staged, outputPath);
     }
 
@@ -3132,7 +3170,9 @@ public sealed class CompositionRequiredException : InvalidOperationException
 /// <summary>A serialize-boundary <see cref="NullReferenceException"/> re-stamped as a loud, NAMED refusal
 /// (HCBR-2026-06-15-01 PR-C, PART B). Mutagen's binary writer throws a bare NRE — no field name — when it dereferences
 /// a record's REQUIRED modeled sub-field that was left null; the dominant cause is a COMPOSED record missing a required
-/// polymorphic sub-arm (a Condition without its Data arm, an element missing a required part). The corpus now carries
+/// polymorphic sub-arm (a Condition without its Data arm, an element missing a required part), or a GenderedItem with a
+/// single FormLink gender half (ArmorAddon SkinTexture — the null half the parallel writer wraps in an AggregateException,
+/// HCBR-2026-07-04). The corpus now carries
 /// faithful polymorphic nullability (S4 Track D), but that flag is NOT a "required arm at serialize" signal —
 /// NpcConfiguration.Level reads <c>Nullable=false</c> yet serializes fine when null, while Condition.Data (also
 /// <c>Nullable=false</c>) throws — so a pre-flight gate on the flag would over-reject or need a hand-curated list
@@ -3143,11 +3183,13 @@ public sealed class NullArmSerializeException : InvalidOperationException
 {
     public NullArmSerializeException(Exception inner)
         : base("a required modeled sub-field was null when Mutagen serialized the patch (a NullReferenceException in the " +
-               "writer). The most common cause is a COMPOSED record that left a required polymorphic sub-field unset — " +
-               "e.g. a Condition composed without its Data arm, or a leveled-list / effect element missing a required " +
-               "part. Compose that sub-field too (select the arm via compose). Nothing was written — the staged file was " +
-               "discarded and the target is untouched. If no composition was involved, this is an engine/Mutagen " +
-               "inconsistency — surface it, don't work around it.", inner)
+               "writer). Two known causes: (1) a COMPOSED record that left a required polymorphic sub-field unset — e.g. a " +
+               "Condition composed without its Data arm, or a leveled-list / effect element missing a required part — fix by " +
+               "composing that sub-field too (select the arm via compose); (2) a GenderedItem whose element is a FormLink " +
+               "(e.g. an ArmorAddon's SkinTexture) with only ONE gender half set, leaving the other half a null formlink the " +
+               "writer dereferences — fix by setting the other gender half too, or clearing it with '0' / 'Null' for a " +
+               "genuinely single-gender item. Nothing was written — the staged file was discarded and the target is " +
+               "untouched. If neither applies, this is an engine/Mutagen inconsistency — surface it, don't work around it.", inner)
     {
     }
 }
