@@ -92,6 +92,10 @@ public static class CiAll
         ("overwrite-resolve-guard", OverwriteResolveProbe.RunGuard),
         ("asset-resolver-guard", AssetResolverProbe.RunGuard),
         ("asset-status-guard", AssetStatusProbe.RunGuard),
+        // SKSE-plugin-layer visibility (gap 2026-06-08, tier C): pins the SKSEPlugin_Version decode contract (the
+        // reverse-engineered offset map — supportEmail is 252, not 256 — + the flag/version/compat interpretation) and
+        // the honest-degrade paths (real-PE Read → NotSkse; non-PE / missing → Unreadable, never a throw).
+        ("skse-reader-guard", SkseReaderProbe.RunGuard),
         ("mo2instance-probe", Mo2InstanceProbe.RunProbe),
         ("atomic-commit-guard", AtomicCommitProbe.RunGuard),
         ("place-asset-guard", PlaceAssetProbe.RunGuard),

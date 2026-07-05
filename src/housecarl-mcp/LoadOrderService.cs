@@ -238,6 +238,85 @@ public sealed class LoadOrderService : IDisposable
         }
     }
 
+    // ---- SKSE-plugin-layer visibility (gap 2026-06-08): inventory the DLLs + configs + winning provider (tier A) and
+    //      each plugin DLL's STATICALLY declared manifest (tier C). Read-only; reuses the asset VFS + the PE reader. ----
+
+    /// <summary>Inventory the SKSE-plugin layer as the ACTIVE load order resolves it (housecarl_skse_inventory): the FULL
+    /// DEPTH of Data\SKSE\Plugins — every <c>.dll</c> plugin and every <c>.ini</c>/<c>.toml</c>/<c>.json</c>/<c>.yaml</c>
+    /// config at any depth — with the mod that WINS the VFS for each (tier A), and for every plugin DLL the statically-
+    /// declared manifest — name/author/version, Address Library vs version-LOCKED, target runtimes, XSE floor — via
+    /// <see cref="SksePluginReader"/> (tier C). Tier E (DLL behavior) stays out of reach by design. FULL VISIBILITY, by
+    /// construction: every file is accounted for — configs carry their derived subfolder <see cref="SkseFileEntry.Group"/>
+    /// (the immediate folder under SKSE\Plugins — SkyPatcher / DynamicStringDistributor / OStim / …, WHATEVER the modlist
+    /// ships, never a hardcoded set) so the renderer can group them compactly, and non-config content (animation data etc.)
+    /// is counted in <see cref="SkseInventoryData.OtherFileCount"/>, never silently dropped. DLLs keep their SKSE-loader
+    /// truth: a subfolder DLL is SEEN but flagged (SKSE scans Data\SKSE\Plugins*.dll top-level only, so it isn't loaded as a
+    /// plugin). ONE asset capture pins the whole scan (list + <see cref="AssetView.ReadIncomplete"/> caveat = one build); the
+    /// enumerate + resolve + PE reads run OUTSIDE the gate (the captured view is a handle-free immutable snapshot), so an
+    /// inventory never serializes other tool calls behind its file I/O. Distributor INIs (SPID <c>*_DISTR</c>, KID
+    /// <c>*_KID</c>) live in Data\ ROOT, not here, and are owned by their authoring skills — out of this scope by design.</summary>
+    public SkseInventoryData SkseInventory()
+    {
+        AssetResolver.AssetView view;
+        IReadOnlyList<string> warnings;
+        string profileName;
+        lock (_gate)
+        {
+            view = Assets.Capture();                              // build/refresh the asset resolver under the gate, ONCE
+            warnings = _assetWarnings;
+            profileName = _profileName;
+        }
+        // OUTSIDE the gate: the view is pinned + handle-free (AssetResolver.Dispose is a no-op; Resolve reads only the
+        // captured snapshot + readonly roots), so enumerating + resolving + PE-reading here can't race a concurrent
+        // refresh into wrongness and doesn't block other tools behind our file reads.
+        const string pre = "SKSE\\Plugins\\";
+        var dlls = new List<SkseFileEntry>();
+        var configs = new List<SkseFileEntry>();
+        int otherFiles = 0;
+        foreach (var rel in view.EnumerateUnder("SKSE\\Plugins").OrderBy(p => p, StringComparer.OrdinalIgnoreCase))
+        {
+            var ext = Path.GetExtension(rel).ToLowerInvariant();
+            bool isDll = ext is ".dll";
+            bool isConfig = ext is ".ini" or ".toml" or ".json" or ".yaml" or ".yml";
+            if (!isDll && !isConfig) { otherFiles++; continue; }  // content/other (.hkx/.txt/.pdb/…) — ACCOUNTED FOR, not listed
+
+            string group = SkseGroupOf(rel, pre);                 // "" = top-level; else the immediate subfolder (the derived group key)
+            var place = view.ResolveForPlacement(rel);
+            // The FULL conflict chain, winner-first (asset-tool parity): keep every provider + its loose/BSA kind, not just a count.
+            var providers = place.Sources
+                .Select(s => new SkseProvider(s.ProviderName, s.Kind == AssetKind.Bsa ? "BSA" : "loose"))
+                .ToList();
+            var winner = place.Sources.Count > 0 ? place.Sources[0] : null;
+
+            if (isDll)
+            {
+                SksePluginReader.SksePluginInfo? info = null;
+                string? note = null;
+                if (winner is { Kind: AssetKind.Loose, LooseFilePath: { } path })
+                    info = SksePluginReader.Read(path);           // the winning loose copy
+                else if (winner is null) note = "no active mod provides this DLL";
+                else note = "provided ONLY inside a BSA — the SKSE loader scans loose Data\\SKSE\\Plugins only, so this DLL will not load";
+                if (group.Length > 0 && note is null)
+                    note = $"in subfolder '{group}' — NOT on SKSE's loader path (scans SKSE\\Plugins\\*.dll top-level only); a bundled/parent-loaded DLL, not a plugin SKSE loads";
+                dlls.Add(new SkseFileEntry(rel, Path.GetFileName(rel), group, providers, info, note));
+            }
+            else
+                configs.Add(new SkseFileEntry(rel, Path.GetFileName(rel), group, providers, null, null));
+        }
+        return new SkseInventoryData(dlls, configs, otherFiles, view.BsaFailures, view.ReadIncomplete, warnings, profileName);
+    }
+
+    /// <summary>The immediate subfolder under SKSE\Plugins a file sits in ("" = directly at top level) — the DERIVED,
+    /// by-construction grouping key for the SKSE inventory. Whatever a modlist ships becomes a group; there is NO hardcoded
+    /// framework list (a hand-maintained list would be a cornerstone violation + a Q3 silent-miscategorize for any framework
+    /// not on it). e.g. <c>SKSE\Plugins\SkyPatcher\Weapons\x.ini</c> → "SkyPatcher"; <c>SKSE\Plugins\EngineFixes.toml</c> → "".</summary>
+    static string SkseGroupOf(string rel, string pre)
+    {
+        if (!rel.StartsWith(pre, StringComparison.OrdinalIgnoreCase)) return "";
+        int slash = rel.IndexOf('\\', pre.Length);
+        return slash < 0 ? "" : rel.Substring(pre.Length, slash - pre.Length);
+    }
+
     // ---- facegen-diagnostics Phase 3: place an asset so the correct copy WINS the VFS (housecarl_place_asset) ----
 
     /// <summary>Place one-or-more assets (FaceGen .nif/.dds, or any Data-relative file) into a NEW houseCARL-owned MO2 mod
@@ -2877,6 +2956,48 @@ public sealed record AssetPathResult(string RelPath, AssetHit? Hit, string? Erro
 /// names the active profile the answer describes.</summary>
 public sealed record AssetStatusData(
     IReadOnlyList<AssetPathResult> Results,
+    IReadOnlyList<string> BsaFailures,
+    bool ReadIncomplete,
+    IReadOnlyList<string> Warnings,
+    string ProfileName);
+
+/// <summary>One provider of an SKSE-layer file: the mod / "overwrite" / "Data" / BSA-filename, and whether it's a "loose" file or
+/// a "BSA" entry. The winner-first-then-losers ordering lives in <see cref="SkseFileEntry.Providers"/>.</summary>
+public sealed record SkseProvider(string Name, string Kind);
+
+/// <summary>One file found under Data\SKSE\Plugins in the active load order (housecarl_skse_inventory). <see cref="Group"/> is the
+/// immediate subfolder it sits in ("" = top level) — the derived render-grouping key. <see cref="Providers"/> is the FULL conflict
+/// chain — every mod that ships this exact file, WINNER FIRST then the losers in precedence order (the same winner→loser
+/// transparency the asset tools give), each tagged loose/BSA; empty ⇒ nothing active provides it. <see cref="Plugin"/> is the tier-C
+/// static manifest, set ONLY for a <c>.dll</c> whose winning copy is loose (null for configs and for a BSA-only/unresolved DLL);
+/// <see cref="Note"/> carries the Q3 reason when a DLL has no readable manifest / isn't loader-scoped.</summary>
+public sealed record SkseFileEntry(
+    string RelPath,
+    string FileName,
+    string Group,
+    IReadOnlyList<SkseProvider> Providers,
+    SksePluginReader.SksePluginInfo? Plugin,
+    string? Note)
+{
+    /// <summary>The VFS winner (first provider), or null if nothing active provides the file.</summary>
+    public SkseProvider? Winner => Providers.Count > 0 ? Providers[0] : null;
+    /// <summary>The winning provider's name (mod / overwrite / Data / BSA), or null.</summary>
+    public string? WinningProvider => Winner?.Name;
+    /// <summary>The winner's kind ("loose" | "BSA"), or "none" when unprovided.</summary>
+    public string ProviderKind => Winner?.Kind ?? "none";
+    /// <summary>How many mods ship this exact file — &gt; 1 is contention worth surfacing.</summary>
+    public int ProviderCount => Providers.Count;
+}
+
+/// <summary>The data behind housecarl_skse_inventory: the SKSE-plugin layer of the active load order — <see cref="Dlls"/> (each a
+/// plugin DLL with its winning provider + static tier-C manifest) and <see cref="Configs"/> (their .ini/.toml/.json/.yaml with the
+/// winning provider), plus <see cref="OtherFileCount"/> (uncategorized files like .pdb/.txt, counted not listed). The build-level Q3
+/// caveats <see cref="BsaFailures"/> / <see cref="ReadIncomplete"/> and discovery <see cref="Warnings"/> ride along; <see cref="ProfileName"/>
+/// names the active profile the answer describes.</summary>
+public sealed record SkseInventoryData(
+    IReadOnlyList<SkseFileEntry> Dlls,
+    IReadOnlyList<SkseFileEntry> Configs,
+    int OtherFileCount,
     IReadOnlyList<string> BsaFailures,
     bool ReadIncomplete,
     IReadOnlyList<string> Warnings,

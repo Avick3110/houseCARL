@@ -226,6 +226,10 @@ if (args.Length > 0 && args[0] == "remap-wave1-real") return RemapWave1Probe.Run
 // round-trip on disk), and whether IMajorRecordGetterEnumerable is the by-construction recurse discriminator.
 if (args.Length > 0 && args[0] == "remap-wave2-nested-mech") return RemapWave2NestedMechProbe.RunMechanism(args[1..]);
 
+// SKSE-plugin-layer visibility (gap 2026-06-08) MANUAL real-data harness: run housecarl_skse_inventory against a live
+// MO2 instance and print the render + timing (the CI skse-reader-guard pins the decode; this proves the full inventory).
+if (args.Length > 0 && args[0] == "skse-inventory-real") return SkseInventoryProbe.RunReal(args[1..]);
+
 var outputDir = Path.GetFullPath(args.Length > 0 ? args[0] : "generated");
 // The slim reference tree ships INSIDE the skill (tracked); corpus.json + summary stay in generated/.
 // Default assumes the generator is run from the repo root (as `dotnet run --project src/housecarl-generator`).
