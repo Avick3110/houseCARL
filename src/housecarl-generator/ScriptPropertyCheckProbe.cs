@@ -18,28 +18,32 @@ namespace HousecarlGenerator;
 /// FIXTURE — two planted .pex (a child + the base it extends) and ONE plugin of weapons, each a scenario:
 ///   • Scripts\HcSpBase.pex   — declares one Auto property: InheritedThing (ObjectReference).
 ///   • Scripts\HcSpChild.pex  — extends HcSpBase; declares MySpell (Spell), MyBoundSpell (Spell), MyChance (Int, no
-///                              init), MyDefaulted (Int = 5, baked init), MyNullSpell (Spell).
-///   • wFootgun — VMAD binds HcSpChild with ONLY { MyBoundSpell→set, MyNullSpell→null }. The reported failure:
-///                MySpell + MyChance + InheritedThing declared-but-unbound; MyDefaulted suppressed (has a default);
-///                MyBoundSpell clean; MyNullSpell bound-but-null.
-///   • wClean   — VMAD binds HcSpChild with ALL six properties, every object one non-null. The no-false-positive
-///                control: a fully-bound record must produce ZERO findings.
+///                              init), MyDefaulted (Int = 5, baked init), MyAliasBound (Spell), MyNullSpell (Spell).
+///   • wFootgun — VMAD binds HcSpChild with { MyBoundSpell→set, MyNullSpell→null, MyAliasBound→Alias 2 }. The reported
+///                failure: MySpell + MyChance + InheritedThing declared-but-unbound; MyDefaulted suppressed (has a
+///                default); MyBoundSpell clean; MyNullSpell bound-but-null; MyAliasBound bound-via-alias (neither).
+///   • wClean   — VMAD binds HcSpChild with ALL properties, every object one non-null. The no-false-positive control:
+///                a fully-bound record must produce ZERO findings.
 ///   • wNoPex   — VMAD binds HcSpNoPex, whose .pex is NOT planted → UNVERIFIABLE, never passed clean (Q3).
 ///   • wNoVmad  — a script-free weapon → NOT counted, NEVER nagged.
+///   • aliasQuest — a QUST whose script is attached to a QuestAdapter ALIAS (not the quest's own Scripts), binding
+///                nothing → its declared MySpell is unbound. Proves alias scripts are swept (finding 1).
 ///
 /// Arms (ALL required — a GREEN must mean "the contract holds"):
-///   PEX-ROUNDTRIP   — the planted HcSpChild.pex reads back with MySpell as an Auto property (the fixture is valid).
-///   FOOTGUN-OBJECT  — wFootgun's unbound set contains MySpell, typed as an OBJECT (the silent-None class, the report).
-///   CHAIN-WALK      — wFootgun's unbound set contains InheritedThing, declared in the ANCESTOR HcSpBase.
-///   SCALAR-UNINIT   — wFootgun's unbound set contains MyChance (Int, no baked default), typed as a SCALAR.
-///   SCALAR-SUPPRESS — wFootgun's unbound set does NOT contain MyDefaulted (a baked default ⇒ not a silent-wrong).
-///   BOUND-CLEAN     — wFootgun's unbound set does NOT contain MyBoundSpell (it is bound + set).
-///   NULL-ADVISORY   — wFootgun's bound-but-null set contains MyNullSpell (the same None, advisory).
-///   CLEAN-CONTROL   — wClean produces NO report (fully bound ⇒ zero findings: the no-false-positive teeth).
-///   NO-VMAD-IGNORE  — wNoVmad produces NO report and is not counted among records-with-scripts.
-///   UNVERIFIABLE    — wNoPex names HcSpNoPex unverifiable ("not on disk"), never a silent clean (Q3).
-///   RECORDS-COUNT   — exactly 3 records carry scripts (footgun, clean, noPex — noVmad excluded).
-///   SCOPE-Q3        — scope=[a name not in the order] fails LOUD ("not in the load order"), no reports.
+///   PEX-ROUNDTRIP        — the planted HcSpChild.pex reads back with MySpell as an Auto property (the fixture is valid).
+///   FOOTGUN-OBJECT       — wFootgun's unbound set contains MySpell, typed OBJECT (the silent-None class, the report).
+///   CHAIN-WALK           — wFootgun's unbound set contains InheritedThing, declared in the ANCESTOR HcSpBase.
+///   SCALAR-UNINIT        — wFootgun's unbound set contains MyChance (Int, no baked default), typed SCALAR.
+///   SCALAR-SUPPRESS      — wFootgun's unbound set does NOT contain MyDefaulted (a baked default ⇒ not a silent-wrong).
+///   BOUND-CLEAN          — wFootgun's unbound set does NOT contain MyBoundSpell (it is bound + set).
+///   NULL-ADVISORY        — wFootgun's bound-but-null set contains MyNullSpell (the same None, advisory).
+///   ALIAS-BOUND-NOT-NULL — MyAliasBound (Object null, Alias>=0) is NEITHER unbound NOR bound-but-null (finding 2).
+///   ALIAS-SCRIPT-SWEPT   — aliasQuest's alias-attached script is checked; its unbound set contains MySpell (finding 1).
+///   CLEAN-CONTROL        — wClean produces NO report (fully bound ⇒ zero findings: the no-false-positive teeth).
+///   NO-VMAD-IGNORE       — wNoVmad produces NO report and is not counted among records-with-scripts.
+///   UNVERIFIABLE         — wNoPex names HcSpNoPex unverifiable ("not on disk"), never a silent clean (Q3).
+///   RECORDS-COUNT        — exactly 4 records carry scripts (footgun, clean, noPex, aliasQuest — noVmad excluded).
+///   SCOPE-Q3             — scope=[a name not in the order] fails LOUD ("not in the load order"), no reports.
 ///
 /// Run: dotnet run --project src/housecarl-generator -- script-property-check-guard
 /// </summary>
@@ -77,6 +81,7 @@ public static class ScriptPropertyCheckProbe
                 AutoObj("MyBoundSpell", "Spell"),
                 AutoScalar("MyChance", "Int", initInt: null),
                 AutoScalar("MyDefaulted", "Int", initInt: 5),   // a baked default ⇒ NOT flagged when unbound
+                AutoObj("MyAliasBound", "Spell"),               // bound via a quest Alias (Object null but Alias>=0) — NOT a null finding
                 AutoObj("MyNullSpell", "Spell"));
         }
         catch (Exception ex)
@@ -101,23 +106,24 @@ public static class ScriptPropertyCheckProbe
         // ---- 2) synthesize the plugin of scripted weapons. ----
         string pluginPath = Path.Combine(tmpDir, "HcSp.esp");
         var mKey = new ModKey("HcSp", ModType.Plugin);
-        FormKey footgunFk, cleanFk, noPexFk, noVmadFk;
+        FormKey footgunFk, cleanFk, noPexFk, noVmadFk, aliasQuestFk;
         try
         {
             var mod = new SkyrimMod(mKey, SkyrimRelease.SkyrimSE);
             var self = new FormKey(mKey, 0x000801);   // a non-null in-plugin FormKey for "bound" object props (target need not exist — only IsNull is read)
 
-            // wFootgun — the reported failure shape.
+            // wFootgun — the reported failure shape. MyAliasBound is bound via a quest alias (Object null, Alias>=0):
+            // it must count as BOUND (not unbound) and must NOT be flagged bound-but-null (finding 2).
             var wFootgun = mod.Weapons.AddNew(); wFootgun.EditorID = "HcSpFootgun";
             wFootgun.VirtualMachineAdapter = Vmad("HcSpChild",
-                ObjProp("MyBoundSpell", self), ObjProp("MyNullSpell", FormKey.Null));
+                ObjProp("MyBoundSpell", self), ObjProp("MyNullSpell", FormKey.Null), AliasProp("MyAliasBound", 2));
             footgunFk = wFootgun.FormKey;
 
             // wClean — fully bound: the no-false-positive control.
             var wClean = mod.Weapons.AddNew(); wClean.EditorID = "HcSpClean";
             wClean.VirtualMachineAdapter = Vmad("HcSpChild",
                 ObjProp("MySpell", self), ObjProp("MyBoundSpell", self), ObjProp("MyNullSpell", self),
-                ObjProp("InheritedThing", self), IntProp("MyChance", 3), IntProp("MyDefaulted", 5));
+                ObjProp("MyAliasBound", self), ObjProp("InheritedThing", self), IntProp("MyChance", 3), IntProp("MyDefaulted", 5));
             cleanFk = wClean.FormKey;
 
             // wNoPex — a script with no compiled .pex on disk.
@@ -128,6 +134,17 @@ public static class ScriptPropertyCheckProbe
             // wNoVmad — a script-free weapon.
             var wNoVmad = mod.Weapons.AddNew(); wNoVmad.EditorID = "HcSpNoVmad";
             noVmadFk = wNoVmad.FormKey;
+
+            // aliasQuest — a QUST whose script is attached to an ALIAS (QuestAdapter.Aliases[].Scripts), NOT the quest's
+            // own Scripts. The alias script binds nothing, so its declared MySpell is unbound — a property the sweep must
+            // find. Before the finding-1 fix this record produced NO report (a false clean on the headline quest case).
+            var quest = mod.Quests.AddNew(); quest.EditorID = "HcSpAliasQuest";
+            var qAdapter = new QuestAdapter();
+            var qAlias = new QuestFragmentAlias { Property = new ScriptObjectProperty { Alias = 0 } };
+            qAlias.Scripts.Add(new ScriptEntry { Name = "HcSpChild" });   // bound properties left empty → all declared are unbound
+            qAdapter.Aliases.Add(qAlias);
+            quest.VirtualMachineAdapter = qAdapter;
+            aliasQuestFk = quest.FormKey;
 
             mod.BeginWrite.ToPath(pluginPath).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
         }
@@ -173,6 +190,16 @@ public static class ScriptPropertyCheckProbe
             foot is not null && foot.NullObjects.Any(n => n.PropertyName == "MyNullSpell"),
             foot is null ? "<no report>" : string.Join(",", foot.NullObjects.Select(n => n.PropertyName)));
 
+        Check("ALIAS-BOUND-NOT-NULL: MyAliasBound (Object null, Alias>=0) is NOT flagged bound-but-null and NOT unbound (finding 2)",
+            foot is not null && !foot.NullObjects.Any(n => n.PropertyName == "MyAliasBound")
+                && !FootUnbound("MyAliasBound"),
+            foot is null ? "<no report>" : $"null=[{string.Join(",", foot.NullObjects.Select(n => n.PropertyName))}] unbound=[{string.Join(",", foot.Unbound.Select(u => u.PropertyName))}]");
+
+        var aq = Rec(aliasQuestFk);
+        Check("ALIAS-SCRIPT-SWEPT: a QUST's alias-attached script is checked — its unbound set contains MySpell (finding 1)",
+            aq is not null && aq.Unbound.Any(u => u.PropertyName == "MySpell"),
+            aq is null ? "<no report — alias scripts silently skipped>" : string.Join(",", aq.Unbound.Select(u => u.PropertyName)));
+
         Check("CLEAN-CONTROL: wClean (fully bound) produces NO report (the no-false-positive teeth)",
             Rec(cleanFk) is null,
             Rec(cleanFk) is null ? "" : $"unexpected report: {string.Join(",", Rec(cleanFk)!.Unbound.Select(u => u.PropertyName))} null=[{string.Join(",", Rec(cleanFk)!.NullObjects.Select(n => n.PropertyName))}]");
@@ -187,8 +214,8 @@ public static class ScriptPropertyCheckProbe
                 && u.Reason.Contains("not on disk", StringComparison.OrdinalIgnoreCase)),
             noPex is null ? "<no report>" : string.Join(" | ", noPex.Unverifiable.Select(u => $"{u.Script}: {u.Reason}")));
 
-        Check("RECORDS-COUNT: exactly 3 records carry scripts (footgun, clean, noPex — noVmad excluded)",
-            res.RecordsWithScripts == 3, $"records-with-scripts={res.RecordsWithScripts}");
+        Check("RECORDS-COUNT: exactly 4 records carry scripts (footgun, clean, noPex, aliasQuest — noVmad excluded)",
+            res.RecordsWithScripts == 4, $"records-with-scripts={res.RecordsWithScripts}");
 
         var q3 = ScriptPropertyCheck.Run(resolver, assets, new[] { "HcSpNotReal.esp" }, 1000);
         Check("SCOPE-Q3: an unknown scope name fails LOUD ('not in the load order'), no reports",
@@ -219,6 +246,10 @@ public static class ScriptPropertyCheckProbe
         if (!obj.IsNull) p.Object.SetTo(obj);
         return p;
     }
+
+    /// <summary>An object property bound to a quest ALIAS (Alias &gt;= 0), Object left null — the healthy shape that must
+    /// NOT read as bound-but-null (PR #145 review finding 2).</summary>
+    static ScriptObjectProperty AliasProp(string name, short alias) => new() { Name = name, Alias = alias };
 
     static ScriptIntProperty IntProp(string name, int data) => new() { Name = name, Data = data };
 
