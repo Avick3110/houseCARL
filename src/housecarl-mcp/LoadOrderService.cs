@@ -1060,6 +1060,17 @@ public sealed class LoadOrderService : IDisposable
     public ErrorCheckResult CheckErrors(IReadOnlyList<string>? plugins, int limit)
         => ErrorCheck.Run(Resolver, plugins, limit);
 
+    // ---- script-property sweep (housecarl_validate_scripts) --------------------------------------------
+
+    /// <summary>Sweep the active order (or the given <paramref name="plugins"/> scope) for VMAD script properties that
+    /// are declared in the attached script's .pex (or an ancestor it extends) but left UNBOUND on the record — a silent
+    /// <c>None</c> (housecarl_validate_scripts). Thin wiring over the core <see cref="ScriptPropertyCheck.Run"/>, which
+    /// holds all the cross-check logic + Q3 teeth so the self-contained guard drives this same path over synthetic
+    /// records + a planted .pex. Passes the live <see cref="Assets"/> resolver (the same one the dialogue validator and
+    /// facegen use) so a script's .pex is found loose OR BSA-packed. Read-only; composes existing primitives.</summary>
+    public ScriptCheckResult ValidateScripts(IReadOnlyList<string>? plugins, int limit)
+        => ScriptPropertyCheck.Run(Resolver, Assets, plugins, limit);
+
     // ---- writes (§8.4 Beat C: housecarl_set_field / housecarl_bulk_apply) -------------------------------
 
     /// <summary>Apply one-or-more edits as a single patch (housecarl_set_field = one op; housecarl_bulk_apply = many).

@@ -46,6 +46,7 @@ public static class CiAll
         ("value-predicate-guard", ValuePredicateProbe.RunGuard),
         ("effect-chain-guard", EffectChainProbe.RunGuard),
         ("check-errors-guard", CheckErrorsProbe.RunGuard),
+        ("script-property-check-guard", ScriptPropertyCheckProbe.RunGuard),
         ("source-display-guard", SourceDisplayProbe.RunGuard),
         ("writelock-guard", WriteLockProbe.RunGuard),
         ("inplace-guard", InPlaceProbe.RunGuard),

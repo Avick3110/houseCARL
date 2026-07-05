@@ -179,6 +179,35 @@ public static class ReadTools
         var result = svc.CheckErrors(plugins, limit <= 0 ? 1000 : limit);
         return Wire.RenderCheckErrors(result, max_chars);
     });
+
+    [McpServerTool(Name = "housecarl_validate_scripts", ReadOnly = true, Title = "Check scripted records for unbound script properties"),
+     Description(
+         "Script-property binding sweep — catches the silent-None footgun a byte-valid plugin hides: a record whose " +
+         "attached Papyrus script DECLARES a property (e.g. 'Spell Property CallVesyraPower Auto') the record's script " +
+         "data (VMAD) never BINDS, so at runtime it is None and the code that uses it no-ops while the log looks clean " +
+         "(the maximally-misleading 'the function ran, the effect is absent' class — the same as the Creation Kit's " +
+         "auto-add-property bug). For each record carrying a script it reads the attached script's compiled .pex — and " +
+         "every script it EXTENDS — from the load order (loose or BSA), and reports: (1) UNBOUND properties declared " +
+         "but not bound (an object/form type ⇒ None ⇒ the silent no-op, ranked first; an uninitialized scalar ⇒ a " +
+         "0/false/\"\" default that may be wrong); (2) BOUND-BUT-NULL object properties (advisory — sometimes filled at " +
+         "runtime). Read-only. BOUNDARY (never a silent claim of more — Q3): it checks Auto (CK-editable) properties " +
+         "only, not code-driven full properties; 'unbound may be intentional' (a runtime-filled link), so a finding is " +
+         "a flag to VERIFY; and if a script's .pex is not on disk (uncompiled / not in the order) the attachment is " +
+         "reported UNVERIFIABLE, never passed clean. Scope to one plugin for a fast focused check, or omit to sweep the " +
+         "whole active order. Results cap at limit= and max_chars (both overruns explicit).")]
+    public static string ValidateScriptsTool(
+        LoadOrderService svc,
+        [Description("Optional. Plugin filenames to check (e.g. 'MyMod.esp'). A name not in the load order is an error. Omit to sweep the WHOLE active order (every scripted record in every non-excluded plugin) — thorough but heavier; scope to one plugin for a fast, focused check.")]
+            string[]? plugins = null,
+        [Description("Optional. Max property findings (unbound + bound-but-null) to list across the whole sweep (default 1000). The TRUE totals are always reported; over the cap it says so. Unverifiable notes are always listed in full (they are few).")]
+            int limit = 1000,
+        [Description("Optional. Max characters before the response stops with an explicit notice. 0 = the server default (~80k).")]
+            int max_chars = 0) => Guard.Tool("housecarl_validate_scripts", () =>
+    {
+        if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
+        var result = svc.ValidateScripts(plugins, limit <= 0 ? 1000 : limit);
+        return Wire.RenderScriptCheck(result, max_chars);
+    });
 }
 
 /// <summary>Compact, parseable `key = value` rendering (Q4.8 lever 1) + the winner-relative conflict diff
@@ -394,6 +423,87 @@ static class Wire
 
         sb.Append("\nboundary: checks FormLink resolution, missing masters, and parse failures. Does NOT verify navmesh/terrain ")
           .Append("spatial integrity (CRC/grid), flag required-but-null fields, or list unused-master cleanup; a null FormLink is a legal optional.\n");
+        return sb.ToString().TrimEnd('\n');
+    }
+
+    // ---- housecarl_validate_scripts -----------------------------------------------------------------
+    public static string RenderScriptCheck(ScriptCheckResult r, int maxChars)
+    {
+        if (r.Error is not null) return "error: " + r.Error;
+        int cap = Cap(maxChars);
+        var sb = new StringBuilder();
+
+        sb.Append("validate_scripts — VMAD script-property binding sweep\n");
+        sb.Append("scanned ").Append(r.PluginsScanned).Append(r.PluginsScanned == 1 ? " plugin · " : " plugins · ")
+          .Append(r.RecordsWithScripts).Append(" record(s) with scripts · ")
+          .Append(r.TotalUnbound).Append(" unbound · ")
+          .Append(r.TotalNullObject).Append(" bound-but-null · ")
+          .Append(r.TotalUnverifiable).Append(" unverifiable");
+        if (r.ExcludedPlugins.Count > 0)
+            sb.Append(" · ").Append(r.ExcludedPlugins.Count).Append(" plugin(s) excluded (unparseable)");
+        sb.Append('\n');
+        if (r.ReadIncomplete)
+            sb.Append("note: a BSA failed to read this build — a '.pex not on disk' below may merely be unscanned, not truly absent (Q3).\n");
+
+        if (r.Reports.Count == 0 && r.ExcludedPlugins.Count == 0)
+            sb.Append("\nNo unbound script properties found in the scanned scope.\n");
+
+        bool truncated = false;
+        foreach (var rec in r.Reports)
+        {
+            if (sb.Length >= cap)
+            {
+                sb.Append("\n... [truncated at max_chars=").Append(cap).Append("; scope plugins= or raise max_chars to see the rest]\n");
+                truncated = true;
+                break;
+            }
+            if (rec.ScanError is not null) { sb.Append("\n[SCAN ERROR] ").Append(rec.Plugin).Append(": ").Append(rec.ScanError).Append('\n'); continue; }
+
+            sb.Append('\n').Append(rec.Unbound.Count > 0 ? "[UNBOUND] " : "[CHECK] ")
+              .Append(rec.Record).Append(" (").Append(rec.RecordType);
+            if (!string.IsNullOrEmpty(rec.EditorId)) sb.Append(" '").Append(rec.EditorId).Append('\'');
+            sb.Append(") in ").Append(rec.Plugin).Append('\n');
+
+            // Unbound findings, object/form types (silent None) FIRST, then uninitialized scalars.
+            foreach (var u in rec.Unbound.OrderByDescending(u => u.IsObjectType))
+            {
+                if (sb.Length >= cap) break;
+                sb.Append("  ").Append(u.IsObjectType ? "! " : "· ")
+                  .Append(u.PropertyName).Append(" (").Append(u.PexTypeName).Append(") on script ").Append(u.Script);
+                if (!string.Equals(u.DeclaringScript, u.Script, StringComparison.OrdinalIgnoreCase))
+                    sb.Append(" [declared in ").Append(u.DeclaringScript).Append(']');
+                sb.Append(u.IsObjectType
+                    ? " — declared but NOT bound → None at runtime (HIGH: object/form type — the silent no-op)\n"
+                    : " — declared but NOT bound → defaults to 0/false/\"\" (scalar, no baked default)\n");
+            }
+            if (rec.NullObjects.Count > 0)
+                sb.Append("  bound-but-null object propert").Append(rec.NullObjects.Count == 1 ? "y: " : "ies: ")
+                  .Append(string.Join(", ", rec.NullObjects.Select(n => $"{n.PropertyName} ({n.Script})")))
+                  .Append("   [advisory — a None link; sometimes intentional, filled at runtime]\n");
+            foreach (var uv in rec.Unverifiable)
+            {
+                if (sb.Length >= cap) break;
+                sb.Append("  could not verify script ").Append(uv.Script).Append(": ").Append(uv.Reason).Append('\n');
+            }
+        }
+
+        if (r.Capped)
+            sb.Append("\n[finding list capped at limit; true totals = ").Append(r.TotalUnbound).Append(" unbound + ")
+              .Append(r.TotalNullObject).Append(" bound-but-null — raise limit= to see all]\n");
+
+        if (!truncated && r.ExcludedPlugins.Count > 0)
+        {
+            sb.Append("\nexcluded plugins (could not be parsed — NOT checked):\n");
+            foreach (var kv in r.ExcludedPlugins)
+            {
+                if (sb.Length >= cap) break;
+                sb.Append("  ").Append(kv.Key).Append(": ").Append(kv.Value).Append('\n');
+            }
+        }
+
+        sb.Append("\nboundary: checks Auto (CK-editable) properties across the extends chain — not code-driven full ")
+          .Append("properties. An unbound object property is the silent-None footgun, but CAN be intentional (filled at runtime) — a ")
+          .Append("finding is a flag to VERIFY. A script whose .pex is not on disk is reported unverifiable, never passed clean.\n");
         return sb.ToString().TrimEnd('\n');
     }
 
