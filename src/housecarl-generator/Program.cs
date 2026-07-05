@@ -35,6 +35,10 @@ if (args.Length > 0 && args[0] == "pkcu-scale-proof") return PkcuProbe.RunScaleP
 // read's freshness refresh defers while a write is in flight (never rebuilds under a serialize).
 if (args.Length > 0 && args[0] == "freshness-capture-guard") return FreshnessCaptureProbe.RunGuard(args[1..]);
 
+// Script-property binding sweep (housecarl_validate_scripts): a VMAD property declared in the attached script's .pex
+// (or an ancestor it extends) but left unbound is a silent None — the reported quest-script AddSpell(None) footgun.
+if (args.Length > 0 && args[0] == "script-property-check-guard") return ScriptPropertyCheckProbe.RunGuard(args[1..]);
+
 // Decompiler baseline hierarchy: emit vanilla-class-parents.json from the CK vanilla sources' own
 // ScriptName-extends headers (committed asset — vanilla sources don't exist on CI; regenerate on game updates).
 if (args.Length > 0 && args[0] == "class-parents") return ClassParentsEmitter.Run(args[1..]);
