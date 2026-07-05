@@ -29,11 +29,20 @@ namespace HousecarlGenerator;
 /// re-stamps the serialize-boundary NRE as a loud, NAMED <see cref="NullArmSerializeException"/> — all-or-nothing
 /// (the staged temp is already discarded; the target is untouched), preserving the NRE as <c>InnerException</c>. Q3.
 ///
-/// RED→GREEN: Part A checks A1/A2/A3/A5 are RED if <c>MapStruct</c> drops the nested Struct; Part B check B1 is
-/// RED (a bare <see cref="NullReferenceException"/>, not a <see cref="NullArmSerializeException"/>) without the
-/// <c>WritePatch</c> catch. The FALSE-POSITIVE control (B2) and the illegal-nested-arm reject (A4) are GREEN
-/// before AND after — they prove the fix is NARROW (a valid optional-null poly still serializes; an illegal
-/// nested arm still rejects loud).
+/// PART B (extended HCBR-2026-07-04) — the PARALLEL-WRITER wrap. A GenderedItem whose element is a FormLink
+/// (an ArmorAddon's <c>SkinTexture</c>) with only ONE gender half set leaves the OTHER half a null formlink Mutagen's
+/// writer dereferences — but on its PARALLEL path, so the NRE surfaces WRAPPED in nested <see cref="AggregateException"/>s
+/// (the report captured a doubly-nested one), slipping past a bare-NRE catch and rendering as the opaque AggregateException.
+/// THE FIX: <c>WriteEngine.RootNullArm</c> flattens the aggregate and re-stamps ONLY when every leaf is an NRE, so both the
+/// synchronous (B1) and parallel-wrapped (B3) null-arm cases become the same NAMED refusal, while a null MODEL half
+/// (WorldModel — Mutagen tolerates it) and any other serialize error are untouched.
+///
+/// RED→GREEN: Part A checks A1/A2/A3/A5 are RED if <c>MapStruct</c> drops the nested Struct; Part B checks B1 (bare) and
+/// B3 (parallel-wrapped) are RED (a bare <see cref="NullReferenceException"/> / raw <see cref="AggregateException"/>, not a
+/// <see cref="NullArmSerializeException"/>) without the widened catch. The FALSE-POSITIVE controls (B2 optional null poly;
+/// B4 tolerated null MODEL half) and the illegal-nested-arm reject (A4) are GREEN before AND after — they prove the fix is
+/// NARROW (a valid optional-null poly and a legitimately-absent model half still serialize; an illegal nested arm still
+/// rejects loud). B5 confirms the refusal's recommended single-gender escape (clear the other half with '0') actually writes.
 ///
 /// Self-contained: A1/A2/A5/B1/B2 are pure in-memory Mutagen (no plugin file, no Skyrim.esm); A3/A4 use the
 /// GENERATED corpus.json (built into a unique temp dir on a fresh checkout, exactly as poly-field-descend-guard does).
@@ -172,6 +181,55 @@ public static class NullArmGuardProbe
             var n2 = mod.Npcs.AddNew(); n2.Configuration.Level = new NpcLevel { Level = 1 }; // Sound null, Level set
         });
         Check("B2: optional null polymorphic fields (NPC Sound/Level) still serialize fine (no false refusal)", b2ok, b2Detail);
+
+        // ---- B3: a GenderedItem whose element is a FormLink (ArmorAddon SkinTexture) with only ONE gender half set
+        //          leaves the OTHER half a null formlink Mutagen's PARALLEL writer dereferences → an NRE wrapped in
+        //          nested AggregateExceptions (HCBR-2026-07-04 captured a DOUBLY-nested one). Unlike B1's synchronous
+        //          BARE NRE, this slips past a bare-NRE catch — RootNullArm unwraps it so the refusal is NAMED, not the
+        //          opaque AggregateException the report saw. RED before the catch-widening (threw a raw AggregateException). ----
+        var b3Path = OutPath("hc_nullarm_b3");
+        NullArmSerializeException? b3caught = null; Exception? b3wrong = null;
+        try
+        {
+            SerializeTo(b3Path, mod =>
+            {
+                var arma = mod.ArmorAddons.AddNew();
+                WriteEngine.ApplyVerb(arma, new WriteRequest
+                {
+                    RecordType = "ArmorAddon", Path = new[] { "SkinTexture", "Female" }, Verb = "Set", Value = "000801:hc_nullarm_b3.esp",
+                });
+            });
+        }
+        catch (NullArmSerializeException ex) { b3caught = ex; }
+        catch (Exception ex) { b3wrong = ex; }
+        Check("B3: a single-gender GenderedItem formlink half (ArmorAddon SkinTexture, Male null) fails as a NAMED NullArmSerializeException (not a raw AggregateException)",
+            b3caught is not null, b3wrong is null ? "no exception thrown (serialize unexpectedly succeeded)" : $"threw {b3wrong.GetType().Name}: {b3wrong.Message}");
+        Check("B3b: the refusal names the gender-half cause and preserves the NRE as InnerException",
+            b3caught is not null && b3caught.Message.Contains("gender", StringComparison.OrdinalIgnoreCase) && b3caught.InnerException is NullReferenceException,
+            b3caught?.Message);
+        Check("B3c: nothing was written — all-or-nothing, the target is untouched", !File.Exists(b3Path));
+        CleanOut(b3Path);
+
+        // ---- B4: FALSE-POSITIVE control — a single-gender MODEL half (ArmorAddon WorldModel.Female, Male null) STILL
+        //          serializes fine: Mutagen TOLERATES a null model half (writes only the female subrecord), so the
+        //          widened catch must NOT refuse it. Proves RootNullArm fires only on an actual writer NRE, never on a
+        //          legitimately-absent gender half. GREEN before+after (the fix is narrow — a model half is not a formlink half). ----
+        var (b4ok, b4Detail) = TrySerialize("hc_nullarm_b4", mod =>
+        {
+            var arma = mod.ArmorAddons.AddNew();
+            WriteEngine.ApplyVerb(arma, new WriteRequest { RecordType = "ArmorAddon", Path = new[] { "WorldModel", "Female", "File" }, Verb = "Set", Value = "meshes\\test.nif" });
+        });
+        Check("B4: a single-gender MODEL half (ArmorAddon WorldModel, Male null) still serializes fine (no false refusal)", b4ok, b4Detail);
+
+        // ---- B5: the refusal's recommended fix WORKS — SkinTexture.Female set + Male CLEARED ('0', an empty formlink)
+        //          serializes to a valid single-gender skin AA. Confirms the message's guidance produces a real record. ----
+        var (b5ok, b5Detail) = TrySerialize("hc_nullarm_b5", mod =>
+        {
+            var arma = mod.ArmorAddons.AddNew();
+            WriteEngine.ApplyVerb(arma, new WriteRequest { RecordType = "ArmorAddon", Path = new[] { "SkinTexture", "Female" }, Verb = "Set", Value = "000801:hc_nullarm_b5.esp" });
+            WriteEngine.ApplyVerb(arma, new WriteRequest { RecordType = "ArmorAddon", Path = new[] { "SkinTexture", "Male" }, Verb = "Set", Value = "0" });
+        });
+        Check("B5: SkinTexture.Female + Male cleared ('0') serializes fine — the single-gender escape the refusal recommends", b5ok, b5Detail);
 
         Console.WriteLine();
         Console.WriteLine(failures == 0 ? "nullarm-guard: ALL PASS" : $"nullarm-guard: {failures} FAILURE(S)");
