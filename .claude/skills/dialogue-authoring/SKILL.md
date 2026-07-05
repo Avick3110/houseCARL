@@ -80,6 +80,39 @@ any of them wrong produces dialogue that looks right and plays wrong:
 - **DIAL wins wholesale.** When you override an existing topic, the winning topic's `Responses` is the whole
   in-game line set — any line you don't re-list is dropped. See the editing section below.
 
+## Player-topic semantics — where each piece of text goes
+
+A player-choice topic can be byte-perfect — every subrecord present, `housecarl_validate_dialogue` green —
+and still play absurdly, because these rules govern *what the player sees and hears*, which no data-layer
+check can evaluate. They cost a shipped dialogue mod a full rework; internalise them before composing a
+conversation, then reason each line through by hand.
+
+- **In a player topic, the two text fields swap speakers.** `INFO.Prompt` is the **player's** menu line
+  (the button they click); `INFO.Responses` is the **NPC's** reply to it — *not* player-spoken text. Put the
+  prompt text into `Responses` and the NPC parrots the player's own words back.
+- **`LinkTo` sets which player options appear NEXT, not what the NPC says.** The linked topic's `Name`
+  becomes the next menu button. Wiring an NPC reply as a `LinkTo` target produces a clickable option
+  literally labelled with that topic's name ("Wench reply"). The NPC's reply belongs in the current INFO's
+  `Responses` (one INFO can hold several `DialogResponse` rows — that *is* the multi-line-speech idiom);
+  `LinkTo` is only for the *player's* follow-up choices.
+- **A conversation ender needs `Flags.Flags = Goodbye` on the INFO.** Without it the menu reopens after
+  every reply and the player can never leave the exchange. The create tools materialize the `Flags` struct
+  for CK-parity (job 1c) but leave `Goodbye` **unset** — it's an authoring semantic, not a default; set it
+  on the INFO that ends the exchange.
+- **Keep an INFO's `Conditions` mutually exclusive across the topic, so intra-topic order never matters.**
+  Only the first condition-passing INFO in a topic plays; when two INFOs can both pass, which one wins falls
+  back to file group order — a fragile thing to lean on. Exclusive conditions make the outcome
+  order-independent, and it's *why* pure houseCARL output needs no CK ordering pass (see "Do you need to
+  open the Creation Kit?" below).
+
+**Branching an NPC's reply on a single click.** A single player click evaluates every candidate INFO's
+`Conditions` *once*, when the option is chosen — so an INFO's result-script fragment cannot roll a random or
+branching outcome and *then* have sibling INFOs condition on it (their conditions were already tested). The
+clean pattern, proven in a shipped mod: **pre-roll the outcome before the click.** Register the deciding
+actor's script for the `Dialogue Menu` open (`RegisterForMenu("Dialogue Menu")`), write the result into
+globals as the menu opens, then let one topic hold every outcome INFO, condition-disambiguated on those
+globals — each a complete exchange. The click just selects the INFO the pre-roll already satisfied.
+
 ## The five jobs a silent INFO insert skips
 
 | # | Job | How | Gotcha |
@@ -192,6 +225,22 @@ this skill's job.
    Read the new records back (`full_readback` on the create call) before telling the user to enable + sort
    the patch in MO2.
 
+## Do you need to open the Creation Kit? No.
+
+A dialogue plugin authored entirely through houseCARL plays without ever opening the CK — measured, not
+asserted. A byte-diff of pure-houseCARL output against the *same* plugin after a CK open+save came to **+90
+bytes = 9 INFO `PNAM` subrecords and nothing else** — the CK's intra-topic order bookkeeping. No TNAM,
+TIFC, SNAM/BNAM/DNAM/ENAM/CNAM, or re-layout changed: houseCARL's CK-parity auto-fills (job 1c) already
+wrote every subrecord the CK would. The reference mod ran from pure houseCARL output across multiple
+in-game sessions *before* any CK save existed.
+
+The one thing a CK save adds — the PNAM chains — only matters for a topic that depends on **first-valid-wins
+ordering among overlapping conditions**, and the fix is at authoring time, not in the CK: keep the topic's
+INFO `Conditions` mutually exclusive (above), or set `PreviousDialog` (PNAM) chains yourself —
+houseCARL's `@editorid` sibling links set a forced intra-topic sequence in one call. So the CK is never
+*required*; reach for it only if you specifically want the editor's flowchart view, knowing houseCARL has
+already written the bytes.
+
 ## Editing an existing topic — the dropped-line trap
 
 Because DIAL wins wholesale, overriding a vanilla or modded topic to add one line means your override
@@ -210,7 +259,7 @@ every line the topic should keep.
 
 ## Write-side recipes — clone a condition gate, write a CK-refused subtype
 
-Two repeatedly-needed edits to *existing* dialogue ride the write tools you already have —
+Three repeatedly-needed edits to *existing* dialogue ride the write tools you already have —
 `housecarl_bulk_apply` and `housecarl_set_field` — each with one sharp edge worth stating once.
 
 **Recipe A — clone a verified condition gate onto N empty Infos. NEVER hand-synthesize the operator bytes.**
@@ -257,6 +306,20 @@ has no `Subtype` field. Copy the exact value from a known-good ForceGreet topic 
    `mutagen-reference`.) The write is non-destructive: it lands in a reviewable patch; read it back before
    enabling + sorting in MO2.
 
+**Recipe C — un-bind a result-script fragment from an INFO.** Clearing a fragment binding is a supported
+`Remove` now — no `remove_record` + recreate. `Remove` the whole result-script adapter:
+
+   ```json
+   housecarl_set_field( formid="0A12C4:MyMod.esp", field_path="VirtualMachineAdapter", verb="Remove" )
+   ```
+
+   That nulls the entire `VirtualMachineAdapter` (all scripts + fragments) on the INFO. To drop only the
+   fragment binding while keeping any attached scripts, `Remove` the fragment field itself
+   (`field_path="VirtualMachineAdapter.ScriptFragments"`). Both are nullable-field clears the write engine
+   allows by construction (the adapter is a nullable substruct, `ScriptFragments` a nullable polymorphic
+   field); an explicit non-nullable/required field would refuse a `Remove` instead. Read back to confirm the
+   binding is gone before enabling the patch.
+
 ## Common mistakes
 
 - **Building a PNAM chain, or flagging a missing one.** Vanilla topics have empty PNAM; ordering is the
@@ -269,6 +332,10 @@ has no `Subtype` field. Copy the exact value from a known-good ForceGreet topic 
   Always carry the standing-limits footer to the user.
 - **Computing the voice folder from the conflict winner.** It is the plugin that *defines* the INFO. For a
   new plugin that's yours (clean); for an override it's the original's folder, where the audio lives.
+- **Putting the player's line in `Responses`, or an NPC reply behind `LinkTo`.** In a player topic `Prompt`
+  is the player's menu button and `Responses` is the NPC's reply; `LinkTo` sets the *next player options*,
+  not what the NPC says. Getting this backwards is byte-valid and plays absurdly — see the player-topic
+  semantics section.
 - **Overriding a topic and dropping its other lines** (the DIAL-wins-wholesale trap above).
 - **Hand-synthesizing CTDA operator/comparison bytes** instead of cloning a verified `Conditions` array
   verbatim — computing the encoded operator once wrote 26 broken conditions. Read a good gate back with
