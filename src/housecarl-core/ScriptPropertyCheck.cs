@@ -18,7 +18,9 @@ namespace HousecarlCore;
 /// WHY THIS IS A COMPOSE-PRIMITIVES JOB (no new dependency, the <see cref="ErrorCheck"/> pattern): both halves are
 /// already modeled. The RECORD half is Mutagen's VMAD (<see cref="IHaveVirtualMachineAdapterGetter"/> →
 /// <see cref="IAVirtualMachineAdapterGetter.Scripts"/> → <see cref="IScriptEntryGetter"/> with its bound
-/// <see cref="IScriptPropertyGetter"/> list). The SCRIPT half is Mutagen's <c>.pex</c> model (<see cref="PexObject.Properties"/>,
+/// <see cref="IScriptPropertyGetter"/> list) — PLUS a QUEST's alias-attached scripts (<see cref="IQuestAdapterGetter.Aliases"/>),
+/// collected by <see cref="CollectScriptEntries"/> so an alias-bound property isn't silently skipped. The SCRIPT half is
+/// Mutagen's <c>.pex</c> model (<see cref="PexObject.Properties"/>,
 /// each an <see cref="PexObjectProperty"/> with its <c>Auto</c> flag + declared type) — the same model
 /// <see cref="PapyrusDecompiler"/> reads. The two are joined through the VFS: <see cref="AssetResolver"/> resolves
 /// <c>Scripts\&lt;class&gt;.pex</c> (loose OR BSA-packed), and each <c>.pex</c> self-declares its parent
@@ -32,8 +34,8 @@ namespace HousecarlCore;
 ///     be 50 silently becomes 0). MEDIUM. A scalar that DOES carry an initializer is NOT flagged — it has the author's
 ///     intended default, so leaving it unbound is correct, not a bug.
 ///   • BOUND-BUT-NULL object property — present in the VMAD as a <see cref="IScriptObjectPropertyGetter"/> whose Object
-///     link is null. The same <c>None</c> at runtime, but MORE often intentional (the slot exists, filled at runtime),
-///     so it is ADVISORY, ranked below the absent findings.
+///     link is null AND which is not bound to a quest alias instead (Alias &lt; 0). The same <c>None</c> at runtime, but
+///     MORE often intentional (the slot exists, filled at runtime), so it is ADVISORY, ranked below the absent findings.
 ///
 /// HONEST BOUNDARY (Q3 — the sweep claims exactly this, never more, and every degraded mode is NAMED, never silent):
 ///   • It checks <c>Auto</c> properties only — the CK-editable, silently-defaulting kind. Full properties with custom
@@ -107,14 +109,15 @@ public static class ScriptPropertyCheck
                     {
                         if (body is not IHaveVirtualMachineAdapterGetter have) continue;
                         if (have.VirtualMachineAdapter is not { } vmad) continue;
-                        if (vmad.Scripts.Count == 0) continue;
+                        var scriptEntries = CollectScriptEntries(vmad);
+                        if (scriptEntries.Count == 0) continue;
                         recordsWithScripts++;
 
                         var unbound = new List<UnboundProperty>();
                         var nulls = new List<NullObjectProperty>();
                         var unver = new List<ScriptUnverifiable>();
 
-                        foreach (var entry in vmad.Scripts)
+                        foreach (var entry in scriptEntries)
                         {
                             var scriptClass = entry.Name?.Trim();
                             if (string.IsNullOrEmpty(scriptClass))
@@ -124,9 +127,12 @@ public static class ScriptPropertyCheck
                                 continue;
                             }
 
-                            // Bound-but-null object properties: the slot exists in the VMAD, its Object link is null.
+                            // Bound-but-null object properties: the slot exists in the VMAD, its Object link is null AND
+                            // it is NOT bound to a quest alias instead (Alias >= 0). A ScriptObjectProperty binds EITHER an
+                            // Object FormLink OR a quest Alias index (Alias -1 = unset) — an alias-bound property has a null
+                            // Object by design, so flagging it as bound-but-null is a false positive (PR #145 review finding 2).
                             foreach (var p in entry.Properties)
-                                if (p is IScriptObjectPropertyGetter op && op.Object.FormKey.IsNull && !string.IsNullOrWhiteSpace(p.Name))
+                                if (p is IScriptObjectPropertyGetter op && op.Object.FormKey.IsNull && op.Alias < 0 && !string.IsNullOrWhiteSpace(p.Name))
                                     nulls.Add(new NullObjectProperty(scriptClass, p.Name!.Trim()));
 
                             var chain = ResolveChain(av, chainCache, scriptClass);
@@ -191,6 +197,22 @@ public static class ScriptPropertyCheck
 
         return new ScriptCheckResult(reports, targets.Count, recordsWithScripts, totalUnbound, totalNull,
                                      totalUnverifiable, capped, av.ReadIncomplete, view.ExcludedPlugins, null);
+    }
+
+    /// <summary>Every script attachment on the record: the adapter's own <see cref="IAVirtualMachineAdapterGetter.Scripts"/>
+    /// PLUS, for a QUEST, each alias's scripts (<see cref="IQuestAdapterGetter.Aliases"/> →
+    /// <see cref="IQuestFragmentAliasGetter.Scripts"/>). A quest binds scripts to its reference aliases in a SEPARATE
+    /// collection from its own — a property declared on an alias script (the CK's alias-fragment path) would otherwise be
+    /// swept over entirely, a false "clean" on the tool's headline quest use case (PR #145 review finding 1). Each entry
+    /// is the same <see cref="IScriptEntryGetter"/> the per-attachment cross-check handles, so alias scripts flow through
+    /// the identical property comparison.</summary>
+    static List<IScriptEntryGetter> CollectScriptEntries(IAVirtualMachineAdapterGetter vmad)
+    {
+        var entries = new List<IScriptEntryGetter>(vmad.Scripts);
+        if (vmad is IQuestAdapterGetter qa)
+            foreach (var alias in qa.Aliases)
+                entries.AddRange(alias.Scripts);
+        return entries;
     }
 
     // ---- .pex extends-chain resolution ----------------------------------------------------------------

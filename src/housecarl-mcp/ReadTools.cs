@@ -476,7 +476,7 @@ static class Wire
                     ? " — declared but NOT bound → None at runtime (HIGH: object/form type — the silent no-op)\n"
                     : " — declared but NOT bound → defaults to 0/false/\"\" (scalar, no baked default)\n");
             }
-            if (rec.NullObjects.Count > 0)
+            if (rec.NullObjects.Count > 0 && sb.Length < cap)
                 sb.Append("  bound-but-null object propert").Append(rec.NullObjects.Count == 1 ? "y: " : "ies: ")
                   .Append(string.Join(", ", rec.NullObjects.Select(n => $"{n.PropertyName} ({n.Script})")))
                   .Append("   [advisory — a None link; sometimes intentional, filled at runtime]\n");
