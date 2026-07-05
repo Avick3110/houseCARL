@@ -40,11 +40,13 @@ namespace HousecarlGenerator;
 /// while a null MODEL half (WorldModel — Mutagen tolerates it, B4) and any other serialize error are untouched.
 ///
 /// RED→GREEN: Part A checks A1/A2/A3/A5 are RED if <c>MapStruct</c> drops the nested Struct. Part B: B3 (single-gender skin
-/// AA WRITES) is RED before the materializer fix (threw an AggregateException-wrapped NRE); R1–R5 unit-cover RootNullArm's
-/// unwrap (bare / doubly-nested / wrapper-of-NRE / mixed-non-NRE / non-NRE) deterministically; B1 (composition null-arm ->
-/// NAMED refusal) stays GREEN. The FALSE-POSITIVE controls (B2 optional null poly; B4 tolerated null MODEL half) and the
-/// illegal-nested-arm reject (A4) are GREEN before AND after — proving both fixes are NARROW. B5 (explicit '0'-clear) and
-/// B6 (edit-existing overlay round-trip) confirm the single-gender record is valid and existing records are unaffected.
+/// AA WRITES) is RED before the materializer fix (threw an AggregateException-wrapped NRE); B7 feeds the REAL Mutagen
+/// parallel-wrapped null-arm through the actual serialize catch (a forced null half) and confirms it re-stamps NAMED, not
+/// raw; R1–R5 unit-cover RootNullArm's unwrap (bare / doubly-nested / wrapper-of-NRE / mixed-non-NRE / non-NRE)
+/// deterministically; B1 (composition null-arm -> NAMED refusal) stays GREEN. The FALSE-POSITIVE controls (B2 optional null
+/// poly; B4 tolerated null MODEL half) and the illegal-nested-arm reject (A4) are GREEN before AND after — proving both
+/// fixes are NARROW. B5 (explicit '0'-clear) and B6 (edit-existing overlay round-trip) confirm the single-gender record is
+/// valid and existing records are unaffected.
 ///
 /// Self-contained: A1/A2/A5/B1/B2 are pure in-memory Mutagen (no plugin file, no Skyrim.esm); A3/A4 use the
 /// GENERATED corpus.json (built into a unique temp dir on a fresh checkout, exactly as poly-field-descend-guard does).
@@ -226,6 +228,7 @@ public static class NullArmGuardProbe
         //          GREEN before+after — the refusal is CREATE-only; existing mods' single-gender skin AAs (TSOSRefined
         //          NPC torsos, NPC hand-skins, …) forward/edit/compact fine. Confirmed live on 0UlfricNakedSkinTorso. ----
         string b6src = OutPath("hc_nullarm_b6src");
+        string? b6out = null;   // declared out of the try so the finally cleans it on the FAILURE path too (WritePatch stages its GUID dir before it can throw)
         bool b6ok = false; string? b6Detail = null;
         try
         {
@@ -236,28 +239,54 @@ public static class NullArmGuardProbe
                 WriteEngine.ApplyVerb(arma, new WriteRequest { RecordType = "ArmorAddon", Path = new[] { "SkinTexture", "Male" }, Verb = "Set", Value = "0" });
             });
             using var overlay = SkyrimMod.CreateFromBinaryOverlay(b6src, SkyrimRelease.SkyrimSE);
-            var b6out = OutPath("hc_nullarm_b6out");
+            b6out = OutPath("hc_nullarm_b6out");
             var patch = new SkyrimMod(new ModKey(Path.GetFileNameWithoutExtension(b6out), ModType.Plugin), SkyrimRelease.SkyrimSE);
             patch.ArmorAddons.Add(overlay.ArmorAddons.First().DeepCopy());   // the forward/edit deep-copy of an overlay getter
             WriteEngine.WritePatch(patch, new ISkyrimModGetter[] { overlay }, b6out);
             b6ok = File.Exists(b6out);
-            CleanOut(b6out);
         }
         catch (Exception ex) { b6Detail = $"{ex.GetType().Name}: {ex.Message}"; }
-        finally { CleanOut(b6src); }
+        finally { CleanOut(b6src); if (b6out is not null) CleanOut(b6out); }
         Check("B6: an on-disk single-gender skin AA round-trips (overlay -> deep-copy -> serialize) without a null-arm refusal — edit-existing is safe, only CREATE bites", b6ok, b6Detail);
 
-        // ---- R1–R5: RootNullArm unwrap logic — DETERMINISTIC unit coverage of the SAFETY NET (independent of Mutagen's
-        //          parallel scheduling; the materializer fix means B3 no longer exercises the wrapped path). RootNullArm
-        //          re-stamps a serialize throw as the NAMED null-arm refusal IFF its ROOT cause is a NullReferenceException
-        //          — through the parallel writer's AggregateException + SubrecordException wrapping (HCBR-2026-07-04) — and
-        //          returns null (leaving the throw untouched) otherwise, so a genuine other error is never masked (Q3). ----
+        // ---- B7: FAITHFUL real-Mutagen coverage of the wrapped-path safety net. R1–R5 cover RootNullArm's unwrap
+        //          LOGIC against synthetic shapes; this proves the actual serialize CATCH handles the REAL exception
+        //          Mutagen's parallel writer throws. The materializer now fills an un-set formlink half (so B3 writes),
+        //          so the only way to reach a NULL half is to force it: null SkinTexture.Male AFTER materialization,
+        //          then serialize. The genuine AggregateException(SubrecordException(NRE)) must be re-stamped as the
+        //          NAMED NullArmSerializeException, not rendered raw. (Defensive: this state no longer arises via any
+        //          normal op — it documents that IF it ever did, the safety net still fails loud + named.) ----
+        var b7Path = OutPath("hc_nullarm_b7");
+        NullArmSerializeException? b7caught = null; Exception? b7wrong = null;
+        try
+        {
+            SerializeTo(b7Path, mod =>
+            {
+                var arma = mod.ArmorAddons.AddNew();
+                WriteEngine.ApplyVerb(arma, new WriteRequest { RecordType = "ArmorAddon", Path = new[] { "SkinTexture", "Female" }, Verb = "Set", Value = "000801:hc_nullarm_b7.esp" });
+                arma.SkinTexture!.GetType().GetProperty("Male")!.SetValue(arma.SkinTexture, null);   // force the pre-fix null formlink half
+            });
+        }
+        catch (NullArmSerializeException ex) { b7caught = ex; }
+        catch (Exception ex) { b7wrong = ex; }
+        Check("B7: the REAL parallel-wrapped null-arm (a forced null gendered formlink half) is re-stamped as the NAMED NullArmSerializeException, not rendered raw",
+            b7caught is not null, b7wrong is null ? "no exception thrown (serialize unexpectedly succeeded)" : $"threw {b7wrong.GetType().Name}: {b7wrong.Message}");
+        Check("B7b: nothing was written — all-or-nothing", !File.Exists(b7Path));
+        CleanOut(b7Path);
+
+        // ---- R1–R5: RootNullArm unwrap LOGIC — DETERMINISTIC unit coverage against SYNTHETIC exception shapes. The
+        //          real-Mutagen wrapped path is covered end-to-end by B7 above; these pin the branch logic cheaply and
+        //          without depending on Mutagen's parallel scheduling. R2 matches the report's captured message shape
+        //          (nested AggregateExceptions around the NRE); R3's inner wrapper is a structural STAND-IN for Mutagen's
+        //          SubrecordException — the inner-walk is wrapper-type-agnostic, so any wrapper-of-NRE exercises it (the
+        //          REAL SubrecordException is what B7 feeds through). RootNullArm re-stamps IFF the ROOT cause is an NRE,
+        //          else returns null so a genuine other error is never masked (Q3). ----
         var nre = new NullReferenceException("x");
         Check("R1: a BARE NRE unwraps to itself",
             ReferenceEquals(WriteEngine.RootNullArm(nre), nre));
         Check("R2: a doubly-nested AggregateException(NRE leaf) flattens + unwraps to the NRE",
             ReferenceEquals(WriteEngine.RootNullArm(new AggregateException(new AggregateException(nre))), nre));
-        Check("R3: the report's shape — AggregateException(AggregateException(wrapper(NRE))) — walks the inner chain to the NRE",
+        Check("R3: a wrapper-of-NRE leaf (SubrecordException-style stand-in) — the inner chain is walked to the NRE",
             ReferenceEquals(WriteEngine.RootNullArm(new AggregateException(new AggregateException(new InvalidOperationException("subrecord-style wrapper", nre)))), nre));
         Check("R4: an aggregate with a NON-NRE-rooted leaf returns null (the genuine error keeps its own type/message — not masked)",
             WriteEngine.RootNullArm(new AggregateException(nre, new InvalidOperationException("a real, different serialize error"))) is null);
