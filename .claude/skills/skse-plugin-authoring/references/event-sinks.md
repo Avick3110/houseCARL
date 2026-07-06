@@ -67,6 +67,18 @@ and marshal main-thread-only work through `SKSE::GetTaskInterface()->AddTask` (s
 `threading-and-persistence.md`). Mutating the same source from inside its own handler is safe — the lock
 is recursive per-thread and adds/removes made during a dispatch are deferred to the next one.
 
+Two more production realities of this dispatch model:
+
+- **Events arrive in storms.** One player action can fire dozens of correlated events back-to-back — an
+  outfit swap is one equip event per item, a cell transition a burst of load/attach events. Doing the full
+  job per event multiplies an already-expensive operation. Coalesce: have the handler mark dirty state and
+  queue **one** deferred task that does the real work once per burst, skipping the enqueue when a task is
+  already pending.
+- **A handler whose body performs engine side effects (control toggles, UI refreshes, equips) can
+  synchronously re-fire events into itself.** Arm any guard state *before* the side effect, and null-check
+  every handle resolution even on payloads the engine "always" populates — the full re-entrancy discipline
+  is in `hooking.md`.
+
 ## The mandatory null-guard and the return value
 
 `SendEvent` forwards the event pointer verbatim — it does **not** null-check it before calling your sink.

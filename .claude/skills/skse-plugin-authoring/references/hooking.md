@@ -24,6 +24,7 @@ on the strength of a note here.
 - [The must-be-static rule](#the-must-be-static-rule) · [thunk signatures](#thunk-signatures-must-byte-match) · [vtable index hazard](#vtable-hooks) — the three CTD-at-runtime correctness gates
 - [The trampoline and its two budgets](#the-trampoline-and-its-two-budgets) · [the four write verbs](#the-four-write-verbs) · [the struct + static-thunk idiom](#the-struct--static-thunk-idiom)
 - [Vtable hooks](#vtable-hooks) · [byte patches and mid-function detours](#byte-patches-and-mid-function-detours)
+- [Re-entrancy](#re-entrancy--a-hook-on-a-funnel-function-can-call-itself) — funnels that re-trigger themselves
 - [Verify before you patch — houseCARL discipline](#verify-before-you-patch--housecarl-discipline)
 - [When to hook, sink, or call native](#when-to-hook-sink-or-call-native) · [not yet verified in-game](#not-yet-verified-in-game)
 
@@ -203,6 +204,14 @@ original address** — store it as your struct's `func` and chain to it:
 | `write_call<5>` | `0xE8` CALL rel32 (5 B) | via trampoline |
 | `write_call<6>` | `FF /2` CALL r/m64 (6 B) | any 64-bit addr |
 
+**These verbs patch *instructions*, not functions.** `write_call<N>` / `write_branch<N>` overwrite one
+existing call/branch instruction (or, with the Xbyak detour below, a hand-measured run of instructions).
+CommonLib ships **no prologue-copying detour** — nothing relocates a function's first instructions and hands
+you back a callable original. Pointing `write_branch` at a function's *entry* replaces the function outright
+with no way to chain: the returned "original" is only meaningful when the bytes you displaced were themselves
+a branch/call. To intercept a whole function *and still call it*, hook its call sites, take its vtable slot,
+or bring a real detour library (safetyhook / MinHook) — don't bend these primitives into one.
+
 ---
 
 ## The struct + static-thunk idiom
@@ -244,6 +253,12 @@ wrappers you'll see in borrowed code — `write_thunk_call`, `write_vfunc<F,idx,
 `adya/SKSEHooking`, unread in this corpus). For `ng`-native work, **write the raw core API —
 OAR's form — and treat the wrappers as optional author-defined sugar.** OAR, the only
 `ng`-lineage exemplar, uses none.
+
+**Keep the thunk tiny and cold-path free.** A hooked site can run thousands of times a second. Inside a
+thunk: validate only what you actually touch, do the minimal work, chain to `func`. No per-call logging
+(log the install once, at install time), no allocation, no lock acquisition you can avoid, no config
+parsing, no Papyrus dispatch. Anything heavy gets its inputs snapshotted (by handle, not raw pointer) and
+deferred through the task interface (`threading-and-persistence.md`).
 
 ---
 
@@ -396,6 +411,27 @@ The mechanics that make it correct:
 
 ---
 
+## Re-entrancy — a hook on a funnel function can call itself
+
+A hook (or event handler) whose body performs an engine side effect can re-trigger the very path it
+patched **synchronously, on the same stack**: toggling controls fires user-event notifications, a UI
+refresh re-runs observers, an equip fires equip events. If your dedup/guard state is armed *after* the
+side effect, the re-entrant call sees an unarmed guard and recurses — unbounded recursion that presents in
+game as a freeze (the main thread pinned by the recursion) and then a **stack-overflow CTD**, a combination
+that reads as a pure hang and hides the crash log. Two disciplines, both distilled from real shipped-plugin
+failures:
+
+- **Arm guard state before the first side effect**, not after the call that can re-enter.
+- **Give every funnel a re-entrancy guard** — a function-local `static bool` (or `thread_local`) with an
+  RAII reset. It's cheap, and it protects *every* caller of the funnel, not just the code path you were
+  thinking about when you wrote it.
+
+The corollary for null-safety: a handle that resolved fine on the first, legitimate call can resolve
+**null** on a re-entrant or storm-repeated one. Null-check every resolution inside a handler, even for
+payloads the dispatching framework "always" populates.
+
+---
+
 ## Verify before you patch — houseCARL discipline
 
 Here the library's direction and production practice diverge; name the gap rather than paper
@@ -466,6 +502,18 @@ exists (po3 hooks BooksRead, FallDamage, ItemCrafted, Weather, FastTravel — al
 The engine-event inventory and registration timing are `event-sinks.md` — go there before
 hooking anything the engine might already broadcast; exposing or calling native functions is
 `native-papyrus-functions.md`.
+
+**Prefer a plugin's published API to patching it — and never become the second writer.** When
+the behavior you want to change lives in another plugin (a framework managing scale, morphs,
+camera, UI state…), check for an exported interface first (`RequestPluginAPI_*` exports, or a
+messaging interface exchange — `plugin-skeleton.md`) before reaching for a hook. And if a
+framework *actively manages* some engine state, do not install yourself as a second writer to
+that state: it re-asserts its own value on its own schedule, and the result is a visible
+ping-pong war you cannot win from outside — each round a pop the player sees. Correct the
+**input** the framework computes from (a config value, a query it makes, a value it reads once
+at setup) rather than fighting its **output**. When consuming another plugin's API, vendor its
+published interface header at the exact installed version — never hand-model another plugin's
+vtable from guesswork.
 
 **Install once.** One install entry point per hook cluster, one message-phase branch, every
 original written a single time — no re-install path, no per-object hooking (vtable writes

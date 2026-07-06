@@ -20,6 +20,7 @@ native functions, the `.psc` signatures on the other side of that boundary belon
 - **Per-runtime presets** — configuring for SE / AE / VR.
 - **Deploy into an MO2 mod** — the `SKSE/Plugins/<name>.dll` artifact shape.
 - **The loop** — build → deploy → verify (`skse64.log`) → iterate.
+- **Rebuilding an existing plugin from source** — ABI-faithful rebuilds for one-defect patches.
 - **ClibDT** — the beginner automation that does the whole setup for you.
 - **Not yet verified in-game** — the empirical build-tests still owed.
 
@@ -139,7 +140,10 @@ propagates this flag for you; a hand-assembled build must set it explicitly.
 From your **own** `vcpkg.json` you must also supply CommonLib's public/transitive header deps — a source
 build does not vendor them: always `spdlog`, `fmt`, `directxtk`, `directxmath`; plus `rapidcsv` whenever VR
 support is on (the default); `xbyak` only if you enable xbyak support; and `simpleini` / `nlohmann-json` /
-`toml11` only with the matching REX option.
+`toml11` only with the matching REX option. Field note: in practice a source checkout's `find_package` calls
+often demand `rapidcsv` and `xbyak` even in configurations that don't obviously use them — when a configure
+fails on a missing package config, add the dep rather than papering over it with include paths; the vcpkg
+binary cache keeps the cost at seconds.
 
 ---
 
@@ -188,12 +192,22 @@ database with `xmake project -k compile_commands`. Run from a VS Developer Shell
 
 ### The CMake source-submodule scaffold — proven route first, this one marked
 
-**Honest caveat, stated up front:** there is no template in the wild that demonstrates a minimal
-**CMake + source-submodule** build against the current 4.x lineage. Every in-corpus CMake NG-consumer is
-either dead-registry (3.x) or a frozen overlay. The scaffold below is stitched from proven fragments and
-**has not been compiled as a unit** — it is marked *Not yet verified in-game* along with the rest of the
-build-test list at the end. If you want a route that is known-good today, use the xmake file-set above; the
-xmake plugin rule is also structurally more robust (see the availability trap next).
+**Status, stated precisely:** no *public template* in the wild demonstrates this minimal file-set — every
+in-corpus CMake NG-consumer is either dead-registry (3.x) or a frozen overlay. But the shape itself is
+**field-proven**: multiple production plugins have been built, shipped, and run in-game from exactly this
+pattern — a local NG source checkout (submodule or fixed path), the explicit
+`include(…/cmake/CommonLibSSE.cmake)`, `add_commonlibsse_plugin`, and a consumer vcpkg manifest — under
+Ninja + MSVC. So teach it with confidence; what field experience adds beyond the sketch:
+
+- **The manifest must feed CommonLib, not just you.** vcpkg manifest mode reads *only* the top-level
+  `vcpkg.json`, so it must satisfy CommonLib's own `find_package` set too. In practice that means including
+  `rapidcsv` and `xbyak` even in configurations that don't obviously use them — a source checkout's
+  `find_package` calls can demand them regardless. The vcpkg binary cache makes the repeat cost seconds.
+- **Run configure and build from a VS Developer Shell** (`VsDevCmd.bat`). On a typical machine neither
+  `cmake` nor `cl` is on PATH outside it, and Ninja + MSVC needs the dev environment's SDK variables.
+- **The first CommonLib source compile is big** (~500 targets, ~15 min cold). Run it with a long timeout or
+  in the background, and don't misread a timeout as a failure; incremental rebuilds of your own sources are
+  seconds.
 
 ```cmake
 cmake_minimum_required(VERSION 3.21)
@@ -249,6 +263,11 @@ you. It sets **no PCH and no `SKSEPlugin_Load`** — both remain your job (that 
 the four-line `main.cpp` above coexist). Note the generated TU's `"...sv` string literals compile only
 because your force-included PCH declares `using namespace std::literals;` at global scope — a second reason
 the PCH is mandatory.
+
+**Choose exactly one metadata path.** When the build system generates the plugin declaration — this CMake
+helper, or the xmake `commonlibsse-ng.plugin` rule — do **not** also hand-write an `SKSEPluginInfo` block or
+a manual export triad in source. Duplicate `SKSEPlugin_Version` / `SKSEPlugin_Query` exports produce
+confusing load failures that don't name their cause. Generated metadata *or* hand-written, never both.
 
 **Teach only the default Address-Library path.** The helper accepts `USE_SIGNATURE_SCANNING`,
 `COMPATIBLE_RUNTIMES`, and `EXCLUDE_FROM_ALL`, but each has a code-read-predicted defect (an unqualified
@@ -314,6 +333,15 @@ CMake/xmake for `SKSE/Plugins`** to find its hook, and check whether the copy de
 bare configure if its path is unset) or OFF (SPID silently skips). Set your chosen var once to the MO2
 `mods` directory and the build lands the DLL where MO2 can enable it.
 
+Two deployment rules that bite in the field:
+
+- **Ship a release-CRT build.** Deploy RelWithDebInfo (optimized + PDB), never the Debug configuration — a
+  Debug build links the debug CRT (`MSVCP140D.dll` and friends), which exists only on developer machines,
+  so on any other machine the DLL dies at `LoadLibrary` with the missing-dependency signature
+  (`load-failures.md` §5). Keep the PDB beside the DLL either way; it makes crash logs name your functions.
+- **Refresh MO2 after external writes.** Files a POST_BUILD copy drops into `mods\` are invisible to an
+  already-open MO2 until it refreshes — verify against the refreshed VFS, not the bare folder.
+
 ### The one runtime data dependency: Address Library
 
 Independent of your build, the **user's game** must carry the Address-Library database for their exact EXE
@@ -365,6 +393,30 @@ contains.
 
 ---
 
+## Rebuilding an existing plugin from source
+
+A recurring job that is neither authoring nor porting: rebuild an open-source plugin *as installed* to
+patch one defect (a guard, a null-check, a re-entrancy fix). The goal is ABI fidelity to the shipped DLL —
+field rules that keep the rebuild faithful:
+
+- **Build the exact installed tag/commit, not HEAD.** Match by release tag and DLL file date — version
+  resources and mod-manager metadata routinely lag the source tag, and HEAD may have drifted past the
+  installed ABI (exported interfaces, co-save format).
+- **Keep the project's own CommonLib acquisition and lineage** — its registry pin, submodule URL + branch,
+  or vendored checkout — rather than re-pointing it at your preferred one; swapping lineages changes idioms
+  and layouts (`multi-runtime.md`). Remember a `--depth 1` clone leaves submodules empty:
+  `git submodule update --init --recursive` first.
+- **Keep the original `ENABLE_SKYRIM_*` runtime set.** Turning a runtime off to "simplify" the rebuild can
+  break the compile outright (source that references another runtime's `RE::` types unconditionally) or
+  change struct layouts relative to the shipped DLL.
+- **Expect author-machine residue and strip it locally:** hardcoded output paths, deploy env vars,
+  overlay-triplet dirs that don't exist in the repo (the no-op trap above), and `/WX` that a newer MSVC's
+  new warnings turn fatal. None of it is part of the plugin.
+- **Build only the DLL target** when the repo's ALL target drags in packaging, Papyrus-compile, or zip
+  steps wired to the author's machine.
+
+---
+
 ## ClibDT — the beginner automation
 
 **ClibDT** (Nexus **154240**, currently v5.2.2) automates the entire xmake / alandtse-NG setup: it installs
@@ -384,10 +436,11 @@ Several claims here are read from the library's source and docs but have **not**
 build-and-load on a live machine. Keep them honest — present them as expected behavior to burn in, never as
 proven fact:
 
-- **The CMake source-submodule scaffold has not been compiled as a whole.** Whether the manual
-  `include(…/cmake/CommonLibSSE.cmake)` defines the helper cleanly, and whether a source `add_subdirectory`
-  configures with only consumer-supplied vcpkg deps, is unproven. The **xmake file-set is the proven route**;
-  prefer it until the CMake path is burned in.
+- **The exact minimal CMake file-set above has not been compiled verbatim as a unit** — but the pattern it
+  encodes (source checkout + explicit `include(…/cmake/CommonLibSSE.cmake)` + `add_commonlibsse_plugin` +
+  consumer-manifest deps) **is field-proven by multiple shipped production plugins**; the caveats that
+  matter in practice are the manifest-feeds-CommonLib rule, the VS-dev-shell requirement, and the cold-build
+  time, all noted inline above. What remains genuinely unproven is only the word-for-word sketch.
 - **The non-default `add_commonlibsse_plugin` options** (`USE_SIGNATURE_SCANNING`, multi-runtime
   `COMPATIBLE_RUNTIMES`, `EXCLUDE_FROM_ALL`) have code-read-predicted defects and are **not** verified
   working. Do not present them as usable options; hand-write `SKSEPluginInfo` instead.

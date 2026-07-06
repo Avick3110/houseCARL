@@ -358,8 +358,23 @@ script object or a handle+class name. The result arrives asynchronously through 
 
 `RE::MakeFunctionArguments(args...)` packs each argument (every arg type must be a legal return currency).
 Do **not** delete the args object yourself — the VM consumes it during the call. To reach a script instance
-attached to a form, resolve a handle from the VM's object-handle policy, reject the empty handle, then
+attached to a form, resolve a handle from the VM's object-handle policy
+(`vm->handlePolicy->GetHandleForObject(form->GetFormType(), form)` — for a script on an alias or active
+effect the first argument is that type's *VM type id*, not a FormType), reject the empty handle, then
 `FindBoundObject(handle, "ScriptName", object)`.
+
+Three production caveats for this channel:
+
+- **There is no synchronous C++ → Papyrus call.** Dispatch queues the call; the result arrives later,
+  through your functor. If C++ needs a script-computed value *during its own setup*, restructure — have a
+  small `.psc` shim compute it script-side and push it into a native setter, rather than trying to pull it
+  from C++.
+- **Your `IStackCallbackFunctor` runs on a VM thread.** Treat it like an event sink: unpack the `Variable`,
+  then marshal any game-state mutation through `SKSE::GetTaskInterface()` rather than mutating where you
+  stand (`threading-and-persistence.md`).
+- **`#undef GetObject`.** If any TU includes `windows.h` (spdlog's MSVC sink pulls it in), the Win32
+  `GetObject` macro silently mangles `BSScript::Variable::GetObject` and object-handle code into compile
+  errors that never name the real cause. `WIN32_LEAN_AND_MEAN` does **not** cover it.
 
 There is also an NG-exclusive coroutine sugar (`co_await vm->ADispatchStaticCall(...)`), absent from the
 older lineages. It's convenient but has no production users in the corpus yet — see [Not yet verified](#not-yet-verified)
@@ -412,6 +427,20 @@ route the work through `SKSE::GetTaskInterface()->AddTask` (main thread) or `Add
 The exact thread on which default-flag bodies run is one of the [unverified](#not-yet-verified) items;
 treating "default = deferred and safe, `true` = immediate and your problem" as the contract keeps you
 correct regardless.
+
+Three body disciplines that hold regardless of the flag, all learned from production natives:
+
+- **Never block.** No `Sleep`, no spin-wait on a condition (`while (!ref->Is3DLoaded())` is the classic),
+  no synchronous disk or network I/O — a blocked native stalls VM stack processing, which under load reads
+  as script lag or a whole-game freeze. A "wait" is a latent function or an event registration, never a
+  loop in the body.
+- **Never let a C++ exception escape.** The VM boundary is not exception-safe; catch inside the body and
+  return the benign default.
+- **Rate-limit your logging.** A native can be called thousands of times per second from a busy script — a
+  per-call `logger::warn` is itself a performance bug.
+
+And never retain a raw form/ref pointer past the call: the VM gives a native no lifetime contract on its
+arguments. Store a FormID or handle and re-resolve in the later context (`threading-and-persistence.md`).
 
 ---
 

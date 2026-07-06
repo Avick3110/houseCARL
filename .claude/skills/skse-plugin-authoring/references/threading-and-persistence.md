@@ -84,8 +84,14 @@ A `TaskDelegate` you supply is a two-pure-virtual interface (`Run()` + `Dispose(
   hook site is what puts your lambda on the game thread.**
 - **`AddUITask` → UI processing.** A *separate* queue, drained in the game's UI event-queue processing
   (`Hooks_UI.cpp`). Use it only for work that must run in the UI/menu context.
-- **One-shot, FIFO, next pass.** `ProcessTasks` drains the whole queue each pass; an `AddTask` lambda runs
-  **once** — re-queue from inside the task (or use an update hook) for repeats.
+- **One-shot, FIFO — and the drain is pop-until-empty.** `ProcessTasks` drains the whole queue each pass,
+  *including tasks added during the drain*. An `AddTask` lambda runs **once** — and a task that
+  re-`AddTask`s itself is picked up in the **same** pass, so the "loop" runs to completion inside one
+  frame. This is field-verified, the hard way: a self-requeued per-frame pump hard-froze the main thread
+  for the entire intended duration of the effect, twice, in two different production plugins. **Never
+  self-requeue a task for repeated or per-frame work.** For repeats, pace from your own worker thread
+  (sleep one tick → post one one-shot task, coalescing if the previous task hasn't run yet) or use an
+  update hook.
 - **No thread-affinity guard anywhere.** Neither `AddTask` nor `Run` checks the thread, so mutating a form
   off-thread *without* `AddTask` produces **no compile-time or runtime error** — just a silent race or
   crash. That silence is why the marshalling discipline must be taught, not assumed.
@@ -124,6 +130,22 @@ scene-graph work where a strong `NiPointer` keeps the node alive, capturing the 
 also seen — but the handle pattern is the safe default for forms and references.) The `AddUITask` shape is
 the same idiom in the UI queue — e.g. PO3's
 `AddUITask([]{ RE::PlayerCharacter::GetSingleton()->UpdateCrosshairs(); })` (`Game.cpp:418-423`).
+
+### Lock discipline across plugin boundaries
+
+Two field-learned rules, both deadlock-shaped — and a deadlock presents as a hard freeze, not a crash,
+which makes it the most expensive failure to triage. Design it out:
+
+- **Assume every callback another plugin hands you runs under that plugin's own lock.** Frameworks
+  routinely invoke their listener lists while still holding the mutex guarding the very state a listener
+  would want to query. Calling back into the framework's API from inside your handler *while holding your
+  own lock* is a textbook lock-order inversion: thread A holds the framework's lock and wants yours,
+  thread B holds yours and wants the framework's. Discipline: read everything you need from the callback's
+  arguments first; if you must take your own lock, snapshot IDs/state under it, **release it**, and only
+  then call back into the other plugin.
+- **Never hold any of your locks while dispatching outward.** A `SendEvent`, a messaging `Dispatch`, or a
+  call through another plugin's interface can synchronously run arbitrary third-party code — code that may
+  legally call back into you on the same stack.
 
 ---
 
@@ -201,6 +223,14 @@ void MyLoad(SKSE::SerializationInterface* intfc) {
 only your own chunks.* Two production shapes for the version gate: po3 *skips* on mismatch; SPID *branches to
 per-version readers* so old saves still load. The version constant is your **migration lever** — bump it to
 evolve the format without corrupting old saves.
+
+**Read byte-exact, and bounds-check before you allocate.** `ReadRecordData` returns a **byte count**, not a
+bool — the common truthy check (`if (!intfc->ReadRecordData(v))`) catches only the zero-byte failure and
+silently accepts a short read. Require `ReadRecordData(v) == sizeof(v)` for every POD read. And treat every
+count or string length read from a co-save as untrusted input: a truncated or corrupted save hands you a
+garbage length, and a `resize(garbage)` is an instant allocation blow-up. Bound counts and lengths against
+sane maxima before allocating; treat a violation as a failed record (warn + skip), never as state to limp
+on with.
 
 ### The re-resolve rule, concretely
 
