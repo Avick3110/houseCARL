@@ -97,8 +97,17 @@ public static class BsaTools
         var r = HousecarlCore.BsaArchive.Unpack(bsarch!, archive, target);
         if (!r.Ran) return "error: " + r.RunError;
         if (!r.Success)
+            // BSArch RAN (we returned above on !Ran) but wrote nothing. Two real causes, named so the failure is
+            // self-explanatory (Q3): (1) BSArch's unpacker is stricter than the game engine, so an archive written by
+            // a non-standard tool can list + load in-game yet unpack to nothing — re-pack it with BSArch or the CK's
+            // Archive.exe/CAO to get a conformant archive; (2) the dest already holds byte-identical files with
+            // restored timestamps, which reads as "nothing new". The raw output below distinguishes them.
             return $"extract FAILED: '{Path.GetFileName(archive)}' produced no new or changed files in '{target}' this run." +
                    (managed ? $" The freshly created mod folder (with only houseCARL's meta.ini marker) was left at '{target}' — delete it or retry into it." : "") +
+                   "\nBSArch ran but extracted nothing. Most likely the archive is non-standard: BSArch's unpacker is " +
+                   "stricter than the game, so an archive written by a custom tool can list and load in-game yet fail to " +
+                   "unpack — re-pack it with BSArch or the CK's Archive.exe. (If the dest already holds identical files, " +
+                   "that also reads as 'nothing new'.)" +
                    "\nRaw BSArch output:\n" + r.Raw;
 
         var sb = new StringBuilder();
