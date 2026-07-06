@@ -35,7 +35,7 @@ public static class SeqFile
         for (int i = 0; i < masters.Count; i++)
             if (masters[i] == fk.ModKey) { slot = i; break; }
         if (slot < 0) slot = masters.Count;                 // own/new record: its ModKey is the plugin's, never in its masters
-        return ((uint)slot << 24) | (fk.ID & 0x00FFFFFFu);
+        return ((uint)slot << 24) | (fk.ID & FormIdRange.ObjectIdMask);
     }
 
     /// <summary>Serialize SEQ FormIDs to the on-disk byte layout: each as a 4-byte LITTLE-ENDIAN uint, concatenated, with
