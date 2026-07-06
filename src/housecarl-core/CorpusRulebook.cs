@@ -425,7 +425,14 @@ public sealed class CorpusRulebook
             return StructLeafLegality(leaf, req.Struct);
         if (req.Verb is "Set")
         {
-            if (req.Value is null) return $"Set on '{leaf.Name}' requires a value.";
+            // A compose spec reaching HERE means the leaf isn't a compose target (not a composable substruct/dict/poly —
+            // those branch above): a coercible substruct (a TranslatedString — set as one value, not built from parts), a
+            // formlink, or a plain scalar. Name the plain-value path instead of the misleading "requires a value" (which
+            // reads as "value= is absent"). compose is for a build-from-parts struct/dict/polymorphic field only.
+            if (req.Value is null)
+                return req.Struct is not null
+                    ? $"'{leaf.Name}' is set from a plain value (value=…), not a compose spec."
+                    : $"Set on '{leaf.Name}' requires a value.";
             // formlink / substruct-whole: the engine must be able to coerce the leaf's whole type. A normal formlink
             // coerces; a condition FormLinkOrIndex is handled by the parent-aware SetFloi branch (wave 4) — validate
             // its target-value SHAPE here; a non-string substruct still rejects honestly (so pre-flight never
