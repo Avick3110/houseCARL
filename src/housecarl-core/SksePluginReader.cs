@@ -69,11 +69,13 @@ public static class SksePluginReader
     }
 
     /// <summary>One DLL's static SKSE identity. <see cref="Version"/> is non-null only for <see cref="SksePluginKind.Modern"/>.
-    /// <see cref="Note"/> carries the Q3 reason for any non-Modern kind (why the metadata isn't readable).</summary>
+    /// <see cref="Is64Bit"/> is <c>null</c> when the COFF machine field was never read (a non-PE / unopenable file whose
+    /// bitness is genuinely UNKNOWN — it is NEVER presented as 32-bit on a guess). <see cref="Note"/> carries the Q3 reason
+    /// for any non-Modern kind (why the metadata isn't readable).</summary>
     public sealed record SksePluginInfo(
         string FileName,
         SksePluginKind Kind,
-        bool Is64Bit,
+        bool? Is64Bit,
         SkseVersionInfo? Version,
         string? Note);
 
@@ -88,11 +90,17 @@ public static class SksePluginReader
         {
             using var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
             using var pe = new PEReader(fs);
-            if (pe.PEHeaders.PEHeader is null)
-                return new SksePluginInfo(file, SksePluginKind.Unreadable, false, null, "no PE optional header");
-
+            // The COFF machine field is available as soon as the PE opened — read the real bitness even when the optional
+            // header is missing, so an Unreadable-with-no-optional-header still reports a TRUE x64/x86 rather than a
+            // fabricated one. Only the catch paths below (which never got this far) leave bitness null = UNKNOWN.
             bool is64 = pe.PEHeaders.CoffHeader.Machine == Machine.Amd64;
+            if (pe.PEHeaders.PEHeader is null)
+                return new SksePluginInfo(file, SksePluginKind.Unreadable, is64, null, "no PE optional header");
+
             var exports = ReadExportRvas(pe);
+            if (exports is null)   // export directory present but CORRUPT — a parse failure, NOT "no exports" (Q3: don't misclassify a corrupt DLL as a bundled dependency)
+                return new SksePluginInfo(file, SksePluginKind.Unreadable, is64, null, "corrupt PE export directory — could not enumerate exports");
+
             bool hasVersion = exports.TryGetValue("SKSEPlugin_Version", out int versionRva) && versionRva != 0;
             bool hasQuery = exports.ContainsKey("SKSEPlugin_Query");
             bool hasLoad = exports.ContainsKey("SKSEPlugin_Load") || exports.ContainsKey("SKSEPlugin_Preload");
@@ -105,20 +113,25 @@ public static class SksePluginReader
                 return new SksePluginInfo(file, SksePluginKind.LegacyQuery, is64, null,
                     "legacy SE/VR plugin: exports SKSEPlugin_Query (metadata is filled at runtime), so name/version are not statically readable");
 
-            // Modern: slice the version blob out of its section and decode. GetSectionData maps the RVA to the
-            // containing section for us; the struct is 0x350 bytes, we read what's available and decode defensively.
+            // Modern: slice the version blob out of its section and decode. A real SKSEPluginVersionData is a FULL
+            // 0x350-byte struct whose dataVersion (0x000) is kVersion (>= 1); a version export whose RVA maps to no
+            // section, a forwarder, or a corrupt EAT yields a short or all-zero blob — degrade honestly rather than
+            // present a phantom "" v0.0.0 plugin (Q3).
             var block = pe.GetSectionData(versionRva);
             byte[] blob = block.GetReader().ReadBytes(Math.Min(0x350, block.Length));
+            if (blob.Length < 0x350 || BitConverter.ToUInt32(blob, 0) == 0)
+                return new SksePluginInfo(file, SksePluginKind.Unreadable, is64, null,
+                    "exports SKSEPlugin_Version but its RVA does not resolve to a readable version blob (a forwarded or corrupt export)");
             var ver = DecodeVersionBlob(blob);
             return new SksePluginInfo(file, SksePluginKind.Modern, is64, ver, null);
         }
         catch (BadImageFormatException ex)
         {
-            return new SksePluginInfo(file, SksePluginKind.Unreadable, false, null, $"not a valid PE image: {ex.Message}");
+            return new SksePluginInfo(file, SksePluginKind.Unreadable, null, null, $"not a valid PE image: {ex.Message}");
         }
         catch (Exception ex)
         {
-            return new SksePluginInfo(file, SksePluginKind.Unreadable, false, null, $"could not read: {ex.GetType().Name}: {ex.Message}");
+            return new SksePluginInfo(file, SksePluginKind.Unreadable, null, null, $"could not read: {ex.GetType().Name}: {ex.Message}");
         }
     }
 
@@ -200,13 +213,14 @@ public static class SksePluginReader
 
     /// <summary>Walk the PE export directory and return name → export RVA (data exports point AT the data). Minimal by
     /// design: the SKSE loader itself resolves symbols by exact unmangled name string, so a name lookup is all we need.
-    /// Returns an empty map for a DLL with no export table. Never throws — a malformed table yields the names it could
-    /// read.</summary>
-    static Dictionary<string, int> ReadExportRvas(PEReader pe)
+    /// Returns an EMPTY map for a DLL with genuinely no export table (→ classify NotSkse), but <c>null</c> when the directory
+    /// is present yet CORRUPT (a parse failure — the caller classifies Unreadable, never silently as a bundled dependency,
+    /// Q3). Never throws.</summary>
+    static Dictionary<string, int>? ReadExportRvas(PEReader pe)
     {
         var byName = new Dictionary<string, int>(StringComparer.Ordinal);
         var dir = pe.PEHeaders.PEHeader!.ExportTableDirectory;
-        if (dir.Size == 0 || dir.RelativeVirtualAddress == 0) return byName;
+        if (dir.Size == 0 || dir.RelativeVirtualAddress == 0) return byName;   // no export table → empty (genuinely no exports)
         try
         {
             var ed = pe.GetSectionData(dir.RelativeVirtualAddress).GetReader();
@@ -221,6 +235,12 @@ public static class SksePluginReader
             int eatRva = ed.ReadInt32();     // AddressOfFunctions
             int nameRva = ed.ReadInt32();    // AddressOfNames
             int ordRva = ed.ReadInt32();     // AddressOfNameOrdinals
+
+            // Bound the counts against corruption BEFORE allocating/looping: a real DLL exports at most a few thousand
+            // symbols, so a bogus count means a corrupt directory. Trusting it would OOM `new int[numFuncs]` or spin the
+            // loops — refuse it as a parse failure (null → Unreadable), never trust a corruption-controlled length.
+            const uint MaxExports = 65536;
+            if (numFuncs > MaxExports || numNames > MaxExports) return null;
 
             var eat = pe.GetSectionData(eatRva).GetReader();
             var funcRvas = new int[numFuncs];
@@ -239,7 +259,7 @@ public static class SksePluginReader
                 byName[sb.ToString()] = ord < funcRvas.Length ? funcRvas[ord] : 0;
             }
         }
-        catch { /* malformed export table → return what we have; classification degrades to NotSkse, never a throw (Q3) */ }
+        catch { return null; /* corrupt directory (bad RVA / truncated table / unterminated string) → parse-failure signal, NOT a silent empty map that would misclassify as NotSkse (Q3) */ }
         return byName;
     }
 }

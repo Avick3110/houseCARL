@@ -284,8 +284,8 @@ public sealed class LoadOrderService : IDisposable
             var place = view.ResolveForPlacement(rel);
             // The FULL conflict chain, winner-first (asset-tool parity): keep every provider + its loose/BSA kind, not just a count.
             var providers = place.Sources
-                .Select(s => new SkseProvider(s.ProviderName, s.Kind == AssetKind.Bsa ? "BSA" : "loose"))
-                .ToList();
+                .Select(s => new SkseProvider(s.ProviderName, s.Kind switch { AssetKind.Bsa => "BSA", AssetKind.Loose => "loose", var k => k.ToString() }))
+                .ToList();   // explicit switch (not a ternary): a future AssetKind arm renders its real name, never a silent "loose"
             var winner = place.Sources.Count > 0 ? place.Sources[0] : null;
 
             if (isDll)

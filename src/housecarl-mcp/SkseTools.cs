@@ -223,9 +223,10 @@ static class SkseInventoryWire
             sb.Append("  [!] contested by ").Append(e.ProviderCount).Append(" mods — full chain (winner first): ").Append(Chain(e)).Append('\n');
 
         var p = e.Plugin;
-        if (p is null) { sb.Append("  ").Append(e.Note ?? "no static metadata").Append('\n'); return; }
-        if (e.Note is { } note && p.Kind == SksePluginReader.SksePluginKind.Modern && e.Group.Length > 0)
-            sb.Append("  [!] ").Append(note).Append('\n');   // a subfolder DLL that still has a manifest — flag it isn't loader-scoped
+        // Service-level note (subfolder-not-loader-scoped / no active provider / BSA-only) — shown for ANY kind, not just
+        // Modern (fix: a bundled-dependency or unreadable DLL in a subfolder also deserves the loader-path flag).
+        if (e.Note is { } enote) sb.Append("  [!] ").Append(enote).Append('\n');
+        if (p is null) { if (e.Note is null) sb.Append("  no static metadata\n"); return; }
 
         switch (p.Kind)
         {
@@ -233,15 +234,15 @@ static class SkseInventoryWire
             case SksePluginReader.SksePluginKind.NotSkse:
             case SksePluginReader.SksePluginKind.Unreadable:
                 sb.Append("  ").Append(p.Note).Append('\n');
-                if (!p.Is64Bit) sb.Append("  [!] NOT an x64 image — a 32-bit DLL cannot load in Skyrim SE/AE.\n");
-                return;
+                if (p.Is64Bit == false) sb.Append("  [!] NOT an x64 image — a 32-bit DLL cannot load in Skyrim SE/AE.\n");
+                return;   // Is64Bit == false is EXPLICITLY-determined non-x64; null (unknown) never triggers the claim (finding #1)
         }
 
         var v = p.Version!;
         sb.Append("  \"").Append(v.Name).Append("\" by ").Append(v.Author.Length > 0 ? v.Author : "(no author)");
         if (v.SupportEmail.Length > 0) sb.Append(" <").Append(v.SupportEmail).Append('>');
         sb.Append("\n  version ").Append(v.PluginVersion).Append('\n');
-        if (!p.Is64Bit) sb.Append("  [!] NOT an x64 image — a 32-bit DLL cannot load in Skyrim SE/AE.\n");
+        if (p.Is64Bit == false) sb.Append("  [!] NOT an x64 image — a 32-bit DLL cannot load in Skyrim SE/AE.\n");
 
         if (v.VersionIndependent)
         {
