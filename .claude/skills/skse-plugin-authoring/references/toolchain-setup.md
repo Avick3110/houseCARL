@@ -272,8 +272,10 @@ confusing load failures that don't name their cause. Generated metadata *or* han
 **Teach only the default Address-Library path.** The helper accepts `USE_SIGNATURE_SCANNING`,
 `COMPATIBLE_RUNTIMES`, and `EXCLUDE_FROM_ALL`, but each has a code-read-predicted defect (an unqualified
 enum, a semicolon-list splice, a phantom source file) and none is verified working — see *Not yet verified
-in-game*. If you need anything other than the default, hand-write the `SKSEPluginInfo` block yourself rather
-than route through those options (`plugin-skeleton.md` shows the hand-written form).
+in-game*. If you need anything other than the default, go fully manual per `plugin-skeleton.md` — hand-write the
+`SKSEPluginInfo` block yourself *instead of* letting `add_commonlibsse_plugin` generate one, never both: a
+hand-written block on top of the helper's generated one is the duplicate-export collision *Choose exactly
+one metadata path* above warns about.
 
 ### The availability trap
 
