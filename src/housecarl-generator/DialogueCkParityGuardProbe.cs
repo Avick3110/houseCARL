@@ -27,6 +27,9 @@ namespace HousecarlGenerator;
 ///                       materialized Flags (ENAM), and BOTH auto-fills are REPORTED as ops (not silent, Q3).
 ///   INFO-FAVOR-WINS   — an explicit FavorLevel=Large is NOT overridden to None (Flags still auto-fills).
 ///   INFO-FLAGS-WINS   — an explicit Flags (ResetHours=3) is NOT reset by the auto-fill (FavorLevel still auto-fills).
+///   INFO-GAP-PROBE    — the anti-drift tie: MissingInfoDefaults (the validator's check side) and ApplyInfoDefaults
+///                       (the fill side) read ONE shared presence predicate — a bare INFO reports exactly the CNAM+ENAM
+///                       gaps, and after the fill reports none (a field in one path but not the other breaks this).
 ///   DLVW-AUTOFILL     — create a bare DialogView → written DNAM=00, ENAM=00000000, both REPORTED.
 ///   DLVW-DNAM-WINS    — an explicit DNAM=FF is NOT overridden to 00 (ENAM still auto-fills).
 ///   BNAM-LINT         — a Custom topic with no Branch → validate_dialogue raises a Warning naming Branch (BNAM); a
@@ -158,6 +161,23 @@ internal static class DialogueCkParityGuardProbe
                 var (favor, hasFlags, reset) = infoRec is not null ? ReadInfo(o.OutputPath, infoRec.FormKey) : (null, false, 0f);
                 Check(o.Success && hasFlags && Math.Abs(reset - 3f) < 0.001f && favor == FavorLevel.None,
                     $"INFO-FLAGS-WINS explicit Flags.ResetHours=3 kept (not reset), FavorLevel still filled — {(o.Success ? $"reset={reset} favor={favor} hasFlags={hasFlags}" : "err=[" + o.Error + "]")}");
+            }
+
+            // ---- INFO-GAP-PROBE: the anti-drift tie. MissingInfoDefaults (the validator's check side, added with the
+            //      validate_dialogue INFO CK-parity lint) and ApplyInfoDefaults (the create-path fill side) read ONE
+            //      shared presence predicate, so they can't drift: a bare INFO reports EXACTLY the CNAM+ENAM gaps, and
+            //      after the fill reports NONE. A field added to the fill path but not the check (or vice-versa) breaks
+            //      this. Pure logic — no service/disk. ----
+            {
+                var info = new DialogResponses(FormKey.Factory("000800:HcCkpGapProbe.esm"), SkyrimRelease.SkyrimSE);
+                var before = DialogueCkParity.MissingInfoDefaults(info);
+                bool flaggedBoth = before.Count == 2
+                    && before.Any(g => g.Subrecord.Contains("CNAM", StringComparison.OrdinalIgnoreCase))
+                    && before.Any(g => g.Subrecord.Contains("ENAM", StringComparison.OrdinalIgnoreCase));
+                DialogueCkParity.ApplyInfoDefaults(info);
+                int after = DialogueCkParity.MissingInfoDefaults(info).Count;
+                Check(flaggedBoth && after == 0,
+                    $"INFO-GAP-PROBE bare INFO → CNAM+ENAM gaps (before={before.Count}), none after fill (after={after}) — check/fill share one predicate");
             }
 
             // ---- DLVW-AUTOFILL: create a bare DialogView → written DNAM=00, ENAM=00000000, both reported. ----
