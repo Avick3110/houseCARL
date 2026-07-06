@@ -323,6 +323,20 @@ namespace HousecarlGenerator;
 ///                       the speaker chain resolves through patchByKey (same-call records), not the load order.
 ///   VOICE-CHECKERROR  — the check run against a CORRUPT patch path surfaces on VoiceReport.CheckError and does NOT
 ///                       throw / does NOT lose the created records — the Q3 "never demote a successful create" safety net.
+///
+/// SUBSTRUCT-SET-* (chain Stage 2b) — a whole modeled-STRUCT substruct LEAF Set by composing its value FROM PARTS (the
+/// leaf twin of the GAP3 dict-element / arm compose paths). Apply already built it (ApplyScalarVerb req.Struct ->
+/// BuildStruct); this lifts the documented safe over-reject (write-preflight audit §3(b)) so a one-shot subtree author
+/// fills an absent struct in ONE op. Scoped by SchemaClassifier.IsComposableSubstructLeaf (gate==apply, no per-type list):
+///   SUBSTRUCT-SET-COMPOSE-OK        — Set NPC_.FaceParts from a NpcFaceParts compose is ACCEPTED (RED: 'requires a value').
+///   SUBSTRUCT-SET-ARM-COMPOSE-OK    — an ARM-typed substruct leaf (SceneAdapter.ScriptFragments) composes too (Aaron's fuller scope).
+///   SUBSTRUCT-SET-COMPOSE-BADTYPE   — a compose type ≠ the leaf's struct type refuses, naming it.
+///   SUBSTRUCT-SET-COMPOSE-BADFIELD  — a malformed compose field (Nose='notauint') refuses (StructSpecContents validates contents).
+///   SUBSTRUCT-SET-NOSPEC            — Set with NO compose names the compose path, NOT the misleading 'requires a value' (the report's message fix).
+///   SUBSTRUCT-SET-COERCIBLE-UNCHANGED — a coercible substruct (TranslatedString) keeps its plain-value Set (the !CoercibleLeaf exclusion; over-reject guard).
+///   SUBSTRUCT-SET-ARRAY2D-REJECTED  — an Array2d composition-residual is NOT opened (no accept-then-throw; the paramless-ctor exclusion).
+///   SUBSTRUCT-SET-COMPOSE-E2E       — a composed NpcFaceParts(Nose=32) round-trips through the real create+apply path onto NPC_.FaceParts on disk.
+///   SUBSTRUCT-SET-DOTTED-VIVIFY     — the report's ideal (b): Set FaceParts.Nose on an ABSENT struct auto-vivifies it then sets the sub-field, E2E.
 /// </summary>
 public static class NestedCreateGuardProbe
 {
@@ -2198,8 +2212,137 @@ public static class NestedCreateGuardProbe
             Console.WriteLine($"   SCRIPT-CHECKERROR surfaced not thrown:{(scriptCheckErrorOk ? "PASS — corrupt patch -> CheckError set, no throw, no findings" : $"FAIL — threw={threw} checkError=[{report.CheckError}] findings={report.Findings.Count}")}");
         }
 
+        // ====== SUBSTRUCT COMPOSE-SET — whole modeled-struct substruct leaf Set FROM PARTS (chain Stage 2b) ======
+        // A scalar SUBSTRUCT leaf (NPC_.FaceParts = NpcFaceParts, an absent 3-field struct; ObjectBounds; FaceMorph;
+        // a concrete script-property arm; …) is now Set by COMPOSING its whole value from parts — the leaf twin of the
+        // dict-element (GAP3) and polymorphic-arm compose paths, validated by the SAME StructSpecContents. Apply already
+        // built it (ApplyScalarVerb req.Struct -> BuildStruct); this LIFTS the documented safe over-reject (write-preflight
+        // audit §3(b), decision #4 "defer unless you want it" — the chain now wants it) so a one-shot subtree author can
+        // fill an absent struct in ONE op instead of a mandatory extra round-trip. Scoped BY CONSTRUCTION via
+        // SchemaClassifier.IsComposableSubstructLeaf: a COERCIBLE substruct (TranslatedString) keeps its plain-value Set,
+        // and a composition-residual (GenderedItem<T> — diverted to [0]/[1] upstream — / Array2d<T> — no paramless ctor,
+        // BuildStruct would throw) can't slip in (would be an accept-then-throw). Bug: bulk-authoring-sibling-list-refs-and-struct-set.
+
+        // ---------- SUBSTRUCT-SET-COMPOSE-OK: Set NPC_.FaceParts from a NpcFaceParts compose is ACCEPTED ----------
+        bool substructComposeOk;
+        {
+            var req = new WriteRequest { RecordType = "Npc", Path = new[] { "FaceParts" }, Verb = "Set",
+                Struct = new StructSpec { Type = "NpcFaceParts", Fields = new Dictionary<string, string> { ["Nose"] = "32", ["Eyes"] = "0", ["Mouth"] = "0" } } };
+            var reject = rulebook.Validate(req);
+            substructComposeOk = reject is null;
+            Console.WriteLine($"   SUBSTRUCT-SET-COMPOSE-OK           : {(substructComposeOk ? "PASS — a whole-struct compose Set on NPC_.FaceParts is ACCEPTED (RED before: 'Set on FaceParts requires a value' — compose ignored on a scalar Set)" : $"FAIL — reject=[{reject}]")}");
+        }
+
+        // ---------- SUBSTRUCT-SET-ARM-COMPOSE-OK: an ARM-typed substruct leaf composes too (Aaron's fuller scope) ----------
+        // SceneAdapter.ScriptFragments is cardinality substruct with a Kind=arm TypeRef (SceneScriptFragments, paramless
+        // ctor). The predicate admits Kind struct OR arm — both are build-from-parts. (QuestFragmentAlias.Property is the twin.)
+        bool substructArmComposeOk;
+        {
+            var req = new WriteRequest { RecordType = "SceneAdapter", Path = new[] { "ScriptFragments" }, Verb = "Set",
+                Struct = new StructSpec { Type = "SceneScriptFragments" } };
+            var reject = rulebook.Validate(req);
+            substructArmComposeOk = reject is null;
+            Console.WriteLine($"   SUBSTRUCT-SET-ARM-COMPOSE-OK       : {(substructArmComposeOk ? "PASS — an arm-typed substruct leaf (SceneAdapter.ScriptFragments) composes too (RED before: rejected)" : $"FAIL — reject=[{reject}]")}");
+        }
+
+        // ---------- SUBSTRUCT-SET-COMPOSE-BADTYPE: a compose type that isn't the leaf's struct type refuses ----------
+        bool substructBadTypeOk;
+        {
+            var req = new WriteRequest { RecordType = "Npc", Path = new[] { "FaceParts" }, Verb = "Set",
+                Struct = new StructSpec { Type = "Weapon" } };
+            var reject = rulebook.Validate(req);
+            substructBadTypeOk = reject is not null && reject.Contains("does not match", StringComparison.OrdinalIgnoreCase)
+                && reject.Contains("NpcFaceParts", StringComparison.Ordinal);
+            Console.WriteLine($"   SUBSTRUCT-SET-COMPOSE-BADTYPE      : {(substructBadTypeOk ? "PASS — a non-NpcFaceParts compose type is refused, naming the leaf's struct type" : $"FAIL — reject=[{reject}]")}");
+        }
+
+        // ---------- SUBSTRUCT-SET-COMPOSE-BADFIELD: a malformed compose field value refuses (contents validated) ----------
+        bool substructBadFieldOk;
+        {
+            var req = new WriteRequest { RecordType = "Npc", Path = new[] { "FaceParts" }, Verb = "Set",
+                Struct = new StructSpec { Type = "NpcFaceParts", Fields = new Dictionary<string, string> { ["Nose"] = "notauint" } } };
+            var reject = rulebook.Validate(req);
+            substructBadFieldOk = reject is not null && reject.Contains("Nose", StringComparison.Ordinal);
+            Console.WriteLine($"   SUBSTRUCT-SET-COMPOSE-BADFIELD     : {(substructBadFieldOk ? "PASS — a malformed compose field (Nose='notauint') is refused (StructSpecContents validates the contents)" : $"FAIL — reject=[{reject}]")}");
+        }
+
+        // ---------- SUBSTRUCT-SET-NOSPEC: Set on a composable struct substruct with NO compose gives the compose guidance ----------
+        // Not the misleading "requires a value" (the bug report's specific complaint) — the message names the compose path.
+        bool substructNoSpecOk;
+        {
+            var req = new WriteRequest { RecordType = "Npc", Path = new[] { "FaceParts" }, Verb = "Set", Value = "0" };
+            var reject = rulebook.Validate(req);
+            substructNoSpecOk = reject is not null && reject.Contains("compose spec", StringComparison.OrdinalIgnoreCase)
+                && !reject.Contains("requires a value", StringComparison.OrdinalIgnoreCase);
+            Console.WriteLine($"   SUBSTRUCT-SET-NOSPEC guidance      : {(substructNoSpecOk ? "PASS — Set FaceParts with no compose names the compose path, NOT the misleading 'requires a value'" : $"FAIL — reject=[{reject}]")}");
+        }
+
+        // ---------- SUBSTRUCT-SET-COERCIBLE-UNCHANGED: a coercible substruct (TranslatedString) keeps its plain-value Set ----------
+        // The !CoercibleLeaf exclusion: APerkEffect.ButtonLabel is a TranslatedString substruct (Kind struct) but coerces
+        // from a string — it must NOT be re-routed to compose-only. Accepted before AND after (over-reject regression guard).
+        bool substructCoercibleOk;
+        {
+            var req = new WriteRequest { RecordType = "APerkEffect", Path = new[] { "ButtonLabel" }, Verb = "Set", Value = "Activate" };
+            var reject = rulebook.Validate(req);
+            substructCoercibleOk = reject is null;
+            Console.WriteLine($"   SUBSTRUCT-SET-COERCIBLE-UNCHANGED  : {(substructCoercibleOk ? "PASS — a coercible substruct (APerkEffect.ButtonLabel/TranslatedString) still accepts a plain value (not re-routed to compose)" : $"FAIL — reject=[{reject}]")}");
+        }
+
+        // ---------- SUBSTRUCT-SET-ARRAY2D-REJECTED: a composition-residual (Array2d) is NOT opened (no accept-then-throw) ----------
+        // CellMaxHeightData.HeightMap is a writable substruct with Kind=struct TypeRef ReadOnlyArray2d<Byte> — but it has
+        // NO paramless ctor, so BuildStruct would throw CompositionRequiredException at apply. IsPlainComposableStruct
+        // excludes it, so the gate keeps refusing (via the requires-a-value path) rather than accepting then throwing.
+        // RED if the ctor-exclusion is dropped: the type-matching compose would validate + accept, an accept-then-throw.
+        bool substructArray2dRejOk;
+        {
+            var req = new WriteRequest { RecordType = "CellMaxHeightData", Path = new[] { "HeightMap" }, Verb = "Set",
+                Struct = new StructSpec { Type = "ReadOnlyArray2d<Byte>" } };
+            var reject = rulebook.Validate(req);
+            substructArray2dRejOk = reject is not null;
+            Console.WriteLine($"   SUBSTRUCT-SET-ARRAY2D-REJECTED     : {(substructArray2dRejOk ? "PASS — an Array2d composition-residual is NOT opened to compose (no accept-then-throw; ctor-exclusion holds)" : $"FAIL — reject=[{reject}] (Array2d compose was ACCEPTED — would throw at apply)")}");
+        }
+
+        // ---------- SUBSTRUCT-SET-COMPOSE-E2E: a composed NpcFaceParts round-trips through the REAL create+apply path ----------
+        bool substructComposeE2eOk = false;
+        {
+            string pPath = Path.Combine(tmpDir, "HcNcSubComp.esp");
+            var specs = new[]
+            {
+                new WritePatchBuilder.CreateSpec { RecordType = "Npc", EditorId = "HcNcSubCompNpc",
+                    Edits = new[] { new WriteRequest { RecordType = "Npc", Path = new[] { "FaceParts" }, Verb = "Set",
+                        Struct = new StructSpec { Type = "NpcFaceParts", Fields = new Dictionary<string, string> { ["Nose"] = "32", ["Eyes"] = "0", ["Mouth"] = "0" } } } } },
+            };
+            using var r = LoadOrderResolver.Build(new[] { mPath });
+            var o = WritePatchBuilder.CreateRecords(r, rulebook, specs, pPath, extend: false);
+            bool present = o.Success && o.Created.Count > 0 && NpcFacePartsNose(pPath, o.Created[0].FormKey) == 32u;
+            substructComposeE2eOk = o.Success && present;
+            Console.WriteLine($"   SUBSTRUCT-SET-COMPOSE-E2E          : {(substructComposeE2eOk ? "PASS — accepted at the gate AND a NpcFaceParts(Nose=32) written to NPC_.FaceParts on disk" : $"FAIL — success={o.Success} present={present} err=[{o.Error}]")}");
+        }
+
+        // ---------- SUBSTRUCT-SET-DOTTED-VIVIFY: the report's ideal (b) — a dotted sub-path auto-vivifies an ABSENT struct ----------
+        // Set FaceParts.Nose="32" on an NPC with NO FaceParts: ApplyVerb materializes the absent NpcFaceParts substruct
+        // (MaterializeSubstruct) mid-path, then sets Nose. Verifies + GUARANTEES the report's alternative one-op-per-field
+        // path (works independently of the compose Set above — the chain's Stage 3 may use either). E2E round-trip to disk.
+        bool substructDottedVivifyOk = false;
+        {
+            string pPath = Path.Combine(tmpDir, "HcNcSubDotted.esp");
+            var specs = new[]
+            {
+                new WritePatchBuilder.CreateSpec { RecordType = "Npc", EditorId = "HcNcSubDottedNpc",
+                    Edits = new[] { new WriteRequest { RecordType = "Npc", Path = new[] { "FaceParts", "Nose" }, Verb = "Set", Value = "32" } } },
+            };
+            using var r = LoadOrderResolver.Build(new[] { mPath });
+            var o = WritePatchBuilder.CreateRecords(r, rulebook, specs, pPath, extend: false);
+            bool present = o.Success && o.Created.Count > 0 && NpcFacePartsNose(pPath, o.Created[0].FormKey) == 32u;
+            substructDottedVivifyOk = o.Success && present;
+            Console.WriteLine($"   SUBSTRUCT-SET-DOTTED-VIVIFY        : {(substructDottedVivifyOk ? "PASS — Set FaceParts.Nose on an ABSENT struct auto-vivifies it then sets the sub-field (report ideal b, guaranteed)" : $"FAIL — success={o.Success} present={present} err=[{o.Error}]")}");
+        }
+
         Console.WriteLine();
         bool pass = fixturesOk && oneshotOk && multiOk && intoTopicOk && intoCellOk
+                    && substructComposeOk && substructArmComposeOk && substructBadTypeOk && substructBadFieldOk
+                    && substructNoSpecOk && substructCoercibleOk && substructArray2dRejOk && substructComposeE2eOk
+                    && substructDottedVivifyOk
                     && rejNoParentOk && rejBadParentOk && rejAmbigOk && rejFwdSibOk && extendOk
                     && sibrefOk && sibRefListAddOk && sibRefListReplaceOk && sibRejFwdOk && sibRejFwdListOk
                     && sibRejNonflOk && sibRejListSetOk && sibRejDictOk && sibRejApplyOk
@@ -2251,6 +2394,22 @@ public static class NestedCreateGuardProbe
         bool ok = refused && noFile && named;
         Console.WriteLine($"   {banner}: {(ok ? "PASS — refused by name, no file written" : $"FAIL — refused={refused} noFile={noFile} named={named} err=[{error}]")}");
         return ok;
+    }
+
+    /// <summary>Re-open the written patch and read an NPC's FaceParts.Nose — the substruct compose-Set round-trip (the
+    /// whole NpcFaceParts struct was built FROM PARTS via ApplyScalarVerb req.Struct -> BuildStruct and serialized).
+    /// Returns null when the NPC or its FaceParts is absent (so the E2E fails honestly rather than defaulting to a match).</summary>
+    static uint? NpcFacePartsNose(string patchPath, FormKey npcFk)
+    {
+        ISkyrimModGetter? ov = null;
+        try
+        {
+            ov = SkyrimMod.CreateFromBinaryOverlay(patchPath, SkyrimRelease.SkyrimSE);
+            var n = ov.Npcs.FirstOrDefault(x => x.FormKey == npcFk);
+            return n?.FaceParts?.Nose;
+        }
+        catch { return null; }
+        finally { (ov as IDisposable)?.Dispose(); }
     }
 
     /// <summary>Re-open the written patch and confirm a Package's Data dict carries a composed PackageDataBool(Data=true)

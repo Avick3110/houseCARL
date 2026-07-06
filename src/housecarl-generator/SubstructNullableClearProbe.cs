@@ -17,8 +17,10 @@ namespace HousecarlGenerator;
 ///                       not VMAD-special-cased (both are nullable reference substructs Mutagen models with "?").
 ///   CONTROL-OBJBOUNDS — Remove Armor.ObjectBounds (a genuinely NON-nullable substruct) still REFUSES, naming
 ///                       'non-nullable' — proves the gate is nullability-DRIVEN, not "every substruct is now removable".
-///   CONTROL-SET       — Set on the VMAD substruct is STILL refused (a substruct is navigated INTO, not coerced) —
-///                       only Remove opened; the fix touched nullability data, not the Set path.
+///   CONTROL-SET       — a PLAIN-VALUE Set on the VMAD substruct is STILL refused (a substruct can't be coerced from a
+///                       value) — this probe's fix (nullable-clear) touched nullability data, not the Set path. NOTE: a
+///                       COMPOSE Set on a composable substruct IS now accepted (substruct compose-Set, nested-create-guard
+///                       SUBSTRUCT-SET-* arms) — a different path; this control drives Value="0" (no compose), which stays refused.
 ///   E2E-UNFRAGMENT    — an in-memory INFO carrying a VMAD, driven through the REAL WriteEngine.ApplyVerb Remove,
 ///                       comes back with VirtualMachineAdapter == null (was non-null) — the apply half, un-fragmented.
 ///   PREFLIGHT-POLY(2) — Remove a nullable standalone polymorphic field (Book.Teaches; Npc.Sound) PASSES — the same
@@ -62,7 +64,8 @@ public static class SubstructNullableClearProbe
         bool obOk = obReject is not null && obReject.Contains("non-nullable", StringComparison.OrdinalIgnoreCase);
         Console.WriteLine($"   CONTROL-OBJBOUNDS non-nullable still refuses: {(obOk ? "PASS — Remove ObjectBounds refused, names 'non-nullable' (nullability-driven, not blanket)" : $"FAIL — reject=[{obReject}]")}");
 
-        // CONTROL-SET: a substruct Set is still refused (navigate INTO it) — only Remove opened.
+        // CONTROL-SET: a PLAIN-VALUE substruct Set (Value="0", no compose) is still refused — a substruct can't be coerced
+        // from a value. (A COMPOSE Set on a composable substruct is now accepted — separate path, nested-create-guard.)
         var setReject = rulebook.Validate(new WriteRequest { RecordType = "DialogResponses", Path = new[] { "VirtualMachineAdapter" }, Verb = "Set", Value = "0" });
         bool setOk = setReject is not null;
         Console.WriteLine($"   CONTROL-SET       Set on substruct unchanged: {(setOk ? "PASS — Set on VirtualMachineAdapter still refused (navigate-in unchanged)" : "FAIL — Set on a substruct was accepted")}");

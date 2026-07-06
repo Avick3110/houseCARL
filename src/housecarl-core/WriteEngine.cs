@@ -1797,6 +1797,23 @@ public static class WriteEngine
             $"Unknown struct type '{name}' — no concrete class in Mutagen.Bethesda.Skyrim nor any Mutagen assembly. " +
             "If Mutagen models it under another name, surface that; never guess.");
 
+    /// <summary>True iff <see cref="BuildStruct"/> can instantiate this catalog TYPE from a PARAMETERLESS compose (no
+    /// ctor_args, no composition): the name resolves via <see cref="ResolveStructType"/> to a concrete Mutagen type with
+    /// a public parameterless ctor. The gate-side twin of what <see cref="Instantiate"/> does with no ctor_args — it
+    /// EXCLUDES the composition-residuals <c>GenderedItem&lt;T&gt;</c> / <c>Array2d&lt;T&gt;</c> (no parameterless ctor,
+    /// so Instantiate routes to <see cref="InstantiateComposition"/>, which builds only gendered halves and throws for the
+    /// rest) and any name ResolveStructType can't resolve. Used by the substruct-leaf compose gate so it accepts EXACTLY
+    /// what apply can build (gate==apply, by construction; no per-type list). A ctor-arg-only type is (correctly) excluded:
+    /// a substruct leaf whose whole value needs positional ctor args is not a plain compose target.</summary>
+    internal static bool IsPlainComposableStruct(string? typeName)
+    {
+        if (typeName is null) return false;
+        Type t;
+        try { t = ResolveStructType(typeName); }
+        catch { return false; }
+        return t.GetConstructor(Type.EmptyTypes) is not null;
+    }
+
     /// <summary>Instantiate a concrete type for build-from-parts. Order: explicit positional ctor args (discriminator
     /// arm like <c>MagicEffectArchetype(TypeEnum)</c>, or composition parts) → parameterless ctor (the common case) →
     /// composition build (no parameterless ctor + no explicit args).</summary>

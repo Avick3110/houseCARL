@@ -108,4 +108,22 @@ public static class SchemaClassifier
     /// AssetLink-path elements (set as one value). Defined via <see cref="ClassifyElement"/> so it cannot drift from it.</summary>
     public static bool IsStructElement(FieldSchema f, Corpus corpus) =>
         ClassifyElement(f, corpus) == ElementKind.Struct;
+
+    /// <summary>True iff a scalar SUBSTRUCT leaf can be Set by composing its whole value FROM PARTS (a StructSpec) — the
+    /// LEAF twin of <see cref="IsStructElement"/>, keyed on the leaf's own <see cref="FieldSchema.TypeRef"/> instead of an
+    /// element ref. Requires ALL of: a substruct leaf; whose modeled type is a build-from-parts struct OR concrete arm
+    /// (corpus Kind); that is NOT coercible-from-a-value (<see cref="CoercibleLeaf"/> — a TranslatedString substruct keeps
+    /// its plain-value Set, never re-routed to compose-only); and that <see cref="WriteEngine.IsPlainComposableStruct"/>
+    /// can instantiate — which EXCLUDES the composition-residuals <c>GenderedItem&lt;T&gt;</c>/<c>Array2d&lt;T&gt;</c> (no
+    /// parameterless ctor; BuildStruct would throw). The last two guards keep the accept in lock-step with what
+    /// <c>ApplyScalarVerb</c> req.Struct → <c>BuildStruct</c> can actually build (gate==apply). Gendered leaves never reach
+    /// the compose gate — <c>CorpusRulebook</c> diverts them to their [0]/[1] halves upstream. Corpus-derived, no per-type
+    /// wiring (cornerstone): the set of composable substructs IS the set of modeled build-from-parts struct/arm types.</summary>
+    public static bool IsComposableSubstructLeaf(FieldSchema f, Corpus corpus)
+    {
+        if (f.Cardinality != "substruct" || f.TypeRef is not { } tr) return false;
+        if (corpus.Types.GetValueOrDefault(tr)?.Kind is not ("struct" or "arm")) return false;
+        if (CoercibleLeaf(f)) return false;                       // coercible substruct → keeps its plain-value Set
+        return WriteEngine.IsPlainComposableStruct(tr);           // excludes GenderedItem/Array2d (no paramless ctor)
+    }
 }

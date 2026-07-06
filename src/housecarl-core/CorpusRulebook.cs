@@ -414,6 +414,15 @@ public sealed class CorpusRulebook
         }
         if (req.Verb is "Set" && leaf.Cardinality == "polymorphic")
             return ArmLegality(leaf, req.Struct);
+        // A whole modeled-STRUCT substruct leaf (FaceParts, ObjectBounds, FaceMorph, a concrete script-property arm, …) is
+        // Set by composing its value FROM PARTS — the leaf twin of the dict-element (above) and polymorphic-arm (just above)
+        // compose paths, validated by the SAME StructSpecContents. Apply already builds it (ApplyScalarVerb req.Struct ->
+        // BuildStruct), so this LIFTS the documented safe over-reject (write-preflight audit §3(b)) so a one-shot subtree
+        // author can fill an absent struct in ONE op. SchemaClassifier scopes it so a coercible substruct (TranslatedString)
+        // keeps its plain-value Set below, and a composition-residual (GenderedItem — diverted to [0]/[1] upstream — /
+        // Array2d — no paramless ctor) stays out (gate==apply, no accept-then-throw). Chain Stage 2b.
+        if (req.Verb is "Set" && SchemaClassifier.IsComposableSubstructLeaf(leaf, _corpus))
+            return StructLeafLegality(leaf, req.Struct);
         if (req.Verb is "Set")
         {
             if (req.Value is null) return $"Set on '{leaf.Name}' requires a value.";
@@ -643,6 +652,27 @@ public sealed class CorpusRulebook
             return $"Element spec type '{spec.Type}' does not match '{leaf.Name}' element type '{er}'.{legal}";
         }
         return StructSpecContents(spec, specSchema);
+    }
+
+    /// <summary>Validate a whole-struct compose Set on a SUBSTRUCT leaf — the leaf twin of <see cref="StructElementLegality"/>,
+    /// keyed on the leaf's own <see cref="FieldSchema.TypeRef"/>. The spec must be present and its type must match the leaf's
+    /// struct type; its contents then validate against that type's schema via the shared <see cref="StructSpecContents"/>
+    /// (flat Fields + nested Sets + ctor-args) — the SAME recognizer the struct-element Add and polymorphic-arm Set use, so
+    /// the three composition entry points can't disagree. A substruct leaf's TypeRef is always a CONCRETE struct/arm (a
+    /// polymorphic FIELD is cardinality "polymorphic", handled above), so a straight name-match is correct — no poly-base
+    /// arm resolution. Reached only for a <see cref="SchemaClassifier.IsComposableSubstructLeaf"/> leaf (TypeRef non-null,
+    /// corpus-present, apply-instantiable) — the null-spec branch replaces the misleading scalar "requires a value".</summary>
+    string? StructLeafLegality(FieldSchema leaf, StructSpec? spec)
+    {
+        var tr = leaf.TypeRef!;               // non-null by IsComposableSubstructLeaf
+        var schema = Type(tr);
+        if (schema is null) return $"Struct type '{tr}' for '{leaf.Name}' absent from corpus.";
+        if (spec is null)
+            return $"'{leaf.Name}' is a {tr} struct — set it by composing from parts (a compose spec, e.g. " +
+                   $"{{\"type\":\"{tr}\", \"fields\":{{…}}}}), or navigate into it and Set a sub-field; a plain value can't express a struct.";
+        if (spec.Type != tr)
+            return $"Compose type '{spec.Type}' does not match '{leaf.Name}' struct type '{tr}'.";
+        return StructSpecContents(spec, schema);
     }
 
     /// <summary>Validate a build-from-parts spec's CONTENTS against its declared struct type: flat <see cref="StructSpec.Fields"/>
