@@ -45,8 +45,8 @@ public static class RemapEngine
     /// ceiling, only when the mod is flagged light). The usable window is therefore 0x800–0xFFF INCLUSIVE = 2048 IDs —
     /// NOT the 4096 the build plan's draft refuse-threshold assumed; that reconciliation lands when the compact tool
     /// ships (Wave 2). Compact assigns into this window; the capacity check in <see cref="BuildSequentialRemap"/> enforces it.</summary>
-    public const uint EslFloor = 0x800;
-    public const uint EslCeiling = 0xFFF;
+    public const uint EslFloor = FormIdRange.EslWindowFloor;      // 0x800 — the single home is FormIdRange (shared with the write-allocation floor)
+    public const uint EslCeiling = FormIdRange.EslWindowCeiling;  // 0xFFF
 
     // ======================================================================
     //  1. IDENTIFY-PASS  — the per-operation reverse-walk (plan §2 / §3)

@@ -19,7 +19,7 @@ namespace HousecarlCore;
 /// </summary>
 public static class PluginNameSuggest
 {
-    static readonly string[] PluginExts = { ".esp", ".esm", ".esl" };
+    static readonly string[] PluginExts = PluginFile.Extensions;   // the one shared home (HousecarlCore.PluginFile) — no divergent copy
 
     /// <summary>Up to <paramref name="max"/> nearest candidate names for a missed <paramref name="query"/>, best first.
     /// Empty when nothing clears the relevance bar (no spurious suggestion). Case-insensitive throughout.</summary>

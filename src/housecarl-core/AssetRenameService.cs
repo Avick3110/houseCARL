@@ -201,7 +201,7 @@ public static class AssetRenameService
             if (!m.Success) continue;                                      // not an INFO-keyed voice file — nothing to remap
             uint full;
             try { full = Convert.ToUInt32(m.Groups[1].Value, 16); } catch { continue; }
-            uint oldLocal = full & 0xFFFFFFu;                              // mask the index byte, exactly like VoicePath emits "00"+6hex
+            uint oldLocal = full & FormIdRange.ObjectIdMask;              // mask the index byte, exactly like VoicePath emits "00"+6hex
             if (!idMap.TryGetValue(oldLocal, out var newLocal)) continue;  // id not renumbered → filename unchanged → no carry
 
             var newId = "00" + newLocal.ToString("X6");

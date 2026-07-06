@@ -70,7 +70,7 @@ public sealed record PluginFileHit(string Path, string Where, bool Enabled);
 
 public static class Mo2LoadOrder
 {
-    static readonly string[] PluginExts = { ".esp", ".esm", ".esl" };
+    static readonly string[] PluginExts = PluginFile.Extensions;   // the one shared home (HousecarlCore.PluginFile) — no divergent copy
 
     /// <summary>Read the active order from <paramref name="profileDir"/>'s loadorder.txt + modlist.txt + plugins.txt,
     /// resolving each active plugin to its WINNING real path: MO2's <paramref name="overwriteDir"/> first (the overwrite

@@ -908,13 +908,7 @@ public static class WriteEngine
     {
         if (!CanCreateType(typeName, out var reason)) throw new InvalidOperationException(reason);
         EnsureFormIdFloor(patchMod);   // a counter rehydrated below 0x800 would hand AddNew engine-reserved IDs (HCBR-2026-06-09-04)
-        // Object IDs are 24-bit; a counter past 0xFFFFFF (a tampered header, or a truly full plugin) cannot allocate —
-        // fail loud HERE, at the allocation boundary (Q3), not in EnsureFormIdFloor: a full-but-valid patch must still
-        // SERIALIZE (WritePatch floors the same counter), it just can't grow. (PR #30 review.)
-        if (patchMod.ModHeader.Stats.NextFormID > 0xFFFFFF)
-            throw new InvalidOperationException(
-                $"cannot allocate a new FormID: the patch's NextObjectID counter is 0x{patchMod.ModHeader.Stats.NextFormID:X} — " +
-                "past the 24-bit object-ID ceiling (0xFFFFFF). The plugin is full or its header counter is corrupt.");
+        EnsureAllocatable(patchMod);   // …and a counter past the 24-bit object-ID ceiling can't allocate — fail loud (Q3)
 
         // Abstract-group arm (GlobalFloat / GameSettingFloat / …): construct the concrete arm + Add(T) it (the abstract T
         // can't go through InvokeAddNew). CanCreateType admitted the arm, so resolution here can't fail benignly.
@@ -1094,12 +1088,26 @@ public static class WriteEngine
     /// </summary>
     public static void EnsureFormIdFloor(SkyrimMod patchMod)
     {
-        uint floor = 0x800;
+        uint floor = FormIdRange.EngineReservedFloor;
         foreach (var r in patchMod.EnumerateMajorRecords())
             if (r.FormKey.ModKey == patchMod.ModKey && r.FormKey.ID >= floor)
                 floor = r.FormKey.ID + 1;
         if (patchMod.ModHeader.Stats.NextFormID < floor)
             patchMod.ModHeader.Stats.NextFormID = floor;
+    }
+
+    /// <summary>Guard that the patch can still allocate: its NextObjectID counter must be within the 24-bit object-ID
+    /// space (≤ <see cref="FormIdRange.ObjectIdMax"/>). Past it (a tampered header, or a truly full plugin) no
+    /// allocation is possible — fail LOUD here, at the allocation boundary (Q3), NOT in <see cref="EnsureFormIdFloor"/>:
+    /// a full-but-valid patch must still SERIALIZE (WritePatch floors the same counter), it just can't grow (PR #30
+    /// review). The four create entry points (flat / nested / exterior-cell / interior-cell) share this one guard so
+    /// the ceiling and its message live in ONE place rather than four identical copies.</summary>
+    static void EnsureAllocatable(SkyrimMod patchMod)
+    {
+        if (patchMod.ModHeader.Stats.NextFormID > FormIdRange.ObjectIdMax)
+            throw new InvalidOperationException(
+                $"cannot allocate a new FormID: the patch's NextObjectID counter is 0x{patchMod.ModHeader.Stats.NextFormID:X} — " +
+                $"past the 24-bit object-ID ceiling (0x{FormIdRange.ObjectIdMax:X}). The plugin is full or its header counter is corrupt.");
     }
 
     /// <summary>Invoke Mutagen's <c>AddNew</c> on a flat group instance. <c>AddNew</c> is NOT a plain instance method on
@@ -1267,10 +1275,7 @@ public static class WriteEngine
             throw new InvalidOperationException($"nested create: collection '{prop.Name}' on '{parentInPatch.GetType().Name}' is not an addable list.");
 
         EnsureFormIdFloor(patchMod);   // a rehydrated (into=) counter below 0x800 would hand engine-reserved IDs (HCBR-2026-06-09-04)
-        if (patchMod.ModHeader.Stats.NextFormID > 0xFFFFFF)
-            throw new InvalidOperationException(
-                $"cannot allocate a new FormID: the patch's NextObjectID counter is 0x{patchMod.ModHeader.Stats.NextFormID:X} — " +
-                "past the 24-bit object-ID ceiling (0xFFFFFF). The plugin is full or its header counter is corrupt.");
+        EnsureAllocatable(patchMod);
         var child = ConstructRecord(childType, AllocateNextFormKey(patchMod));
         if (editorId is not null) child.EditorID = editorId;
         list.Add(child);
@@ -1312,10 +1317,7 @@ public static class WriteEngine
         // AddInteriorCell keeps the no-mutation-before-validation property clean — PR #94 review nit).
         EnsureNoDuplicateCellEditorId(patchMod, editorId);   // no silent duplicate on an into= re-run (cells have a stable EditorID)
         EnsureFormIdFloor(patchMod);   // 0x800 floor, exactly like flat/nested create (HCBR-2026-06-09-04)
-        if (patchMod.ModHeader.Stats.NextFormID > 0xFFFFFF)
-            throw new InvalidOperationException(
-                $"cannot allocate a new FormID: the patch's NextObjectID counter is 0x{patchMod.ModHeader.Stats.NextFormID:X} — " +
-                "past the 24-bit object-ID ceiling (0xFFFFFF). The plugin is full or its header counter is corrupt.");
+        EnsureAllocatable(patchMod);
         int bx = FloorDiv(gridX, 32), by = FloorDiv(gridY, 32), sx = FloorDiv(gridX, 8), sy = FloorDiv(gridY, 8);
         var block = worldspaceInPatch.SubCells.FirstOrDefault(b => b.BlockNumberX == bx && b.BlockNumberY == by);
         if (block is null)
@@ -1344,10 +1346,7 @@ public static class WriteEngine
     {
         EnsureNoDuplicateCellEditorId(patchMod, editorId);   // no silent duplicate on an into= re-run (cells have a stable EditorID)
         EnsureFormIdFloor(patchMod);
-        if (patchMod.ModHeader.Stats.NextFormID > 0xFFFFFF)
-            throw new InvalidOperationException(
-                $"cannot allocate a new FormID: the patch's NextObjectID counter is 0x{patchMod.ModHeader.Stats.NextFormID:X} — " +
-                "past the 24-bit object-ID ceiling (0xFFFFFF). The plugin is full or its header counter is corrupt.");
+        EnsureAllocatable(patchMod);
         var fk = AllocateNextFormKey(patchMod);
         uint id = fk.ID;
         int blockN = (int)(id % 10), subN = (int)((id / 10) % 10);

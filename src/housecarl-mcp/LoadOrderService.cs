@@ -1717,7 +1717,7 @@ public sealed class LoadOrderService : IDisposable
                     $"'{name}' defines no originating records to renumber (it carries only overrides, or is empty) — nothing to compact.");
 
             uint floor = RemapEngine.EslFloor;
-            uint ceiling = esl ? RemapEngine.EslCeiling : 0xFFFFFFu;      // light window, or the full 24-bit object-ID range
+            uint ceiling = esl ? RemapEngine.EslCeiling : FormIdRange.ObjectIdMax;   // light window, or the full 24-bit object-ID range
             var plan = RemapEngine.BuildSequentialRemap(keys, modKey, floor, ceiling);
             if (!plan.Success) return WritePatchBuilder.CompactOutcome.Fail(plan.Error!);
 
@@ -2633,8 +2633,9 @@ public sealed class LoadOrderService : IDisposable
     static string ModFolderName(string stem) => "houseCARL - " + stem;
 
     /// <summary>Plugin extensions stripped from a caller-supplied patch name (case-insensitive). NOT every dot — see
-    /// <see cref="PatchStem"/>.</summary>
-    static readonly string[] PluginExts = { ".esp", ".esm", ".esl" };
+    /// <see cref="PatchStem"/>. Aliases the one shared home (<see cref="HousecarlCore.PluginFile.Extensions"/>) so this
+    /// and the load-order reader / name-suggester copies can't diverge.</summary>
+    static readonly string[] PluginExts = PluginFile.Extensions;
 
     /// <summary>Reduce a caller name to a safe bare STEM — no directory parts (so "../x" / "C:\y" can't escape ModsDir),
     /// stripping ONLY a trailing plugin extension (.esp/.esm/.esl), not every dot. A dotted patch name like
