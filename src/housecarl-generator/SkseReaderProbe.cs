@@ -98,17 +98,21 @@ internal static class SkseReaderProbe
               $"a managed assembly with no SKSE export classifies NotSkse (got {g.Kind})");
         Check(g.Note is { Length: > 0 }, "NotSkse carries a Q3 note explaining why");
         Check(g.Version is null, "no version manifest for a non-plugin DLL");
+        Check(g.Is64Bit is not null, "a readable PE reports a DETERMINED bitness (not null)");
 
-        // ---- H: honest degrade — a non-PE file and a missing path both yield Unreadable, never a throw. ----
-        Console.WriteLine("\n--- H: honest-degrade (non-PE + missing path → Unreadable, no throw) ---");
+        // ---- H: honest degrade — a non-PE file and a missing path both yield Unreadable, never a throw, and their
+        //         bitness is UNKNOWN (null), never a fabricated 32-bit claim (finding #1: Unreadable had Is64Bit=false). ----
+        Console.WriteLine("\n--- H: honest-degrade (non-PE + missing path → Unreadable, no throw, bitness unknown) ---");
         var junk = Path.Combine(Path.GetTempPath(), "hc-skse-junk-" + Guid.NewGuid().ToString("N") + ".dll");
         try
         {
             File.WriteAllBytes(junk, Encoding.ASCII.GetBytes("this is not a PE file at all, just some bytes"));
             var h1 = SksePluginReader.Read(junk);
             Check(h1.Kind == SksePluginReader.SksePluginKind.Unreadable, $"non-PE bytes → Unreadable (got {h1.Kind})");
+            Check(h1.Is64Bit is null, "non-PE → bitness UNKNOWN (null), NOT a false 32-bit claim (finding #1)");
             var h2 = SksePluginReader.Read(Path.Combine(Path.GetTempPath(), "hc-skse-does-not-exist-" + Guid.NewGuid().ToString("N") + ".dll"));
             Check(h2.Kind == SksePluginReader.SksePluginKind.Unreadable, $"missing file → Unreadable, no throw (got {h2.Kind})");
+            Check(h2.Is64Bit is null, "missing file → bitness UNKNOWN (null)");
         }
         finally { try { File.Delete(junk); } catch { /* temp scratch */ } }
 
