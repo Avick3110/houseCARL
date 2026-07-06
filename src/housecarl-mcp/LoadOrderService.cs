@@ -2883,10 +2883,28 @@ public sealed class LoadOrderService : IDisposable
         try
         {
             var masters = ov.ModHeader.MasterReferences.Select(m => m.Master.FileName.ToString()).ToList();
-            var missing = masters.Where(m => !Mo2LoadOrder.PluginFileExists(comp, modsDir, dataDir, overwriteDir, m)).ToList();
+            // Classify each declared master by whether it will actually LOAD (Q3 — the "won't load without them" warning
+            // must fire exactly when it applies). Two distinct shortfalls, because their remedies differ:
+            //   • missing  — installed NOWHERE in the install (install it).
+            //   • inactive — installed but NOT in the active order: it lives only in a DISABLED mod, or is unchecked
+            //                (enable it). A disabled mod is not active, so counting its file as "satisfied" would be the
+            //                precise false-negative this split exists to prevent (PR #148 review): it suppresses the
+            //                "won't load" warning exactly when it applies.
+            // "Active" is read from the PROFILE (plugins.txt actives + the force-loaded implicit masters) — the same
+            // active-order notion housecarl_check_errors uses — NOT mere on-disk presence, so the two tools agree.
+            var missing = new List<string>();
+            var inactive = new List<string>();
+            foreach (var m in masters)
+            {
+                if (!Mo2LoadOrder.PluginFileExists(comp, modsDir, dataDir, overwriteDir, m)) { missing.Add(m); continue; }
+                bool active = comp.ActivePluginNames.Contains(m)
+                              || comp.ImplicitPluginNames.Any(x => x.Equals(m, StringComparison.OrdinalIgnoreCase));
+                if (!active) inactive.Add(m);
+            }
             var baseOut = new PluginFileOutcome
             {
-                Requested = plugin, FilePath = path, Where = where, Enabled = enabled, Masters = masters, MissingMasters = missing,
+                Requested = plugin, FilePath = path, Where = where, Enabled = enabled,
+                Masters = masters, MissingMasters = missing, InactiveMasters = inactive,
             };
 
             if (hasFormid)
@@ -3063,7 +3081,8 @@ public sealed record PluginFileOutcome
     public string? Where { get; init; }
     public bool Enabled { get; init; }
     public IReadOnlyList<string> Masters { get; init; } = Array.Empty<string>();
-    public IReadOnlyList<string> MissingMasters { get; init; } = Array.Empty<string>();
+    public IReadOnlyList<string> MissingMasters { get; init; } = Array.Empty<string>();     // declared but installed NOWHERE
+    public IReadOnlyList<string> InactiveMasters { get; init; } = Array.Empty<string>();    // installed but NOT active (disabled/unchecked)
     public RecordFields? Record { get; init; }
     public IReadOnlyList<PluginRecordRow> Rows { get; init; } = Array.Empty<PluginRecordRow>();
     public int RowTotal { get; init; }
