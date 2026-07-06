@@ -60,6 +60,14 @@ namespace HousecarlCore;
 /// (Q3). A record that already carried the field produces NO fill (non-override).</summary>
 public readonly record struct CkParityFill(string Label, string Reason);
 
+/// <summary>One CK-parity subrecord a record is MISSING — the read-only counterpart of a <see cref="CkParityFill"/>.
+/// <see cref="Subrecord"/> names the omitted field ("CNAM (FavorLevel)"); <see cref="Detail"/> is why it matters +
+/// the fix. The on-demand dialogue validator surfaces each as a Warning (a CK-editor-crash shape the game itself
+/// tolerates — the same severity class as the BNAM-absent lint). Produced by the SAME null probe the fill path
+/// uses, so a create that FILLS the field and a validate that FLAGS its absence can never disagree (the shared-source
+/// discipline DialogueSubtype set for the SNAM marker, generalised to the rest of the family).</summary>
+public readonly record struct CkParityGap(string Subrecord, string Detail);
+
 /// <summary>The authority for the CK-parity default-populate fields of the DIAL/INFO/DLVW family — the nullable
 /// subrecords the Creation Kit always writes but Mutagen omits when unset. The create path calls the per-type
 /// <c>Apply…Defaults</c> method after the author's edits, fills only the fields left null (NEVER overriding an
@@ -85,8 +93,10 @@ public static class DialogueCkParity
         var fills = new List<CkParityFill>(2);
 
         // FavorLevel (CNAM): nullable enum (FavorLevel?); None is the CK default (Talos' Tease / SexLab Solutions
-        // reference INFOs all carry FavorLevel = None). Only fill when the author set no favor level.
-        if (info.FavorLevel is null)
+        // reference INFOs all carry FavorLevel = None). Only fill when the author set no favor level. The absence
+        // probe is the shared HasFavorLevel (see below) — the SAME one MissingInfoDefaults flags on, so fill + check
+        // can't drift.
+        if (!HasFavorLevel(info))
         {
             info.FavorLevel = FavorLevel.None;
             fills.Add(new CkParityFill(
@@ -101,7 +111,8 @@ public static class DialogueCkParity
         // null when unset — confirmed empirically: setting a sub-field "materialises" it). A fresh struct is Flags=0,
         // ResetHours=0 — exactly the CK's empty ENAM. Only fill when the author materialised no Flags. NOTE: the
         // Goodbye conversation-ender lives in Flags.Flags; an all-zero fill does NOT set it — that stays explicit.
-        if (info.Flags is null)
+        // Absence probe is the shared HasResponseFlags — the SAME one MissingInfoDefaults flags on (no drift).
+        if (!HasResponseFlags(info))
         {
             info.Flags = new DialogResponseFlags();
             fills.Add(new CkParityFill(
@@ -113,6 +124,38 @@ public static class DialogueCkParity
         }
 
         return fills;
+    }
+
+    // --- Presence predicates: the SINGLE home for "does this INFO carry the CK-parity subrecord?", consulted by
+    //     BOTH the fill path (ApplyInfoDefaults — fills when absent) and the check path (MissingInfoDefaults — flags
+    //     when absent) so the two can never drift (Q3). The null read is reliable on the binary overlay the validator
+    //     uses: an absent optional subrecord reads null, a materialised one reads non-null (see the field notes on
+    //     ApplyInfoDefaults). The getter interface is enough — the fill path passes its mutable record, which is one. ---
+    static bool HasFavorLevel(IDialogResponsesGetter info) => info.FavorLevel is not null;   // CNAM
+    static bool HasResponseFlags(IDialogResponsesGetter info) => info.Flags is not null;      // ENAM
+
+    /// <summary>The CK-parity subrecords an INFO (DialogResponses) is MISSING — the read-only counterpart of
+    /// <see cref="ApplyInfoDefaults"/>, for the on-demand dialogue validator. Shares the exact presence predicates the
+    /// fill path uses, so "the create tool populates it" and "the validator flags its absence" can never disagree.
+    /// Empty when the INFO already carries both subrecords (the well-formed case, which every CK-/xEdit-authored INFO
+    /// is — this only ever fires on a bare-authored record). Reads only the getter; NEVER mutates.</summary>
+    public static IReadOnlyList<CkParityGap> MissingInfoDefaults(IDialogResponsesGetter info)
+    {
+        var gaps = new List<CkParityGap>(2);
+
+        if (!HasFavorLevel(info))
+            gaps.Add(new CkParityGap("CNAM (FavorLevel)",
+                "every CK-authored INFO carries the CNAM (FavorLevel) subrecord; an INFO missing it crashes the "
+                + "Creation Kit the moment its owning topic is opened in the dialogue editor (the game itself tolerates "
+                + "it). houseCARL's create tools auto-fill it — set FavorLevel (e.g. None) to populate it."));
+
+        if (!HasResponseFlags(info))
+            gaps.Add(new CkParityGap("ENAM (response Flags)",
+                "every CK-authored INFO carries the ENAM (response flags + reset-hours) subrecord; an INFO missing it "
+                + "crashes the Creation Kit when its owning topic is opened. houseCARL's create tools auto-fill it — "
+                + "set the response Flags to populate it."));
+
+        return gaps;
     }
 
     /// <summary>DLVW (DialogView) CK-parity defaults — the DNAM and ENAM byte subrecords. Both are nullable

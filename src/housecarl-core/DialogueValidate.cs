@@ -25,6 +25,9 @@ namespace HousecarlCore;
 //      and selects intra-topic by Conditions, not by a previous-link chain (empirically confirmed; the §3.6 "PNAM chain
 //      in response order" model was wrong for the existing corpus, so that check was dropped — review fold 2026-06-19).
 //    • Category / Subtype — surfaced as facts (what the game will use), not judged.
+//    • INFO CK-parity — a live INFO missing the FavorLevel (CNAM) or response-Flags (ENAM) subrecord the CK writes
+//      unconditionally (the CK-editor-crash shape DialogueCkParity fills on create). WARN, via the SHARED presence
+//      probe the create path fills through — so the fill side and this check side can't drift.
 //    • Voice + result-script — the existing per-INFO VoiceCheck.CheckInfo + DialogueScriptCheck.CheckInfo run over every
 //      LIVE INFO (reused verbatim, so the create-path and the validator can never drift). DELETED INFOs (a removed line)
 //      are skipped, not validated.
@@ -36,7 +39,11 @@ namespace HousecarlCore;
 //  WHAT IT DELIBERATELY CANNOT CHECK (grill-rev C2 — the validator is the ONLY non-advisory enforcement, so it
 //  must NAME the gaps, never let "checks passed" read as "this will play"): the CTDA conditions that gate when a
 //  line fires are semantic and only the game evaluates them; lip-sync accuracy + audio content are out of the
-//  data layer. Both are declared as standing limits the render surfaces loudly (Q3).
+//  data layer. Both are declared as standing limits the render surfaces loudly (Q3). Also NOT checked (the rest of
+//  the CK-parity family DialogueCkParity fills on create): DLVW DNAM/ENAM (a DialogView is not a validator input —
+//  validate takes a DIAL or a QUST); DLBR TNAM and QUST ANAM/objective FNAM (S2 byte-parity, no crash — a future
+//  DLBR/QUST-record pass, not a per-topic lint); and DIAL Priority (PNAM), a non-nullable float with no "unset"
+//  signal to read off the winning record. INFO CNAM/ENAM (the S1 confirmed-CK-crash member) IS checked, above.
 //
 //  RESOLUTION SCOPE (Aaron 2026-06-19): LOAD-ORDER-AWARE, like every other houseCARL read — it validates what
 //  the active load order resolves (the modlist-author's "does this play in THIS list" view). An isolated
@@ -339,6 +346,19 @@ public static class DialogueValidate
         {
             if (info.IsDeleted) { deleted++; continue; }
             infoCount++;
+
+            // CK-parity subrecords (INFO CNAM/ENAM): a winning INFO missing the FavorLevel (CNAM) or response-Flags
+            // (ENAM) subrecord that Mutagen omits when unset is the shape that crashes the Creation Kit when this
+            // topic is opened in the dialogue editor (the game itself tolerates it → WARN, matching the BNAM lint).
+            // The absence probe is DialogueCkParity's — the SAME one the create path FILLS through — so a create that
+            // populates the subrecord and this check that flags its absence can never drift (Q3). Real CK/xEdit-authored
+            // INFOs always carry both, so this fires only on a bare-authored record; houseCARL's own create tools
+            // auto-fill it. (The rest of the CK-parity family — DLVW DNAM/ENAM, DLBR TNAM, QUST ANAM/objective FNAM,
+            // DIAL PNAM — is NOT checked here: DLVW isn't a validator input, PNAM is a non-nullable float with no
+            // "unset" signal, and the others are S2 byte-parity, not a crash. See the header's CANNOT-CHECK note.)
+            foreach (var gap in DialogueCkParity.MissingInfoDefaults(info))
+                issues.Add(new(DialogueIssueSeverity.Warning,
+                    $"INFO {info.FormKey} is missing the {gap.Subrecord} subrecord — {gap.Detail}"));
 
             // Fragment-presence tally (item 8): does this line carry a result-script FRAGMENT (a code path that can
             // surface in Papyrus.log)? Via the single fragment-presence home, so this never drifts from the per-INFO

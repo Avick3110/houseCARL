@@ -27,6 +27,9 @@ namespace HousecarlGenerator;
 ///                  resolve-aware, not blanket (guards against an INFO index-scoping regression). PR #90 review finding 4.
 ///   DELETED-SKIP — a deleted INFO (a removed line) is skipped: not counted live (InfoCount excludes it), tallied as
 ///                  deleted, and never voice/script-checked or graph-flagged.
+///   INFO-CKPARITY-GAP— a live INFO missing CNAM (FavorLevel) / ENAM (Flags) WARNs twice, naming each — the CK-editor-crash
+///                  catch, via the SHARED DialogueCkParity.MissingInfoDefaults probe the create path fills through.
+///   INFO-CKPARITY-OK — a CK-parity-complete INFO (Info() runs ApplyInfoDefaults) is NOT flagged — the no-false-positive lock.
 ///   NO-QUEST     — a topic with DialogTopic.Quest unset warns 'Quest' — the unowned-topic teeth.
 ///   BAD-BRANCH   — DialogTopic.Branch pointing at a non-DLBR is a PROBLEM naming 'Branch'.
 ///   VOICE-WIRED  — a voiced line with no .fuz surfaces as a SILENT VoiceLine IN THE VALIDATOR (reused VoiceCheck).
@@ -73,7 +76,7 @@ public static class DialogueValidateGuardProbe
         string mPath = Path.Combine(tmpDir, mKey.FileName.String);
         FormKey cleanFk, linkBadFk, pnamBadFk, pnamOkFk, deletedFk, noQuestFk, badBranchFk, voicedFk, scriptedFk, condFk, qFanFk, weapFk, encBadFk, encOkFk;
         FormKey condCleanFk, condRefUnsetFk, condDeadAliasFk, condDeadLocAliasFk, condDeadQAliasFk, condAliasOkFk, condAliasFloiFk, condDanglingFk, condGlobalFk, condGetIsIdOkFk, condGetIsIdFk;
-        FormKey globOkFk, globBadFk, globSubFk, playerRefFk, playerRefCtlFk;
+        FormKey globOkFk, globBadFk, globSubFk, playerRefFk, playerRefCtlFk, ckGapFk, ckOkFk;
         try
         {
             var m = new SkyrimMod(mKey, SkyrimRelease.SkyrimSE);
@@ -88,7 +91,17 @@ public static class DialogueValidateGuardProbe
             var weap = m.Weapons.AddNew(); weap.EditorID = "HcDvWeap"; weap.BasicStats = new WeaponBasicStats { Damage = 10 };
             weapFk = weap.FormKey;
 
-            DialogResponses Info(string edid) => new(m.GetNextFormKey(), SkyrimRelease.SkyrimSE) { EditorID = edid };
+            // Info(): a CK-parity-COMPLETE INFO — run through the same ApplyInfoDefaults the create path uses, so it
+            // carries FavorLevel (CNAM) + response Flags (ENAM) like a real CK-/xEdit-authored line. Without this the
+            // new INFO CK-parity lint would (correctly) flag every bare fixture INFO and trip every "no issues" arm; so
+            // this helper ALSO doubles as the no-false-positive lock for that lint (CLEAN et al. stay green only because
+            // these INFOs are complete). The INFO-CKPARITY-GAP fixture below deliberately does NOT use this.
+            DialogResponses Info(string edid)
+            {
+                var info = new DialogResponses(m.GetNextFormKey(), SkyrimRelease.SkyrimSE) { EditorID = edid };
+                DialogueCkParity.ApplyInfoDefaults(info);
+                return info;
+            }
 
             // A plain target topic so CLEAN's LinkTo resolves to a real DIAL.
             var tTarget = m.DialogTopics.AddNew(); tTarget.EditorID = "HcDvLinkTarget"; tTarget.Quest.SetTo(qMain.FormKey);
@@ -334,6 +347,20 @@ public static class DialogueValidateGuardProbe
                 tPlayerRefCtl.Responses.Add(i); playerRefCtlFk = tPlayerRefCtl.FormKey;
             }
 
+            // INFO-CKPARITY-GAP (the new INFO CNAM/ENAM lint): a BARE INFO — NOT run through Info()/ApplyInfoDefaults —
+            // so it lacks the FavorLevel (CNAM) + response-Flags (ENAM) subrecords the CK writes unconditionally. Two
+            // Warnings expected, naming each subrecord (the CK-editor-crash catch). Quest set + the loops below give it a
+            // branch + marker, so those are its ONLY issues. Subtype left non-Custom so the BNAM lint stays silent.
+            var tCkGap = m.DialogTopics.AddNew(); tCkGap.EditorID = "HcDvCkGap"; tCkGap.Quest.SetTo(qMain.FormKey);
+            tCkGap.Responses.Add(new DialogResponses(m.GetNextFormKey(), SkyrimRelease.SkyrimSE) { EditorID = "HcDvCkGapI" });
+            ckGapFk = tCkGap.FormKey;
+
+            // INFO-CKPARITY-OK: a CK-parity-COMPLETE INFO (via Info(), which fills both subrecords) is NOT flagged — the
+            // explicit no-false-positive lock for the new lint (a real authored INFO carries CNAM+ENAM).
+            var tCkOk = m.DialogTopics.AddNew(); tCkOk.EditorID = "HcDvCkOk"; tCkOk.Quest.SetTo(qMain.FormKey);
+            tCkOk.Responses.Add(Info("HcDvCkOkI"));
+            ckOkFk = tCkOk.FormKey;
+
             // Give every branch-LESS fixture topic the shared well-formed branch — SAME reason as the SNAM loop
             // below: this guard tests the GRAPH/CONDITION/VOICE lints, not the BNAM-absent lint (that's
             // dialogue-ckparity-guard's job), so its Custom topics must be branch-clean or a "no issues" arm would
@@ -398,6 +425,24 @@ public static class DialogueValidateGuardProbe
             bool ok = t is not null && t.InfoCount == 1 && t.DeletedInfoCount == 1
                 && t.ScriptFindings.Count == 0 && t.VoiceLines.Count == 0 && t.Issues.Count == 0;
             all &= Pass("DELETED-SKIP not validated", ok, t is null ? "no topic" : $"live={t.InfoCount} deleted={t.DeletedInfoCount} issues={t.Issues.Count} script={t.ScriptFindings.Count}");
+        }
+
+        // ---------- INFO-CKPARITY-GAP: a bare INFO missing CNAM/ENAM WARNs twice, naming each subrecord (CK-editor-crash catch) ----------
+        {
+            var t = One(DialogueValidate.Run(resolver, assets, ckGapFk));
+            bool cnam = t is not null && t.Issues.Any(i => i.Severity == DialogueIssueSeverity.Warning
+                && i.Message.Contains("CNAM", StringComparison.Ordinal) && i.Message.Contains("Creation Kit", StringComparison.Ordinal));
+            bool enam = t is not null && t.Issues.Any(i => i.Severity == DialogueIssueSeverity.Warning
+                && i.Message.Contains("ENAM", StringComparison.Ordinal) && i.Message.Contains("Creation Kit", StringComparison.Ordinal));
+            all &= Pass("INFO-CKPARITY-GAP warns CNAM+ENAM", cnam && enam, t is null ? "no topic" : Issues(t));
+        }
+
+        // ---------- INFO-CKPARITY-OK: a CK-parity-complete INFO is NOT flagged — the no-false-positive lock ----------
+        {
+            var t = One(DialogueValidate.Run(resolver, assets, ckOkFk));
+            bool ok = t is not null && t.InfoCount == 1
+                && !t.Issues.Any(i => i.Message.Contains("CNAM", StringComparison.Ordinal) || i.Message.Contains("ENAM", StringComparison.Ordinal));
+            all &= Pass("INFO-CKPARITY-OK not flagged", ok, t is null ? "no topic" : $"infos={t.InfoCount} issues={t.Issues.Count}: {Issues(t)}");
         }
 
         // ---------- NO-QUEST: an unowned topic warns 'Quest' ----------
