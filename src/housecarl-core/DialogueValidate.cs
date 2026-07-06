@@ -39,11 +39,13 @@ namespace HousecarlCore;
 //  WHAT IT DELIBERATELY CANNOT CHECK (grill-rev C2 — the validator is the ONLY non-advisory enforcement, so it
 //  must NAME the gaps, never let "checks passed" read as "this will play"): the CTDA conditions that gate when a
 //  line fires are semantic and only the game evaluates them; lip-sync accuracy + audio content are out of the
-//  data layer. Both are declared as standing limits the render surfaces loudly (Q3). Also NOT checked (the rest of
-//  the CK-parity family DialogueCkParity fills on create): DLVW DNAM/ENAM (a DialogView is not a validator input —
-//  validate takes a DIAL or a QUST); DLBR TNAM and QUST ANAM/objective FNAM (S2 byte-parity, no crash — a future
-//  DLBR/QUST-record pass, not a per-topic lint); and DIAL Priority (PNAM), a non-nullable float with no "unset"
-//  signal to read off the winning record. INFO CNAM/ENAM (the S1 confirmed-CK-crash member) IS checked, above.
+//  data layer. Both are declared as standing limits the render surfaces loudly (Q3). The ONE permanent CK-parity
+//  boundary: DIAL Priority (PNAM) — a non-nullable float with no "unset" signal to read off a finished winning
+//  record (the create path distinguishes author-set-0 from unset via the author's op list, which the validator
+//  does not have), so flagging its absence would false-positive every legitimately-priority-0 topic. The REST of
+//  the CK-parity family IS checked: INFO CNAM/ENAM per live INFO (S1, in ValidateTopic); DLVW DNAM/ENAM and DLBR
+//  TNAM as their OWN input kinds (a DialogView / DialogBranch FormID is a record-level CK-parity check — no
+//  topic graph to walk); QUST ANAM/objective FNAM once per QUEST input (InputIssues, never repeated per topic).
 //
 //  RESOLUTION SCOPE (Aaron 2026-06-19): LOAD-ORDER-AWARE, like every other houseCARL read — it validates what
 //  the active load order resolves (the modlist-author's "does this play in THIS list" view). An isolated
@@ -97,11 +99,15 @@ public sealed record SeqLintFinding(
     bool SeqExists, bool? SeqContainsQuest, bool? SeqNewerThanPlugin, string? Note);
 
 /// <summary>The whole-validation report for one <c>housecarl_validate_dialogue</c> call: the resolved input
-/// (<see cref="Input"/>, <see cref="InputKind"/> = "topic"/"quest"/"error", <see cref="InputEditorId"/>) and the
-/// per-topic validations. A top-level recoverable miss (the FormID isn't in the order, or resolves to neither a
-/// DIAL nor a QUST) is a NAMED <see cref="Error"/>; a mid-run throw is surfaced on <see cref="CheckError"/> — both
-/// honest, never a silent empty pass (Q3). <see cref="ReadIncomplete"/> carries the asset-layer caveat (a BSA that
-/// failed to read, so an "absent" voice/.pex may merely be unscanned).</summary>
+/// (<see cref="Input"/>, <see cref="InputKind"/> = "topic"/"quest"/"view"/"branch"/"error",
+/// <see cref="InputEditorId"/>) and the per-topic validations. A top-level recoverable miss (the FormID isn't in
+/// the order, or resolves to none of the four input types) is a NAMED <see cref="Error"/>; a mid-run throw is
+/// surfaced on <see cref="CheckError"/> — both honest, never a silent empty pass (Q3).
+/// <see cref="ReadIncomplete"/> carries the asset-layer caveat (a BSA that failed to read, so an "absent"
+/// voice/.pex may merely be unscanned). <see cref="InputIssues"/> carries INPUT-LEVEL findings that belong to the
+/// input record itself, not to any one topic: the QUST ANAM/objective-FNAM CK-parity gaps (checked once — a
+/// multi-topic quest is never nagged N times) and the DLVW/DLBR CK-parity gaps (those inputs have no Topics at
+/// all — Topics stays empty and the render says what WAS checked).</summary>
 public sealed record DialogueValidationReport(
     FormKey Input, string InputKind, string? InputEditorId, string? InputWinnerPlugin,
     IReadOnlyList<TopicValidation> Topics)
@@ -109,6 +115,11 @@ public sealed record DialogueValidationReport(
     public string? Error { get; init; }
     public string? CheckError { get; init; }
     public bool ReadIncomplete { get; init; }
+
+    /// <summary>Input-level findings that belong to the INPUT record itself, not any one topic: quest CK-parity gaps
+    /// (ANAM / objective FNAM, checked once per QUEST input) and the DLVW/DLBR CK-parity gaps (the whole finding set
+    /// for those input kinds). Empty for a DIAL input and for a gap-free record.</summary>
+    public IReadOnlyList<DialogueIssue> InputIssues { get; init; } = Array.Empty<DialogueIssue>();
 
     /// <summary>The SEQ staleness/coverage lint (item 7), set only for a Start-Game-Enabled QUEST input; null
     /// otherwise (a non-SGE quest, or a DIAL input — a topic isn't a quest, so a .seq isn't its concern).</summary>
@@ -131,12 +142,14 @@ public static class DialogueValidate
 
     /// <summary>Resolve <paramref name="fk"/> to its load-order winner and validate the dialogue graph: a DIAL →
     /// validate that one topic; a QUST → fan out to EVERY topic the quest owns (a whole-order DIAL winner scan,
-    /// filtered by DialogTopic.Quest, because a topic points UP at its quest — the quest holds no topic list).
-    /// Builds the load-order winner <c>Resolve</c> closure (each INFO's Speaker → NPC → VoiceType, and the topic's
-    /// Quest) + the asset view off the live resolvers, and opens ONE overlay session for the run. NEVER throws: a
-    /// recoverable miss (not in the order, or neither a DIAL nor a QUST) is a NAMED
-    /// <see cref="DialogueValidationReport.Error"/>; a mid-run throw rides
-    /// <see cref="DialogueValidationReport.CheckError"/> (Q3 — surfaced, never a silent empty pass).</summary>
+    /// filtered by DialogTopic.Quest, because a topic points UP at its quest — the quest holds no topic list) plus
+    /// the quest's own CK-parity gaps (ANAM / objective FNAM) as InputIssues; a DLVW or DLBR → a RECORD-LEVEL
+    /// CK-parity check (the DNAM/ENAM and TNAM subrecords DialogueCkParity fills on create — no topic graph to
+    /// walk, so Topics stays empty and the render names the narrower scope). Builds the load-order winner
+    /// <c>Resolve</c> closure (each INFO's Speaker → NPC → VoiceType, and the topic's Quest) + the asset view off
+    /// the live resolvers, and opens ONE overlay session for the run. NEVER throws: a recoverable miss (not in the
+    /// order, or none of the four input types) is a NAMED <see cref="DialogueValidationReport.Error"/>; a mid-run
+    /// throw rides <see cref="DialogueValidationReport.CheckError"/> (Q3 — surfaced, never a silent empty pass).</summary>
     public static DialogueValidationReport Run(LoadOrderResolver resolver, AssetResolver assets, FormKey fk)
     {
         try
@@ -165,7 +178,7 @@ public static class DialogueValidate
             var win = view.ResolveWinner(fk);
             if (win is null)
                 return DialogueValidationReport.ForError(fk,
-                    $"{fk} is not in the active load order — nothing to validate. Pass a dialogue topic (DIAL) FormID to validate one topic, or a quest (QUST) FormID to validate all of a quest's topics.");
+                    $"{fk} is not in the active load order — nothing to validate. Pass a dialogue topic (DIAL) FormID to validate one topic, a quest (QUST) FormID to validate all of a quest's topics, or a dialogue view (DLVW) / branch (DLBR) FormID for a record-level CK-parity check.");
 
             var body = view.GetRecord(session, win.Value.WinnerPlugin, fk);
             if (body is null)
@@ -198,12 +211,47 @@ public static class DialogueValidate
                     var wp = view.ResolveWinner(tfk)?.WinnerPlugin ?? win.Value.WinnerPlugin;
                     topics.Add(ValidateTopic(dt, wp, InOrder, Resolve, av));
                 }
+
+                // Quest-level CK-parity gaps (ANAM / objective FNAM) — checked ONCE on the winning quest record and
+                // surfaced as InputIssues, never per topic (a multi-topic quest would repeat the same quest gap N
+                // times). The absence probes are DialogueCkParity's — the SAME ones ApplyQuestDefaults fills through,
+                // so fill and check can't drift (Q3). S2 byte-parity → Warning. PRESENCE only: the validator never
+                // judges the ANAM VALUE (an edited quest's ANAM is a legitimate CK high-water mark).
+                var questGaps = DialogueCkParity.MissingQuestDefaults(quest)
+                    .Select(g => new DialogueIssue(DialogueIssueSeverity.Warning,
+                        $"Quest {fk} is missing the {g.Subrecord} subrecord — {g.Detail}"))
+                    .ToList();
+
                 return new DialogueValidationReport(fk, "quest", quest.EditorID ?? "", win.Value.WinnerPlugin, topics)
-                    { ReadIncomplete = av.ReadIncomplete, SeqLint = seqLint };
+                    { ReadIncomplete = av.ReadIncomplete, SeqLint = seqLint, InputIssues = questGaps };
+            }
+
+            // DLVW / DLBR inputs: a RECORD-LEVEL CK-parity check — these carry no INFO list, so there is no topic
+            // graph/voice/script surface to walk; the finding set IS the CK-parity gaps (the same subrecords
+            // DialogueCkParity fills on create, via the SAME shared presence predicates — no drift, Q3). Topics
+            // stays empty; the render names the narrower scope so a clean pass never reads as a graph validation.
+            if (body is IDialogViewGetter dlvw)
+            {
+                var gaps = DialogueCkParity.MissingViewDefaults(dlvw)
+                    .Select(g => new DialogueIssue(DialogueIssueSeverity.Warning,
+                        $"DialogView {fk} is missing the {g.Subrecord} subrecord — {g.Detail}"))
+                    .ToList();
+                return new DialogueValidationReport(fk, "view", dlvw.EditorID ?? "", win.Value.WinnerPlugin,
+                    Array.Empty<TopicValidation>()) { InputIssues = gaps };
+            }
+
+            if (body is IDialogBranchGetter dlbr)
+            {
+                var gaps = DialogueCkParity.MissingBranchDefaults(dlbr)
+                    .Select(g => new DialogueIssue(DialogueIssueSeverity.Warning,
+                        $"DialogBranch {fk} is missing the {g.Subrecord} subrecord — {g.Detail}"))
+                    .ToList();
+                return new DialogueValidationReport(fk, "branch", dlbr.EditorID ?? "", win.Value.WinnerPlugin,
+                    Array.Empty<TopicValidation>()) { InputIssues = gaps };
             }
 
             return DialogueValidationReport.ForError(fk,
-                $"{fk} resolves to a {RecordNaming.StripOverlay(body.GetType().Name)} in {win.Value.WinnerPlugin}, not a dialogue topic (DIAL) or quest (QUST). Pass a DIAL FormID to validate one topic, or a QUST FormID to validate every topic a quest owns.");
+                $"{fk} resolves to a {RecordNaming.StripOverlay(body.GetType().Name)} in {win.Value.WinnerPlugin}, not a dialogue topic (DIAL), quest (QUST), dialogue view (DLVW), or dialogue branch (DLBR). Pass a DIAL FormID to validate one topic, a QUST FormID to validate every topic a quest owns, or a DLVW/DLBR FormID for a record-level CK-parity check.");
         }
         catch (Exception ex)
         {
@@ -353,9 +401,9 @@ public static class DialogueValidate
             // The absence probe is DialogueCkParity's — the SAME one the create path FILLS through — so a create that
             // populates the subrecord and this check that flags its absence can never drift (Q3). Real CK/xEdit-authored
             // INFOs always carry both, so this fires only on a bare-authored record; houseCARL's own create tools
-            // auto-fill it. (The rest of the CK-parity family — DLVW DNAM/ENAM, DLBR TNAM, QUST ANAM/objective FNAM,
-            // DIAL PNAM — is NOT checked here: DLVW isn't a validator input, PNAM is a non-nullable float with no
-            // "unset" signal, and the others are S2 byte-parity, not a crash. See the header's CANNOT-CHECK note.)
+            // auto-fill it. (The rest of the CK-parity family lives elsewhere: DLVW DNAM/ENAM and DLBR TNAM are their
+            // own input kinds, QUST ANAM/objective FNAM rides the quest input's InputIssues, and DIAL PNAM is the one
+            // permanent boundary — a non-nullable float with no "unset" signal. See the header's CANNOT-CHECK note.)
             foreach (var gap in DialogueCkParity.MissingInfoDefaults(info))
                 issues.Add(new(DialogueIssueSeverity.Warning,
                     $"INFO {info.FormKey} is missing the {gap.Subrecord} subrecord — {gap.Detail}"));

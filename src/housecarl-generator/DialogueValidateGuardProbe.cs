@@ -30,6 +30,15 @@ namespace HousecarlGenerator;
 ///   INFO-CKPARITY-GAP— a live INFO missing CNAM (FavorLevel) / ENAM (Flags) WARNs twice, naming each — the CK-editor-crash
 ///                  catch, via the SHARED DialogueCkParity.MissingInfoDefaults probe the create path fills through.
 ///   INFO-CKPARITY-OK — a CK-parity-complete INFO (Info() runs ApplyInfoDefaults) is NOT flagged — the no-false-positive lock.
+///   VIEW-CKPARITY-GAP— a bare DLVW input → kind "view", zero topics, and Warnings naming DNAM + ENAM (the CK Dialogue
+///                  Views crash shape) — end-to-end through the new DialogView input path (shared MissingViewDefaults probe).
+///   VIEW-CKPARITY-OK — a CK-parity-complete DLVW (ApplyViewDefaults-filled) reports NO input issues — no-false-positive lock.
+///   BRANCH-CKPARITY-GAP— a bare DLBR input → kind "branch" and a Warning naming TNAM (S2 byte-parity) — end-to-end
+///                  through the new DialogBranch input path (shared MissingBranchDefaults probe).
+///   BRANCH-CKPARITY-OK— a Category-set DLBR reports NO input issues — no-false-positive lock.
+///   QUST-CKPARITY-GAP— a QUEST input whose quest lacks ANAM and has a Flags-less objective → InputIssues warns BOTH,
+///                  ONCE at quest level (never per topic) — the shared MissingQuestDefaults probe end-to-end.
+///   QUST-CKPARITY-OK — a CK-parity-complete quest (ApplyQuestDefaults-filled) reports NO input issues — no-false-positive lock.
 ///   NO-QUEST     — a topic with DialogTopic.Quest unset warns 'Quest' — the unowned-topic teeth.
 ///   BAD-BRANCH   — DialogTopic.Branch pointing at a non-DLBR is a PROBLEM naming 'Branch'.
 ///   VOICE-WIRED  — a voiced line with no .fuz surfaces as a SILENT VoiceLine IN THE VALIDATOR (reused VoiceCheck).
@@ -77,6 +86,7 @@ public static class DialogueValidateGuardProbe
         FormKey cleanFk, linkBadFk, pnamBadFk, pnamOkFk, deletedFk, noQuestFk, badBranchFk, voicedFk, scriptedFk, condFk, qFanFk, weapFk, encBadFk, encOkFk;
         FormKey condCleanFk, condRefUnsetFk, condDeadAliasFk, condDeadLocAliasFk, condDeadQAliasFk, condAliasOkFk, condAliasFloiFk, condDanglingFk, condGlobalFk, condGetIsIdOkFk, condGetIsIdFk;
         FormKey globOkFk, globBadFk, globSubFk, playerRefFk, playerRefCtlFk, ckGapFk, ckOkFk;
+        FormKey viewGapFk, viewOkFk, brGapFk, brOkFk, qGapFk, qOkFk;
         try
         {
             var m = new SkyrimMod(mKey, SkyrimRelease.SkyrimSE);
@@ -361,6 +371,27 @@ public static class DialogueValidateGuardProbe
             tCkOk.Responses.Add(Info("HcDvCkOkI"));
             ckOkFk = tCkOk.FormKey;
 
+            // VIEW-CKPARITY (the new DLVW input kind): a BARE DialogView (DNAM/ENAM both absent — the CK Dialogue
+            // Views crash shape) vs a CK-parity-COMPLETE one (via the same ApplyViewDefaults the create path runs).
+            var vGap = m.DialogViews.AddNew(); vGap.EditorID = "HcDvViewGap"; viewGapFk = vGap.FormKey;
+            var vOk = m.DialogViews.AddNew(); vOk.EditorID = "HcDvViewOk";
+            DialogueCkParity.ApplyViewDefaults(vOk); viewOkFk = vOk.FormKey;
+
+            // BRANCH-CKPARITY (the new DLBR input kind): a BARE DialogBranch (no Category/TNAM) vs one with an
+            // explicit Category. (The shared `branch` fixture above is only ever a Branch TARGET, never an input.)
+            var brGap = m.DialogBranches.AddNew(); brGap.EditorID = "HcDvBrGap"; brGapFk = brGap.FormKey;
+            var brOk = m.DialogBranches.AddNew(); brOk.EditorID = "HcDvBrOk";
+            brOk.Category = DialogBranch.CategoryType.Player; brOkFk = brOk.FormKey;
+
+            // QUST-CKPARITY (quest-level InputIssues): a quest lacking ANAM with one Flags-less objective (both
+            // gaps) vs a CK-parity-complete quest (ApplyQuestDefaults-filled). Neither owns any topics — the arms
+            // prove the gaps ride the INPUT level, independent of the topic fan-out.
+            var qGap = m.Quests.AddNew(); qGap.EditorID = "HcDvQGap";
+            qGap.Objectives.Add(new QuestObjective { Index = 1 }); qGapFk = qGap.FormKey;
+            var qOk = m.Quests.AddNew(); qOk.EditorID = "HcDvQOk";
+            qOk.Objectives.Add(new QuestObjective { Index = 1 });
+            DialogueCkParity.ApplyQuestDefaults(qOk); qOkFk = qOk.FormKey;
+
             // Give every branch-LESS fixture topic the shared well-formed branch — SAME reason as the SNAM loop
             // below: this guard tests the GRAPH/CONDITION/VOICE lints, not the BNAM-absent lint (that's
             // dialogue-ckparity-guard's job), so its Custom topics must be branch-clean or a "no issues" arm would
@@ -443,6 +474,53 @@ public static class DialogueValidateGuardProbe
             bool ok = t is not null && t.InfoCount == 1
                 && !t.Issues.Any(i => i.Message.Contains("CNAM", StringComparison.Ordinal) || i.Message.Contains("ENAM", StringComparison.Ordinal));
             all &= Pass("INFO-CKPARITY-OK not flagged", ok, t is null ? "no topic" : $"infos={t.InfoCount} issues={t.Issues.Count}: {Issues(t)}");
+        }
+
+        // ---------- VIEW-CKPARITY-GAP: a bare DLVW input → kind "view", zero topics, Warnings naming DNAM + ENAM ----------
+        {
+            var r = DialogueValidate.Run(resolver, assets, viewGapFk);
+            bool ok = r.InputKind == "view" && r.Error is null && r.Topics.Count == 0
+                && r.InputIssues.Any(i => i.Severity == DialogueIssueSeverity.Warning && i.Message.Contains("DNAM", StringComparison.Ordinal))
+                && r.InputIssues.Any(i => i.Severity == DialogueIssueSeverity.Warning && i.Message.Contains("ENAM", StringComparison.Ordinal));
+            all &= Pass("VIEW-CKPARITY-GAP warns DNAM+ENAM", ok, $"kind={r.InputKind} issues={InputIssues(r)}");
+        }
+
+        // ---------- VIEW-CKPARITY-OK: a CK-parity-complete DLVW reports NO input issues — the no-false-positive lock ----------
+        {
+            var r = DialogueValidate.Run(resolver, assets, viewOkFk);
+            bool ok = r.InputKind == "view" && r.Error is null && r.InputIssues.Count == 0;
+            all &= Pass("VIEW-CKPARITY-OK not flagged", ok, $"kind={r.InputKind} issues={InputIssues(r)}");
+        }
+
+        // ---------- BRANCH-CKPARITY-GAP: a bare DLBR input → kind "branch", a Warning naming TNAM ----------
+        {
+            var r = DialogueValidate.Run(resolver, assets, brGapFk);
+            bool ok = r.InputKind == "branch" && r.Error is null && r.Topics.Count == 0
+                && r.InputIssues.Any(i => i.Severity == DialogueIssueSeverity.Warning && i.Message.Contains("TNAM", StringComparison.Ordinal));
+            all &= Pass("BRANCH-CKPARITY-GAP warns TNAM", ok, $"kind={r.InputKind} issues={InputIssues(r)}");
+        }
+
+        // ---------- BRANCH-CKPARITY-OK: a Category-set DLBR reports NO input issues — the no-false-positive lock ----------
+        {
+            var r = DialogueValidate.Run(resolver, assets, brOkFk);
+            bool ok = r.InputKind == "branch" && r.Error is null && r.InputIssues.Count == 0;
+            all &= Pass("BRANCH-CKPARITY-OK not flagged", ok, $"kind={r.InputKind} issues={InputIssues(r)}");
+        }
+
+        // ---------- QUST-CKPARITY-GAP: a quest lacking ANAM + a Flags-less objective → InputIssues warns BOTH, once, at quest level ----------
+        {
+            var r = DialogueValidate.Run(resolver, assets, qGapFk);
+            bool ok = r.InputKind == "quest" && r.Error is null
+                && r.InputIssues.Count(i => i.Severity == DialogueIssueSeverity.Warning && i.Message.Contains("ANAM", StringComparison.Ordinal)) == 1
+                && r.InputIssues.Count(i => i.Severity == DialogueIssueSeverity.Warning && i.Message.Contains("FNAM", StringComparison.Ordinal)) == 1;
+            all &= Pass("QUST-CKPARITY-GAP warns ANAM+FNAM", ok, $"kind={r.InputKind} issues={InputIssues(r)}");
+        }
+
+        // ---------- QUST-CKPARITY-OK: a CK-parity-complete quest reports NO input issues — the no-false-positive lock ----------
+        {
+            var r = DialogueValidate.Run(resolver, assets, qOkFk);
+            bool ok = r.InputKind == "quest" && r.Error is null && r.InputIssues.Count == 0;
+            all &= Pass("QUST-CKPARITY-OK not flagged", ok, $"kind={r.InputKind} issues={InputIssues(r)}");
         }
 
         // ---------- NO-QUEST: an unowned topic warns 'Quest' ----------
@@ -651,7 +729,7 @@ public static class DialogueValidateGuardProbe
 
         Console.WriteLine();
         Console.WriteLine(all
-            ? "RESULT: PASS — the dialogue-graph validator holds (no false PNAM-absence flag, LinkTo + dangling-PNAM teeth, deleted-skip, voice/script reuse, encoding lint, condition lints (item 4), <Global=X>/TextDisplayGlobals + PlayerRef-whitelist lints (Track B), fan-out, named rejects)."
+            ? "RESULT: PASS — the dialogue-graph validator holds (no false PNAM-absence flag, LinkTo + dangling-PNAM teeth, deleted-skip, voice/script reuse, encoding lint, condition lints (item 4), <Global=X>/TextDisplayGlobals + PlayerRef-whitelist lints (Track B), INFO/DLVW/DLBR/QUST CK-parity checks, fan-out, named rejects)."
             : "RESULT: FAIL — at least one arm regressed (see above).");
         try { Directory.Delete(tmpDir, recursive: true); } catch { }
         return all ? 0 : 1;
@@ -672,6 +750,8 @@ public static class DialogueValidateGuardProbe
     static TopicValidation? One(DialogueValidationReport r) => r.Topics.Count == 1 ? r.Topics[0] : null;
 
     static string Issues(TopicValidation t) => t.Issues.Count == 0 ? "<none>" : string.Join(" | ", t.Issues.Select(i => $"[{i.Severity}] {i.Message}"));
+
+    static string InputIssues(DialogueValidationReport r) => r.InputIssues.Count == 0 ? "<none>" : string.Join(" | ", r.InputIssues.Select(i => $"[{i.Severity}] {i.Message}"));
 
     static bool Pass(string label, bool ok, string detail)
     {
