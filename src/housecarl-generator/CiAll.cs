@@ -75,6 +75,7 @@ public static class CiAll
         ("plugin-validate-guard", PluginValidateProbe.RunGuard),
         ("nullarm-guard", NullArmGuardProbe.RunGuard),
         ("formlink-null-guard", FormLinkNullProbe.RunGuard),
+        ("formlink-remove-guard", FormLinkRemoveProbe.RunGuard),
         ("gendered-nav-guard", GenderedNavProbe.RunGuard),
         ("loadorder-status-guard", LoadOrderStatusProbe.RunGuard),
         ("compile-ergonomics-guard", CompileErgonomicsProbe.RunGuard),

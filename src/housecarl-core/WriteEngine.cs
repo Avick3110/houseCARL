@@ -1745,7 +1745,14 @@ public static class WriteEngine
                 prop.SetValue(parent, Coerce(req.Value!, prop.PropertyType));
                 break;
             case "Remove": // clear a nullable scalar / substruct / formlink / polymorphic
-                prop.SetValue(parent, null);
+                // A FormLink field is a struct-backed slot whose setter REJECTS a null reference, so SetValue(null)
+                // threw TargetInvocationException at apply even though pre-flight accepted the Remove (HCBR-2026-07-06;
+                // the Set "000000:…" workaround dodged it by coercing an EMPTY link). Route the clear through
+                // EmptyFormLinkOf: a FormLink-family type → its empty link (FormKey.Null — a TRUE null link, cleaner
+                // than the workaround's 000000:Skyrim.esm), every other nullable scalar / substruct / polymorphic → null,
+                // exactly as before (EmptyFormLinkOf returns null for non-FormLink types). This makes Remove on a
+                // nullable FormLink identical to Set = "0" (a null-synonym clear), which already worked.
+                prop.SetValue(parent, EmptyFormLinkOf(prop.PropertyType));
                 break;
             default:
                 throw new InvalidOperationException($"Verb '{req.Verb}' is not valid on scalar/substruct '{prop.Name}'.");
