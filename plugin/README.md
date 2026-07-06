@@ -11,14 +11,17 @@ plugin directly instead.
 
 It can:
 
-- **Read any record** at the true load-order winner, with the full conflict tree on request.
+- **Read any record** at the true load-order winner, with the full conflict tree on request — and read a
+  plugin that *isn't* active (even one in a disabled mod) with a raw, OUT-OF-LOAD-ORDER-flagged look at its
+  own records, to inspect a donor mod before you enable it.
 - **Author patches** — set / add / remove fields, edit leveled lists and containers, retune records,
   re-target conditions — emitted as a new MO2 mod folder (`houseCARL - <name>`). Or **forward a named
   plugin's version of a record** as a winning override (xEdit's "copy as override into"), or revert to vanilla.
 - **Create new records** (new FormIDs) and **remove** records or individual entries; unused masters are
   cleaned automatically. Author a whole nested dialogue conversation in one call, validate a dialogue
-  graph on demand, write the `.seq` file a plugin's start-game-enabled quests need, and author an empty
-  header-only **trigger plugin** when a mod just needs `Foo.esp` to exist.
+  graph on demand, catch script (VMAD) properties a record declares but never binds, write the `.seq` file
+  a plugin's start-game-enabled quests need, and author an empty header-only **trigger plugin** when a mod
+  just needs `Foo.esp` to exist.
 - **Edit an existing plugin in place** — on request, edit / create / remove records directly inside an
   existing plugin (including one houseCARL didn't author) instead of writing a separate patch. Opt-in, gated
   by a one-time per-plugin consent prompt, and it keeps **no backup**; the default new-patch lane stays the
@@ -30,6 +33,9 @@ It can:
   and place a file as a winning override into a new MO2 mod folder; loose-vs-BSA aware, with FaceGen as the
   headline use case. "Wrote it" is reported honestly as not yet "it wins" — you still enable and sort the
   new mod in MO2.
+- **See the SKSE-plugin layer** — inventory the DLLs and their configs under `Data\SKSE\Plugins`, each
+  resolved to the mod that wins it (with the conflict chain), and read each winning DLL's version metadata
+  (name, author, target runtime, Address-Library flag) statically, without loading it.
 - **Drive the external toolchain** — compile Papyrus scripts through the Creation Kit's compiler, and
   list / extract / repack BSA archives via BSArch; each tool's path is auto-detected or set once.
 - **Decompile compiled scripts** — reconstruct reviewable `.psc` source from any `.pex` (Mutagen-native,
@@ -40,12 +46,14 @@ It can:
   manager's job.
 - Look up **record schemas** (every type Mutagen models) and **Papyrus / SKSE signatures**, author
   **SkyPatcher**, **SPID**, and **KID** distributor files, **author Skyrim dialogue** and **Open Animation
-  Replacer configs**, **review Papyrus scripts for performance**, **diagnose the dark / grey / black-face NPC
-  bug**, **find armor by equip slot**, and **recognize generated tool output** — through 11 bundled,
+  Replacer configs**, **author SKSE plugins in C++** (CommonLibSSE-NG), **review Papyrus scripts for
+  performance**, **diagnose the dark / grey / black-face NPC bug**, **find armor by equip slot**, and
+  **recognize generated tool output** — through 12 bundled,
   namespaced skills (`/housecarl:mutagen-reference`, `/housecarl:papyrus-reference`,
   `/housecarl:skypatcher-authoring`, `/housecarl:spid-authoring`, `/housecarl:kid-authoring`,
   `/housecarl:dialogue-authoring`, `/housecarl:papyrus-optimization`, `/housecarl:facegen-diagnostics`,
-  `/housecarl:oar-authoring`, `/housecarl:tool-output-awareness`, `/housecarl:biped-slot-reference`).
+  `/housecarl:oar-authoring`, `/housecarl:skse-plugin-authoring`, `/housecarl:tool-output-awareness`,
+  `/housecarl:biped-slot-reference`).
 
 Coverage is **reflection-driven**: the set of record types houseCARL understands *is* the set Mutagen
 models, by construction — not a hand-maintained subset.

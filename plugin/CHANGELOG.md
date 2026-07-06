@@ -4,6 +4,86 @@ All notable changes to houseCARL are documented here. Versioning is [semantic](h
 the `version` in `.claude-plugin/plugin.json` is bumped on each release, so installed users update only
 when it changes.
 
+## 1.6.0 — 2026-07-06
+
+houseCARL learns to **see the parts of your workspace it was blind to**: read a plugin that isn't in your
+active load order (even one inside a disabled mod), inventory the SKSE-plugin (DLL) layer, and catch Papyrus
+script properties a plugin declares but never fills. **Three new tools (→ 31) and one new skill (→ 12)** —
+plus a substantial dialogue- and record-authoring push, and a batch of silent-wrong and fail-loud fixes.
+
+**Three new tools (→ 31) — new visibility layers**
+
+- **`housecarl_read_plugin_file` — read any plugin file's own records, even one that isn't active.** houseCARL
+  builds its world from your active MO2 profile, so a plugin you've unchecked — or one sitting in a *disabled*
+  mod folder — used to be invisible. This read-only tool opens a named plugin file directly (active or not, by
+  filename or absolute path) and returns **that file's own version** of a record, enumerates the records it
+  defines (optionally filtered by type or EditorID), or summarizes it by record type. Every result is loudly
+  stamped **OUT-OF-LOAD-ORDER**, so a raw-file read is never mistaken for load-order truth; it has no
+  winner/conflict semantics by construction, and it resolves FormLinks against the file's declared masters
+  wherever they sit on disk — telling you if one is missing or inactive rather than guessing. This is the
+  enabler for inspecting a donor mod *before* you enable it, with no MO2 enable/disable dance to read one file.
+- **`housecarl_skse_inventory` — see the SKSE-plugin (DLL) layer.** A full-depth inventory of
+  `Data\SKSE\Plugins`: every `.dll` and every config file (grouped by its derived subfolder — SkyPatcher,
+  DynamicStringDistributor, OStim, … — never a hardcoded list), each resolved to its winning MO2 provider with
+  the **full winner→loser conflict chain** (loose/BSA tagged), and each winning DLL's version metadata decoded
+  **statically, without loading it** — name / author / version, Address-Library vs version-locked, target
+  runtimes. The record layer has always been houseCARL's home; this is the first look at the binary layer beside
+  it, and it's honest about its ceiling: it reads a DLL's declared metadata, never its behavior (a legacy DLL
+  whose version is only set at runtime says exactly that; an unreadable PE is flagged, never guessed).
+- **`housecarl_validate_scripts` — catch script properties left silently unbound.** A Papyrus script attached to
+  a record (VMAD) can declare a property in its compiled `.pex` that the record never actually fills — a silent
+  `None` at runtime that throws no error and just makes the script quietly misbehave. This read-only sweep
+  compares each attached script's compiled property list against what the record binds and reports the gaps,
+  correctly leaving **alias-bound** properties (filled by the quest at runtime, not on the record) alone so they
+  aren't false-flagged.
+
+**One new skill (→ 12)**
+
+- **`skse-plugin-authoring` — author an SKSE plugin in C++ against CommonLibSSE-NG.** houseCARL's first skill
+  that leaves the data layer for the code layer: it walks the full lifecycle of building an SKSE DLL — project
+  scaffolding, the plugin entry points and messaging interface, Papyrus-native functions and hooks, and the
+  CommonLibSSE-NG idioms — so Claude can help write a plugin, not just read the records around it. Pairs
+  naturally with the new `skse_inventory` tool (see the DLL layer; author into it).
+
+**Dialogue & record authoring**
+
+- **Fill a whole modeled-struct field in one op (`compose-Set`).** `set_field` / `bulk_apply` can now set an
+  entire sub-struct in a single operation instead of one leaf field at a time — the authoring ergonomics
+  prerequisite behind composed multi-record flows (e.g. rebuilding an NPC's appearance subtree).
+- **Clear a nullable field via `Remove`.** A nullable polymorphic field or a nullable sub-struct can now be
+  cleared back to unset with `Remove` — for example, un-fragmenting an INFO whose script fragment you want gone,
+  cleanly rather than by writing an empty stand-in.
+- **`@editorid` same-call sibling references now work inside list fields.** An `Add` / `ReplaceAll` onto a
+  FormLink **list** can reference a record created earlier in the same call by its EditorID, so a batch that
+  creates records and wires them together no longer needs a second pass for the list-typed links.
+- **Single-gender records just author cleanly.** Creating a record with only one half of a gendered FormLink set
+  (a single-gender skin/armor) now materializes the un-set half as an empty link instead of crashing, and
+  editing an existing single-gender record stays safe.
+
+**Dialogue fixes (CK-parity byte tier + validator)**
+
+- **A newly-authored dialogue record now matches what the Creation Kit writes.** `create_record` / `bulk_create`
+  default-populate the byte-level fields the CK fills in on a fresh INFO / DLVW / DLBR / QUST / DIAL that a raw
+  insert would leave blank — the class of "byte-valid but plays wrong / won't start" traps that make hand-built
+  dialogue silently fail.
+- **`housecarl_validate_dialogue` got sharper.** It no longer false-warns on the standard PlayerRef player-state
+  gate (see the `check_errors` fix below — same engine-implicit whitelist), flags a `<Global=X>` text tag that
+  names a global the owning quest doesn't carry (renders as `[…]` in game), and auto-flags a `.seq` left stale
+  by an in-place edit.
+
+**Fixes**
+
+- **`housecarl_check_errors` no longer drowns in false PlayerRef errors.** The integrity sweep was reporting
+  every reference to the engine-implicit PlayerRef (`000014`) and Player (`000007`) forms as a dangling
+  reference — on a real load order that was hundreds of false positives that overflowed the response. Those
+  hardcoded engine forms are now recognized and exempted (a precise two-form whitelist, not the whole reserved
+  range, so a genuinely broken low reference still surfaces).
+- **`Remove` on a FormLink is now correct in both directions.** Removing a *nullable* scalar FormLink clears it
+  to an empty link (instead of throwing); removing a *required* FormLink that can't be legally emptied now fails
+  loud with a clear message (instead of silently doing the wrong thing).
+- **A failed BSA extraction says why.** When BSArch writes nothing, `housecarl_bsa_extract` now names the actual
+  cause instead of reporting an empty success.
+
 ## 1.5.0 — 2026-07-02
 
 houseCARL gains **plugin surgery**: ESL-compact a plugin with its FormID-keyed assets (facegen, voice, SEQ)
