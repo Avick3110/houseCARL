@@ -16,14 +16,17 @@ models — by construction, not a hand-maintained subset.
 ## What it can do
 
 - **Read any record** at the true load-order winner, with the full conflict tree on request — plus batch
-  record detail and cross-plugin queries.
+  record detail and cross-plugin queries. Read a plugin that *isn't* in your active order too — even one
+  inside a disabled mod — with a raw, clearly OUT-OF-LOAD-ORDER-flagged look at its own records, so you can
+  inspect a donor mod before you enable it.
 - **Author patches** — set / add / remove fields, edit leveled lists and containers, retune records,
   re-target conditions — emitted as a new MO2 mod folder (`houseCARL - <name>`). Or **forward a named
   plugin's version of a record** as a winning override (xEdit's "copy as override into"), or revert a record
   to vanilla.
 - **Create new records** (new FormIDs) and **remove** records or individual entries; unused masters are
   cleaned automatically. Author a whole nested dialogue conversation in one call, validate a dialogue
-  graph on demand, and write the `.seq` file a plugin's start-game-enabled quests need. Author an empty
+  graph on demand, catch script (VMAD) properties a record declares but never binds (a silent `None` at
+  runtime), and write the `.seq` file a plugin's start-game-enabled quests need. Author an empty
   header-only **trigger plugin** when a mod just needs `Foo.esp` to exist.
 - **Edit an existing plugin in place** — when you ask, houseCARL edits, creates, and removes records
   directly inside an existing plugin (including one it didn't author) instead of writing a separate patch.
@@ -36,6 +39,9 @@ models — by construction, not a hand-maintained subset.
   and place a file as a winning override into a new MO2 mod folder; loose-vs-BSA aware, with FaceGen as the
   headline use case. "Wrote it" is reported honestly as not yet "it wins" — you still enable and sort the
   new mod in MO2.
+- **See the SKSE-plugin layer** — inventory the DLLs and their config files under `Data\SKSE\Plugins`, each
+  resolved to the mod that wins it (with the full conflict chain), and read each winning DLL's declared version
+  metadata — name, author, target runtime, Address-Library flag — statically, without loading it.
 - **Drive the external toolchain** — compile Papyrus scripts through the Creation Kit's compiler, and
   list / extract / repack BSA archives via BSArch; each tool's path is auto-detected or set once.
 - **Decompile compiled scripts** — reconstruct reviewable `.psc` source from any `.pex` (Mutagen-native,
@@ -45,10 +51,11 @@ models — by construction, not a hand-maintained subset.
 - **Look mods up on Nexus** — search the Skyrim SE catalogue and pull any mod's version, requirements,
   and *true* latest release straight from Nexus Mods, without opening a browser. Read-only: it finds
   and informs; downloading stays your mod manager's "Mod Manager Download" handoff.
-- **Look things up, author distributor files, and review scripts** through 11 bundled, namespaced skills:
+- **Look things up, author distributor files, and review scripts** through 12 bundled, namespaced skills:
   record schemas (every type Mutagen models), Papyrus / SKSE signatures, SkyPatcher / SPID / KID
-  distributor grammars, Skyrim dialogue authoring, Open Animation Replacer config authoring, Papyrus
-  performance review, dark-face NPC diagnosis, equip-slot lookup, and tool-output awareness.
+  distributor grammars, Skyrim dialogue authoring, Open Animation Replacer config authoring, SKSE plugin
+  (C++/CommonLibSSE-NG) authoring, Papyrus performance review, dark-face NPC diagnosis, equip-slot lookup,
+  and tool-output awareness.
 
 ## Requirements
 
@@ -69,7 +76,7 @@ models — by construction, not a hand-maintained subset.
 
 ### Download — recommended (modders)
 
-1. Download **`houseCARL-1.4.0.zip`** from the [latest release](https://github.com/Avick3110/houseCARL/releases).
+1. Download **`houseCARL-1.6.0.zip`** from the [latest release](https://github.com/Avick3110/houseCARL/releases).
 2. Unzip it and run **`houseCARL-Setup.exe`**.
 3. Pick your host — **`[1] Claude Code`**, **`[2] Codex`**, or **`[3] Both`**. The installer wires
    everything up:
@@ -99,7 +106,7 @@ cd houseCARL
 
 The script regenerates the reflection rulebook, publishes the server framework-dependent (trimming **off**
 — houseCARL is reflection-driven, so trimming would strip types and silently lose coverage), bundles the
-skills, builds the setup utility, and packs `release/houseCARL-1.4.0.zip`. Install the output with
+skills, builds the setup utility, and packs `release/houseCARL-1.6.0.zip`. Install the output with
 `houseCARL-Setup.exe`, `claude --plugin-dir ./dist/housecarl`, or the bundled local-marketplace
 descriptor — see the script header for details.
 
