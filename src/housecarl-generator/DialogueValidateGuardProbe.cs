@@ -1,7 +1,9 @@
+using System.Text.RegularExpressions;
 using Mutagen.Bethesda;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Skyrim;
 using HousecarlCore;
+using HousecarlMcp;
 
 namespace HousecarlGenerator;
 
@@ -39,6 +41,10 @@ namespace HousecarlGenerator;
 ///   QUST-CKPARITY-GAP— a QUEST input whose quest lacks ANAM and has a Flags-less objective → InputIssues warns BOTH,
 ///                  ONCE at quest level (never per topic) — the shared MissingQuestDefaults probe end-to-end.
 ///   QUST-CKPARITY-OK — a CK-parity-complete quest (ApplyQuestDefaults-filled) reports NO input issues — no-false-positive lock.
+///   RENDER-SCOPE-PIN — the hand-written "CK-parity: OK" prose in DialogueWire names EVERY subrecord the check
+///                  actually covers. The checked set is DERIVED from Missing*Defaults on a bare record (never
+///                  hand-listed here), so adding a subrecord to a check fails this arm until the OK line names it
+///                  — the render-level anti-drift tie (PR #155 review finding 5; AssetStatusProbe render-pin pattern).
 ///   NO-QUEST     — a topic with DialogTopic.Quest unset warns 'Quest' — the unowned-topic teeth.
 ///   BAD-BRANCH   — DialogTopic.Branch pointing at a non-DLBR is a PROBLEM naming 'Branch'.
 ///   VOICE-WIRED  — a voiced line with no .fuz surfaces as a SILENT VoiceLine IN THE VALIDATOR (reused VoiceCheck).
@@ -525,6 +531,34 @@ public static class DialogueValidateGuardProbe
             all &= Pass("QUST-CKPARITY-OK not flagged", ok, $"kind={r.InputKind} issues={InputIssues(r)}");
         }
 
+        // ---------- RENDER-SCOPE-PIN: the "CK-parity: OK" prose names EVERY subrecord the check covers ----------
+        // The OK lines in DialogueWire are hand-written scope declarations ("the DNAM and ENAM byte subrecords …
+        // are both present") — a third statement of the checked-subrecord set, outside the fill/check predicate
+        // tie. This arm pins them: the authoritative set is DERIVED here by running Missing*Defaults on a BARE
+        // record and extracting each gap's 4-char signature — never hand-listed — so a subrecord added to a check
+        // fails this arm until the corresponding OK line names it (a clean pass must never under-claim its scope, Q3).
+        {
+            var pinView = GapSigs(DialogueCkParity.MissingViewDefaults(
+                new DialogView(FormKey.Factory("000900:HcDvPin.esm"), SkyrimRelease.SkyrimSE)));
+            var pinBranch = GapSigs(DialogueCkParity.MissingBranchDefaults(
+                new DialogBranch(FormKey.Factory("000901:HcDvPin.esm"), SkyrimRelease.SkyrimSE)));
+            var pinQuest = new Quest(FormKey.Factory("000902:HcDvPin.esm"), SkyrimRelease.SkyrimSE);
+            pinQuest.Objectives.Add(new QuestObjective { Index = 1 });   // one Flags-less objective so FNAM is in the set
+            var pinQ = GapSigs(DialogueCkParity.MissingQuestDefaults(pinQuest));
+
+            string rView = DialogueWire.Render(DialogueValidate.Run(resolver, assets, viewOkFk), 0);
+            string rBr = DialogueWire.Render(DialogueValidate.Run(resolver, assets, brOkFk), 0);
+            string rQ = DialogueWire.Render(DialogueValidate.Run(resolver, assets, qOkFk), 0);
+            bool viewNamed = rView.Contains("CK-parity: OK", StringComparison.Ordinal)
+                && pinView.Length > 0 && pinView.All(s => rView.Contains(s, StringComparison.Ordinal));
+            bool brNamed = rBr.Contains("CK-parity: OK", StringComparison.Ordinal)
+                && pinBranch.Length > 0 && pinBranch.All(s => rBr.Contains(s, StringComparison.Ordinal));
+            bool qNamed = rQ.Contains("quest CK-parity: OK", StringComparison.Ordinal)
+                && pinQ.Length > 0 && pinQ.All(s => rQ.Contains(s, StringComparison.Ordinal));
+            all &= Pass("RENDER-SCOPE-PIN OK lines name checked set", viewNamed && brNamed && qNamed,
+                $"view[{string.Join(",", pinView)}]={viewNamed} branch[{string.Join(",", pinBranch)}]={brNamed} quest[{string.Join(",", pinQ)}]={qNamed}");
+        }
+
         // ---------- NO-QUEST: an unowned topic warns 'Quest' ----------
         {
             var t = One(DialogueValidate.Run(resolver, assets, noQuestFk));
@@ -758,6 +792,12 @@ public static class DialogueValidateGuardProbe
     static string Issues(TopicValidation t) => Issues(t.Issues);
 
     static string InputIssues(DialogueValidationReport r) => Issues(r.InputIssues);
+
+    /// <summary>The 4-char subrecord signatures (DNAM/ENAM/TNAM/ANAM/FNAM/…) a gap list names — the authoritative
+    /// checked-set for the RENDER-SCOPE-PIN arm, derived from Missing*Defaults' own output (by construction,
+    /// never hand-listed in the probe).</summary>
+    static string[] GapSigs(IReadOnlyList<CkParityGap> gaps) =>
+        gaps.SelectMany(g => Regex.Matches(g.Subrecord, @"\b[A-Z]{4}\b").Select(m => m.Value)).Distinct().ToArray();
 
     /// <summary>Does a reject-guidance string name ALL FOUR accepted input kinds (DIAL, QUST, DLVW, DLBR)? Pins the
     /// error guidance against input-kind drift — a fifth kind added without updating the reject strings fails here.</summary>
