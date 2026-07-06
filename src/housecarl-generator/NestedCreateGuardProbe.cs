@@ -337,6 +337,8 @@ namespace HousecarlGenerator;
 ///   SUBSTRUCT-SET-ARRAY2D-REJECTED  — an Array2d composition-residual is NOT opened (no accept-then-throw; the paramless-ctor exclusion).
 ///   SUBSTRUCT-SET-COMPOSE-E2E       — a composed NpcFaceParts(Nose=32) round-trips through the real create+apply path onto NPC_.FaceParts on disk.
 ///   SUBSTRUCT-SET-DOTTED-VIVIFY     — the report's ideal (b): Set FaceParts.Nose on an ABSENT struct auto-vivifies it then sets the sub-field, E2E.
+///   SUBSTRUCT-SET-ARM-COMPOSE-E2E   — the ARM-typed case round-trips build+assign+SERIALIZE: a composed SceneScriptFragments lands on Scene.VMAD.ScriptFragments on disk (PR #147 review finding 2).
+///   SUBSTRUCT-SET-COERCIBLE-COMPOSE-MSG — a compose on a COERCIBLE substruct (ButtonLabel) names the plain-value path, not the misleading 'requires a value' (PR #147 review finding 3).
 /// </summary>
 public static class NestedCreateGuardProbe
 {
@@ -2338,11 +2340,45 @@ public static class NestedCreateGuardProbe
             Console.WriteLine($"   SUBSTRUCT-SET-DOTTED-VIVIFY        : {(substructDottedVivifyOk ? "PASS — Set FaceParts.Nose on an ABSENT struct auto-vivifies it then sets the sub-field (report ideal b, guaranteed)" : $"FAIL — success={o.Success} present={present} err=[{o.Error}]")}");
         }
 
+        // ---------- SUBSTRUCT-SET-ARM-COMPOSE-E2E: the ARM-typed substruct case round-trips build+assign+SERIALIZE to disk ----------
+        // SUBSTRUCT-SET-ARM-COMPOSE-OK proves only the GATE accepts an arm-typed substruct leaf; this proves apply BUILDS,
+        // ASSIGNS, and SERIALIZES one. Set Scene.VirtualMachineAdapter.ScriptFragments (SceneAdapter is vivified mid-path,
+        // then the arm-typed SceneScriptFragments leaf composed) with the fields it needs to serialize, then re-read the
+        // Scene off disk and confirm its VMAD carries the fragments. Closes PR #147 review finding 2 (arm E2E gap).
+        bool substructArmE2eOk = false;
+        {
+            string pPath = Path.Combine(tmpDir, "HcNcSubArm.esp");
+            var specs = new[]
+            {
+                new WritePatchBuilder.CreateSpec { RecordType = "Scene", EditorId = "HcNcSubArmScene",
+                    Edits = new[] { new WriteRequest { RecordType = "Scene", Path = new[] { "VirtualMachineAdapter", "ScriptFragments" }, Verb = "Set",
+                        Struct = new StructSpec { Type = "SceneScriptFragments", Fields = new Dictionary<string, string> { ["FileName"] = "HcScene", ["ExtraBindDataVersion"] = "2" } } } } },
+            };
+            using var r = LoadOrderResolver.Build(new[] { mPath });
+            var o = WritePatchBuilder.CreateRecords(r, rulebook, specs, pPath, extend: false);
+            bool present = o.Success && o.Created.Count > 0 && SceneVmadFragmentsPresent(pPath, o.Created[0].FormKey);
+            substructArmE2eOk = o.Success && present;
+            Console.WriteLine($"   SUBSTRUCT-SET-ARM-COMPOSE-E2E      : {(substructArmE2eOk ? "PASS — a composed SceneScriptFragments (arm) round-trips through create+apply onto Scene.VMAD.ScriptFragments on disk" : $"FAIL — success={o.Success} present={present} err=[{o.Error}]")}");
+        }
+
+        // ---------- SUBSTRUCT-SET-COERCIBLE-COMPOSE-MSG: a compose on a COERCIBLE substruct names the plain-value path ----------
+        // Review finding 3: passing a compose on a coercible substruct (TranslatedString) is a (safe) over-reject — but the
+        // message must name the plain-value path, NOT the misleading "requires a value" (which reads as "value= is absent").
+        bool substructCoercibleMsgOk;
+        {
+            var req = new WriteRequest { RecordType = "APerkEffect", Path = new[] { "ButtonLabel" }, Verb = "Set",
+                Struct = new StructSpec { Type = "TranslatedString" } };
+            var reject = rulebook.Validate(req);
+            substructCoercibleMsgOk = reject is not null && reject.Contains("plain value", StringComparison.OrdinalIgnoreCase)
+                && !reject.Contains("requires a value", StringComparison.OrdinalIgnoreCase);
+            Console.WriteLine($"   SUBSTRUCT-SET-COERCIBLE-COMPOSE-MSG: {(substructCoercibleMsgOk ? "PASS — a compose on a coercible substruct (ButtonLabel) names the plain-value path, NOT the misleading 'requires a value'" : $"FAIL — reject=[{reject}]")}");
+        }
+
         Console.WriteLine();
         bool pass = fixturesOk && oneshotOk && multiOk && intoTopicOk && intoCellOk
                     && substructComposeOk && substructArmComposeOk && substructBadTypeOk && substructBadFieldOk
                     && substructNoSpecOk && substructCoercibleOk && substructArray2dRejOk && substructComposeE2eOk
-                    && substructDottedVivifyOk
+                    && substructDottedVivifyOk && substructArmE2eOk && substructCoercibleMsgOk
                     && rejNoParentOk && rejBadParentOk && rejAmbigOk && rejFwdSibOk && extendOk
                     && sibrefOk && sibRefListAddOk && sibRefListReplaceOk && sibRejFwdOk && sibRejFwdListOk
                     && sibRejNonflOk && sibRejListSetOk && sibRejDictOk && sibRejApplyOk
@@ -2409,6 +2445,23 @@ public static class NestedCreateGuardProbe
             return n?.FaceParts?.Nose;
         }
         catch { return null; }
+        finally { (ov as IDisposable)?.Dispose(); }
+    }
+
+    /// <summary>Re-open the written patch and confirm a Scene's VMAD carries a composed SceneScriptFragments — the arm-typed
+    /// substruct compose-Set round-trip: SceneAdapter (Scene.VirtualMachineAdapter) is vivified mid-path, then its arm-typed
+    /// ScriptFragments leaf built FROM PARTS via BuildStruct and serialized. False when the Scene, its VMAD, or the fragments
+    /// is absent (so the E2E fails honestly rather than defaulting to a match).</summary>
+    static bool SceneVmadFragmentsPresent(string patchPath, FormKey sceneFk)
+    {
+        ISkyrimModGetter? ov = null;
+        try
+        {
+            ov = SkyrimMod.CreateFromBinaryOverlay(patchPath, SkyrimRelease.SkyrimSE);
+            var s = ov.Scenes.FirstOrDefault(x => x.FormKey == sceneFk);
+            return s?.VirtualMachineAdapter?.ScriptFragments is not null;
+        }
+        catch { return false; }
         finally { (ov as IDisposable)?.Dispose(); }
     }
 
