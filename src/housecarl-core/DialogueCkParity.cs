@@ -167,7 +167,7 @@ public static class DialogueCkParity
     {
         var fills = new List<CkParityFill>(2);
 
-        if (view.DNAM is null)
+        if (!HasDnam(view))
         {
             view.DNAM = Convert.FromHexString(ViewDnamHex);
             fills.Add(new CkParityFill(
@@ -176,7 +176,7 @@ public static class DialogueCkParity
                 + "BNAM-less topics) crashes the Creation Kit's Dialogue Views editor. CK-parity default-populate."));
         }
 
-        if (view.ENAM is null)
+        if (!HasEnam(view))
         {
             view.ENAM = Convert.FromHexString(ViewEnamHex);
             fills.Add(new CkParityFill(
@@ -186,6 +186,37 @@ public static class DialogueCkParity
         }
 
         return fills;
+    }
+
+    // --- DLVW presence predicates: the single home for "does this DialogView carry the byte subrecord?",
+    //     consulted by BOTH ApplyViewDefaults (fills when absent) and MissingViewDefaults (flags when absent) —
+    //     the same shared-source discipline as the INFO predicates above (Q3, no drift). ---
+    static bool HasDnam(IDialogViewGetter view) => view.DNAM is not null;   // DNAM
+    static bool HasEnam(IDialogViewGetter view) => view.ENAM is not null;   // ENAM
+
+    /// <summary>The CK-parity subrecords a DLVW (DialogView) is MISSING — the read-only counterpart of
+    /// <see cref="ApplyViewDefaults"/>, for the on-demand dialogue validator's DialogView input. Shares the exact
+    /// presence predicates the fill path uses, so fill and check can never disagree. Empty when the view carries
+    /// both byte subrecords (every CK-authored view does). Reads only the getter; NEVER mutates.</summary>
+    public static IReadOnlyList<CkParityGap> MissingViewDefaults(IDialogViewGetter view)
+    {
+        var gaps = new List<CkParityGap>(2);
+
+        if (!HasDnam(view))
+            gaps.Add(new CkParityGap("DNAM",
+                $"every CK-authored DialogView carries the DNAM byte subrecord (0x{ViewDnamHex}); a bare DLVW (with "
+                + "BNAM-less topics) crashes the Creation Kit's Dialogue Views editor (FlowchartX64 null-deref — the "
+                + "game itself tolerates it). houseCARL's create tools auto-fill it — housecarl_set_field DNAM="
+                + ViewDnamHex + " to populate it."));
+
+        if (!HasEnam(view))
+            gaps.Add(new CkParityGap("ENAM",
+                $"every CK-authored DialogView carries the ENAM byte subrecord (0x{ViewEnamHex}), pairing with DNAM "
+                + "for Creation Kit Dialogue Views parity; a bare DLVW crashes the CK's Dialogue Views editor (the "
+                + "game itself tolerates it). houseCARL's create tools auto-fill it — housecarl_set_field ENAM="
+                + ViewEnamHex + " to populate it."));
+
+        return gaps;
     }
 
     // ==================================================================================================
@@ -214,7 +245,7 @@ public static class DialogueCkParity
     {
         var fills = new List<CkParityFill>(1);
 
-        if (branch.Category is null)
+        if (!HasCategory(branch))
         {
             branch.Category = BranchCategoryDefault;
             fills.Add(new CkParityFill(
@@ -227,6 +258,28 @@ public static class DialogueCkParity
         }
 
         return fills;
+    }
+
+    // --- DLBR presence predicate: the single home for "does this DialogBranch carry TNAM?", consulted by BOTH
+    //     ApplyBranchDefaults (fills when absent) and MissingBranchDefaults (flags when absent) — no drift (Q3). ---
+    static bool HasCategory(IDialogBranchGetter branch) => branch.Category is not null;   // TNAM
+
+    /// <summary>The CK-parity subrecord a DLBR (DialogBranch) is MISSING — the read-only counterpart of
+    /// <see cref="ApplyBranchDefaults"/>, for the on-demand dialogue validator's DialogBranch input. Shares the exact
+    /// presence predicate the fill path uses, so fill and check can never disagree. S2 (byte-parity only — no
+    /// confirmed crash): a missing TNAM is a structural mismatch vs a CK-authored branch, not a known failure.
+    /// Empty when the branch carries a Category. Reads only the getter; NEVER mutates.</summary>
+    public static IReadOnlyList<CkParityGap> MissingBranchDefaults(IDialogBranchGetter branch)
+    {
+        var gaps = new List<CkParityGap>(1);
+
+        if (!HasCategory(branch))
+            gaps.Add(new CkParityGap("TNAM (Category)",
+                "every CK-authored DialogBranch carries the TNAM (Category) subrecord (~all vanilla branches carry "
+                + "Player); a branch missing it differs structurally from a CK-authored one (byte-parity only — no "
+                + "confirmed crash). houseCARL's create tools auto-fill it — set Category (e.g. Player) to populate it."));
+
+        return gaps;
     }
 
     /// <summary>DIAL (DialogTopic) Priority (PNAM) CK seed. UNLIKE every other field here, Priority is a NON-NULLABLE
@@ -263,7 +316,7 @@ public static class DialogueCkParity
     {
         var fills = new List<CkParityFill>();
 
-        if (quest.NextAliasID is null)
+        if (!HasNextAliasID(quest))
         {
             bool hasAliases = quest.Aliases.Count > 0;
             uint next = hasAliases ? quest.Aliases.Max(a => a.ID) + 1u : 0u;
@@ -278,7 +331,7 @@ public static class DialogueCkParity
         int idx = 0;
         foreach (var objective in quest.Objectives)
         {
-            if (objective.Flags is null)
+            if (!HasObjectiveFlags(objective))
             {
                 objective.Flags = default(QuestObjective.Flag);   // (QuestObjective.Flag)0 — no flags set
                 fills.Add(new CkParityFill(
@@ -291,5 +344,41 @@ public static class DialogueCkParity
         }
 
         return fills;
+    }
+
+    // --- QUST presence predicates: the single home for "does this Quest carry the CK-parity subrecord?", consulted
+    //     by BOTH ApplyQuestDefaults (fills when absent) and MissingQuestDefaults (flags when absent) — no drift (Q3). ---
+    static bool HasNextAliasID(IQuestGetter quest) => quest.NextAliasID is not null;                 // ANAM
+    static bool HasObjectiveFlags(IQuestObjectiveGetter objective) => objective.Flags is not null;   // FNAM
+
+    /// <summary>The CK-parity subrecords a QUST (Quest) is MISSING — the read-only counterpart of
+    /// <see cref="ApplyQuestDefaults"/>, for the on-demand dialogue validator's QUEST input (checked ONCE per quest,
+    /// never per topic). Shares the exact presence predicates the fill path uses, so fill and check can never
+    /// disagree. S2 (byte-parity only — no confirmed crash). PRESENCE only: the fill's max-alias-id+1 derivation is
+    /// create-lane-correct (an edited quest's ANAM is a CK high-water mark that can legitimately exceed max+1), so
+    /// this checks "is ANAM absent?", never judges its VALUE. Empty when ANAM is present and every objective carries
+    /// FNAM. Reads only the getter; NEVER mutates.</summary>
+    public static IReadOnlyList<CkParityGap> MissingQuestDefaults(IQuestGetter quest)
+    {
+        var gaps = new List<CkParityGap>();
+
+        if (!HasNextAliasID(quest))
+            gaps.Add(new CkParityGap("ANAM (NextAliasID)",
+                "every CK-authored Quest carries the ANAM (next-alias-ID counter) subrecord; a quest missing it "
+                + "differs structurally from a CK-authored one (byte-parity only — no confirmed crash). houseCARL's "
+                + "create tools auto-fill it — set NextAliasID (the next alias ID the CK would hand out) to populate it."));
+
+        int idx = 0;
+        foreach (var objective in quest.Objectives)
+        {
+            if (!HasObjectiveFlags(objective))
+                gaps.Add(new CkParityGap($"Objectives[{idx}] (Index {objective.Index}) FNAM (Flags)",
+                    "every CK-authored quest objective carries the FNAM (flags) subrecord (vanilla objectives carry 0); "
+                    + "an objective missing it differs structurally from a CK-authored one (byte-parity only — no "
+                    + "confirmed crash). houseCARL's create tools auto-fill it — set the objective's Flags to populate it."));
+            idx++;
+        }
+
+        return gaps;
     }
 }

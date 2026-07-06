@@ -18,7 +18,10 @@ public static class DialogueTools
      Description(
          "Validate a dialogue topic's whole graph against the load order — what the game actually sees. Pass a " +
          "dialogue topic (DIAL) FormID to validate that one topic, or a quest (QUST) FormID to validate EVERY topic " +
-         "the quest owns. Checks the things houseCARL CAN verify at the data layer: the topic is wired to a quest, " +
+         "the quest owns (plus the quest's own CK-parity subrecords, checked once). A dialogue view (DLVW) or " +
+         "dialogue branch (DLBR) FormID runs a record-level CK-parity check (the DNAM/ENAM and TNAM subrecords the " +
+         "Creation Kit always writes — a bare DLVW crashes the CK's Dialogue Views editor). " +
+         "Checks the things houseCARL CAN verify at the data layer: the topic is wired to a quest, " +
          "the dialogue branch resolves, the INFO.LinkTo conversation chain (topic -> next topic) has no dangling " +
          "targets, and no previous-link (PNAM) is dangling — an EMPTY PNAM is normal (vanilla selects among a " +
          "topic's lines by their conditions, not a previous-link chain), so absence is never flagged; plus (reusing " +
@@ -34,7 +37,7 @@ public static class DialogueTools
          "housecarl_create_record; to inspect a single record use housecarl_read_record.")]
     public static string ValidateDialogue(
         LoadOrderService svc,
-        [Description("The dialogue topic (DIAL) or quest (QUST) FormID as 'XXXXXX:Plugin.esp' — 6 hex digits, a colon, then the defining master's filename. A DIAL validates one topic; a QUST validates every topic that quest owns.")]
+        [Description("The dialogue topic (DIAL), quest (QUST), dialogue view (DLVW), or dialogue branch (DLBR) FormID as 'XXXXXX:Plugin.esp' — 6 hex digits, a colon, then the defining master's filename. A DIAL validates one topic; a QUST validates every topic that quest owns; a DLVW/DLBR runs a record-level CK-parity check.")]
             string formid,
         [Description("Optional. Max characters before the report is cut with an explicit notice (never silent). 0 = the server default (~80k). Raise for a quest that owns many topics.")]
             int max_chars = 0) => Guard.Tool("housecarl_validate_dialogue", () =>
@@ -65,6 +68,28 @@ static class DialogueWire
         if (r.Error is not null) return "error: " + r.Error;
 
         var sb = new StringBuilder();
+
+        // DLVW/DLBR inputs: a RECORD-LEVEL CK-parity check — no topic graph, so no per-topic blocks and no
+        // topic-shaped standing-limits footer. The scope note names what this did NOT check (Q3 — a clean pass
+        // here must never read as a graph/voice/script validation).
+        if (r.InputKind is "view" or "branch")
+        {
+            string kind = r.InputKind == "view" ? "dialogue view (DLVW)" : "dialogue branch (DLBR)";
+            sb.Append("validate_dialogue: ").Append(kind).Append(' ').Append(Edid(r.InputEditorId))
+              .Append(" (").Append(r.Input).Append(") — winner ").Append(r.InputWinnerPlugin).Append('\n');
+            if (r.InputIssues.Count == 0)
+                sb.Append("  CK-parity: OK — ").Append(r.InputKind == "view"
+                    ? "the DNAM and ENAM byte subrecords the Creation Kit always writes are both present.\n"
+                    : "the TNAM (Category) subrecord the Creation Kit always writes is present.\n");
+            else
+                foreach (var iss in r.InputIssues)
+                    sb.Append("  ").Append(iss.Severity == DialogueIssueSeverity.Problem ? "[X] " : "[!] ")
+                      .Append(iss.Message).Append('\n');
+            sb.Append("scope: this is a record-level CK-parity check only — it does not validate any dialogue graph, "
+                    + "voice, script, or condition surface. Validate the owning topics (DIAL) or quest (QUST) for those.");
+            return sb.ToString();
+        }
+
         if (r.InputKind == "quest")
         {
             sb.Append("validate_dialogue: quest ").Append(Edid(r.InputEditorId)).Append(" (").Append(r.Input).Append(')')
@@ -73,6 +98,16 @@ static class DialogueWire
                 sb.Append("  no dialogue topics in the active load order are owned by this quest — nothing to validate. " +
                           "If you expected some, check those topics set DialogTopic.Quest to this quest and that their plugin is enabled.\n");
             AppendSeq(sb, r.SeqLint);
+
+            // Quest-level CK-parity (ANAM / objective FNAM) — input-level findings, printed ONCE here, never per
+            // topic. An explicit OK line, matching the per-topic "graph: OK" style (a sub-check that ran and passed
+            // is stated, not silent).
+            if (r.InputIssues.Count == 0)
+                sb.Append("  quest CK-parity: OK — the NextAliasID (ANAM) subrecord is present and every objective carries its Flags (FNAM).\n");
+            else
+                foreach (var iss in r.InputIssues)
+                    sb.Append("  ").Append(iss.Severity == DialogueIssueSeverity.Problem ? "[X] " : "[!] ")
+                      .Append(iss.Message).Append('\n');
         }
 
         for (int i = 0; i < r.Topics.Count; i++)

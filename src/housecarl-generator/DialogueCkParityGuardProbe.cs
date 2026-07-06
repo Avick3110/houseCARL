@@ -30,6 +30,12 @@ namespace HousecarlGenerator;
 ///   INFO-GAP-PROBE    — the anti-drift tie: MissingInfoDefaults (the validator's check side) and ApplyInfoDefaults
 ///                       (the fill side) read ONE shared presence predicate — a bare INFO reports exactly the CNAM+ENAM
 ///                       gaps, and after the fill reports none (a field in one path but not the other breaks this).
+///   DLVW-GAP-PROBE    — same anti-drift tie for the DLVW: a bare DialogView reports exactly the DNAM+ENAM gaps
+///                       via MissingViewDefaults, none after ApplyViewDefaults (shared presence predicates).
+///   DLBR-GAP-PROBE    — same tie for the DLBR: a bare DialogBranch reports exactly the TNAM gap via
+///                       MissingBranchDefaults, none after ApplyBranchDefaults.
+///   QUST-GAP-PROBE    — same tie for the QUST: a bare quest with one Flags-less objective reports exactly the
+///                       ANAM + FNAM gaps via MissingQuestDefaults, none after ApplyQuestDefaults.
 ///   DLVW-AUTOFILL     — create a bare DialogView → written DNAM=00, ENAM=00000000, both REPORTED.
 ///   DLVW-DNAM-WINS    — an explicit DNAM=FF is NOT overridden to 00 (ENAM still auto-fills).
 ///   BNAM-LINT         — a Custom topic with no Branch → validate_dialogue raises a Warning naming Branch (BNAM); a
@@ -178,6 +184,48 @@ internal static class DialogueCkParityGuardProbe
                 int after = DialogueCkParity.MissingInfoDefaults(info).Count;
                 Check(flaggedBoth && after == 0,
                     $"INFO-GAP-PROBE bare INFO → CNAM+ENAM gaps (before={before.Count}), none after fill (after={after}) — check/fill share one predicate");
+            }
+
+            // ---- DLVW-GAP-PROBE: the same anti-drift tie for the DialogView — MissingViewDefaults (the validator's
+            //      check side) and ApplyViewDefaults (the fill side) read the SAME presence predicates: a bare DLVW
+            //      reports exactly the DNAM+ENAM gaps, none after the fill. Pure logic — no service/disk. ----
+            {
+                var view = new DialogView(FormKey.Factory("000801:HcCkpGapProbe.esm"), SkyrimRelease.SkyrimSE);
+                var before = DialogueCkParity.MissingViewDefaults(view);
+                bool flaggedBoth = before.Count == 2
+                    && before.Any(g => g.Subrecord.Contains("DNAM", StringComparison.OrdinalIgnoreCase))
+                    && before.Any(g => g.Subrecord.Contains("ENAM", StringComparison.OrdinalIgnoreCase));
+                DialogueCkParity.ApplyViewDefaults(view);
+                int after = DialogueCkParity.MissingViewDefaults(view).Count;
+                Check(flaggedBoth && after == 0,
+                    $"DLVW-GAP-PROBE bare DialogView → DNAM+ENAM gaps (before={before.Count}), none after fill (after={after}) — check/fill share one predicate");
+            }
+
+            // ---- DLBR-GAP-PROBE: the same tie for the DialogBranch — a bare DLBR reports exactly the TNAM gap,
+            //      none after ApplyBranchDefaults. ----
+            {
+                var br = new DialogBranch(FormKey.Factory("000802:HcCkpGapProbe.esm"), SkyrimRelease.SkyrimSE);
+                var before = DialogueCkParity.MissingBranchDefaults(br);
+                bool flagged = before.Count == 1 && before[0].Subrecord.Contains("TNAM", StringComparison.OrdinalIgnoreCase);
+                DialogueCkParity.ApplyBranchDefaults(br);
+                int after = DialogueCkParity.MissingBranchDefaults(br).Count;
+                Check(flagged && after == 0,
+                    $"DLBR-GAP-PROBE bare DialogBranch → TNAM gap (before={before.Count}), none after fill (after={after}) — check/fill share one predicate");
+            }
+
+            // ---- QUST-GAP-PROBE: the same tie for the Quest — a bare quest with one Flags-less objective reports
+            //      exactly the ANAM + FNAM gaps, none after ApplyQuestDefaults. ----
+            {
+                var q = new Quest(FormKey.Factory("000803:HcCkpGapProbe.esm"), SkyrimRelease.SkyrimSE);
+                q.Objectives.Add(new QuestObjective { Index = 10 });   // Flags null
+                var before = DialogueCkParity.MissingQuestDefaults(q);
+                bool flaggedBoth = before.Count == 2
+                    && before.Any(g => g.Subrecord.Contains("ANAM", StringComparison.OrdinalIgnoreCase))
+                    && before.Any(g => g.Subrecord.Contains("FNAM", StringComparison.OrdinalIgnoreCase) && g.Subrecord.Contains("Objectives[0]", StringComparison.Ordinal));
+                DialogueCkParity.ApplyQuestDefaults(q);
+                int after = DialogueCkParity.MissingQuestDefaults(q).Count;
+                Check(flaggedBoth && after == 0,
+                    $"QUST-GAP-PROBE bare Quest+objective → ANAM+FNAM gaps (before={before.Count}), none after fill (after={after}) — check/fill share one predicate");
             }
 
             // ---- DLVW-AUTOFILL: create a bare DialogView → written DNAM=00, ENAM=00000000, both reported. ----
