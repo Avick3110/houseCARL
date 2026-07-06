@@ -289,6 +289,13 @@ kPostPostLoad.
   `std::string savePath{ static_cast<char*>(msg->data), msg->dataLen };`.
 - **`kNewGame`**: `data` is the chargen `TESQuest*`.
 
+**Make one-time work idempotent.** The per-save messages fire once per save action by design, and whether
+`kDataLoaded` can ever re-fire is an open question (§8) — but a handler is cheap to make re-fire-proof and
+expensive to debug when a message arrives more often than you assumed. Guard anything that must happen
+exactly once — hook installs above all (a double `write_call` chains a hook into itself) — with a
+`std::once_flag` or a static bool. `AddEventSink` needs no guard; it dedups (`event-sinks.md`). And per-save
+state resets belong in the per-save messages, never mixed into the once-only path.
+
 ### The register idiom and its two traps
 
 Inside `SKSEPlugin_Load`, after Init:

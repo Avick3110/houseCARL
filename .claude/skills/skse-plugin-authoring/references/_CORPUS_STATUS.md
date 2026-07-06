@@ -75,6 +75,32 @@ Full residuals live in each research doc's "Residuals / open gaps" section. The 
 `../research/_research-roadmap.md` §3 is the plan to burn them; it is **owed to Aaron** and runs on his
 machine/runtime (SE 1.6.1170). AE-other/VR claims stay doc-level until then.
 
+## Field corroboration pass (2026-07-06)
+
+A hardening pass folded in lessons from real, shipped CommonLib-NG production plugins (built, deployed, and
+in several cases in-game-verified on a live SE/AE machine). These are **field observations**, distinct from
+the V0–V3 empirical ladder (still owed), but several close or correct items above:
+
+- **CORRECTED (was wrong):** `threading-and-persistence.md` previously advised "re-queue from inside the
+  task for repeats." The task queue's drain is pop-until-empty *including tasks added during the drain*, so
+  a self-requeued task busy-spins the main thread inside one frame — observed as a hard in-game freeze in
+  two independent plugins. The reference now forbids self-requeue and teaches worker-thread pacing.
+- **SOFTENED:** the CMake source-checkout route (`include(…/cmake/CommonLibSSE.cmake)` +
+  `add_commonlibsse_plugin` + consumer manifest) is field-proven by multiple shipped plugins; the
+  "unbuilt assembly" caveat now scopes only to the verbatim sketch. Practice notes added (manifest must
+  satisfy CommonLib's `find_package` set incl. `rapidcsv`/`xbyak`; VS dev shell; cold-build time).
+- **ADDED from production failures:** `write_call`/`write_branch` are instruction patches, not
+  prologue-copying entry detours (hooking.md); funnel re-entrancy → freeze-then-stack-overflow-CTD pattern
+  + guard discipline (hooking.md, event-sinks.md); lock-order inversion when calling a framework's API from
+  its own callback while holding your own lock (threading); second-writer ping-pong / prefer published
+  APIs / correct inputs not outputs (hooking.md, SKILL.md); event storms + coalescing (event-sinks.md);
+  byte-exact `ReadRecordData` + bounds-before-allocate (threading); Debug-CRT `LoadLibrary` 126 failure
+  (load-failures.md, toolchain); duplicate-metadata load failures (toolchain, SKILL.md); one-time-work
+  idempotence via `once_flag` (plugin-skeleton.md); native-body discipline — never block/throw/log-per-call,
+  no raw pointers past the call (native-papyrus-functions.md); async-only C++→Papyrus + VM-thread callbacks
+  + `#undef GetObject` (native-papyrus-functions.md); ABI-faithful rebuild rules for patching installed
+  plugins (toolchain-setup.md).
+
 ## Lineage watch (flag to Aaron)
 
 The charter locks **alandtse `ng`** as current and nothing here challenges that. But the M1 mine surfaced,

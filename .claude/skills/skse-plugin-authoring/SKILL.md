@@ -112,6 +112,14 @@ Each reference is self-contained and opens with its own contents list. Read for 
   thread, but the code that *discovers* the work (an event sink, a hook thunk, a Papyrus call) runs
   elsewhere. Marshal onto the game thread — `threading-and-persistence.md` Part 1 — rather than mutating
   where you stand, which is a race and an intermittent CTD.
+- **Self-requeueing an `AddTask` for repeated work.** The SKSE task queue drains pop-until-empty each pass,
+  so a task that re-queues itself runs again in the *same* drain — the whole "loop" executes inside one
+  frame and hard-freezes the main thread (field-verified, twice). Pace repeats from your own worker thread
+  posting one-shot tasks, or an update hook — `threading-and-persistence.md` Part 1.
+- **Fighting another plugin for state it manages.** A framework that owns an engine value (scale, morphs,
+  camera…) re-asserts it on its own schedule; a second writer produces a visible ping-pong war it can't
+  win. Consume the framework's published API, or correct the *input* it computes from — `hooking.md`'s
+  "when to hook, sink, or call native" ranking.
 - **Hand-rolling the setup instead of the toolchain.** The scaffold, the PCH, the `/Zc:preprocessor` flag,
   and the per-runtime presets in `toolchain-setup.md` are consumer *obligations* CommonLibSSE-NG needs;
   guessing at them produces a project that won't configure. Use the proven file-set.
@@ -119,6 +127,10 @@ Each reference is self-contained and opens with its own contents list. Read for 
   `DECLARATIVE`) that **does not exist** in the `ng` branch — a plugin using those macros won't compile.
   Likewise `REX::INFO` is a tell of a non-NG (po3/libxse) lineage. Hand-write `SKSEPlugin_Load` and call
   `SKSE::Init()` yourself, the live NG idiom.
+- **Emitting the plugin declaration twice.** When the build system generates the export triad
+  (`add_commonlibsse_plugin` / the xmake plugin rule), a hand-written `SKSEPluginInfo` or manual export
+  triad on top produces duplicate exports and confusing load failures. One metadata path, never both —
+  `toolchain-setup.md`.
 - **Treating a C++ header as the `.psc` truth.** A hooked thunk signature or a vtable slot is not a Papyrus
   function signature. When the task needs the script-side line, that's `papyrus-reference`, not a header.
 
