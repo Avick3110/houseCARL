@@ -208,6 +208,46 @@ public static class ReadTools
         var result = svc.ValidateScripts(plugins, limit <= 0 ? 1000 : limit);
         return Wire.RenderScriptCheck(result, max_chars);
     });
+
+    [McpServerTool(Name = "housecarl_read_plugin_file", ReadOnly = true, Title = "Read a plugin file directly (active or not)"),
+     Description(
+         "Read ONE plugin file straight off disk — INCLUDING a plugin DISABLED in MO2 — returning THAT FILE's own " +
+         "version of a record, NOT the load-order winner. Where housecarl_read_record resolves the ACTIVE order, this " +
+         "reaches an inactive/arbitrary plugin: give it a filename (located even inside a DISABLED mod folder) or an " +
+         "absolute path. Modes: formid= reads one record's fields (compact `path = token`, same format as read_record); " +
+         "type= enumerates the records of that type the file defines/overrides; neither returns a record-type summary " +
+         "(what's in the file). EVERY result is labeled OUT-OF-LOAD-ORDER — the game does not load this file. It emits " +
+         "FormLinks as FormKey tokens (does NOT follow links), so it needs no masters present; a declared master that " +
+         "is not installed is flagged. Read-only — writes nothing: read an inactive donor here, then author into a NEW " +
+         "active patch with the write tools. Primary use: fork/borrow an existing NPC's appearance records (the " +
+         "standalone-copy flow). A missing/ambiguous filename, a bad FormID, or a FormID the file does not define is " +
+         "reported explicitly (never a silent wrong answer). To read the load-order WINNER instead, use " +
+         "housecarl_read_record.")]
+    public static string ReadPluginFile(
+        LoadOrderService svc,
+        [Description("The plugin to read: a FILENAME (e.g. 'Vivace.esp' — located across all mod folders, ENABLED or DISABLED, the overwrite folder, and game Data) OR an absolute path to a .esp/.esm/.esl. This is the FILE to open, not a load-order lookup.")]
+            string plugin,
+        [Description("Optional. Read THIS record's fields from the file, as 'XXXXXX:Plugin.esp' (6 hex, a colon, the defining master's filename). Reads the file's OWN version — a record it defines, or an override it carries. Mutually exclusive with type=.")]
+            string? formid = null,
+        [Description("Optional. Enumerate the records of this type the file defines/overrides — a signature ('NPC_','HDPT') or catalog name ('Npc','HeadPart'). Mutually exclusive with formid=. Omit BOTH formid= and type= for a record-type summary of the whole file.")]
+            string? type = null,
+        [Description("Optional. When a bare FILENAME is provided by more than one MO2 mod folder, the exact mod folder name to read from — disambiguates instead of guessing. Ignored for an absolute path.")]
+            string? mod = null,
+        [Description("Optional. With formid=: dotted field paths to read (e.g. 'HeadParts', 'FaceMorph', 'Name'); index a list/dict element with BRACKETS (e.g. 'HeadParts[0]'). Omit to dump every modeled field one level deep.")]
+            string[]? fields = null,
+        [Description("Optional. With formid=: expansion depth for list/dict/substruct CONTENTS (default 1; higher enumerates elements — see housecarl_read_record).")]
+            int depth = 1,
+        [Description("Optional. With type=: case-insensitive substring of the EditorID to filter the enumerated records.")]
+            string? editorid_contains = null,
+        [Description("Optional. With type=: max rows to return (default 500). The TRUE total is always reported; over the cap it says 'showing first N'.")]
+            int limit = 500,
+        [Description("Optional. Max characters before the response stops with an explicit notice. 0 = the server default (~80k).")]
+            int max_chars = 0) => Guard.Tool("housecarl_read_plugin_file", () =>
+    {
+        if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
+        var outcome = svc.ReadPluginFile(plugin, formid, type, mod, fields, depth <= 0 ? 1 : depth, editorid_contains, limit <= 0 ? 500 : limit);
+        return Wire.RenderPluginFile(outcome, max_chars);
+    });
 }
 
 /// <summary>Compact, parseable `key = value` rendering (Q4.8 lever 1) + the winner-relative conflict diff
@@ -622,5 +662,87 @@ static class Wire
     {
         var s = string.Join(", ", diff.AgreedSample);
         return diff.AgreedCount > diff.AgreedSample.Count ? $"e.g. {s}, …" : s;
+    }
+
+    // ---- housecarl_read_plugin_file -----------------------------------------------------------------
+    /// <summary>Render a RAW plugin-file read. THE load-bearing requirement: every result is stamped
+    /// OUT-OF-LOAD-ORDER up front, so a raw-file read is never mistaken for load-order truth. The read mode reuses
+    /// the SAME `path = token` field format as read_record (round-trip parity). Size-bounded with an explicit cut,
+    /// never silent (Q3). An "ambiguous" outcome lists the folders that provide the name and asks for mod=.</summary>
+    public static string RenderPluginFile(PluginFileOutcome o, int maxChars)
+    {
+        if (o.Mode == "error") return "error: " + o.Error;
+        int cap = Cap(maxChars);
+        var sb = new StringBuilder();
+
+        if (o.Mode == "ambiguous")
+        {
+            sb.Append("error: '").Append(Path.GetFileName(o.Requested)).Append("' is provided by ").Append(o.Ambiguous.Count)
+              .Append(" locations — specify which with mod= (or pass an absolute path):\n");
+            foreach (var h in o.Ambiguous)
+                sb.Append("  ").Append(h.Where).Append("  ->  ").Append(h.Path).Append('\n');
+            return sb.ToString().TrimEnd('\n');
+        }
+
+        // The banner — OUT-OF-LOAD-ORDER first, always (the single load-bearing requirement).
+        sb.Append("read_plugin_file — OUT-OF-LOAD-ORDER (raw file read; the game does not load this file)\n");
+        sb.Append("file: ").Append(o.FilePath);
+        if (!string.IsNullOrEmpty(o.Where)) sb.Append("  [").Append(o.Where).Append(o.Enabled ? "" : "; NOT active").Append(']');
+        sb.Append('\n');
+        sb.Append("masters: ").Append(o.Masters.Count == 0 ? "none" : string.Join(", ", o.Masters)).Append('\n');
+        if (o.MissingMasters.Count > 0)
+            sb.Append("  ! declared master(s) NOT installed in the active order: ").Append(string.Join(", ", o.MissingMasters))
+              .Append("  (FormKey tokens still render; the file will not load in-game without them)\n");
+
+        if (o.Mode == "read")
+        {
+            var r = o.Record!;
+            sb.Append("type=").Append(r.Type).Append("  formid=").Append(r.FormKey).Append("  editorid=").Append(r.EditorId ?? "<none>").Append('\n');
+            sb.Append("fields (raw, from ").Append(Path.GetFileName(o.FilePath)).Append("):\n");
+            for (int i = 0; i < r.Fields.Count; i++)
+            {
+                if (sb.Length >= cap)
+                {
+                    sb.Append("  ... [truncated: showing ").Append(i).Append(" of ").Append(r.Fields.Count)
+                      .Append(" field lines at max_chars=").Append(cap).Append("; narrow with fields=, lower depth=, or raise max_chars]\n");
+                    break;
+                }
+                var f = r.Fields[i];
+                sb.Append("  ").Append(f.Path).Append(" = ").Append(f.HasValue ? f.Token : f.Note).Append('\n');
+            }
+        }
+        else if (o.Mode == "enumerate")
+        {
+            sb.Append(o.RowTotal).Append(o.RowTotal == 1 ? " record" : " records");
+            if (o.Capped) sb.Append(" (showing first ").Append(o.Rows.Count).Append("; raise limit= to see more)");
+            sb.Append('\n');
+            for (int i = 0; i < o.Rows.Count; i++)
+            {
+                if (sb.Length >= cap)
+                {
+                    sb.Append("  ... [truncated: rendered ").Append(i).Append(" of ").Append(o.Rows.Count)
+                      .Append(" rows at max_chars=").Append(cap).Append("; lower limit= or raise max_chars]\n");
+                    break;
+                }
+                var row = o.Rows[i];
+                sb.Append("  ").Append(row.FormKey).Append("  type=").Append(row.Type).Append("  editorid=").Append(row.EditorId ?? "<none>").Append('\n');
+            }
+        }
+        else // summary
+        {
+            sb.Append(o.RecordTotal).Append(o.RecordTotal == 1 ? " record" : " records").Append(" across ")
+              .Append(o.TypeCounts.Count).Append(o.TypeCounts.Count == 1 ? " type" : " types").Append(":\n");
+            for (int i = 0; i < o.TypeCounts.Count; i++)
+            {
+                if (sb.Length >= cap)
+                {
+                    sb.Append("  ... [truncated at max_chars=").Append(cap).Append("; raise max_chars to see all types]\n");
+                    break;
+                }
+                var tc = o.TypeCounts[i];
+                sb.Append("  ").Append(tc.Type).Append("  (").Append(tc.Count).Append(")\n");
+            }
+        }
+        return sb.ToString().TrimEnd('\n');
     }
 }

@@ -62,6 +62,12 @@ public sealed record Mo2Composition(
     IReadOnlyList<string> InactivePluginNames,
     IReadOnlyList<string> ImplicitPluginNames);
 
+/// <summary>One on-disk sighting of a plugin FILENAME: its real path plus a human label for WHERE it was found
+/// (the overwrite layer, a named mod folder, or the game Data folder) and whether that source is ENABLED in the
+/// profile. <see cref="Mo2LoadOrder.LocatePlugin"/> returns these so a caller can distinguish a name NO folder
+/// provides (missing), ONE folder provides (use it), or SEVERAL provide (ambiguous → surface, never guess — Q3).</summary>
+public sealed record PluginFileHit(string Path, string Where, bool Enabled);
+
 public static class Mo2LoadOrder
 {
     static readonly string[] PluginExts = { ".esp", ".esm", ".esl" };
@@ -227,5 +233,61 @@ public static class Mo2LoadOrder
             names.Add(line);
         }
         return names;
+    }
+
+    /// <summary>Locate every on-disk copy of a plugin FILENAME across the WHOLE MO2 install — the overwrite layer,
+    /// EVERY mod folder (enabled AND disabled), and the game Data folder — NOT just the active order's winner map
+    /// (<see cref="Build"/>, which resolves enabled mods only). This is what lets a read of an INACTIVE plugin reach a
+    /// DISABLED donor's file — the realistic standalone-copy case (you standalone-ize a follower you're REMOVING from
+    /// the active order). Priority-ordered like the active map (overwrite → enabled by modlist priority → disabled →
+    /// Data), but ALL hits are returned, not just the first: a filename several folders provide is reported so the
+    /// caller can ask WHICH rather than silently pick one (Q3). Pure disk existence checks (one stat per candidate
+    /// folder — no folder enumeration, opens no plugin). <paramref name="filename"/> is reduced to a bare name so a
+    /// caller's stray path parts can't escape a folder; the direct-path case is the caller's to handle before here.</summary>
+    public static IReadOnlyList<PluginFileHit> LocatePlugin(
+        string profileDir, string modsDir, string dataDir, string overwriteDir, string filename)
+        => LocatePlugin(ReadComposition(profileDir), modsDir, dataDir, overwriteDir, filename);
+
+    /// <summary>As the profileDir overload, but reusing a <see cref="Mo2Composition"/> the caller already parsed — so a
+    /// scan of a file AND its declared masters pays the modlist parse once, not once per name.</summary>
+    public static IReadOnlyList<PluginFileHit> LocatePlugin(
+        Mo2Composition comp, string modsDir, string dataDir, string overwriteDir, string filename)
+    {
+        var hits = new List<PluginFileHit>();
+        var fn = Path.GetFileName(filename?.Trim() ?? "");
+        if (fn.Length == 0) return hits;
+
+        void TryDir(string dir, string where, bool enabled)
+        {
+            if (string.IsNullOrWhiteSpace(dir)) return;
+            try { var p = Path.Combine(dir, fn); if (File.Exists(p)) hits.Add(new PluginFileHit(p, where, enabled)); }
+            catch { /* an inaccessible candidate folder is simply not a hit — never a false 'found' (Q3) */ }
+        }
+
+        TryDir(overwriteDir, "overwrite", enabled: true);             // MO2's overwrite layer (top of the VFS)
+        foreach (var mod in comp.EnabledMods) TryDir(Path.Combine(modsDir, mod), $"mod '{mod}' (enabled)", enabled: true);
+        foreach (var mod in comp.DisabledMods) TryDir(Path.Combine(modsDir, mod), $"mod '{mod}' (DISABLED)", enabled: false);
+        TryDir(dataDir, "game Data", enabled: true);                  // vanilla / base — lowest priority
+        return hits;
+    }
+
+    /// <summary>True iff SOME on-disk copy of <paramref name="filename"/> exists anywhere in the install (overwrite,
+    /// any mod folder enabled or disabled, or Data) — the short-circuiting existence twin of <see cref="LocatePlugin"/>:
+    /// it stops at the FIRST hit, so checking a master that IS present costs a handful of stats, not a whole-install
+    /// scan. Used for the read-plugin-file "is this declared master installed?" advisory (Q3 — say when it isn't).</summary>
+    public static bool PluginFileExists(
+        Mo2Composition comp, string modsDir, string dataDir, string overwriteDir, string filename)
+    {
+        var fn = Path.GetFileName(filename?.Trim() ?? "");
+        if (fn.Length == 0) return false;
+        bool Has(string dir)
+        {
+            if (string.IsNullOrWhiteSpace(dir)) return false;
+            try { return File.Exists(Path.Combine(dir, fn)); } catch { return false; }
+        }
+        if (Has(overwriteDir)) return true;
+        foreach (var mod in comp.EnabledMods) if (Has(Path.Combine(modsDir, mod))) return true;
+        foreach (var mod in comp.DisabledMods) if (Has(Path.Combine(modsDir, mod))) return true;
+        return Has(dataDir);
     }
 }

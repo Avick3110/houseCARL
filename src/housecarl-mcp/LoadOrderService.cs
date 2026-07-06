@@ -1,5 +1,6 @@
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Plugins.Records;
+using Mutagen.Bethesda.Skyrim;
 
 namespace HousecarlMcp;
 
@@ -2807,6 +2808,146 @@ public sealed class LoadOrderService : IDisposable
         File.WriteAllText(Path.Combine(folder, "meta.ini"), content);
     }
 
+    // ---- housecarl_read_plugin_file : a RAW, out-of-load-order read of ONE plugin FILE (active or not) ----
+
+    /// <summary>Read ONE plugin file directly off disk — INCLUDING a plugin DISABLED in MO2 — returning THAT FILE's
+    /// own version of a record (<paramref name="formid"/>), the records of a type it defines (<paramref name="type"/>),
+    /// or a record-type summary (neither). The standalone-copy chain's Stage-1 enabler: it reaches a donor you're
+    /// REMOVING from the active order, which the resolver (active profile only) cannot see.
+    ///
+    /// <para>STRUCTURAL PURITY (why a separate method, not a flag on <see cref="ResolveRead"/>): it opens its OWN
+    /// overlay via <see cref="LoadOrderResolver.OpenOverlay"/>, materialises, and DISPOSES it — it never consults the
+    /// resolver index and never reports a winner/conflict, so a raw-file read cannot masquerade as load-order truth
+    /// (the renderer stamps every result OUT-OF-LOAD-ORDER) and no handle is held at rest (the donor is never locked).
+    /// It emits FormLink fields as FormKey tokens exactly like <see cref="ResolveRead"/> — it does NOT follow links, so
+    /// it needs no master files present; declared masters that are not installed are reported as an advisory (Q3).</para>
+    ///
+    /// <para>Read-only. Q3: a missing/ambiguous filename, a bad or absent FormID, or a record Mutagen cannot parse is
+    /// NAMED, never a silent wrong answer.</para></summary>
+    public PluginFileOutcome ReadPluginFile(string plugin, string? formid, string? type, string? mod,
+                                            IReadOnlyList<string>? fields, int depth, string? editoridContains, int limit)
+    {
+        if (string.IsNullOrWhiteSpace(plugin))
+            return PluginFileOutcome.Fail(plugin ?? "", "plugin is required — a plugin filename (e.g. 'Vivace.esp') or an absolute path to a .esp/.esm/.esl.");
+        plugin = plugin.Trim();
+
+        bool hasFormid = !string.IsNullOrWhiteSpace(formid);
+        bool hasType = !string.IsNullOrWhiteSpace(type);
+        if (hasFormid && hasType)
+            return PluginFileOutcome.Fail(plugin, "pass EITHER formid= (read one record) OR type= (enumerate that type), not both.");
+
+        FormKey fk = default;
+        if (hasFormid)
+        {
+            try { fk = FormKey.Factory(formid!.Trim()); }
+            catch (Exception ex) { return PluginFileOutcome.Fail(plugin, $"bad FormID '{formid}': {ex.Message}. Expected 'XXXXXX:Plugin.esp', e.g. '000D62:Vivace.esp'."); }
+        }
+
+        // Derive the MO2 roots CHEAPLY (read ModOrganizer.ini; NO ~10s index build). Never touches the resolver.
+        string modsDir, dataDir, overwriteDir, profileDir;
+        try { lock (_gate) { EnsurePathsDerived(); modsDir = _modsDir; dataDir = _dataDir; overwriteDir = _overwriteDir; profileDir = _profileDir; } }
+        catch (Exception ex) { return PluginFileOutcome.Fail(plugin, ex.Message); }
+
+        var comp = Mo2LoadOrder.ReadComposition(profileDir);           // cheap text parse (enabled + disabled folders) — reused for locate + master advisory
+
+        // Locate the file. A direct PATH (rooted / has a separator) is used verbatim — "inspect ANY plugin file";
+        // otherwise treat `plugin` as a FILENAME and find it across the whole install. mod= narrows a name several
+        // folders provide to one MO2 mod folder.
+        string path, where; bool enabled;
+        if (LooksLikePath(plugin))
+        {
+            if (!File.Exists(plugin)) return PluginFileOutcome.Fail(plugin, $"no file at path '{plugin}'.");
+            path = Path.GetFullPath(plugin); where = "direct path"; enabled = false;
+        }
+        else if (!string.IsNullOrWhiteSpace(mod))
+        {
+            var fn = Path.GetFileName(plugin);
+            var cand = Path.Combine(modsDir, mod.Trim(), fn);
+            if (!File.Exists(cand)) return PluginFileOutcome.Fail(plugin, $"mod folder '{mod.Trim()}' under ModsDir does not provide '{fn}'.");
+            path = cand; where = $"mod '{mod.Trim()}'"; enabled = comp.EnabledMods.Contains(mod.Trim(), StringComparer.OrdinalIgnoreCase);
+        }
+        else
+        {
+            var hits = Mo2LoadOrder.LocatePlugin(comp, modsDir, dataDir, overwriteDir, plugin);
+            if (hits.Count == 0)
+                return PluginFileOutcome.Fail(plugin, $"'{Path.GetFileName(plugin)}' is in no mod folder (enabled or disabled), the overwrite folder, or the game Data folder. Check the filename, pass an absolute path, or (if it's an MO2 mod) the exact folder via mod=.");
+            if (hits.Count > 1)
+                return PluginFileOutcome.AmbiguousHits(plugin, hits);
+            path = hits[0].Path; where = hits[0].Where; enabled = hits[0].Enabled;
+        }
+
+        // Open OUR OWN overlay (OpenOverlay wires localized-string resolution), read, then DISPOSE — zero handles at rest.
+        ISkyrimModGetter ov;
+        try { ov = LoadOrderResolver.OpenOverlay(path, string.IsNullOrEmpty(dataDir) ? null : dataDir); }
+        catch (Exception ex) { return PluginFileOutcome.Fail(plugin, $"could not open '{path}' as a Skyrim plugin: {ex.Message}"); }
+        try
+        {
+            var masters = ov.ModHeader.MasterReferences.Select(m => m.Master.FileName.ToString()).ToList();
+            var missing = masters.Where(m => !Mo2LoadOrder.PluginFileExists(comp, modsDir, dataDir, overwriteDir, m)).ToList();
+            var baseOut = new PluginFileOutcome
+            {
+                Requested = plugin, FilePath = path, Where = where, Enabled = enabled, Masters = masters, MissingMasters = missing,
+            };
+
+            if (hasFormid)
+            {
+                IMajorRecordGetter? rec;
+                try { rec = ov.EnumerateMajorRecords().FirstOrDefault(r => r.FormKey == fk); }
+                catch (Exception ex) { return baseOut with { Mode = "error", Error = $"'{Path.GetFileName(path)}' could not be fully read — a record Mutagen cannot parse before reaching {fk}: {ex.Message}" }; }
+                if (rec is null)
+                    return baseOut with { Mode = "error", Error = $"file '{Path.GetFileName(path)}' does not define or override {fk}. This reads the FILE's OWN records only — it does not resolve across masters or report a load-order winner; use housecarl_read_record for the winner." };
+                return baseOut with { Mode = "read", Record = ReadEngine.ReadFields(rec, fields, depth <= 0 ? 1 : depth) };
+            }
+
+            if (hasType)
+            {
+                IReadOnlyList<Type> types;
+                try { types = ResolveTypeFilter(type!); }
+                catch (ArgumentException ex) { return baseOut with { Mode = "error", Error = ex.Message }; }
+                var rows = new List<PluginRecordRow>();
+                int total = 0; bool capped = false;
+                try
+                {
+                    foreach (var rec in ov.EnumerateMajorRecords())
+                    {
+                        if (!types.Any(t => t.IsInstanceOfType(rec))) continue;
+                        if (!string.IsNullOrEmpty(editoridContains)
+                            && (rec.EditorID is null || rec.EditorID.IndexOf(editoridContains, StringComparison.OrdinalIgnoreCase) < 0)) continue;
+                        total++;
+                        if (rows.Count < limit) rows.Add(new PluginRecordRow(rec.FormKey.ToString(), RecordNaming.StripOverlay(rec.GetType().Name), rec.EditorID));
+                        else capped = true;
+                    }
+                }
+                catch (Exception ex) { return baseOut with { Mode = "error", Error = $"'{Path.GetFileName(path)}' could not be fully enumerated — a record Mutagen cannot parse: {ex.Message}" }; }
+                return baseOut with { Mode = "enumerate", Rows = rows, RowTotal = total, Capped = capped };
+            }
+
+            // neither → a record-type summary of what the file defines/overrides (donor discovery).
+            var counts = new Dictionary<string, int>(StringComparer.Ordinal);
+            int recTotal = 0;
+            try
+            {
+                foreach (var rec in ov.EnumerateMajorRecords())
+                {
+                    recTotal++;
+                    var tn = RecordNaming.StripOverlay(rec.GetType().Name);
+                    counts[tn] = counts.TryGetValue(tn, out var c) ? c + 1 : 1;
+                }
+            }
+            catch (Exception ex) { return baseOut with { Mode = "error", Error = $"'{Path.GetFileName(path)}' could not be fully enumerated — a record Mutagen cannot parse: {ex.Message}" }; }
+            var typeCounts = counts.OrderByDescending(kv => kv.Value).ThenBy(kv => kv.Key, StringComparer.Ordinal)
+                                   .Select(kv => new PluginTypeCount(kv.Key, kv.Value)).ToList();
+            return baseOut with { Mode = "summary", TypeCounts = typeCounts, RecordTotal = recTotal };
+        }
+        catch (Exception ex) { return PluginFileOutcome.Fail(plugin, $"failed reading '{path}': {ex.Message}"); }
+        finally { (ov as IDisposable)?.Dispose(); }
+    }
+
+    /// <summary>Does the user's `plugin` argument denote a PATH (use verbatim — the "inspect any file" case) rather
+    /// than a bare filename (locate in the MO2 folders)? True if rooted or carrying a directory separator: 'C:\..\X.esp'
+    /// or 'mods\M\X.esp' is a path; a bare 'X.esp' is a filename.</summary>
+    static bool LooksLikePath(string s) => Path.IsPathRooted(s) || s.Contains('\\') || s.Contains('/');
+
     // ---- corpus-backed type resolution (signature "WEAP" / catalog name "Weapon" → getter Type(s)) -------
 
     Dictionary<string, List<Type>>? _typeLookup;
@@ -2897,6 +3038,44 @@ public sealed record CrossQueryOutcome(
 /// <summary>A compact, header-only record summary (no field dump) — the per-match line cross_plugin_query emits
 /// by default. <see cref="Error"/> non-null ⇒ the winner couldn't be summarised (named, recoverable — Q3).</summary>
 public sealed record RecordSummary(FormKey FormKey, string Type, string? EditorId, string Winner, int OverrideDepth, string? Error);
+
+/// <summary>One enumerate/read row from a raw plugin-file read: a record the file DEFINES or OVERRIDES, as its
+/// FormKey + type + EditorID. NOT a load-order winner — the FILE's own record.</summary>
+public sealed record PluginRecordRow(string FormKey, string Type, string? EditorId);
+
+/// <summary>One summary row: a record type the file touches and how many records of it the file defines/overrides.</summary>
+public sealed record PluginTypeCount(string Type, int Count);
+
+/// <summary>The outcome of a housecarl_read_plugin_file call — a RAW, OUT-OF-LOAD-ORDER read of ONE plugin file
+/// (active or not), never resolved against the load order. <see cref="Error"/> non-null ⇒ the call failed with a
+/// named, recoverable reason (<see cref="Mode"/> "error"). <see cref="Mode"/> "ambiguous" ⇒ the filename matched
+/// several folders (<see cref="Ambiguous"/> lists them) and the caller must disambiguate. Otherwise <see cref="Mode"/>
+/// is "read" (<see cref="Record"/>), "enumerate" (<see cref="Rows"/> + <see cref="RowTotal"/>/<see cref="Capped"/>),
+/// or "summary" (<see cref="TypeCounts"/> + <see cref="RecordTotal"/>). <see cref="FilePath"/>/<see cref="Where"/>/
+/// <see cref="Masters"/>/<see cref="MissingMasters"/> describe the file that was opened (present on success and on a
+/// read-time error).</summary>
+public sealed record PluginFileOutcome
+{
+    public string? Error { get; init; }
+    public required string Requested { get; init; }
+    public string Mode { get; init; } = "error";
+    public string? FilePath { get; init; }
+    public string? Where { get; init; }
+    public bool Enabled { get; init; }
+    public IReadOnlyList<string> Masters { get; init; } = Array.Empty<string>();
+    public IReadOnlyList<string> MissingMasters { get; init; } = Array.Empty<string>();
+    public RecordFields? Record { get; init; }
+    public IReadOnlyList<PluginRecordRow> Rows { get; init; } = Array.Empty<PluginRecordRow>();
+    public int RowTotal { get; init; }
+    public bool Capped { get; init; }
+    public IReadOnlyList<PluginTypeCount> TypeCounts { get; init; } = Array.Empty<PluginTypeCount>();
+    public int RecordTotal { get; init; }
+    public IReadOnlyList<PluginFileHit> Ambiguous { get; init; } = Array.Empty<PluginFileHit>();
+
+    public static PluginFileOutcome Fail(string requested, string error) => new() { Requested = requested, Error = error, Mode = "error" };
+    public static PluginFileOutcome AmbiguousHits(string requested, IReadOnlyList<PluginFileHit> hits) =>
+        new() { Requested = requested, Mode = "ambiguous", Ambiguous = hits };
+}
 
 /// <summary>The MATERIALISED conflict tree the render layer consumes — each touching plugin's name + the fields read
 /// off its own body, in priority order (winner last). Built by <see cref="LoadOrderService.ResolveTree"/> with the

@@ -141,6 +141,12 @@ public static class CiAll
         // whole-record dump that overflowed the host token cap and spilled to a file (reading as "only some ops applied").
         // full_readback=true still gives the deep dump, now bounded under the host limit with an explicit truncation note.
         ("compact-readback-guard", CompactReadbackProbe.RunGuard),
+        // STANDALONE-COPY CHAIN Stage 1 — housecarl_read_plugin_file: a RAW, out-of-load-order read of ONE plugin file
+        // straight off disk (INCLUDING one DISABLED in MO2), the enabler for forking a donor you're removing from the
+        // order. Pins: locate+read a disabled plugin by filename, enumerate a type, whole-file summary, direct-path
+        // read, the OUT-OF-LOAD-ORDER stamp, the missing-master advisory, and the Q3 refusals (missing/ambiguous
+        // filename, bad/absent FormID, formid+type together). Opens its OWN overlay — never touches the resolver index.
+        ("read-plugin-file-guard", ReadPluginFileProbe.RunGuard),
     };
 
     /// <summary>Dispatch a single CI guard by name through the registry — the ONE place a CI probe is listed, so
