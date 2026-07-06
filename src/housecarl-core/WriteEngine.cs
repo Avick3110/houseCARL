@@ -1752,6 +1752,16 @@ public static class WriteEngine
                 // than the workaround's 000000:Skyrim.esm), every other nullable scalar / substruct / polymorphic → null,
                 // exactly as before (EmptyFormLinkOf returns null for non-FormLink types). This makes Remove on a
                 // nullable FormLink identical to Set = "0" (a null-synonym clear), which already worked.
+                //
+                // Q3 belt-and-suspenders (PR #150 review): EmptyFormLinkOf also produces a non-null empty link for a
+                // REQUIRED FormLink, which would SILENTLY blank a required target. Pre-flight (CorpusRulebook) already
+                // refuses Remove on a non-nullable link, but ApplyVerb does no validation, so a direct/CLI caller that
+                // bypasses pre-flight must still fail LOUD rather than write an empty required link. Mirrors the
+                // gendered-leaf throw above — the engine keeps the message honest for pre-flight-bypassing callers.
+                if (IsRequiredFormLink(prop.PropertyType))
+                    throw new InvalidOperationException(
+                        $"Remove is not valid on the required (non-nullable) FormLink '{prop.Name}' — a required link " +
+                        "can't be dropped, only re-pointed. To clear it to a null link, Set it to a null-synonym value (\"0\").");
                 prop.SetValue(parent, EmptyFormLinkOf(prop.PropertyType));
                 break;
             default:
@@ -1913,6 +1923,19 @@ public static class WriteEngine
     /// empty link the writer serializes as an absent/00000000 slot, NOT a null the parallel writer dereferences into
     /// an AggregateException-wrapped NRE.</summary>
     static object? EmptyFormLinkOf(Type t) => TryFormLink("0", t, out var link) ? link : null;
+
+    /// <summary>True iff <paramref name="t"/> is a REQUIRED (non-nullable) FormLink-family type — the mutable
+    /// <c>IFormLink&lt;T&gt;</c>, the getter <c>IFormLinkGetter&lt;T&gt;</c>, or the concrete <c>FormLink&lt;T&gt;</c>,
+    /// but NOT the <c>IFormLinkNullable&lt;T&gt;</c> / <c>FormLinkNullable&lt;T&gt;</c> variant. Recognised by generic
+    /// definition — the SAME required-arm branch <see cref="TryFormLink"/> keys off, so the two can't drift — never a
+    /// per-record-type hand-list. Used by the Remove case to fail LOUD on a required-link clear rather than let
+    /// <see cref="EmptyFormLinkOf"/> silently blank it (Q3; PR #150 review).</summary>
+    static bool IsRequiredFormLink(Type t)
+    {
+        if (!t.IsGenericType) return false;
+        var def = t.GetGenericTypeDefinition();
+        return def == typeof(FormLink<>) || def == typeof(IFormLink<>) || def == typeof(IFormLinkGetter<>);
+    }
 
     /// <summary>Map a (possibly getter/interface) type to the concrete settable class the engine can instantiate: a
     /// generic interface <c>IFoo&lt;T&gt;</c> → concrete <c>Foo&lt;T&gt;</c> (GenderedItem/Array2d live in

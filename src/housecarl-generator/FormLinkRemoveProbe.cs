@@ -23,11 +23,13 @@ namespace HousecarlGenerator;
 /// substruct-nullable-clear-guard (nullable substruct / poly Remove), which rides the SAME ApplyScalarVerb line.
 ///
 /// RED-&gt;GREEN: the TEETH are R1/R1b (apply Remove on a nullable FormLink CLEARS it instead of throwing — RED
-/// without the EmptyFormLinkOf route) and R2 (the same clear, end-to-end through serialize). CONTROLS: S0 (the test
-/// fields have the expected nullability — a Mutagen reshape can't pass green silently), PRE-NULLABLE (pre-flight
-/// still ACCEPTS Remove on a nullable FormLink — the report's "pre-flight accepted it" half), PRE-REQUIRED (pre-flight
-/// still REFUSES Remove on a REQUIRED FormLink, naming 'non-nullable' — so the apply path is only ever reached for
-/// nullable, i.e. the fix is scoped by the existing gate, not a blanket "every FormLink is now Remove-able").
+/// without the EmptyFormLinkOf route), GUARD-REQUIRED (apply Remove on a REQUIRED FormLink, bypassing pre-flight,
+/// FAILS LOUD instead of silently blanking — RED without the IsRequiredFormLink guard; PR #150 review), and R2 (the
+/// same nullable clear, serialized then RE-READ from disk as FormKey.Null). CONTROLS: S0 (the test fields have the
+/// expected nullability — a Mutagen reshape can't pass green silently), PRE-NULLABLE (pre-flight still ACCEPTS Remove
+/// on a nullable FormLink — the report's "pre-flight accepted it" half), PRE-REQUIRED (pre-flight still REFUSES Remove
+/// on a REQUIRED FormLink, naming 'non-nullable' — the first line of defense; GUARD-REQUIRED is the apply-layer twin
+/// for a caller that bypasses it).
 ///
 /// Self-contained: R1/R1b/R2 are pure in-memory Mutagen (no plugin file, no Skyrim.esm); the PRE-* checks use the
 /// GENERATED corpus.json (built into a unique temp dir on a fresh checkout, exactly as formlink-null-guard does).
@@ -118,15 +120,51 @@ public static class FormLinkRemoveProbe
             Check($"R1: Remove clears a populated nullable FormLink ({field}) with no throw", ok, detail);
         }
 
-        // ---- R2 (end-to-end): the real user path — set then Remove a nullable FormLink, then SERIALIZE to a valid
-        //      patch (the clear persists to disk, not just in memory). Shares R1's apply tooth; serialize is the E2E half.
-        var (fOk, fDetail) = TrySerialize("hc_formlink_remove_e2e", mod =>
+        // ---- GUARD-REQUIRED (Q3 tooth, PR #150 review): Remove on a REQUIRED FormLink reaching apply — a direct/CLI
+        //      caller that bypasses pre-flight — must FAIL LOUD, not silently blank the link. RED without the
+        //      IsRequiredFormLink guard: EmptyFormLinkOf returns a non-null empty FormLink<T>, so Race would be
+        //      silently emptied with no throw. Drives ApplyVerb directly (pre-flight, tested above, would refuse it).
+        bool gOk; string? gDetail;
+        try
         {
+            var npc = FreshNpc();
+            WriteEngine.ApplyVerb(npc, SetReq("Race", "012345:Skyrim.esm"));   // a real, populated required link
+            try
+            {
+                WriteEngine.ApplyVerb(npc, RemReq("Race"));                    // <- must throw, not blank
+                gOk = false; gDetail = $"NO throw — Race silently became {Fk(npc.Race)} (the latent Q3 silent-degrade)";
+            }
+            catch (InvalidOperationException ex)
+            {
+                // threw loud AND left the link untouched (not blanked) — both halves of "no silent degrade"
+                gOk = ex.Message.Contains("required", StringComparison.OrdinalIgnoreCase) && !Fk(npc.Race).IsNull;
+                gDetail = ex.Message;
+            }
+        }
+        catch (Exception ex) { gOk = false; gDetail = $"setup threw {ex.GetType().Name}: {ex.Message}"; }
+        Check("GUARD-REQUIRED: Remove on a required FormLink (Race) throws loud, does NOT silently blank", gOk, gDetail);
+
+        // ---- R2 (end-to-end, TIGHTENED per PR #150 review): set then Remove a nullable FormLink, SERIALIZE, then
+        //      RE-READ the .esp and assert the link came back FormKey.Null — proving the clear PERSISTS through
+        //      serialization, not just that a file was written. A serialize that wrote a wrong/garbage link is caught here.
+        bool r2Ok; string? r2Detail;
+        var r2Path = OutPath("hc_formlink_remove_e2e");
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(r2Path)!);
+            var mod = new SkyrimMod(new ModKey(Path.GetFileNameWithoutExtension(r2Path), ModType.Plugin), SkyrimRelease.SkyrimSE);
             var npc = mod.Npcs.AddNew();
             WriteEngine.ApplyVerb(npc, SetReq("HeadTexture", "012345:Skyrim.esm"));
             WriteEngine.ApplyVerb(npc, RemReq("HeadTexture"));
-        });
-        Check("R2: a Remove-cleared nullable FormLink serializes end-to-end to a valid patch", fOk, fDetail);
+            WriteEngine.WritePatch(mod, new ISkyrimModGetter[] { mod }, r2Path);
+            using var back = SkyrimMod.CreateFromBinaryOverlay(r2Path, SkyrimRelease.SkyrimSE);
+            var re = back.Npcs.First();
+            r2Ok = re.HeadTexture.FormKey.IsNull;
+            r2Detail = $"re-read HeadTexture.FormKey = {re.HeadTexture.FormKey}";
+        }
+        catch (Exception ex) { r2Ok = false; r2Detail = $"{ex.GetType().Name}: {ex.Message}"; }
+        finally { CleanOut(r2Path); }
+        Check("R2: a Remove-cleared nullable FormLink serializes AND re-reads as FormKey.Null (end-to-end round-trip)", r2Ok, r2Detail);
 
         Console.WriteLine();
         Console.WriteLine(failures == 0 ? "formlink-remove-guard: ALL PASS" : $"formlink-remove-guard: {failures} FAILURE(S)");
@@ -147,22 +185,6 @@ public static class FormLinkRemoveProbe
 
     static string OutPath(string stem) =>
         Path.Combine(Path.GetTempPath(), stem + "-" + Guid.NewGuid().ToString("N"), stem + ".esp");
-
-    static (bool ok, string? detail) TrySerialize(string stem, Action<SkyrimMod> build)
-    {
-        var outPath = OutPath(stem);
-        try
-        {
-            Directory.CreateDirectory(Path.GetDirectoryName(outPath)!);
-            var mod = new SkyrimMod(new ModKey(Path.GetFileNameWithoutExtension(outPath), ModType.Plugin), SkyrimRelease.SkyrimSE);
-            build(mod);
-            WriteEngine.WritePatch(mod, new ISkyrimModGetter[] { mod }, outPath);
-            var ok = File.Exists(outPath);
-            CleanOut(outPath);
-            return (ok, ok ? null : "no file written");
-        }
-        catch (Exception ex) { CleanOut(outPath); return (false, $"{ex.GetType().Name}: {ex.Message}"); }
-    }
 
     static void CleanOut(string outPath)
     {
