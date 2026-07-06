@@ -691,8 +691,12 @@ static class Wire
         sb.Append('\n');
         sb.Append("masters: ").Append(o.Masters.Count == 0 ? "none" : string.Join(", ", o.Masters)).Append('\n');
         if (o.MissingMasters.Count > 0)
-            sb.Append("  ! declared master(s) NOT installed in the active order: ").Append(string.Join(", ", o.MissingMasters))
-              .Append("  (FormKey tokens still render; the file will not load in-game without them)\n");
+            sb.Append("  ! declared master(s) NOT installed anywhere in the MO2 install: ").Append(string.Join(", ", o.MissingMasters))
+              .Append("  (install them — the file will not load in-game without them)\n");
+        if (o.InactiveMasters.Count > 0)
+            sb.Append("  ! declared master(s) installed but NOT ACTIVE in the load order (in a disabled mod, or unchecked): ")
+              .Append(string.Join(", ", o.InactiveMasters))
+              .Append("  (enable them — the file will not load until you do)\n");
 
         if (o.Mode == "read")
         {
