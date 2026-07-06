@@ -525,24 +525,9 @@ public static class DialogueValidate
         foreach (var resp in info.Responses) Scan(resp.Text?.String, $"response {++rnum} text");
     }
 
-    /// <summary>Engine-implicit forms — the sub-0x800 hardcoded references the engine defines but that are NOT normal
-    /// records in the base master's data, so the load-order index can't resolve them (a false "not in the active load
-    /// order"). A dialogue condition legitimately Runs On / points at these: PlayerRef (the player's placed reference,
-    /// for HasSpell / actor-value player-state gates) and the Player base NPC_ (a GetIsID Player form param). The
-    /// condition lints (1 + 3) treat them as valid targets so a standard player-state gate validates clean (Junti
-    /// 2026-07-03: xEdit resolves 000014 as PlayerRef; the gates are proven working in game). Scoped to the two the
-    /// report proves — a PRECISE set, NOT the whole reserved range, so a genuinely-typo'd sub-0x800 FormID still WARNs.
-    /// Skyrim.esm is the SSE base master (houseCARL is SSE-only). Extend if more engine-implicit forms surface.</summary>
-    static readonly ModKey SkyrimBaseMaster = new("Skyrim", ModType.Master);
-    static readonly HashSet<FormKey> EngineImplicitForms = new()
-    {
-        new FormKey(SkyrimBaseMaster, 0x14),   // PlayerRef — the player's placed reference (a Run On Reference target)
-        new FormKey(SkyrimBaseMaster, 0x07),   // Player    — the player base NPC_ (a GetIsID / form-param target)
-    };
-
-    /// <summary>True when <paramref name="fk"/> is one of the <see cref="EngineImplicitForms"/> — a hardcoded engine
-    /// reference the index can't resolve, so the condition lints must not mistake it for a dangling reference.</summary>
-    static bool IsEngineImplicit(FormKey fk) => EngineImplicitForms.Contains(fk);
+    // Engine-implicit forms (PlayerRef 000014, Player 000007) — the sub-0x800 hardcoded references the index can't
+    // resolve — are exempted from condition lints 1 + 3 so a standard player-state gate validates clean. The precise
+    // set + rationale live in the ONE shared home (EngineImplicit), also used by the check_errors integrity sweep.
 
     /// <summary>Static condition-lint suite (item 4) over one INFO's <c>Conditions</c> (CTDA rows) — the
     /// data-layer-decidable subset the §4 design decision (A-iii) authorises. Every lint here is a TRUE-positive
@@ -595,7 +580,7 @@ public static class DialogueValidate
                 if (data.Reference.IsNull)
                     issues.Add(new(DialogueIssueSeverity.Warning,
                         $"INFO {info.FormKey} condition #{n} ({fn}) is set to Run On a specific reference, but no reference is set — it evaluates against nothing, so the gate never behaves as intended."));
-                else if (!inOrder(refKey) && !IsEngineImplicit(refKey))
+                else if (!inOrder(refKey) && !EngineImplicit.IsImplicit(refKey))
                     issues.Add(new(DialogueIssueSeverity.Warning,
                         $"INFO {info.FormKey} condition #{n} ({fn}) Run On reference {refKey} is not in the active load order — the gate evaluates against nothing."));
             }
@@ -632,7 +617,7 @@ public static class DialogueValidate
                 FormKey? paramFk =
                     v is IFormLinkGetter fl && !fl.IsNull ? fl.FormKey
                     : floiIsForm && WriteEngine.IsFormLinkOrIndex(p.PropertyType) ? WriteEngine.ReadFloiFormKey(v) : null;
-                if (paramFk is { } pk && !inOrder(pk) && !IsEngineImplicit(pk))
+                if (paramFk is { } pk && !inOrder(pk) && !EngineImplicit.IsImplicit(pk))
                     issues.Add(new(DialogueIssueSeverity.Warning,
                         $"INFO {info.FormKey} condition #{n} ({fn}) references {pk}, which is not in the active load order — a deleted/disabled form or a wrong FormID, so the condition can't evaluate as intended."));
             }

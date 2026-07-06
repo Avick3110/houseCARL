@@ -9,7 +9,9 @@ namespace HousecarlCore;
 /// own <see cref="IFormLinkContainerGetter.EnumerateFormLinks"/> — the by-construction link surface, the same one
 /// cross_plugin_query references= rides) and reports three error classes:
 ///   • DANGLING — a non-null FormLink whose target NO plugin in the active order defines (<see cref="LoadOrderResolver.IndexView.ResolveWinner"/>
-///     is null): a broken reference in the resolvable order.
+///     is null): a broken reference in the resolvable order. Engine-implicit forms (PlayerRef 000014, Player 000007 —
+///     hardcoded refs the index can't resolve but that are never actually broken) are exempted via <see cref="EngineImplicit"/>,
+///     so the standard player-state pattern doesn't false-flag (HCBR: 531/531 dangling all → 000014 before this exemption).
 ///   • MISSING MASTER — a plugin DECLARES a master that is not present in the active order
 ///     (<see cref="LoadOrderResolver.IndexView.ContainsPlugin"/> is false): the plugin's dependency is not installed /
 ///     enabled, the most common load-order break (and the root cause behind a cluster of that master's refs dangling).
@@ -109,6 +111,7 @@ public static class ErrorCheck
                             var target = link.FormKey;
                             if (target.IsNull) continue;            // a null FormLink is a legal optional — not an error (see the class-doc boundary)
                             if (view.ResolveWinner(target) is not null) continue;   // resolves → fine
+                            if (EngineImplicit.IsImplicit(target)) continue;        // engine-implicit (PlayerRef 000014 / Player 000007): the index can't resolve these hardcoded forms, but they are real, never dangling — same precise exemption the dialogue lints use (HCBR: was 531/531 false dangling → 000014)
                             totalDangling++;
                             if (danglingBudget > 0)
                             {
