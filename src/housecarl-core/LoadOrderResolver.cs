@@ -257,8 +257,12 @@ public sealed class LoadOrderResolver : IDisposable
     /// a blank token). When the plugin's own folder carries NO strings source, point the lookup at the real game-Data
     /// folder so those archived strings resolve; otherwise leave the folder-adjacent default UNTOUCHED, so a mod whose
     /// strings sit in its own folder (loose OR in its own BSA) is never redirected away from them — no regression. A
-    /// non-localized plugin needs no strings at all, so the override is simply never consulted.</summary>
-    internal static ISkyrimModGetter OpenOverlay(string path, string? dataDir)
+    /// non-localized plugin needs no strings at all, so the override is simply never consulted.
+    ///
+    /// <para>PUBLIC (2026-07-06): also the open path for <c>housecarl_read_plugin_file</c>'s RAW, out-of-load-order
+    /// read of an inactive/arbitrary plugin — a pure <c>(path, dataDir) → overlay</c> factory that touches no resolver
+    /// index, so that tool reuses this one strings-correct choke point instead of re-deriving it.</para></summary>
+    public static ISkyrimModGetter OpenOverlay(string path, string? dataDir)
     {
         if (dataDir is not null && !FolderHasOwnStrings(path))
         {
