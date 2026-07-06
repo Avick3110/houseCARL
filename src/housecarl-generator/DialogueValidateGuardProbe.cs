@@ -68,7 +68,9 @@ namespace HousecarlGenerator;
 ///   PLAYERREF-CONTROL— Run On a NON-whitelisted missing reference still WARNs — the whitelist is a precise 2-form set, not the whole reserved range.
 ///   QUEST-FANOUT — validating a QUEST fans out to EXACTLY the topics it owns (2 here), kind="quest".
 ///   REJ-NOTFOUND — a FormID not in the active order is a NAMED error ('not in the active load order').
-///   REJ-WRONGTYPE— a FormID resolving to neither a DIAL nor a QUST (a Weapon) is a NAMED error ('not a dialogue topic').
+///   REJ-WRONGTYPE— a FormID resolving to none of the four input types (a Weapon) is a NAMED error ('not a dialogue
+///                  topic') that names ALL FOUR accepted kinds (DIAL/QUST/DLVW/DLBR) — pinning the guidance strings
+///                  against the input-kind drift this PR itself demonstrated (REJ-NOTFOUND pins its string too).
 /// </summary>
 public static class DialogueValidateGuardProbe
 {
@@ -716,14 +718,16 @@ public static class DialogueValidateGuardProbe
         {
             var ghost = new FormKey(new ModKey("HcDvGhost", ModType.Plugin), 0x000800);
             var r = DialogueValidate.Run(resolver, assets, ghost);
-            bool ok = r.InputKind == "error" && r.Error is not null && r.Error.Contains("not in the active load order", StringComparison.OrdinalIgnoreCase) && r.Topics.Count == 0;
+            bool ok = r.InputKind == "error" && r.Error is not null && r.Error.Contains("not in the active load order", StringComparison.OrdinalIgnoreCase) && r.Topics.Count == 0
+                && NamesAllInputKinds(r.Error);
             all &= Pass("REJ-NOTFOUND named error", ok, $"kind={r.InputKind} err=[{r.Error}]");
         }
 
         // ---------- REJ-WRONGTYPE: a Weapon FormID is a NAMED 'not a dialogue topic or quest' error ----------
         {
             var r = DialogueValidate.Run(resolver, assets, weapFk);
-            bool ok = r.InputKind == "error" && r.Error is not null && r.Error.Contains("not a dialogue topic", StringComparison.OrdinalIgnoreCase) && r.Topics.Count == 0;
+            bool ok = r.InputKind == "error" && r.Error is not null && r.Error.Contains("not a dialogue topic", StringComparison.OrdinalIgnoreCase) && r.Topics.Count == 0
+                && NamesAllInputKinds(r.Error);
             all &= Pass("REJ-WRONGTYPE named error", ok, $"kind={r.InputKind} err=[{r.Error}]");
         }
 
@@ -749,9 +753,17 @@ public static class DialogueValidateGuardProbe
     /// single-topic arms read its one TopicValidation directly.</summary>
     static TopicValidation? One(DialogueValidationReport r) => r.Topics.Count == 1 ? r.Topics[0] : null;
 
-    static string Issues(TopicValidation t) => t.Issues.Count == 0 ? "<none>" : string.Join(" | ", t.Issues.Select(i => $"[{i.Severity}] {i.Message}"));
+    static string Issues(IReadOnlyList<DialogueIssue> issues) => issues.Count == 0 ? "<none>" : string.Join(" | ", issues.Select(i => $"[{i.Severity}] {i.Message}"));
 
-    static string InputIssues(DialogueValidationReport r) => r.InputIssues.Count == 0 ? "<none>" : string.Join(" | ", r.InputIssues.Select(i => $"[{i.Severity}] {i.Message}"));
+    static string Issues(TopicValidation t) => Issues(t.Issues);
+
+    static string InputIssues(DialogueValidationReport r) => Issues(r.InputIssues);
+
+    /// <summary>Does a reject-guidance string name ALL FOUR accepted input kinds (DIAL, QUST, DLVW, DLBR)? Pins the
+    /// error guidance against input-kind drift — a fifth kind added without updating the reject strings fails here.</summary>
+    static bool NamesAllInputKinds(string error) =>
+        error.Contains("DIAL", StringComparison.Ordinal) && error.Contains("QUST", StringComparison.Ordinal)
+        && error.Contains("DLVW", StringComparison.Ordinal) && error.Contains("DLBR", StringComparison.Ordinal);
 
     static bool Pass(string label, bool ok, string detail)
     {

@@ -57,6 +57,22 @@ public static class DialogueTools
 /// mistaken for "this will play"). Budget-bounded like the read tools (explicit cut at max_chars, never silent).</summary>
 static class DialogueWire
 {
+    /// <summary>The ONE home for rendering a finding list — each as "[X]/[!] message" at <paramref name="pad"/>,
+    /// budget-aware: at the cap it appends an EXPLICIT truncation notice and returns false so the caller can stop
+    /// (max_chars' "cut with an explicit notice (never silent)" contract, Q3). Shared by the per-topic graph
+    /// issues and the input-level (quest/DLVW/DLBR) findings, so the severity glyph and the cap discipline can
+    /// never diverge between the two levels of one report.</summary>
+    static bool AppendIssues(StringBuilder sb, IReadOnlyList<DialogueIssue> issues, string pad, int cap)
+    {
+        foreach (var iss in issues)
+        {
+            if (sb.Length >= cap) { sb.Append(pad).Append("... [truncated at max_chars]\n"); return false; }
+            sb.Append(pad).Append(iss.Severity == DialogueIssueSeverity.Problem ? "[X] " : "[!] ")
+              .Append(iss.Message).Append('\n');
+        }
+        return true;
+    }
+
     public static string Render(DialogueValidationReport r, int maxChars)
     {
         int cap = maxChars > 0 ? maxChars : Wire.DefaultMaxChars;
@@ -82,9 +98,7 @@ static class DialogueWire
                     ? "the DNAM and ENAM byte subrecords the Creation Kit always writes are both present.\n"
                     : "the TNAM (Category) subrecord the Creation Kit always writes is present.\n");
             else
-                foreach (var iss in r.InputIssues)
-                    sb.Append("  ").Append(iss.Severity == DialogueIssueSeverity.Problem ? "[X] " : "[!] ")
-                      .Append(iss.Message).Append('\n');
+                AppendIssues(sb, r.InputIssues, "  ", cap);
             sb.Append("scope: this is a record-level CK-parity check only — it does not validate any dialogue graph, "
                     + "voice, script, or condition surface. Validate the owning topics (DIAL) or quest (QUST) for those.");
             return sb.ToString();
@@ -105,9 +119,7 @@ static class DialogueWire
             if (r.InputIssues.Count == 0)
                 sb.Append("  quest CK-parity: OK — the NextAliasID (ANAM) subrecord is present and every objective carries its Flags (FNAM).\n");
             else
-                foreach (var iss in r.InputIssues)
-                    sb.Append("  ").Append(iss.Severity == DialogueIssueSeverity.Problem ? "[X] " : "[!] ")
-                      .Append(iss.Message).Append('\n');
+                AppendIssues(sb, r.InputIssues, "  ", cap);
         }
 
         for (int i = 0; i < r.Topics.Count; i++)
@@ -167,12 +179,7 @@ static class DialogueWire
         else
         {
             sb.Append(pad).Append("  graph: ").Append(t.Issues.Count).Append(" issue(s):\n");
-            foreach (var iss in t.Issues)
-            {
-                if (sb.Length >= cap) { sb.Append(pad).Append("    ... [truncated at max_chars]\n"); return; }
-                sb.Append(pad).Append("    ").Append(iss.Severity == DialogueIssueSeverity.Problem ? "[X] " : "[!] ")
-                  .Append(iss.Message).Append('\n');
-            }
+            if (!AppendIssues(sb, t.Issues, pad + "    ", cap)) return;
         }
 
         AppendVoice(sb, t, pad, cap);

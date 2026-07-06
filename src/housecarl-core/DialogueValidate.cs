@@ -125,8 +125,8 @@ public sealed record DialogueValidationReport(
     /// otherwise (a non-SGE quest, or a DIAL input — a topic isn't a quest, so a .seq isn't its concern).</summary>
     public SeqLintFinding? SeqLint { get; init; }
 
-    /// <summary>The FormID isn't in the active order, or resolves to neither a DIAL nor a QUST — a recoverable,
-    /// named error the tool renders as guidance (Q3), not a thrown failure.</summary>
+    /// <summary>The FormID isn't in the active order, or resolves to none of the four input types (DIAL, QUST,
+    /// DLVW, DLBR) — a recoverable, named error the tool renders as guidance (Q3), not a thrown failure.</summary>
     public static DialogueValidationReport ForError(FormKey fk, string error) =>
         new(fk, "error", null, null, Array.Empty<TopicValidation>()) { Error = error };
 
@@ -139,6 +139,13 @@ public static class DialogueValidate
 {
     /// <summary>The type filter for the quest fan-out scan — every winning DialogTopic (DIAL) in the order.</summary>
     static readonly Type[] DialTypes = { typeof(IDialogTopicGetter) };
+
+    /// <summary>The ONE home for rendering a <see cref="CkParityGap"/> as a validator finding — "{noun} {fk} is
+    /// missing the {Subrecord} subrecord — {Detail}", always a Warning (every member of the family is a CK-editor /
+    /// byte-parity shape the game itself tolerates). All four gap surfaces (per-INFO, quest InputIssues, DLVW,
+    /// DLBR) go through this, so a wording or severity change is one edit, never four drifting copies.</summary>
+    static DialogueIssue GapIssue(string noun, FormKey fk, CkParityGap gap) =>
+        new(DialogueIssueSeverity.Warning, $"{noun} {fk} is missing the {gap.Subrecord} subrecord — {gap.Detail}");
 
     /// <summary>Resolve <paramref name="fk"/> to its load-order winner and validate the dialogue graph: a DIAL →
     /// validate that one topic; a QUST → fan out to EVERY topic the quest owns (a whole-order DIAL winner scan,
@@ -218,9 +225,7 @@ public static class DialogueValidate
                 // so fill and check can't drift (Q3). S2 byte-parity → Warning. PRESENCE only: the validator never
                 // judges the ANAM VALUE (an edited quest's ANAM is a legitimate CK high-water mark).
                 var questGaps = DialogueCkParity.MissingQuestDefaults(quest)
-                    .Select(g => new DialogueIssue(DialogueIssueSeverity.Warning,
-                        $"Quest {fk} is missing the {g.Subrecord} subrecord — {g.Detail}"))
-                    .ToList();
+                    .Select(g => GapIssue("Quest", fk, g)).ToList();
 
                 return new DialogueValidationReport(fk, "quest", quest.EditorID ?? "", win.Value.WinnerPlugin, topics)
                     { ReadIncomplete = av.ReadIncomplete, SeqLint = seqLint, InputIssues = questGaps };
@@ -233,9 +238,7 @@ public static class DialogueValidate
             if (body is IDialogViewGetter dlvw)
             {
                 var gaps = DialogueCkParity.MissingViewDefaults(dlvw)
-                    .Select(g => new DialogueIssue(DialogueIssueSeverity.Warning,
-                        $"DialogView {fk} is missing the {g.Subrecord} subrecord — {g.Detail}"))
-                    .ToList();
+                    .Select(g => GapIssue("DialogView", fk, g)).ToList();
                 return new DialogueValidationReport(fk, "view", dlvw.EditorID ?? "", win.Value.WinnerPlugin,
                     Array.Empty<TopicValidation>()) { InputIssues = gaps };
             }
@@ -243,9 +246,7 @@ public static class DialogueValidate
             if (body is IDialogBranchGetter dlbr)
             {
                 var gaps = DialogueCkParity.MissingBranchDefaults(dlbr)
-                    .Select(g => new DialogueIssue(DialogueIssueSeverity.Warning,
-                        $"DialogBranch {fk} is missing the {g.Subrecord} subrecord — {g.Detail}"))
-                    .ToList();
+                    .Select(g => GapIssue("DialogBranch", fk, g)).ToList();
                 return new DialogueValidationReport(fk, "branch", dlbr.EditorID ?? "", win.Value.WinnerPlugin,
                     Array.Empty<TopicValidation>()) { InputIssues = gaps };
             }
@@ -405,8 +406,7 @@ public static class DialogueValidate
             // own input kinds, QUST ANAM/objective FNAM rides the quest input's InputIssues, and DIAL PNAM is the one
             // permanent boundary — a non-nullable float with no "unset" signal. See the header's CANNOT-CHECK note.)
             foreach (var gap in DialogueCkParity.MissingInfoDefaults(info))
-                issues.Add(new(DialogueIssueSeverity.Warning,
-                    $"INFO {info.FormKey} is missing the {gap.Subrecord} subrecord — {gap.Detail}"));
+                issues.Add(GapIssue("INFO", info.FormKey, gap));
 
             // Fragment-presence tally (item 8): does this line carry a result-script FRAGMENT (a code path that can
             // surface in Papyrus.log)? Via the single fragment-presence home, so this never drifts from the per-INFO
