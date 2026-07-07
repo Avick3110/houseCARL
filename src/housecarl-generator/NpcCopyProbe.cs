@@ -143,6 +143,7 @@ public static class NpcCopyProbe
             templatedNpc.Template.SetTo(donorNpcFk);                       // appearance lives on the template → refusal
             templatedNpc.Configuration.TemplateFlags |= NpcConfiguration.TemplateFlag.Traits;
             donorMod.Npcs.Add(templatedNpc);
+            donorMod.Npcs.Add(new Npc(new FormKey(donorKey, 0xD0B), SkyrimRelease.SkyrimSE) { EditorID = "VivStale" });   // definer of the stale-widen NPC (its 0xDEE headpart is defined NOWHERE — the point)
             WriteModDirect(mods, "DonorMod", donorMod, keepMod);
 
             // a SECOND donor whose headpart REUSES the EditorID 'VivHairHP' with DIFFERENT content — the KS Hairdos
@@ -175,6 +176,13 @@ public static class NpcCopyProbe
             vivLook.HeadTexture.SetTo(keptTxstFk);
             vivLook.Weight = 77f;                     // differs from Donor.esp's 42 — the override must WIN
             lookMod.Npcs.Add(vivLook);
+            // a second override whose look references a record Donor.esp does NOT define — the stale-defining-plugin
+            // case: the widen SUCCEEDS yet the fetch still misses, and the refusal must SAY the widen already ran.
+            var staleNpcFk = new FormKey(donorKey, 0xD0B);
+            var vivStale = new Npc(staleNpcFk, SkyrimRelease.SkyrimSE) { EditorID = "VivStale" };
+            vivStale.Race.SetTo(raceFk);
+            vivStale.HeadParts.Add(new FormKey(donorKey, 0xDEE));   // Donor.esp defines no 0xDEE
+            lookMod.Npcs.Add(vivStale);
             WriteModDirect(mods, "DonorLookMod", lookMod, keepMod, donorMod);
 
             // an override patch whose DEFINING plugin is nowhere on disk — the widen-failure NOTE lane.
@@ -187,7 +195,35 @@ public static class NpcCopyProbe
             ghostOverride.Race.SetTo(raceFk);
             ghostOverride.HeadParts.Add(new FormKey(ghostKey, 0xF01));                 // needs Ghost.esp — unproducible
             orphanMod.Npcs.Add(ghostOverride);
+            // a TEMPLATED override in the same orphan patch — its refusal is about the donor's SHAPE, not the read,
+            // so the widen-miss note must NOT decorate it.
+            var ghostTplFk = new FormKey(ghostKey, 0xF02);
+            var ghostTpl = new Npc(ghostTplFk, SkyrimRelease.SkyrimSE) { EditorID = "GhostTpl" };
+            ghostTpl.Race.SetTo(raceFk);
+            ghostTpl.Template.SetTo(ghostNpcFk);
+            ghostTpl.Configuration.TemplateFlags |= NpcConfiguration.TemplateFlag.Traits;
+            orphanMod.Npcs.Add(ghostTpl);
             WriteModDirect(mods, "OrphanPatchMod", orphanMod, keepMod, ghostMod);
+
+            // a defining plugin present in TWO disabled folders — the widen's AMBIGUOUS decline lane.
+            var twinKey = new ModKey("Twin", ModType.Plugin);
+            var twinNpcFk = new FormKey(twinKey, 0x800);
+            var twinHpFk = new FormKey(twinKey, 0x801);
+            var twinMod = new SkyrimMod(twinKey, SkyrimRelease.SkyrimSE);
+            twinMod.HeadParts.Add(new HeadPart(twinHpFk, SkyrimRelease.SkyrimSE) { EditorID = "TwinHP" });
+            var twinNpc = new Npc(twinNpcFk, SkyrimRelease.SkyrimSE) { EditorID = "Twin" };
+            twinNpc.Race.SetTo(raceFk);
+            twinNpc.HeadParts.Add(twinHpFk);
+            twinMod.Npcs.Add(twinNpc);
+            WriteModDirect(mods, "TwinModA", twinMod, keepMod);
+            WriteModDirect(mods, "TwinModB", twinMod, keepMod);
+            var twinPatchKey = new ModKey("TwinPatch", ModType.Plugin);
+            var twinPatchMod = new SkyrimMod(twinPatchKey, SkyrimRelease.SkyrimSE);
+            var twinOverride = new Npc(twinNpcFk, SkyrimRelease.SkyrimSE) { EditorID = "Twin" };
+            twinOverride.Race.SetTo(raceFk);
+            twinOverride.HeadParts.Add(twinHpFk);                                      // needs Twin.esp — which is ambiguous
+            twinPatchMod.Npcs.Add(twinOverride);
+            WriteModDirect(mods, "TwinPatchMod", twinPatchMod, keepMod, twinMod);
 
             // donor-only loose assets: the facegen pair (geom embeds a texture path for the scrape), the scraped
             // texture, and the record-referenced hair model.
@@ -206,7 +242,7 @@ public static class NpcCopyProbe
             WriteProfile(prof,
                 loadorder: new[] { vanKey.FileName.String, keepKey.FileName.String, folKey.FileName.String },
                 plugins: new[] { "*" + vanKey.FileName, "*" + keepKey.FileName, "*" + folKey.FileName },
-                modlist: new[] { "+ContestMod", "+FollowerMod", "+KeepMod", "+FakeVanilla", "-DonorMod", "-Donor2Mod", "-DonorLookMod", "-OrphanPatchMod" });
+                modlist: new[] { "+ContestMod", "+FollowerMod", "+KeepMod", "+FakeVanilla", "-DonorMod", "-Donor2Mod", "-DonorLookMod", "-OrphanPatchMod", "-TwinModA", "-TwinModB", "-TwinPatchMod" });
             WriteSkyrimIni(prof);
 
             using var svc = LoadOrderService.WithInstance(inst, 0, new UserConfigStore(Path.Combine(root, "user.json")));
@@ -387,6 +423,15 @@ public static class NpcCopyProbe
                         "widen: the NAMED file's override WINS — its look (Weight 77), not the defining plugin's (42)");
                     Check(npc is not null && npc.HeadParts.Count == 2,
                         "widen: both headparts arrive — the named file's own and the defining plugin's");
+
+                    // the ASSET half must widen too (review finding): the facegen pair + donor-only files live in
+                    // the DEFINING plugin's folder, which the named override patch's folder does not contain.
+                    var outDir = Path.GetDirectoryName(o.OutPath!)!;
+                    Check(o.Assets is { FaceGenMeshCarried: true } &&
+                          File.Exists(Path.Combine(outDir, $@"meshes\actors\character\facegendata\facegeom\MyFollower.esp\00000800.nif")),
+                        "widen assets: the facegen pair is carried from the DEFINING plugin's folder (not the named patch's)");
+                    Check(File.Exists(Path.Combine(outDir, hairRel)),
+                        "widen assets: the record-referenced model carries from the defining plugin's folder");
                 }
             }
 
@@ -398,6 +443,30 @@ public static class NpcCopyProbe
                     "widen-miss: the closure refusal still fires when the defining plugin is nowhere on disk");
                 Check(!o.Success && o.Error!.Contains("Ghost.esp") && o.Error!.Contains("auto-searched"),
                     "widen-miss: the refusal carries the NOTE that auto-widening was attempted and why it could not");
+            }
+
+            // ================= 2c-iv. widen SUCCEEDED yet the record is missing — the refusal says the widen ran =================
+            {
+                var o = svc.CopyNpcAppearance(staleNpcFk.ToString(), "DonorLook.esp", null,
+                                              targetFk.ToString(), null, null, null, null);
+                Check(!o.Success && o.Error!.Contains("cannot produce") && o.Error!.Contains("AUTO-READ"),
+                    "widen-stale: a fetch-miss AFTER a successful widen names the auto-read — never a circular 'pass the plugin' dead end");
+            }
+
+            // ================= 2c-v. a non-fetch refusal is NOT decorated with widen context =================
+            {
+                var o = svc.CopyNpcAppearance(ghostTplFk.ToString(), "OrphanPatch.esp", null,
+                                              targetFk.ToString(), null, null, null, null);
+                Check(!o.Success && o.Error!.Contains("template") && !o.Error!.Contains("auto-searched"),
+                    "widen-scope: a TEMPLATE refusal (donor shape, not the read) carries NO widen note — no red herring");
+            }
+
+            // ================= 2c-vi. AMBIGUOUS defining plugin — declined loudly, named in the refusal =================
+            {
+                var o = svc.CopyNpcAppearance(twinNpcFk.ToString(), "TwinPatch.esp", null,
+                                              targetFk.ToString(), null, null, null, null);
+                Check(!o.Success && o.Error!.Contains("exists in 2 places") && o.Error!.Contains("not auto-read"),
+                    "widen-ambiguous: a defining plugin in two folders declines the widen and the refusal SAYS so");
             }
 
             // ================= 2d. clone refusals the fold added =================

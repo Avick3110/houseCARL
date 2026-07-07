@@ -187,7 +187,7 @@ public static class NpcAppearanceAssets
     /// resolved winner could not be read (review finding: discarding it reported an in-use file as "found neither
     /// in the active VFS nor the donor's folder" — factually false, Q3).</summary>
     static (byte[]? Bytes, string? From, string? SkipNote, bool Missing, string? ReadError) ResolveForCarry(
-        string relPath, AssetResolver.AssetView view, DonorDisk? donor, string? donorModFolderName, bool alwaysCarry)
+        string relPath, AssetResolver.AssetView view, IReadOnlyList<DonorDisk> donors, IReadOnlyList<string> donorModFolderNames, bool alwaysCarry)
     {
         string? readError = null;
         var res = view.ResolveForPlacement(relPath);
@@ -197,9 +197,9 @@ public static class NpcAppearanceAssets
             if (!alwaysCarry)
             {
                 bool donorProvides =
-                    (donorModFolderName is not null && string.Equals(winner.ProviderName, donorModFolderName, StringComparison.OrdinalIgnoreCase))
-                    || (donor is not null && winner.Kind == AssetKind.Bsa && winner.ArchivePath is not null
-                        && string.Equals(Path.GetDirectoryName(winner.ArchivePath), donor.Folder, StringComparison.OrdinalIgnoreCase));
+                    donorModFolderNames.Any(n => string.Equals(winner.ProviderName, n, StringComparison.OrdinalIgnoreCase))
+                    || (winner.Kind == AssetKind.Bsa && winner.ArchivePath is not null
+                        && donors.Any(d => string.Equals(Path.GetDirectoryName(winner.ArchivePath), d.Folder, StringComparison.OrdinalIgnoreCase)));
                 if (!donorProvides)
                     return (null, null, $"'{relPath}' — still provided by '{winner.ProviderName}' after the donor is removed; not carried.", false, null);
             }
@@ -209,7 +209,7 @@ public static class NpcAppearanceAssets
             // the winner could not be read — fall through to the donor-disk lane, keeping the named cause
         }
 
-        if (donor is not null)
+        foreach (var donor in donors)
         {
             var (bytes, from) = donor.Read(relPath);
             if (bytes is not null) return (bytes, from, null, false, null);
@@ -228,7 +228,7 @@ public static class NpcAppearanceAssets
     public static NpcAssetOutcome CarryAll(
         FormKey donorNpc, FormKey newNpc,
         IReadOnlyList<string> harvestedPaths,
-        AssetResolver.AssetView view, DonorDisk? donor, string? donorModFolderName, string outDir)
+        AssetResolver.AssetView view, IReadOnlyList<DonorDisk> donors, IReadOnlyList<string> donorModFolderNames, string outDir)
     {
         var carried = new List<CarriedAsset>();
         var skipped = new List<string>();
@@ -252,7 +252,7 @@ public static class NpcAppearanceAssets
             try
             {
                 var newRel = FaceGenPath.For(newNpc, slot);
-                var (bytes, from, _, isMissing, readErr) = ResolveForCarry(oldRel, view, donor, donorModFolderName, alwaysCarry: true);
+                var (bytes, from, _, isMissing, readErr) = ResolveForCarry(oldRel, view, donors, donorModFolderNames, alwaysCarry: true);
                 if (isMissing || bytes is null)
                 {
                     if (readErr is not null)
@@ -288,7 +288,7 @@ public static class NpcAppearanceAssets
         {
             try
             {
-                var (bytes, from, skipNote, isMissing, readErr) = ResolveForCarry(rel, view, donor, donorModFolderName, alwaysCarry: false);
+                var (bytes, from, skipNote, isMissing, readErr) = ResolveForCarry(rel, view, donors, donorModFolderNames, alwaysCarry: false);
                 if (skipNote is not null) { skipped.Add(skipNote); continue; }
                 if (isMissing)
                 {

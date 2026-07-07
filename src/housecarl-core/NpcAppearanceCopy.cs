@@ -95,13 +95,19 @@ public static class NpcAppearanceCopy
     public sealed record ClosureItem(IMajorRecordGetter Body, string PulledBy);
 
     /// <summary>The appearance-closure walk result: the records to internalize (donor bodies at donor keys, the
-    /// NPC itself NOT included), the links kept as-is (they resolve actively), or a loud refusal.</summary>
+    /// NPC itself NOT included), the links kept as-is (they resolve actively), or a loud refusal.
+    /// <see cref="FetchMiss"/> marks the refusal class where the donor universe could not PRODUCE a needed record —
+    /// the one class the caller's donor-read context (which files were opened, what an auto-widen did) can explain;
+    /// the other refusals (template, race, cap) are about the donor's shape, and decorating them with read context
+    /// would point the user at the wrong fix.</summary>
     public sealed record ClosureResult(
         bool Success, string? Error,
         IReadOnlyList<ClosureItem> ToInternalize,
-        IReadOnlyList<FormKey> KeptLinks)
+        IReadOnlyList<FormKey> KeptLinks,
+        bool FetchMiss = false)
     {
-        public static ClosureResult Fail(string error) => new(false, error, Array.Empty<ClosureItem>(), Array.Empty<FormKey>());
+        public static ClosureResult Fail(string error, bool fetchMiss = false)
+            => new(false, error, Array.Empty<ClosureItem>(), Array.Empty<FormKey>(), fetchMiss);
     }
 
     /// <summary>
@@ -169,10 +175,8 @@ public static class NpcAppearanceCopy
                 return ClosureResult.Fail(
                     $"the donor's appearance references {key} (via {pulledBy}), which must be internalized (it is donor-" +
                     "defined or does not resolve in the active load order) — but the donor universe cannot produce that " +
-                    "record. Remedies, by cause: if you passed source_plugin= for an OVERRIDE PATCH of the donor, the " +
-                    $"record lives in the donor's own plugin — pass source_plugin='{key.ModKey.FileName}' instead (or omit " +
-                    "source_plugin= entirely when that plugin is active); if it lives in a DISABLED master of the donor, " +
-                    "enable that mod (or keep it as a master) and re-run. Nothing was written.");
+                    $"record. It is defined in '{key.ModKey.FileName}': if that mod is DISABLED, enable it (or keep it " +
+                    "installed as a master) and re-run. Nothing was written.", fetchMiss: true);
 
             toInternalize.Add(new ClosureItem(body, pulledBy));
             var label = $"{RecordNaming.StripOverlay(body.GetType().Name)} {key} ({body.EditorID ?? "<no editorid>"})";
