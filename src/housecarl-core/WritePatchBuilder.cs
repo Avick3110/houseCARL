@@ -1395,10 +1395,11 @@ public static class WritePatchBuilder
                 $"be remapped, and writing it would keep the donor as a master of its own merge. Fix the source (xEdit: check for " +
                 $"deleted/injected records) or drop that donor. Samples: {string.Join("; ", dangling)}. Nothing was written.");
 
-        // 3. NextObjectID above the highest merged id (header metadata for the CK's next new record; write floor minimum).
+        // 3. NextObjectID above the highest merged id (header metadata for the CK's next new record; write floor minimum,
+        //    ceiling-clamped — a donor legitimately holding 0xFFFFFF would otherwise push it past the 24-bit object range).
         uint maxUsed = 0;
         foreach (var nk in dict.Values) if (nk.ID > maxUsed) maxUsed = nk.ID;
-        m.ModHeader.Stats.NextFormID = Math.Max(FormIdRange.EslWindowFloor, maxUsed + 1);
+        m.ModHeader.Stats.NextFormID = Math.Min(FormIdRange.ObjectIdMax, Math.Max(FormIdRange.EslWindowFloor, maxUsed + 1));
 
         // 4. Resolve the computed master set to overlays (absence OR unparseability is a loud refusal — an open throw
         //    escaping here would skip the caller's rider-folder cleanup) + the master-aware serialize.

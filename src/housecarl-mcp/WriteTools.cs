@@ -379,9 +379,14 @@ public static class WriteTools
          "remedy is to include those patches in the merge set or re-point them before disabling the donors. Refuses loud + " +
          "writes nothing on: a donor not active / unparseable / not on disk; an output name already in the load order; a " +
          "dangling donor-internal reference (a donor referencing a FormID no donor defines); a declared master not active. " +
-         "AFTER: review the merged plugin in xEdit, enable its mod folder in MO2, then DISABLE the donor mods. Existing SAVES " +
-         "that depend on the donors will NOT survive (new plugin name + renumbered FormIDs) — best for a new game. Want it " +
-         "light/ESL? Run housecarl_compact_plugin on the merged plugin afterward (the tools compose).")]
+         "AFTER: review the merged plugin in xEdit, enable its mod folder in MO2, then deactivate the donor PLUGINS (right " +
+         "pane) but KEEP the donor MOD FOLDERS enabled (left pane) — merge carries only the FormID-keyed files the rename " +
+         "breaks (facegen/voice/seq); every other donor asset (meshes, textures, scripts, BSA contents) is still referenced " +
+         "BY PATH from the merged records and loads from the donor folders. Caveat: a donor .bsa stops auto-loading once its " +
+         "same-named plugin is inactive — extract it into the mod folder (housecarl_bsa_extract) or load it via a same-named " +
+         "dummy plugin (housecarl_create_plugin). Existing SAVES that depend on the donors will NOT survive (new plugin name " +
+         "+ renumbered FormIDs) — best for a new game. Want it light/ESL? Run housecarl_compact_plugin on the merged plugin " +
+         "afterward (the tools compose).")]
     public static string MergePlugins(
         LoadOrderService svc,
         [Description("The donor plugin filenames to merge (at least two, e.g. [\"CoolMod.esp\", \"CoolMod Patch.esp\"]) — each must be active in your load order. Argument order does not matter: houseCARL uses LOAD order for id priority and conflict resolution.")]
@@ -741,8 +746,16 @@ public static class WriteTools
         var sb = new StringBuilder();
         sb.Append("wrote merged ").Append(file).Append(" (new plugin; ").Append(o.Bytes).Append(" bytes) from ")
           .Append(o.Donors.Count).Append(" donors: ").Append(string.Join(", ", o.Donors)).Append('\n');
-        sb.Append("mod folder: ").Append(modFolder)
-          .Append("  — review in xEdit, enable + sort it in MO2, then DISABLE the donor mods (their files are untouched).\n");
+        sb.Append("mod folder: ").Append(modFolder).Append("  — review in xEdit, then enable + sort it in MO2.\n");
+        // The swap is PLUGIN-level, not mod-level (merge is a RECORDS op): the merged records still reference the donors'
+        // meshes/textures/scripts/BSA contents BY PATH, and those files live in the donor mod folders — only the
+        // FormID-keyed facegen/voice/seq were carried. "Disable the donor mods" (compact's instruction, where the output
+        // shares the source's basename) would yank all of that out of the VFS with every warning light green.
+        sb.Append("the swap: deactivate the donor PLUGINS (right pane) — their files are untouched — but KEEP the donor mod ")
+          .Append("folders enabled (left pane): the merged records still load the donors' meshes/textures/scripts by path; ")
+          .Append("only facegen/voice/seq were carried. If a donor ships a .bsa, it stops auto-loading once its plugin is ")
+          .Append("deactivated — extract it into the mod folder (housecarl_bsa_extract) or load it via a same-named dummy ")
+          .Append("plugin (housecarl_create_plugin).\n");
 
         int overrides = o.RecordsCopied - o.RecordsRenumbered;
         sb.Append(o.RecordsRenumbered).Append(o.RecordsRenumbered == 1 ? " originating record" : " originating records")
@@ -758,7 +771,7 @@ public static class WriteTools
             sb.Append("cross-donor conflicts: none — no record was carried by more than one donor.\n");
         else
         {
-            sb.Append("cross-donor conflicts (").Append(o.Conflicts.Count).Append(") — each resolved to the LOAD-ORDER WINNER (the losing version is NOT in the merge; its un-relisted nested children were grafted):\n");
+            sb.Append("cross-donor conflicts (").Append(o.Conflicts.Count).Append(") — each resolved to the LOAD-ORDER WINNER (the losing version is NOT in the merge; any un-relisted nested children were grafted):\n");
             foreach (var c in o.Conflicts.Take(25))
                 sb.Append("  ").Append(c.RecordType).Append(' ').Append(c.Key).Append("  ").Append(c.WinnerDonor).Append(" won over ").Append(c.LoserDonor).Append('\n');
             if (o.Conflicts.Count > 25) sb.Append("  … (+").Append(o.Conflicts.Count - 25).Append(" more)\n");
@@ -771,7 +784,7 @@ public static class WriteTools
         if (o.ExternalPlugins.Count > 0)
         {
             sb.Append("WARNING — ").Append(o.ExternalPlugins.Count).Append(" plugin(s) OUTSIDE the merge REFERENCE donor records. Their references break ")
-              .Append("the moment you disable the donors: include them in the merge set (re-run with them added), or re-point them at '")
+              .Append("the moment you deactivate the donor plugins: include them in the merge set (re-run with them added), or re-point them at '")
               .Append(o.OutputName).Append("' before the swap:\n");
             foreach (var pl in o.ExternalPlugins.Take(25)) sb.Append("  ! ").Append(pl).Append('\n');
             if (o.ExternalPlugins.Count > 25) sb.Append("  ! … (+").Append(o.ExternalPlugins.Count - 25).Append(" more)\n");
@@ -780,7 +793,7 @@ public static class WriteTools
         if (o.ExternalOverriders.Count > 0)
         {
             sb.Append("WARNING — ").Append(o.ExternalOverriders.Count).Append(" plugin(s) OUTSIDE the merge OVERRIDE a donor record; those overrides ")
-              .Append("orphan once you disable the donors (an override can't be auto-repointed — identity, not a link). Include them in the merge set, or rebuild them against '")
+              .Append("orphan once you deactivate the donor plugins (an override can't be auto-repointed — identity, not a link). Include them in the merge set, or rebuild them against '")
               .Append(o.OutputName).Append("':\n");
             foreach (var pl in o.ExternalOverriders.Take(25)) sb.Append("  ! ").Append(pl).Append('\n');
             if (o.ExternalOverriders.Count > 25) sb.Append("  ! … (+").Append(o.ExternalOverriders.Count - 25).Append(" more)\n");
