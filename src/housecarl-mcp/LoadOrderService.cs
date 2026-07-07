@@ -1876,6 +1876,179 @@ public sealed class LoadOrderService : IDisposable
         }
     }
 
+    /// <summary>Merge two or more ACTIVE plugins into ONE new plugin (housecarl_merge_plugins — the A4 orchestration
+    /// over the compact spine). Merge = a RECORDS operation: the donors' records combine into a fresh plugin under a
+    /// NEW name (collision-only renumber — the first donor in load order keeps its object IDs; cross-donor conflicts
+    /// on the same record resolve to the LOAD-ORDER WINNER and are reported; a losing donor's un-relisted nested
+    /// children graft into the winner). The donors are NEVER touched — new-file lane only, no consent gate; the user
+    /// reviews M in xEdit, enables its folder, and disables the donor mods in MO2. External referencers AND overriders
+    /// of donor records are WARNED loud and named (never a refusal: nothing breaks at write time — the donors stay
+    /// active until the user swaps; the remedy is to include the patch in the merge set or repoint it before disabling
+    /// the donors). The FormID-keyed assets follow per donor: EVERY donor NPC's facegen and EVERY voiced line move to
+    /// the new plugin-name folders (the plugin NAME is part of those paths, so this is the full donor set, not just
+    /// collisions), and a <c>.seq</c> is refreshed when any donor shipped one.</summary>
+    public WritePatchBuilder.MergeOutcome MergePlugins(
+        IReadOnlyList<string>? plugins, string? outputName, string? patchName = null)
+    {
+        // ---- 0. argument shape (Q3 — every refusal names the fix) ----
+        var donorsRaw = (plugins ?? Array.Empty<string>()).Select(p => (p ?? "").Trim()).Where(p => p.Length > 0)
+            .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        if (donorsRaw.Count < 2)
+            return WritePatchBuilder.MergeOutcome.Fail(
+                "merge needs at least TWO distinct donor plugins — pass plugins=[\"A.esp\", \"B.esp\", …].");
+        var outName = (outputName ?? "").Trim();
+        if (outName.Length == 0)
+            return WritePatchBuilder.MergeOutcome.Fail(
+                "output is required — name the NEW merged plugin file to create (e.g. 'MyMerge.esp'). It must not already exist in your load order.");
+        ModKey outKey;
+        try { outKey = ModKey.FromFileName(outName); }
+        catch (Exception ex) { return WritePatchBuilder.MergeOutcome.Fail($"'{outName}' is not a valid plugin filename ({ex.Message})."); }
+        if (donorsRaw.Any(d => string.Equals(d, outName, StringComparison.OrdinalIgnoreCase)))
+            return WritePatchBuilder.MergeOutcome.Fail($"the output '{outName}' cannot also be a donor — name a NEW plugin file.");
+
+        lock (_writeGate)                                                 // one write at a time (the compact discipline)
+        {
+            var resolver = Resolver;
+            var view = resolver.Capture();
+            if (!Directory.Exists(_modsDir))
+                return WritePatchBuilder.MergeOutcome.Fail($"cannot write: ModsDir '{_modsDir}' does not exist. Check HouseCarl:ModsDir.");
+            if (view.ContainsPlugin(outName))
+                return WritePatchBuilder.MergeOutcome.Fail(
+                    $"'{outName}' is already an active plugin in your load order — the merge output must be a NEW plugin name " +
+                    "(merging over an existing plugin would shadow it in MO2).");
+
+            // ---- 1. validate + load-order-sort the donors (merge semantics are load-order semantics — Q3: sort, don't trust arg order) ----
+            var donorInfos = new List<(string Name, string Path, ModKey Key, int Order)>();
+            foreach (var d in donorsRaw)
+            {
+                if (!view.ContainsPlugin(d))
+                    return WritePatchBuilder.MergeOutcome.Fail(
+                        $"donor '{d}' is not an active plugin in your load order — merge reads each donor's records and conflict " +
+                        "position from the ACTIVE order. Enable it in MO2 first (pass the exact filename, e.g. 'CoolMod.esp').");
+                if (view.ExcludedPlugins.TryGetValue(d, out var excluded))
+                    return WritePatchBuilder.MergeOutcome.Fail(
+                        $"cannot merge '{d}': it was EXCLUDED from this session ({excluded}) — houseCARL won't merge a plugin it " +
+                        "can't fully parse (it would risk dropping records it couldn't read, Q3). Nothing was written.");
+                var p = view.PluginPath(d);
+                if (p is null || !File.Exists(p))
+                    return WritePatchBuilder.MergeOutcome.Fail($"donor '{d}' not found on disk at {p ?? "<unresolved>"} — nothing to merge.");
+                ModKey dk;
+                try { dk = ModKey.FromFileName(d); }
+                catch (Exception ex) { return WritePatchBuilder.MergeOutcome.Fail($"'{d}' is not a valid plugin filename ({ex.Message})."); }
+                int order = -1;
+                for (int i = 0; i < resolver.PluginNames.Count; i++)
+                    if (string.Equals(resolver.PluginNames[i], d, StringComparison.OrdinalIgnoreCase)) { order = i; break; }
+                donorInfos.Add((d, p, dk, order));
+            }
+            donorInfos.Sort((a, b) => a.Order.CompareTo(b.Order));
+            var donorNames = donorInfos.Select(d => d.Name).ToList();
+            var donorKeySet = new HashSet<ModKey>(donorInfos.Select(d => d.Key));
+
+            // ---- 2. originating keys per donor + the collision-only remap (first donor keeps its ids — zMerge default) ----
+            var donorKeys = new List<(string Donor, IReadOnlyList<FormKey> Keys)>();
+            foreach (var (dName, dPath, dKey, _) in donorInfos)
+            {
+                if (!WritePatchBuilder.TryReadOriginatingKeys(dPath, dKey, out var keys, out var keyErr))
+                    return WritePatchBuilder.MergeOutcome.Fail(keyErr!);
+                donorKeys.Add((dName, keys));                             // a pure-override donor (0 originating keys) is a legit patch donor
+            }
+            var plan = RemapEngine.BuildMergeRemap(donorKeys, outKey, RemapEngine.EslFloor, FormIdRange.ObjectIdMax);
+            if (!plan.Success) return WritePatchBuilder.MergeOutcome.Fail(plan.Error!);
+
+            // ---- 3. identify-pass — WARN-and-proceed (the A4 posture; unlike compact this NEVER refuses: the donors stay
+            //      installed and ACTIVE until the user swaps in MO2, so nothing breaks at write time. The report names each
+            //      affected plugin with the remedy — include it in the merge set, or handle it before disabling the donors.) ----
+            var targets = plan.Dict.Keys.ToHashSet();
+            var transformSet = new HashSet<string>(donorNames, StringComparer.OrdinalIgnoreCase);
+            var id = RemapEngine.IdentifyExternalReferencers(resolver, targets, transformSet);
+
+            // ---- 4. masters = union(donor declared masters) − donors, load-order sorted (each donor's own header order
+            //      is already load-order-consistent; the union sorts by the active order so the merged header is too) ----
+            var masterSet = new List<string>();
+            var seenMasters = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var (dName, _, _, _) in donorInfos)
+            {
+                IReadOnlyList<string> declared;
+                try { declared = view.DeclaredMasters(dName); }
+                catch (Exception ex)
+                {
+                    return WritePatchBuilder.MergeOutcome.Fail($"cannot read donor '{dName}' masters ({ex.Message}) — nothing written.");
+                }
+                foreach (var mfn in declared)
+                    if (!transformSet.Contains(mfn) && seenMasters.Add(mfn)) masterSet.Add(mfn);
+            }
+            var orderIndex = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            for (int i = 0; i < resolver.PluginNames.Count; i++) orderIndex[resolver.PluginNames[i]] = i;
+            masterSet.Sort((a, b) =>
+                (orderIndex.TryGetValue(a, out var ia) ? ia : int.MaxValue).CompareTo(orderIndex.TryGetValue(b, out var ib) ? ib : int.MaxValue));
+
+            // ---- 5. output folder (fresh houseCARL mod folder; the merge is ALWAYS a new file — no in-place lane) ----
+            RiderFolder rf;
+            try { rf = ResolvePatchModFolder(patchName, null, Path.GetFileNameWithoutExtension(outName) + " merged"); }
+            catch (InvalidOperationException ex) { return WritePatchBuilder.MergeOutcome.Fail(ex.Message); }
+            WriteOwnerMeta(rf.ModFolder, outName);
+            var outPath = Path.Combine(rf.OutputDir, outName);
+
+            // ---- 6. build + write M ----
+            var build = WritePatchBuilder.MergeBuild(
+                donorInfos.Select(d => (d.Name, d.Path, d.Key)).ToList(), outKey, plan.Dict, masterSet, view.PluginPath, outPath);
+            if (!build.Success)
+            {
+                if (rf.CreatedFresh) RemoveOrNameRiderResidue(rf);        // a refused build leaves no orphan folder
+                return WritePatchBuilder.MergeOutcome.Fail(build.Error!);
+            }
+
+            // ---- 7. FormID-keyed assets follow the renumber, PER DONOR (merge renames the plugin, and the plugin NAME
+            //      is a segment of the facegen + voice paths — so the carry covers EVERY donor NPC/voiced line, not just
+            //      the id collisions). ONE captured asset view feeds the carries AND the SEQ gate. Best-effort + REPORTED
+            //      (Q3): the records are written, so an asset miss is a named warning, never a failure of the merge. ----
+            AssetRenameOutcome assetRename;
+            VoiceCarryOutcome voiceRename;
+            bool anyDonorSeq = false;
+            try
+            {
+                AssetResolver assetResolver;
+                lock (_gate) { assetResolver = Assets; }                  // reentrant under the held _writeGate (the PlaceAssets idiom)
+                var assetView = assetResolver.Capture();
+                foreach (var (dName, _, _, _) in donorInfos)              // "did ANY donor ship a .seq?" — VFS-aware, per donor
+                    if (assetView.ResolveForPlacement($@"SEQ\{Path.GetFileNameWithoutExtension(dName)}.seq").Sources.Count > 0)
+                        { anyDonorSeq = true; break; }
+                var outDir = Path.GetDirectoryName(outPath)!;
+                assetRename = AssetRenameService.CarryFaceGen(outPath, plan.Dict, assetView, outDir);
+                var voiceParts = donorInfos
+                    .Select(d => AssetRenameService.CarryVoice(outPath, plan.Dict, assetView, outDir, sourcePlugin: d.Name))
+                    .ToList();
+                voiceRename = new VoiceCarryOutcome(
+                    voiceParts.Sum(v => v.FilesScanned), voiceParts.Sum(v => v.FilesCarried), voiceParts.Sum(v => v.LinesCarried),
+                    voiceParts.SelectMany(v => v.Failures).ToList(), voiceParts.Any(v => v.ReadIncomplete));
+            }
+            catch (Exception ex)
+            {
+                assetRename = new AssetRenameOutcome(0, 0, 0,
+                    new[] { $"facegen carry skipped — the asset layer could not be built ({ex.Message}); verify NPC faces in-game." }, false);
+                voiceRename = new VoiceCarryOutcome(0, 0, 0,
+                    new[] { $"voice carry skipped — the asset layer could not be built ({ex.Message}); verify voiced lines in-game." }, false);
+            }
+
+            // ---- 8. SEQ — refresh-only, off the merged plugin: rebuilt when ANY donor shipped a .seq (all their SGE
+            //      quests now live in M, whose .seq must list the NEW on-disk FormIDs); donors with SGE quests but no
+            //      shipped .seq get the same NAMED write_seq advisory compact gives. ----
+            SeqRegenOutcome seqRegen;
+            try { seqRegen = AssetRenameService.RegenerateSeq(outPath, Path.GetDirectoryName(outPath)!, anyDonorSeq); }
+            catch (Exception ex)
+            {
+                seqRegen = new SeqRegenOutcome(0, false, null,
+                    new[] { $"SEQ regenerate skipped ({ex.Message}) — if the donors have start-game-enabled quests, run housecarl_write_seq on '{outName}'." });
+            }
+
+            return new WritePatchBuilder.MergeOutcome(
+                true, null, outPath, outName, donorNames, build.Masters, build.RecordsCopied, build.RecordsRenumbered,
+                plan.Donors, build.Conflicts, id.ExternalPlugins, id.ExternalOverriders,
+                id.PluginsScanned, id.UnscannableRecords, id.UnscannableSamples, build.Bytes, null,
+                assetRename, voiceRename, seqRegen);
+        }
+    }
+
     /// <summary>The composed standalone-NPC-copy verb (housecarl_copy_npc_appearance — capability chain Stage 3).
     /// Deep-copies a donor NPC's appearance-record subtree into a houseCARL patch under NEW FormKeys (Duplicate +
     /// RemapLinks — the RemapEngine mechanism, so every field carries by construction: HDPT.Parts morph refs,

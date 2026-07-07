@@ -975,6 +975,30 @@ public static class WritePatchBuilder
                 Array.Empty<string>(), Array.Empty<RepointReport>(), 0, 0, Array.Empty<string>());
     }
 
+    /// <summary>The merge tool's outcome (A4): the merged plugin's identity + per-donor remap accounting + every
+    /// cross-donor conflict (load-order winner, reported never silent) + the identify-pass WARN surfaces (external
+    /// referencers AND overriders — merge never refuses on them, the donors stay installed and active until the user
+    /// swaps in MO2, so nothing breaks at write time; the report names each with the remedy) + the FormID-keyed asset
+    /// carry accounting (facegen/voice/SEQ — a merge renames the plugin, so EVERY donor NPC's facegen and EVERY voiced
+    /// line moves to the new-name folders, not just the collided ones). Merge has NO in-place lane and overwrites
+    /// nothing, so there is no consent gate.</summary>
+    public sealed record MergeOutcome(
+        bool Success, string? Error, string OutputPath, string OutputName,
+        IReadOnlyList<string> Donors, IReadOnlyList<string> Masters,
+        int RecordsCopied, int RecordsRenumbered,
+        IReadOnlyList<RemapEngine.MergeDonorRemap> DonorRemaps,
+        IReadOnlyList<RemapEngine.MergeConflict> Conflicts,
+        IReadOnlyList<string> ExternalPlugins, IReadOnlyList<string> ExternalOverriders,
+        int PluginsScanned, int UnscannableRecords, IReadOnlyList<string> UnscannableSamples,
+        long Bytes, string? Note = null,
+        AssetRenameOutcome? AssetRename = null, VoiceCarryOutcome? VoiceRename = null, SeqRegenOutcome? SeqRegen = null)
+    {
+        public static MergeOutcome Fail(string error) =>
+            new(false, error, "", "", Array.Empty<string>(), Array.Empty<string>(), 0, 0,
+                Array.Empty<RemapEngine.MergeDonorRemap>(), Array.Empty<RemapEngine.MergeConflict>(),
+                Array.Empty<string>(), Array.Empty<string>(), 0, 0, Array.Empty<string>(), 0);
+    }
+
     /// <summary>
     /// FORWARD a NAMED plugin's version of each record INTO the patch as an override — xEdit's "copy as override into",
     /// the inverse of <see cref="Apply"/>'s winner-override. Where Apply/Create author NEW content, this re-asserts an
@@ -1296,6 +1320,112 @@ public static class WritePatchBuilder
 
         long bytes = 0; try { bytes = new FileInfo(outPath).Length; } catch { }
         return new CompactBuildResult(true, null, declaredMasters, ren.RecordsCopied, ren.RecordsRenumbered, bytes);
+    }
+
+    /// <summary>The result of the core merge build: success + the RESOLVED master set / record accounting / cross-donor
+    /// conflicts / byte size, or a loud Q3 refusal with <c>outPath</c> UNTOUCHED (an unopenable donor, an engine fault,
+    /// a dangling donor reference that would keep a donor as a master, an absent master, a serialize fault).</summary>
+    public sealed record MergeBuildResult(
+        bool Success, string? Error, IReadOnlyList<string> Masters, int RecordsCopied, int RecordsRenumbered,
+        IReadOnlyList<RemapEngine.MergeConflict> Conflicts, long Bytes)
+    {
+        public static MergeBuildResult Fail(string error) =>
+            new(false, error, Array.Empty<string>(), 0, 0, Array.Empty<RemapEngine.MergeConflict>(), 0);
+    }
+
+    /// <summary>
+    /// Build the merged plugin M from the donors (in LOAD ORDER) and write it to <paramref name="outPath"/> (always a
+    /// NEW file — merge has no in-place lane; the donors are never touched). Opens every donor as a lazy overlay,
+    /// renumbers them into one fresh <see cref="SkyrimMod"/> via <see cref="RemapEngine.MergeModsInto"/> (load-order
+    /// winner on cross-donor conflicts, losers' un-relisted children grafted), then enforces the donor-master-survives
+    /// check (Q3, the zMerge "Clean" pattern): any link still pointing INTO a donor after the remap is a DANGLING source
+    /// reference (the donor never defined that FormID, so the dict couldn't map it) — writing it would re-declare the
+    /// donor as a master of its own merge, so the build REFUSES with the offending links NAMED. Masters =
+    /// <paramref name="masters"/> (union of donor declared masters minus the donors, load-order sorted — the
+    /// orchestrator computes it off the captured view), resolved to overlays for the master-aware serialize;
+    /// <see cref="WriteEngine.WriteInPlace"/> then derives the header's master list from actual content against them.
+    /// All-or-nothing (Q3): any refusal or fault leaves <paramref name="outPath"/> untouched.
+    /// </summary>
+    public static MergeBuildResult MergeBuild(
+        IReadOnlyList<(string Name, string Path, ModKey Key)> donorsByLoadOrder, ModKey outKey,
+        IReadOnlyDictionary<FormKey, FormKey> dict, IReadOnlyList<string> masters,
+        Func<string, string?> resolveMasterPath, string outPath)
+    {
+        // 1. Open every donor overlay, build M in memory, dispose the donors before the write (no handle at rest;
+        //    merge never writes over a donor, but the discipline is uniform).
+        var m = new SkyrimMod(outKey, SkyrimRelease.SkyrimSE);
+        RemapEngine.MergeResult mr;
+        var donorSet = new HashSet<ModKey>(donorsByLoadOrder.Select(d => d.Key));
+        var overlays = new List<IDisposable>();
+        try
+        {
+            var mods = new List<(string, ISkyrimModGetter)>(donorsByLoadOrder.Count);
+            foreach (var (name, path, _) in donorsByLoadOrder)
+            {
+                ISkyrimModGetter ov;
+                try { ov = SkyrimMod.CreateFromBinaryOverlay(path, SkyrimRelease.SkyrimSE); }
+                catch (Exception ex)
+                {
+                    return MergeBuildResult.Fail($"cannot open donor '{name}' to merge it ({WriteEngine.Describe(ex)}) — nothing written.");
+                }
+                overlays.Add((IDisposable)ov);
+                mods.Add((name, ov));
+            }
+            mr = RemapEngine.MergeModsInto(m, mods, dict);
+        }
+        finally { foreach (var d in overlays) { try { d.Dispose(); } catch { /* best-effort */ } } }
+        if (!mr.Success) return MergeBuildResult.Fail(mr.Error!);
+
+        // 2. Donor-master-survives check (Q3): after RemapLinks, NO link may still point into a donor. One that does is
+        //    a reference to a FormID the donor never DEFINED (a dangling source ref — the dict maps every real donor key),
+        //    and serializing it would re-declare the donor as a master of its own merge. Named, never silent.
+        var dangling = new List<string>();
+        int danglingCount = 0;
+        foreach (var rec in m.EnumerateMajorRecords())
+            foreach (var link in rec.EnumerateFormLinks())
+                if (!link.FormKey.IsNull && donorSet.Contains(link.FormKey.ModKey))
+                {
+                    danglingCount++;
+                    if (dangling.Count < 10) dangling.Add($"{rec.FormKey} → {link.FormKey}");
+                }
+        if (danglingCount > 0)
+            return MergeBuildResult.Fail(
+                $"refused — {danglingCount} reference(s) in the merged content still point INTO a donor after the renumber. " +
+                "Each targets a FormID its donor never DEFINES (a dangling reference already broken in the source), so it cannot " +
+                $"be remapped, and writing it would keep the donor as a master of its own merge. Fix the source (xEdit: check for " +
+                $"deleted/injected records) or drop that donor. Samples: {string.Join("; ", dangling)}. Nothing was written.");
+
+        // 3. NextObjectID above the highest merged id (header metadata for the CK's next new record; write floor minimum).
+        uint maxUsed = 0;
+        foreach (var nk in dict.Values) if (nk.ID > maxUsed) maxUsed = nk.ID;
+        m.ModHeader.Stats.NextFormID = Math.Max(FormIdRange.EslWindowFloor, maxUsed + 1);
+
+        // 4. Resolve the computed master set to overlays (absence is a loud refusal) + the master-aware serialize.
+        var masterOverlays = new List<IDisposable>();
+        try
+        {
+            var resolved = new List<ISkyrimModGetter>(masters.Count);
+            foreach (var mfn in masters)
+            {
+                var mp = resolveMasterPath(mfn);
+                if (mp is null)
+                    return MergeBuildResult.Fail(
+                        $"cannot merge: donor master '{mfn}' is not active in the load order, so the references into it can't " +
+                        "resolve for the serialize. Enable that master first. Nothing was written.");
+                var mov = SkyrimMod.CreateFromBinaryOverlay(mp, SkyrimRelease.SkyrimSE);
+                masterOverlays.Add((IDisposable)mov); resolved.Add(mov);
+            }
+            try { WriteEngine.WriteInPlace(m, resolved, outPath); }
+            catch (Exception ex)
+            {
+                return MergeBuildResult.Fail(
+                    $"writing the merged plugin failed (serialize or commit; nothing partial left): {WriteEngine.Describe(ex)}.");
+            }
+        }
+        finally { foreach (var d in masterOverlays) { try { d.Dispose(); } catch { /* best-effort; never mask the write result */ } } }
+
+        long bytes = 0; try { bytes = new FileInfo(outPath).Length; } catch { }
+        return new MergeBuildResult(true, null, masters, mr.RecordsCopied, mr.RecordsRenumbered, mr.Conflicts, bytes);
     }
 
     /// <summary>
