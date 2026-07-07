@@ -44,7 +44,15 @@ namespace HousecarlCore;
 /// they were preserved.</summary>
 public sealed record InternalizedRecord(string Type, string EditorId, FormKey OldKey, FormKey NewKey, string PulledBy);
 
-/// <summary>The composed copy's outcome — everything the tool render needs, or a loud refusal with nothing written.</summary>
+/// <summary>The composed copy's outcome — everything the tool render needs, or a loud refusal with nothing written.
+/// <see cref="Warning"/> is a POST-COMMIT caveat: the patch WAS written but a follow-up step (read-back) failed —
+/// never conflated with a refusal (that mislabel would send the user re-running against a live patch).
+/// <see cref="Reused"/> = extend-lane dedupe: donor records a PRIOR run already internalized into this patch
+/// (matched by type + preserved EditorID) are re-linked, not re-copied — a second copy would put two same-named
+/// headparts in one plugin and break the facegeom block-name mapping. <see cref="HarvestedAssetPaths"/> is
+/// collected from the IN-PATCH duplicates BEFORE serialize (overlay-backed donor bodies may be released by then).
+/// <see cref="DonorIsBaseGame"/> = the donor is defined in a base-game/implicit master: nothing is being
+/// "removed", so no records are donor-bound — the copy is an override-style transplant, said plainly.</summary>
 public sealed record NpcCopyOutcome(
     bool Success, string? Error,
     string Mode,                                          // "apply" | "clone"
@@ -52,16 +60,19 @@ public sealed record NpcCopyOutcome(
     FormKey NewNpcKey,                                    // apply: the target's key; clone: the clone's new key
     string? OutPath, bool Extended,
     IReadOnlyList<InternalizedRecord> Internalized,
+    IReadOnlyList<string> Reused,
     int KeptLinkCount,
     IReadOnlyList<string> CopiedFields,                   // apply mode
     IReadOnlyList<NpcAppearanceCopy.StripReport> Stripped, // clone mode
-    IReadOnlyList<string> Masters, bool DonorAmongMasters,
-    NpcAssetOutcome? Assets, long Bytes)
+    IReadOnlyList<string> Masters, bool DonorAmongMasters, bool DonorIsBaseGame,
+    IReadOnlyList<string> HarvestedAssetPaths,
+    NpcAssetOutcome? Assets, long Bytes, string? Warning)
 {
     public static NpcCopyOutcome Fail(string error) => new(
         false, error, "", default, "", false, default, null, false,
-        Array.Empty<InternalizedRecord>(), 0, Array.Empty<string>(),
-        Array.Empty<NpcAppearanceCopy.StripReport>(), Array.Empty<string>(), false, null, 0);
+        Array.Empty<InternalizedRecord>(), Array.Empty<string>(), 0, Array.Empty<string>(),
+        Array.Empty<NpcAppearanceCopy.StripReport>(), Array.Empty<string>(), false, false,
+        Array.Empty<string>(), null, 0, null);
 }
 
 public static class NpcAppearanceCopy
@@ -105,6 +116,17 @@ public static class NpcAppearanceCopy
     public static ClosureResult CollectAppearanceClosure(
         INpcGetter donor, IReadOnlySet<ModKey> donorMods, DonorFetch fetch, ActiveResolve resolvesActively)
     {
+        // A donor that INHERITS its traits from a template (TemplateFlags.Traits) has EMPTY appearance fields on its
+        // own record — the look lives on the template. Copying "nothing" would succeed and, in the apply lane,
+        // actively WIPE the target's face (a Q3 silent wrong answer). Refuse with the real remedy.
+        if (donor.Template is { IsNull: false } tpl
+            && donor.Configuration.TemplateFlags.HasFlag(NpcConfiguration.TemplateFlag.Traits))
+            return ClosureResult.Fail(
+                $"the donor NPC inherits its TRAITS (appearance) from a template ({tpl.FormKey}) — its own record carries " +
+                "no appearance to copy, and copying the empty fields would blank the target's face. Pass the TEMPLATE " +
+                "NPC as the donor instead (resolve the Template chain to the record that actually carries the look). " +
+                "Nothing was written.");
+
         var seeds = new List<(FormKey Key, string Field)>();
         foreach (var hp in donor.HeadParts)
             if (!hp.FormKey.IsNull) seeds.Add((hp.FormKey, "HeadParts"));
@@ -256,10 +278,16 @@ public static class NpcAppearanceCopy
         return new StripResult(true, null, stripped);
     }
 
-    /// <summary>Null a single FormLink property's key if the link type supports it (FormLinkNullable exposes
-    /// SetToNull; a required FormLink does not). Returns false when the link is required.</summary>
+    /// <summary>Null a single FormLink property's key iff the link is genuinely NULLABLE — the record model's
+    /// <c>IFormLinkNullableGetter</c>, not the presence of a SetToNull method: in Mutagen 0.53.1 the REQUIRED
+    /// <c>FormLink&lt;T&gt;</c> ALSO exposes SetToNull (review finding — method-presence made the required-link
+    /// refusal dead code and silently wrote a NULL required field, e.g. a clone with Class=00000000). Returns
+    /// false for a required link, which the caller escalates to the loud refusal.</summary>
     static bool TrySetLinkNull(object link)
     {
+        bool nullable = link.GetType().GetInterfaces().Any(i =>
+            i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IFormLinkNullable<>));
+        if (!nullable) return false;                                      // required by the record model — never nulled
         var m = link.GetType().GetMethod("SetToNull", Type.EmptyTypes);
         if (m is null) return false;
         m.Invoke(link, null);
@@ -301,11 +329,42 @@ public static class NpcAppearanceCopy
                 patchMod = new SkyrimMod(new ModKey(Path.GetFileNameWithoutExtension(outPath), ModType.Plugin), SkyrimRelease.SkyrimSE);
             WriteEngine.EnsureFormIdFloor(patchMod);
 
-            // ---- allocate NEW keys (the patch's own 0x800+ counter) for the closure (+ the clone) ----
-            var toCopy = new List<IMajorRecordGetter>(closure.ToInternalize.Select(i => i.Body));
-            if (clone) toCopy.Add(donorNpc);
-            uint next = patchMod.ModHeader.Stats.NextFormID;
+            // ---- extend-lane DEDUPE (review finding): a PRIOR run may already have internalized this donor's
+            //      records into the patch. Re-copying would put TWO records with the same preserved EditorID in one
+            //      plugin — ambiguous for the engine's facegeom block-name mapping, the exact invariant EditorID
+            //      preservation protects. Match by type + EditorID (both preserved by design) → REUSE the existing
+            //      copy: map the donor key to it and skip the duplicate. Each reuse is reported.
+            var toCopy = new List<IMajorRecordGetter>();
             var dict = new Dictionary<FormKey, FormKey>();
+            var reused = new List<string>();
+            if (extend)
+            {
+                var existing = patchMod.EnumerateMajorRecords()
+                    .Where(r => r.FormKey.ModKey == patchMod.ModKey && !string.IsNullOrEmpty(r.EditorID))
+                    .ToDictionary(r => (RecordNaming.StripOverlay(r.GetType().Name), r.EditorID!), r => r.FormKey,
+                                  EqualityComparer<(string, string)>.Default);
+                foreach (var i in closure.ToInternalize)
+                {
+                    var sig = (RecordNaming.StripOverlay(i.Body.GetType().Name), i.Body.EditorID ?? "");
+                    if (sig.Item2.Length > 0 && existing.TryGetValue(sig, out var prior))
+                    { dict[i.Body.FormKey] = prior; reused.Add($"{sig.Item1} '{sig.Item2}'  {i.Body.FormKey} → {prior} (already in the patch — reused, not re-copied)"); }
+                    else toCopy.Add(i.Body);
+                }
+            }
+            else toCopy.AddRange(closure.ToInternalize.Select(i => i.Body));
+            if (clone)
+            {
+                // a clone re-run into the same patch would mint a SECOND NPC with the same EditorID — refuse with the
+                // real choice instead (the dedupe above deliberately covers only the appearance subtree).
+                if (extend && patchMod.Npcs.Any(n => string.Equals(n.EditorID, newEditorid!.Trim(), StringComparison.OrdinalIgnoreCase)))
+                    return NpcCopyOutcome.Fail(
+                        $"'{patchFileName}' already contains an NPC with EditorID '{newEditorid!.Trim()}' — cloning again " +
+                        "would duplicate it. Pick a different new_editorid, or target the existing NPC via target_formid=.");
+                toCopy.Add(donorNpc);
+            }
+
+            // ---- allocate NEW keys (the patch's own 0x800+ counter) for what actually gets copied ----
+            uint next = patchMod.ModHeader.Stats.NextFormID;
             foreach (var rec in toCopy)
             {
                 if (next > FormIdRange.ObjectIdMax)
@@ -314,9 +373,27 @@ public static class NpcAppearanceCopy
             }
             patchMod.ModHeader.Stats.NextFormID = next;
 
-            // ---- duplicate + remap (EditorIDs preserved by Duplicate — the facegeom block-name identity) ----
-            var ren = RemapEngine.RenumberRecordsInto(patchMod, toCopy, dict);
+            // ---- duplicate + remap in a SCRATCH mod (review finding): RenumberRecordsInto's whole-mod RemapLinks
+            //      honors its fresh-target contract there, so an EXTENDED patch's PRE-EXISTING records are never
+            //      silently repointed (a user record deliberately referencing the active donor stays untouched).
+            //      The scratch shares the patch's ModKey, so the allocated keys are final; the remapped copies are
+            //      then transplanted into the real patch. EditorIDs preserved by Duplicate (block-name identity).
+            var scratch = new SkyrimMod(patchMod.ModKey, SkyrimRelease.SkyrimSE);
+            var ren = RemapEngine.RenumberRecordsInto(scratch, toCopy, dict);
             if (!ren.Success) return NpcCopyOutcome.Fail(ren.Error!);
+            foreach (var rec in scratch.EnumerateMajorRecords())
+                if (!RemapEngine.TryAddToFlatGroup(patchMod, (IMajorRecord)rec))
+                    return NpcCopyOutcome.Fail(
+                        $"{RecordNaming.StripOverlay(rec.GetType().Name)} {rec.FormKey} could not be transplanted into the patch (engine inconsistency, Q3). Nothing usable was written.");
+
+            // ---- the internalized report — built BEFORE serialize (review finding: donor bodies can be backed by a
+            //      session overlay the master set releases at serialize; reading them afterwards is a disposed-mmap read).
+            var internalized = closure.ToInternalize
+                .Where(i => dict.ContainsKey(i.Body.FormKey) && toCopy.Any(t => t.FormKey == i.Body.FormKey))
+                .Select(i => new InternalizedRecord(
+                    RecordNaming.StripOverlay(i.Body.GetType().Name), i.Body.EditorID ?? "<no editorid>",
+                    i.Body.FormKey, dict[i.Body.FormKey], i.PulledBy))
+                .ToList();
 
             FormKey newNpcKey;
             var copiedFields = (IReadOnlyList<string>)Array.Empty<string>();
@@ -357,44 +434,61 @@ public static class NpcAppearanceCopy
 
                 newNpcKey = targetFk;
                 copiedFields = CopyAppearanceFields(donorNpc, targetOverride);
-                patchMod.RemapLinks(dict);   // repoint the just-copied fields at the internalized copies
+                targetOverride.RemapLinks(dict);   // repoint ONLY the override's just-copied fields (never the rest of an extended patch)
 
-                // belt-and-braces (Q3): nothing donor-internal may remain on the override after the remap.
+                // belt-and-braces (Q3): nothing DONOR-INTERNAL may remain on the override after the remap. Scoped to
+                // donor keys only (review finding): a target's PRE-EXISTING dangling link (mod-update dirt whose master
+                // is still declared) is not this operation's defect and must not hard-block a legitimate copy.
                 var leak = ((IFormLinkContainerGetter)targetOverride).EnumerateFormLinks()
-                    .FirstOrDefault(l => !l.FormKey.IsNull && isForeign(l.FormKey));
+                    .FirstOrDefault(l => !l.FormKey.IsNull && donorMods.Contains(l.FormKey.ModKey));
                 if (leak is not null && !leak.FormKey.IsNull)
                     return NpcCopyOutcome.Fail(
-                        $"after the copy the target still references {leak.FormKey}, which is donor-internal or unresolvable — " +
-                        "refusing to write a patch that would master the donor (Q3). This is unexpected; please report it.");
+                        $"after the copy the target still references {leak.FormKey} in the donor's plugin — refusing to " +
+                        "write a patch that would master the donor (Q3). If the target deliberately references the donor " +
+                        "in a non-appearance field (an outfit, a faction), remove that first or clone instead. Nothing was written.");
             }
+
+            // ---- HARVEST asset paths from the IN-PATCH duplicates, pre-serialize (they are plain in-memory records;
+            //      the donor-overlay bodies may be released before the service's asset carry runs — review finding).
+            var newKeys = internalized.Select(i => i.NewKey).ToHashSet();
+            var duplicates = patchMod.EnumerateMajorRecords().Where(r => newKeys.Contains(r.FormKey)).Cast<IMajorRecordGetter>().ToList();
+            var harvested = NpcAppearanceAssets.HarvestAssetPaths(duplicates);
 
             // ---- serialize (multi-master; the caller's mastersFor handles the active-patch self-lock) ----
             try { WriteEngine.WritePatch(patchMod, mastersFor(patchFileName), outPath); }
             catch (Exception ex) { return NpcCopyOutcome.Fail($"serialize failed — {WriteEngine.Describe(ex)}. Nothing usable was written."); }
 
-            var back = SkyrimMod.CreateFromBinaryOverlay(outPath, SkyrimRelease.SkyrimSE);
-            List<string> masters;
-            long bytes;
+            // ---- post-commit read-back — the patch IS on disk from here; a read-back failure is a WARNING on a
+            //      success, never a "nothing was written" (review finding: that mislabel invites a duplicate re-run).
+            var masters = new List<string>();
+            long bytes = 0;
+            bool donorAmongMasters = false;
+            string? warning = null;
             try
             {
-                masters = back.ModHeader.MasterReferences.Select(m => m.Master.FileName.ToString()).ToList();
-                bytes = new FileInfo(outPath).Length;
+                var back = SkyrimMod.CreateFromBinaryOverlay(outPath, SkyrimRelease.SkyrimSE);
+                try
+                {
+                    masters = back.ModHeader.MasterReferences.Select(m => m.Master.FileName.ToString()).ToList();
+                    bytes = new FileInfo(outPath).Length;
+                }
+                finally { (back as IDisposable)?.Dispose(); }
+                donorAmongMasters = masters.Any(m => { try { return donorMods.Contains(ModKey.FromFileName(m)); } catch { return false; } });
             }
-            finally { (back as IDisposable)?.Dispose(); }
-            bool donorAmongMasters = masters.Any(m => { try { return donorMods.Contains(ModKey.FromFileName(m)); } catch { return false; } });
-
-            var internalized = closure.ToInternalize
-                .Select(i => new InternalizedRecord(
-                    RecordNaming.StripOverlay(i.Body.GetType().Name), i.Body.EditorID ?? "<no editorid>",
-                    i.Body.FormKey, dict[i.Body.FormKey], i.PulledBy))
-                .ToList();
+            catch (Exception ex)
+            {
+                warning = $"the patch WAS written, but the post-write read-back failed ({ex.Message}) — the masters list " +
+                          "could not be verified this call. Do NOT re-run blindly (that would mint a duplicate patch); " +
+                          "inspect the plugin with housecarl_read_plugin_file.";
+            }
 
             return new NpcCopyOutcome(
                 true, null, clone ? "clone" : "apply",
                 donorNpc.FormKey, donorReadFrom, donorOutOfLoadOrder,
                 newNpcKey, outPath, extend,
-                internalized, closure.KeptLinks.Count,
-                copiedFields, strippedReports, masters, donorAmongMasters, null, bytes);
+                internalized, reused, closure.KeptLinks.Count,
+                copiedFields, strippedReports, masters, donorAmongMasters, donorMods.Count == 0,
+                harvested, null, bytes, warning);
         }
         catch (Exception ex)
         {
@@ -447,6 +541,18 @@ public static class NpcAppearanceCopy
         {
             target.Race.SetTo(donor.Race.FormKey);
             copied.Add($"Race (target's differed — copied {donor.Race.FormKey}; facegen is race-fitted)");
+        }
+
+        // GENDER (review finding): headparts, tint masks and the baked facegen are all gender-fitted — a female
+        // donor's look on a male-flagged target hands the engine female headparts under a male body/skeleton (the
+        // wrong-head/dark-face class this verb exists to kill). Match the Female flag to the donor, loudly.
+        bool donorFemale = donor.Configuration.Flags.HasFlag(NpcConfiguration.Flag.Female);
+        bool targetFemale = target.Configuration.Flags.HasFlag(NpcConfiguration.Flag.Female);
+        if (donorFemale != targetFemale)
+        {
+            if (donorFemale) target.Configuration.Flags |= NpcConfiguration.Flag.Female;
+            else target.Configuration.Flags &= ~NpcConfiguration.Flag.Female;
+            copied.Add($"Configuration.Flags.Female (target's gender differed — matched to the donor; headparts/facegen are gender-fitted)");
         }
 
         return copied;

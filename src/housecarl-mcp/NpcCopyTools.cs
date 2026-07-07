@@ -67,15 +67,24 @@ public static class NpcCopyTools
         sb.AppendLine($"donor read from: {o.DonorReadFrom}{(o.DonorOutOfLoadOrder ? "  [OUT-OF-LOAD-ORDER — the game does not load this file; the copy is what makes it live]" : "")}");
         sb.AppendLine($"plugin: {o.OutPath} ({o.Bytes:N0} bytes)");
         sb.AppendLine($"masters: {(o.Masters.Count == 0 ? "<none>" : string.Join(", ", o.Masters))}");
-        sb.AppendLine(o.DonorAmongMasters
-            ? "!! the donor IS among the masters — the copy is NOT standalone. This is unexpected; please report it."
-            : "standalone: the donor is NOT a master of the patch.");
+        if (o.Warning is not null) sb.AppendLine($"!! {o.Warning}");
+        if (o.DonorIsBaseGame)
+            sb.AppendLine("note: the donor is defined in a base-game master (always loaded) — nothing is being \"removed\", so links to it are kept and mastered normally; this copy is an appearance transplant, not a standalone-ization.");
+        else
+            sb.AppendLine(o.DonorAmongMasters
+                ? "!! the donor IS among the masters — the copy is NOT standalone. This is unexpected; please report it."
+                : "standalone: the donor is NOT a master of the patch.");
 
         if (o.Internalized.Count > 0)
         {
             sb.AppendLine($"\ninternalized {o.Internalized.Count} donor record(s) under new FormIDs (EditorIDs preserved — facegeom block-name identity):");
             foreach (var r in o.Internalized)
                 sb.AppendLine($"  - {r.Type} '{r.EditorId}'  {r.OldKey} → {r.NewKey}   (via {r.PulledBy})");
+        }
+        if (o.Reused.Count > 0)
+        {
+            sb.AppendLine($"reused {o.Reused.Count} record(s) a prior run already internalized into this patch (a second copy would duplicate their EditorIDs):");
+            foreach (var r in o.Reused) sb.AppendLine($"  - {r}");
         }
         if (o.KeptLinkCount > 0)
             sb.AppendLine($"kept {o.KeptLinkCount} link(s) to records that resolve in your active load order (vanilla / shared resources) — mastered normally.");
@@ -106,6 +115,7 @@ public static class NpcCopyTools
             if (!a.FaceGenMeshCarried || !a.FaceGenTintCarried)
                 sb.AppendLine($"  !! facegen {(a.FaceGenMeshCarried ? "TINT" : a.FaceGenTintCarried ? "MESH" : "MESH + TINT")} not carried — see the misses below; without the pair the engine regenerates the head (grey/dark-face risk). Verify in-game.");
             foreach (var s in a.SkippedStillProvided) sb.AppendLine($"  · skipped: {s}");
+            foreach (var w in a.Warnings) sb.AppendLine($"  !! precedence: {w}");
             foreach (var m in a.Missing) sb.AppendLine($"  !! missing: {m}");
             foreach (var f in a.Failures) sb.AppendLine($"  !! {f}");
         }
