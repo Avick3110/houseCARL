@@ -1881,7 +1881,9 @@ public sealed class LoadOrderService : IDisposable
     /// NEW name (collision-only renumber — the first donor in load order keeps its object IDs; cross-donor conflicts
     /// on the same record resolve to the LOAD-ORDER WINNER and are reported; a losing donor's un-relisted nested
     /// children graft into the winner). The donors are NEVER touched — new-file lane only, no consent gate; the user
-    /// reviews M in xEdit, enables its folder, and disables the donor mods in MO2. External referencers AND overriders
+    /// reviews M in xEdit, enables its folder, and deactivates the donor PLUGINS in MO2 (the donor MOD FOLDERS stay
+    /// enabled — the merged records still reference the donors' path-keyed assets, which only those folders serve;
+    /// the carries cover ONLY the FormID-keyed facegen/voice/seq). External referencers AND overriders
     /// of donor records are WARNED loud and named (never a refusal: nothing breaks at write time — the donors stay
     /// active until the user swaps; the remedy is to include the patch in the merge set or repoint it before disabling
     /// the donors). The FormID-keyed assets follow per donor: EVERY donor NPC's facegen and EVERY voiced line move to

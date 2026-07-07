@@ -241,6 +241,12 @@ public static class MergeServiceGuardProbe
                 var rendered = WriteTools.RenderMerge(o);
                 Check(rendered.Contains("WARNING") && rendered.Contains("HcMgDep.esp") && rendered.Contains("HcMgOvr.esp"),
                     "WARN both warnings reach the rendered user output");
+                // The swap instruction must stay PLUGIN-level (PR #158 independent review #1): "disable the donor MODS"
+                // (compact's instruction) would yank the donors' path-referenced assets out of the VFS — the merged
+                // records still load meshes/textures/scripts from the donor folders.
+                Check(rendered.Contains("deactivate the donor PLUGINS") && rendered.Contains("KEEP the donor mod folders enabled")
+                      && !rendered.Contains("DISABLE the donor mods"),
+                    "SWAP instruction is plugin-level (donor mod folders stay enabled)");
                 // ASSETS: facegen pair + voice under the MERGED plugin-name folders; .seq regenerated (A shipped one).
                 var outDir = Path.GetDirectoryName(o.OutputPath)!;
                 var newFace = FaceGenPath.Both(new FormKey(mergedKey, 0xA20)).ToList();

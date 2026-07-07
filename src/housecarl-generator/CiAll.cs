@@ -142,7 +142,7 @@ public static class CiAll
         // reported, the un-relisted-child GRAFT (a patch's DIAL override + the base mod's second INFO — the arm that
         // fails if merging a mod with its patch drops the base mod's lines), warn-not-refuse externals (referencer +
         // overrider named, in the outcome AND the rendered output), facegen/voice carried to the MERGED plugin-name
-        // folders + .seq regen, donors byte-untouched, and the four loud refusals.
+        // folders + .seq regen, donors byte-untouched, and the five loud refusals.
         ("merge-service-guard", MergeServiceGuardProbe.RunGuard),
         // COMPACT in-place verify read-back (HCBR-2026-06-28-01) — a multi-op in-place edit's forced touched-record verify
         // renders COMPACT by default (one re-read-clean line per record, all N, names what landed) instead of a deep
