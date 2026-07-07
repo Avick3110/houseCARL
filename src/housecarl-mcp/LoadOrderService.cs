@@ -1935,7 +1935,7 @@ public sealed class LoadOrderService : IDisposable
             ISkyrimModGetter? widenOverlay = null;    // file lane, auto-widened defining plugin — disposed in finally
             string? donorFilePath = null;             // file lane: the located file; active lane: the winner's path (for the donor-disk asset fallback)
             string? widenFilePath = null;             // file lane: the auto-widened defining plugin's file (self-lock check)
-            string widenNote = "";                    // file lane: why an auto-widen did NOT happen — appended to a closure refusal, never a failure of its own
+            string widenNote = "";                    // file lane: the auto-widen's read context (what was auto-read, or why it couldn't be) — appended to a FETCH-MISS closure refusal only, never a failure of its own
             string dataDirForAssets;
             try
             {
@@ -1950,10 +1950,14 @@ public sealed class LoadOrderService : IDisposable
                     if (loc.Error is not null) return NpcCopyOutcome.Fail(loc.Error);
                     if (loc.Ambiguous is not null)
                         return NpcCopyOutcome.Fail($"'{sp}' exists in {loc.Ambiguous.Count} places ({string.Join(" | ", loc.Ambiguous.Select(h => h.Where))}) — pass source_mod= to pick one.");
+                    static string Located(PluginLocateResult l) => $"{l.Where}{(l.Enabled ? "" : ", DISABLED")}";
+                    static NpcAppearanceCopy.DonorFetch CacheFetch(Mutagen.Bethesda.Plugins.Cache.ILinkCache c) =>
+                        fk2 => { try { return c.TryResolve(fk2, out var b) ? b : null; } catch { return null; } };
+
                     donorFilePath = loc.Path!;
                     donorReadFrom = loc.Where == "direct path"
                         ? $"direct path '{donorFilePath}'"
-                        : $"file '{sp}' ({loc.Where}{(loc.Enabled ? "" : ", DISABLED")})";
+                        : $"file '{sp}' ({Located(loc)})";
                     outOfLoadOrder = true;
                     ModKey? namedFileKey = null;
                     try
@@ -1976,41 +1980,40 @@ public sealed class LoadOrderService : IDisposable
                     if (donorBody is not INpcGetter fileNpc)
                         return NpcCopyOutcome.Fail($"{donorFk} in '{Path.GetFileName(donorFilePath)}' is a {RecordNaming.StripOverlay(donorBody.GetType().Name)}, not an NPC.");
                     donorNpc = fileNpc;
-                    NpcAppearanceCopy.DonorFetch namedFetch = fk2 => { try { return donorCache.TryResolve(fk2, out var b) ? b : null; } catch { return null; } };
+                    var namedFetch = CacheFetch(donorCache);
                     fetch = namedFetch;
 
                     // AUTO-WIDEN (Aaron 2026-07-07 — PR #156 finding 6): the named file only OVERRIDES the donor;
                     // the records a standalone copy must internalize live in the DEFINING plugin, which an override
                     // patch points at but does not contain. Locate that plugin on disk too and let the closure fall
                     // through to it — the named file stays first (its override IS the look being asked for). Said
-                    // loudly in the render. A failed locate is only a NOTE carried onto a closure refusal, never a
-                    // hard failure of its own: a donor whose closure never needs the defining plugin must keep working.
+                    // loudly in the render on success, and carried as a NOTE onto a fetch-miss closure refusal
+                    // either way (what was read, or why the widen could not happen) — never a hard failure of its
+                    // own: a donor whose closure never needs the defining plugin must keep working.
                     if (donorMods.Contains(donorFk.ModKey) && namedFileKey != donorFk.ModKey)
                     {
                         var defName = donorFk.ModKey.FileName.String;
+                        string WidenMiss(string why) =>
+                            $" NOTE: '{Path.GetFileName(donorFilePath)}' only OVERRIDES the donor — its defining plugin '{defName}' {why}";
                         var wloc = LocatePluginFileOnDisk(comp, modsDir, dataDir, overwriteDir, defName, null);
                         if (wloc.Error is not null)
-                            widenNote = $" NOTE: '{Path.GetFileName(donorFilePath)}' only OVERRIDES the donor — its defining plugin '{defName}' was auto-searched for but not found: {wloc.Error}";
+                            widenNote = WidenMiss($"was auto-searched for but not found: {wloc.Error}");
                         else if (wloc.Ambiguous is not null)
-                            widenNote = $" NOTE: '{Path.GetFileName(donorFilePath)}' only OVERRIDES the donor — its defining plugin '{defName}' exists in {wloc.Ambiguous.Count} places ({string.Join(" | ", wloc.Ambiguous.Select(h => h.Where))}), so it was not auto-read.";
-                        else if (!string.Equals(Path.GetFullPath(wloc.Path!), Path.GetFullPath(donorFilePath), StringComparison.OrdinalIgnoreCase))
+                            widenNote = WidenMiss($"exists in {wloc.Ambiguous.Count} places ({string.Join(" | ", wloc.Ambiguous.Select(h => h.Where))}), so it was not auto-read.");
+                        else
                         {
                             try
                             {
                                 widenOverlay = LoadOrderResolver.OpenOverlay(wloc.Path!, string.IsNullOrEmpty(dataDir) ? null : dataDir);
-                                var widenCache = widenOverlay.ToImmutableLinkCache();
                                 widenFilePath = wloc.Path;
-                                fetch = fk2 =>
-                                {
-                                    var b = namedFetch(fk2);
-                                    if (b is not null) return b;
-                                    try { return widenCache.TryResolve(fk2, out var wb) ? wb : null; } catch { return null; }
-                                };
-                                donorReadFrom += $"; AUTO-WIDENED to the donor's defining plugin '{defName}' ({wloc.Where}{(wloc.Enabled ? "" : ", DISABLED")}) — the named file only overrides the donor, the defining plugin carries the records being standalone-ized";
+                                var widenFetch = CacheFetch(widenOverlay.ToImmutableLinkCache());
+                                fetch = fk2 => namedFetch(fk2) ?? widenFetch(fk2);
+                                donorReadFrom += $"; AUTO-WIDENED to the donor's defining plugin '{defName}' ({Located(wloc)}) — the named file only overrides the donor, the defining plugin carries the records being standalone-ized";
+                                widenNote = $" NOTE: the donor's defining plugin '{defName}' was AUTO-READ as well ({Located(wloc)}) — the missing record is in neither the named file nor it.";
                             }
                             catch (Exception ex)
                             {
-                                widenNote = $" NOTE: '{Path.GetFileName(donorFilePath)}' only OVERRIDES the donor — its defining plugin '{defName}' was found but could not be opened: {ex.Message}";
+                                widenNote = WidenMiss($"was found but could not be opened: {ex.Message}");
                             }
                         }
                     }
@@ -2043,7 +2046,7 @@ public sealed class LoadOrderService : IDisposable
 
                 // ---- 2. the appearance closure (generic link walk; loud refusals — custom race, runaway, unreadable) ----
                 var closure = NpcAppearanceCopy.CollectAppearanceClosure(donorNpc, donorMods, fetch, active);
-                if (!closure.Success) return NpcCopyOutcome.Fail(closure.Error! + widenNote);
+                if (!closure.Success) return NpcCopyOutcome.Fail(closure.Error! + (closure.FetchMiss ? widenNote : ""));
 
                 // ---- 3. output patch (folder-per-patch or into= extend — the record lane's resolver + ownership gate) ----
                 string outPath; bool extend, created;
@@ -2075,8 +2078,7 @@ public sealed class LoadOrderService : IDisposable
                 //          memory-mapped through the serialize — the exact self-lock class the write path guards).
                 foreach (var (lockPath, what) in new (string?, string)[]
                          { (donorFilePath, "donor plugin file"), (widenFilePath, "auto-widened defining plugin") })
-                    if (lockPath is not null
-                        && string.Equals(Path.GetFullPath(lockPath), Path.GetFullPath(outPath), StringComparison.OrdinalIgnoreCase))
+                    if (lockPath is not null && PathEquals(lockPath, outPath))
                     {
                         if (created) RemoveFolderCreatedThisCall(outPath);
                         return NpcCopyOutcome.Fail(
@@ -2101,23 +2103,31 @@ public sealed class LoadOrderService : IDisposable
 
                 // ---- 6. asset carry (facegen rename + donor-only textures/meshes) — best-effort + reported (Q3).
                 //         Paths were harvested from the IN-PATCH duplicates pre-serialize (never the donor overlay,
-                //         which may be released by now). The donor-disk direct lane only exists for a donor under an
-                //         MO2 mod folder — NEVER the game Data folder, where every vanilla BSA would misclassify as
-                //         "the donor's" (review finding). ----
+                //         which may be released by now). Donor-disk direct lanes exist for BOTH donor-side files —
+                //         the named file's folder AND the auto-widened defining plugin's (review finding: a widened
+                //         copy's facegen lives in the DEFINING mod's folder, not the override patch's) — but only
+                //         under an MO2 mod folder, NEVER the game Data folder, where every vanilla BSA would
+                //         misclassify as "the donor's" (review finding). ----
                 NpcAssetOutcome assets;
                 try
                 {
                     AssetResolver assetResolver;
                     lock (_gate) { assetResolver = Assets; }
                     var assetView = assetResolver.Capture();
-                    var donorDir = donorFilePath is not null ? Path.GetDirectoryName(donorFilePath) : null;
-                    bool donorInData = donorDir is not null && !string.IsNullOrEmpty(dataDirForAssets)
-                        && string.Equals(Path.GetFullPath(donorDir), Path.GetFullPath(dataDirForAssets), StringComparison.OrdinalIgnoreCase);
-                    var donorDisk = donorFilePath is not null && !donorInData ? NpcAppearanceAssets.DonorDisk.For(donorFilePath) : null;
-                    var donorFolderName = donorDisk is not null ? Path.GetFileName(donorDisk.Folder) : null;
+                    var donorDisks = new List<NpcAppearanceAssets.DonorDisk>();
+                    var donorFolderNames = new List<string>();
+                    foreach (var sidePath in new[] { donorFilePath, widenFilePath })
+                    {
+                        if (sidePath is null) continue;
+                        var sideDir = Path.GetDirectoryName(sidePath);
+                        if (sideDir is not null && !string.IsNullOrEmpty(dataDirForAssets) && PathEquals(sideDir, dataDirForAssets)) continue;
+                        var disk = NpcAppearanceAssets.DonorDisk.For(sidePath);
+                        donorDisks.Add(disk);
+                        donorFolderNames.Add(Path.GetFileName(disk.Folder));
+                    }
                     assets = NpcAppearanceAssets.CarryAll(
                         donorFk, outcome.NewNpcKey, outcome.HarvestedAssetPaths,
-                        assetView, donorDisk, donorFolderName, Path.GetDirectoryName(outPath)!);
+                        assetView, donorDisks, donorFolderNames, Path.GetDirectoryName(outPath)!);
                 }
                 catch (Exception ex)
                 {
