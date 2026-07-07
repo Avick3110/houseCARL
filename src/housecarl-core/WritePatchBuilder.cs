@@ -1235,8 +1235,8 @@ public static class WritePatchBuilder
         }
         catch (Exception ex)
         {
-            error = $"cannot parse '{modKey.FileName}' to compact it ({WriteEngine.Describe(ex)}) — houseCARL won't renumber a " +
-                    "plugin it can't fully read (it would risk dropping a record it couldn't parse, Q3).";
+            error = $"cannot parse '{modKey.FileName}' to renumber it ({WriteEngine.Describe(ex)}) — houseCARL won't renumber a " +
+                    "plugin it can't fully read (it would risk dropping a record it couldn't parse, Q3).";   // op-neutral: compact AND merge surface this verbatim
             return false;
         }
         finally { (ov as IDisposable)?.Dispose(); }
@@ -1400,7 +1400,8 @@ public static class WritePatchBuilder
         foreach (var nk in dict.Values) if (nk.ID > maxUsed) maxUsed = nk.ID;
         m.ModHeader.Stats.NextFormID = Math.Max(FormIdRange.EslWindowFloor, maxUsed + 1);
 
-        // 4. Resolve the computed master set to overlays (absence is a loud refusal) + the master-aware serialize.
+        // 4. Resolve the computed master set to overlays (absence OR unparseability is a loud refusal — an open throw
+        //    escaping here would skip the caller's rider-folder cleanup) + the master-aware serialize.
         var masterOverlays = new List<IDisposable>();
         try
         {
@@ -1412,7 +1413,13 @@ public static class WritePatchBuilder
                     return MergeBuildResult.Fail(
                         $"cannot merge: donor master '{mfn}' is not active in the load order, so the references into it can't " +
                         "resolve for the serialize. Enable that master first. Nothing was written.");
-                var mov = SkyrimMod.CreateFromBinaryOverlay(mp, SkyrimRelease.SkyrimSE);
+                ISkyrimModGetter mov;
+                try { mov = SkyrimMod.CreateFromBinaryOverlay(mp, SkyrimRelease.SkyrimSE); }
+                catch (Exception ex)
+                {
+                    return MergeBuildResult.Fail(
+                        $"cannot merge: donor master '{mfn}' could not be opened for the serialize ({WriteEngine.Describe(ex)}). Nothing was written.");
+                }
                 masterOverlays.Add((IDisposable)mov); resolved.Add(mov);
             }
             try { WriteEngine.WriteInPlace(m, resolved, outPath); }
@@ -1424,8 +1431,19 @@ public static class WritePatchBuilder
         }
         finally { foreach (var d in masterOverlays) { try { d.Dispose(); } catch { /* best-effort; never mask the write result */ } } }
 
-        long bytes = 0; try { bytes = new FileInfo(outPath).Length; } catch { }
-        return new MergeBuildResult(true, null, masters, mr.RecordsCopied, mr.RecordsRenumbered, mr.Conflicts, bytes);
+        // 5. Report the masters the written HEADER actually carries (Mutagen lean-derives the list from referenced
+        //    content, so a declared-but-unreferenced donor master vanishes here) — the report must match what xEdit
+        //    shows, not the pre-computed union. Read-back is best-effort: on a re-open fault, fall back to the union.
+        IReadOnlyList<string> writtenMasters = masters;
+        long bytes = 0;
+        try
+        {
+            bytes = new FileInfo(outPath).Length;
+            using var wr = SkyrimMod.CreateFromBinaryOverlay(outPath, SkyrimRelease.SkyrimSE);
+            writtenMasters = wr.ModHeader.MasterReferences.Select(x => x.Master.FileName.String).ToList();
+        }
+        catch { /* best-effort read-back; the union is a correct superset */ }
+        return new MergeBuildResult(true, null, writtenMasters, mr.RecordsCopied, mr.RecordsRenumbered, mr.Conflicts, bytes);
     }
 
     /// <summary>

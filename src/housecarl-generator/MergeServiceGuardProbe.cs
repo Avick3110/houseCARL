@@ -67,6 +67,8 @@ public static class MergeServiceGuardProbe
             var aInfo2 = new FormKey(aKey, 0xA12);
             var aNpc = new FormKey(aKey, 0xA20);
             var aQuest = new FormKey(aKey, 0xA30);
+            var aRef = new FormKey(aKey, 0xA40);             // the MOVED-REF shape: A originates X in A's cell; B's OWN cell overrides X
+            var aCell = new FormKey(aKey, 0xA41);
             var aDir = Path.Combine(mods, "AMod"); Directory.CreateDirectory(aDir);
             {
                 using var baseOv = SkyrimMod.CreateFromBinaryOverlay(Path.Combine(baseDir, baseKey.FileName.String), SkyrimRelease.SkyrimSE);
@@ -81,6 +83,9 @@ public static class MergeServiceGuardProbe
                 m.DialogTopics.Add(topic);
                 m.Npcs.Add(new Npc(aNpc, SkyrimRelease.SkyrimSE) { EditorID = "HcMgNpc" });
                 m.Quests.Add(new Quest(aQuest, SkyrimRelease.SkyrimSE) { EditorID = "HcMgQuest", Flags = Quest.Flag.StartGameEnabled });
+                var c1 = new Cell(aCell, SkyrimRelease.SkyrimSE) { EditorID = "HcMgACell", Flags = Cell.Flag.IsInteriorCell };
+                c1.Temporary.Add(new PlacedObject(aRef, SkyrimRelease.SkyrimSE) { EditorID = "HcMgRefBase" });
+                FileInterior(m, c1);
                 m.Weapons.GetOrAddAsOverride(baseOv.Weapons.First(w => w.FormKey == baseWeap)).BasicStats!.Damage = 10;   // A's override (the LOSER)
                 m.BeginWrite.ToPath(Path.Combine(aDir, aKey.FileName.String)).WithLoadOrder(new ISkyrimModGetter[] { baseOv }).Write();
             }
@@ -103,6 +108,7 @@ public static class MergeServiceGuardProbe
             var bColl = new FormKey(bKey, 0xA01);            // COLLIDES with A's kept 0xA01 → must renumber
             var bWeap = new FormKey(bKey, 0xB01);
             var bList = new FormKey(bKey, 0xB02);
+            var bCell = new FormKey(bKey, 0xB10);            // B's OWN cell carrying the MOVED override of A's placed ref
             var bDir = Path.Combine(mods, "BMod"); Directory.CreateDirectory(bDir);
             {
                 using var baseOv = SkyrimMod.CreateFromBinaryOverlay(Path.Combine(baseDir, baseKey.FileName.String), SkyrimRelease.SkyrimSE);
@@ -118,6 +124,9 @@ public static class MergeServiceGuardProbe
                 pi1.Responses.Add(new DialogResponse { Text = "A11 patched" });
                 patchTopic.Responses.Add(pi1);                                                                        // INFO2 NOT re-listed
                 m.DialogTopics.Add(patchTopic);
+                var c2 = new Cell(bCell, SkyrimRelease.SkyrimSE) { EditorID = "HcMgBCell", Flags = Cell.Flag.IsInteriorCell };
+                c2.Temporary.Add(new PlacedObject(aRef, SkyrimRelease.SkyrimSE) { EditorID = "HcMgRefMoved" });       // the MOVED reference (override under a DIFFERENT parent)
+                FileInterior(m, c2);
                 m.Weapons.GetOrAddAsOverride(baseOv.Weapons.First(w => w.FormKey == baseWeap)).BasicStats!.Damage = 20;   // B's override (the WINNER)
                 m.BeginWrite.ToPath(Path.Combine(bDir, bKey.FileName.String)).WithLoadOrder(new ISkyrimModGetter[] { baseOv, aOv }).Write();
             }
@@ -192,18 +201,39 @@ public static class MergeServiceGuardProbe
                 Check(refOk, "MERGE B's cross-donor reference into A repointed to the merged key");
                 Check(winnerOk, "WINNER load-order winner everywhere (B's base-weapon override + DIAL body + INFO1 text)");
                 Check(graftOk, "GRAFT A's un-relisted INFO2 grafted into the winning topic");
+                // MOVED-REF: B's OWN cell carries an override of A's placed ref (a moved reference — the same record
+                // under two DIFFERENT parents across donors). Exactly ONE copy may survive, under the WINNER's parent,
+                // and it must be a reported conflict — the review's C-1 duplicate-FormKey hole, pinned here.
+                {
+                    bool movedOk = false;
+                    if (o.Success && File.Exists(o.OutputPath))
+                    {
+                        using var mm2 = SkyrimMod.CreateFromBinaryOverlay(o.OutputPath, SkyrimRelease.SkyrimSE);
+                        var mRefKey = new FormKey(mergedKey, 0xA40);
+                        var copies = mm2.EnumerateMajorRecords().Where(r => r.FormKey == mRefKey).ToList();
+                        var winnerCell = mm2.EnumerateMajorRecords<ICellGetter>().FirstOrDefault(c => c.FormKey == new FormKey(mergedKey, 0xB10));
+                        var loserCell = mm2.EnumerateMajorRecords<ICellGetter>().FirstOrDefault(c => c.FormKey == new FormKey(mergedKey, 0xA41));
+                        movedOk = copies.Count == 1 && copies[0].EditorID == "HcMgRefMoved"
+                               && winnerCell is not null && winnerCell.Temporary.Any(p => p.FormKey == mRefKey)
+                               && loserCell is not null && !loserCell.Temporary.Any(p => p.FormKey == mRefKey)
+                               && o.Conflicts.Any(c => c.Key == aRef);
+                        Check(movedOk, $"MOVED-REF one copy at the merged key, under the WINNER's cell, conflict reported (copies {copies.Count})");
+                    }
+                    else Check(false, "MOVED-REF (merge failed)");
+                }
                 Check(mastersOk, $"MERGE masters = base only, donors gone ({string.Join(",", o.Masters)})");
-                Check(o.RecordsCopied == 10 && o.RecordsRenumbered == 9,
-                    $"MERGE record accounting (copied {o.RecordsCopied} expected 10, renumbered {o.RecordsRenumbered} expected 9)");
-                // Conflicts: DIAL (B over A), INFO1 (B over A), base-weapon override (B over A) — each named.
-                bool confOk = o.Conflicts.Count == 3
+                Check(o.RecordsCopied == 13 && o.RecordsRenumbered == 12,
+                    $"MERGE record accounting (copied {o.RecordsCopied} expected 13, renumbered {o.RecordsRenumbered} expected 12)");
+                // Conflicts: DIAL (B over A), INFO1 (B over A), base-weapon override (B over A), moved ref (B over A) — each named.
+                bool confOk = o.Conflicts.Count == 4
                     && o.Conflicts.All(c => c.WinnerDonor == "HcMgB.esp" && c.LoserDonor == "HcMgA.esp")
-                    && o.Conflicts.Any(c => c.Key == aDial) && o.Conflicts.Any(c => c.Key == aInfo1) && o.Conflicts.Any(c => c.Key == baseWeap);
-                Check(confOk, $"WINNER all 3 cross-donor conflicts reported with winner/loser named (got {o.Conflicts.Count})");
-                // Per-donor remap accounting: A keeps 6; B keeps 2, renumbers 1.
+                    && o.Conflicts.Any(c => c.Key == aDial) && o.Conflicts.Any(c => c.Key == aInfo1)
+                    && o.Conflicts.Any(c => c.Key == baseWeap) && o.Conflicts.Any(c => c.Key == aRef);
+                Check(confOk, $"WINNER all 4 cross-donor conflicts reported with winner/loser named (got {o.Conflicts.Count})");
+                // Per-donor remap accounting: A keeps 8; B keeps 3, renumbers 1.
                 var ra = o.DonorRemaps.FirstOrDefault(d => d.Donor == "HcMgA.esp");
                 var rb = o.DonorRemaps.FirstOrDefault(d => d.Donor == "HcMgB.esp");
-                Check(ra is { Kept: 6, Renumbered: 0 } && rb is { Kept: 2, Renumbered: 1 },
+                Check(ra is { Kept: 8, Renumbered: 0 } && rb is { Kept: 3, Renumbered: 1 },
                     $"MERGE per-donor id accounting (A {ra?.Kept}/{ra?.Renumbered}, B {rb?.Kept}/{rb?.Renumbered})");
                 // WARN posture: external referencer + overrider NAMED, merge still succeeded.
                 Check(o.ExternalPlugins.Contains("HcMgDep.esp") && o.ExternalOverriders.Contains("HcMgOvr.esp"),
@@ -241,6 +271,10 @@ public static class MergeServiceGuardProbe
                 r = svc.MergePlugins(new[] { "HcMgA.esp", "HcMgB.esp" }, "HcMgA.esp");
                 Check(!r.Success && (r.Error?.Contains("cannot also be a donor", StringComparison.OrdinalIgnoreCase) ?? false),
                     $"REFUSE output == donor ({r.Error?.Split('—')[0].Trim()})");
+                r = svc.MergePlugins(new[] { "HcMgA.esp", "HcMgB.esp" }, "HcMgLight.esl");
+                Check(!r.Success && (r.Error?.Contains(".esl", StringComparison.OrdinalIgnoreCase) ?? false)
+                                 && (r.Error?.Contains("compact", StringComparison.OrdinalIgnoreCase) ?? false),
+                    $"REFUSE .esl output with the compact-after remedy ({r.Error?.Split('—')[0].Trim()})");
             }
         }
         finally { try { Directory.Delete(root, true); } catch { } }
@@ -248,5 +282,18 @@ public static class MergeServiceGuardProbe
         Console.WriteLine();
         Console.WriteLine($"=== merge-service-guard: {(fail == 0 ? "PASS" : $"FAIL ({fail})")} ===");
         return fail == 0 ? 0 : 1;
+    }
+
+    /// <summary>File an interior cell into a mod's Cells block tree by its FormID digits (mirrors WriteEngine.AddInteriorCell).</summary>
+    static void FileInterior(SkyrimMod mod, Cell cell)
+    {
+        uint id = cell.FormKey.ID;
+        int blockN = (int)(id % 10), subN = (int)((id / 10) % 10);
+        var records = mod.Cells.Records;
+        var block = records.FirstOrDefault(b => b.BlockNumber == blockN);
+        if (block is null) { block = new CellBlock { BlockNumber = blockN, GroupType = GroupTypeEnum.InteriorCellBlock }; records.Add(block); }
+        var sub = block.SubBlocks.FirstOrDefault(s => s.BlockNumber == subN);
+        if (sub is null) { sub = new CellSubBlock { BlockNumber = subN, GroupType = GroupTypeEnum.InteriorCellSubBlock }; block.SubBlocks.Add(sub); }
+        sub.Cells.Add(cell);
     }
 }

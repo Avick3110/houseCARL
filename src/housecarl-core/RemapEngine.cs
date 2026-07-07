@@ -424,13 +424,37 @@ public static class RemapEngine
                 for (int i = 0; i < list.Count; i++)
                 {
                     var el = list[i];
-                    if (el is IMajorRecordGetter childRec) list[i] = RenumberOne(childRec, dict, stats, reg);
+                    if (el is IMajorRecordGetter childRec)
+                    {
+                        // Merge only (reg != null): a child whose mapped key is ALREADY placed in M — the same record
+                        // carried by two donors under DIFFERENT parents (a moved reference: donor B's cell holds an
+                        // override of donor A's placed ref) — must NOT be duplicated again at the same FormKey. The
+                        // already-placed copy is the load-order winner (winner-first walk); this stale deep-copied
+                        // child is REMOVED from its parent and the conflict is REPORTED (Q3, never a silent second
+                        // record under one FormID — the engine/xEdit-invalid shape the review's C-1 finding named).
+                        var nk = dict.TryGetValue(childRec.FormKey, out var mapped) ? mapped : childRec.FormKey;
+                        if (reg is not null && reg.IsPlaced(childRec, nk, out var placedChild))
+                        {
+                            GraftMissingDescendants(childRec, placedChild, dict, stats, reg);
+                            list.RemoveAt(i); i--;
+                            continue;
+                        }
+                        list[i] = RenumberOne(childRec, dict, stats, reg);
+                    }
                     else if (el is IMajorRecordGetterEnumerable) RenumberDescendants(el, dict, stats, reg);
                 }
             }
             else if (val is IMajorRecordGetter singleRec)
             {
-                if (prop.CanWrite) prop.SetValue(container, RenumberOne(singleRec, dict, stats, reg));
+                if (!prop.CanWrite) continue;
+                var nk = dict.TryGetValue(singleRec.FormKey, out var mapped) ? mapped : singleRec.FormKey;
+                if (reg is not null && reg.IsPlaced(singleRec, nk, out var placedSingle))
+                {
+                    GraftMissingDescendants(singleRec, placedSingle, dict, stats, reg);
+                    prop.SetValue(container, null);                        // the winner's copy lives under ITS parent
+                    continue;
+                }
+                prop.SetValue(container, RenumberOne(singleRec, dict, stats, reg));
             }
             else if (val is IMajorRecordGetterEnumerable nestedContainer)
             {
@@ -501,18 +525,25 @@ public static class RemapEngine
     {
         if (ceiling < floor) return MergeRemapPlan.Fail($"invalid remap window: ceiling 0x{ceiling:X} < floor 0x{floor:X}.");
 
-        // Pass 1 — claim every keepable id, donors in load order (first claim wins); collect the rest as collisions.
+        // Pass 1 — keepable ids write straight into the dict, donors in load order (first claim wins); the rest queue
+        // as collisions. Per-donor kept/renumbered tallies here (renumbered = the donor's total − kept).
         var claimed = new HashSet<uint>();
-        var keep = new List<FormKey>();
         var collide = new List<FormKey>();
         var seen = new HashSet<FormKey>();                                 // defensive intra-donor de-dupe (BuildSequentialRemap parity)
-        foreach (var (_, keys) in donorsByLoadOrder)
+        var dict = new Dictionary<FormKey, FormKey>();
+        var perDonor = new List<MergeDonorRemap>(donorsByLoadOrder.Count);
+        foreach (var (donor, keys) in donorsByLoadOrder)
+        {
+            int kept = 0, total = 0;
             foreach (var k in keys)
             {
                 if (!seen.Add(k)) continue;
-                if (k.ID >= floor && k.ID <= ceiling && claimed.Add(k.ID)) keep.Add(k);
+                total++;
+                if (k.ID >= floor && k.ID <= ceiling && claimed.Add(k.ID)) { dict[k] = new FormKey(targetModKey, k.ID); kept++; }
                 else collide.Add(k);
             }
+            perDonor.Add(new MergeDonorRemap(donor, kept, total - kept));
+        }
 
         long capacity = (long)ceiling - floor + 1;
         if (seen.Count > capacity)
@@ -520,9 +551,8 @@ public static class RemapEngine
                 $"cannot merge {seen.Count} originating records into the window 0x{floor:X}–0x{ceiling:X} ({capacity} IDs): " +
                 "the combined donors overflow it. Named, not truncated (Q3).");
 
-        // Pass 2 — kept ids carry over under the merged ModKey; each collision takes the next free id.
-        var dict = new Dictionary<FormKey, FormKey>(seen.Count);
-        foreach (var k in keep) dict[k] = new FormKey(targetModKey, k.ID);
+        // Pass 2 — each collision takes the next free id. The capacity precheck guarantees one exists for every
+        // collision, so the in-loop ceiling guard is a defensive invariant check, not a reachable refusal.
         uint next = floor;
         foreach (var k in collide)
         {
@@ -530,16 +560,10 @@ public static class RemapEngine
             if (next > ceiling)
                 return MergeRemapPlan.Fail(
                     $"cannot merge: the free-id scan ran past the window ceiling 0x{ceiling:X} while renumbering collisions " +
-                    "(the combined donors overflow the window). Named, not truncated (Q3).");
+                    "(engine invariant violated — the capacity precheck should have refused first). Named, not truncated (Q3).");
             dict[k] = new FormKey(targetModKey, next);
             claimed.Add(next);
         }
-
-        var perDonor = donorsByLoadOrder
-            .Select(d => new MergeDonorRemap(d.Donor,
-                d.Keys.Count(k => dict.TryGetValue(k, out var nk) && nk.ID == k.ID),
-                d.Keys.Count(k => dict.TryGetValue(k, out var nk) && nk.ID != k.ID)))
-            .ToList();
         return new MergeRemapPlan(dict, perDonor, null);
     }
 
@@ -557,13 +581,28 @@ public static class RemapEngine
     }
 
     /// <summary>Merge-walk placement registry: every record placed in M so far, keyed by its NEW (post-remap) FormKey,
-    /// with the donor that placed it — the collision detector and graft target for later (earlier-in-load-order) donors.</summary>
+    /// with the donor that placed it — the collision detector and graft target for later (earlier-in-load-order) donors.
+    /// Carries the conflict list too, so EVERY site that resolves a collision (the top-level walk, the graft helpers,
+    /// and the in-flight <see cref="RenumberDescendants"/> drop below) reports through one channel.</summary>
     sealed class MergePlacement
     {
         public readonly Dictionary<FormKey, IMajorRecord> Objects = new();
         public readonly Dictionary<FormKey, string> PlacedBy = new();
+        public readonly List<MergeConflict> Conflicts = new();
         public string CurrentDonor = "";
         public void Register(FormKey key, IMajorRecord obj) { Objects[key] = obj; PlacedBy[key] = CurrentDonor; }
+
+        /// <summary>True when the mapped key is already placed in M — records the cross-donor conflict (winner = the
+        /// donor that placed it; the walk runs winner-first) and hands back the placed object for a graft recurse.</summary>
+        public bool IsPlaced(IMajorRecordGetter rec, FormKey nk, out IMajorRecord placed)
+        {
+            if (Objects.TryGetValue(nk, out placed!))
+            {
+                Conflicts.Add(new MergeConflict(rec.FormKey, RecordNaming.StripOverlay(rec.GetType().Name), PlacedBy[nk], CurrentDonor));
+                return true;
+            }
+            return false;
+        }
     }
 
     /// <summary>
@@ -583,7 +622,6 @@ public static class RemapEngine
     {
         var stats = new RenumberStats();
         var reg = new MergePlacement();
-        var conflicts = new List<MergeConflict>();
         try
         {
             foreach (var (name, src) in donorsByLoadOrder.Reverse())      // winner-first: the LAST donor in load order places first
@@ -599,10 +637,9 @@ public static class RemapEngine
                     {
                         if (item is not IMajorRecordGetter rec) continue;
                         var nk = dict.TryGetValue(rec.FormKey, out var mapped) ? mapped : rec.FormKey;
-                        if (reg.Objects.TryGetValue(nk, out var existing))
+                        if (reg.IsPlaced(rec, nk, out var existing))
                         {
-                            conflicts.Add(new MergeConflict(rec.FormKey, RecordNaming.StripOverlay(rec.GetType().Name), reg.PlacedBy[nk], name));
-                            GraftMissingDescendants(rec, existing, dict, stats, reg, conflicts);
+                            GraftMissingDescendants(rec, existing, dict, stats, reg);
                         }
                         else
                         {
@@ -623,10 +660,9 @@ public static class RemapEngine
                             foreach (var cell in sub.Cells)
                             {
                                 var nk = dict.TryGetValue(cell.FormKey, out var mapped) ? mapped : cell.FormKey;
-                                if (reg.Objects.TryGetValue(nk, out var existing))
+                                if (reg.IsPlaced(cell, nk, out var existing))
                                 {
-                                    conflicts.Add(new MergeConflict(cell.FormKey, "Cell", reg.PlacedBy[nk], name));
-                                    GraftMissingDescendants(cell, existing, dict, stats, reg, conflicts);
+                                    GraftMissingDescendants(cell, existing, dict, stats, reg);
                                 }
                                 else
                                 {
@@ -647,17 +683,18 @@ public static class RemapEngine
                 $"the multi-donor renumber failed ({WriteEngine.Describe(ex)}) — abandoned with nothing shippable (Q3).");
         }
 
-        return new MergeResult(true, null, stats.Copied, stats.Renumbered, conflicts);
+        return new MergeResult(true, null, stats.Copied, stats.Renumbered, reg.Conflicts);
     }
 
     /// <summary>Graft a LOSING donor record's nested children into the WINNER's already-placed copy: walk the loser's
     /// getter with the same discriminators as <see cref="RenumberDescendants"/> (records; the FormKey-less worldspace
     /// block structs, paired by block NUMBER); a child whose remapped key is already placed recurses (its own children
     /// may still be missing), an unplaced child is renumbered and APPENDED to the winner's same-named list — the xEdit
-    /// cell/topic merge semantic. A structural mismatch (no same-named settable list on the winner) THROWS — caught by
-    /// <see cref="MergeModsInto"/> into the loud all-or-nothing refusal (Q3), never a silent child drop.</summary>
+    /// cell/topic merge semantic (the winner's receiving list is resolved ONCE per property, not per element). A
+    /// structural mismatch (no same-named settable list on the winner) THROWS — caught by <see cref="MergeModsInto"/>
+    /// into the loud all-or-nothing refusal (Q3), never a silent child drop.</summary>
     static void GraftMissingDescendants(IMajorRecordGetter loser, IMajorRecord winner,
-        IReadOnlyDictionary<FormKey, FormKey> dict, RenumberStats stats, MergePlacement reg, List<MergeConflict> conflicts)
+        IReadOnlyDictionary<FormKey, FormKey> dict, RenumberStats stats, MergePlacement reg)
     {
         foreach (var prop in loser.GetType().GetProperties(BindingFlags.Public | BindingFlags.Instance))
         {
@@ -668,52 +705,49 @@ public static class RemapEngine
 
             if (val is IMajorRecordGetter singleRec)
             {
-                GraftSingleton(singleRec, winner, prop.Name, dict, stats, reg, conflicts);
+                GraftSingleton(singleRec, winner, prop.Name, dict, stats, reg);
             }
             else if (val is IEnumerable seq)
             {
+                IList? winnerList = null;                                  // resolved lazily, ONCE per property
+                IList WinnerList(string what) => winnerList ??=
+                    winner.GetType().GetProperty(prop.Name)?.GetValue(winner) as IList
+                    ?? throw new InvalidOperationException(
+                        $"cannot graft {what}: the winning donor's {RecordNaming.StripOverlay(winner.GetType().Name)} " +
+                        $"{winner.FormKey} has no settable record list '{prop.Name}' to receive it (Q3).");
                 foreach (var el in seq)
                 {
                     if (el is IMajorRecordGetter childRec)
-                        GraftListChild(childRec, winner, prop.Name, dict, stats, reg, conflicts);
+                    {
+                        var nk = dict.TryGetValue(childRec.FormKey, out var mapped) ? mapped : childRec.FormKey;
+                        if (reg.IsPlaced(childRec, nk, out var placed))
+                        {
+                            GraftMissingDescendants(childRec, placed, dict, stats, reg);
+                            continue;
+                        }
+                        WinnerList($"{RecordNaming.StripOverlay(childRec.GetType().Name)} {childRec.FormKey}")
+                            .Add(RenumberOne(childRec, dict, stats, reg));
+                    }
                     else if (el is IMajorRecordGetterEnumerable blockStruct)
-                        GraftBlock(blockStruct, winner, prop.Name, dict, stats, reg, conflicts);
+                    {
+                        GraftBlock(blockStruct, WinnerList($"a nested block of '{prop.Name}'"), prop.Name, dict, stats, reg);
+                    }
                     else break;                                            // a non-record element type — not a record list; skip the property
                 }
             }
         }
     }
 
-    /// <summary>Graft one list-borne child: already placed → report the cross-donor conflict + recurse (grandchildren
-    /// may be missing); unplaced → renumber it and APPEND to the winner container's same-named record list.</summary>
-    static void GraftListChild(IMajorRecordGetter child, IMajorRecord winner, string propName,
-        IReadOnlyDictionary<FormKey, FormKey> dict, RenumberStats stats, MergePlacement reg, List<MergeConflict> conflicts)
-    {
-        var nk = dict.TryGetValue(child.FormKey, out var mapped) ? mapped : child.FormKey;
-        if (reg.Objects.TryGetValue(nk, out var placed))
-        {
-            conflicts.Add(new MergeConflict(child.FormKey, RecordNaming.StripOverlay(child.GetType().Name), reg.PlacedBy[nk], reg.CurrentDonor));
-            GraftMissingDescendants(child, placed, dict, stats, reg, conflicts);
-            return;
-        }
-        if (winner.GetType().GetProperty(propName)?.GetValue(winner) is not IList winnerList)
-            throw new InvalidOperationException(
-                $"cannot graft {RecordNaming.StripOverlay(child.GetType().Name)} {child.FormKey}: the winning donor's " +
-                $"{RecordNaming.StripOverlay(winner.GetType().Name)} {winner.FormKey} has no settable record list '{propName}' to receive it (Q3).");
-        winnerList.Add(RenumberOne(child, dict, stats, reg));
-    }
-
     /// <summary>Graft one singleton-property child (e.g. a cell's Landscape): already placed → recurse; the winner's
     /// slot empty → renumber + set; the winner's slot held by a DIFFERENT record → the winner's structure stands and
     /// the loser's child is REPORTED as a resolved conflict (never silently dropped — Q3).</summary>
     static void GraftSingleton(IMajorRecordGetter child, IMajorRecord winner, string propName,
-        IReadOnlyDictionary<FormKey, FormKey> dict, RenumberStats stats, MergePlacement reg, List<MergeConflict> conflicts)
+        IReadOnlyDictionary<FormKey, FormKey> dict, RenumberStats stats, MergePlacement reg)
     {
         var nk = dict.TryGetValue(child.FormKey, out var mapped) ? mapped : child.FormKey;
-        if (reg.Objects.TryGetValue(nk, out var placed))
+        if (reg.IsPlaced(child, nk, out var placed))
         {
-            conflicts.Add(new MergeConflict(child.FormKey, RecordNaming.StripOverlay(child.GetType().Name), reg.PlacedBy[nk], reg.CurrentDonor));
-            GraftMissingDescendants(child, placed, dict, stats, reg, conflicts);
+            GraftMissingDescendants(child, placed, dict, stats, reg);
             return;
         }
         var prop = winner.GetType().GetProperty(propName);
@@ -725,7 +759,7 @@ public static class RemapEngine
         {
             // The winner already carries its OWN (different) record in this slot — the winner's structure wins wholesale;
             // the loser's child is a resolved conflict, reported by the occupant's donor.
-            conflicts.Add(new MergeConflict(child.FormKey, RecordNaming.StripOverlay(child.GetType().Name),
+            reg.Conflicts.Add(new MergeConflict(child.FormKey, RecordNaming.StripOverlay(child.GetType().Name),
                 reg.PlacedBy.TryGetValue(occupant.FormKey, out var by) ? by : reg.CurrentDonor, reg.CurrentDonor));
             return;
         }
@@ -736,14 +770,9 @@ public static class RemapEngine
     /// NUMBER (X/Y for exterior grids), creating the winner-side block when missing, then graft each leaf cell. The
     /// worldspace family is the only record-nested block tree (interior cells' mod-level tree is walked cell-by-cell in
     /// <see cref="MergeModsInto"/>); an unrecognized block shape THROWS — the loud Q3 refusal, never a silent drop.</summary>
-    static void GraftBlock(IMajorRecordGetterEnumerable loserBlock, IMajorRecord winner, string propName,
-        IReadOnlyDictionary<FormKey, FormKey> dict, RenumberStats stats, MergePlacement reg, List<MergeConflict> conflicts)
+    static void GraftBlock(IMajorRecordGetterEnumerable loserBlock, IList winnerBlocks, string propName,
+        IReadOnlyDictionary<FormKey, FormKey> dict, RenumberStats stats, MergePlacement reg)
     {
-        if (winner.GetType().GetProperty(propName)?.GetValue(winner) is not IList winnerBlocks)
-            throw new InvalidOperationException(
-                $"cannot graft a nested block of '{propName}': the winning donor's {RecordNaming.StripOverlay(winner.GetType().Name)} " +
-                $"{winner.FormKey} has no settable block list '{propName}' to pair against (Q3).");
-
         switch (loserBlock)
         {
             case IWorldspaceBlockGetter wb:
@@ -755,7 +784,7 @@ public static class RemapEngine
                     mBlock = new WorldspaceBlock { BlockNumberX = wb.BlockNumberX, BlockNumberY = wb.BlockNumberY, GroupType = wb.GroupType };
                     winnerBlocks.Add(mBlock);
                 }
-                foreach (var subG in wb.Items) GraftSubBlock(subG, mBlock, dict, stats, reg, conflicts);
+                foreach (var subG in wb.Items) GraftSubBlock(subG, mBlock, dict, stats, reg);
                 break;
             }
             default:
@@ -767,7 +796,7 @@ public static class RemapEngine
 
     /// <summary>Pair one worldspace SUB-block by number (creating it winner-side when missing) and graft its cells.</summary>
     static void GraftSubBlock(IWorldspaceSubBlockGetter loserSub, WorldspaceBlock winnerBlock,
-        IReadOnlyDictionary<FormKey, FormKey> dict, RenumberStats stats, MergePlacement reg, List<MergeConflict> conflicts)
+        IReadOnlyDictionary<FormKey, FormKey> dict, RenumberStats stats, MergePlacement reg)
     {
         var mSub = winnerBlock.Items
             .FirstOrDefault(s => s.BlockNumberX == loserSub.BlockNumberX && s.BlockNumberY == loserSub.BlockNumberY);
@@ -779,10 +808,9 @@ public static class RemapEngine
         foreach (var cell in loserSub.Items)
         {
             var nk = dict.TryGetValue(cell.FormKey, out var mapped) ? mapped : cell.FormKey;
-            if (reg.Objects.TryGetValue(nk, out var placed))
+            if (reg.IsPlaced(cell, nk, out var placed))
             {
-                conflicts.Add(new MergeConflict(cell.FormKey, "Cell", reg.PlacedBy[nk], reg.CurrentDonor));
-                GraftMissingDescendants(cell, placed, dict, stats, reg, conflicts);
+                GraftMissingDescendants(cell, placed, dict, stats, reg);
             }
             else
             {
