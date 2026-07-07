@@ -22,6 +22,9 @@ namespace HousecarlGenerator;
 ///                donor's folder, and an unresolvable referenced path is a NAMED miss, never silent (Q3).
 ///   CLONE      — a full standalone clone: new EditorID/Name, appearance remapped, and the donor-internal NON-appearance
 ///                links (a faction membership, a default outfit) STRIPPED with each strip NAMED in the outcome.
+///   AUTO-WIDEN — source_plugin= naming an OVERRIDE PATCH of the donor pulls the DEFINING plugin in behind it
+///                (the override wins, records internalize from both, the render says so); a defining plugin
+///                nowhere on disk becomes a NOTE on the closure refusal, never a silent degrade.
 ///   REFUSALS   — both/neither target modes; a donor formid the active order can't see (the message routes to
 ///                source_plugin=); a non-NPC donor; a donor-internal custom RACE (out of scope, named).
 /// Run: dotnet run --project src/housecarl-generator -- copy-npc-appearance-guard
@@ -156,6 +159,36 @@ public static class NpcCopyProbe
             donor2Mod.Npcs.Add(viv2);
             WriteModDirect(mods, "Donor2Mod", donor2Mod, keepMod);
 
+            // an OVERRIDE PATCH of Viv (disabled) — the AUTO-WIDEN lane: naming this file as source_plugin= must
+            // pull Donor.esp (the defining plugin) in behind it, with the patch's override WINNING (its look is the
+            // one being asked for) and records internalized from BOTH plugins.
+            var lookKey = new ModKey("DonorLook", ModType.Plugin);
+            var lookMod = new SkyrimMod(lookKey, SkyrimRelease.SkyrimSE);
+            var lookBrow = new HeadPart(new FormKey(lookKey, 0x800), SkyrimRelease.SkyrimSE) { EditorID = "LookBrowHP" };
+            lookMod.HeadParts.Add(lookBrow);
+            var vivLook = new Npc(donorNpcFk, SkyrimRelease.SkyrimSE) { EditorID = "Viv", Name = "Vivace" };
+            vivLook.Configuration.Flags |= NpcConfiguration.Flag.Female;
+            vivLook.Race.SetTo(raceFk);
+            vivLook.HeadParts.Add(hairFk);            // defined in Donor.esp — reachable ONLY via the widen
+            vivLook.HeadParts.Add(lookBrow.FormKey);  // defined in the named file itself
+            vivLook.HairColor.SetTo(colorFk);         // Donor.esp-internal — widen again
+            vivLook.HeadTexture.SetTo(keptTxstFk);
+            vivLook.Weight = 77f;                     // differs from Donor.esp's 42 — the override must WIN
+            lookMod.Npcs.Add(vivLook);
+            WriteModDirect(mods, "DonorLookMod", lookMod, keepMod, donorMod);
+
+            // an override patch whose DEFINING plugin is nowhere on disk — the widen-failure NOTE lane.
+            var ghostKey = new ModKey("Ghost", ModType.Plugin);
+            var ghostNpcFk = new FormKey(ghostKey, 0xF00);
+            var ghostMod = new SkyrimMod(ghostKey, SkyrimRelease.SkyrimSE);            // master-mapped, NEVER written
+            var orphanKey = new ModKey("OrphanPatch", ModType.Plugin);
+            var orphanMod = new SkyrimMod(orphanKey, SkyrimRelease.SkyrimSE);
+            var ghostOverride = new Npc(ghostNpcFk, SkyrimRelease.SkyrimSE) { EditorID = "Ghost" };
+            ghostOverride.Race.SetTo(raceFk);
+            ghostOverride.HeadParts.Add(new FormKey(ghostKey, 0xF01));                 // needs Ghost.esp — unproducible
+            orphanMod.Npcs.Add(ghostOverride);
+            WriteModDirect(mods, "OrphanPatchMod", orphanMod, keepMod, ghostMod);
+
             // donor-only loose assets: the facegen pair (geom embeds a texture path for the scrape), the scraped
             // texture, and the record-referenced hair model.
             var donorDir = Path.Combine(mods, "DonorMod");
@@ -173,7 +206,7 @@ public static class NpcCopyProbe
             WriteProfile(prof,
                 loadorder: new[] { vanKey.FileName.String, keepKey.FileName.String, folKey.FileName.String },
                 plugins: new[] { "*" + vanKey.FileName, "*" + keepKey.FileName, "*" + folKey.FileName },
-                modlist: new[] { "+ContestMod", "+FollowerMod", "+KeepMod", "+FakeVanilla", "-DonorMod", "-Donor2Mod" });
+                modlist: new[] { "+ContestMod", "+FollowerMod", "+KeepMod", "+FakeVanilla", "-DonorMod", "-Donor2Mod", "-DonorLookMod", "-OrphanPatchMod" });
             WriteSkyrimIni(prof);
 
             using var svc = LoadOrderService.WithInstance(inst, 0, new UserConfigStore(Path.Combine(root, "user.json")));
@@ -331,6 +364,40 @@ public static class NpcCopyProbe
                     "base-game donor: nothing internalized (its records resolve everywhere), said plainly");
                 Check(o.Success && o.Masters.Contains("Skyrim.esm", StringComparer.OrdinalIgnoreCase),
                     "base-game donor: the links stay links — Skyrim.esm mastered normally");
+            }
+
+            // ================= 2c-ii. AUTO-WIDEN — source_plugin= names an OVERRIDE PATCH of the donor =================
+            {
+                var o = svc.CopyNpcAppearance(donorNpcFk.ToString(), "DonorLook.esp", null,
+                                              targetFk.ToString(), null, null, "WidenFace", null);
+                Check(o.Success, $"widen: an override-patch source_plugin succeeds via the defining plugin ({o.Error})");
+                Check(o.Success && o.DonorReadFrom.Contains("AUTO-WIDENED") && o.DonorReadFrom.Contains("Donor.esp"),
+                    "widen: the render SAYS the read was widened and NAMES the defining plugin (nothing silent)");
+                Check(o.Success && o.Internalized.Any(r => r.OldKey.ModKey == donorKey)
+                                && o.Internalized.Any(r => r.OldKey.ModKey == lookKey),
+                    "widen: records internalized from BOTH the named file and the defining plugin");
+                Check(o.Success && !o.Masters.Contains("Donor.esp", StringComparer.OrdinalIgnoreCase)
+                                && !o.Masters.Contains("DonorLook.esp", StringComparer.OrdinalIgnoreCase),
+                    "widen: NEITHER plugin is a master — the standalone claim holds across the widened pair");
+                if (o.Success)
+                {
+                    using var pd = OpenDisposable(o.OutPath!, out var patch);
+                    var npc = patch.Npcs.FirstOrDefault(n => n.FormKey == targetFk);
+                    Check(npc is not null && Math.Abs(npc.Weight - 77f) < 0.001,
+                        "widen: the NAMED file's override WINS — its look (Weight 77), not the defining plugin's (42)");
+                    Check(npc is not null && npc.HeadParts.Count == 2,
+                        "widen: both headparts arrive — the named file's own and the defining plugin's");
+                }
+            }
+
+            // ================= 2c-iii. widen NOT possible — the failure is a NOTE on the closure refusal =================
+            {
+                var o = svc.CopyNpcAppearance(ghostNpcFk.ToString(), "OrphanPatch.esp", null,
+                                              targetFk.ToString(), null, null, null, null);
+                Check(!o.Success && o.Error!.Contains("cannot produce"),
+                    "widen-miss: the closure refusal still fires when the defining plugin is nowhere on disk");
+                Check(!o.Success && o.Error!.Contains("Ghost.esp") && o.Error!.Contains("auto-searched"),
+                    "widen-miss: the refusal carries the NOTE that auto-widening was attempted and why it could not");
             }
 
             // ================= 2d. clone refusals the fold added =================

@@ -1932,7 +1932,10 @@ public sealed class LoadOrderService : IDisposable
             if (!baseMasters.Contains(donorFk.ModKey)) donorMods.Add(donorFk.ModKey);
             string donorReadFrom; bool outOfLoadOrder;
             ISkyrimModGetter? donorOverlay = null;    // file lane only — disposed in finally
+            ISkyrimModGetter? widenOverlay = null;    // file lane, auto-widened defining plugin — disposed in finally
             string? donorFilePath = null;             // file lane: the located file; active lane: the winner's path (for the donor-disk asset fallback)
+            string? widenFilePath = null;             // file lane: the auto-widened defining plugin's file (self-lock check)
+            string widenNote = "";                    // file lane: why an auto-widen did NOT happen — appended to a closure refusal, never a failure of its own
             string dataDirForAssets;
             try
             {
@@ -1952,9 +1955,11 @@ public sealed class LoadOrderService : IDisposable
                         ? $"direct path '{donorFilePath}'"
                         : $"file '{sp}' ({loc.Where}{(loc.Enabled ? "" : ", DISABLED")})";
                     outOfLoadOrder = true;
+                    ModKey? namedFileKey = null;
                     try
                     {
                         var fileKey = ModKey.FromFileName(Path.GetFileName(donorFilePath));
+                        namedFileKey = fileKey;
                         if (!baseMasters.Contains(fileKey)) donorMods.Add(fileKey);
                     }
                     catch { /* a direct path with an odd name — donorFk.ModKey still governs */ }
@@ -1971,7 +1976,44 @@ public sealed class LoadOrderService : IDisposable
                     if (donorBody is not INpcGetter fileNpc)
                         return NpcCopyOutcome.Fail($"{donorFk} in '{Path.GetFileName(donorFilePath)}' is a {RecordNaming.StripOverlay(donorBody.GetType().Name)}, not an NPC.");
                     donorNpc = fileNpc;
-                    fetch = fk2 => { try { return donorCache.TryResolve(fk2, out var b) ? b : null; } catch { return null; } };
+                    NpcAppearanceCopy.DonorFetch namedFetch = fk2 => { try { return donorCache.TryResolve(fk2, out var b) ? b : null; } catch { return null; } };
+                    fetch = namedFetch;
+
+                    // AUTO-WIDEN (Aaron 2026-07-07 — PR #156 finding 6): the named file only OVERRIDES the donor;
+                    // the records a standalone copy must internalize live in the DEFINING plugin, which an override
+                    // patch points at but does not contain. Locate that plugin on disk too and let the closure fall
+                    // through to it — the named file stays first (its override IS the look being asked for). Said
+                    // loudly in the render. A failed locate is only a NOTE carried onto a closure refusal, never a
+                    // hard failure of its own: a donor whose closure never needs the defining plugin must keep working.
+                    if (donorMods.Contains(donorFk.ModKey) && namedFileKey != donorFk.ModKey)
+                    {
+                        var defName = donorFk.ModKey.FileName.String;
+                        var wloc = LocatePluginFileOnDisk(comp, modsDir, dataDir, overwriteDir, defName, null);
+                        if (wloc.Error is not null)
+                            widenNote = $" NOTE: '{Path.GetFileName(donorFilePath)}' only OVERRIDES the donor — its defining plugin '{defName}' was auto-searched for but not found: {wloc.Error}";
+                        else if (wloc.Ambiguous is not null)
+                            widenNote = $" NOTE: '{Path.GetFileName(donorFilePath)}' only OVERRIDES the donor — its defining plugin '{defName}' exists in {wloc.Ambiguous.Count} places ({string.Join(" | ", wloc.Ambiguous.Select(h => h.Where))}), so it was not auto-read.";
+                        else if (!string.Equals(Path.GetFullPath(wloc.Path!), Path.GetFullPath(donorFilePath), StringComparison.OrdinalIgnoreCase))
+                        {
+                            try
+                            {
+                                widenOverlay = LoadOrderResolver.OpenOverlay(wloc.Path!, string.IsNullOrEmpty(dataDir) ? null : dataDir);
+                                var widenCache = widenOverlay.ToImmutableLinkCache();
+                                widenFilePath = wloc.Path;
+                                fetch = fk2 =>
+                                {
+                                    var b = namedFetch(fk2);
+                                    if (b is not null) return b;
+                                    try { return widenCache.TryResolve(fk2, out var wb) ? wb : null; } catch { return null; }
+                                };
+                                donorReadFrom += $"; AUTO-WIDENED to the donor's defining plugin '{defName}' ({wloc.Where}{(wloc.Enabled ? "" : ", DISABLED")}) — the named file only overrides the donor, the defining plugin carries the records being standalone-ized";
+                            }
+                            catch (Exception ex)
+                            {
+                                widenNote = $" NOTE: '{Path.GetFileName(donorFilePath)}' only OVERRIDES the donor — its defining plugin '{defName}' was found but could not be opened: {ex.Message}";
+                            }
+                        }
+                    }
                 }
                 else
                 {
@@ -2001,7 +2043,7 @@ public sealed class LoadOrderService : IDisposable
 
                 // ---- 2. the appearance closure (generic link walk; loud refusals — custom race, runaway, unreadable) ----
                 var closure = NpcAppearanceCopy.CollectAppearanceClosure(donorNpc, donorMods, fetch, active);
-                if (!closure.Success) return NpcCopyOutcome.Fail(closure.Error!);
+                if (!closure.Success) return NpcCopyOutcome.Fail(closure.Error! + widenNote);
 
                 // ---- 3. output patch (folder-per-patch or into= extend — the record lane's resolver + ownership gate) ----
                 string outPath; bool extend, created;
@@ -2029,16 +2071,18 @@ public sealed class LoadOrderService : IDisposable
                     targetActiveBody = tnpc;
                 }
 
-                // ---- 4b. the donor FILE must not be the output patch (review finding: the donor overlay stays
+                // ---- 4b. neither donor-side FILE may be the output patch (review finding: the overlays stay
                 //          memory-mapped through the serialize — the exact self-lock class the write path guards).
-                if (donorFilePath is not null
-                    && string.Equals(Path.GetFullPath(donorFilePath), Path.GetFullPath(outPath), StringComparison.OrdinalIgnoreCase))
-                {
-                    if (created) RemoveFolderCreatedThisCall(outPath);
-                    return NpcCopyOutcome.Fail(
-                        "the donor plugin file IS the output patch — reading and rewriting the same file in one call would " +
-                        "deadlock on its own open handle. Copy into a DIFFERENT patch (omit into=, or name another).");
-                }
+                foreach (var (lockPath, what) in new (string?, string)[]
+                         { (donorFilePath, "donor plugin file"), (widenFilePath, "auto-widened defining plugin") })
+                    if (lockPath is not null
+                        && string.Equals(Path.GetFullPath(lockPath), Path.GetFullPath(outPath), StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (created) RemoveFolderCreatedThisCall(outPath);
+                        return NpcCopyOutcome.Fail(
+                            $"the {what} IS the output patch — reading and rewriting the same file in one call would " +
+                            "deadlock on its own open handle. Copy into a DIFFERENT patch (omit into=, or name another).");
+                    }
 
                 // ---- 5. build + serialize (core — Duplicate/RemapLinks, mode lane, multi-master write) ----
                 var outcome = NpcAppearanceCopy.BuildAndWrite(
@@ -2082,7 +2126,7 @@ public sealed class LoadOrderService : IDisposable
                 }
                 return outcome with { Assets = assets };
             }
-            finally { (donorOverlay as IDisposable)?.Dispose(); }
+            finally { (donorOverlay as IDisposable)?.Dispose(); (widenOverlay as IDisposable)?.Dispose(); }
         }
     }
 

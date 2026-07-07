@@ -36,7 +36,7 @@ public static class NpcCopyTools
         LoadOrderService svc,
         [Description("The donor NPC's FormID 'XXXXXX:Plugin.esp' (e.g. '000D62:Vivace.esp') — the appearance being copied.")]
             string source_formid,
-        [Description("Optional. Read the donor from this plugin FILE instead of the active load order — the DISABLED-donor lane. A filename ('Vivace.esp'; located across enabled+disabled mod folders, overwrite and Data) or an absolute path. Omit when the donor is active.")]
+        [Description("Optional. Read the donor from this plugin FILE instead of the active load order — the DISABLED-donor lane. A filename ('Vivace.esp'; located across enabled+disabled mod folders, overwrite and Data) or an absolute path. An OVERRIDE PATCH of the donor works too: the read auto-widens to the donor's defining plugin (located the same way, reported in the result). Omit when the donor is active.")]
             string? source_plugin = null,
         [Description("Optional (with source_plugin). The exact MO2 mod-folder name to read the plugin from, when the filename exists in several folders.")]
             string? source_mod = null,
