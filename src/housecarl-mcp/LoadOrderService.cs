@@ -1903,6 +1903,11 @@ public sealed class LoadOrderService : IDisposable
         ModKey outKey;
         try { outKey = ModKey.FromFileName(outName); }
         catch (Exception ex) { return WritePatchBuilder.MergeOutcome.Fail($"'{outName}' is not a valid plugin filename ({ex.Message})."); }
+        if (outKey.Type == ModType.Light)
+            return WritePatchBuilder.MergeOutcome.Fail(
+                $"refused — '{outName}' has the .esl extension, which the game engine force-treats as a LIGHT master regardless " +
+                "of the header flag, but a merge keeps the donors' object ids in the full range (ids above 0xFFF would be misread " +
+                "in game). Merge to a '.esp' instead, then run housecarl_compact_plugin on it to make it light (the tools compose). Nothing was written.");
         if (donorsRaw.Any(d => string.Equals(d, outName, StringComparison.OrdinalIgnoreCase)))
             return WritePatchBuilder.MergeOutcome.Fail($"the output '{outName}' cannot also be a donor — name a NEW plugin file.");
 
@@ -1917,7 +1922,10 @@ public sealed class LoadOrderService : IDisposable
                     $"'{outName}' is already an active plugin in your load order — the merge output must be a NEW plugin name " +
                     "(merging over an existing plugin would shadow it in MO2).");
 
-            // ---- 1. validate + load-order-sort the donors (merge semantics are load-order semantics — Q3: sort, don't trust arg order) ----
+            // ---- 1. validate + load-order-sort the donors (merge semantics are load-order semantics — Q3: sort, don't
+            //      trust arg order). ONE name→position index serves the donor sort here and the master sort in step 4. ----
+            var orderIndex = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            for (int i = 0; i < resolver.PluginNames.Count; i++) orderIndex[resolver.PluginNames[i]] = i;
             var donorInfos = new List<(string Name, string Path, ModKey Key, int Order)>();
             foreach (var d in donorsRaw)
             {
@@ -1935,14 +1943,12 @@ public sealed class LoadOrderService : IDisposable
                 ModKey dk;
                 try { dk = ModKey.FromFileName(d); }
                 catch (Exception ex) { return WritePatchBuilder.MergeOutcome.Fail($"'{d}' is not a valid plugin filename ({ex.Message})."); }
-                int order = -1;
-                for (int i = 0; i < resolver.PluginNames.Count; i++)
-                    if (string.Equals(resolver.PluginNames[i], d, StringComparison.OrdinalIgnoreCase)) { order = i; break; }
+                if (!orderIndex.TryGetValue(d, out var order))            // unreachable after ContainsPlugin (same source table) — refuse loud, never mis-sort
+                    return WritePatchBuilder.MergeOutcome.Fail($"donor '{d}' has no load-order position (index inconsistency, Q3). Nothing was written.");
                 donorInfos.Add((d, p, dk, order));
             }
             donorInfos.Sort((a, b) => a.Order.CompareTo(b.Order));
             var donorNames = donorInfos.Select(d => d.Name).ToList();
-            var donorKeySet = new HashSet<ModKey>(donorInfos.Select(d => d.Key));
 
             // ---- 2. originating keys per donor + the collision-only remap (first donor keeps its ids — zMerge default) ----
             var donorKeys = new List<(string Donor, IReadOnlyList<FormKey> Keys)>();
@@ -1977,8 +1983,6 @@ public sealed class LoadOrderService : IDisposable
                 foreach (var mfn in declared)
                     if (!transformSet.Contains(mfn) && seenMasters.Add(mfn)) masterSet.Add(mfn);
             }
-            var orderIndex = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-            for (int i = 0; i < resolver.PluginNames.Count; i++) orderIndex[resolver.PluginNames[i]] = i;
             masterSet.Sort((a, b) =>
                 (orderIndex.TryGetValue(a, out var ia) ? ia : int.MaxValue).CompareTo(orderIndex.TryGetValue(b, out var ib) ? ib : int.MaxValue));
 
@@ -2004,15 +2008,16 @@ public sealed class LoadOrderService : IDisposable
             //      (Q3): the records are written, so an asset miss is a named warning, never a failure of the merge. ----
             AssetRenameOutcome assetRename;
             VoiceCarryOutcome voiceRename;
-            bool anyDonorSeq = false;
+            bool? seqGate = null;                                          // the VFS gate — SET the moment the view resolves (compact's seqGate discipline)
             try
             {
                 AssetResolver assetResolver;
                 lock (_gate) { assetResolver = Assets; }                  // reentrant under the held _writeGate (the PlaceAssets idiom)
                 var assetView = assetResolver.Capture();
+                seqGate = false;                                          // the view resolved — the answer below is authoritative
                 foreach (var (dName, _, _, _) in donorInfos)              // "did ANY donor ship a .seq?" — VFS-aware, per donor
                     if (assetView.ResolveForPlacement($@"SEQ\{Path.GetFileNameWithoutExtension(dName)}.seq").Sources.Count > 0)
-                        { anyDonorSeq = true; break; }
+                        { seqGate = true; break; }
                 var outDir = Path.GetDirectoryName(outPath)!;
                 assetRename = AssetRenameService.CarryFaceGen(outPath, plan.Dict, assetView, outDir);
                 var voiceParts = donorInfos
@@ -2029,6 +2034,11 @@ public sealed class LoadOrderService : IDisposable
                 voiceRename = new VoiceCarryOutcome(0, 0, 0,
                     new[] { $"voice carry skipped — the asset layer could not be built ({ex.Message}); verify voiced lines in-game." }, false);
             }
+            // Only when the view never resolved (seqGate still null — the asset layer couldn't be built) fall back to a
+            // loose per-donor-folder check, so an asset-layer fault can't silently downgrade a donor-shipped .seq to
+            // "the donors shipped none" and skip the refresh with a factually wrong advisory (compact's ?? discipline).
+            bool anyDonorSeq = seqGate ?? donorInfos.Any(d =>
+                File.Exists(Path.Combine(Path.GetDirectoryName(d.Path)!, "SEQ", Path.GetFileNameWithoutExtension(d.Name) + ".seq")));
 
             // ---- 8. SEQ — refresh-only, off the merged plugin: rebuilt when ANY donor shipped a .seq (all their SGE
             //      quests now live in M, whose .seq must list the NEW on-disk FormIDs); donors with SGE quests but no
@@ -2041,10 +2051,17 @@ public sealed class LoadOrderService : IDisposable
                     new[] { $"SEQ regenerate skipped ({ex.Message}) — if the donors have start-game-enabled quests, run housecarl_write_seq on '{outName}'." });
             }
 
+            // Q3 — surface the one behavior delta the any-donor SEQ gate can introduce: SeqFile.Build lists EVERY SGE
+            // quest in M, so a quest from a donor that shipped NO .seq (and thus wasn't auto-starting) gains an entry.
+            string? note = seqRegen.Written
+                ? "the regenerated .seq lists EVERY start-game-enabled quest in the merge — including any from a donor that " +
+                  "shipped no .seq of its own (such quests were NOT auto-starting before the merge; they will now)."
+                : null;
+
             return new WritePatchBuilder.MergeOutcome(
                 true, null, outPath, outName, donorNames, build.Masters, build.RecordsCopied, build.RecordsRenumbered,
                 plan.Donors, build.Conflicts, id.ExternalPlugins, id.ExternalOverriders,
-                id.PluginsScanned, id.UnscannableRecords, id.UnscannableSamples, build.Bytes, null,
+                id.PluginsScanned, id.UnscannableRecords, id.UnscannableSamples, build.Bytes, note,
                 assetRename, voiceRename, seqRegen);
         }
     }
