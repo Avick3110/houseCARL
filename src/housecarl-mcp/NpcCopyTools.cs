@@ -56,7 +56,7 @@ public static class NpcCopyTools
                                             target_formid, new_editorid, new_name, patch_name, into));
     });
 
-    static string Render(NpcCopyOutcome o)
+    internal static string Render(NpcCopyOutcome o)   // internal: the guard pins the unverified-read-back render (review finding 2)
     {
         if (!o.Success) return "error: " + o.Error;
 
@@ -66,14 +66,25 @@ public static class NpcCopyTools
             : $"APPLIED {o.DonorKey}'s appearance onto {o.NewNpcKey} in {Path.GetFileName(o.OutPath!)}{(o.Extended ? " (extended)" : " (new patch)")}.");
         sb.AppendLine($"donor read from: {o.DonorReadFrom}{(o.DonorOutOfLoadOrder ? "  [OUT-OF-LOAD-ORDER — the game does not load this file; the copy is what makes it live]" : "")}");
         sb.AppendLine($"plugin: {o.OutPath} ({o.Bytes:N0} bytes)");
-        sb.AppendLine($"masters: {(o.Masters.Count == 0 ? "<none>" : string.Join(", ", o.Masters))}");
-        if (o.Warning is not null) sb.AppendLine($"!! {o.Warning}");
-        if (o.DonorIsBaseGame)
-            sb.AppendLine("note: the donor is defined in a base-game master (always loaded) — nothing is being \"removed\", so links to it are kept and mastered normally; this copy is an appearance transplant, not a standalone-ization.");
+        // When the post-write read-back failed, the masters/standalone facts are UNVERIFIED — asserting them from
+        // default-empty values would report a donor-mastered patch as standalone on exactly the path where
+        // verification broke (review finding). Say only what is known.
+        if (o.Warning is not null)
+        {
+            sb.AppendLine("masters: <NOT VERIFIED — read-back failed>");
+            sb.AppendLine($"!! {o.Warning}");
+            sb.AppendLine("standalone: NOT VERIFIED — confirm with housecarl_read_plugin_file that the donor is absent from the masters before relying on this copy.");
+        }
         else
-            sb.AppendLine(o.DonorAmongMasters
-                ? "!! the donor IS among the masters — the copy is NOT standalone. This is unexpected; please report it."
-                : "standalone: the donor is NOT a master of the patch.");
+        {
+            sb.AppendLine($"masters: {(o.Masters.Count == 0 ? "<none>" : string.Join(", ", o.Masters))}");
+            if (o.DonorIsBaseGame)
+                sb.AppendLine("note: the donor is defined in a base-game master (always loaded) — nothing is being \"removed\", so links to it are kept and mastered normally; this copy is an appearance transplant, not a standalone-ization.");
+            else
+                sb.AppendLine(o.DonorAmongMasters
+                    ? "!! the donor IS among the masters — the copy is NOT standalone. This is unexpected; please report it."
+                    : "standalone: the donor is NOT a master of the patch.");
+        }
 
         if (o.Internalized.Count > 0)
         {

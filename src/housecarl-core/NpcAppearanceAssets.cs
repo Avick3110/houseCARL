@@ -180,32 +180,16 @@ public static class NpcAppearanceAssets
         }
     }
 
-    /// <summary>Read the bytes of a resolved provider — loose file or BSA entry. One home for the loose-vs-BSA read
-    /// this file needs twice (facegen + referenced assets); named error on a vanished/unreadable source.</summary>
-    static (byte[]? Bytes, string? Error) ReadSource(PlacementSource s)
-    {
-        if (s.Kind == AssetKind.Loose)
-        {
-            var p = s.LooseFilePath;
-            if (p is null || !File.Exists(p)) return (null, $"the resolved loose source '{p}' is no longer on disk");
-            try { return (File.ReadAllBytes(p), null); }
-            catch (Exception ex) { return (null, $"could not read resolved source '{p}': {ex.Message}"); }
-        }
-        try
-        {
-            var b = s.ArchivePath is null ? null : AssetResolver.TryReadArchiveEntry(s.ArchivePath, s.EntryPath);
-            return b is null ? (null, $"entry '{s.EntryPath}' not found inside '{Path.GetFileName(s.ArchivePath ?? "?")}'") : (b, null);
-        }
-        catch (Exception ex) { return (null, $"could not read archive '{Path.GetFileName(s.ArchivePath ?? "?")}': {ex.Message}"); }
-    }
-
     /// <summary>Resolve ONE Data-relative path under the carry rule (file header §3). <paramref name="alwaysCarry"/>
     /// = the facegen-rename case: the destination path is NEW, so the bytes move from wherever the winning copy
     /// lives (the donor-provides test doesn't apply). Returns the bytes + provenance when the path must be carried,
-    /// (null, note) when deliberately skipped, or a miss.</summary>
-    static (byte[]? Bytes, string? From, string? SkipNote, bool Missing) ResolveForCarry(
+    /// (null, note) when deliberately skipped, or a miss — with <c>ReadError</c> carrying the REAL cause when a
+    /// resolved winner could not be read (review finding: discarding it reported an in-use file as "found neither
+    /// in the active VFS nor the donor's folder" — factually false, Q3).</summary>
+    static (byte[]? Bytes, string? From, string? SkipNote, bool Missing, string? ReadError) ResolveForCarry(
         string relPath, AssetResolver.AssetView view, DonorDisk? donor, string? donorModFolderName, bool alwaysCarry)
     {
+        string? readError = null;
         var res = view.ResolveForPlacement(relPath);
         if (res.Sources.Count > 0)
         {
@@ -217,20 +201,20 @@ public static class NpcAppearanceAssets
                     || (donor is not null && winner.Kind == AssetKind.Bsa && winner.ArchivePath is not null
                         && string.Equals(Path.GetDirectoryName(winner.ArchivePath), donor.Folder, StringComparison.OrdinalIgnoreCase));
                 if (!donorProvides)
-                    return (null, null, $"'{relPath}' — still provided by '{winner.ProviderName}' after the donor is removed; not carried.", false);
+                    return (null, null, $"'{relPath}' — still provided by '{winner.ProviderName}' after the donor is removed; not carried.", false, null);
             }
-            var (bytes, _) = ReadSource(winner);
+            (var bytes, readError) = AssetResolver.ReadPlacementSource(winner);
             if (bytes is not null)
-                return (bytes, winner.Kind == AssetKind.Loose ? $"'{winner.ProviderName}' (loose)" : $"'{Path.GetFileName(winner.ArchivePath!)}'", null, false);
-            // the winner vanished between resolve and read — fall through to the donor-disk lane
+                return (bytes, winner.Kind == AssetKind.Loose ? $"'{winner.ProviderName}' (loose)" : $"'{Path.GetFileName(winner.ArchivePath!)}'", null, false, null);
+            // the winner could not be read — fall through to the donor-disk lane, keeping the named cause
         }
 
         if (donor is not null)
         {
             var (bytes, from) = donor.Read(relPath);
-            if (bytes is not null) return (bytes, from, null, false);
+            if (bytes is not null) return (bytes, from, null, false, null);
         }
-        return (null, null, null, true);
+        return (null, null, null, true, readError);
     }
 
     /// <summary>
@@ -265,21 +249,28 @@ public static class NpcAppearanceAssets
         // ---- 1. the facegen pair: donor path → NEW path (a rename — alwaysCarry from the winning copy) ----
         foreach (var (slot, oldRel) in FaceGenPath.Both(donorNpc))
         {
-            var newRel = FaceGenPath.For(newNpc, slot);
-            var (bytes, from, _, isMissing) = ResolveForCarry(oldRel, view, donor, donorModFolderName, alwaysCarry: true);
-            if (isMissing || bytes is null)
+            try
             {
-                missing.Add($"facegen {slot} '{oldRel}' — found neither in the active VFS nor the donor's folder. " +
-                            "Without it the engine regenerates the head at runtime (grey/dark-face risk); verify in-game.");
-                continue;
+                var newRel = FaceGenPath.For(newNpc, slot);
+                var (bytes, from, _, isMissing, readErr) = ResolveForCarry(oldRel, view, donor, donorModFolderName, alwaysCarry: true);
+                if (isMissing || bytes is null)
+                {
+                    if (readErr is not null)
+                        failures.Add($"facegen {slot} '{oldRel}': the winning copy exists but could not be read — {readErr}. Re-run once the file is free, or carry it with housecarl_place_asset.");
+                    else
+                        missing.Add($"facegen {slot} '{oldRel}' — found neither in the active VFS nor the donor's folder. " +
+                                    "Without it the engine regenerates the head at runtime (grey/dark-face risk); verify in-game.");
+                    continue;
+                }
+                WarnIfDestinationContested(newRel);
+                if (WriteCarried(outDir, newRel, bytes, failures))
+                {
+                    carried.Add(new CarriedAsset(oldRel, newRel, bytes.Length, from ?? "?"));
+                    if (slot == FaceGenSlot.Mesh) { meshCarried = true; geomBytes = bytes; }
+                    else tintCarried = true;
+                }
             }
-            WarnIfDestinationContested(newRel);
-            if (WriteCarried(outDir, newRel, bytes, failures))
-            {
-                carried.Add(new CarriedAsset(oldRel, newRel, bytes.Length, from ?? "?"));
-                if (slot == FaceGenSlot.Mesh) { meshCarried = true; geomBytes = bytes; }
-                else tintCarried = true;
-            }
+            catch (Exception ex) { failures.Add($"facegen {slot} '{oldRel}': {ex.Message}"); }
         }
 
         // ---- 2. harvest: the caller's record-link harvest + the geom's embedded textures ----
@@ -289,15 +280,29 @@ public static class NpcAppearanceAssets
             foreach (var p in ScrapeNifTexturePaths(geomBytes))
                 if (wantedSet.Add(p)) wanted.Add(p);
 
-        // ---- 3. carry each harvested path under the rule (same relpath — a keep-resolving move, not a rename) ----
+        // ---- 3. carry each harvested path under the rule (same relpath — a keep-resolving move, not a rename).
+        //         Per-path fault isolation (review finding): ONE dirty path (a '..' segment surviving in a mod
+        //         author's data, a scrape false-positive) is ONE named failure — never an abort that silently
+        //         drops every path after it while reporting "asset carry skipped". ----
         foreach (var rel in wanted)
         {
-            var (bytes, from, skipNote, isMissing) = ResolveForCarry(rel, view, donor, donorModFolderName, alwaysCarry: false);
-            if (skipNote is not null) { skipped.Add(skipNote); continue; }
-            if (isMissing) { missing.Add($"'{rel}' — referenced by the copied records/geom but found nowhere (active VFS or donor folder); verify in-game."); continue; }
-            if (bytes is null) continue;
-            if (WriteCarried(outDir, rel, bytes, failures))
-                carried.Add(new CarriedAsset(rel, rel, bytes.Length, from ?? "?"));
+            try
+            {
+                var (bytes, from, skipNote, isMissing, readErr) = ResolveForCarry(rel, view, donor, donorModFolderName, alwaysCarry: false);
+                if (skipNote is not null) { skipped.Add(skipNote); continue; }
+                if (isMissing)
+                {
+                    if (readErr is not null)
+                        failures.Add($"'{rel}': the winning copy exists but could not be read — {readErr}.");
+                    else
+                        missing.Add($"'{rel}' — referenced by the copied records/geom but found nowhere (active VFS or donor folder); verify in-game.");
+                    continue;
+                }
+                if (bytes is null) continue;
+                if (WriteCarried(outDir, rel, bytes, failures))
+                    carried.Add(new CarriedAsset(rel, rel, bytes.Length, from ?? "?"));
+            }
+            catch (Exception ex) { failures.Add($"'{rel}': {ex.Message}"); }
         }
 
         return new NpcAssetOutcome(carried, skipped, missing, warnings, failures, meshCarried, tintCarried);
