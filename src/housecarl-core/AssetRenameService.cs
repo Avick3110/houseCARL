@@ -152,47 +152,56 @@ public static class AssetRenameService
     /// <summary>Carry the VOICE files (.fuz/.lip/…) of every RENUMBERED dialogue line (INFO) in <paramref name="pPrimePath"/>
     /// from their OLD-FormID name to their NEW-FormID name, writing the new copies under <paramref name="outDir"/> (the P′
     /// mod-folder root, as <see cref="CarryFaceGen"/>). DISCOVERS by SCANNING the plugin's voice prefix rather than re-deriving
-    /// the dialogue graph (see the file header): every file under <c>Sound\Voice\&lt;basename&gt;\</c> whose embedded local
-    /// FormID is a renumbered key in <paramref name="map"/> gets its id segment rewritten to the new id. On a compact the
-    /// plugin keeps its basename, so the folder + voice-type + quest/topic + response-number segments are unchanged — ONLY the
-    /// id moves. Rides the same two-phase <see cref="CarryItems"/> as facegen (same in-place aliasing guard). Best-effort +
-    /// reported (Q3): records are already written, so this never throws and never fails the compact.</summary>
+    /// the dialogue graph (see the file header): every file under <c>Sound\Voice\&lt;source&gt;\</c> whose embedded local
+    /// FormID is a renumbered key in <paramref name="map"/> gets its id segment rewritten to the new id. TWO LANES: on a
+    /// COMPACT the plugin keeps its basename (<paramref name="sourcePlugin"/> omitted), so the folder + voice-type +
+    /// quest/topic + response-number segments are unchanged — ONLY the id moves; on a MERGE the output plugin has a NEW
+    /// name, so the caller passes each DONOR's filename as <paramref name="sourcePlugin"/> (one call per donor) and the
+    /// <c>Sound\Voice\&lt;donor&gt;</c> folder segment is rewritten to the output's name ALONGSIDE the id — the engine
+    /// looks voice up under the DEFINING plugin's folder, which the merge changed for every donor line. Rides the same
+    /// two-phase <see cref="CarryItems"/> as facegen (same in-place aliasing guard). Best-effort + reported (Q3): records
+    /// are already written, so this never throws and never fails the compact/merge.</summary>
     public static VoiceCarryOutcome CarryVoice(
-        string pPrimePath, IReadOnlyDictionary<FormKey, FormKey> map, AssetResolver.AssetView assets, string outDir)
+        string pPrimePath, IReadOnlyDictionary<FormKey, FormKey> map, AssetResolver.AssetView assets, string outDir,
+        string? sourcePlugin = null)
     {
-        var basename = Path.GetFileName(pPrimePath);                        // P′ keeps the source basename → the voice folder name (with ext)
+        var targetBasename = Path.GetFileName(pPrimePath);                  // the OUTPUT plugin's filename → the NEW voice folder name
+        var sourceBasename = sourcePlugin ?? targetBasename;                // compact: same name; merge: the donor's filename (OLD folder)
 
-        // local-id → new-local-id for THIS plugin's renumbered records — the only ones whose voice lives under
-        // Sound\Voice\<basename>\ (an override kept at a master key has its voice under the MASTER's folder, untouched).
+        // local-id → new-local-id for the SOURCE plugin's renumbered records — the only ones whose voice lives under
+        // Sound\Voice\<source>\ (an override kept at a master key has its voice under the MASTER's folder, untouched).
         var idMap = new Dictionary<uint, uint>();
         foreach (var kv in map)
-            if (string.Equals(kv.Key.ModKey.FileName.ToString(), basename, StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(kv.Key.ModKey.FileName.ToString(), sourceBasename, StringComparison.OrdinalIgnoreCase))
                 idMap[kv.Key.ID] = kv.Value.ID;
         if (idMap.Count == 0) return VoiceCarryOutcome.None(assets.ReadIncomplete);
 
-        // The new INFO FormKeys need a ModKey for the distinct-line accounting; basename came from a real plugin path, so
-        // this is valid (a malformed name is surfaced rather than silently producing a zero pass — Q3).
+        // The new INFO FormKeys need a ModKey for the distinct-line accounting; the target basename came from a real
+        // plugin path, so this is valid (a malformed name is surfaced rather than silently producing a zero pass — Q3).
         ModKey modKey;
-        try { modKey = ModKey.FromFileName(basename); }
+        try { modKey = ModKey.FromFileName(targetBasename); }
         catch (Exception ex)
         {
             return new VoiceCarryOutcome(0, 0, 0,
-                new[] { $"'{basename}' is not a valid plugin filename for voice carry ({ex.Message}) — verify voiced lines in-game." },
+                new[] { $"'{targetBasename}' is not a valid plugin filename for voice carry ({ex.Message}) — verify voiced lines in-game." },
                 assets.ReadIncomplete);
         }
 
+        var srcPrefix = $@"Sound\Voice\{sourceBasename}";
+        var tgtPrefix = $@"Sound\Voice\{targetBasename}";
         IReadOnlyCollection<string> files;
-        try { files = assets.EnumerateUnder($@"Sound\Voice\{basename}"); }
+        try { files = assets.EnumerateUnder(srcPrefix); }
         catch (Exception ex)
         {
             return new VoiceCarryOutcome(0, 0, 0,
-                new[] { $@"could not scan 'Sound\Voice\{basename}' for voice files ({ex.Message}) — verify voiced lines in-game." },
+                new[] { $"could not scan '{srcPrefix}' for voice files ({ex.Message}) — verify voiced lines in-game." },
                 assets.ReadIncomplete);
         }
         if (files.Count == 0) return VoiceCarryOutcome.None(assets.ReadIncomplete);
 
-        // Build the carry list: each voice file whose embedded id was renumbered → its new-id name (ONLY the id segment
-        // changes — see the header). A file with no '_<8hex>_<num>.<ext>' tail, or whose id wasn't renumbered, is left alone.
+        // Build the carry list: each voice file whose embedded id was renumbered → its new-id name (compact: ONLY the id
+        // segment changes; merge: the plugin folder segment swaps with it — see the header). A file with no
+        // '_<8hex>_<num>.<ext>' tail, or whose id wasn't renumbered, is left alone.
         var items = new List<CarryItem>();
         foreach (var oldRel in files)
         {
@@ -206,8 +215,9 @@ public static class AssetRenameService
 
             var newId = "00" + newLocal.ToString("X6");
             var newFname = fname.Substring(0, m.Groups[1].Index) + newId + fname.Substring(m.Groups[1].Index + m.Groups[1].Length);
-            var dir = Path.GetDirectoryName(oldRel) ?? "";                 // same voice-type folder — only the filename's id moves
-            var newRel = dir.Length == 0 ? newFname : Path.Combine(dir, newFname);
+            var dir = Path.GetDirectoryName(oldRel) ?? "";                 // same voice-type folder; the PLUGIN segment swaps on a merge
+            var newDir = dir.Length >= srcPrefix.Length ? tgtPrefix + dir.Substring(srcPrefix.Length) : dir;
+            var newRel = newDir.Length == 0 ? newFname : Path.Combine(newDir, newFname);
             items.Add(new CarryItem(oldRel, newRel, new FormKey(modKey, newLocal), $"{oldLocal:X6}→{newLocal:X6} {fname}"));
         }
 

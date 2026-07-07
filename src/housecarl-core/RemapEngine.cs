@@ -377,17 +377,21 @@ public static class RemapEngine
     /// <summary>Renumber ONE record: <c>Duplicate(newKey)</c> it under its new-or-same FormKey (Mutagen's deep-copy under
     /// a new identity — its nested children come along at their OLD keys), then recursively renumber those descendants in
     /// place. Counted once per record (itself, before its descendants) into <paramref name="stats"/>. Mechanism pinned by
-    /// remap-wave2-nested-mech.</summary>
-    static IMajorRecord RenumberOne(IMajorRecordGetter rec, IReadOnlyDictionary<FormKey, FormKey> dict, RenumberStats stats)
+    /// remap-wave2-nested-mech. <paramref name="reg"/> (merge only, null for compact) registers every placed record —
+    /// itself AND each descendant — under its NEW key, so the multi-donor walk can detect cross-donor collisions and
+    /// graft a losing donor's un-relisted children into the winner's copy (<see cref="MergeModsInto"/>).</summary>
+    static IMajorRecord RenumberOne(IMajorRecordGetter rec, IReadOnlyDictionary<FormKey, FormKey> dict, RenumberStats stats,
+        MergePlacement? reg = null)
     {
         bool isRenumber = dict.TryGetValue(rec.FormKey, out var newKey);
         if (!isRenumber) newKey = rec.FormKey;                                            // unmapped (an override) — copy at its own key
         var dup = rec.Duplicate(newKey);
         stats.Copied++;
         if (isRenumber) stats.Renumbered++;
+        reg?.Register(newKey, dup);
         // Only records that actually CONTAIN nested records pay the property-walk cost (Any() short-circuits flat records).
         if (dup is IMajorRecordGetterEnumerable e && e.EnumerateMajorRecords().Any())
-            RenumberDescendants(dup, dict, stats);
+            RenumberDescendants(dup, dict, stats, reg);
         return dup;
     }
 
@@ -405,7 +409,8 @@ public static class RemapEngine
     /// <see cref="IList"/> (<c>ExtendedList&lt;T&gt;</c> does), so the <c>val is IList</c> gate reaches them. If Mutagen
     /// ever broke either, the affected records would be SKIPPED (left at old keys) rather than fail loud — which is why the
     /// guard pins every nesting shape on disk.</para></summary>
-    static void RenumberDescendants(object container, IReadOnlyDictionary<FormKey, FormKey> dict, RenumberStats stats)
+    static void RenumberDescendants(object container, IReadOnlyDictionary<FormKey, FormKey> dict, RenumberStats stats,
+        MergePlacement? reg = null)
     {
         foreach (var prop in container.GetType().GetProperties(BindingFlags.Public | BindingFlags.Instance))
         {
@@ -419,17 +424,17 @@ public static class RemapEngine
                 for (int i = 0; i < list.Count; i++)
                 {
                     var el = list[i];
-                    if (el is IMajorRecordGetter childRec) list[i] = RenumberOne(childRec, dict, stats);
-                    else if (el is IMajorRecordGetterEnumerable) RenumberDescendants(el, dict, stats);
+                    if (el is IMajorRecordGetter childRec) list[i] = RenumberOne(childRec, dict, stats, reg);
+                    else if (el is IMajorRecordGetterEnumerable) RenumberDescendants(el, dict, stats, reg);
                 }
             }
             else if (val is IMajorRecordGetter singleRec)
             {
-                if (prop.CanWrite) prop.SetValue(container, RenumberOne(singleRec, dict, stats));
+                if (prop.CanWrite) prop.SetValue(container, RenumberOne(singleRec, dict, stats, reg));
             }
             else if (val is IMajorRecordGetterEnumerable nestedContainer)
             {
-                RenumberDescendants(nestedContainer, dict, stats);
+                RenumberDescendants(nestedContainer, dict, stats, reg);
             }
         }
     }
@@ -448,6 +453,342 @@ public static class RemapEngine
         var sub = block.SubBlocks.FirstOrDefault(s => s.BlockNumber == subN);
         if (sub is null) { sub = new CellSubBlock { BlockNumber = subN, GroupType = GroupTypeEnum.InteriorCellSubBlock }; block.SubBlocks.Add(sub); }
         sub.Cells.Add(cell);
+    }
+
+    // ======================================================================
+    //  3a-MERGE. MULTI-DONOR RENUMBER — build the merged mod M (plan A4)
+    //  Merge = a RECORDS operation (the 2026-06-27 scope correction): combine the
+    //  donor plugins into ONE new plugin, keep the mods installed. Every donor
+    //  ORIGINATING record necessarily changes identity (its ModKey becomes M's,
+    //  even when the object ID is kept), so the remap dict covers ALL of them —
+    //  collision-only applies to the OBJECT ID (zMerge's default: the first donor
+    //  in load order keeps its IDs; later donors renumber only IDs already taken).
+    //  Cross-donor conflicts on the SAME FormKey resolve to the LOAD-ORDER WINNER
+    //  (the locked resolution) and are REPORTED, never silent; the winner's copy
+    //  places first (donors walk in REVERSE load order) and a losing donor's
+    //  un-relisted nested children (the patch-of-a-donor DIAL/INFO + cell shapes)
+    //  are GRAFTED into the winner's already-placed container — the xEdit cell/
+    //  topic merge semantic, without which merging a mod with its patch silently
+    //  drops the base mod's lines and placed refs (Q3).
+    // ======================================================================
+
+    /// <summary>Per-donor merge-remap accounting: how many originating object IDs the donor KEPT (same 6-hex id under
+    /// the merged ModKey) vs had to be RENUMBERED (the id was already claimed by an earlier-in-load-order donor, or sat
+    /// below the write floor).</summary>
+    public sealed record MergeDonorRemap(string Donor, int Kept, int Renumbered);
+
+    /// <summary>A planned multi-donor remap: the UNION old→new FormKey dict over every donor's originating records
+    /// (keys are donor-qualified FormKeys, so donors can never collide in the dict itself), per-donor kept/renumbered
+    /// accounting, or a loud Q3 refusal (window overflow) with no map.</summary>
+    public sealed record MergeRemapPlan(
+        IReadOnlyDictionary<FormKey, FormKey> Dict, IReadOnlyList<MergeDonorRemap> Donors, string? Error)
+    {
+        public bool Success => Error is null;
+        public static MergeRemapPlan Fail(string error) =>
+            new(new Dictionary<FormKey, FormKey>(), Array.Empty<MergeDonorRemap>(), error);
+    }
+
+    /// <summary>
+    /// Build the merge remap: every donor originating FormKey → a FormKey under <paramref name="targetModKey"/>,
+    /// KEEPING the object ID wherever it is in-window and unclaimed (donors claim in LOAD ORDER, so the first donor
+    /// holding an id keeps it — zMerge's default) and allocating the next free id only for COLLISIONS (an id an
+    /// earlier donor claimed) and for ids below <paramref name="floor"/> (the write floor rejects them). REFUSES
+    /// LOUD (Q3) when the combined donors overflow the window — named, never a truncation.
+    /// </summary>
+    public static MergeRemapPlan BuildMergeRemap(
+        IReadOnlyList<(string Donor, IReadOnlyList<FormKey> Keys)> donorsByLoadOrder,
+        ModKey targetModKey, uint floor, uint ceiling)
+    {
+        if (ceiling < floor) return MergeRemapPlan.Fail($"invalid remap window: ceiling 0x{ceiling:X} < floor 0x{floor:X}.");
+
+        // Pass 1 — claim every keepable id, donors in load order (first claim wins); collect the rest as collisions.
+        var claimed = new HashSet<uint>();
+        var keep = new List<FormKey>();
+        var collide = new List<FormKey>();
+        var seen = new HashSet<FormKey>();                                 // defensive intra-donor de-dupe (BuildSequentialRemap parity)
+        foreach (var (_, keys) in donorsByLoadOrder)
+            foreach (var k in keys)
+            {
+                if (!seen.Add(k)) continue;
+                if (k.ID >= floor && k.ID <= ceiling && claimed.Add(k.ID)) keep.Add(k);
+                else collide.Add(k);
+            }
+
+        long capacity = (long)ceiling - floor + 1;
+        if (seen.Count > capacity)
+            return MergeRemapPlan.Fail(
+                $"cannot merge {seen.Count} originating records into the window 0x{floor:X}–0x{ceiling:X} ({capacity} IDs): " +
+                "the combined donors overflow it. Named, not truncated (Q3).");
+
+        // Pass 2 — kept ids carry over under the merged ModKey; each collision takes the next free id.
+        var dict = new Dictionary<FormKey, FormKey>(seen.Count);
+        foreach (var k in keep) dict[k] = new FormKey(targetModKey, k.ID);
+        uint next = floor;
+        foreach (var k in collide)
+        {
+            while (next <= ceiling && claimed.Contains(next)) next++;
+            if (next > ceiling)
+                return MergeRemapPlan.Fail(
+                    $"cannot merge: the free-id scan ran past the window ceiling 0x{ceiling:X} while renumbering collisions " +
+                    "(the combined donors overflow the window). Named, not truncated (Q3).");
+            dict[k] = new FormKey(targetModKey, next);
+            claimed.Add(next);
+        }
+
+        var perDonor = donorsByLoadOrder
+            .Select(d => new MergeDonorRemap(d.Donor,
+                d.Keys.Count(k => dict.TryGetValue(k, out var nk) && nk.ID == k.ID),
+                d.Keys.Count(k => dict.TryGetValue(k, out var nk) && nk.ID != k.ID)))
+            .ToList();
+        return new MergeRemapPlan(dict, perDonor, null);
+    }
+
+    /// <summary>One cross-donor conflict the merge resolved: the same record (by pre-merge FormKey) carried by two
+    /// donors — the LOAD-ORDER WINNER's version is in the merged plugin, the loser's body is not (its un-relisted
+    /// nested children, if any, were grafted). Reported per losing donor (three donors on one record → two entries).</summary>
+    public sealed record MergeConflict(FormKey Key, string RecordType, string WinnerDonor, string LoserDonor);
+
+    /// <summary>The result of the multi-donor renumber: record accounting + every cross-donor conflict resolved
+    /// (load-order winner), or a loud Q3 refusal with NOTHING half-built that the caller would ship.</summary>
+    public sealed record MergeResult(
+        bool Success, string? Error, int RecordsCopied, int RecordsRenumbered, IReadOnlyList<MergeConflict> Conflicts)
+    {
+        public static MergeResult Fail(string error) => new(false, error, 0, 0, Array.Empty<MergeConflict>());
+    }
+
+    /// <summary>Merge-walk placement registry: every record placed in M so far, keyed by its NEW (post-remap) FormKey,
+    /// with the donor that placed it — the collision detector and graft target for later (earlier-in-load-order) donors.</summary>
+    sealed class MergePlacement
+    {
+        public readonly Dictionary<FormKey, IMajorRecord> Objects = new();
+        public readonly Dictionary<FormKey, string> PlacedBy = new();
+        public string CurrentDonor = "";
+        public void Register(FormKey key, IMajorRecord obj) { Objects[key] = obj; PlacedBy[key] = CurrentDonor; }
+    }
+
+    /// <summary>
+    /// Copy EVERY record of every donor into the (fresh) mod <paramref name="target"/> under its remapped FormKey from
+    /// <paramref name="dict"/>, resolving cross-donor conflicts on the same FormKey to the LOAD-ORDER WINNER. Donors
+    /// walk in REVERSE load order so each record's WINNING version places first (via the same structural walk compact
+    /// uses — <see cref="RenumberOne"/> and the interior-cell block tree); an earlier donor's copy of an already-placed
+    /// record is a reported <see cref="MergeConflict"/>, and its NESTED CHILDREN missing from the winner's copy (a base
+    /// mod's INFOs a patch's DIAL override doesn't re-list; its placed refs under an overridden cell) are GRAFTED into
+    /// the winner's placed container. Then <c>RemapLinks(dict)</c> over the whole target. All-or-nothing (Q3): any
+    /// engine fault abandons the merge with nothing shippable.
+    /// </summary>
+    public static MergeResult MergeModsInto(
+        SkyrimMod target,
+        IReadOnlyList<(string Name, ISkyrimModGetter Mod)> donorsByLoadOrder,
+        IReadOnlyDictionary<FormKey, FormKey> dict)
+    {
+        var stats = new RenumberStats();
+        var reg = new MergePlacement();
+        var conflicts = new List<MergeConflict>();
+        try
+        {
+            foreach (var (name, src) in donorsByLoadOrder.Reverse())      // winner-first: the LAST donor in load order places first
+            {
+                reg.CurrentDonor = name;
+
+                // 1. FLAT top-level groups (each record carries its nested children through RenumberOne's walk).
+                foreach (var (prop, _, _) in WriteEngine.EnumerateFlatGroups(typeof(SkyrimMod)))
+                {
+                    var srcProp = src.GetType().GetProperty(prop.Name);
+                    if (srcProp?.GetValue(src) is not IEnumerable srcGroup) continue;
+                    foreach (var item in srcGroup)
+                    {
+                        if (item is not IMajorRecordGetter rec) continue;
+                        var nk = dict.TryGetValue(rec.FormKey, out var mapped) ? mapped : rec.FormKey;
+                        if (reg.Objects.TryGetValue(nk, out var existing))
+                        {
+                            conflicts.Add(new MergeConflict(rec.FormKey, RecordNaming.StripOverlay(rec.GetType().Name), reg.PlacedBy[nk], name));
+                            GraftMissingDescendants(rec, existing, dict, stats, reg, conflicts);
+                        }
+                        else
+                        {
+                            var dup = RenumberOne(rec, dict, stats, reg);
+                            if (!TryAddToFlatGroup(target, dup))
+                                return MergeResult.Fail(
+                                    $"{RecordNaming.StripOverlay(rec.GetType().Name)} {rec.FormKey} (donor '{name}') is a flat top-level record but no " +
+                                    "matching group was found on the target mod to place its merged copy (engine inconsistency, Q3) — the merge is abandoned with nothing shippable.");
+                        }
+                    }
+                }
+
+                // 2. INTERIOR cells (the mod-level block tree) — placed cell-by-cell, so a losing donor's cell that the
+                //    winner doesn't carry still merges, and a conflicted cell grafts its missing placed refs.
+                if (src.Cells is { } cellsGroup)
+                    foreach (var block in cellsGroup.Records)
+                        foreach (var sub in block.SubBlocks)
+                            foreach (var cell in sub.Cells)
+                            {
+                                var nk = dict.TryGetValue(cell.FormKey, out var mapped) ? mapped : cell.FormKey;
+                                if (reg.Objects.TryGetValue(nk, out var existing))
+                                {
+                                    conflicts.Add(new MergeConflict(cell.FormKey, "Cell", reg.PlacedBy[nk], name));
+                                    GraftMissingDescendants(cell, existing, dict, stats, reg, conflicts);
+                                }
+                                else
+                                {
+                                    var renCell = (Cell)RenumberOne(cell, dict, stats, reg);
+                                    FileInteriorCellByNewId(target, renCell);
+                                }
+                            }
+            }
+
+            // 3. Repoint every internal reference among the merged records (flat AND nested links) to the new keys —
+            //    including every cross-donor reference (a donor-B link into donor-A resolves because A's originating
+            //    keys are all in the dict). Inside the try: a RemapLinks throw is the same structured Q3 refusal.
+            target.RemapLinks(dict);
+        }
+        catch (Exception ex)
+        {
+            return MergeResult.Fail(
+                $"the multi-donor renumber failed ({WriteEngine.Describe(ex)}) — abandoned with nothing shippable (Q3).");
+        }
+
+        return new MergeResult(true, null, stats.Copied, stats.Renumbered, conflicts);
+    }
+
+    /// <summary>Graft a LOSING donor record's nested children into the WINNER's already-placed copy: walk the loser's
+    /// getter with the same discriminators as <see cref="RenumberDescendants"/> (records; the FormKey-less worldspace
+    /// block structs, paired by block NUMBER); a child whose remapped key is already placed recurses (its own children
+    /// may still be missing), an unplaced child is renumbered and APPENDED to the winner's same-named list — the xEdit
+    /// cell/topic merge semantic. A structural mismatch (no same-named settable list on the winner) THROWS — caught by
+    /// <see cref="MergeModsInto"/> into the loud all-or-nothing refusal (Q3), never a silent child drop.</summary>
+    static void GraftMissingDescendants(IMajorRecordGetter loser, IMajorRecord winner,
+        IReadOnlyDictionary<FormKey, FormKey> dict, RenumberStats stats, MergePlacement reg, List<MergeConflict> conflicts)
+    {
+        foreach (var prop in loser.GetType().GetProperties(BindingFlags.Public | BindingFlags.Instance))
+        {
+            if (prop.GetIndexParameters().Length != 0 || prop.GetGetMethod() is null) continue;
+            object? val;
+            try { val = prop.GetValue(loser); } catch { continue; }
+            if (val is null || val is string || val is byte[]) continue;
+
+            if (val is IMajorRecordGetter singleRec)
+            {
+                GraftSingleton(singleRec, winner, prop.Name, dict, stats, reg, conflicts);
+            }
+            else if (val is IEnumerable seq)
+            {
+                foreach (var el in seq)
+                {
+                    if (el is IMajorRecordGetter childRec)
+                        GraftListChild(childRec, winner, prop.Name, dict, stats, reg, conflicts);
+                    else if (el is IMajorRecordGetterEnumerable blockStruct)
+                        GraftBlock(blockStruct, winner, prop.Name, dict, stats, reg, conflicts);
+                    else break;                                            // a non-record element type — not a record list; skip the property
+                }
+            }
+        }
+    }
+
+    /// <summary>Graft one list-borne child: already placed → report the cross-donor conflict + recurse (grandchildren
+    /// may be missing); unplaced → renumber it and APPEND to the winner container's same-named record list.</summary>
+    static void GraftListChild(IMajorRecordGetter child, IMajorRecord winner, string propName,
+        IReadOnlyDictionary<FormKey, FormKey> dict, RenumberStats stats, MergePlacement reg, List<MergeConflict> conflicts)
+    {
+        var nk = dict.TryGetValue(child.FormKey, out var mapped) ? mapped : child.FormKey;
+        if (reg.Objects.TryGetValue(nk, out var placed))
+        {
+            conflicts.Add(new MergeConflict(child.FormKey, RecordNaming.StripOverlay(child.GetType().Name), reg.PlacedBy[nk], reg.CurrentDonor));
+            GraftMissingDescendants(child, placed, dict, stats, reg, conflicts);
+            return;
+        }
+        if (winner.GetType().GetProperty(propName)?.GetValue(winner) is not IList winnerList)
+            throw new InvalidOperationException(
+                $"cannot graft {RecordNaming.StripOverlay(child.GetType().Name)} {child.FormKey}: the winning donor's " +
+                $"{RecordNaming.StripOverlay(winner.GetType().Name)} {winner.FormKey} has no settable record list '{propName}' to receive it (Q3).");
+        winnerList.Add(RenumberOne(child, dict, stats, reg));
+    }
+
+    /// <summary>Graft one singleton-property child (e.g. a cell's Landscape): already placed → recurse; the winner's
+    /// slot empty → renumber + set; the winner's slot held by a DIFFERENT record → the winner's structure stands and
+    /// the loser's child is REPORTED as a resolved conflict (never silently dropped — Q3).</summary>
+    static void GraftSingleton(IMajorRecordGetter child, IMajorRecord winner, string propName,
+        IReadOnlyDictionary<FormKey, FormKey> dict, RenumberStats stats, MergePlacement reg, List<MergeConflict> conflicts)
+    {
+        var nk = dict.TryGetValue(child.FormKey, out var mapped) ? mapped : child.FormKey;
+        if (reg.Objects.TryGetValue(nk, out var placed))
+        {
+            conflicts.Add(new MergeConflict(child.FormKey, RecordNaming.StripOverlay(child.GetType().Name), reg.PlacedBy[nk], reg.CurrentDonor));
+            GraftMissingDescendants(child, placed, dict, stats, reg, conflicts);
+            return;
+        }
+        var prop = winner.GetType().GetProperty(propName);
+        if (prop is null || !prop.CanWrite)
+            throw new InvalidOperationException(
+                $"cannot graft {RecordNaming.StripOverlay(child.GetType().Name)} {child.FormKey}: the winning donor's " +
+                $"{RecordNaming.StripOverlay(winner.GetType().Name)} {winner.FormKey} has no settable '{propName}' slot to receive it (Q3).");
+        if (prop.GetValue(winner) is IMajorRecord occupant)
+        {
+            // The winner already carries its OWN (different) record in this slot — the winner's structure wins wholesale;
+            // the loser's child is a resolved conflict, reported by the occupant's donor.
+            conflicts.Add(new MergeConflict(child.FormKey, RecordNaming.StripOverlay(child.GetType().Name),
+                reg.PlacedBy.TryGetValue(occupant.FormKey, out var by) ? by : reg.CurrentDonor, reg.CurrentDonor));
+            return;
+        }
+        prop.SetValue(winner, RenumberOne(child, dict, stats, reg));
+    }
+
+    /// <summary>Graft through a FormKey-less worldspace block struct: pair the loser's block with the winner's by block
+    /// NUMBER (X/Y for exterior grids), creating the winner-side block when missing, then graft each leaf cell. The
+    /// worldspace family is the only record-nested block tree (interior cells' mod-level tree is walked cell-by-cell in
+    /// <see cref="MergeModsInto"/>); an unrecognized block shape THROWS — the loud Q3 refusal, never a silent drop.</summary>
+    static void GraftBlock(IMajorRecordGetterEnumerable loserBlock, IMajorRecord winner, string propName,
+        IReadOnlyDictionary<FormKey, FormKey> dict, RenumberStats stats, MergePlacement reg, List<MergeConflict> conflicts)
+    {
+        if (winner.GetType().GetProperty(propName)?.GetValue(winner) is not IList winnerBlocks)
+            throw new InvalidOperationException(
+                $"cannot graft a nested block of '{propName}': the winning donor's {RecordNaming.StripOverlay(winner.GetType().Name)} " +
+                $"{winner.FormKey} has no settable block list '{propName}' to pair against (Q3).");
+
+        switch (loserBlock)
+        {
+            case IWorldspaceBlockGetter wb:
+            {
+                var mBlock = winnerBlocks.Cast<object>().OfType<WorldspaceBlock>()
+                    .FirstOrDefault(b => b.BlockNumberX == wb.BlockNumberX && b.BlockNumberY == wb.BlockNumberY);
+                if (mBlock is null)
+                {
+                    mBlock = new WorldspaceBlock { BlockNumberX = wb.BlockNumberX, BlockNumberY = wb.BlockNumberY, GroupType = wb.GroupType };
+                    winnerBlocks.Add(mBlock);
+                }
+                foreach (var subG in wb.Items) GraftSubBlock(subG, mBlock, dict, stats, reg, conflicts);
+                break;
+            }
+            default:
+                throw new InvalidOperationException(
+                    $"cannot graft: unrecognized nested block shape '{loserBlock.GetType().Name}' under '{propName}' — " +
+                    "refusing rather than silently dropping its records (Q3).");
+        }
+    }
+
+    /// <summary>Pair one worldspace SUB-block by number (creating it winner-side when missing) and graft its cells.</summary>
+    static void GraftSubBlock(IWorldspaceSubBlockGetter loserSub, WorldspaceBlock winnerBlock,
+        IReadOnlyDictionary<FormKey, FormKey> dict, RenumberStats stats, MergePlacement reg, List<MergeConflict> conflicts)
+    {
+        var mSub = winnerBlock.Items
+            .FirstOrDefault(s => s.BlockNumberX == loserSub.BlockNumberX && s.BlockNumberY == loserSub.BlockNumberY);
+        if (mSub is null)
+        {
+            mSub = new WorldspaceSubBlock { BlockNumberX = loserSub.BlockNumberX, BlockNumberY = loserSub.BlockNumberY, GroupType = loserSub.GroupType };
+            winnerBlock.Items.Add(mSub);
+        }
+        foreach (var cell in loserSub.Items)
+        {
+            var nk = dict.TryGetValue(cell.FormKey, out var mapped) ? mapped : cell.FormKey;
+            if (reg.Objects.TryGetValue(nk, out var placed))
+            {
+                conflicts.Add(new MergeConflict(cell.FormKey, "Cell", reg.PlacedBy[nk], reg.CurrentDonor));
+                GraftMissingDescendants(cell, placed, dict, stats, reg, conflicts);
+            }
+            else
+            {
+                mSub.Items.Add((Cell)RenumberOne(cell, dict, stats, reg));
+            }
+        }
     }
 
     // ======================================================================

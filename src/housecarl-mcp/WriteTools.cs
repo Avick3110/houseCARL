@@ -363,6 +363,38 @@ public static class WriteTools
         return RenderCompact(svc.CompactPlugin(plugin, esl, in_place, repoint_externals, acknowledge, patch_name));
     });
 
+    [McpServerTool(Name = "housecarl_merge_plugins", Title = "Merge plugins into one new plugin"),
+     Description(
+         "MERGE two or more ACTIVE plugins into ONE NEW plugin — a RECORDS operation (the zMerge/'Merge Plugins' job): the " +
+         "donors' records combine under a new filename; the donor FILES and their mods are NEVER touched (new-file lane only, " +
+         "no in-place). RENUMBER is collision-only (zMerge's default): the donor EARLIEST in the load order keeps its FormID " +
+         "object ids; later donors renumber only ids already taken (all records necessarily move to the new plugin's identity). " +
+         "Cross-donor conflicts on the SAME record resolve to the LOAD-ORDER WINNER and are each REPORTED; a losing donor's " +
+         "nested children the winner doesn't re-list (a base mod's dialogue lines under a patched topic; placed refs under a " +
+         "patched cell) are GRAFTED into the winner's copy — so merging a mod WITH its patches is the intended use. ASSETS " +
+         "follow the renumber: every donor NPC's facegen and every voiced line are carried into the new plugin-name folders " +
+         "(those paths embed the plugin NAME, so ALL donor facegen/voice moves, not just collisions), and a .seq is refreshed " +
+         "when any donor shipped one. THE SAFETY (Q3): plugins OUTSIDE the merge that reference or override donor records are " +
+         "WARNED and NAMED, never refused — the donors stay active until you swap in MO2, so nothing breaks at write time; the " +
+         "remedy is to include those patches in the merge set or re-point them before disabling the donors. Refuses loud + " +
+         "writes nothing on: a donor not active / unparseable / not on disk; an output name already in the load order; a " +
+         "dangling donor-internal reference (a donor referencing a FormID no donor defines); a declared master not active. " +
+         "AFTER: review the merged plugin in xEdit, enable its mod folder in MO2, then DISABLE the donor mods. Existing SAVES " +
+         "that depend on the donors will NOT survive (new plugin name + renumbered FormIDs) — best for a new game. Want it " +
+         "light/ESL? Run housecarl_compact_plugin on the merged plugin afterward (the tools compose).")]
+    public static string MergePlugins(
+        LoadOrderService svc,
+        [Description("The donor plugin filenames to merge (at least two, e.g. [\"CoolMod.esp\", \"CoolMod Patch.esp\"]) — each must be active in your load order. Argument order does not matter: houseCARL uses LOAD order for id priority and conflict resolution.")]
+            string[] plugins,
+        [Description("The NEW merged plugin's filename to create (e.g. 'MyMerge.esp') — must NOT already exist in the load order. The donors keep their names and files untouched.")]
+            string output,
+        [Description("Optional. Base name for the NEW mod folder (auto-suffixed if taken). Defaults to '<output> merged'.")]
+            string? patch_name = null) => Guard.Tool("housecarl_merge_plugins", () =>
+    {
+        if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
+        return RenderMerge(svc.MergePlugins(plugins, output, patch_name));
+    });
+
     /// <summary>Compact, parseable confirmation (rulebook: short mutation confirmation + the IDs needed for follow-up).
     /// On refusal, the full reason (every malformed/rejected op) so the caller can fix and retry.</summary>
     internal static string Render(WritePatchBuilder.PatchOutcome o, int maxChars = 0, bool fullDump = false)   // internal: the compact-readback guard renders one outcome three ways
@@ -640,58 +672,133 @@ public static class WriteTools
         }
         sb.Append("identify-pass scanned ").Append(o.PluginsScanned).Append(" plugin(s) for external references.\n");
 
-        // FormID-keyed assets carried WITH the renumber (compact/merge Wave A1: facegen) — the renumber moved every record
-        // to a new FormID, so the engine looks the head mesh/tint up under the NEW name; carrying them is what stops a
-        // compacted NPC mod silently dark-facing. Reported, not silent (Q3).
-        if (o.AssetRename is { } ar)
-        {
-            if (ar.FacegenFilesCarried > 0)
-                sb.Append("facegen: carried ").Append(ar.FacegenFilesCarried).Append(ar.FacegenFilesCarried == 1 ? " file for " : " files for ")
-                  .Append(ar.FacegenNpcsCarried).Append(ar.FacegenNpcsCarried == 1 ? " NPC to the new FormIDs" : " NPCs to the new FormIDs")
-                  .Append(o.InPlace ? " (old-FormID facegen left as harmless orphans).\n" : " (in the new mod folder — enabling it carries the faces).\n");
-            else if (ar.NpcCount > 0 && ar.Failures.Count == 0)
-                sb.Append("facegen: none found for this plugin's ").Append(ar.NpcCount).Append(ar.NpcCount == 1 ? " NPC — nothing to carry.\n" : " NPCs — nothing to carry.\n");
-            foreach (var f in ar.Failures.Take(25)) sb.Append("  facegen WARN: ").Append(f).Append('\n');
-            if (ar.Failures.Count > 25) sb.Append("  facegen WARN: … (+").Append(ar.Failures.Count - 25).Append(" more)\n");
-            if (ar.ReadIncomplete)
-                sb.Append("  note: a BSA failed to read this scan, so a 'no facegen' result may be incomplete — verify NPC faces in-game.\n");
-        }
-
-        // Voice (.fuz/.lip) carried WITH the renumber (compact/merge Wave A2) — the renumber moved every INFO to a new
-        // FormID, and a voice filename is keyed by the OLD FormID, so carrying it is what stops a compacted voiced mod
-        // going mute. Reported, not silent (Q3) — and the old "voice NOT carried, verify yourself" reminder is now retired.
-        if (o.VoiceRename is { } vr)
-        {
-            if (vr.FilesCarried > 0)
-                sb.Append("voice: carried ").Append(vr.FilesCarried).Append(vr.FilesCarried == 1 ? " file for " : " files for ")
-                  .Append(vr.LinesCarried).Append(vr.LinesCarried == 1 ? " dialogue line to the new FormIDs" : " dialogue lines to the new FormIDs")
-                  .Append(o.InPlace ? " (old-FormID voice left as harmless orphans).\n" : " (in the new mod folder — enabling it carries the voice).\n");
-            else if (vr.FilesScanned > 0 && vr.Failures.Count == 0)
-                sb.Append("voice: ").Append(vr.FilesScanned).Append(vr.FilesScanned == 1 ? " voice file found, none keyed to a renumbered line" : " voice files found, none keyed to a renumbered line")
-                  .Append(" — nothing to carry.\n");
-            foreach (var f in vr.Failures.Take(25)) sb.Append("  voice WARN: ").Append(f).Append('\n');
-            if (vr.Failures.Count > 25) sb.Append("  voice WARN: … (+").Append(vr.Failures.Count - 25).Append(" more)\n");
-            if (vr.ReadIncomplete)
-                sb.Append("  note: a BSA failed to read this scan, so a 'no voice' result may be incomplete — verify voiced lines in-game.\n");
-        }
-
-        // SEQ (.seq) REFRESHED from the renumbered plugin (compact/merge Wave A3) — a renumber shifts every start-game-
-        // enabled quest's on-disk FormID, so a .seq the source SHIPPED goes stale and its quests silently never start; the
-        // regen writes a fresh, correct .seq next to P′ (refresh-only — a source with no .seq gets a named WARN advising
-        // write_seq, never an invented file). A plugin with no SGE quests renders nothing (the common case). The WARN loop
-        // surfaces both a write-failure and the missing-source-.seq advisory. Reported, not silent (Q3).
-        if (o.SeqRegen is { } sr)
-        {
-            if (sr.Written)
-                sb.Append("SEQ: regenerated — ").Append(sr.SgeQuestCount).Append(sr.SgeQuestCount == 1 ? " start-game-enabled quest" : " start-game-enabled quests")
-                  .Append(o.InPlace ? " (.seq rewritten in place).\n" : " (.seq in the new mod folder's SEQ\\ — enabling it starts the quests).\n");
-            foreach (var f in sr.Failures.Take(25)) sb.Append("  SEQ WARN: ").Append(f).Append('\n');
-            if (sr.Failures.Count > 25) sb.Append("  SEQ WARN: … (+").Append(sr.Failures.Count - 25).Append(" more)\n");
-        }
+        AppendFacegenCarry(sb, o.AssetRename, o.InPlace);
+        AppendVoiceCarry(sb, o.VoiceRename, o.InPlace);
+        AppendSeqRegen(sb, o.SeqRegen, o.InPlace);
 
         if (o.Note is { } note) sb.Append("note: ").Append(note).Append('\n');
         sb.Append("reminder: FormIDs compiled into Papyrus (.pex hardcoded / GetFormFromFile) and any Mutagen-delta ")
           .Append("residual are NOT remappable — verify scripted records after compacting.");
+        return sb.ToString();
+    }
+
+    // FormID-keyed assets carried WITH the renumber (Waves A1–A3, shared by compact AND merge — one render home, no
+    // drift). The renumber moved records to new FormIDs (a merge additionally to a new plugin NAME), so the engine looks
+    // facegen/voice up under NEW paths and a shipped .seq goes stale; carrying/refreshing them is what stops a renumbered
+    // NPC mod silently dark-facing, a voiced mod going mute, and SGE quests never starting. Reported, not silent (Q3).
+    // inPlace is always false for merge (it has no in-place lane).
+
+    static void AppendFacegenCarry(StringBuilder sb, AssetRenameOutcome? outcome, bool inPlace)
+    {
+        if (outcome is not { } ar) return;
+        if (ar.FacegenFilesCarried > 0)
+            sb.Append("facegen: carried ").Append(ar.FacegenFilesCarried).Append(ar.FacegenFilesCarried == 1 ? " file for " : " files for ")
+              .Append(ar.FacegenNpcsCarried).Append(ar.FacegenNpcsCarried == 1 ? " NPC to the new FormIDs" : " NPCs to the new FormIDs")
+              .Append(inPlace ? " (old-FormID facegen left as harmless orphans).\n" : " (in the new mod folder — enabling it carries the faces).\n");
+        else if (ar.NpcCount > 0 && ar.Failures.Count == 0)
+            sb.Append("facegen: none found for ").Append(ar.NpcCount).Append(ar.NpcCount == 1 ? " NPC — nothing to carry.\n" : " NPCs — nothing to carry.\n");
+        foreach (var f in ar.Failures.Take(25)) sb.Append("  facegen WARN: ").Append(f).Append('\n');
+        if (ar.Failures.Count > 25) sb.Append("  facegen WARN: … (+").Append(ar.Failures.Count - 25).Append(" more)\n");
+        if (ar.ReadIncomplete)
+            sb.Append("  note: a BSA failed to read this scan, so a 'no facegen' result may be incomplete — verify NPC faces in-game.\n");
+    }
+
+    static void AppendVoiceCarry(StringBuilder sb, VoiceCarryOutcome? outcome, bool inPlace)
+    {
+        if (outcome is not { } vr) return;
+        if (vr.FilesCarried > 0)
+            sb.Append("voice: carried ").Append(vr.FilesCarried).Append(vr.FilesCarried == 1 ? " file for " : " files for ")
+              .Append(vr.LinesCarried).Append(vr.LinesCarried == 1 ? " dialogue line to the new FormIDs" : " dialogue lines to the new FormIDs")
+              .Append(inPlace ? " (old-FormID voice left as harmless orphans).\n" : " (in the new mod folder — enabling it carries the voice).\n");
+        else if (vr.FilesScanned > 0 && vr.Failures.Count == 0)
+            sb.Append("voice: ").Append(vr.FilesScanned).Append(vr.FilesScanned == 1 ? " voice file found, none keyed to a renumbered line" : " voice files found, none keyed to a renumbered line")
+              .Append(" — nothing to carry.\n");
+        foreach (var f in vr.Failures.Take(25)) sb.Append("  voice WARN: ").Append(f).Append('\n');
+        if (vr.Failures.Count > 25) sb.Append("  voice WARN: … (+").Append(vr.Failures.Count - 25).Append(" more)\n");
+        if (vr.ReadIncomplete)
+            sb.Append("  note: a BSA failed to read this scan, so a 'no voice' result may be incomplete — verify voiced lines in-game.\n");
+    }
+
+    static void AppendSeqRegen(StringBuilder sb, SeqRegenOutcome? outcome, bool inPlace)
+    {
+        if (outcome is not { } sr) return;
+        if (sr.Written)
+            sb.Append("SEQ: regenerated — ").Append(sr.SgeQuestCount).Append(sr.SgeQuestCount == 1 ? " start-game-enabled quest" : " start-game-enabled quests")
+              .Append(inPlace ? " (.seq rewritten in place).\n" : " (.seq in the new mod folder's SEQ\\ — enabling it starts the quests).\n");
+        foreach (var f in sr.Failures.Take(25)) sb.Append("  SEQ WARN: ").Append(f).Append('\n');
+        if (sr.Failures.Count > 25) sb.Append("  SEQ WARN: … (+").Append(sr.Failures.Count - 25).Append(" more)\n");
+    }
+
+    /// <summary>Merge confirmation (A4): the merged plugin's identity + the MO2 swap instruction, per-donor id
+    /// accounting, cross-donor conflict resolutions (load-order winner — reported, never silent), the WARN surfaces
+    /// (external referencers/overriders with the remedy), the asset-carry accounting, and the saves/ESL pointers.
+    /// On refusal, the named reason (Q3). internal: the merge guard asserts warnings reach user output.</summary>
+    internal static string RenderMerge(WritePatchBuilder.MergeOutcome o)
+    {
+        if (!o.Success) return "error: " + o.Error;
+        var file = Path.GetFileName(o.OutputPath);
+        var modFolder = Path.GetFileName(Path.GetDirectoryName(o.OutputPath) ?? "");
+        var sb = new StringBuilder();
+        sb.Append("wrote merged ").Append(file).Append(" (new plugin; ").Append(o.Bytes).Append(" bytes) from ")
+          .Append(o.Donors.Count).Append(" donors: ").Append(string.Join(", ", o.Donors)).Append('\n');
+        sb.Append("mod folder: ").Append(modFolder)
+          .Append("  — review in xEdit, enable + sort it in MO2, then DISABLE the donor mods (their files are untouched).\n");
+
+        int overrides = o.RecordsCopied - o.RecordsRenumbered;
+        sb.Append(o.RecordsRenumbered).Append(o.RecordsRenumbered == 1 ? " originating record" : " originating records")
+          .Append(" merged under ").Append(o.OutputName);
+        if (overrides > 0) sb.Append("; ").Append(overrides).Append(overrides == 1 ? " override kept at its master FormID" : " overrides kept at their master FormIDs");
+        sb.Append(".\n");
+        foreach (var d in o.DonorRemaps)
+            sb.Append("  ").Append(d.Donor).Append(": ").Append(d.Kept).Append(" object id(s) kept, ")
+              .Append(d.Renumbered).Append(" renumbered (id collisions / below-floor)\n");
+        sb.Append("masters: ").Append(o.Masters.Count == 0 ? "(none)" : string.Join(", ", o.Masters)).Append('\n');
+
+        if (o.Conflicts.Count == 0)
+            sb.Append("cross-donor conflicts: none — no record was carried by more than one donor.\n");
+        else
+        {
+            sb.Append("cross-donor conflicts (").Append(o.Conflicts.Count).Append(") — each resolved to the LOAD-ORDER WINNER (the losing version is NOT in the merge; its un-relisted nested children were grafted):\n");
+            foreach (var c in o.Conflicts.Take(25))
+                sb.Append("  ").Append(c.RecordType).Append(' ').Append(c.Key).Append("  ").Append(c.WinnerDonor).Append(" won over ").Append(c.LoserDonor).Append('\n');
+            if (o.Conflicts.Count > 25) sb.Append("  … (+").Append(o.Conflicts.Count - 25).Append(" more)\n");
+        }
+
+        // The A4 posture: WARN loud + proceed — the donors stay installed and ACTIVE until the user swaps in MO2, so
+        // nothing is broken at write time; the report names every affected plugin and the remedy. (Unlike compact, which
+        // refuses on referencers: a compact's renumber takes effect under the SAME plugin name, a merge's only when the
+        // user disables the donors — the user holds the switch here.)
+        if (o.ExternalPlugins.Count > 0)
+        {
+            sb.Append("WARNING — ").Append(o.ExternalPlugins.Count).Append(" plugin(s) OUTSIDE the merge REFERENCE donor records. Their references break ")
+              .Append("the moment you disable the donors: include them in the merge set (re-run with them added), or re-point them at '")
+              .Append(o.OutputName).Append("' before the swap:\n");
+            foreach (var pl in o.ExternalPlugins.Take(25)) sb.Append("  ! ").Append(pl).Append('\n');
+            if (o.ExternalPlugins.Count > 25) sb.Append("  ! … (+").Append(o.ExternalPlugins.Count - 25).Append(" more)\n");
+        }
+        else sb.Append("external referencers: none — nothing outside the merge points at a donor record.\n");
+        if (o.ExternalOverriders.Count > 0)
+        {
+            sb.Append("WARNING — ").Append(o.ExternalOverriders.Count).Append(" plugin(s) OUTSIDE the merge OVERRIDE a donor record; those overrides ")
+              .Append("orphan once you disable the donors (an override can't be auto-repointed — identity, not a link). Include them in the merge set, or rebuild them against '")
+              .Append(o.OutputName).Append("':\n");
+            foreach (var pl in o.ExternalOverriders.Take(25)) sb.Append("  ! ").Append(pl).Append('\n');
+            if (o.ExternalOverriders.Count > 25) sb.Append("  ! … (+").Append(o.ExternalOverriders.Count - 25).Append(" more)\n");
+        }
+        if (o.UnscannableRecords > 0)
+            sb.Append("note: ").Append(o.UnscannableRecords).Append(" record(s) couldn't be scanned in the external-reference pass, so a ")
+              .Append("'none' above may be incomplete — verify in xEdit. Samples: ").Append(string.Join("; ", o.UnscannableSamples)).Append('\n');
+        sb.Append("identify-pass scanned ").Append(o.PluginsScanned).Append(" plugin(s) for external references.\n");
+
+        AppendFacegenCarry(sb, o.AssetRename, inPlace: false);
+        AppendVoiceCarry(sb, o.VoiceRename, inPlace: false);
+        AppendSeqRegen(sb, o.SeqRegen, inPlace: false);
+
+        if (o.Note is { } note) sb.Append("note: ").Append(note).Append('\n');
+        sb.Append("reminders: existing SAVES that depend on the donors will not survive the swap (records moved to a new ")
+          .Append("plugin name + new FormIDs) — best for a new game. FormIDs compiled into Papyrus (.pex hardcoded / ")
+          .Append("GetFormFromFile) and any Mutagen-delta residual are NOT remappable — verify scripted records. Want it ")
+          .Append("light? Run housecarl_compact_plugin on '").Append(o.OutputName).Append("' (the tools compose).");
         return sb.ToString();
     }
 

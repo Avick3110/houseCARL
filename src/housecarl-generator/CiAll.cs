@@ -137,6 +137,13 @@ public static class CiAll
         // REGENERATES its .seq from the renumbered plugin (a renumber shifts the on-disk FormIDs a stale .seq lists, so its
         // quests would silently never start). NOT a map-rename — rebuilt from P′. New-file + in-place-stale-replace + multi-quest + no-SGE.
         ("seq-regen-guard", SeqRegenProbe.RunGuard),
+        // COMPACT/MERGE Wave A4 — the merge tool (housecarl_merge_plugins) end-to-end over a synthetic MO2 instance:
+        // multi-donor collision-only renumber (first donor keeps ids), cross-donor LOAD-ORDER-WINNER conflicts each
+        // reported, the un-relisted-child GRAFT (a patch's DIAL override + the base mod's second INFO — the arm that
+        // fails if merging a mod with its patch drops the base mod's lines), warn-not-refuse externals (referencer +
+        // overrider named, in the outcome AND the rendered output), facegen/voice carried to the MERGED plugin-name
+        // folders + .seq regen, donors byte-untouched, and the four loud refusals.
+        ("merge-service-guard", MergeServiceGuardProbe.RunGuard),
         // COMPACT in-place verify read-back (HCBR-2026-06-28-01) — a multi-op in-place edit's forced touched-record verify
         // renders COMPACT by default (one re-read-clean line per record, all N, names what landed) instead of a deep
         // whole-record dump that overflowed the host token cap and spilled to a file (reading as "only some ops applied").
