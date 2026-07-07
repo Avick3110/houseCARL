@@ -344,24 +344,7 @@ public static class AssetRenameService
     static readonly System.Text.RegularExpressions.Regex VoiceIdRx =
         new(@"_([0-9A-Fa-f]{8})_\d+\.[A-Za-z0-9]+$", System.Text.RegularExpressions.RegexOptions.Compiled);
 
-    /// <summary>Read the bytes of a resolved WINNING provider — a loose file off disk, or a single BSA entry via native
-    /// Mutagen (zero handle at rest, the AssetResolver.TryReadArchiveEntry cornerstone). Mirrors LoadOrderService.ReadResolvedSource
-    /// but lives in core (the service's home) so the spine has no mcp dependency. A named error (Q3) if the resolved copy
-    /// vanished between resolve and read, or the archive can't be read.</summary>
-    static (byte[]? bytes, string? error) ReadWinner(PlacementSource s)
-    {
-        if (s.Kind == AssetKind.Loose)
-        {
-            var p = s.LooseFilePath!;
-            if (!File.Exists(p)) return (null, $"the resolved loose source '{p}' is no longer on disk");
-            try { return (File.ReadAllBytes(p), null); }
-            catch (Exception ex) { return (null, $"could not read resolved source '{p}': {ex.Message}"); }
-        }
-        try
-        {
-            var b = AssetResolver.TryReadArchiveEntry(s.ArchivePath!, s.EntryPath);
-            return b is null ? (null, $"entry '{s.EntryPath}' not found inside '{Path.GetFileName(s.ArchivePath!)}'") : (b, null);
-        }
-        catch (Exception ex) { return (null, $"could not read archive '{Path.GetFileName(s.ArchivePath!)}': {ex.Message}"); }
-    }
+    /// <summary>Read the bytes of a resolved WINNING provider — delegates to the ONE shared loose-vs-BSA read
+    /// (<see cref="AssetResolver.ReadPlacementSource"/>; review finding — this was copy #2 of three).</summary>
+    static (byte[]? bytes, string? error) ReadWinner(PlacementSource s) => AssetResolver.ReadPlacementSource(s);
 }

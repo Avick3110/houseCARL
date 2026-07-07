@@ -252,6 +252,29 @@ public sealed class AssetResolver : IDisposable
         finally { (reader as IDisposable)?.Dispose(); }           // INERT in 0.53.1 — belt-and-braces, see ReadArchiveTable
     }
 
+    /// <summary>Read the bytes of ONE resolved provider — a loose file off disk, or a single BSA entry via
+    /// <see cref="TryReadArchiveEntry"/>. THE shared home for the loose-vs-BSA winner read (review finding: this
+    /// logic had grown three near-verbatim copies — AssetRenameService.ReadWinner and the NPC-copy asset carry now
+    /// both ride this one; LoadOrderService.ReadResolvedSource remains a desc-carrying sibling with probe-pinned
+    /// message strings, folded here on its next deliberate touch). A named error (Q3) when the resolved copy
+    /// vanished between resolve and read, or the archive can't be read.</summary>
+    public static (byte[]? Bytes, string? Error) ReadPlacementSource(PlacementSource s)
+    {
+        if (s.Kind == AssetKind.Loose)
+        {
+            var p = s.LooseFilePath;
+            if (p is null || !File.Exists(p)) return (null, $"the resolved loose source '{p}' is no longer on disk");
+            try { return (File.ReadAllBytes(p), null); }
+            catch (Exception ex) { return (null, $"could not read resolved source '{p}': {ex.Message}"); }
+        }
+        try
+        {
+            var b = s.ArchivePath is null ? null : TryReadArchiveEntry(s.ArchivePath, s.EntryPath);
+            return b is null ? (null, $"entry '{s.EntryPath}' not found inside '{Path.GetFileName(s.ArchivePath ?? "?")}'") : (b, null);
+        }
+        catch (Exception ex) { return (null, $"could not read archive '{Path.GetFileName(s.ArchivePath ?? "?")}': {ex.Message}"); }
+    }
+
     /// <summary>Resolve one Data-relative asset path: where it lives and which copy wins. See <see cref="AssetHit"/>.
     /// Single-shot — this call captures its own build; a caller making MANY reads in one logical operation should
     /// <see cref="Capture"/> once and read off the view so the scan and its failure list share one build.</summary>

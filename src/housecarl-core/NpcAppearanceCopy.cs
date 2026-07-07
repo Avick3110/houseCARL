@@ -169,8 +169,10 @@ public static class NpcAppearanceCopy
                 return ClosureResult.Fail(
                     $"the donor's appearance references {key} (via {pulledBy}), which must be internalized (it is donor-" +
                     "defined or does not resolve in the active load order) — but the donor universe cannot produce that " +
-                    "record. If it lives in a DISABLED master of the donor, enable that mod (or keep it as a master) and " +
-                    "re-run. Nothing was written.");
+                    "record. Remedies, by cause: if you passed source_plugin= for an OVERRIDE PATCH of the donor, the " +
+                    $"record lives in the donor's own plugin — pass source_plugin='{key.ModKey.FileName}' instead (or omit " +
+                    "source_plugin= entirely when that plugin is active); if it lives in a DISABLED master of the donor, " +
+                    "enable that mod (or keep it as a master) and re-run. Nothing was written.");
 
             toInternalize.Add(new ClosureItem(body, pulledBy));
             var label = $"{RecordNaming.StripOverlay(body.GetType().Name)} {key} ({body.EditorID ?? "<no editorid>"})";
@@ -339,16 +341,54 @@ public static class NpcAppearanceCopy
             var reused = new List<string>();
             if (extend)
             {
-                var existing = patchMod.EnumerateMajorRecords()
-                    .Where(r => r.FormKey.ModKey == patchMod.ModKey && !string.IsNullOrEmpty(r.EditorID))
-                    .ToDictionary(r => (RecordNaming.StripOverlay(r.GetType().Name), r.EditorID!), r => r.FormKey,
-                                  EqualityComparer<(string, string)>.Default);
+                // Group patch-originating records by type + EditorID — OrdinalIgnoreCase (matching the clone
+                // dup-check and the create-path upsert; review finding: an ordinal compare re-copied a case-differing
+                // prior copy, minting the exact duplicate this dedupe prevents) and DUPLICATE-TOLERANT (same-named
+                // records exist in the wild per the nested-create re-run semantics; a raw ToDictionary threw).
+                var groups = new Dictionary<string, List<IMajorRecordGetter>>(StringComparer.OrdinalIgnoreCase);
+                foreach (var r in patchMod.EnumerateMajorRecords())
+                {
+                    if (r.FormKey.ModKey != patchMod.ModKey || string.IsNullOrEmpty(r.EditorID)) continue;
+                    var key = RecordNaming.StripOverlay(r.GetType().Name) + "\0" + r.EditorID;
+                    if (!groups.TryGetValue(key, out var l)) groups[key] = l = new List<IMajorRecordGetter>();
+                    l.Add(r);
+                }
+                // Pass 1 — pair up name matches; the candidate map must be COMPLETE before any content check,
+                // because matched records reference each other (a headpart → its texture set).
+                var matches = new List<(ClosureItem Item, IMajorRecordGetter Existing)>();
+                var candDict = new Dictionary<FormKey, FormKey>();
                 foreach (var i in closure.ToInternalize)
                 {
-                    var sig = (RecordNaming.StripOverlay(i.Body.GetType().Name), i.Body.EditorID ?? "");
-                    if (sig.Item2.Length > 0 && existing.TryGetValue(sig, out var prior))
-                    { dict[i.Body.FormKey] = prior; reused.Add($"{sig.Item1} '{sig.Item2}'  {i.Body.FormKey} → {prior} (already in the patch — reused, not re-copied)"); }
-                    else toCopy.Add(i.Body);
+                    var type = RecordNaming.StripOverlay(i.Body.GetType().Name);
+                    var edid = i.Body.EditorID;
+                    if (string.IsNullOrEmpty(edid) || !groups.TryGetValue(type + "\0" + edid, out var cands))
+                    { toCopy.Add(i.Body); continue; }
+                    if (cands.Count > 1)
+                        return NpcCopyOutcome.Fail(
+                            $"'{patchFileName}' already contains {cands.Count} {type} records with EditorID '{edid}' — matching this " +
+                            "donor's record against them is ambiguous, and re-copying would add a third. Clean the duplicates up (or " +
+                            "copy into a different patch). Nothing was written.");
+                    matches.Add((i, cands[0]));
+                    candDict[i.Body.FormKey] = cands[0].FormKey;
+                }
+                // Pass 2 — CONTENT equality (review finding): a prior copy is reused only when it IS this donor's
+                // record. Same-named but DIFFERENT records are a real load-order fact (KS Hairdos-derived NPCs reuse
+                // headpart EditorIDs across mods) — reusing one would silently wire this NPC to the OTHER donor's
+                // part; re-copying would duplicate the EditorID and break facegeom block-name identity. So: refuse
+                // loud, naming the collision. Equality is judged on a probe duplicate under the existing key with
+                // sibling links mapped to their candidates — i.e. "would copying produce exactly this record?"
+                foreach (var (item, existing) in matches)
+                {
+                    var probe = item.Body.Duplicate(existing.FormKey);
+                    probe.RemapLinks(candDict);
+                    if (!probe.Equals(existing))
+                        return NpcCopyOutcome.Fail(
+                            $"'{patchFileName}' already contains {RecordNaming.StripOverlay(existing.GetType().Name)} '{existing.EditorID}' " +
+                            $"({existing.FormKey}) from a previous copy, and its CONTENT differs from this donor's {item.Body.FormKey} — " +
+                            "reusing it would wire this NPC to the other donor's record; re-copying would duplicate the EditorID and " +
+                            "break the facegeom block-name mapping. Copy into a DIFFERENT patch. Nothing was written.");
+                    dict[item.Body.FormKey] = existing.FormKey;
+                    reused.Add($"{RecordNaming.StripOverlay(existing.GetType().Name)} '{existing.EditorID}'  {item.Body.FormKey} → {existing.FormKey} (already in the patch, content-identical — reused, not re-copied)");
                 }
             }
             else toCopy.AddRange(closure.ToInternalize.Select(i => i.Body));

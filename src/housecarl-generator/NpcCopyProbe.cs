@@ -95,6 +95,7 @@ public static class NpcCopyProbe
             donorMod.TextureSets.Add(new TextureSet(texFk, SkyrimRelease.SkyrimSE) { EditorID = "VivTex" });
             var hairline = new HeadPart(hairlineFk, SkyrimRelease.SkyrimSE) { EditorID = "VivHairlineHP" };
             hairline.Parts.Add(new Part { PartType = Part.PartTypeEnum.Tri, FileName = @"Actors\Character\Character Assets\FemaleHead.tri" });
+            hairline.Model = new Model { File = @"..\escape.nif" };       // a dirty '..' path — must become ONE named failure, never abort the carry
             donorMod.HeadParts.Add(hairline);
             var hair = new HeadPart(hairFk, SkyrimRelease.SkyrimSE) { EditorID = "VivHairHP" };
             hair.TextureSet.SetTo(texFk);
@@ -141,6 +142,20 @@ public static class NpcCopyProbe
             donorMod.Npcs.Add(templatedNpc);
             WriteModDirect(mods, "DonorMod", donorMod, keepMod);
 
+            // a SECOND donor whose headpart REUSES the EditorID 'VivHairHP' with DIFFERENT content — the KS Hairdos
+            // EditorID-collision case: extend-reuse must refuse loud, never silently wire this NPC to the other
+            // donor's copy and never mint a duplicate EditorID.
+            var donor2Key = new ModKey("Donor2", ModType.Plugin);
+            var donor2NpcFk = new FormKey(donor2Key, 0xE00);
+            var donor2Mod = new SkyrimMod(donor2Key, SkyrimRelease.SkyrimSE);
+            var hair2 = new HeadPart(new FormKey(donor2Key, 0xE01), SkyrimRelease.SkyrimSE) { EditorID = "VivHairHP" };  // same name, no Parts/TextureSet — different content
+            donor2Mod.HeadParts.Add(hair2);
+            var viv2 = new Npc(donor2NpcFk, SkyrimRelease.SkyrimSE) { EditorID = "Viv2" };
+            viv2.Race.SetTo(raceFk);
+            viv2.HeadParts.Add(hair2.FormKey);
+            donor2Mod.Npcs.Add(viv2);
+            WriteModDirect(mods, "Donor2Mod", donor2Mod, keepMod);
+
             // donor-only loose assets: the facegen pair (geom embeds a texture path for the scrape), the scraped
             // texture, and the record-referenced hair model.
             var donorDir = Path.Combine(mods, "DonorMod");
@@ -158,7 +173,7 @@ public static class NpcCopyProbe
             WriteProfile(prof,
                 loadorder: new[] { vanKey.FileName.String, keepKey.FileName.String, folKey.FileName.String },
                 plugins: new[] { "*" + vanKey.FileName, "*" + keepKey.FileName, "*" + folKey.FileName },
-                modlist: new[] { "+ContestMod", "+FollowerMod", "+KeepMod", "+FakeVanilla", "-DonorMod" });
+                modlist: new[] { "+ContestMod", "+FollowerMod", "+KeepMod", "+FakeVanilla", "-DonorMod", "-Donor2Mod" });
             WriteSkyrimIni(prof);
 
             using var svc = LoadOrderService.WithInstance(inst, 0, new UserConfigStore(Path.Combine(root, "user.json")));
@@ -274,6 +289,37 @@ public static class NpcCopyProbe
                 }
                 Check(o.Success && o.Assets is { } ca && ca.Warnings.Any(w => w.Contains("ALREADY provided")),
                     "re-run: a contested facegen DESTINATION gets a named precedence warning (file precedence is its own system)");
+            }
+
+            // ================= 2b-ii. EDITORID COLLISION — same name, DIFFERENT content → loud refusal =================
+            {
+                var o = svc.CopyNpcAppearance(donor2NpcFk.ToString(), "Donor2.esp", null,
+                                              target2Fk.ToString(), null, null, null, "SaelaFace");
+                Check(!o.Success && o.Error!.Contains("CONTENT differs"),
+                    "collision: a same-EditorID, different-content prior copy REFUSES loud — never silently rewired, never re-copied");
+            }
+
+            // ================= 2b-iii. dirty '..' asset path — ONE named failure, carry not aborted =================
+            {
+                // pinned off arm 1's outcome shape: re-check on a fresh apply into a fresh patch.
+                var o = svc.CopyNpcAppearance(donorNpcFk.ToString(), "Donor.esp", null,
+                                              targetFk.ToString(), null, null, "DirtyPathCheck", null);
+                Check(o.Success && o.Assets is { } da
+                      && da.Failures.Any(f => f.Contains("escape.nif"))
+                      && da.Carried.Any(c => c.NewRelPath.EndsWith("skin.dds", StringComparison.OrdinalIgnoreCase)),
+                    "dirty path: a '..' asset path is ONE named failure and the paths after it still carry");
+            }
+
+            // ================= 2b-iv. unverified read-back render — no categorical standalone claim =================
+            {
+                var fake = new NpcCopyOutcome(true, null, "apply", donorNpcFk, "test", false, targetFk, "X.esp", false,
+                    Array.Empty<InternalizedRecord>(), Array.Empty<string>(), 0, Array.Empty<string>(),
+                    Array.Empty<NpcAppearanceCopy.StripReport>(), Array.Empty<string>(), false, false,
+                    Array.Empty<string>(), null, 0,
+                    "the patch WAS written, but the post-write read-back failed (test) — the masters list could not be verified this call.");
+                var render = NpcCopyTools.Render(fake);
+                Check(render.Contains("NOT VERIFIED") && !render.Contains("standalone: the donor is NOT a master"),
+                    "render: a failed read-back never asserts the standalone claim it could not verify");
             }
 
             // ================= 2c. BASE-GAME donor — never donor-bound (the vanilla-look transplant lane) =================
