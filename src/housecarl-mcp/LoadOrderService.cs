@@ -1999,7 +1999,7 @@ public sealed class LoadOrderService : IDisposable
                         if (wloc.Error is not null)
                             widenNote = WidenMiss($"was auto-searched for but not found: {wloc.Error}");
                         else if (wloc.Ambiguous is not null)
-                            widenNote = WidenMiss($"exists in {wloc.Ambiguous.Count} places ({string.Join(" | ", wloc.Ambiguous.Select(h => h.Where))}), so it was not auto-read.");
+                            widenNote = WidenMiss($"exists in {wloc.Ambiguous.Count} places ({string.Join(" | ", wloc.Ambiguous.Select(h => h.Where))}), so it was not auto-read — enable the defining mod, or remove/rename the duplicate copy, and re-run.");
                         else
                         {
                             try
@@ -2121,6 +2121,7 @@ public sealed class LoadOrderService : IDisposable
                         if (sidePath is null) continue;
                         var sideDir = Path.GetDirectoryName(sidePath);
                         if (sideDir is not null && !string.IsNullOrEmpty(dataDirForAssets) && PathEquals(sideDir, dataDirForAssets)) continue;
+                        if (sideDir is not null && donorDisks.Any(d => PathEquals(sideDir, d.Folder))) continue;   // named + defining in one folder = one scan
                         var disk = NpcAppearanceAssets.DonorDisk.For(sidePath);
                         donorDisks.Add(disk);
                         donorFolderNames.Add(Path.GetFileName(disk.Folder));
