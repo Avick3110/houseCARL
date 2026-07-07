@@ -1876,6 +1876,192 @@ public sealed class LoadOrderService : IDisposable
         }
     }
 
+    /// <summary>The composed standalone-NPC-copy verb (housecarl_copy_npc_appearance — capability chain Stage 3).
+    /// Deep-copies a donor NPC's appearance-record subtree into a houseCARL patch under NEW FormKeys (Duplicate +
+    /// RemapLinks — the RemapEngine mechanism, so every field carries by construction: HDPT.Parts morph refs,
+    /// TextureLighting, tints), preserves headpart EditorIDs (facegeom block-name identity), renames the facegen
+    /// pair to the new key's path, and carries the donor-only textures/meshes the records + geom reference.
+    /// TWO TARGET MODES: <paramref name="targetFormid"/> dresses an EXISTING NPC (appearance fields copied onto an
+    /// override); <paramref name="newEditorid"/> mints a full standalone CLONE (donor NPC duplicated; every remaining
+    /// donor-internal non-appearance link stripped + reported by name — Q3, the clone is donor-free LOUDLY).
+    /// The donor may be ACTIVE (read via the load-order winner) or sit in a plugin FILE houseCARL locates across
+    /// enabled/disabled mod folders (<paramref name="sourcePlugin"/> — the read_plugin_file lane, stamped
+    /// out-of-load-order in the outcome). Never touches the donor; output = folder-per-patch or into= extend.</summary>
+    public NpcCopyOutcome CopyNpcAppearance(
+        string sourceFormid, string? sourcePlugin, string? sourceMod,
+        string? targetFormid, string? newEditorid, string? newName,
+        string? patchName, string? into)
+    {
+        // ---- 0. argument shape (Q3 — exactly one target mode) ----
+        FormKey donorFk;
+        try { donorFk = FormKey.Factory((sourceFormid ?? "").Trim()); }
+        catch (Exception ex) { return NpcCopyOutcome.Fail($"bad source formid '{sourceFormid}': {ex.Message}. Expected 'XXXXXX:Plugin.esp', e.g. '000D62:Vivace.esp'."); }
+
+        bool apply = !string.IsNullOrWhiteSpace(targetFormid);
+        bool clone = !string.IsNullOrWhiteSpace(newEditorid);
+        if (apply == clone)
+            return NpcCopyOutcome.Fail(
+                "pass EXACTLY ONE target: target_formid= (copy the donor's appearance onto an EXISTING NPC) or " +
+                "new_editorid= (mint a full standalone CLONE of the donor as a new NPC).");
+        FormKey targetFk = default;
+        if (apply)
+        {
+            try { targetFk = FormKey.Factory(targetFormid!.Trim()); }
+            catch (Exception ex) { return NpcCopyOutcome.Fail($"bad target formid '{targetFormid}': {ex.Message}."); }
+        }
+
+        lock (_writeGate)
+        {
+            var resolver = Resolver;
+            var view = resolver.Capture();
+            if (!Directory.Exists(_modsDir))
+                return NpcCopyOutcome.Fail($"cannot write: ModsDir '{_modsDir}' does not exist. Check HouseCarl:ModsDir.");
+
+            using var session = resolver.OpenSession();
+
+            // ---- 1. read the donor NPC — the ACTIVE lane (load-order winner) or the FILE lane (any plugin on disk,
+            //         disabled included — the read_plugin_file machinery; results stamped out-of-load-order). ----
+            INpcGetter donorNpc;
+            NpcAppearanceCopy.DonorFetch fetch;
+            var donorMods = new HashSet<ModKey> { donorFk.ModKey };
+            string donorReadFrom; bool outOfLoadOrder;
+            ISkyrimModGetter? donorOverlay = null;    // file lane only — disposed in finally
+            string? donorFilePath = null;             // file lane: the located file; active lane: the winner's path (for the donor-disk asset fallback)
+            try
+            {
+                if (!string.IsNullOrWhiteSpace(sourcePlugin))
+                {
+                    string modsDir, dataDir, overwriteDir, profileDir;
+                    lock (_gate) { EnsurePathsDerived(); modsDir = _modsDir; dataDir = _dataDir; overwriteDir = _overwriteDir; profileDir = _profileDir; }
+                    var comp = Mo2LoadOrder.ReadComposition(profileDir);
+                    var sp = sourcePlugin.Trim();
+                    if (LooksLikePath(sp))
+                    {
+                        if (!File.Exists(sp)) return NpcCopyOutcome.Fail($"no file at path '{sp}'.");
+                        donorFilePath = Path.GetFullPath(sp); donorReadFrom = $"direct path '{donorFilePath}'";
+                    }
+                    else if (!string.IsNullOrWhiteSpace(sourceMod))
+                    {
+                        var cand = Path.Combine(modsDir, sourceMod.Trim(), Path.GetFileName(sp));
+                        if (!File.Exists(cand)) return NpcCopyOutcome.Fail($"mod folder '{sourceMod.Trim()}' under ModsDir does not provide '{Path.GetFileName(sp)}'.");
+                        donorFilePath = cand; donorReadFrom = $"file '{sp}' in mod '{sourceMod.Trim()}'";
+                    }
+                    else
+                    {
+                        var hits = Mo2LoadOrder.LocatePlugin(comp, modsDir, dataDir, overwriteDir, sp);
+                        if (hits.Count == 0)
+                            return NpcCopyOutcome.Fail($"'{sp}' is in no mod folder (enabled or disabled), the overwrite folder, or the game Data folder. Check the filename, pass an absolute path, or the exact folder via source_mod=.");
+                        if (hits.Count > 1)
+                            return NpcCopyOutcome.Fail($"'{sp}' exists in {hits.Count} places ({string.Join(" | ", hits.Select(h => h.Where))}) — pass source_mod= to pick one.");
+                        donorFilePath = hits[0].Path; donorReadFrom = $"file '{sp}' ({hits[0].Where}{(hits[0].Enabled ? "" : ", DISABLED")})";
+                    }
+                    outOfLoadOrder = true;
+                    try { donorMods.Add(ModKey.FromFileName(Path.GetFileName(donorFilePath))); } catch { /* a direct path with an odd name — donorFk.ModKey still governs */ }
+
+                    donorOverlay = LoadOrderResolver.OpenOverlay(donorFilePath, string.IsNullOrEmpty(dataDir) ? null : dataDir);
+                    var index = new Dictionary<FormKey, IMajorRecordGetter>();
+                    foreach (var r in donorOverlay.EnumerateMajorRecords()) index[r.FormKey] = r;
+                    if (!index.TryGetValue(donorFk, out var donorBody))
+                        return NpcCopyOutcome.Fail($"file '{Path.GetFileName(donorFilePath)}' does not define or override {donorFk}. This reads the FILE's own records (out of load order); for an active donor omit source_plugin=.");
+                    if (donorBody is not INpcGetter fileNpc)
+                        return NpcCopyOutcome.Fail($"{donorFk} in '{Path.GetFileName(donorFilePath)}' is a {RecordNaming.StripOverlay(donorBody.GetType().Name)}, not an NPC.");
+                    donorNpc = fileNpc;
+                    fetch = fk2 => index.TryGetValue(fk2, out var b) ? b : null;
+                }
+                else
+                {
+                    var winner = view.ResolveWinner(donorFk);
+                    if (winner is null)
+                        return NpcCopyOutcome.Fail(
+                            $"{donorFk} is not present in the active load order. If the donor plugin is DISABLED, pass source_plugin= " +
+                            "(its filename — houseCARL locates it across enabled AND disabled mod folders) to read it out of load order.");
+                    var body = view.GetRecord(session, winner.Value.WinnerPlugin, donorFk);
+                    if (body is null)
+                        return NpcCopyOutcome.Fail($"could not fetch {donorFk} from its winner '{winner.Value.WinnerPlugin}'.");
+                    if (body is not INpcGetter activeNpc)
+                        return NpcCopyOutcome.Fail($"{donorFk} is a {RecordNaming.StripOverlay(body.GetType().Name)}, not an NPC.");
+                    donorNpc = activeNpc;
+                    donorReadFrom = $"active load order (winner: {winner.Value.WinnerPlugin})";
+                    outOfLoadOrder = false;
+                    donorFilePath = view.PluginPath(donorFk.ModKey.FileName.ToString());
+                    fetch = fk2 =>
+                    {
+                        var w2 = view.ResolveWinner(fk2);
+                        return w2 is null ? null : view.GetRecord(session, w2.Value.WinnerPlugin, fk2);
+                    };
+                }
+
+                NpcAppearanceCopy.ActiveResolve active = fk2 => view.ResolveWinner(fk2) is not null;
+
+                // ---- 2. the appearance closure (generic link walk; loud refusals — custom race, runaway, unreadable) ----
+                var closure = NpcAppearanceCopy.CollectAppearanceClosure(donorNpc, donorMods, fetch, active);
+                if (!closure.Success) return NpcCopyOutcome.Fail(closure.Error!);
+
+                // ---- 3. output patch (folder-per-patch or into= extend — the record lane's resolver + ownership gate) ----
+                string outPath; bool extend, created;
+                var defaultStem = clone ? newEditorid!.Trim() : "houseCARL_NpcCopy";
+                try { outPath = ResolveOutputPath(patchName ?? (into is null ? defaultStem : null), into, out extend, out created); }
+                catch (Exception ex) { return NpcCopyOutcome.Fail(ex.Message); }
+                var patchFileName = Path.GetFileName(outPath);
+                var patchModKey = ModKey.FromFileName(patchFileName);
+
+                // ---- 4. apply lane: resolve the ACTIVE target body up front (an in-patch target — its formid names
+                //         the patch itself — is resolved inside the build, off the opened patch mod). ----
+                INpcGetter? targetActiveBody = null;
+                if (apply && targetFk.ModKey != patchModKey)
+                {
+                    if (donorMods.Contains(targetFk.ModKey))
+                        return NpcCopyOutcome.Fail("the target NPC lives in the DONOR's plugin — that cannot be standalone-ized onto itself; pick a target outside the donor (or use new_editorid= to clone).");
+                    var tw = view.ResolveWinner(targetFk);
+                    if (tw is null)
+                        return NpcCopyOutcome.Fail(
+                            $"target {targetFk} is not present in the active load order. The target must be an ACTIVE NPC " +
+                            "(enable its plugin in MO2), or a record in the patch itself (into= that patch and use its formid).");
+                    var tb = view.GetRecord(session, tw.Value.WinnerPlugin, targetFk);
+                    if (tb is not INpcGetter tnpc)
+                        return NpcCopyOutcome.Fail($"target {targetFk} is a {RecordNaming.StripOverlay(tb?.GetType().Name ?? "<unfetchable>")}, not an NPC.");
+                    targetActiveBody = tnpc;
+                }
+
+                // ---- 5. build + serialize (core — Duplicate/RemapLinks, mode lane, multi-master write) ----
+                var outcome = NpcAppearanceCopy.BuildAndWrite(
+                    donorNpc, donorMods, closure,
+                    clone, newEditorid, newName,
+                    targetFk, targetActiveBody,
+                    fk2 => view.ResolveWinner(fk2) is not null,
+                    outPath, extend,
+                    pf => { session.ReleaseOverlay(pf); return session.AllMastersExcept(pf); },   // active-patch self-lock fix
+                    donorReadFrom, outOfLoadOrder);
+                if (!outcome.Success)
+                {
+                    if (created) RemoveFolderCreatedThisCall(outPath);   // hunt F4: a refused copy leaves no orphan
+                    return outcome;
+                }
+
+                // ---- 6. asset carry (facegen rename + donor-only textures/meshes) — best-effort + reported (Q3) ----
+                NpcAssetOutcome assets;
+                try
+                {
+                    AssetResolver assetResolver;
+                    lock (_gate) { assetResolver = Assets; }
+                    var assetView = assetResolver.Capture();
+                    var donorDisk = donorFilePath is not null ? NpcAppearanceAssets.DonorDisk.For(donorFilePath) : null;
+                    var donorFolderName = donorFilePath is not null ? Path.GetFileName(Path.GetDirectoryName(donorFilePath)) : null;
+                    assets = NpcAppearanceAssets.CarryAll(
+                        donorFk, outcome.NewNpcKey, closure.ToInternalize.Select(i => i.Body).ToList(),
+                        assetView, donorDisk, donorFolderName, Path.GetDirectoryName(outPath)!);
+                }
+                catch (Exception ex)
+                {
+                    assets = new NpcAssetOutcome(Array.Empty<CarriedAsset>(), Array.Empty<string>(), Array.Empty<string>(),
+                        new[] { $"asset carry skipped — the asset layer could not be built ({ex.Message}); carry the facegen pair with housecarl_place_asset and verify in-game." }, false, false);
+                }
+                return outcome with { Assets = assets };
+            }
+            finally { (donorOverlay as IDisposable)?.Dispose(); }
+        }
+    }
+
     /// <summary>Create a BRAND-NEW record (housecarl_create_record) — the net-new authoring capability, the sibling of
     /// <see cref="ApplyEdits"/>. Resolves <paramref name="recordType"/> (catalog name or 4-char signature) to ONE concrete
     /// catalog name (unknown/ambiguous → Q3), maps the field <paramref name="operations"/> to core <see cref="WriteRequest"/>s

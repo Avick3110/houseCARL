@@ -148,6 +148,11 @@ public static class CiAll
         // read, the OUT-OF-LOAD-ORDER stamp, the missing-master advisory, and the Q3 refusals (missing/ambiguous
         // filename, bad/absent FormID, formid+type together). Opens its OWN overlay — never touches the resolver index.
         ("read-plugin-file-guard", ReadPluginFileProbe.RunGuard),
+        // STANDALONE-COPY CHAIN Stage 3 — housecarl_copy_npc_appearance: the composed verb. Duplicate+RemapLinks the
+        // donor's appearance closure under new keys (HDPT EditorIDs preserved — facegeom block-name identity; HDPT.Parts
+        // — the lip-sync layer — carried by the whole-record copy), facegen pair renamed to the new FormKey path, donor-
+        // only assets carried (record harvest + geom byte-scrape), clone-mode strips NAMED, donor NEVER a master.
+        ("copy-npc-appearance-guard", NpcCopyProbe.RunGuard),
     };
 
     /// <summary>Dispatch a single CI guard by name through the registry — the ONE place a CI probe is listed, so
