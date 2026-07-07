@@ -274,7 +274,7 @@ public static class RemapEngine
     /// surface derives from (no drift). An abstract group (e.g. <c>SkyrimGroup&lt;Global&gt;</c>) matches its concrete arm
     /// (<c>GlobalFloat</c>) because <c>tMajor.IsInstanceOfType(dup)</c> holds and <c>Add(Global)</c> accepts the subtype.
     /// Returns false when no flat group fits (a nested-only record) — the caller fails loud.</summary>
-    static bool TryAddToFlatGroup(SkyrimMod target, IMajorRecord dup)
+    internal static bool TryAddToFlatGroup(SkyrimMod target, IMajorRecord dup)
     {
         foreach (var (prop, tMajor, _) in WriteEngine.EnumerateFlatGroups(target.GetType()))
         {
