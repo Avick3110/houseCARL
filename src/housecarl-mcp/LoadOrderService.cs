@@ -386,6 +386,125 @@ public sealed class LoadOrderService : IDisposable
     /// ternary) so a future AssetKind arm renders its real name, never a silent mislabel.</summary>
     static string KindLabel(AssetKind k) => k switch { AssetKind.Bsa => "BSA", AssetKind.Loose => "loose", var other => other.ToString() };
 
+    // ---- NIF layer Wave 2: whitelist WRITES into a mesh (housecarl_nif_set) ----
+
+    /// <summary>Apply the N2-whitelist write op(s) to a mesh (housecarl_nif_set): resolve the Data-relative
+    /// <paramref name="relPath"/> to the WINNING copy (or <paramref name="mod"/>'s copy), read its bytes IN PROCESS, hand
+    /// them to <see cref="NifService.Set"/> (which applies + VERIFIES with the two offset-immune gates, or refuses loud —
+    /// nothing is written to disk unless it verified), then place the verified bytes. Two lanes, mirroring the record
+    /// write lanes:
+    ///   • DEFAULT (non-destructive): write into a NEW houseCARL-owned MO2 mod folder (same relative path) that the modder
+    ///     enables + sorts ABOVE the current winner so the edited copy WINS the VFS — originals untouched. A BSA-packed
+    ///     source naturally becomes a loose winning override this way.
+    ///   • IN-PLACE (opt-in, <paramref name="inPlace"/>): OVERWRITE the winning LOOSE file where it sits, riding the SAME
+    ///     persistent first-touch consent handshake as the record in-place lane (keyed on the resolved file path,
+    ///     <see cref="UserConfigStore"/>) — no backup. A BSA-only winner can't be edited in place (there is no loose file);
+    ///     that refuses with the default-lane guidance.
+    /// Serialized on the write gate. Q3 honesty: for the default lane "wrote it" ≠ "it wins" — the render says to enable +
+    /// sort the fresh mod; this never claims the fix took effect on write.</summary>
+    public NifSetResult NifSet(string relPath, IReadOnlyList<NifSetOp> ops, string? mod, string? patchName, string? into, bool inPlace, bool acknowledge)
+    {
+        var rel = (relPath ?? "").Trim();
+        if (rel.Length == 0) return NifSetResult.Fail("no mesh path given. Pass a Data-relative path, e.g. 'meshes\\armor\\iron\\cuirass_1.nif'.");
+        if (ops is null || ops.Count == 0) return NifSetResult.Fail("no write op given — pass at least one op (e.g. set_flags, rename_shape).");
+        if (inPlace && !string.IsNullOrWhiteSpace(into))
+            return NifSetResult.Fail("in_place and into are mutually exclusive — in_place overwrites the winning file where it sits; into= names a NEW houseCARL folder.");
+
+        lock (_writeGate)
+        {
+            AssetResolver.AssetView view; IReadOnlyList<string> warnings; string profileName;
+            try { lock (_gate) { view = Assets.Capture(); warnings = _assetWarnings; profileName = _profileName; } }
+            catch (Exception ex) { return NifSetResult.Fail($"could not resolve the asset layer (the MO2 instance may not be readable): {ex.Message}"); }
+
+            PlacementResolution place;
+            try { place = view.ResolveForPlacement(rel); }
+            catch (ArgumentException ex) { return NifSetResult.Fail($"invalid path — {ex.Message}"); }
+
+            var providers = place.Sources.Select(s => new NifProvider(s.ProviderName, KindLabel(s.Kind))).ToList();
+            if (place.Sources.Count == 0)
+                return NifSetResult.Fail($"ABSENT — no active mod or BSA provides '{rel}', so there is no copy to edit.", providers, profileName);
+
+            // pick the copy to read/edit: the VFS winner, or a specific provider when mod= names one.
+            PlacementSource chosen;
+            if (!string.IsNullOrWhiteSpace(mod))
+            {
+                var pick = place.Sources.FirstOrDefault(s => s.ProviderName.Equals(mod!.Trim(), StringComparison.OrdinalIgnoreCase));
+                if (pick is null)
+                    return NifSetResult.Fail($"mod '{mod!.Trim()}' does not provide this path. Providers (winner first): {string.Join(", ", providers.Select(p => p.Name + " (" + p.Kind + ")"))}.", providers, profileName);
+                chosen = pick;
+            }
+            else chosen = place.Sources[0];
+
+            var (bytes, readErr) = AssetResolver.ReadPlacementSource(chosen);
+            if (bytes is null) return NifSetResult.Fail(readErr ?? "could not read the resolved mesh bytes.", providers, profileName);
+
+            // ---- apply + verify (pure; NOTHING is written unless this returns verified bytes) ----
+            var outcome = NifService.Set(bytes, ops);
+            if (outcome.Error is not null) return NifSetResult.Fail(outcome.Error, providers, profileName);
+            var editedBytes = outcome.WrittenBytes!;
+            var report = outcome.Report!;
+            var chosenProv = new NifProvider(chosen.ProviderName, KindLabel(chosen.Kind));
+
+            // ---- IN-PLACE lane ----
+            if (inPlace)
+            {
+                if (chosen.Kind != AssetKind.Loose || string.IsNullOrEmpty(chosen.LooseFilePath))
+                    return NifSetResult.Fail(
+                        $"in-place needs a LOOSE copy to overwrite, but '{rel}' resolves to {chosen.ProviderName} ({KindLabel(chosen.Kind)}). " +
+                        "Drop in_place to write a loose winning override into a new houseCARL folder instead (the default lane).", providers, profileName);
+                var targetPath = chosen.LooseFilePath!;
+                var meshName = Path.GetFileName(targetPath);
+
+                bool already = _store.IsInPlaceAcknowledged(targetPath);
+                if (!already && !acknowledge)
+                    return NifSetResult.NeedsAck(InPlaceHandshakeText(meshName, targetPath), chosenProv, providers, profileName);
+                string? ackNote = null;
+                if (!already && acknowledge)
+                {
+                    var (ok, err) = _store.RecordInPlaceAcknowledged(targetPath);
+                    if (!ok) ackNote = $"the in-place acknowledgement could not be saved ({err}) — the edit proceeded, but a future session will re-prompt for this file.";
+                }
+
+                if (InPlaceParentUnwritable(targetPath, out var why)) return NifSetResult.Fail(why, providers, profileName);
+                try { AtomicFile.WriteAllBytes(targetPath, editedBytes); }
+                catch (Exception ex) { return NifSetResult.Fail($"could not overwrite '{targetPath}' in place: {ex.Message}. Nothing was written.", providers, profileName); }
+                long sz; try { sz = new FileInfo(targetPath).Length; } catch { sz = -1; }
+                if (sz != editedBytes.Length)
+                    return NifSetResult.Fail($"wrote '{meshName}' but its on-disk size ({sz}) does not match the {editedBytes.Length} verified byte(s) — verify before relying on it.", providers, profileName);
+
+                return NifSetResult.OkInPlace(rel, chosenProv, providers, place.Ambiguous, report, targetPath,
+                    Combine(report.Warnings, ackNote), profileName);
+            }
+
+            // ---- DEFAULT (new-folder) lane ----
+            RiderFolder rf;
+            try { rf = ResolvePatchModFolder(patchName, into, "houseCARL_NifEdit"); }
+            catch (InvalidOperationException ex) { return NifSetResult.Fail(ex.Message, providers, profileName); }
+
+            var dest = Path.Combine(rf.OutputDir, rel);
+            try { Directory.CreateDirectory(Path.GetDirectoryName(dest)!); AtomicFile.WriteAllBytes(dest, editedBytes); }
+            catch (Exception ex)
+            {
+                var residue = RemoveOrNameRiderResidue(rf);
+                return NifSetResult.Fail($"could not write '{rel}' into the patch folder: {ex.Message}"
+                    + (residue is null ? "" : $" The freshly created mod folder was left at '{residue}'."), providers, profileName);
+            }
+            long size; try { size = new FileInfo(dest).Length; } catch { size = -1; }
+            if (size != editedBytes.Length)
+            {
+                RemoveOrNameRiderResidue(rf);
+                return NifSetResult.Fail($"wrote '{rel}' but its on-disk size ({size}) does not match the {editedBytes.Length} verified byte(s) — verify before relying on it.", providers, profileName);
+            }
+
+            string? winner = providers.Count > 0 ? $"{providers[0].Name} ({providers[0].Kind})" : null;
+            return NifSetResult.OkNewFolder(rel, chosenProv, providers, place.Ambiguous, report, rf.ModFolder, winner, warnings, profileName);
+        }
+    }
+
+    /// <summary>Concatenate a warnings list with an optional extra note (in-place ack save failure), dropping nulls.</summary>
+    static IReadOnlyList<string> Combine(IReadOnlyList<string> warnings, string? extra)
+        => extra is null ? warnings : warnings.Append(extra).ToList();
+
     // ---- facegen-diagnostics Phase 3: place an asset so the correct copy WINS the VFS (housecarl_place_asset) ----
 
     /// <summary>Place one-or-more assets (FaceGen .nif/.dds, or any Data-relative file) into a NEW houseCARL-owned MO2 mod
@@ -3766,6 +3885,43 @@ public sealed record NifInspectData(
 {
     public static NifInspectData Fail(string relPath, string error)
         => new(relPath, null, Array.Empty<NifProvider>(), false, Array.Empty<string>(), false, Array.Empty<string>(), "", null, error);
+}
+
+/// <summary>The data behind housecarl_nif_set: the VFS resolution joined to the verified write outcome. Exactly one of
+/// {<see cref="Report"/> (a verified write happened)}, {<see cref="Error"/> (a named refusal — NOTHING written, Q3)},
+/// and {<see cref="NeedsAcknowledge"/> (the in-place first-touch consent prompt — a required confirmation, not an
+/// error)} describes the result. <see cref="OutputModFolder"/> is set on the default-lane success (enable + sort it above
+/// <see cref="CurrentWinner"/>); <see cref="InPlacePath"/> is set on the in-place success (the file overwritten in
+/// place).</summary>
+public sealed record NifSetResult(
+    string RelPath,
+    NifProvider? Edited,
+    IReadOnlyList<NifProvider> Providers,
+    bool Ambiguous,
+    HousecarlCore.NifSetReport? Report,
+    string? Error,
+    bool NeedsAcknowledge,
+    string? AckPrompt,
+    bool InPlace,
+    string? OutputModFolder,
+    string? InPlacePath,
+    string? CurrentWinner,
+    IReadOnlyList<string> Warnings,
+    string ProfileName)
+{
+    public static NifSetResult Fail(string error, IReadOnlyList<NifProvider>? providers = null, string profileName = "")
+        => new("", null, providers ?? Array.Empty<NifProvider>(), false, null, error, false, null, false, null, null, null, Array.Empty<string>(), profileName);
+
+    public static NifSetResult NeedsAck(string prompt, NifProvider edited, IReadOnlyList<NifProvider> providers, string profileName)
+        => new("", edited, providers, false, null, null, true, prompt, true, null, null, null, Array.Empty<string>(), profileName);
+
+    public static NifSetResult OkNewFolder(string rel, NifProvider edited, IReadOnlyList<NifProvider> providers, bool ambiguous,
+        HousecarlCore.NifSetReport report, string modFolder, string? winner, IReadOnlyList<string> warnings, string profileName)
+        => new(rel, edited, providers, ambiguous, report, null, false, null, false, modFolder, null, winner, warnings, profileName);
+
+    public static NifSetResult OkInPlace(string rel, NifProvider edited, IReadOnlyList<NifProvider> providers, bool ambiguous,
+        HousecarlCore.NifSetReport report, string inPlacePath, IReadOnlyList<string> warnings, string profileName)
+        => new(rel, edited, providers, ambiguous, report, null, false, null, true, null, inPlacePath, null, warnings, profileName);
 }
 
 /// <summary>One asset to PLACE (housecarl_place_asset / bulk). <see cref="AssetPath"/> is the resolved Data-relative

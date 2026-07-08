@@ -183,6 +183,66 @@ internal static class NifSetGuardProbe
                        "non-SE stream → named refusal (no cross-game write)");
         }
 
+        // ---- service lanes end-to-end (REAL LoadOrderService over a synthetic MO2 instance — PlaceAssetProbe pattern) ----
+        Console.WriteLine();
+        Console.WriteLine("--- service: new-folder + in-place lanes + persistent consent (real LoadOrderService) ---");
+        const string MeshRel = @"meshes\actors\character\facegendata\facegeom\Test.esp\00000001.nif";
+        var svcRoot = Path.Combine(Path.GetTempPath(), "hc-nif-set-guard-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(svcRoot);
+        try
+        {
+            // DEFAULT (new-folder) lane: the edited mesh lands in a fresh houseCARL folder; original untouched; winner reported.
+            {
+                var inst = Path.Combine(svcRoot, "new");
+                var (mods, _, prof) = MakeInstance(inst);
+                var mod = Path.Combine(mods, "FaceMod"); Directory.CreateDirectory(mod);
+                WriteLoose(mod, MeshRel, seBytes);
+                File.WriteAllText(Path.Combine(mod, "Dummy.esp"), "x");
+                WriteProfile(prof, new[] { "Dummy.esp" }, new[] { "*Dummy.esp" }, new[] { "+FaceMod" });
+                WriteSkyrimIni(prof);
+                using var svc = HousecarlMcp.LoadOrderService.WithInstance(inst, 0, new UserConfigStore(Path.Combine(svcRoot, "u-new.json")));
+
+                var res = svc.NifSet(MeshRel, new[] { new NifSetOp(NifSetOpKind.SetFlags, "GuardShape", Flags: 0x800000E) }, null, "FaceFix", null, inPlace: false, acknowledge: false);
+                Check(res.Error is null && res.OutputModFolder is not null, $"new-folder lane writes a verified mesh into a fresh houseCARL folder — {res.Error ?? "ok"}");
+                var placed = res.OutputModFolder is null ? null : Path.Combine(res.OutputModFolder, MeshRel);
+                Check(placed is not null && File.Exists(placed), "the edited mesh lands at the SAME rel path in the new folder");
+                Check(ShapeOf(placed is null ? null : File.ReadAllBytes(placed), "GuardShape") is { Flags: 0x800000E }, "the placed mesh reads the new flags");
+                Check(File.ReadAllBytes(Path.Combine(mod, MeshRel)).SequenceEqual(seBytes), "the ORIGINAL loose mesh is untouched (non-destructive default)");
+                Check(res.CurrentWinner is { } w && w.Contains("FaceMod"), $"reports the current winner to sort above — {res.CurrentWinner}");
+            }
+
+            // IN-PLACE lane: first call prompts for consent (nothing written); ack writes in place; a later edit needs no re-ack.
+            {
+                var inst = Path.Combine(svcRoot, "ip");
+                var (mods, _, prof) = MakeInstance(inst);
+                var mod = Path.Combine(mods, "FaceMod"); Directory.CreateDirectory(mod);
+                WriteLoose(mod, MeshRel, seBytes);
+                File.WriteAllText(Path.Combine(mod, "Dummy.esp"), "x");
+                WriteProfile(prof, new[] { "Dummy.esp" }, new[] { "*Dummy.esp" }, new[] { "+FaceMod" });
+                WriteSkyrimIni(prof);
+                var loosePath = Path.Combine(mod, MeshRel);
+                using var svc = HousecarlMcp.LoadOrderService.WithInstance(inst, 0, new UserConfigStore(Path.Combine(svcRoot, "u-ip.json")));
+
+                var r1 = svc.NifSet(MeshRel, new[] { new NifSetOp(NifSetOpKind.SetFlags, "GuardShape", Flags: 0x800000E) }, null, null, null, inPlace: true, acknowledge: false);
+                Check(r1.NeedsAcknowledge && r1.Report is null, $"in-place FIRST call without acknowledge → consent prompt, nothing written — {(r1.NeedsAcknowledge ? "prompt" : "NO PROMPT")}");
+                Check(File.ReadAllBytes(loosePath).SequenceEqual(seBytes), "the loose file is untouched by the un-acknowledged in-place call");
+
+                var r2 = svc.NifSet(MeshRel, new[] { new NifSetOp(NifSetOpKind.SetFlags, "GuardShape", Flags: 0x800000E) }, null, null, null, inPlace: true, acknowledge: true);
+                Check(r2.Error is null && r2.InPlace && r2.InPlacePath == loosePath, $"in-place WITH acknowledge overwrites the loose file where it sits — {r2.Error ?? "ok"}");
+                Check(ShapeOf(File.ReadAllBytes(loosePath), "GuardShape") is { Flags: 0x800000E }, "the in-place file now reads the new flags");
+
+                var r3 = svc.NifSet(MeshRel, new[] { new NifSetOp(NifSetOpKind.SetScale, "GuardShape", Scale: 2f) }, null, null, null, inPlace: true, acknowledge: false);
+                Check(r3.Error is null && !r3.NeedsAcknowledge && r3.InPlace, $"a LATER in-place edit of the same file needs NO re-acknowledge (consent persisted) — {(r3.NeedsAcknowledge ? "RE-PROMPTED" : "ok")}");
+
+                // mutual exclusion + absent path refusals through the service
+                Check(svc.NifSet(MeshRel, new[] { new NifSetOp(NifSetOpKind.SetScale, "GuardShape", Scale: 1f) }, null, null, "SomeFolder", inPlace: true, acknowledge: false).Error is { } em && em.Contains("mutually exclusive"),
+                      "in_place + into= → named refusal (mutually exclusive)");
+                Check(svc.NifSet(@"meshes\nope\absent.nif", new[] { new NifSetOp(NifSetOpKind.SetScale, "GuardShape", Scale: 1f) }, null, null, null, false, false).Error is { } ea && ea.Contains("ABSENT"),
+                      "an absent mesh path → ABSENT refusal");
+            }
+        }
+        finally { try { Directory.Delete(svcRoot, recursive: true); } catch { /* temp scratch */ } }
+
         // ---- corpus smoke (existence-gated): set_path success on a REAL facegen mesh ----
         Console.WriteLine();
         Console.WriteLine("--- corpus smoke: set_path on a real facegen texture set (existence-gated) ---");
@@ -300,5 +360,40 @@ internal static class NifSetGuardProbe
         using var outMs = new MemoryStream();
         nif.Save(outMs);
         return (outMs.ToArray(), shapeIdx, childIdx);
+    }
+
+    // ---- synthetic MO2 layout helpers (the PlaceAssetProbe / AssetStatusProbe pattern) ----
+
+    static (string mods, string data, string prof) MakeInstance(string inst)
+    {
+        var mods = Path.Combine(inst, "mods");
+        var data = Path.Combine(inst, "game", "Data");
+        var prof = Path.Combine(inst, "profiles", "Default");
+        foreach (var d in new[] { mods, data, prof }) Directory.CreateDirectory(d);
+        File.WriteAllText(Path.Combine(inst, "ModOrganizer.ini"),
+            "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(Default)\r\ngamePath=@ByteArray("
+            + Path.Combine(inst, "game").Replace(@"\", @"\\") + ")\r\n");
+        return (mods, data, prof);
+    }
+
+    static void WriteProfile(string profDir, string[] loadorder, string[] plugins, string[] modlist)
+    {
+        Directory.CreateDirectory(profDir);
+        File.WriteAllText(Path.Combine(profDir, "loadorder.txt"), "# header\r\n" + string.Join("\r\n", loadorder) + "\r\n");
+        File.WriteAllText(Path.Combine(profDir, "plugins.txt"), string.Join("\r\n", plugins) + "\r\n");
+        File.WriteAllText(Path.Combine(profDir, "modlist.txt"), "# header\r\n" + string.Join("\r\n", modlist) + "\r\n");
+    }
+
+    static void WriteSkyrimIni(string profDir)
+    {
+        Directory.CreateDirectory(profDir);
+        File.WriteAllText(Path.Combine(profDir, "Skyrim.ini"), "[Archive]\r\nsResourceArchiveList=\r\n");
+    }
+
+    static void WriteLoose(string baseDir, string rel, byte[] bytes)
+    {
+        var p = Path.Combine(baseDir, rel);
+        Directory.CreateDirectory(Path.GetDirectoryName(p)!);
+        File.WriteAllBytes(p, bytes);
     }
 }

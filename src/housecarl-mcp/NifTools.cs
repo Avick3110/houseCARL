@@ -77,6 +77,115 @@ public static class NifTools
         }
         return (want, unknown);
     }
+
+    [McpServerTool(Name = "housecarl_nif_set", Title = "Write a whitelisted data value into a Skyrim mesh (.nif)"),
+     Description(
+         "Write ONE whitelisted DATA VALUE into a Skyrim SE mesh (.nif) at the data layer, beneath NifSkope — then VERIFY " +
+         "the edit before anything lands. Resolve the Data-relative mesh_path through Mod Organizer 2's VFS to the winning " +
+         "copy (or mod=), apply the op, and pass it two offset-immune verification gates (only the block/value the op " +
+         "claims to touch changed; a reload re-reads the new value; census + SE-stream intact) — a failure writes NOTHING " +
+         "and says why. The six ops (op=): rename_shape / rename_node (retitle a baked shape/node — the HDPT-EDID facegen " +
+         "case), set_flags (NiAVObject flags on a shape/node — the 0x80000 head/hair-class bit), set_scale, set_partition " +
+         "(a BSDismember body-part id — pass body_part_id [+ partition_index]), set_alpha (alpha_flags word and/or " +
+         "alpha_threshold — the hair 0x12ED / hairline 0x12EE class), set_path (swap a BSShaderTextureSet slot — pass " +
+         "texture_slot + path; e.g. the FaceTint slot 6 or skin slots 0/1). target= is the shape or node NAME the op edits " +
+         "(from housecarl_nif_inspect). By DEFAULT the verified mesh is written into a NEW houseCARL MO2 mod folder at the " +
+         "same path (originals untouched) — enable it and sort it ABOVE the current winner so the edit wins; a BSA-packed " +
+         "source becomes a loose winning override this way. in_place=true instead OVERWRITES the winning LOOSE file where " +
+         "it sits (opt-in; rides the one-time per-file consent handshake, needs acknowledge=true, NO backup). Only edits " +
+         "data VALUES — never geometry / vertices / the .dds pixels. Refuses loud (Q3): a non-SE mesh, a target it can't " +
+         "find or that's ambiguous, an op that doesn't apply, or any verification miss.")]
+    public static string NifSet(
+        LoadOrderService svc,
+        [Description("The Data-relative mesh path to edit, e.g. 'meshes\\actors\\character\\facegendata\\facegeom\\Skyrim.esm\\00000007.nif'.")]
+            string mesh_path,
+        [Description("The write op: 'rename_shape', 'rename_node', 'set_flags', 'set_scale', 'set_partition', 'set_alpha', or 'set_path'.")]
+            string op,
+        [Description("The NAME of the shape or node the op edits (the current name; from housecarl_nif_inspect). For a rename this is the OLD name.")]
+            string target,
+        [Description("rename_shape / rename_node: the new name.")] string new_name = "",
+        [Description("set_flags: the NiAVObject flags value — hex ('0x800000E') or decimal.")] string flags = "",
+        [Description("set_scale: the scale, e.g. '1.0'.")] string scale = "",
+        [Description("set_partition: the BSDismember body-part id, e.g. '32' (SBP_32_BODY).")] string body_part_id = "",
+        [Description("set_partition: which partition to change when a shape has more than one (0-based). Omit if it has exactly one.")] string partition_index = "",
+        [Description("set_alpha: the 16-bit alpha flags word — hex ('0x12ED') or decimal. Optional if only changing the threshold.")] string alpha_flags = "",
+        [Description("set_alpha: the alpha test threshold, 0-255. Optional if only changing the flags word.")] string alpha_threshold = "",
+        [Description("set_path: the BSShaderTextureSet slot index (0 diffuse, 1 normal, 6 tint/skin/detail, ...).")] string texture_slot = "",
+        [Description("set_path: the new texture path (Data-relative, e.g. 'textures\\...\\facetint\\Mod.esp\\00000ABC.dds').")] string path = "",
+        [Description("Optional. Edit a specific provider's copy instead of the VFS winner — the mod folder name, 'overwrite', 'Data', or a BSA filename from the providers chain. Empty = the winner.")]
+            string mod = "",
+        [Description("Optional. Base name for the NEW mod folder the edited mesh is written into (default lane; auto-suffixed if taken). Ignored with in_place=true.")]
+            string patch_name = "",
+        [Description("Optional. Write into an EXISTING houseCARL-owned mod folder instead of a fresh one (default lane). Mutually exclusive with in_place.")]
+            string into = "",
+        [Description("Optional, default false. IN-PLACE LANE (opt-in): OVERWRITE the winning LOOSE file where it sits instead of writing a new folder — NO backup. Requires acknowledge=true (see below). OMIT (the default) to write a new winning override and leave the original untouched.")]
+            bool in_place = false,
+        [Description("Optional, default false. Confirms the one-time in-place trade-off for this file — needed only on the FIRST in-place edit of a given mesh, never again for it. Waives the consent to overwrite your original ONLY; it NEVER skips the mesh verification.")]
+            bool acknowledge = false,
+        [Description("Optional. Max characters before a list is cut with an explicit notice. 0 = the server default (~80k).")]
+            int max_chars = 0) => Guard.Tool("housecarl_nif_set", () =>
+    {
+        if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
+        if (string.IsNullOrWhiteSpace(mesh_path)) return "error: mesh_path is empty. Pass a Data-relative mesh path.";
+        if (string.IsNullOrWhiteSpace(op)) return "error: op is empty. Pass one of: rename_shape, rename_node, set_flags, set_scale, set_partition, set_alpha, set_path.";
+        if (string.IsNullOrWhiteSpace(target)) return "error: target is empty. Pass the shape/node NAME the op edits (from housecarl_nif_inspect).";
+
+        var (built, buildErr) = BuildOp(op.Trim(), target.Trim(), new_name, flags, scale, body_part_id, partition_index, alpha_flags, alpha_threshold, texture_slot, path);
+        if (buildErr is not null) return "error: " + buildErr;
+
+        var data = svc.NifSet(mesh_path, new[] { built! },
+            string.IsNullOrWhiteSpace(mod) ? null : mod,
+            string.IsNullOrWhiteSpace(patch_name) ? null : patch_name,
+            string.IsNullOrWhiteSpace(into) ? null : into,
+            in_place, acknowledge);
+        return NifSetWire.Render(data, max_chars > 0 ? max_chars : 80_000);
+    });
+
+    /// <summary>Turn the flat tool params into one <see cref="NifSetOp"/>, or a friendly NAMED error (Q3) for an unknown op
+    /// or an unparseable value — before the value ever reaches the service. Numeric params are strings so an omitted one is
+    /// distinguishable from a real 0 (partition_index 0 is valid).</summary>
+    static (NifSetOp? Op, string? Error) BuildOp(string op, string target,
+        string newName, string flags, string scale, string bodyPartId, string partitionIndex, string alphaFlags, string alphaThreshold, string textureSlot, string path)
+    {
+        switch (op.ToLowerInvariant())
+        {
+            case "rename_shape": return (new NifSetOp(NifSetOpKind.RenameShape, target, NewName: newName), null);
+            case "rename_node": return (new NifSetOp(NifSetOpKind.RenameNode, target, NewName: newName), null);
+            case "set_flags":
+                if (!TryParseUInt(flags, out var fv)) return (null, $"set_flags needs a flags value (hex '0x800000E' or decimal); got '{flags}'.");
+                return (new NifSetOp(NifSetOpKind.SetFlags, target, Flags: fv), null);
+            case "set_scale":
+                if (!float.TryParse(scale, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var sc))
+                    return (null, $"set_scale needs a numeric scale; got '{scale}'.");
+                return (new NifSetOp(NifSetOpKind.SetScale, target, Scale: sc), null);
+            case "set_partition":
+                if (!int.TryParse(bodyPartId, out var bp)) return (null, $"set_partition needs a numeric body_part_id; got '{bodyPartId}'.");
+                int? pidx = null;
+                if (!string.IsNullOrWhiteSpace(partitionIndex)) { if (!int.TryParse(partitionIndex, out var pi)) return (null, $"partition_index must be a number; got '{partitionIndex}'."); pidx = pi; }
+                return (new NifSetOp(NifSetOpKind.SetPartition, target, BodyPartId: bp, PartitionIndex: pidx), null);
+            case "set_alpha":
+                ushort? af = null; byte? at = null;
+                if (!string.IsNullOrWhiteSpace(alphaFlags)) { if (!TryParseUInt(alphaFlags, out var afu) || afu > ushort.MaxValue) return (null, $"alpha_flags must be a 16-bit value (hex '0x12ED' or decimal); got '{alphaFlags}'."); af = (ushort)afu; }
+                if (!string.IsNullOrWhiteSpace(alphaThreshold)) { if (!byte.TryParse(alphaThreshold, out var atb)) return (null, $"alpha_threshold must be 0-255; got '{alphaThreshold}'."); at = atb; }
+                if (af is null && at is null) return (null, "set_alpha needs alpha_flags and/or alpha_threshold.");
+                return (new NifSetOp(NifSetOpKind.SetAlpha, target, AlphaFlags: af, AlphaThreshold: at), null);
+            case "set_path":
+                if (!int.TryParse(textureSlot, out var slot)) return (null, $"set_path needs a numeric texture_slot; got '{textureSlot}'.");
+                if (string.IsNullOrWhiteSpace(path)) return (null, "set_path needs a path.");
+                return (new NifSetOp(NifSetOpKind.SetPath, target, TextureSlot: slot, Path: path), null);
+            default:
+                return (null, $"unknown op '{op}'. Use one of: rename_shape, rename_node, set_flags, set_scale, set_partition, set_alpha, set_path.");
+        }
+    }
+
+    /// <summary>Parse a uint from hex ('0x...') or decimal.</summary>
+    static bool TryParseUInt(string s, out uint value)
+    {
+        s = (s ?? "").Trim();
+        if (s.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+            return uint.TryParse(s.AsSpan(2), System.Globalization.NumberStyles.HexNumber, System.Globalization.CultureInfo.InvariantCulture, out value);
+        return uint.TryParse(s, out value);
+    }
 }
 
 /// <summary>Renders <see cref="NifInspectData"/> as compact, scannable text: the build-level Q3 alarms first (archives
@@ -321,5 +430,79 @@ static class NifWire
             if (sb.Length >= cap) { sb.Append("  ... [").Append(warnings.Count - shown).Append(" more omitted]\n"); break; }
             sb.Append("  - ").Append(w).Append('\n'); shown++;
         }
+    }
+}
+
+/// <summary>Renders <see cref="NifSetResult"/>: the resolution (which copy was edited + provider chain), then exactly one
+/// of — the in-place CONSENT prompt (verbatim, a required confirmation not an error), a NAMED refusal (nothing written),
+/// or the verified-write success (the op's before→after, what the verification confirmed changed, and the LANE outcome:
+/// a new mod folder to enable+sort, or the file overwritten in place). Q3: a default-lane success says "wrote it, now
+/// enable+sort" — it never claims the edit is winning on disk yet.</summary>
+static class NifSetWire
+{
+    public static string Render(NifSetResult d, int cap)
+    {
+        var sb = new StringBuilder();
+        sb.Append("nif set — ").Append(d.RelPath.Length > 0 ? d.RelPath : "(mesh)")
+          .Append("  (profile '").Append(d.ProfileName.Length > 0 ? d.ProfileName : "(unconfigured)").Append("')\n");
+
+        // in-place first-touch consent — a required confirmation, returned verbatim (NOT an error, Q3).
+        if (d.NeedsAcknowledge)
+        {
+            sb.Append('\n').Append(d.AckPrompt).Append('\n');
+            return sb.ToString().TrimEnd('\n');
+        }
+
+        // refusal — nothing written.
+        if (d.Report is null || d.Error is not null)
+        {
+            sb.Append('\n').Append(d.Error ?? "unknown error").Append('\n');
+            if (d.Providers.Count > 0) AppendProviders(sb, d.Providers);
+            return sb.ToString().TrimEnd('\n');
+        }
+
+        // success.
+        if (d.Edited is not null) sb.Append("  edited copy: ").Append(d.Edited.Name).Append(" (").Append(d.Edited.Kind).Append(")\n");
+        AppendProviders(sb, d.Providers);
+        if (d.Ambiguous)
+            sb.Append("  note: more than one source provides this mesh — the winner above was edited (loose beats BSA). Pass mod= to edit another copy.\n");
+
+        sb.Append("\n  applied + VERIFIED (two gates: only the op's block/header changed; reload re-reads the value; census intact):\n");
+        foreach (var o in d.Report.Ops)
+            sb.Append("    ").Append(o.Op).Append(" on '").Append(o.Target).Append("': ").Append(o.Before).Append("  ->  ").Append(o.After).Append('\n');
+        sb.Append("  verification: ")
+          .Append(d.Report.HeaderChanged ? "header string table" : "no header change")
+          .Append(d.Report.ChangedBlocks.Count > 0 ? $" + block(s) [{string.Join(", ", d.Report.ChangedBlocks)}]" : " + 0 blocks")
+          .Append("; size ").Append(d.Report.SizeDelta >= 0 ? "+" : "").Append(d.Report.SizeDelta).Append(" byte(s)\n");
+
+        // lane outcome
+        if (d.InPlace)
+            sb.Append("\n  IN-PLACE: overwrote ").Append(d.InPlacePath).Append(" (your original — no houseCARL backup). The edit is live where the file already wins.\n");
+        else
+        {
+            sb.Append("\n  wrote the verified mesh into a new mod folder: ").Append(d.OutputModFolder).Append('\n');
+            sb.Append("  TO MAKE IT WIN: enable this folder in MO2 and sort it ABOVE ")
+              .Append(d.CurrentWinner ?? "the current winner")
+              .Append(" (loose beats BSA; among loose, the later mod wins). 'Wrote it' is not 'it wins' until you do.\n");
+        }
+
+        if (d.Warnings.Count > 0)
+        {
+            sb.Append("\n  notes:\n");
+            foreach (var w in d.Warnings) sb.Append("    - ").Append(w).Append('\n');
+        }
+        return sb.ToString().TrimEnd('\n');
+    }
+
+    static void AppendProviders(StringBuilder sb, IReadOnlyList<NifProvider> providers)
+    {
+        if (providers.Count == 0) return;
+        sb.Append("  providers (").Append(providers.Count).Append("): ");
+        for (int i = 0; i < providers.Count; i++)
+        {
+            if (i > 0) sb.Append(" > ");
+            sb.Append(providers[i].Name).Append(" (").Append(providers[i].Kind).Append(')');
+        }
+        sb.Append('\n');
     }
 }
