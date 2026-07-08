@@ -47,6 +47,11 @@ GPL-3.0-only   (copyleft — the same license as houseCARL; see the LICENSE file
   GameFinder.StoreHandlers.Steam   4.4.0    github.com/erri120/GameFinder
   GameFinder.StoreHandlers.Xbox    4.4.0    github.com/erri120/GameFinder
   GameFinder.Wine                  4.4.0    github.com/erri120/GameFinder
+  NiflySharp                       1.0.0    github.com/ousnius/NiflySharp
+
+  NiflySharp (NuGet package "Nifly", by ousnius / the nifly project) is the
+  asset-internal mesh reader the NIF layer is built on — pure C#, source-generated
+  from nifxml. It is GPL-3.0-only, the same license as houseCARL.
 
   These components are distributed under the GPL-3.0-only terms reproduced in the
   LICENSE file. One copy of the GPLv3 text covers all of them.

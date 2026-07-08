@@ -27,6 +27,10 @@
   <ItemGroup>
     <!-- The reflection target the extracted cores bind against. Pinned 0.53.1 (spike-proven), matching both consumers. -->
     <PackageReference Include="Mutagen.Bethesda.Skyrim" Version="0.53.1" />
+    <!-- The NIF layer's asset-internal reader/writer. Pure C#, GPL-3.0 (compatible with our GPL-3.0-only), source-
+         generated from nifxml = coverage by construction. Pinned 1.0.0 (spike-proven over 87,937 workspace nifs —
+         SPIKE_NIF_LAYER_2026-07-08); bump deliberately. Notices: THIRD-PARTY-NOTICES.txt (GPL-3.0 block). -->
+    <PackageReference Include="Nifly" Version="1.0.0" />
   </ItemGroup>
 
 </Project>

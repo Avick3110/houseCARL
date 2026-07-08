@@ -100,6 +100,10 @@ public static class CiAll
         ("mo2instance-probe", Mo2InstanceProbe.RunProbe),
         ("atomic-commit-guard", AtomicCommitProbe.RunGuard),
         ("place-asset-guard", PlaceAssetProbe.RunGuard),
+        // NIF layer Wave 1: NifService.Inspect decodes an authored SE mesh's N2-whitelist values (version, census, node
+        // tree, shape flags/scale, dismember partitions, alpha) and refuses a bad file loud. Self-contained (the fixture
+        // is authored in-memory via NiflySharp); the spike §5 facegen smoke arm is existence-gated (SKIPs off-corpus).
+        ("nif-service-guard", NifServiceGuardProbe.RunGuard),
         ("strings-decision-guard", StringsDecisionProbe.RunGuard),
         ("assetlink-write-guard", AssetLinkWriteProbe.RunGuard),
         // The two coercion COMPLETENESS proofs, now CI guards (were manual-only — the coerce-audit blind spot that
