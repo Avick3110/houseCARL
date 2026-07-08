@@ -82,7 +82,12 @@ internal static class NifServiceGuardProbe
                       $"BSDismember partitions decode to SBP_* names + flags — [{string.Join(", ", shape.Partitions.Select(p => p.BodyPartId + " " + p.BodyPartName + " f" + p.PartFlags))}]");
                 Check(shape.Alpha is { Flags: 0x12ED, Blend: true, Test: true, Threshold: 128 },
                       $"alpha property decodes (0x12ED, blend+test, thr 128) — {(shape.Alpha is null ? "NONE" : $"0x{shape.Alpha.Flags:X4} blend={shape.Alpha.Blend} test={shape.Alpha.Test} thr={shape.Alpha.Threshold}")}");
+                Check(shape.BlockType == "BSTriShape" && shape.FlagsDefault == 0x8000E && shape.FlagsDefaultType == "BSTriShape",
+                      $"shape flag default resolved from nif.xml (BSTriShape → 0x8000E) — {shape.BlockType}/{(shape.FlagsDefault is { } fd ? "0x" + fd.ToString("X") : "none")}");
             }
+            var childA = nif.Nodes.FirstOrDefault(n => n.Name == "GuardChildA");
+            Check(childA is { BlockType: "NiNode", FlagsDefault: 0xE, FlagsDefaultType: "NiNode" },
+                  $"node flag default resolved from nif.xml (NiNode → 0xE) — {(childA is null ? "MISSING" : childA.BlockType + "/" + (childA.FlagsDefault is { } nd ? "0x" + nd.ToString("X") : "none"))}");
         }
 
         // ---- refusal arms (Q3): a bad file is a named error, never a throw or a half-model ----
@@ -127,6 +132,12 @@ internal static class NifServiceGuardProbe
         var unkSec = NifWire.Render(FakeData(FakeInspect(1, 0, false, Array.Empty<string>()), null), summaryOnly, new[] { "bogus" }, 80_000);
         Check(unkSec.Contains("unrecognized section"), "an unrecognized sections= token is surfaced, never silently ignored");
 
+        // flag decode: a shape at 0x400000E vs the BSTriShape default 0x8000E → 0x80000 clear (missing), +0x4000000 extra.
+        var shapesSec = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "shapes" };
+        var decoded = NifWire.Render(FakeData(FakeInspect(1, 0, false, Array.Empty<string>()), null), shapesSec, Array.Empty<string>(), 80_000);
+        Check(decoded.Contains("0x80000 clear") && decoded.Contains("vs BSTriShape default 0x8000E") && decoded.Contains("+0x4000000") && decoded.Contains("-0x80000"),
+              "NiAVObject flags decode by deviation from the nif.xml default + the 0x80000 bit (no invented bit-names)");
+
         // ---- corpus smoke (existence-gated): the spike §5 facegen truths — texture paths + bones on REAL data ----
         Console.WriteLine();
         Console.WriteLine("--- corpus smoke: spike §5 facegen regression truths (existence-gated) ---");
@@ -158,6 +169,12 @@ internal static class NifServiceGuardProbe
                 if (hair is not null) Check(hair.Alpha is { Flags: 0x12ED, Blend: true }, $"LucienHair alpha 0x12ED blend=true — {(hair.Alpha is null ? "NONE" : $"0x{hair.Alpha.Flags:X4} blend={hair.Alpha.Blend}")}");
                 if (hairline is not null) Check(hairline.Alpha is { Flags: 0x12EE, Blend: false, Test: true, Threshold: 180 },
                       $"LucienHairLine alpha 0x12EE blend=false test=true thr180 — {(hairline.Alpha is null ? "NONE" : $"0x{hairline.Alpha.Flags:X4} blend={hairline.Alpha.Blend} test={hairline.Alpha.Test} thr={hairline.Alpha.Threshold}")}");
+                // flag-default inheritance on LIVE data: facegen shapes are BSDynamicTriShape (no own nif.xml default) →
+                // the resolver must walk to the BSTriShape parent's 0x8000E. Proves the inheritance walk on a real mesh.
+                var dyn = fg.Shapes.FirstOrDefault(x => x.BlockType == "BSDynamicTriShape");
+                if (dyn is not null)
+                    Check(dyn.FlagsDefault == 0x8000E && dyn.FlagsDefaultType == "BSTriShape",
+                          $"a real BSDynamicTriShape inherits the BSTriShape flag default 0x8000E — 0x{(dyn.FlagsDefault is { } d ? d.ToString("X") : "none")} from {dyn.FlagsDefaultType ?? "(none)"}");
             }
         }
 
@@ -179,12 +196,12 @@ internal static class NifServiceGuardProbe
             if (i < withPartitions)
                 for (int p = 0; p < partsPerShape; p++)
                     parts.Add(new NifPartition(30 + p, "SBP_" + (30 + p) + "_PART", 257));
-            shapes.Add(new NifShape("Shape" + i, 0x400000E, 1f, parts, null, new List<NifTexture>(), new List<string>()));
+            shapes.Add(new NifShape("Shape" + i, 0x400000E, 1f, "BSTriShape", 0x8000E, "BSTriShape", parts, null, new List<NifTexture>(), new List<string>()));
         }
         return new NifInspect("20.2.0.7", 12, 100, true, totalShapes + 1,
             new List<NifBlockTypeCount> { new("BSTriShape", totalShapes), new("NiNode", 1) },
             hasUnknown, unknownTypes,
-            shapes, new List<NifNode> { new(0, "Root", 0xE) }, new List<string> { "Root", "Shape0" });
+            shapes, new List<NifNode> { new(0, "Root", 0xE, "NiNode", 0xE, "NiNode") }, new List<string> { "Root", "Shape0" });
     }
 
     /// <summary>Wrap an inspect model (or an error) in the service-layer <see cref="NifInspectData"/> with a two-provider
