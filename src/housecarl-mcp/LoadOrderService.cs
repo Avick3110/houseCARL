@@ -318,6 +318,74 @@ public sealed class LoadOrderService : IDisposable
         return slash < 0 ? "" : rel.Substring(pre.Length, slash - pre.Length);
     }
 
+    // ---- NIF layer Wave 1: read the data values inside a mesh (housecarl_nif_inspect) ----
+
+    /// <summary>Inspect the data values inside a Skyrim mesh (housecarl_nif_inspect): resolve the Data-relative
+    /// <paramref name="relPath"/> through the MO2 VFS to the WINNING copy (or a specific loser when <paramref name="mod"/>
+    /// is named), read that copy's bytes IN PROCESS (a loose file, or a single entry out of a BSA via native Mutagen — no
+    /// disk extraction), and hand them to <see cref="NifService.Inspect"/> for the header / block census / shapes /
+    /// partitions / alpha / textures / node tree / string table. Read-only. The asset-tool parity is carried through:
+    /// the full winner→loser provider chain (each tagged loose/BSA), the ambiguity flag, and the build-level Q3 caveats
+    /// (<see cref="AssetView.BsaFailures"/> / ReadIncomplete) ride along, so an ABSENT answer is never over-trusted. ONE
+    /// asset capture pins the whole call; the resolve + byte read + NIF parse run OUTSIDE <see cref="_gate"/> on the
+    /// handle-free captured view, so an inspect never serializes other tool calls behind its file I/O. A parse failure is
+    /// a NAMED outcome (<see cref="NifInspectData.Error"/>), never a throw or a half-model (Q3).</summary>
+    public NifInspectData NifInspect(string relPath, string? mod)
+    {
+        var rel = (relPath ?? "").Trim();
+        if (rel.Length == 0)
+            return NifInspectData.Fail("", "no mesh path given. Pass a Data-relative path, e.g. 'meshes\\actors\\character\\facegendata\\facegeom\\Skyrim.esm\\00000007.nif'.");
+
+        AssetResolver.AssetView view;
+        IReadOnlyList<string> warnings;
+        string profileName;
+        lock (_gate)
+        {
+            view = Assets.Capture();                              // build/refresh the asset resolver under the gate, ONCE
+            warnings = _assetWarnings;
+            profileName = _profileName;
+        }
+
+        // OUTSIDE the gate: the captured view is pinned + handle-free, so resolving + reading + parsing here can't race a
+        // concurrent refresh into wrongness and doesn't block other tools behind our file reads.
+        PlacementResolution place;
+        try { place = view.ResolveForPlacement(rel); }
+        catch (ArgumentException ex) { return NifInspectData.Fail(rel, $"invalid path — {ex.Message}"); }
+
+        var providers = place.Sources.Select(s => new NifProvider(s.ProviderName, KindLabel(s.Kind))).ToList();
+        bool readIncomplete = place.ReadIncomplete || view.ReadIncomplete;
+
+        if (place.Sources.Count == 0)
+            return new NifInspectData(rel, null, providers, place.Ambiguous, view.BsaFailures, readIncomplete, warnings, profileName, null,
+                "ABSENT — no active mod or BSA provides this mesh path" +
+                (readIncomplete ? " (and an archive failed to read this build, so this may be incomplete — see the read-failure note)." : "."));
+
+        // Pick the copy to read: the VFS winner by default, or a specific provider when mod= names one.
+        PlacementSource chosen;
+        if (!string.IsNullOrWhiteSpace(mod))
+        {
+            var pick = place.Sources.FirstOrDefault(s => s.ProviderName.Equals(mod!.Trim(), StringComparison.OrdinalIgnoreCase));
+            if (pick is null)
+                return new NifInspectData(rel, null, providers, place.Ambiguous, view.BsaFailures, readIncomplete, warnings, profileName, null,
+                    $"mod '{mod!.Trim()}' does not provide this path. Providers (winner first): {string.Join(", ", providers.Select(p => p.Name + " (" + p.Kind + ")"))}.");
+            chosen = pick;
+        }
+        else chosen = place.Sources[0];
+
+        var (bytes, readErr) = AssetResolver.ReadPlacementSource(chosen);
+        if (bytes is null)
+            return new NifInspectData(rel, new NifProvider(chosen.ProviderName, KindLabel(chosen.Kind)), providers, place.Ambiguous,
+                view.BsaFailures, readIncomplete, warnings, profileName, null, readErr ?? "could not read the resolved mesh bytes.");
+
+        var outcome = NifService.Inspect(bytes);
+        return new NifInspectData(rel, new NifProvider(chosen.ProviderName, KindLabel(chosen.Kind)), providers, place.Ambiguous,
+            view.BsaFailures, readIncomplete, warnings, profileName, outcome.Inspect, outcome.Error);
+    }
+
+    /// <summary>Render an <see cref="AssetKind"/> as the tool-facing label ("loose" / "BSA"). An explicit switch (not a
+    /// ternary) so a future AssetKind arm renders its real name, never a silent mislabel.</summary>
+    static string KindLabel(AssetKind k) => k switch { AssetKind.Bsa => "BSA", AssetKind.Loose => "loose", var other => other.ToString() };
+
     // ---- facegen-diagnostics Phase 3: place an asset so the correct copy WINS the VFS (housecarl_place_asset) ----
 
     /// <summary>Place one-or-more assets (FaceGen .nif/.dds, or any Data-relative file) into a NEW houseCARL-owned MO2 mod
@@ -3672,6 +3740,33 @@ public sealed record SkseInventoryData(
     bool ReadIncomplete,
     IReadOnlyList<string> Warnings,
     string ProfileName);
+
+/// <summary>One provider of a mesh path: the mod / "overwrite" / "Data" / BSA-filename, and whether it's a "loose" file
+/// or a "BSA" entry. Winner-first ordering lives in <see cref="NifInspectData.Providers"/>.</summary>
+public sealed record NifProvider(string Name, string Kind);
+
+/// <summary>The data behind housecarl_nif_inspect: the VFS resolution of a mesh path joined to the format-level
+/// <see cref="HousecarlCore.NifInspect"/> of the copy that was read. <see cref="Inspected"/> is the provider whose bytes
+/// were parsed (the winner, or the <c>mod=</c>-named copy); <see cref="Providers"/> is the FULL winner→loser chain
+/// (asset-tool parity), <see cref="Ambiguous"/> flags file-layer contention. The build-level Q3 caveats
+/// <see cref="BsaFailures"/> / <see cref="ReadIncomplete"/> and discovery <see cref="Warnings"/> ride along;
+/// <see cref="ProfileName"/> names the active profile. Exactly one of <see cref="Inspect"/> (the mesh model) and
+/// <see cref="Error"/> (ABSENT / bad path / unreadable / parse-refused — all named, Q3) is set on any given result.</summary>
+public sealed record NifInspectData(
+    string RelPath,
+    NifProvider? Inspected,
+    IReadOnlyList<NifProvider> Providers,
+    bool Ambiguous,
+    IReadOnlyList<string> BsaFailures,
+    bool ReadIncomplete,
+    IReadOnlyList<string> Warnings,
+    string ProfileName,
+    HousecarlCore.NifInspect? Inspect,
+    string? Error)
+{
+    public static NifInspectData Fail(string relPath, string error)
+        => new(relPath, null, Array.Empty<NifProvider>(), false, Array.Empty<string>(), false, Array.Empty<string>(), "", null, error);
+}
 
 /// <summary>One asset to PLACE (housecarl_place_asset / bulk). <see cref="AssetPath"/> is the resolved Data-relative
 /// DESTINATION (the tool computes it from a FormID+slot for FaceGen, or takes a raw path). <see cref="Source"/> is the
