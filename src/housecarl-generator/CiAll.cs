@@ -169,6 +169,12 @@ public static class CiAll
         // — the lip-sync layer — carried by the whole-record copy), facegen pair renamed to the new FormKey path, donor-
         // only assets carried (record harvest + geom byte-scrape), clone-mode strips NAMED, donor NEVER a master.
         ("copy-npc-appearance-guard", NpcCopyProbe.RunGuard),
+        // SKYPATCHER DISTRIBUTOR Wave 0a — the catalog-free structural tokenizer (SkyPatcherParse): pins the
+        // grammar mechanics a SkyPatcher INI reader stands on — ':'-segment / '='-key-value / ','-list /
+        // '~'-compound splitting, the ~…~ rename name-literal, the Plugin.esp|FormID address (leading-zero
+        // trim), the 0a boundary (a bare EditorID stays un-addressed until the Wave-0b catalog), and the Q3
+        // loud-note paths for malformed segments. Pure in-process string→model — no game data, no Mutagen.
+        ("skypatcher-parse-guard", SkyPatcherParseProbe.RunGuard),
     };
 
     /// <summary>Dispatch a single CI guard by name through the registry — the ONE place a CI probe is listed, so
