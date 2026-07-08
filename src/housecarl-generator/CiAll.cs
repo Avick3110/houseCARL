@@ -104,6 +104,10 @@ public static class CiAll
         // tree, shape flags/scale, dismember partitions, alpha) and refuses a bad file loud. Self-contained (the fixture
         // is authored in-memory via NiflySharp); the spike §5 facegen smoke arm is existence-gated (SKIPs off-corpus).
         ("nif-service-guard", NifServiceGuardProbe.RunGuard),
+        // NIF Wave 2 — housecarl_nif_set: each whitelist write op applies + verifies (two offset-immune gates), the gates
+        // RED-prove they catch a collateral/no-op write, and every can't-do is a named refusal. Self-contained; the
+        // set_path success arm is corpus-gated (nifly's read-only TextureSetRef blocks synthesizing a texture set).
+        ("nif-set-guard", NifSetGuardProbe.RunGuard),
         ("strings-decision-guard", StringsDecisionProbe.RunGuard),
         ("assetlink-write-guard", AssetLinkWriteProbe.RunGuard),
         // The two coercion COMPLETENESS proofs, now CI guards (were manual-only — the coerce-audit blind spot that
