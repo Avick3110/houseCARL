@@ -1,5 +1,6 @@
 using System.Text;
 using HousecarlCore;
+using HousecarlMcp;
 using NiflySharp;
 using NiflySharp.Blocks;
 
@@ -92,6 +93,40 @@ internal static class NifServiceGuardProbe
         var garbage = NifService.Inspect(Encoding.ASCII.GetBytes("this is plainly not a NIF file, just ASCII text padding padding padding."));
         Check(garbage.Inspect is null && garbage.Error is not null, $"non-NIF garbage → named error, not a throw — {garbage.Error ?? "(none!)"}");
 
+        // ---- render layer (NifWire.Render via synthetic NifInspectData — the AssetStatusProbe G-layer pattern) ----
+        Console.WriteLine();
+        Console.WriteLine("--- render: alarms-first, error/provider chain, filtered omitted-count, unknown-empty edge ---");
+        var summaryOnly = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        var ok = NifWire.Render(FakeData(FakeInspect(3, 1, false, Array.Empty<string>()), null), summaryOnly, Array.Empty<string>(), 80_000);
+        Check(ok.Contains("read from: ModA") && ok.Contains("20.2.0.7") && ok.Contains("[Skyrim SE]") && ok.Contains("Shape0"),
+              "success render carries winner + version + SE flag + shape names");
+
+        var abs = NifWire.Render(FakeData(null, "ABSENT — no active mod or BSA provides this mesh path.",
+                                          bsaFailures: new[] { "Bad.bsa (loaded by P.esp): truncated" }), summaryOnly, Array.Empty<string>(), 80_000);
+        Check(abs.Contains("could NOT be read")
+              && abs.IndexOf("could NOT be read", StringComparison.Ordinal) < abs.IndexOf("ABSENT", StringComparison.Ordinal),
+              "the read-failure alarm renders BEFORE the ABSENT error (a Q3 alarm can't be buried)");
+        Check(abs.Contains("ModA (loose) > Base.bsa (BSA)"), "the error path still shows the winner→loser provider chain");
+
+        var amb = NifWire.Render(FakeData(FakeInspect(1, 0, false, Array.Empty<string>()), null, ambiguous: true), summaryOnly, Array.Empty<string>(), 80_000);
+        Check(amb.Contains("more than one source"), "ambiguity is surfaced as a note");
+
+        // finding #2: a cut INSIDE a filtered section counts the filtered remainder (≤2 of 4 shapes), never the total.
+        // 4 shapes, 2 with (30) partitions each; a small cap cuts after the first partition line → "1 more omitted",
+        // never "3"/"4 more omitted" (the pre-fix total-based count).
+        var wantParts = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "partitions" };
+        var cut = NifWire.Render(FakeData(FakeInspect(4, 2, false, Array.Empty<string>(), partsPerShape: 30), null), wantParts, Array.Empty<string>(), 400);
+        Check(cut.Contains("more omitted") && !cut.Contains("3 more omitted") && !cut.Contains("4 more omitted"),
+              $"a filtered-section cut counts the FILTERED remainder, not the total shape count — {(cut.Contains("more omitted") ? "cut fired, remainder bounded" : "NO CUT (retune)")}");
+
+        // finding #3: HasUnknownBlocks true but no named types → 'present', never a bare '0 type(s) —'.
+        var ue = NifWire.Render(FakeData(FakeInspect(1, 0, true, Array.Empty<string>()), null), summaryOnly, Array.Empty<string>(), 80_000);
+        Check(ue.Contains("unknown blocks: present") && !ue.Contains("0 type(s)"), "HasUnknownBlocks with no named types renders 'present', not '0 type(s)'");
+
+        var unkSec = NifWire.Render(FakeData(FakeInspect(1, 0, false, Array.Empty<string>()), null), summaryOnly, new[] { "bogus" }, 80_000);
+        Check(unkSec.Contains("unrecognized section"), "an unrecognized sections= token is surfaced, never silently ignored");
+
         // ---- corpus smoke (existence-gated): the spike §5 facegen truths — texture paths + bones on REAL data ----
         Console.WriteLine();
         Console.WriteLine("--- corpus smoke: spike §5 facegen regression truths (existence-gated) ---");
@@ -132,6 +167,34 @@ internal static class NifServiceGuardProbe
     }
 
     static bool CensusHas(NifInspect nif, string type, int count) => nif.BlockTypes.Any(t => t.Type == type && t.Count == count);
+
+    /// <summary>A synthetic inspect model for the render-layer arms (no file needed): <paramref name="totalShapes"/>
+    /// shapes, the first <paramref name="withPartitions"/> of them carrying <paramref name="partsPerShape"/> partitions.</summary>
+    static NifInspect FakeInspect(int totalShapes, int withPartitions, bool hasUnknown, IReadOnlyList<string> unknownTypes, int partsPerShape = 2)
+    {
+        var shapes = new List<NifShape>();
+        for (int i = 0; i < totalShapes; i++)
+        {
+            var parts = new List<NifPartition>();
+            if (i < withPartitions)
+                for (int p = 0; p < partsPerShape; p++)
+                    parts.Add(new NifPartition(30 + p, "SBP_" + (30 + p) + "_PART", 257));
+            shapes.Add(new NifShape("Shape" + i, 0x400000E, 1f, parts, null, new List<NifTexture>(), new List<string>()));
+        }
+        return new NifInspect("20.2.0.7", 12, 100, true, totalShapes + 1,
+            new List<NifBlockTypeCount> { new("BSTriShape", totalShapes), new("NiNode", 1) },
+            hasUnknown, unknownTypes,
+            shapes, new List<NifNode> { new(0, "Root", 0xE) }, new List<string> { "Root", "Shape0" });
+    }
+
+    /// <summary>Wrap an inspect model (or an error) in the service-layer <see cref="NifInspectData"/> with a two-provider
+    /// winner→loser chain — the input to <see cref="NifWire.Render"/>.</summary>
+    static NifInspectData FakeData(NifInspect? inspect, string? error, bool ambiguous = false, IReadOnlyList<string>? bsaFailures = null)
+    {
+        var provs = new List<NifProvider> { new("ModA", "loose"), new("Base.bsa", "BSA") };
+        return new NifInspectData("meshes\\test.nif", inspect is null ? null : provs[0], provs, ambiguous,
+            bsaFailures ?? Array.Empty<string>(), false, Array.Empty<string>(), "Default", inspect, error);
+    }
 
     /// <summary>Author a minimal but genuine Skyrim SE mesh in-memory (the spike's CreateAndSave_SE recipe): an SE
     /// header, a 3-level NiNode tree with names + flags, and one BSTriShape carrying a name/flags/scale, two BSDismember

@@ -121,6 +121,10 @@ static class NifWire
 
         if (!nif.HasUnknownBlocks)
             sb.Append("  unknown blocks: none\n");
+        else if (nif.UnknownBlockTypes.Count == 0)
+            // The library flagged unknown blocks but none resolved to a NiUnknown we could name (theoretical) — say so
+            // honestly rather than render a bare "0 type(s) —".
+            sb.Append("  unknown blocks: present (types not named — preserved intact, reported not modeled)\n");
         else
             sb.Append("  unknown blocks: ").Append(nif.UnknownBlockTypes.Count).Append(" type(s) — ")
               .Append(string.Join(", ", nif.UnknownBlockTypes))
@@ -176,10 +180,11 @@ static class NifWire
     static void RenderPerShape(StringBuilder sb, NifInspect nif, int cap, string title, Func<NifShape, bool> has, Func<NifShape, string> line)
     {
         sb.Append("\n--- ").Append(title).Append(" ---\n");
+        var matched = nif.Shapes.Where(has).ToList();   // count the omitted remainder over the FILTERED subset, not the total shapes
         int shown = 0;
-        foreach (var s in nif.Shapes.Where(has))
+        foreach (var s in matched)
         {
-            if (Cut(sb, cap, nif.Shapes.Count - shown)) return;
+            if (Cut(sb, cap, matched.Count - shown)) return;
             sb.Append("  '").Append(s.Name).Append("': ").Append(line(s)).Append('\n');
             shown++;
         }
@@ -189,10 +194,11 @@ static class NifWire
     static void RenderPaths(StringBuilder sb, NifInspect nif, int cap)
     {
         sb.Append("\n--- paths (embedded texture-set slots; material/.tri/physics-xml refs appear under sections=strings) ---\n");
+        var textured = nif.Shapes.Where(s => s.Textures.Count > 0).ToList();   // omitted remainder counts the FILTERED subset, not total shapes
         int shown = 0;
-        foreach (var s in nif.Shapes.Where(s => s.Textures.Count > 0))
+        foreach (var s in textured)
         {
-            if (Cut(sb, cap, nif.Shapes.Count - shown)) return;
+            if (Cut(sb, cap, textured.Count - shown)) return;
             sb.Append("  '").Append(s.Name).Append("':\n");
             foreach (var t in s.Textures) sb.Append("    tex[").Append(t.Slot).Append("]: ").Append(t.Path).Append('\n');
             shown++;
