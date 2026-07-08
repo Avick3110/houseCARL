@@ -319,6 +319,11 @@ public static class NifService
                 if (string.IsNullOrEmpty(op.NewName)) return ("rename_shape needs a new_name.", null, null, null, null, false);
                 var (shape, err) = ResolveShape(nif, op.Target);
                 if (err is not null) return (err, null, null, null, null, false);
+                // Refuse renaming ONTO an existing shape name — it manufactures the ambiguity the resolver refuses, and it
+                // would defeat the read-back check (which confirms a rename by the NEW name existing): if nifly ever
+                // dropped the rename while another shape already bore that name, gate 2 would false-pass.
+                if (nif.GetShapes().Any(s => !ReferenceEquals(s, shape) && (s.Name?.String ?? "") == op.NewName))
+                    return ($"a shape is already named '{op.NewName}' — renaming onto it would create an ambiguous duplicate. Refusing, nothing written.", null, null, null, null, false);
                 var av = (NiflySharp.Blocks.NiAVObject)shape!;
                 string before = av.Name?.String ?? "";
                 av.Name = new NiStringRef(op.NewName);
@@ -329,6 +334,8 @@ public static class NifService
                 if (string.IsNullOrEmpty(op.NewName)) return ("rename_node needs a new_name.", null, null, null, null, false);
                 var (node, err) = ResolveNode(nif, op.Target);
                 if (err is not null) return (err, null, null, null, null, false);
+                if (nif.Blocks.OfType<NiNode>().Any(n => !ReferenceEquals(n, node) && (n.Name?.String ?? "") == op.NewName))
+                    return ($"a node is already named '{op.NewName}' — renaming onto it would create an ambiguous duplicate. Refusing, nothing written.", null, null, null, null, false);
                 string before = node!.Name?.String ?? "";
                 node.Name = new NiStringRef(op.NewName);
                 return (null, op.Target, before, op.NewName, null, true);
@@ -504,12 +511,26 @@ public static class NifService
         long sum = 0; var sizes = new int[bc]; var types = new string[bc];
         for (int i = 0; i < bc; i++) { sizes[i] = nif.Header.GetBlockSize(i); types[i] = nif.Header.GetBlockTypeNameById(i) ?? "?"; sum += sizes[i]; }
 
+        // Recover the header/footer boundary. The footer is [Num Roots : uint][Roots : uint * numRoots]. We scan numRoots
+        // upward and accept the FIRST candidate whose footer both (a) leads with a Num-Roots field equal to the candidate
+        // AND (b) has every root ref a valid block index. Start at 1 — a NIF always has ≥1 root — so the degenerate
+        // numRoots=0 case can't false-match on a mesh whose sole root is block 0 (its trailing root ref reads as 0, which
+        // would spuriously satisfy a numRoots=0 candidate and shift every block window +4). The root-ref validity check
+        // makes a spurious earlier match astronomically unlikely; the true footer always validates.
         long headerEnd = -1; long footerLen = 0;
-        for (int nRoots = 0; nRoots <= 64; nRoots++)
+        for (int nRoots = 1; nRoots <= 64; nRoots++)
         {
             long fl = 4 + 4L * nRoots; long cand = buf.LongLength - fl - sum;
             if (cand <= 0) break;
-            if (cand + sum + 4 <= buf.LongLength && BitConverter.ToUInt32(buf, (int)(cand + sum)) == nRoots) { headerEnd = cand; footerLen = fl; break; }
+            if (cand + sum + fl > buf.LongLength) continue;
+            if (BitConverter.ToUInt32(buf, (int)(cand + sum)) != (uint)nRoots) continue;
+            bool refsValid = true;
+            for (int r = 0; r < nRoots; r++)
+            {
+                uint rootRef = BitConverter.ToUInt32(buf, (int)(cand + sum + 4 + 4L * r));
+                if (rootRef >= (uint)bc) { refsValid = false; break; }   // a root ref must index a real block
+            }
+            if (refsValid) { headerEnd = cand; footerLen = fl; break; }
         }
         if (headerEnd < 0) return null;
 

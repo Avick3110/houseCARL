@@ -444,6 +444,8 @@ public sealed class LoadOrderService : IDisposable
             var editedBytes = outcome.WrittenBytes!;
             var report = outcome.Report!;
             var chosenProv = new NifProvider(chosen.ProviderName, KindLabel(chosen.Kind));
+            // Did we edit the VFS WINNER, or a copy a mod=-named loser shadows? Drives the honest "is it live" wording.
+            bool editedIsWinner = place.Sources.Count > 0 && ReferenceEquals(chosen, place.Sources[0]);
 
             // ---- IN-PLACE lane ----
             if (inPlace)
@@ -457,7 +459,7 @@ public sealed class LoadOrderService : IDisposable
 
                 bool already = _store.IsInPlaceAcknowledged(targetPath);
                 if (!already && !acknowledge)
-                    return NifSetResult.NeedsAck(InPlaceHandshakeText(meshName, targetPath), chosenProv, providers, profileName);
+                    return NifSetResult.NeedsAck(NifInPlaceHandshakeText(meshName, targetPath), chosenProv, providers, profileName);
                 string? ackNote = null;
                 if (!already && acknowledge)
                 {
@@ -472,8 +474,8 @@ public sealed class LoadOrderService : IDisposable
                 if (sz != editedBytes.Length)
                     return NifSetResult.Fail($"wrote '{meshName}' but its on-disk size ({sz}) does not match the {editedBytes.Length} verified byte(s) — verify before relying on it.", providers, profileName);
 
-                return NifSetResult.OkInPlace(rel, chosenProv, providers, place.Ambiguous, report, targetPath,
-                    Combine(report.Warnings, ackNote), profileName);
+                return NifSetResult.OkInPlace(rel, chosenProv, providers, place.Ambiguous, editedIsWinner, report, targetPath,
+                    MergeWarnings(report.Warnings, warnings, ackNote), profileName);
             }
 
             // ---- DEFAULT (new-folder) lane ----
@@ -497,13 +499,33 @@ public sealed class LoadOrderService : IDisposable
             }
 
             string? winner = providers.Count > 0 ? $"{providers[0].Name} ({providers[0].Kind})" : null;
-            return NifSetResult.OkNewFolder(rel, chosenProv, providers, place.Ambiguous, report, rf.ModFolder, winner, warnings, profileName);
+            return NifSetResult.OkNewFolder(rel, chosenProv, providers, place.Ambiguous, report, rf.ModFolder, winner, MergeWarnings(report.Warnings, warnings, null), profileName);
         }
     }
 
-    /// <summary>Concatenate a warnings list with an optional extra note (in-place ack save failure), dropping nulls.</summary>
-    static IReadOnlyList<string> Combine(IReadOnlyList<string> warnings, string? extra)
-        => extra is null ? warnings : warnings.Append(extra).ToList();
+    /// <summary>Merge the write report's notes (e.g. the unknown-block preservation disclosure) with the asset-layer
+    /// discovery warnings and an optional extra note (in-place ack-save failure) — BOTH lanes surface BOTH sets (Q3: a
+    /// preservation disclosure must not vanish because it rode the other lane's list).</summary>
+    static IReadOnlyList<string> MergeWarnings(IReadOnlyList<string> reportWarnings, IReadOnlyList<string> assetWarnings, string? extra)
+    {
+        var list = new List<string>(reportWarnings.Count + assetWarnings.Count + 1);
+        list.AddRange(reportWarnings);
+        list.AddRange(assetWarnings);
+        if (extra is not null) list.Add(extra);
+        return list;
+    }
+
+    /// <summary>The mesh-specific first-touch in-place consent prompt. Distinct from the PLUGIN handshake
+    /// (<see cref="InPlaceHandshakeText"/>) whose "whole plugin re-serialized / engine-reserved sub-0x800 records" wording
+    /// is false for a .nif — a mesh write is a WHOLE-FILE NiflySharp re-serialization (not a byte-surgical patch), then
+    /// verified. The no-backup + opt-in trade-offs carry over.</summary>
+    static string NifInPlaceHandshakeText(string meshName, string path) =>
+        $"in-place edit of '{meshName}' — first-time confirmation (shown once for this mesh):\n" +
+        $"  • This overwrites your ORIGINAL file ({path}). It will NO LONGER be untouched, and houseCARL keeps NO backup or undo — keep your own.\n" +
+        "  • The written mesh is a WHOLE-FILE re-serialization through NiflySharp's canonical writer (the way NifSkope / BodySlide rewrite a mesh on save), NOT a byte-surgical patch — then VERIFIED (only the value you edited changed; it reloads as a valid SE mesh).\n" +
+        "  • It still refuses if the mesh can't be parsed or isn't a Skyrim SE stream.\n" +
+        "  • The default lane (a NEW mod folder, originals untouched) stays the recommended way — this is the explicit opt-in.\n" +
+        "Re-call the SAME edit with acknowledge=true to proceed.";
 
     // ---- facegen-diagnostics Phase 3: place an asset so the correct copy WINS the VFS (housecarl_place_asset) ----
 
@@ -3903,6 +3925,7 @@ public sealed record NifSetResult(
     bool NeedsAcknowledge,
     string? AckPrompt,
     bool InPlace,
+    bool EditedIsWinner,
     string? OutputModFolder,
     string? InPlacePath,
     string? CurrentWinner,
@@ -3910,18 +3933,18 @@ public sealed record NifSetResult(
     string ProfileName)
 {
     public static NifSetResult Fail(string error, IReadOnlyList<NifProvider>? providers = null, string profileName = "")
-        => new("", null, providers ?? Array.Empty<NifProvider>(), false, null, error, false, null, false, null, null, null, Array.Empty<string>(), profileName);
+        => new("", null, providers ?? Array.Empty<NifProvider>(), false, null, error, false, null, false, false, null, null, null, Array.Empty<string>(), profileName);
 
     public static NifSetResult NeedsAck(string prompt, NifProvider edited, IReadOnlyList<NifProvider> providers, string profileName)
-        => new("", edited, providers, false, null, null, true, prompt, true, null, null, null, Array.Empty<string>(), profileName);
+        => new("", edited, providers, false, null, null, true, prompt, true, false, null, null, null, Array.Empty<string>(), profileName);
 
     public static NifSetResult OkNewFolder(string rel, NifProvider edited, IReadOnlyList<NifProvider> providers, bool ambiguous,
         HousecarlCore.NifSetReport report, string modFolder, string? winner, IReadOnlyList<string> warnings, string profileName)
-        => new(rel, edited, providers, ambiguous, report, null, false, null, false, modFolder, null, winner, warnings, profileName);
+        => new(rel, edited, providers, ambiguous, report, null, false, null, false, true, modFolder, null, winner, warnings, profileName);
 
-    public static NifSetResult OkInPlace(string rel, NifProvider edited, IReadOnlyList<NifProvider> providers, bool ambiguous,
+    public static NifSetResult OkInPlace(string rel, NifProvider edited, IReadOnlyList<NifProvider> providers, bool ambiguous, bool editedIsWinner,
         HousecarlCore.NifSetReport report, string inPlacePath, IReadOnlyList<string> warnings, string profileName)
-        => new(rel, edited, providers, ambiguous, report, null, false, null, true, null, inPlacePath, null, warnings, profileName);
+        => new(rel, edited, providers, ambiguous, report, null, false, null, true, editedIsWinner, null, inPlacePath, null, warnings, profileName);
 }
 
 /// <summary>One asset to PLACE (housecarl_place_asset / bulk). <see cref="AssetPath"/> is the resolved Data-relative

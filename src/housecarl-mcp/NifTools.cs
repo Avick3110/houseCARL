@@ -121,9 +121,7 @@ public static class NifTools
         [Description("Optional, default false. IN-PLACE LANE (opt-in): OVERWRITE the winning LOOSE file where it sits instead of writing a new folder — NO backup. Requires acknowledge=true (see below). OMIT (the default) to write a new winning override and leave the original untouched.")]
             bool in_place = false,
         [Description("Optional, default false. Confirms the one-time in-place trade-off for this file — needed only on the FIRST in-place edit of a given mesh, never again for it. Waives the consent to overwrite your original ONLY; it NEVER skips the mesh verification.")]
-            bool acknowledge = false,
-        [Description("Optional. Max characters before a list is cut with an explicit notice. 0 = the server default (~80k).")]
-            int max_chars = 0) => Guard.Tool("housecarl_nif_set", () =>
+            bool acknowledge = false) => Guard.Tool("housecarl_nif_set", () =>
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
         if (string.IsNullOrWhiteSpace(mesh_path)) return "error: mesh_path is empty. Pass a Data-relative mesh path.";
@@ -138,7 +136,7 @@ public static class NifTools
             string.IsNullOrWhiteSpace(patch_name) ? null : patch_name,
             string.IsNullOrWhiteSpace(into) ? null : into,
             in_place, acknowledge);
-        return NifSetWire.Render(data, max_chars > 0 ? max_chars : 80_000);
+        return NifSetWire.Render(data);
     });
 
     /// <summary>Turn the flat tool params into one <see cref="NifSetOp"/>, or a friendly NAMED error (Q3) for an unknown op
@@ -440,7 +438,7 @@ static class NifWire
 /// enable+sort" — it never claims the edit is winning on disk yet.</summary>
 static class NifSetWire
 {
-    public static string Render(NifSetResult d, int cap)
+    public static string Render(NifSetResult d)
     {
         var sb = new StringBuilder();
         sb.Append("nif set — ").Append(d.RelPath.Length > 0 ? d.RelPath : "(mesh)")
@@ -473,11 +471,17 @@ static class NifSetWire
         sb.Append("  verification: ")
           .Append(d.Report.HeaderChanged ? "header string table" : "no header change")
           .Append(d.Report.ChangedBlocks.Count > 0 ? $" + block(s) [{string.Join(", ", d.Report.ChangedBlocks)}]" : " + 0 blocks")
-          .Append("; size ").Append(d.Report.SizeDelta >= 0 ? "+" : "").Append(d.Report.SizeDelta).Append(" byte(s)\n");
+          .Append("; net size vs source ").Append(d.Report.SizeDelta >= 0 ? "+" : "").Append(d.Report.SizeDelta)
+          .Append(" byte(s) (includes nifly's canonical re-serialization, not just the edit)\n");
 
         // lane outcome
         if (d.InPlace)
-            sb.Append("\n  IN-PLACE: overwrote ").Append(d.InPlacePath).Append(" (your original — no houseCARL backup). The edit is live where the file already wins.\n");
+        {
+            sb.Append("\n  IN-PLACE: overwrote ").Append(d.InPlacePath).Append(" (your original — no houseCARL backup).");
+            sb.Append(d.EditedIsWinner
+                ? " The edit is live where the file already wins the VFS.\n"
+                : " NOTE: you edited a copy that another provider currently SHADOWS (you passed mod=), so this is not the winning copy in game until that changes.\n");
+        }
         else
         {
             sb.Append("\n  wrote the verified mesh into a new mod folder: ").Append(d.OutputModFolder).Append('\n');
