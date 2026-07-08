@@ -26,7 +26,8 @@ public static class NifTools
          "mesh_path through Mod Organizer 2's virtual file system to the copy the game actually uses (loose beats BSA; among " +
          "BSAs the later-loaded plugin wins) and report, from that mesh: its header version + whether it is a Skyrim SE " +
          "stream; the block census (every block type and count); any UNKNOWN blocks (named + preserved, never silently " +
-         "dropped); and per shape — the shape name, the NiAVObject flags (hex) and scale, the BSDismember body-part " +
+         "dropped); and per shape — the shape name, the NiAVObject flags (hex, decoded by deviation from the type's " +
+         "documented default plus the 0x80000 bit) and scale, the BSDismember body-part " +
          "partitions (decoded to their SBP_* names), the alpha property (decoded blend / test / threshold), the embedded " +
          "texture-set paths, and the bone list; plus the node tree and the header string table. Use it to answer 'what " +
          "shapes / bones / textures / partitions / alpha does this mesh have', to read a facegen mesh's baked shape names " +
@@ -165,7 +166,8 @@ static class NifWire
         foreach (var s in nif.Shapes)
         {
             if (Cut(sb, cap, nif.Shapes.Count)) return;
-            sb.Append("  '").Append(s.Name).Append("'  flags 0x").Append(s.Flags.ToString("X")).Append("  scale ").Append(Fmt(s.Scale)).Append('\n');
+            sb.Append("  '").Append(s.Name).Append("'  flags ").Append(DescribeFlags(s.Flags, s.FlagsDefault, s.FlagsDefaultType, s.BlockType))
+              .Append("  scale ").Append(Fmt(s.Scale)).Append('\n');
             if (s.Partitions.Count > 0)
                 sb.Append("    partitions: ").Append(string.Join(", ", s.Partitions.Select(p => $"{p.BodyPartId} ({p.BodyPartName}, flags {p.PartFlags})"))).Append('\n');
             if (s.Alpha is not null)
@@ -214,7 +216,7 @@ static class NifWire
         {
             if (Cut(sb, cap, nif.Nodes.Count - shown)) return;
             sb.Append("  ").Append(new string(' ', n.Depth * 2)).Append(n.Name.Length > 0 ? n.Name : "(unnamed)")
-              .Append("  0x").Append(n.Flags.ToString("X")).Append('\n');
+              .Append("  ").Append(DescribeFlags(n.Flags, n.FlagsDefault, n.FlagsDefaultType, n.BlockType)).Append('\n');
             shown++;
         }
     }
@@ -234,6 +236,39 @@ static class NifWire
 
     static string AlphaLine(NifAlpha a)
         => $"flags 0x{a.Flags:X4}  blend={a.Blend} ({a.SourceBlendMode} -> {a.DestinationBlendMode})  test={a.Test} ({a.TestFunction})  threshold {a.Threshold}";
+
+    /// <summary>Render NiAVObject flags: raw hex + a by-construction decode. nif.xml does not name these bits, so we
+    /// decode by DEVIATION from the type's nif.xml-documented SSE default (<paramref name="def"/> from
+    /// <paramref name="defType"/>) — "= default", or the extra/missing bits vs it — and always state the one bit nif.xml
+    /// DOES document, 0x80000 (Skyrim sets it on some AV objects, FO4 never; the head-vs-hair signal). When no default is
+    /// documented for the type, the set-bit positions are listed instead (still exact, still no invented names).</summary>
+    static string DescribeFlags(uint flags, uint? def, string? defType, string blockType)
+    {
+        var sb = new StringBuilder("0x").Append(flags.ToString("X"));
+        sb.Append("  [0x80000 ").Append((flags & 0x80000) != 0 ? "set" : "clear");
+        if (def is { } d)
+        {
+            if (flags == d) sb.Append("; = ").Append(defType).Append(" default");
+            else
+            {
+                uint extra = flags & ~d, missing = d & ~flags;
+                sb.Append("; vs ").Append(defType).Append(" default 0x").Append(d.ToString("X")).Append(':');
+                if (extra != 0) sb.Append(" +0x").Append(extra.ToString("X"));
+                if (missing != 0) sb.Append(" -0x").Append(missing.ToString("X"));
+            }
+        }
+        else
+            sb.Append("; no documented default for ").Append(blockType).Append("; bits ").Append(BitList(flags));
+        return sb.Append(']').ToString();
+    }
+
+    /// <summary>The set bit positions of a 32-bit flags word, comma-joined (e.g. "1,2,3,26"), or "none".</summary>
+    static string BitList(uint f)
+    {
+        var bits = new List<int>();
+        for (int i = 0; i < 32; i++) if ((f & (1u << i)) != 0) bits.Add(i);
+        return bits.Count == 0 ? "none" : string.Join(",", bits);
+    }
 
     /// <summary>Append "<label><a, b, c>" as one line, cut with an explicit notice if it would blow the cap (Q3).</summary>
     static void AppendClampedList(StringBuilder sb, string label, IEnumerable<string> items, int cap)

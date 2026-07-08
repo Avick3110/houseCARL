@@ -28,6 +28,34 @@ public static class NifService
     const uint SkyrimSeUserVersion = 12;
     const uint SkyrimSeStreamVersion = 100;
 
+    // NiAVObject flag DEFAULTS per concrete type, SSE-effective — transcribed BY CONSTRUCTION from nif.xml's
+    // NiAVObject.Flags <default onlyT=...> table (the SAME nif.xml NiflySharp is generated from): the SSE-specific value
+    // where one exists, else the unversioned value; FO3/FO4-only variants excluded. nif.xml does NOT name the individual
+    // bits (Flags is a plain uint there, and community docs note most are unused), so houseCARL decodes flags by
+    // DEVIATION from these authoritative defaults rather than inventing bit-names — and always states the one bit nif.xml
+    // DOES document: 0x80000 ("Skyrim lacks it sometimes; FO4 lacks it always"), the head-vs-hair-class signal.
+    static readonly IReadOnlyDictionary<string, uint> AvFlagsSseDefaults = new Dictionary<string, uint>(StringComparer.Ordinal)
+    {
+        ["NiNode"] = 0xE, ["NiLight"] = 0xE, ["BSMultiBoundNode"] = 0xE,
+        ["BSTriShape"] = 0x8000E, ["BSSubIndexTriShape"] = 0xE, ["BSMeshLODTriShape"] = 0x100E,
+        ["BSFadeNode"] = 0x8000E, ["NiParticleSystem"] = 0x8000E, ["BSMasterParticleSystem"] = 0x8000E,
+        ["BSStripParticleSystem"] = 0x8000E, ["NiTriShape"] = 0x8000E, ["NiTriStrips"] = 0x8000E,
+        ["BSSegmentedTriShape"] = 0xE, ["BSLeafAnimNode"] = 0x808000E, ["BSTreeNode"] = 0x8080E,
+        ["BSDebrisNode"] = 0x8000F, ["BSBlastNode"] = 0x8000F, ["BSDamageStage"] = 0x8000F,
+        ["BSOrderedNode"] = 0x8200E, ["BSLODTriShape"] = 0x800000E,
+    };
+
+    /// <summary>The SSE-effective NiAVObject flag default for a block, resolved UP the type's inheritance chain (a
+    /// BSDynamicTriShape has no own default → its parent BSTriShape's applies, matching nif.xml's onlyT semantics), or
+    /// (null, null) if no ancestor up to <see cref="object"/> has a documented default. Only consulted for SE meshes —
+    /// the table is SSE values, so a non-SE mesh gets no (misleading) default comparison.</summary>
+    static (uint? Value, string? FromType) ResolveAvDefault(Type? t)
+    {
+        for (var cur = t; cur is not null && cur != typeof(object); cur = cur.BaseType)
+            if (AvFlagsSseDefaults.TryGetValue(cur.Name, out var v)) return (v, cur.Name);
+        return (null, null);
+    }
+
     /// <summary>Inspect a mesh from its raw bytes. Returns the model on success, or a named error (Q3) — a parse the
     /// library rejects, an empty buffer, or a structure read that failed after a clean load. Never throws for an
     /// expected bad-file condition; never returns a partial model.</summary>
@@ -106,23 +134,24 @@ public static class NifService
         var unknownDistinct = unknownTypes.Distinct(StringComparer.Ordinal).OrderBy(t => t, StringComparer.Ordinal).ToList();
 
         var shapes = new List<NifShape>();
-        foreach (var shape in nif.GetShapes()) shapes.Add(BuildShape(nif, shape));
+        foreach (var shape in nif.GetShapes()) shapes.Add(BuildShape(nif, shape, isSe));
 
         return new NifInspect(
             version.VersionString ?? "", user, stream, isSe,
             blockCount, blockTypes,
             nif.HasUnknownBlocks, unknownDistinct,
-            shapes, BuildNodeTree(nif), ReadHeaderStrings(header));
+            shapes, BuildNodeTree(nif, isSe), ReadHeaderStrings(header));
     }
 
     /// <summary>One shape's N2-whitelist values. Every ref is read DIRECTLY off the shape (the SE-safe path); the
     /// partition list is present only for a BSDismember skin instance, alpha only when the shape carries an alpha
     /// property, and a texture slot only when its path is non-empty.</summary>
-    static NifShape BuildShape(NifFile nif, INiShape shape)
+    static NifShape BuildShape(NifFile nif, INiShape shape, bool isSe)
     {
         string name = shape.Name?.String ?? "";
         uint flags = 0; float scale = 1f;
         if (shape is NiAVObject av) { flags = av.Flags_ui; scale = av.Scale; }
+        var (defVal, defType) = isSe ? ResolveAvDefault(shape.GetType()) : (null, null);
 
         var partitions = new List<NifPartition>();
         if (shape.SkinInstanceRef is not null && nif.GetBlock(shape.SkinInstanceRef) is BSDismemberSkinInstance dis)
@@ -147,13 +176,13 @@ public static class NifService
             }
 
         var bones = nif.GetShapeBoneNames(shape) ?? new List<string>();
-        return new NifShape(name, flags, scale, partitions, alpha, textures, bones);
+        return new NifShape(name, flags, scale, shape.GetType().Name, defVal, defType, partitions, alpha, textures, bones);
     }
 
     /// <summary>Pre-order the NiNode hierarchy from the root(s), depth-annotated, each node with its NiAVObject flags.
     /// Only NiNode children are walked (shapes are covered by <see cref="NifInspect.Shapes"/>). A reference-identity
     /// visited set guards against a malformed file's cycle so the walk always terminates.</summary>
-    static List<NifNode> BuildNodeTree(NifFile nif)
+    static List<NifNode> BuildNodeTree(NifFile nif, bool isSe)
     {
         var nodes = new List<NifNode>();
         var seen = new HashSet<object>(ReferenceEqualityComparer.Instance);
@@ -162,7 +191,8 @@ public static class NifService
         {
             if (node is null || !seen.Add(node)) return;
             uint flags = node is NiAVObject av ? av.Flags_ui : 0u;
-            nodes.Add(new NifNode(depth, node.Name?.String ?? "", flags));
+            var (defVal, defType) = isSe ? ResolveAvDefault(node.GetType()) : (null, null);
+            nodes.Add(new NifNode(depth, node.Name?.String ?? "", flags, node.GetType().Name, defVal, defType));
             foreach (var cref in node.Children.References)
                 if (nif.GetBlock(cref) is NiNode child) Walk(child, depth + 1);
         }
@@ -218,11 +248,16 @@ public sealed record NifBlockTypeCount(string Type, int Count);
 
 /// <summary>One shape and its N2-whitelist values. <see cref="Partitions"/> is empty unless the shape has a
 /// BSDismember skin instance; <see cref="Alpha"/> is null unless it carries an alpha property; <see cref="Textures"/>
-/// lists only non-empty texture-set slots.</summary>
+/// lists only non-empty texture-set slots. <see cref="FlagsDefault"/> is the nif.xml-documented SSE default for the
+/// block's type (via <see cref="FlagsDefaultType"/>, the ancestor it came from), or null when none is documented / the
+/// mesh isn't SE — the renderer decodes <see cref="Flags"/> by deviation from it (nif.xml doesn't name the bits).</summary>
 public sealed record NifShape(
     string Name,
     uint Flags,
     float Scale,
+    string BlockType,
+    uint? FlagsDefault,
+    string? FlagsDefaultType,
     IReadOnlyList<NifPartition> Partitions,
     NifAlpha? Alpha,
     IReadOnlyList<NifTexture> Textures,
@@ -245,5 +280,7 @@ public sealed record NifAlpha(
 /// <summary>One embedded texture path at its BSShaderTextureSet slot index (0 diffuse, 1 normal, … 6 tint/detail, …).</summary>
 public sealed record NifTexture(int Slot, string Path);
 
-/// <summary>One node in the pre-order NiNode tree: its depth (0 = root), name, and NiAVObject flags.</summary>
-public sealed record NifNode(int Depth, string Name, uint Flags);
+/// <summary>One node in the pre-order NiNode tree: its depth (0 = root), name, NiAVObject flags, block type, and the
+/// nif.xml-documented SSE flag default for that type (via <see cref="FlagsDefaultType"/>) — null when none is documented
+/// / the mesh isn't SE. The renderer decodes <see cref="Flags"/> by deviation from the default, like it does for shapes.</summary>
+public sealed record NifNode(int Depth, string Name, uint Flags, string BlockType, uint? FlagsDefault, string? FlagsDefaultType);
