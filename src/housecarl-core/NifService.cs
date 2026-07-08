@@ -34,7 +34,7 @@ public static class NifService
     // bits (Flags is a plain uint there, and community docs note most are unused), so houseCARL decodes flags by
     // DEVIATION from these authoritative defaults rather than inventing bit-names — and always states the one bit nif.xml
     // DOES document: 0x80000 ("Skyrim lacks it sometimes; FO4 lacks it always"), the head-vs-hair-class signal.
-    static readonly IReadOnlyDictionary<string, uint> AvFlagsSseDefaults = new Dictionary<string, uint>(StringComparer.Ordinal)
+    internal static readonly IReadOnlyDictionary<string, uint> AvFlagsSseDefaults = new Dictionary<string, uint>(StringComparer.Ordinal)
     {
         ["NiNode"] = 0xE, ["NiLight"] = 0xE, ["BSMultiBoundNode"] = 0xE,
         ["BSTriShape"] = 0x8000E, ["BSSubIndexTriShape"] = 0xE, ["BSMeshLODTriShape"] = 0x100E,

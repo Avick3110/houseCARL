@@ -90,6 +90,15 @@ internal static class NifServiceGuardProbe
                   $"node flag default resolved from nif.xml (NiNode → 0xE) — {(childA is null ? "MISSING" : childA.BlockType + "/" + (childA.FlagsDefault is { } nd ? "0x" + nd.ToString("X") : "none"))}");
         }
 
+        // ---- transcription lock: pin distinctive nif.xml SSE flag-defaults so a future edit can't quietly corrupt one ----
+        // (the table is a hand-transcription from nif.xml; the resolver arms above only exercise BSTriShape/NiNode, so
+        // the other entries ride on this direct check — review hardening note.)
+        var defs = NifService.AvFlagsSseDefaults;
+        Check(defs["BSTriShape"] == 0x8000E && defs["NiNode"] == 0xE && defs["BSLeafAnimNode"] == 0x808000E
+              && defs["BSMeshLODTriShape"] == 0x100E && defs["BSOrderedNode"] == 0x8200E && defs["BSLODTriShape"] == 0x800000E
+              && defs["BSTreeNode"] == 0x8080E && defs["BSBlastNode"] == 0x8000F && defs["BSMultiBoundNode"] == 0xE,
+              "nif.xml SSE flag-default transcription intact (distinctive entries pinned against drift)");
+
         // ---- refusal arms (Q3): a bad file is a named error, never a throw or a half-model ----
         Console.WriteLine();
         Console.WriteLine("--- refusal: a bad file is surfaced, never a silent/partial answer ---");
