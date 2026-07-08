@@ -217,6 +217,413 @@ public static class NifService
         }
         return strings;
     }
+
+    // ======================================================================
+    //  NIF layer Wave 2 — whitelist WRITES (housecarl_nif_set). Pure bytes-in / verified-bytes-out.
+    // ======================================================================
+
+    /// <summary>Apply the N2-whitelist write op(s) to a mesh's raw bytes and hand back the VERIFIED edited bytes, or a
+    /// named refusal (Q3) — the format-level core behind <c>housecarl_nif_set</c>. Like <see cref="Inspect"/> it knows
+    /// nothing of MO2/VFS; the service layer resolves the winning bytes, calls this, and writes the result.
+    ///
+    /// Refuses (nothing written) when: the mesh won't parse; it is NOT a Skyrim SE stream (a normalized cross-game write
+    /// is untested territory — spike §7); a target shape/node/property named by an op isn't found or is ambiguous; an op
+    /// can't apply (e.g. set_partition on a shape with no dismember skin). Unknown blocks are WARN-and-proceed — they are
+    /// preserved byte-for-byte by construction and the census gate proves it (PRFAQ N6; Wave-2 posture).
+    ///
+    /// Every successful write passes TWO offset-immune gates before its bytes are returned (spike §4, empirically refined
+    /// 2026-07-08 from a position-diff to a block-content diff so a length-changing rename can't false-abort):
+    ///   1. BLOCK-CONTENT DIFF — normalize the unedited mesh and the edited mesh through nifly's canonical writer, slice
+    ///      BOTH by their own block-size tables, and compare block CONTENT by index. Only the block(s)/header the op
+    ///      claims to touch may differ; any other change (a stray block, geometry, the footer) → abort. Content-diff is
+    ///      immune to the file-offset shift a grown/shrunk string table causes, which a raw byte-position diff is not.
+    ///   2. SEMANTIC READ-BACK — reload the written bytes, re-inspect, and assert each op's target now reads as requested
+    ///      (catches a silent no-op write), the block census + unknown-block count are unchanged, the SE stream is intact,
+    ///      and the file reloads clean.
+    /// A gate failure returns the refusal with nothing written — the writer never hands back an unverified mesh.</summary>
+    public static NifSetOutcome Set(byte[] bytes, IReadOnlyList<NifSetOp> ops)
+    {
+        if (bytes is null || bytes.Length == 0)
+            return NifSetOutcome.Fail("the mesh is empty (0 bytes) — nothing to edit.");
+        if (ops is null || ops.Count == 0)
+            return NifSetOutcome.Fail("no write op was given.");
+
+        // ---- parse (same fail-loud posture as Inspect) ----
+        var nif = new NifFile();
+        try
+        {
+            using var ms = new MemoryStream(bytes, writable: false);
+            if (nif.Load(ms) != 0)
+                return NifSetOutcome.Fail("NiflySharp could not parse this mesh — it may be truncated, not a NIF, or a format the library rejects. Nothing was written.");
+        }
+        catch (Exception ex) { return NifSetOutcome.Fail(DescribeLoadException(ex)); }
+
+        NifInspect pre;
+        try { pre = Build(nif); }
+        catch (Exception ex) { return NifSetOutcome.Fail($"the mesh parsed but reading its structure failed — {ex.GetType().Name}: {ex.Message}. Nothing was written."); }
+
+        // ---- SE-stream gate: nif_set refuses a non-SE mesh by name (plan §2 version guard; spike §7) ----
+        if (!pre.IsSkyrimSE)
+            return NifSetOutcome.Fail(
+                $"this is NOT a Skyrim SE mesh (user {pre.UserVersion} / stream {pre.StreamVersion}; SE is user 12 / stream 100). " +
+                "nif_set only writes SE-stream meshes — a normalized cross-game (LE / FO4 / Starfield) write is untested and refused. Nothing was written.");
+
+        // ---- apply each op; record the exact block(s)/header each is allowed to touch ----
+        var applied = new List<NifOpResult>(ops.Count);
+        var expectedBlocks = new HashSet<int>();
+        bool expectHeader = false;
+        foreach (var op in ops)
+        {
+            var r = ApplyOp(nif, op);
+            if (r.Error is not null) return NifSetOutcome.Fail(r.Error);   // target-not-found / ambiguous / not-applicable → nothing written
+            applied.Add(new NifOpResult(op.Kind.ToString(), r.Target!, r.Before!, r.After!));
+            if (r.TouchedBlock is { } b) expectedBlocks.Add(b);
+            if (r.TouchedHeader) expectHeader = true;
+        }
+
+        // ---- save the edited mesh to memory ----
+        byte[] edited;
+        try
+        {
+            using var outMs = new MemoryStream();
+            if (nif.Save(outMs) != 0) return NifSetOutcome.Fail("NiflySharp failed to save the edited mesh. Nothing was written.");
+            edited = outMs.ToArray();
+        }
+        catch (Exception ex) { return NifSetOutcome.Fail($"saving the edited mesh threw — {ex.GetType().Name}: {ex.Message}. Nothing was written."); }
+
+        // ---- GATE 1: block-content diff (offset-immune) ----
+        var g1 = VerifyBlockContent(bytes, edited, expectedBlocks, expectHeader);
+        if (g1 is not null) return NifSetOutcome.Fail(g1);
+
+        // ---- GATE 2: semantic read-back ----
+        var g2 = VerifyReadBack(edited, pre, ops, out var warnings);
+        if (g2 is not null) return NifSetOutcome.Fail(g2);
+
+        var report = new NifSetReport(applied,
+            expectedBlocks.OrderBy(i => i).ToList(), expectHeader,
+            edited.Length - bytes.Length, warnings);
+        return new NifSetOutcome(edited, report, null);
+    }
+
+    /// <summary>Apply one op to <paramref name="nif"/>, returning the target's before/after value, the single block index
+    /// it is allowed to change (or header for a rename), or a NAMED error (Q3) that aborts the whole call. The write APIs
+    /// follow the empirically-confirmed NiflySharp rules: bitfield sub-values (alpha flags) are structs (read-modify-write
+    /// then re-assign); a block is resolved and mutated via its OWNING ref, never a freshly-built one (which does not
+    /// persist on save).</summary>
+    static (string? Error, string? Target, string? Before, string? After, int? TouchedBlock, bool TouchedHeader) ApplyOp(NifFile nif, NifSetOp op)
+    {
+        switch (op.Kind)
+        {
+            case NifSetOpKind.RenameShape:
+            {
+                if (string.IsNullOrEmpty(op.NewName)) return ("rename_shape needs a new_name.", null, null, null, null, false);
+                var (shape, err) = ResolveShape(nif, op.Target);
+                if (err is not null) return (err, null, null, null, null, false);
+                var av = (NiflySharp.Blocks.NiAVObject)shape!;
+                string before = av.Name?.String ?? "";
+                av.Name = new NiStringRef(op.NewName);
+                return (null, op.Target, before, op.NewName, null, true);   // a Name lives ONLY in the header string table
+            }
+            case NifSetOpKind.RenameNode:
+            {
+                if (string.IsNullOrEmpty(op.NewName)) return ("rename_node needs a new_name.", null, null, null, null, false);
+                var (node, err) = ResolveNode(nif, op.Target);
+                if (err is not null) return (err, null, null, null, null, false);
+                string before = node!.Name?.String ?? "";
+                node.Name = new NiStringRef(op.NewName);
+                return (null, op.Target, before, op.NewName, null, true);
+            }
+            case NifSetOpKind.SetFlags:
+            {
+                if (op.Flags is not { } flags) return ("set_flags needs a flags value.", null, null, null, null, false);
+                var (av, err) = ResolveAvObject(nif, op.Target);
+                if (err is not null) return (err, null, null, null, null, false);
+                string before = $"0x{av!.Flags_ui:X}";
+                av.Flags_ui = flags;
+                return (null, op.Target, before, $"0x{flags:X}", BlockIndexOf(nif, av), false);
+            }
+            case NifSetOpKind.SetScale:
+            {
+                if (op.Scale is not { } scale) return ("set_scale needs a scale value.", null, null, null, null, false);
+                var (av, err) = ResolveAvObject(nif, op.Target);
+                if (err is not null) return (err, null, null, null, null, false);
+                string before = av!.Scale.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                av.Scale = scale;
+                return (null, op.Target, before, scale.ToString(System.Globalization.CultureInfo.InvariantCulture), BlockIndexOf(nif, av), false);
+            }
+            case NifSetOpKind.SetAlpha:
+            {
+                if (op.AlphaFlags is null && op.AlphaThreshold is null) return ("set_alpha needs an alpha_flags word and/or an alpha_threshold.", null, null, null, null, false);
+                var (shape, err) = ResolveShape(nif, op.Target);
+                if (err is not null) return (err, null, null, null, null, false);
+                if (!shape!.HasAlphaProperty || nif.GetBlock<NiAlphaProperty>(shape.AlphaPropertyRef) is not { } ap)
+                    return ($"shape '{op.Target}' has no alpha property to set. Nothing was written.", null, null, null, null, false);
+                string before = $"0x{ap.Flags.Value:X4}/thr{ap.Threshold}";
+                if (op.AlphaFlags is { } fw) { var fl = ap.Flags; fl.Value = fw; ap.Flags = fl; }   // AlphaFlags is a STRUCT — reassign
+                if (op.AlphaThreshold is { } th) ap.Threshold = th;
+                return (null, op.Target, before, $"0x{ap.Flags.Value:X4}/thr{ap.Threshold}", BlockIndexOf(nif, ap), false);
+            }
+            case NifSetOpKind.SetPartition:
+            {
+                if (op.BodyPartId is not { } bp) return ("set_partition needs a body_part_id.", null, null, null, null, false);
+                var (shape, err) = ResolveShape(nif, op.Target);
+                if (err is not null) return (err, null, null, null, null, false);
+                if (shape!.SkinInstanceRef is null || nif.GetBlock(shape.SkinInstanceRef) is not BSDismemberSkinInstance dis)
+                    return ($"shape '{op.Target}' has no BSDismember skin instance — no partitions to set. Nothing was written.", null, null, null, null, false);
+                var list = dis.Partitions;
+                if (list is null || list.Count == 0) return ($"shape '{op.Target}' has an empty partition list. Nothing was written.", null, null, null, null, false);
+                int idx;
+                if (op.PartitionIndex is { } pi) { if (pi < 0 || pi >= list.Count) return ($"partition_index {pi} out of range (shape '{op.Target}' has {list.Count} partition(s)). Nothing was written.", null, null, null, null, false); idx = pi; }
+                else if (list.Count == 1) idx = 0;
+                else return ($"shape '{op.Target}' has {list.Count} partitions — pass partition_index to say which. Nothing was written.", null, null, null, null, false);
+                string before = $"[{idx}]={(int)list[idx].BodyPart}";
+                var p = list[idx]; p.BodyPart = (NiflySharp.Enums.BSDismemberBodyPartType)bp; list[idx] = p; dis.Partitions = list;   // list of STRUCT — reassign
+                return (null, op.Target, before, $"[{idx}]={bp}", BlockIndexOf(nif, dis), false);
+            }
+            case NifSetOpKind.SetPath:
+            {
+                if (op.TextureSlot is not { } slot) return ("set_path needs a texture_slot.", null, null, null, null, false);
+                if (op.Path is null) return ("set_path needs a path.", null, null, null, null, false);
+                var (shape, err) = ResolveShape(nif, op.Target);
+                if (err is not null) return (err, null, null, null, null, false);
+                var shader = nif.GetShader(shape!);
+                if (shader?.TextureSetRef is null || nif.GetBlock(shader.TextureSetRef) is not BSShaderTextureSet ts)
+                    return ($"shape '{op.Target}' has no shader texture set — no path to swap. Nothing was written.", null, null, null, null, false);
+                if (slot < 0 || slot >= ts.Textures.Count)
+                    return ($"texture_slot {slot} out of range (shape '{op.Target}' has {ts.Textures.Count} slot(s)). Nothing was written.", null, null, null, null, false);
+                var tex = ts.Textures[slot] ?? new NiflySharp.NiString4();
+                string before = tex.Content ?? "";
+                tex.Content = op.Path; ts.Textures[slot] = tex;
+                return (null, op.Target, $"tex[{slot}]={before}", $"tex[{slot}]={op.Path}", BlockIndexOf(nif, ts), false);
+            }
+            default:
+                return ($"unsupported op '{op.Kind}'.", null, null, null, null, false);
+        }
+    }
+
+    // ---- target resolution (Q3: not-found and ambiguous are NAMED refusals, never a silent first-match write) ----
+
+    static (INiShape? Shape, string? Error) ResolveShape(NifFile nif, string name)
+    {
+        var matches = nif.GetShapes().Where(s => (s.Name?.String ?? "") == name).ToList();
+        if (matches.Count == 0) return (null, $"no shape named '{name}' in this mesh. Shapes: {ShapeNames(nif)}. Nothing was written.");
+        if (matches.Count > 1) return (null, $"more than one shape is named '{name}' — ambiguous, refusing rather than guess which. Nothing was written.");
+        return (matches[0], null);
+    }
+
+    static (NiNode? Node, string? Error) ResolveNode(NifFile nif, string name)
+    {
+        var matches = nif.Blocks.OfType<NiNode>().Where(n => (n.Name?.String ?? "") == name).ToList();
+        if (matches.Count == 0) return (null, $"no node named '{name}' in this mesh. Nothing was written.");
+        if (matches.Count > 1) return (null, $"more than one node is named '{name}' — ambiguous, refusing rather than guess which. Nothing was written.");
+        return (matches[0], null);
+    }
+
+    /// <summary>Resolve a named NiAVObject (a shape OR a node — set_flags/set_scale apply to either). Ambiguity across the
+    /// whole AV-object population is a named refusal.</summary>
+    static (NiflySharp.Blocks.NiAVObject? Av, string? Error) ResolveAvObject(NifFile nif, string name)
+    {
+        var matches = nif.Blocks.OfType<NiflySharp.Blocks.NiAVObject>().Where(a => (a.Name?.String ?? "") == name).ToList();
+        if (matches.Count == 0) return (null, $"no shape or node named '{name}' in this mesh. Nothing was written.");
+        if (matches.Count > 1) return (null, $"more than one shape/node is named '{name}' — ambiguous, refusing rather than guess which. Nothing was written.");
+        return (matches[0], null);
+    }
+
+    static string ShapeNames(NifFile nif) => string.Join(", ", nif.GetShapes().Select(s => "'" + (s.Name?.String ?? "") + "'"));
+
+    /// <summary>The block id of a block within the file (parallel to Header.GetBlockSize/TypeName), by reference identity —
+    /// the index the block-content diff will compare. -1 (never expected) if the block isn't in the list.</summary>
+    static int BlockIndexOf(NifFile nif, object block)
+    {
+        var blocks = nif.Blocks;
+        for (int i = 0; i < blocks.Count; i++) if (ReferenceEquals(blocks[i], block)) return i;
+        return -1;
+    }
+
+    /// <summary>GATE 1 — block-content diff. Normalize the ORIGINAL bytes (reload+save) and compare, block-content by
+    /// index, against the edited output (both sliced by their OWN block-size tables so a grown/shrunk header string table
+    /// can't misalign the comparison). Returns null when only the expected block(s)/header changed; else a NAMED refusal.
+    /// If the block layout can't be recovered on either side, it REFUSES (can't verify ⇒ won't write — never a silent
+    /// pass). Internal so the guard can RED-prove it catches a collateral (non-expected-block) change directly.</summary>
+    internal static string? VerifyBlockContent(byte[] original, byte[] edited, HashSet<int> expectedBlocks, bool expectHeader)
+    {
+        byte[] normBaseline;
+        try
+        {
+            var b = new NifFile();
+            using var ms = new MemoryStream(original, writable: false);
+            if (b.Load(ms) != 0) return "verification could not re-parse the original mesh to normalize it — refusing to write.";
+            using var outMs = new MemoryStream();
+            if (b.Save(outMs) != 0) return "verification could not normalize the original mesh — refusing to write.";
+            normBaseline = outMs.ToArray();
+        }
+        catch (Exception ex) { return $"verification threw while normalizing the original mesh ({ex.GetType().Name}) — refusing to write."; }
+
+        var a = SliceBlocks(normBaseline);
+        var c = SliceBlocks(edited);
+        if (a is null || c is null) return "verification could not recover the block layout to compare — refusing to write (nothing changed on disk).";
+        if (a.Value.blocks.Length != c.Value.blocks.Length)
+            return $"the edit changed the block COUNT ({a.Value.blocks.Length} → {c.Value.blocks.Length}) — a structural change no whitelist op should make. Refusing, nothing written.";
+
+        var changed = new List<int>();
+        for (int i = 0; i < c.Value.blocks.Length; i++)
+            if (!a.Value.blocks[i].AsSpan().SequenceEqual(c.Value.blocks[i])) changed.Add(i);
+
+        var unexpected = changed.Where(i => !expectedBlocks.Contains(i)).ToList();
+        if (unexpected.Count > 0)
+            return $"the edit changed block(s) [{string.Join(", ", unexpected.Select(i => i + " " + c.Value.types[i]))}] it should not have touched (expected only [{string.Join(", ", expectedBlocks.OrderBy(x => x))}]). Refusing, nothing written.";
+
+        // A header change is legitimate in exactly two cases: a rename (edits the authored string table — the op declares
+        // it via expectHeader), OR a touched block changed SIZE (the header's derived block-SIZE table records each
+        // block's byte length, so growing/shrinking an expected block mechanically updates it — e.g. a longer texture
+        // path). Any OTHER header change is real collateral → refuse. (Found on real facegen data 2026-07-08: the
+        // synthetic same-length ops never resize a block, so only a corpus set_path surfaced the block-size-table path.)
+        bool expectedBlockResized = expectedBlocks.Any(i => i >= 0 && i < a.Value.blocks.Length && a.Value.blocks[i].Length != c.Value.blocks[i].Length);
+        if (c.Value.header.AsSpan().SequenceEqual(a.Value.header) == false && !expectHeader && !expectedBlockResized)
+            return "the edit changed the header (its string table or a non-touched block's size entry), which no in-place same-size op should. Refusing, nothing written.";
+        if (c.Value.footer.AsSpan().SequenceEqual(a.Value.footer) == false)
+            return "the edit changed the file footer (root references) — a structural change no whitelist op should make. Refusing, nothing written.";
+        return null;
+    }
+
+    /// <summary>Slice a normalized NIF buffer into (header bytes, per-block content bytes, footer bytes) using its OWN
+    /// block-size table + a footer-length recovery (numRoots consistency check — the spike's difftrace layout recovery).
+    /// null if the layout can't be recovered (the caller refuses).</summary>
+    static (byte[] header, byte[][] blocks, string[] types, byte[] footer)? SliceBlocks(byte[] buf)
+    {
+        NifFile nif;
+        try
+        {
+            nif = new NifFile();
+            using var ms = new MemoryStream(buf, writable: false);
+            if (nif.Load(ms) != 0) return null;
+        }
+        catch { return null; }
+
+        int bc = nif.Header.BlockCount;
+        long sum = 0; var sizes = new int[bc]; var types = new string[bc];
+        for (int i = 0; i < bc; i++) { sizes[i] = nif.Header.GetBlockSize(i); types[i] = nif.Header.GetBlockTypeNameById(i) ?? "?"; sum += sizes[i]; }
+
+        long headerEnd = -1; long footerLen = 0;
+        for (int nRoots = 0; nRoots <= 64; nRoots++)
+        {
+            long fl = 4 + 4L * nRoots; long cand = buf.LongLength - fl - sum;
+            if (cand <= 0) break;
+            if (cand + sum + 4 <= buf.LongLength && BitConverter.ToUInt32(buf, (int)(cand + sum)) == nRoots) { headerEnd = cand; footerLen = fl; break; }
+        }
+        if (headerEnd < 0) return null;
+
+        var header = new byte[headerEnd];
+        Array.Copy(buf, 0, header, 0, headerEnd);
+        var blocks = new byte[bc][];
+        long pos = headerEnd;
+        for (int i = 0; i < bc; i++)
+        {
+            if (pos + sizes[i] > buf.LongLength) return null;
+            blocks[i] = new byte[sizes[i]];
+            Array.Copy(buf, pos, blocks[i], 0, sizes[i]);
+            pos += sizes[i];
+        }
+        var footer = new byte[footerLen];
+        if (footerLen > 0 && pos + footerLen <= buf.LongLength) Array.Copy(buf, pos, footer, 0, footerLen);
+        return (header, blocks, types, footer);
+    }
+
+    /// <summary>GATE 2 — semantic read-back. Reload the WRITTEN bytes, re-inspect, and assert: the file reloads clean and
+    /// is still an SE stream; the block census + unknown-block count match the pre-edit inspect (no structural drift); and
+    /// each op's target now reads as REQUESTED (a value that didn't take — a silent no-op — aborts here). Returns null on
+    /// success; else a NAMED refusal. Also emits any WARN-and-proceed notes (unknown blocks preserved). Internal so the
+    /// guard can RED-prove it catches a no-op write directly.</summary>
+    internal static string? VerifyReadBack(byte[] edited, NifInspect pre, IReadOnlyList<NifSetOp> ops, out IReadOnlyList<string> warnings)
+    {
+        warnings = Array.Empty<string>();
+        var re = new NifFile();
+        try
+        {
+            using var ms = new MemoryStream(edited, writable: false);
+            if (re.Load(ms) != 0) return "the written mesh failed to reload for verification — refusing (nothing changed on disk).";
+        }
+        catch (Exception ex) { return $"the written mesh threw on reload for verification ({ex.GetType().Name}) — refusing (nothing changed on disk)."; }
+
+        NifInspect post;
+        try { post = Build(re); }
+        catch (Exception ex) { return $"the written mesh re-inspect failed ({ex.GetType().Name}) — refusing (nothing changed on disk)."; }
+
+        if (!post.IsSkyrimSE) return "the written mesh is no longer an SE stream — refusing (nothing changed on disk).";
+        if (!CensusEqual(pre.BlockTypes, post.BlockTypes))
+            return "the written mesh's block census changed vs the original — a structural drift no whitelist op should cause. Refusing (nothing changed on disk).";
+        if (pre.UnknownBlockTypes.Count != post.UnknownBlockTypes.Count)
+            return "the written mesh's unknown-block count changed vs the original — refusing (nothing changed on disk).";
+
+        foreach (var op in ops)
+        {
+            var (ok, actual) = ReadBackMatches(re, op);
+            if (!ok)
+                return $"read-back shows the {op.Kind} on '{op.Target}' did NOT take effect (now reads {actual}) — refusing (nothing changed on disk).";
+        }
+
+        if (post.HasUnknownBlocks)
+            warnings = new[] { $"this mesh carries {post.UnknownBlockTypes.Count} unknown block type(s) ({string.Join(", ", post.UnknownBlockTypes)}) — preserved byte-for-byte (the census gate confirmed it); the edit did not touch them." };
+        return null;
+    }
+
+    static bool CensusEqual(IReadOnlyList<NifBlockTypeCount> a, IReadOnlyList<NifBlockTypeCount> b)
+    {
+        if (a.Count != b.Count) return false;
+        for (int i = 0; i < a.Count; i++) if (a[i].Type != b[i].Type || a[i].Count != b[i].Count) return false;
+        return true;
+    }
+
+    /// <summary>Re-resolve an op's target in the RELOADED mesh and confirm the written value equals what was requested
+    /// (renames resolve by the NEW name). Returns (matched, actual-as-read) — a false catches a write that silently did
+    /// not persist.</summary>
+    static (bool ok, string actual) ReadBackMatches(NifFile nif, NifSetOp op)
+    {
+        switch (op.Kind)
+        {
+            case NifSetOpKind.RenameShape:
+                return (nif.GetShapes().Any(s => (s.Name?.String ?? "") == op.NewName), $"shape names {ShapeNames(nif)}");
+            case NifSetOpKind.RenameNode:
+                return (nif.Blocks.OfType<NiNode>().Any(n => (n.Name?.String ?? "") == op.NewName), "(node name)");
+            case NifSetOpKind.SetFlags:
+            {
+                var av = nif.Blocks.OfType<NiflySharp.Blocks.NiAVObject>().FirstOrDefault(a => (a.Name?.String ?? "") == op.Target);
+                return (av is not null && op.Flags is { } f && av.Flags_ui == f, av is null ? "(target gone)" : $"0x{av.Flags_ui:X}");
+            }
+            case NifSetOpKind.SetScale:
+            {
+                var av = nif.Blocks.OfType<NiflySharp.Blocks.NiAVObject>().FirstOrDefault(a => (a.Name?.String ?? "") == op.Target);
+                return (av is not null && op.Scale is { } sc && Math.Abs(av.Scale - sc) < 1e-6f, av is null ? "(target gone)" : av.Scale.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            }
+            case NifSetOpKind.SetAlpha:
+            {
+                var s = nif.GetShapes().FirstOrDefault(x => (x.Name?.String ?? "") == op.Target);
+                var ap = s is not null && s.HasAlphaProperty ? nif.GetBlock<NiAlphaProperty>(s.AlphaPropertyRef) : null;
+                if (ap is null) return (false, "(no alpha)");
+                bool okF = op.AlphaFlags is not { } fw || ap.Flags.Value == fw;
+                bool okT = op.AlphaThreshold is not { } th || ap.Threshold == th;
+                return (okF && okT, $"0x{ap.Flags.Value:X4}/thr{ap.Threshold}");
+            }
+            case NifSetOpKind.SetPartition:
+            {
+                var s = nif.GetShapes().FirstOrDefault(x => (x.Name?.String ?? "") == op.Target);
+                var dis = s?.SkinInstanceRef is not null ? nif.GetBlock(s.SkinInstanceRef) as BSDismemberSkinInstance : null;
+                if (dis?.Partitions is null || dis.Partitions.Count == 0) return (false, "(no partitions)");
+                int idx = op.PartitionIndex ?? 0;
+                if (idx < 0 || idx >= dis.Partitions.Count) return (false, "(index gone)");
+                return (op.BodyPartId is { } bp && (int)dis.Partitions[idx].BodyPart == bp, $"[{idx}]={(int)dis.Partitions[idx].BodyPart}");
+            }
+            case NifSetOpKind.SetPath:
+            {
+                var s = nif.GetShapes().FirstOrDefault(x => (x.Name?.String ?? "") == op.Target);
+                var shader = s is not null ? nif.GetShader(s) : null;
+                var ts = shader?.TextureSetRef is not null ? nif.GetBlock(shader.TextureSetRef) as BSShaderTextureSet : null;
+                if (ts is null || op.TextureSlot is not { } slot || slot < 0 || slot >= ts.Textures.Count) return (false, "(no texset/slot)");
+                return ((ts.Textures[slot]?.Content ?? "") == op.Path, $"tex[{slot}]={ts.Textures[slot]?.Content}");
+            }
+            default: return (false, "(unknown op)");
+        }
+    }
 }
 
 // ======================================================================
@@ -284,3 +691,49 @@ public sealed record NifTexture(int Slot, string Path);
 /// nif.xml-documented SSE flag default for that type (via <see cref="FlagsDefaultType"/>) — null when none is documented
 /// / the mesh isn't SE. The renderer decodes <see cref="Flags"/> by deviation from the default, like it does for shapes.</summary>
 public sealed record NifNode(int Depth, string Name, uint Flags, string BlockType, uint? FlagsDefault, string? FlagsDefaultType);
+
+// ======================================================================
+//  NIF-layer WRITE model — the N2 whitelist op(s) and the verified outcome (Wave 2).
+// ======================================================================
+
+/// <summary>The six N2-whitelist write op kinds. Renames edit the header string table; the others edit one block.</summary>
+public enum NifSetOpKind { RenameShape, RenameNode, SetFlags, SetScale, SetPartition, SetAlpha, SetPath }
+
+/// <summary>One write op. <see cref="Target"/> is the shape/node name it addresses (the CURRENT name, for a rename).
+/// The value fields are read per <see cref="Kind"/> and are otherwise null: <see cref="NewName"/> (rename), <see
+/// cref="Flags"/> (set_flags), <see cref="Scale"/> (set_scale), <see cref="BodyPartId"/> + optional
+/// <see cref="PartitionIndex"/> (set_partition), <see cref="AlphaFlags"/> and/or <see cref="AlphaThreshold"/>
+/// (set_alpha), <see cref="TextureSlot"/> + <see cref="Path"/> (set_path — a BSShaderTextureSet slot).</summary>
+public sealed record NifSetOp(
+    NifSetOpKind Kind,
+    string Target,
+    string? NewName = null,
+    uint? Flags = null,
+    float? Scale = null,
+    int? BodyPartId = null,
+    int? PartitionIndex = null,
+    ushort? AlphaFlags = null,
+    byte? AlphaThreshold = null,
+    int? TextureSlot = null,
+    string? Path = null);
+
+/// <summary>The outcome of <see cref="NifService.Set"/>: exactly one of <see cref="WrittenBytes"/>+<see cref="Report"/>
+/// (success — the VERIFIED edited mesh bytes for the service layer to place) or <see cref="Error"/> (a named refusal,
+/// with nothing written — Q3). Never both, never neither.</summary>
+public sealed record NifSetOutcome(byte[]? WrittenBytes, NifSetReport? Report, string? Error)
+{
+    public static NifSetOutcome Fail(string error) => new(null, null, error);
+}
+
+/// <summary>What a successful <see cref="NifService.Set"/> did: the per-op before→after accounting, the block id(s) the
+/// verification confirmed were the only ones changed (+ whether the header string table changed — a rename), the size
+/// delta, and any WARN-and-proceed notes (e.g. preserved unknown blocks).</summary>
+public sealed record NifSetReport(
+    IReadOnlyList<NifOpResult> Ops,
+    IReadOnlyList<int> ChangedBlocks,
+    bool HeaderChanged,
+    long SizeDelta,
+    IReadOnlyList<string> Warnings);
+
+/// <summary>One applied op's audit line: the op kind, the target it addressed, and the before/after value as read.</summary>
+public sealed record NifOpResult(string Op, string Target, string Before, string After);
