@@ -167,6 +167,8 @@ internal static class NifSetGuardProbe
               "partition_index out of range → named refusal");
         Check(NifService.Set(seBytes, new[] { new NifSetOp(NifSetOpKind.RenameShape, "GuardShape") }).Error is { } e6 && e6.Contains("new_name"),
               "rename with no new_name → named refusal");
+        Check(NifService.Set(seBytes, new[] { new NifSetOp(NifSetOpKind.RenameShape, "GuardShape", NewName: "BareShape") }).Error is { } e7 && e7.Contains("already named"),
+              "rename ONTO an existing shape name → named refusal (no manufactured duplicate; keeps gate-2 read-back sound)");
 
         // ambiguous target — a mesh with two shapes both named 'Dup'
         {
@@ -265,6 +267,18 @@ internal static class NifSetGuardProbe
                       $"set_path read-back shows the new slot-6 path — {back?.Textures.FirstOrDefault(t => t.Slot == 6)?.Path ?? "(gone)"}");
                 Check(back is not null && back.Flags == head.Flags && back.Partitions.Count == head.Partitions.Count,
                       "set_path on real data preserved the shape's flags / partitions");
+
+                // rename on REAL data — the flagship facegen case, and the op most exposed to nifly's string-table
+                // rebuild (a rebuilt table that reindexed shared strings would change OTHER blocks' name refs → gate-1
+                // would refuse). This arm proves a real-mesh rename does NOT false-refuse — and (with a length change)
+                // exercises the F1 block-slicing recovery on a real footer, where a +4 misalign would surface.
+                var reName = head.Name + "_HC_RENAMED_LONGER";
+                var ro = NifService.Set(fgBytes, new[] { new NifSetOp(NifSetOpKind.RenameShape, head.Name, NewName: reName) });
+                Check(ro.Error is null && ro.WrittenBytes is not null, $"rename_shape on a real facegen mesh does NOT false-refuse — {ro.Error ?? "ok"}");
+                var rb = ShapeOf(ro.WrittenBytes, reName);
+                Check(rb is not null && rb.Flags == head.Flags && rb.Partitions.Count == head.Partitions.Count,
+                      $"the real-mesh rename landed + preserved flags/partitions — {(rb is null ? "shape GONE" : "ok")}");
+                Check(ro.Report is { HeaderChanged: true }, "the real-mesh rename touched the header string table (as expected)");
             }
         }
 
