@@ -1,0 +1,4971 @@
+[
+ {
+  "recordType": "NPC",
+  "sig": "NPC_",
+  "subfolder": "npc",
+  "primaryFilter": "filterByNpcs",
+  "filters": [
+   {
+    "name": "filterByNpcs",
+    "kind": "primary",
+    "connectives": [
+     "",
+     "Excluded"
+    ],
+    "selects": "form"
+   },
+   {
+    "name": "filterByModNames",
+    "kind": "crosscutting",
+    "connectives": [
+     ""
+    ],
+    "selects": "modname"
+   },
+   {
+    "name": "filterByRaces",
+    "kind": "recordSpecific",
+    "connectives": [
+     ""
+    ],
+    "selects": "race"
+   },
+   {
+    "name": "filterByDefaultOutfits",
+    "kind": "recordSpecific",
+    "connectives": [
+     ""
+    ],
+    "selects": "form"
+   },
+   {
+    "name": "filterByFactions",
+    "kind": "recordSpecific",
+    "connectives": [
+     "",
+     "Or",
+     "Excluded"
+    ],
+    "selects": "form"
+   },
+   {
+    "name": "filterByClass",
+    "kind": "recordSpecific",
+    "connectives": [
+     "",
+     "Exclude"
+    ],
+    "selects": "class"
+   },
+   {
+    "name": "filterByKeywords",
+    "kind": "crosscutting",
+    "connectives": [
+     "",
+     "Or",
+     "Excluded"
+    ],
+    "selects": "keyword"
+   },
+   {
+    "name": "filterByEditorIdContains",
+    "kind": "crosscutting",
+    "connectives": [
+     "",
+     "Or",
+     "Excluded"
+    ],
+    "selects": "editorid"
+   },
+   {
+    "name": "filterByGender",
+    "kind": "recordSpecific",
+    "connectives": [
+     ""
+    ],
+    "selects": "gender"
+   },
+   {
+    "name": "filterByPCLevelMult",
+    "kind": "recordSpecific",
+    "connectives": [
+     ""
+    ],
+    "selects": "flag"
+   },
+   {
+    "name": "filterByAutoCalc",
+    "kind": "recordSpecific",
+    "connectives": [
+     ""
+    ],
+    "selects": "flag"
+   },
+   {
+    "name": "filterByEssential",
+    "kind": "recordSpecific",
+    "connectives": [
+     ""
+    ],
+    "selects": "flag"
+   },
+   {
+    "name": "filterByProtected",
+    "kind": "recordSpecific",
+    "connectives": [
+     ""
+    ],
+    "selects": "flag"
+   },
+   {
+    "name": "restrictToRaces",
+    "kind": "restrict",
+    "connectives": [
+     ""
+    ],
+    "selects": "race"
+   },
+   {
+    "name": "restrictToGender",
+    "kind": "restrict",
+    "connectives": [
+     ""
+    ],
+    "selects": "gender"
+   },
+   {
+    "name": "restrictToVoiceType",
+    "kind": "restrict",
+    "connectives": [
+     ""
+    ],
+    "selects": "voicetype"
+   },
+   {
+    "name": "restrictToFlags",
+    "kind": "restrict",
+    "connectives": [
+     ""
+    ],
+    "selects": "flag"
+   },
+   {
+    "name": "restrictToTemplateFlags",
+    "kind": "restrict",
+    "connectives": [
+     ""
+    ],
+    "selects": "flag"
+   },
+   {
+    "name": "restrictToMaleModelContains",
+    "kind": "restrict",
+    "connectives": [
+     ""
+    ],
+    "selects": "model"
+   },
+   {
+    "name": "restrictToSkill",
+    "kind": "restrict",
+    "connectives": [
+     ""
+    ],
+    "selects": "skill"
+   },
+   {
+    "name": "rvsRestrictToTraits",
+    "kind": "restrict",
+    "connectives": [
+     ""
+    ],
+    "selects": "bool"
+   }
+  ],
+  "operations": [
+   {
+    "name": "fullName",
+    "shape": "rename",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "~name~"
+   },
+   {
+    "name": "shortName",
+    "shape": "rename",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "~name~"
+   },
+   {
+    "name": "copyVisualStyle",
+    "shape": "mirror",
+    "tractability": "HARD",
+    "stateful": false,
+    "note": "copy face+hair from another NPC"
+   },
+   {
+    "name": "setRandomVisualStyle",
+    "shape": "compound",
+    "tractability": "HARD",
+    "stateful": false,
+    "note": "random pick from formlist; non-deterministic per-save; saved with save"
+   },
+   {
+    "name": "addRandomVisualStyle",
+    "shape": "compound",
+    "tractability": "HARD",
+    "stateful": false,
+    "note": "random; adds styles rather than replacing"
+   },
+   {
+    "name": "level",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false
+   },
+   {
+    "name": "calcLevelMin",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false
+   },
+   {
+    "name": "calcLevelMax",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false
+   },
+   {
+    "name": "setPcLevelMult",
+    "shape": "flags",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "toggles kPCLevelMult; failsafe level via =<level>"
+   },
+   {
+    "name": "setAutoCalcStats",
+    "shape": "flags",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "yes|no|true|false|none; none = unchanged"
+   },
+   {
+    "name": "setEssential",
+    "shape": "flags",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "none = unchanged"
+   },
+   {
+    "name": "setProtected",
+    "shape": "flags",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "none = unchanged"
+   },
+   {
+    "name": "levelRange",
+    "shape": "compound",
+    "tractability": "HARD",
+    "stateful": false,
+    "note": "min~max; scales level-ranged values to NPC level; pairs with changeStats"
+   },
+   {
+    "name": "changeStats",
+    "shape": "compound",
+    "tractability": "HARD",
+    "stateful": false,
+    "note": "keyed health/stamina/magicka: direct, calc (class+level, runtime-derived), mult, or ranged"
+   },
+   {
+    "name": "healthBonus",
+    "shape": "add_numeric",
+    "tractability": "CLEAN",
+    "stateful": true,
+    "note": "bonus atop calcHealth result"
+   },
+   {
+    "name": "magickaBonus",
+    "shape": "add_numeric",
+    "tractability": "CLEAN",
+    "stateful": true,
+    "note": "bonus atop calcMagicka result"
+   },
+   {
+    "name": "staminaBonus",
+    "shape": "add_numeric",
+    "tractability": "CLEAN",
+    "stateful": true,
+    "note": "bonus atop calcStamina result"
+   },
+   {
+    "name": "changeSkills",
+    "shape": "compound",
+    "tractability": "HARD",
+    "stateful": false,
+    "note": "keyed skill=val list"
+   },
+   {
+    "name": "setFlags",
+    "shape": "flags",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "NPC actor flags"
+   },
+   {
+    "name": "removeFlags",
+    "shape": "flags",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "NPC actor flags"
+   },
+   {
+    "name": "setTemplateFlags",
+    "shape": "flags",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "template flags"
+   },
+   {
+    "name": "removeTemplateFlags",
+    "shape": "flags",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "template flags"
+   },
+   {
+    "name": "objectsToAdd",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false,
+    "note": "form=count; FormID-only"
+   },
+   {
+    "name": "addOnceToInventory",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false,
+    "note": "form~count; only if absent"
+   },
+   {
+    "name": "objectsToReplace",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false,
+    "note": "formA~formB"
+   },
+   {
+    "name": "objectsToRemove",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false
+   },
+   {
+    "name": "removeInventoryObjectsByKeywords",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false
+   },
+   {
+    "name": "removeInventoryObjectsByCount",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false,
+    "note": "form~count"
+   },
+   {
+    "name": "clearInventory",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false
+   },
+   {
+    "name": "factionsToAdd",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false,
+    "note": "faction=rank; FormID-only"
+   },
+   {
+    "name": "factionsToRemove",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false
+   },
+   {
+    "name": "keywordsToAdd",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false
+   },
+   {
+    "name": "keywordsToRemove",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false
+   },
+   {
+    "name": "perksToAdd",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false
+   },
+   {
+    "name": "spellsToAdd",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false
+   },
+   {
+    "name": "spellsToRemove",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false
+   },
+   {
+    "name": "levSpellsToAdd",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false
+   },
+   {
+    "name": "levSpellsToRemove",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false
+   },
+   {
+    "name": "shoutsToAdd",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false
+   },
+   {
+    "name": "shoutsToRemove",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false
+   },
+   {
+    "name": "race",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false
+   },
+   {
+    "name": "voiceType",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false
+   },
+   {
+    "name": "class",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false
+   },
+   {
+    "name": "skin",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "null disables"
+   },
+   {
+    "name": "deathItem",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "null disables"
+   },
+   {
+    "name": "outfitDefault",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false
+   },
+   {
+    "name": "outfitSleep",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false
+   },
+   {
+    "name": "weight",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false
+   },
+   {
+    "name": "height",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false
+   },
+   {
+    "name": "setAggression",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "enum"
+   },
+   {
+    "name": "setAssistance",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "enum"
+   },
+   {
+    "name": "setConfidence",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "enum"
+   },
+   {
+    "name": "setMood",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "enum"
+   },
+   {
+    "name": "setMorality",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "enum"
+   },
+   {
+    "name": "aggressionRadiusBehavior",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "true|false"
+   },
+   {
+    "name": "aggressionRadiusRanges",
+    "shape": "compound",
+    "tractability": "HARD",
+    "stateful": false,
+    "note": "keyed attack~N, warn~N, attackandwarn~N"
+   },
+   {
+    "name": "attackDataToAdd",
+    "shape": "compound",
+    "tractability": "HARD",
+    "stateful": false,
+    "note": "keyed attack data; syntax in race-hook"
+   },
+   {
+    "name": "attackDataToChange",
+    "shape": "compound",
+    "tractability": "HARD",
+    "stateful": false,
+    "note": "keyed attack data; syntax in race-hook"
+   },
+   {
+    "name": "attackDataToRemove",
+    "shape": "compound",
+    "tractability": "HARD",
+    "stateful": false,
+    "note": "keyed attack data; syntax in race-hook"
+   }
+  ]
+ },
+ {
+  "recordType": "Weapon",
+  "sig": "WEAP",
+  "subfolder": "weapon",
+  "primaryFilter": "filterByWeapons",
+  "filters": [
+   {
+    "name": "filterByWeapons",
+    "kind": "primary",
+    "connectives": [
+     "",
+     "Excluded"
+    ],
+    "selects": "form"
+   },
+   {
+    "name": "filterByModNames",
+    "kind": "crosscutting",
+    "connectives": [
+     ""
+    ],
+    "selects": "modname"
+   },
+   {
+    "name": "filterByKeywords",
+    "kind": "crosscutting",
+    "connectives": [
+     "",
+     "Or",
+     "Excluded"
+    ],
+    "selects": "keyword"
+   },
+   {
+    "name": "filterByEditorIdContains",
+    "kind": "crosscutting",
+    "connectives": [
+     "",
+     "Or",
+     "Excluded"
+    ],
+    "selects": "editorid"
+   },
+   {
+    "name": "filterByFirstPersonModel",
+    "kind": "recordSpecific",
+    "connectives": [
+     "Or"
+    ],
+    "selects": "model"
+   },
+   {
+    "name": "filterBySkills",
+    "kind": "recordSpecific",
+    "connectives": [
+     ""
+    ],
+    "selects": "skill",
+    "note": "combat subset only"
+   },
+   {
+    "name": "filterByAnimationType",
+    "kind": "recordSpecific",
+    "connectives": [
+     "Or"
+    ],
+    "selects": "enum"
+   },
+   {
+    "name": "hasPlugins",
+    "kind": "hasPlugins",
+    "connectives": [
+     "",
+     "Or"
+    ],
+    "selects": "plugin"
+   },
+   {
+    "name": "restrictToSkills",
+    "kind": "restrict",
+    "connectives": [
+     ""
+    ],
+    "selects": "skill",
+    "note": "combat subset only"
+   },
+   {
+    "name": "restrictToFlags",
+    "kind": "restrict",
+    "connectives": [
+     ""
+    ],
+    "selects": "flag",
+    "note": "only boundweapon available"
+   },
+   {
+    "name": "filterByHasAmmoFromWeaponList",
+    "kind": "recordSpecific",
+    "connectives": [
+     ""
+    ],
+    "selects": "other",
+    "note": "independent filter group; no further detail documented"
+   }
+  ],
+  "operations": [
+   {
+    "name": "fullName",
+    "shape": "rename",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "~name~"
+   },
+   {
+    "name": "animationType",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "enum"
+   },
+   {
+    "name": "skillType",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "enum (skill)"
+   },
+   {
+    "name": "attackDamage",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false
+   },
+   {
+    "name": "attackDamageMult",
+    "shape": "mult",
+    "tractability": "CLEAN",
+    "stateful": true
+   },
+   {
+    "name": "attackDamageToAdd",
+    "shape": "add_numeric",
+    "tractability": "CLEAN",
+    "stateful": true
+   },
+   {
+    "name": "bashDamage",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false
+   },
+   {
+    "name": "critDamage",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false
+   },
+   {
+    "name": "critDamageToAdd",
+    "shape": "add_numeric",
+    "tractability": "CLEAN",
+    "stateful": true
+   },
+   {
+    "name": "critDamageMult",
+    "shape": "mult",
+    "tractability": "CLEAN",
+    "stateful": true
+   },
+   {
+    "name": "critPercentMult",
+    "shape": "mult",
+    "tractability": "CLEAN",
+    "stateful": true
+   },
+   {
+    "name": "critDamageSetToBase",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": true,
+    "note": "crit = record's own base damage"
+   },
+   {
+    "name": "weight",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false
+   },
+   {
+    "name": "weightMult",
+    "shape": "mult",
+    "tractability": "CLEAN",
+    "stateful": true
+   },
+   {
+    "name": "value",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false
+   },
+   {
+    "name": "valueMult",
+    "shape": "mult",
+    "tractability": "CLEAN",
+    "stateful": true
+   },
+   {
+    "name": "speed",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false
+   },
+   {
+    "name": "speedMult",
+    "shape": "mult",
+    "tractability": "CLEAN",
+    "stateful": true
+   },
+   {
+    "name": "reach",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false
+   },
+   {
+    "name": "rangeMin",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false
+   },
+   {
+    "name": "rangeMax",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false
+   },
+   {
+    "name": "stagger",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false
+   },
+   {
+    "name": "enchantAmount",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false
+   },
+   {
+    "name": "model",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "model"
+   },
+   {
+    "name": "modelFirstPerson",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "model"
+   },
+   {
+    "name": "equipSound",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "form; null clears"
+   },
+   {
+    "name": "unequipSound",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "form; null clears"
+   },
+   {
+    "name": "attackFailSound",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "form"
+   },
+   {
+    "name": "impactDataSet",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "form"
+   },
+   {
+    "name": "altBlockMaterialType",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "form"
+   },
+   {
+    "name": "blockBashImpactDataSet",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "form"
+   },
+   {
+    "name": "equipSlot",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "form"
+   },
+   {
+    "name": "templateWeapon",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "form"
+   },
+   {
+    "name": "objectEffect",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "enchantment form"
+   },
+   {
+    "name": "weaponHitType",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "enum normal|dismember|explode|no"
+   },
+   {
+    "name": "soundLevel",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "enum loud|normal|silent|veryloud|quiet"
+   },
+   {
+    "name": "keywordsToAdd",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false
+   },
+   {
+    "name": "keywordsToRemove",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false
+   },
+   {
+    "name": "mirrorWeapon",
+    "shape": "mirror",
+    "tractability": "HARD",
+    "stateful": false,
+    "note": "copy appearance + weapon data from template"
+   },
+   {
+    "name": "minX",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "object bounds"
+   },
+   {
+    "name": "minY",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "object bounds"
+   },
+   {
+    "name": "minZ",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "object bounds"
+   },
+   {
+    "name": "maxX",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "object bounds"
+   },
+   {
+    "name": "maxY",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "object bounds"
+   },
+   {
+    "name": "maxZ",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "object bounds"
+   }
+  ]
+ },
+ {
+  "recordType": "Armor",
+  "sig": "ARMO",
+  "subfolder": "armor",
+  "primaryFilter": "filterByArmors",
+  "filters": [
+   {
+    "name": "filterByArmors",
+    "kind": "primary",
+    "connectives": [
+     "",
+     "Excluded"
+    ],
+    "selects": "form"
+   },
+   {
+    "name": "filterByModNames",
+    "kind": "crosscutting",
+    "connectives": [
+     ""
+    ],
+    "selects": "modname"
+   },
+   {
+    "name": "filterByArmorTypes",
+    "kind": "recordSpecific",
+    "connectives": [
+     "",
+     "Excluded"
+    ],
+    "selects": "enum",
+    "note": "heavy|light|clothing"
+   },
+   {
+    "name": "filterByKeywords",
+    "kind": "crosscutting",
+    "connectives": [
+     "",
+     "Or",
+     "Excluded"
+    ],
+    "selects": "keyword"
+   },
+   {
+    "name": "filterByBipedSlots",
+    "kind": "recordSpecific",
+    "connectives": [
+     "",
+     "Or",
+     "Excluded"
+    ],
+    "selects": "slot",
+    "note": "biped slot index 0-31"
+   },
+   {
+    "name": "filterByEditorIdContains",
+    "kind": "crosscutting",
+    "connectives": [
+     "",
+     "Or",
+     "Excluded"
+    ],
+    "selects": "editorid"
+   },
+   {
+    "name": "filterByNameContains",
+    "kind": "crosscutting",
+    "connectives": [
+     "",
+     "Or",
+     "Excluded"
+    ],
+    "selects": "name"
+   },
+   {
+    "name": "filterByArmorAddons",
+    "kind": "recordSpecific",
+    "connectives": [
+     "",
+     "Or",
+     "Excluded"
+    ],
+    "selects": "form",
+    "note": "EditorID substring ok"
+   },
+   {
+    "name": "hasPlugins",
+    "kind": "hasPlugins",
+    "connectives": [
+     "",
+     "Or"
+    ],
+    "selects": "plugin"
+   },
+   {
+    "name": "restrictToBipedSlots",
+    "kind": "restrict",
+    "connectives": [
+     ""
+    ],
+    "selects": "slot",
+    "note": "biped slot index"
+   },
+   {
+    "name": "restrictToKeywords",
+    "kind": "restrict",
+    "connectives": [
+     ""
+    ],
+    "selects": "keyword"
+   }
+  ],
+  "operations": [
+   {
+    "name": "fullName",
+    "shape": "rename",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "~name~; propagates to ARMA"
+   },
+   {
+    "name": "damageResist",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false
+   },
+   {
+    "name": "damageResistMultiply",
+    "shape": "mult",
+    "tractability": "CLEAN",
+    "stateful": true
+   },
+   {
+    "name": "damageResistMatch",
+    "shape": "mirror",
+    "tractability": "HARD",
+    "stateful": false,
+    "note": "match another armor's rating"
+   },
+   {
+    "name": "dwMatch",
+    "shape": "mirror",
+    "tractability": "HARD",
+    "stateful": false,
+    "note": "match another armor's rating AND weight"
+   },
+   {
+    "name": "enchantAmount",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false
+   },
+   {
+    "name": "weight",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false
+   },
+   {
+    "name": "weightMult",
+    "shape": "mult",
+    "tractability": "CLEAN",
+    "stateful": true
+   },
+   {
+    "name": "value",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false
+   },
+   {
+    "name": "valueMult",
+    "shape": "mult",
+    "tractability": "CLEAN",
+    "stateful": true
+   },
+   {
+    "name": "armorType",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "enum lightarmor|heavyarmor|clothing"
+   },
+   {
+    "name": "objectEffect",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "enchantment form; null clears"
+   },
+   {
+    "name": "equipSlot",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "form"
+   },
+   {
+    "name": "templateArmor",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "form"
+   },
+   {
+    "name": "altBlockMaterialType",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "form"
+   },
+   {
+    "name": "blockBashImpactDataSet",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "form"
+   },
+   {
+    "name": "pickUpSound",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "form"
+   },
+   {
+    "name": "putDownSound",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "form"
+   },
+   {
+    "name": "modelMatch",
+    "shape": "mirror",
+    "tractability": "HARD",
+    "stateful": false,
+    "note": "set model (incl sounds + inventory model) to another armor's"
+   },
+   {
+    "name": "mirrorArmor",
+    "shape": "mirror",
+    "tractability": "HARD",
+    "stateful": false,
+    "note": "copy appearance + armor data from another armor"
+   },
+   {
+    "name": "armorAddonsToAdd",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false
+   },
+   {
+    "name": "armorAddonsToRemove",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false
+   },
+   {
+    "name": "clearArmorAddons",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false
+   },
+   {
+    "name": "bipedSlotsToAdd",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false,
+    "note": "biped slot index"
+   },
+   {
+    "name": "bipedSlotsToRemove",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false,
+    "note": "biped slot index"
+   },
+   {
+    "name": "keywordsToAdd",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false
+   },
+   {
+    "name": "keywordsToRemove",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false
+   },
+   {
+    "name": "setFlags",
+    "shape": "flags",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "nonplayable, shield"
+   },
+   {
+    "name": "removeFlags",
+    "shape": "flags",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "nonplayable, shield"
+   },
+   {
+    "name": "minX",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "object bounds"
+   },
+   {
+    "name": "minY",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "object bounds"
+   },
+   {
+    "name": "minZ",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "object bounds"
+   },
+   {
+    "name": "maxX",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "object bounds"
+   },
+   {
+    "name": "maxY",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "object bounds"
+   },
+   {
+    "name": "maxZ",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "object bounds"
+   }
+  ]
+ },
+ {
+  "recordType": "Ammo",
+  "sig": "AMMO",
+  "subfolder": "ammo",
+  "primaryFilter": "filterByAmmos",
+  "filters": [
+   {
+    "name": "filterByAmmos",
+    "kind": "primary",
+    "connectives": [
+     ""
+    ],
+    "selects": "form"
+   },
+   {
+    "name": "filterByModNames",
+    "kind": "crosscutting",
+    "connectives": [
+     ""
+    ],
+    "selects": "modname"
+   },
+   {
+    "name": "filterByAlternateTextures",
+    "kind": "recordSpecific",
+    "connectives": [
+     ""
+    ],
+    "selects": "other",
+    "note": "match ammo carrying a given texture set"
+   },
+   {
+    "name": "filterByEditorIdContains",
+    "kind": "crosscutting",
+    "connectives": [
+     "",
+     "Or",
+     "Excluded"
+    ],
+    "selects": "editorid"
+   },
+   {
+    "name": "filterByWeightLessThan",
+    "kind": "recordSpecific",
+    "connectives": [
+     ""
+    ],
+    "selects": "other",
+    "note": "match ammo lighter than N"
+   },
+   {
+    "name": "hasPlugins",
+    "kind": "hasPlugins",
+    "connectives": [
+     "",
+     "Or"
+    ],
+    "selects": "plugin"
+   },
+   {
+    "name": "restrictToBolts",
+    "kind": "restrict",
+    "connectives": [
+     ""
+    ],
+    "selects": "bool",
+    "note": "true = bolts only; false = non-bolts (arrows)"
+   }
+  ],
+  "operations": [
+   {
+    "name": "fullName",
+    "shape": "rename",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "~name~"
+   },
+   {
+    "name": "attackDamage",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "damage ammo adds to weapon"
+   },
+   {
+    "name": "attackDamageMult",
+    "shape": "mult",
+    "tractability": "CLEAN",
+    "stateful": true
+   },
+   {
+    "name": "attackDamageToAdd",
+    "shape": "add_numeric",
+    "tractability": "CLEAN",
+    "stateful": true
+   },
+   {
+    "name": "range",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false
+   },
+   {
+    "name": "rangeMult",
+    "shape": "mult",
+    "tractability": "CLEAN",
+    "stateful": true
+   },
+   {
+    "name": "speed",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false
+   },
+   {
+    "name": "speedMult",
+    "shape": "mult",
+    "tractability": "CLEAN",
+    "stateful": true
+   },
+   {
+    "name": "gravity",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false
+   },
+   {
+    "name": "gravityMult",
+    "shape": "mult",
+    "tractability": "CLEAN",
+    "stateful": true
+   },
+   {
+    "name": "weight",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false
+   },
+   {
+    "name": "weightMult",
+    "shape": "mult",
+    "tractability": "CLEAN",
+    "stateful": true
+   },
+   {
+    "name": "value",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false
+   },
+   {
+    "name": "valueMult",
+    "shape": "mult",
+    "tractability": "CLEAN",
+    "stateful": true
+   },
+   {
+    "name": "setNewProjectile",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "form; change ammo's projectile"
+   },
+   {
+    "name": "keywordsToAdd",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false
+   },
+   {
+    "name": "keywordsToRemove",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false
+   },
+   {
+    "name": "model",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "form or .nif path"
+   },
+   {
+    "name": "alternateTexturesToAdd",
+    "shape": "compound",
+    "tractability": "HARD",
+    "stateful": false,
+    "note": "TextureSet~Name3D~Index3D"
+   },
+   {
+    "name": "alternateTexturesToRemove",
+    "shape": "compound",
+    "tractability": "HARD",
+    "stateful": false,
+    "note": "TextureSet~Name3D~Index3D"
+   },
+   {
+    "name": "alternateTexturesClear",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false,
+    "note": "clears alternate textures"
+   },
+   {
+    "name": "setFlags",
+    "shape": "flags",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "ignoresnormalweaponresistance, nonplayable, nonbolt"
+   },
+   {
+    "name": "removeFlags",
+    "shape": "flags",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "ignoresnormalweaponresistance, nonplayable, nonbolt"
+   }
+  ]
+ },
+ {
+  "recordType": "Spell",
+  "sig": "SPEL",
+  "subfolder": "spell",
+  "primaryFilter": "filterBySpells",
+  "filters": [
+   {
+    "name": "filterBySpells",
+    "kind": "primary",
+    "connectives": [
+     "",
+     "Excluded"
+    ],
+    "selects": "form"
+   },
+   {
+    "name": "filterByModNames",
+    "kind": "crosscutting",
+    "connectives": [
+     ""
+    ],
+    "selects": "modname"
+   },
+   {
+    "name": "filterByKeywords",
+    "kind": "crosscutting",
+    "connectives": [
+     "",
+     "Or",
+     "Excluded"
+    ],
+    "selects": "keyword"
+   },
+   {
+    "name": "filterByMgefs",
+    "kind": "crosscutting",
+    "connectives": [
+     "",
+     "Or",
+     "Excluded"
+    ],
+    "selects": "mgef"
+   },
+   {
+    "name": "filterByEditorIdContains",
+    "kind": "crosscutting",
+    "connectives": [
+     "",
+     "Or",
+     "Excluded"
+    ],
+    "selects": "editorid"
+   },
+   {
+    "name": "restrictToCastingType",
+    "kind": "restrict",
+    "connectives": [
+     ""
+    ],
+    "selects": "castingtype"
+   },
+   {
+    "name": "filterByFlags",
+    "kind": "recordSpecific",
+    "connectives": [
+     "",
+     "Or",
+     "Excluded"
+    ],
+    "selects": "flag"
+   }
+  ],
+  "operations": [
+   {
+    "name": "fullName",
+    "shape": "rename",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "~Name~ wrapped"
+   },
+   {
+    "name": "setFlags",
+    "shape": "flags",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "spell-flags list"
+   },
+   {
+    "name": "removeFlags",
+    "shape": "flags",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "spell-flags list"
+   },
+   {
+    "name": "keywordsToAdd",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false,
+    "note": ""
+   },
+   {
+    "name": "keywordsToRemove",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false,
+    "note": ""
+   },
+   {
+    "name": "mgefsToAdd",
+    "shape": "compound",
+    "tractability": "HARD",
+    "stateful": false,
+    "note": "Effects-array ~-packed Mag~Dur~Area[~sortFirst]"
+   },
+   {
+    "name": "mgefsToChange",
+    "shape": "compound",
+    "tractability": "HARD",
+    "stateful": false,
+    "note": "Effects-array ~-packed, null skips a slot"
+   },
+   {
+    "name": "mgefsToChangeAdd",
+    "shape": "compound",
+    "tractability": "HARD",
+    "stateful": false,
+    "note": "Effects-array ~-packed"
+   },
+   {
+    "name": "mgefsToRemove",
+    "shape": "compound",
+    "tractability": "HARD",
+    "stateful": false,
+    "note": "Effects-array op; removes by form (not ~-packed)"
+   },
+   {
+    "name": "baseCost",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "base magicka cost"
+   },
+   {
+    "name": "halfCostPerk",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "form field"
+   },
+   {
+    "name": "castType",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "castType enum"
+   },
+   {
+    "name": "chargeTime",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": ""
+   },
+   {
+    "name": "clear",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false,
+    "note": "removes all magic effects"
+   }
+  ]
+ },
+ {
+  "recordType": "Scroll",
+  "sig": "SCRL",
+  "subfolder": "scroll",
+  "primaryFilter": "filterByScrolls",
+  "filters": [
+   {
+    "name": "filterByScrolls",
+    "kind": "primary",
+    "connectives": [
+     "",
+     "Excluded"
+    ],
+    "selects": "form"
+   },
+   {
+    "name": "filterByModNames",
+    "kind": "crosscutting",
+    "connectives": [
+     ""
+    ],
+    "selects": "modname"
+   },
+   {
+    "name": "filterByAlternateTextures",
+    "kind": "crosscutting",
+    "connectives": [
+     ""
+    ],
+    "selects": "form"
+   },
+   {
+    "name": "filterByKeywords",
+    "kind": "crosscutting",
+    "connectives": [
+     "",
+     "Or",
+     "Excluded"
+    ],
+    "selects": "keyword"
+   },
+   {
+    "name": "filterByMgefs",
+    "kind": "crosscutting",
+    "connectives": [
+     "",
+     "Or",
+     "Excluded"
+    ],
+    "selects": "mgef"
+   },
+   {
+    "name": "filterByEditorIdContains",
+    "kind": "crosscutting",
+    "connectives": [
+     "",
+     "Or",
+     "Excluded"
+    ],
+    "selects": "editorid"
+   }
+  ],
+  "operations": [
+   {
+    "name": "fullName",
+    "shape": "rename",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "~Name~ wrapped"
+   },
+   {
+    "name": "weight",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": ""
+   },
+   {
+    "name": "weightMult",
+    "shape": "mult",
+    "tractability": "CLEAN",
+    "stateful": true,
+    "note": "multiply current weight"
+   },
+   {
+    "name": "value",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": ""
+   },
+   {
+    "name": "valueMult",
+    "shape": "mult",
+    "tractability": "CLEAN",
+    "stateful": true,
+    "note": "multiply current value"
+   },
+   {
+    "name": "setFlags",
+    "shape": "flags",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "spell-flag set"
+   },
+   {
+    "name": "removeFlags",
+    "shape": "flags",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "spell-flag set"
+   },
+   {
+    "name": "keywordsToAdd",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false,
+    "note": ""
+   },
+   {
+    "name": "keywordsToRemove",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false,
+    "note": ""
+   },
+   {
+    "name": "mgefsToAdd",
+    "shape": "compound",
+    "tractability": "HARD",
+    "stateful": false,
+    "note": "Effects-array ~-packed"
+   },
+   {
+    "name": "mgefsToChange",
+    "shape": "compound",
+    "tractability": "HARD",
+    "stateful": false,
+    "note": "Effects-array ~-packed"
+   },
+   {
+    "name": "mgefsToChangeAdd",
+    "shape": "compound",
+    "tractability": "HARD",
+    "stateful": false,
+    "note": "Effects-array ~-packed"
+   },
+   {
+    "name": "mgefsToRemove",
+    "shape": "compound",
+    "tractability": "HARD",
+    "stateful": false,
+    "note": "Effects-array op; removes by form"
+   },
+   {
+    "name": "baseCost",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": ""
+   },
+   {
+    "name": "halfCostPerk",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "form field"
+   },
+   {
+    "name": "castType",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "castType enum"
+   },
+   {
+    "name": "chargeTime",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": ""
+   },
+   {
+    "name": "clear",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false,
+    "note": "removes all magic effects"
+   },
+   {
+    "name": "model",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "form or .nif path"
+   },
+   {
+    "name": "alternateTexturesToAdd",
+    "shape": "compound",
+    "tractability": "HARD",
+    "stateful": false,
+    "note": "TextureSet~Name3D~Index3D ~-packed"
+   },
+   {
+    "name": "alternateTexturesToRemove",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false,
+    "note": "remove alt-texture by TextureSet"
+   },
+   {
+    "name": "alternateTexturesClear",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false,
+    "note": "=true clears alt textures"
+   }
+  ]
+ },
+ {
+  "recordType": "Enchantment",
+  "sig": "ENCH",
+  "subfolder": "enchantment",
+  "primaryFilter": "filterByEnchs",
+  "filters": [
+   {
+    "name": "filterByEnchs",
+    "kind": "primary",
+    "connectives": [
+     "",
+     "Excluded"
+    ],
+    "selects": "form"
+   },
+   {
+    "name": "filterByModNames",
+    "kind": "crosscutting",
+    "connectives": [
+     ""
+    ],
+    "selects": "modname"
+   },
+   {
+    "name": "filterByKeywords",
+    "kind": "crosscutting",
+    "connectives": [
+     "",
+     "Or",
+     "Excluded"
+    ],
+    "selects": "keyword"
+   },
+   {
+    "name": "filterByMgefs",
+    "kind": "crosscutting",
+    "connectives": [
+     "",
+     "Or",
+     "Excluded"
+    ],
+    "selects": "mgef"
+   },
+   {
+    "name": "filterByEditorIdContains",
+    "kind": "crosscutting",
+    "connectives": [
+     "",
+     "Or",
+     "Excluded"
+    ],
+    "selects": "editorid"
+   }
+  ],
+  "operations": [
+   {
+    "name": "fullName",
+    "shape": "rename",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "~Name~ wrapped"
+   },
+   {
+    "name": "setFlags",
+    "shape": "flags",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "flags: costoverride, extendduration"
+   },
+   {
+    "name": "removeFlags",
+    "shape": "flags",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "flags: costoverride, extendduration"
+   },
+   {
+    "name": "keywordsToAdd",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false,
+    "note": ""
+   },
+   {
+    "name": "keywordsToRemove",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false,
+    "note": ""
+   },
+   {
+    "name": "mgefsToAdd",
+    "shape": "compound",
+    "tractability": "HARD",
+    "stateful": false,
+    "note": "Effects-array ~-packed"
+   },
+   {
+    "name": "mgefsToChange",
+    "shape": "compound",
+    "tractability": "HARD",
+    "stateful": false,
+    "note": "Effects-array ~-packed"
+   },
+   {
+    "name": "mgefsToChangeAdd",
+    "shape": "compound",
+    "tractability": "HARD",
+    "stateful": false,
+    "note": "Effects-array ~-packed"
+   },
+   {
+    "name": "mgefsToRemove",
+    "shape": "compound",
+    "tractability": "HARD",
+    "stateful": false,
+    "note": "Effects-array op; removes by form"
+   },
+   {
+    "name": "baseCost",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": ""
+   },
+   {
+    "name": "castType",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "castType enum"
+   },
+   {
+    "name": "chargeTime",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": ""
+   },
+   {
+    "name": "enchantmentAmount",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": ""
+   },
+   {
+    "name": "clear",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false,
+    "note": "removes all magic effects"
+   }
+  ]
+ },
+ {
+  "recordType": "Magic Effect",
+  "sig": "MGEF",
+  "subfolder": "magicEffect",
+  "primaryFilter": "filterByMgefs",
+  "filters": [
+   {
+    "name": "filterByMgefs",
+    "kind": "primary",
+    "connectives": [
+     "",
+     "Excluded"
+    ],
+    "selects": "form"
+   },
+   {
+    "name": "filterByModNames",
+    "kind": "crosscutting",
+    "connectives": [
+     "",
+     "Excluded"
+    ],
+    "selects": "modname"
+   },
+   {
+    "name": "filterByKeywords",
+    "kind": "crosscutting",
+    "connectives": [
+     "",
+     "Or",
+     "Excluded"
+    ],
+    "selects": "keyword"
+   },
+   {
+    "name": "filterByEditorIdContains",
+    "kind": "crosscutting",
+    "connectives": [
+     "",
+     "Or",
+     "Excluded"
+    ],
+    "selects": "editorid"
+   },
+   {
+    "name": "filterByArchetypes",
+    "kind": "recordSpecific",
+    "connectives": [
+     ""
+    ],
+    "selects": "archetype"
+   },
+   {
+    "name": "filterBySounds",
+    "kind": "recordSpecific",
+    "connectives": [
+     ""
+    ],
+    "selects": "form"
+   },
+   {
+    "name": "effectShaders",
+    "kind": "recordSpecific",
+    "connectives": [
+     "Excluded"
+    ],
+    "selects": "form"
+   },
+   {
+    "name": "modNamesLastOverridden",
+    "kind": "overrideAware",
+    "connectives": [
+     "Excluded"
+    ],
+    "selects": "modname"
+   },
+   {
+    "name": "restrictToCastingType",
+    "kind": "restrict",
+    "connectives": [
+     ""
+    ],
+    "selects": "castingtype"
+   },
+   {
+    "name": "restrictToDeliveryType",
+    "kind": "restrict",
+    "connectives": [
+     ""
+    ],
+    "selects": "deliverytype"
+   },
+   {
+    "name": "restrictToActorValue",
+    "kind": "restrict",
+    "connectives": [
+     ""
+    ],
+    "selects": "actorvalue"
+   },
+   {
+    "name": "restrictToResistType",
+    "kind": "restrict",
+    "connectives": [
+     ""
+    ],
+    "selects": "resisttype"
+   },
+   {
+    "name": "restrictToAreaEffects",
+    "kind": "restrict",
+    "connectives": [
+     ""
+    ],
+    "selects": "bool"
+   },
+   {
+    "name": "restrictToDetrimentalEffects",
+    "kind": "restrict",
+    "connectives": [
+     ""
+    ],
+    "selects": "bool"
+   }
+  ],
+  "operations": [
+   {
+    "name": "fullName",
+    "shape": "rename",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "~Name~ wrapped"
+   },
+   {
+    "name": "minimumSkillLevel",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": ""
+   },
+   {
+    "name": "spellmakingCastingTime",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": ""
+   },
+   {
+    "name": "spellmakingArea",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": ""
+   },
+   {
+    "name": "baseCost",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": ""
+   },
+   {
+    "name": "skillUsageMult",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "sets MGEF Skill Usage Mult field (not a multiply-current op)"
+   },
+   {
+    "name": "castingType",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "MGEF uses castingType (not castType); enum"
+   },
+   {
+    "name": "projectile",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "form field"
+   },
+   {
+    "name": "enchantArt",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "form field"
+   },
+   {
+    "name": "castingArt",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "form field"
+   },
+   {
+    "name": "impactDataSet",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "form field"
+   },
+   {
+    "name": "enchantShader",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "form field; accepts null to remove"
+   },
+   {
+    "name": "hitShader",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "form field"
+   },
+   {
+    "name": "removeEdgeGlow",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "no-arg; clears shader edge glow"
+   },
+   {
+    "name": "perkToApply",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "form field; accepts null to remove"
+   },
+   {
+    "name": "setFlags",
+    "shape": "flags",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "magic-effect flags list"
+   },
+   {
+    "name": "removeFlags",
+    "shape": "flags",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "magic-effect flags list"
+   },
+   {
+    "name": "keywordsToAdd",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false,
+    "note": ""
+   },
+   {
+    "name": "keywordsToRemove",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false,
+    "note": ""
+   },
+   {
+    "name": "soundsToChange",
+    "shape": "compound",
+    "tractability": "HARD",
+    "stateful": false,
+    "note": "form~slot ~-packed; null~slot removes a sound by slot"
+   }
+  ]
+ },
+ {
+  "recordType": "Alchemy / Ingestible",
+  "sig": "ALCH",
+  "subfolder": "ingestible",
+  "primaryFilter": "filterByAlchs",
+  "filters": [
+   {
+    "name": "filterByAlchs",
+    "kind": "primary",
+    "connectives": [
+     "",
+     "Excluded"
+    ],
+    "selects": "form"
+   },
+   {
+    "name": "filterByModNames",
+    "kind": "crosscutting",
+    "connectives": [
+     ""
+    ],
+    "selects": "modname"
+   },
+   {
+    "name": "filterByAlternateTextures",
+    "kind": "crosscutting",
+    "connectives": [
+     ""
+    ],
+    "selects": "form"
+   },
+   {
+    "name": "filterByKeywords",
+    "kind": "crosscutting",
+    "connectives": [
+     "",
+     "Or",
+     "Excluded"
+    ],
+    "selects": "keyword"
+   },
+   {
+    "name": "filterByMgefs",
+    "kind": "crosscutting",
+    "connectives": [
+     "",
+     "Or",
+     "Excluded"
+    ],
+    "selects": "mgef"
+   },
+   {
+    "name": "filterByEditorIdContains",
+    "kind": "crosscutting",
+    "connectives": [
+     "",
+     "Or",
+     "Excluded"
+    ],
+    "selects": "editorid"
+   }
+  ],
+  "operations": [
+   {
+    "name": "fullName",
+    "shape": "rename",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "~Name~ wrapped"
+   },
+   {
+    "name": "keywordsToAdd",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false,
+    "note": ""
+   },
+   {
+    "name": "keywordsToRemove",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false,
+    "note": ""
+   },
+   {
+    "name": "mgefsToAdd",
+    "shape": "compound",
+    "tractability": "HARD",
+    "stateful": false,
+    "note": "Effects-array ~-packed"
+   },
+   {
+    "name": "mgefsToChange",
+    "shape": "compound",
+    "tractability": "HARD",
+    "stateful": false,
+    "note": "Effects-array ~-packed"
+   },
+   {
+    "name": "mgefsToChangeAdd",
+    "shape": "compound",
+    "tractability": "HARD",
+    "stateful": false,
+    "note": "Effects-array ~-packed"
+   },
+   {
+    "name": "mgefsToRemove",
+    "shape": "compound",
+    "tractability": "HARD",
+    "stateful": false,
+    "note": "Effects-array op; removes by form"
+   },
+   {
+    "name": "weight",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": ""
+   },
+   {
+    "name": "value",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "gold value"
+   },
+   {
+    "name": "clear",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false,
+    "note": "removes all magic effects"
+   },
+   {
+    "name": "model",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "form or .nif path"
+   },
+   {
+    "name": "alternateTexturesToAdd",
+    "shape": "compound",
+    "tractability": "HARD",
+    "stateful": false,
+    "note": "TextureSet~Name3D~Index3D ~-packed"
+   },
+   {
+    "name": "alternateTexturesToRemove",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false,
+    "note": "remove alt-texture by TextureSet"
+   },
+   {
+    "name": "alternateTexturesClear",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false,
+    "note": "=true clears alt textures"
+   }
+  ]
+ },
+ {
+  "recordType": "Ingredient",
+  "sig": "INGR",
+  "subfolder": "ingredient",
+  "primaryFilter": "filterByIngs",
+  "filters": [
+   {
+    "name": "filterByIngs",
+    "kind": "primary",
+    "connectives": [
+     "",
+     "Excluded"
+    ],
+    "selects": "form"
+   },
+   {
+    "name": "filterByModNames",
+    "kind": "crosscutting",
+    "connectives": [
+     ""
+    ],
+    "selects": "modname"
+   },
+   {
+    "name": "filterByAlternateTextures",
+    "kind": "crosscutting",
+    "connectives": [
+     ""
+    ],
+    "selects": "form"
+   },
+   {
+    "name": "filterByKeywords",
+    "kind": "crosscutting",
+    "connectives": [
+     "",
+     "Or",
+     "Excluded"
+    ],
+    "selects": "keyword"
+   },
+   {
+    "name": "filterByMgefs",
+    "kind": "crosscutting",
+    "connectives": [
+     "",
+     "Or",
+     "Excluded"
+    ],
+    "selects": "mgef"
+   }
+  ],
+  "operations": [
+   {
+    "name": "fullName",
+    "shape": "rename",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "~Name~ wrapped"
+   },
+   {
+    "name": "keywordsToAdd",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false,
+    "note": ""
+   },
+   {
+    "name": "keywordsToRemove",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false,
+    "note": ""
+   },
+   {
+    "name": "mgefsToAdd",
+    "shape": "compound",
+    "tractability": "HARD",
+    "stateful": false,
+    "note": "Effects-array ~-packed"
+   },
+   {
+    "name": "mgefsToChange",
+    "shape": "compound",
+    "tractability": "HARD",
+    "stateful": false,
+    "note": "Effects-array ~-packed"
+   },
+   {
+    "name": "mgefsToRemove",
+    "shape": "compound",
+    "tractability": "HARD",
+    "stateful": false,
+    "note": "Effects-array op; removes by form (no mgefsToChangeAdd on INGR)"
+   },
+   {
+    "name": "weight",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": ""
+   },
+   {
+    "name": "weightMult",
+    "shape": "mult",
+    "tractability": "CLEAN",
+    "stateful": true,
+    "note": "multiply current weight"
+   },
+   {
+    "name": "value",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "gold value"
+   },
+   {
+    "name": "valueMult",
+    "shape": "mult",
+    "tractability": "CLEAN",
+    "stateful": true,
+    "note": "multiply current value"
+   },
+   {
+    "name": "clear",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false,
+    "note": "removes all magic effects"
+   },
+   {
+    "name": "model",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "form or .nif path"
+   },
+   {
+    "name": "alternateTexturesToAdd",
+    "shape": "compound",
+    "tractability": "HARD",
+    "stateful": false,
+    "note": "TextureSet~Name3D~Index3D ~-packed"
+   },
+   {
+    "name": "alternateTexturesToRemove",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false,
+    "note": "remove alt-texture by TextureSet"
+   },
+   {
+    "name": "alternateTexturesClear",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false,
+    "note": "=true clears alt textures"
+   }
+  ]
+ },
+ {
+  "recordType": "Book",
+  "sig": "BOOK",
+  "subfolder": "book",
+  "primaryFilter": "filterByBooks",
+  "filters": [
+   {
+    "name": "filterByBooks",
+    "kind": "primary",
+    "connectives": [
+     "",
+     "Excluded"
+    ],
+    "selects": "form"
+   },
+   {
+    "name": "filterByModNames",
+    "kind": "crosscutting",
+    "connectives": [
+     ""
+    ],
+    "selects": "modname"
+   },
+   {
+    "name": "filterByAlternateTextures",
+    "kind": "crosscutting",
+    "connectives": [
+     ""
+    ],
+    "selects": "form"
+   },
+   {
+    "name": "filterByCastingPerk",
+    "kind": "recordSpecific",
+    "connectives": [
+     ""
+    ],
+    "selects": "form"
+   },
+   {
+    "name": "filterByFlags",
+    "kind": "recordSpecific",
+    "connectives": [
+     ""
+    ],
+    "selects": "flag"
+   },
+   {
+    "name": "filterByKeywords",
+    "kind": "crosscutting",
+    "connectives": [
+     "",
+     "Or",
+     "Excluded"
+    ],
+    "selects": "keyword"
+   },
+   {
+    "name": "filterByEditorIdContains",
+    "kind": "crosscutting",
+    "connectives": [
+     "",
+     "Or",
+     "Excluded"
+    ],
+    "selects": "editorid"
+   }
+  ],
+  "operations": [
+   {
+    "name": "fullName",
+    "shape": "rename",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "wrapped ~Name~"
+   },
+   {
+    "name": "weight",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": ""
+   },
+   {
+    "name": "weightMult",
+    "shape": "mult",
+    "tractability": "CLEAN",
+    "stateful": true,
+    "note": "multiplies current weight"
+   },
+   {
+    "name": "value",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": ""
+   },
+   {
+    "name": "valueMult",
+    "shape": "mult",
+    "tractability": "CLEAN",
+    "stateful": true,
+    "note": "multiplies current value"
+   },
+   {
+    "name": "keywordsToAdd",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false,
+    "note": "add to keyword list"
+   },
+   {
+    "name": "keywordsToRemove",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false,
+    "note": "remove from keyword list"
+   },
+   {
+    "name": "pickUpSound",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "form"
+   },
+   {
+    "name": "putDownSound",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "form"
+   },
+   {
+    "name": "inventoryArt",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "form"
+   },
+   {
+    "name": "teachSpell",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "spell form the book teaches"
+   },
+   {
+    "name": "teachSkill",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "skill enum (value-tables Skills)"
+   },
+   {
+    "name": "setFlags",
+    "shape": "flags",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "book flags: advancesactorvalue, canttake, teachesspell, hasbeenread"
+   },
+   {
+    "name": "removeFlags",
+    "shape": "flags",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "book flags: advancesactorvalue, canttake, teachesspell, hasbeenread"
+   },
+   {
+    "name": "type",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "enum booktome|notescroll"
+   },
+   {
+    "name": "model",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "form|.nif path"
+   },
+   {
+    "name": "alternateTexturesToAdd",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false,
+    "note": "TextureSet~Name3D~Index3D"
+   },
+   {
+    "name": "alternateTexturesToRemove",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false,
+    "note": ""
+   },
+   {
+    "name": "alternateTexturesClear",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false,
+    "note": "=true clears all alternate textures"
+   },
+   {
+    "name": "minX",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "object bounds"
+   },
+   {
+    "name": "minY",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "object bounds"
+   },
+   {
+    "name": "minZ",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "object bounds"
+   },
+   {
+    "name": "maxX",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "object bounds"
+   },
+   {
+    "name": "maxY",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "object bounds"
+   },
+   {
+    "name": "maxZ",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "object bounds"
+   }
+  ]
+ },
+ {
+  "recordType": "Misc Item",
+  "sig": "MISC",
+  "subfolder": "misc",
+  "primaryFilter": "filterByMiscs",
+  "filters": [
+   {
+    "name": "filterByMiscs",
+    "kind": "primary",
+    "connectives": [
+     "",
+     "Excluded"
+    ],
+    "selects": "form"
+   },
+   {
+    "name": "filterByModNames",
+    "kind": "crosscutting",
+    "connectives": [
+     ""
+    ],
+    "selects": "modname"
+   },
+   {
+    "name": "filterByAlternateTextures",
+    "kind": "crosscutting",
+    "connectives": [
+     ""
+    ],
+    "selects": "form"
+   },
+   {
+    "name": "filterByKeywords",
+    "kind": "crosscutting",
+    "connectives": [
+     "",
+     "Or",
+     "Excluded"
+    ],
+    "selects": "keyword"
+   },
+   {
+    "name": "filterByEditorIdContains",
+    "kind": "crosscutting",
+    "connectives": [
+     "",
+     "Or",
+     "Excluded"
+    ],
+    "selects": "editorid"
+   }
+  ],
+  "operations": [
+   {
+    "name": "fullName",
+    "shape": "rename",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "wrapped ~Name~"
+   },
+   {
+    "name": "weight",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": ""
+   },
+   {
+    "name": "weightMult",
+    "shape": "mult",
+    "tractability": "CLEAN",
+    "stateful": true,
+    "note": "multiplies current weight"
+   },
+   {
+    "name": "value",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": ""
+   },
+   {
+    "name": "valueMult",
+    "shape": "mult",
+    "tractability": "CLEAN",
+    "stateful": true,
+    "note": "multiplies current value"
+   },
+   {
+    "name": "keywordsToAdd",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false,
+    "note": "add to keyword list"
+   },
+   {
+    "name": "keywordsToRemove",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false,
+    "note": "remove from keyword list"
+   },
+   {
+    "name": "pickUpSound",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "form"
+   },
+   {
+    "name": "putDownSound",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "form"
+   },
+   {
+    "name": "model",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "form|.nif path"
+   },
+   {
+    "name": "alternateTexturesToAdd",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false,
+    "note": "TextureSet~Name3D~Index3D"
+   },
+   {
+    "name": "alternateTexturesToRemove",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false,
+    "note": ""
+   },
+   {
+    "name": "alternateTexturesClear",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false,
+    "note": "=true clears all alternate textures"
+   }
+  ]
+ },
+ {
+  "recordType": "Soul Gem",
+  "sig": "SLGM",
+  "subfolder": "soulGem",
+  "primaryFilter": "filterBySoulGems",
+  "filters": [
+   {
+    "name": "filterBySoulGems",
+    "kind": "primary",
+    "connectives": [
+     "",
+     "Excluded"
+    ],
+    "selects": "form"
+   },
+   {
+    "name": "filterByModNames",
+    "kind": "crosscutting",
+    "connectives": [
+     ""
+    ],
+    "selects": "modname"
+   },
+   {
+    "name": "filterByAlternateTextures",
+    "kind": "crosscutting",
+    "connectives": [
+     ""
+    ],
+    "selects": "form"
+   },
+   {
+    "name": "filterByKeywords",
+    "kind": "crosscutting",
+    "connectives": [
+     "",
+     "Or",
+     "Excluded"
+    ],
+    "selects": "keyword"
+   }
+  ],
+  "operations": [
+   {
+    "name": "fullName",
+    "shape": "rename",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "wrapped ~Name~"
+   },
+   {
+    "name": "weight",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": ""
+   },
+   {
+    "name": "weightMult",
+    "shape": "mult",
+    "tractability": "CLEAN",
+    "stateful": true,
+    "note": "multiplies current weight"
+   },
+   {
+    "name": "value",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": ""
+   },
+   {
+    "name": "valueMult",
+    "shape": "mult",
+    "tractability": "CLEAN",
+    "stateful": true,
+    "note": "multiplies current value"
+   },
+   {
+    "name": "keywordsToAdd",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false,
+    "note": "add to keyword list"
+   },
+   {
+    "name": "keywordsToRemove",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false,
+    "note": "remove from keyword list"
+   },
+   {
+    "name": "pickUpSound",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "form"
+   },
+   {
+    "name": "putDownSound",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "form"
+   },
+   {
+    "name": "currentSoul",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "soulType enum (petty/lesser/common/greater/grand/null)"
+   },
+   {
+    "name": "soulCapacity",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "soulType enum; null sets to empty"
+   },
+   {
+    "name": "model",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "form|.nif path"
+   },
+   {
+    "name": "alternateTexturesToAdd",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false,
+    "note": "TextureSet~Name3D~Index3D"
+   },
+   {
+    "name": "alternateTexturesToRemove",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false,
+    "note": ""
+   },
+   {
+    "name": "alternateTexturesClear",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false,
+    "note": "=true clears all alternate textures"
+   }
+  ]
+ },
+ {
+  "recordType": "Outfit",
+  "sig": "OTFT",
+  "subfolder": "outfit",
+  "primaryFilter": "filterByOutfits",
+  "filters": [
+   {
+    "name": "filterByOutfits",
+    "kind": "primary",
+    "connectives": [
+     ""
+    ],
+    "selects": "form"
+   },
+   {
+    "name": "filterByModNames",
+    "kind": "crosscutting",
+    "connectives": [
+     ""
+    ],
+    "selects": "modname"
+   },
+   {
+    "name": "filterByForms",
+    "kind": "recordSpecific",
+    "connectives": [
+     "",
+     "Or",
+     "Exclude"
+    ],
+    "selects": "form"
+   }
+  ],
+  "operations": [
+   {
+    "name": "formsToAdd",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false,
+    "note": "add objects to the outfit"
+   },
+   {
+    "name": "formsToRemove",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false,
+    "note": "remove objects from the outfit"
+   },
+   {
+    "name": "formsToReplace",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false,
+    "note": "FormID-only; pair written formA=formB"
+   },
+   {
+    "name": "clear",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false,
+    "note": "=true empties the outfit"
+   }
+  ]
+ },
+ {
+  "recordType": "FormList",
+  "sig": "FLST",
+  "subfolder": "formList",
+  "primaryFilter": "filterByFormLists",
+  "filters": [
+   {
+    "name": "filterByFormLists",
+    "kind": "primary",
+    "connectives": [
+     ""
+    ],
+    "selects": "form"
+   },
+   {
+    "name": "filterByModNames",
+    "kind": "crosscutting",
+    "connectives": [
+     ""
+    ],
+    "selects": "modname"
+   }
+  ],
+  "operations": [
+   {
+    "name": "formsToAdd",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false,
+    "note": "add entries"
+   },
+   {
+    "name": "formsToRemove",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false,
+    "note": "remove entries"
+   },
+   {
+    "name": "formsToReplace",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false,
+    "note": "FormID-only; pair written formA=formB"
+   },
+   {
+    "name": "clear",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false,
+    "note": "=true removes all forms"
+   }
+  ]
+ },
+ {
+  "recordType": "Leveled List",
+  "sig": "LVLI",
+  "subfolder": "leveledList",
+  "primaryFilter": "filterByLLs / filterByLLNPCs",
+  "filters": [
+   {
+    "name": "filterByLLs",
+    "kind": "primary",
+    "connectives": [
+     ""
+    ],
+    "selects": "form"
+   },
+   {
+    "name": "noFilterLL",
+    "kind": "noFilter",
+    "connectives": [
+     ""
+    ],
+    "selects": "bool"
+   },
+   {
+    "name": "filterByEditorIdContains",
+    "kind": "crosscutting",
+    "connectives": [
+     "",
+     "Or",
+     "Excluded"
+    ],
+    "selects": "editorid"
+   },
+   {
+    "name": "filterByLLNPCs",
+    "kind": "primary",
+    "connectives": [
+     ""
+    ],
+    "selects": "form"
+   },
+   {
+    "name": "noFilterLLNPC",
+    "kind": "noFilter",
+    "connectives": [
+     ""
+    ],
+    "selects": "bool"
+   }
+  ],
+  "operations": [
+   {
+    "name": "addToLLs",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false,
+    "note": "form~level~count"
+   },
+   {
+    "name": "addOnceToLLs",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false,
+    "note": "form~level~count; add only if not already present"
+   },
+   {
+    "name": "removeFromLLs",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false,
+    "note": "form[~level~count]; conditional operators <,>,<=,>= on level/count; 'none' to skip a slot"
+   },
+   {
+    "name": "removeObjectsByKeyword",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false,
+    "note": "remove entries by keyword form"
+   },
+   {
+    "name": "objectMultCount",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": true,
+    "note": "form~mult or mult; multiplies current entry counts"
+   },
+   {
+    "name": "formsToReplace",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false,
+    "note": "FormID-only; pair written formA~formB (uses ~ not =)"
+   },
+   {
+    "name": "chanceNone",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "set list Chance None (numeric)"
+   },
+   {
+    "name": "chanceGlobal",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "set chance global (form)"
+   },
+   {
+    "name": "clear",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false,
+    "note": "=yes clears all entries"
+   },
+   {
+    "name": "calcForLevel",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false,
+    "note": "calc-flag toggle (=true); one flag at a time"
+   },
+   {
+    "name": "calcEachItem",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false,
+    "note": "calc-flag toggle (=true); one flag at a time"
+   },
+   {
+    "name": "calcForLevelAndEachItem",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false,
+    "note": "calc-flag toggle (=true); one flag at a time"
+   },
+   {
+    "name": "calcUseAll",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false,
+    "note": "calc-flag toggle (=true); one flag at a time"
+   },
+   {
+    "name": "clearFlags",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false,
+    "note": "=true removes all flags"
+   }
+  ]
+ },
+ {
+  "recordType": "Container",
+  "sig": "CONT",
+  "subfolder": "container",
+  "primaryFilter": "filterByContainers",
+  "filters": [
+   {
+    "name": "filterByContainers",
+    "kind": "primary",
+    "connectives": [
+     ""
+    ],
+    "selects": "form"
+   },
+   {
+    "name": "filterByEditorIdContains",
+    "kind": "crosscutting",
+    "connectives": [
+     "",
+     "Or",
+     "Excluded"
+    ],
+    "selects": "other"
+   }
+  ],
+  "operations": [
+   {
+    "name": "addToContainers",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false,
+    "note": "form~count; add object with count"
+   },
+   {
+    "name": "addOnceToContainers",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false,
+    "note": "form~count; add only if not already present"
+   },
+   {
+    "name": "objectMultCount",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": true,
+    "note": "form~mult or bare mult; multiplies object counts (filtered or all)"
+   },
+   {
+    "name": "removeFromContainers",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false,
+    "note": "comma-list of forms"
+   },
+   {
+    "name": "removeContainerObjectsByCount",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false,
+    "note": "form~count; remove a specific count"
+   },
+   {
+    "name": "removeContainerObjectsByKeywords",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false,
+    "note": "remove objects by keyword"
+   },
+   {
+    "name": "replaceInContainers",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false,
+    "note": "formA~formB; replace all, count preserved"
+   },
+   {
+    "name": "clear",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false,
+    "note": "=true; remove all objects"
+   }
+  ]
+ },
+ {
+  "recordType": "Constructible Object",
+  "sig": "COBJ",
+  "subfolder": "constructibleObject",
+  "primaryFilter": "filterByCobjs",
+  "filters": [
+   {
+    "name": "filterByCobjs",
+    "kind": "primary",
+    "connectives": [
+     "",
+     "Excluded"
+    ],
+    "selects": "form"
+   },
+   {
+    "name": "filterByIngredients",
+    "kind": "recordSpecific",
+    "connectives": [
+     "",
+     "Or",
+     "Excluded"
+    ],
+    "selects": "ingredient"
+   },
+   {
+    "name": "filterByKeywords",
+    "kind": "crosscutting",
+    "connectives": [
+     "",
+     "Or",
+     "Excluded"
+    ],
+    "selects": "keyword",
+    "note": "keywords of the created object"
+   },
+   {
+    "name": "filterByWorkBenchKeywords",
+    "kind": "recordSpecific",
+    "connectives": [
+     ""
+    ],
+    "selects": "workbenchkeyword",
+    "note": "workbench keyword; exact token filterByWorkBenchKeywords"
+   },
+   {
+    "name": "filterWorkbenchKeywords",
+    "kind": "recordSpecific",
+    "connectives": [
+     "Excluded"
+    ],
+    "selects": "workbenchkeyword",
+    "note": "exact token filterWorkbenchKeywordsExcluded — spelling differs from the non-excluded form (no 'By', lowercase 'workbench')"
+   },
+   {
+    "name": "filterByEditorIdContains",
+    "kind": "crosscutting",
+    "connectives": [
+     "",
+     "Or",
+     "Excluded"
+    ],
+    "selects": "other"
+   },
+   {
+    "name": "restrictToKeywords",
+    "kind": "restrict",
+    "connectives": [
+     ""
+    ],
+    "selects": "keyword",
+    "note": "restrict by keyword on created object, else ignore; source file lists this under Operations"
+   }
+  ],
+  "operations": [
+   {
+    "name": "workbenchKeyword",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "set recipe workbench; null removes it"
+   },
+   {
+    "name": "createdObject",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "set recipe output"
+   },
+   {
+    "name": "count",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "number of objects created"
+   },
+   {
+    "name": "countMult",
+    "shape": "mult",
+    "tractability": "CLEAN",
+    "stateful": true,
+    "note": "multiply created count"
+   },
+   {
+    "name": "addToCobjs",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false,
+    "note": "item~count; add an ingredient"
+   },
+   {
+    "name": "removeFromCobjs",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false,
+    "note": "remove all instances of an ingredient"
+   },
+   {
+    "name": "removeFromCobjsByCount",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false,
+    "note": "item~count; remove specific count"
+   },
+   {
+    "name": "changeCobjsCount",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false,
+    "note": "form~count; set ingredient count (null~0 = all ingredients to 0)"
+   },
+   {
+    "name": "changeCobjsCountByMult",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": true,
+    "note": "multiply ingredient counts"
+   },
+   {
+    "name": "replaceInCobjs",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false,
+    "note": "formA~formB; replace ingredient, count preserved"
+   },
+   {
+    "name": "clear",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false,
+    "note": "=true; remove all ingredients"
+   },
+   {
+    "name": "keywordsToAdd",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false,
+    "note": "on the created object"
+   },
+   {
+    "name": "keywordsToRemove",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false,
+    "note": "on the created object"
+   }
+  ]
+ },
+ {
+  "recordType": "Cell",
+  "sig": "CELL",
+  "subfolder": "cell",
+  "primaryFilter": "filterByCells",
+  "filters": [
+   {
+    "name": "filterByCells",
+    "kind": "primary",
+    "connectives": [
+     ""
+    ],
+    "selects": "form"
+   },
+   {
+    "name": "skipRecordByLightingTemplateFromMod",
+    "kind": "overrideAware",
+    "connectives": [
+     ""
+    ],
+    "selects": "lightingtemplate",
+    "note": "skip if cell's current lighting template comes from a listed mod"
+   },
+   {
+    "name": "skipRecordByModNameContains",
+    "kind": "overrideAware",
+    "connectives": [
+     ""
+    ],
+    "selects": "modname",
+    "note": "skip if record's source mod name contains a substring"
+   }
+  ],
+  "operations": [
+   {
+    "name": "fogNear",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false
+   },
+   {
+    "name": "fogFar",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false
+   },
+   {
+    "name": "fogPower",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false
+   },
+   {
+    "name": "clipDist",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false
+   },
+   {
+    "name": "directionalXY",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "directional light rotation horizontal (X/Y)"
+   },
+   {
+    "name": "directionalZ",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "directional light rotation vertical (Z)"
+   },
+   {
+    "name": "ambientRed",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "colour channel 0-255"
+   },
+   {
+    "name": "ambientGreen",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "colour channel 0-255"
+   },
+   {
+    "name": "ambientBlue",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "colour channel 0-255"
+   },
+   {
+    "name": "directionalRed",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "colour channel 0-255"
+   },
+   {
+    "name": "directionalGreen",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "colour channel 0-255"
+   },
+   {
+    "name": "directionalBlue",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "colour channel 0-255"
+   },
+   {
+    "name": "fogColorNearRed",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "colour channel 0-255"
+   },
+   {
+    "name": "fogColorNearGreen",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "colour channel 0-255"
+   },
+   {
+    "name": "fogColorNearBlue",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "colour channel 0-255"
+   },
+   {
+    "name": "directionalAmbientXMinRed",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "directional ambient cube channel 0-255"
+   },
+   {
+    "name": "directionalAmbientXMinGreen",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "directional ambient cube channel 0-255"
+   },
+   {
+    "name": "directionalAmbientXMinBlue",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "directional ambient cube channel 0-255"
+   },
+   {
+    "name": "directionalAmbientXMaxRed",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "directional ambient cube channel 0-255"
+   },
+   {
+    "name": "directionalAmbientXMaxGreen",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "directional ambient cube channel 0-255"
+   },
+   {
+    "name": "directionalAmbientXMaxBlue",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "directional ambient cube channel 0-255"
+   },
+   {
+    "name": "directionalAmbientYMinRed",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "directional ambient cube channel 0-255"
+   },
+   {
+    "name": "directionalAmbientYMinGreen",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "directional ambient cube channel 0-255"
+   },
+   {
+    "name": "directionalAmbientYMinBlue",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "directional ambient cube channel 0-255"
+   },
+   {
+    "name": "directionalAmbientYMaxRed",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "directional ambient cube channel 0-255"
+   },
+   {
+    "name": "directionalAmbientYMaxGreen",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "directional ambient cube channel 0-255"
+   },
+   {
+    "name": "directionalAmbientYMaxBlue",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "directional ambient cube channel 0-255"
+   },
+   {
+    "name": "directionalAmbientZMinRed",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "directional ambient cube channel 0-255"
+   },
+   {
+    "name": "directionalAmbientZMinGreen",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "directional ambient cube channel 0-255"
+   },
+   {
+    "name": "directionalAmbientZMinBlue",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "directional ambient cube channel 0-255"
+   },
+   {
+    "name": "directionalAmbientZMaxRed",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "directional ambient cube channel 0-255"
+   },
+   {
+    "name": "directionalAmbientZMaxGreen",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "directional ambient cube channel 0-255"
+   },
+   {
+    "name": "directionalAmbientZMaxBlue",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "directional ambient cube channel 0-255"
+   },
+   {
+    "name": "directionalAmbientSpecularRed",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "colour channel 0-255"
+   },
+   {
+    "name": "directionalAmbientSpecularGreen",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "colour channel 0-255"
+   },
+   {
+    "name": "directionalAmbientSpecularBlue",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "colour channel 0-255"
+   },
+   {
+    "name": "lightingTemplate",
+    "shape": "null_clear",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "form ref; null to clear"
+   },
+   {
+    "name": "acousticSpace",
+    "shape": "null_clear",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "form ref; null to clear"
+   },
+   {
+    "name": "musicType",
+    "shape": "null_clear",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "form ref; null to clear"
+   },
+   {
+    "name": "skyRegion",
+    "shape": "null_clear",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "form ref; null to clear"
+   },
+   {
+    "name": "imageSpace",
+    "shape": "null_clear",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "form ref; null to clear"
+   },
+   {
+    "name": "encounterZone",
+    "shape": "null_clear",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "form ref; null to clear"
+   },
+   {
+    "name": "waterType",
+    "shape": "null_clear",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "form ref; null to clear"
+   },
+   {
+    "name": "waterHeight",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "no null"
+   },
+   {
+    "name": "setInheritanceFlags",
+    "shape": "flags",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "comma-list: ambientcolor, directionalcolor, fogcolor, fognear, fogfar, directionalrotation, directionalfade, clipdistance, fogpower, fogmax, lightfadedistances"
+   },
+   {
+    "name": "removeInheritanceFlags",
+    "shape": "flags",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "same inheritance flag set"
+   },
+   {
+    "name": "setCellFlags",
+    "shape": "flags",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "comma-list: isinteriorcell, haswater, cantravelfromhere, nolodwater, hastempdata, publicarea, handchanged, showsky, useskylighting, warntoleave"
+   },
+   {
+    "name": "removeCellFlags",
+    "shape": "flags",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "same cell flag set"
+   }
+  ]
+ },
+ {
+  "recordType": "Location",
+  "sig": "LCTN",
+  "subfolder": "location",
+  "primaryFilter": "filterByLocations",
+  "filters": [
+   {
+    "name": "filterByLocations",
+    "kind": "primary",
+    "connectives": [
+     "",
+     "Excluded"
+    ],
+    "selects": "form"
+   },
+   {
+    "name": "filterByModNames",
+    "kind": "crosscutting",
+    "connectives": [
+     ""
+    ],
+    "selects": "modname",
+    "note": "all listed must be present"
+   },
+   {
+    "name": "filterByKeywords",
+    "kind": "crosscutting",
+    "connectives": [
+     "",
+     "Or",
+     "Excluded"
+    ],
+    "selects": "keyword"
+   },
+   {
+    "name": "filterByMusicType",
+    "kind": "recordSpecific",
+    "connectives": [
+     ""
+    ],
+    "selects": "musictype",
+    "note": "by location's BGSMusicType"
+   },
+   {
+    "name": "filterByParentLocation",
+    "kind": "recordSpecific",
+    "connectives": [
+     ""
+    ],
+    "selects": "location",
+    "note": "by parent location (any match)"
+   },
+   {
+    "name": "filterByUnreportedCrimeFaction",
+    "kind": "recordSpecific",
+    "connectives": [
+     ""
+    ],
+    "selects": "faction",
+    "note": "by location's unreported-crime faction"
+   },
+   {
+    "name": "filterByEditorIdContains",
+    "kind": "crosscutting",
+    "connectives": [
+     "",
+     "Or",
+     "Excluded"
+    ],
+    "selects": "other"
+   }
+  ],
+  "operations": [
+   {
+    "name": "fullName",
+    "shape": "rename",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "~Name~"
+   },
+   {
+    "name": "keywordsToAdd",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false
+   },
+   {
+    "name": "keywordsToRemove",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false
+   },
+   {
+    "name": "musicType",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "form; or null to clear"
+   },
+   {
+    "name": "unreportedCrimeFaction",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "form; or null to clear"
+   },
+   {
+    "name": "parentLocation",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "form; or null to clear"
+   }
+  ]
+ },
+ {
+  "recordType": "Encounter Zone",
+  "sig": "ECZN",
+  "subfolder": "encounterzone",
+  "primaryFilter": "filterByEncounterZones",
+  "filters": [
+   {
+    "name": "filterByEncounterZones",
+    "kind": "primary",
+    "connectives": [
+     "",
+     "Excluded"
+    ],
+    "selects": "form"
+   },
+   {
+    "name": "filterByModNames",
+    "kind": "crosscutting",
+    "connectives": [
+     ""
+    ],
+    "selects": "modname"
+   },
+   {
+    "name": "filterByEditorIdContains",
+    "kind": "crosscutting",
+    "connectives": [
+     "",
+     "Or",
+     "Excluded"
+    ],
+    "selects": "other"
+   }
+  ],
+  "operations": [
+   {
+    "name": "minLevel",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "set MinLevel directly"
+   },
+   {
+    "name": "minLevelAdd",
+    "shape": "add_numeric",
+    "tractability": "CLEAN",
+    "stateful": true
+   },
+   {
+    "name": "minLevelMult",
+    "shape": "mult",
+    "tractability": "CLEAN",
+    "stateful": true
+   },
+   {
+    "name": "maxLevel",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "set MaxLevel directly"
+   },
+   {
+    "name": "maxLevelAdd",
+    "shape": "add_numeric",
+    "tractability": "CLEAN",
+    "stateful": true
+   },
+   {
+    "name": "maxLevelMult",
+    "shape": "mult",
+    "tractability": "CLEAN",
+    "stateful": true
+   },
+   {
+    "name": "location",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "assign a Location record; or null to clear"
+   }
+  ]
+ },
+ {
+  "recordType": "Reference",
+  "sig": "REFR",
+  "subfolder": "reference",
+  "primaryFilter": "filterByRefs",
+  "filters": [
+   {
+    "name": "filterByRefs",
+    "kind": "primary",
+    "connectives": [
+     ""
+    ],
+    "selects": "form"
+   }
+  ],
+  "operations": [
+   {
+    "name": "disable",
+    "shape": "flags",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "=true; disable a reference. NPCs excluded from disabling. REFR patcher is the least-mature/iUpdateRefs-gated surface — flagged in-development, test in-game"
+   }
+  ]
+ },
+ {
+  "recordType": "Faction",
+  "sig": "FACT",
+  "subfolder": "faction",
+  "primaryFilter": "filterByFactions",
+  "filters": [
+   {
+    "name": "filterByFactions",
+    "kind": "primary",
+    "connectives": [
+     ""
+    ],
+    "selects": "form"
+   },
+   {
+    "name": "filterByModNames",
+    "kind": "crosscutting",
+    "connectives": [
+     ""
+    ],
+    "selects": "modname"
+   }
+  ],
+  "operations": [
+   {
+    "name": "setFlags",
+    "shape": "flags",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "comma-separated faction flags"
+   },
+   {
+    "name": "removeFlags",
+    "shape": "flags",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "comma-separated faction flags"
+   }
+  ]
+ },
+ {
+  "recordType": "Movement Type",
+  "sig": "MOVT",
+  "subfolder": "movementType",
+  "primaryFilter": "filterByMovementTypes",
+  "filters": [
+   {
+    "name": "filterByMovementTypes",
+    "kind": "primary",
+    "connectives": [
+     "",
+     "Excluded"
+    ],
+    "selects": "form"
+   }
+  ],
+  "operations": [
+   {
+    "name": "walkLeft",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false
+   },
+   {
+    "name": "walkRight",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false
+   },
+   {
+    "name": "walkForward",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false
+   },
+   {
+    "name": "walkBack",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false
+   },
+   {
+    "name": "runLeft",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false
+   },
+   {
+    "name": "runRight",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false
+   },
+   {
+    "name": "runForward",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false
+   },
+   {
+    "name": "runBack",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false
+   },
+   {
+    "name": "rotateInPlaceWalk",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false
+   },
+   {
+    "name": "rotateInPlaceRun",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false
+   },
+   {
+    "name": "rotateWhileMovingRun",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false
+   }
+  ]
+ },
+ {
+  "recordType": "Projectile",
+  "sig": "PROJ",
+  "subfolder": "projectile",
+  "primaryFilter": "filterByProjectiles",
+  "filters": [
+   {
+    "name": "filterByProjectiles",
+    "kind": "primary",
+    "connectives": [
+     "",
+     "Excluded"
+    ],
+    "selects": "form"
+   },
+   {
+    "name": "filterByModNames",
+    "kind": "crosscutting",
+    "connectives": [
+     ""
+    ],
+    "selects": "modname"
+   },
+   {
+    "name": "filterByEditorIdContains",
+    "kind": "crosscutting",
+    "connectives": [
+     "",
+     "Or",
+     "Excluded"
+    ],
+    "selects": "other"
+   }
+  ],
+  "operations": [
+   {
+    "name": "range",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false
+   },
+   {
+    "name": "rangeMult",
+    "shape": "mult",
+    "tractability": "CLEAN",
+    "stateful": true
+   },
+   {
+    "name": "speed",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false
+   },
+   {
+    "name": "speedMult",
+    "shape": "mult",
+    "tractability": "CLEAN",
+    "stateful": true
+   },
+   {
+    "name": "gravity",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false
+   },
+   {
+    "name": "gravityMult",
+    "shape": "mult",
+    "tractability": "CLEAN",
+    "stateful": true
+   },
+   {
+    "name": "sound",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "form-valued"
+   },
+   {
+    "name": "explosion",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "form-valued"
+   },
+   {
+    "name": "type",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "enum: missile|grenade|beam|flamethrower|cone|barrier|arrow"
+   },
+   {
+    "name": "setFlags",
+    "shape": "flags",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "comma-separated projectile flags"
+   },
+   {
+    "name": "removeFlags",
+    "shape": "flags",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "comma-separated projectile flags"
+   }
+  ]
+ },
+ {
+  "recordType": "Race",
+  "sig": "RACE",
+  "subfolder": "race",
+  "primaryFilter": "filterByRaces",
+  "filters": [
+   {
+    "name": "filterByRaces",
+    "kind": "primary",
+    "connectives": [
+     "",
+     "Excluded"
+    ],
+    "selects": "form"
+   },
+   {
+    "name": "filterByModNames",
+    "kind": "crosscutting",
+    "connectives": [
+     ""
+    ],
+    "selects": "modname"
+   },
+   {
+    "name": "filterByKeywords",
+    "kind": "crosscutting",
+    "connectives": [
+     "",
+     "Or",
+     "Excluded"
+    ],
+    "selects": "keyword"
+   },
+   {
+    "name": "filterByMaleModelContains",
+    "kind": "recordSpecific",
+    "connectives": [
+     ""
+    ],
+    "selects": "model"
+   },
+   {
+    "name": "filterByFemaleModelContains",
+    "kind": "recordSpecific",
+    "connectives": [
+     ""
+    ],
+    "selects": "model"
+   },
+   {
+    "name": "filterByVoiceType",
+    "kind": "recordSpecific",
+    "connectives": [
+     "Or"
+    ],
+    "selects": "voicetype"
+   }
+  ],
+  "operations": [
+   {
+    "name": "heightMale",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false
+   },
+   {
+    "name": "heightMaleMult",
+    "shape": "mult",
+    "tractability": "CLEAN",
+    "stateful": true
+   },
+   {
+    "name": "heightFemale",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false
+   },
+   {
+    "name": "heightFemaleMult",
+    "shape": "mult",
+    "tractability": "CLEAN",
+    "stateful": true
+   },
+   {
+    "name": "weightMale",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false
+   },
+   {
+    "name": "weightMaleMult",
+    "shape": "mult",
+    "tractability": "CLEAN",
+    "stateful": true
+   },
+   {
+    "name": "weightFemale",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false
+   },
+   {
+    "name": "weightFemaleMult",
+    "shape": "mult",
+    "tractability": "CLEAN",
+    "stateful": true
+   },
+   {
+    "name": "baseMass",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false
+   },
+   {
+    "name": "baseMassMult",
+    "shape": "mult",
+    "tractability": "CLEAN",
+    "stateful": true
+   },
+   {
+    "name": "baseCarryweight",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false
+   },
+   {
+    "name": "baseCarryweightMult",
+    "shape": "mult",
+    "tractability": "CLEAN",
+    "stateful": true
+   },
+   {
+    "name": "startingHealth",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false
+   },
+   {
+    "name": "startingHealthMult",
+    "shape": "mult",
+    "tractability": "CLEAN",
+    "stateful": true
+   },
+   {
+    "name": "startingStamina",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false
+   },
+   {
+    "name": "startingStaminaMult",
+    "shape": "mult",
+    "tractability": "CLEAN",
+    "stateful": true
+   },
+   {
+    "name": "startingMagicka",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false
+   },
+   {
+    "name": "startingMagickaMult",
+    "shape": "mult",
+    "tractability": "CLEAN",
+    "stateful": true
+   },
+   {
+    "name": "regenHealth",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false
+   },
+   {
+    "name": "regenHealthMult",
+    "shape": "mult",
+    "tractability": "CLEAN",
+    "stateful": true
+   },
+   {
+    "name": "regenStamina",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false
+   },
+   {
+    "name": "regenStaminaMult",
+    "shape": "mult",
+    "tractability": "CLEAN",
+    "stateful": true
+   },
+   {
+    "name": "regenMagicka",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false
+   },
+   {
+    "name": "regenMagickaMult",
+    "shape": "mult",
+    "tractability": "CLEAN",
+    "stateful": true
+   },
+   {
+    "name": "damageUnarmed",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false
+   },
+   {
+    "name": "damageUnarmedMult",
+    "shape": "mult",
+    "tractability": "CLEAN",
+    "stateful": true
+   },
+   {
+    "name": "reachUnarmed",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false
+   },
+   {
+    "name": "reachUnarmedMult",
+    "shape": "mult",
+    "tractability": "CLEAN",
+    "stateful": true
+   },
+   {
+    "name": "accelerationRate",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false
+   },
+   {
+    "name": "accelerationRateMult",
+    "shape": "mult",
+    "tractability": "CLEAN",
+    "stateful": true
+   },
+   {
+    "name": "decelerationRate",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false
+   },
+   {
+    "name": "decelerationRateMult",
+    "shape": "mult",
+    "tractability": "CLEAN",
+    "stateful": true
+   },
+   {
+    "name": "accelerationAngularRate",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false
+   },
+   {
+    "name": "accelerationAngularRateMult",
+    "shape": "mult",
+    "tractability": "CLEAN",
+    "stateful": true
+   },
+   {
+    "name": "aimAngleTolerance",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false
+   },
+   {
+    "name": "aimAngleToleranceMult",
+    "shape": "mult",
+    "tractability": "CLEAN",
+    "stateful": true
+   },
+   {
+    "name": "skin",
+    "shape": "set",
+    "tractability": "CLEAN",
+    "stateful": false,
+    "note": "form-valued"
+   },
+   {
+    "name": "keywordsToAdd",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false
+   },
+   {
+    "name": "keywordsToRemove",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false
+   },
+   {
+    "name": "spellsToAdd",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false
+   },
+   {
+    "name": "spellsToRemove",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false
+   },
+   {
+    "name": "levSpellsToAdd",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false,
+    "note": "leveled spells"
+   },
+   {
+    "name": "levSpellsToRemove",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false,
+    "note": "leveled spells"
+   },
+   {
+    "name": "shoutsToAdd",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false
+   },
+   {
+    "name": "shoutsToRemove",
+    "shape": "collection",
+    "tractability": "COLLECTION",
+    "stateful": false
+   }
+  ]
+ },
+ {
+  "recordType": "Race Hook",
+  "sig": "RACE",
+  "subfolder": "raceHook",
+  "primaryFilter": "filterByRaces",
+  "filters": [
+   {
+    "name": "filterByRaces",
+    "kind": "primary",
+    "connectives": [
+     "",
+     "Excluded"
+    ],
+    "selects": "form"
+   },
+   {
+    "name": "filterByModNames",
+    "kind": "crosscutting",
+    "connectives": [
+     ""
+    ],
+    "selects": "modname"
+   },
+   {
+    "name": "filterByKeywords",
+    "kind": "crosscutting",
+    "connectives": [
+     "",
+     "Or",
+     "Excluded"
+    ],
+    "selects": "keyword"
+   }
+  ],
+  "operations": [
+   {
+    "name": "attackDataToAdd",
+    "shape": "compound",
+    "tractability": "HARD",
+    "stateful": false,
+    "note": "keyed attack data; key=<event> required; ~-separated options; inner setFlags/removeFlags/resetFlags"
+   },
+   {
+    "name": "attackDataToChange",
+    "shape": "compound",
+    "tractability": "HARD",
+    "stateful": false,
+    "note": "keyed attack data; key=<event> required; edits existing event (unspecified options preserved)"
+   },
+   {
+    "name": "attackDataToRemove",
+    "shape": "compound",
+    "tractability": "HARD",
+    "stateful": false,
+    "note": "remove events by event name (comma-separated)"
+   }
+  ]
+ },
+ {
+  "recordType": "Object Modification",
+  "sig": "OMOD",
+  "subfolder": "objectModification",
+  "primaryFilter": "",
+  "note": "OMOD — no documented grammar; surface the gap",
+  "filters": [],
+  "operations": []
+ }
+]

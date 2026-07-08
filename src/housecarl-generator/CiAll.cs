@@ -175,6 +175,12 @@ public static class CiAll
         // trim), the 0a boundary (a bare EditorID stays un-addressed until the Wave-0b catalog), and the Q3
         // loud-note paths for malformed segments. Pure in-process string→model — no game data, no Mutagen.
         ("skypatcher-parse-guard", SkyPatcherParseProbe.RunGuard),
+        // SKYPATCHER DISTRIBUTOR Wave 0b — the CLOSED grammar catalog (SkyPatcherCatalog): every documented
+        // filter + operation across all 27 record types (+ the OMOD gap), transcribed from the skypatcher-
+        // authoring reference. Pins coverage (all index.jsonl types present, sig/subfolder/primaryFilter), the
+        // shape⇒tractability invariants, classification (filter+connective / operation / unknown = warn), and
+        // the flagship HARD ops the tiered-honesty reader keys on. Catalog is an embedded resource; no game data.
+        ("skypatcher-catalog-guard", SkyPatcherCatalogProbe.RunGuard),
     };
 
     /// <summary>Dispatch a single CI guard by name through the registry — the ONE place a CI probe is listed, so
