@@ -181,6 +181,19 @@ public static class CiAll
         // shape⇒tractability invariants, classification (filter+connective / operation / unknown = warn), and
         // the flagship HARD ops the tiered-honesty reader keys on. Catalog is an embedded resource; no game data.
         ("skypatcher-catalog-guard", SkyPatcherCatalogProbe.RunGuard),
+        // SKYPATCHER DISTRIBUTOR Wave 1 — INI discovery (SkyPatcherDiscovery): the loose-only ordered UNION
+        // the overlay replays. RED-proofs the two silent-corruption spots (plan §7): union-not-filename-winner
+        // (differently-named INIs from different mods BOTH apply) and same-path collision (winner's content
+        // once, loser NAMED shadowed); plus path-sort apply order, the Plugin.esp.ini filename gate, the
+        // SkyPatcher.ini [Patcher] toggle, stray/undocumented folders. Synthetic mod dirs through the REAL
+        // AssetResolver; the BSA-only arm is existence-gated on a committed fixture.
+        ("skypatcher-discovery-guard", SkyPatcherDiscoveryProbe.RunGuard),
+        // SKYPATCHER DISTRIBUTOR Wave 1 — the overlay replay engine (SkyPatcherOverlay): ordered, STATEFUL,
+        // running-value replay onto a record copy. RED-proofs apply order (40 ×2.5 +11 = 111 — every wrong
+        // model lands elsewhere), later-set-wins, collection accumulate, the Wave-1 filter tier (primary/
+        // keywords/editorid/name/hasPlugins evaluated; anything else = LOUD unresolved skip), tiered honesty
+        // (HARD ⇒ directive, unknown key ⇒ warn), null-clear, rename, enum + valueMap, vector components.
+        ("skypatcher-overlay-guard", SkyPatcherOverlayProbe.RunGuard),
     };
 
     /// <summary>Dispatch a single CI guard by name through the registry — the ONE place a CI probe is listed, so
