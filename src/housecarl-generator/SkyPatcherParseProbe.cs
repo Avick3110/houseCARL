@@ -11,7 +11,7 @@ namespace HousecarlGenerator;
 //  Pins the catalog-FREE grammar mechanics: ':'-segment / '='-key-value /
 //  ','-list / '~'-compound splitting, the ~…~ rename name-literal, the
 //  unambiguous Plugin.esp|FormID address (incl. leading-zero trim), the
-//  0a boundary (a bare EditorID stays UN-addressed — that's Wave 0b), and
+//  0a boundary (a bare EditorID stays UN-addressed — that's Wave 1), and
 //  the Q3 loud-note paths for malformed segments. Pure in-process, no game
 //  data, no MO2 instance, no Mutagen — just string→model asserts.
 // ======================================================================
@@ -65,7 +65,7 @@ public static class SkyPatcherParseProbe
             nameVal.IsNameLiteral && nameVal.NameText == "Reforged Blade", $"lit={nameVal.IsNameLiteral} text=\"{nameVal.NameText}\"");
         failures += Check("a name-literal is NOT address-parsed", nameVal.Address is null);
 
-        // -- 0a boundary: a bare EditorID stays un-addressed (catalog resolves it in Wave 0b) ----
+        // -- 0a boundary: a bare EditorID stays un-addressed (the Wave-1 overlay resolves it) ----
         var eid = rn.Segments[0].Values[0];
         failures += Check("bare EditorID 'IronSword' is left un-addressed at 0a",
             eid.Address is null && eid.Raw == "IronSword", $"addr={(eid.Address is null ? "null" : "SET")} raw={eid.Raw}");
@@ -88,6 +88,12 @@ public static class SkyPatcherParseProbe
         failures += Check("'form=rank' item is deliberately un-addressed at 0a",
             fr.Segments[1].Values[0].Address is null,
             $"addr={(fr.Segments[1].Values[0].Address is null ? "null" : "SET")}");
+
+        // -- empty comma-item (a form deleted between commas) is skipped LOUD, not absorbed ------
+        var ec = SkyPatcherParse.ParseLine("keywordsToAdd=Skyrim.esm|123,,Skyrim.esm|456");
+        failures += Check("doubled ',' ⇒ 2 items + a loud note naming the empty ','-item",
+            ec.Segments[0].Values.Count == 2 && ec.Note is not null && ec.Note.Contains("','-item"),
+            $"items={ec.Segments[0].Values.Count} note={ec.Note ?? "<none>"}");
 
         // -- null-clear a form field -------------------------------------------------------------
         var nl = SkyPatcherParse.ParseLine("filterByWeapons=SomeSword:objectEffect=null");

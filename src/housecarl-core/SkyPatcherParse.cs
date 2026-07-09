@@ -27,7 +27,8 @@ namespace HousecarlCore;
 /// <para><b>Address (0a boundary).</b> Only the unambiguous <c>Plugin.esp|FormID</c> form is resolved
 /// here. A bare identifier is left un-addressed because an EditorID (<c>filterByWeapons=IronSword</c>)
 /// and an enum scalar (<c>armorType=heavy</c>) are lexically identical — telling them apart needs the
-/// catalog's knowledge of whether the key is form-valued. So EditorID resolution waits for Wave 0b.</para>
+/// catalog's knowledge of whether the key is form-valued. So EditorID resolution waits for the Wave-1
+/// overlay engine (the Wave-0b catalog classifies keys; it does not resolve values).</para>
 ///
 /// <para><b>Q3 — no silent failure.</b> A malformed segment (no <c>=</c>, empty key) is captured as a
 /// loud <see cref="SkyPatcherLine.Note"/> and the segment is still surfaced — never dropped silently.</para>
@@ -36,8 +37,10 @@ namespace HousecarlCore;
 /// the documented "<c>:</c> separates every segment" — a rename literal that itself contains a colon
 /// (<c>fullName=~Sword: Reforged~</c>) would be over-split. The same applies to the <c>,</c> item split:
 /// a name-literal containing a comma (<c>fullName=~Amulet of Mara, Blessed~</c>) is over-split into two
-/// broken items, because comma-splitting runs before literal detection. SkyPatcher's real delimiter
-/// precedence for BOTH separators must be verified against the running DLL before this is hardened —
+/// broken items, because comma-splitting runs before literal detection. Likewise the compound <c>~</c>
+/// split: a plugin filename that itself contains <c>~</c> (legal on Windows, unaddressable by the
+/// distributor grammars' own <c>~</c>-reserved syntax) over-splits and loses its address. SkyPatcher's
+/// real delimiter precedence must be verified against the running DLL before any of this is hardened —
 /// do not assume it here.</para>
 /// </summary>
 public static class SkyPatcherParse
@@ -87,7 +90,7 @@ public static class SkyPatcherParse
                 continue;
             }
 
-            segments.Add(new SkyPatcherSegment(key, rawValue, ParseValueList(rawValue)));
+            segments.Add(new SkyPatcherSegment(key, rawValue, ParseValueList(rawValue, ref note)));
         }
 
         return new SkyPatcherLine(raw, SkyPatcherLineKind.Patch, segments, note);
@@ -104,15 +107,22 @@ public static class SkyPatcherParse
         return lines;
     }
 
-    /// <summary>Comma-split a segment's raw value into items, parsing each. Empty value ⇒ no items.</summary>
-    static IReadOnlyList<SkyPatcherValue> ParseValueList(string rawValue)
+    /// <summary>Comma-split a segment's raw value into items, parsing each. Empty value ⇒ no items.
+    /// An empty comma-item (doubled/trailing ',') is skipped WITH a loud note — the same never-drop-
+    /// silently treatment the empty ':'-segment gets (a form deleted between commas is a realistic
+    /// hand-edit slip the reader must surface, not absorb).</summary>
+    static IReadOnlyList<SkyPatcherValue> ParseValueList(string rawValue, ref string? note)
     {
         if (rawValue.Length == 0) return Array.Empty<SkyPatcherValue>();
         var items = new List<SkyPatcherValue>();
         foreach (var rawItem in rawValue.Split(','))
         {
             var item = rawItem.Trim();
-            if (item.Length == 0) continue;   // a trailing/double comma — skip the empty slot
+            if (item.Length == 0)
+            {
+                note = Append(note, $"empty ','-item in '{rawValue}' (stray or doubled ',')");
+                continue;
+            }
             items.Add(ParseValue(item));
         }
         return items;
@@ -141,8 +151,8 @@ public static class SkyPatcherParse
 
     /// <summary>
     /// Resolve the unambiguous <c>Plugin.esp|FormID</c> address form. Returns null for anything else
-    /// (a scalar, an enum value, or a bare EditorID — EditorID vs scalar can't be told apart without the
-    /// catalog, so it's deferred to Wave 0b).
+    /// (a scalar, an enum value, or a bare EditorID — EditorID vs scalar can't be told apart without
+    /// knowing whether the key is form-valued, so it's deferred to the Wave-1 overlay engine).
     /// </summary>
     public static FormAddress? TryParseAddress(string token)
     {
@@ -207,7 +217,7 @@ public sealed record SkyPatcherValue(
 
 /// <summary>
 /// A resolved form address. Wave 0a only produces the FormID form (<see cref="Plugin"/> + <see cref="FormId"/>);
-/// <see cref="EditorId"/> is reserved for the Wave 0b catalog layer, which knows which keys are form-valued.
+/// <see cref="EditorId"/> is reserved for the Wave-1 overlay engine, which knows which keys are form-valued.
 /// </summary>
 public sealed record FormAddress(string? Plugin, uint? FormId, string? EditorId)
 {
