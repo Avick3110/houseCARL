@@ -130,6 +130,19 @@ public static class SkyPatcherParseProbe
         failures += Check("file parse ⇒ 2 patch, 1 comment, ≥1 blank",
             patches == 2 && comments == 1 && blanks >= 1, $"patch={patches} comment={comments} blank={blanks}");
 
+        // -- UTF-8 BOM (Wave-1 crux finding: a shipped INI's BOM rode into the first key) --------
+        var bomFile = SkyPatcherParse.ParseFile("\uFEFF" + "filterByWeapons=Skyrim.esm|12EB7:weight=0");
+        failures += Check("leading BOM stripped — first key parses clean",
+            bomFile.Count == 1 && bomFile[0].Kind == SkyPatcherLineKind.Patch
+            && bomFile[0].Segments[0].Key == "filterByWeapons",
+            bomFile.Count > 0 ? $"key='{bomFile[0].Segments.FirstOrDefault()?.Key}'" : "no lines");
+        // A MID-FILE BOM at a line start (a BOM'd file concatenated onto another — seen in a shipped
+        // mod's Trails.esp.ini) must trim like whitespace, not ride into that line's key.
+        var midBom = SkyPatcherParse.ParseFile("weight=1\n" + "\uFEFF" + "filterByKeywordsOr=A,B:weight=0");
+        failures += Check("mid-file BOM at a line start trimmed — key parses clean",
+            midBom.Count == 2 && midBom[1].Segments[0].Key == "filterByKeywordsOr",
+            midBom.Count > 1 ? $"key='{midBom[1].Segments.FirstOrDefault()?.Key}'" : "line missing");
+
         Console.WriteLine(failures == 0
             ? "[skypatcher-parse-guard] PASS — the SkyPatcher tokenizer grammar holds."
             : $"[skypatcher-parse-guard] FAIL — {failures} case(s) regressed.");

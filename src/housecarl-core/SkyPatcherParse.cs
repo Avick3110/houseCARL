@@ -49,7 +49,11 @@ public static class SkyPatcherParse
     public static SkyPatcherLine ParseLine(string raw)
     {
         raw ??= "";
-        var trimmed = raw.Trim();
+        // A stray U+FEFF (BOM) is treated as whitespace: real shipped INIs carry one not only at the
+        // file start but MID-FILE at a line start (Wave-1 crux finding — a BOM'd file concatenated
+        // onto another), and it would otherwise ride into the key. U+FEFF is never a legal key/value
+        // character, so trimming it at the line edges is lossless.
+        var trimmed = raw.Trim().Trim('\uFEFF').Trim();
 
         if (trimmed.Length == 0)
             return new SkyPatcherLine(raw, SkyPatcherLineKind.Blank, Array.Empty<SkyPatcherSegment>(), null);
@@ -101,6 +105,10 @@ public static class SkyPatcherParse
     {
         var lines = new List<SkyPatcherLine>();
         if (string.IsNullOrEmpty(text)) return lines;
+        // A UTF-8 BOM decoded into the text rides into the FIRST line's first key otherwise —
+        // real shipped INIs carry one (Wave-1 crux finding: '﻿' + 'filterByKeywordsOr'
+        // classified Unknown), so it is stripped exactly at position 0, nowhere else.
+        if (text[0] == '\uFEFF') text = text[1..];
         // Split on any newline flavor; keep empties so line indices track the source file.
         foreach (var raw in text.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n'))
             lines.Add(ParseLine(raw));
