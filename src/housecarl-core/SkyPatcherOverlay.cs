@@ -94,6 +94,7 @@ public static class SkyPatcherOverlay
         var applied = new List<SkyPatcherAppliedOp>();
         var directives = new List<SkyPatcherDirective>();
         var warnings = new List<string>();
+        var dedupe = new HashSet<string>(StringComparer.Ordinal);   // layer-fact warnings (e.g. a keyword not in the order) fire once, not per line
         int matched = 0, unresolvedSkips = 0;
 
         foreach (var line in lines)
@@ -106,6 +107,7 @@ public static class SkyPatcherOverlay
             // ---- split the line into filters and ops, classifying every key (unknowns are loud). ----
             var filters = new List<(SkyPatcherSegment seg, SkyPatcherKeyClass cls)>();
             var ops = new List<(SkyPatcherSegment seg, SkyPatcherKeyClass cls)>();
+            bool unknownKey = false;
             foreach (var seg in line.Parsed.Segments)
             {
                 var cls = catalog.Classify(recordCatalog, seg.Key);
@@ -113,15 +115,26 @@ public static class SkyPatcherOverlay
                 {
                     case SkyPatcherKeyRole.Filter: filters.Add((seg, cls)); break;
                     case SkyPatcherKeyRole.Operation: ops.Add((seg, cls)); break;
-                    default:
-                        warnings.Add($"{where}: unknown key '{seg.Key}' for record type '{recordCatalog.RecordType}' — not in the SkyPatcher reference (skipped; verify the spelling or the reference version).");
-                        break;
+                    default: unknownKey = true; break;
                 }
+            }
+            // An unknown key poisons the WHOLE line (Wave-1 crux finding): if it was a filter we failed to
+            // recognize, evaluating the remaining segments would mis-scope the line — worst case an
+            // unknown ONLY-filter leaves the filter list empty and the ops apply to EVERY record of the
+            // type (a silently-over-applied post-state). Skip the line LOUD instead; never guess (Q3).
+            if (unknownKey)
+            {
+                unresolvedSkips++;
+                var bad = string.Join(", ", line.Parsed.Segments
+                    .Where(s => catalog.Classify(recordCatalog, s.Key).Role == SkyPatcherKeyRole.Unknown)
+                    .Select(s => $"'{s.Key}'"));
+                warnings.Add($"{where}: line skipped — key(s) {bad} are not in the SkyPatcher reference for record type '{recordCatalog.RecordType}' (an unrecognized key may be a filter, so whether the line applies is UNRESOLVED; verify the spelling or the reference version).");
+                continue;
             }
             if (ops.Count == 0) continue;   // a line with no operation does nothing (grammar §3)
 
             // ---- evaluate the filters against THIS record (Wave-1 tier; unsupported ⇒ loud skip). ----
-            var verdict = EvaluateFilters(mutableRecord, fk, editorId, recordCatalog, filters, resolver);
+            var verdict = EvaluateFilters(mutableRecord, fk, editorId, recordCatalog, filters, resolver, warnings, dedupe);
             if (verdict == FilterVerdict.Unresolved)
             {
                 unresolvedSkips++;
@@ -182,7 +195,8 @@ public static class SkyPatcherOverlay
 
     static FilterVerdict EvaluateFilters(object record, FormKey fk, string? editorId,
         SkyPatcherRecordCatalog recordCatalog,
-        IReadOnlyList<(SkyPatcherSegment seg, SkyPatcherKeyClass cls)> filters, IFormResolver resolver)
+        IReadOnlyList<(SkyPatcherSegment seg, SkyPatcherKeyClass cls)> filters, IFormResolver resolver,
+        List<string> warnings, HashSet<string> dedupe)
     {
         // No filter set → every record of the type is patched (grammar §5).
         if (filters.Count == 0) return FilterVerdict.Match;
@@ -219,18 +233,28 @@ public static class SkyPatcherOverlay
                     var mine = RecordKeywords(record);
                     if (mine is null) return FilterVerdict.Unresolved;   // type has no keyword list we can read
                     var wanted = new List<FormKey>();
-                    bool anyUnresolved = false;
+                    int unresolved = 0;
                     foreach (var v in seg.Values)
                     {
                         var k = ResolveFormValue(v, "Keyword", resolver);
-                        if (k is null) anyUnresolved = true; else wanted.Add(k.Value);
+                        if (k is null)
+                        {
+                            // A keyword that resolves to NOTHING in the active order can never be attached
+                            // to any record — that's a fact about the order, not a guess: it evaluates as
+                            // not-attached, surfaced ONCE per token (Wave-1 crux finding: real INIs list
+                            // keywords from frameworks the modlist doesn't run, e.g. SLA_KillerHeels).
+                            unresolved++;
+                            if (dedupe.Add($"kw:{v.Raw}"))
+                                warnings.Add($"keyword '{v.Raw}' (in a {cls.BaseKey}{conn}) resolves to nothing in the active order — treated as attached to no record.");
+                        }
+                        else wanted.Add(k.Value);
                     }
-                    if (anyUnresolved) return FilterVerdict.Unresolved;  // a keyword we can't resolve — never guess the verdict
                     bool ok = conn switch
                     {
                         "Or" => wanted.Any(mine.Contains),
                         "Excluded" or "Exclude" => !wanted.Any(mine.Contains),
-                        _ => wanted.All(mine.Contains),
+                        // bare = AND: EVERY listed keyword must be attached — an in-order-nonexistent one can't be.
+                        _ => unresolved == 0 && wanted.All(mine.Contains),
                     };
                     if (!ok) return FilterVerdict.NoMatch;
                     any = true; continue;

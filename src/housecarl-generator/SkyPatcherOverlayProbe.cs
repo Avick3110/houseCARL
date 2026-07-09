@@ -93,6 +93,7 @@ public static class SkyPatcherOverlayProbe
             L("z.ini", 17, $"hasPlugins=Missing.esp:filterByWeapons={me}:value=7"),     // gate fails ⇒ NOT applied
             L("z.ini", 18, $"hasPlugins=HcSpOv.esp:filterByWeapons={me}:value=777"),    // gate passes
             L("z.ini", 19, $"filterByWeapons={me}:keywordsToAdd=HcNamedKeyword"),       // EditorID value → resolver
+            L("z.ini", 20, "bogusFilter=1:critPercentMult=3"),                          // unknown ONLY-filter must NOT become apply-all
         };
 
         var result = SkyPatcherOverlay.Apply(weap, fk, weap.EditorID, catalog, weapCat, weapMap, lines, resolver);
@@ -127,8 +128,12 @@ public static class SkyPatcherOverlayProbe
             result.LinesSkippedUnresolvedFilter >= 1
             && result.Warnings.Any(w => w.Contains("restrictToSkills") && w.Contains("UNRESOLVED"))
             && Math.Abs(weap.Data.Speed - 0) < 0.001, $"speed={weap.Data.Speed}");
-        failures += Check("unknown key warns loud (notAnOp)",
-            result.Warnings.Any(w => w.Contains("notAnOp") && w.Contains("unknown key")));
+        failures += Check("an unknown key poisons the WHOLE line, loud (notAnOp)",
+            result.Warnings.Any(w => w.Contains("notAnOp") && w.Contains("UNRESOLVED")));
+        failures += Check("unknown ONLY-filter line did NOT become apply-all (critPercentMult untouched)",
+            weap.Critical!.PercentMult == 0
+            && result.Warnings.Any(w => w.Contains("bogusFilter") && w.Contains("UNRESOLVED")),
+            $"PercentMult={weap.Critical.PercentMult}");
 
         // ---- op surface ----
         failures += Check("rename strips the ~…~ wrapper", weap.Name?.String == "Reforged Blade", weap.Name?.String ?? "<null>");
