@@ -11,8 +11,11 @@ namespace HousecarlGenerator;
 //  embedded skypatcher-catalog.json loads, covers every documented record
 //  type, holds the shape⇒tractability invariants, classifies a known
 //  filter (with connective) and a known operation correctly, flags an
-//  unknown key as Unknown (bundled-or-warn), and preserves the OMOD gap.
-//  Pure in-process — the catalog is an embedded resource; no game data.
+//  unknown key as Unknown (bundled-or-warn), preserves the OMOD gap, and
+//  cross-checks the record dimension (name/sig/subfolder/primaryFilter)
+//  against the skypatcher-authoring reference's index.jsonl — the drift
+//  guard for when the skill reference updates. In-process; the catalog is
+//  an embedded resource, the index is read from the repo (CWD-relative).
 // ======================================================================
 public static class SkyPatcherCatalogProbe
 {
@@ -97,10 +100,60 @@ public static class SkyPatcherCatalogProbe
         failures += CheckHard(cat, "setRandomVisualStyle");
         failures += CheckHard(cat, "mgefsToAdd");
 
+        // 7. cross-check the record dimension against the reference's own index.jsonl — the catalog's
+        //    provenance. This is the drift guard: when the skypatcher-authoring reference updates, a
+        //    record added/renamed/re-filtered there must fail HERE until the catalog is re-transcribed.
+        //    (LVLI: the catalog deliberately carries the dual primary filter 'filterByLLs / filterByLLNPCs'
+        //    where the index carries one — compared component-wise.)
+        failures += CrossCheckIndex(cat);
+
         Console.WriteLine(failures == 0
             ? "[skypatcher-catalog-guard] PASS — the closed SkyPatcher catalog holds."
             : $"[skypatcher-catalog-guard] FAIL — {failures} case(s) regressed.");
         return failures == 0 ? 0 : 1;
+    }
+
+    /// <summary>Compare recordType/sig/primaryFilter per subfolder against the skypatcher-authoring
+    /// reference's index.jsonl (read from CWD like the other repo-file guards — run from the repo root),
+    /// plus exact count parity both ways. A missing index file is a loud FAIL, not a skip.</summary>
+    static int CrossCheckIndex(SkyPatcherCatalog cat)
+    {
+        int failures = 0;
+        var path = Path.Combine(".claude", "skills", "skypatcher-authoring", "references", "index.jsonl");
+        if (!File.Exists(path))
+            return Check($"reference index.jsonl exists at {path}", false, "wrong CWD? run from the repo root");
+
+        var entries = new List<(string Name, string Sig, string Subfolder, string PrimaryFilter)>();
+        foreach (var line in File.ReadAllLines(path))
+        {
+            if (string.IsNullOrWhiteSpace(line)) continue;
+            using var doc = System.Text.Json.JsonDocument.Parse(line);
+            var e = doc.RootElement;
+            entries.Add((e.GetProperty("name").GetString() ?? "", e.GetProperty("sig").GetString() ?? "",
+                         e.GetProperty("subfolder").GetString() ?? "", e.GetProperty("primaryFilter").GetString() ?? ""));
+        }
+
+        failures += Check($"catalog count == index count ({cat.Records.Count} vs {entries.Count})",
+            cat.Records.Count == entries.Count);
+
+        var indexSubfolders = new HashSet<string>(entries.Select(e => e.Subfolder), StringComparer.OrdinalIgnoreCase);
+        foreach (var r in cat.Records)
+            if (!indexSubfolders.Contains(r.Subfolder))
+                failures += Check($"catalog subfolder '{r.Subfolder}' exists in the index", false);
+
+        foreach (var e in entries)
+        {
+            var r = cat.ForSubfolder(e.Subfolder);
+            if (r is null) { failures += Check($"index subfolder '{e.Subfolder}' exists in the catalog", false); continue; }
+            failures += Check($"{e.Subfolder}: recordType matches index name", r.RecordType == e.Name, $"cat='{r.RecordType}' idx='{e.Name}'");
+            failures += Check($"{e.Subfolder}: sig matches index", r.Sig == e.Sig, $"cat='{r.Sig}' idx='{e.Sig}'");
+            // Component-wise: every index primaryFilter must appear among the catalog's ' / '-separated parts
+            // (and an empty index pf — the OMOD gap — requires an empty catalog pf).
+            var parts = r.PrimaryFilter.Split(" / ", StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            bool pfOk = e.PrimaryFilter.Length == 0 ? r.PrimaryFilter.Length == 0 : parts.Contains(e.PrimaryFilter, StringComparer.Ordinal);
+            failures += Check($"{e.Subfolder}: primaryFilter covers the index's", pfOk, $"cat='{r.PrimaryFilter}' idx='{e.PrimaryFilter}'");
+        }
+        return failures;
     }
 
     static int CheckHard(SkyPatcherCatalog cat, string opName)

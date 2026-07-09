@@ -29,8 +29,8 @@ public sealed class SkyPatcherCatalog
     /// <summary>Every record type's catalog, in load order.</summary>
     public IReadOnlyList<SkyPatcherRecordCatalog> Records { get; }
 
-    readonly Dictionary<string, SkyPatcherRecordCatalog> _bySubfolder;   // subfolder (lower) → catalog
-    readonly Dictionary<string, RecordLookup> _lookup;                    // subfolder (lower) → name maps
+    readonly Dictionary<string, SkyPatcherRecordCatalog> _bySubfolder;   // subfolder (case-insensitive) → catalog
+    readonly Dictionary<string, RecordLookup> _lookup;                    // subfolder (case-insensitive) → name maps
 
     sealed record RecordLookup(
         Dictionary<string, SkyPatcherFilterDef> Filters,   // base filter name (ordinal) → def
@@ -43,9 +43,12 @@ public sealed class SkyPatcherCatalog
         _lookup = new(StringComparer.OrdinalIgnoreCase);
         foreach (var r in records)
         {
-            var key = r.Subfolder.ToLowerInvariant();
-            _bySubfolder[key] = r;
-            _lookup[key] = new RecordLookup(
+            // Deliberate case asymmetry: subfolders match case-INSENSITIVELY (Windows paths), but filter/op
+            // key names match case-SENSITIVELY as the reference documents them. Whether the real SkyPatcher
+            // DLL accepts e.g. 'attackdamage' is a Wave-1 empirical item; until verified, a wrong-cased key
+            // classifies as Unknown (a loud warn, never a silent guess).
+            _bySubfolder[r.Subfolder] = r;
+            _lookup[r.Subfolder] = new RecordLookup(
                 r.Filters.ToDictionary(f => f.Name, f => f, StringComparer.Ordinal),
                 r.Operations.ToDictionary(o => o.Name, o => o, StringComparer.Ordinal));
         }
@@ -63,7 +66,7 @@ public sealed class SkyPatcherCatalog
     /// </summary>
     public SkyPatcherKeyClass Classify(SkyPatcherRecordCatalog record, string key)
     {
-        var lk = _lookup[record.Subfolder.ToLowerInvariant()];
+        var lk = _lookup[record.Subfolder];
 
         if (lk.Operations.TryGetValue(key, out var op))
             return new SkyPatcherKeyClass(SkyPatcherKeyRole.Operation, key, null, null, op);

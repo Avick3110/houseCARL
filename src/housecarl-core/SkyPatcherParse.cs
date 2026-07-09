@@ -33,9 +33,12 @@ namespace HousecarlCore;
 /// loud <see cref="SkyPatcherLine.Note"/> and the segment is still surfaced — never dropped silently.</para>
 ///
 /// <para><b>KNOWN LIMITATION (Wave-1 empirical item).</b> Line splitting on <c>:</c> is naive, matching
-/// the documented "<c>:</c> separates every segment". A rename literal that itself contains a colon
-/// (<c>fullName=~Sword: Reforged~</c>) would be over-split. SkyPatcher's real delimiter precedence must
-/// be verified against the running DLL before this is hardened — do not assume it here.</para>
+/// the documented "<c>:</c> separates every segment" — a rename literal that itself contains a colon
+/// (<c>fullName=~Sword: Reforged~</c>) would be over-split. The same applies to the <c>,</c> item split:
+/// a name-literal containing a comma (<c>fullName=~Amulet of Mara, Blessed~</c>) is over-split into two
+/// broken items, because comma-splitting runs before literal detection. SkyPatcher's real delimiter
+/// precedence for BOTH separators must be verified against the running DLL before this is hardened —
+/// do not assume it here.</para>
 /// </summary>
 public static class SkyPatcherParse
 {
@@ -57,7 +60,7 @@ public static class SkyPatcherParse
         var segments = new List<SkyPatcherSegment>();
         string? note = null;
 
-        // Segments are ':'-separated. Split on the RAW (untrimmed) content; each segment is edge-trimmed below.
+        // Segments are ':'-separated. Split the trimmed line; each segment is edge-trimmed again below.
         foreach (var rawSeg in trimmed.Split(':'))
         {
             var seg = rawSeg.Trim();
