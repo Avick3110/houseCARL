@@ -92,6 +92,30 @@ public static class SkyPatcherCatalogProbe
             var unk = cat.Classify(weap, "totallyBogusKeyXYZ");
             failures += Check("an unknown key ⇒ Unknown (bundled-or-warn, never silently assumed)",
                 unk.Role == SkyPatcherKeyRole.Unknown, unk.Role.ToString());
+
+            // The bare form of a filter documented ONLY with a connective (filterByFirstPersonModelOr —
+            // no bare spelling exists in the reference) must warn Unknown, not silently pass as a Filter:
+            // the bare branch is gated on "" membership in Connectives, same contract as the suffix branch.
+            var bareOnly = cat.Classify(weap, "filterByFirstPersonModel");
+            failures += Check("bare form of a suffix-only filter ⇒ Unknown (undocumented token warns)",
+                bareOnly.Role == SkyPatcherKeyRole.Unknown, bareOnly.Role.ToString());
+            var suffixed = cat.Classify(weap, "filterByFirstPersonModelOr");
+            failures += Check("…while its documented suffixed form ⇒ Filter base=filterByFirstPersonModel",
+                suffixed is { Role: SkyPatcherKeyRole.Filter, BaseKey: "filterByFirstPersonModel", Connective: "Or" },
+                $"{suffixed.Role} base={suffixed.BaseKey} conn={suffixed.Connective}");
+        }
+
+        // A present-but-wrong-kind 'connectives' (or filters/operations) node must throw at LOAD, not
+        // silently parse empty — the record would keep its other checks green while every suffixed key
+        // on that filter degraded to Unknown at runtime (the Q3 silent-empty lane the guard can't see).
+        try
+        {
+            SkyPatcherCatalog.LoadFrom("""[{"recordType":"T","sig":"TTTT","subfolder":"t","primaryFilter":"f","filters":[{"name":"f","kind":"primary","connectives":"oops"}]}]""");
+            failures += Check("wrong-kind 'connectives' throws loudly at load", false, "no exception");
+        }
+        catch (InvalidOperationException)
+        {
+            failures += Check("wrong-kind 'connectives' throws loudly at load", true);
         }
 
         // 6. flagship HARD ops exist and are HARD — the tiered-honesty reader keys on these.
@@ -123,14 +147,25 @@ public static class SkyPatcherCatalogProbe
         if (!File.Exists(path))
             return Check($"reference index.jsonl exists at {path}", false, "wrong CWD? run from the repo root");
 
+        // Each line is guarded to a NAMED fail — the guard's whole purpose is the reference-update
+        // event, which is exactly when a line can change shape; a raw exception would skip every
+        // remaining cross-check and name nothing (the PluginValidateProbe treatment).
         var entries = new List<(string Name, string Sig, string Subfolder, string PrimaryFilter)>();
+        int lineNo = 0;
         foreach (var line in File.ReadAllLines(path))
         {
+            lineNo++;
             if (string.IsNullOrWhiteSpace(line)) continue;
-            using var doc = System.Text.Json.JsonDocument.Parse(line);
-            var e = doc.RootElement;
-            entries.Add((e.GetProperty("name").GetString() ?? "", e.GetProperty("sig").GetString() ?? "",
-                         e.GetProperty("subfolder").GetString() ?? "", e.GetProperty("primaryFilter").GetString() ?? ""));
+            try
+            {
+                using var doc = System.Text.Json.JsonDocument.Parse(line);
+                var e = doc.RootElement;
+                entries.Add((ReqStr(e, "name"), ReqStr(e, "sig"), ReqStr(e, "subfolder"), ReqStr(e, "primaryFilter")));
+            }
+            catch (Exception ex)
+            {
+                failures += Check($"index.jsonl line {lineNo} parses (name/sig/subfolder/primaryFilter)", false, ex.Message);
+            }
         }
 
         failures += Check($"catalog count == index count ({cat.Records.Count} vs {entries.Count})",
@@ -156,11 +191,23 @@ public static class SkyPatcherCatalogProbe
         return failures;
     }
 
+    static string ReqStr(System.Text.Json.JsonElement e, string prop)
+        => e.TryGetProperty(prop, out var v) && v.ValueKind == System.Text.Json.JsonValueKind.String
+            ? v.GetString() ?? ""
+            : throw new InvalidOperationException($"missing/non-string '{prop}'");
+
+    /// <summary>EVERY record carrying the op must be HARD, not just the first hit — per-record
+    /// tractability variance is real in this catalog (alternateTexturesToAdd is HARD on some records,
+    /// COLLECTION on others), so a single-hit check would let a later record's regression pass.</summary>
     static int CheckHard(SkyPatcherCatalog cat, string opName)
     {
-        var hit = cat.Records.SelectMany(r => r.Operations).FirstOrDefault(o => o.Name == opName);
-        return Check($"HARD op '{opName}' present and tractability=HARD",
-            hit is { Tractability: SkyPatcherTractability.Hard }, hit is null ? "<not found>" : hit.Tractability.ToString());
+        var hits = cat.Records
+            .SelectMany(r => r.Operations.Where(o => o.Name == opName).Select(o => (r.RecordType, Op: o)))
+            .ToList();
+        var soft = hits.Where(h => h.Op.Tractability != SkyPatcherTractability.Hard).ToList();
+        return Check($"HARD op '{opName}' present ({hits.Count} record(s)) and HARD on ALL of them",
+            hits.Count > 0 && soft.Count == 0,
+            hits.Count == 0 ? "<not found>" : string.Join(", ", soft.Select(s => $"{s.RecordType}={s.Op.Tractability}")));
     }
 
     static int Check(string what, bool ok, string detail = "")

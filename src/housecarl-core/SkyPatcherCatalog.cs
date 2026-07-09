@@ -23,8 +23,11 @@ namespace HousecarlCore;
 /// </summary>
 public sealed class SkyPatcherCatalog
 {
-    /// <summary>Longest-first so 'Excluded' is tried before 'Exclude' before 'Or' when stripping a filter connective.</summary>
-    static readonly string[] ConnectiveSuffixes = { "Excluded", "Exclude", "Or" };
+    /// <summary>The connective vocabulary, DERIVED from the loaded catalog (union of every filter's
+    /// non-empty connectives) so it can't drift from the JSON — a re-transcribed new connective is
+    /// stripped without touching this class. Longest-first so 'Excluded' is tried before 'Exclude'
+    /// before 'Or'; ties broken ordinally for determinism.</summary>
+    readonly string[] _connectiveSuffixes;
 
     /// <summary>Every record type's catalog, in load order.</summary>
     public IReadOnlyList<SkyPatcherRecordCatalog> Records { get; }
@@ -52,6 +55,9 @@ public sealed class SkyPatcherCatalog
                 r.Filters.ToDictionary(f => f.Name, f => f, StringComparer.Ordinal),
                 r.Operations.ToDictionary(o => o.Name, o => o, StringComparer.Ordinal));
         }
+        _connectiveSuffixes = records.SelectMany(r => r.Filters).SelectMany(f => f.Connectives)
+            .Where(c => c.Length > 0).Distinct(StringComparer.Ordinal)
+            .OrderByDescending(c => c.Length).ThenBy(c => c, StringComparer.Ordinal).ToArray();
     }
 
     /// <summary>The record catalog for an INI subfolder (e.g. "weapon", "constructibleObject"), or null if unknown.</summary>
@@ -60,9 +66,12 @@ public sealed class SkyPatcherCatalog
 
     /// <summary>
     /// Classify a raw segment key against a record type's catalog. Order: exact operation (ops take no
-    /// connective) → bare filter → filter + a documented connective suffix → Unknown. A connective is
-    /// only stripped when the remaining base is a real filter that documents that connective, so an
-    /// operation that merely ends in "Or" isn't mis-split.
+    /// connective) → bare filter → filter + a documented connective suffix → Unknown. Both filter paths
+    /// enforce the documented connective set: the bare form is only valid when the filter documents ""
+    /// among its connectives (six filters exist ONLY in suffixed form — e.g. filterByFirstPersonModelOr —
+    /// and their bare spelling is an undocumented token that must warn, not pass), and a suffix is only
+    /// stripped when the remaining base is a real filter that documents that connective, so an operation
+    /// that merely ends in "Or" isn't mis-split.
     /// </summary>
     public SkyPatcherKeyClass Classify(SkyPatcherRecordCatalog record, string key)
     {
@@ -71,10 +80,10 @@ public sealed class SkyPatcherCatalog
         if (lk.Operations.TryGetValue(key, out var op))
             return new SkyPatcherKeyClass(SkyPatcherKeyRole.Operation, key, null, null, op);
 
-        if (lk.Filters.TryGetValue(key, out var bare))
+        if (lk.Filters.TryGetValue(key, out var bare) && bare.Connectives.Contains(""))
             return new SkyPatcherKeyClass(SkyPatcherKeyRole.Filter, key, "", bare, null);
 
-        foreach (var c in ConnectiveSuffixes)
+        foreach (var c in _connectiveSuffixes)
             if (key.Length > c.Length && key.EndsWith(c, StringComparison.Ordinal))
             {
                 var baseKey = key[..^c.Length];
@@ -119,17 +128,20 @@ public sealed class SkyPatcherCatalog
         var filters = new List<SkyPatcherFilterDef>();
         var ops = new List<SkyPatcherOpDef>();
 
-        if (el.TryGetProperty("filters", out var fs) && fs.ValueKind == JsonValueKind.Array)
+        // A PRESENT-but-wrong-kind node throws loudly like every other malformed field — a mistyped
+        // 'filters'/'operations'/'connectives' silently parsed as empty is the exact Q3 silent-empty
+        // degrade the Load() contract forbids (every key would then read Unknown with no load error).
+        if (el.TryGetProperty("filters", out var fs) && RequireArray(fs, "filters", recordType))
             foreach (var f in fs.EnumerateArray())
                 filters.Add(new SkyPatcherFilterDef(
                     Str(f, "name"),
                     ParseFilterKind(Str(f, "kind"), recordType),
-                    f.TryGetProperty("connectives", out var cs) && cs.ValueKind == JsonValueKind.Array
+                    f.TryGetProperty("connectives", out var cs) && RequireArray(cs, "connectives", recordType)
                         ? cs.EnumerateArray().Select(c => c.GetString() ?? "").ToArray()
                         : new[] { "" },
                     OptStr(f, "selects")));
 
-        if (el.TryGetProperty("operations", out var opsEl) && opsEl.ValueKind == JsonValueKind.Array)
+        if (el.TryGetProperty("operations", out var opsEl) && RequireArray(opsEl, "operations", recordType))
             foreach (var o in opsEl.EnumerateArray())
                 ops.Add(new SkyPatcherOpDef(
                     Str(o, "name"),
@@ -142,6 +154,11 @@ public sealed class SkyPatcherCatalog
             recordType, Str(el, "sig"), Str(el, "subfolder"), Str(el, "primaryFilter"),
             filters, ops, OptStr(el, "note"));
     }
+
+    /// <summary>True when the (present) node is an array; throws loudly on any other kind.</summary>
+    static bool RequireArray(JsonElement el, string prop, string ctx)
+        => el.ValueKind == JsonValueKind.Array ? true
+            : throw new InvalidOperationException($"SkyPatcher catalog [{ctx}]: '{prop}' is present but not an array.");
 
     static string Str(JsonElement el, string prop)
         => el.TryGetProperty(prop, out var v) && v.ValueKind == JsonValueKind.String
