@@ -45,7 +45,9 @@ namespace HousecarlGenerator;
 /// Arms A–I cover the EDIT lane; J–Q cover the CREATE lane (J create+counter, O cross-master, M nested-under-a-foreign-parent,
 /// P same-call nested unit, Q exterior-cell-under-a-foreign-worldspace, K handshake, L contract, N opt-in) and arm I also
 /// proves the create lane shares the marker + handshake; R–X cover the REMOVE lane (R override-remove+prune, S refuse-if-
-/// not-carried, T surgical-remove+keep-master, U contract, V resolver, W handshake+cross-lane-share, X opt-in).
+/// not-carried, T surgical-remove+keep-master, U contract, V resolver, W handshake+cross-lane-share, X opt-in);
+/// Y–Z cover the edit lane's MASTER-GROW fix (HCBR-2026-07-08-01 F2: Y — a FormLink to an active-but-undeclared plugin
+/// lands and grows the header; Z — a link to a plugin NOT in the load order still refuses loud, file untouched).
 /// Run: dotnet run --project src/housecarl-generator inplace-guard
 ///
 /// The NESTED lock arm (the LinkCacheFor-on-a-foreign-target path) needs a real nested record + master, so it lives in
@@ -81,6 +83,7 @@ public static class InPlaceProbe
 
         var masterKey = new ModKey("HcInPlaceMaster", ModType.Master);
         FormKey wfk, w2fk, tfk, wsfk;
+        FormKey hkwFk = default;   // a keyword DEFINED in the High plugin (assigned in the High fixture below; arm Y)
         {
             var m = new SkyrimMod(masterKey, SkyrimRelease.SkyrimSE);
             var w = m.Weapons.AddNew(); w.EditorID = "HcIP_Weap"; w.BasicStats = new WeaponBasicStats { Damage = 10 }; w.Name = "MasterSword";
@@ -101,6 +104,10 @@ public static class InPlaceProbe
             var h = new SkyrimMod(new ModKey("HcInPlaceHigh", ModType.Plugin), SkyrimRelease.SkyrimSE);
             var hw = h.Weapons.GetOrAddAsOverride(mOv.Weapons.First(x => x.FormKey == wfk));
             hw.BasicStats!.Damage = 99; hw.Name = "HighSword";
+            // A keyword DEFINED IN High (not an override): the new-master edit arm (Y) links the USER's weapon to it,
+            // which must GROW the user's master header (HCBR-2026-07-08-01 F2) — High is active but not yet a master.
+            var hkw = h.Keywords.AddNew(); hkw.EditorID = "HcIP_HighKw";
+            hkwFk = hkw.FormKey;
             h.BeginWrite.ToPath(highPath).WithLoadOrder(new ISkyrimModGetter[] { mOv }).Write();
         }
         Console.WriteLine($"-- setup: master {MasterName} (weapon {wfk}), user override (dmg 20, 'UserSword', counter 0x123), higher override (dmg 99, 'HighSword') --");
@@ -583,6 +590,45 @@ public static class InPlaceProbe
             results.Add(("X opt-in by construction (remove_record defaults OFF)", pass, $"remove_record={DefOff(rr)}"));
         }
 
+        // ===== Y — MASTERS (edit) GROW: an edit linking to an ACTIVE plugin the target didn't master LANDS + grows =====
+        // HCBR-2026-07-08-01 F2: the edit lane serialized against the target's own declared masters, so composing a
+        // FormLink to an active-but-undeclared plugin threw MissingModException (refused loud, but the edit was
+        // legitimate). Now it serializes against the whole known-master set (the in-place CREATE lane's context): the
+        // user's weapon gains High's own keyword → the edit lands AND HcInPlaceHigh.esp joins the user's master header.
+        // RED on the pre-fix code (MissingModException); the arm-C no-baseline assert still holds separately.
+        {
+            var userY = FreshUser(tmpDir, "Y", userPristine);
+            using var r = LoadOrderResolver.Build(new[] { masterPath, userY, highPath });
+            var o = WritePatchBuilder.ApplyInPlace(r, rulebook,
+                new[] { new WritePatchBuilder.PatchEdit { Target = wfk, Path = new[] { "Keywords" }, Verb = "Add", Value = $"{hkwFk.ID:X6}:{HighName}" } },
+                userY, UserName);
+            var masters = ReadMasters(userY);
+            bool grown = masters.Any(m => m.Equals(HighName, StringComparison.OrdinalIgnoreCase));
+            bool noBaseline = !masters.Any(m => m.Equals("Skyrim.esm", StringComparison.OrdinalIgnoreCase) || m.Equals("Update.esm", StringComparison.OrdinalIgnoreCase));
+            bool kept = masters.Any(m => m.Equals(MasterName, StringComparison.OrdinalIgnoreCase));
+            bool landed = ReadWeaponHasKeyword(userY, wfk, hkwFk);
+            bool pass = o.Success && o.InPlace && landed && grown && kept && noBaseline;
+            results.Add(("Y edit-lane master GROW (link to an active undeclared plugin lands + grows the header)", pass,
+                $"success={o.Success} keywordLanded={landed} masterGrown={grown} originalMasterKept={kept} noBaseline={noBaseline} masters=[{string.Join(",", masters)}]  [{o.Error ?? "ok"}]"));
+        }
+
+        // ===== Z — MASTERS (edit) STILL LOUD: a link to a plugin NOT in the load order refuses, file untouched =====
+        // The F2 fix must not soften Q3: with the whole-order context, a MissingModException now genuinely means "not
+        // active" — assert the refusal names it and the original is byte-untouched.
+        {
+            var userZ = FreshUser(tmpDir, "Z", userPristine);
+            var before = File.ReadAllBytes(userZ);
+            using var r = LoadOrderResolver.Build(new[] { masterPath, userZ, highPath });
+            var o = WritePatchBuilder.ApplyInPlace(r, rulebook,
+                new[] { new WritePatchBuilder.PatchEdit { Target = wfk, Path = new[] { "Keywords" }, Verb = "Add", Value = "000ABC:NotInOrder.esp" } },
+                userZ, UserName);
+            bool untouched = File.ReadAllBytes(userZ).AsSpan().SequenceEqual(before);
+            bool named = !o.Success && (o.Error?.Contains("NOT active", StringComparison.OrdinalIgnoreCase) ?? false);
+            bool pass = named && untouched;
+            results.Add(("Z edit-lane link to a NON-load-order plugin still refuses loud, file untouched", pass,
+                $"refused={!o.Success} named={named} untouched={untouched}  [{Trim(o.Error)}]"));
+        }
+
         Console.WriteLine("── ARMS ──");
         bool all = true;
         foreach (var (name, pass, detail) in results)
@@ -756,6 +802,18 @@ public static class InPlaceProbe
         ISkyrimModGetter? ov = null;
         try { ov = SkyrimMod.CreateFromBinaryOverlay(path, SkyrimRelease.SkyrimSE); return ov.Weapons.FirstOrDefault(x => x.FormKey == fk)?.Name?.String ?? "(none)"; }
         catch { return "(read failed)"; }
+        finally { (ov as IDisposable)?.Dispose(); }
+    }
+
+    static bool ReadWeaponHasKeyword(string path, FormKey wfk, FormKey kwFk)
+    {
+        ISkyrimModGetter? ov = null;
+        try
+        {
+            ov = SkyrimMod.CreateFromBinaryOverlay(path, SkyrimRelease.SkyrimSE);
+            return ov.Weapons.FirstOrDefault(x => x.FormKey == wfk)?.Keywords?.Any(k => k.FormKey == kwFk) ?? false;
+        }
+        catch { return false; }
         finally { (ov as IDisposable)?.Dispose(); }
     }
 

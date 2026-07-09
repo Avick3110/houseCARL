@@ -2,6 +2,7 @@ using System.Globalization;
 using Mutagen.Bethesda;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Plugins.Cache;
+using Mutagen.Bethesda.Plugins.Exceptions;
 using Mutagen.Bethesda.Plugins.Records;
 using Mutagen.Bethesda.Skyrim;
 
@@ -567,19 +568,24 @@ public static class WritePatchBuilder
         // --- Phase 4: re-serialize the WHOLE target back over itself (model C — the probe's incantation via WriteInPlace,
         //     NOT WritePatch). Release the target overlay first (the winner-IS-the-target common case made common — the
         //     two-part self-lock guard, here on a FOREIGN target: ReleaseOverlay disposes every session overlay on the
-        //     target, flat via GetRecord and nested via LinkCacheFor, before the File.Replace). Resolve the target's own
-        //     declared masters to overlays for a faithful re-emit; dispose them after the write. ---
+        //     target, flat via GetRecord and nested via LinkCacheFor, before the File.Replace). The resolution context is
+        //     the WHOLE known-master set (AllMastersExcept — the same context the in-place CREATE lane serializes
+        //     against), NOT just the target's declared masters: an edit that composes a FormLink to an ACTIVE plugin the
+        //     target didn't yet master must GROW the header (Mutagen lean-derives it from the records' actual links —
+        //     exactly how forward_record grows masters), instead of failing MissingModException against a context that
+        //     artificially excluded the referenced plugin (HCBR-2026-07-08-01 F2). A link to a plugin genuinely NOT
+        //     active still fails loud below (Q3), now meaning what it says. ---
         session.ReleaseOverlay(fileName);
-        var masterOverlays = new List<IDisposable>();
-        try
+        try { WriteEngine.WriteInPlace(targetMod, session.AllMastersExcept(fileName), targetPath); }
+        catch (MissingModException ex)
         {
-            ISkyrimModGetter[] ownMasters = ResolveOwnMasters(view, targetMod, masterOverlays, out var missing);
-            if (missing is not null) return PatchOutcome.Fail(missing);
-            try { WriteEngine.WriteInPlace(targetMod, ownMasters, targetPath); }
-            catch (Exception ex)
-                { return PatchOutcome.Fail($"writing '{fileName}' in place failed (serialize or commit; the existing file is untouched): {WriteEngine.Describe(ex)}"); }
+            return PatchOutcome.Fail(
+                $"writing '{fileName}' in place failed: the edited records reference a plugin that is NOT active in " +
+                $"the load order ({ex.Message}) — a reference into an inactive plugin can't resolve in game. " +
+                "Enable that plugin in MO2 (or reference an active one) and retry. The existing file is untouched.");
         }
-        finally { foreach (var d in masterOverlays) { try { d.Dispose(); } catch { /* best-effort; never mask the write result */ } } }
+        catch (Exception ex)
+            { return PatchOutcome.Fail($"writing '{fileName}' in place failed (serialize or commit; the existing file is untouched): {WriteEngine.Describe(ex)}"); }
 
         // --- Phase 5: re-open the now-edited file and report its master header — and the touched-record verify (default
         //     ON for in-place): each edited record read back IN FULL off the on-disk bytes (the model-C substitute for
@@ -668,10 +674,11 @@ public static class WritePatchBuilder
 
         // Present-check: index what the patch ACTUALLY carries (one enumeration — walks flat + nested), so a target the
         // patch doesn't define is refused loud rather than silently no-op'd by Remove. Captures type+editorid for the
-        // report AND the runtime type, which routes the typed Remove straight to the record's group below.
+        // report AND the removal-routing type: the record's FLAT GROUP's T, not the concrete runtime type — a subclass
+        // of an abstract group's T (GlobalShort) makes Mutagen's Remove silently no-op (HCBR-2026-07-08-01 F3).
         var carried = new Dictionary<FormKey, (string type, string? edid, Type runtime)>();
         foreach (var r in patchMod.EnumerateMajorRecords())
-            carried[r.FormKey] = (RecordNaming.StripOverlay(r.GetType().Name), r.EditorID, r.GetType());
+            carried[r.FormKey] = (RecordNaming.StripOverlay(r.GetType().Name), r.EditorID, WriteEngine.RemovalTypeFor(r));
 
         var problems = new List<string>();
         var toRemove = new List<RemovedRecord>(targets.Count);
@@ -711,6 +718,8 @@ public static class WritePatchBuilder
                 $"present-check passed but Remove threw — a real engine inconsistency, surfaced not swallowed (Q3): "
                 + $"{ex.GetType().Name}: {ex.Message}");
         }
+        if (RemoveSurvivors(patchMod, toRemove) is { } survived)
+            return RemovalOutcome.Fail(survived + $" '{fileName}' is UNTOUCHED.");
 
         // Serialize ONCE with the full known-master set; Mutagen keeps the header lean (only-referenced), so a master
         // orphaned by the removal drops here automatically. A referenced master genuinely absent still fails loud (Q3).
@@ -738,6 +747,23 @@ public static class WritePatchBuilder
         finally { (back as IDisposable)?.Dispose(); }
 
         return new RemovalOutcome(true, null, outPath, toRemove, masters, remaining, bytes);
+    }
+
+    /// <summary>IN-MEMORY absence verify run BEFORE any serialize, shared by both remove lanes: Mutagen's typed
+    /// <c>Remove</c> can no-op WITHOUT throwing (<c>throwIfUnknown:true</c> notwithstanding — HCBR-2026-07-08-01 F3
+    /// proved it for a concrete subclass of an abstract group's T), so trusting the void return and serializing anyway
+    /// rewrites the whole file to no effect and only the post-write verify catches it. Checking the mutable mod first
+    /// keeps a future no-op loud with the file UNTOUCHED (Q3). Null ⇒ all targets gone; else the refusal text (the
+    /// caller appends its lane's file-untouched suffix).</summary>
+    static string? RemoveSurvivors(SkyrimMod mod, IReadOnlyList<RemovedRecord> toRemove)
+    {
+        var mustBeGone = toRemove.Select(rr => rr.Target).ToHashSet();
+        var survivors = new List<FormKey>();
+        foreach (var r in mod.EnumerateMajorRecords())
+            if (mustBeGone.Contains(r.FormKey)) survivors.Add(r.FormKey);
+        if (survivors.Count == 0) return null;
+        return $"Remove did not drop {survivors.Count} record(s) ({string.Join(", ", survivors)}) — the engine " +
+               "no-op'd without throwing; a real inconsistency surfaced BEFORE any rewrite, not swallowed (Q3).";
     }
 
     /// <summary>
@@ -798,11 +824,13 @@ public static class WritePatchBuilder
             return RemovalOutcome.Fail($"in-place ModKey '{targetMod.ModKey.FileName}' must match the target filename '{fileName}'.");
 
         // --- Phase 3: present-check against what the TARGET carries (RemoveRecords' contract, unchanged). One enumeration
-        //     (flat + nested) captures type+editorid for the report AND the runtime type that routes the typed Remove. A
-        //     key the file doesn't define/override is REFUSED loud — in-place removes only what the file OWNS. ---
+        //     (flat + nested) captures type+editorid for the report AND the removal-routing type — the record's FLAT
+        //     GROUP's T, not the concrete runtime type: a subclass of an abstract group's T (GlobalShort) makes Mutagen's
+        //     Remove silently no-op (HCBR-2026-07-08-01 F3). A key the file doesn't define/override is REFUSED loud —
+        //     in-place removes only what the file OWNS. ---
         var carried = new Dictionary<FormKey, (string type, string? edid, Type runtime)>();
         foreach (var r in targetMod.EnumerateMajorRecords())
-            carried[r.FormKey] = (RecordNaming.StripOverlay(r.GetType().Name), r.EditorID, r.GetType());
+            carried[r.FormKey] = (RecordNaming.StripOverlay(r.GetType().Name), r.EditorID, WriteEngine.RemovalTypeFor(r));
 
         var problems = new List<string>();
         var toRemove = new List<RemovedRecord>(targets.Count);
@@ -839,6 +867,8 @@ public static class WritePatchBuilder
                 $"present-check passed but Remove threw — a real engine inconsistency, surfaced not swallowed (Q3): "
                 + $"{ex.GetType().Name}: {ex.Message}");
         }
+        if (RemoveSurvivors(targetMod, toRemove) is { } survived)
+            return RemovalOutcome.Fail(survived + $" Your original '{fileName}' is UNTOUCHED.");
 
         // --- Phase 5: re-serialize the WHOLE target back over itself (model C — WriteInPlace, NOT WritePatch). Release
         //     the target overlay first (the self-lock guard on a FOREIGN target: ReleaseOverlay disposes every session
@@ -886,6 +916,164 @@ public static class WritePatchBuilder
         return new RemovalOutcome(true, null, targetPath, toRemove, masters, remaining, bytes) { InPlace = true };
     }
 
+    /// <summary>Phase-1 source resolution SHARED by <see cref="ForwardRecords"/> and <see cref="ForwardRecordsInPlace"/>:
+    /// resolve each spec's body from its NAMED plugin (NOT the load-order winner) off ONE captured view, collecting ALL
+    /// problems (Q3 — refuse the whole call if any; <paramref name="refusal"/> non-null ⇒ the caller fails with it).
+    /// <paramref name="selfIsTarget"/> only shapes the self-forward message (output patch vs in-place target).</summary>
+    static List<(ForwardSpec spec, IMajorRecordGetter body, string priorWinner, bool wasWinner)> ResolveForwardSources(
+        LoadOrderResolver.OverlaySession session, LoadOrderResolver.IndexView view,
+        IReadOnlyList<ForwardSpec> specs, string fileName, bool selfIsTarget, out string? refusal)
+    {
+        var resolved = new List<(ForwardSpec spec, IMajorRecordGetter body, string priorWinner, bool wasWinner)>(specs.Count);
+        var problems = new List<string>();
+        var seen = new HashSet<FormKey>();
+        foreach (var s in specs)
+        {
+            if (!seen.Add(s.Target))
+            { problems.Add($"{s.Target}: forwarded more than once in this call — name each target once (one source per record)."); continue; }
+            if (string.Equals(s.FromPlugin, fileName, StringComparison.OrdinalIgnoreCase))
+            {
+                problems.Add(selfIsTarget
+                    ? $"{s.Target}: from_plugin '{s.FromPlugin}' is the in-place target itself — forwarding a plugin's own version into itself is a no-op; name the OTHER plugin whose version you want carried in."
+                    : $"{s.Target}: from_plugin '{s.FromPlugin}' is the output patch itself — forwarding a patch's own version into itself is a no-op; name the EARLIER plugin whose version you want to re-assert.");
+                continue;
+            }
+            if (!view.ContainsPlugin(s.FromPlugin))
+            { problems.Add($"{s.Target}: source plugin '{s.FromPlugin}' is not in the load order — name an active plugin that defines or overrides this record."); continue; }
+            if (view.ExcludedPlugins.TryGetValue(s.FromPlugin, out var why))
+            { problems.Add($"{s.Target}: source plugin '{s.FromPlugin}' was excluded from this session ({why}) — its records aren't resolvable."); continue; }
+            var body = view.GetRecord(session, s.FromPlugin, s.Target);
+            if (body is null)
+            { problems.Add($"{s.Target}: source plugin '{s.FromPlugin}' is in the load order but does NOT define or override this record (it doesn't touch it) — there is no version of it there to forward."); continue; }
+            var w = view.ResolveWinner(s.Target);
+            resolved.Add((s, body, w?.WinnerPlugin ?? "(none)",
+                w is { } wi && string.Equals(wi.WinnerPlugin, s.FromPlugin, StringComparison.OrdinalIgnoreCase)));
+        }
+        refusal = problems.Count > 0
+            ? $"refused — {problems.Count} of {specs.Count} forward(s) rejected; NOTHING written:\n  - " + string.Join("\n  - ", problems)
+            : null;
+        return resolved;
+    }
+
+    /// <summary>
+    /// Forward records INTO an EXISTING plugin the user owns, IN PLACE — the forward lane's sibling of
+    /// <see cref="ApplyInPlace"/> (HCBR-2026-07-08-01 F4: <c>into=</c> is reserved for houseCARL-owned patches, so a
+    /// non-houseCARL original gets forwards through THIS explicit, consent-gated lane instead). Semantics:
+    /// <list type="bullet">
+    /// <item>SOURCE: each body resolves from its NAMED plugin exactly as <see cref="ForwardRecords"/> Phase 1 (the
+    /// shared <see cref="ResolveForwardSources"/>).</item>
+    /// <item>COLLISION = REPLACE: a FormKey the target already carries has its existing record dropped
+    /// (<see cref="WriteEngine.RemovalTypeFor"/> + the no-op verify) before the copy — the same xEdit
+    /// copy-as-override-into overwrite the default lane's extend now performs (F1), flagged per record.</item>
+    /// <item>SERIALIZE: model C via <see cref="WriteEngine.WriteInPlace"/> against the WHOLE known-master set (the
+    /// in-place create/edit lanes' context) — the header grows from the copied bodies' actual links (F2's mechanic),
+    /// the author's counter survives, no baseline force-include. Atomic swap; any failure leaves the original intact.</item>
+    /// </list>
+    /// CONSENT + the persistent acknowledge handshake are enforced by the SERVICE before this is reached. The full
+    /// read-back (default ON, like every in-place lane) verifies each forwarded record landed on the re-opened file.
+    /// </summary>
+    public static ForwardOutcome ForwardRecordsInPlace(
+        LoadOrderResolver resolver, IReadOnlyList<ForwardSpec> specs, string targetPath, string targetName,
+        bool fullReadback = true)
+    {
+        if (specs.Count == 0) return ForwardOutcome.Fail("no records to forward supplied.");
+
+        // Per-call overlay session (Option B), same as ApplyInPlace — no handle held at rest.
+        using var session = resolver.OpenSession();
+        var fileName = Path.GetFileName(targetPath);
+
+        // --- Phase 1: target guards (the ApplyInPlace posture — never re-serialize a plugin Mutagen can't fully
+        //     parse) + source resolution off ONE captured view. ---
+        var view = resolver.Capture();
+        if (!view.ContainsPlugin(targetName))
+            return ForwardOutcome.Fail($"in-place target '{targetName}' is not an active plugin in the load order.");
+        if (view.ExcludedPlugins.TryGetValue(targetName, out var excluded))
+            return ForwardOutcome.Fail(
+                $"cannot forward into '{targetName}' in place: it was EXCLUDED from this session ({excluded}) — houseCARL won't " +
+                "re-serialize a plugin it can't fully parse (that would risk dropping the record it couldn't read, Q3). The file is UNTOUCHED.");
+        var resolved = ResolveForwardSources(session, view, specs, targetName, selfIsTarget: true, out var refusal);
+        if (refusal is not null) return ForwardOutcome.Fail(refusal);
+
+        // --- Phase 2: open the TARGET mutably (EAGER, the single plugin only — never the order). ---
+        if (!File.Exists(targetPath))
+            return ForwardOutcome.Fail($"in-place target '{fileName}' not found on disk at {targetPath} — the file is untouched.");
+        SkyrimMod targetMod;
+        try { targetMod = SkyrimMod.CreateFromBinary(targetPath, SkyrimRelease.SkyrimSE); }
+        catch (Exception ex)
+            { return ForwardOutcome.Fail($"cannot open '{fileName}' to forward into in place ({WriteEngine.Describe(ex)}) — a plugin Mutagen can't parse is refused, not re-emitted minus what it couldn't read (Q3). The file is UNTOUCHED."); }
+        if (!string.Equals(targetMod.ModKey.FileName.String, fileName, StringComparison.OrdinalIgnoreCase))
+            return ForwardOutcome.Fail($"in-place ModKey '{targetMod.ModKey.FileName}' must match the target filename '{fileName}'.");
+
+        // --- Phase 3: replace-or-copy each source body into the TARGET (the F1 semantic — a carried FormKey is
+        //     REPLACED, verified dropped before the copy; nothing is serialized until Phase 4, so any refusal here
+        //     leaves the on-disk file untouched). ---
+        var alreadyCarried = new Dictionary<FormKey, IMajorRecord>();
+        foreach (var r in targetMod.EnumerateMajorRecords())
+            alreadyCarried[r.FormKey] = r;
+
+        var forwarded = new List<ForwardedRecord>(resolved.Count);
+        foreach (var (spec, body, priorWinner, wasWinner) in resolved)
+        {
+            try
+            {
+                bool replaced = false;
+                if (alreadyCarried.TryGetValue(spec.Target, out var existing))
+                {
+                    ((IMajorRecordEnumerable)targetMod).Remove(spec.Target, WriteEngine.RemovalTypeFor(existing), throwIfUnknown: true);
+                    if (targetMod.EnumerateMajorRecords().Any(x => x.FormKey == spec.Target))
+                        return ForwardOutcome.Fail(
+                            $"cannot replace {spec.Target}: '{fileName}' already carries this record and its existing " +
+                            "version could not be dropped before the copy (the engine no-op'd without throwing) — " +
+                            "surfaced, not a silent skip (Q3); your original is UNTOUCHED.");
+                    replaced = true;
+                }
+                ILinkCache? cache = WriteEngine.RecordNeedsSourceCache(body) ? session.LinkCacheFor(spec.FromPlugin) : null;
+                WriteEngine.GenericGetOrAddAsOverride(targetMod, body, cache);
+                forwarded.Add(new ForwardedRecord(
+                    spec.Target, RecordNaming.StripOverlay(body.GetType().Name), body.EditorID, spec.FromPlugin, priorWinner, wasWinner,
+                    ReplacedExisting: replaced));
+            }
+            catch (Exception ex)
+            {
+                return ForwardOutcome.Fail(
+                    $"engine error forwarding {spec.Target} from '{spec.FromPlugin}': the source resolved but the " +
+                    $"override-copy threw — a real inconsistency, surfaced not swallowed (Q3): {ex.GetType().Name}: {ex.Message}. Your original is UNTOUCHED.");
+            }
+        }
+
+        // --- Phase 4: model-C re-serialize over the original (WriteInPlace, whole known-master set — the copied
+        //     bodies' links grow the header; the self-lock ReleaseOverlay first; atomic swap). ---
+        session.ReleaseOverlay(fileName);
+        try { WriteEngine.WriteInPlace(targetMod, session.AllMastersExcept(fileName), targetPath); }
+        catch (MissingModException ex)
+        {
+            return ForwardOutcome.Fail(
+                $"writing '{fileName}' in place failed: the forwarded records reference a plugin that is NOT active in " +
+                $"the load order ({ex.Message}) — a reference into an inactive plugin can't resolve in game. " +
+                "Enable that plugin in MO2 and retry. The existing file is untouched.");
+        }
+        catch (Exception ex)
+            { return ForwardOutcome.Fail($"writing '{fileName}' in place failed (serialize or commit; the existing file is untouched): {WriteEngine.Describe(ex)}"); }
+
+        // --- Phase 5: re-open + report masters/bytes + the touched-record verify (default ON for in-place). ---
+        IReadOnlyList<string> masters = Array.Empty<string>();
+        IReadOnlyList<FullReadback>? readBack = null;
+        long bytes = 0;
+        ISkyrimModGetter? back = null;
+        try
+        {
+            back = SkyrimMod.CreateFromBinaryOverlay(targetPath, SkyrimRelease.SkyrimSE);
+            masters = back.ModHeader.MasterReferences.Select(m => m.Master.FileName.ToString()).ToList();
+            bytes = new FileInfo(targetPath).Length;
+            if (fullReadback) readBack = ReadBackInFull(back, resolved.Select(r => r.spec.Target));
+        }
+        catch (Exception ex)
+            { return ForwardOutcome.Fail($"'{fileName}' was rewritten but could not be re-opened to verify: {ex.Message}"); }
+        finally { (back as IDisposable)?.Dispose(); }
+
+        return new ForwardOutcome(true, null, targetPath, false, forwarded, masters, bytes) { ReadBack = readBack, InPlace = true };
+    }
+
     /// <summary>One record to FORWARD: take plugin <see cref="FromPlugin"/>'s version of <see cref="Target"/> and carry
     /// it INTO the patch as an override (xEdit's "copy as override into"). Unlike <see cref="PatchEdit"/> there is no
     /// path/verb — the WHOLE source record is deep-copied verbatim, so the SOURCE plugin (not the load-order winner)
@@ -899,9 +1087,13 @@ public static class WritePatchBuilder
     /// <summary>One record forwarded by <see cref="ForwardRecords"/> — its FormKey + type + editorid, the source plugin
     /// whose version was copied, and the load-order winner it will out-rank once the patch is enabled (so the caller
     /// sees what the forward CHANGES). <see cref="WasAlreadyWinner"/>=true ⇒ the forwarded version WAS already the
-    /// winner, so this override is a redundant no-op copy — surfaced, never silent (Q3).</summary>
+    /// winner, so this override is a redundant no-op copy — surfaced, never silent (Q3).
+    /// <see cref="ReplacedExisting"/>=true ⇒ the patch ALREADY carried this FormKey and its existing record was
+    /// REPLACED by the source's body (the xEdit copy-as-override-into semantic; HCBR-2026-07-08-01 F1 — the old
+    /// GetOrAdd path kept the existing record and skipped the copy while still reporting "forwarded").</summary>
     public sealed record ForwardedRecord(
-        FormKey Target, string RecordType, string? EditorId, string FromPlugin, string PriorWinner, bool WasAlreadyWinner);
+        FormKey Target, string RecordType, string? EditorId, string FromPlugin, string PriorWinner, bool WasAlreadyWinner,
+        bool ReplacedExisting = false);
 
     /// <summary>The outcome of a <see cref="ForwardRecords"/> call. <see cref="Error"/> non-null ⇒ the whole call was
     /// refused (no file written) with a named, recoverable reason (Q3 — a source plugin not in the order / excluded /
@@ -915,8 +1107,27 @@ public static class WritePatchBuilder
     {
         public IReadOnlyList<FullReadback>? ReadBack { get; init; }
 
+        /// <summary>True ⇒ the forwards were written INTO the target's own file (<see cref="ForwardRecordsInPlace"/> —
+        /// the in-place write lane), not a houseCARL patch folder. Mirrors <see cref="PatchOutcome"/>.</summary>
+        public bool InPlace { get; init; }
+
+        /// <summary>True ⇒ NOT a write and NOT an error: the server-enforced first-touch in-place CONSENT handshake.
+        /// <see cref="Error"/> carries the prompt verbatim (re-call with acknowledge=true). Rendered as a confirmation
+        /// prompt, never "error:" (Q3). Nothing was written. Mirrors <see cref="PatchOutcome.NeedsAcknowledge"/>.</summary>
+        public bool NeedsAcknowledge { get; init; }
+
+        /// <summary>An optional Q3 honesty note appended to a SUCCESSFUL outcome — a side effect that didn't land cleanly
+        /// even though the write did. Null when there's nothing to add. Mirrors <see cref="PatchOutcome.Note"/>.</summary>
+        public string? Note { get; init; }
+
         public static ForwardOutcome Fail(string error) =>
             new(false, error, "", false, Array.Empty<ForwardedRecord>(), Array.Empty<string>(), 0);
+
+        /// <summary>The first-touch in-place consent handshake: no write, no error — a required confirmation carrying the
+        /// trade-off <paramref name="prompt"/> (the caller re-calls with acknowledge=true). Mirrors
+        /// <see cref="PatchOutcome.NeedsAck"/>.</summary>
+        public static ForwardOutcome NeedsAck(string prompt) =>
+            new(false, prompt, "", false, Array.Empty<ForwardedRecord>(), Array.Empty<string>(), 0) { NeedsAcknowledge = true };
     }
 
     /// <summary>The outcome of a <see cref="CreatePlugin"/> call. <see cref="Error"/> non-null ⇒ the call was refused
@@ -1042,30 +1253,8 @@ public static class WritePatchBuilder
         //     case ever bites, the clean fix is a single-pass batch fetch keyed by from_plugin (group specs by source,
         //     enumerate the overlay once collecting all wanted FormKeys) — deferred until measured. ---
         var view = resolver.Capture();
-        var resolved = new List<(ForwardSpec spec, IMajorRecordGetter body, string priorWinner, bool wasWinner)>(specs.Count);
-        var problems = new List<string>();
-        var seen = new HashSet<FormKey>();
-        foreach (var s in specs)
-        {
-            if (!seen.Add(s.Target))
-            { problems.Add($"{s.Target}: forwarded more than once in this call — name each target once (one source per record)."); continue; }
-            if (string.Equals(s.FromPlugin, fileName, StringComparison.OrdinalIgnoreCase))
-            { problems.Add($"{s.Target}: from_plugin '{s.FromPlugin}' is the output patch itself — forwarding a patch's own version into itself is a no-op; name the EARLIER plugin whose version you want to re-assert."); continue; }
-            if (!view.ContainsPlugin(s.FromPlugin))
-            { problems.Add($"{s.Target}: source plugin '{s.FromPlugin}' is not in the load order — name an active plugin that defines or overrides this record."); continue; }
-            if (view.ExcludedPlugins.TryGetValue(s.FromPlugin, out var why))
-            { problems.Add($"{s.Target}: source plugin '{s.FromPlugin}' was excluded from this session ({why}) — its records aren't resolvable."); continue; }
-            var body = view.GetRecord(session, s.FromPlugin, s.Target);
-            if (body is null)
-            { problems.Add($"{s.Target}: source plugin '{s.FromPlugin}' is in the load order but does NOT define or override this record (it doesn't touch it) — there is no version of it there to forward."); continue; }
-            var w = view.ResolveWinner(s.Target);
-            resolved.Add((s, body, w?.WinnerPlugin ?? "(none)",
-                w is { } wi && string.Equals(wi.WinnerPlugin, s.FromPlugin, StringComparison.OrdinalIgnoreCase)));
-        }
-        if (problems.Count > 0)
-            return ForwardOutcome.Fail(
-                $"refused — {problems.Count} of {specs.Count} forward(s) rejected; NO patch written:\n  - "
-                + string.Join("\n  - ", problems));
+        var resolved = ResolveForwardSources(session, view, specs, fileName, selfIsTarget: false, out var refusal);
+        if (refusal is not null) return ForwardOutcome.Fail(refusal);
 
         // --- Phase 2: open (extend) or create the patch mod (identical to Apply Phase 2). ---
         SkyrimMod patchMod;
@@ -1085,17 +1274,41 @@ public static class WritePatchBuilder
 
         // --- Phase 3: deep-copy each source body INTO the patch as an override. NO ApplyVerb — the copy IS the forward
         //     (GenericGetOrAddAsOverride duplicates the source's whole content; a nested record gets the source overlay's
-        //     link cache on demand, the SAME session.LinkCacheFor path Apply uses + guards). A throw here is a real
-        //     engine inconsistency — fail the WHOLE call (no partial patch), surfaced not swallowed (Q3). ---
+        //     link cache on demand, the SAME session.LinkCacheFor path Apply uses + guards). A FormKey the patch ALREADY
+        //     carries (an extend) is REPLACED — its existing record dropped first, then the source body copied — the
+        //     xEdit copy-as-override-into semantic (HCBR-2026-07-08-01 F1: GetOrAdd's get-semantics on a collision kept
+        //     the existing record and SKIPPED the copy while still reporting "forwarded" — a silent wrong result; the
+        //     drop also lets the serialize grow the master list from the NEW body, which the skip path never did).
+        //     A throw here is a real engine inconsistency — fail the WHOLE call (no partial patch; nothing has been
+        //     serialized, the on-disk file is untouched), surfaced not swallowed (Q3). ---
+        var alreadyCarried = new Dictionary<FormKey, IMajorRecord>();
+        if (extend)
+            foreach (var r in patchMod.EnumerateMajorRecords())
+                alreadyCarried[r.FormKey] = r;
+
         var forwarded = new List<ForwardedRecord>(resolved.Count);
         foreach (var (spec, body, priorWinner, wasWinner) in resolved)
         {
             try
             {
+                bool replaced = false;
+                if (alreadyCarried.TryGetValue(spec.Target, out var existing))
+                {
+                    ((IMajorRecordEnumerable)patchMod).Remove(spec.Target, WriteEngine.RemovalTypeFor(existing), throwIfUnknown: true);
+                    // The typed Remove can no-op WITHOUT throwing (F3's sibling defect) — verify the slot is genuinely
+                    // empty before the copy, else GetOrAdd would silently return the old record again (Q3).
+                    if (patchMod.EnumerateMajorRecords().Any(x => x.FormKey == spec.Target))
+                        return ForwardOutcome.Fail(
+                            $"cannot replace {spec.Target}: the patch already carries this record and its existing " +
+                            "override could not be dropped before the copy (the engine no-op'd without throwing) — " +
+                            "surfaced, not a silent skip (Q3); NO patch written.");
+                    replaced = true;
+                }
                 ILinkCache? cache = WriteEngine.RecordNeedsSourceCache(body) ? session.LinkCacheFor(spec.FromPlugin) : null;
                 WriteEngine.GenericGetOrAddAsOverride(patchMod, body, cache);
                 forwarded.Add(new ForwardedRecord(
-                    spec.Target, RecordNaming.StripOverlay(body.GetType().Name), body.EditorID, spec.FromPlugin, priorWinner, wasWinner));
+                    spec.Target, RecordNaming.StripOverlay(body.GetType().Name), body.EditorID, spec.FromPlugin, priorWinner, wasWinner,
+                    ReplacedExisting: replaced));
             }
             catch (Exception ex)
             {

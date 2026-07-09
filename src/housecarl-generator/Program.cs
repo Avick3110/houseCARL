@@ -139,6 +139,10 @@ if (args.Length > 0 && args[0] == "remove-create-probe") return RemoveCreateProb
 // Capability arc scout #2 (remove-record): whole-record removal via mod.Remove(FormKey) — flat + nested + not-found semantics.
 if (args.Length > 0 && args[0] == "remove-record-probe") return RemoveRecordProbe.RunProbe(args[1..]);
 
+// HCBR-2026-07-08-01 F3: subclass-typed Remove (GlobalShort/GameSetting*) silently no-ops — flat-group-T routing +
+// pre-serialize absence verify, RED-proven for both remove lanes.
+if (args.Length > 0 && args[0] == "subclass-remove-guard") return SubclassRemoveGuardProbe.RunGuard(args[1..]);
+
 // Capability arc remove-record proof: drive WritePatchBuilder.RemoveRecords (the core housecarl_remove_record calls) vs a real, large load order.
 if (args.Length > 0 && args[0] == "remove-proof") return RemoveProof.RunRemoveProof(args[1..]);
 

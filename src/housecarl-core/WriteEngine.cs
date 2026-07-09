@@ -641,6 +641,20 @@ public static class WriteEngine
         return true;
     }
 
+    /// <summary>The Type to hand Mutagen's typed <c>Remove(FormKey, Type, throwIfUnknown)</c> for
+    /// <paramref name="record"/>: the record's FLAT GROUP's <c>T</c> when one matches, else the runtime type (nested-group
+    /// records — the shape the remove-record-probe proved reaches Cell/Placed*/INFO/Navmesh/Landscape). The flat-group
+    /// answer matters for the abstract-base groups (Global, GameSetting): HCBR-2026-07-08-01 F3 proved that passing a
+    /// concrete SUBCLASS of the group's T (a <c>GlobalShort</c> under <c>SkyrimGroup&lt;Global&gt;</c>) makes Mutagen's
+    /// remove routing silently NO-OP — <c>throwIfUnknown:true</c> notwithstanding — while the group's own T removes
+    /// correctly. Same <see cref="EnumerateFlatGroups"/> enumeration as every other flat-vs-nested decision (no drift).</summary>
+    public static Type RemovalTypeFor(IMajorRecordGetter record)
+    {
+        foreach (var (_, tMajor, getterIface) in EnumerateFlatGroups(typeof(SkyrimMod)))
+            if (getterIface.IsInstanceOfType(record)) return tMajor;
+        return record.GetType();
+    }
+
     /// <summary>
     /// Generic <c>GetOrAddAsOverride</c>. Flat-group records (the common case) resolve by matching the
     /// <c>SkyrimGroup&lt;T&gt;</c> whose <c>T</c> carries the record's getter interface, then invoking the
