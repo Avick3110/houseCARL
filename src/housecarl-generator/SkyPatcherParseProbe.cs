@@ -83,6 +83,11 @@ public static class SkyPatcherParseProbe
         failures += Check("first-'=' split keeps 'form=rank' intact in the value",
             fr.Segments[1].Key == "factionsToAdd" && fr.Segments[1].RawValue == "Skyrim.esm|1BE1B=5",
             $"{fr.Segments[1].Key}={fr.Segments[1].RawValue}");
+        // Deliberate 0a boundary, pinned: the '='-packed right side isn't clean hex, so the item carries
+        // NO address — Wave 1 re-splits 'form=rank' itself (a change here must be a conscious one).
+        failures += Check("'form=rank' item is deliberately un-addressed at 0a",
+            fr.Segments[1].Values[0].Address is null,
+            $"addr={(fr.Segments[1].Values[0].Address is null ? "null" : "SET")}");
 
         // -- null-clear a form field -------------------------------------------------------------
         var nl = SkyPatcherParse.ParseLine("filterByWeapons=SomeSword:objectEffect=null");
