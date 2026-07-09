@@ -132,6 +132,10 @@ internal static class OverwriteResolveProbe
                 // MO2 refresh after the tool ran: the profile files now list the overwrite-resident plugin
                 File.WriteAllText(Path.Combine(profiles, "loadorder.txt"), "# header\r\n" + mKey.FileName + "\r\n" + tKey.FileName + "\r\n");
                 File.WriteAllText(Path.Combine(profiles, "plugins.txt"), "*" + mKey.FileName + "\r\n*" + tKey.FileName + "\r\n");
+                // Guarantee the change is detected by value: a warm run can rewrite within one OS timer tick (~15ms)
+                // of the baseline stat, leaving the mtime identical — real MO2 refreshes are always much later.
+                File.SetLastWriteTimeUtc(Path.Combine(profiles, "loadorder.txt"), DateTime.UtcNow.AddHours(1));
+                File.SetLastWriteTimeUtc(Path.Combine(profiles, "plugins.txt"), DateTime.UtcNow.AddHours(1));
 
                 var status = svc.StatusData();
                 Check(status.ResolvedPluginCount == 2,
