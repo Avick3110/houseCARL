@@ -607,9 +607,11 @@ public static class InPlaceProbe
             bool noBaseline = !masters.Any(m => m.Equals("Skyrim.esm", StringComparison.OrdinalIgnoreCase) || m.Equals("Update.esm", StringComparison.OrdinalIgnoreCase));
             bool kept = masters.Any(m => m.Equals(MasterName, StringComparison.OrdinalIgnoreCase));
             bool landed = ReadWeaponHasKeyword(userY, wfk, hkwFk);
-            bool pass = o.Success && o.InPlace && landed && grown && kept && noBaseline;
-            results.Add(("Y edit-lane master GROW (link to an active undeclared plugin lands + grows the header)", pass,
-                $"success={o.Success} keywordLanded={landed} masterGrown={grown} originalMasterKept={kept} noBaseline={noBaseline} masters=[{string.Join(",", masters)}]  [{o.Error ?? "ok"}]"));
+            // PR #163 review #1: a grown master is itself a re-sort trigger — the outcome must SAY so, explicitly.
+            bool noted = o.Note is not null && o.Note.Contains("added as a master", StringComparison.OrdinalIgnoreCase);
+            bool pass = o.Success && o.InPlace && landed && grown && kept && noBaseline && noted;
+            results.Add(("Y edit-lane master GROW (link to an active undeclared plugin lands + grows the header + re-sort note)", pass,
+                $"success={o.Success} keywordLanded={landed} masterGrown={grown} originalMasterKept={kept} noBaseline={noBaseline} resortNoted={noted} masters=[{string.Join(",", masters)}]  [{o.Error ?? "ok"}]"));
         }
 
         // ===== Z — MASTERS (edit) STILL LOUD: a link to a plugin NOT in the load order refuses, file untouched =====

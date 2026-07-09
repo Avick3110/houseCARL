@@ -636,7 +636,7 @@ public static class WriteEngine
     /// without needing a patch mod in hand.</summary>
     public static bool RecordNeedsSourceCache(IMajorRecordGetter source)
     {
-        foreach (var (_, _, getterIface) in EnumerateFlatGroups(typeof(SkyrimMod)))
+        foreach (var (_, getterIface) in FlatGroupTypes)
             if (getterIface.IsInstanceOfType(source)) return false;
         return true;
     }
@@ -650,10 +650,19 @@ public static class WriteEngine
     /// correctly. Same <see cref="EnumerateFlatGroups"/> enumeration as every other flat-vs-nested decision (no drift).</summary>
     public static Type RemovalTypeFor(IMajorRecordGetter record)
     {
-        foreach (var (_, tMajor, getterIface) in EnumerateFlatGroups(typeof(SkyrimMod)))
+        foreach (var (tMajor, getterIface) in FlatGroupTypes)
             if (getterIface.IsInstanceOfType(record)) return tMajor;
         return record.GetType();
     }
+
+    /// <summary>The flat groups' (T, getter-interface) pairs for <see cref="SkyrimMod"/>, MEMOIZED (the
+    /// <see cref="_abstractGroups"/> precedent): pure reflection metadata, constant for the process lifetime —
+    /// <see cref="RemovalTypeFor"/> runs per record when the remove lanes index a whole plugin (PR #163 review #2),
+    /// so the per-call property walk was an avoidable O(records × properties). Derived from the SAME
+    /// <see cref="EnumerateFlatGroups"/> enumeration (no drift).</summary>
+    static IReadOnlyList<(Type tMajor, Type getterIface)> FlatGroupTypes => _flatGroupTypes.Value;
+    static readonly Lazy<IReadOnlyList<(Type tMajor, Type getterIface)>> _flatGroupTypes =
+        new(() => EnumerateFlatGroups(typeof(SkyrimMod)).Select(g => (g.tMajor, g.getterIface)).ToList());
 
     /// <summary>
     /// Generic <c>GetOrAddAsOverride</c>. Flat-group records (the common case) resolve by matching the
