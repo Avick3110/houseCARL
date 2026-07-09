@@ -318,6 +318,131 @@ public sealed class LoadOrderService : IDisposable
         return slash < 0 ? "" : rel.Substring(pre.Length, slash - pre.Length);
     }
 
+    // ---- SkyPatcher distributor Wave 1: the per-record TRUE post-SkyPatcher state (plan
+    //      dev/plans/SKYPATCHER_DISTRIBUTOR_TOOL_PLAN_2026-07-08.md — reader-only scope, 2026-07-09). ----
+
+    /// <summary>
+    /// Compute one record's true post-SkyPatcher state: discover the loose SkyPatcher INI layer
+    /// (<see cref="SkyPatcherDiscovery"/>), replay each applicable type folder's ordered line union onto a
+    /// MUTABLE COPY of the record's load-order winner (<see cref="SkyPatcherOverlay"/> — CLEAN/COLLECTION
+    /// resolved, HARD rendered as flagged directives, every gap loud), and return what applied. ONE record
+    /// capture + ONE asset capture pin the whole call (the SkseInventory discipline). A record whose type
+    /// SkyPatcher doesn't patch, or that no INI touches, is a NAMED outcome — never an empty guess (Q3).
+    /// Where a record is fed from two folders (RACE ← race/ + raceHook/), folders apply in field-map
+    /// order — a DECLARED assumption (Wave-1 empirical item; the DLL's cross-patcher order is undocumented).
+    /// </summary>
+    public SkyPatcherPostStateData SkyPatcherPostState(FormKey fk)
+    {
+        var resolver = Resolver;
+        var view = resolver.Capture();
+        AssetResolver.AssetView assets;
+        IReadOnlyList<string> assetWarnings;
+        string profileName;
+        lock (_gate)
+        {
+            assets = Assets.Capture();
+            assetWarnings = _assetWarnings;
+            profileName = _profileName;
+        }
+
+        var winner = view.ResolveWinner(fk);
+        if (winner is null)
+            return SkyPatcherPostStateData.Fail(fk, $"FormID {fk} is not present in the load order ({view.PluginCount} plugins).");
+
+        using var session = resolver.OpenSession();
+        var body = view.GetRecord(session, winner.Value.WinnerPlugin, fk);
+        if (body is null)
+            return SkyPatcherPostStateData.Fail(fk, $"Winner '{winner.Value.WinnerPlugin}' did not yield {fk} on fetch — a load-order inconsistency.");
+
+        var typeName = ReadEngine.ReadFields(body, new[] { "EditorID" }).Type;   // the same type naming every read tool reports
+        var fieldMap = SkyPatcherFieldMap.Load();
+        var maps = fieldMap.ForRecordType(typeName);
+        if (maps.Count == 0)
+            return SkyPatcherPostStateData.Fail(fk,
+                $"Record type '{typeName}' is not a SkyPatcher-patchable type (or has no field map) — the SkyPatcher layer cannot touch {fk}.");
+
+        var catalog = SkyPatcherCatalog.Load();
+        var scan = SkyPatcherDiscovery.Scan(assets, catalog, view.ContainsPlugin);
+
+        // The running copy: the winner overridden into an in-memory scratch mod (never written to disk).
+        var scratch = new SkyrimMod(new ModKey("HousecarlSkyPatcherScratch", ModType.Plugin), SkyrimRelease.SkyrimSE);
+        var copy = WriteEngine.GenericGetOrAddAsOverride(scratch, body);
+
+        var formResolver = new SkyPatcherServiceResolver(this, view, session);
+        var folders = new List<SkyPatcherFolderOutcome>();
+        foreach (var m in maps)
+        {
+            var folder = scan.Folders.FirstOrDefault(f => f.Subfolder.Equals(m.Subfolder, StringComparison.OrdinalIgnoreCase));
+            if (folder is null || folder.Catalog is null)
+            {
+                folders.Add(new SkyPatcherFolderOutcome(m.Subfolder, 0, 0, null));
+                continue;
+            }
+            var lines = SkyPatcherDiscovery.OrderedLines(folder);
+            var result = SkyPatcherOverlay.Apply(copy, fk, body.EditorID, catalog, folder.Catalog, m, lines, formResolver);
+            folders.Add(new SkyPatcherFolderOutcome(folder.Subfolder,
+                folder.Files.Count(f => f.NotApplied is null), lines.Count, result));
+        }
+
+        return new SkyPatcherPostStateData(null, fk, body.EditorID, typeName, winner.Value.WinnerPlugin,
+            folders, scan.Notes, scan.ReadIncomplete || assets.ReadIncomplete, assetWarnings, profileName);
+    }
+
+    /// <summary>The live-load-order lookups the overlay needs (<see cref="SkyPatcherOverlay.IFormResolver"/>),
+    /// answered off the ONE pinned record view + open session the post-state call holds. EditorID resolution
+    /// scans the requested type's winners once and memoizes per (type, editorid) — a miss is null (loud
+    /// upstream), never a guess.</summary>
+    sealed class SkyPatcherServiceResolver : SkyPatcherOverlay.IFormResolver
+    {
+        readonly LoadOrderService _svc;
+        readonly LoadOrderResolver.IndexView _view;
+        readonly LoadOrderResolver.OverlaySession _session;
+        readonly Dictionary<(string type, string eid), FormKey?> _eidCache = new();
+
+        public SkyPatcherServiceResolver(LoadOrderService svc, LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session)
+        { _svc = svc; _view = view; _session = session; }
+
+        public FormKey? ResolveEditorId(string editorId, string? mutagenType)
+        {
+            if (mutagenType is null || string.IsNullOrWhiteSpace(editorId)) return null;
+            var key = (mutagenType, editorId);
+            if (_eidCache.TryGetValue(key, out var hit)) return hit;
+            FormKey? found = null;
+            try
+            {
+                var types = _svc.ResolveTypeFilter(mutagenType);
+                foreach (var (candidate, _, cBody) in _view.WinnerRecordsOfType(types))
+                    if (string.Equals(cBody.EditorID, editorId, StringComparison.OrdinalIgnoreCase)) { found = candidate; break; }
+            }
+            catch (ArgumentException) { /* unknown type scope → unresolvable, loud upstream */ }
+            return _eidCache[key] = found;
+        }
+
+        public string? ReadWinnerLeaf(FormKey donor, string path)
+        {
+            var w = _view.ResolveWinner(donor);
+            if (w is null) return null;
+            var rec = _view.GetRecord(_session, w.Value.WinnerPlugin, donor);
+            if (rec is null) return null;
+            var leaf = ReadEngine.ReadFields(rec, new[] { path }).Fields.FirstOrDefault();
+            return leaf is { HasValue: true } ? leaf.Token : null;
+        }
+
+        public IReadOnlyList<FormKey>? KeywordsOf(FormKey record)
+        {
+            var w = _view.ResolveWinner(record);
+            if (w is null) return null;
+            var rec = _view.GetRecord(_session, w.Value.WinnerPlugin, record);
+            if (rec?.GetType().GetProperty("Keywords")?.GetValue(rec) is not System.Collections.IEnumerable list) return null;
+            var keys = new List<FormKey>();
+            foreach (var item in list)
+                if (item?.GetType().GetProperty("FormKey")?.GetValue(item) is FormKey k) keys.Add(k);
+            return keys;
+        }
+
+        public bool PluginPresent(string pluginName) => _view.ContainsPlugin(pluginName);
+    }
+
     // ---- NIF layer Wave 1: read the data values inside a mesh (housecarl_nif_inspect) ----
 
     /// <summary>Inspect the data values inside a Skyrim mesh (housecarl_nif_inspect): resolve the Data-relative
@@ -3961,6 +4086,34 @@ public sealed record SkseInventoryData(
     bool ReadIncomplete,
     IReadOnlyList<string> Warnings,
     string ProfileName);
+
+/// <summary>The data behind the SkyPatcher post-state read (Wave 1): the record's identity + winner, one
+/// <see cref="SkyPatcherFolderOutcome"/> per type folder that can patch it (RACE gets two — race/ + raceHook/),
+/// the layer-level discovery notes, and the build's Q3 caveats. A not-in-order / not-patchable input is a
+/// NAMED <see cref="Error"/> (Q3), never an empty result.</summary>
+public sealed record SkyPatcherPostStateData(
+    string? Error,
+    Mutagen.Bethesda.Plugins.FormKey FormKey,
+    string? EditorId,
+    string RecordTypeName,
+    string WinnerPlugin,
+    IReadOnlyList<SkyPatcherFolderOutcome> Folders,
+    IReadOnlyList<string> LayerNotes,
+    bool ReadIncomplete,
+    IReadOnlyList<string> AssetWarnings,
+    string ProfileName)
+{
+    public static SkyPatcherPostStateData Fail(Mutagen.Bethesda.Plugins.FormKey fk, string error)
+        => new(error, fk, null, "", "", Array.Empty<SkyPatcherFolderOutcome>(), Array.Empty<string>(), false, Array.Empty<string>(), "");
+}
+
+/// <summary>One SkyPatcher type folder's replay outcome for the record. <see cref="Result"/> is null when the
+/// active order ships no (interpretable) INIs for the folder — a named nothing, not an empty guess.</summary>
+public sealed record SkyPatcherFolderOutcome(
+    string Subfolder,
+    int IniCount,
+    int LineCount,
+    HousecarlCore.SkyPatcherOverlay.SkyPatcherOverlayResult? Result);
 
 /// <summary>One provider of a mesh path: the mod / "overwrite" / "Data" / BSA-filename, and whether it's a "loose" file
 /// or a "BSA" entry. Winner-first ordering lives in <see cref="NifInspectData.Providers"/>.</summary>

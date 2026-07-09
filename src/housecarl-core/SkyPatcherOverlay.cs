@@ -561,6 +561,14 @@ public static class SkyPatcherOverlay
                 }
                 case SkyPatcherOpSemantic.RemoveEntry:
                 {
+                    // A conditional remove (form~level~count, with <,>,<=,>= operators / 'none' slots) is NOT
+                    // modeled in Wave 1 — replaying it as an unconditional remove would be a silently-WRONG
+                    // post-state (subagent review finding), so the whole item skips LOUD instead (Q3).
+                    if (args.Count > 1)
+                    {
+                        warnings.Add($"{where}: '{seg.Key}={v.Raw}' — conditional/qualified removal (extra ~sub-args) is not modeled in Wave 1; this removal was NOT applied (named gap, never an unconditional guess).");
+                        continue;
+                    }
                     var k = ResolveFormToken(args[0], map.FormType, resolver);
                     if (k is null) { warnings.Add($"{where}: '{seg.Key}={v.Raw}' — form not resolvable; skipped."); continue; }
                     int n = RemoveEntriesByKey(record, segs, el, k.Value);

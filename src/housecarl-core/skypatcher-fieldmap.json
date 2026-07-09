@@ -1,52 +1,2817 @@
 [
- {
-  "subfolder": "weapon",
-  "recordType": "Weapon",
-  "ops": {
-   "fullName":            { "semantic": "set", "path": "Name" },
-   "animationType":       { "semantic": "set", "path": "Data.AnimationType" },
-   "skillType":           { "semantic": "set", "path": "Data.Skill" },
-   "attackDamage":        { "semantic": "set", "path": "BasicStats.Damage" },
-   "attackDamageMult":    { "semantic": "mult", "path": "BasicStats.Damage" },
-   "attackDamageToAdd":   { "semantic": "addNumeric", "path": "BasicStats.Damage" },
-   "bashDamage":          { "unmapped": "no static WEAP field models bash damage (Mutagen models none; bash is engine-derived from base damage) — how the DLL applies this needs empirical investigation" },
-   "critDamage":          { "semantic": "set", "path": "Critical.Damage" },
-   "critDamageToAdd":     { "semantic": "addNumeric", "path": "Critical.Damage" },
-   "critDamageMult":      { "semantic": "mult", "path": "Critical.Damage" },
-   "critPercentMult":     { "semantic": "set", "path": "Critical.PercentMult", "note": "the field IS the multiplier (CRDT % Mult) — a direct set, not a stateful multiply; catalog shape corrected Wave 1" },
-   "critDamageSetToBase": { "semantic": "setFromOwnField", "path": "Critical.Damage", "sourcePath": "BasicStats.Damage" },
-   "weight":              { "semantic": "set", "path": "BasicStats.Weight" },
-   "weightMult":          { "semantic": "mult", "path": "BasicStats.Weight" },
-   "value":               { "semantic": "set", "path": "BasicStats.Value" },
-   "valueMult":           { "semantic": "mult", "path": "BasicStats.Value" },
-   "speed":               { "semantic": "set", "path": "Data.Speed" },
-   "speedMult":           { "semantic": "mult", "path": "Data.Speed" },
-   "reach":               { "semantic": "set", "path": "Data.Reach" },
-   "rangeMin":            { "semantic": "set", "path": "Data.RangeMin" },
-   "rangeMax":            { "semantic": "set", "path": "Data.RangeMax" },
-   "stagger":             { "semantic": "set", "path": "Data.Stagger" },
-   "enchantAmount":       { "semantic": "set", "path": "EnchantmentAmount" },
-   "model":               { "semantic": "modelPath", "path": "Model.File", "formType": "Weapon" },
-   "modelFirstPerson":    { "semantic": "set", "path": "FirstPersonModel", "formType": "Static" },
-   "equipSound":          { "semantic": "set", "path": "EquipSound", "formType": "SoundDescriptor" },
-   "unequipSound":        { "semantic": "set", "path": "UnequipSound", "formType": "SoundDescriptor" },
-   "attackFailSound":     { "semantic": "set", "path": "AttackFailSound", "formType": "SoundDescriptor" },
-   "impactDataSet":       { "semantic": "set", "path": "ImpactDataSet", "formType": "ImpactDataSet" },
-   "altBlockMaterialType": { "semantic": "set", "path": "AlternateBlockMaterial", "formType": "MaterialType" },
-   "blockBashImpactDataSet": { "semantic": "set", "path": "BlockBashImpact", "formType": "ImpactDataSet" },
-   "equipSlot":           { "semantic": "set", "path": "EquipmentType", "formType": "EquipType" },
-   "templateWeapon":      { "semantic": "set", "path": "Template", "formType": "Weapon" },
-   "objectEffect":        { "semantic": "set", "path": "ObjectEffect", "formType": "ObjectEffect" },
-   "weaponHitType":       { "semantic": "set", "path": "Data.OnHit", "valueMap": { "normal": "NormalFormulaBehavior", "dismember": "DismemberOnly", "explode": "ExplodeOnly", "no": "NoDismemberExplode" } },
-   "soundLevel":          { "semantic": "set", "path": "DetectionSoundLevel" },
-   "keywordsToAdd":       { "semantic": "addForm", "path": "Keywords", "formType": "Keyword" },
-   "keywordsToRemove":    { "semantic": "removeForm", "path": "Keywords", "formType": "Keyword" },
-   "minX":                { "semantic": "vecComponent", "path": "ObjectBounds.First", "component": 0 },
-   "minY":                { "semantic": "vecComponent", "path": "ObjectBounds.First", "component": 1 },
-   "minZ":                { "semantic": "vecComponent", "path": "ObjectBounds.First", "component": 2 },
-   "maxX":                { "semantic": "vecComponent", "path": "ObjectBounds.Second", "component": 0 },
-   "maxY":                { "semantic": "vecComponent", "path": "ObjectBounds.Second", "component": 1 },
-   "maxZ":                { "semantic": "vecComponent", "path": "ObjectBounds.Second", "component": 2 }
-  }
- }
+    {
+        "subfolder":  "weapon",
+        "recordType":  "Weapon",
+        "ops":  {
+                    "fullName":  {
+                                     "semantic":  "set",
+                                     "path":  "Name"
+                                 },
+                    "animationType":  {
+                                          "semantic":  "set",
+                                          "path":  "Data.AnimationType"
+                                      },
+                    "skillType":  {
+                                      "semantic":  "set",
+                                      "path":  "Data.Skill"
+                                  },
+                    "attackDamage":  {
+                                         "semantic":  "set",
+                                         "path":  "BasicStats.Damage"
+                                     },
+                    "attackDamageMult":  {
+                                             "semantic":  "mult",
+                                             "path":  "BasicStats.Damage"
+                                         },
+                    "attackDamageToAdd":  {
+                                              "semantic":  "addNumeric",
+                                              "path":  "BasicStats.Damage"
+                                          },
+                    "bashDamage":  {
+                                       "unmapped":  "no static WEAP field models bash damage (Mutagen models none; bash is engine-derived from base damage) - how the DLL applies this needs empirical investigation"
+                                   },
+                    "critDamage":  {
+                                       "semantic":  "set",
+                                       "path":  "Critical.Damage"
+                                   },
+                    "critDamageToAdd":  {
+                                            "semantic":  "addNumeric",
+                                            "path":  "Critical.Damage"
+                                        },
+                    "critDamageMult":  {
+                                           "semantic":  "mult",
+                                           "path":  "Critical.Damage"
+                                       },
+                    "critPercentMult":  {
+                                            "semantic":  "set",
+                                            "path":  "Critical.PercentMult",
+                                            "note":  "the field IS the multiplier (CRDT % Mult) - a direct set, not a stateful multiply; catalog shape corrected Wave 1"
+                                        },
+                    "critDamageSetToBase":  {
+                                                "semantic":  "setFromOwnField",
+                                                "path":  "Critical.Damage",
+                                                "sourcePath":  "BasicStats.Damage"
+                                            },
+                    "weight":  {
+                                   "semantic":  "set",
+                                   "path":  "BasicStats.Weight"
+                               },
+                    "weightMult":  {
+                                       "semantic":  "mult",
+                                       "path":  "BasicStats.Weight"
+                                   },
+                    "value":  {
+                                  "semantic":  "set",
+                                  "path":  "BasicStats.Value"
+                              },
+                    "valueMult":  {
+                                      "semantic":  "mult",
+                                      "path":  "BasicStats.Value"
+                                  },
+                    "speed":  {
+                                  "semantic":  "set",
+                                  "path":  "Data.Speed"
+                              },
+                    "speedMult":  {
+                                      "semantic":  "mult",
+                                      "path":  "Data.Speed"
+                                  },
+                    "reach":  {
+                                  "semantic":  "set",
+                                  "path":  "Data.Reach"
+                              },
+                    "rangeMin":  {
+                                     "semantic":  "set",
+                                     "path":  "Data.RangeMin"
+                                 },
+                    "rangeMax":  {
+                                     "semantic":  "set",
+                                     "path":  "Data.RangeMax"
+                                 },
+                    "stagger":  {
+                                    "semantic":  "set",
+                                    "path":  "Data.Stagger"
+                                },
+                    "enchantAmount":  {
+                                          "semantic":  "set",
+                                          "path":  "EnchantmentAmount"
+                                      },
+                    "model":  {
+                                  "semantic":  "modelPath",
+                                  "path":  "Model.File",
+                                  "formType":  "Weapon"
+                              },
+                    "modelFirstPerson":  {
+                                             "semantic":  "set",
+                                             "path":  "FirstPersonModel",
+                                             "formType":  "Static"
+                                         },
+                    "equipSound":  {
+                                       "semantic":  "set",
+                                       "path":  "EquipSound",
+                                       "formType":  "SoundDescriptor"
+                                   },
+                    "unequipSound":  {
+                                         "semantic":  "set",
+                                         "path":  "UnequipSound",
+                                         "formType":  "SoundDescriptor"
+                                     },
+                    "attackFailSound":  {
+                                            "semantic":  "set",
+                                            "path":  "AttackFailSound",
+                                            "formType":  "SoundDescriptor"
+                                        },
+                    "impactDataSet":  {
+                                          "semantic":  "set",
+                                          "path":  "ImpactDataSet",
+                                          "formType":  "ImpactDataSet"
+                                      },
+                    "altBlockMaterialType":  {
+                                                 "semantic":  "set",
+                                                 "path":  "AlternateBlockMaterial",
+                                                 "formType":  "MaterialType"
+                                             },
+                    "blockBashImpactDataSet":  {
+                                                   "semantic":  "set",
+                                                   "path":  "BlockBashImpact",
+                                                   "formType":  "ImpactDataSet"
+                                               },
+                    "equipSlot":  {
+                                      "semantic":  "set",
+                                      "path":  "EquipmentType",
+                                      "formType":  "EquipType"
+                                  },
+                    "templateWeapon":  {
+                                           "semantic":  "set",
+                                           "path":  "Template",
+                                           "formType":  "Weapon"
+                                       },
+                    "objectEffect":  {
+                                         "semantic":  "set",
+                                         "path":  "ObjectEffect",
+                                         "formType":  "ObjectEffect"
+                                     },
+                    "weaponHitType":  {
+                                          "semantic":  "set",
+                                          "path":  "Data.OnHit",
+                                          "valueMap":  {
+                                                           "normal":  "NoFormulaBehavior",
+                                                           "dismember":  "DismemberOnly",
+                                                           "explode":  "ExplodeOnly",
+                                                           "no":  "NoDismemberOrExplode"
+                                                       },
+                                          "note":  "\u0027normal\u0027 maps to Mutagen\u0027s NoFormulaBehavior (the CK\u0027s \u0027Normal formula behavior\u0027 bit)"
+                                      },
+                    "soundLevel":  {
+                                       "semantic":  "set",
+                                       "path":  "DetectionSoundLevel"
+                                   },
+                    "keywordsToAdd":  {
+                                          "semantic":  "addForm",
+                                          "path":  "Keywords",
+                                          "formType":  "Keyword"
+                                      },
+                    "keywordsToRemove":  {
+                                             "semantic":  "removeForm",
+                                             "path":  "Keywords",
+                                             "formType":  "Keyword"
+                                         },
+                    "minX":  {
+                                 "semantic":  "vecComponent",
+                                 "path":  "ObjectBounds.First",
+                                 "component":  0
+                             },
+                    "minY":  {
+                                 "semantic":  "vecComponent",
+                                 "path":  "ObjectBounds.First",
+                                 "component":  1
+                             },
+                    "minZ":  {
+                                 "semantic":  "vecComponent",
+                                 "path":  "ObjectBounds.First",
+                                 "component":  2
+                             },
+                    "maxX":  {
+                                 "semantic":  "vecComponent",
+                                 "path":  "ObjectBounds.Second",
+                                 "component":  0
+                             },
+                    "maxY":  {
+                                 "semantic":  "vecComponent",
+                                 "path":  "ObjectBounds.Second",
+                                 "component":  1
+                             },
+                    "maxZ":  {
+                                 "semantic":  "vecComponent",
+                                 "path":  "ObjectBounds.Second",
+                                 "component":  2
+                             }
+                }
+    },
+    {
+        "subfolder":  "npc",
+        "recordType":  "Npc",
+        "ops":  {
+                    "fullName":  {
+                                     "semantic":  "set",
+                                     "path":  "Name"
+                                 },
+                    "shortName":  {
+                                      "semantic":  "set",
+                                      "path":  "ShortName"
+                                  },
+                    "level":  {
+                                  "unmapped":  "Mutagen models Configuration.Level polymorphically (IANpcLevel: NpcLevel.Level short vs PcLevelMult.LevelMult float) — there is no plain numeric leaf for a one-leaf set; writing it correctly means choosing/replacing the arm, which is outside Wave-1 set semantics"
+                              },
+                    "calcLevelMin":  {
+                                         "semantic":  "set",
+                                         "path":  "Configuration.CalcMinLevel"
+                                     },
+                    "calcLevelMax":  {
+                                         "semantic":  "set",
+                                         "path":  "Configuration.CalcMaxLevel"
+                                     },
+                    "setPcLevelMult":  {
+                                           "unmapped":  "NpcConfiguration.Flag has NO PcLevelMult member in Mutagen — the flag is modeled structurally as which arm Configuration.Level holds (PcLevelMult vs NpcLevel), so no flagBool leaf exists; the op also packs a failsafe level (setPcLevelMult=false=\u003clevel\u003e) that would need the polymorphic arm swap"
+                                       },
+                    "setAutoCalcStats":  {
+                                             "semantic":  "flagBool",
+                                             "path":  "Configuration.Flags",
+                                             "flag":  "AutoCalcStats",
+                                             "note":  "tokens yes|no|true|false|none; none = leave unchanged"
+                                         },
+                    "setEssential":  {
+                                         "semantic":  "flagBool",
+                                         "path":  "Configuration.Flags",
+                                         "flag":  "Essential",
+                                         "note":  "none = leave unchanged"
+                                     },
+                    "setProtected":  {
+                                         "semantic":  "flagBool",
+                                         "path":  "Configuration.Flags",
+                                         "flag":  "Protected",
+                                         "note":  "none = leave unchanged"
+                                     },
+                    "healthBonus":  {
+                                        "unmapped":  "documented as a bonus applied atop SkyPatcher\u0027s runtime calcHealth derivation (a changeStats calc key, which is HARD) — Configuration.HealthOffset is the nearest static field but feeds the engine\u0027s own autocalc, not SkyPatcher\u0027s calc result, and would fire even for patches not using calcHealth; named gap preferred over an approximate map (catalog grades this CLEAN — disagreement flagged Wave 1)"
+                                    },
+                    "magickaBonus":  {
+                                         "unmapped":  "documented as a bonus applied atop SkyPatcher\u0027s runtime calcMagicka derivation (a changeStats calc key, which is HARD) — Configuration.MagickaOffset is the nearest static field but feeds the engine\u0027s own autocalc, not SkyPatcher\u0027s calc result; named gap preferred over an approximate map (catalog grades this CLEAN — disagreement flagged Wave 1)"
+                                     },
+                    "staminaBonus":  {
+                                         "unmapped":  "documented as a bonus applied atop SkyPatcher\u0027s runtime calcStamina derivation (a changeStats calc key, which is HARD) — Configuration.StaminaOffset is the nearest static field but feeds the engine\u0027s own autocalc, not SkyPatcher\u0027s calc result; named gap preferred over an approximate map (catalog grades this CLEAN — disagreement flagged Wave 1)"
+                                     },
+                    "setFlags":  {
+                                     "semantic":  "flagsSet",
+                                     "path":  "Configuration.Flags",
+                                     "valueMap":  {
+                                                      "usestemplate":  "UseTemplate",
+                                                      "doesntbleed":  "DoesNotBleed"
+                                                  },
+                                     "note":  "4 documented tokens have NO NpcConfiguration.Flag member in Mutagen and cannot resolve: pclevelmult (modeled structurally via the polymorphic Configuration.Level, not a flag), calcforalltemplates, norumors, noactivation — surface these as unresolved rather than guessing a bit; all other tokens match members ignoring case"
+                                 },
+                    "removeFlags":  {
+                                        "semantic":  "flagsRemove",
+                                        "path":  "Configuration.Flags",
+                                        "valueMap":  {
+                                                         "usestemplate":  "UseTemplate",
+                                                         "doesntbleed":  "DoesNotBleed"
+                                                     },
+                                        "note":  "same 4 unresolvable tokens as setFlags: pclevelmult, calcforalltemplates, norumors, noactivation (no Mutagen Flag member)"
+                                    },
+                    "setTemplateFlags":  {
+                                             "semantic":  "flagsSet",
+                                             "path":  "Configuration.TemplateFlags",
+                                             "valueMap":  {
+                                                              "spells":  "SpellList",
+                                                              "unused":  "ModelAnimation",
+                                                              "aidefpacklist":  "DefPackList"
+                                                          },
+                                             "note":  "SkyPatcher\u0027s \u0027unused\u0027 token is the bit Mutagen names ModelAnimation (Model/Animation in xEdit); \u0027copiedtemplate\u0027 has NO NpcConfiguration.TemplateFlag member in Mutagen and cannot resolve — surface as unresolved; all other tokens match members ignoring case"
+                                         },
+                    "removeTemplateFlags":  {
+                                                "semantic":  "flagsRemove",
+                                                "path":  "Configuration.TemplateFlags",
+                                                "valueMap":  {
+                                                                 "spells":  "SpellList",
+                                                                 "unused":  "ModelAnimation",
+                                                                 "aidefpacklist":  "DefPackList"
+                                                             },
+                                                "note":  "same as setTemplateFlags: \u0027unused\u0027 = ModelAnimation; \u0027copiedtemplate\u0027 unresolvable (no Mutagen member)"
+                                            },
+                    "objectsToAdd":  {
+                                         "semantic":  "addEntry",
+                                         "path":  "Items",
+                                         "formType":  "Item",
+                                         "pack":  "eq",
+                                         "element":  {
+                                                         "type":  "ContainerEntry",
+                                                         "keyPath":  "Item.Item",
+                                                         "countPath":  "Item.Count",
+                                                         "fields":  [
+                                                                        {
+                                                                            "path":  "Item.Item",
+                                                                            "arg":  0
+                                                                        },
+                                                                        {
+                                                                            "path":  "Item.Count",
+                                                                            "arg":  1,
+                                                                            "default":  "1"
+                                                                        }
+                                                                    ]
+                                                     }
+                                     },
+                    "addOnceToInventory":  {
+                                               "semantic":  "addEntryOnce",
+                                               "path":  "Items",
+                                               "formType":  "Item",
+                                               "element":  {
+                                                               "type":  "ContainerEntry",
+                                                               "keyPath":  "Item.Item",
+                                                               "countPath":  "Item.Count",
+                                                               "fields":  [
+                                                                              {
+                                                                                  "path":  "Item.Item",
+                                                                                  "arg":  0
+                                                                              },
+                                                                              {
+                                                                                  "path":  "Item.Count",
+                                                                                  "arg":  1,
+                                                                                  "default":  "1"
+                                                                              }
+                                                                          ]
+                                                           },
+                                               "note":  "form~count; adds only if the form is absent from the inventory"
+                                           },
+                    "objectsToReplace":  {
+                                             "semantic":  "replaceEntry",
+                                             "path":  "Items",
+                                             "formType":  "Item",
+                                             "element":  {
+                                                             "type":  "ContainerEntry",
+                                                             "keyPath":  "Item.Item",
+                                                             "countPath":  "Item.Count"
+                                                         },
+                                             "note":  "formA~formB; count preserved on the replaced entry"
+                                         },
+                    "objectsToRemove":  {
+                                            "semantic":  "removeEntry",
+                                            "path":  "Items",
+                                            "formType":  "Item",
+                                            "element":  {
+                                                            "type":  "ContainerEntry",
+                                                            "keyPath":  "Item.Item",
+                                                            "countPath":  "Item.Count"
+                                                        }
+                                        },
+                    "removeInventoryObjectsByKeywords":  {
+                                                             "semantic":  "removeByKeyword",
+                                                             "path":  "Items",
+                                                             "formType":  "Keyword",
+                                                             "element":  {
+                                                                             "type":  "ContainerEntry",
+                                                                             "keyPath":  "Item.Item",
+                                                                             "countPath":  "Item.Count"
+                                                                         },
+                                                             "note":  "the op value is a Keyword form; entries are removed when the entry\u0027s item carries that keyword"
+                                                         },
+                    "removeInventoryObjectsByCount":  {
+                                                          "semantic":  "removeEntryByCount",
+                                                          "path":  "Items",
+                                                          "formType":  "Item",
+                                                          "element":  {
+                                                                          "type":  "ContainerEntry",
+                                                                          "keyPath":  "Item.Item",
+                                                                          "countPath":  "Item.Count"
+                                                                      }
+                                                      },
+                    "clearInventory":  {
+                                           "semantic":  "clearList",
+                                           "path":  "Items",
+                                           "note":  "clearInventory=true"
+                                       },
+                    "factionsToAdd":  {
+                                          "semantic":  "addEntry",
+                                          "path":  "Factions",
+                                          "formType":  "Faction",
+                                          "pack":  "eq",
+                                          "element":  {
+                                                          "type":  "RankPlacement",
+                                                          "keyPath":  "Faction",
+                                                          "countPath":  "Rank",
+                                                          "fields":  [
+                                                                         {
+                                                                             "path":  "Faction",
+                                                                             "arg":  0
+                                                                         },
+                                                                         {
+                                                                             "path":  "Rank",
+                                                                             "arg":  1,
+                                                                             "default":  "0"
+                                                                         }
+                                                                     ]
+                                                      },
+                                          "note":  "faction=rank; docs say rank 0 if unsure"
+                                      },
+                    "factionsToRemove":  {
+                                             "semantic":  "removeEntry",
+                                             "path":  "Factions",
+                                             "formType":  "Faction",
+                                             "element":  {
+                                                             "type":  "RankPlacement",
+                                                             "keyPath":  "Faction"
+                                                         }
+                                         },
+                    "keywordsToAdd":  {
+                                          "semantic":  "addForm",
+                                          "path":  "Keywords",
+                                          "formType":  "Keyword"
+                                      },
+                    "keywordsToRemove":  {
+                                             "semantic":  "removeForm",
+                                             "path":  "Keywords",
+                                             "formType":  "Keyword"
+                                         },
+                    "perksToAdd":  {
+                                       "semantic":  "addEntry",
+                                       "path":  "Perks",
+                                       "formType":  "Perk",
+                                       "element":  {
+                                                       "type":  "PerkPlacement",
+                                                       "keyPath":  "Perk",
+                                                       "countPath":  "Rank",
+                                                       "fields":  [
+                                                                      {
+                                                                          "path":  "Perk",
+                                                                          "arg":  0
+                                                                      },
+                                                                      {
+                                                                          "path":  "Rank",
+                                                                          "arg":  1,
+                                                                          "default":  "1"
+                                                                      }
+                                                                  ]
+                                                   },
+                                       "note":  "documented syntax is a plain form list (no rank packing); element struct carries a Rank byte — default 1"
+                                   },
+                    "spellsToAdd":  {
+                                        "semantic":  "addForm",
+                                        "path":  "ActorEffect",
+                                        "formType":  "Spell"
+                                    },
+                    "spellsToRemove":  {
+                                           "semantic":  "removeForm",
+                                           "path":  "ActorEffect",
+                                           "formType":  "Spell"
+                                       },
+                    "levSpellsToAdd":  {
+                                           "semantic":  "addForm",
+                                           "path":  "ActorEffect",
+                                           "formType":  "LeveledSpell",
+                                           "note":  "Mutagen models one ActorEffect list (FormLink\u003cISpellRecord\u003e) carrying spells, leveled spells, and shouts alike — no distinct leveled-spell field"
+                                       },
+                    "levSpellsToRemove":  {
+                                              "semantic":  "removeForm",
+                                              "path":  "ActorEffect",
+                                              "formType":  "LeveledSpell",
+                                              "note":  "same single ActorEffect list as spells/shouts"
+                                          },
+                    "shoutsToAdd":  {
+                                        "semantic":  "addForm",
+                                        "path":  "ActorEffect",
+                                        "formType":  "Shout",
+                                        "note":  "same single ActorEffect list as spells/leveled spells"
+                                    },
+                    "shoutsToRemove":  {
+                                           "semantic":  "removeForm",
+                                           "path":  "ActorEffect",
+                                           "formType":  "Shout",
+                                           "note":  "same single ActorEffect list as spells/leveled spells"
+                                       },
+                    "race":  {
+                                 "semantic":  "set",
+                                 "path":  "Race",
+                                 "formType":  "Race"
+                             },
+                    "voiceType":  {
+                                      "semantic":  "set",
+                                      "path":  "Voice",
+                                      "formType":  "VoiceType"
+                                  },
+                    "class":  {
+                                  "semantic":  "set",
+                                  "path":  "Class",
+                                  "formType":  "Class"
+                              },
+                    "skin":  {
+                                 "semantic":  "set",
+                                 "path":  "WornArmor",
+                                 "formType":  "Armor",
+                                 "note":  "null disables (field is nullable in Mutagen); NPC \u0027skin\u0027 is the WNAM worn-armor link"
+                             },
+                    "deathItem":  {
+                                      "semantic":  "set",
+                                      "path":  "DeathItem",
+                                      "formType":  "LeveledItem",
+                                      "note":  "null disables (field is nullable in Mutagen)"
+                                  },
+                    "outfitDefault":  {
+                                          "semantic":  "set",
+                                          "path":  "DefaultOutfit",
+                                          "formType":  "Outfit"
+                                      },
+                    "outfitSleep":  {
+                                        "semantic":  "set",
+                                        "path":  "SleepingOutfit",
+                                        "formType":  "Outfit"
+                                    },
+                    "weight":  {
+                                   "semantic":  "set",
+                                   "path":  "Weight"
+                               },
+                    "height":  {
+                                   "semantic":  "set",
+                                   "path":  "Height"
+                               },
+                    "setAggression":  {
+                                          "semantic":  "set",
+                                          "path":  "AIData.Aggression",
+                                          "valueMap":  {
+                                                           "calmed":  "Unaggressive",
+                                                           "unaggressive":  "Unaggressive",
+                                                           "aggressive":  "Aggressive",
+                                                           "veryaggressive":  "VeryAggressive",
+                                                           "frenzied":  "Frenzied"
+                                                       },
+                                          "note":  "Mutagen\u0027s Aggression enum has 4 members and no Calmed — \u0027calmed\u0027 is mapped to the lowest tier (Unaggressive, 0) on the CK convention that aggression 0 = will not initiate combat; this single token is unverified against SkyPatcher\u0027s implementation"
+                                      },
+                    "setAssistance":  {
+                                          "semantic":  "set",
+                                          "path":  "AIData.Assistance",
+                                          "valueMap":  {
+                                                           "helpsnobody":  "HelpsNobody",
+                                                           "helpsallies":  "HelpsAllies",
+                                                           "helpsfriends":  "HelpsFriendsAndAllies"
+                                                       }
+                                      },
+                    "setConfidence":  {
+                                          "semantic":  "set",
+                                          "path":  "AIData.Confidence"
+                                      },
+                    "setMood":  {
+                                    "semantic":  "set",
+                                    "path":  "AIData.Mood"
+                                },
+                    "setMorality":  {
+                                        "semantic":  "set",
+                                        "path":  "AIData.Responsibility",
+                                        "valueMap":  {
+                                                         "anycrime":  "AnyCrime",
+                                                         "violenceagainstenemy":  "ViolenceAgainstEnemies",
+                                                         "propertycrimeonly":  "PropertyCrimeOnly",
+                                                         "nocrime":  "NoCrime"
+                                                     },
+                                        "note":  "morality is the field Mutagen names Responsibility"
+                                    },
+                    "aggressionRadiusBehavior":  {
+                                                     "semantic":  "set",
+                                                     "path":  "AIData.AggroRadiusBehavior",
+                                                     "note":  "true|false"
+                                                 }
+                }
+    },
+    {
+        "subfolder":  "race",
+        "recordType":  "Race",
+        "ops":  {
+                    "heightMale":  {
+                                       "semantic":  "set",
+                                       "path":  "Height.Male"
+                                   },
+                    "heightMaleMult":  {
+                                           "semantic":  "mult",
+                                           "path":  "Height.Male"
+                                       },
+                    "heightFemale":  {
+                                         "semantic":  "set",
+                                         "path":  "Height.Female"
+                                     },
+                    "heightFemaleMult":  {
+                                             "semantic":  "mult",
+                                             "path":  "Height.Female"
+                                         },
+                    "weightMale":  {
+                                       "semantic":  "set",
+                                       "path":  "Weight.Male"
+                                   },
+                    "weightMaleMult":  {
+                                           "semantic":  "mult",
+                                           "path":  "Weight.Male"
+                                       },
+                    "weightFemale":  {
+                                         "semantic":  "set",
+                                         "path":  "Weight.Female"
+                                     },
+                    "weightFemaleMult":  {
+                                             "semantic":  "mult",
+                                             "path":  "Weight.Female"
+                                         },
+                    "baseMass":  {
+                                     "semantic":  "set",
+                                     "path":  "BaseMass"
+                                 },
+                    "baseMassMult":  {
+                                         "semantic":  "mult",
+                                         "path":  "BaseMass"
+                                     },
+                    "baseCarryweight":  {
+                                            "semantic":  "set",
+                                            "path":  "BaseCarryWeight"
+                                        },
+                    "baseCarryweightMult":  {
+                                                "semantic":  "mult",
+                                                "path":  "BaseCarryWeight"
+                                            },
+                    "startingHealth":  {
+                                           "unmapped":  "Race starting stats live in Race.Starting, a Dictionary\u003cBasicStat,Single\u003e keyed by the BasicStat enum; dict-keyed overlay paths are a named Wave-2 item"
+                                       },
+                    "startingHealthMult":  {
+                                               "unmapped":  "Race starting stats live in Race.Starting, a Dictionary\u003cBasicStat,Single\u003e keyed by the BasicStat enum; dict-keyed overlay paths are a named Wave-2 item"
+                                           },
+                    "startingStamina":  {
+                                            "unmapped":  "Race starting stats live in Race.Starting, a Dictionary\u003cBasicStat,Single\u003e keyed by the BasicStat enum; dict-keyed overlay paths are a named Wave-2 item"
+                                        },
+                    "startingStaminaMult":  {
+                                                "unmapped":  "Race starting stats live in Race.Starting, a Dictionary\u003cBasicStat,Single\u003e keyed by the BasicStat enum; dict-keyed overlay paths are a named Wave-2 item"
+                                            },
+                    "startingMagicka":  {
+                                            "unmapped":  "Race starting stats live in Race.Starting, a Dictionary\u003cBasicStat,Single\u003e keyed by the BasicStat enum; dict-keyed overlay paths are a named Wave-2 item"
+                                        },
+                    "startingMagickaMult":  {
+                                                "unmapped":  "Race starting stats live in Race.Starting, a Dictionary\u003cBasicStat,Single\u003e keyed by the BasicStat enum; dict-keyed overlay paths are a named Wave-2 item"
+                                            },
+                    "regenHealth":  {
+                                        "unmapped":  "Race regen values live in Race.Regen, a Dictionary\u003cBasicStat,Single\u003e keyed by the BasicStat enum; dict-keyed overlay paths are a named Wave-2 item"
+                                    },
+                    "regenHealthMult":  {
+                                            "unmapped":  "Race regen values live in Race.Regen, a Dictionary\u003cBasicStat,Single\u003e keyed by the BasicStat enum; dict-keyed overlay paths are a named Wave-2 item"
+                                        },
+                    "regenStamina":  {
+                                         "unmapped":  "Race regen values live in Race.Regen, a Dictionary\u003cBasicStat,Single\u003e keyed by the BasicStat enum; dict-keyed overlay paths are a named Wave-2 item"
+                                     },
+                    "regenStaminaMult":  {
+                                             "unmapped":  "Race regen values live in Race.Regen, a Dictionary\u003cBasicStat,Single\u003e keyed by the BasicStat enum; dict-keyed overlay paths are a named Wave-2 item"
+                                         },
+                    "regenMagicka":  {
+                                         "unmapped":  "Race regen values live in Race.Regen, a Dictionary\u003cBasicStat,Single\u003e keyed by the BasicStat enum; dict-keyed overlay paths are a named Wave-2 item"
+                                     },
+                    "regenMagickaMult":  {
+                                             "unmapped":  "Race regen values live in Race.Regen, a Dictionary\u003cBasicStat,Single\u003e keyed by the BasicStat enum; dict-keyed overlay paths are a named Wave-2 item"
+                                         },
+                    "damageUnarmed":  {
+                                          "semantic":  "set",
+                                          "path":  "UnarmedDamage"
+                                      },
+                    "damageUnarmedMult":  {
+                                              "semantic":  "mult",
+                                              "path":  "UnarmedDamage"
+                                          },
+                    "reachUnarmed":  {
+                                         "semantic":  "set",
+                                         "path":  "UnarmedReach"
+                                     },
+                    "reachUnarmedMult":  {
+                                             "semantic":  "mult",
+                                             "path":  "UnarmedReach"
+                                         },
+                    "accelerationRate":  {
+                                             "semantic":  "set",
+                                             "path":  "AccelerationRate"
+                                         },
+                    "accelerationRateMult":  {
+                                                 "semantic":  "mult",
+                                                 "path":  "AccelerationRate"
+                                             },
+                    "decelerationRate":  {
+                                             "semantic":  "set",
+                                             "path":  "DecelerationRate"
+                                         },
+                    "decelerationRateMult":  {
+                                                 "semantic":  "mult",
+                                                 "path":  "DecelerationRate"
+                                             },
+                    "accelerationAngularRate":  {
+                                                    "semantic":  "set",
+                                                    "path":  "AngularAccelerationRate"
+                                                },
+                    "accelerationAngularRateMult":  {
+                                                        "semantic":  "mult",
+                                                        "path":  "AngularAccelerationRate"
+                                                    },
+                    "aimAngleTolerance":  {
+                                              "semantic":  "set",
+                                              "path":  "AimAngleTolerance"
+                                          },
+                    "aimAngleToleranceMult":  {
+                                                  "semantic":  "mult",
+                                                  "path":  "AimAngleTolerance"
+                                              },
+                    "skin":  {
+                                 "semantic":  "set",
+                                 "path":  "Skin",
+                                 "formType":  "Armor"
+                             },
+                    "keywordsToAdd":  {
+                                          "semantic":  "addForm",
+                                          "path":  "Keywords",
+                                          "formType":  "Keyword"
+                                      },
+                    "keywordsToRemove":  {
+                                             "semantic":  "removeForm",
+                                             "path":  "Keywords",
+                                             "formType":  "Keyword"
+                                         },
+                    "spellsToAdd":  {
+                                        "semantic":  "addForm",
+                                        "path":  "ActorEffect",
+                                        "formType":  "Spell",
+                                        "note":  "ActorEffect (SPLO) is one List\u003cFormLink\u003cISpellRecord\u003e\u003e shared by spells, leveled spells, and shouts — spellsTo*/levSpellsTo*/shoutsTo* all target the same list, differing only in element form type"
+                                    },
+                    "spellsToRemove":  {
+                                           "semantic":  "removeForm",
+                                           "path":  "ActorEffect",
+                                           "formType":  "Spell"
+                                       },
+                    "levSpellsToAdd":  {
+                                           "semantic":  "addForm",
+                                           "path":  "ActorEffect",
+                                           "formType":  "LeveledSpell",
+                                           "note":  "same shared ActorEffect list as spellsToAdd"
+                                       },
+                    "levSpellsToRemove":  {
+                                              "semantic":  "removeForm",
+                                              "path":  "ActorEffect",
+                                              "formType":  "LeveledSpell"
+                                          },
+                    "shoutsToAdd":  {
+                                        "semantic":  "addForm",
+                                        "path":  "ActorEffect",
+                                        "formType":  "Shout",
+                                        "note":  "same shared ActorEffect list as spellsToAdd"
+                                    },
+                    "shoutsToRemove":  {
+                                           "semantic":  "removeForm",
+                                           "path":  "ActorEffect",
+                                           "formType":  "Shout"
+                                       }
+                }
+    },
+    {
+        "subfolder":  "raceHook",
+        "recordType":  "Race",
+        "ops":  {
+
+                }
+    },
+    {
+        "subfolder":  "leveledList",
+        "recordType":  "LeveledItem",
+        "ops":  {
+                    "addToLLs":  {
+                                     "semantic":  "addEntry",
+                                     "path":  "Entries",
+                                     "element":  {
+                                                     "type":  "LeveledItemEntry",
+                                                     "keyPath":  "Data.Reference",
+                                                     "countPath":  "Data.Count",
+                                                     "fields":  [
+                                                                    {
+                                                                        "path":  "Data.Reference",
+                                                                        "arg":  0
+                                                                    },
+                                                                    {
+                                                                        "path":  "Data.Level",
+                                                                        "arg":  1,
+                                                                        "default":  "1"
+                                                                    },
+                                                                    {
+                                                                        "path":  "Data.Count",
+                                                                        "arg":  2,
+                                                                        "default":  "1"
+                                                                    }
+                                                                ]
+                                                 },
+                                     "note":  "form~level~count; entry target spans every item type (IItemGetter) so no formType — bare EditorIDs resolve unscoped"
+                                 },
+                    "addOnceToLLs":  {
+                                         "semantic":  "addEntryOnce",
+                                         "path":  "Entries",
+                                         "element":  {
+                                                         "type":  "LeveledItemEntry",
+                                                         "keyPath":  "Data.Reference",
+                                                         "countPath":  "Data.Count",
+                                                         "fields":  [
+                                                                        {
+                                                                            "path":  "Data.Reference",
+                                                                            "arg":  0
+                                                                        },
+                                                                        {
+                                                                            "path":  "Data.Level",
+                                                                            "arg":  1,
+                                                                            "default":  "1"
+                                                                        },
+                                                                        {
+                                                                            "path":  "Data.Count",
+                                                                            "arg":  2,
+                                                                            "default":  "1"
+                                                                        }
+                                                                    ]
+                                                     },
+                                         "note":  "form~level~count, skipped when an entry with the form already exists"
+                                     },
+                    "removeFromLLs":  {
+                                          "semantic":  "removeEntry",
+                                          "path":  "Entries",
+                                          "element":  {
+                                                          "type":  "LeveledItemEntry",
+                                                          "keyPath":  "Data.Reference",
+                                                          "countPath":  "Data.Count"
+                                                      },
+                                          "note":  "plain form removal only — the documented ~level~count sub-args and their conditional operators (\u003c, \u003e, \u003c=, \u003e=, \u0027none\u0027) are NOT evaluated by this semantic; a conditional line removes ALL entries of the form, so read conditional forms as approximate"
+                                      },
+                    "removeObjectsByKeyword":  {
+                                                   "semantic":  "removeByKeyword",
+                                                   "path":  "Entries",
+                                                   "element":  {
+                                                                   "type":  "LeveledItemEntry",
+                                                                   "keyPath":  "Data.Reference",
+                                                                   "countPath":  "Data.Count"
+                                                               }
+                                               },
+                    "objectMultCount":  {
+                                            "semantic":  "multCount",
+                                            "path":  "Entries",
+                                            "element":  {
+                                                            "type":  "LeveledItemEntry",
+                                                            "keyPath":  "Data.Reference",
+                                                            "countPath":  "Data.Count"
+                                                        },
+                                            "note":  "form~mult scopes to one form; bare mult multiplies every entry\u0027s count (stateful)"
+                                        },
+                    "formsToReplace":  {
+                                           "semantic":  "replaceEntry",
+                                           "path":  "Entries",
+                                           "element":  {
+                                                           "type":  "LeveledItemEntry",
+                                                           "keyPath":  "Data.Reference",
+                                                           "countPath":  "Data.Count"
+                                                       },
+                                           "note":  "leveledList packs the pair with \u0027~\u0027 (FormList/Outfit use \u0027=\u0027); level/count preserved"
+                                       },
+                    "chanceNone":  {
+                                       "semantic":  "set",
+                                       "path":  "ChanceNone",
+                                       "note":  "SkyPatcher value is 0-100; Mutagen models the field as a Percent — coercion is the write engine\u0027s"
+                                   },
+                    "chanceGlobal":  {
+                                         "semantic":  "set",
+                                         "path":  "Global",
+                                         "formType":  "Global",
+                                         "note":  "Mutagen names the LVLO chance-global link \u0027Global\u0027, not \u0027ChanceNoneGlobal\u0027"
+                                     },
+                    "clear":  {
+                                  "semantic":  "clearList",
+                                  "path":  "Entries",
+                                  "note":  "documented as clear=yes; true/yes both accepted"
+                              },
+                    "calcForLevel":  {
+                                         "semantic":  "flagBool",
+                                         "path":  "Flags",
+                                         "flag":  "CalculateFromAllLevelsLessThanOrEqualPlayer"
+                                     },
+                    "calcEachItem":  {
+                                         "semantic":  "flagBool",
+                                         "path":  "Flags",
+                                         "flag":  "CalculateForEachItemInCount"
+                                     },
+                    "calcForLevelAndEachItem":  {
+                                                    "unmapped":  "sets TWO flags at once (CalculateFromAllLevelsLessThanOrEqualPlayer + CalculateForEachItemInCount); flagBool models exactly one fixed flag and no semantic sets a flag pair — named gap rather than a half-applied toggle"
+                                                },
+                    "calcUseAll":  {
+                                       "semantic":  "flagBool",
+                                       "path":  "Flags",
+                                       "flag":  "UseAll"
+                                   },
+                    "clearFlags":  {
+                                       "unmapped":  "clears ALL flags at once; flagBool/flagsRemove operate on named single flags and no semantic models clear-the-whole-flags-enum"
+                                   }
+                }
+    },
+    {
+        "subfolder":  "leveledList",
+        "recordType":  "LeveledNpc",
+        "ops":  {
+                    "addToLLs":  {
+                                     "semantic":  "addEntry",
+                                     "path":  "Entries",
+                                     "element":  {
+                                                     "type":  "LeveledNpcEntry",
+                                                     "keyPath":  "Data.Reference",
+                                                     "countPath":  "Data.Count",
+                                                     "fields":  [
+                                                                    {
+                                                                        "path":  "Data.Reference",
+                                                                        "arg":  0
+                                                                    },
+                                                                    {
+                                                                        "path":  "Data.Level",
+                                                                        "arg":  1,
+                                                                        "default":  "1"
+                                                                    },
+                                                                    {
+                                                                        "path":  "Data.Count",
+                                                                        "arg":  2,
+                                                                        "default":  "1"
+                                                                    }
+                                                                ]
+                                                 },
+                                     "note":  "form~level~count; entry target is Npc or LeveledNpc (INpcSpawnGetter) so no formType — bare EditorIDs resolve unscoped"
+                                 },
+                    "addOnceToLLs":  {
+                                         "semantic":  "addEntryOnce",
+                                         "path":  "Entries",
+                                         "element":  {
+                                                         "type":  "LeveledNpcEntry",
+                                                         "keyPath":  "Data.Reference",
+                                                         "countPath":  "Data.Count",
+                                                         "fields":  [
+                                                                        {
+                                                                            "path":  "Data.Reference",
+                                                                            "arg":  0
+                                                                        },
+                                                                        {
+                                                                            "path":  "Data.Level",
+                                                                            "arg":  1,
+                                                                            "default":  "1"
+                                                                        },
+                                                                        {
+                                                                            "path":  "Data.Count",
+                                                                            "arg":  2,
+                                                                            "default":  "1"
+                                                                        }
+                                                                    ]
+                                                     },
+                                         "note":  "form~level~count, skipped when an entry with the form already exists"
+                                     },
+                    "removeFromLLs":  {
+                                          "semantic":  "removeEntry",
+                                          "path":  "Entries",
+                                          "element":  {
+                                                          "type":  "LeveledNpcEntry",
+                                                          "keyPath":  "Data.Reference",
+                                                          "countPath":  "Data.Count"
+                                                      },
+                                          "note":  "plain form removal only — the documented ~level~count sub-args and their conditional operators (\u003c, \u003e, \u003c=, \u003e=, \u0027none\u0027) are NOT evaluated by this semantic; a conditional line removes ALL entries of the form, so read conditional forms as approximate"
+                                      },
+                    "removeObjectsByKeyword":  {
+                                                   "semantic":  "removeByKeyword",
+                                                   "path":  "Entries",
+                                                   "element":  {
+                                                                   "type":  "LeveledNpcEntry",
+                                                                   "keyPath":  "Data.Reference",
+                                                                   "countPath":  "Data.Count"
+                                                               }
+                                               },
+                    "objectMultCount":  {
+                                            "semantic":  "multCount",
+                                            "path":  "Entries",
+                                            "element":  {
+                                                            "type":  "LeveledNpcEntry",
+                                                            "keyPath":  "Data.Reference",
+                                                            "countPath":  "Data.Count"
+                                                        },
+                                            "note":  "form~mult scopes to one form; bare mult multiplies every entry\u0027s count (stateful)"
+                                        },
+                    "formsToReplace":  {
+                                           "semantic":  "replaceEntry",
+                                           "path":  "Entries",
+                                           "element":  {
+                                                           "type":  "LeveledNpcEntry",
+                                                           "keyPath":  "Data.Reference",
+                                                           "countPath":  "Data.Count"
+                                                       },
+                                           "note":  "leveledList packs the pair with \u0027~\u0027 (FormList/Outfit use \u0027=\u0027); level/count preserved"
+                                       },
+                    "chanceNone":  {
+                                       "semantic":  "set",
+                                       "path":  "ChanceNone",
+                                       "note":  "SkyPatcher value is 0-100; Mutagen models the field as a Percent — coercion is the write engine\u0027s"
+                                   },
+                    "chanceGlobal":  {
+                                         "semantic":  "set",
+                                         "path":  "Global",
+                                         "formType":  "Global",
+                                         "note":  "Mutagen names the LVLO chance-global link \u0027Global\u0027, not \u0027ChanceNoneGlobal\u0027"
+                                     },
+                    "clear":  {
+                                  "semantic":  "clearList",
+                                  "path":  "Entries",
+                                  "note":  "documented as clear=yes; true/yes both accepted"
+                              },
+                    "calcForLevel":  {
+                                         "semantic":  "flagBool",
+                                         "path":  "Flags",
+                                         "flag":  "CalculateFromAllLevelsLessThanOrEqualPlayer"
+                                     },
+                    "calcEachItem":  {
+                                         "semantic":  "flagBool",
+                                         "path":  "Flags",
+                                         "flag":  "CalculateForEachItemInCount"
+                                     },
+                    "calcForLevelAndEachItem":  {
+                                                    "unmapped":  "sets TWO flags at once (CalculateFromAllLevelsLessThanOrEqualPlayer + CalculateForEachItemInCount); flagBool models exactly one fixed flag and no semantic sets a flag pair — named gap rather than a half-applied toggle"
+                                                },
+                    "calcUseAll":  {
+                                       "unmapped":  "LeveledNpc.Flag has no UseAll member (LVLN carries only the two calc flags) — the op is documented as shared with LVLI but cannot land on a character list"
+                                   },
+                    "clearFlags":  {
+                                       "unmapped":  "clears ALL flags at once; flagBool/flagsRemove operate on named single flags and no semantic models clear-the-whole-flags-enum"
+                                   }
+                }
+    },
+    {
+        "subfolder":  "formList",
+        "recordType":  "FormList",
+        "ops":  {
+                    "formsToAdd":  {
+                                       "semantic":  "addForm",
+                                       "path":  "Items",
+                                       "note":  "FLST items can be ANY record type (ISkyrimMajorRecordGetter) — no formType, bare EditorIDs resolve unscoped"
+                                   },
+                    "formsToRemove":  {
+                                          "semantic":  "removeForm",
+                                          "path":  "Items"
+                                      },
+                    "formsToReplace":  {
+                                           "semantic":  "replaceForm",
+                                           "path":  "Items",
+                                           "pack":  "eq",
+                                           "note":  "docs pack the pair with \u0027=\u0027 (leveledList uses \u0027~\u0027 for the same op); documented as FormID-only"
+                                       },
+                    "clear":  {
+                                  "semantic":  "clearList",
+                                  "path":  "Items"
+                              }
+                }
+    },
+    {
+        "subfolder":  "outfit",
+        "recordType":  "Outfit",
+        "ops":  {
+                    "formsToAdd":  {
+                                       "semantic":  "addForm",
+                                       "path":  "Items",
+                                       "note":  "OTFT items are Armor or LeveledItem (IOutfitTargetGetter) — no formType, bare EditorIDs resolve unscoped"
+                                   },
+                    "formsToRemove":  {
+                                          "semantic":  "removeForm",
+                                          "path":  "Items"
+                                      },
+                    "formsToReplace":  {
+                                           "semantic":  "replaceForm",
+                                           "path":  "Items",
+                                           "pack":  "eq",
+                                           "note":  "docs pack the pair with \u0027=\u0027 (leveledList uses \u0027~\u0027 for the same op); documented as FormID-only"
+                                       },
+                    "clear":  {
+                                  "semantic":  "clearList",
+                                  "path":  "Items"
+                              }
+                }
+    },
+    {
+        "subfolder":  "container",
+        "recordType":  "Container",
+        "ops":  {
+                    "addToContainers":  {
+                                            "semantic":  "addEntry",
+                                            "path":  "Items",
+                                            "formType":  "Item",
+                                            "element":  {
+                                                            "type":  "ContainerEntry",
+                                                            "keyPath":  "Item.Item",
+                                                            "countPath":  "Item.Count",
+                                                            "fields":  [
+                                                                           {
+                                                                               "path":  "Item.Item",
+                                                                               "arg":  0
+                                                                           },
+                                                                           {
+                                                                               "path":  "Item.Count",
+                                                                               "arg":  1,
+                                                                               "default":  "1"
+                                                                           }
+                                                                       ]
+                                                        }
+                                        },
+                    "addOnceToContainers":  {
+                                                "semantic":  "addEntryOnce",
+                                                "path":  "Items",
+                                                "formType":  "Item",
+                                                "element":  {
+                                                                "type":  "ContainerEntry",
+                                                                "keyPath":  "Item.Item",
+                                                                "countPath":  "Item.Count",
+                                                                "fields":  [
+                                                                               {
+                                                                                   "path":  "Item.Item",
+                                                                                   "arg":  0
+                                                                               },
+                                                                               {
+                                                                                   "path":  "Item.Count",
+                                                                                   "arg":  1,
+                                                                                   "default":  "1"
+                                                                               }
+                                                                           ]
+                                                            }
+                                            },
+                    "objectMultCount":  {
+                                            "semantic":  "multCount",
+                                            "path":  "Items",
+                                            "formType":  "Item",
+                                            "element":  {
+                                                            "type":  "ContainerEntry",
+                                                            "keyPath":  "Item.Item",
+                                                            "countPath":  "Item.Count"
+                                                        },
+                                            "note":  "form~mult multiplies that object\u0027s count; a bare mult (no form key) multiplies every entry\u0027s count"
+                                        },
+                    "removeFromContainers":  {
+                                                 "semantic":  "removeEntry",
+                                                 "path":  "Items",
+                                                 "formType":  "Item",
+                                                 "element":  {
+                                                                 "type":  "ContainerEntry",
+                                                                 "keyPath":  "Item.Item",
+                                                                 "countPath":  "Item.Count"
+                                                             }
+                                             },
+                    "removeContainerObjectsByCount":  {
+                                                          "semantic":  "removeEntryByCount",
+                                                          "path":  "Items",
+                                                          "formType":  "Item",
+                                                          "element":  {
+                                                                          "type":  "ContainerEntry",
+                                                                          "keyPath":  "Item.Item",
+                                                                          "countPath":  "Item.Count"
+                                                                      }
+                                                      },
+                    "removeContainerObjectsByKeywords":  {
+                                                             "semantic":  "removeByKeyword",
+                                                             "path":  "Items",
+                                                             "formType":  "Keyword",
+                                                             "element":  {
+                                                                             "type":  "ContainerEntry",
+                                                                             "keyPath":  "Item.Item",
+                                                                             "countPath":  "Item.Count"
+                                                                         },
+                                                             "note":  "the op value is a Keyword form; entries are removed when the entry\u0027s item carries that keyword"
+                                                         },
+                    "replaceInContainers":  {
+                                                "semantic":  "replaceEntry",
+                                                "path":  "Items",
+                                                "formType":  "Item",
+                                                "element":  {
+                                                                "type":  "ContainerEntry",
+                                                                "keyPath":  "Item.Item",
+                                                                "countPath":  "Item.Count"
+                                                            },
+                                                "note":  "formA~formB; count preserved on the replaced entry"
+                                            },
+                    "clear":  {
+                                  "semantic":  "clearList",
+                                  "path":  "Items"
+                              }
+                }
+    },
+    {
+        "subfolder":  "constructibleObject",
+        "recordType":  "ConstructibleObject",
+        "ops":  {
+                    "workbenchKeyword":  {
+                                             "semantic":  "set",
+                                             "path":  "WorkbenchKeyword",
+                                             "formType":  "Keyword",
+                                             "note":  "null removes the workbench keyword (field is nullable in Mutagen)"
+                                         },
+                    "createdObject":  {
+                                          "semantic":  "set",
+                                          "path":  "CreatedObject",
+                                          "formType":  "Constructible",
+                                          "note":  "Mutagen link target is the IConstructible interface group (any craftable form), not one concrete record type"
+                                      },
+                    "count":  {
+                                  "semantic":  "set",
+                                  "path":  "CreatedObjectCount"
+                              },
+                    "countMult":  {
+                                      "semantic":  "mult",
+                                      "path":  "CreatedObjectCount"
+                                  },
+                    "addToCobjs":  {
+                                       "semantic":  "addEntry",
+                                       "path":  "Items",
+                                       "formType":  "Item",
+                                       "element":  {
+                                                       "type":  "ContainerEntry",
+                                                       "keyPath":  "Item.Item",
+                                                       "countPath":  "Item.Count",
+                                                       "fields":  [
+                                                                      {
+                                                                          "path":  "Item.Item",
+                                                                          "arg":  0
+                                                                      },
+                                                                      {
+                                                                          "path":  "Item.Count",
+                                                                          "arg":  1,
+                                                                          "default":  "1"
+                                                                      }
+                                                                  ]
+                                                   }
+                                   },
+                    "removeFromCobjs":  {
+                                            "semantic":  "removeEntry",
+                                            "path":  "Items",
+                                            "formType":  "Item",
+                                            "element":  {
+                                                            "type":  "ContainerEntry",
+                                                            "keyPath":  "Item.Item",
+                                                            "countPath":  "Item.Count"
+                                                        }
+                                        },
+                    "removeFromCobjsByCount":  {
+                                                   "semantic":  "removeEntryByCount",
+                                                   "path":  "Items",
+                                                   "formType":  "Item",
+                                                   "element":  {
+                                                                   "type":  "ContainerEntry",
+                                                                   "keyPath":  "Item.Item",
+                                                                   "countPath":  "Item.Count"
+                                                               }
+                                               },
+                    "changeCobjsCount":  {
+                                             "unmapped":  "sets a specific ingredient entry\u0027s count to N (form~count; null~0 = all ingredients to 0) — no set-entry-count semantic exists in the Wave-1 overlay (addEntry/removeEntryByCount/multCount all mutate differently); named Wave-2 item"
+                                         },
+                    "changeCobjsCountByMult":  {
+                                                   "semantic":  "multCount",
+                                                   "path":  "Items",
+                                                   "formType":  "Item",
+                                                   "element":  {
+                                                                   "type":  "ContainerEntry",
+                                                                   "keyPath":  "Item.Item",
+                                                                   "countPath":  "Item.Count"
+                                                               },
+                                                   "note":  "bare multiplier only (no form key) — multiplies every ingredient entry\u0027s count"
+                                               },
+                    "replaceInCobjs":  {
+                                           "semantic":  "replaceEntry",
+                                           "path":  "Items",
+                                           "formType":  "Item",
+                                           "element":  {
+                                                           "type":  "ContainerEntry",
+                                                           "keyPath":  "Item.Item",
+                                                           "countPath":  "Item.Count"
+                                                       },
+                                           "note":  "formA~formB; count preserved on the replaced entry"
+                                       },
+                    "clear":  {
+                                  "semantic":  "clearList",
+                                  "path":  "Items"
+                              },
+                    "keywordsToAdd":  {
+                                          "unmapped":  "applies to the CREATED OBJECT\u0027s keywords, not the COBJ record — Mutagen\u0027s ConstructibleObject has no Keywords field (COBJ carries none in SSE), and a cross-record write to the created object is outside the Wave-1 overlay"
+                                      },
+                    "keywordsToRemove":  {
+                                             "unmapped":  "applies to the CREATED OBJECT\u0027s keywords, not the COBJ record — Mutagen\u0027s ConstructibleObject has no Keywords field (COBJ carries none in SSE), and a cross-record write to the created object is outside the Wave-1 overlay"
+                                         }
+                }
+    },
+    {
+        "subfolder":  "armor",
+        "recordType":  "Armor",
+        "ops":  {
+                    "fullName":  {
+                                     "semantic":  "set",
+                                     "path":  "Name",
+                                     "note":  "SkyPatcher propagates armor changes (incl. name) to attached ARMA at runtime; the static field is just Name"
+                                 },
+                    "damageResist":  {
+                                         "semantic":  "set",
+                                         "path":  "ArmorRating"
+                                     },
+                    "damageResistMultiply":  {
+                                                 "semantic":  "mult",
+                                                 "path":  "ArmorRating"
+                                             },
+                    "enchantAmount":  {
+                                          "semantic":  "set",
+                                          "path":  "EnchantmentAmount"
+                                      },
+                    "weight":  {
+                                   "semantic":  "set",
+                                   "path":  "Weight"
+                               },
+                    "weightMult":  {
+                                       "semantic":  "mult",
+                                       "path":  "Weight"
+                                   },
+                    "value":  {
+                                  "semantic":  "set",
+                                  "path":  "Value"
+                              },
+                    "valueMult":  {
+                                      "semantic":  "mult",
+                                      "path":  "Value"
+                                  },
+                    "armorType":  {
+                                      "semantic":  "set",
+                                      "path":  "BodyTemplate.ArmorType",
+                                      "note":  "op tokens lightarmor|heavyarmor|clothing match ArmorType members (LightArmor|HeavyArmor|Clothing) ignoring case — no valueMap; the filterByArmorTypes tokens (heavy|light) are filter-only and do NOT parse here"
+                                  },
+                    "objectEffect":  {
+                                         "semantic":  "set",
+                                         "path":  "ObjectEffect",
+                                         "formType":  "ObjectEffect",
+                                         "note":  "null clears (nullable FormLink)"
+                                     },
+                    "equipSlot":  {
+                                      "semantic":  "set",
+                                      "path":  "EquipmentType",
+                                      "formType":  "EquipType"
+                                  },
+                    "templateArmor":  {
+                                          "semantic":  "set",
+                                          "path":  "TemplateArmor",
+                                          "formType":  "Armor"
+                                      },
+                    "altBlockMaterialType":  {
+                                                 "semantic":  "set",
+                                                 "path":  "AlternateBlockMaterial",
+                                                 "formType":  "MaterialType"
+                                             },
+                    "blockBashImpactDataSet":  {
+                                                   "semantic":  "set",
+                                                   "path":  "BashImpactDataSet",
+                                                   "formType":  "ImpactDataSet"
+                                               },
+                    "pickUpSound":  {
+                                        "semantic":  "set",
+                                        "path":  "PickUpSound",
+                                        "formType":  "SoundDescriptor"
+                                    },
+                    "putDownSound":  {
+                                         "semantic":  "set",
+                                         "path":  "PutDownSound",
+                                         "formType":  "SoundDescriptor"
+                                     },
+                    "armorAddonsToAdd":  {
+                                             "semantic":  "addForm",
+                                             "path":  "Armature",
+                                             "formType":  "ArmorAddon"
+                                         },
+                    "armorAddonsToRemove":  {
+                                                "semantic":  "removeForm",
+                                                "path":  "Armature",
+                                                "formType":  "ArmorAddon"
+                                            },
+                    "clearArmorAddons":  {
+                                             "semantic":  "clearList",
+                                             "path":  "Armature"
+                                         },
+                    "bipedSlotsToAdd":  {
+                                            "unmapped":  "slot-index → FirstPersonFlags bit math; the documented values are numeric slot indices, and BipedObjectFlag members are names (Head, Body, …) that numeric tokens can\u0027t Enum.Parse — numeric-bit flags semantic is a named Wave-2 item"
+                                        },
+                    "bipedSlotsToRemove":  {
+                                               "unmapped":  "slot-index → FirstPersonFlags bit math; the documented values are numeric slot indices, and BipedObjectFlag members are names (Head, Body, …) that numeric tokens can\u0027t Enum.Parse — numeric-bit flags semantic is a named Wave-2 item"
+                                           },
+                    "keywordsToAdd":  {
+                                          "semantic":  "addForm",
+                                          "path":  "Keywords",
+                                          "formType":  "Keyword"
+                                      },
+                    "keywordsToRemove":  {
+                                             "semantic":  "removeForm",
+                                             "path":  "Keywords",
+                                             "formType":  "Keyword"
+                                         },
+                    "setFlags":  {
+                                     "semantic":  "flagsSet",
+                                     "path":  "MajorFlags",
+                                     "note":  "documented tokens nonplayable/shield match Armor.MajorFlag members (NonPlayable, Shield) ignoring case — no valueMap"
+                                 },
+                    "removeFlags":  {
+                                        "semantic":  "flagsRemove",
+                                        "path":  "MajorFlags",
+                                        "note":  "documented tokens nonplayable/shield match Armor.MajorFlag members (NonPlayable, Shield) ignoring case — no valueMap"
+                                    },
+                    "minX":  {
+                                 "semantic":  "vecComponent",
+                                 "path":  "ObjectBounds.First",
+                                 "component":  0
+                             },
+                    "minY":  {
+                                 "semantic":  "vecComponent",
+                                 "path":  "ObjectBounds.First",
+                                 "component":  1
+                             },
+                    "minZ":  {
+                                 "semantic":  "vecComponent",
+                                 "path":  "ObjectBounds.First",
+                                 "component":  2
+                             },
+                    "maxX":  {
+                                 "semantic":  "vecComponent",
+                                 "path":  "ObjectBounds.Second",
+                                 "component":  0
+                             },
+                    "maxY":  {
+                                 "semantic":  "vecComponent",
+                                 "path":  "ObjectBounds.Second",
+                                 "component":  1
+                             },
+                    "maxZ":  {
+                                 "semantic":  "vecComponent",
+                                 "path":  "ObjectBounds.Second",
+                                 "component":  2
+                             }
+                }
+    },
+    {
+        "subfolder":  "ammo",
+        "recordType":  "Ammunition",
+        "ops":  {
+                    "fullName":  {
+                                     "semantic":  "set",
+                                     "path":  "Name"
+                                 },
+                    "attackDamage":  {
+                                         "semantic":  "set",
+                                         "path":  "Damage"
+                                     },
+                    "attackDamageMult":  {
+                                             "semantic":  "mult",
+                                             "path":  "Damage"
+                                         },
+                    "attackDamageToAdd":  {
+                                              "semantic":  "addNumeric",
+                                              "path":  "Damage"
+                                          },
+                    "range":  {
+                                  "unmapped":  "Ammunition has no range field — the AMMO record carries only Damage/Value/Weight/Flags/Projectile; SkyPatcher\u0027s range edits the linked Projectile record\u0027s data at runtime (cross-record edit, no static Ammunition field)"
+                              },
+                    "rangeMult":  {
+                                      "unmapped":  "Ammunition has no range field — SkyPatcher\u0027s rangeMult applies to the linked Projectile record at runtime (cross-record edit, no static Ammunition field)"
+                                  },
+                    "speed":  {
+                                  "unmapped":  "Ammunition has no speed field — SkyPatcher\u0027s speed edits the linked Projectile record\u0027s data at runtime (cross-record edit, no static Ammunition field)"
+                              },
+                    "speedMult":  {
+                                      "unmapped":  "Ammunition has no speed field — SkyPatcher\u0027s speedMult applies to the linked Projectile record at runtime (cross-record edit, no static Ammunition field)"
+                                  },
+                    "gravity":  {
+                                    "unmapped":  "Ammunition has no gravity field — SkyPatcher\u0027s gravity edits the linked Projectile record\u0027s data at runtime (cross-record edit, no static Ammunition field)"
+                                },
+                    "gravityMult":  {
+                                        "unmapped":  "Ammunition has no gravity field — SkyPatcher\u0027s gravityMult applies to the linked Projectile record at runtime (cross-record edit, no static Ammunition field)"
+                                    },
+                    "weight":  {
+                                   "semantic":  "set",
+                                   "path":  "Weight"
+                               },
+                    "weightMult":  {
+                                       "semantic":  "mult",
+                                       "path":  "Weight"
+                                   },
+                    "value":  {
+                                  "semantic":  "set",
+                                  "path":  "Value"
+                              },
+                    "valueMult":  {
+                                      "semantic":  "mult",
+                                      "path":  "Value"
+                                  },
+                    "setNewProjectile":  {
+                                             "semantic":  "set",
+                                             "path":  "Projectile",
+                                             "formType":  "Projectile"
+                                         },
+                    "keywordsToAdd":  {
+                                          "semantic":  "addForm",
+                                          "path":  "Keywords",
+                                          "formType":  "Keyword"
+                                      },
+                    "keywordsToRemove":  {
+                                             "semantic":  "removeForm",
+                                             "path":  "Keywords",
+                                             "formType":  "Keyword"
+                                         },
+                    "model":  {
+                                  "semantic":  "modelPath",
+                                  "path":  "Model.File",
+                                  "formType":  "Ammunition"
+                              },
+                    "alternateTexturesClear":  {
+                                                   "semantic":  "clearList",
+                                                   "path":  "Model.AlternateTextures"
+                                               },
+                    "setFlags":  {
+                                     "semantic":  "flagsSet",
+                                     "path":  "Flags",
+                                     "note":  "documented tokens ignoresnormalweaponresistance/nonplayable/nonbolt match Ammunition.Flag members (IgnoresNormalWeaponResistance, NonPlayable, NonBolt) ignoring case — no valueMap"
+                                 },
+                    "removeFlags":  {
+                                        "semantic":  "flagsRemove",
+                                        "path":  "Flags",
+                                        "note":  "documented tokens ignoresnormalweaponresistance/nonplayable/nonbolt match Ammunition.Flag members (IgnoresNormalWeaponResistance, NonPlayable, NonBolt) ignoring case — no valueMap"
+                                    }
+                }
+    },
+    {
+        "subfolder":  "spell",
+        "recordType":  "Spell",
+        "ops":  {
+                    "fullName":  {
+                                     "semantic":  "set",
+                                     "path":  "Name"
+                                 },
+                    "setFlags":  {
+                                     "semantic":  "flagsSet",
+                                     "path":  "Flags",
+                                     "valueMap":  {
+                                                      "costoverride":  "ManualCostCalc",
+                                                      "pcstartspell":  "PCStartSpell",
+                                                      "ignoreloscheck":  "AreaEffectIgnoresLOS",
+                                                      "ignoreresistance":  "IgnoreResistance",
+                                                      "noabsorb":  "NoAbsorbOrReflect",
+                                                      "nodualcastmods":  "NoDualCastModification"
+                                                  },
+                                     "note":  "documented tokens fooditem, extendduration, instantcast have NO SpellDataFlag member - Mutagen does not name those SPIT bits (runtime SpellFlag kFoodItem/kExtendDuration/kInstantCast); those three tokens cannot be expressed statically"
+                                 },
+                    "removeFlags":  {
+                                        "semantic":  "flagsRemove",
+                                        "path":  "Flags",
+                                        "valueMap":  {
+                                                         "costoverride":  "ManualCostCalc",
+                                                         "pcstartspell":  "PCStartSpell",
+                                                         "ignoreloscheck":  "AreaEffectIgnoresLOS",
+                                                         "ignoreresistance":  "IgnoreResistance",
+                                                         "noabsorb":  "NoAbsorbOrReflect",
+                                                         "nodualcastmods":  "NoDualCastModification"
+                                                     },
+                                        "note":  "documented tokens fooditem, extendduration, instantcast have NO SpellDataFlag member - see setFlags note"
+                                    },
+                    "keywordsToAdd":  {
+                                          "semantic":  "addForm",
+                                          "path":  "Keywords",
+                                          "formType":  "Keyword"
+                                      },
+                    "keywordsToRemove":  {
+                                             "semantic":  "removeForm",
+                                             "path":  "Keywords",
+                                             "formType":  "Keyword"
+                                         },
+                    "baseCost":  {
+                                     "semantic":  "set",
+                                     "path":  "BaseCost"
+                                 },
+                    "halfCostPerk":  {
+                                         "semantic":  "set",
+                                         "path":  "HalfCostPerk",
+                                         "formType":  "Perk"
+                                     },
+                    "castType":  {
+                                     "semantic":  "set",
+                                     "path":  "CastType",
+                                     "note":  "documented tokens concentration/constanteffect/fireandforget match CastType members ignoring case; documented token \u0027scroll\u0027 has NO Mutagen CastType member (enum models only ConstantEffect/FireAndForget/Concentration) and cannot be expressed statically"
+                                 },
+                    "chargeTime":  {
+                                       "semantic":  "set",
+                                       "path":  "ChargeTime"
+                                   },
+                    "clear":  {
+                                  "semantic":  "clearList",
+                                  "path":  "Effects",
+                                  "note":  "clear=true removes all magic effects"
+                              }
+                }
+    },
+    {
+        "subfolder":  "scroll",
+        "recordType":  "Scroll",
+        "ops":  {
+                    "fullName":  {
+                                     "semantic":  "set",
+                                     "path":  "Name"
+                                 },
+                    "weight":  {
+                                   "semantic":  "set",
+                                   "path":  "Weight"
+                               },
+                    "weightMult":  {
+                                       "semantic":  "mult",
+                                       "path":  "Weight"
+                                   },
+                    "value":  {
+                                  "semantic":  "set",
+                                  "path":  "Value"
+                              },
+                    "valueMult":  {
+                                      "semantic":  "mult",
+                                      "path":  "Value"
+                                  },
+                    "setFlags":  {
+                                     "semantic":  "flagsSet",
+                                     "path":  "Flags",
+                                     "valueMap":  {
+                                                      "costoverride":  "ManualCostCalc",
+                                                      "pcstartspell":  "PCStartSpell",
+                                                      "ignoreloscheck":  "AreaEffectIgnoresLOS",
+                                                      "ignoreresistance":  "IgnoreResistance",
+                                                      "noabsorb":  "NoAbsorbOrReflect",
+                                                      "nodualcastmods":  "NoDualCastModification"
+                                                  },
+                                     "note":  "SCRL shares the spell flag set (SpellDataFlag); documented tokens fooditem, extendduration, instantcast have NO SpellDataFlag member and cannot be expressed statically"
+                                 },
+                    "removeFlags":  {
+                                        "semantic":  "flagsRemove",
+                                        "path":  "Flags",
+                                        "valueMap":  {
+                                                         "costoverride":  "ManualCostCalc",
+                                                         "pcstartspell":  "PCStartSpell",
+                                                         "ignoreloscheck":  "AreaEffectIgnoresLOS",
+                                                         "ignoreresistance":  "IgnoreResistance",
+                                                         "noabsorb":  "NoAbsorbOrReflect",
+                                                         "nodualcastmods":  "NoDualCastModification"
+                                                     },
+                                        "note":  "documented tokens fooditem, extendduration, instantcast have NO SpellDataFlag member - see setFlags note"
+                                    },
+                    "keywordsToAdd":  {
+                                          "semantic":  "addForm",
+                                          "path":  "Keywords",
+                                          "formType":  "Keyword"
+                                      },
+                    "keywordsToRemove":  {
+                                             "semantic":  "removeForm",
+                                             "path":  "Keywords",
+                                             "formType":  "Keyword"
+                                         },
+                    "baseCost":  {
+                                     "semantic":  "set",
+                                     "path":  "BaseCost"
+                                 },
+                    "halfCostPerk":  {
+                                         "semantic":  "set",
+                                         "path":  "HalfCostPerk",
+                                         "formType":  "Perk"
+                                     },
+                    "castType":  {
+                                     "semantic":  "set",
+                                     "path":  "CastType",
+                                     "note":  "documented tokens concentration/constanteffect/fireandforget match CastType members ignoring case; documented token \u0027scroll\u0027 (used in the scroll md\u0027s own example) has NO Mutagen CastType member and cannot be expressed statically"
+                                 },
+                    "chargeTime":  {
+                                       "semantic":  "set",
+                                       "path":  "ChargeTime"
+                                   },
+                    "clear":  {
+                                  "semantic":  "clearList",
+                                  "path":  "Effects",
+                                  "note":  "clear=true removes all magic effects"
+                              },
+                    "model":  {
+                                  "semantic":  "modelPath",
+                                  "path":  "Model.File",
+                                  "formType":  "Scroll"
+                              },
+                    "alternateTexturesToRemove":  {
+                                                      "semantic":  "removeEntry",
+                                                      "path":  "Model.AlternateTextures",
+                                                      "formType":  "TextureSet",
+                                                      "element":  {
+                                                                      "type":  "AlternateTexture",
+                                                                      "keyPath":  "NewTexture"
+                                                                  }
+                                                  },
+                    "alternateTexturesClear":  {
+                                                   "semantic":  "clearList",
+                                                   "path":  "Model.AlternateTextures"
+                                               }
+                }
+    },
+    {
+        "subfolder":  "enchantment",
+        "recordType":  "ObjectEffect",
+        "ops":  {
+                    "fullName":  {
+                                     "semantic":  "set",
+                                     "path":  "Name"
+                                 },
+                    "setFlags":  {
+                                     "semantic":  "flagsSet",
+                                     "path":  "Flags",
+                                     "valueMap":  {
+                                                      "costoverride":  "NoAutoCalc",
+                                                      "extendduration":  "ExtendDurationOnRecast"
+                                                  }
+                                 },
+                    "removeFlags":  {
+                                        "semantic":  "flagsRemove",
+                                        "path":  "Flags",
+                                        "valueMap":  {
+                                                         "costoverride":  "NoAutoCalc",
+                                                         "extendduration":  "ExtendDurationOnRecast"
+                                                     }
+                                    },
+                    "keywordsToAdd":  {
+                                          "unmapped":  "ENCH has no keyword list in the plugin format - Mutagen ObjectEffect has no Keywords field; SkyPatcher\u0027s keyword add on enchantments is runtime-only with no static field to carry it"
+                                      },
+                    "keywordsToRemove":  {
+                                             "unmapped":  "ENCH has no keyword list in the plugin format - Mutagen ObjectEffect has no Keywords field; SkyPatcher\u0027s keyword remove on enchantments is runtime-only with no static field to carry it"
+                                         },
+                    "baseCost":  {
+                                     "semantic":  "set",
+                                     "path":  "EnchantmentCost",
+                                     "note":  "ENCH\u0027s base cost is the ENIT enchantment cost field - Mutagen names it EnchantmentCost, not BaseCost"
+                                 },
+                    "castType":  {
+                                     "semantic":  "set",
+                                     "path":  "CastType",
+                                     "note":  "documented tokens concentration/constanteffect/fireandforget match CastType members ignoring case; documented token \u0027scroll\u0027 has NO Mutagen CastType member and cannot be expressed statically"
+                                 },
+                    "chargeTime":  {
+                                       "semantic":  "set",
+                                       "path":  "ChargeTime"
+                                   },
+                    "enchantmentAmount":  {
+                                              "semantic":  "set",
+                                              "path":  "EnchantmentAmount"
+                                          },
+                    "clear":  {
+                                  "semantic":  "clearList",
+                                  "path":  "Effects",
+                                  "note":  "clear=true removes all magic effects"
+                              }
+                }
+    },
+    {
+        "subfolder":  "magicEffect",
+        "recordType":  "MagicEffect",
+        "ops":  {
+                    "fullName":  {
+                                     "semantic":  "set",
+                                     "path":  "Name"
+                                 },
+                    "minimumSkillLevel":  {
+                                              "semantic":  "set",
+                                              "path":  "MinimumSkillLevel"
+                                          },
+                    "spellmakingCastingTime":  {
+                                                   "semantic":  "set",
+                                                   "path":  "SpellmakingCastingTime"
+                                               },
+                    "spellmakingArea":  {
+                                            "semantic":  "set",
+                                            "path":  "SpellmakingArea"
+                                        },
+                    "baseCost":  {
+                                     "semantic":  "set",
+                                     "path":  "BaseCost"
+                                 },
+                    "skillUsageMult":  {
+                                           "semantic":  "set",
+                                           "path":  "SkillUsageMultiplier",
+                                           "note":  "sets the MGEF Skill Usage Mult field directly - a literal set, not a stateful multiply (per catalog)"
+                                       },
+                    "castingType":  {
+                                        "semantic":  "set",
+                                        "path":  "CastType",
+                                        "note":  "MGEF op is named castingType but the Mutagen field is CastType; documented tokens concentration/constanteffect/fireandforget match members ignoring case; documented token \u0027scroll\u0027 has NO Mutagen CastType member and cannot be expressed statically"
+                                    },
+                    "projectile":  {
+                                       "semantic":  "set",
+                                       "path":  "Projectile",
+                                       "formType":  "Projectile"
+                                   },
+                    "enchantArt":  {
+                                       "semantic":  "set",
+                                       "path":  "EnchantArt",
+                                       "formType":  "ArtObject"
+                                   },
+                    "castingArt":  {
+                                       "semantic":  "set",
+                                       "path":  "CastingArt",
+                                       "formType":  "ArtObject"
+                                   },
+                    "impactDataSet":  {
+                                          "semantic":  "set",
+                                          "path":  "ImpactData",
+                                          "formType":  "ImpactDataSet",
+                                          "note":  "Mutagen names the MGEF field ImpactData, not ImpactDataSet"
+                                      },
+                    "enchantShader":  {
+                                          "semantic":  "set",
+                                          "path":  "EnchantShader",
+                                          "formType":  "EffectShader",
+                                          "note":  "documented to accept null to remove the shader"
+                                      },
+                    "hitShader":  {
+                                      "semantic":  "set",
+                                      "path":  "HitShader",
+                                      "formType":  "EffectShader"
+                                  },
+                    "removeEdgeGlow":  {
+                                           "unmapped":  "no MGEF field or MagicEffect.Flag member carries edge glow - the edge-glow (edge effect) block lives on the attached EffectShader record, which SkyPatcher clears at runtime; no static MagicEffect field expresses this"
+                                       },
+                    "perkToApply":  {
+                                        "semantic":  "set",
+                                        "path":  "PerkToApply",
+                                        "formType":  "Perk",
+                                        "note":  "documented to accept null to remove the perk"
+                                    },
+                    "setFlags":  {
+                                     "semantic":  "flagsSet",
+                                     "path":  "Flags",
+                                     "valueMap":  {
+                                                      "hostile":  "Hostile",
+                                                      "recover":  "Recover",
+                                                      "detrimental":  "Detrimental",
+                                                      "snaptomesh":  "SnapToNavmesh",
+                                                      "nohitevent":  "NoHitEvent",
+                                                      "dispelwithkeywords":  "DispelWithKeywords",
+                                                      "noduration":  "NoDuration",
+                                                      "nomagnitude":  "NoMagnitude",
+                                                      "noarea":  "NoArea",
+                                                      "fxpersist":  "FXPersist",
+                                                      "goryvisuals":  "GoryVisuals",
+                                                      "hideinui":  "HideInUI",
+                                                      "norecast":  "NoRecast",
+                                                      "poweraffectsmagnitude":  "PowerAffectsMagnitude",
+                                                      "poweraffectsduration":  "PowerAffectsDuration",
+                                                      "painless":  "Painless",
+                                                      "nohiteffect":  "NoHitEffect",
+                                                      "nodeathdispel":  "NoDeathDispel"
+                                                  },
+                                     "note":  "documented token \u0027snaptomesh\u0027 maps to member SnapToNavmesh (the doc\u0027s shortened name for the Snap-to-Navmesh flag); all other tokens match their member ignoring case"
+                                 },
+                    "removeFlags":  {
+                                        "semantic":  "flagsRemove",
+                                        "path":  "Flags",
+                                        "valueMap":  {
+                                                         "hostile":  "Hostile",
+                                                         "recover":  "Recover",
+                                                         "detrimental":  "Detrimental",
+                                                         "snaptomesh":  "SnapToNavmesh",
+                                                         "nohitevent":  "NoHitEvent",
+                                                         "dispelwithkeywords":  "DispelWithKeywords",
+                                                         "noduration":  "NoDuration",
+                                                         "nomagnitude":  "NoMagnitude",
+                                                         "noarea":  "NoArea",
+                                                         "fxpersist":  "FXPersist",
+                                                         "goryvisuals":  "GoryVisuals",
+                                                         "hideinui":  "HideInUI",
+                                                         "norecast":  "NoRecast",
+                                                         "poweraffectsmagnitude":  "PowerAffectsMagnitude",
+                                                         "poweraffectsduration":  "PowerAffectsDuration",
+                                                         "painless":  "Painless",
+                                                         "nohiteffect":  "NoHitEffect",
+                                                         "nodeathdispel":  "NoDeathDispel"
+                                                     },
+                                        "note":  "documented token \u0027snaptomesh\u0027 maps to member SnapToNavmesh; all other tokens match their member ignoring case"
+                                    },
+                    "keywordsToAdd":  {
+                                          "semantic":  "addForm",
+                                          "path":  "Keywords",
+                                          "formType":  "Keyword"
+                                      },
+                    "keywordsToRemove":  {
+                                             "semantic":  "removeForm",
+                                             "path":  "Keywords",
+                                             "formType":  "Keyword"
+                                         }
+                }
+    },
+    {
+        "subfolder":  "ingestible",
+        "recordType":  "Ingestible",
+        "ops":  {
+                    "fullName":  {
+                                     "semantic":  "set",
+                                     "path":  "Name"
+                                 },
+                    "keywordsToAdd":  {
+                                          "semantic":  "addForm",
+                                          "path":  "Keywords",
+                                          "formType":  "Keyword"
+                                      },
+                    "keywordsToRemove":  {
+                                             "semantic":  "removeForm",
+                                             "path":  "Keywords",
+                                             "formType":  "Keyword"
+                                         },
+                    "weight":  {
+                                   "semantic":  "set",
+                                   "path":  "Weight"
+                               },
+                    "value":  {
+                                  "semantic":  "set",
+                                  "path":  "Value"
+                              },
+                    "clear":  {
+                                  "semantic":  "clearList",
+                                  "path":  "Effects",
+                                  "note":  "clear=true removes all magic effects from the ingestible"
+                              },
+                    "model":  {
+                                  "semantic":  "modelPath",
+                                  "path":  "Model.File",
+                                  "formType":  "Ingestible"
+                              },
+                    "alternateTexturesToRemove":  {
+                                                      "semantic":  "removeEntry",
+                                                      "path":  "Model.AlternateTextures",
+                                                      "formType":  "TextureSet",
+                                                      "element":  {
+                                                                      "type":  "AlternateTexture",
+                                                                      "keyPath":  "NewTexture"
+                                                                  }
+                                                  },
+                    "alternateTexturesClear":  {
+                                                   "semantic":  "clearList",
+                                                   "path":  "Model.AlternateTextures",
+                                                   "note":  "=true clears all alternate textures"
+                                               }
+                }
+    },
+    {
+        "subfolder":  "ingredient",
+        "recordType":  "Ingredient",
+        "ops":  {
+                    "fullName":  {
+                                     "semantic":  "set",
+                                     "path":  "Name"
+                                 },
+                    "keywordsToAdd":  {
+                                          "semantic":  "addForm",
+                                          "path":  "Keywords",
+                                          "formType":  "Keyword"
+                                      },
+                    "keywordsToRemove":  {
+                                             "semantic":  "removeForm",
+                                             "path":  "Keywords",
+                                             "formType":  "Keyword"
+                                         },
+                    "weight":  {
+                                   "semantic":  "set",
+                                   "path":  "Weight"
+                               },
+                    "weightMult":  {
+                                       "semantic":  "mult",
+                                       "path":  "Weight"
+                                   },
+                    "value":  {
+                                  "semantic":  "set",
+                                  "path":  "Value",
+                                  "note":  "gold value (DATA), not IngredientValue (ENIT)"
+                              },
+                    "valueMult":  {
+                                      "semantic":  "mult",
+                                      "path":  "Value"
+                                  },
+                    "clear":  {
+                                  "semantic":  "clearList",
+                                  "path":  "Effects",
+                                  "note":  "clear=true removes all magic effects from the ingredient"
+                              },
+                    "model":  {
+                                  "semantic":  "modelPath",
+                                  "path":  "Model.File",
+                                  "formType":  "Ingredient"
+                              },
+                    "alternateTexturesToRemove":  {
+                                                      "semantic":  "removeEntry",
+                                                      "path":  "Model.AlternateTextures",
+                                                      "formType":  "TextureSet",
+                                                      "element":  {
+                                                                      "type":  "AlternateTexture",
+                                                                      "keyPath":  "NewTexture"
+                                                                  }
+                                                  },
+                    "alternateTexturesClear":  {
+                                                   "semantic":  "clearList",
+                                                   "path":  "Model.AlternateTextures",
+                                                   "note":  "=true clears all alternate textures"
+                                               }
+                }
+    },
+    {
+        "subfolder":  "book",
+        "recordType":  "Book",
+        "ops":  {
+                    "fullName":  {
+                                     "semantic":  "set",
+                                     "path":  "Name"
+                                 },
+                    "weight":  {
+                                   "semantic":  "set",
+                                   "path":  "Weight"
+                               },
+                    "weightMult":  {
+                                       "semantic":  "mult",
+                                       "path":  "Weight"
+                                   },
+                    "value":  {
+                                  "semantic":  "set",
+                                  "path":  "Value"
+                              },
+                    "valueMult":  {
+                                      "semantic":  "mult",
+                                      "path":  "Value"
+                                  },
+                    "keywordsToAdd":  {
+                                          "semantic":  "addForm",
+                                          "path":  "Keywords",
+                                          "formType":  "Keyword"
+                                      },
+                    "keywordsToRemove":  {
+                                             "semantic":  "removeForm",
+                                             "path":  "Keywords",
+                                             "formType":  "Keyword"
+                                         },
+                    "pickUpSound":  {
+                                        "semantic":  "set",
+                                        "path":  "PickUpSound",
+                                        "formType":  "SoundDescriptor"
+                                    },
+                    "putDownSound":  {
+                                         "semantic":  "set",
+                                         "path":  "PutDownSound",
+                                         "formType":  "SoundDescriptor"
+                                     },
+                    "inventoryArt":  {
+                                         "semantic":  "set",
+                                         "path":  "InventoryArt",
+                                         "formType":  "Static"
+                                     },
+                    "teachSpell":  {
+                                       "unmapped":  "Book.Teaches is polymorphic (skill vs spell arm: BookSkillLearned vs BookSpellLearned) — a plain formlink set can\u0027t address it; polymorphic overlay set is a named Wave-2 item"
+                                   },
+                    "teachSkill":  {
+                                       "unmapped":  "Book.Teaches is polymorphic (skill vs spell arm: BookSkillLearned vs BookSpellLearned) — a plain enum set can\u0027t address it; polymorphic overlay set is a named Wave-2 item"
+                                   },
+                    "setFlags":  {
+                                     "semantic":  "flagsSet",
+                                     "path":  "Flags",
+                                     "valueMap":  {
+                                                      "canttake":  "CantBeTaken"
+                                                  },
+                                     "note":  "Book.Flag exposes ONLY CantBeTaken; of the documented tokens, advancesactorvalue and teachesspell are absorbed into the polymorphic Teaches field in Mutagen (not settable as flags here), and hasbeenread is not modeled by Mutagen at all — those three tokens must fail loud as unmappable"
+                                 },
+                    "removeFlags":  {
+                                        "semantic":  "flagsRemove",
+                                        "path":  "Flags",
+                                        "valueMap":  {
+                                                         "canttake":  "CantBeTaken"
+                                                     },
+                                        "note":  "Book.Flag exposes ONLY CantBeTaken; advancesactorvalue/teachesspell are absorbed into the polymorphic Teaches field and hasbeenread is not modeled by Mutagen — those three tokens must fail loud as unmappable"
+                                    },
+                    "type":  {
+                                 "semantic":  "set",
+                                 "path":  "Type",
+                                 "valueMap":  {
+                                                  "booktome":  "BookOrTome",
+                                                  "notescroll":  "NoteOrScroll"
+                                              }
+                             },
+                    "model":  {
+                                  "semantic":  "modelPath",
+                                  "path":  "Model.File",
+                                  "formType":  "Book"
+                              },
+                    "alternateTexturesToAdd":  {
+                                                   "semantic":  "addEntry",
+                                                   "path":  "Model.AlternateTextures",
+                                                   "formType":  "TextureSet",
+                                                   "element":  {
+                                                                   "type":  "AlternateTexture",
+                                                                   "keyPath":  "NewTexture",
+                                                                   "fields":  [
+                                                                                  {
+                                                                                      "path":  "Name",
+                                                                                      "arg":  0
+                                                                                  },
+                                                                                  {
+                                                                                      "path":  "Index",
+                                                                                      "arg":  1
+                                                                                  }
+                                                                              ]
+                                                               },
+                                                   "note":  "packed TextureSet~Name3D~Index3D — Name is the 3D shape name string, Index the 3D index"
+                                               },
+                    "alternateTexturesToRemove":  {
+                                                      "semantic":  "removeEntry",
+                                                      "path":  "Model.AlternateTextures",
+                                                      "formType":  "TextureSet",
+                                                      "element":  {
+                                                                      "type":  "AlternateTexture",
+                                                                      "keyPath":  "NewTexture"
+                                                                  }
+                                                  },
+                    "alternateTexturesClear":  {
+                                                   "semantic":  "clearList",
+                                                   "path":  "Model.AlternateTextures",
+                                                   "note":  "=true clears all alternate textures"
+                                               },
+                    "minX":  {
+                                 "semantic":  "vecComponent",
+                                 "path":  "ObjectBounds.First",
+                                 "component":  0
+                             },
+                    "minY":  {
+                                 "semantic":  "vecComponent",
+                                 "path":  "ObjectBounds.First",
+                                 "component":  1
+                             },
+                    "minZ":  {
+                                 "semantic":  "vecComponent",
+                                 "path":  "ObjectBounds.First",
+                                 "component":  2
+                             },
+                    "maxX":  {
+                                 "semantic":  "vecComponent",
+                                 "path":  "ObjectBounds.Second",
+                                 "component":  0
+                             },
+                    "maxY":  {
+                                 "semantic":  "vecComponent",
+                                 "path":  "ObjectBounds.Second",
+                                 "component":  1
+                             },
+                    "maxZ":  {
+                                 "semantic":  "vecComponent",
+                                 "path":  "ObjectBounds.Second",
+                                 "component":  2
+                             }
+                }
+    },
+    {
+        "subfolder":  "misc",
+        "recordType":  "MiscItem",
+        "ops":  {
+                    "fullName":  {
+                                     "semantic":  "set",
+                                     "path":  "Name"
+                                 },
+                    "weight":  {
+                                   "semantic":  "set",
+                                   "path":  "Weight"
+                               },
+                    "weightMult":  {
+                                       "semantic":  "mult",
+                                       "path":  "Weight"
+                                   },
+                    "value":  {
+                                  "semantic":  "set",
+                                  "path":  "Value"
+                              },
+                    "valueMult":  {
+                                      "semantic":  "mult",
+                                      "path":  "Value"
+                                  },
+                    "keywordsToAdd":  {
+                                          "semantic":  "addForm",
+                                          "path":  "Keywords",
+                                          "formType":  "Keyword"
+                                      },
+                    "keywordsToRemove":  {
+                                             "semantic":  "removeForm",
+                                             "path":  "Keywords",
+                                             "formType":  "Keyword"
+                                         },
+                    "pickUpSound":  {
+                                        "semantic":  "set",
+                                        "path":  "PickUpSound",
+                                        "formType":  "SoundDescriptor"
+                                    },
+                    "putDownSound":  {
+                                         "semantic":  "set",
+                                         "path":  "PutDownSound",
+                                         "formType":  "SoundDescriptor"
+                                     },
+                    "model":  {
+                                  "semantic":  "modelPath",
+                                  "path":  "Model.File",
+                                  "formType":  "MiscItem"
+                              },
+                    "alternateTexturesToAdd":  {
+                                                   "semantic":  "addEntry",
+                                                   "path":  "Model.AlternateTextures",
+                                                   "formType":  "TextureSet",
+                                                   "element":  {
+                                                                   "type":  "AlternateTexture",
+                                                                   "keyPath":  "NewTexture",
+                                                                   "fields":  [
+                                                                                  {
+                                                                                      "path":  "NewTexture",
+                                                                                      "arg":  0
+                                                                                  },
+                                                                                  {
+                                                                                      "path":  "Name",
+                                                                                      "arg":  1
+                                                                                  },
+                                                                                  {
+                                                                                      "path":  "Index",
+                                                                                      "arg":  2,
+                                                                                      "default":  "0"
+                                                                                  }
+                                                                              ]
+                                                               }
+                                               },
+                    "alternateTexturesToRemove":  {
+                                                      "semantic":  "removeEntry",
+                                                      "path":  "Model.AlternateTextures",
+                                                      "formType":  "TextureSet",
+                                                      "element":  {
+                                                                      "type":  "AlternateTexture",
+                                                                      "keyPath":  "NewTexture",
+                                                                      "fields":  [
+
+                                                                                 ]
+                                                                  }
+                                                  },
+                    "alternateTexturesClear":  {
+                                                   "semantic":  "clearList",
+                                                   "path":  "Model.AlternateTextures"
+                                               }
+                }
+    },
+    {
+        "subfolder":  "soulGem",
+        "recordType":  "SoulGem",
+        "ops":  {
+                    "fullName":  {
+                                     "semantic":  "set",
+                                     "path":  "Name"
+                                 },
+                    "weight":  {
+                                   "semantic":  "set",
+                                   "path":  "Weight"
+                               },
+                    "weightMult":  {
+                                       "semantic":  "mult",
+                                       "path":  "Weight"
+                                   },
+                    "value":  {
+                                  "semantic":  "set",
+                                  "path":  "Value"
+                              },
+                    "valueMult":  {
+                                      "semantic":  "mult",
+                                      "path":  "Value"
+                                  },
+                    "keywordsToAdd":  {
+                                          "semantic":  "addForm",
+                                          "path":  "Keywords",
+                                          "formType":  "Keyword"
+                                      },
+                    "keywordsToRemove":  {
+                                             "semantic":  "removeForm",
+                                             "path":  "Keywords",
+                                             "formType":  "Keyword"
+                                         },
+                    "pickUpSound":  {
+                                        "semantic":  "set",
+                                        "path":  "PickUpSound",
+                                        "formType":  "SoundDescriptor"
+                                    },
+                    "putDownSound":  {
+                                         "semantic":  "set",
+                                         "path":  "PutDownSound",
+                                         "formType":  "SoundDescriptor"
+                                     },
+                    "currentSoul":  {
+                                        "semantic":  "set",
+                                        "path":  "ContainedSoul",
+                                        "valueMap":  {
+                                                         "petty":  "Petty",
+                                                         "lesser":  "Lesser",
+                                                         "common":  "Common",
+                                                         "greater":  "Greater",
+                                                         "grand":  "Grand",
+                                                         "null":  "None"
+                                                     },
+                                        "note":  "documented token \u0027null\u0027 maps to SoulGem.Level.None (empty)"
+                                    },
+                    "soulCapacity":  {
+                                         "semantic":  "set",
+                                         "path":  "MaximumCapacity",
+                                         "valueMap":  {
+                                                          "petty":  "Petty",
+                                                          "lesser":  "Lesser",
+                                                          "common":  "Common",
+                                                          "greater":  "Greater",
+                                                          "grand":  "Grand",
+                                                          "null":  "None"
+                                                      },
+                                         "note":  "md documents \u0027null sets to empty\u0027 — maps to SoulGem.Level.None"
+                                     },
+                    "model":  {
+                                  "semantic":  "modelPath",
+                                  "path":  "Model.File",
+                                  "formType":  "SoulGem"
+                              },
+                    "alternateTexturesToAdd":  {
+                                                   "semantic":  "addEntry",
+                                                   "path":  "Model.AlternateTextures",
+                                                   "formType":  "TextureSet",
+                                                   "element":  {
+                                                                   "type":  "AlternateTexture",
+                                                                   "keyPath":  "NewTexture",
+                                                                   "fields":  [
+                                                                                  {
+                                                                                      "path":  "NewTexture",
+                                                                                      "arg":  0
+                                                                                  },
+                                                                                  {
+                                                                                      "path":  "Name",
+                                                                                      "arg":  1
+                                                                                  },
+                                                                                  {
+                                                                                      "path":  "Index",
+                                                                                      "arg":  2,
+                                                                                      "default":  "0"
+                                                                                  }
+                                                                              ]
+                                                               }
+                                               },
+                    "alternateTexturesToRemove":  {
+                                                      "semantic":  "removeEntry",
+                                                      "path":  "Model.AlternateTextures",
+                                                      "formType":  "TextureSet",
+                                                      "element":  {
+                                                                      "type":  "AlternateTexture",
+                                                                      "keyPath":  "NewTexture",
+                                                                      "fields":  [
+
+                                                                                 ]
+                                                                  }
+                                                  },
+                    "alternateTexturesClear":  {
+                                                   "semantic":  "clearList",
+                                                   "path":  "Model.AlternateTextures"
+                                               }
+                }
+    },
+    {
+        "subfolder":  "projectile",
+        "recordType":  "Projectile",
+        "ops":  {
+                    "range":  {
+                                  "semantic":  "set",
+                                  "path":  "Range"
+                              },
+                    "rangeMult":  {
+                                      "semantic":  "mult",
+                                      "path":  "Range"
+                                  },
+                    "speed":  {
+                                  "semantic":  "set",
+                                  "path":  "Speed"
+                              },
+                    "speedMult":  {
+                                      "semantic":  "mult",
+                                      "path":  "Speed"
+                                  },
+                    "gravity":  {
+                                    "semantic":  "set",
+                                    "path":  "Gravity"
+                                },
+                    "gravityMult":  {
+                                        "semantic":  "mult",
+                                        "path":  "Gravity"
+                                    },
+                    "sound":  {
+                                  "semantic":  "set",
+                                  "path":  "Sound",
+                                  "formType":  "SoundDescriptor"
+                              },
+                    "explosion":  {
+                                      "semantic":  "set",
+                                      "path":  "Explosion",
+                                      "formType":  "Explosion"
+                                  },
+                    "type":  {
+                                 "semantic":  "set",
+                                 "path":  "Type",
+                                 "valueMap":  {
+                                                  "missile":  "Missile",
+                                                  "grenade":  "Lobber",
+                                                  "beam":  "Beam",
+                                                  "flamethrower":  "Flame",
+                                                  "cone":  "Cone",
+                                                  "barrier":  "Barrier",
+                                                  "arrow":  "Arrow"
+                                              },
+                                 "note":  "documented tokens grenade/flamethrower map to Mutagen members Lobber/Flame"
+                             },
+                    "setFlags":  {
+                                     "semantic":  "flagsSet",
+                                     "path":  "Flags",
+                                     "valueMap":  {
+                                                      "explosionalttrigger":  "AltTrigger",
+                                                      "canturnoff":  "CanBeDisabled",
+                                                      "canpickup":  "CanBePickedUp",
+                                                      "passsmtransparent":  "PassThroughSmallTransparent",
+                                                      "continuousupdate":  "Rotation",
+                                                      "hitscan":  "Hitscan",
+                                                      "explosion":  "Explosion"
+                                                  },
+                                     "note":  "the record md\u0027s flag table shows \u0027hitscanexplosion\u0027 as one token — almost certainly the separate flags hitscan + explosion mashed by the source article\u0027s column formatting (11 documented flags then match Mutagen\u0027s 11 Projectile.Flag members exactly); both are mapped individually. \u0027continuousupdate\u0027 is the one remaining 0x800 bit, which Mutagen names Rotation — mapping is by elimination, moderate confidence. \u0027explosionalttrigger\u0027 is the CK flag \u0027Explosion - Alt. Trigger\u0027 (Mutagen AltTrigger)."
+                                 },
+                    "removeFlags":  {
+                                        "semantic":  "flagsRemove",
+                                        "path":  "Flags",
+                                        "valueMap":  {
+                                                         "explosionalttrigger":  "AltTrigger",
+                                                         "canturnoff":  "CanBeDisabled",
+                                                         "canpickup":  "CanBePickedUp",
+                                                         "passsmtransparent":  "PassThroughSmallTransparent",
+                                                         "continuousupdate":  "Rotation",
+                                                         "hitscan":  "Hitscan",
+                                                         "explosion":  "Explosion"
+                                                     },
+                                        "note":  "same token mapping as setFlags — see its note"
+                                    }
+                }
+    },
+    {
+        "subfolder":  "movementType",
+        "recordType":  "MovementType",
+        "ops":  {
+                    "walkLeft":  {
+                                     "semantic":  "set",
+                                     "path":  "LeftWalk"
+                                 },
+                    "walkRight":  {
+                                      "semantic":  "set",
+                                      "path":  "RightWalk"
+                                  },
+                    "walkForward":  {
+                                        "semantic":  "set",
+                                        "path":  "ForwardWalk"
+                                    },
+                    "walkBack":  {
+                                     "semantic":  "set",
+                                     "path":  "BackWalk"
+                                 },
+                    "runLeft":  {
+                                    "semantic":  "set",
+                                    "path":  "LeftRun"
+                                },
+                    "runRight":  {
+                                     "semantic":  "set",
+                                     "path":  "RightRun"
+                                 },
+                    "runForward":  {
+                                       "semantic":  "set",
+                                       "path":  "ForwardRun"
+                                   },
+                    "runBack":  {
+                                    "semantic":  "set",
+                                    "path":  "BackRun"
+                                },
+                    "rotateInPlaceWalk":  {
+                                              "semantic":  "set",
+                                              "path":  "RotateInPlaceWalk"
+                                          },
+                    "rotateInPlaceRun":  {
+                                             "semantic":  "set",
+                                             "path":  "RotateInPlaceRun"
+                                         },
+                    "rotateWhileMovingRun":  {
+                                                 "semantic":  "set",
+                                                 "path":  "RotateWhileMovingRun"
+                                             }
+                }
+    },
+    {
+        "subfolder":  "faction",
+        "recordType":  "Faction",
+        "ops":  {
+                    "setFlags":  {
+                                     "semantic":  "flagsSet",
+                                     "path":  "Flags",
+                                     "valueMap":  {
+                                                      "hiddenfromnpc":  "HiddenFromPC",
+                                                      "trackcrime":  "TrackCrime",
+                                                      "ignorescrimes_murder":  "IgnoreMurder",
+                                                      "ignorescrimes_assult":  "IgnoreAssault",
+                                                      "ignorescrimes_stealing":  "IgnoreStealing",
+                                                      "ingorescrimes_trespass":  "IgnoreTrespass",
+                                                      "crimegold_usedefaults":  "CrimeGoldUseDefaults",
+                                                      "ignorescrimes_pickpocket":  "IgnorePickpocket",
+                                                      "ignorescrimes_werewolf":  "IgnoreWerewolf",
+                                                      "specialcombat":  "SpecialCombat",
+                                                      "donotreportcrimesagainstmembers":  "DoNotReportCrimesAgainstMembers",
+                                                      "vendor":  "Vendor",
+                                                      "canbeowner":  "CanBeOwner"
+                                                  },
+                                     "note":  "documented tokens \u0027ignorescrimes_assult\u0027 (assault misspelled) and \u0027ingorescrimes_trespass\u0027 (ignore transposed) are mapped as written to IgnoreAssault / IgnoreTrespass — the md flags both as possible source-article typos. Two documented tokens have NO Mutagen Faction.FactionFlag member and are NOT mapped: \u0027playerisexpelled\u0027 and \u0027playerisenemy\u0027 (runtime TESFaction bits 0x4/0x8 that Mutagen\u0027s enum does not model) — they will fail loud rather than map wrong."
+                                 },
+                    "removeFlags":  {
+                                        "semantic":  "flagsRemove",
+                                        "path":  "Flags",
+                                        "valueMap":  {
+                                                         "hiddenfromnpc":  "HiddenFromPC",
+                                                         "trackcrime":  "TrackCrime",
+                                                         "ignorescrimes_murder":  "IgnoreMurder",
+                                                         "ignorescrimes_assult":  "IgnoreAssault",
+                                                         "ignorescrimes_stealing":  "IgnoreStealing",
+                                                         "ingorescrimes_trespass":  "IgnoreTrespass",
+                                                         "crimegold_usedefaults":  "CrimeGoldUseDefaults",
+                                                         "ignorescrimes_pickpocket":  "IgnorePickpocket",
+                                                         "ignorescrimes_werewolf":  "IgnoreWerewolf",
+                                                         "specialcombat":  "SpecialCombat",
+                                                         "donotreportcrimesagainstmembers":  "DoNotReportCrimesAgainstMembers",
+                                                         "vendor":  "Vendor",
+                                                         "canbeowner":  "CanBeOwner"
+                                                     },
+                                        "note":  "same token mapping and unmapped-token caveat as setFlags — see its note"
+                                    }
+                }
+    },
+    {
+        "subfolder":  "cell",
+        "recordType":  "Cell",
+        "ops":  {
+                    "fogNear":  {
+                                    "semantic":  "set",
+                                    "path":  "Lighting.FogNear"
+                                },
+                    "fogFar":  {
+                                   "semantic":  "set",
+                                   "path":  "Lighting.FogFar"
+                               },
+                    "fogPower":  {
+                                     "semantic":  "set",
+                                     "path":  "Lighting.FogPower"
+                                 },
+                    "clipDist":  {
+                                     "semantic":  "set",
+                                     "path":  "Lighting.FogClipDistance"
+                                 },
+                    "directionalXY":  {
+                                          "semantic":  "set",
+                                          "path":  "Lighting.DirectionalRotationXY"
+                                      },
+                    "directionalZ":  {
+                                         "semantic":  "set",
+                                         "path":  "Lighting.DirectionalRotationZ"
+                                     },
+                    "ambientRed":  {
+                                       "unmapped":  "targets one channel of a whole-value Color field — per-channel colour overlay is a named Wave-2 item (the field itself is Lighting.AmbientColor)"
+                                   },
+                    "ambientGreen":  {
+                                         "unmapped":  "targets one channel of a whole-value Color field — per-channel colour overlay is a named Wave-2 item (the field itself is Lighting.AmbientColor)"
+                                     },
+                    "ambientBlue":  {
+                                        "unmapped":  "targets one channel of a whole-value Color field — per-channel colour overlay is a named Wave-2 item (the field itself is Lighting.AmbientColor)"
+                                    },
+                    "directionalRed":  {
+                                           "unmapped":  "targets one channel of a whole-value Color field — per-channel colour overlay is a named Wave-2 item (the field itself is Lighting.DirectionalColor)"
+                                       },
+                    "directionalGreen":  {
+                                             "unmapped":  "targets one channel of a whole-value Color field — per-channel colour overlay is a named Wave-2 item (the field itself is Lighting.DirectionalColor)"
+                                         },
+                    "directionalBlue":  {
+                                            "unmapped":  "targets one channel of a whole-value Color field — per-channel colour overlay is a named Wave-2 item (the field itself is Lighting.DirectionalColor)"
+                                        },
+                    "fogColorNearRed":  {
+                                            "unmapped":  "targets one channel of a whole-value Color field — per-channel colour overlay is a named Wave-2 item (the field itself is Lighting.FogNearColor)"
+                                        },
+                    "fogColorNearGreen":  {
+                                              "unmapped":  "targets one channel of a whole-value Color field — per-channel colour overlay is a named Wave-2 item (the field itself is Lighting.FogNearColor)"
+                                          },
+                    "fogColorNearBlue":  {
+                                             "unmapped":  "targets one channel of a whole-value Color field — per-channel colour overlay is a named Wave-2 item (the field itself is Lighting.FogNearColor)"
+                                         },
+                    "directionalAmbientXMinRed":  {
+                                                      "unmapped":  "targets one channel of a whole-value Color field — per-channel colour overlay is a named Wave-2 item (the field itself is Lighting.AmbientColors.DirectionalXMinus)"
+                                                  },
+                    "directionalAmbientXMinGreen":  {
+                                                        "unmapped":  "targets one channel of a whole-value Color field — per-channel colour overlay is a named Wave-2 item (the field itself is Lighting.AmbientColors.DirectionalXMinus)"
+                                                    },
+                    "directionalAmbientXMinBlue":  {
+                                                       "unmapped":  "targets one channel of a whole-value Color field — per-channel colour overlay is a named Wave-2 item (the field itself is Lighting.AmbientColors.DirectionalXMinus)"
+                                                   },
+                    "directionalAmbientXMaxRed":  {
+                                                      "unmapped":  "targets one channel of a whole-value Color field — per-channel colour overlay is a named Wave-2 item (the field itself is Lighting.AmbientColors.DirectionalXPlus)"
+                                                  },
+                    "directionalAmbientXMaxGreen":  {
+                                                        "unmapped":  "targets one channel of a whole-value Color field — per-channel colour overlay is a named Wave-2 item (the field itself is Lighting.AmbientColors.DirectionalXPlus)"
+                                                    },
+                    "directionalAmbientXMaxBlue":  {
+                                                       "unmapped":  "targets one channel of a whole-value Color field — per-channel colour overlay is a named Wave-2 item (the field itself is Lighting.AmbientColors.DirectionalXPlus)"
+                                                   },
+                    "directionalAmbientYMinRed":  {
+                                                      "unmapped":  "targets one channel of a whole-value Color field — per-channel colour overlay is a named Wave-2 item (the field itself is Lighting.AmbientColors.DirectionalYMinus)"
+                                                  },
+                    "directionalAmbientYMinGreen":  {
+                                                        "unmapped":  "targets one channel of a whole-value Color field — per-channel colour overlay is a named Wave-2 item (the field itself is Lighting.AmbientColors.DirectionalYMinus)"
+                                                    },
+                    "directionalAmbientYMinBlue":  {
+                                                       "unmapped":  "targets one channel of a whole-value Color field — per-channel colour overlay is a named Wave-2 item (the field itself is Lighting.AmbientColors.DirectionalYMinus)"
+                                                   },
+                    "directionalAmbientYMaxRed":  {
+                                                      "unmapped":  "targets one channel of a whole-value Color field — per-channel colour overlay is a named Wave-2 item (the field itself is Lighting.AmbientColors.DirectionalYPlus)"
+                                                  },
+                    "directionalAmbientYMaxGreen":  {
+                                                        "unmapped":  "targets one channel of a whole-value Color field — per-channel colour overlay is a named Wave-2 item (the field itself is Lighting.AmbientColors.DirectionalYPlus)"
+                                                    },
+                    "directionalAmbientYMaxBlue":  {
+                                                       "unmapped":  "targets one channel of a whole-value Color field — per-channel colour overlay is a named Wave-2 item (the field itself is Lighting.AmbientColors.DirectionalYPlus)"
+                                                   },
+                    "directionalAmbientZMinRed":  {
+                                                      "unmapped":  "targets one channel of a whole-value Color field — per-channel colour overlay is a named Wave-2 item (the field itself is Lighting.AmbientColors.DirectionalZMinus)"
+                                                  },
+                    "directionalAmbientZMinGreen":  {
+                                                        "unmapped":  "targets one channel of a whole-value Color field — per-channel colour overlay is a named Wave-2 item (the field itself is Lighting.AmbientColors.DirectionalZMinus)"
+                                                    },
+                    "directionalAmbientZMinBlue":  {
+                                                       "unmapped":  "targets one channel of a whole-value Color field — per-channel colour overlay is a named Wave-2 item (the field itself is Lighting.AmbientColors.DirectionalZMinus)"
+                                                   },
+                    "directionalAmbientZMaxRed":  {
+                                                      "unmapped":  "targets one channel of a whole-value Color field — per-channel colour overlay is a named Wave-2 item (the field itself is Lighting.AmbientColors.DirectionalZPlus)"
+                                                  },
+                    "directionalAmbientZMaxGreen":  {
+                                                        "unmapped":  "targets one channel of a whole-value Color field — per-channel colour overlay is a named Wave-2 item (the field itself is Lighting.AmbientColors.DirectionalZPlus)"
+                                                    },
+                    "directionalAmbientZMaxBlue":  {
+                                                       "unmapped":  "targets one channel of a whole-value Color field — per-channel colour overlay is a named Wave-2 item (the field itself is Lighting.AmbientColors.DirectionalZPlus)"
+                                                   },
+                    "directionalAmbientSpecularRed":  {
+                                                          "unmapped":  "targets one channel of a whole-value Color field — per-channel colour overlay is a named Wave-2 item (the field itself is Lighting.AmbientColors.Specular)"
+                                                      },
+                    "directionalAmbientSpecularGreen":  {
+                                                            "unmapped":  "targets one channel of a whole-value Color field — per-channel colour overlay is a named Wave-2 item (the field itself is Lighting.AmbientColors.Specular)"
+                                                        },
+                    "directionalAmbientSpecularBlue":  {
+                                                           "unmapped":  "targets one channel of a whole-value Color field — per-channel colour overlay is a named Wave-2 item (the field itself is Lighting.AmbientColors.Specular)"
+                                                       },
+                    "lightingTemplate":  {
+                                             "semantic":  "set",
+                                             "path":  "LightingTemplate",
+                                             "formType":  "LightingTemplate"
+                                         },
+                    "acousticSpace":  {
+                                          "semantic":  "set",
+                                          "path":  "AcousticSpace",
+                                          "formType":  "AcousticSpace"
+                                      },
+                    "musicType":  {
+                                      "semantic":  "set",
+                                      "path":  "Music",
+                                      "formType":  "MusicType"
+                                  },
+                    "skyRegion":  {
+                                      "semantic":  "set",
+                                      "path":  "SkyAndWeatherFromRegion",
+                                      "formType":  "Region"
+                                  },
+                    "imageSpace":  {
+                                       "semantic":  "set",
+                                       "path":  "ImageSpace",
+                                       "formType":  "ImageSpace"
+                                   },
+                    "encounterZone":  {
+                                          "semantic":  "set",
+                                          "path":  "EncounterZone",
+                                          "formType":  "EncounterZone"
+                                      },
+                    "waterType":  {
+                                      "semantic":  "set",
+                                      "path":  "Water",
+                                      "formType":  "Water"
+                                  },
+                    "waterHeight":  {
+                                        "semantic":  "set",
+                                        "path":  "WaterHeight"
+                                    },
+                    "setInheritanceFlags":  {
+                                                "semantic":  "flagsSet",
+                                                "path":  "Lighting.Inherits",
+                                                "note":  "all 11 documented tokens (ambientcolor…lightfadedistances) match CellLighting.Inherit members ignoring case — no valueMap needed"
+                                            },
+                    "removeInheritanceFlags":  {
+                                                   "semantic":  "flagsRemove",
+                                                   "path":  "Lighting.Inherits",
+                                                   "note":  "all 11 documented tokens (ambientcolor…lightfadedistances) match CellLighting.Inherit members ignoring case — no valueMap needed"
+                                               },
+                    "setCellFlags":  {
+                                         "semantic":  "flagsSet",
+                                         "path":  "Flags",
+                                         "note":  "8 of the 10 documented tokens match Cell.Flag members ignoring case; \u0027hastempdata\u0027 and \u0027warntoleave\u0027 have NO Cell.Flag member in Mutagen — those two tokens cannot resolve and should surface loud, not silently drop"
+                                     },
+                    "removeCellFlags":  {
+                                            "semantic":  "flagsRemove",
+                                            "path":  "Flags",
+                                            "note":  "8 of the 10 documented tokens match Cell.Flag members ignoring case; \u0027hastempdata\u0027 and \u0027warntoleave\u0027 have NO Cell.Flag member in Mutagen — those two tokens cannot resolve and should surface loud, not silently drop"
+                                        }
+                }
+    },
+    {
+        "subfolder":  "location",
+        "recordType":  "Location",
+        "ops":  {
+                    "fullName":  {
+                                     "semantic":  "set",
+                                     "path":  "Name"
+                                 },
+                    "keywordsToAdd":  {
+                                          "semantic":  "addForm",
+                                          "path":  "Keywords",
+                                          "formType":  "Keyword"
+                                      },
+                    "keywordsToRemove":  {
+                                             "semantic":  "removeForm",
+                                             "path":  "Keywords",
+                                             "formType":  "Keyword"
+                                         },
+                    "musicType":  {
+                                      "semantic":  "set",
+                                      "path":  "Music",
+                                      "formType":  "MusicType"
+                                  },
+                    "unreportedCrimeFaction":  {
+                                                   "semantic":  "set",
+                                                   "path":  "UnreportedCrimeFaction",
+                                                   "formType":  "Faction"
+                                               },
+                    "parentLocation":  {
+                                           "semantic":  "set",
+                                           "path":  "ParentLocation",
+                                           "formType":  "Location"
+                                       }
+                }
+    },
+    {
+        "subfolder":  "encounterzone",
+        "recordType":  "EncounterZone",
+        "ops":  {
+                    "minLevel":  {
+                                     "semantic":  "set",
+                                     "path":  "MinLevel"
+                                 },
+                    "minLevelAdd":  {
+                                        "semantic":  "addNumeric",
+                                        "path":  "MinLevel",
+                                        "note":  "MinLevel/MaxLevel are byte fields in Mutagen — add/mult results must clamp to 0–255"
+                                    },
+                    "minLevelMult":  {
+                                         "semantic":  "mult",
+                                         "path":  "MinLevel",
+                                         "note":  "MinLevel/MaxLevel are byte fields in Mutagen — add/mult results must clamp to 0–255"
+                                     },
+                    "maxLevel":  {
+                                     "semantic":  "set",
+                                     "path":  "MaxLevel"
+                                 },
+                    "maxLevelAdd":  {
+                                        "semantic":  "addNumeric",
+                                        "path":  "MaxLevel",
+                                        "note":  "MinLevel/MaxLevel are byte fields in Mutagen — add/mult results must clamp to 0–255"
+                                    },
+                    "maxLevelMult":  {
+                                         "semantic":  "mult",
+                                         "path":  "MaxLevel",
+                                         "note":  "MinLevel/MaxLevel are byte fields in Mutagen — add/mult results must clamp to 0–255"
+                                     },
+                    "location":  {
+                                     "semantic":  "set",
+                                     "path":  "Location",
+                                     "formType":  "Location"
+                                 }
+                }
+    },
+    {
+        "subfolder":  "reference",
+        "recordType":  "PlacedObject",
+        "ops":  {
+                    "disable":  {
+                                    "semantic":  "flagBool",
+                                    "path":  "SkyrimMajorRecordFlags",
+                                    "flag":  "InitiallyDisabled",
+                                    "note":  "REFR is the least-mature SkyPatcher surface — gated by the global iUpdateRefs setting and flagged in-development by the author; NPCs are excluded from disabling. InitiallyDisabled is a record-header flag (PlacedObject has no separate MajorFlags field in the corpus; SkyrimMajorRecordFlags carries it)"
+                                }
+                }
+    }
 ]
