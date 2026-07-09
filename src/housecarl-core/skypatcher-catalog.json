@@ -746,9 +746,10 @@
    },
    {
     "name": "critPercentMult",
-    "shape": "mult",
+    "shape": "set",
     "tractability": "CLEAN",
-    "stateful": true
+    "stateful": false,
+    "note": "sets CRDT % Mult — the field IS the multiplier, so this is a direct set, not a stateful multiply (Wave-1 reconciliation of the …Mult suffix heuristic)"
    },
    {
     "name": "critDamageSetToBase",
