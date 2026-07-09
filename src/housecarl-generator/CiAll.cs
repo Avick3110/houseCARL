@@ -194,6 +194,12 @@ public static class CiAll
         // keywords/editorid/name/hasPlugins evaluated; anything else = LOUD unresolved skip), tiered honesty
         // (HARD ⇒ directive, unknown key ⇒ warn), null-clear, rename, enum + valueMap, vector components.
         ("skypatcher-overlay-guard", SkyPatcherOverlayProbe.RunGuard),
+        // SKYPATCHER DISTRIBUTOR Wave 1 — the op→field map triangle (SkyPatcherFieldMap): every catalog
+        // CLEAN/COLLECTION op across all 27 types is mapped or EXPLICITLY unmapped-with-reason; HARD ops
+        // carry no mapping; every mapped path walks the REAL Mutagen mutable type via the write engine's
+        // own property resolution; every valueMap/flag token parses into the real leaf enum; element types
+        // instantiate and their sub-paths walk. Self-test arm RED-proves the checker catches a broken map.
+        ("skypatcher-fieldmap-guard", SkyPatcherFieldMapProbe.RunGuard),
     };
 
     /// <summary>Dispatch a single CI guard by name through the registry — the ONE place a CI probe is listed, so

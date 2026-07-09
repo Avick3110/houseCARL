@@ -157,7 +157,73 @@ public static class SkyPatcherOverlayProbe
             result.Applied.Any(a => a.Op == "attackDamageMult" && a.Before == "40" && a.After == "100"),
             string.Join(" | ", result.Applied.Where(a => a.Op == "attackDamageMult").Select(a => $"{a.Before}→{a.After}")));
 
+        failures += NpcEntryOpsArm(catalog, fieldMap, mod);
+
         return Done(failures);
+    }
+
+    /// <summary>The struct-ENTRY collection semantics (addEntry/'='-pack, addEntryOnce, removeEntry,
+    /// removeEntryByCount, replaceEntry, clearList, flagBool) exercised on an NPC's inventory + factions —
+    /// the shapes the weapon arm can't reach. Includes the conditional-removal LOUD-skip guard (a qualified
+    /// remove must NOT replay as an unconditional one — subagent review finding).</summary>
+    static int NpcEntryOpsArm(SkyPatcherCatalog catalog, SkyPatcherFieldMap fieldMap, SkyrimMod mod)
+    {
+        Console.WriteLine("  --- NPC entry-op arm (struct-entry collections) ---");
+        int failures = 0;
+        var npcCat = catalog.ForSubfolder("npc")!;
+        var npcMap = fieldMap.For("npc", "Npc");
+        failures += Check("npc field map present", npcMap is not null);
+        if (npcMap is null) return failures;
+
+        var itemA = new FormKey(new ModKey("HcItm", ModType.Plugin), 0x900);
+        var itemB = new FormKey(new ModKey("HcItm", ModType.Plugin), 0x901);
+        var itemC = new FormKey(new ModKey("HcItm", ModType.Plugin), 0x902);
+        var facA = new FormKey(new ModKey("HcFac", ModType.Plugin), 0xA01);
+
+        var npc = mod.Npcs.AddNew();
+        npc.EditorID = "HcTestNpc";
+        npc.Items = new()
+        {
+            new ContainerEntry { Item = new ContainerItem { Item = itemA.ToLink<IItemGetter>(), Count = 2 } },
+        };
+
+        var me = $"HcSpOv.esp|{npc.FormKey.ID:X}";
+        SkyPatcherOverlay.OrderedLine L(string file, int n, string text)
+            => new(file, n, SkyPatcherParse.ParseLine(text));
+
+        var resolver = new StubResolver();
+        var lines = new[]
+        {
+            L("a.ini", 1, $"filterByNpcs={me}:objectsToAdd=HcItm.esp|901=3"),                    // '='-packed addEntry
+            L("a.ini", 2, $"filterByNpcs={me}:factionsToAdd=HcFac.esp|A01=2"),                   // '='-packed, rank sub-field
+            L("a.ini", 3, $"filterByNpcs={me}:addOnceToInventory=HcItm.esp|901~5"),              // '~'-packed (unlike objectsToAdd!); already present ⇒ no-op
+            L("z.ini", 1, $"filterByNpcs={me}:removeInventoryObjectsByCount=HcItm.esp|901~1"),   // count 3 → 2
+            L("z.ini", 2, $"filterByNpcs={me}:objectsToReplace=HcItm.esp|900~HcItm.esp|902"),    // retarget A → C
+            L("z.ini", 3, $"filterByNpcs={me}:objectsToRemove=HcItm.esp|902~5"),                 // QUALIFIED remove ⇒ loud skip
+            L("z.ini", 4, $"filterByNpcs={me}:setEssential=true"),                               // flagBool
+        };
+        var r = SkyPatcherOverlay.Apply(npc, npc.FormKey, npc.EditorID, catalog, npcCat, npcMap, lines, resolver);
+
+        var entries = npc.Items!.Select(e => (fk: e.Item.Item.FormKey, count: e.Item.Count)).ToList();
+        failures += Check("'='-packed addEntry landed (itemB count 3 → byCount → 2)",
+            entries.Any(e => e.fk == itemB && e.count == 2),
+            string.Join(" | ", entries.Select(e => $"{e.fk}×{e.count}")));
+        failures += Check("addOnce on a present entry is a visible no-op",
+            r.Applied.Any(a => a.Op == "addOnceToInventory" && a.Note is { } n && n.Contains("no-op"))
+            && entries.Count(e => e.fk == itemB) == 1);
+        failures += Check("replaceEntry retargeted itemA → itemC, count preserved",
+            !entries.Any(e => e.fk == itemA) && entries.Any(e => e.fk == itemC && e.count == 2),
+            string.Join(" | ", entries.Select(e => $"{e.fk}×{e.count}")));
+        failures += Check("QUALIFIED removal skipped LOUD (itemC still present, warning names the gap)",
+            entries.Any(e => e.fk == itemC)
+            && r.Warnings.Any(w => w.Contains("objectsToRemove") && w.Contains("NOT applied")),
+            string.Join(" ; ", r.Warnings));
+        failures += Check("factionsToAdd entry with rank sub-field",
+            npc.Factions.Any(f => f.Faction.FormKey == facA && f.Rank == 2),
+            string.Join(" | ", npc.Factions.Select(f => $"{f.Faction.FormKey}@{f.Rank}")));
+        failures += Check("flagBool set (setEssential=true)",
+            npc.Configuration.Flags.HasFlag(NpcConfiguration.Flag.Essential));
+        return failures;
     }
 
     static int Check(string label, bool ok, string? detail = null)

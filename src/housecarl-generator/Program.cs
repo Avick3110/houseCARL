@@ -21,6 +21,10 @@ if (args.Length > 0 && CiAll.TryDispatch(args[0], args[1..], out var ciRc)) retu
 // Maintenance diagnostic: re-verify the mutable-collection whitelist on a Mutagen bump.
 if (args.Length > 0 && args[0] == "vocab") return Probe.RunVocab();
 
+// SkyPatcher Wave-1 CRUX harness: one record's computed post-SkyPatcher state off a LIVE MO2 instance —
+// the artifact the empirical gate verifies against xEdit + in-game (plan §7 Wave 1).
+if (args.Length > 0 && args[0] == "skypatcher-post-state") return SkyPatcherHarness.Run(args[1..]);
+
 // Index-build resilience (Nexus bug): feasibility probe — is group enumeration resumable past a parse throw?
 if (args.Length > 0 && args[0] == "pkcu-probe") return PkcuProbe.Run(args[1..]);
 
