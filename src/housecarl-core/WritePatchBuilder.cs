@@ -525,6 +525,11 @@ public static class WritePatchBuilder
             { return PatchOutcome.Fail($"cannot open '{fileName}' to edit in place ({WriteEngine.Describe(ex)}) — a plugin Mutagen can't parse is refused, not re-emitted minus what it couldn't read (Q3). The file is UNTOUCHED."); }
         if (!string.Equals(targetMod.ModKey.FileName.String, fileName, StringComparison.OrdinalIgnoreCase))
             return PatchOutcome.Fail($"in-place ModKey '{targetMod.ModKey.FileName}' must match the target filename '{fileName}'.");
+        // The author's DECLARED masters, captured before any mutation — the re-opened header is diffed against this
+        // to surface a master GROW as an explicit re-sort note (PR #163 review #1: a grown master is itself a
+        // re-sort trigger — the plugin is invalid until it loads AFTER its new master — independent of winners).
+        var mastersBefore = targetMod.ModHeader.MasterReferences
+            .Select(m => m.Master.FileName.String).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         // --- Phase 3: apply each verb to the TARGET's OWN record. GenericGetOrAddAsOverride on the target's own body
         //     (already present in targetMod) returns THAT record (get-semantics) — the verb edits the file's own body,
@@ -605,7 +610,21 @@ public static class WritePatchBuilder
             { return PatchOutcome.Fail($"'{fileName}' was edited in place but could not be re-opened to verify: {ex.Message}"); }
         finally { (back as IDisposable)?.Dispose(); }
 
-        return new PatchOutcome(true, null, targetPath, false, masters, ops, bytes) { ReadBack = readBack, InPlace = true };
+        return new PatchOutcome(true, null, targetPath, false, masters, ops, bytes)
+            { ReadBack = readBack, InPlace = true, Note = MasterGrowNote(fileName, mastersBefore, masters) };
+    }
+
+    /// <summary>The explicit re-sort note when an in-place write GREW the target's master header (PR #163 review #1):
+    /// Skyrim loads a plugin only AFTER its masters, so a newly added master — e.g. an edit's FormLink into an
+    /// active-but-undeclared plugin (F2), or a forwarded body's references (F4) — leaves the file invalid until the
+    /// order is re-sorted, independent of any conflict-winner change. Null when nothing was added (the common case,
+    /// and any prune: a shrink never breaks load eligibility).</summary>
+    static string? MasterGrowNote(string fileName, HashSet<string> mastersBefore, IReadOnlyList<string> mastersAfter)
+    {
+        var grown = mastersAfter.Where(m => !mastersBefore.Contains(m)).ToList();
+        if (grown.Count == 0) return null;
+        return $"{string.Join(", ", grown)} {(grown.Count == 1 ? "was" : "were")} added as a master of '{fileName}' — " +
+               "a plugin loads only if its masters load BEFORE it, so re-sort your load order (LOOT / MO2) before playing.";
     }
 
     /// <summary>Resolve the target's OWN declared masters to on-disk overlays in declared order — the load order
@@ -1003,6 +1022,10 @@ public static class WritePatchBuilder
             { return ForwardOutcome.Fail($"cannot open '{fileName}' to forward into in place ({WriteEngine.Describe(ex)}) — a plugin Mutagen can't parse is refused, not re-emitted minus what it couldn't read (Q3). The file is UNTOUCHED."); }
         if (!string.Equals(targetMod.ModKey.FileName.String, fileName, StringComparison.OrdinalIgnoreCase))
             return ForwardOutcome.Fail($"in-place ModKey '{targetMod.ModKey.FileName}' must match the target filename '{fileName}'.");
+        // Declared masters before any mutation — diffed against the re-opened header for the master-grow re-sort
+        // note (PR #163 review #1; see MasterGrowNote).
+        var mastersBefore = targetMod.ModHeader.MasterReferences
+            .Select(m => m.Master.FileName.String).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         // --- Phase 3: replace-or-copy each source body into the TARGET (the F1 semantic — a carried FormKey is
         //     REPLACED, verified dropped before the copy; nothing is serialized until Phase 4, so any refusal here
@@ -1071,7 +1094,8 @@ public static class WritePatchBuilder
             { return ForwardOutcome.Fail($"'{fileName}' was rewritten but could not be re-opened to verify: {ex.Message}"); }
         finally { (back as IDisposable)?.Dispose(); }
 
-        return new ForwardOutcome(true, null, targetPath, false, forwarded, masters, bytes) { ReadBack = readBack, InPlace = true };
+        return new ForwardOutcome(true, null, targetPath, false, forwarded, masters, bytes)
+            { ReadBack = readBack, InPlace = true, Note = MasterGrowNote(fileName, mastersBefore, masters) };
     }
 
     /// <summary>One record to FORWARD: take plugin <see cref="FromPlugin"/>'s version of <see cref="Target"/> and carry
@@ -1301,7 +1325,7 @@ public static class WritePatchBuilder
                         return ForwardOutcome.Fail(
                             $"cannot replace {spec.Target}: the patch already carries this record and its existing " +
                             "override could not be dropped before the copy (the engine no-op'd without throwing) — " +
-                            "surfaced, not a silent skip (Q3); NO patch written.");
+                            "surfaced, not a silent skip (Q3); nothing was serialized (the extended patch's on-disk file is untouched).");
                     replaced = true;
                 }
                 ILinkCache? cache = WriteEngine.RecordNeedsSourceCache(body) ? session.LinkCacheFor(spec.FromPlugin) : null;

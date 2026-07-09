@@ -1473,7 +1473,8 @@ public sealed class LoadOrderService : IDisposable
         {
             var markerNote = MergeEditedInPlaceMarker(Path.GetDirectoryName(targetPath));
             var seqNote = SeqStaleInPlaceNote(targetPath, targetName);
-            var note = JoinNotes(ackNote, markerNote, seqNote);
+            // outcome.Note first — the core's master-grow re-sort note (PR #163 review #1) must survive the merge.
+            var note = JoinNotes(outcome.Note, ackNote, markerNote, seqNote);
             if (note is not null) return outcome with { Note = note };
         }
         else if (ackNote is not null)
@@ -1758,7 +1759,8 @@ public sealed class LoadOrderService : IDisposable
         {
             var markerNote = MergeEditedInPlaceMarker(Path.GetDirectoryName(targetPath));
             var seqNote = SeqStaleInPlaceNote(targetPath, targetName);
-            var note = JoinNotes(ackNote, markerNote, seqNote);
+            // outcome.Note first — the core's master-grow re-sort note (PR #163 review #1) must survive the merge.
+            var note = JoinNotes(outcome.Note, ackNote, markerNote, seqNote);
             if (note is not null) return outcome with { Note = note };
         }
         else if (ackNote is not null)
@@ -1879,7 +1881,8 @@ public sealed class LoadOrderService : IDisposable
         {
             var markerNote = MergeEditedInPlaceMarker(Path.GetDirectoryName(targetPath));
             var seqNote = SeqStaleInPlaceNote(targetPath, targetName);
-            var note = JoinNotes(ackNote, markerNote, seqNote);
+            // outcome.Note first — the core's master-grow re-sort note (PR #163 review #1) must survive the merge.
+            var note = JoinNotes(outcome.Note, ackNote, markerNote, seqNote);
             if (note is not null) return outcome with { Note = note };
         }
         else if (ackNote is not null)

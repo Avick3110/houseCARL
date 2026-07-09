@@ -322,10 +322,12 @@ public static class ForwardFromPluginProbe
             }
             var dmg = ReadWeaponDamage(oCopy, xFk);
             bool masterGrown = green.Success && green.Masters.Any(mn => mn.Equals(MasterName, StringComparison.OrdinalIgnoreCase));
-            bool pass = red && redUntouched && green.Success && green.InPlace && dmg == 20 && masterGrown
+            // PR #163 review #1: the grown master must be surfaced as an explicit re-sort note, not left to "if a winner changed".
+            bool noted = green.Note is not null && green.Note.Contains("added as a master", StringComparison.OrdinalIgnoreCase);
+            bool pass = red && redUntouched && green.Success && green.InPlace && dmg == 20 && masterGrown && noted
                      && green.Forwarded.Count == 1 && !green.Forwarded[0].ReplacedExisting;
-            Check("INPLACE-NEW: consent RED (untouched) → GREEN; ModA's X lands in Other's own file (20) + origin master joins its header",
-                pass, $"red={red} redUntouched={redUntouched} green={green.Success} inPlace={green.InPlace} dmg={dmg} (want 20) masterGrown={masterGrown} err=[{Trim(green.Error)}]");
+            Check("INPLACE-NEW: consent RED (untouched) → GREEN; ModA's X lands in Other's own file (20) + origin master joins its header + re-sort note",
+                pass, $"red={red} redUntouched={redUntouched} green={green.Success} inPlace={green.InPlace} dmg={dmg} (want 20) masterGrown={masterGrown} resortNoted={noted} err=[{Trim(green.Error)}]");
         }
 
         // ---- INPLACE-REPLACE: forward ModB's X into ModA (which CARRIES its own X=20 override) — the existing record
@@ -343,9 +345,10 @@ public static class ForwardFromPluginProbe
             var dmg = ReadWeaponDamage(aCopy, xFk);
             bool flagged = o.Success && o.Forwarded.Count == 1 && o.Forwarded[0].ReplacedExisting;
             bool masterGrown = o.Success && o.Masters.Any(mn => mn.Equals(ModBName, StringComparison.OrdinalIgnoreCase));
-            bool pass = o.Success && o.InPlace && dmg == 30 && flagged && masterGrown;
-            Check("INPLACE-REPLACE: a FormKey the target carries is replaced in its own file (X=30, not 20), flagged, masters grow (+ModB)",
-                pass, $"success={o.Success} inPlace={o.InPlace} dmg={dmg} (want 30) flagged={flagged} masterGrown={masterGrown} masters=[{(o.Success ? string.Join(",", o.Masters) : "")}] err=[{Trim(o.Error)}]");
+            bool noted = o.Note is not null && o.Note.Contains("added as a master", StringComparison.OrdinalIgnoreCase);
+            bool pass = o.Success && o.InPlace && dmg == 30 && flagged && masterGrown && noted;
+            Check("INPLACE-REPLACE: a FormKey the target carries is replaced in its own file (X=30, not 20), flagged, masters grow (+ModB) + re-sort note",
+                pass, $"success={o.Success} inPlace={o.InPlace} dmg={dmg} (want 30) flagged={flagged} masterGrown={masterGrown} resortNoted={noted} masters=[{(o.Success ? string.Join(",", o.Masters) : "")}] err=[{Trim(o.Error)}]");
         }
 
         // ---- INPLACE-CONTRACT: the same up-front contract the sibling write tools enforce (Q3, named misuses). ----
