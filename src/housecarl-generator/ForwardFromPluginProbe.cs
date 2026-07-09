@@ -4,6 +4,7 @@ using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Plugins.Records;
 using Mutagen.Bethesda.Skyrim;
 using HousecarlCore;
+using HousecarlMcp;
 
 namespace HousecarlGenerator;
 
@@ -39,11 +40,18 @@ namespace HousecarlGenerator;
 ///   ALREADY-WINNER    — forward ModB's X (already winning): succeeds, Dmg 30, flagged WasAlreadyWinner (redundant — surfaced, not silent Q3).
 ///   MULTI             — forward [X,Y] from ModA in ONE call: both land (20, 200).
 ///   EXTEND            — forward X (fresh) then Y into the SAME patch (into=): both present (20, 200).
+///   REPLACE           — forward X again from ModB into the same patch: the existing override is REPLACED (30, not 20),
+///                       flagged ReplacedExisting, and the header grows from the NEW body (+ModB via its keyword) —
+///                       HCBR-2026-07-08-01 F1 (the pre-fix GetOrAdd kept the old body, skipped the copy AND the
+///                       master grow, and still reported "forwarded").
 ///   ORIGINALS         — the 4 source plugins are SHA-identical across the whole run (only the patch is ever written).
 ///   REJ-NOTINORDER    — a source plugin not in the order refuses loud ('not in the load order'), NO file.
 ///   REJ-DOESNTDEFINE  — forwarding X from Other (which defines only W) refuses loud ('does NOT define'), NO file.
 ///   REJ-INTOSELF      — from_plugin == the output patch itself refuses loud ('output patch itself'), NO file.
 ///   REJ-DUP           — the SAME target twice in one call refuses loud ('more than once'), NO file.
+///   INPLACE-* (HCBR-2026-07-08-01 F4) — the forward lane's in-place route, on COPIES of the sources: consent
+///                       RED→GREEN into a plugin's own file (NEW), replace-on-collision + master grow (REPLACE),
+///                       the up-front contract (CONTRACT), and the opt-in defaults (OPTIN).
 ///
 /// COVERAGE NOTE (Q3 — surface the gap, don't imply completeness): four of GetRecord's five null/refusal shapes are
 /// armed above (not-in-order, doesn't-define, the-patch-itself, dup). The FIFTH — a source plugin EXCLUDED from the
@@ -117,7 +125,11 @@ public static class ForwardFromPluginProbe
             a.BeginWrite.ToPath(aPath).WithLoadOrder(new ISkyrimModGetter[] { m }).Write();
 
             var b = new SkyrimMod(new ModKey("HcFwdModB", ModType.Plugin), SkyrimRelease.SkyrimSE);
-            ((IWeapon)WriteEngine.GenericGetOrAddAsOverride(b, x)).BasicStats!.Damage = 30;
+            var bx = (IWeapon)WriteEngine.GenericGetOrAddAsOverride(b, x); bx.BasicStats!.Damage = 30;
+            // ModB's X carries a keyword DEFINED IN ModB — so forwarding ModB's X must pull ModB into the patch's
+            // master header (the REPLACE arm's master-grow discriminator; HCBR-2026-07-08-01 F1's skipped-grow half).
+            var bkw = b.Keywords.AddNew(); bkw.EditorID = "HcFwdModBKw";
+            (bx.Keywords ??= new()).Add(bkw.FormKey.ToLink<IKeywordGetter>());
             ((IWeapon)WriteEngine.GenericGetOrAddAsOverride(b, y)).BasicStats!.Damage = 300;
             ((IPlacedObject)WriteEngine.GenericGetOrAddAsOverride(b, placed, mCache)).Scale = 3.0f;
             b.BeginWrite.ToPath(bPath).WithLoadOrder(new ISkyrimModGetter[] { m }).Write();
@@ -228,6 +240,28 @@ public static class ForwardFromPluginProbe
                 firstOk && secondOk && dx == 20 && dy == 200, $"first={firstOk} second={secondOk} dx={dx} dy={dy}");
         }
 
+        // ---- REPLACE (HCBR-2026-07-08-01 F1): forward X from ModA fresh, then X AGAIN from ModB into the same patch.
+        //      The pre-fix GetOrAdd get-semantics kept ModA's body (Dmg 20) and skipped the copy while still reporting
+        //      "forwarded 1 record" — a silent wrong result. The contract now: the existing override is REPLACED by
+        //      ModB's body (Dmg 30), flagged ReplacedExisting, AND the master header grows from the NEW body (ModB's X
+        //      carries a ModB-defined keyword, so ModB must appear — the skipped-master-grow half of the report). ----
+        {
+            string pPath = Path.Combine(tmpDir, "HcFwdReplace.esp");
+            bool firstOk; WritePatchBuilder.ForwardOutcome o2;
+            using (var r = LoadOrderResolver.Build(orderPaths))
+                firstOk = WritePatchBuilder.ForwardRecords(r,
+                    new[] { new WritePatchBuilder.ForwardSpec { Target = xFk, FromPlugin = ModAName } }, pPath, extend: false).Success;
+            using (var r = LoadOrderResolver.Build(orderPaths))
+                o2 = WritePatchBuilder.ForwardRecords(r,
+                    new[] { new WritePatchBuilder.ForwardSpec { Target = xFk, FromPlugin = ModBName } }, pPath, extend: true);
+            var dmg = firstOk && o2.Success ? ReadWeaponDamage(pPath, xFk) : null;
+            bool flagged = o2.Success && o2.Forwarded.Count == 1 && o2.Forwarded[0].ReplacedExisting;
+            bool masterGrown = o2.Success && o2.Masters.Any(mn => mn.Equals(ModBName, StringComparison.OrdinalIgnoreCase));
+            Check("REPLACE: re-forwarding a FormKey the patch already carries replaces the body (X=30, not 20), flags it, grows masters (+ModB)",
+                firstOk && o2.Success && dmg == 30 && flagged && masterGrown,
+                $"first={firstOk} second={o2.Success} dmg={dmg} (want 30) flagged={flagged} masterGrown={masterGrown} masters=[{(o2.Success ? string.Join(",", o2.Masters) : "")}] err=[{Trim(o2.Error)}]");
+        }
+
         // ---- Q3 rejects (whole call refused, NO file written, named reason). ----
         void RejectArm(string label, string stem, WritePatchBuilder.ForwardSpec[] specs, Func<string, bool> msgOk)
         {
@@ -264,6 +298,79 @@ public static class ForwardFromPluginProbe
         bool untouched = shaBefore.All(kv => string.Equals(kv.Value, ShaOf(kv.Key), StringComparison.Ordinal));
         Check("ORIGINALS: the 4 source plugins are byte-identical after the run (only the patch is written)", untouched,
             untouched ? null : "a source plugin's bytes changed — forwarding must never write a source");
+
+        // ==== IN-PLACE lane (HCBR-2026-07-08-01 F4) — forwards INTO an existing plugin's OWN file, consent-gated.
+        //      Runs on COPIES of the sources (this lane rewrites its target BY DESIGN; the ORIGINALS arm above stays
+        //      the default-lane invariant). Drives the REAL service branch (contract + handshake + core). ====
+
+        // ---- INPLACE-NEW: forward ModA's X into Other (which doesn't carry X): consent RED first (file untouched),
+        //      GREEN with acknowledge=true — X=20 lands as Other's override, the origin master joins Other's header. ----
+        {
+            var dir = Path.Combine(tmpDir, "inplace-new"); Directory.CreateDirectory(dir);
+            var oCopy = Path.Combine(dir, OtherName); File.Copy(oPath, oCopy);
+            var before = File.ReadAllBytes(oCopy);
+            bool red, redUntouched; WritePatchBuilder.ForwardOutcome green;
+            using (var r = LoadOrderResolver.Build(new[] { mPath, aPath, bPath, oCopy }))
+            {
+                var svc = LoadOrderService.ForGuard(r, new UserConfigStore(Path.Combine(dir, "user.json")));
+                var first = svc.ForwardRecords(new[] { $"{xFk.ID:X6}:{MasterName}" }, ModAName, null, null,
+                    fullReadback: false, target: OtherName, inPlace: true, acknowledge: false);
+                red = first.NeedsAcknowledge && !first.Success;
+                redUntouched = File.ReadAllBytes(oCopy).AsSpan().SequenceEqual(before);
+                green = svc.ForwardRecords(new[] { $"{xFk.ID:X6}:{MasterName}" }, ModAName, null, null,
+                    fullReadback: false, target: OtherName, inPlace: true, acknowledge: true);
+            }
+            var dmg = ReadWeaponDamage(oCopy, xFk);
+            bool masterGrown = green.Success && green.Masters.Any(mn => mn.Equals(MasterName, StringComparison.OrdinalIgnoreCase));
+            bool pass = red && redUntouched && green.Success && green.InPlace && dmg == 20 && masterGrown
+                     && green.Forwarded.Count == 1 && !green.Forwarded[0].ReplacedExisting;
+            Check("INPLACE-NEW: consent RED (untouched) → GREEN; ModA's X lands in Other's own file (20) + origin master joins its header",
+                pass, $"red={red} redUntouched={redUntouched} green={green.Success} inPlace={green.InPlace} dmg={dmg} (want 20) masterGrown={masterGrown} err=[{Trim(green.Error)}]");
+        }
+
+        // ---- INPLACE-REPLACE: forward ModB's X into ModA (which CARRIES its own X=20 override) — the existing record
+        //      is REPLACED (30), flagged, and ModB joins ModA's masters (the ModB-defined keyword on ModB's X). ----
+        {
+            var dir = Path.Combine(tmpDir, "inplace-replace"); Directory.CreateDirectory(dir);
+            var aCopy = Path.Combine(dir, ModAName); File.Copy(aPath, aCopy);
+            WritePatchBuilder.ForwardOutcome o;
+            using (var r = LoadOrderResolver.Build(new[] { mPath, aCopy, bPath, oPath }))
+            {
+                var svc = LoadOrderService.ForGuard(r, new UserConfigStore(Path.Combine(dir, "user.json")));
+                o = svc.ForwardRecords(new[] { $"{xFk.ID:X6}:{MasterName}" }, ModBName, null, null,
+                    fullReadback: false, target: ModAName, inPlace: true, acknowledge: true);
+            }
+            var dmg = ReadWeaponDamage(aCopy, xFk);
+            bool flagged = o.Success && o.Forwarded.Count == 1 && o.Forwarded[0].ReplacedExisting;
+            bool masterGrown = o.Success && o.Masters.Any(mn => mn.Equals(ModBName, StringComparison.OrdinalIgnoreCase));
+            bool pass = o.Success && o.InPlace && dmg == 30 && flagged && masterGrown;
+            Check("INPLACE-REPLACE: a FormKey the target carries is replaced in its own file (X=30, not 20), flagged, masters grow (+ModB)",
+                pass, $"success={o.Success} inPlace={o.InPlace} dmg={dmg} (want 30) flagged={flagged} masterGrown={masterGrown} masters=[{(o.Success ? string.Join(",", o.Masters) : "")}] err=[{Trim(o.Error)}]");
+        }
+
+        // ---- INPLACE-CONTRACT: the same up-front contract the sibling write tools enforce (Q3, named misuses). ----
+        {
+            using var r = LoadOrderResolver.Build(orderPaths);
+            var svc = LoadOrderService.ForGuard(r, new UserConfigStore(Path.Combine(tmpDir, "contract.user.json")));
+            string fmtX = $"{xFk.ID:X6}:{MasterName}";
+            var noTarget = svc.ForwardRecords(new[] { fmtX }, ModAName, null, null, false, target: null, inPlace: true, acknowledge: true);
+            var withInto = svc.ForwardRecords(new[] { fmtX }, ModAName, null, "somepatch", false, target: OtherName, inPlace: true, acknowledge: true);
+            var targetNoFlag = svc.ForwardRecords(new[] { fmtX }, ModAName, null, null, false, target: OtherName, inPlace: false);
+            bool pass = !noTarget.Success && (noTarget.Error?.Contains("requires target=") ?? false)
+                     && !withInto.Success && (withInto.Error?.Contains("mutually exclusive") ?? false)
+                     && !targetNoFlag.Success && (targetNoFlag.Error?.Contains("only meaningful with in_place") ?? false);
+            Check("INPLACE-CONTRACT: in_place⇔target, ⊥ into= (named refusals)", pass,
+                $"noTarget={Trim(noTarget.Error)} | into={Trim(withInto.Error)} | noFlag={Trim(targetNoFlag.Error)}");
+        }
+
+        // ---- INPLACE-OPTIN: the tool params default OFF by construction (assert the schema, not by omission). ----
+        {
+            var fr = typeof(WriteTools).GetMethod(nameof(WriteTools.ForwardRecord))!;
+            bool pass = fr.GetParameters().First(p => p.Name == "in_place").DefaultValue is false
+                     && fr.GetParameters().First(p => p.Name == "target").DefaultValue is null
+                     && fr.GetParameters().First(p => p.Name == "acknowledge").DefaultValue is false;
+            Check("INPLACE-OPTIN: forward_record's in_place/target/acknowledge default OFF", pass, null);
+        }
 
         Console.WriteLine();
         Console.WriteLine(failures == 0 ? "forward-from-plugin-guard: ALL PASS" : $"forward-from-plugin-guard: {failures} FAILURE(S)");

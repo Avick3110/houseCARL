@@ -267,7 +267,11 @@ public static class WriteTools
          "whole call is refused with a named reason and NOTHING is written if from_plugin isn't in the load order, was " +
          "excluded (unparseable), is the output patch itself, names a target twice, or simply doesn't DEFINE/override a given " +
          "record (nothing there to forward). By default writes a fresh patch named patch_name; into= EXTENDS an existing " +
-         "houseCARL patch (accumulate across calls/sessions). Returns the patch path, masters, and per-record what was " +
+         "houseCARL patch (accumulate across calls/sessions). If the extended patch ALREADY carries a forwarded FormKey, its " +
+         "existing override is REPLACED by from_plugin's body (xEdit's copy-as-override overwrite — flagged per record in the " +
+         "response). target= + in_place=true is the opt-in THIRD route: forward INTO an existing plugin's OWN file (incl. one " +
+         "houseCARL didn't author) — same replace-on-collision semantics, same one-time acknowledge= consent as the sibling " +
+         "write tools, master header grown from the copied bodies. Returns the patch path, masters, and per-record what was " +
          "copied + the current winner it will out-rank (a forward whose version is ALREADY winning is flagged redundant).")]
     public static string ForwardRecord(
         LoadOrderService svc,
@@ -277,10 +281,16 @@ public static class WriteTools
             string from_plugin,
         [Description("Optional. Base filename for the new patch (default 'houseCARL_Patch'); auto-suffixed if taken so a prior patch is never overwritten. Ignored if into= is given.")]
             string patch_name = "houseCARL_Patch",
-        [Description("Optional. Filename of an existing houseCARL patch to ADD these forwards to instead of writing a fresh one (accumulate across calls — e.g. forward from a different source plugin into the same patch). Found by the plugin's filename even if you've renamed its MO2 mod folder; for two patches sharing a filename, pass the mod-folder name here instead (folder & plugin names need not match).")]
+        [Description("Optional. Filename of an existing houseCARL patch to ADD these forwards to instead of writing a fresh one (accumulate across calls — e.g. forward from a different source plugin into the same patch). Found by the plugin's filename even if you've renamed its MO2 mod folder; for two patches sharing a filename, pass the mod-folder name here instead (folder & plugin names need not match). If the patch already carries a forwarded FormKey, its existing override is REPLACED by from_plugin's body.")]
             string? into = null,
         [Description("When true, the response ALSO returns each forwarded record IN FULL, read back from the written patch file on disk (every field, deep). The pre-enable verification: confirm the copied version is exactly the source's, WITHOUT enabling the patch in MO2 (the written file's content, not load-order truth).")]
             bool full_readback = false,
+        [Description("Optional. IN-PLACE LANE (opt-in): the filename of an EXISTING active plugin to forward INTO in place — including one houseCARL didn't author — instead of writing a new patch (e.g. 'MyHandmadePatch.esp'). Requires in_place=true; mutually exclusive with into=. A FormKey the target already carries is REPLACED by from_plugin's body (xEdit's copy-as-override overwrite). OMIT this (the default) to write a NEW patch and leave every original untouched — the recommended lane.")]
+            string? target = null,
+        [Description("Optional, default false. Confirms the IN-PLACE lane together with target= (see target). Your ORIGINAL plugin file is rewritten — no houseCARL backup or undo. Defaults OFF: omitting it always writes a new patch.")]
+            bool in_place = false,
+        [Description("Optional, default false. Confirms the one-time in-place trade-off for target (see in_place) — needed only on the FIRST in-place write to a given plugin (edit, create, remove, OR forward), never again for it. Waives the consent to touch your original ONLY; it NEVER skips the record verify.")]
+            bool acknowledge = false,
         [Description("Optional. Max characters for the whole response; past it the read-back is cut with an explicit notice (never silent). 0 = a safe default kept under the host's per-response token limit; raise it to widen a full_readback=true dump.")]
             int max_chars = 0) => Guard.Tool("housecarl_forward_record", () =>
     {
@@ -289,7 +299,7 @@ public static class WriteTools
             return "error: formids is empty. Pass one or more 'XXXXXX:Plugin.esp' FormIDs to forward from from_plugin.";
         if (string.IsNullOrWhiteSpace(from_plugin))
             return "error: from_plugin is empty. Name the plugin whose version of the record(s) to forward.";
-        return RenderForward(svc.ForwardRecords(formids, from_plugin, patch_name, into, full_readback), max_chars);
+        return RenderForward(svc.ForwardRecords(formids, from_plugin, patch_name, into, full_readback, target, in_place, acknowledge), max_chars);
     });
 
     [McpServerTool(Name = "housecarl_create_plugin", Title = "Create an empty header-only (trigger) plugin"),
@@ -567,20 +577,30 @@ public static class WriteTools
     /// can fix and retry. Optional full read-back rides along (the pre-enable verify that the copy is the source's).</summary>
     static string RenderForward(WritePatchBuilder.ForwardOutcome o, int maxChars = 0)
     {
+        if (o.NeedsAcknowledge) return o.Error!;            // the first-touch in-place CONSENT prompt — a required confirmation, NOT an error (Q3)
         if (!o.Success) return "error: " + o.Error;
         var file = Path.GetFileName(o.OutputPath);
         var modFolder = Path.GetFileName(Path.GetDirectoryName(o.OutputPath) ?? "");
         var sb = new StringBuilder();
-        sb.Append(o.Extended ? "extended " : "wrote ").Append(file)
-          .Append(o.Extended ? " (existing patch grown; " : " (new patch; ").Append(o.Bytes).Append(" bytes)\n");
-        sb.Append("mod folder: ").Append(modFolder)
-          .Append(o.Extended ? "\n" : "  — enable + sort it in MO2 to use the patch\n");
+        if (o.InPlace)
+            sb.Append("forwarded into ").Append(file).Append(" IN PLACE (").Append(o.Bytes)
+              .Append(" bytes — your ORIGINAL file was rewritten; no houseCARL backup or undo)\n")
+              .Append("mod folder: ").Append(modFolder).Append("  — already active in your load order; re-sort only if a winner changed\n");
+        else
+        {
+            sb.Append(o.Extended ? "extended " : "wrote ").Append(file)
+              .Append(o.Extended ? " (existing patch grown; " : " (new patch; ").Append(o.Bytes).Append(" bytes)\n");
+            sb.Append("mod folder: ").Append(modFolder)
+              .Append(o.Extended ? "\n" : "  — enable + sort it in MO2 to use the patch\n");
+        }
         sb.Append("masters: ").Append(o.Masters.Count == 0 ? "(none)" : string.Join(", ", o.Masters)).Append('\n');
         sb.Append("forwarded ").Append(o.Forwarded.Count).Append(o.Forwarded.Count == 1 ? " record:\n" : " records:\n");
         foreach (var f in o.Forwarded)
         {
             sb.Append("  ").Append(f.RecordType).Append(' ').Append(f.Target).Append("  ").Append(f.EditorId ?? "<no editorid>")
               .Append("  — copied from ").Append(f.FromPlugin);
+            if (f.ReplacedExisting)
+                sb.Append("  [REPLACED the patch's own existing override of this record — the old body is gone (xEdit's copy-as-override-into overwrite)]");
             if (f.WasAlreadyWinner)
                 sb.Append("  [NOTE: this source IS already the load-order winner — the override just re-asserts the content that already wins (a no-op in effect)]");
             else
@@ -588,7 +608,10 @@ public static class WriteTools
             sb.Append('\n');
         }
         if (o.ReadBack is { } rb) AppendFullReadback(sb, rb, maxChars);
-        sb.Append("to forward more into THIS patch (incl. from a different source plugin), pass into=\"").Append(file).Append("\".");
+        if (o.Note is { } note) sb.Append("note: ").Append(note).Append('\n');
+        sb.Append(o.InPlace
+            ? $"to forward more into this plugin, pass target=\"{file}\" in_place=true (no further confirmation needed for it)."
+            : $"to forward more into THIS patch (incl. from a different source plugin), pass into=\"{file}\".");
         return sb.ToString();
     }
 

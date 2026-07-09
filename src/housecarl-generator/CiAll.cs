@@ -50,6 +50,7 @@ public static class CiAll
         ("source-display-guard", SourceDisplayProbe.RunGuard),
         ("writelock-guard", WriteLockProbe.RunGuard),
         ("inplace-guard", InPlaceProbe.RunGuard),
+        ("subclass-remove-guard", SubclassRemoveGuardProbe.RunGuard),
         ("perk-refs-guard", PerkRefsProbe.RunGuard),
         ("conflict-diff-guard", ConflictDiffProbe.RunGuard),
         ("formid-floor-guard", FormIdFloorProbe.RunGuard),

@@ -1775,14 +1775,31 @@ public sealed class LoadOrderService : IDisposable
     /// existing houseCARL-owned patch), then drives <see cref="WritePatchBuilder.ForwardRecords"/> (resolve each source
     /// body from <paramref name="fromPlugin"/> → deep-copy as override → multi-master serialize). The whole source record
     /// is copied verbatim, so the SOURCE plugin (not the load-order winner) decides the content — and forwarding the
-    /// ORIGIN master reverts a record to vanilla. Originals are never touched (only the patch folder is written).</summary>
-    public WritePatchBuilder.ForwardOutcome ForwardRecords(IReadOnlyList<string> formids, string fromPlugin, string? patchName, string? into, bool fullReadback = false)
+    /// ORIGIN master reverts a record to vanilla. Originals are never touched in the default lane (only the patch folder
+    /// is written); <paramref name="target"/>+<paramref name="inPlace"/> is the explicit opt-in third route (in-place
+    /// write lane; HCBR-2026-07-08-01 F4) — forward INTO an existing plugin's own file, consent-gated like the sibling
+    /// write tools — see <see cref="ForwardRecordsInPlace"/>.</summary>
+    public WritePatchBuilder.ForwardOutcome ForwardRecords(IReadOnlyList<string> formids, string fromPlugin, string? patchName, string? into,
+        bool fullReadback = false, string? target = null, bool inPlace = false, bool acknowledge = false)
     {
         if (string.IsNullOrWhiteSpace(fromPlugin))
             return WritePatchBuilder.ForwardOutcome.Fail(
                 "from_plugin is required — name the plugin whose version of the record(s) to forward (the earlier override, or a master to revert to vanilla).");
         if (formids is null || formids.Count == 0)
             return WritePatchBuilder.ForwardOutcome.Fail("no formids supplied — pass the FormID(s) to forward from the source plugin.");
+
+        // In-place is the explicit, named-file opt-in (the same contract as the sibling write tools — Q3, name each
+        // misuse rather than silently ignore a parameter): in_place REQUIRES target=, is mutually exclusive with into=
+        // (the houseCARL-patch lane), and target= without in_place is a no-op the caller likely didn't mean.
+        if (inPlace && string.IsNullOrWhiteSpace(target))
+            return WritePatchBuilder.ForwardOutcome.Fail(
+                "in_place=true requires target=<plugin filename> — name the existing plugin to forward into in place. (Omit in_place to write a new patch instead — the default, originals untouched.)");
+        if (inPlace && !string.IsNullOrWhiteSpace(into))
+            return WritePatchBuilder.ForwardOutcome.Fail(
+                "in_place=true and into= are mutually exclusive: into= EXTENDS a houseCARL patch, while in_place forwards into an existing plugin in place. Use one lane or the other.");
+        if (!inPlace && !string.IsNullOrWhiteSpace(target))
+            return WritePatchBuilder.ForwardOutcome.Fail(
+                "target= is only meaningful with in_place=true (it names the plugin to forward into in place). For the default patch lane omit target=; use into= to extend an existing houseCARL patch.");
 
         // Parse every formid first, collecting ALL problems (all-or-nothing, like the edit/remove paths). Pure — outside the gate.
         var fp = fromPlugin.Trim();
@@ -1803,6 +1820,9 @@ public sealed class LoadOrderService : IDisposable
         {
             var resolver = Resolver;                                      // builds/refreshes the index (Overlays for the source fetch + serialize)
 
+            if (inPlace)
+                return ForwardRecordsInPlace(resolver, specs, target!.Trim(), acknowledge);
+
             string outPath; bool extend, created;
             try { outPath = ResolveOutputPath(patchName, into, out extend, out created); }
             catch (Exception ex) { return WritePatchBuilder.ForwardOutcome.Fail(ex.Message); }
@@ -1811,6 +1831,63 @@ public sealed class LoadOrderService : IDisposable
             if (!outcome.Success && created) RemoveFolderCreatedThisCall(outPath);   // hunt F4: a refused forward leaves no orphan
             return outcome;
         }
+    }
+
+    /// <summary>The in-place branch of <see cref="ForwardRecords"/> (in-place write lane; HCBR-2026-07-08-01 F4) — runs
+    /// under _writeGate. REUSES every in-place seam the edit/create/remove lanes proved: the same foreign-target resolver
+    /// (<see cref="ResolveActivePluginPath"/>), the same PERSISTENT first-touch CONSENT handshake (keyed off the resolved
+    /// path, SHARED across all in-place lanes — acknowledging a plugin once covers edit, create, remove AND forward), the
+    /// same writable-parent pre-flight, and the same distinct <c>editedInPlace=</c> marker (NEVER <c>generated=true</c> —
+    /// the user mod keeps failing <see cref="IsHouseCarlOwned"/> so a later into= can't blind-overwrite it). Drives
+    /// <see cref="WritePatchBuilder.ForwardRecordsInPlace"/> (replace-or-copy into the target's OWN file, touched-record
+    /// verify forced ON). <paramref name="acknowledge"/> waives the CONSENT axis ONLY — the verify is a corruption-axis
+    /// fact no acknowledgement overrides.</summary>
+    WritePatchBuilder.ForwardOutcome ForwardRecordsInPlace(
+        LoadOrderResolver resolver, IReadOnlyList<WritePatchBuilder.ForwardSpec> specs, string target, bool acknowledge)
+    {
+        // (1) Resolve target -> real on-disk path via the load order (by plugin FILENAME). Refuse loud if it isn't a
+        //     real active plugin. Same resolver as the edit + create + remove lanes.
+        var view = resolver.Capture();
+        var targetPath = ResolveActivePluginPath(view, Path.GetFileName(target.Trim()), out var targetName);
+        if (targetPath is null)
+            return WritePatchBuilder.ForwardOutcome.Fail(
+                $"in-place target '{target}' is not an active plugin in the load order — name a plugin enabled in MO2, by its " +
+                "plugin filename (e.g. 'CoolWeapons.esp'). in-place forwards into the file the game actually loads. Nothing was written.");
+
+        // (2) CONSENT axis — the persistent, server-enforced first-touch handshake, keyed off the resolved path (shared
+        //     with the edit/create/remove lanes: it's the same "touch your original" trade-off).
+        bool already = _store.IsInPlaceAcknowledged(targetPath);
+        if (!already && !acknowledge)
+            return WritePatchBuilder.ForwardOutcome.NeedsAck(InPlaceHandshakeText(targetName, targetPath));
+        string? ackNote = null;
+        if (!already && acknowledge)
+        {
+            var (ok, err) = _store.RecordInPlaceAcknowledged(targetPath);
+            if (!ok) ackNote = $"the in-place acknowledgement could not be saved ({err}) — the forward proceeded, but a future session will re-prompt for this plugin.";
+        }
+
+        // (3) Writable, same-volume parent pre-flight — refuse rather than degrade.
+        if (InPlaceParentUnwritable(targetPath, out var why))
+            return WritePatchBuilder.ForwardOutcome.Fail(why);
+
+        // (4) The write — touched-record verify forced ON (the model-C substitute for the dropped whole-plugin floor).
+        var outcome = WritePatchBuilder.ForwardRecordsInPlace(resolver, specs, targetPath, targetName, fullReadback: true);
+
+        // (5) On success, stamp the distinct audit marker + auto-flag a now-stale .seq (both best-effort; neither miss
+        //     fails the done forward, Q3-noted).
+        if (outcome.Success)
+        {
+            var markerNote = MergeEditedInPlaceMarker(Path.GetDirectoryName(targetPath));
+            var seqNote = SeqStaleInPlaceNote(targetPath, targetName);
+            var note = JoinNotes(ackNote, markerNote, seqNote);
+            if (note is not null) return outcome with { Note = note };
+        }
+        else if (ackNote is not null)
+        {
+            // The acknowledgement was recorded but the write then failed — keep the (now-honest) note alongside the error.
+            return outcome with { Note = ackNote };
+        }
+        return outcome;
     }
 
     /// <summary>Create an EMPTY, HEADER-ONLY plugin (housecarl_create_plugin) — a valid TES4 header with ZERO records,
