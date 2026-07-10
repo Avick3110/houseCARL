@@ -49,6 +49,50 @@ public static class SkyPatcherHarness
         finally { if (tmp is not null) { try { Directory.Delete(tmp, recursive: true); } catch { /* best-effort */ } } }
     }
 
+    /// <summary>
+    /// The Wave-2 layer harness: the whole SkyPatcher layer + conflict report off a live MO2 instance,
+    /// rendered by the SAME Wire the housecarl_skypatcher_layer tool uses (internals-visible) — what the
+    /// tool will return, verifiable before the plugin repackages.
+    /// Run: dotnet run --project src/housecarl-generator skypatcher-layer --instance &lt;MO2 instance dir&gt; [--filter x]
+    /// </summary>
+    public static int RunLayer(string[] args)
+    {
+        string? instance = null, filter = null;
+        for (int i = 0; i < args.Length; i++)
+        {
+            if (args[i] == "--instance" && i + 1 < args.Length) instance = args[++i];
+            else if (args[i] == "--filter" && i + 1 < args.Length) filter = args[++i];
+        }
+        if (instance is null)
+        {
+            Console.Error.WriteLine("usage: skypatcher-layer --instance <MO2 instance dir> [--filter <folder/mod/file>]");
+            return 1;
+        }
+
+        string? tmp = null;
+        if (!File.Exists(CorpusRulebook.CorpusPath))
+        {
+            tmp = Path.Combine(Path.GetTempPath(), "hc-sp-harness-corpus-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(tmp);
+            Console.WriteLine($"corpus.json absent — generating into {tmp} (running outside the repo root)…");
+            var gen = CorpusGenerator.GenerateAll(Path.Combine(tmp, "generated"), Path.Combine(tmp, "refs"));
+            if (gen != 0) { Console.Error.WriteLine("error: corpus generation failed"); return gen; }
+            CorpusRulebook.CorpusPath = Path.Combine(tmp, "generated", "corpus.json");
+        }
+        try
+        {
+            var store = new UserConfigStore(Path.Combine(Path.GetTempPath(), $"hc-sp-harness-{Guid.NewGuid():N}.json"));
+            var svc = LoadOrderService.WithInstance(instance, maxPlugins: 0, store);
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            var data = svc.SkyPatcherLayer();
+            sw.Stop();
+            Console.WriteLine(SkyPatcherWire.RenderLayer(data, filter, 200_000));
+            Console.WriteLine($"\n[{sw.Elapsed.TotalSeconds:N1}s]");
+            return 0;
+        }
+        finally { if (tmp is not null) { try { Directory.Delete(tmp, recursive: true); } catch { /* best-effort */ } } }
+    }
+
     static int Run(FormKey fk, string instance)
     {
         // A throwaway user-config store (the harness never writes tool paths); the service reads the

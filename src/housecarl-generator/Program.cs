@@ -25,6 +25,10 @@ if (args.Length > 0 && args[0] == "vocab") return Probe.RunVocab();
 // the artifact the empirical gate verifies against xEdit + in-game (plan §7 Wave 1).
 if (args.Length > 0 && args[0] == "skypatcher-post-state") return SkyPatcherHarness.Run(args[1..]);
 
+// SkyPatcher Wave-2 harness: the whole-layer scan + INI-vs-INI conflict report off a LIVE MO2 instance,
+// rendered exactly as housecarl_skypatcher_layer returns it (the Wave-2 empirical artifact).
+if (args.Length > 0 && args[0] == "skypatcher-layer") return SkyPatcherHarness.RunLayer(args[1..]);
+
 // Index-build resilience (Nexus bug): feasibility probe — is group enumeration resumable past a parse throw?
 if (args.Length > 0 && args[0] == "pkcu-probe") return PkcuProbe.Run(args[1..]);
 
