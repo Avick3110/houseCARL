@@ -960,6 +960,98 @@ public static class SkyPatcherOverlay
                 applied.Add(new SkyPatcherAppliedOp(line.File, line.LineNumber, seg.Key, raw, map.Path, $"{had} entr(ies)", "0 entries", "cleared"));
                 break;
             }
+            case SkyPatcherOpSemantic.DictSet:
+            case SkyPatcherOpSemantic.DictMult:
+            {
+                var raw = seg.Values.Count > 0 ? seg.Values[0].Raw : "";
+                if (!double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out var operand))
+                { warnings.Add($"{where}: '{seg.Key}={raw}' — not a number; skipped."); return; }
+                var key = map.Key ?? throw new InvalidOperationException($"'{seg.Key}' mapping has no dict key");
+                var current = DictNumericValue(record, segs, key);
+                double result;
+                string? note = null;
+                if (map.Semantic == SkyPatcherOpSemantic.DictMult)
+                {
+                    if (current is null)
+                    { warnings.Add($"{where}: '{seg.Key}' — '{map.Path}[{key}]' has no current value to multiply; skipped."); return; }
+                    result = current.Value * operand;
+                    note = $"stateful: {Num(current.Value)} × {raw}";
+                }
+                else result = operand;
+                // The mutation rides the engine's dict Set (Key = the enum entry) — same coercion as the verb surface.
+                WriteEngine.ApplyVerb(record, new WriteRequest
+                { RecordType = fieldMap.RecordType, Path = segs, Verb = "Set", Key = key, Value = result.ToString("R", CultureInfo.InvariantCulture) });
+                applied.Add(new SkyPatcherAppliedOp(line.File, line.LineNumber, seg.Key, raw, $"{map.Path}[{key}]",
+                    current is null ? null : Num(current.Value), Num(DictNumericValue(record, segs, key) ?? result), note));
+                break;
+            }
+            case SkyPatcherOpSemantic.ColorChannel:
+            {
+                // One channel of a whole-value Color: ReadEngine renders "R,G,B,A" and the engine coerces
+                // the same form back — the P3 vector-component token splice, alpha preserved.
+                var raw = seg.Values.Count > 0 ? seg.Values[0].Raw : "";
+                if (!double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out var num))
+                { warnings.Add($"{where}: '{seg.Key}={raw}' — not a number; skipped."); return; }
+                var comp = map.Component ?? throw new InvalidOperationException($"'{seg.Key}' mapping has no component");
+                var before = LeafToken(record, segs);
+                var parts = before?.Split(',');
+                if (parts is null || parts.Length < 3 || comp > 2)
+                { warnings.Add($"{where}: '{seg.Key}' — '{map.Path}' is absent or not an R,G,B[,A] colour ('{before ?? "<unreadable>"}'); skipped."); return; }
+                parts[comp] = Math.Round(num, MidpointRounding.AwayFromZero).ToString(CultureInfo.InvariantCulture);
+                WriteEngine.ApplyVerb(record, new WriteRequest { RecordType = fieldMap.RecordType, Path = segs, Verb = "Set", Value = string.Join(",", parts) });
+                applied.Add(new SkyPatcherAppliedOp(line.File, line.LineNumber, seg.Key, raw, $"{map.Path}.{"RGB"[comp]}", before, LeafToken(record, segs), null));
+                break;
+            }
+            case SkyPatcherOpSemantic.BipedSlotsSet:
+            case SkyPatcherOpSemantic.BipedSlotsRemove:
+            {
+                var (parent, leaf) = Navigate(record, segs);
+                if (!leaf.PropertyType.IsEnum && (Nullable.GetUnderlyingType(leaf.PropertyType)?.IsEnum ?? false) == false)
+                    throw new InvalidOperationException($"'{map.Path}' is not a flags enum");
+                var before = LeafToken(record, segs);
+                ulong bits = Convert.ToUInt64(leaf.GetValue(parent) ?? 0UL, CultureInfo.InvariantCulture);
+                foreach (var v in seg.Values)
+                {
+                    if (!int.TryParse(v.Raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var idx) || idx is < 0 or > 31)
+                    { warnings.Add($"{where}: '{seg.Key}' — '{v.Raw}' is not a biped slot INDEX (0–31; slot number − 30); that slot skipped."); continue; }
+                    bits = map.Semantic == SkyPatcherOpSemantic.BipedSlotsSet ? bits | (1UL << idx) : bits & ~(1UL << idx);
+                }
+                SetEnumBits(record, fieldMap, segs, bits);
+                applied.Add(new SkyPatcherAppliedOp(line.File, line.LineNumber, seg.Key, seg.RawValue ?? "", map.Path, before, LeafToken(record, segs), null));
+                break;
+            }
+            case SkyPatcherOpSemantic.TeachSpell:
+            case SkyPatcherOpSemantic.TeachSkill:
+            {
+                var v = seg.Values.Count > 0 ? seg.Values[0] : null;
+                if (v is null) { warnings.Add($"{where}: '{seg.Key}' has no value; skipped."); return; }
+                var before = LeafToken(record, segs);
+                WriteRequest armSet;
+                string armType;
+                if (map.Semantic == SkyPatcherOpSemantic.TeachSpell)
+                {
+                    var spell = ResolveFormValue(v, map.FormType, resolver);
+                    if (spell is null) { warnings.Add($"{where}: '{seg.Key}={v.Raw}' — spell not resolvable; skipped."); return; }
+                    armType = "BookSpell";
+                    armSet = new WriteRequest { RecordType = armType, Path = new[] { "Spell" }, Verb = "Set", Value = spell.Value.ToString() };
+                }
+                else
+                {
+                    armType = "BookSkill";
+                    var token = map.ValueMap?.GetValueOrDefault(v.Raw) ?? v.Raw;
+                    armSet = new WriteRequest { RecordType = armType, Path = new[] { "Skill" }, Verb = "Set", Value = token };
+                }
+                // The polymorphic Teaches swap is the engine's compose-Set: build the concrete arm from
+                // parts and Set the leaf wholesale — the same path the record-authoring surface uses.
+                WriteEngine.ApplyVerb(record, new WriteRequest
+                {
+                    RecordType = fieldMap.RecordType, Path = segs, Verb = "Set",
+                    Struct = new StructSpec { Type = armType, Sets = new List<WriteRequest> { armSet } },
+                });
+                applied.Add(new SkyPatcherAppliedOp(line.File, line.LineNumber, seg.Key, v.Raw, map.Path, before, LeafToken(record, segs),
+                    $"Teaches → {armType}"));
+                break;
+            }
             case SkyPatcherOpSemantic.AddEntry:
             case SkyPatcherOpSemantic.AddEntryOnce:
             case SkyPatcherOpSemantic.RemoveEntry:
@@ -967,6 +1059,7 @@ public static class SkyPatcherOverlay
             case SkyPatcherOpSemantic.ReplaceEntry:
             case SkyPatcherOpSemantic.MultCount:
             case SkyPatcherOpSemantic.RemoveByKeyword:
+            case SkyPatcherOpSemantic.SetEntryCount:
                 ApplyEntryOp(record, fieldMap, seg, map, line, resolver, applied, warnings);
                 break;
 
@@ -974,6 +1067,22 @@ public static class SkyPatcherOverlay
                 warnings.Add($"{where}: op '{seg.Key}' — semantic {map.Semantic} not implemented; named gap.");
                 break;
         }
+    }
+
+    static string Num(double d) => d.ToString("R", CultureInfo.InvariantCulture);
+
+    /// <summary>The numeric value of one dict entry (null = absent key / absent dict / non-numeric),
+    /// read via the non-generic IDictionary view with the key parsed into the dict's enum key type.</summary>
+    static double? DictNumericValue(object record, string[] segs, string key)
+    {
+        var (parent, leaf) = Navigate(record, segs);
+        if (leaf.GetValue(parent) is not System.Collections.IDictionary dict) return null;
+        var kType = (Nullable.GetUnderlyingType(leaf.PropertyType) ?? leaf.PropertyType).GetGenericArguments()[0];
+        object keyObj;
+        try { keyObj = kType.IsEnum ? Enum.Parse(kType, key, ignoreCase: true) : Convert.ChangeType(key, kType, CultureInfo.InvariantCulture); }
+        catch { return null; }
+        var val = dict.Contains(keyObj) ? dict[keyObj] : null;
+        return val is null ? null : Convert.ToDouble(val, CultureInfo.InvariantCulture);
     }
 
     static void ApplySetOne(object record, RecordMap fieldMap, string opKey, OpMap map, string[] segs,
@@ -1112,6 +1221,30 @@ public static class SkyPatcherOverlay
                     int touched = MultiplyEntryCounts(record, segs, el, scope, countPath, mult);
                     applied.Add(new SkyPatcherAppliedOp(line.File, line.LineNumber, seg.Key, v.Raw, map.Path, null, null,
                         $"counts ×{args[^1]} on {touched} entr(ies) (stateful)"));
+                    break;
+                }
+                case SkyPatcherOpSemantic.SetEntryCount:
+                {
+                    // changeCobjsCount=form~count sets a matching entry's count to N; the documented
+                    // 'null' form means EVERY entry (null~0 = all ingredients to 0).
+                    if (args.Count < 2 || !int.TryParse(args[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out var setTo))
+                    { warnings.Add($"{where}: '{seg.Key}={v.Raw}' — expected form~count; skipped."); continue; }
+                    var countPath = el.CountPath ?? throw new InvalidOperationException($"'{seg.Key}' element has no countPath");
+                    List<int> idx;
+                    if (args[0].Equals("null", StringComparison.OrdinalIgnoreCase))
+                        idx = Enumerable.Range(0, ListAt(record, segs)?.Count ?? 0).ToList();
+                    else
+                    {
+                        var k = ResolveFormToken(args[0], map.FormType, resolver);
+                        if (k is null) { warnings.Add($"{where}: '{seg.Key}={v.Raw}' — form not resolvable; skipped."); continue; }
+                        idx = EntryIndicesByKey(record, segs, el, k.Value);
+                    }
+                    var list = ListAt(record, segs);
+                    var cSegs = SplitPath(countPath);
+                    foreach (var i in idx)
+                        WriteEngine.ApplyVerb(list![i]!, new WriteRequest { RecordType = el.Type, Path = cSegs, Verb = "Set", Value = setTo.ToString(CultureInfo.InvariantCulture) });
+                    applied.Add(new SkyPatcherAppliedOp(line.File, line.LineNumber, seg.Key, v.Raw, map.Path, null, null,
+                        idx.Count > 0 ? $"count set to {setTo} on {idx.Count} entr(ies)" : "no matching entry — no change"));
                     break;
                 }
                 case SkyPatcherOpSemantic.RemoveByKeyword:

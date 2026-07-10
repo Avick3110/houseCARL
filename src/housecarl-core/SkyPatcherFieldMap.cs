@@ -225,6 +225,7 @@ public sealed class SkyPatcherFieldMap
             EqPacked: el.TryGetProperty("pack", out var pk) && pk.ValueKind == JsonValueKind.String && pk.GetString() == "eq",
             ValueMap: valueMap,
             Element: element,
+            Key: OptStr(el, "key"),
             Note: OptStr(el, "note"),
             Unmapped: null);
     }
@@ -259,6 +260,14 @@ public sealed class SkyPatcherFieldMap
         "replaceEntry" => SkyPatcherOpSemantic.ReplaceEntry,
         "multCount" => SkyPatcherOpSemantic.MultCount,
         "removeByKeyword" => SkyPatcherOpSemantic.RemoveByKeyword,
+        "dictSet" => SkyPatcherOpSemantic.DictSet,
+        "dictMult" => SkyPatcherOpSemantic.DictMult,
+        "colorChannel" => SkyPatcherOpSemantic.ColorChannel,
+        "bipedSlotsSet" => SkyPatcherOpSemantic.BipedSlotsSet,
+        "bipedSlotsRemove" => SkyPatcherOpSemantic.BipedSlotsRemove,
+        "teachSpell" => SkyPatcherOpSemantic.TeachSpell,
+        "teachSkill" => SkyPatcherOpSemantic.TeachSkill,
+        "setEntryCount" => SkyPatcherOpSemantic.SetEntryCount,
         _ => throw new InvalidOperationException($"SkyPatcher field map [{ctx}]: unknown semantic '{s}'."),
     };
 }
@@ -306,6 +315,24 @@ public enum SkyPatcherOpSemantic
     MultCount,
     /// <summary>Remove entries whose TARGET record carries a keyword (removeInventoryObjectsByKeywords…) — needs the resolver.</summary>
     RemoveByKeyword,
+    /// <summary>Set one entry of a numeric-valued dict (<see cref="OpMap.Key"/> — race startingHealth on
+    /// Race.Starting[Health]); rides the engine's dict Set.</summary>
+    DictSet,
+    /// <summary>Multiply one entry of a numeric-valued dict (stateful — order-dependent).</summary>
+    DictMult,
+    /// <summary>Set ONE channel (<see cref="OpMap.Component"/>: 0=R 1=G 2=B) of a whole-value Color leaf —
+    /// the token splice the P3 vector components use, alpha preserved.</summary>
+    ColorChannel,
+    /// <summary>OR biped-slot INDEX bits (0–31; slot number − 30) into a BipedObjectFlag leaf.</summary>
+    BipedSlotsSet,
+    /// <summary>Clear biped-slot INDEX bits from a BipedObjectFlag leaf.</summary>
+    BipedSlotsRemove,
+    /// <summary>Set Book.Teaches to the BookSpell arm holding the given spell (compose-Set through the engine).</summary>
+    TeachSpell,
+    /// <summary>Set Book.Teaches to the BookSkill arm holding the given skill (compose-Set through the engine).</summary>
+    TeachSkill,
+    /// <summary>Set matching entries' count to N (changeCobjsCount form~count; 'null' as the form = ALL entries).</summary>
+    SetEntryCount,
 }
 
 /// <summary>One record type's op → field mappings (keyed by the exact catalog op name) and filter →
@@ -391,11 +418,12 @@ public sealed record OpMap(
     bool EqPacked,
     IReadOnlyDictionary<string, string>? ValueMap,
     ElementMap? Element,
+    string? Key,
     string? Note,
     string? Unmapped)
 {
     internal static OpMap MakeUnmapped(string reason)
-        => new(SkyPatcherOpSemantic.Set, "", null, null, null, null, false, null, null, null, reason);
+        => new(SkyPatcherOpSemantic.Set, "", null, null, null, null, false, null, null, null, null, reason);
     /// <summary>True when this op is explicitly declared un-modelable (loud in the overlay).</summary>
     public bool IsUnmapped => Unmapped is not null;
 }

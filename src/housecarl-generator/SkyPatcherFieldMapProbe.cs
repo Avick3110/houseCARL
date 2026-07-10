@@ -158,7 +158,7 @@ public static class SkyPatcherFieldMapProbe
 
                 // shape ⇄ semantic agreement on the stateful ops (both directions).
                 bool shapeStateful = opDef.Shape is SkyPatcherOpShape.Mult or SkyPatcherOpShape.AddNumeric;
-                bool semStateful = m.Semantic is SkyPatcherOpSemantic.Mult or SkyPatcherOpSemantic.AddNumeric;
+                bool semStateful = m.Semantic is SkyPatcherOpSemantic.Mult or SkyPatcherOpSemantic.AddNumeric or SkyPatcherOpSemantic.DictMult;
                 if (shapeStateful != semStateful)
                     problems.Add($"{ctx}: catalog shape '{opDef.Shape}' vs map semantic '{m.Semantic}' disagree on statefulness.");
 
@@ -212,6 +212,48 @@ public static class SkyPatcherFieldMapProbe
                         if (!IsList(leaf.PropertyType))
                             problems.Add($"{ctx}: clearList targets non-list '{m.Path}'.");
                         break;
+                    case SkyPatcherOpSemantic.DictSet:
+                    case SkyPatcherOpSemantic.DictMult:
+                    {
+                        var dt = StripNullable(leaf.PropertyType);
+                        var dictIface = new[] { dt }.Concat(dt.GetInterfaces())
+                            .FirstOrDefault(i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IDictionary<,>));
+                        if (dictIface is null) { problems.Add($"{ctx}: dict op targets non-dict '{m.Path}' ({dt.Name})."); break; }
+                        var kt = dictIface.GetGenericArguments()[0];
+                        if (m.Key is null) problems.Add($"{ctx}: dict op needs a 'key'.");
+                        else if (kt.IsEnum && !EnumHas(kt, m.Key))
+                            problems.Add($"{ctx}: dict key '{m.Key}' is not a member of {kt.Name}.");
+                        if (!IsNumeric(dictIface.GetGenericArguments()[1]))
+                            problems.Add($"{ctx}: dict op needs a numeric value type, got {dictIface.GetGenericArguments()[1].Name}.");
+                        break;
+                    }
+                    case SkyPatcherOpSemantic.ColorChannel:
+                        if (m.Component is not (>= 0 and <= 2)) problems.Add($"{ctx}: colorChannel needs component 0..2 (R/G/B).");
+                        if (StripNullable(leaf.PropertyType) != typeof(System.Drawing.Color))
+                            problems.Add($"{ctx}: colorChannel targets non-Color '{m.Path}' ({leaf.PropertyType.Name}).");
+                        break;
+                    case SkyPatcherOpSemantic.BipedSlotsSet:
+                    case SkyPatcherOpSemantic.BipedSlotsRemove:
+                        if (!StripNullable(leaf.PropertyType).IsEnum)
+                            problems.Add($"{ctx}: bipedSlots op targets non-enum '{m.Path}'.");
+                        break;
+                    case SkyPatcherOpSemantic.TeachSpell:
+                    case SkyPatcherOpSemantic.TeachSkill:
+                    {
+                        // The leaf is the polymorphic Teaches base; the compose-Set arm + its sub-field
+                        // must exist and the arm must assign to the leaf.
+                        var arm = asm.GetType("Mutagen.Bethesda.Skyrim." + (m.Semantic == SkyPatcherOpSemantic.TeachSpell ? "BookSpell" : "BookSkill"));
+                        if (arm is null) { problems.Add($"{ctx}: the Teaches arm type is missing from Mutagen."); break; }
+                        if (!leaf.PropertyType.IsAssignableFrom(arm))
+                            problems.Add($"{ctx}: {arm.Name} is not assignable to '{m.Path}' ({leaf.PropertyType.Name}).");
+                        WalkPath(arm, m.Semantic == SkyPatcherOpSemantic.TeachSpell ? "Spell" : "Skill", $"{ctx} (arm field)", problems);
+                        if (m.Semantic == SkyPatcherOpSemantic.TeachSkill && m.ValueMap is not null
+                            && asm.GetType("Mutagen.Bethesda.Skyrim.Skill") is { } skillEnum)
+                            foreach (var (tok, member) in m.ValueMap)
+                                if (!EnumHas(skillEnum, member))
+                                    problems.Add($"{ctx}: valueMap '{tok}' → '{member}' is not a member of Skill.");
+                        break;
+                    }
                     case SkyPatcherOpSemantic.AddEntry:
                     case SkyPatcherOpSemantic.AddEntryOnce:
                     case SkyPatcherOpSemantic.RemoveEntry:
@@ -219,6 +261,7 @@ public static class SkyPatcherFieldMapProbe
                     case SkyPatcherOpSemantic.ReplaceEntry:
                     case SkyPatcherOpSemantic.MultCount:
                     case SkyPatcherOpSemantic.RemoveByKeyword:
+                    case SkyPatcherOpSemantic.SetEntryCount:
                     {
                         if (!IsList(leaf.PropertyType)) { problems.Add($"{ctx}: entry op targets non-list '{m.Path}'."); break; }
                         if (m.Element is null) { problems.Add($"{ctx}: entry op needs an element spec."); break; }
@@ -229,7 +272,7 @@ public static class SkyPatcherFieldMapProbe
                         else if (m.Semantic is not SkyPatcherOpSemantic.MultCount)
                             problems.Add($"{ctx}: entry op needs element.keyPath (the form sub-field it matches on).");
                         if (m.Element.CountPath is { } cp) WalkPath(elType, cp, $"{ctx} (countPath)", problems);
-                        else if (m.Semantic is SkyPatcherOpSemantic.RemoveEntryByCount or SkyPatcherOpSemantic.MultCount)
+                        else if (m.Semantic is SkyPatcherOpSemantic.RemoveEntryByCount or SkyPatcherOpSemantic.MultCount or SkyPatcherOpSemantic.SetEntryCount)
                             problems.Add($"{ctx}: {m.Semantic} needs element.countPath.");
                         break;
                     }

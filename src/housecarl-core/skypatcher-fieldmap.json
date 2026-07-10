@@ -664,42 +664,18 @@
                                                 "semantic":  "mult",
                                                 "path":  "BaseCarryWeight"
                                             },
-                    "startingHealth":  {
-                                           "unmapped":  "Race starting stats live in Race.Starting, a Dictionary\u003cBasicStat,Single\u003e keyed by the BasicStat enum; dict-keyed overlay paths are a named Wave-2 item"
-                                       },
-                    "startingHealthMult":  {
-                                               "unmapped":  "Race starting stats live in Race.Starting, a Dictionary\u003cBasicStat,Single\u003e keyed by the BasicStat enum; dict-keyed overlay paths are a named Wave-2 item"
-                                           },
-                    "startingStamina":  {
-                                            "unmapped":  "Race starting stats live in Race.Starting, a Dictionary\u003cBasicStat,Single\u003e keyed by the BasicStat enum; dict-keyed overlay paths are a named Wave-2 item"
-                                        },
-                    "startingStaminaMult":  {
-                                                "unmapped":  "Race starting stats live in Race.Starting, a Dictionary\u003cBasicStat,Single\u003e keyed by the BasicStat enum; dict-keyed overlay paths are a named Wave-2 item"
-                                            },
-                    "startingMagicka":  {
-                                            "unmapped":  "Race starting stats live in Race.Starting, a Dictionary\u003cBasicStat,Single\u003e keyed by the BasicStat enum; dict-keyed overlay paths are a named Wave-2 item"
-                                        },
-                    "startingMagickaMult":  {
-                                                "unmapped":  "Race starting stats live in Race.Starting, a Dictionary\u003cBasicStat,Single\u003e keyed by the BasicStat enum; dict-keyed overlay paths are a named Wave-2 item"
-                                            },
-                    "regenHealth":  {
-                                        "unmapped":  "Race regen values live in Race.Regen, a Dictionary\u003cBasicStat,Single\u003e keyed by the BasicStat enum; dict-keyed overlay paths are a named Wave-2 item"
-                                    },
-                    "regenHealthMult":  {
-                                            "unmapped":  "Race regen values live in Race.Regen, a Dictionary\u003cBasicStat,Single\u003e keyed by the BasicStat enum; dict-keyed overlay paths are a named Wave-2 item"
-                                        },
-                    "regenStamina":  {
-                                         "unmapped":  "Race regen values live in Race.Regen, a Dictionary\u003cBasicStat,Single\u003e keyed by the BasicStat enum; dict-keyed overlay paths are a named Wave-2 item"
-                                     },
-                    "regenStaminaMult":  {
-                                             "unmapped":  "Race regen values live in Race.Regen, a Dictionary\u003cBasicStat,Single\u003e keyed by the BasicStat enum; dict-keyed overlay paths are a named Wave-2 item"
-                                         },
-                    "regenMagicka":  {
-                                         "unmapped":  "Race regen values live in Race.Regen, a Dictionary\u003cBasicStat,Single\u003e keyed by the BasicStat enum; dict-keyed overlay paths are a named Wave-2 item"
-                                     },
-                    "regenMagickaMult":  {
-                                             "unmapped":  "Race regen values live in Race.Regen, a Dictionary\u003cBasicStat,Single\u003e keyed by the BasicStat enum; dict-keyed overlay paths are a named Wave-2 item"
-                                         },
+                    "startingHealth":  {"semantic": "dictSet", "path": "Starting", "key": "Health"},
+                    "startingHealthMult":  {"semantic": "dictMult", "path": "Starting", "key": "Health"},
+                    "startingStamina":  {"semantic": "dictSet", "path": "Starting", "key": "Stamina"},
+                    "startingStaminaMult":  {"semantic": "dictMult", "path": "Starting", "key": "Stamina"},
+                    "startingMagicka":  {"semantic": "dictSet", "path": "Starting", "key": "Magicka"},
+                    "startingMagickaMult":  {"semantic": "dictMult", "path": "Starting", "key": "Magicka"},
+                    "regenHealth":  {"semantic": "dictSet", "path": "Regen", "key": "Health"},
+                    "regenHealthMult":  {"semantic": "dictMult", "path": "Regen", "key": "Health"},
+                    "regenStamina":  {"semantic": "dictSet", "path": "Regen", "key": "Stamina"},
+                    "regenStaminaMult":  {"semantic": "dictMult", "path": "Regen", "key": "Stamina"},
+                    "regenMagicka":  {"semantic": "dictSet", "path": "Regen", "key": "Magicka"},
+                    "regenMagickaMult":  {"semantic": "dictMult", "path": "Regen", "key": "Magicka"},
                     "damageUnarmed":  {
                                           "semantic":  "set",
                                           "path":  "UnarmedDamage"
@@ -1300,9 +1276,7 @@
                                                                    "countPath":  "Item.Count"
                                                                }
                                                },
-                    "changeCobjsCount":  {
-                                             "unmapped":  "sets a specific ingredient entry\u0027s count to N (form~count; null~0 = all ingredients to 0) — no set-entry-count semantic exists in the Wave-1 overlay (addEntry/removeEntryByCount/multCount all mutate differently); named Wave-2 item"
-                                         },
+                    "changeCobjsCount":  {"semantic": "setEntryCount", "path": "Items", "formType": "Item", "element": {"type": "ContainerEntry", "keyPath": "Item.Item", "countPath": "Item.Count", "fields": [{"path": "Item.Item", "arg": 0}, {"path": "Item.Count", "arg": 1}]}, "note": "form~count sets that ingredient's count; the documented null~N form sets EVERY entry"},
                     "changeCobjsCountByMult":  {
                                                    "semantic":  "multCount",
                                                    "path":  "Items",
@@ -1435,12 +1409,8 @@
                                              "semantic":  "clearList",
                                              "path":  "Armature"
                                          },
-                    "bipedSlotsToAdd":  {
-                                            "unmapped":  "slot-index → FirstPersonFlags bit math; the documented values are numeric slot indices, and BipedObjectFlag members are names (Head, Body, …) that numeric tokens can\u0027t Enum.Parse — numeric-bit flags semantic is a named Wave-2 item"
-                                        },
-                    "bipedSlotsToRemove":  {
-                                               "unmapped":  "slot-index → FirstPersonFlags bit math; the documented values are numeric slot indices, and BipedObjectFlag members are names (Head, Body, …) that numeric tokens can\u0027t Enum.Parse — numeric-bit flags semantic is a named Wave-2 item"
-                                           },
+                    "bipedSlotsToAdd":  {"semantic": "bipedSlotsSet", "path": "BodyTemplate.FirstPersonFlags", "note": "values are biped slot INDICES (0-31; slot number - 30), OR'd in as bits"},
+                    "bipedSlotsToRemove":  {"semantic": "bipedSlotsRemove", "path": "BodyTemplate.FirstPersonFlags", "note": "values are biped slot INDICES (0-31; slot number - 30), cleared as bits"},
                     "keywordsToAdd":  {
                                           "semantic":  "addForm",
                                           "path":  "Keywords",
@@ -2132,12 +2102,8 @@
                                          "path":  "InventoryArt",
                                          "formType":  "Static"
                                      },
-                    "teachSpell":  {
-                                       "unmapped":  "Book.Teaches is polymorphic (skill vs spell arm: BookSkillLearned vs BookSpellLearned) — a plain formlink set can\u0027t address it; polymorphic overlay set is a named Wave-2 item"
-                                   },
-                    "teachSkill":  {
-                                       "unmapped":  "Book.Teaches is polymorphic (skill vs spell arm: BookSkillLearned vs BookSpellLearned) — a plain enum set can\u0027t address it; polymorphic overlay set is a named Wave-2 item"
-                                   },
+                    "teachSpell":  {"semantic": "teachSpell", "path": "Teaches", "formType": "Spell", "note": "compose-Set of the BookSpell arm (polymorphic Teaches swap through the engine)"},
+                    "teachSkill":  {"semantic": "teachSkill", "path": "Teaches", "valueMap": {"marksman": "Archery", "speechcraft": "Speech"}, "note": "compose-Set of the BookSkill arm; skill tokens match Skill members ignore-case (marksman->Archery, speechcraft->Speech)"},
                     "setFlags":  {
                                      "semantic":  "flagsSet",
                                      "path":  "Flags",
@@ -2650,96 +2616,36 @@
                                          "semantic":  "set",
                                          "path":  "Lighting.DirectionalRotationZ"
                                      },
-                    "ambientRed":  {
-                                       "unmapped":  "targets one channel of a whole-value Color field — per-channel colour overlay is a named Wave-2 item (the field itself is Lighting.AmbientColor)"
-                                   },
-                    "ambientGreen":  {
-                                         "unmapped":  "targets one channel of a whole-value Color field — per-channel colour overlay is a named Wave-2 item (the field itself is Lighting.AmbientColor)"
-                                     },
-                    "ambientBlue":  {
-                                        "unmapped":  "targets one channel of a whole-value Color field — per-channel colour overlay is a named Wave-2 item (the field itself is Lighting.AmbientColor)"
-                                    },
-                    "directionalRed":  {
-                                           "unmapped":  "targets one channel of a whole-value Color field — per-channel colour overlay is a named Wave-2 item (the field itself is Lighting.DirectionalColor)"
-                                       },
-                    "directionalGreen":  {
-                                             "unmapped":  "targets one channel of a whole-value Color field — per-channel colour overlay is a named Wave-2 item (the field itself is Lighting.DirectionalColor)"
-                                         },
-                    "directionalBlue":  {
-                                            "unmapped":  "targets one channel of a whole-value Color field — per-channel colour overlay is a named Wave-2 item (the field itself is Lighting.DirectionalColor)"
-                                        },
-                    "fogColorNearRed":  {
-                                            "unmapped":  "targets one channel of a whole-value Color field — per-channel colour overlay is a named Wave-2 item (the field itself is Lighting.FogNearColor)"
-                                        },
-                    "fogColorNearGreen":  {
-                                              "unmapped":  "targets one channel of a whole-value Color field — per-channel colour overlay is a named Wave-2 item (the field itself is Lighting.FogNearColor)"
-                                          },
-                    "fogColorNearBlue":  {
-                                             "unmapped":  "targets one channel of a whole-value Color field — per-channel colour overlay is a named Wave-2 item (the field itself is Lighting.FogNearColor)"
-                                         },
-                    "directionalAmbientXMinRed":  {
-                                                      "unmapped":  "targets one channel of a whole-value Color field — per-channel colour overlay is a named Wave-2 item (the field itself is Lighting.AmbientColors.DirectionalXMinus)"
-                                                  },
-                    "directionalAmbientXMinGreen":  {
-                                                        "unmapped":  "targets one channel of a whole-value Color field — per-channel colour overlay is a named Wave-2 item (the field itself is Lighting.AmbientColors.DirectionalXMinus)"
-                                                    },
-                    "directionalAmbientXMinBlue":  {
-                                                       "unmapped":  "targets one channel of a whole-value Color field — per-channel colour overlay is a named Wave-2 item (the field itself is Lighting.AmbientColors.DirectionalXMinus)"
-                                                   },
-                    "directionalAmbientXMaxRed":  {
-                                                      "unmapped":  "targets one channel of a whole-value Color field — per-channel colour overlay is a named Wave-2 item (the field itself is Lighting.AmbientColors.DirectionalXPlus)"
-                                                  },
-                    "directionalAmbientXMaxGreen":  {
-                                                        "unmapped":  "targets one channel of a whole-value Color field — per-channel colour overlay is a named Wave-2 item (the field itself is Lighting.AmbientColors.DirectionalXPlus)"
-                                                    },
-                    "directionalAmbientXMaxBlue":  {
-                                                       "unmapped":  "targets one channel of a whole-value Color field — per-channel colour overlay is a named Wave-2 item (the field itself is Lighting.AmbientColors.DirectionalXPlus)"
-                                                   },
-                    "directionalAmbientYMinRed":  {
-                                                      "unmapped":  "targets one channel of a whole-value Color field — per-channel colour overlay is a named Wave-2 item (the field itself is Lighting.AmbientColors.DirectionalYMinus)"
-                                                  },
-                    "directionalAmbientYMinGreen":  {
-                                                        "unmapped":  "targets one channel of a whole-value Color field — per-channel colour overlay is a named Wave-2 item (the field itself is Lighting.AmbientColors.DirectionalYMinus)"
-                                                    },
-                    "directionalAmbientYMinBlue":  {
-                                                       "unmapped":  "targets one channel of a whole-value Color field — per-channel colour overlay is a named Wave-2 item (the field itself is Lighting.AmbientColors.DirectionalYMinus)"
-                                                   },
-                    "directionalAmbientYMaxRed":  {
-                                                      "unmapped":  "targets one channel of a whole-value Color field — per-channel colour overlay is a named Wave-2 item (the field itself is Lighting.AmbientColors.DirectionalYPlus)"
-                                                  },
-                    "directionalAmbientYMaxGreen":  {
-                                                        "unmapped":  "targets one channel of a whole-value Color field — per-channel colour overlay is a named Wave-2 item (the field itself is Lighting.AmbientColors.DirectionalYPlus)"
-                                                    },
-                    "directionalAmbientYMaxBlue":  {
-                                                       "unmapped":  "targets one channel of a whole-value Color field — per-channel colour overlay is a named Wave-2 item (the field itself is Lighting.AmbientColors.DirectionalYPlus)"
-                                                   },
-                    "directionalAmbientZMinRed":  {
-                                                      "unmapped":  "targets one channel of a whole-value Color field — per-channel colour overlay is a named Wave-2 item (the field itself is Lighting.AmbientColors.DirectionalZMinus)"
-                                                  },
-                    "directionalAmbientZMinGreen":  {
-                                                        "unmapped":  "targets one channel of a whole-value Color field — per-channel colour overlay is a named Wave-2 item (the field itself is Lighting.AmbientColors.DirectionalZMinus)"
-                                                    },
-                    "directionalAmbientZMinBlue":  {
-                                                       "unmapped":  "targets one channel of a whole-value Color field — per-channel colour overlay is a named Wave-2 item (the field itself is Lighting.AmbientColors.DirectionalZMinus)"
-                                                   },
-                    "directionalAmbientZMaxRed":  {
-                                                      "unmapped":  "targets one channel of a whole-value Color field — per-channel colour overlay is a named Wave-2 item (the field itself is Lighting.AmbientColors.DirectionalZPlus)"
-                                                  },
-                    "directionalAmbientZMaxGreen":  {
-                                                        "unmapped":  "targets one channel of a whole-value Color field — per-channel colour overlay is a named Wave-2 item (the field itself is Lighting.AmbientColors.DirectionalZPlus)"
-                                                    },
-                    "directionalAmbientZMaxBlue":  {
-                                                       "unmapped":  "targets one channel of a whole-value Color field — per-channel colour overlay is a named Wave-2 item (the field itself is Lighting.AmbientColors.DirectionalZPlus)"
-                                                   },
-                    "directionalAmbientSpecularRed":  {
-                                                          "unmapped":  "targets one channel of a whole-value Color field — per-channel colour overlay is a named Wave-2 item (the field itself is Lighting.AmbientColors.Specular)"
-                                                      },
-                    "directionalAmbientSpecularGreen":  {
-                                                            "unmapped":  "targets one channel of a whole-value Color field — per-channel colour overlay is a named Wave-2 item (the field itself is Lighting.AmbientColors.Specular)"
-                                                        },
-                    "directionalAmbientSpecularBlue":  {
-                                                           "unmapped":  "targets one channel of a whole-value Color field — per-channel colour overlay is a named Wave-2 item (the field itself is Lighting.AmbientColors.Specular)"
-                                                       },
+                    "ambientRed":  {"semantic": "colorChannel", "path": "Lighting.AmbientColor", "component": 0},
+                    "ambientGreen":  {"semantic": "colorChannel", "path": "Lighting.AmbientColor", "component": 1},
+                    "ambientBlue":  {"semantic": "colorChannel", "path": "Lighting.AmbientColor", "component": 2},
+                    "directionalRed":  {"semantic": "colorChannel", "path": "Lighting.DirectionalColor", "component": 0},
+                    "directionalGreen":  {"semantic": "colorChannel", "path": "Lighting.DirectionalColor", "component": 1},
+                    "directionalBlue":  {"semantic": "colorChannel", "path": "Lighting.DirectionalColor", "component": 2},
+                    "fogColorNearRed":  {"semantic": "colorChannel", "path": "Lighting.FogNearColor", "component": 0},
+                    "fogColorNearGreen":  {"semantic": "colorChannel", "path": "Lighting.FogNearColor", "component": 1},
+                    "fogColorNearBlue":  {"semantic": "colorChannel", "path": "Lighting.FogNearColor", "component": 2},
+                    "directionalAmbientXMinRed":  {"semantic": "colorChannel", "path": "Lighting.AmbientColors.DirectionalXMinus", "component": 0},
+                    "directionalAmbientXMinGreen":  {"semantic": "colorChannel", "path": "Lighting.AmbientColors.DirectionalXMinus", "component": 1},
+                    "directionalAmbientXMinBlue":  {"semantic": "colorChannel", "path": "Lighting.AmbientColors.DirectionalXMinus", "component": 2},
+                    "directionalAmbientXMaxRed":  {"semantic": "colorChannel", "path": "Lighting.AmbientColors.DirectionalXPlus", "component": 0},
+                    "directionalAmbientXMaxGreen":  {"semantic": "colorChannel", "path": "Lighting.AmbientColors.DirectionalXPlus", "component": 1},
+                    "directionalAmbientXMaxBlue":  {"semantic": "colorChannel", "path": "Lighting.AmbientColors.DirectionalXPlus", "component": 2},
+                    "directionalAmbientYMinRed":  {"semantic": "colorChannel", "path": "Lighting.AmbientColors.DirectionalYMinus", "component": 0},
+                    "directionalAmbientYMinGreen":  {"semantic": "colorChannel", "path": "Lighting.AmbientColors.DirectionalYMinus", "component": 1},
+                    "directionalAmbientYMinBlue":  {"semantic": "colorChannel", "path": "Lighting.AmbientColors.DirectionalYMinus", "component": 2},
+                    "directionalAmbientYMaxRed":  {"semantic": "colorChannel", "path": "Lighting.AmbientColors.DirectionalYPlus", "component": 0},
+                    "directionalAmbientYMaxGreen":  {"semantic": "colorChannel", "path": "Lighting.AmbientColors.DirectionalYPlus", "component": 1},
+                    "directionalAmbientYMaxBlue":  {"semantic": "colorChannel", "path": "Lighting.AmbientColors.DirectionalYPlus", "component": 2},
+                    "directionalAmbientZMinRed":  {"semantic": "colorChannel", "path": "Lighting.AmbientColors.DirectionalZMinus", "component": 0},
+                    "directionalAmbientZMinGreen":  {"semantic": "colorChannel", "path": "Lighting.AmbientColors.DirectionalZMinus", "component": 1},
+                    "directionalAmbientZMinBlue":  {"semantic": "colorChannel", "path": "Lighting.AmbientColors.DirectionalZMinus", "component": 2},
+                    "directionalAmbientZMaxRed":  {"semantic": "colorChannel", "path": "Lighting.AmbientColors.DirectionalZPlus", "component": 0},
+                    "directionalAmbientZMaxGreen":  {"semantic": "colorChannel", "path": "Lighting.AmbientColors.DirectionalZPlus", "component": 1},
+                    "directionalAmbientZMaxBlue":  {"semantic": "colorChannel", "path": "Lighting.AmbientColors.DirectionalZPlus", "component": 2},
+                    "directionalAmbientSpecularRed":  {"semantic": "colorChannel", "path": "Lighting.AmbientColors.Specular", "component": 0},
+                    "directionalAmbientSpecularGreen":  {"semantic": "colorChannel", "path": "Lighting.AmbientColors.Specular", "component": 1},
+                    "directionalAmbientSpecularBlue":  {"semantic": "colorChannel", "path": "Lighting.AmbientColors.Specular", "component": 2},
                     "lightingTemplate":  {
                                              "semantic":  "set",
                                              "path":  "LightingTemplate",
