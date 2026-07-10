@@ -34,6 +34,10 @@ twohandsword     twohandaxe    bow            staff       crossbow
 - **Damage:** `attackDamage` · `attackDamageMult` · `attackDamageToAdd` · `bashDamage`.
 - **Crit:** `critDamage` · `critDamageToAdd` · `critDamageMult` · `critPercentMult` ·
   `critDamageSetToBase=true` (crit = base damage).
+  > `critPercentMult` targets the CRDT *% Mult* field, which is itself a multiplier — so unlike the
+  > other `…Mult` ops it is best read as a direct **set** of that field, not a multiply-current
+  > (`critPercentMult=2` ⇒ crit multiplier becomes 2.0). Unverified against the DLL; if you can test
+  > in game, prefer an explicit value and check the result.
 - **Stats:** `weight` · `weightMult` · `value` · `valueMult` · `speed` · `speedMult` · `reach` ·
   `rangeMin` · `rangeMax` · `stagger` · `enchantAmount`.
 - **Models/sounds:** `model` · `modelFirstPerson` · `equipSound` (or `null`) · `unequipSound`

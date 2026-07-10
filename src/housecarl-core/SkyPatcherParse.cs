@@ -49,11 +49,11 @@ public static class SkyPatcherParse
     public static SkyPatcherLine ParseLine(string raw)
     {
         raw ??= "";
-        // A stray U+FEFF (BOM) is treated as whitespace: real shipped INIs carry one not only at the
+        // A stray U+FEFF (BOM) is treated as whitespace ANYWHERE in the line (even mid-line, when a concatenated fragment lacks a trailing newline - review finding #10): real shipped INIs carry one not only at the
         // file start but MID-FILE at a line start (Wave-1 crux finding — a BOM'd file concatenated
         // onto another), and it would otherwise ride into the key. U+FEFF is never a legal key/value
-        // character, so trimming it at the line edges is lossless.
-        var trimmed = raw.Trim().Trim('\uFEFF').Trim();
+        // character, so replacing it with a space is lossless (the edge/segment trims absorb it).
+        var trimmed = raw.Replace('\uFEFF', ' ').Trim();
 
         if (trimmed.Length == 0)
             return new SkyPatcherLine(raw, SkyPatcherLineKind.Blank, Array.Empty<SkyPatcherSegment>(), null);

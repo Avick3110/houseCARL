@@ -52,6 +52,7 @@ public static class SkyPatcherHarness
         {
             Console.WriteLine();
             Console.WriteLine($"-- folder '{f.Subfolder}': {f.IniCount} applied INI file(s), {f.LineCount} line(s) replayed --");
+            if (!f.Enabled) { Console.WriteLine("   [!] SkyPatcher.ini toggles this folder OFF — its INIs exist but the DLL skips the whole subfolder."); continue; }
             if (f.Result is null) { Console.WriteLine("   (no INIs for this folder in the active order)"); continue; }
             var r = f.Result;
             Console.WriteLine($"   lines matching this record: {r.LinesMatched}   filter-unresolved skips: {r.LinesSkippedUnresolvedFilter}");

@@ -93,7 +93,11 @@ public static class SkyPatcherOverlayProbe
             L("z.ini", 17, $"hasPlugins=Missing.esp:filterByWeapons={me}:value=7"),     // gate fails ⇒ NOT applied
             L("z.ini", 18, $"hasPlugins=HcSpOv.esp:filterByWeapons={me}:value=777"),    // gate passes
             L("z.ini", 19, $"filterByWeapons={me}:keywordsToAdd=HcNamedKeyword"),       // EditorID value → resolver
-            L("z.ini", 20, "bogusFilter=1:critPercentMult=3"),                          // unknown ONLY-filter must NOT become apply-all
+            L("z.ini", 20, "bogusFilter=1:stagger=9"),                                  // unknown ONLY-filter must NOT become apply-all
+            L("z.ini", 21, "filterByWeapons=HcSpOv.esp|FE000800:enchantAmount=77"),     // full load-indexed ESL FormID (FExxxYYY)
+            L("z.ini", 22, $"filterByWeapons={me}:reach="),                             // EMPTY value must warn, not silently no-op
+            L("z.ini", 23, $"filterByWeapons={me}:model=NotARealDonor"),                // unresolvable dot-less donor must NOT become a "model path"
+            L("z.ini", 24, $"filterByWeapons={me}:critPercentMult=3"),                  // SET of the CRDT multiplier field (0 → 3; a multiply model yields 0)
         };
 
         var result = SkyPatcherOverlay.Apply(weap, fk, weap.EditorID, catalog, weapCat, weapMap, lines, resolver);
@@ -130,10 +134,22 @@ public static class SkyPatcherOverlayProbe
             && Math.Abs(weap.Data.Speed - 0) < 0.001, $"speed={weap.Data.Speed}");
         failures += Check("an unknown key poisons the WHOLE line, loud (notAnOp)",
             result.Warnings.Any(w => w.Contains("notAnOp") && w.Contains("UNRESOLVED")));
-        failures += Check("unknown ONLY-filter line did NOT become apply-all (critPercentMult untouched)",
-            weap.Critical!.PercentMult == 0
+        failures += Check("unknown ONLY-filter line did NOT become apply-all (stagger untouched by z:20)",
+            Math.Abs(weap.Data!.Stagger - 1.5) < 0.001
             && result.Warnings.Any(w => w.Contains("bogusFilter") && w.Contains("UNRESOLVED")),
-            $"PercentMult={weap.Critical.PercentMult}");
+            $"stagger={weap.Data.Stagger}");
+        failures += Check("full load-indexed ESL FormID (FE000800) matches the record (review #4)",
+            weap.EnchantmentAmount == 77, $"got {weap.EnchantmentAmount}");
+        failures += Check("empty set value warns loud, does not silently no-op (review #8)",
+            Math.Abs(weap.Data.Reach - 1.25) < 0.001
+            && result.Warnings.Any(w => w.Contains("'reach='") && w.Contains("no value")),
+            $"reach={weap.Data.Reach}");
+        failures += Check("unresolvable dot-less model donor warns, never written verbatim as a path (review #6)",
+            (weap.Model?.File.GivenPath ?? "") != "NotARealDonor"
+            && result.Warnings.Any(w => w.Contains("NotARealDonor") && w.Contains("not resolvable")),
+            weap.Model?.File.GivenPath ?? "<no model>");
+        failures += Check("critPercentMult is a SET of the CRDT multiplier field (0 → 3, not 0×3)",
+            Math.Abs(weap.Critical!.PercentMult - 3) < 0.001, $"got {weap.Critical.PercentMult}");
 
         // ---- op surface ----
         failures += Check("rename strips the ~…~ wrapper", weap.Name?.String == "Reforged Blade", weap.Name?.String ?? "<null>");
@@ -163,6 +179,7 @@ public static class SkyPatcherOverlayProbe
             string.Join(" | ", result.Applied.Where(a => a.Op == "attackDamageMult").Select(a => $"{a.Before}→{a.After}")));
 
         failures += NpcEntryOpsArm(catalog, fieldMap, mod);
+        failures += LeveledListScopeArm(catalog, fieldMap, mod);
 
         return Done(failures);
     }
@@ -228,6 +245,41 @@ public static class SkyPatcherOverlayProbe
             string.Join(" | ", npc.Factions.Select(f => $"{f.Faction.FormKey}@{f.Rank}")));
         failures += Check("flagBool set (setEssential=true)",
             npc.Configuration.Flags.HasFlag(NpcConfiguration.Flag.Essential));
+        return failures;
+    }
+
+    /// <summary>The shared leveledList folder serves TWO record classes — noFilterLL is an ITEM-list
+    /// apply-all, noFilterLLNPC a CHARACTER-list apply-all (review finding #3: without class scoping,
+    /// an LLNPC-only line silently patched item lists too).</summary>
+    static int LeveledListScopeArm(SkyPatcherCatalog catalog, SkyPatcherFieldMap fieldMap, SkyrimMod mod)
+    {
+        Console.WriteLine("  --- leveledList class-scope arm (noFilterLL vs noFilterLLNPC) ---");
+        int failures = 0;
+        var llCat = catalog.ForSubfolder("leveledList")!;
+        var liMap = fieldMap.For("leveledList", "LeveledItem")!;
+        var lnMap = fieldMap.For("leveledList", "LeveledNpc")!;
+        var resolver = new StubResolver();
+
+        SkyPatcherOverlay.OrderedLine L(int n, string text) => new("ll.ini", n, SkyPatcherParse.ParseLine(text));
+        var lines = new[]
+        {
+            L(1, "noFilterLLNPC=true:calcForLevel=true"),   // character lists ONLY
+            L(2, "noFilterLL=true:calcEachItem=true"),      // item lists ONLY
+        };
+
+        var lvli = mod.LeveledItems.AddNew();
+        SkyPatcherOverlay.Apply(lvli, lvli.FormKey, null, catalog, llCat, liMap, lines, resolver);
+        failures += Check("LVLI: the LLNPC apply-all did NOT touch it; the LL one did",
+            !lvli.Flags.HasFlag(LeveledItem.Flag.CalculateFromAllLevelsLessThanOrEqualPlayer)
+            && lvli.Flags.HasFlag(LeveledItem.Flag.CalculateForEachItemInCount),
+            lvli.Flags.ToString());
+
+        var lvln = mod.LeveledNpcs.AddNew();
+        SkyPatcherOverlay.Apply(lvln, lvln.FormKey, null, catalog, llCat, lnMap, lines, resolver);
+        failures += Check("LVLN: the LL apply-all did NOT touch it; the LLNPC one did",
+            lvln.Flags.HasFlag(LeveledNpc.Flag.CalculateFromAllLevelsLessThanOrEqualPlayer)
+            && !lvln.Flags.HasFlag(LeveledNpc.Flag.CalculateForEachItemInCount),
+            lvln.Flags.ToString());
         return failures;
     }
 
