@@ -32,9 +32,15 @@ public static class SkyPatcherHarness
         try { fk = FormKey.Factory(formid.Trim()); }
         catch (Exception ex) { Console.Error.WriteLine($"error: bad FormID '{formid}': {ex.Message}"); return 1; }
 
-        // corpus.json is GENERATED, not tracked — run from outside the repo root the default relative
-        // CorpusPath resolves to nothing and the service's rulebook/type-catalog loads crash unnamed.
-        // Bootstrap the FloiFieldsProbe way: generate into a unique temp dir, cleaned on exit.
+        return WithCorpus(() => Run(fk, instance));
+    }
+
+    /// <summary>corpus.json is GENERATED, not tracked — run from outside the repo root the default
+    /// relative CorpusPath resolves to nothing and the service's rulebook/type-catalog loads crash
+    /// unnamed. Bootstrap the FloiFieldsProbe way (generate into a unique temp dir, cleaned on exit)
+    /// around <paramref name="body"/> — the ONE bootstrap both harness modes ride (review fold).</summary>
+    static int WithCorpus(Func<int> body)
+    {
         string? tmp = null;
         if (!File.Exists(CorpusRulebook.CorpusPath))
         {
@@ -45,7 +51,7 @@ public static class SkyPatcherHarness
             if (gen != 0) { Console.Error.WriteLine("error: corpus generation failed"); return gen; }
             CorpusRulebook.CorpusPath = Path.Combine(tmp, "generated", "corpus.json");
         }
-        try { return Run(fk, instance); }
+        try { return body(); }
         finally { if (tmp is not null) { try { Directory.Delete(tmp, recursive: true); } catch { /* best-effort */ } } }
     }
 
@@ -69,17 +75,7 @@ public static class SkyPatcherHarness
             return 1;
         }
 
-        string? tmp = null;
-        if (!File.Exists(CorpusRulebook.CorpusPath))
-        {
-            tmp = Path.Combine(Path.GetTempPath(), "hc-sp-harness-corpus-" + Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(tmp);
-            Console.WriteLine($"corpus.json absent — generating into {tmp} (running outside the repo root)…");
-            var gen = CorpusGenerator.GenerateAll(Path.Combine(tmp, "generated"), Path.Combine(tmp, "refs"));
-            if (gen != 0) { Console.Error.WriteLine("error: corpus generation failed"); return gen; }
-            CorpusRulebook.CorpusPath = Path.Combine(tmp, "generated", "corpus.json");
-        }
-        try
+        return WithCorpus(() =>
         {
             var store = new UserConfigStore(Path.Combine(Path.GetTempPath(), $"hc-sp-harness-{Guid.NewGuid():N}.json"));
             var svc = LoadOrderService.WithInstance(instance, maxPlugins: 0, store);
@@ -89,8 +85,7 @@ public static class SkyPatcherHarness
             Console.WriteLine(SkyPatcherWire.RenderLayer(data, filter, 200_000));
             Console.WriteLine($"\n[{sw.Elapsed.TotalSeconds:N1}s]");
             return 0;
-        }
-        finally { if (tmp is not null) { try { Directory.Delete(tmp, recursive: true); } catch { /* best-effort */ } } }
+        });
     }
 
     static int Run(FormKey fk, string instance)

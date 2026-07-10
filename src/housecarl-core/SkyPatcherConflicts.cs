@@ -53,8 +53,8 @@ public static class SkyPatcherConflicts
         if (folder.Catalog is null) return conflicts;
         var maps = fieldMap.ForSubfolder(folder.Subfolder);
 
-        // ---- collect every SET-class event in apply order ----
-        var events = new List<(string file, int line, string op, string value, string field, IReadOnlyList<string> targets, bool conditional)>();
+        // ---- collect every SET-class event in apply order (seq = the apply-order index) ----
+        var events = new List<(int seq, string file, int line, string op, string value, string field, IReadOnlyList<string> targets, bool conditional)>();
         foreach (var ol in SkyPatcherDiscovery.OrderedLines(folder))
         {
             if (ol.Parsed.Kind != SkyPatcherLineKind.Patch) continue;
@@ -79,31 +79,39 @@ public static class SkyPatcherConflicts
                 if (cls.Operation!.Tractability == SkyPatcherTractability.Hard) continue;
                 var field = SetFieldOf(maps, seg.Key);
                 if (field is null) continue;   // accumulating / unmapped — not a last-write-wins collision
-                events.Add((ol.File, ol.LineNumber, seg.Key, (seg.RawValue ?? "").Trim(), field, targets, conditional));
+                events.Add((events.Count, ol.File, ol.LineNumber, seg.Key, (seg.RawValue ?? "").Trim(), field, targets, conditional));
             }
         }
 
-        // ---- group by field, then by target token (broad joins every token it can collide with) ----
+        // ---- group by field, then by target token in ONE forward pass (review fold: the per-token
+        //      re-scan was O(tokens × events) — quadratic exactly when most lines target distinct
+        //      records, the common shape). Broad events keep their own group (the broad-vs-broad
+        //      view) AND append to every explicit token's group (broad collides with everything).
         foreach (var fieldGroup in events.GroupBy(e => e.field, StringComparer.Ordinal))
         {
-            var all = fieldGroup.ToList();
-            var tokens = all.SelectMany(e => e.targets).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-            foreach (var token in tokens)
-            {
-                // Every event that can write this target: an exact token match, or a broad line.
-                var hits = all.Where(e => e.targets.Contains(Broad)
-                        || (token != Broad && e.targets.Contains(token, StringComparer.OrdinalIgnoreCase)))
-                    .ToList();
-                if (token == Broad)
-                    hits = all.Where(e => e.targets.Contains(Broad)).ToList();   // the broad-vs-broad view; broad-vs-explicit reports under the explicit token
-                if (hits.Select(e => e.file).Distinct(StringComparer.OrdinalIgnoreCase).Count() < 2) continue;
-                if (hits.Select(e => e.value).Distinct(StringComparer.OrdinalIgnoreCase).Count() < 2) continue;
-                conflicts.Add(new SkyPatcherConflict(folder.Subfolder, fieldGroup.Key,
-                    token == Broad ? $"(all {folder.Subfolder} records)" : token,
-                    hits.Select(e => new SkyPatcherConflictEntry(e.file, e.line, e.op, e.value, e.conditional)).ToList()));
-            }
+            var byToken = new Dictionary<string, List<(int seq, string file, int line, string op, string value, bool conditional)>>(StringComparer.OrdinalIgnoreCase);
+            var broad = new List<(int seq, string file, int line, string op, string value, bool conditional)>();
+            foreach (var e in fieldGroup)
+                foreach (var token in e.targets)
+                    if (token == Broad) broad.Add((e.seq, e.file, e.line, e.op, e.value, e.conditional));
+                    else (byToken.TryGetValue(token, out var l) ? l : byToken[token] = new()).Add((e.seq, e.file, e.line, e.op, e.value, e.conditional));
+
+            foreach (var (token, own) in byToken.OrderBy(kv => kv.Key, StringComparer.OrdinalIgnoreCase))
+                // Explicit-target group + every broad write of the same field, merged back into apply order.
+                Emit(conflicts, folder.Subfolder, fieldGroup.Key, token, own.Concat(broad).OrderBy(h => h.seq).ToList());
+            Emit(conflicts, folder.Subfolder, fieldGroup.Key, Broad, broad);
         }
         return conflicts;
+    }
+
+    static void Emit(List<SkyPatcherConflict> conflicts, string subfolder, string field, string token,
+        IReadOnlyList<(int seq, string file, int line, string op, string value, bool conditional)> hits)
+    {
+        if (hits.Select(e => e.file).Distinct(StringComparer.OrdinalIgnoreCase).Count() < 2) return;
+        if (hits.Select(e => e.value).Distinct(StringComparer.OrdinalIgnoreCase).Count() < 2) return;
+        conflicts.Add(new SkyPatcherConflict(subfolder, field,
+            token == Broad ? $"(all {subfolder} records)" : token,
+            hits.Select(e => new SkyPatcherConflictEntry(e.file, e.line, e.op, e.value, e.conditional)).ToList()));
     }
 
     /// <summary>The line's target tokens from its PRIMARY filter (normalized FormKey / case-folded
@@ -127,26 +135,47 @@ public static class SkyPatcherConflicts
         return tokens.Count > 0 ? (tokens, conditional) : (new[] { Broad }, conditional);
     }
 
-    /// <summary>The field signature a SET-class op writes (null = not a last-write-wins set: an
-    /// accumulating / collection / stateful / unmapped op). FlagBool includes the flag (two different
-    /// booleans of one flags leaf don't collide); vector/colour components include the component.</summary>
+    /// <summary>The last-write-wins SET-class semantics — a later write of the same field/target
+    /// REPLACES an earlier one, the collision class this detector reports.</summary>
+    internal static readonly IReadOnlySet<SkyPatcherOpSemantic> SetClassSemantics = new HashSet<SkyPatcherOpSemantic>
+    {
+        SkyPatcherOpSemantic.Set, SkyPatcherOpSemantic.SetFromOwnField, SkyPatcherOpSemantic.ModelPath,
+        SkyPatcherOpSemantic.VecComponent, SkyPatcherOpSemantic.ColorChannel, SkyPatcherOpSemantic.FlagBool,
+        SkyPatcherOpSemantic.DictSet, SkyPatcherOpSemantic.TeachSpell, SkyPatcherOpSemantic.TeachSkill,
+    };
+
+    /// <summary>The accumulating / stateful / collection semantics — order matters but nothing is
+    /// silently dropped, so they are NOT conflicts (grammar §2). Together with
+    /// <see cref="SetClassSemantics"/> this must cover EVERY <see cref="SkyPatcherOpSemantic"/> member —
+    /// the conflicts guard pins that partition, so a future semantic can't silently default to
+    /// "accumulating" and make the detector under-report (review finding).</summary>
+    internal static readonly IReadOnlySet<SkyPatcherOpSemantic> AccumulatingSemantics = new HashSet<SkyPatcherOpSemantic>
+    {
+        SkyPatcherOpSemantic.Mult, SkyPatcherOpSemantic.AddNumeric, SkyPatcherOpSemantic.FlagsSet,
+        SkyPatcherOpSemantic.FlagsRemove, SkyPatcherOpSemantic.AddForm, SkyPatcherOpSemantic.RemoveForm,
+        SkyPatcherOpSemantic.ReplaceForm, SkyPatcherOpSemantic.ClearList, SkyPatcherOpSemantic.AddEntry,
+        SkyPatcherOpSemantic.AddEntryOnce, SkyPatcherOpSemantic.RemoveEntry, SkyPatcherOpSemantic.RemoveEntryByCount,
+        SkyPatcherOpSemantic.ReplaceEntry, SkyPatcherOpSemantic.MultCount, SkyPatcherOpSemantic.RemoveByKeyword,
+        SkyPatcherOpSemantic.DictMult, SkyPatcherOpSemantic.BipedSlotsSet, SkyPatcherOpSemantic.BipedSlotsRemove,
+        SkyPatcherOpSemantic.SetEntryCount,
+    };
+
+    /// <summary>The field signature a SET-class op writes (null = accumulating / unmapped — not a
+    /// last-write-wins collision). FlagBool includes the flag (two different booleans of one flags
+    /// leaf don't collide); vector/colour components include the component; dict sets the key.</summary>
     static string? SetFieldOf(IReadOnlyList<RecordMap> maps, string opName)
     {
         foreach (var m in maps)
         {
             var op = m.Ops.GetValueOrDefault(opName);
             if (op is null || op.IsUnmapped) continue;
+            if (!SetClassSemantics.Contains(op.Semantic)) return null;
             return op.Semantic switch
             {
-                SkyPatcherOpSemantic.Set => op.Path,
-                SkyPatcherOpSemantic.SetFromOwnField => op.Path,
-                SkyPatcherOpSemantic.ModelPath => op.Path,
-                SkyPatcherOpSemantic.VecComponent => $"{op.Path}[{op.Component}]",
-                SkyPatcherOpSemantic.ColorChannel => $"{op.Path}[{op.Component}]",
+                SkyPatcherOpSemantic.VecComponent or SkyPatcherOpSemantic.ColorChannel => $"{op.Path}[{op.Component}]",
                 SkyPatcherOpSemantic.FlagBool => $"{op.Path}({op.Flag})",
                 SkyPatcherOpSemantic.DictSet => $"{op.Path}[{op.Key}]",
-                SkyPatcherOpSemantic.TeachSpell or SkyPatcherOpSemantic.TeachSkill => op.Path,
-                _ => null,
+                _ => op.Path,
             };
         }
         return null;
