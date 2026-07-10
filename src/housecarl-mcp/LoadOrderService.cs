@@ -439,9 +439,14 @@ public sealed class LoadOrderService : IDisposable
         var fieldMap = SkyPatcherFieldMap.Load();
         var scan = SkyPatcherDiscovery.Scan(assets, catalog, view.ContainsPlugin, _skyPatcherParseCache);
         var conflicts = new List<SkyPatcherConflicts.SkyPatcherConflict>();
+        var itms = new List<SkyPatcherConflicts.SkyPatcherItm>();
         foreach (var folder in scan.Folders)
-            conflicts.AddRange(SkyPatcherConflicts.Detect(folder, catalog, fieldMap));
-        return new SkyPatcherLayerData(scan, conflicts, scan.ReadIncomplete || assets.ReadIncomplete, assetWarnings, profileName);
+        {
+            var report = SkyPatcherConflicts.Detect(folder, catalog, fieldMap);
+            conflicts.AddRange(report.Conflicts);
+            itms.AddRange(report.Itms);
+        }
+        return new SkyPatcherLayerData(scan, conflicts, itms, scan.ReadIncomplete || assets.ReadIncomplete, assetWarnings, profileName);
     }
 
     /// <summary>The live-load-order lookups the overlay needs (<see cref="SkyPatcherOverlay.IFormResolver"/>),
@@ -4166,10 +4171,12 @@ public sealed record SkseInventoryData(
     string ProfileName);
 
 /// <summary>The data behind the whole-layer SkyPatcher scan (Wave 2): the ordered discovery scan, the
-/// per-folder INI-vs-INI set collisions, and the build-level Q3 caveats.</summary>
+/// per-folder INI-vs-INI set collisions, the intra-file dead lines (ITM-class), and the build-level
+/// Q3 caveats.</summary>
 public sealed record SkyPatcherLayerData(
     HousecarlCore.SkyPatcherDiscovery.LayerScan Scan,
     IReadOnlyList<HousecarlCore.SkyPatcherConflicts.SkyPatcherConflict> Conflicts,
+    IReadOnlyList<HousecarlCore.SkyPatcherConflicts.SkyPatcherItm> Itms,
     bool ReadIncomplete,
     IReadOnlyList<string> AssetWarnings,
     string ProfileName);
