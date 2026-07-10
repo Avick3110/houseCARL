@@ -92,9 +92,11 @@ public sealed class CorpusRulebook
 
     /// <summary>Pre-flight (P-VALIDATE order). Returns null if the write is legal, else a fail-loud message.
     /// <paramref name="siblingEditorIds"/> (non-null only on the CREATE-batch path) is the set of editorids created
-    /// EARLIER in the same call: a FormLink value of the form <c>@editorid</c> in that set is accepted as a forward-ref
-    /// the create path resolves post-allocation (HCBR Layer B unit A). Null (the override/set_field path) ⇒ an
-    /// <c>@editorid</c> value is rejected loud — it has no meaning when there are no same-call siblings.</summary>
+    /// EARLIER in the same call PLUS the record being created itself (self-reference — HCBR-2026-07-10-01: a quest's
+    /// VMAD fragment points at its own quest): a FormLink value of the form <c>@editorid</c> in that set is accepted
+    /// as a forward-ref the create path resolves post-allocation (HCBR Layer B unit A). The set threads into composed
+    /// StructSpec Fields/Sets too. Null (the override/set_field path) ⇒ an <c>@editorid</c> value is rejected loud —
+    /// it has no meaning when there are no same-call creations.</summary>
     public string? Validate(WriteRequest req, IReadOnlyCollection<string>? siblingEditorIds = null)
     {
         // (1) resolve the record, then validate rooted at it. ValidateFromType is shared with StructSpec validation
@@ -313,8 +315,9 @@ public sealed class CorpusRulebook
     string? ValueLegality(FieldSchema leaf, WriteRequest req, IReadOnlyCollection<string>? siblingEditorIds = null)
     {
         // Same-call sibling reference ("@editorid", create-context forward-ref — HCBR Layer B unit A). Gate it BEFORE
-        // any verb/cardinality dispatch: it names a record created EARLIER in this same create call, substituted with
-        // that record's real FormKey AFTER allocation (WritePatchBuilder.CreateRecords), and ONLY in create context
+        // any verb/cardinality dispatch: it names a record created EARLIER in this same create call — or the record
+        // being created ITSELF (self-reference, HCBR-2026-07-10-01) — substituted with the real FormKey AFTER
+        // allocation (WritePatchBuilder.CreateRecords), and ONLY in create context
         // (siblingEditorIds non-null) — the Apply/set_field path has no siblings, so an @editorid there rejects loud
         // (never an accept-then-substitute-nothing, Q3). Legal placements, all resolved with identical timing:
         //   • a SINGULAR value — Set on a singular FormLink leaf, OR Add on a FormLink LIST leaf (S4 Track D: LinkTo
@@ -325,8 +328,10 @@ public sealed class CorpusRulebook
         if (WriteEngine.IsSameCallSiblingRef(req.Value, out var sibEdid))
         {
             if (siblingEditorIds is null)
-                return $"'{req.Value}' for '{leaf.Name}': a '@editorid' same-call reference is only valid when creating " +
-                       "records in ONE call (housecarl_bulk_create) — it has no meaning when editing an existing record.";
+                return $"'{req.Value}' for '{leaf.Name}': a '@editorid' reference names a record being created in the " +
+                       "SAME housecarl_create_record / housecarl_bulk_create call — when editing an existing record " +
+                       "there are no same-call creations to point at. Use the target's FormID (a record already " +
+                       "written into a houseCARL patch is addressable by FormID with into= that patch).";
             // The singular value must land on a FormLink TARGET — a singular formlink leaf or a formlink-element list.
             var onFormLink = leaf.Cardinality == "formlink"
                           || (leaf.Cardinality == "list" && leaf.FormLinkTarget is not null);
@@ -342,7 +347,8 @@ public sealed class CorpusRulebook
                        $"is a {leaf.Cardinality}).";
             return siblingEditorIds.Contains(sibEdid) ? null
                 : $"Same-call reference '{req.Value}' for '{leaf.Name}': no record with editorid '{sibEdid}' is created " +
-                  "EARLIER in this call — declare it before the record that references it (in spec order).";
+                  "EARLIER in this call (a record may also reference ITSELF by its own editorid) — declare it before " +
+                  "the record that references it (in spec order).";
         }
         // A sibling token inside req.Values — legal ONLY as a ReplaceAll on a FormLink LIST (S4 Track D); each entry is
         // substituted with its sibling's allocated FormKey (WritePatchBuilder.CreateRecords). Validate the WHOLE list
@@ -352,8 +358,10 @@ public sealed class CorpusRulebook
         if (req.Values is { } vals && vals.Any(v => WriteEngine.IsSameCallSiblingRef(v, out _)))
         {
             if (siblingEditorIds is null)
-                return $"a '@editorid' same-call reference for '{leaf.Name}' is only valid when creating records in ONE " +
-                       "call (housecarl_bulk_create) — it has no meaning when editing an existing record.";
+                return $"a '@editorid' reference for '{leaf.Name}' names a record being created in the SAME " +
+                       "housecarl_create_record / housecarl_bulk_create call — when editing an existing record there " +
+                       "are no same-call creations to point at. Use the target's FormID (a record already written " +
+                       "into a houseCARL patch is addressable by FormID with into= that patch).";
             if (!(req.Verb == "ReplaceAll" && leaf.Cardinality == "list" && leaf.FormLinkTarget is not null))
                 return $"a '@editorid' same-call reference for '{leaf.Name}' is only supported as an Add value or a " +
                        $"ReplaceAll value on a FormLink list (the verb was '{req.Verb}', '{leaf.Name}' is a {leaf.Cardinality}).";
@@ -363,7 +371,8 @@ public sealed class CorpusRulebook
                 {
                     if (!siblingEditorIds.Contains(vEd))
                         return $"Same-call reference '@{vEd}' for '{leaf.Name}': no record with editorid '{vEd}' is " +
-                               "created EARLIER in this call — declare it before the record that references it (in spec order).";
+                               "created EARLIER in this call (a record may also reference ITSELF by its own editorid) — " +
+                               "declare it before the record that references it (in spec order).";
                 }
                 else if (!WriteEngine.IsValidFormLinkValue(v)) return FormLinkElementReject(v, leaf);
             }
@@ -408,12 +417,12 @@ public sealed class CorpusRulebook
             // element (Gap 3, dict-element composition): validate the spec against the element type via the SAME
             // StructElementLegality the Add path uses (poly-base arm resolution + recursive contents) — gate and apply
             // share one recognizer, no drift. A coercible-VALUE dict (Class.SkillWeights, Race.Regen, …) Set coerces.
-            if (IsComposableElement(leaf)) return StructElementLegality(leaf, req.Struct);
+            if (IsComposableElement(leaf)) return StructElementLegality(leaf, req.Struct, siblingEditorIds);
             if (req.Value is null) return $"Set on dict '{leaf.Name}' requires a value.";
             return CheckValue(leaf.ElementType, req.Value, $"dict value for '{leaf.Name}'", leaf.ElementTypeAssemblyQualified);
         }
         if (req.Verb is "Set" && leaf.Cardinality == "polymorphic")
-            return ArmLegality(leaf, req.Struct);
+            return ArmLegality(leaf, req.Struct, siblingEditorIds);
         // A whole modeled-STRUCT substruct leaf (FaceParts, ObjectBounds, FaceMorph, a concrete script-property arm, …) is
         // Set by composing its value FROM PARTS — the leaf twin of the dict-element (above) and polymorphic-arm (just above)
         // compose paths, validated by the SAME StructSpecContents. Apply already builds it (ApplyScalarVerb req.Struct ->
@@ -422,7 +431,7 @@ public sealed class CorpusRulebook
         // keeps its plain-value Set below, and a composition-residual (GenderedItem — diverted to [0]/[1] upstream — /
         // Array2d — no paramless ctor) stays out (gate==apply, no accept-then-throw). Chain Stage 2b.
         if (req.Verb is "Set" && SchemaClassifier.IsComposableSubstructLeaf(leaf, _corpus))
-            return StructLeafLegality(leaf, req.Struct);
+            return StructLeafLegality(leaf, req.Struct, siblingEditorIds);
         if (req.Verb is "Set")
         {
             // A compose spec reaching HERE means the leaf isn't a compose target (not a composable substruct/dict/poly —
@@ -570,7 +579,7 @@ public sealed class CorpusRulebook
             // (Package.Data -> an APackageData arm) + validates contents recursively. (A composable dict SET is gated at
             // the dict-Set block above — same StructElementLegality.)
             if (req.Verb == "Add")
-                return StructElementLegality(leaf, req.Struct);
+                return StructElementLegality(leaf, req.Struct, siblingEditorIds);
             // ReplaceAll/SetAtIndex/Merge of modeled elements are all deferred (only Add/Set composes). Merge is dict-only
             // and was previously OMITTED here, so a Package.Data Merge fell through to ACCEPT then threw 'No coercion
             // rule' at apply (matrix-critic finding) — folding it in closes that. Verb named in the message so it reads
@@ -620,7 +629,7 @@ public sealed class CorpusRulebook
     /// concrete arm like <c>ScriptObjectProperty</c>) — and its contents must validate against the SPEC's own
     /// schema (the arm's fields, not the base's), recursively via the shared validator. Generic over every
     /// polymorphic-base element family — no per-type wiring (cornerstone).</summary>
-    string? StructElementLegality(FieldSchema leaf, StructSpec? spec)
+    string? StructElementLegality(FieldSchema leaf, StructSpec? spec, IReadOnlyCollection<string>? siblingEditorIds = null)
     {
         if (spec is null)
             return $"'{leaf.Name}' takes a build-from-parts element (a modeled {leaf.ElementTypeRef}); supply a compose spec, not a plain value.";
@@ -658,7 +667,7 @@ public sealed class CorpusRulebook
                 ? $" Legal element types: {string.Join(", ", legalArms)}." : "";
             return $"Element spec type '{spec.Type}' does not match '{leaf.Name}' element type '{er}'.{legal}";
         }
-        return StructSpecContents(spec, specSchema);
+        return StructSpecContents(spec, specSchema, siblingEditorIds);
     }
 
     /// <summary>Validate a whole-struct compose Set on a SUBSTRUCT leaf — the leaf twin of <see cref="StructElementLegality"/>,
@@ -669,7 +678,7 @@ public sealed class CorpusRulebook
     /// polymorphic FIELD is cardinality "polymorphic", handled above), so a straight name-match is correct — no poly-base
     /// arm resolution. Reached only for a <see cref="SchemaClassifier.IsComposableSubstructLeaf"/> leaf (TypeRef non-null,
     /// corpus-present, apply-instantiable) — the null-spec branch replaces the misleading scalar "requires a value".</summary>
-    string? StructLeafLegality(FieldSchema leaf, StructSpec? spec)
+    string? StructLeafLegality(FieldSchema leaf, StructSpec? spec, IReadOnlyCollection<string>? siblingEditorIds = null)
     {
         var tr = leaf.TypeRef!;               // non-null by IsComposableSubstructLeaf
         var schema = Type(tr);
@@ -679,14 +688,14 @@ public sealed class CorpusRulebook
                    $"{{\"type\":\"{tr}\", \"fields\":{{…}}}}), or navigate into it and Set a sub-field; a plain value can't express a struct.";
         if (spec.Type != tr)
             return $"Compose type '{spec.Type}' does not match '{leaf.Name}' struct type '{tr}'.";
-        return StructSpecContents(spec, schema);
+        return StructSpecContents(spec, schema, siblingEditorIds);
     }
 
     /// <summary>Validate a build-from-parts spec's CONTENTS against its declared struct type: flat <see cref="StructSpec.Fields"/>
     /// must exist + coerce; nested <see cref="StructSpec.Sets"/> validate by the identical path/leaf rules (recursively,
     /// through <see cref="ValidateFromType"/>). Shared by the polymorphic-arm Set and the struct-element Add so the two
     /// composition entry points can never disagree.</summary>
-    string? StructSpecContents(StructSpec spec, TypeSchema structSchema)
+    string? StructSpecContents(StructSpec spec, TypeSchema structSchema, IReadOnlyCollection<string>? siblingEditorIds = null)
     {
         // (G4) positional ctor_args value-SHAPE + ARITY — the one compose part the gate never checked. A malformed arg
         // or a wrong arity passed pre-flight then threw at apply (Instantiate: Coerce(arg, paramType) / "no constructor
@@ -700,13 +709,35 @@ public sealed class CorpusRulebook
         {
             var af = structSchema.Fields.FirstOrDefault(x => x.Name == f.Key);
             if (af is null) return FieldNotFound(structSchema, f.Key);
+            // A '@editorid' same-call reference in a compose FIELD (HCBR-2026-07-10-01: the VMAD alias-fragment
+            // Property.Object=@<the quest itself> shape) — legal on a singular FORMLINK field in CREATE context only,
+            // mirroring the top-level singular-value gate exactly (formlink-only + declared-earlier-or-self); the
+            // create path substitutes it with the allocated FormKey (WritePatchBuilder.ResolveSiblingRefs). Gated
+            // BEFORE CheckValue, which would otherwise reject the '@' token as a malformed FormLink.
+            if (WriteEngine.IsSameCallSiblingRef(f.Value, out var fEd))
+            {
+                if (siblingEditorIds is null)
+                    return $"a '@editorid' reference for '{f.Key}' on '{spec.Type}' names a record being created in the " +
+                           "SAME housecarl_create_record / housecarl_bulk_create call — when editing an existing record " +
+                           "there are no same-call creations to point at. Use the target's FormID.";
+                if (af.Cardinality != "formlink")
+                    return $"Same-call reference '{f.Value}' for '{f.Key}' on '{spec.Type}' is only valid on a FormLink " +
+                           $"field, but '{f.Key}' is a {af.Cardinality}.";
+                if (!siblingEditorIds.Contains(fEd))
+                    return $"Same-call reference '{f.Value}' for '{f.Key}' on '{spec.Type}': no record with editorid " +
+                           $"'{fEd}' is created EARLIER in this call (a record may also reference ITSELF by its own " +
+                           "editorid) — declare it before the record that references it (in spec order).";
+                continue;
+            }
             if (CheckValue(af.Type, f.Value, $"'{f.Key}' on '{spec.Type}'",
                     af.MutableTypeAssemblyQualified ?? af.GetterTypeAssemblyQualified) is { } e) return e;
         }
         foreach (var s in spec.Sets ?? new())
-            // siblingEditorIds: null — a same-call @editorid forward-ref inside a COMPOSED struct (e.g. a VMAD
-            // property) is out of unit-A scope; it rejects loud here rather than being silently accepted (Q3).
-            if (ValidateFromType(structSchema, s, siblingEditorIds: null) is { } e) return e;
+            // siblingEditorIds threads through — a same-call @editorid ref inside a COMPOSED struct's nested Sets
+            // (e.g. a VMAD quest-fragment's Property.Object=@<own quest>, HCBR-2026-07-10-01) validates by the SAME
+            // gates as a top-level value (formlink-only + declared-earlier-or-self), recursively; on the edit path
+            // (null) it still rejects loud rather than being silently accepted (Q3).
+            if (ValidateFromType(structSchema, s, siblingEditorIds) is { } e) return e;
         return null;
     }
 
@@ -734,7 +765,7 @@ public sealed class CorpusRulebook
 
     /// <summary>Validate a polymorphic Set: the arm must be a legal arm of the field, and its contents (flat fields +
     /// nested sets) must validate against the arm type — the same composition-contents check a struct-element Add uses.</summary>
-    string? ArmLegality(FieldSchema leaf, StructSpec? arm)
+    string? ArmLegality(FieldSchema leaf, StructSpec? arm, IReadOnlyCollection<string>? siblingEditorIds = null)
     {
         if (arm is null) return $"Set on polymorphic field '{leaf.Name}' requires an arm (which arm + its data).";
         // (G8) The standalone-poly-FIELD twin of the StructElementLegality base-reject. A CONCRETE poly-base (e.g.
@@ -752,7 +783,7 @@ public sealed class CorpusRulebook
             return $"Illegal arm '{arm.Type}' for '{leaf.Name}'. Legal arms: {string.Join(", ", legal)}.";
         var armSchema = Type(arm.Type);
         if (armSchema is null) return $"Arm '{arm.Type}' absent from corpus.";
-        return StructSpecContents(arm, armSchema);
+        return StructSpecContents(arm, armSchema, siblingEditorIds);
     }
 
     /// <summary>Resolve a dict leaf's KEY clr type from its own dictionary AQ — the SAME type the apply path keys on

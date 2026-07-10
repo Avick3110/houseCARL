@@ -53,7 +53,24 @@ namespace HousecarlGenerator;
 ///   REJ-SIBDICT        — an @ref inside a dict Merge's Entries values refuses loud ('not inside a dict value' — no
 ///                        formlink-valued dict is modeled, so the dict half stays dormant-by-construction).
 ///   REJ-SIBAPPLY       — an @ref validated with a NULL sibling set (the Apply/set_field context) refuses at the rulebook —
-///                        create-only scoping, so @editorid never becomes an accept-then-substitute-nothing hole (Q3).
+///                        create-only scoping, so @editorid never becomes an accept-then-substitute-nothing hole (Q3);
+///                        the message carries the honest edit-context copy (HCBR-2026-07-10-01 F2), never "use bulk_create".
+///
+/// HCBR-2026-07-10-01 — self-reference + compose-struct @refs + extend-edit resolution (the created-record
+/// self-reference gap: a quest's VMAD alias fragment must point Property.Object at ITS OWN quest — every MCM /
+/// player-alias-script mod — and a fresh patch must be extendable by field edits without an MO2 enable round-trip):
+///   SIBREF-SELF          — a record's own field @refs ITSELF (declared-before-own-edits + apply's register-then-apply
+///                          timing). RED pre-fix: 'created EARLIER in this call'.
+///   SIBREF-STRUCT        — the report's exact shape: @self inside a COMPOSED QuestFragmentAlias' nested Sets
+///                          (Property.Object=@own-quest). RED pre-fix twice: compose Sets validated with a NULL sibling
+///                          set AND apply never substituted @tokens inside req.Struct.
+///   SIBREF-STRUCT-FIELDS — the flat-Fields sugar twin: Object='@self' in a compose FIELD value substitutes too.
+///   REJ-SIBSTRUCT-FWD    — a compose-Sets @ref to a LATER sibling still refuses (declared-earlier holds in composes).
+///   REJ-SIBSTRUCT-NONFL  — a compose-Sets @ref on a NON-formlink field still refuses (substitution stays formlink-scoped).
+///   EXTEND-EDIT          — WritePatchBuilder.Apply(extend:true) resolves a target the PATCH ITSELF defines (created by a
+///                          prior call, not in the load order) to a patch-local direct edit, mixed with a load-order
+///                          target in one call; a truly-absent target refuses naming BOTH places searched. RED pre-fix:
+///                          'not present in the load order (N plugins)'.
 ///
 /// GENERAL FormLink-ELEMENT collection value-shape — the BROADER pre-existing gap the sibling-ref collection gate named: ANY
 /// malformed FormLink ELEMENT (not just an @editorid sibling token) in a collection value was accepted at pre-flight
@@ -702,8 +719,154 @@ public static class NestedCreateGuardProbe
         {
             var req = new WriteRequest { RecordType = "DialogResponses", Path = new[] { "PreviousDialog" }, Verb = "Set", Value = "@AnySibling" };
             var reject = rulebook.Validate(req);   // null sibling set == the override/set_field context
-            sibRejApplyOk = reject is not null && reject.Contains("only valid when creating records in ONE call", StringComparison.OrdinalIgnoreCase);
-            Console.WriteLine($"   REJ-SIBAPPLY @ref on set_field path  : {(sibRejApplyOk ? "PASS — rejected at the gate (no same-call siblings when editing an existing record)" : $"FAIL — reject=[{reject}]")}");
+            // HCBR-2026-07-10-01 F2: the edit-context message must state the create-call meaning + the FormID route,
+            // and must NOT read as "use bulk_create" (the old copy fired identically FROM bulk_create's compose path).
+            sibRejApplyOk = reject is not null
+                && reject.Contains("no same-call creations to point at", StringComparison.OrdinalIgnoreCase)
+                && reject.Contains("FormID", StringComparison.OrdinalIgnoreCase);
+            Console.WriteLine($"   REJ-SIBAPPLY @ref on set_field path  : {(sibRejApplyOk ? "PASS — rejected at the gate with the edit-context copy (no same-call creations; use the FormID)" : $"FAIL — reject=[{reject}]")}");
+        }
+
+        // ---------- SIBREF-SELF (HCBR-2026-07-10-01): a record's own field @refs ITSELF ----------
+        // A line whose PreviousDialog points at the line itself — the minimal top-level self-reference. Pre-flight
+        // admits @self (the editorid is declared BEFORE its own edits validate) and apply substitutes the record's
+        // just-allocated FormKey (createdByEditorId registers the record before its edits apply). RED pre-fix:
+        // "no record with editorid ... created EARLIER in this call".
+        bool sibRefSelfOk = false;
+        {
+            string pPath = Path.Combine(tmpDir, "HcNcSelf.esp");
+            var specs = new[]
+            {
+                new WritePatchBuilder.CreateSpec { RecordType = "DialogTopic", EditorId = "HcNcSelfTopic", Edits = Array.Empty<WriteRequest>() },
+                new WritePatchBuilder.CreateSpec { RecordType = "DialogResponses", EditorId = "HcNcSelfL1", ParentRef = "HcNcSelfTopic",
+                    Edits = new[] { new WriteRequest { RecordType = "DialogResponses", Path = new[] { "PreviousDialog" }, Verb = "Set", Value = "@HcNcSelfL1" } } },
+            };
+            using var r = LoadOrderResolver.Build(new[] { mPath });
+            var o = WritePatchBuilder.CreateRecords(r, rulebook, specs, pPath, extend: false);
+            FormKey l1Fk = o.Success && o.Created.Count > 1 ? o.Created[1].FormKey : default;
+            var prev = o.Success ? InfoPreviousDialog(pPath, l1Fk) : null;
+            sibRefSelfOk = o.Success && o.Created.Count == 2 && l1Fk != default && prev == l1Fk;
+            Console.WriteLine($"   SIBREF-SELF @own-editorid            : {(sibRefSelfOk ? "PASS — a record's field @refs ITSELF, resolved to its own allocated FormKey" : $"FAIL — success={o.Success} prev=[{prev}] l1=[{l1Fk}] err=[{o.Error}]")}");
+        }
+
+        // ---------- SIBREF-STRUCT (HCBR-2026-07-10-01, the report's exact shape): @self inside a COMPOSED struct's Sets ----------
+        // A quest's VMAD alias fragment must carry Property.Object = THE QUEST'S OWN FormID (the shape of every MCM
+        // quest and player-alias-script mod). One create: Quest + VirtualMachineAdapter.Aliases Add QuestFragmentAlias
+        // whose nested Sets point Property.Object at @the-quest-itself. RED pre-fix twice over: the compose path
+        // validated Sets with a NULL sibling set (refusing with the misleading "only valid ... (housecarl_bulk_create)"
+        // message FROM bulk_create itself), and apply never substituted @tokens inside req.Struct.
+        bool sibRefStructOk = false;
+        {
+            string pPath = Path.Combine(tmpDir, "HcNcVmadSelf.esp");
+            var specs = new[]
+            {
+                new WritePatchBuilder.CreateSpec { RecordType = "Quest", EditorId = "HcNcVmadQuest",
+                    Edits = new[] { new WriteRequest { RecordType = "Quest", Path = new[] { "VirtualMachineAdapter", "Aliases" }, Verb = "Add",
+                        Struct = new StructSpec { Type = "QuestFragmentAlias", Sets = new List<WriteRequest>
+                        {
+                            new() { RecordType = "QuestFragmentAlias", Path = new[] { "Property", "Object" }, Verb = "Set", Value = "@HcNcVmadQuest" },
+                            new() { RecordType = "QuestFragmentAlias", Path = new[] { "Property", "Alias" }, Verb = "Set", Value = "0" },
+                        } } } } },
+            };
+            using var r = LoadOrderResolver.Build(new[] { mPath });
+            var o = WritePatchBuilder.CreateRecords(r, rulebook, specs, pPath, extend: false);
+            FormKey qFk = o.Success ? o.Created[0].FormKey : default;
+            var obj = o.Success ? QuestAliasPropertyObject(pPath, qFk) : null;
+            sibRefStructOk = o.Success && o.Created.Count == 1 && qFk != default && obj == qFk;
+            Console.WriteLine($"   SIBREF-STRUCT @self in composed Sets : {(sibRefStructOk ? "PASS — VMAD alias fragment Property.Object resolved to the quest's OWN FormKey (the MCM/player-alias shape)" : $"FAIL — success={o.Success} obj=[{obj}] quest=[{qFk}] err=[{o.Error}]")}");
+        }
+
+        // ---------- SIBREF-STRUCT-FIELDS: the flat-Fields twin — @self in a compose FIELD value ----------
+        // The same fragment with Property composed as a whole-struct Set whose flat FIELDS carry Object='@self' —
+        // proves the Fields sugar admits + substitutes formlink @tokens too (both compose shapes, one behavior).
+        bool sibRefStructFieldsOk = false;
+        {
+            string pPath = Path.Combine(tmpDir, "HcNcVmadSelfF.esp");
+            var specs = new[]
+            {
+                new WritePatchBuilder.CreateSpec { RecordType = "Quest", EditorId = "HcNcVmadQuestF",
+                    Edits = new[] { new WriteRequest { RecordType = "Quest", Path = new[] { "VirtualMachineAdapter", "Aliases" }, Verb = "Add",
+                        Struct = new StructSpec { Type = "QuestFragmentAlias", Sets = new List<WriteRequest>
+                        {
+                            new() { RecordType = "QuestFragmentAlias", Path = new[] { "Property" }, Verb = "Set",
+                                Struct = new StructSpec { Type = "ScriptObjectProperty",
+                                    Fields = new Dictionary<string, string> { ["Object"] = "@HcNcVmadQuestF", ["Alias"] = "0" } } },
+                        } } } } },
+            };
+            using var r = LoadOrderResolver.Build(new[] { mPath });
+            var o = WritePatchBuilder.CreateRecords(r, rulebook, specs, pPath, extend: false);
+            FormKey qFk = o.Success ? o.Created[0].FormKey : default;
+            var obj = o.Success ? QuestAliasPropertyObject(pPath, qFk) : null;
+            sibRefStructFieldsOk = o.Success && o.Created.Count == 1 && qFk != default && obj == qFk;
+            Console.WriteLine($"   SIBREF-STRUCT-FIELDS @self in Fields : {(sibRefStructFieldsOk ? "PASS — a compose FIELD value @self resolved to the quest's OWN FormKey (the Fields-sugar twin)" : $"FAIL — success={o.Success} obj=[{obj}] quest=[{qFk}] err=[{o.Error}]")}");
+        }
+
+        // ---------- REJ-SIBSTRUCT-FWD: @ref to a LATER sibling inside composed Sets refuses (declared-earlier holds in composes) ----------
+        bool sibRejStructFwdOk = RejectArm("REJ-SIBSTRUCT-FWD @later in compose", tmpDir, "SibStructFwd", mPath, rulebook,
+            new[]
+            {
+                new WritePatchBuilder.CreateSpec { RecordType = "Quest", EditorId = "HcNcSfwQuest",
+                    Edits = new[] { new WriteRequest { RecordType = "Quest", Path = new[] { "VirtualMachineAdapter", "Aliases" }, Verb = "Add",
+                        Struct = new StructSpec { Type = "QuestFragmentAlias", Sets = new List<WriteRequest>
+                        { new() { RecordType = "QuestFragmentAlias", Path = new[] { "Property", "Object" }, Verb = "Set", Value = "@HcNcSfwLater" } } } } } },
+                new WritePatchBuilder.CreateSpec { RecordType = "Keyword", EditorId = "HcNcSfwLater", Edits = Array.Empty<WriteRequest>() },
+            },
+            msg => msg.Contains("EARLIER in this call", StringComparison.OrdinalIgnoreCase));
+
+        // ---------- REJ-SIBSTRUCT-NONFL: @ref on a NON-formlink field inside composed Sets refuses (scoped to formlinks) ----------
+        bool sibRejStructNonflOk = RejectArm("REJ-SIBSTRUCT-NONFL non-formlink   ", tmpDir, "SibStructNonFl", mPath, rulebook,
+            new[]
+            {
+                new WritePatchBuilder.CreateSpec { RecordType = "Quest", EditorId = "HcNcSnfQuest",
+                    Edits = new[] { new WriteRequest { RecordType = "Quest", Path = new[] { "VirtualMachineAdapter", "Aliases" }, Verb = "Add",
+                        Struct = new StructSpec { Type = "QuestFragmentAlias", Sets = new List<WriteRequest>
+                        { new() { RecordType = "QuestFragmentAlias", Path = new[] { "Property", "Name" }, Verb = "Set", Value = "@HcNcSnfQuest" } } } } } },
+            },
+            msg => msg.Contains("only valid on a FormLink field", StringComparison.OrdinalIgnoreCase));
+
+        // ---------- EXTEND-EDIT (HCBR-2026-07-10-01 F3): an extend edit targets a record ONLY the patch defines ----------
+        // The report's blocked two-step: create into a patch (not enabled in MO2 — not in the resolver's order), then
+        // Apply extend on the same patch targeting the created record. RED pre-fix: "not present in the load order".
+        // Now the extended patch's own records resolve to a patch-local direct edit; a MIXED call (one load-order
+        // target + one patch-local target) lands both; a genuinely-absent target still refuses loud, naming BOTH
+        // places searched (the load order AND the patch being extended).
+        bool extendEditOk = false;
+        {
+            string pPath = Path.Combine(tmpDir, "HcNcExtEdit.esp");
+            using var r = LoadOrderResolver.Build(new[] { mPath });
+            var co = WritePatchBuilder.CreateRecords(r, rulebook, new[]
+            {
+                new WritePatchBuilder.CreateSpec { RecordType = "MiscItem", EditorId = "HcNcExtMisc", Edits = Array.Empty<WriteRequest>() },
+            }, pPath, extend: false);
+            FormKey miscFk = co.Success ? co.Created[0].FormKey : default;
+            var eo = co.Success
+                ? WritePatchBuilder.Apply(r, rulebook, new[]
+                  {
+                      new WritePatchBuilder.PatchEdit { Target = miscFk, Path = new[] { "Value" }, Verb = "Set", Value = "123" },
+                      new WritePatchBuilder.PatchEdit { Target = masterTopicFk, Path = new[] { "Priority" }, Verb = "Set", Value = "50" },
+                  }, pPath, extend: true)
+                : null;
+            var missFk = new FormKey(new ModKey("HcNcExtEdit", ModType.Plugin), 0xEEE);
+            var miss = WritePatchBuilder.Apply(r, rulebook, new[]
+                { new WritePatchBuilder.PatchEdit { Target = missFk, Path = new[] { "Value" }, Verb = "Set", Value = "1" } }, pPath, extend: true);
+            uint? val = null; float? prio = null;
+            if (eo is { Success: true })
+            {
+                ISkyrimModGetter? ov = null;
+                try
+                {
+                    ov = SkyrimMod.CreateFromBinaryOverlay(pPath, SkyrimRelease.SkyrimSE);
+                    val = ov.MiscItems.FirstOrDefault(x => x.FormKey == miscFk)?.Value;
+                    prio = ov.DialogTopics.FirstOrDefault(x => x.FormKey == masterTopicFk)?.Priority;
+                }
+                catch { }
+                finally { (ov as IDisposable)?.Dispose(); }
+            }
+            bool missNamed = !miss.Success && miss.Error is not null
+                && miss.Error.Contains("load order", StringComparison.OrdinalIgnoreCase)
+                && miss.Error.Contains("the patch being extended", StringComparison.OrdinalIgnoreCase);
+            extendEditOk = co.Success && eo is { Success: true } && val == 123 && prio == 50 && missNamed;
+            Console.WriteLine($"   EXTEND-EDIT patch-defined target     : {(extendEditOk ? "PASS — an extend edit resolves the patch's OWN record (mixed with a load-order target); a truly-absent target refuses naming BOTH" : $"FAIL — create={co.Success} edit={eo?.Success} val=[{val}] prio=[{prio}] missNamed={missNamed} createErr=[{co.Error}] editErr=[{eo?.Error}] missErr=[{miss.Error}]")}");
         }
 
         // ====== GENERAL FormLink-ELEMENT collection value-shape (the broader gap the sibling-ref collection gate named) ======
@@ -2382,6 +2545,8 @@ public static class NestedCreateGuardProbe
                     && rejNoParentOk && rejBadParentOk && rejAmbigOk && rejFwdSibOk && extendOk
                     && sibrefOk && sibRefListAddOk && sibRefListReplaceOk && sibRejFwdOk && sibRejFwdListOk
                     && sibRejNonflOk && sibRejListSetOk && sibRejDictOk && sibRejApplyOk
+                    && sibRefSelfOk && sibRefStructOk && sibRefStructFieldsOk && sibRejStructFwdOk && sibRejStructNonflOk
+                    && extendEditOk
                     && flElemRejGateOk && flElemRejAddOk && flElemNullClearOk && flElemOkE2eOk && flElemRejE2eOk
                     && flElemRejNullAddOk && flElemRejNullAddPlainOk && flElemRejNullSetIdxOk && flElemRejNullAddE2eOk
                     && keyIdxRejDictAddOk && keyIdxRejDictRemoveOk && keyIdxRejSetIdxOk && keyIdxOkListRemoveOk && keyIdxRejSetIdxE2eOk
@@ -2561,6 +2726,21 @@ public static class NestedCreateGuardProbe
                 foreach (var info in t.Responses)
                     if (info.FormKey == infoFk) return select(info);
             return null;
+        }
+        catch { return null; }
+        finally { (ov as IDisposable)?.Dispose(); }
+    }
+
+    /// <summary>Re-open the written patch and read a created Quest's FIRST VMAD alias fragment's Property.Object
+    /// FormKey (the SIBREF-STRUCT self-reference arms, HCBR-2026-07-10-01). Null if the quest / fragment isn't found.</summary>
+    static FormKey? QuestAliasPropertyObject(string patchPath, FormKey questFk)
+    {
+        ISkyrimModGetter? ov = null;
+        try
+        {
+            ov = SkyrimMod.CreateFromBinaryOverlay(patchPath, SkyrimRelease.SkyrimSE);
+            var q = ov.Quests.FirstOrDefault(x => x.FormKey == questFk);
+            return q?.VirtualMachineAdapter?.Aliases.FirstOrDefault()?.Property?.Object.FormKey;
         }
         catch { return null; }
         finally { (ov as IDisposable)?.Dispose(); }
