@@ -241,7 +241,7 @@ public static class SkyPatcherOverlay
             {
                 case "filterByKeywords":
                 {
-                    var mine = RecordKeywords(record);
+                    var mine = ReadEngine.KeywordKeys(record);
                     if (mine is null) return FilterVerdict.Unresolved;   // type has no keyword list we can read
                     var wanted = new List<FormKey>();
                     int unresolved = 0;
@@ -384,14 +384,24 @@ public static class SkyPatcherOverlay
                 // ("x,y,z") and WriteEngine coerces the same form back, so the edit is a token splice +
                 // an engine Set of the whole value — no hand-rolled struct rebuild to drift.
                 var raw = seg.Values.Count > 0 ? seg.Values[0].Raw : "";
-                if (!double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out _))
+                if (!double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out var num))
                 { warnings.Add($"{where}: '{seg.Key}={raw}' — not a number; skipped."); return; }
                 var comp = map.Component ?? throw new InvalidOperationException($"'{seg.Key}' mapping has no component");
                 var before = LeafToken(record, segs);
                 var parts = before?.Split(',');
                 if (parts is null || comp >= parts.Length)
                 { warnings.Add($"{where}: '{seg.Key}' — '{map.Path}' is absent or not a {comp + 1}+-component point ('{before ?? "<unreadable>"}'); skipped."); return; }
-                parts[comp] = raw.Trim();
+                // An INTEGRAL component (P3Int16 — ObjectBounds) rounds fractional input away-from-zero
+                // — the same declared assumption FormatNumericFor carries (Wave-1 empirical item); the
+                // engine's per-component Parse would otherwise reject '3.5' where the old rebuild rounded
+                // it (review fold). The component's ctor-parameter type is the recognizer, not a type list.
+                var leafType = Navigate(record, segs).leaf.PropertyType;
+                var ptType = Nullable.GetUnderlyingType(leafType) ?? leafType;
+                var ctorPs = ptType.GetConstructors().FirstOrDefault(c => c.GetParameters().Length == parts.Length)?.GetParameters();
+                bool integral = ctorPs is not null && comp < ctorPs.Length && IsIntegral(ctorPs[comp].ParameterType);
+                parts[comp] = integral
+                    ? Math.Round(num, MidpointRounding.AwayFromZero).ToString(CultureInfo.InvariantCulture)
+                    : raw.Trim();
                 WriteEngine.ApplyVerb(record, new WriteRequest { RecordType = fieldMap.RecordType, Path = segs, Verb = "Set", Value = string.Join(",", parts) });
                 applied.Add(new SkyPatcherAppliedOp(line.File, line.LineNumber, seg.Key, raw, $"{map.Path}.{"XYZ"[comp]}", before, LeafToken(record, segs), null));
                 break;
@@ -733,12 +743,18 @@ public static class SkyPatcherOverlay
     static string FormatNumericFor(object record, string[] segs, double result)
     {
         var (parent, leaf) = Navigate(record, segs);
-        var t = Nullable.GetUnderlyingType(leaf.PropertyType) ?? leaf.PropertyType;
-        bool integral = t == typeof(byte) || t == typeof(sbyte) || t == typeof(short) || t == typeof(ushort)
-                     || t == typeof(int) || t == typeof(uint) || t == typeof(long) || t == typeof(ulong);
-        return integral
+        return IsIntegral(leaf.PropertyType)
             ? Math.Round(result, MidpointRounding.AwayFromZero).ToString(CultureInfo.InvariantCulture)
             : result.ToString("R", CultureInfo.InvariantCulture);
+    }
+
+    /// <summary>An integral numeric leaf/component (nullable unwrapped) — the ONE recognizer behind the
+    /// declared fractional-rounding assumption (FormatNumericFor + the VecComponent splice).</summary>
+    static bool IsIntegral(Type type)
+    {
+        var t = Nullable.GetUnderlyingType(type) ?? type;
+        return t == typeof(byte) || t == typeof(sbyte) || t == typeof(short) || t == typeof(ushort)
+            || t == typeof(int) || t == typeof(uint) || t == typeof(long) || t == typeof(ulong);
     }
 
     static bool TryParseEnumMember(Type enumType, string token, out ulong bits)
@@ -803,19 +819,14 @@ public static class SkyPatcherOverlay
         return leaf.GetValue(parent) as System.Collections.IList;
     }
 
-    /// <summary>A formlink list's FormKeys (null when the path isn't a formlink list / list is absent).</summary>
+    /// <summary>A formlink list's FormKeys (null when the path isn't a formlink list; absent reads as
+    /// empty). The walk itself is the shared <see cref="ReadEngine.FormLinkKeys"/> (review fold — two
+    /// link-reading strategies in one assembly was the drift this cleanup exists to kill).</summary>
     static List<FormKey>? FormLinkList(object record, string[] segs)
     {
         var (parent, leaf) = Navigate(record, segs);
         if (leaf.GetValue(parent) is not System.Collections.IEnumerable list) return new List<FormKey>();   // absent list reads as empty
-        var keys = new List<FormKey>();
-        foreach (var item in list)
-        {
-            var fkProp = item?.GetType().GetProperty("FormKey");
-            if (fkProp?.GetValue(item) is FormKey fk) keys.Add(fk);
-            else return null;
-        }
-        return keys;
+        return ReadEngine.FormLinkKeys(list);
     }
 
     static int ReplaceInFormLinkList(object record, string recordType, string[] segs, FormKey a, FormKey b)
@@ -855,8 +866,7 @@ public static class SkyPatcherOverlay
 
     static int RemoveEntriesByKey(object record, string recordType, string[] segs, ElementMap el, FormKey key)
     {
-        if (ListAt(record, segs) is null) return 0;
-        var idx = EntryIndicesByKey(record, segs, el, key);
+        var idx = EntryIndicesByKey(record, segs, el, key);   // absent/null list yields no indices — no separate guard walk
         for (int i = idx.Count - 1; i >= 0; i--) RemoveListElementAt(record, recordType, segs, idx[i]);
         return idx.Count;
     }
@@ -925,8 +935,6 @@ public static class SkyPatcherOverlay
     }
 
     // ---- record-local reads for filters --------------------------------------------------------------
-
-    static IReadOnlyList<FormKey>? RecordKeywords(object record) => ReadEngine.KeywordKeys(record);
 
     static string? RecordName(object record)
     {

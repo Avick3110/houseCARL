@@ -180,6 +180,7 @@ public static class SkyPatcherOverlayProbe
 
         failures += NpcEntryOpsArm(catalog, fieldMap, mod);
         failures += LeveledListScopeArm(catalog, fieldMap, mod);
+        failures += FormListArm(catalog, fieldMap, mod);
 
         return Done(failures);
     }
@@ -202,11 +203,14 @@ public static class SkyPatcherOverlayProbe
         var itemC = new FormKey(new ModKey("HcItm", ModType.Plugin), 0x902);
         var facA = new FormKey(new ModKey("HcFac", ModType.Plugin), 0xA01);
 
+        var itemD = new FormKey(new ModKey("HcItm", ModType.Plugin), 0x903);
+
         var npc = mod.Npcs.AddNew();
         npc.EditorID = "HcTestNpc";
         npc.Items = new()
         {
             new ContainerEntry { Item = new ContainerItem { Item = itemA.ToLink<IItemGetter>(), Count = 2 } },
+            new ContainerEntry { Item = new ContainerItem { Item = itemD.ToLink<IItemGetter>(), Count = 1 } },
         };
 
         var me = $"HcSpOv.esp|{npc.FormKey.ID:X}";
@@ -223,6 +227,9 @@ public static class SkyPatcherOverlayProbe
             L("z.ini", 2, $"filterByNpcs={me}:objectsToReplace=HcItm.esp|900~HcItm.esp|902"),    // retarget A → C
             L("z.ini", 3, $"filterByNpcs={me}:objectsToRemove=HcItm.esp|902~5"),                 // QUALIFIED remove ⇒ loud skip
             L("z.ini", 4, $"filterByNpcs={me}:setEssential=true"),                               // flagBool
+            L("z.ini", 5, $"filterByNpcs={me}:removeInventoryObjectsByCount=HcItm.esp|903~2"),   // count 1−2 ≤ 0 ⇒ ENTRY REMOVED (engine RemoveAt path)
+            L("z.ini", 6, $"filterByNpcs={me}:setFlags=unique"),                                 // flagsSet (multi-token bit math → engine Set)
+            L("z.ini", 7, $"filterByNpcs={me}:setProtected=none"),                               // legal 'none' ⇒ VISIBLE leave-unchanged no-op
         };
         var r = SkyPatcherOverlay.Apply(npc, npc.FormKey, npc.EditorID, catalog, npcCat, npcMap, lines, resolver);
 
@@ -245,6 +252,63 @@ public static class SkyPatcherOverlayProbe
             string.Join(" | ", npc.Factions.Select(f => $"{f.Faction.FormKey}@{f.Rank}")));
         failures += Check("flagBool set (setEssential=true)",
             npc.Configuration.Flags.HasFlag(NpcConfiguration.Flag.Essential));
+        failures += Check("removeByCount to ≤0 REMOVES the entry (engine RemoveAt path)",
+            !entries.Any(e => e.fk == itemD),
+            string.Join(" | ", entries.Select(e => $"{e.fk}×{e.count}")));
+        failures += Check("flagsSet lands via the engine (setFlags=unique; essential kept)",
+            npc.Configuration.Flags.HasFlag(NpcConfiguration.Flag.Unique)
+            && npc.Configuration.Flags.HasFlag(NpcConfiguration.Flag.Essential),
+            npc.Configuration.Flags.ToString());
+        failures += Check("'none' on a flagBool is a VISIBLE leave-unchanged no-op, not a warning",
+            !npc.Configuration.Flags.HasFlag(NpcConfiguration.Flag.Protected)
+            && r.Applied.Any(a => a.Op == "setProtected" && a.Note is { } n && n.Contains("leave unchanged"))
+            && !r.Warnings.Any(w => w.Contains("setProtected")),
+            string.Join(" ; ", r.Warnings));
+        return failures;
+    }
+
+    /// <summary>The plain-formlink-list surgery the NPC arm can't reach: replaceForm re-points elements
+    /// through the engine's SetAtIndex, clearList empties through the engine's ReplaceAll (review fold —
+    /// these paths were re-plumbed onto WriteEngine and previously had no overlay-level pin).</summary>
+    static int FormListArm(SkyPatcherCatalog catalog, SkyPatcherFieldMap fieldMap, SkyrimMod mod)
+    {
+        Console.WriteLine("  --- formList arm (replaceForm → SetAtIndex, clearList → ReplaceAll) ---");
+        int failures = 0;
+        var flCat = catalog.ForSubfolder("formList")!;
+        var flMap = fieldMap.For("formList", "FormList");
+        failures += Check("formList field map present", flMap is not null);
+        if (flMap is null) return failures;
+
+        var x = new FormKey(new ModKey("HcItm", ModType.Plugin), 0xB01);
+        var y = new FormKey(new ModKey("HcItm", ModType.Plugin), 0xB02);
+        var z = new FormKey(new ModKey("HcItm", ModType.Plugin), 0xB03);
+        var resolver = new StubResolver();
+        SkyPatcherOverlay.OrderedLine L(int n, string text) => new("fl.ini", n, SkyPatcherParse.ParseLine(text));
+
+        // replaceForm: X,Y,X → Z,Y,Z ('='-packed pair per the formList docs) — every X re-pointed in place.
+        var fl = mod.FormLists.AddNew();
+        fl.Items.Add(x.ToLink<ISkyrimMajorRecordGetter>());
+        fl.Items.Add(y.ToLink<ISkyrimMajorRecordGetter>());
+        fl.Items.Add(x.ToLink<ISkyrimMajorRecordGetter>());
+        var me1 = $"HcSpOv.esp|{fl.FormKey.ID:X}";
+        var r1 = SkyPatcherOverlay.Apply(fl, fl.FormKey, null, catalog, flCat, flMap, new[]
+        { L(1, $"filterByFormLists={me1}:formsToReplace=HcItm.esp|B01=HcItm.esp|B03") }, resolver);
+        failures += Check("replaceForm re-points BOTH occurrences in place (X,Y,X → Z,Y,Z)",
+            fl.Items.Select(i => i.FormKey).SequenceEqual(new[] { z, y, z })
+            && r1.Applied.Any(a => a.Op == "formsToReplace" && a.Note is { } n && n.Contains("replaced 2")),
+            string.Join(",", fl.Items.Select(i => i.FormKey.ToString())));
+
+        // clearList: a populated list empties; the applied entry carries the honest before-count.
+        var fl2 = mod.FormLists.AddNew();
+        fl2.Items.Add(x.ToLink<ISkyrimMajorRecordGetter>());
+        fl2.Items.Add(y.ToLink<ISkyrimMajorRecordGetter>());
+        var me2 = $"HcSpOv.esp|{fl2.FormKey.ID:X}";
+        var r2 = SkyPatcherOverlay.Apply(fl2, fl2.FormKey, null, catalog, flCat, flMap, new[]
+        { L(1, $"filterByFormLists={me2}:clear=true") }, resolver);
+        failures += Check("clearList empties the list through the engine (2 → 0, honest before-count)",
+            fl2.Items.Count == 0
+            && r2.Applied.Any(a => a.Op == "clear" && a.Before == "2 entr(ies)" && a.Note == "cleared"),
+            $"count={fl2.Items.Count}");
         return failures;
     }
 
