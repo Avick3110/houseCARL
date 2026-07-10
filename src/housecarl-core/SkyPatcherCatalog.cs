@@ -100,7 +100,7 @@ public sealed class SkyPatcherCatalog
 
     /// <summary>Load the embedded catalog (memoized). Throws loudly on a missing/malformed resource — a
     /// catalog that silently loaded empty would make every op read as Unknown (a Q3 silent-degrade).</summary>
-    public static SkyPatcherCatalog Load() => _cached ??= LoadFrom(ReadEmbeddedJson());
+    public static SkyPatcherCatalog Load() => _cached ??= LoadFrom(EmbeddedJson.Read("skypatcher-catalog.json", "SkyPatcher catalog"));
 
     /// <summary>Parse a catalog from JSON text (also the guard's entry point for a fixture).</summary>
     public static SkyPatcherCatalog LoadFrom(string json)
@@ -110,16 +110,6 @@ public sealed class SkyPatcherCatalog
         foreach (var el in doc.RootElement.EnumerateArray())
             records.Add(ParseRecord(el));
         return new SkyPatcherCatalog(records);
-    }
-
-    static string ReadEmbeddedJson()
-    {
-        var asm = typeof(SkyPatcherCatalog).Assembly;
-        var name = asm.GetManifestResourceNames().FirstOrDefault(n => n.EndsWith("skypatcher-catalog.json", StringComparison.OrdinalIgnoreCase))
-            ?? throw new InvalidOperationException("SkyPatcher catalog resource 'skypatcher-catalog.json' is not embedded in housecarl-core.");
-        using var s = asm.GetManifestResourceStream(name)!;
-        using var r = new StreamReader(s);
-        return r.ReadToEnd();
     }
 
     static SkyPatcherRecordCatalog ParseRecord(JsonElement el)

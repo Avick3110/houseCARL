@@ -325,6 +325,10 @@ public sealed class LoadOrderService : IDisposable
     /// repeat post-state calls over an untouched layer skip every per-file read+parse.</summary>
     readonly SkyPatcherDiscovery.ParseCache _skyPatcherParseCache = new();
 
+    /// <summary>The in-memory scratch mod the replay copy is overridden into — never written to disk.
+    /// Named per the Housecarl* scratch-mod convention (<c>HousecarlWriteProof</c> is the sibling).</summary>
+    static readonly ModKey SkyPatcherScratchKey = new("HousecarlSkyPatcherScratch", ModType.Plugin);
+
     /// <summary>
     /// Compute one record's true post-SkyPatcher state: discover the loose SkyPatcher INI layer
     /// (<see cref="SkyPatcherDiscovery"/>), replay each applicable type folder's ordered line union onto a
@@ -372,7 +376,7 @@ public sealed class LoadOrderService : IDisposable
         // Nested-group types (CELL / REFR / INFO…) need the source link cache to rebuild their parent
         // chain — the same RecordNeedsSourceCache + LinkCacheFor idiom every write path uses (PR #165
         // review finding #1: without it, 2 of the 27 covered types threw unhandled instead of failing named).
-        var scratch = new SkyrimMod(new ModKey("HousecarlSkyPatcherScratch", ModType.Plugin), SkyrimRelease.SkyrimSE);
+        var scratch = new SkyrimMod(SkyPatcherScratchKey, SkyrimRelease.SkyrimSE);
         IMajorRecord copy;
         try
         {

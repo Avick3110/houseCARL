@@ -69,7 +69,7 @@ public sealed class SkyPatcherFieldMap
 
     /// <summary>Load the embedded field map (memoized). Throws loudly on a missing/malformed resource —
     /// a map that silently loaded empty would flag every op unmapped (a Q3 silent-degrade).</summary>
-    public static SkyPatcherFieldMap Load() => _cached ??= LoadFrom(ReadEmbeddedJson());
+    public static SkyPatcherFieldMap Load() => _cached ??= LoadFrom(EmbeddedJson.Read("skypatcher-fieldmap.json", "SkyPatcher field map"));
 
     /// <summary>Parse a field map from JSON text (also the guard's entry point for a fixture).</summary>
     public static SkyPatcherFieldMap LoadFrom(string json)
@@ -79,16 +79,6 @@ public sealed class SkyPatcherFieldMap
         foreach (var el in doc.RootElement.EnumerateArray())
             records.Add(ParseRecord(el));
         return new SkyPatcherFieldMap(records);
-    }
-
-    static string ReadEmbeddedJson()
-    {
-        var asm = typeof(SkyPatcherFieldMap).Assembly;
-        var name = asm.GetManifestResourceNames().FirstOrDefault(n => n.EndsWith("skypatcher-fieldmap.json", StringComparison.OrdinalIgnoreCase))
-            ?? throw new InvalidOperationException("SkyPatcher field map resource 'skypatcher-fieldmap.json' is not embedded in housecarl-core.");
-        using var s = asm.GetManifestResourceStream(name)!;
-        using var r = new StreamReader(s);
-        return r.ReadToEnd();
     }
 
     static RecordMap ParseRecord(JsonElement el)
