@@ -154,6 +154,40 @@ public static class SkyPatcherConflictsProbe
         failures += Check("a conditional EARLIER write killed unconditionally IS dead (flagged informational)",
             crItm is not null && crItm.Entries is [{ Line: 3, Conditional: true, KillerLines: [4] }], DumpItms());
 
+        // ---- the no-op (true-ITM) scan's two extracted rules (PR #169 review: the layer scan's
+        //      machinery had zero probe coverage; these pin the shareable halves — the full replay
+        //      wiring is validated live, 23 real no-ops on the ARR 2.0 order). ----
+        var noOpTargets = new HashSet<Mutagen.Bethesda.Plugins.FormKey>();
+        var noOpEids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        int broad = 0;
+        void Collect(string line) => SkyPatcherConflicts.CollectExplicitPrimaryTargets(
+            SkyPatcherParse.ParseLine(line), catalog, weapCat, noOpTargets, noOpEids, ref broad);
+        Collect($"filterByWeapons={target}:attackDamage=40");                       // FormID target
+        Collect("filterByWeapons=IronSword1H,SteelSword1H:attackDamage=40");        // two EditorID targets
+        Collect("attackDamage=60");                                                 // BROAD — counted, no target
+        Collect($"filterByWeaponsExcluded={target}:reach=2");                       // Excluded primary — NOT a bare-primary target (broad line)
+        Collect($"filterByWeapons={target}");                                       // no ops — not a broad WRITE either
+        failures += Check("target collection: FormID → FormKey, EditorIDs → raw strings, broad ops counted, Excluded-primary and op-less lines excluded",
+            noOpTargets.Count == 1 && noOpEids.SetEquals(new[] { "IronSword1H", "SteelSword1H" }) && broad == 2,
+            $"forms={noOpTargets.Count} eids=[{string.Join(",", noOpEids)}] broad={broad}");
+
+        var weapMap = fieldMap.ForSubfolder("weapon")[0];
+        SkyPatcherOverlay.SkyPatcherAppliedOp Ap(string op, string raw, string? before, string? after) =>
+            new("x.ini", 1, op, raw, "p", before, after, null);
+        failures += Check("no-op test: a SET-class op with before == after IS a no-op write",
+            SkyPatcherConflicts.IsNoOpWrite(Ap("attackDamage", "40", "40", "40"), weapMap));
+        failures += Check("no-op test: before != after is NOT",
+            !SkyPatcherConflicts.IsNoOpWrite(Ap("attackDamage", "60", "40", "60"), weapMap));
+        failures += Check("no-op test: a deliberate 'none' leave-unchanged is NOT flagged",
+            !SkyPatcherConflicts.IsNoOpWrite(Ap("setProtected", "none", "true", "true"), fieldMap.ForSubfolder("npc")[0]));
+        failures += Check("no-op test: an ACCUMULATING op with equal tokens is NOT this class (skypatcher_read's lane)",
+            !SkyPatcherConflicts.IsNoOpWrite(Ap("keywordsToAdd", "Some.esp|100", "2 entr(ies)", "2 entr(ies)"), weapMap));
+        failures += Check("no-op test: an unknown/unmapped op or a null map is NOT flagged",
+            !SkyPatcherConflicts.IsNoOpWrite(Ap("nonsenseOp", "1", "1", "1"), weapMap)
+            && !SkyPatcherConflicts.IsNoOpWrite(Ap("attackDamage", "40", "40", "40"), null));
+        failures += Check("no-op test: a null before (no static read) is NOT flagged",
+            !SkyPatcherConflicts.IsNoOpWrite(Ap("attackDamage", "40", null, null), weapMap));
+
         // ---- the set/accumulate PARTITION is exhaustive: a new SkyPatcherOpSemantic member cannot
         //      silently default to "accumulating" and make the detector under-report (review fold). ----
         var unclassified = Enum.GetValues<SkyPatcherOpSemantic>()

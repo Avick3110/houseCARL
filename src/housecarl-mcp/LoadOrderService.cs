@@ -490,29 +490,14 @@ public sealed class LoadOrderService : IDisposable
             foreach (var folder in scan.Folders)
             {
                 if (folder.Catalog is null || !folder.PatchingEnabled) continue;
-                var folderTypes = fieldMap.ForSubfolder(folder.Subfolder).Select(m => m.RecordType).ToList();
+                var eids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 foreach (var ol in SkyPatcherDiscovery.OrderedLines(folder))
+                    SkyPatcherConflicts.CollectExplicitPrimaryTargets(ol.Parsed, catalog, folder.Catalog, targets, eids, ref broadLines);
+                var folderTypes = fieldMap.ForSubfolder(folder.Subfolder).Select(m => m.RecordType).ToList();
+                foreach (var eid in eids)
                 {
-                    if (ol.Parsed.Kind != SkyPatcherLineKind.Patch) continue;
-                    bool hasOp = false, hasExplicit = false;
-                    foreach (var seg in ol.Parsed.Segments)
-                    {
-                        var cls = catalog.Classify(folder.Catalog, seg.Key);
-                        if (cls.Role == SkyPatcherKeyRole.Operation) hasOp = true;
-                        else if (cls.Role == SkyPatcherKeyRole.Filter
-                                 && cls.Filter!.Kind == SkyPatcherFilterKind.Primary && (cls.Connective ?? "") == "")
-                            foreach (var v in seg.Values)
-                            {
-                                hasExplicit = true;
-                                if (v.Address is { IsFormId: true } a && SkyPatcherOverlay.TryFormKey(a, out var tfk)) targets.Add(tfk);
-                                else
-                                {
-                                    var rfk = folderTypes.Select(t => formResolver.ResolveEditorId(v.Raw, t)).FirstOrDefault(x => x is not null);
-                                    if (rfk is not null) targets.Add(rfk.Value); else unresolvedTargets++;
-                                }
-                            }
-                    }
-                    if (hasOp && !hasExplicit) broadLines++;
+                    var rfk = folderTypes.Select(t => formResolver.ResolveEditorId(eid, t)).FirstOrDefault(x => x is not null);
+                    if (rfk is not null) targets.Add(rfk.Value); else unresolvedTargets++;
                 }
             }
             foreach (var fk in targets)
@@ -524,16 +509,20 @@ public sealed class LoadOrderService : IDisposable
                     if (fo.Result is not { } res) continue;
                     var map = fieldMap.For(fo.Subfolder, r.TypeName!);
                     foreach (var a in res.Applied)
-                    {
-                        if (a.Before is null || a.Before != a.After) continue;
-                        if (a.RawValue.Trim().Equals("none", StringComparison.OrdinalIgnoreCase)) continue;   // deliberate leave-unchanged
-                        var op = map?.Ops.GetValueOrDefault(a.Op);
-                        if (op is null || op.IsUnmapped || !SkyPatcherConflicts.SetClassSemantics.Contains(op.Semantic)) continue;
-                        noOps.Add(new SkyPatcherNoOpWrite(fo.Subfolder, fk.ToString(), r.EditorId,
-                            a.FieldPath, a.File, a.LineNumber, a.Op, a.RawValue, a.Before));
-                    }
+                        if (SkyPatcherConflicts.IsNoOpWrite(a, map))
+                            noOps.Add(new SkyPatcherNoOpWrite(fo.Subfolder, fk.ToString(), r.EditorId,
+                                a.FieldPath, a.File, a.LineNumber, a.Op, a.RawValue, a.Before!));
                 }
             }
+            // Stable output — targets is a hash set, so without this the findings' order varies run
+            // to run, and the re-run-to-confirm workflow needs diffable output (review finding).
+            noOps.Sort((x, y) =>
+            {
+                int c = string.Compare(x.File, y.File, StringComparison.OrdinalIgnoreCase);
+                if (c != 0) return c;
+                c = x.Line.CompareTo(y.Line);
+                return c != 0 ? c : string.Compare(x.FormKey, y.FormKey, StringComparison.OrdinalIgnoreCase);
+            });
             if (broadLines > 0) noOpNotes.Add($"no-op scan: {broadLines} broad (type-wide) line(s) were evaluated only against the explicitly-targeted records, not every record of their type.");
             if (unresolvedTargets > 0) noOpNotes.Add($"no-op scan: {unresolvedTargets} explicit target(s) did not resolve (the overlay's per-record warnings name them via housecarl_skypatcher_read).");
             if (failedReplays > 0) noOpNotes.Add($"no-op scan: {failedReplays} targeted record(s) could not be replayed (not in the order / unpatchable type / copy failure).");
