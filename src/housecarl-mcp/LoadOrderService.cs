@@ -448,11 +448,7 @@ public sealed class LoadOrderService : IDisposable
             var w = _view.ResolveWinner(record);
             if (w is null) return null;
             var rec = _view.GetRecord(_session, w.Value.WinnerPlugin, record);
-            if (rec?.GetType().GetProperty("Keywords")?.GetValue(rec) is not System.Collections.IEnumerable list) return null;
-            var keys = new List<FormKey>();
-            foreach (var item in list)
-                if (item?.GetType().GetProperty("FormKey")?.GetValue(item) is FormKey k) keys.Add(k);
-            return keys;
+            return rec is null ? null : ReadEngine.KeywordKeys(rec);   // the ONE keyword walk (shared)
         }
 
         public bool PluginPresent(string pluginName) => _view.ContainsPlugin(pluginName);

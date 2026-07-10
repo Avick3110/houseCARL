@@ -926,12 +926,7 @@ public static class SkyPatcherOverlay
 
     // ---- record-local reads for filters --------------------------------------------------------------
 
-    static IReadOnlyList<FormKey>? RecordKeywords(object record)
-    {
-        var p = record.GetType().GetProperty("Keywords");
-        if (p is null) return null;
-        return FormLinkList(record, new[] { "Keywords" });
-    }
+    static IReadOnlyList<FormKey>? RecordKeywords(object record) => ReadEngine.KeywordKeys(record);
 
     static string? RecordName(object record)
     {

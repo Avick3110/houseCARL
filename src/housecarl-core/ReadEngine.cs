@@ -206,6 +206,26 @@ public static class ReadEngine
         catch (Exception ex) { return LeafRead.None($"(unreadable: {ex.Message})"); }
     }
 
+    /// <summary>The FormKeys on a record's <c>Keywords</c> list — the ONE keyword walk (previously
+    /// triplicated across the SkyPatcher overlay, the post-state service resolver, and the show CLI,
+    /// with diverging property resolution and non-formlink handling). Resolves the property the same
+    /// way the engines do (<see cref="WriteEngine.ResolveProperty"/>), so explicit-interface getters
+    /// can't hide it. Null = the type has no keyword list, or an item isn't a formlink (surfaced loud
+    /// by callers, never guessed empty).</summary>
+    public static IReadOnlyList<FormKey>? KeywordKeys(object record)
+    {
+        var p = WriteEngine.ResolveProperty(record.GetType(), "Keywords");
+        if (p is null) return null;
+        if (p.GetValue(record) is not System.Collections.IEnumerable list) return new List<FormKey>();   // absent list reads as empty
+        var keys = new List<FormKey>();
+        foreach (var item in list)
+        {
+            if (item is IFormLinkGetter link) keys.Add(link.FormKey);
+            else return null;
+        }
+        return keys;
+    }
+
     /// <summary>A "no such field" note that, when the owner is a collection, points the caller at bracket
     /// indexing — the common <c>.0</c>-vs-<c>[0]</c> confusion (the read analog of the write pre-flight's
     /// bracket hint in <c>CorpusRulebook</c>). Brackets are how you step into a list/dict element mid-path;
