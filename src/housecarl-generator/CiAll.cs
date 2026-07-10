@@ -200,6 +200,12 @@ public static class CiAll
         // own property resolution; every valueMap/flag token parses into the real leaf enum; element types
         // instantiate and their sub-paths walk. Self-test arm RED-proves the checker catches a broken map.
         ("skypatcher-fieldmap-guard", SkyPatcherFieldMapProbe.RunGuard),
+        // SKYPATCHER DISTRIBUTOR Wave 2 — the INI-vs-INI conflict detector (SkyPatcherConflicts): same-field
+        // SET collisions across the ordered game-visible union (winner = the later file), accumulating ops
+        // never conflict, same-value sets don't, not-applied files don't participate, broad-vs-explicit
+        // collides, extra filters flag CONDITIONAL. Report-only by design (plan §8) — merge decisions stay
+        // agent-side.
+        ("skypatcher-conflicts-guard", SkyPatcherConflictsProbe.RunGuard),
     };
 
     /// <summary>Dispatch a single CI guard by name through the registry — the ONE place a CI probe is listed, so
