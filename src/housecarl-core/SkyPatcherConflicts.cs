@@ -22,6 +22,16 @@ namespace HousecarlCore;
 /// restrictTo…, gates) is flagged <see cref="SkyPatcherConflictEntry.Conditional"/>: whether the
 /// collision is real then depends on those filters, and the report says so rather than guessing
 /// either way.</para>
+///
+/// <para><b>Intra-file dead lines (ITM-class; Aaron-widened from the PR #168 review's open call).</b>
+/// The same pass also reports the SINGLE-file cousin: an earlier SET of the same field/target that a
+/// LATER line in the same file overwrites. The earlier write is dead weight REGARDLESS of value —
+/// same-value twice is the purest form (a line that changes nothing), xEdit's ITM smell at the INI
+/// layer — so unlike cross-file conflicts there is no different-values gate. Coverage is asymmetric:
+/// an explicit-target write is killed by a later same-file explicit-same-target OR broad write; a
+/// BROAD write is killed only by a later same-file broad (a following explicit line leaves it live
+/// for every other record). These are a separate report class, not conflicts — no cross-mod judgment
+/// call, just same-author redundancy.</para>
 /// </summary>
 public static class SkyPatcherConflicts
 {
@@ -42,15 +52,46 @@ public static class SkyPatcherConflicts
     /// primary, so whether it actually applies to the target depends on them.</summary>
     public sealed record SkyPatcherConflictEntry(string File, int Line, string Op, string Value, bool Conditional);
 
+    /// <summary>One file's ITM-class finding: this file's SETs of one field/target in line order, at
+    /// least one of them <see cref="SkyPatcherItmEntry.Dead"/> (overwritten by a later line of the SAME
+    /// file). The last entry is the write the file actually leaves in place.</summary>
+    public sealed record SkyPatcherItm(
+        string Subfolder,
+        string Field,
+        string Target,
+        string File,
+        IReadOnlyList<SkyPatcherItmEntry> Entries)
+    {
+        /// <summary>The write this file leaves in place — the last entry in line order.</summary>
+        public SkyPatcherItmEntry Live => Entries[^1];
+        /// <summary>True when ANY entry's applicability also hangs on non-primary filters — whether
+        /// the overwrite is real then depends on them (a conditional later line may not fire; a
+        /// conditional dead line may never have applied).</summary>
+        public bool Conditional => Entries.Any(e => e.Conditional);
+    }
+
+    /// <summary>One write inside a <see cref="SkyPatcherItm"/>. <see cref="Dead"/> = a later line of
+    /// the same file overwrites this write for the finding's target (a NOT-dead, non-last entry is a
+    /// broad write inside an explicit-target finding — overwritten for THIS target but still live for
+    /// every other record, so not removable).</summary>
+    public sealed record SkyPatcherItmEntry(int Line, string Op, string Value, bool Conditional, bool Dead);
+
+    /// <summary>Both report classes from the one detection pass.</summary>
+    public sealed record Report(
+        IReadOnlyList<SkyPatcherConflict> Conflicts,
+        IReadOnlyList<SkyPatcherItm> Itms);
+
     /// <summary>All records of the type — the target token a primary-filter-less line writes.</summary>
     const string Broad = "*";
 
-    /// <summary>Detect the same-field set collisions in one folder's ordered, game-visible union.</summary>
-    public static IReadOnlyList<SkyPatcherConflict> Detect(
+    /// <summary>Detect the same-field set collisions (INI-vs-INI) and the intra-file dead lines
+    /// (ITM-class) in one folder's ordered, game-visible union.</summary>
+    public static Report Detect(
         SkyPatcherDiscovery.FolderScan folder, SkyPatcherCatalog catalog, SkyPatcherFieldMap fieldMap)
     {
         var conflicts = new List<SkyPatcherConflict>();
-        if (folder.Catalog is null) return conflicts;
+        var itms = new List<SkyPatcherItm>();
+        if (folder.Catalog is null) return new Report(conflicts, itms);
         var maps = fieldMap.ForSubfolder(folder.Subfolder);
 
         // ---- collect every SET-class event in apply order (seq = the apply-order index) ----
@@ -101,7 +142,34 @@ public static class SkyPatcherConflicts
                 Emit(conflicts, folder.Subfolder, fieldGroup.Key, token, own.Concat(broad).OrderBy(h => h.seq).ToList());
             Emit(conflicts, folder.Subfolder, fieldGroup.Key, Broad, broad);
         }
-        return conflicts;
+
+        // ---- intra-file dead lines (ITM-class): one file, one field, one target, written twice.
+        //      A file's lines are contiguous in apply order (files apply whole, in filename sort), so
+        //      same-file overwrites need only that file's own events, walked in line order. ----
+        foreach (var fileFieldGroup in events.GroupBy(e => (e.file, e.field)))
+        {
+            var evs = fileFieldGroup.OrderBy(e => e.seq).ToList();
+            if (evs.Count < 2) continue;
+            foreach (var token in evs.SelectMany(e => e.targets).Distinct(StringComparer.OrdinalIgnoreCase)
+                                     .OrderBy(t => t, StringComparer.OrdinalIgnoreCase))
+            {
+                // The file's writes that hit this token: explicit matches, plus broad writes when the
+                // token is explicit (broad covers everything; nothing but broad covers broad).
+                var covering = evs.Where(e => e.targets.Contains(token, StringComparer.OrdinalIgnoreCase)
+                                              || (token != Broad && e.targets.Contains(Broad))).ToList();
+                if (covering.Count < 2) continue;
+                var entries = covering.Select((e, i) => new SkyPatcherItmEntry(
+                    e.line, e.op, e.value, e.conditional,
+                    // Dead = a later covering line exists AND this write has no life beyond the token:
+                    // a broad write inside an explicit-token finding stays live for other records.
+                    Dead: i < covering.Count - 1 && (token == Broad || !e.targets.Contains(Broad)))).ToList();
+                if (!entries.Any(en => en.Dead)) continue;   // e.g. broad-then-explicit: nothing removable
+                itms.Add(new SkyPatcherItm(folder.Subfolder, fileFieldGroup.Key.field,
+                    token == Broad ? $"(all {folder.Subfolder} records)" : token,
+                    fileFieldGroup.Key.file, entries));
+            }
+        }
+        return new Report(conflicts, itms);
     }
 
     static void Emit(List<SkyPatcherConflict> conflicts, string subfolder, string field, string token,

@@ -27,7 +27,9 @@ public static class SkyPatcherTools
          "that wins the VFS for each file, same-path collisions (the loser's content is never read — flagged), " +
          "Plugin.esp.ini filename gates evaluated against the load order, and SkyPatcher.ini per-type toggles. Then " +
          "reports the INI-vs-INI CONFLICTS: two files setting the SAME field of the SAME record to different values " +
-         "(the later-sorted file wins; add/remove ops accumulate and are not conflicts). Entries whose applicability " +
+         "(the later-sorted file wins; add/remove ops accumulate and are not conflicts), plus the intra-file DEAD " +
+         "LINES (ITM-class): one file setting the same field of the same target twice — the earlier write is dead " +
+         "regardless of value. Entries whose applicability " +
          "also hangs on other filters are flagged conditional rather than guessed. Pass filter= a type folder, mod, " +
          "or filename substring to expand matching files to their patch lines. For ONE record's computed " +
          "post-SkyPatcher state use housecarl_skypatcher_read. Read-only.")]
@@ -92,7 +94,8 @@ static class SkyPatcherWire
           .Append(folders.Count).Append(" type folder(s), ").Append(files).Append(" INI(s) (")
           .Append(applied).Append(" applied), ").Append(lines).Append(" patch line(s)");
         if (appliedLines != lines) sb.Append(" (").Append(appliedLines).Append(" in applied files)");   // files vs lines units — don't let a gated file's lines read as live
-        sb.Append(", ").Append(d.Conflicts.Count).Append(" set-conflict(s)\n");
+        sb.Append(", ").Append(d.Conflicts.Count).Append(" set-conflict(s), ")
+          .Append(d.Itms.Count).Append(" intra-file dead line(s) (ITM)\n");
         if (folders.Count == 0)
             sb.Append("\nno SkyPatcher INIs in the active order (no Data\\SKSE\\Plugins\\SkyPatcher content, or SkyPatcher itself is not installed).\n");
 
@@ -150,6 +153,31 @@ static class SkyPatcherWire
                 shown++;
             }
             sb.Append("  (report-only: which value SHOULD win is a merge decision — resolve by authoring a later-sorted INI via the skypatcher-authoring skill, then re-run this tool to confirm.)\n");
+        }
+
+        if (d.Itms.Count > 0)
+        {
+            sb.Append("\nintra-file dead lines (").Append(d.Itms.Count)
+              .Append(") — ITM-class: ONE file writes the same field of the same target more than once; the earlier write is dead weight regardless of value:\n");
+            int shownItms = 0;
+            foreach (var m in d.Itms)
+            {
+                if (sb.Length >= cap) { sb.Append("  ... [showing ").Append(shownItms).Append(" of ").Append(d.Itms.Count).Append("; raise max_chars]\n"); break; }
+                sb.Append("  - [").Append(m.Subfolder).Append("] ").Append(Path.GetFileName(m.File))
+                  .Append(": ").Append(m.Field).Append(" @ ").Append(m.Target).Append(":\n");
+                for (int i = 0; i < m.Entries.Count; i++)
+                {
+                    var e = m.Entries[i];
+                    sb.Append("      :").Append(e.Line).Append("  ").Append(e.Op).Append('=').Append(e.Value)
+                      .Append(i == m.Entries.Count - 1 ? "   ← the write the file leaves in place"
+                          : e.Dead ? "   ← DEAD (a later line of this file overwrites it)"
+                          : "   [broad — overwritten for this target, still live for other records]")
+                      .Append(e.Conditional ? "   [conditional — the line carries further filters]" : "")
+                      .Append('\n');
+                }
+                shownItms++;
+            }
+            sb.Append("  (report-only: in YOUR ini a dead line is an authoring slip to fix at the source; in a downloaded mod's it is usually harmless — the last write is what applies.)\n");
         }
 
         foreach (var note in d.Scan.Notes)
