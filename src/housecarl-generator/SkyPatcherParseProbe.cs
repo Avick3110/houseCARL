@@ -142,6 +142,12 @@ public static class SkyPatcherParseProbe
         failures += Check("mid-file BOM at a line start trimmed — key parses clean",
             midBom.Count == 2 && midBom[1].Segments[0].Key == "filterByKeywordsOr",
             midBom.Count > 1 ? $"key='{midBom[1].Segments.FirstOrDefault()?.Key}'" : "line missing");
+        // MID-LINE BOM (review finding #10 — the same concatenation producer when the first fragment
+        // lacks a trailing newline): U+FEFF anywhere is whitespace, never part of a key or value.
+        var inBom = SkyPatcherParse.ParseLine("attackDamage=5" + "﻿" + ":weight=1");
+        failures += Check("mid-LINE BOM treated as whitespace — both segments parse clean",
+            inBom.Segments.Count == 2 && inBom.Segments[0].RawValue == "5" && inBom.Segments[1].Key == "weight",
+            $"segs={inBom.Segments.Count} v0='{inBom.Segments.FirstOrDefault()?.RawValue}'");
 
         Console.WriteLine(failures == 0
             ? "[skypatcher-parse-guard] PASS — the SkyPatcher tokenizer grammar holds."

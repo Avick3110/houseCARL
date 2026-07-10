@@ -184,12 +184,22 @@ public static class SkyPatcherDiscovery
             {
                 var line = raw.Trim();
                 if (line.Length == 0 || line[0] == ';') continue;
-                if (line[0] == '[') { inPatcher = line.Equals("[Patcher]", StringComparison.OrdinalIgnoreCase); continue; }
+                if (line[0] == '[')
+                {
+                    // The section is the text INSIDE the brackets — '[Patcher] ; note' must still match
+                    // (review finding #9: trailing text silently re-enabled disabled folders).
+                    int close = line.IndexOf(']');
+                    var section = close > 0 ? line[1..close].Trim() : "";
+                    inPatcher = section.Equals("Patcher", StringComparison.OrdinalIgnoreCase);
+                    continue;
+                }
                 if (!inPatcher) continue;
                 int eq = line.IndexOf('=');
                 if (eq <= 0) continue;
                 var key = line[..eq].Trim();
-                var val = line[(eq + 1)..].Trim();
+                // Inline ';' comments strip off the VALUE ('iEnableNpcPatching=0 ; off for testing' is 0,
+                // not '0 ; off…' — the atoi-style read the DLL's INI layer does) — review finding #9.
+                var val = line[(eq + 1)..].Split(';')[0].Trim();
                 if (key.StartsWith("iEnable", StringComparison.OrdinalIgnoreCase) && key.EndsWith("Patching", StringComparison.OrdinalIgnoreCase))
                     map[key["iEnable".Length..^"Patching".Length]] = val != "0";
             }

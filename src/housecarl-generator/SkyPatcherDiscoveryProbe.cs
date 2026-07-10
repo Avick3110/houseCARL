@@ -60,7 +60,10 @@ public static class SkyPatcherDiscoveryProbe
             Write(modA, @"SKSE\Plugins\SkyPatcher\stray.ini", "attackDamage=8");        // root-level stray
             Write(modA, @"SKSE\Plugins\SkyPatcher\bogusType\x.ini", "foo=1");           // undocumented subfolder
             Write(modA, @"SKSE\Plugins\SkyPatcher\npc\n.ini", "setEssential=true");     // toggled OFF below
-            Write(modA, @"SKSE\Plugins\SkyPatcher.ini", "[Patcher]\niEnableNpcPatching=0\niEnableWeaponPatching=1\n[Log]\niEnablelog=0\n");
+            // The toggle is inline-COMMENTED and the section header carries trailing text — both must
+            // still read as 'npc disabled' (review finding #9: 'val != "0"' on '0 ; note' silently
+            // re-enabled a disabled folder).
+            Write(modA, @"SKSE\Plugins\SkyPatcher.ini", "[Patcher] ; per-type toggles\niEnableNpcPatching=0 ; off for testing\niEnableWeaponPatching=1\n[Log]\niEnablelog=0\n");
 
             bool PluginPresent(string p) => p.Equals("Gated.esp", StringComparison.OrdinalIgnoreCase);
 

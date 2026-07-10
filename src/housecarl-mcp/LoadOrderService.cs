@@ -365,8 +365,22 @@ public sealed class LoadOrderService : IDisposable
         var scan = SkyPatcherDiscovery.Scan(assets, catalog, view.ContainsPlugin);
 
         // The running copy: the winner overridden into an in-memory scratch mod (never written to disk).
+        // Nested-group types (CELL / REFR / INFO…) need the source link cache to rebuild their parent
+        // chain — the same RecordNeedsSourceCache + LinkCacheFor idiom every write path uses (PR #165
+        // review finding #1: without it, 2 of the 27 covered types threw unhandled instead of failing named).
         var scratch = new SkyrimMod(new ModKey("HousecarlSkyPatcherScratch", ModType.Plugin), SkyrimRelease.SkyrimSE);
-        var copy = WriteEngine.GenericGetOrAddAsOverride(scratch, body);
+        IMajorRecord copy;
+        try
+        {
+            Mutagen.Bethesda.Plugins.Cache.ILinkCache? cache =
+                WriteEngine.RecordNeedsSourceCache(body) ? session.LinkCacheFor(winner.Value.WinnerPlugin) : null;
+            copy = WriteEngine.GenericGetOrAddAsOverride(scratch, body, cache);
+        }
+        catch (Exception ex)
+        {
+            return SkyPatcherPostStateData.Fail(fk,
+                $"Could not materialize a mutable copy of {fk} ({typeName}) for the replay — {ex.GetType().Name}: {ex.Message}");
+        }
 
         var formResolver = new SkyPatcherServiceResolver(this, view, session);
         var folders = new List<SkyPatcherFolderOutcome>();
@@ -375,13 +389,17 @@ public sealed class LoadOrderService : IDisposable
             var folder = scan.Folders.FirstOrDefault(f => f.Subfolder.Equals(m.Subfolder, StringComparison.OrdinalIgnoreCase));
             if (folder is null || folder.Catalog is null)
             {
-                folders.Add(new SkyPatcherFolderOutcome(m.Subfolder, 0, 0, null));
+                folders.Add(new SkyPatcherFolderOutcome(m.Subfolder, 0, 0, null, true));
                 continue;
             }
             var lines = SkyPatcherDiscovery.OrderedLines(folder);
             var result = SkyPatcherOverlay.Apply(copy, fk, body.EditorID, catalog, folder.Catalog, m, lines, formResolver);
+            // A toggled-off folder contributes NOTHING — reporting its files as "applied" would assert
+            // as live the INIs the DLL skips wholesale (review finding #7). Enabled rides along so the
+            // render can say WHY the counts are zero.
             folders.Add(new SkyPatcherFolderOutcome(folder.Subfolder,
-                folder.Files.Count(f => f.NotApplied is null), lines.Count, result));
+                folder.PatchingEnabled ? folder.Files.Count(f => f.NotApplied is null) : 0, lines.Count, result,
+                folder.PatchingEnabled));
         }
 
         return new SkyPatcherPostStateData(null, fk, body.EditorID, typeName, winner.Value.WinnerPlugin,
@@ -408,13 +426,10 @@ public sealed class LoadOrderService : IDisposable
             var key = (mutagenType, editorId);
             if (_eidCache.TryGetValue(key, out var hit)) return hit;
             FormKey? found = null;
-            try
-            {
-                var types = _svc.ResolveTypeFilter(mutagenType);
+            var types = _svc.ResolveFormScope(mutagenType);
+            if (types is not null)
                 foreach (var (candidate, _, cBody) in _view.WinnerRecordsOfType(types))
                     if (string.Equals(cBody.EditorID, editorId, StringComparison.OrdinalIgnoreCase)) { found = candidate; break; }
-            }
-            catch (ArgumentException) { /* unknown type scope → unresolvable, loud upstream */ }
             return _eidCache[key] = found;
         }
 
@@ -3904,6 +3919,22 @@ public sealed class LoadOrderService : IDisposable
             $"unknown record type '{type}'. Expected a 4-char signature (e.g. 'WEAP') or a catalog name (e.g. 'Weapon').");
     }
 
+    /// <summary>A form-SCOPE string → getter Type(s): a catalog name / signature (the TypeLookup fast path),
+    /// OR a Mutagen link-interface group name ("Item", "Constructible", "NpcSpawn", …) — resolved as every
+    /// corpus record getter assignable to <c>I{name}Getter</c>, DERIVED from the real interfaces, never a
+    /// hand-kept list (PR #165 review finding #2: the SkyPatcher field map scopes multi-type ops by these
+    /// group names, and ResolveTypeFilter alone made the whole inventory op family's EditorID values
+    /// unresolvable). Null = the string names neither (the caller surfaces it loud).</summary>
+    internal IReadOnlyList<Type>? ResolveFormScope(string type)
+    {
+        var t = type.Trim();
+        if (TypeLookup.TryGetValue(t, out var types)) return types;
+        var iface = typeof(SkyrimMod).Assembly.GetType($"Mutagen.Bethesda.Skyrim.I{t}Getter");
+        if (iface is null) return null;
+        var matches = TypeLookup.Values.SelectMany(v => v).Distinct().Where(iface.IsAssignableFrom).ToList();
+        return matches.Count > 0 ? matches : null;
+    }
+
     public void Dispose()
     {
         lock (_gate) { _resolver?.Dispose(); _resolver = null; _assetResolver?.Dispose(); _assetResolver = null; }
@@ -4108,12 +4139,15 @@ public sealed record SkyPatcherPostStateData(
 }
 
 /// <summary>One SkyPatcher type folder's replay outcome for the record. <see cref="Result"/> is null when the
-/// active order ships no (interpretable) INIs for the folder — a named nothing, not an empty guess.</summary>
+/// active order ships no (interpretable) INIs for the folder — a named nothing, not an empty guess.
+/// <see cref="Enabled"/> false ⇒ SkyPatcher.ini toggles the whole folder off (its INIs exist but the DLL
+/// skips them — counts are zero BY that fact, and the render must say so).</summary>
 public sealed record SkyPatcherFolderOutcome(
     string Subfolder,
     int IniCount,
     int LineCount,
-    HousecarlCore.SkyPatcherOverlay.SkyPatcherOverlayResult? Result);
+    HousecarlCore.SkyPatcherOverlay.SkyPatcherOverlayResult? Result,
+    bool Enabled);
 
 /// <summary>One provider of a mesh path: the mod / "overwrite" / "Data" / BSA-filename, and whether it's a "loose" file
 /// or a "BSA" entry. Winner-first ordering lives in <see cref="NifInspectData.Providers"/>.</summary>

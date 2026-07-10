@@ -132,6 +132,15 @@ public static class SkyPatcherFieldMapProbe
                 if (shapeStateful != semStateful)
                     problems.Add($"{ctx}: catalog shape '{opDef.Shape}' vs map semantic '{m.Semantic}' disagree on statefulness.");
 
+                // formType must be resolvable as a form SCOPE: a concrete Mutagen record class (the
+                // catalog-name path) OR a link-interface group (I{name}Getter — "Item", "Constructible",
+                // "NpcSpawn"…). Review finding #2: unvalidated formTypes made the whole inventory op
+                // family's EditorID values unresolvable at runtime.
+                if (m.FormType is { } ft
+                    && asm.GetType("Mutagen.Bethesda.Skyrim." + ft) is null
+                    && asm.GetType("Mutagen.Bethesda.Skyrim.I" + ft + "Getter") is null)
+                    problems.Add($"{ctx}: formType '{ft}' is neither a Mutagen.Bethesda.Skyrim record class nor a link interface (I{ft}Getter).");
+
                 var leaf = WalkPath(rootType, m.Path, ctx, problems);
                 if (leaf is null) continue;
 

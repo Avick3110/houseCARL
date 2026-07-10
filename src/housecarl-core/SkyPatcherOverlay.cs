@@ -134,7 +134,7 @@ public static class SkyPatcherOverlay
             if (ops.Count == 0) continue;   // a line with no operation does nothing (grammar §3)
 
             // ---- evaluate the filters against THIS record (Wave-1 tier; unsupported ⇒ loud skip). ----
-            var verdict = EvaluateFilters(mutableRecord, fk, editorId, recordCatalog, filters, resolver, warnings, dedupe);
+            var verdict = EvaluateFilters(mutableRecord, fk, editorId, recordCatalog, fieldMap?.RecordType, filters, resolver, warnings, dedupe);
             if (verdict == FilterVerdict.Unresolved)
             {
                 unresolvedSkips++;
@@ -194,7 +194,7 @@ public static class SkyPatcherOverlay
     enum FilterVerdict { Match, NoMatch, Unresolved }
 
     static FilterVerdict EvaluateFilters(object record, FormKey fk, string? editorId,
-        SkyPatcherRecordCatalog recordCatalog,
+        SkyPatcherRecordCatalog recordCatalog, string? mutagenRecordType,
         IReadOnlyList<(SkyPatcherSegment seg, SkyPatcherKeyClass cls)> filters, IFormResolver resolver,
         List<string> warnings, HashSet<string> dedupe)
     {
@@ -208,7 +208,18 @@ public static class SkyPatcherOverlay
             var conn = cls.Connective ?? "";
             bool primary = f.Kind == SkyPatcherFilterKind.Primary;
 
-            if (f.Kind == SkyPatcherFilterKind.NoFilter) { any = true; continue; }   // explicit apply-all token
+            if (f.Kind == SkyPatcherFilterKind.NoFilter)
+            {
+                // The explicit apply-all tokens are RECORD-CLASS scoped in the shared leveledList folder:
+                // noFilterLL means "every ITEM list" (LVLI), noFilterLLNPC "every CHARACTER list" (LVLN) —
+                // review finding #3: without this, an LLNPC-only line silently patched item lists too.
+                var required = cls.BaseKey.EndsWith("LLNPC", StringComparison.OrdinalIgnoreCase) ? "LeveledNpc"
+                    : cls.BaseKey.EndsWith("LL", StringComparison.OrdinalIgnoreCase) ? "LeveledItem"
+                    : null;
+                if (required is not null && !required.Equals(mutagenRecordType, StringComparison.OrdinalIgnoreCase))
+                    return FilterVerdict.NoMatch;
+                any = true; continue;
+            }
 
             if (f.Kind == SkyPatcherFilterKind.HasPlugins)
             {
@@ -299,15 +310,20 @@ public static class SkyPatcherOverlay
         return editorId is not null && string.Equals(v.Raw, editorId, StringComparison.OrdinalIgnoreCase);
     }
 
-    /// <summary>SkyPatcher <c>Plugin|FormID</c> → a Mutagen FormKey. The local ID is the low 24 bits
-    /// (leading load-order digits trimmable per the grammar). How ESL-flagged plugins' IDs are spelled
-    /// in the wild is a Wave-1 EMPIRICAL item — until verified, the 24-bit mask is applied verbatim.</summary>
+    /// <summary>SkyPatcher <c>Plugin|FormID</c> → a Mutagen FormKey. A full load-indexed ESL FormID
+    /// (<c>FExxxYYY</c> — the grammar reference documents the full xEdit copy as always legal) keeps only
+    /// its 12-bit local id; anything else keeps the low 24 bits (leading load-order digits trimmable).
+    /// Review finding #4: the bare 24-bit mask made every full ESL FormID silently match nothing.
+    /// Residual EMPIRICAL item: a bare 6-hex ESL spelling like <c>800123</c> is inherently ambiguous
+    /// (documented in the plan's Wave-1 list) — the 24-bit mask applies to it.</summary>
     static bool TryFormKey(FormAddress a, out FormKey fk)
     {
         fk = default;
         if (a.Plugin is null || a.FormId is null) return false;
         if (!ModKey.TryFromNameAndExtension(a.Plugin, out var mk)) return false;
-        fk = new FormKey(mk, a.FormId.Value & 0xFFFFFF);
+        var id = a.FormId.Value;
+        id = (id & 0xFF000000) == 0xFE000000 ? id & 0xFFF : id & 0xFFFFFF;
+        fk = new FormKey(mk, id);
         return true;
     }
 
@@ -326,6 +342,11 @@ public static class SkyPatcherOverlay
         {
             case SkyPatcherOpSemantic.Set:
             {
+                // 'attackDamage=' (empty value) must be LOUD like every sibling semantic — ParseValueList
+                // yields zero items for it, and iterating zero times was the one silent no-op path (review
+                // finding #8).
+                if (seg.Values.Count == 0)
+                { warnings.Add($"{where}: '{seg.Key}=' has no value; skipped."); break; }
                 foreach (var v in seg.Values)   // most set-ops take one value; tolerate a list by applying in order
                     ApplySetOne(record, fieldMap, seg.Key, map, segs, v, line, resolver, applied, warnings);
                 break;
@@ -384,10 +405,15 @@ public static class SkyPatcherOverlay
                 if (v is null) { warnings.Add($"{where}: '{seg.Key}' has no value; skipped."); return; }
                 string? pathToken;
                 string? note = null;
-                if (v.Address is { IsFormId: true } || (!v.Raw.Contains('.') && ResolveFormValue(v, map.FormType, resolver) is not null))
+                bool looksLikePath = v.Raw.Contains('.') || v.Raw.Contains('\\') || v.Raw.Contains('/');
+                if (v.Address is { IsFormId: true } || !looksLikePath)
                 {
+                    // A form address, or a bare identifier (EditorID) — either way the value is a DONOR form.
+                    // A dot-less token can never be a valid .nif path, so an unresolvable one must fail LOUD
+                    // here, never fall through to the literal branch and be written verbatim as a
+                    // "successful" model path (review finding #6).
                     var donor = ResolveFormValue(v, map.FormType, resolver);
-                    if (donor is null) { warnings.Add($"{where}: '{seg.Key}={v.Raw}' — donor form not resolvable; skipped."); return; }
+                    if (donor is null) { warnings.Add($"{where}: '{seg.Key}={v.Raw}' — donor form not resolvable (and '{v.Raw}' is not a model path); skipped."); return; }
                     pathToken = resolver.ReadWinnerLeaf(donor.Value, map.Path);
                     if (pathToken is null) { warnings.Add($"{where}: '{seg.Key}={v.Raw}' — donor {donor.Value}'s '{map.Path}' unreadable; skipped."); return; }
                     note = $"model path copied from donor {donor.Value}";
