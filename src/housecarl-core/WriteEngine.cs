@@ -434,19 +434,15 @@ public static class WriteEngine
         foreach (var p in paths)
             Console.WriteLine($"  {p} = {ReadLeafDisplay(target, p.Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries), null)}");
 
-        var kwProp = ResolveProperty(target.GetType(), "Keywords");
-        if (kwProp?.GetValue(target) is System.Collections.IEnumerable kws)
+        if (ReadEngine.KeywordKeys(target) is { } kwKeys)   // the ONE keyword walk (shared)
         {
             var map = new Dictionary<FormKey, string?>();
             foreach (var k in sourceMod.Keywords) map[k.FormKey] = k.EditorID;
             Console.WriteLine("  Keywords:");
-            int i = 0;
-            foreach (var e in kws)
+            for (int i = 0; i < kwKeys.Count; i++)
             {
-                var fk = (e as IFormLinkGetter)?.FormKey;
-                var edid = fk is { } v && map.TryGetValue(v, out var n) ? (n ?? "(no edid)") : "(other master / unresolved)";
-                Console.WriteLine($"    [{i}] {fk}  {edid}");
-                i++;
+                var edid = map.TryGetValue(kwKeys[i], out var n) ? (n ?? "(no edid)") : "(other master / unresolved)";
+                Console.WriteLine($"    [{i}] {kwKeys[i]}  {edid}");
             }
         }
         return 0;
