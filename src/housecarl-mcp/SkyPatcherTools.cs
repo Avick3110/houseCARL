@@ -85,11 +85,14 @@ static class SkyPatcherWire
         int files = folders.Sum(f => f.Files.Count);
         int applied = folders.Sum(f => f.PatchingEnabled ? f.Files.Count(x => x.NotApplied is null) : 0);
         int lines = folders.Sum(f => f.Files.Sum(x => x.Lines.Count(l => l.Kind == SkyPatcherLineKind.Patch)));
+        int appliedLines = folders.Sum(f => f.PatchingEnabled
+            ? f.Files.Where(x => x.NotApplied is null).Sum(x => x.Lines.Count(l => l.Kind == SkyPatcherLineKind.Patch)) : 0);
 
         sb.Append("SkyPatcher layer — profile '").Append(d.ProfileName).Append("' — ")
           .Append(folders.Count).Append(" type folder(s), ").Append(files).Append(" INI(s) (")
-          .Append(applied).Append(" applied), ").Append(lines).Append(" patch line(s), ")
-          .Append(d.Conflicts.Count).Append(" set-conflict(s)\n");
+          .Append(applied).Append(" applied), ").Append(lines).Append(" patch line(s)");
+        if (appliedLines != lines) sb.Append(" (").Append(appliedLines).Append(" in applied files)");   // files vs lines units — don't let a gated file's lines read as live
+        sb.Append(", ").Append(d.Conflicts.Count).Append(" set-conflict(s)\n");
         if (folders.Count == 0)
             sb.Append("\nno SkyPatcher INIs in the active order (no Data\\SKSE\\Plugins\\SkyPatcher content, or SkyPatcher itself is not installed).\n");
 
@@ -135,12 +138,15 @@ static class SkyPatcherWire
             {
                 if (sb.Length >= cap) { sb.Append("  ... [showing ").Append(shown).Append(" of ").Append(d.Conflicts.Count).Append("; raise max_chars]\n"); break; }
                 sb.Append("  - [").Append(c.Subfolder).Append("] ").Append(c.Field).Append(" @ ").Append(c.Target).Append(":\n");
-                foreach (var e in c.Entries)
+                for (int i = 0; i < c.Entries.Count; i++)
+                {
+                    var e = c.Entries[i];
                     sb.Append("      ").Append(Path.GetFileName(e.File)).Append(':').Append(e.Line)
                       .Append("  ").Append(e.Op).Append('=').Append(e.Value)
-                      .Append(e == c.Winner ? "   ← WINS (last in apply order)" : "")
+                      .Append(i == c.Entries.Count - 1 ? "   ← WINS (last in apply order)" : "")   // by INDEX — value-equal entries must not both claim the win
                       .Append(e.Conditional ? "   [conditional — the line carries further filters]" : "")
                       .Append('\n');
+                }
                 shown++;
             }
             sb.Append("  (report-only: which value SHOULD win is a merge decision — resolve by authoring a later-sorted INI via the skypatcher-authoring skill, then re-run this tool to confirm.)\n");
