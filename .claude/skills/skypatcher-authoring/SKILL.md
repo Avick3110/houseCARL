@@ -80,8 +80,10 @@ Read grammar-core once plus the one record file you need — don't bulk-load eve
    - `housecarl_skypatcher_layer` for the file-level checks: your INI listed as APPLIED (not
      BSA-only, not filename-gated off, not shadowed by a same-path file from another mod), in the
      apply-order position you expect, no new same-field set conflict against another INI, and no
-     intra-file dead line (ITM) — your own file setting the same field of the same target twice
-     is an authoring slip; only the last write applies.
+     intra-file dead write (ITM) — a later line of your own file unconditionally overwriting
+     every target of an earlier set is an authoring slip; only the last write applies. (The
+     report lists only writes that are FULLY dead — partial or conditional-only overwrites are
+     not flagged, because the earlier write may still fire.)
    A patch that passes both is verified against the actual grammar and the actual load order —
    no game launch needed. (Resolving a reported conflict is the same loop: author the
    later-sorted INI that pins the intended value, then re-run the reader to confirm it wins.)
