@@ -321,6 +321,10 @@ public sealed class LoadOrderService : IDisposable
     // ---- SkyPatcher distributor Wave 1: the per-record TRUE post-SkyPatcher state (plan
     //      dev/plans/SKYPATCHER_DISTRIBUTOR_TOOL_PLAN_2026-07-08.md — reader-only scope, 2026-07-09). ----
 
+    /// <summary>Cross-call INI parse cache (mtime+length keyed — see <see cref="SkyPatcherDiscovery.ParseCache"/>):
+    /// repeat post-state calls over an untouched layer skip every per-file read+parse.</summary>
+    readonly SkyPatcherDiscovery.ParseCache _skyPatcherParseCache = new();
+
     /// <summary>
     /// Compute one record's true post-SkyPatcher state: discover the loose SkyPatcher INI layer
     /// (<see cref="SkyPatcherDiscovery"/>), replay each applicable type folder's ordered line union onto a
@@ -362,7 +366,7 @@ public sealed class LoadOrderService : IDisposable
                 $"Record type '{typeName}' is not a SkyPatcher-patchable type (or has no field map) — the SkyPatcher layer cannot touch {fk}.");
 
         var catalog = SkyPatcherCatalog.Load();
-        var scan = SkyPatcherDiscovery.Scan(assets, catalog, view.ContainsPlugin);
+        var scan = SkyPatcherDiscovery.Scan(assets, catalog, view.ContainsPlugin, _skyPatcherParseCache);
 
         // The running copy: the winner overridden into an in-memory scratch mod (never written to disk).
         // Nested-group types (CELL / REFR / INFO…) need the source link cache to rebuild their parent
@@ -408,14 +412,15 @@ public sealed class LoadOrderService : IDisposable
 
     /// <summary>The live-load-order lookups the overlay needs (<see cref="SkyPatcherOverlay.IFormResolver"/>),
     /// answered off the ONE pinned record view + open session the post-state call holds. EditorID resolution
-    /// scans the requested type's winners once and memoizes per (type, editorid) — a miss is null (loud
-    /// upstream), never a guess.</summary>
+    /// sweeps the requested type's winners ONCE into an eid→FormKey table (an INI layer typically names many
+    /// EditorIDs of the same type — the old per-eid sweep walked the full order N times); a miss is null
+    /// (loud upstream), never a guess.</summary>
     sealed class SkyPatcherServiceResolver : SkyPatcherOverlay.IFormResolver
     {
         readonly LoadOrderService _svc;
         readonly LoadOrderResolver.IndexView _view;
         readonly LoadOrderResolver.OverlaySession _session;
-        readonly Dictionary<(string type, string eid), FormKey?> _eidCache = new();
+        readonly Dictionary<string, Dictionary<string, FormKey>> _eidsByType = new(StringComparer.OrdinalIgnoreCase);
 
         public SkyPatcherServiceResolver(LoadOrderService svc, LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session)
         { _svc = svc; _view = view; _session = session; }
@@ -423,14 +428,17 @@ public sealed class LoadOrderService : IDisposable
         public FormKey? ResolveEditorId(string editorId, string? mutagenType)
         {
             if (mutagenType is null || string.IsNullOrWhiteSpace(editorId)) return null;
-            var key = (mutagenType, editorId);
-            if (_eidCache.TryGetValue(key, out var hit)) return hit;
-            FormKey? found = null;
-            var types = _svc.ResolveFormScope(mutagenType);
-            if (types is not null)
-                foreach (var (candidate, _, cBody) in _view.WinnerRecordsOfType(types))
-                    if (string.Equals(cBody.EditorID, editorId, StringComparison.OrdinalIgnoreCase)) { found = candidate; break; }
-            return _eidCache[key] = found;
+            if (!_eidsByType.TryGetValue(mutagenType, out var eids))
+            {
+                eids = new Dictionary<string, FormKey>(StringComparer.OrdinalIgnoreCase);
+                var types = _svc.ResolveFormScope(mutagenType);
+                if (types is not null)
+                    foreach (var (candidate, _, cBody) in _view.WinnerRecordsOfType(types))
+                        if (cBody.EditorID is { Length: > 0 } eid && !eids.ContainsKey(eid))   // first winner keeps the slot (the old sweep's break-on-first)
+                            eids[eid] = candidate;
+                _eidsByType[mutagenType] = eids;
+            }
+            return eids.TryGetValue(editorId, out var fk) ? fk : null;
         }
 
         public string? ReadWinnerLeaf(FormKey donor, string path)
