@@ -1,3 +1,5 @@
+using Mutagen.Bethesda.Plugins;
+
 namespace HousecarlCore;
 
 /// <summary>
@@ -227,6 +229,51 @@ public static class SkyPatcherConflicts
             conflicts.Add(new SkyPatcherConflict(subfolder, field, target, entries));
     }
 
+    /// <summary>The one bare-primary test — a filter segment that NAMES records outright (primary
+    /// kind, no Excluded/other connective). Shared by the conflict/ITM grouping and the layer no-op
+    /// scan's target collection so the two can't silently diverge (review finding).</summary>
+    public static bool IsBarePrimary(SkyPatcherKeyClass cls)
+        => cls.Role == SkyPatcherKeyRole.Filter
+           && cls.Filter!.Kind == SkyPatcherFilterKind.Primary && (cls.Connective ?? "") == "";
+
+    /// <summary>Collect one patch line's explicit PRIMARY targets for the no-op (true-ITM) scan:
+    /// FormID values → <paramref name="forms"/>, non-FormID values → raw EditorID strings (the caller
+    /// resolves them against its folder's record types). A line with operations but NO bare primary
+    /// is counted into <paramref name="broadLines"/> — it writes type-wide and the scan's note says
+    /// it is only evaluated against the explicitly-targeted records.</summary>
+    public static void CollectExplicitPrimaryTargets(
+        SkyPatcherLine parsed, SkyPatcherCatalog catalog, SkyPatcherRecordCatalog recordCatalog,
+        ISet<FormKey> forms, ISet<string> editorIds, ref int broadLines)
+    {
+        if (parsed.Kind != SkyPatcherLineKind.Patch) return;
+        bool hasOp = false, hasExplicit = false;
+        foreach (var seg in parsed.Segments)
+        {
+            var cls = catalog.Classify(recordCatalog, seg.Key);
+            if (cls.Role == SkyPatcherKeyRole.Operation) hasOp = true;
+            else if (IsBarePrimary(cls))
+                foreach (var v in seg.Values)
+                {
+                    hasExplicit = true;
+                    if (v.Address is { IsFormId: true } a && SkyPatcherOverlay.TryFormKey(a, out var fk)) forms.Add(fk);
+                    else editorIds.Add(v.Raw);
+                }
+        }
+        if (hasOp && !hasExplicit) broadLines++;
+    }
+
+    /// <summary>The no-op (true-ITM) candidate test the layer scan applies to a replay's applied ops:
+    /// a SET-class op whose before == after leaf token (the overlay's documented no-op contract),
+    /// excluding deliberate 'none' leave-unchanged values. Accumulating before==after cases (e.g.
+    /// re-adding a present keyword) are NOT this class — they stay skypatcher_read's lane.</summary>
+    public static bool IsNoOpWrite(SkyPatcherOverlay.SkyPatcherAppliedOp a, RecordMap? map)
+    {
+        if (a.Before is null || a.Before != a.After) return false;
+        if (a.RawValue.Trim().Equals("none", StringComparison.OrdinalIgnoreCase)) return false;
+        var op = map?.Ops.GetValueOrDefault(a.Op);
+        return op is not null && !op.IsUnmapped && SetClassSemantics.Contains(op.Semantic);
+    }
+
     /// <summary>The line's target tokens from its PRIMARY filter (normalized FormKey / case-folded
     /// EditorID), or BROAD when no bare primary names records. Conditional = any other filter present
     /// (whether the line hits the target then depends on record state the detector doesn't evaluate).</summary>
@@ -237,7 +284,7 @@ public static class SkyPatcherConflicts
         bool conditional = false;
         foreach (var (seg, cls) in filters)
         {
-            if (cls.Filter!.Kind == SkyPatcherFilterKind.Primary && (cls.Connective ?? "") == "")
+            if (IsBarePrimary(cls))
                 foreach (var v in seg.Values)
                     tokens.Add(v.Address is { IsFormId: true } a && SkyPatcherOverlay.TryFormKey(a, out var fk)
                         ? fk.ToString()

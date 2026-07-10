@@ -177,7 +177,9 @@ static class SkyPatcherWire
                     if (sb.Length >= cap) { sb.Append("      ... [entries cut at max_chars]\n"); break; }
                     sb.Append("      :").Append(e.Line).Append("  ").Append(e.Op).Append('=').Append(e.Value)
                       .Append("  @ ").Append(e.Targets)
-                      .Append("   ← DEAD (overwritten by :").Append(string.Join(", :", e.KillerLines)).Append(')')
+                      .Append("   ← DEAD (overwritten by ")
+                      .Append(string.Join(", ", e.KillerLines.Select(k => k == e.Line ? $":{k} (a later op on the same line)" : $":{k}")))
+                      .Append(')')
                       .Append(e.Conditional ? "   [carries further filters — dead regardless: the overwrite is unconditional]" : "")
                       .Append('\n');
                 }
@@ -205,6 +207,7 @@ static class SkyPatcherWire
                 }
                 shownDups++;
             }
+            sb.Append("  (report-only: which copy to drop is a judgment call — a BROAD line also patches every other record of the type, so removing it loses those; prefer dropping the narrower duplicate.)\n");
         }
 
         if (d.NoOps.Count > 0)
