@@ -199,8 +199,132 @@ public static class SkyPatcherOverlayProbe
         failures += LeveledListScopeArm(catalog, fieldMap, mod);
         failures += FormListArm(catalog, fieldMap, mod);
         failures += Wave2FilterArm(catalog, fieldMap, mod);
+        failures += Wave2OpClosuresArm(catalog, fieldMap, mod);
 
         return Done(failures);
+    }
+
+    /// <summary>The Wave-2 unmapped-op CLOSURES — the five semantics that turn 47 explicitly-unmapped
+    /// entries into resolved post-state: dict-keyed race stats (Set + stateful Mult), Cell per-channel
+    /// colours (token splice, alpha preserved), armor biped-slot INDEX bit math, Book's polymorphic
+    /// Teaches compose-Set, and the COBJ set-entry-count (incl. the null=ALL form).</summary>
+    static int Wave2OpClosuresArm(SkyPatcherCatalog catalog, SkyPatcherFieldMap fieldMap, SkyrimMod mod)
+    {
+        Console.WriteLine("  --- Wave-2 op-closure arm (dict / colour / biped bits / Teaches / entry count) ---");
+        int failures = 0;
+        var resolver = new StubResolver();
+        SkyPatcherOverlay.OrderedLine L(int n, string text) => new("c.ini", n, SkyPatcherParse.ParseLine(text));
+
+        // ---- race: dictSet + dictMult on Starting/Regen (stateful chain: set 100 then ×1.5 = 150) ----
+        {
+            var race = mod.Races.AddNew();
+            race.EditorID = "HcStatRace";
+            race.Starting[BasicStat.Health] = 50;
+            race.Regen[BasicStat.Magicka] = 3;
+            var r = SkyPatcherOverlay.Apply(race, race.FormKey, race.EditorID, catalog, catalog.ForSubfolder("race")!,
+                fieldMap.For("race", "Race"), new[]
+                {
+                    L(1, "startingHealth=100"),
+                    L(2, "startingHealthMult=1.5"),      // runs on the RUNNING 100, not the original 50
+                    L(3, "regenMagickaMult=2"),
+                    L(4, "startingStaminaMult=2"),        // ABSENT key ⇒ loud skip, never invented
+                }, resolver);
+            failures += Check("race dict stats: set 100 then ×1.5 = 150 (ordered, stateful, running-value)",
+                Math.Abs(race.Starting[BasicStat.Health] - 150) < 0.001, $"got {race.Starting[BasicStat.Health]}");
+            failures += Check("race regen dict mult (3 × 2 = 6)",
+                Math.Abs(race.Regen[BasicStat.Magicka] - 6) < 0.001, $"got {race.Regen[BasicStat.Magicka]}");
+            failures += Check("dict mult on an ABSENT key skips LOUD, never invents a base value",
+                !race.Starting.ContainsKey(BasicStat.Stamina)
+                && r.Warnings.Any(w => w.Contains("startingStaminaMult") && w.Contains("no current value")));
+        }
+
+        // ---- cell: per-channel colour splice (alpha + sibling channels preserved) ----
+        {
+            var cell = new Cell(new FormKey(new ModKey("HcSpOv", ModType.Plugin), 0xCE2), SkyrimRelease.SkyrimSE);
+            cell.EditorID = "HcColorCell";
+            cell.Lighting = new CellLighting { AmbientColor = System.Drawing.Color.FromArgb(255, 10, 20, 30) };
+            var me = "HcSpOv.esp|CE2";
+            SkyPatcherOverlay.Apply(cell, cell.FormKey, cell.EditorID, catalog, catalog.ForSubfolder("cell")!,
+                fieldMap.For("cell", "Cell"), new[]
+                {
+                    L(1, $"filterByCells={me}:ambientRed=64"),
+                    L(2, $"filterByCells={me}:ambientBlue=128"),
+                    L(3, $"filterByCells={me}:directionalAmbientXMinGreen=99"),   // nested AmbientColors struct
+                }, resolver);
+            var c = cell.Lighting!.AmbientColor;
+            failures += Check("colour channels spliced independently (R=64, G kept 20, B=128, A kept 255)",
+                c.R == 64 && c.G == 20 && c.B == 128 && c.A == 255, $"got {c.R},{c.G},{c.B},{c.A}");
+            failures += Check("nested directional-ambient channel landed (XMinus.G=99)",
+                cell.Lighting.AmbientColors?.DirectionalXMinus.G == 99,
+                cell.Lighting.AmbientColors?.DirectionalXMinus.ToString() ?? "<null>");
+        }
+
+        // ---- armor: biped-slot INDEX bit math on the ops side (slot 41 = index 11; 42 = 12) ----
+        {
+            var ar = mod.Armors.AddNew();
+            ar.EditorID = "HcSlotArmor";
+            ar.BodyTemplate = new BodyTemplate { FirstPersonFlags = BipedObjectFlag.LongHair };   // index 11 (slot 41)
+            SkyPatcherOverlay.Apply(ar, ar.FormKey, ar.EditorID, catalog, catalog.ForSubfolder("armor")!,
+                fieldMap.For("armor", "Armor"), new[]
+                {
+                    L(1, "bipedSlotsToRemove=11:bipedSlotsToAdd=12"),   // the armor.md example line
+                }, resolver);
+            failures += Check("bipedSlots ops: index 11 cleared, 12 set (the documented example)",
+                !ar.BodyTemplate!.FirstPersonFlags.HasFlag(BipedObjectFlag.LongHair)
+                && ar.BodyTemplate.FirstPersonFlags.HasFlag(BipedObjectFlag.Circlet),
+                ar.BodyTemplate.FirstPersonFlags.ToString());
+        }
+
+        // ---- book: the polymorphic Teaches compose-Set (spell arm, then skill arm overwrites) ----
+        {
+            var spellFk = new FormKey(new ModKey("HcSpl", ModType.Plugin), 0xF10);
+            var book = mod.Books.AddNew();
+            book.EditorID = "HcTome";
+            var r = SkyPatcherOverlay.Apply(book, book.FormKey, book.EditorID, catalog, catalog.ForSubfolder("book")!,
+                fieldMap.For("book", "Book"), new[]
+                {
+                    L(1, "teachSpell=HcSpl.esp|F10"),
+                    L(2, "teachSkill=marksman"),          // valueMap marksman→Archery; later line wins
+                }, resolver);
+            failures += Check("teachSpell composed the BookSpell arm (visible in the applied note)",
+                r.Applied.Any(a => a.Op == "teachSpell" && a.Note == "Teaches → BookSpell"));
+            failures += Check("teachSkill overwrote with the BookSkill arm (marksman→Archery)",
+                book.Teaches is BookSkill bs && bs.Skill == Skill.Archery,
+                book.Teaches?.GetType().Name ?? "<null>");
+        }
+
+        // ---- cobj: set-entry-count (specific form, then null = ALL) ----
+        {
+            var ingotA = new FormKey(new ModKey("HcItm", ModType.Plugin), 0x930);
+            var ingotB = new FormKey(new ModKey("HcItm", ModType.Plugin), 0x931);
+            var c = mod.ConstructibleObjects.AddNew();
+            c.EditorID = "HcCountRecipe";
+            c.Items = new()
+            {
+                new ContainerEntry { Item = new ContainerItem { Item = ingotA.ToLink<IItemGetter>(), Count = 5 } },
+                new ContainerEntry { Item = new ContainerItem { Item = ingotB.ToLink<IItemGetter>(), Count = 5 } },
+            };
+            SkyPatcherOverlay.Apply(c, c.FormKey, c.EditorID, catalog, catalog.ForSubfolder("constructibleObject")!,
+                fieldMap.For("constructibleObject", "ConstructibleObject"), new[]
+                {
+                    L(1, "changeCobjsCount=HcItm.esp|930~2"),   // one ingredient → 2
+                }, resolver);
+            var counts = c.Items!.Select(e => (fk: e.Item.Item.FormKey, n: e.Item.Count)).ToList();
+            failures += Check("setEntryCount: the matching ingredient set to 2, the other untouched",
+                counts.Any(e => e.fk == ingotA && e.n == 2) && counts.Any(e => e.fk == ingotB && e.n == 5),
+                string.Join(" | ", counts.Select(e => $"{e.fk}×{e.n}")));
+
+            SkyPatcherOverlay.Apply(c, c.FormKey, c.EditorID, catalog, catalog.ForSubfolder("constructibleObject")!,
+                fieldMap.For("constructibleObject", "ConstructibleObject"), new[]
+                {
+                    L(1, "changeCobjsCount=null~0"),            // the documented null form: ALL entries
+                }, resolver);
+            failures += Check("setEntryCount null form hits EVERY entry (all counts 0)",
+                c.Items!.All(e => e.Item.Count == 0),
+                string.Join(" | ", c.Items!.Select(e => $"{e.Item.Item.FormKey}×{e.Item.Count}")));
+        }
+
+        return failures;
     }
 
     /// <summary>The Wave-2 filter surface — one representative per evaluation kind plus the danger
