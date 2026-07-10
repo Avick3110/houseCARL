@@ -60,12 +60,40 @@ public static class SkyPatcherDiscovery
         IReadOnlyList<string> Notes,
         bool ReadIncomplete);
 
+    /// <summary>Per-file INI parse cache — the same cheap-mtime freshness discipline the rest of
+    /// houseCARL uses. Keyed on the winning loose file's full path; an entry is fresh while its
+    /// (mtime, length) pair matches, so an edited/replaced INI re-reads on the next scan and an
+    /// untouched layer costs zero re-parses per post-state call. Thread-safe (a post-state call runs
+    /// outside the service gate). Entries for deleted files just stop being hit — bounded by the
+    /// layer's INI count.</summary>
+    public sealed class ParseCache
+    {
+        readonly object _lock = new();
+        readonly Dictionary<string, (DateTime MtimeUtc, long Length, IReadOnlyList<SkyPatcherLine> Lines)> _byPath = new(StringComparer.OrdinalIgnoreCase);
+
+        internal IReadOnlyList<SkyPatcherLine> GetOrParse(string path)
+        {
+            var fi = new FileInfo(path);
+            var mtime = fi.LastWriteTimeUtc;
+            var length = fi.Length;
+            lock (_lock)
+                if (_byPath.TryGetValue(path, out var hit) && hit.MtimeUtc == mtime && hit.Length == length)
+                    return hit.Lines;
+            // (If the file changes between the stamp and the read, the stale content is keyed under the
+            //  OLD stamp and the next call's fresh stamp misses it — self-healing, never wedged.)
+            var lines = SkyPatcherParse.ParseFile(File.ReadAllText(path));
+            lock (_lock) _byPath[path] = (mtime, length, lines);
+            return lines;
+        }
+    }
+
     /// <summary>
     /// Scan the SkyPatcher layer off one pinned asset view. <paramref name="pluginPresent"/> answers
     /// the filename gate (plugin filename incl. extension, case-insensitive). Pure read; the view is
     /// handle-free, so this can run outside the service gate like the SKSE inventory does.
+    /// <paramref name="cache"/> (optional) skips the read+parse for INIs unchanged since the last scan.
     /// </summary>
-    public static LayerScan Scan(AssetResolver.AssetView view, SkyPatcherCatalog catalog, Func<string, bool> pluginPresent)
+    public static LayerScan Scan(AssetResolver.AssetView view, SkyPatcherCatalog catalog, Func<string, bool> pluginPresent, ParseCache? cache = null)
     {
         var notes = new List<string>();
         var byFolder = new Dictionary<string, List<IniFile>>(StringComparer.OrdinalIgnoreCase);
@@ -104,7 +132,12 @@ public static class SkyPatcherDiscovery
                 if (gate is not null && !pluginPresent(gate))
                     notApplied = $"filename-gated on plugin '{gate}', which is not in the active load order";
 
-                try { lines = SkyPatcherParse.ParseFile(File.ReadAllText(winner.LooseFilePath!)); }
+                try
+                {
+                    lines = cache is null
+                        ? SkyPatcherParse.ParseFile(File.ReadAllText(winner.LooseFilePath!))
+                        : cache.GetOrParse(winner.LooseFilePath!);
+                }
                 catch (Exception ex)
                 {
                     notApplied ??= $"winning copy could not be read: {ex.Message}";
