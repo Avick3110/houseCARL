@@ -67,10 +67,14 @@ namespace HousecarlGenerator;
 ///   SIBREF-STRUCT-FIELDS — the flat-Fields sugar twin: Object='@self' in a compose FIELD value substitutes too.
 ///   REJ-SIBSTRUCT-FWD    — a compose-Sets @ref to a LATER sibling still refuses (declared-earlier holds in composes).
 ///   REJ-SIBSTRUCT-NONFL  — a compose-Sets @ref on a NON-formlink field still refuses (substitution stays formlink-scoped).
+///   REJ-SIBSTRAYSTRUCT   — a struct= riding alongside an admitted '@' value refuses at the gate (PR #166 review
+///                          finding 1: apply's substitution recursion must never walk an unvalidated stray compose).
 ///   EXTEND-EDIT          — WritePatchBuilder.Apply(extend:true) resolves a target the PATCH ITSELF defines (created by a
 ///                          prior call, not in the load order) to a patch-local direct edit, mixed with a load-order
-///                          target in one call; a truly-absent target refuses naming BOTH places searched. RED pre-fix:
-///                          'not present in the load order (N plugins)'.
+///                          target in one call; a truly-absent target refuses naming BOTH places searched (RED pre-fix:
+///                          'not present in the load order (N plugins)'); an override the patch merely CARRIES, of a
+///                          record whose defining plugin is disabled, still refuses loud (PR #166 review finding 2 —
+///                          patch-local resolution is scoped to records the patch DEFINES, never its override copies).
 ///
 /// GENERAL FormLink-ELEMENT collection value-shape — the BROADER pre-existing gap the sibling-ref collection gate named: ANY
 /// malformed FormLink ELEMENT (not just an @editorid sibling token) in a collection value was accepted at pre-flight
@@ -824,12 +828,27 @@ public static class NestedCreateGuardProbe
             },
             msg => msg.Contains("only valid on a FormLink field", StringComparison.OrdinalIgnoreCase));
 
+        // ---------- REJ-SIBSTRAYSTRUCT (PR #166 review finding 1): a stray compose spec alongside an admitted @value refuses ----------
+        // The sibling gate returns before the compose branches, so a struct= riding on the same op was never validated —
+        // yet apply's substitution recursion WALKS it, and a bad token inside it would fail under the misleading
+        // "internal: pre-flight should have caught it" wrapper. The gate now refuses the stray compose loud.
+        bool sibRejStrayStructOk;
+        {
+            var req = new WriteRequest { RecordType = "DialogResponses", Path = new[] { "Topic" }, Verb = "Set", Value = "@HcNcStrayTopic",
+                Struct = new StructSpec { Type = "QuestFragmentAlias", Fields = new Dictionary<string, string> { ["Version"] = "@Typo" } } };
+            var reject = rulebook.Validate(req, new[] { "HcNcStrayTopic" });
+            sibRejStrayStructOk = reject is not null && reject.Contains("remove struct=", StringComparison.OrdinalIgnoreCase);
+            Console.WriteLine($"   REJ-SIBSTRAYSTRUCT stray compose     : {(sibRejStrayStructOk ? "PASS — a struct= alongside an admitted '@' value refuses at the gate (never the 'internal' wrapper at apply)" : $"FAIL — reject=[{reject}]")}");
+        }
+
         // ---------- EXTEND-EDIT (HCBR-2026-07-10-01 F3): an extend edit targets a record ONLY the patch defines ----------
         // The report's blocked two-step: create into a patch (not enabled in MO2 — not in the resolver's order), then
         // Apply extend on the same patch targeting the created record. RED pre-fix: "not present in the load order".
         // Now the extended patch's own records resolve to a patch-local direct edit; a MIXED call (one load-order
         // target + one patch-local target) lands both; a genuinely-absent target still refuses loud, naming BOTH
-        // places searched (the load order AND the patch being extended).
+        // places searched (the load order AND the patch being extended). PLUS the PR #166 review finding 2 leg: an
+        // override the patch merely CARRIES (of a record whose defining plugin is now disabled) does NOT resolve —
+        // the loud refusal is kept, never a silent edit of the patch's stale override copy.
         bool extendEditOk = false;
         {
             string pPath = Path.Combine(tmpDir, "HcNcExtEdit.esp");
@@ -865,8 +884,34 @@ public static class NestedCreateGuardProbe
             bool missNamed = !miss.Success && miss.Error is not null
                 && miss.Error.Contains("load order", StringComparison.OrdinalIgnoreCase)
                 && miss.Error.Contains("the patch being extended", StringComparison.OrdinalIgnoreCase);
-            extendEditOk = co.Success && eo is { Success: true } && val == 123 && prio == 50 && missNamed;
-            Console.WriteLine($"   EXTEND-EDIT patch-defined target     : {(extendEditOk ? "PASS — an extend edit resolves the patch's OWN record (mixed with a load-order target); a truly-absent target refuses naming BOTH" : $"FAIL — create={co.Success} edit={eo?.Success} val=[{val}] prio=[{prio}] missNamed={missNamed} createErr=[{co.Error}] editErr=[{eo?.Error}] missErr=[{miss.Error}]")}");
+
+            // Review finding 2 leg: a second master m2 contributes a record; the patch carries an OVERRIDE of it
+            // (extend with m2 active), then m2 is "disabled" (a resolver without it) — targeting the m2 record must
+            // REFUSE (the patch contains it, but does not DEFINE it), naming the overrides-resolve-via-load-order rule.
+            bool staleOverrideRefused = false;
+            if (co.Success && eo is { Success: true })
+            {
+                var m2Key = new ModKey("HcNcExtM2", ModType.Master);
+                string m2Path = Path.Combine(tmpDir, m2Key.FileName);
+                var m2 = new SkyrimMod(m2Key, SkyrimRelease.SkyrimSE);
+                var m2Misc = m2.MiscItems.AddNew(); m2Misc.EditorID = "HcNcExtM2Misc"; m2Misc.Value = 7;
+                m2.BeginWrite.ToPath(m2Path).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
+
+                using var rBoth = LoadOrderResolver.Build(new[] { mPath, m2Path });
+                var carry = WritePatchBuilder.Apply(rBoth, rulebook, new[]
+                    { new WritePatchBuilder.PatchEdit { Target = m2Misc.FormKey, Path = new[] { "Value" }, Verb = "Set", Value = "9" } }, pPath, extend: true);
+                var stale = carry.Success
+                    ? WritePatchBuilder.Apply(r, rulebook, new[]   // r = m2 NOT in the order ("disabled")
+                        { new WritePatchBuilder.PatchEdit { Target = m2Misc.FormKey, Path = new[] { "Value" }, Verb = "Set", Value = "1" } }, pPath, extend: true)
+                    : null;
+                staleOverrideRefused = carry.Success && stale is { Success: false }
+                    && stale.Error is not null && stale.Error.Contains("OVERRIDES", StringComparison.Ordinal);
+                if (!staleOverrideRefused)
+                    Console.WriteLine($"          stale-override leg detail: carry={carry.Success} stale={stale?.Success} carryErr=[{carry.Error}] staleErr=[{stale?.Error}]");
+            }
+
+            extendEditOk = co.Success && eo is { Success: true } && val == 123 && prio == 50 && missNamed && staleOverrideRefused;
+            Console.WriteLine($"   EXTEND-EDIT patch-defined target     : {(extendEditOk ? "PASS — an extend edit resolves the patch's OWN record (mixed with a load-order target); a truly-absent target refuses naming BOTH; a carried override of a disabled plugin's record still refuses loud" : $"FAIL — create={co.Success} edit={eo?.Success} val=[{val}] prio=[{prio}] missNamed={missNamed} staleOverrideRefused={staleOverrideRefused} createErr=[{co.Error}] editErr=[{eo?.Error}] missErr=[{miss.Error}]")}");
         }
 
         // ====== GENERAL FormLink-ELEMENT collection value-shape (the broader gap the sibling-ref collection gate named) ======
@@ -2546,7 +2591,7 @@ public static class NestedCreateGuardProbe
                     && sibrefOk && sibRefListAddOk && sibRefListReplaceOk && sibRejFwdOk && sibRejFwdListOk
                     && sibRejNonflOk && sibRejListSetOk && sibRejDictOk && sibRejApplyOk
                     && sibRefSelfOk && sibRefStructOk && sibRefStructFieldsOk && sibRejStructFwdOk && sibRejStructNonflOk
-                    && extendEditOk
+                    && sibRejStrayStructOk && extendEditOk
                     && flElemRejGateOk && flElemRejAddOk && flElemNullClearOk && flElemOkE2eOk && flElemRejE2eOk
                     && flElemRejNullAddOk && flElemRejNullAddPlainOk && flElemRejNullSetIdxOk && flElemRejNullAddE2eOk
                     && keyIdxRejDictAddOk && keyIdxRejDictRemoveOk && keyIdxRejSetIdxOk && keyIdxOkListRemoveOk && keyIdxRejSetIdxE2eOk
