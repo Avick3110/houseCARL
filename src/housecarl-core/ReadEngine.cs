@@ -210,13 +210,22 @@ public static class ReadEngine
     /// triplicated across the SkyPatcher overlay, the post-state service resolver, and the show CLI,
     /// with diverging property resolution and non-formlink handling). Resolves the property the same
     /// way the engines do (<see cref="WriteEngine.ResolveProperty"/>), so explicit-interface getters
-    /// can't hide it. Null = the type has no keyword list, or an item isn't a formlink (surfaced loud
-    /// by callers, never guessed empty).</summary>
+    /// can't hide it. An ABSENT (null) list honestly reads as EMPTY — a record with no keyword list
+    /// carries no keywords. Null is reserved for "no such property / not a formlink list" (surfaced
+    /// loud by callers, never guessed).</summary>
     public static IReadOnlyList<FormKey>? KeywordKeys(object record)
     {
         var p = WriteEngine.ResolveProperty(record.GetType(), "Keywords");
         if (p is null) return null;
         if (p.GetValue(record) is not System.Collections.IEnumerable list) return new List<FormKey>();   // absent list reads as empty
+        return FormLinkKeys(list);
+    }
+
+    /// <summary>The FormKeys of one formlink-list value — the ONE enumerable→FormKey walk
+    /// (<see cref="KeywordKeys"/> and the SkyPatcher overlay's list ops both ride it, so link-reading
+    /// can't drift between them). Null the moment an element isn't a formlink (loud upstream).</summary>
+    public static List<FormKey>? FormLinkKeys(System.Collections.IEnumerable list)
+    {
         var keys = new List<FormKey>();
         foreach (var item in list)
         {
