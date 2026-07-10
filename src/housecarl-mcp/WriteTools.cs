@@ -214,8 +214,10 @@ public static class WriteTools
          "field VALUE can ALSO reference a same-call sibling, written '@editorid' — so a dialogue line's order-chain and its " +
          "topic back-link are authored in the SAME call: e.g. on a line, operations:[{field_path:'Topic', value:'@MyTopic'}, " +
          "{field_path:'PreviousDialog', value:'@MyTopic_L1'}] points it at the same-call topic and the prior line. Each '@editorid' " +
-         "must name a record declared EARLIER in this array; it resolves to that record's auto-allocated FormID. (Only on FormLink " +
-         "fields, only in this batch tool — a single create_record has no siblings.) collection= " +
+         "must name a record declared EARLIER in this array OR the record being created ITSELF (self-reference — e.g. a quest's " +
+         "VMAD alias fragment whose Property.Object is the quest: value:'@MyQuest' on MyQuest's own operation; works in single " +
+         "create_record too); it resolves to that record's auto-allocated FormID. (Only on FormLink fields — including formlink " +
+         "fields/sets inside a compose spec.) collection= " +
          "names which child-list when the parent holds more than one that fits (e.g. a cell's 'Persistent'). Each new FormID is " +
          "auto-allocated (the patch's own 0x800+ range) and returned. ALL-OR-NOTHING (Q3): if ANY spec is malformed or fails " +
          "pre-flight (unknown/ambiguous type, missing editorid, illegal field op, a nested child with no resolvable parent, an " +

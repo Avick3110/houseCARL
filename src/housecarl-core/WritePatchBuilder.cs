@@ -278,39 +278,10 @@ public static class WritePatchBuilder
         // cache, the known-master set) is opened THROUGH it and disposed when the method returns — no handle held at rest.
         using var session = resolver.OpenSession();
 
-        // --- Phase 1: resolve winner + derive RecordType + pre-flight EVERY edit. Collect ALL problems (so the caller
-        //     sees every fix at once), then refuse the whole call if any (Q3 — never a silently-partial patch).
-        //     ONE captured view answers EVERY edit (2026-06-12 hunt F5): the per-edit single-shot resolves each took
-        //     a fresh capture, so a freshness rebuild landing mid-loop (a concurrent read's refresh) could resolve
-        //     two edits of ONE call against two different builds' winners — a silently MIXED patch
-        //     (freshness-capture-guard arm 4, RED pre-fix: 2 of 12 hammered multi-op writes mixed). The write is one
-        //     logical operation; it reads one build — the same HCBR-2026-06-11-02 discipline the read service follows. ---
-        var view = resolver.Capture();
-        var resolved = new List<(PatchEdit edit, IMajorRecordGetter body, string winnerPlugin, WriteRequest req, string label)>(edits.Count);
-        var problems = new List<string>();
-        foreach (var e in edits)
-        {
-            var w = view.ResolveWinner(e.Target);
-            if (w is null) { problems.Add($"{e.Target}: not present in the load order ({view.PluginCount} plugins)."); continue; }
-            var body = view.GetRecord(session, w.Value.WinnerPlugin, e.Target);
-            if (body is null) { problems.Add($"{e.Target}: winner '{w.Value.WinnerPlugin}' did not yield it on fetch (a load-order inconsistency)."); continue; }
-
-            var recType = RecordNaming.StripOverlay(body.GetType().Name);
-            var req = new WriteRequest
-            {
-                RecordType = recType, Path = e.Path, Verb = e.Verb,
-                Key = e.Key, Value = e.Value, Values = e.Values, Entries = e.Entries, Struct = e.Struct,
-            };
-            var label = Label(req);
-            if (rulebook.Validate(req) is { } reject) { problems.Add($"{recType} {e.Target} [{label}]: {reject}"); continue; }
-            resolved.Add((e, body, w.Value.WinnerPlugin, req, label));
-        }
-        if (problems.Count > 0)
-            return PatchOutcome.Fail(
-                $"refused — {problems.Count} of {edits.Count} edit(s) rejected by resolve/pre-flight; NO patch written:\n  - "
-                + string.Join("\n  - ", problems));
-
-        // --- Phase 2: open (extend) or create the patch mod. The serializer ties the output filename to the ModKey. ---
+        // --- Phase 0: open (extend) or create the patch mod BEFORE resolving targets (HCBR-2026-07-10-01 F3, the
+        //     edit-lane twin of CreateRecords' Phase 0): an extend edit may target a record the PATCH ITSELF defines
+        //     (created by a prior into= call, not yet enabled in MO2), so the opened patch must be consultable by the
+        //     resolve loop. The serializer ties the output filename to the ModKey. ---
         var fileName = Path.GetFileName(outPath);
         SkyrimMod patchMod;
         if (extend)
@@ -327,17 +298,75 @@ public static class WritePatchBuilder
         if (!string.Equals(patchMod.ModKey.FileName.String, fileName, StringComparison.OrdinalIgnoreCase))
             return PatchOutcome.Fail($"patch ModKey '{patchMod.ModKey.FileName}' must match output filename '{fileName}'.");
 
+        // --- Phase 1: resolve winner + derive RecordType + pre-flight EVERY edit. Collect ALL problems (so the caller
+        //     sees every fix at once), then refuse the whole call if any (Q3 — never a silently-partial patch).
+        //     ONE captured view answers EVERY edit (2026-06-12 hunt F5): the per-edit single-shot resolves each took
+        //     a fresh capture, so a freshness rebuild landing mid-loop (a concurrent read's refresh) could resolve
+        //     two edits of ONE call against two different builds' winners — a silently MIXED patch
+        //     (freshness-capture-guard arm 4, RED pre-fix: 2 of 12 hammered multi-op writes mixed). The write is one
+        //     logical operation; it reads one build — the same HCBR-2026-06-11-02 discipline the read service follows.
+        //     A target absent from the load order that the EXTENDED patch itself defines (a record a prior into= call
+        //     created, patch not yet enabled in MO2 — HCBR-2026-07-10-01 F3) resolves to the patch's OWN settable copy
+        //     (patchLocal; Phase 3 edits it directly, no override) — this consults ONLY the named output artifact of
+        //     the current authoring session, never an arbitrary un-enabled plugin, so the Q3 winner-confusion hazard
+        //     the declined read-un-enabled-plugins feature guards against doesn't arise. ---
+        var view = resolver.Capture();
+        var resolved = new List<(PatchEdit edit, IMajorRecordGetter? body, string? winnerPlugin, IMajorRecord? patchLocal, WriteRequest req, string label)>(edits.Count);
+        var problems = new List<string>();
+        foreach (var e in edits)
+        {
+            IMajorRecordGetter? body = null; string? winnerPlugin = null; IMajorRecord? patchLocal = null;
+            var w = view.ResolveWinner(e.Target);
+            if (w is not null)
+            {
+                body = view.GetRecord(session, w.Value.WinnerPlugin, e.Target);
+                if (body is null) { problems.Add($"{e.Target}: winner '{w.Value.WinnerPlugin}' did not yield it on fetch (a load-order inconsistency)."); continue; }
+                winnerPlugin = w.Value.WinnerPlugin;
+            }
+            else if (extend && patchMod.EnumerateMajorRecords().FirstOrDefault(r => r.FormKey == e.Target) is { } own)
+            {
+                patchLocal = own;
+            }
+            else
+            {
+                problems.Add($"{e.Target}: not present in the load order ({view.PluginCount} plugins)"
+                    + (extend ? $" or in '{fileName}' (the patch being extended)." : "."));
+                continue;
+            }
+
+            var recType = RecordNaming.StripOverlay((patchLocal ?? (object)body!).GetType().Name);
+            var req = new WriteRequest
+            {
+                RecordType = recType, Path = e.Path, Verb = e.Verb,
+                Key = e.Key, Value = e.Value, Values = e.Values, Entries = e.Entries, Struct = e.Struct,
+            };
+            var label = Label(req);
+            if (rulebook.Validate(req) is { } reject) { problems.Add($"{recType} {e.Target} [{label}]: {reject}"); continue; }
+            resolved.Add((e, body, winnerPlugin, patchLocal, req, label));
+        }
+        if (problems.Count > 0)
+            return PatchOutcome.Fail(
+                $"refused — {problems.Count} of {edits.Count} edit(s) rejected by resolve/pre-flight; NO patch written:\n  - "
+                + string.Join("\n  - ", problems));
+
         // --- Phase 3: override each winner into the ONE patch mod, then apply. A flat record needs no link cache; a
         //     NESTED record (Cell/Placed*/INFO/Navmesh/Landscape) gets the winner overlay's cache built on demand
         //     (costly → only here, never for the flat common case, never held). A throw here AFTER pre-flight passed is
         //     a real engine inconsistency — fail the WHOLE call (no partial patch), surfaced not swallowed (Q3). ---
         var ops = new List<OpResult>(resolved.Count);
-        foreach (var (e, body, winnerPlugin, req, label) in resolved)
+        foreach (var (e, body, winnerPlugin, patchLocal, req, label) in resolved)
         {
             try
             {
-                ILinkCache? cache = WriteEngine.RecordNeedsSourceCache(body) ? session.LinkCacheFor(winnerPlugin) : null;
-                var ov = WriteEngine.GenericGetOrAddAsOverride(patchMod, body, cache);
+                // A patch-local target (defined only in the extended patch — HCBR-2026-07-10-01 F3) is already a
+                // settable record IN patchMod: edit it directly, no override and no source link cache needed.
+                IMajorRecord ov;
+                if (patchLocal is not null) ov = patchLocal;
+                else
+                {
+                    ILinkCache? cache = WriteEngine.RecordNeedsSourceCache(body!) ? session.LinkCacheFor(winnerPlugin!) : null;
+                    ov = WriteEngine.GenericGetOrAddAsOverride(patchMod, body!, cache);
+                }
                 WriteEngine.ApplyVerb(ov, req);
                 var (after, landed) = DescribeApplied(ov, req);
                 ops.Add(new OpResult(e.Target, req.RecordType, label, true, null, after, landed));
@@ -1768,9 +1797,12 @@ public static class WritePatchBuilder
         var problems = new List<string>();
         var seenEdid = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var declaredEdidType = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);   // editorid -> RecordType (same-call sibling parents)
-        // editorids declared in EARLIER specs (NOT the current one) — the legal targets of a "@editorid" same-call
-        // field forward-ref (HCBR Layer B unit A). Grown at the END of each spec's iteration, so during spec i's edit
-        // validation it holds {0..i-1}: a self-ref (@its-own-editorid) and a forward-ref (a later sibling) both reject.
+        // editorids declared in EARLIER specs PLUS the current one — the legal targets of a "@editorid" same-call
+        // field ref (HCBR Layer B unit A). Grown as each spec DECLARES its editorid (before its edits validate), so
+        // during spec i's edit validation it holds {0..i}: an earlier sibling AND the record itself (self-reference —
+        // HCBR-2026-07-10-01: a quest's VMAD fragment points at its own quest; apply registers the record in
+        // createdByEditorId before applying its edits, so the substitution timing already holds). A forward-ref to a
+        // LATER sibling still rejects loud.
         var priorEditorIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var parentPlans = new List<(IMajorRecordGetter? body, string? winnerPlugin, string? sibling, IMajorRecord? patchParent)?>(specs.Count);
         var cellKinds = new CellCreate[specs.Count];   // coordinate-keyed §4-(b) routing per spec (None / Exterior / Interior)
@@ -1781,6 +1813,7 @@ public static class WritePatchBuilder
             if (string.IsNullOrWhiteSpace(s.EditorId)) { problems.Add($"{s.RecordType}: an editorid is required to create a record (it's how the record is referenced)."); continue; }
             if (!seenEdid.Add(s.EditorId)) { problems.Add($"editorid '{s.EditorId}' is used by more than one record in this call — each created record needs a distinct editorid."); continue; }
             declaredEdidType[s.EditorId] = s.RecordType;
+            priorEditorIds.Add(s.EditorId);   // declared ⇒ referenceable by its own edits (self) and by LATER specs
 
             if (s.ParentRef is null)
             {
@@ -1860,10 +1893,9 @@ public static class WritePatchBuilder
 
             foreach (var req in s.Edits)
                 // siblingEditorIds = priorEditorIds: a "@editorid" FormLink value is accepted iff that editorid was
-                // created in an EARLIER spec of THIS call (resolved to its real FormKey in Phase 3); else rejected loud.
+                // declared in an EARLIER spec of THIS call OR is the record itself (resolved to its real FormKey in
+                // Phase 3); else rejected loud.
                 if (rulebook.Validate(req, priorEditorIds) is { } reject) problems.Add($"{s.RecordType} '{s.EditorId}' [{Label(req)}]: {reject}");
-
-            priorEditorIds.Add(s.EditorId);   // now available as a same-call sibling target for LATER specs (not its own)
         }
         if (problems.Count > 0)
             return CreateOutcome.Fail(
@@ -1951,42 +1983,18 @@ public static class WritePatchBuilder
             var ops = new List<OpResult>(s.Edits.Count);
             foreach (var rawReq in s.Edits)
             {
-                // Resolve a same-call sibling reference (@editorid) in a FormLink value to the sibling's now-allocated
-                // FormKey (HCBR Layer B unit A — the INFO PNAM chain + Topic back-link in one bulk_create). Pre-flight
-                // (Phase 1) already guaranteed any surviving @-token is on a FormLink leaf AND names a record created
-                // EARLIER in this call — so it is already in createdByEditorId; a miss here is a real engine
-                // inconsistency, surfaced not swallowed (Q3). The substituted value is a normal intra-patch FormKey
-                // that ApplyVerb coerces exactly as a literal FormID would (no apply-path change). Two slots carry a
-                // sibling ref (both gated to FormLink targets in pre-flight): the SINGULAR req.Value (a Set on a link,
-                // or — S4 Track D — an Add to a link list), and req.Values (S4 Track D: a ReplaceAll on a link list,
-                // where siblings may mix with literal FormIDs).
-                var req = rawReq;
-                if (WriteEngine.IsSameCallSiblingRef(rawReq.Value, out var sibEdid))
-                {
-                    if (!createdByEditorId.TryGetValue(sibEdid, out var sibRec))
-                        return CreateOutcome.Fail(
-                            $"internal: same-call reference '@{sibEdid}' on new {s.RecordType} '{s.EditorId}' resolved to no " +
-                            "record created in this call — pre-flight should have caught it; surfaced, not swallowed (Q3).");
-                    req = CopyWithValue(rawReq, sibRec.FormKey.ToString());
-                }
-                else if (rawReq.Values is { } rawVals && Array.Exists(rawVals, v => WriteEngine.IsSameCallSiblingRef(v, out _)))
-                {
-                    // ReplaceAll on a FormLink list — resolve each @-entry to its allocated FormKey; literals pass through.
-                    var resolved = new string[rawVals.Length];
-                    for (int vi = 0; vi < rawVals.Length; vi++)
-                    {
-                        if (WriteEngine.IsSameCallSiblingRef(rawVals[vi], out var vEd))
-                        {
-                            if (!createdByEditorId.TryGetValue(vEd, out var vRec))
-                                return CreateOutcome.Fail(
-                                    $"internal: same-call reference '@{vEd}' in a list value on new {s.RecordType} '{s.EditorId}' " +
-                                    "resolved to no record created in this call — pre-flight should have caught it; surfaced, not swallowed (Q3).");
-                            resolved[vi] = vRec.FormKey.ToString();
-                        }
-                        else resolved[vi] = rawVals[vi];
-                    }
-                    req = CopyWithValues(rawReq, resolved);
-                }
+                // Resolve every same-call reference (@editorid) to its now-allocated FormKey (HCBR Layer B unit A —
+                // the INFO PNAM chain + Topic back-link in one bulk_create; HCBR-2026-07-10-01 — self-reference +
+                // compose-struct refs, e.g. a quest's VMAD fragment pointing at its own quest). Pre-flight (Phase 1)
+                // already guaranteed any surviving @-token is on a FormLink target AND names a record declared no
+                // later than this spec — the current record was registered in createdByEditorId just above, so SELF
+                // resolves too; a miss here is a real engine inconsistency, surfaced not swallowed (Q3). The
+                // substituted value is a normal intra-patch FormKey that ApplyVerb coerces exactly as a literal
+                // FormID would (no apply-path change). Slots that carry a ref: the SINGULAR req.Value, req.Values
+                // (ReplaceAll on a link list), and — recursively — a compose Struct's formlink Fields values and
+                // nested Sets (ResolveSiblingRefs walks all of them).
+                var (req, refErr) = ResolveSiblingRefs(rawReq, createdByEditorId, $"new {s.RecordType} '{s.EditorId}'");
+                if (refErr is not null) return CreateOutcome.Fail(refErr);
                 try { WriteEngine.ApplyVerb(rec, req); ops.Add(new OpResult(rec.FormKey, s.RecordType, Label(req), true, null, TryReadAfter(rec, req))); }
                 catch (ExpectedApplyRejectionException ex)
                 {
@@ -2169,23 +2177,85 @@ public static class WritePatchBuilder
     static string Label(WriteRequest r) =>
         $"{r.Verb} {string.Join('.', r.Path)}{(r.Key is not null ? "[" + r.Key + "]" : "")}{(r.Value is not null ? " = " + r.Value : "")}";
 
-    /// <summary>Clone a <see cref="WriteRequest"/> changing ONLY its <see cref="WriteRequest.Value"/> — it's an
-    /// init-only class (no <c>with</c>). Used to substitute a resolved same-call sibling FormKey for the
-    /// <c>@editorid</c> token before apply (HCBR Layer B unit A); every other field is carried verbatim.</summary>
-    static WriteRequest CopyWithValue(WriteRequest r, string value) => new()
+    /// <summary>Resolve every same-call <c>@editorid</c> reference in a request to the referenced record's allocated
+    /// FormKey — the singular <see cref="WriteRequest.Value"/>, each <see cref="WriteRequest.Values"/> entry, and
+    /// (HCBR-2026-07-10-01) a compose <see cref="WriteRequest.Struct"/>'s formlink Fields values + nested Sets,
+    /// recursively. WriteRequest/StructSpec are init-only, so substitution clones; the ORIGINAL instance is returned
+    /// untouched when nothing needed resolving (the common no-token path allocates nothing). A token naming a record
+    /// not in <paramref name="created"/> is a real engine inconsistency (pre-flight gates the declared-earlier-or-self
+    /// rule) — returned as <c>error</c>, surfaced not swallowed (Q3).</summary>
+    static (WriteRequest req, string? error) ResolveSiblingRefs(
+        WriteRequest r, IReadOnlyDictionary<string, IMajorRecord> created, string onWhat)
     {
-        RecordType = r.RecordType, Path = r.Path, Verb = r.Verb, Key = r.Key,
-        Value = value, Values = r.Values, Entries = r.Entries, Struct = r.Struct,
-    };
+        string? err = null;
+        string? One(string? v)
+        {
+            if (err is not null || !WriteEngine.IsSameCallSiblingRef(v, out var ed)) return v;
+            if (created.TryGetValue(ed, out var rec)) return rec.FormKey.ToString();
+            err = $"internal: same-call reference '@{ed}' on {onWhat} resolved to no record created in this call — " +
+                  "pre-flight should have caught it; surfaced, not swallowed (Q3).";
+            return v;
+        }
+        var value = One(r.Value);
+        var values = r.Values;
+        if (values is not null && Array.Exists(values, v => WriteEngine.IsSameCallSiblingRef(v, out _)))
+            values = Array.ConvertAll(values, v => One(v)!);
+        var strct = r.Struct;
+        if (strct is not null)
+        {
+            var (rs, sErr) = ResolveStructSiblingRefs(strct, created, onWhat);
+            err ??= sErr;
+            strct = rs;
+        }
+        if (err is not null) return (r, err);
+        if (ReferenceEquals(value, r.Value) && ReferenceEquals(values, r.Values) && ReferenceEquals(strct, r.Struct))
+            return (r, null);
+        return (new WriteRequest
+        {
+            RecordType = r.RecordType, Path = r.Path, Verb = r.Verb, Key = r.Key,
+            Value = value, Values = values, Entries = r.Entries, Struct = strct,
+        }, null);
+    }
 
-    /// <summary>The <see cref="WriteRequest.Values"/> twin of <see cref="CopyWithValue"/> — clone changing ONLY the
-    /// list contents. Used to substitute resolved same-call sibling FormKeys for <c>@editorid</c> tokens inside a
-    /// FormLink-list ReplaceAll before apply (S4 Track D); every other field is carried verbatim.</summary>
-    static WriteRequest CopyWithValues(WriteRequest r, string[] values) => new()
+    /// <summary>The <see cref="StructSpec"/> half of <see cref="ResolveSiblingRefs"/>: substitute <c>@editorid</c>
+    /// tokens in the spec's flat Fields values and recurse through its nested Sets (a struct element whose own field
+    /// is a struct element resolves for free). Same clone-only-on-change + fail-loud-on-miss contract.</summary>
+    static (StructSpec spec, string? error) ResolveStructSiblingRefs(
+        StructSpec sp, IReadOnlyDictionary<string, IMajorRecord> created, string onWhat)
     {
-        RecordType = r.RecordType, Path = r.Path, Verb = r.Verb, Key = r.Key,
-        Value = r.Value, Values = values, Entries = r.Entries, Struct = r.Struct,
-    };
+        var fields = sp.Fields;
+        if (fields is not null && fields.Values.Any(v => WriteEngine.IsSameCallSiblingRef(v, out _)))
+        {
+            var nf = new Dictionary<string, string>(fields.Count);
+            foreach (var kv in fields)
+            {
+                if (WriteEngine.IsSameCallSiblingRef(kv.Value, out var ed))
+                {
+                    if (!created.TryGetValue(ed, out var rec))
+                        return (sp, $"internal: same-call reference '@{ed}' on {onWhat} resolved to no record created " +
+                                    "in this call — pre-flight should have caught it; surfaced, not swallowed (Q3).");
+                    nf[kv.Key] = rec.FormKey.ToString();
+                }
+                else nf[kv.Key] = kv.Value;
+            }
+            fields = nf;
+        }
+        var sets = sp.Sets;
+        if (sets is not null)
+        {
+            List<WriteRequest>? ns = null;
+            for (int i = 0; i < sets.Count; i++)
+            {
+                var (rr, e) = ResolveSiblingRefs(sets[i], created, onWhat);
+                if (e is not null) return (sp, e);
+                if (ns is null && !ReferenceEquals(rr, sets[i])) ns = new List<WriteRequest>(sets);
+                if (ns is not null) ns[i] = rr;
+            }
+            if (ns is not null) sets = ns;
+        }
+        if (ReferenceEquals(fields, sp.Fields) && ReferenceEquals(sets, sp.Sets)) return (sp, null);
+        return (new StructSpec { Type = sp.Type, Fields = fields, CtorArgs = sp.CtorArgs, Sets = sets }, null);
+    }
 
     /// <summary>Best-effort read-back of the edited leaf off the override (so the caller sees the value landed without a
     /// follow-up read). Reads the leaf PATH (not the keyed element — that's xEdit's job); null on any difficulty — never
