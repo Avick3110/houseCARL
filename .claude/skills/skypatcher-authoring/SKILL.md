@@ -71,6 +71,19 @@ Read grammar-core once plus the one record file you need — don't bulk-load eve
    plugin-gated), and — if relevant — the conflict-ordering note (same-field edits resolve by
    filename order `0`→`z`; different-field edits don't conflict).
 
+6. **Verify through the reader** — this is what makes the skill-authored write path safe.
+   After placing the INI (and enabling its mod in MO2 if it's new):
+   - `housecarl_skypatcher_read` on a record the patch targets: the computed post-state must show
+     your ops APPLIED with the intended before → after values. A typo'd filter or operation
+     classifies **Unknown with a loud warning** here — the same line SkyPatcher itself would skip
+     *silently* in game — and a subtly-valid-but-wrong op shows up as the wrong field changing.
+   - `housecarl_skypatcher_layer` for the file-level checks: your INI listed as APPLIED (not
+     BSA-only, not filename-gated off, not shadowed by a same-path file from another mod), in the
+     apply-order position you expect, and no new same-field set conflict against another INI.
+   A patch that passes both is verified against the actual grammar and the actual load order —
+   no game launch needed. (Resolving a reported conflict is the same loop: author the
+   later-sorted INI that pins the intended value, then re-run the reader to confirm it wins.)
+
 ## Bundled-or-warn — never invent SkyPatcher grammar
 
 The reference covers the 27 documented record types. If a filter, operation, or record type isn't
@@ -78,7 +91,9 @@ in it, **say so — don't fabricate a plausible token.** A wrong filter/operatio
 error: SkyPatcher silently skips lines it can't parse, and a mistyped or unresolvable FormID is
 skipped too — so the user gets a patch that quietly does nothing, with no log line pointing at the
 cause. A clear "that's not in the SkyPatcher reference" beats a confident wrong line that wastes a
-debugging session.
+debugging session. The `housecarl_skypatcher_read` verify step (workflow step 6) is the safety net
+for this failure class — an unrecognized key surfaces there as a loud unknown-key warning instead
+of a silent in-game no-op — but it is a net, not a license to guess.
 
 Specifically: **Object Modification (OMOD)** patching is enabled in SkyPatcher but has no
 documentation and no verified grammar (`references/records/object-modification.md`). Surface the
@@ -111,3 +126,5 @@ gap and the leads recorded there; do not guess OMOD syntax.
 - **Conflict model.** SkyPatcher's low-conflict property is real but not magic: same-field set
   operations still resolve by filename order; only add/remove operations truly accumulate. Mention
   this when a user layers multiple patches on one record (`grammar-core.md` §2).
+  `housecarl_skypatcher_layer` reports these same-field set collisions across the whole load
+  order (winner named); `housecarl_skypatcher_read` shows the resolved end state for one record.
