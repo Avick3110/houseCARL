@@ -79,7 +79,9 @@ Read grammar-core once plus the one record file you need — don't bulk-load eve
      *silently* in game — and a subtly-valid-but-wrong op shows up as the wrong field changing.
    - `housecarl_skypatcher_layer` for the file-level checks: your INI listed as APPLIED (not
      BSA-only, not filename-gated off, not shadowed by a same-path file from another mod), in the
-     apply-order position you expect, and no new same-field set conflict against another INI.
+     apply-order position you expect, no new same-field set conflict against another INI, and no
+     intra-file dead line (ITM) — your own file setting the same field of the same target twice
+     is an authoring slip; only the last write applies.
    A patch that passes both is verified against the actual grammar and the actual load order —
    no game launch needed. (Resolving a reported conflict is the same loop: author the
    later-sorted INI that pins the intended value, then re-run the reader to confirm it wins.)
