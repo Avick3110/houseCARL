@@ -380,23 +380,20 @@ public static class SkyPatcherOverlay
             }
             case SkyPatcherOpSemantic.VecComponent:
             {
+                // One component of a P3* point. ReadEngine renders a point as its ctor-order components
+                // ("x,y,z") and WriteEngine coerces the same form back, so the edit is a token splice +
+                // an engine Set of the whole value — no hand-rolled struct rebuild to drift.
                 var raw = seg.Values.Count > 0 ? seg.Values[0].Raw : "";
-                var (parent, leaf) = Navigate(record, segs);
-                var vec = leaf.GetValue(parent) ?? throw new InvalidOperationException($"'{map.Path}' is absent");
+                if (!double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out _))
+                { warnings.Add($"{where}: '{seg.Key}={raw}' — not a number; skipped."); return; }
                 var comp = map.Component ?? throw new InvalidOperationException($"'{seg.Key}' mapping has no component");
-                var names = new[] { "X", "Y", "Z" };
-                var before = VecToken(vec);
-                var t = vec.GetType();
-                object boxed = vec;
-                var prop = t.GetProperty(names[comp]) ?? throw new InvalidOperationException($"{t.Name} has no {names[comp]}");
-                var newComp = Convert.ChangeType(double.Parse(raw, CultureInfo.InvariantCulture), prop.PropertyType.IsEnum ? typeof(int) : prop.PropertyType, CultureInfo.InvariantCulture);
-                // P3Int16/P3Float are immutable structs — rebuild via the (x, y, z) ctor with one component swapped.
-                var comps = names.Select(n => t.GetProperty(n)!.GetValue(boxed)!).ToArray();
-                comps[comp] = newComp;
-                var ctor = t.GetConstructors().FirstOrDefault(c => c.GetParameters().Length == 3)
-                    ?? throw new InvalidOperationException($"{t.Name} has no 3-arg constructor");
-                leaf.SetValue(parent, ctor.Invoke(comps));
-                applied.Add(new SkyPatcherAppliedOp(line.File, line.LineNumber, seg.Key, raw, $"{map.Path}.{names[comp]}", before, VecToken(leaf.GetValue(parent)!), null));
+                var before = LeafToken(record, segs);
+                var parts = before?.Split(',');
+                if (parts is null || comp >= parts.Length)
+                { warnings.Add($"{where}: '{seg.Key}' — '{map.Path}' is absent or not a {comp + 1}+-component point ('{before ?? "<unreadable>"}'); skipped."); return; }
+                parts[comp] = raw.Trim();
+                WriteEngine.ApplyVerb(record, new WriteRequest { RecordType = fieldMap.RecordType, Path = segs, Verb = "Set", Value = string.Join(",", parts) });
+                applied.Add(new SkyPatcherAppliedOp(line.File, line.LineNumber, seg.Key, raw, $"{map.Path}.{"XYZ"[comp]}", before, LeafToken(record, segs), null));
                 break;
             }
             case SkyPatcherOpSemantic.ModelPath:
@@ -438,13 +435,21 @@ public static class SkyPatcherOverlay
                     { warnings.Add($"{where}: '{seg.Key}' — flag '{v.Raw}' is not a {leaf.PropertyType.Name} member (no valueMap match either); that flag skipped."); continue; }
                     bits = map.Semantic == SkyPatcherOpSemantic.FlagsSet ? bits | bit : bits & ~bit;
                 }
-                leaf.SetValue(parent, Enum.ToObject(leaf.PropertyType, bits));
+                SetEnumBits(record, fieldMap, segs, bits);
                 applied.Add(new SkyPatcherAppliedOp(line.File, line.LineNumber, seg.Key, seg.RawValue ?? "", map.Path, before, LeafToken(record, segs), null));
                 break;
             }
             case SkyPatcherOpSemantic.FlagBool:
             {
                 var raw = seg.Values.Count > 0 ? seg.Values[0].Raw : "";
+                // 'none' is a LEGAL token on these ops (grammar: setEssential/setProtected/… — "none = leave
+                // unchanged"): a visible no-op, not the "not a boolean" warning it used to draw.
+                if (raw.Equals("none", StringComparison.OrdinalIgnoreCase))
+                {
+                    var cur = LeafToken(record, segs);
+                    applied.Add(new SkyPatcherAppliedOp(line.File, line.LineNumber, seg.Key, raw, map.Path, cur, cur, "none — leave unchanged"));
+                    return;
+                }
                 bool on = raw.Equals("true", StringComparison.OrdinalIgnoreCase) || raw.Equals("yes", StringComparison.OrdinalIgnoreCase) || raw == "1";
                 bool off = raw.Equals("false", StringComparison.OrdinalIgnoreCase) || raw.Equals("no", StringComparison.OrdinalIgnoreCase) || raw == "0";
                 if (!on && !off) { warnings.Add($"{where}: '{seg.Key}={raw}' — not a boolean; skipped."); return; }
@@ -455,7 +460,7 @@ public static class SkyPatcherOverlay
                 var before = LeafToken(record, segs);
                 ulong bits = Convert.ToUInt64(leaf.GetValue(parent) ?? 0UL, CultureInfo.InvariantCulture);
                 bits = on ? bits | bit : bits & ~bit;
-                leaf.SetValue(parent, Enum.ToObject(leaf.PropertyType, bits));
+                SetEnumBits(record, fieldMap, segs, bits);
                 applied.Add(new SkyPatcherAppliedOp(line.File, line.LineNumber, seg.Key, raw, $"{map.Path} ({flagToken})", before, LeafToken(record, segs), map.Note));
                 break;
             }
@@ -494,7 +499,7 @@ public static class SkyPatcherOverlay
                     var a = ResolveFormToken(aTok, map.FormType, resolver);
                     var b = ResolveFormToken(bTok, map.FormType, resolver);
                     if (a is null || b is null) { warnings.Add($"{where}: '{seg.Key}={v.Raw}' — form(s) not resolvable; skipped."); continue; }
-                    int n = ReplaceInFormLinkList(record, segs, a.Value, b.Value);
+                    int n = ReplaceInFormLinkList(record, fieldMap.RecordType, segs, a.Value, b.Value);
                     applied.Add(new SkyPatcherAppliedOp(line.File, line.LineNumber, seg.Key, v.Raw, map.Path, null, null,
                         n > 0 ? $"replaced {n} occurrence(s)" : "form A not present — no change"));
                 }
@@ -508,7 +513,9 @@ public static class SkyPatcherOverlay
                 var (parent, leaf) = Navigate(record, segs);
                 var coll = leaf.GetValue(parent);
                 int had = coll is null ? 0 : CountOf(coll);
-                if (coll is not null) coll.GetType().GetMethod("Clear", Type.EmptyTypes)?.Invoke(coll, null);
+                // Clear = the engine's ReplaceAll with no values (same clear the verb surface exposes).
+                if (coll is not null)
+                    WriteEngine.ApplyVerb(record, new WriteRequest { RecordType = fieldMap.RecordType, Path = segs, Verb = "ReplaceAll" });
                 applied.Add(new SkyPatcherAppliedOp(line.File, line.LineNumber, seg.Key, raw, map.Path, $"{had} entr(ies)", "0 entries", "cleared"));
                 break;
             }
@@ -621,7 +628,7 @@ public static class SkyPatcherOverlay
                     }
                     var k = ResolveFormToken(args[0], map.FormType, resolver);
                     if (k is null) { warnings.Add($"{where}: '{seg.Key}={v.Raw}' — form not resolvable; skipped."); continue; }
-                    int n = RemoveEntriesByKey(record, segs, el, k.Value);
+                    int n = RemoveEntriesByKey(record, fieldMap.RecordType, segs, el, k.Value);
                     applied.Add(new SkyPatcherAppliedOp(line.File, line.LineNumber, seg.Key, v.Raw, map.Path, null, null,
                         n > 0 ? $"removed {n} entr(ies)" : "no matching entry — no change"));
                     break;
@@ -632,7 +639,7 @@ public static class SkyPatcherOverlay
                     if (k is null || args.Count < 2 || !int.TryParse(args[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out var dec))
                     { warnings.Add($"{where}: '{seg.Key}={v.Raw}' — expected form~count; skipped."); continue; }
                     var countPath = el.CountPath ?? throw new InvalidOperationException($"'{seg.Key}' element has no countPath");
-                    int touched = AdjustEntryCounts(record, segs, el, k.Value, countPath, c => c - dec);
+                    int touched = AdjustEntryCounts(record, fieldMap.RecordType, segs, el, k.Value, countPath, c => c - dec);
                     applied.Add(new SkyPatcherAppliedOp(line.File, line.LineNumber, seg.Key, v.Raw, map.Path, null, null,
                         touched > 0 ? $"count reduced by {dec} on {touched} entr(ies) (entries at ≤0 removed)" : "no matching entry — no change"));
                     break;
@@ -670,7 +677,7 @@ public static class SkyPatcherOverlay
                 {
                     var kw = ResolveFormToken(args[0], "Keyword", resolver);
                     if (kw is null) { warnings.Add($"{where}: '{seg.Key}={v.Raw}' — keyword not resolvable; skipped."); continue; }
-                    var (removed, unresolved) = RemoveEntriesByTargetKeyword(record, segs, el, kw.Value, resolver);
+                    var (removed, unresolved) = RemoveEntriesByTargetKeyword(record, fieldMap.RecordType, segs, el, kw.Value, resolver);
                     if (unresolved > 0)
                         warnings.Add($"{where}: '{seg.Key}={v.Raw}' — {unresolved} entr(ies) whose target record could not be resolved were LEFT IN PLACE (never removed on a guess).");
                     applied.Add(new SkyPatcherAppliedOp(line.File, line.LineNumber, seg.Key, v.Raw, map.Path, null, null,
@@ -693,9 +700,10 @@ public static class SkyPatcherOverlay
         return r.HasValue ? r.Token : null;
     }
 
-    /// <summary>Navigate to the leaf's PARENT + PropertyInfo (read-write reflection access for the ops
-    /// the verb engine doesn't cover: flags bit math, vector components, direct list surgery). Rides
-    /// the same ParseSegment/ResolveProperty/StepIntoElement walk as the engines.</summary>
+    /// <summary>Navigate to the leaf's PARENT + PropertyInfo — READ access only (raw enum bits for the
+    /// flag math, live collection handles for entry matching); every MUTATION goes back through
+    /// <see cref="WriteEngine.ApplyVerb"/>. Rides the same ParseSegment/ResolveProperty/StepIntoElement
+    /// walk as the engines.</summary>
     static (object parent, PropertyInfo leaf) Navigate(object record, string[] segs)
     {
         object current = record;
@@ -713,12 +721,11 @@ public static class SkyPatcherOverlay
         return (current, leaf);
     }
 
-    static string VecToken(object vec)
-    {
-        var t = vec.GetType();
-        string P(string n) => Convert.ToString(t.GetProperty(n)?.GetValue(vec), CultureInfo.InvariantCulture) ?? "?";
-        return $"({P("X")}, {P("Y")}, {P("Z")})";
-    }
+    /// <summary>Write a computed flag-bit value back through the verb engine: an enum leaf Set with the
+    /// numeric token (Enum.Parse accepts it) — the ONE mutation path, same coercion as every other Set.</summary>
+    static void SetEnumBits(object record, RecordMap fieldMap, string[] segs, ulong bits)
+        => WriteEngine.ApplyVerb(record, new WriteRequest
+        { RecordType = fieldMap.RecordType, Path = segs, Verb = "Set", Value = bits.ToString(CultureInfo.InvariantCulture) });
 
     /// <summary>Format a computed stateful result for the leaf's actual type: integral leaves round to
     /// nearest (how the DLL lands fractional mults on int fields is a Wave-1 EMPIRICAL item — round is
@@ -757,7 +764,9 @@ public static class SkyPatcherOverlay
         return resolver.ResolveEditorId(token, formType);
     }
 
-    static bool LooksLikeForm(string raw) => raw.Contains('|');
+    /// <summary>A sub-arg that IS the unambiguous <c>Plugin|FormID</c> address form — the ONE recognizer
+    /// (<see cref="SkyPatcherParse.TryParseAddress"/>), not a '|' sniff that also matched form=count packs.</summary>
+    static bool LooksLikeForm(string raw) => SkyPatcherParse.TryParseAddress(raw) is { IsFormId: true };
 
     static string FormHint(SkyPatcherValue v, OpMap map)
         => v.Address is { IsFormId: true }
@@ -809,23 +818,25 @@ public static class SkyPatcherOverlay
         return keys;
     }
 
-    static int ReplaceInFormLinkList(object record, string[] segs, FormKey a, FormKey b)
+    static int ReplaceInFormLinkList(object record, string recordType, string[] segs, FormKey a, FormKey b)
     {
-        var list = ListAt(record, segs);
-        if (list is null) return 0;
+        var keys = FormLinkList(record, segs);
+        if (keys is null) return 0;
         int n = 0;
-        for (int i = 0; i < list.Count; i++)
+        for (int i = 0; i < keys.Count; i++)
         {
-            var item = list[i];
-            if (item?.GetType().GetProperty("FormKey")?.GetValue(item) is FormKey fk && fk == a)
-            {
-                // FormLink<T> is immutable — build a new link of the same concrete type pointing at b.
-                var made = Activator.CreateInstance(item.GetType(), b);
-                list[i] = made; n++;
-            }
+            if (keys[i] != a) continue;
+            // Re-point the element through the engine's SetAtIndex — same formlink coercion as every Set.
+            WriteEngine.ApplyVerb(record, new WriteRequest { RecordType = recordType, Path = segs, Verb = "SetAtIndex", Key = i.ToString(CultureInfo.InvariantCulture), Value = b.ToString() });
+            n++;
         }
         return n;
     }
+
+    /// <summary>Remove one list element by index through the engine (RemoveAt) — the ONE list-surgery path.</summary>
+    static void RemoveListElementAt(object record, string recordType, string[] segs, int index)
+        => WriteEngine.ApplyVerb(record, new WriteRequest
+        { RecordType = recordType, Path = segs, Verb = "Remove", Key = index.ToString(CultureInfo.InvariantCulture) });
 
     static string? EntryKeyToken(object entry, ElementMap el)
         => el.KeyPath is null ? null : LeafToken(entry, SplitPath(el.KeyPath));
@@ -842,12 +853,11 @@ public static class SkyPatcherOverlay
         return hits;
     }
 
-    static int RemoveEntriesByKey(object record, string[] segs, ElementMap el, FormKey key)
+    static int RemoveEntriesByKey(object record, string recordType, string[] segs, ElementMap el, FormKey key)
     {
-        var list = ListAt(record, segs);
-        if (list is null) return 0;
+        if (ListAt(record, segs) is null) return 0;
         var idx = EntryIndicesByKey(record, segs, el, key);
-        for (int i = idx.Count - 1; i >= 0; i--) list.RemoveAt(idx[i]);
+        for (int i = idx.Count - 1; i >= 0; i--) RemoveListElementAt(record, recordType, segs, idx[i]);
         return idx.Count;
     }
 
@@ -861,7 +871,7 @@ public static class SkyPatcherOverlay
         return idx.Count;
     }
 
-    static int AdjustEntryCounts(object record, string[] segs, ElementMap el, FormKey key, string countPath, Func<int, int> f)
+    static int AdjustEntryCounts(object record, string recordType, string[] segs, ElementMap el, FormKey key, string countPath, Func<int, int> f)
     {
         var list = ListAt(record, segs);
         if (list is null) return 0;
@@ -873,7 +883,7 @@ public static class SkyPatcherOverlay
             var tok = LeafToken(entry, cSegs);
             if (tok is null || !int.TryParse(tok, NumberStyles.Integer, CultureInfo.InvariantCulture, out var c)) continue;
             int now = f(c);
-            if (now <= 0) list.RemoveAt(i);
+            if (now <= 0) RemoveListElementAt(record, recordType, segs, i);
             else WriteEngine.ApplyVerb(entry, new WriteRequest { RecordType = el.Type, Path = cSegs, Verb = "Set", Value = now.ToString(CultureInfo.InvariantCulture) });
         }
         return idx.Count;
@@ -898,7 +908,7 @@ public static class SkyPatcherOverlay
         return touched;
     }
 
-    static (int removed, int unresolved) RemoveEntriesByTargetKeyword(object record, string[] segs, ElementMap el, FormKey keyword, IFormResolver resolver)
+    static (int removed, int unresolved) RemoveEntriesByTargetKeyword(object record, string recordType, string[] segs, ElementMap el, FormKey keyword, IFormResolver resolver)
     {
         var list = ListAt(record, segs);
         if (list is null || el.KeyPath is null) return (0, 0);
@@ -909,7 +919,7 @@ public static class SkyPatcherOverlay
             if (tok is null || !FormKey.TryFactory(tok, out var target)) { unresolved++; continue; }
             var kws = resolver.KeywordsOf(target);
             if (kws is null) { unresolved++; continue; }
-            if (kws.Contains(keyword)) { list.RemoveAt(i); removed++; }
+            if (kws.Contains(keyword)) { RemoveListElementAt(record, recordType, segs, i); removed++; }
         }
         return (removed, unresolved);
     }
