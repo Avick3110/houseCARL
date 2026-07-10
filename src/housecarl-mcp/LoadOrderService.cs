@@ -414,6 +414,36 @@ public sealed class LoadOrderService : IDisposable
             folders, scan.Notes, scan.ReadIncomplete || assets.ReadIncomplete, assetWarnings, profileName);
     }
 
+    /// <summary>
+    /// Scan the WHOLE SkyPatcher layer (housecarl_skypatcher_layer): every loose INI as the DLL reads
+    /// it (ordered union, VFS same-path collisions surfaced, gates + toggles evaluated) plus the
+    /// INI-vs-INI same-field SET collisions per type folder (<see cref="SkyPatcherConflicts"/>,
+    /// report-only). ONE record capture answers the filename gates + ONE asset capture pins the scan
+    /// (the SkseInventory discipline); the enumerate + parse + detect run OUTSIDE the gate on the
+    /// handle-free captured view. A layer with no INIs is a NAMED outcome, never an empty guess (Q3).
+    /// </summary>
+    public SkyPatcherLayerData SkyPatcherLayer()
+    {
+        var view = Resolver.Capture();
+        AssetResolver.AssetView assets;
+        IReadOnlyList<string> assetWarnings;
+        string profileName;
+        lock (_gate)
+        {
+            assets = Assets.Capture();
+            assetWarnings = _assetWarnings;
+            profileName = _profileName;
+        }
+
+        var catalog = SkyPatcherCatalog.Load();
+        var fieldMap = SkyPatcherFieldMap.Load();
+        var scan = SkyPatcherDiscovery.Scan(assets, catalog, view.ContainsPlugin, _skyPatcherParseCache);
+        var conflicts = new List<SkyPatcherConflicts.SkyPatcherConflict>();
+        foreach (var folder in scan.Folders)
+            conflicts.AddRange(SkyPatcherConflicts.Detect(folder, catalog, fieldMap));
+        return new SkyPatcherLayerData(scan, conflicts, scan.ReadIncomplete || assets.ReadIncomplete, assetWarnings, profileName);
+    }
+
     /// <summary>The live-load-order lookups the overlay needs (<see cref="SkyPatcherOverlay.IFormResolver"/>),
     /// answered off the ONE pinned record view + open session the post-state call holds. EditorID resolution
     /// sweeps the requested type's winners ONCE into an eid→FormKey table (an INI layer typically names many
@@ -4133,6 +4163,15 @@ public sealed record SkseInventoryData(
     IReadOnlyList<string> BsaFailures,
     bool ReadIncomplete,
     IReadOnlyList<string> Warnings,
+    string ProfileName);
+
+/// <summary>The data behind the whole-layer SkyPatcher scan (Wave 2): the ordered discovery scan, the
+/// per-folder INI-vs-INI set collisions, and the build-level Q3 caveats.</summary>
+public sealed record SkyPatcherLayerData(
+    HousecarlCore.SkyPatcherDiscovery.LayerScan Scan,
+    IReadOnlyList<HousecarlCore.SkyPatcherConflicts.SkyPatcherConflict> Conflicts,
+    bool ReadIncomplete,
+    IReadOnlyList<string> AssetWarnings,
     string ProfileName);
 
 /// <summary>The data behind the SkyPatcher post-state read (Wave 1): the record's identity + winner, one
