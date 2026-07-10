@@ -313,6 +313,12 @@ public static class WritePatchBuilder
         var view = resolver.Capture();
         var resolved = new List<(PatchEdit edit, IMajorRecordGetter? body, string? winnerPlugin, IMajorRecord? patchLocal, WriteRequest req, string label)>(edits.Count);
         var problems = new List<string>();
+        // Records the extended patch DEFINES (FormKey in the patch's own master space — created by a prior into=
+        // call), built lazily ONCE on the first load-order miss (PR #166 review finding 3: not a per-miss deep walk).
+        // Deliberately NOT every record the patch contains: an override the patch merely CARRIES resolves via the
+        // load order like any other record, so a target whose defining plugin is disabled stays a loud refusal —
+        // never a silent edit of the patch's possibly-stale override copy (PR #166 review finding 2).
+        Dictionary<FormKey, IMajorRecord>? patchDefined = null;
         foreach (var e in edits)
         {
             IMajorRecordGetter? body = null; string? winnerPlugin = null; IMajorRecord? patchLocal = null;
@@ -323,15 +329,27 @@ public static class WritePatchBuilder
                 if (body is null) { problems.Add($"{e.Target}: winner '{w.Value.WinnerPlugin}' did not yield it on fetch (a load-order inconsistency)."); continue; }
                 winnerPlugin = w.Value.WinnerPlugin;
             }
-            else if (extend && patchMod.EnumerateMajorRecords().FirstOrDefault(r => r.FormKey == e.Target) is { } own)
-            {
-                patchLocal = own;
-            }
             else
             {
-                problems.Add($"{e.Target}: not present in the load order ({view.PluginCount} plugins)"
-                    + (extend ? $" or in '{fileName}' (the patch being extended)." : "."));
-                continue;
+                if (extend)
+                {
+                    if (patchDefined is null)
+                    {
+                        patchDefined = new Dictionary<FormKey, IMajorRecord>();
+                        foreach (var r in patchMod.EnumerateMajorRecords())
+                            if (r.FormKey.ModKey == patchMod.ModKey) patchDefined.TryAdd(r.FormKey, r);
+                    }
+                    if (patchDefined.TryGetValue(e.Target, out var own)) patchLocal = own;
+                }
+                if (patchLocal is null)
+                {
+                    problems.Add($"{e.Target}: not present in the load order ({view.PluginCount} plugins)"
+                        + (extend
+                            ? $", and not a record '{fileName}' (the patch being extended) itself defines — a record " +
+                              "the patch merely OVERRIDES resolves via the load order, so its defining plugin must be enabled."
+                            : "."));
+                    continue;
+                }
             }
 
             var recType = RecordNaming.StripOverlay((patchLocal ?? (object)body!).GetType().Name);

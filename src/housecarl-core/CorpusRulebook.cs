@@ -345,6 +345,13 @@ public sealed class CorpusRulebook
                 return $"Same-call reference '{req.Value}' for '{leaf.Name}' is only valid as a Set value on a singular " +
                        $"FormLink field or an Add value on a FormLink list (the verb was '{req.Verb}', '{leaf.Name}' " +
                        $"is a {leaf.Cardinality}).";
+            // A stray compose spec riding alongside an admitted '@' value would skip validation (this gate RETURNS
+            // before the compose branches) yet be WALKED by apply's substitution recursion — a bad token inside it
+            // would then fail under the "internal: pre-flight should have caught it" wrapper, blaming the engine for
+            // input the gate never saw (PR #166 review finding 1). Refuse it loud instead.
+            if (req.Struct is not null)
+                return $"Same-call reference '{req.Value}' for '{leaf.Name}' takes no compose spec — the '@editorid' " +
+                       "value IS the whole FormLink target; remove struct=.";
             return siblingEditorIds.Contains(sibEdid) ? null
                 : $"Same-call reference '{req.Value}' for '{leaf.Name}': no record with editorid '{sibEdid}' is created " +
                   "EARLIER in this call (a record may also reference ITSELF by its own editorid) — declare it before " +
@@ -365,6 +372,10 @@ public sealed class CorpusRulebook
             if (!(req.Verb == "ReplaceAll" && leaf.Cardinality == "list" && leaf.FormLinkTarget is not null))
                 return $"a '@editorid' same-call reference for '{leaf.Name}' is only supported as an Add value or a " +
                        $"ReplaceAll value on a FormLink list (the verb was '{req.Verb}', '{leaf.Name}' is a {leaf.Cardinality}).";
+            // The values-branch twin of the stray-compose guard above (PR #166 review finding 1).
+            if (req.Struct is not null)
+                return $"a '@editorid' same-call reference for '{leaf.Name}' takes no compose spec — the '@editorid' " +
+                       "entries ARE the FormLink elements; remove struct=.";
             foreach (var v in vals)
             {
                 if (WriteEngine.IsSameCallSiblingRef(v, out var vEd))
