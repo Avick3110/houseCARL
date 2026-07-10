@@ -2,6 +2,14 @@
     {
         "subfolder":  "weapon",
         "recordType":  "Weapon",
+        "filters":  {
+                        "filterByFirstPersonModel":  {"eval": "formEquals", "path": "FirstPersonModel", "formType": "Static"},
+                        "filterBySkills":  {"eval": "enumEquals", "path": "Data.Skill", "valueMap": {"marksman": "Archery"}},
+                        "restrictToSkills":  {"eval": "enumEquals", "path": "Data.Skill", "valueMap": {"marksman": "Archery"}},
+                        "filterByAnimationType":  {"eval": "enumEquals", "path": "Data.AnimationType", "valueMap": {"handtohandmelee": "HandToHand"}},
+                        "restrictToFlags":  {"eval": "flagAnyOf", "path": "Data.Flags", "note": "the reference documents only the boundweapon token (WeaponData.Flag.BoundWeapon, ignore-case match)"},
+                        "filterByHasAmmoFromWeaponList":  {"unmapped": "the reference names this filter but documents no semantics - whether a line carrying it applies cannot be evaluated"}
+                    },
         "ops":  {
                     "fullName":  {
                                      "semantic":  "set",
@@ -211,6 +219,25 @@
     {
         "subfolder":  "npc",
         "recordType":  "Npc",
+        "filters":  {
+                        "filterByRaces":  {"eval": "formEquals", "path": "Race", "formType": "Race"},
+                        "restrictToRaces":  {"eval": "formEquals", "path": "Race", "formType": "Race", "note": "post-match narrowing - for a single record the verdict is identical to a filter"},
+                        "filterByDefaultOutfits":  {"eval": "formEquals", "path": "DefaultOutfit", "formType": "Outfit"},
+                        "filterByFactions":  {"eval": "formInList", "path": "Factions", "keyPath": "Faction", "formType": "Faction"},
+                        "filterByClass":  {"eval": "formEquals", "path": "Class", "formType": "Class"},
+                        "filterByGender":  {"eval": "gender", "path": "Configuration.Flags"},
+                        "restrictToGender":  {"eval": "gender", "path": "Configuration.Flags"},
+                        "filterByPCLevelMult":  {"eval": "pcLevelMult", "path": "Configuration.Level"},
+                        "filterByAutoCalc":  {"eval": "flagBool", "path": "Configuration.Flags", "flag": "AutoCalcStats"},
+                        "filterByEssential":  {"eval": "flagBool", "path": "Configuration.Flags", "flag": "Essential"},
+                        "filterByProtected":  {"eval": "flagBool", "path": "Configuration.Flags", "flag": "Protected"},
+                        "restrictToVoiceType":  {"eval": "formEquals", "path": "Voice", "formType": "VoiceType"},
+                        "restrictToFlags":  {"eval": "flagAnyOf", "path": "Configuration.Flags", "valueMap": {"usestemplate": "UseTemplate", "doesntbleed": "DoesNotBleed"}, "note": "same 4 unresolvable tokens as setFlags (pclevelmult/calcforalltemplates/norumors/noactivation have no Mutagen member) - those evaluate UNRESOLVED loud"},
+                        "restrictToTemplateFlags":  {"eval": "flagAnyOf", "path": "Configuration.TemplateFlags", "valueMap": {"spells": "SpellList", "unused": "ModelAnimation", "aidefpacklist": "DefPackList"}, "note": "same token deltas as setTemplateFlags; copiedtemplate has no Mutagen member and evaluates UNRESOLVED loud"},
+                        "restrictToMaleModelContains":  {"eval": "donorSubstring", "linkPath": "Race", "path": "SkeletalModel.Male.File", "note": "an NPC's skeleton path lives on its RACE - read off the race's load-order winner"},
+                        "restrictToSkill":  {"unmapped": "NPC skills have no static value for auto-calc actors (the engine derives them from class+level at load) - a static skill~min~max verdict would be silently wrong for most NPCs"},
+                        "rvsRestrictToTraits":  {"unmapped": "scopes setRandomVisualStyle, a non-deterministic HARD op - the line it rides has no static resolution anyway"}
+                    },
         "ops":  {
                     "fullName":  {
                                      "semantic":  "set",
@@ -583,6 +610,11 @@
     {
         "subfolder":  "race",
         "recordType":  "Race",
+        "filters":  {
+                        "filterByMaleModelContains":  {"eval": "substringLeaf", "path": "SkeletalModel.Male.File"},
+                        "filterByFemaleModelContains":  {"eval": "substringLeaf", "path": "SkeletalModel.Female.File"},
+                        "filterByVoiceType":  {"eval": "formEquals", "paths": ["Voices.Male", "Voices.Female"], "formType": "VoiceType", "note": "documented only as ...Or - a race matches when EITHER gendered voice is listed"}
+                    },
         "ops":  {
                     "heightMale":  {
                                        "semantic":  "set",
@@ -1067,6 +1099,9 @@
     {
         "subfolder":  "outfit",
         "recordType":  "Outfit",
+        "filters":  {
+                        "filterByForms":  {"eval": "formInList", "path": "Items", "note": "matches outfits CONTAINING the listed object(s); items are Armor or LeveledItem, so a bare EditorID resolves unscoped and warns"}
+                    },
         "ops":  {
                     "formsToAdd":  {
                                        "semantic":  "addForm",
@@ -1197,6 +1232,12 @@
     {
         "subfolder":  "constructibleObject",
         "recordType":  "ConstructibleObject",
+        "filters":  {
+                        "filterByIngredients":  {"eval": "formInList", "path": "Items", "keyPath": "Item.Item", "note": "an ingredient present in the recipe's item list; ingredients can be ANY item type, so a bare EditorID resolves unscoped and warns"},
+                        "filterByWorkBenchKeywords":  {"eval": "formEquals", "path": "WorkbenchKeyword", "formType": "Keyword"},
+                        "filterWorkbenchKeywords":  {"eval": "formEquals", "path": "WorkbenchKeyword", "formType": "Keyword", "note": "the Excluded-only spelling (no 'By') - same field"},
+                        "filterByKeywords":  {"eval": "donorKeywords", "linkPath": "CreatedObject", "note": "the documented semantics match the CREATED OBJECT's keywords, not the recipe's (COBJ has no keyword list) - overrides the built-in keyword walk"}
+                    },
         "ops":  {
                     "workbenchKeyword":  {
                                              "semantic":  "set",
@@ -1299,6 +1340,12 @@
     {
         "subfolder":  "armor",
         "recordType":  "Armor",
+        "filters":  {
+                        "filterByArmorTypes":  {"eval": "enumEquals", "path": "BodyTemplate.ArmorType", "valueMap": {"heavy": "HeavyArmor", "light": "LightArmor"}, "note": "filter tokens heavy|light|clothing differ from the armorType OP tokens (lightarmor|heavyarmor|clothing)"},
+                        "filterByBipedSlots":  {"eval": "bipedSlots", "path": "BodyTemplate.FirstPersonFlags"},
+                        "restrictToBipedSlots":  {"eval": "bipedSlots", "path": "BodyTemplate.FirstPersonFlags"},
+                        "filterByArmorAddons":  {"eval": "formInList", "path": "Armature", "formType": "ArmorAddon", "eidSubstring": true, "note": "the reference documents EditorID SUBSTRING matching - a value that resolves to no form substring-matches the attached addons' winner EditorIDs"}
+                    },
         "ops":  {
                     "fullName":  {
                                      "semantic":  "set",
@@ -1449,6 +1496,10 @@
     {
         "subfolder":  "ammo",
         "recordType":  "Ammunition",
+        "filters":  {
+                        "filterByWeightLessThan":  {"eval": "numericLess", "path": "Weight"},
+                        "restrictToBolts":  {"eval": "flagBool", "path": "Flags", "flag": "NonBolt", "invert": true, "note": "true = bolts only (the NonBolt flag NOT set); false = non-bolts (arrows)"}
+                    },
         "ops":  {
                     "fullName":  {
                                      "semantic":  "set",
@@ -1539,6 +1590,10 @@
     {
         "subfolder":  "spell",
         "recordType":  "Spell",
+        "filters":  {
+                        "filterByFlags":  {"eval": "flagAnyOf", "path": "Flags", "valueMap": {"costoverride": "ManualCostCalc", "pcstartspell": "PCStartSpell", "ignoreloscheck": "AreaEffectIgnoresLOS", "ignoreresistance": "IgnoreResistance", "noabsorb": "NoAbsorbOrReflect", "nodualcastmods": "NoDualCastModification"}, "note": "fooditem/extendduration/instantcast have no SpellDataFlag member (see setFlags) - those tokens evaluate UNRESOLVED loud"},
+                        "restrictToCastingType":  {"eval": "enumEquals", "path": "CastType", "note": "documented token 'scroll' has no Mutagen CastType member and can never match - warned loud at eval"}
+                    },
         "ops":  {
                     "fullName":  {
                                      "semantic":  "set",
@@ -1766,6 +1821,17 @@
     {
         "subfolder":  "magicEffect",
         "recordType":  "MagicEffect",
+        "filters":  {
+                        "filterByArchetypes":  {"eval": "enumEquals", "path": "Archetype.Type", "valueMap": {"boundweapon": "Bound"}, "note": "documented tokens darkness/nighteye have no MagicEffectArchetype.TypeEnum member and can never match - warned loud at eval"},
+                        "filterBySounds":  {"eval": "formInList", "path": "Sounds", "keyPath": "Sound", "formType": "SoundDescriptor", "note": "matches the sound in ANY slot (the documented semantics)"},
+                        "effectShaders":  {"eval": "formEquals", "paths": ["HitShader", "EnchantShader"], "formType": "EffectShader", "note": "documented only as effectShadersExcluded; 'carrying a given effect shader' reads BOTH shader slots"},
+                        "restrictToCastingType":  {"eval": "enumEquals", "path": "CastType"},
+                        "restrictToDeliveryType":  {"eval": "enumEquals", "path": "TargetType"},
+                        "restrictToActorValue":  {"eval": "enumEquals", "path": "Archetype.ActorValue"},
+                        "restrictToResistType":  {"eval": "enumEquals", "path": "ResistValue"},
+                        "restrictToDetrimentalEffects":  {"eval": "flagBool", "path": "Flags", "flag": "Detrimental"},
+                        "restrictToAreaEffects":  {"unmapped": "no single static MGEF field answers 'is an area effect' (area lives on each SPEL/ENCH effect entry, not the MGEF; the NoArea flag governs spellmaking only) - which source the DLL tests needs empirical verification"}
+                    },
         "ops":  {
                     "fullName":  {
                                      "semantic":  "set",
@@ -2016,6 +2082,10 @@
     {
         "subfolder":  "book",
         "recordType":  "Book",
+        "filters":  {
+                        "filterByCastingPerk":  {"unmapped": "no static BOOK field carries a casting perk (Mutagen models Teaches and Flags only) - what the DLL reads needs empirical verification"},
+                        "filterByFlags":  {"eval": "flagAnyOf", "path": "Flags", "valueMap": {"canttake": "CantBeTaken"}, "note": "only canttake is a real Book.Flag bit; advancesactorvalue/teachesspell live in the polymorphic Teaches field and hasbeenread is runtime state - those tokens evaluate UNRESOLVED loud"}
+                    },
         "ops":  {
                     "fullName":  {
                                      "semantic":  "set",
@@ -2552,6 +2622,9 @@
     {
         "subfolder":  "cell",
         "recordType":  "Cell",
+        "filters":  {
+                        "skipRecordByLightingTemplateFromMod":  {"eval": "linkedOriginPlugin", "path": "LightingTemplate", "invert": true, "note": "DECLARED ASSUMPTION: 'the cell's lighting template comes from mod X' = the linked LGTM's defining master (the ELFX/Lux yield case); empirical-gate item"}
+                    },
         "ops":  {
                     "fogNear":  {
                                     "semantic":  "set",
@@ -2731,6 +2804,11 @@
     {
         "subfolder":  "location",
         "recordType":  "Location",
+        "filters":  {
+                        "filterByMusicType":  {"eval": "formEquals", "path": "Music", "formType": "MusicType"},
+                        "filterByParentLocation":  {"eval": "formEquals", "path": "ParentLocation", "formType": "Location"},
+                        "filterByUnreportedCrimeFaction":  {"eval": "formEquals", "path": "UnreportedCrimeFaction", "formType": "Faction"}
+                    },
         "ops":  {
                     "fullName":  {
                                      "semantic":  "set",

@@ -90,8 +90,88 @@ public sealed class SkyPatcherFieldMap
             throw new InvalidOperationException($"SkyPatcher field map [{subfolder}]: 'ops' is missing or not an object.");
         foreach (var p in opsEl.EnumerateObject())
             ops[p.Name] = ParseOp(subfolder, p.Name, p.Value);
-        return new RecordMap(subfolder, recordType, ops);
+
+        // Wave 2: the per-record FILTER evaluation specs (base filter name → how the overlay evaluates
+        // it against the record). Same wrong-kind-throws-loud contract as 'ops'.
+        var filters = new Dictionary<string, FilterSpec>(StringComparer.Ordinal);
+        if (el.TryGetProperty("filters", out var fEl))
+        {
+            if (fEl.ValueKind != JsonValueKind.Object)
+                throw new InvalidOperationException($"SkyPatcher field map [{subfolder}]: 'filters' is present but not an object.");
+            foreach (var p in fEl.EnumerateObject())
+                filters[p.Name] = ParseFilter(subfolder, p.Name, p.Value);
+        }
+        return new RecordMap(subfolder, recordType, ops, filters);
     }
+
+    static FilterSpec ParseFilter(string subfolder, string name, JsonElement el)
+    {
+        if (el.ValueKind != JsonValueKind.Object)
+            throw new InvalidOperationException($"SkyPatcher field map [{subfolder}.filters.{name}]: entry is not an object.");
+
+        var unmapped = OptStr(el, "unmapped");
+        if (unmapped is not null)
+            return FilterSpec.MakeUnmapped(unmapped);
+
+        var eval = ParseFilterEval(Str(el, "eval"), $"{subfolder}.filters.{name}");
+
+        // 'path' (one) or 'paths' (several — a filter that matches ANY of a few leaves, e.g. a race's
+        // male+female voice). Exactly one of the two must be present.
+        string[] paths;
+        if (el.TryGetProperty("paths", out var ps))
+        {
+            if (ps.ValueKind != JsonValueKind.Array)
+                throw new InvalidOperationException($"SkyPatcher field map [{subfolder}.filters.{name}]: 'paths' is not an array.");
+            paths = ps.EnumerateArray().Select(p => p.GetString()
+                ?? throw new InvalidOperationException($"SkyPatcher field map [{subfolder}.filters.{name}]: 'paths' entry is not a string.")).ToArray();
+            if (el.TryGetProperty("path", out _))
+                throw new InvalidOperationException($"SkyPatcher field map [{subfolder}.filters.{name}]: has BOTH 'path' and 'paths'.");
+        }
+        else if (el.TryGetProperty("path", out _)) paths = new[] { Str(el, "path") };
+        else if (eval == SkyPatcherFilterEval.DonorKeywords) paths = Array.Empty<string>();   // reads the donor's keyword list, no own path
+        else throw new InvalidOperationException($"SkyPatcher field map [{subfolder}.filters.{name}]: needs 'path' or 'paths'.");
+
+        Dictionary<string, string>? valueMap = null;
+        if (el.TryGetProperty("valueMap", out var vm))
+        {
+            if (vm.ValueKind != JsonValueKind.Object)
+                throw new InvalidOperationException($"SkyPatcher field map [{subfolder}.filters.{name}]: 'valueMap' is not an object.");
+            valueMap = new(StringComparer.OrdinalIgnoreCase);
+            foreach (var p in vm.EnumerateObject())
+                valueMap[p.Name] = p.Value.GetString()
+                    ?? throw new InvalidOperationException($"SkyPatcher field map [{subfolder}.filters.{name}]: valueMap '{p.Name}' is not a string.");
+        }
+
+        return new FilterSpec(
+            eval, paths,
+            KeyPath: OptStr(el, "keyPath"),
+            FormType: OptStr(el, "formType"),
+            Flag: OptStr(el, "flag"),
+            Invert: el.TryGetProperty("invert", out var inv) && inv.ValueKind == JsonValueKind.True,
+            LinkPath: OptStr(el, "linkPath"),
+            EidSubstring: el.TryGetProperty("eidSubstring", out var es) && es.ValueKind == JsonValueKind.True,
+            ValueMap: valueMap,
+            Note: OptStr(el, "note"),
+            Unmapped: null);
+    }
+
+    static SkyPatcherFilterEval ParseFilterEval(string s, string ctx) => s switch
+    {
+        "formEquals" => SkyPatcherFilterEval.FormEquals,
+        "formInList" => SkyPatcherFilterEval.FormInList,
+        "enumEquals" => SkyPatcherFilterEval.EnumEquals,
+        "flagBool" => SkyPatcherFilterEval.FlagBool,
+        "flagAnyOf" => SkyPatcherFilterEval.FlagAnyOf,
+        "gender" => SkyPatcherFilterEval.Gender,
+        "pcLevelMult" => SkyPatcherFilterEval.PcLevelMult,
+        "substringLeaf" => SkyPatcherFilterEval.SubstringLeaf,
+        "donorSubstring" => SkyPatcherFilterEval.DonorSubstring,
+        "donorKeywords" => SkyPatcherFilterEval.DonorKeywords,
+        "numericLess" => SkyPatcherFilterEval.NumericLess,
+        "bipedSlots" => SkyPatcherFilterEval.BipedSlots,
+        "linkedOriginPlugin" => SkyPatcherFilterEval.LinkedOriginPlugin,
+        _ => throw new InvalidOperationException($"SkyPatcher field map [{ctx}]: unknown filter eval '{s}'."),
+    };
 
     static OpMap ParseOp(string subfolder, string opName, JsonElement el)
     {
@@ -228,8 +308,76 @@ public enum SkyPatcherOpSemantic
     RemoveByKeyword,
 }
 
-/// <summary>One record type's op → field mappings, keyed by the exact catalog op name.</summary>
-public sealed record RecordMap(string Subfolder, string RecordType, IReadOnlyDictionary<string, OpMap> Ops);
+/// <summary>One record type's op → field mappings (keyed by the exact catalog op name) and filter →
+/// evaluation specs (keyed by the exact catalog BASE filter name; connectives are the overlay's job).
+/// A filter absent from <see cref="Filters"/> is either evaluated built-in by the overlay (the
+/// name-keyed families that need no per-record path — primary, keywords, editorid/name contains,
+/// hasPlugins, modNames, the skip/override tokens, alternate textures, attached mgefs) or is a
+/// COVERAGE GAP the filtermap guard fails on — never a silent skip.</summary>
+public sealed record RecordMap(string Subfolder, string RecordType, IReadOnlyDictionary<string, OpMap> Ops,
+    IReadOnlyDictionary<string, FilterSpec> Filters);
+
+/// <summary>How the overlay evaluates a per-record mapped filter against the running copy.</summary>
+public enum SkyPatcherFilterEval
+{
+    /// <summary>A single formlink leaf equals ANY listed form. (A single-valued field can't AND a
+    /// multi-value list — any-of is the only satisfiable reading; declared assumption, noted loud.)</summary>
+    FormEquals,
+    /// <summary>A formlink list (or struct list via <see cref="FilterSpec.KeyPath"/>) contains the listed
+    /// forms — bare = ALL present, Or = any, Excluded = none (the keyword-filter connective semantics).</summary>
+    FormInList,
+    /// <summary>An enum leaf equals ANY listed token (valueMap first, then ignore-case member match).</summary>
+    EnumEquals,
+    /// <summary>ONE fixed flag (<see cref="FilterSpec.Flag"/>) tested against a true/false value;
+    /// <see cref="FilterSpec.Invert"/> flips the sense (restrictToBolts=true ⇒ NonBolt NOT set).</summary>
+    FlagBool,
+    /// <summary>Listed flag tokens tested against a [Flags] enum leaf — bare = all set, Or = any,
+    /// Excluded = none.</summary>
+    FlagAnyOf,
+    /// <summary>NPC gender: token 'female' ⇒ the Female configuration flag set, 'male' ⇒ clear.</summary>
+    Gender,
+    /// <summary>NPC filterByPCLevelMult: whether the polymorphic Configuration.Level is the
+    /// PcLevelMult arm (true) or a static NpcLevel (false).</summary>
+    PcLevelMult,
+    /// <summary>A string leaf contains the listed substring(s) — the Contains-family connectives.</summary>
+    SubstringLeaf,
+    /// <summary>Follow <see cref="FilterSpec.LinkPath"/> to a donor record's winner and substring-match
+    /// a leaf THERE (an NPC's skeleton path lives on its race).</summary>
+    DonorSubstring,
+    /// <summary>Follow <see cref="FilterSpec.LinkPath"/> to a donor record's winner and match the
+    /// keyword list THERE (a recipe's filterByKeywords matches the CREATED OBJECT's keywords).</summary>
+    DonorKeywords,
+    /// <summary>A numeric leaf is strictly less than the listed number (filterByWeightLessThan).</summary>
+    NumericLess,
+    /// <summary>Biped-slot INDICES (0–31; slot number − 30) tested as bits of a BipedObjectFlag leaf.</summary>
+    BipedSlots,
+    /// <summary>The ORIGIN plugin (FormKey master) of the record a formlink leaf points at, tested
+    /// against the listed plugin names (skipRecordByLightingTemplateFromMod — skip semantics ride
+    /// <see cref="FilterSpec.Invert"/>). DECLARED ASSUMPTION: "comes from mod X" = the linked form's
+    /// defining master, not the plugin that last overrode the link.</summary>
+    LinkedOriginPlugin,
+}
+
+/// <summary>One filter's evaluation spec. <see cref="Unmapped"/> non-null ⇒ the filter is EXPLICITLY
+/// not statically evaluable, with the reason the overlay surfaces loud (line skips filter-unresolved).</summary>
+public sealed record FilterSpec(
+    SkyPatcherFilterEval Eval,
+    IReadOnlyList<string> Paths,
+    string? KeyPath,
+    string? FormType,
+    string? Flag,
+    bool Invert,
+    string? LinkPath,
+    bool EidSubstring,
+    IReadOnlyDictionary<string, string>? ValueMap,
+    string? Note,
+    string? Unmapped)
+{
+    internal static FilterSpec MakeUnmapped(string reason)
+        => new(SkyPatcherFilterEval.FormEquals, Array.Empty<string>(), null, null, null, false, null, false, null, null, reason);
+    /// <summary>True when this filter is explicitly declared un-evaluable (loud in the overlay).</summary>
+    public bool IsUnmapped => Unmapped is not null;
+}
 
 /// <summary>One operation's mapping. <see cref="Unmapped"/> non-null ⇒ the op is EXPLICITLY not
 /// modelable, with the reason the overlay surfaces loud (all other members are then unset).</summary>
