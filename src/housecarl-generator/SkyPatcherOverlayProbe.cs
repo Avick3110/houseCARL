@@ -401,19 +401,66 @@ public static class SkyPatcherOverlayProbe
                 && r.Warnings.Any(w2 => w2.Contains("restrictToSkill") && w2.Contains("no static evaluation")));
         }
 
-        // ---- the player rule: only a LONE bare primary that names the player applies ----
+        // ---- the player rule: only a LONE bare primary that names the player applies — but a
+        //      hasPlugins LINE gate is not a record filter and must not break "alone" (review fix) ----
         {
+            resolver.Plugins.Add("HcGate.esp");
             var player = new Npc(new FormKey(new ModKey("Skyrim", ModType.Master), 0x7), SkyrimRelease.SkyrimSE);
             var r = SkyPatcherOverlay.Apply(player, player.FormKey, "Player", catalog, catalog.ForSubfolder("npc")!,
                 fieldMap.For("npc", "Npc"), new[]
                 {
                     L(1, "weight=9"),                                            // apply-all EXCLUDES the player
                     L(2, "filterByGender=male:weight=3"),                        // filtered lines exclude the player
-                    L(3, "filterByNpcs=Skyrim.esm|7:filterByEssential=false:weight=5"),   // primary + extra ⇒ still excluded
+                    L(3, "filterByNpcs=Skyrim.esm|7:filterByEssential=false:weight=5"),   // primary + extra RECORD filter ⇒ still excluded
                     L(4, "filterByNpcs=Skyrim.esm|7:weight=7"),                  // the ONE documented way in
+                    // NOTE: the player rule deliberately ignores hasPlugins LINE gates when counting
+                    // "alone" (a gate isn't a record filter) — but that path is unreachable through the
+                    // closed catalog today: hasPlugins is documented on weapon/armor/ammo only, so an
+                    // npc line carrying it classifies Unknown and skips loud BEFORE the player rule.
+                    L(5, "hasPlugins=HcGate.esp:filterByNpcs=Skyrim.esm|7:height=2"),
                 }, resolver);
             failures += Check("player rule: only the lone bare primary applied (weight=7, not 9/3/5)",
                 Math.Abs(player.Weight - 7) < 0.001, $"got {player.Weight}");
+            failures += Check("hasPlugins on an npc line is not in the reference — unknown-key LOUD skip, player untouched",
+                Math.Abs(player.Height - 0) < 0.001
+                && r.Warnings.Any(x => x.Contains("hasPlugins") && x.Contains("not in the SkyPatcher reference")),
+                $"height={player.Height}");
+        }
+
+        // ---- review fixes: EnumEquals unknown-token loud, gender templated-NPC honesty,
+        //      filterByModNames defining-vs-winner disagreement ----
+        {
+            var w = mod.Weapons.AddNew();
+            w.EditorID = "HcEnumWarnBow";
+            w.Data = new WeaponData { Skill = Skill.Archery };
+            w.BasicStats = new WeaponBasicStats { Damage = 5 };
+            resolver.Winners[w.FormKey] = "WinOverride.esp";   // ≠ the defining master HcSpOv.esp
+            var r = SkyPatcherOverlay.Apply(w, w.FormKey, w.EditorID, catalog, catalog.ForSubfolder("weapon")!,
+                fieldMap.For("weapon", "Weapon"), new[]
+                {
+                    L(1, "filterBySkills=notaskill:attackDamage=50"),            // no Skill member ⇒ loud UNRESOLVED, never a silent no-match
+                    L(2, "filterByModNames=WinOverride.esp:attackDamage=60"),    // winner says yes, master says no ⇒ DISAGREE ⇒ UNRESOLVED
+                    L(3, "filterByModNames=Unrelated.esp:attackDamage=70"),      // both readings say no ⇒ agree ⇒ NoMatch (silent, honest)
+                }, resolver);
+            failures += Check("EnumEquals: an unknown enum token is a LOUD unresolved skip, never a silent verdict",
+                w.BasicStats!.Damage == 5
+                && r.Warnings.Any(x => x.Contains("notaskill") && x.Contains("UNRESOLVED")),
+                string.Join(" ; ", r.Warnings));
+            failures += Check("filterByModNames: defining-master vs winning-override DISAGREEMENT is unresolved loud; agreement answers",
+                w.BasicStats.Damage == 5
+                && r.Warnings.Any(x => x.Contains("disagree on membership"))
+                && r.LinesSkippedUnresolvedFilter >= 2,
+                string.Join(" ; ", r.Warnings));
+
+            var templated = mod.Npcs.AddNew();
+            templated.EditorID = "HcTemplatedNpc";
+            templated.Configuration.TemplateFlags |= NpcConfiguration.TemplateFlag.Traits;   // gender comes from the template
+            var r2 = SkyPatcherOverlay.Apply(templated, templated.FormKey, templated.EditorID, catalog, catalog.ForSubfolder("npc")!,
+                fieldMap.For("npc", "Npc"), new[] { L(1, "filterByGender=female:weight=44") }, resolver);
+            failures += Check("gender on a TRAITS-templated NPC is unresolved loud (own Female bit not authoritative)",
+                Math.Abs(templated.Weight - 44) > 0.001
+                && r2.Warnings.Any(x => x.Contains("templates its TRAITS")),
+                string.Join(" ; ", r2.Warnings));
         }
 
         // ---- ammo: numericLess + flagBool-invert (restrictToBolts) ----

@@ -310,7 +310,31 @@ public static class SkyPatcherFieldMapProbe
                 foreach (var f in rec.Filters)
                 {
                     if (f.Kind is SkyPatcherFilterKind.Primary or SkyPatcherFilterKind.HasPlugins or SkyPatcherFilterKind.NoFilter) continue;
-                    if (SkyPatcherOverlay.BuiltInFilterBases.Contains(f.Name)) continue;
+                    if (SkyPatcherOverlay.BuiltInFilterBases.Contains(f.Name))
+                    {
+                        // The two built-ins that hardcode Mutagen PATHS in the overlay (attached-mgef,
+                        // alternate-texture) are otherwise exempt from the path walk — a Mutagen rename
+                        // would silently turn them into "attached to nothing" (review finding). Walk
+                        // their code-homed paths here for every type that documents the filter.
+                        foreach (var m in maps.Where(m2 => !m2.Filters.ContainsKey(f.Name)))   // a map override (cobj filterByKeywords) validates as a spec instead
+                        {
+                            var rt = asm.GetType("Mutagen.Bethesda.Skyrim." + m.RecordType);
+                            if (rt is null) continue;
+                            if (f.Name == "filterByMgefs" && f.Kind != SkyPatcherFilterKind.Primary)
+                            {
+                                var leaf = WalkPath(rt, "Effects", $"{rec.Subfolder}.builtin.filterByMgefs", problems);
+                                if (leaf is not null && ListElement(StripNullable(leaf.PropertyType)) is { } el)
+                                    WalkPath(el, "BaseEffect", $"{rec.Subfolder}.builtin.filterByMgefs (keyPath)", problems);
+                            }
+                            else if (f.Name == "filterByAlternateTextures")
+                            {
+                                var leaf = WalkPath(rt, "Model.AlternateTextures", $"{rec.Subfolder}.builtin.filterByAlternateTextures", problems);
+                                if (leaf is not null && ListElement(StripNullable(leaf.PropertyType)) is { } el)
+                                    WalkPath(el, "NewTexture", $"{rec.Subfolder}.builtin.filterByAlternateTextures (keyPath)", problems);
+                            }
+                        }
+                        continue;
+                    }
                     if (!maps.Any(m => m.Filters.ContainsKey(f.Name)))
                         problems.Add($"{rec.Subfolder}.{f.Name} ({f.Kind}) is neither a built-in filter family nor in the filter map (map it, or declare it unmapped with a reason).");
                 }

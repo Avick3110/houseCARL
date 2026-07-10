@@ -73,6 +73,16 @@ public static class SkyPatcherConflictsProbe
         failures += Check("different-target sets do NOT collide (no conflict lists 99)",
             conflicts.All(c => c.Entries.All(e => e.Value != "99")), Dump());
 
+        // ---- the set/accumulate PARTITION is exhaustive: a new SkyPatcherOpSemantic member cannot
+        //      silently default to "accumulating" and make the detector under-report (review fold). ----
+        var unclassified = Enum.GetValues<SkyPatcherOpSemantic>()
+            .Where(s => !SkyPatcherConflicts.SetClassSemantics.Contains(s) && !SkyPatcherConflicts.AccumulatingSemantics.Contains(s))
+            .ToList();
+        failures += Check("every op semantic is classified set-class OR accumulating (none silently default)",
+            unclassified.Count == 0, string.Join(", ", unclassified));
+        failures += Check("the set/accumulate sets are disjoint",
+            !SkyPatcherConflicts.SetClassSemantics.Intersect(SkyPatcherConflicts.AccumulatingSemantics).Any());
+
         Console.WriteLine(failures == 0
             ? "[skypatcher-conflicts-guard] PASS — set-collision classification holds."
             : $"[skypatcher-conflicts-guard] FAIL — {failures} case(s).");
