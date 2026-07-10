@@ -23,15 +23,19 @@ namespace HousecarlCore;
 /// collision is real then depends on those filters, and the report says so rather than guessing
 /// either way.</para>
 ///
-/// <para><b>Intra-file dead lines (ITM-class; Aaron-widened from the PR #168 review's open call).</b>
-/// The same pass also reports the SINGLE-file cousin: an earlier SET of the same field/target that a
-/// LATER line in the same file overwrites. The earlier write is dead weight REGARDLESS of value —
-/// same-value twice is the purest form (a line that changes nothing), xEdit's ITM smell at the INI
-/// layer — so unlike cross-file conflicts there is no different-values gate. Coverage is asymmetric:
-/// an explicit-target write is killed by a later same-file explicit-same-target OR broad write; a
-/// BROAD write is killed only by a later same-file broad (a following explicit line leaves it live
-/// for every other record). These are a separate report class, not conflicts — no cross-mod judgment
-/// call, just same-author redundancy.</para>
+/// <para><b>Intra-file dead writes (ITM-class; Aaron-widened from the PR #168 review's open call).</b>
+/// The same pass also reports the SINGLE-file cousin: an earlier SET whose EVERY target a later line
+/// of the same file unconditionally re-covers. The dead write is dead weight REGARDLESS of value —
+/// same-value twice is the purest form (a write that changes nothing), xEdit's ITM smell at the INI
+/// layer — so unlike cross-file conflicts there is no different-values gate. The kill rule is strict
+/// so a DEAD verdict is never hedged (this review-fold shape replaced a looser per-token rule that
+/// could call a still-live line removable): ALL of the write's targets must be re-covered — a
+/// multi-target line partially overwritten stays live for the rest, and a BROAD write is covered
+/// only by a later broad (a following explicit line leaves it live for every other record) — and
+/// only UNCONDITIONAL later writes kill (a conditional overwriter may not fire, so its victim is not
+/// reported; a conditional EARLIER write killed unconditionally is dead either way — applied or not,
+/// the later write decides the field). These are a separate report class, not conflicts — no
+/// cross-mod judgment call, just same-author redundancy.</para>
 /// </summary>
 public static class SkyPatcherConflicts
 {
@@ -52,29 +56,22 @@ public static class SkyPatcherConflicts
     /// primary, so whether it actually applies to the target depends on them.</summary>
     public sealed record SkyPatcherConflictEntry(string File, int Line, string Op, string Value, bool Conditional);
 
-    /// <summary>One file's ITM-class finding: this file's SETs of one field/target in line order, at
-    /// least one of them <see cref="SkyPatcherItmEntry.Dead"/> (overwritten by a later line of the SAME
-    /// file). The last entry is the write the file actually leaves in place.</summary>
+    /// <summary>One file's ITM-class finding for one field: the DEAD writes only (every entry is
+    /// removable — a write only lands here when ALL its targets are unconditionally re-covered by
+    /// later lines of the same file), in line order. Entry count IS the physical dead-write count.</summary>
     public sealed record SkyPatcherItm(
         string Subfolder,
         string Field,
-        string Target,
         string File,
-        IReadOnlyList<SkyPatcherItmEntry> Entries)
-    {
-        /// <summary>The write this file leaves in place — the last entry in line order.</summary>
-        public SkyPatcherItmEntry Live => Entries[^1];
-        /// <summary>True when ANY entry's applicability also hangs on non-primary filters — whether
-        /// the overwrite is real then depends on them (a conditional later line may not fire; a
-        /// conditional dead line may never have applied).</summary>
-        public bool Conditional => Entries.Any(e => e.Conditional);
-    }
+        IReadOnlyList<SkyPatcherItmEntry> Entries);
 
-    /// <summary>One write inside a <see cref="SkyPatcherItm"/>. <see cref="Dead"/> = a later line of
-    /// the same file overwrites this write for the finding's target (a NOT-dead, non-last entry is a
-    /// broad write inside an explicit-target finding — overwritten for THIS target but still live for
-    /// every other record, so not removable).</summary>
-    public sealed record SkyPatcherItmEntry(int Line, string Op, string Value, bool Conditional, bool Dead);
+    /// <summary>One dead write inside a <see cref="SkyPatcherItm"/>: its line, op, value, the target
+    /// token(s) it wrote, and the same-file line(s) whose later unconditional writes re-cover every
+    /// target (the nearest coverer per target). <see cref="Conditional"/> = the dead line itself
+    /// carries non-primary filters — informational only; the write is dead either way, because the
+    /// overwrite is unconditional.</summary>
+    public sealed record SkyPatcherItmEntry(
+        int Line, string Op, string Value, string Targets, bool Conditional, IReadOnlyList<int> KillerLines);
 
     /// <summary>Both report classes from the one detection pass.</summary>
     public sealed record Report(
@@ -143,30 +140,54 @@ public static class SkyPatcherConflicts
             Emit(conflicts, folder.Subfolder, fieldGroup.Key, Broad, broad);
         }
 
-        // ---- intra-file dead lines (ITM-class): one file, one field, one target, written twice.
-        //      A file's lines are contiguous in apply order (files apply whole, in filename sort), so
-        //      same-file overwrites need only that file's own events, walked in line order. ----
+        // ---- intra-file dead writes (ITM-class): a later line of the SAME file unconditionally
+        //      re-covers EVERY target of an earlier write. A file's lines are contiguous in apply
+        //      order (files apply whole, in filename sort), so same-file coverage needs only that
+        //      file's own events — walked BACKWARD with a running token → nearest-unconditional-
+        //      coverer map: O(events × targets-per-event), not the per-token re-scan the conflict
+        //      pass's review fold removed. Only unconditional writes enter the map (a conditional
+        //      overwriter may not fire, so it kills nothing); broad coverage is tracked separately
+        //      (broad covers every explicit token; nothing but broad covers broad). ----
         foreach (var fileFieldGroup in events.GroupBy(e => (e.file, e.field)))
         {
-            var evs = fileFieldGroup.OrderBy(e => e.seq).ToList();
+            var evs = fileFieldGroup.ToList();   // already in seq (= line) order by construction
             if (evs.Count < 2) continue;
-            foreach (var token in evs.SelectMany(e => e.targets).Distinct(StringComparer.OrdinalIgnoreCase)
-                                     .OrderBy(t => t, StringComparer.OrdinalIgnoreCase))
+            var nearestCoverer = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            int broadCovererLine = -1;
+            var dead = new List<SkyPatcherItmEntry>();
+            for (int i = evs.Count - 1; i >= 0; i--)
             {
-                // The file's writes that hit this token: explicit matches, plus broad writes when the
-                // token is explicit (broad covers everything; nothing but broad covers broad).
-                var covering = evs.Where(e => e.targets.Contains(token, StringComparer.OrdinalIgnoreCase)
-                                              || (token != Broad && e.targets.Contains(Broad))).ToList();
-                if (covering.Count < 2) continue;
-                var entries = covering.Select((e, i) => new SkyPatcherItmEntry(
-                    e.line, e.op, e.value, e.conditional,
-                    // Dead = a later covering line exists AND this write has no life beyond the token:
-                    // a broad write inside an explicit-token finding stays live for other records.
-                    Dead: i < covering.Count - 1 && (token == Broad || !e.targets.Contains(Broad)))).ToList();
-                if (!entries.Any(en => en.Dead)) continue;   // e.g. broad-then-explicit: nothing removable
-                itms.Add(new SkyPatcherItm(folder.Subfolder, fileFieldGroup.Key.field,
-                    token == Broad ? $"(all {folder.Subfolder} records)" : token,
-                    fileFieldGroup.Key.file, entries));
+                var e = evs[i];
+                var killers = new List<int>();
+                bool allCovered = true;
+                foreach (var t in e.targets)
+                {
+                    // The nearest later unconditional line covering t: its own-token coverer or the
+                    // nearest broad, whichever sits closer (both are later than e by construction).
+                    int k = t == Broad ? broadCovererLine
+                        : nearestCoverer.TryGetValue(t, out var own)
+                            ? (broadCovererLine < 0 ? own : Math.Min(own, broadCovererLine))
+                            : broadCovererLine;
+                    if (k < 0) { allCovered = false; break; }
+                    if (!killers.Contains(k)) killers.Add(k);
+                }
+                if (allCovered)
+                {
+                    killers.Sort();
+                    dead.Add(new SkyPatcherItmEntry(e.line, e.op, e.value,
+                        e.targets is [Broad] ? $"(all {folder.Subfolder} records)" : string.Join(", ", e.targets),
+                        e.conditional, killers));
+                }
+                if (!e.conditional)   // walking backward, this event is now the nearest coverer for its tokens
+                {
+                    if (e.targets.Contains(Broad)) broadCovererLine = e.line;
+                    else foreach (var t in e.targets) nearestCoverer[t] = e.line;
+                }
+            }
+            if (dead.Count > 0)
+            {
+                dead.Reverse();   // back to line order
+                itms.Add(new SkyPatcherItm(folder.Subfolder, fileFieldGroup.Key.field, fileFieldGroup.Key.file, dead));
             }
         }
         return new Report(conflicts, itms);
