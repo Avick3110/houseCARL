@@ -21,12 +21,18 @@ namespace HousecarlCore;
 /// static resolution (runtime math / non-deterministic / copy-from-form) — never a silently-wrong
 /// value. Unknown keys, unmapped ops, unevaluable filters, and value failures are all NAMED warnings.</para>
 ///
-/// <para><b>Filter tier (Wave 1).</b> Evaluated here: the primary filter (FormID/EditorID membership,
-/// + Excluded), <c>filterByKeywords</c>(/Or/Excluded) against the RUNNING copy's keyword list,
-/// <c>filterByEditorIdContains</c>/<c>filterByNameContains</c> families, <c>hasPlugins</c>(/Or), and
-/// the explicit <c>noFilter…</c> tokens. Every other filter family (restrictTo…, override-aware,
-/// record-specific) is NOT yet evaluated: a line carrying one is SKIPPED LOUD as filter-unresolved
-/// (never guessed either way). Wave 2 completes the filter surface.</para>
+/// <para><b>Filter tier (Wave 2 — the COMPLETE surface).</b> Two lanes: (1) BUILT-IN families that
+/// need no per-record path — the primary filter, <c>noFilter…</c>, <c>hasPlugins</c>, keyword /
+/// EditorID-contains / name-contains, <c>filterByModNames</c> (the record's DEFINING master — a
+/// declared assumption, empirical-gate item), the override-aware skip tokens
+/// (<c>modNamesLastOverriddenExcluded</c> = the record's WINNING override plugin;
+/// <c>skipRecordByModNameContains</c>), attached-mgef, and alternate-texture matching; (2) MAP-DRIVEN
+/// per-record filters from the field map's <c>filters</c> specs (<see cref="FilterSpec"/> — form
+/// equality/membership, enum/flag tests, substrings, biped slots, donor reads). A filter that is
+/// neither built-in nor mapped, or that is explicitly unmapped-with-reason (e.g. NPC
+/// <c>restrictToSkill</c> — autocalc NPCs have no static skill value), keeps the Wave-1 behavior:
+/// the line SKIPS LOUD as filter-unresolved, never guessed either way. Per grammar §4 the PLAYER
+/// matches only a lone bare primary filter that names it — every other line excludes the player.</para>
 ///
 /// <para>Navigation and mutation ride the PROVEN engines — <see cref="WriteEngine.ApplyVerb"/> for
 /// sets/adds/removes (same coercion, same materialization) and <see cref="ReadEngine.ReadLeaf"/> for
@@ -52,6 +58,15 @@ public static class SkyPatcherOverlay
 
         /// <summary>Whether a plugin (filename incl. extension) is in the active load order (hasPlugins).</summary>
         bool PluginPresent(string pluginName);
+
+        /// <summary>The plugin (filename incl. extension) whose override of a record WINS the load
+        /// order — the "last override" the override-aware filters yield to. Null = record not present
+        /// (surfaced loud, filter unresolved).</summary>
+        string? WinnerPluginOf(FormKey record);
+
+        /// <summary>The EditorID of a record's load-order winner (filterByArmorAddons' documented
+        /// EditorID-substring match). Null = unresolvable.</summary>
+        string? EditorIdOf(FormKey record);
     }
 
     /// <summary>One parsed line in its apply-order context: which file (Data-relative), which physical
@@ -134,12 +149,12 @@ public static class SkyPatcherOverlay
             if (ops.Count == 0) continue;   // a line with no operation does nothing (grammar §3)
 
             // ---- evaluate the filters against THIS record (Wave-1 tier; unsupported ⇒ loud skip). ----
-            var verdict = EvaluateFilters(mutableRecord, fk, editorId, recordCatalog, fieldMap?.RecordType, filters, resolver, warnings, dedupe);
+            var verdict = EvaluateFilters(mutableRecord, fk, editorId, recordCatalog, fieldMap, filters, resolver, warnings, dedupe);
             if (verdict == FilterVerdict.Unresolved)
             {
                 unresolvedSkips++;
                 var names = string.Join(", ", filters.Select(f => f.seg.Key));
-                warnings.Add($"{where}: line skipped — carries filter(s) this reader does not evaluate yet ({names}); whether it applies to {Ident(fk, editorId)} is UNRESOLVED (Wave-2 filter surface).");
+                warnings.Add($"{where}: line skipped — carries filter(s) with no static evaluation ({names}); whether it applies to {Ident(fk, editorId)} is UNRESOLVED (see the per-filter warning for why).");
                 continue;
             }
             if (verdict == FilterVerdict.NoMatch) continue;
@@ -193,11 +208,36 @@ public static class SkyPatcherOverlay
 
     enum FilterVerdict { Match, NoMatch, Unresolved }
 
+    /// <summary>The player actor — per grammar §4 ALWAYS excluded from filtered and unfiltered lines
+    /// alike; only <c>filterByNpcs=Skyrim.esm|7</c> ALONE patches it.</summary>
+    static readonly FormKey PlayerFormKey = new(new ModKey("Skyrim", ModType.Master), 0x7);
+
+    /// <summary>The filter base names the overlay evaluates WITHOUT a field-map spec (no per-record
+    /// path needed). Shared with the filtermap coverage guard so "built-in" can't silently drift.</summary>
+    public static readonly IReadOnlySet<string> BuiltInFilterBases = new HashSet<string>(StringComparer.Ordinal)
+    {
+        "filterByKeywords", "restrictToKeywords", "filterByEditorIdContains", "filterByNameContains",
+        "filterByModNames", "skipRecordByModNameContains", "modNamesLastOverridden",
+        "filterByMgefs", "filterByAlternateTextures",
+    };
+
     static FilterVerdict EvaluateFilters(object record, FormKey fk, string? editorId,
-        SkyPatcherRecordCatalog recordCatalog, string? mutagenRecordType,
+        SkyPatcherRecordCatalog recordCatalog, RecordMap? fieldMap,
         IReadOnlyList<(SkyPatcherSegment seg, SkyPatcherKeyClass cls)> filters, IFormResolver resolver,
         List<string> warnings, HashSet<string> dedupe)
     {
+        var mutagenRecordType = fieldMap?.RecordType;
+
+        // The player rule (grammar §4): the player is excluded from EVERY line — filtered, restricted,
+        // or unfiltered — except a lone bare primary filter that names it. Strict reading of the
+        // documented "use filterByNpcs=Skyrim.esm|7 ALONE"; declared assumption for the empirical gate.
+        if (fk == PlayerFormKey)
+            return filters.Count == 1
+                && filters[0].cls.Filter!.Kind == SkyPatcherFilterKind.Primary
+                && (filters[0].cls.Connective ?? "") == ""
+                && filters[0].seg.Values.Any(v => MatchesIdentity(v, fk, editorId))
+                ? FilterVerdict.Match : FilterVerdict.NoMatch;
+
         // No filter set → every record of the type is patched (grammar §5).
         if (filters.Count == 0) return FilterVerdict.Match;
 
@@ -206,7 +246,6 @@ public static class SkyPatcherOverlay
         {
             var f = cls.Filter!;
             var conn = cls.Connective ?? "";
-            bool primary = f.Kind == SkyPatcherFilterKind.Primary;
 
             if (f.Kind == SkyPatcherFilterKind.NoFilter)
             {
@@ -229,7 +268,7 @@ public static class SkyPatcherOverlay
                 any = true; continue;
             }
 
-            if (primary)
+            if (f.Kind == SkyPatcherFilterKind.Primary)
             {
                 bool inSet = seg.Values.Any(v => MatchesIdentity(v, fk, editorId));
                 bool ok = conn is "Excluded" or "Exclude" ? !inSet : inSet;
@@ -237,58 +276,450 @@ public static class SkyPatcherOverlay
                 any = true; continue;
             }
 
-            switch (cls.BaseKey)
-            {
-                case "filterByKeywords":
-                {
-                    var mine = ReadEngine.KeywordKeys(record);
-                    if (mine is null) return FilterVerdict.Unresolved;   // type has no keyword list we can read
-                    var wanted = new List<FormKey>();
-                    int unresolved = 0;
-                    foreach (var v in seg.Values)
-                    {
-                        var k = ResolveFormValue(v, "Keyword", resolver);
-                        if (k is null)
-                        {
-                            // A keyword that resolves to NOTHING in the active order can never be attached
-                            // to any record — that's a fact about the order, not a guess: it evaluates as
-                            // not-attached, surfaced ONCE per token (Wave-1 crux finding: real INIs list
-                            // keywords from frameworks the modlist doesn't run, e.g. SLA_KillerHeels).
-                            unresolved++;
-                            if (dedupe.Add($"kw:{v.Raw}"))
-                                warnings.Add($"keyword '{v.Raw}' (in a {cls.BaseKey}{conn}) resolves to nothing in the active order — treated as attached to no record.");
-                        }
-                        else wanted.Add(k.Value);
-                    }
-                    bool ok = conn switch
-                    {
-                        "Or" => wanted.Any(mine.Contains),
-                        "Excluded" or "Exclude" => !wanted.Any(mine.Contains),
-                        // bare = AND: EVERY listed keyword must be attached — an in-order-nonexistent one can't be.
-                        _ => unresolved == 0 && wanted.All(mine.Contains),
-                    };
-                    if (!ok) return FilterVerdict.NoMatch;
-                    any = true; continue;
-                }
-                case "filterByEditorIdContains":
-                {
-                    var eid = editorId ?? "";
-                    bool ok = ContainsVerdict(seg, conn, eid);
-                    if (!ok) return FilterVerdict.NoMatch;
-                    any = true; continue;
-                }
-                case "filterByNameContains":
-                {
-                    var name = RecordName(record) ?? "";
-                    bool ok = ContainsVerdict(seg, conn, name);
-                    if (!ok) return FilterVerdict.NoMatch;
-                    any = true; continue;
-                }
-                default:
-                    return FilterVerdict.Unresolved;   // a filter family Wave 1 does not evaluate — loud skip upstream
-            }
+            var verdict = EvaluateOneFilter(record, fk, editorId, cls, seg, conn, fieldMap, resolver, warnings, dedupe);
+            if (verdict != FilterVerdict.Match) return verdict;
+            any = true;
         }
         return any ? FilterVerdict.Match : FilterVerdict.NoMatch;
+    }
+
+    /// <summary>One non-primary, non-gate filter segment against this record: the built-in families
+    /// first (keyed by base name), then the field map's per-record <see cref="FilterSpec"/>. A map
+    /// entry for a built-in name OVERRIDES the built-in (a recipe's filterByKeywords matches the
+    /// CREATED object's keywords, not its own). Anything else is Unresolved — loud skip upstream.</summary>
+    static FilterVerdict EvaluateOneFilter(object record, FormKey fk, string? editorId,
+        SkyPatcherKeyClass cls, SkyPatcherSegment seg, string conn, RecordMap? fieldMap,
+        IFormResolver resolver, List<string> warnings, HashSet<string> dedupe)
+    {
+        var spec = fieldMap?.Filters.GetValueOrDefault(cls.BaseKey);
+        if (spec is { IsUnmapped: true })
+        {
+            if (dedupe.Add($"fu:{cls.BaseKey}"))
+                warnings.Add($"filter '{cls.BaseKey}' has no static evaluation — {spec.Unmapped}");
+            return FilterVerdict.Unresolved;
+        }
+        if (spec is not null)
+            return EvaluateSpec(record, cls, seg, conn, spec, fieldMap!, resolver, warnings, dedupe);
+
+        switch (cls.BaseKey)
+        {
+            case "filterByKeywords":
+            case "restrictToKeywords":   // post-match narrowing; for ONE record that's the same verdict
+                return KeywordVerdict(ReadEngine.KeywordKeys(record), seg, cls.BaseKey, conn, resolver, warnings, dedupe);
+
+            case "filterByEditorIdContains":
+                return ContainsVerdict(seg, conn, editorId ?? "") ? FilterVerdict.Match : FilterVerdict.NoMatch;
+
+            case "filterByNameContains":
+                return ContainsVerdict(seg, conn, RecordName(record) ?? "") ? FilterVerdict.Match : FilterVerdict.NoMatch;
+
+            case "filterByModNames":
+            {
+                // "Records that come from the named plugin(s)" — the record's DEFINING master
+                // (FormKey.ModKey). DECLARED ASSUMPTION (empirical-gate item): the DLL could
+                // conceivably mean any override provider; the defining master is the reading every
+                // community usage implies (filterByModNames=SomeMod.esp = "that mod's records").
+                var origin = fk.ModKey.FileName.String;
+                bool inSet = seg.Values.Any(v => v.Raw.Equals(origin, StringComparison.OrdinalIgnoreCase));
+                bool ok = conn is "Excluded" or "Exclude" ? !inSet : inSet;
+                return ok ? FilterVerdict.Match : FilterVerdict.NoMatch;
+            }
+            case "skipRecordByModNameContains":
+            {
+                // Skip when the record's source mod name CONTAINS a listed substring (cell.md) —
+                // an inverted filter: match ⇒ the line does NOT apply.
+                var origin = fk.ModKey.FileName.String;
+                bool hit = seg.Values.Any(v => origin.Contains(v.Raw, StringComparison.OrdinalIgnoreCase));
+                return hit ? FilterVerdict.NoMatch : FilterVerdict.Match;
+            }
+            case "modNamesLastOverridden":
+            {
+                // "Skip records whose LAST OVERRIDE is from a named mod" (magic-effect.md) — the
+                // load-order WINNER's plugin, i.e. the record view's conflict winner. Documented only
+                // in the Excluded spelling; any other connective is unresolved, never guessed.
+                if (conn is not ("Excluded" or "Exclude")) return FilterVerdict.Unresolved;
+                var winner = resolver.WinnerPluginOf(fk);
+                if (winner is null)
+                {
+                    if (dedupe.Add($"ov:{fk}"))
+                        warnings.Add($"modNamesLastOverridden{conn}: could not resolve the winning override plugin of {fk} — whether the line yields is UNRESOLVED.");
+                    return FilterVerdict.Unresolved;
+                }
+                bool hit = seg.Values.Any(v => v.Raw.Equals(winner, StringComparison.OrdinalIgnoreCase));
+                return hit ? FilterVerdict.NoMatch : FilterVerdict.Match;
+            }
+            case "filterByMgefs":
+            {
+                // Crosscutting attached-effect match (spell/scroll/ench/ingestible/ingredient): the
+                // Effects array's BaseEffect links. (On the magicEffect folder filterByMgefs is the
+                // PRIMARY filter and never reaches here.)
+                var mine = EntryKeys(record, new[] { "Effects" }, "BaseEffect");
+                return FormSetVerdict(mine, seg, cls.BaseKey, conn, "MagicEffect", resolver, warnings, dedupe);
+            }
+            case "filterByAlternateTextures":
+            {
+                // Items carrying a given texture set: the model's alternate-texture entries' NewTexture.
+                var mine = EntryKeys(record, new[] { "Model", "AlternateTextures" }, "NewTexture");
+                return FormSetVerdict(mine, seg, cls.BaseKey, conn, "TextureSet", resolver, warnings, dedupe);
+            }
+            default:
+                return FilterVerdict.Unresolved;   // neither built-in nor mapped — loud skip upstream
+        }
+    }
+
+    // ---- the map-driven evaluations -----------------------------------------------------------------
+
+    static FilterVerdict EvaluateSpec(object record, SkyPatcherKeyClass cls, SkyPatcherSegment seg,
+        string conn, FilterSpec spec, RecordMap fieldMap, IFormResolver resolver,
+        List<string> warnings, HashSet<string> dedupe)
+    {
+        bool excluded = conn is "Excluded" or "Exclude";
+        switch (spec.Eval)
+        {
+            case SkyPatcherFilterEval.FormEquals:
+            {
+                // Single-valued form field vs a value list: any-of (an AND over one slot is
+                // unsatisfiable for >1 distinct values — see the enum's declared assumption).
+                var current = spec.Paths.Select(p => TryLeafToken(record, p)).Where(t => t is not null).ToList();
+                bool matched = false;
+                foreach (var v in seg.Values)
+                {
+                    var k = ResolveFormValue(v, spec.FormType, resolver);
+                    if (k is null) { WarnUnresolvableForm(v, cls.BaseKey, conn, spec, warnings, dedupe); continue; }
+                    if (current.Any(t => string.Equals(t, k.Value.ToString(), StringComparison.OrdinalIgnoreCase))) { matched = true; break; }
+                }
+                return (excluded ? !matched : matched) ? FilterVerdict.Match : FilterVerdict.NoMatch;
+            }
+            case SkyPatcherFilterEval.FormInList:
+            {
+                var segs = SplitPath(spec.Paths[0]);
+                var mine = spec.KeyPath is null ? TryFormLinkKeys(record, segs) : EntryKeys(record, segs, spec.KeyPath);
+                if (spec.EidSubstring)
+                    return EidAwareListVerdict(mine, seg, cls.BaseKey, conn, spec, resolver, warnings, dedupe);
+                return FormSetVerdict(mine, seg, cls.BaseKey, conn, spec.FormType, resolver, warnings, dedupe);
+            }
+            case SkyPatcherFilterEval.EnumEquals:
+            {
+                var current = spec.Paths.Select(p => TryLeafToken(record, p)).FirstOrDefault(t => t is not null);
+                bool matched = current is not null && seg.Values.Any(v =>
+                {
+                    var member = spec.ValueMap?.GetValueOrDefault(v.Raw) ?? v.Raw;
+                    return string.Equals(current, member, StringComparison.OrdinalIgnoreCase);
+                });
+                return (excluded ? !matched : matched) ? FilterVerdict.Match : FilterVerdict.NoMatch;
+            }
+            case SkyPatcherFilterEval.FlagBool:
+            {
+                var raw = seg.Values.Count > 0 ? seg.Values[0].Raw : "";
+                bool? want = ParseBoolToken(raw);
+                if (want is null)
+                {
+                    if (dedupe.Add($"fb:{cls.BaseKey}:{raw}"))
+                        warnings.Add($"filter '{cls.BaseKey}={raw}' — not a boolean; whether the line applies is UNRESOLVED.");
+                    return FilterVerdict.Unresolved;
+                }
+                ulong bits = FlagBitsAt(record, spec.Paths[0]);
+                if (!TryFlagBit(record, spec.Paths[0], spec.Flag!, out var bit)) return FilterVerdict.Unresolved;
+                bool set = (bits & bit) != 0;
+                if (spec.Invert) set = !set;
+                return set == want.Value ? FilterVerdict.Match : FilterVerdict.NoMatch;
+            }
+            case SkyPatcherFilterEval.FlagAnyOf:
+            {
+                ulong bits = FlagBitsAt(record, spec.Paths[0]);
+                var hits = new List<bool>();
+                foreach (var v in seg.Values)
+                {
+                    var member = spec.ValueMap?.GetValueOrDefault(v.Raw) ?? v.Raw;
+                    if (!TryFlagBit(record, spec.Paths[0], member, out var bit))
+                    {
+                        if (dedupe.Add($"fa:{cls.BaseKey}:{v.Raw}"))
+                            warnings.Add($"filter '{cls.BaseKey}' — flag '{v.Raw}' is not a member of the {spec.Paths[0]} enum (no valueMap match either); whether the line applies is UNRESOLVED.");
+                        return FilterVerdict.Unresolved;
+                    }
+                    hits.Add((bits & bit) != 0);
+                }
+                bool ok = conn switch
+                {
+                    "Or" => hits.Any(h => h),
+                    "Excluded" or "Exclude" => !hits.Any(h => h),
+                    _ => hits.All(h => h),
+                };
+                return ok ? FilterVerdict.Match : FilterVerdict.NoMatch;
+            }
+            case SkyPatcherFilterEval.Gender:
+            {
+                var raw = seg.Values.Count > 0 ? seg.Values[0].Raw : "";
+                bool female;
+                if (raw.Equals("female", StringComparison.OrdinalIgnoreCase)) female = true;
+                else if (raw.Equals("male", StringComparison.OrdinalIgnoreCase)) female = false;
+                else
+                {
+                    if (dedupe.Add($"g:{raw}"))
+                        warnings.Add($"filter '{cls.BaseKey}={raw}' — expected male|female; whether the line applies is UNRESOLVED.");
+                    return FilterVerdict.Unresolved;
+                }
+                ulong bits = FlagBitsAt(record, spec.Paths[0]);
+                if (!TryFlagBit(record, spec.Paths[0], "Female", out var bit)) return FilterVerdict.Unresolved;
+                return ((bits & bit) != 0) == female ? FilterVerdict.Match : FilterVerdict.NoMatch;
+            }
+            case SkyPatcherFilterEval.PcLevelMult:
+            {
+                var raw = seg.Values.Count > 0 ? seg.Values[0].Raw : "";
+                bool? want = ParseBoolToken(raw);
+                if (want is null) return FilterVerdict.Unresolved;
+                var (parent, leaf) = Navigate(record, SplitPath(spec.Paths[0]));
+                bool isMult = leaf.GetValue(parent)?.GetType().Name.Equals("PcLevelMult", StringComparison.Ordinal) == true;
+                return isMult == want.Value ? FilterVerdict.Match : FilterVerdict.NoMatch;
+            }
+            case SkyPatcherFilterEval.SubstringLeaf:
+            {
+                var hay = spec.Paths.Select(p => TryLeafToken(record, p)).FirstOrDefault(t => t is not null) ?? "";
+                return ContainsVerdict(seg, conn, hay) ? FilterVerdict.Match : FilterVerdict.NoMatch;
+            }
+            case SkyPatcherFilterEval.DonorSubstring:
+            {
+                var donor = LinkedFormKey(record, spec.LinkPath!);
+                if (donor is null) return FilterVerdict.NoMatch;   // no link ⇒ nothing to match
+                var hay = resolver.ReadWinnerLeaf(donor.Value, spec.Paths[0]);
+                if (hay is null)
+                {
+                    if (dedupe.Add($"ds:{cls.BaseKey}:{donor}"))
+                        warnings.Add($"filter '{cls.BaseKey}' — could not read '{spec.Paths[0]}' off {donor}'s winner; whether the line applies is UNRESOLVED.");
+                    return FilterVerdict.Unresolved;
+                }
+                return ContainsVerdict(seg, conn, hay) ? FilterVerdict.Match : FilterVerdict.NoMatch;
+            }
+            case SkyPatcherFilterEval.DonorKeywords:
+            {
+                var donor = LinkedFormKey(record, spec.LinkPath!);
+                if (donor is null) return FilterVerdict.NoMatch;
+                var mine = resolver.KeywordsOf(donor.Value);
+                if (mine is null)
+                {
+                    if (dedupe.Add($"dk:{cls.BaseKey}:{donor}"))
+                        warnings.Add($"filter '{cls.BaseKey}' — could not read the keywords of {donor}'s winner; whether the line applies is UNRESOLVED.");
+                    return FilterVerdict.Unresolved;
+                }
+                return KeywordVerdict(mine, seg, cls.BaseKey, conn, resolver, warnings, dedupe);
+            }
+            case SkyPatcherFilterEval.NumericLess:
+            {
+                var tok = TryLeafToken(record, spec.Paths[0]);
+                if (tok is null || !double.TryParse(tok, NumberStyles.Float, CultureInfo.InvariantCulture, out var current))
+                    return FilterVerdict.NoMatch;   // absent/non-numeric leaf can't be "less than N"
+                var raw = seg.Values.Count > 0 ? seg.Values[0].Raw : "";
+                if (!double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out var n))
+                {
+                    if (dedupe.Add($"nl:{cls.BaseKey}:{raw}"))
+                        warnings.Add($"filter '{cls.BaseKey}={raw}' — not a number; whether the line applies is UNRESOLVED.");
+                    return FilterVerdict.Unresolved;
+                }
+                return current < n ? FilterVerdict.Match : FilterVerdict.NoMatch;
+            }
+            case SkyPatcherFilterEval.BipedSlots:
+            {
+                ulong bits = FlagBitsAt(record, spec.Paths[0]);
+                var hits = new List<bool>();
+                foreach (var v in seg.Values)
+                {
+                    if (!int.TryParse(v.Raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var idx) || idx is < 0 or > 31)
+                    {
+                        if (dedupe.Add($"bs:{cls.BaseKey}:{v.Raw}"))
+                            warnings.Add($"filter '{cls.BaseKey}' — '{v.Raw}' is not a biped slot INDEX (0–31; slot number − 30); whether the line applies is UNRESOLVED.");
+                        return FilterVerdict.Unresolved;
+                    }
+                    hits.Add((bits & (1UL << idx)) != 0);
+                }
+                bool ok = conn switch
+                {
+                    "Or" => hits.Any(h => h),
+                    "Excluded" or "Exclude" => !hits.Any(h => h),
+                    _ => hits.All(h => h),
+                };
+                return ok ? FilterVerdict.Match : FilterVerdict.NoMatch;
+            }
+            case SkyPatcherFilterEval.LinkedOriginPlugin:
+            {
+                var linked = LinkedFormKey(record, spec.Paths[0]);
+                if (linked is null) return spec.Invert ? FilterVerdict.Match : FilterVerdict.NoMatch;   // no link ⇒ nothing to yield to
+                var linkedOrigin = linked.Value.ModKey.FileName.String;
+                bool hit = seg.Values.Any(v => v.Raw.Equals(linkedOrigin, StringComparison.OrdinalIgnoreCase));
+                if (spec.Invert) return hit ? FilterVerdict.NoMatch : FilterVerdict.Match;   // skip semantics
+                return hit ? FilterVerdict.Match : FilterVerdict.NoMatch;
+            }
+            default:
+                return FilterVerdict.Unresolved;
+        }
+    }
+
+    // ---- filter helpers ------------------------------------------------------------------------------
+
+    /// <summary>The keyword-family verdict (bare = ALL attached, Or = any, Excluded = none) over a
+    /// resolved keyword set. Null set ⇒ the type has no keyword list we can read (unresolved).</summary>
+    static FilterVerdict KeywordVerdict(IReadOnlyList<FormKey>? mine, SkyPatcherSegment seg,
+        string baseKey, string conn, IFormResolver resolver, List<string> warnings, HashSet<string> dedupe)
+    {
+        if (mine is null) return FilterVerdict.Unresolved;
+        var wanted = new List<FormKey>();
+        int unresolved = 0;
+        foreach (var v in seg.Values)
+        {
+            var k = ResolveFormValue(v, "Keyword", resolver);
+            if (k is null)
+            {
+                // A keyword that resolves to NOTHING in the active order can never be attached
+                // to any record — that's a fact about the order, not a guess: it evaluates as
+                // not-attached, surfaced ONCE per token (Wave-1 crux finding: real INIs list
+                // keywords from frameworks the modlist doesn't run, e.g. SLA_KillerHeels).
+                unresolved++;
+                if (dedupe.Add($"kw:{v.Raw}"))
+                    warnings.Add($"keyword '{v.Raw}' (in a {baseKey}{conn}) resolves to nothing in the active order — treated as attached to no record.");
+            }
+            else wanted.Add(k.Value);
+        }
+        bool ok = conn switch
+        {
+            "Or" => wanted.Any(mine.Contains),
+            "Excluded" or "Exclude" => !wanted.Any(mine.Contains),
+            // bare = AND: EVERY listed keyword must be attached — an in-order-nonexistent one can't be.
+            _ => unresolved == 0 && wanted.All(mine.Contains),
+        };
+        return ok ? FilterVerdict.Match : FilterVerdict.NoMatch;
+    }
+
+    /// <summary>List-membership verdict for a set of the record's own attached forms (mgefs, alternate
+    /// textures, factions, recipe ingredients…): bare = ALL listed present, Or = any, Excluded = none.
+    /// An unresolvable listed form is attached to nothing (the keyword-family treatment).</summary>
+    static FilterVerdict FormSetVerdict(IReadOnlyList<FormKey> mine, SkyPatcherSegment seg,
+        string baseKey, string conn, string? formType, IFormResolver resolver,
+        List<string> warnings, HashSet<string> dedupe)
+    {
+        var wanted = new List<FormKey>();
+        int unresolved = 0;
+        foreach (var v in seg.Values)
+        {
+            var k = ResolveFormValue(v, formType, resolver);
+            if (k is null)
+            {
+                unresolved++;
+                if (dedupe.Add($"fs:{baseKey}:{v.Raw}"))
+                    warnings.Add($"form '{v.Raw}' (in a {baseKey}{conn}) resolves to nothing in the active order — treated as attached to no record.");
+            }
+            else wanted.Add(k.Value);
+        }
+        bool ok = conn switch
+        {
+            "Or" => wanted.Any(mine.Contains),
+            "Excluded" or "Exclude" => !wanted.Any(mine.Contains),
+            _ => unresolved == 0 && wanted.All(mine.Contains),
+        };
+        return ok ? FilterVerdict.Match : FilterVerdict.NoMatch;
+    }
+
+    /// <summary>filterByArmorAddons' documented "EditorID substring ok": a listed value that resolves
+    /// to a form matches by key; one that doesn't is a SUBSTRING against each attached form's winner
+    /// EditorID (resolver lookup).</summary>
+    static FilterVerdict EidAwareListVerdict(IReadOnlyList<FormKey> mine, SkyPatcherSegment seg,
+        string baseKey, string conn, FilterSpec spec, IFormResolver resolver,
+        List<string> warnings, HashSet<string> dedupe)
+    {
+        var eids = new Lazy<List<string>>(() => mine
+            .Select(k => resolver.EditorIdOf(k) ?? "")
+            .Where(e => e.Length > 0).ToList());
+        var hits = new List<bool>();
+        foreach (var v in seg.Values)
+        {
+            var k = ResolveFormValue(v, spec.FormType, resolver);
+            hits.Add(k is not null
+                ? mine.Contains(k.Value)
+                : eids.Value.Any(e => e.Contains(v.Raw, StringComparison.OrdinalIgnoreCase)));
+        }
+        bool ok = conn switch
+        {
+            "Or" => hits.Any(h => h),
+            "Excluded" or "Exclude" => !hits.Any(h => h),
+            _ => hits.All(h => h),
+        };
+        return ok ? FilterVerdict.Match : FilterVerdict.NoMatch;
+    }
+
+    /// <summary>A leaf token that treats ANY navigation/absence failure as null — filters read
+    /// optional structure (an absent Model, a null BodyTemplate) as "not there", never a throw.</summary>
+    static string? TryLeafToken(object record, string path)
+    {
+        try { return LeafToken(record, SplitPath(path)); }
+        catch { return null; }
+    }
+
+    /// <summary>The FormKeys of a struct list's key sub-field (Effects→BaseEffect, Factions→Faction…).
+    /// Absent list reads as empty.</summary>
+    static IReadOnlyList<FormKey> EntryKeys(object record, string[] segs, string keyPath)
+    {
+        var keys = new List<FormKey>();
+        System.Collections.IList? list;
+        try { list = ListAt(record, segs); }
+        catch { return keys; }
+        if (list is null) return keys;
+        var kSegs = SplitPath(keyPath);
+        foreach (var entry in list)
+        {
+            if (entry is null) continue;
+            string? tok;
+            try { tok = LeafToken(entry, kSegs); }
+            catch { continue; }
+            if (tok is not null && FormKey.TryFactory(tok, out var k)) keys.Add(k);
+        }
+        return keys;
+    }
+
+    /// <summary>A plain formlink list's keys with absence-as-empty and failure-as-empty (filter read).</summary>
+    static IReadOnlyList<FormKey> TryFormLinkKeys(object record, string[] segs)
+    {
+        try { return FormLinkList(record, segs) ?? new List<FormKey>(); }
+        catch { return new List<FormKey>(); }
+    }
+
+    /// <summary>The FormKey a formlink leaf points at (null = absent/unset/unnavigable).</summary>
+    static FormKey? LinkedFormKey(object record, string path)
+    {
+        var tok = TryLeafToken(record, path);
+        return tok is not null && FormKey.TryFactory(tok, out var k) ? k : null;
+    }
+
+    /// <summary>Raw flag bits of an enum leaf; absent structure reads as 0 (no flags set).</summary>
+    static ulong FlagBitsAt(object record, string path)
+    {
+        try
+        {
+            var (parent, leaf) = Navigate(record, SplitPath(path));
+            return Convert.ToUInt64(leaf.GetValue(parent) ?? 0UL, CultureInfo.InvariantCulture);
+        }
+        catch { return 0; }
+    }
+
+    /// <summary>Resolve a flag member NAME to its bit on the enum leaf at <paramref name="path"/>.</summary>
+    static bool TryFlagBit(object record, string path, string member, out ulong bit)
+    {
+        bit = 0;
+        try
+        {
+            var (parent, leaf) = Navigate(record, SplitPath(path));
+            return TryParseEnumMember(leaf.PropertyType, member, out bit);
+        }
+        catch { return false; }
+    }
+
+    static bool? ParseBoolToken(string raw)
+        => raw.Equals("true", StringComparison.OrdinalIgnoreCase) || raw.Equals("yes", StringComparison.OrdinalIgnoreCase) || raw == "1" ? true
+         : raw.Equals("false", StringComparison.OrdinalIgnoreCase) || raw.Equals("no", StringComparison.OrdinalIgnoreCase) || raw == "0" ? false
+         : null;
+
+    static void WarnUnresolvableForm(SkyPatcherValue v, string baseKey, string conn, FilterSpec spec,
+        List<string> warnings, HashSet<string> dedupe)
+    {
+        if (dedupe.Add($"fe:{baseKey}:{v.Raw}"))
+            warnings.Add($"form '{v.Raw}' (in a {baseKey}{conn}) resolves to nothing in the active order{(spec.FormType is null ? "" : $" among {spec.FormType} winners")} — treated as matching no record.");
     }
 
     static bool ContainsVerdict(SkyPatcherSegment seg, string conn, string haystack)

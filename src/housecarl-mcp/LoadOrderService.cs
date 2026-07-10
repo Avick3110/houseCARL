@@ -464,6 +464,15 @@ public sealed class LoadOrderService : IDisposable
         }
 
         public bool PluginPresent(string pluginName) => _view.ContainsPlugin(pluginName);
+
+        public string? WinnerPluginOf(FormKey record) => _view.ResolveWinner(record)?.WinnerPlugin;
+
+        public string? EditorIdOf(FormKey record)
+        {
+            var w = _view.ResolveWinner(record);
+            if (w is null) return null;
+            return _view.GetRecord(_session, w.Value.WinnerPlugin, record)?.EditorID;
+        }
     }
 
     // ---- NIF layer Wave 1: read the data values inside a mesh (housecarl_nif_inspect) ----

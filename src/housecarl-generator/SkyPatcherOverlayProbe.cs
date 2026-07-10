@@ -1,6 +1,7 @@
 using HousecarlCore;
 using Mutagen.Bethesda;
 using Mutagen.Bethesda.Plugins;
+using Mutagen.Bethesda.Plugins.Records;
 using Mutagen.Bethesda.Skyrim;
 
 namespace HousecarlGenerator;
@@ -28,9 +29,15 @@ public static class SkyPatcherOverlayProbe
         public HashSet<string> Plugins = new(StringComparer.OrdinalIgnoreCase);
         public FormKey? ResolveEditorId(string editorId, string? mutagenType)
             => EditorIds.TryGetValue(editorId, out var fk) ? fk : null;
-        public string? ReadWinnerLeaf(FormKey donor, string path) => null;
-        public IReadOnlyList<FormKey>? KeywordsOf(FormKey record) => null;
+        public Dictionary<FormKey, string> WinnerLeafs = new();       // (donor) → the one leaf the test reads
+        public Dictionary<FormKey, IReadOnlyList<FormKey>> Keywords = new();
+        public Dictionary<FormKey, string> Winners = new();
+        public Dictionary<FormKey, string> Eids = new();
+        public string? ReadWinnerLeaf(FormKey donor, string path) => WinnerLeafs.GetValueOrDefault(donor);
+        public IReadOnlyList<FormKey>? KeywordsOf(FormKey record) => Keywords.GetValueOrDefault(record);
         public bool PluginPresent(string pluginName) => Plugins.Contains(pluginName);
+        public string? WinnerPluginOf(FormKey record) => Winners.GetValueOrDefault(record);
+        public string? EditorIdOf(FormKey record) => Eids.GetValueOrDefault(record);
     }
 
     public static int RunGuard(string[] args)
@@ -69,7 +76,7 @@ public static class SkyPatcherOverlayProbe
         var lines = new[]
         {
             // a.ini — earliest in filename sort.
-            L("a.ini", 1, $"filterByWeapons={me}:attackDamage=40:weight=9:keywordsToAdd=HcKw.esp|802"),
+            L("a.ini", 1, $"filterByWeapons={me}:attackDamage=40:weight=9:keywordsToAdd=HcKw.esp|802:skillType=onehanded"),
             // m.ini — a foreign-record line that must NOT apply, then the later weight set.
             L("m.ini", 1, "filterByWeapons=Other.esp|123:attackDamage=1"),
             L("m.ini", 2, $"filterByWeapons={me}:weight=2"),
@@ -78,7 +85,11 @@ public static class SkyPatcherOverlayProbe
             L("z.ini", 2, "filterByWeapons=HcTestSword:attackDamageToAdd=11"),
             L("z.ini", 3, $"filterByWeapons={me}:critDamageSetToBase=true"),
             L("z.ini", 4, $"filterByWeapons={me}:mirrorWeapon=Skyrim.esm|139B9"),
-            L("z.ini", 5, $"filterByWeapons={me}:restrictToSkills=twohanded:speed=9"),
+            L("z.ini", 5, $"filterByWeapons={me}:restrictToSkills=twohanded:speed=9"),   // Wave 2: EVALUATES (no-match on a onehanded sword)
+            L("z.ini", 25, $"filterByWeapons={me}:restrictToSkills=onehanded:speed=6"), // Wave 2: matches
+            L("z.ini", 26, $"filterByWeapons={me}:filterByHasAmmoFromWeaponList=1:stagger=7"),  // explicitly unmapped filter ⇒ loud skip
+            L("z.ini", 27, $"filterByModNames=HcSpOv.esp:rangeMin=11"),                 // origin-plugin match (built-in)
+            L("z.ini", 28, $"filterByModNamesExcluded=HcSpOv.esp:rangeMin=99"),         // excluded ⇒ NOT applied
             L("z.ini", 6, $"filterByWeapons={me}:notAnOp=1"),
             L("z.ini", 7, $"filterByWeapons={me}:fullName=~Reforged Blade~"),
             L("z.ini", 8, $"filterByWeapons={me}:animationType=bow:weaponHitType=no:soundLevel=silent"),
@@ -128,10 +139,16 @@ public static class SkyPatcherOverlayProbe
         failures += Check("HARD op ⇒ a directive, not a value (mirrorWeapon)",
             result.Directives.Any(d => d.Op == "mirrorWeapon" && d.Reason.Contains("copy-from-form")),
             string.Join(" | ", result.Directives.Select(d => $"{d.Op}:{d.Reason}")));
-        failures += Check("unevaluated filter ⇒ line skipped LOUD (restrictToSkills), speed untouched",
+        failures += Check("restrictToSkills EVALUATES (Wave 2): twohanded no-match, onehanded applies (speed=6)",
+            Math.Abs(weap.Data.Speed - 6) < 0.001
+            && !result.Warnings.Any(w => w.Contains("restrictToSkills") && w.Contains("UNRESOLVED")),
+            $"speed={weap.Data.Speed}");
+        failures += Check("explicitly-unmapped filter ⇒ line skipped LOUD (filterByHasAmmoFromWeaponList), stagger untouched",
             result.LinesSkippedUnresolvedFilter >= 1
-            && result.Warnings.Any(w => w.Contains("restrictToSkills") && w.Contains("UNRESOLVED"))
-            && Math.Abs(weap.Data.Speed - 0) < 0.001, $"speed={weap.Data.Speed}");
+            && result.Warnings.Any(w => w.Contains("filterByHasAmmoFromWeaponList") && w.Contains("no static evaluation"))
+            && Math.Abs(weap.Data.Stagger - 1.5) < 0.001, $"stagger={weap.Data.Stagger}");
+        failures += Check("filterByModNames matches the defining master; Excluded skips (rangeMin=11)",
+            Math.Abs(weap.Data.RangeMin - 11) < 0.001, $"rangeMin={weap.Data.RangeMin}");
         failures += Check("an unknown key poisons the WHOLE line, loud (notAnOp)",
             result.Warnings.Any(w => w.Contains("notAnOp") && w.Contains("UNRESOLVED")));
         failures += Check("unknown ONLY-filter line did NOT become apply-all (stagger untouched by z:20)",
@@ -181,8 +198,227 @@ public static class SkyPatcherOverlayProbe
         failures += NpcEntryOpsArm(catalog, fieldMap, mod);
         failures += LeveledListScopeArm(catalog, fieldMap, mod);
         failures += FormListArm(catalog, fieldMap, mod);
+        failures += Wave2FilterArm(catalog, fieldMap, mod);
 
         return Done(failures);
+    }
+
+    /// <summary>The Wave-2 filter surface — one representative per evaluation kind plus the danger
+    /// cases where a wrong model lands elsewhere: the yield/skip filters (match means the line does
+    /// NOT apply — an un-inverted model applies exactly the lines the author asked to suppress), the
+    /// player rule (an apply-all model patches the player the grammar excludes), enum valueMaps
+    /// (marksman→Archery), donor reads, and the explicit unmapped-filter loud skip.</summary>
+    static int Wave2FilterArm(SkyPatcherCatalog catalog, SkyPatcherFieldMap fieldMap, SkyrimMod mod)
+    {
+        Console.WriteLine("  --- Wave-2 filter arm (map-driven + override-aware + player rule) ---");
+        int failures = 0;
+        var resolver = new StubResolver();
+        SkyPatcherOverlay.OrderedLine L(int n, string text) => new("f.ini", n, SkyPatcherParse.ParseLine(text));
+
+        // ---- weapon: enumEquals + valueMap (marksman→Archery), flagAnyOf (boundweapon) ----
+        {
+            var w = mod.Weapons.AddNew();
+            w.EditorID = "HcBow";
+            w.Data = new WeaponData { Skill = Skill.Archery, AnimationType = WeaponAnimationType.Bow, Flags = WeaponData.Flag.BoundWeapon };
+            w.BasicStats = new WeaponBasicStats { Damage = 5, Weight = 1, Value = 1 };
+            var r = SkyPatcherOverlay.Apply(w, w.FormKey, w.EditorID, catalog, catalog.ForSubfolder("weapon")!,
+                fieldMap.For("weapon", "Weapon"), new[]
+                {
+                    L(1, "filterBySkills=marksman:attackDamage=21"),           // valueMap marksman→Archery
+                    L(2, "filterByAnimationTypeOr=crossbow:attackDamage=1"),   // enum no-match
+                    L(3, "restrictToFlags=boundweapon:weight=3"),              // flagAnyOf, ignore-case member
+                }, resolver);
+            failures += Check("enumEquals + valueMap: marksman matched the Archery-skill bow (damage=21)",
+                w.BasicStats!.Damage == 21, $"got {w.BasicStats.Damage}");
+            failures += Check("enum no-match leaves the record alone (crossbow line)", w.BasicStats.Damage != 1);
+            failures += Check("flagAnyOf: boundweapon flag matched (weight=3)",
+                Math.Abs(w.BasicStats.Weight - 3) < 0.001, $"got {w.BasicStats.Weight}");
+        }
+
+        // ---- npc: gender / flagBool / pcLevelMult / formEquals / formInList(keyPath) / class-Exclude /
+        //      donorSubstring / explicit-unmapped restrictToSkill ----
+        {
+            var raceFk = new FormKey(new ModKey("HcRace", ModType.Plugin), 0xC01);
+            var clsFk = new FormKey(new ModKey("HcCls", ModType.Plugin), 0xD01);
+            var facFk = new FormKey(new ModKey("HcFac", ModType.Plugin), 0xA02);
+            var n = mod.Npcs.AddNew();
+            n.EditorID = "HcFilterNpc";
+            n.Configuration.Flags |= NpcConfiguration.Flag.Female | NpcConfiguration.Flag.Essential;
+            n.Configuration.Level = new PcLevelMult { LevelMult = 1.15f };
+            n.Race.SetTo(raceFk);
+            n.Class.SetTo(clsFk);
+            n.Factions.Add(new RankPlacement { Faction = facFk.ToLink<IFactionGetter>(), Rank = 0 });
+            resolver.WinnerLeafs[raceFk] = "Actors\\Character\\Character Assets\\skeleton.nif";
+            var r = SkyPatcherOverlay.Apply(n, n.FormKey, n.EditorID, catalog, catalog.ForSubfolder("npc")!,
+                fieldMap.For("npc", "Npc"), new[]
+                {
+                    L(1, "filterByGender=female:weight=44"),
+                    L(2, "filterByGender=male:weight=1"),
+                    L(3, "filterByEssential=true:height=1.1"),
+                    L(4, "filterByProtected=true:height=9"),
+                    L(5, "filterByPCLevelMult=true:fullName=~Scaled~"),
+                    L(6, "filterByFactionsOr=HcFac.esp|A02,HcFac.esp|FFF:shortName=~Fac~"),
+                    L(7, "filterByRaces=HcRace.esp|C01:weight=55"),
+                    L(8, "filterByClassExclude=HcCls.esp|D01:height=7"),        // its OWN class ⇒ excluded ⇒ no
+                    L(9, "restrictToMaleModelContains=skeleton:deathItem=HcItm.esp|900"),   // donor read off the race
+                    L(10, "restrictToSkill=onehanded~20~60:calcLevelMax=99"),   // explicitly unmapped ⇒ loud skip
+                }, resolver);
+            failures += Check("gender=female matched, male didn't; race formEquals matched last (weight 44→55)",
+                Math.Abs(n.Weight - 55) < 0.001, $"got {n.Weight}");
+            failures += Check("flagBool: essential matched, protected didn't; class-Exclude skipped (height=1.1)",
+                Math.Abs(n.Height - 1.1) < 0.001, $"got {n.Height}");
+            failures += Check("pcLevelMult arm detected (fullName applied)", n.Name?.String == "Scaled", n.Name?.String ?? "<null>");
+            failures += Check("formInList keyPath (factions, Or) matched", n.ShortName?.String == "Fac", n.ShortName?.String ?? "<null>");
+            failures += Check("donorSubstring: NPC skeleton read off its RACE's winner (deathItem set)",
+                n.DeathItem?.FormKey == new FormKey(new ModKey("HcItm", ModType.Plugin), 0x900),
+                n.DeathItem?.FormKey.ToString() ?? "<null>");
+            failures += Check("restrictToSkill is explicitly unmapped ⇒ loud skip, calcLevelMax untouched",
+                n.Configuration.CalcMaxLevel != 99
+                && r.Warnings.Any(w2 => w2.Contains("restrictToSkill") && w2.Contains("no static evaluation")));
+        }
+
+        // ---- the player rule: only a LONE bare primary that names the player applies ----
+        {
+            var player = new Npc(new FormKey(new ModKey("Skyrim", ModType.Master), 0x7), SkyrimRelease.SkyrimSE);
+            var r = SkyPatcherOverlay.Apply(player, player.FormKey, "Player", catalog, catalog.ForSubfolder("npc")!,
+                fieldMap.For("npc", "Npc"), new[]
+                {
+                    L(1, "weight=9"),                                            // apply-all EXCLUDES the player
+                    L(2, "filterByGender=male:weight=3"),                        // filtered lines exclude the player
+                    L(3, "filterByNpcs=Skyrim.esm|7:filterByEssential=false:weight=5"),   // primary + extra ⇒ still excluded
+                    L(4, "filterByNpcs=Skyrim.esm|7:weight=7"),                  // the ONE documented way in
+                }, resolver);
+            failures += Check("player rule: only the lone bare primary applied (weight=7, not 9/3/5)",
+                Math.Abs(player.Weight - 7) < 0.001, $"got {player.Weight}");
+        }
+
+        // ---- ammo: numericLess + flagBool-invert (restrictToBolts) ----
+        {
+            var a = mod.Ammunitions.AddNew();
+            a.EditorID = "HcArrow";
+            a.Weight = 0.1f;
+            a.Flags = Ammunition.Flag.NonBolt;   // an arrow
+            SkyPatcherOverlay.Apply(a, a.FormKey, a.EditorID, catalog, catalog.ForSubfolder("ammo")!,
+                fieldMap.For("ammo", "Ammunition"), new[]
+                {
+                    L(1, "filterByWeightLessThan=0.5:value=20"),   // 0.1 < 0.5 ⇒ applies
+                    L(2, "filterByWeightLessThan=0.05:value=1"),   // no
+                    L(3, "restrictToBolts=true:weight=9"),          // arrow ⇒ no
+                    L(4, "restrictToBolts=false:weight=0.75"),      // non-bolt ⇒ applies
+                }, resolver);
+            failures += Check("numericLess (weightLessThan 0.5 yes, 0.05 no): value=20", a.Value == 20, $"got {a.Value}");
+            failures += Check("restrictToBolts inverts the NonBolt flag (arrow: true no, false yes): weight=0.75",
+                Math.Abs(a.Weight - 0.75) < 0.001, $"got {a.Weight}");
+        }
+
+        // ---- armor: bipedSlots (INDEX = slot−30) + enum valueMap (heavy) + armorAddons EditorID substring ----
+        {
+            var aaFk = new FormKey(new ModKey("HcAA", ModType.Plugin), 0xE01);
+            var ar = mod.Armors.AddNew();
+            ar.EditorID = "HcCuirass";
+            ar.BodyTemplate = new BodyTemplate { ArmorType = ArmorType.HeavyArmor, FirstPersonFlags = BipedObjectFlag.Body };
+            ar.Armature.Add(aaFk.ToLink<IArmorAddonGetter>());
+            resolver.Eids[aaFk] = "HcTestAAHeavyBody";
+            SkyPatcherOverlay.Apply(ar, ar.FormKey, ar.EditorID, catalog, catalog.ForSubfolder("armor")!,
+                fieldMap.For("armor", "Armor"), new[]
+                {
+                    L(1, "filterByBipedSlots=2:weight=4"),          // Body = index 2 (slot 32) ⇒ applies
+                    L(2, "filterByBipedSlotsOr=0,9:weight=9"),      // head/shield ⇒ no
+                    L(3, "filterByArmorTypes=heavy:damageResist=30"),   // valueMap heavy→HeavyArmor
+                    L(4, "filterByArmorAddons=TestAA:weight=6"),    // EditorID SUBSTRING via the resolver
+                }, resolver);
+            failures += Check("bipedSlots: index 2 (Body) matched, 0/9 didn't; addon EID substring matched (weight 4→6)",
+                Math.Abs(ar.Weight - 6) < 0.001, $"got {ar.Weight}");
+            failures += Check("filterByArmorTypes heavy→HeavyArmor (damageResist=30)",
+                Math.Abs(ar.ArmorRating - 30) < 0.001, $"got {ar.ArmorRating}");
+        }
+
+        // ---- magicEffect: modNamesLastOverriddenExcluded yields to the WINNING plugin; effectShaders
+        //      reads both shader slots; detrimental flagBool ----
+        {
+            var shdFk = new FormKey(new ModKey("HcShd", ModType.Plugin), 0xE01);
+            var g = mod.MagicEffects.AddNew();
+            g.EditorID = "HcMgef";
+            g.Flags |= MagicEffect.Flag.Detrimental;
+            g.HitShader.SetTo(shdFk);
+            resolver.Winners[g.FormKey] = "WinPatch.esp";
+            var r = SkyPatcherOverlay.Apply(g, g.FormKey, g.EditorID, catalog, catalog.ForSubfolder("magicEffect")!,
+                fieldMap.For("magicEffect", "MagicEffect"), new[]
+                {
+                    L(1, "modNamesLastOverriddenExcluded=WinPatch.esp:baseCost=9"),    // last override IS listed ⇒ YIELD
+                    L(2, "modNamesLastOverriddenExcluded=Other.esp:baseCost=12"),      // not listed ⇒ applies
+                    L(3, "effectShadersExcluded=HcShd.esp|E01:spellmakingArea=3"),     // shader attached ⇒ excluded ⇒ no
+                    L(4, "effectShadersExcluded=HcShd.esp|E02:spellmakingArea=7"),     // not attached ⇒ applies
+                    L(5, "restrictToDetrimentalEffects=true:spellmakingCastingTime=2"),
+                }, resolver);
+            failures += Check("modNamesLastOverriddenExcluded YIELDS to the winning plugin (baseCost=12, never 9)",
+                Math.Abs(g.BaseCost - 12) < 0.001, $"got {g.BaseCost}");
+            failures += Check("effectShadersExcluded reads the attached shader (area=7, never 3)",
+                g.SpellmakingArea == 7, $"got {g.SpellmakingArea}");
+            failures += Check("restrictToDetrimentalEffects flagBool (castingTime=2)",
+                Math.Abs(g.SpellmakingCastingTime - 2) < 0.001, $"got {g.SpellmakingCastingTime}");
+        }
+
+        // ---- constructibleObject: donorKeywords (the CREATED object's keywords) + workbench formEquals
+        //      + ingredient formInList(keyPath) ----
+        {
+            var createdFk = new FormKey(new ModKey("HcItm", ModType.Plugin), 0x910);
+            var kwFk = new FormKey(new ModKey("HcKw", ModType.Plugin), 0x820);
+            var forgeFk = new FormKey(new ModKey("HcKw", ModType.Plugin), 0xF01);
+            var ingotFk = new FormKey(new ModKey("HcItm", ModType.Plugin), 0x920);
+            var c = mod.ConstructibleObjects.AddNew();
+            c.EditorID = "HcRecipe";
+            c.CreatedObject.SetTo(createdFk);
+            c.WorkbenchKeyword.SetTo(forgeFk);
+            c.Items = new() { new ContainerEntry { Item = new ContainerItem { Item = ingotFk.ToLink<IItemGetter>(), Count = 2 } } };
+            resolver.Keywords[createdFk] = new[] { kwFk };
+            var r = SkyPatcherOverlay.Apply(c, c.FormKey, c.EditorID, catalog, catalog.ForSubfolder("constructibleObject")!,
+                fieldMap.For("constructibleObject", "ConstructibleObject"), new[]
+                {
+                    L(1, "filterByIngredients=HcItm.esp|920:count=7"),
+                    L(2, "filterByWorkBenchKeywords=HcKw.esp|F01:count=5"),
+                    L(3, "filterByKeywords=HcKw.esp|820:count=3"),          // the CREATED object's keywords (map override)
+                    L(4, "filterByKeywordsExcluded=HcKw.esp|820:count=1"),  // excluded on the donor's keywords ⇒ no
+                }, resolver);
+            failures += Check("cobj: ingredient + workbench + donor-keyword filters all matched (3 count sets, final 3)",
+                r.Applied.Count(x => x.Op == "count") == 3 && c.CreatedObjectCount == 3,
+                $"applied={r.Applied.Count(x => x.Op == "count")}, count={c.CreatedObjectCount?.ToString() ?? "<null>"}");
+        }
+
+        // ---- cell: the two skip filters (linked template's origin + record origin substring) ----
+        {
+            var luxLgtm = new FormKey(new ModKey("Lux", ModType.Plugin), 0xC01);
+            var cell = new Cell(new FormKey(new ModKey("HcSpOv", ModType.Plugin), 0xCE1), SkyrimRelease.SkyrimSE);
+            cell.EditorID = "HcCell";
+            cell.LightingTemplate.SetTo(luxLgtm);
+            var r = SkyPatcherOverlay.Apply(cell, cell.FormKey, cell.EditorID, catalog, catalog.ForSubfolder("cell")!,
+                fieldMap.For("cell", "Cell"), new[]
+                {
+                    L(1, "skipRecordByLightingTemplateFromMod=Lux.esp:fogNear=100"),    // template IS from Lux ⇒ SKIP
+                    L(2, "skipRecordByLightingTemplateFromMod=ELFX.esp:fogNear=200"),   // not ⇒ applies
+                    L(3, "skipRecordByModNameContains=HcSp:fogNear=300"),               // origin contains ⇒ SKIP
+                }, resolver);
+            failures += Check("cell skip filters: Lux-template line yielded, ELFX one applied, origin-substring skipped (fogNear=200)",
+                Math.Abs((cell.Lighting?.FogNear ?? 0) - 200) < 0.001, $"got {cell.Lighting?.FogNear}");
+        }
+
+        // ---- race: substringLeaf on the gendered skeleton path ----
+        {
+            var race = mod.Races.AddNew();
+            race.EditorID = "HcRace";
+            race.SkeletalModel = new GenderedItem<SimpleModel?>(
+                new SimpleModel { File = "Actors\\Character\\Character Assets\\skeleton.nif" }, null);
+            SkyPatcherOverlay.Apply(race, race.FormKey, race.EditorID, catalog, catalog.ForSubfolder("race")!,
+                fieldMap.For("race", "Race"), new[]
+                {
+                    L(1, "filterByMaleModelContains=skeleton:baseCarryweight=150"),
+                    L(2, "filterByFemaleModelContains=skeleton:baseCarryweight=9"),   // female model absent ⇒ no
+                }, resolver);
+            failures += Check("race substringLeaf: male skeleton path matched, absent female didn't (carryweight=150)",
+                Math.Abs(race.BaseCarryWeight - 150) < 0.001, $"got {race.BaseCarryWeight}");
+        }
+
+        return failures;
     }
 
     /// <summary>The struct-ENTRY collection semantics (addEntry/'='-pack, addEntryOnce, removeEntry,

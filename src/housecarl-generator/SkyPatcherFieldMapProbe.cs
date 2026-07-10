@@ -42,6 +42,18 @@ public static class SkyPatcherFieldMapProbe
             Console.WriteLine($"  PASS  triangle holds — {map.Records.Count} record map(s), " +
                 $"{map.Records.Sum(r => r.Ops.Count)} op entries ({map.Records.Sum(r => r.Ops.Values.Count(o => o.IsUnmapped))} explicitly unmapped)");
 
+        // ---- Wave 2: the FILTER triangle — catalog filters ⇄ filter specs ⇄ the real Mutagen types ----
+        var filterProblems = ValidateFilters(catalog, map);
+        foreach (var p in filterProblems) Console.WriteLine($"  FAIL  {p}");
+        failures += filterProblems.Count;
+        if (filterProblems.Count == 0)
+            Console.WriteLine($"  PASS  filter triangle holds — {map.Records.Sum(r => r.Filters.Count)} filter specs " +
+                $"({map.Records.Sum(r => r.Filters.Values.Count(f => f.IsUnmapped))} explicitly unmapped) + " +
+                $"{SkyPatcherOverlay.BuiltInFilterBases.Count} built-in families");
+        foreach (var r in map.Records)
+            foreach (var (f, spec) in r.Filters.Where(kv => kv.Value.IsUnmapped))
+                Console.WriteLine($"  note  {r.Subfolder}.{f} filter unmapped: {spec.Unmapped}");
+
         // Visibility: the explicitly-unmapped list (each is a reviewed judgment, listed so drift is seen).
         foreach (var r in map.Records)
             foreach (var (op, m) in r.Ops.Where(kv => kv.Value.IsUnmapped))
@@ -64,6 +76,24 @@ public static class SkyPatcherFieldMapProbe
         failures += Check("self-test: bad valueMap target caught", caught.Any(p => p.Contains("NotARealMember")));
         failures += Check("self-test: mapped HARD op caught", caught.Any(p => p.Contains("mirrorWeapon") && p.Contains("HARD")));
         failures += Check("self-test: stateful-shape disagreement caught", caught.Any(p => p.Contains("attackDamageMult") && p.Contains("semantic")));
+
+        // ---- self-test: the FILTER checker must CATCH a broken filter map ----
+        const string brokenFilters = """
+        [
+         { "subfolder": "npc", "recordType": "Npc",
+           "filters": {
+             "filterByRaces":  { "eval": "formEquals", "path": "NoSuchLink", "formType": "Race" },
+             "filterByAutoCalc": { "eval": "flagBool", "path": "Configuration.Flags", "flag": "NotARealFlag" },
+             "notACatalogFilter": { "eval": "gender", "path": "Configuration.Flags" }
+           },
+           "ops": {} }
+        ]
+        """;
+        var badF = SkyPatcherFieldMap.LoadFrom(brokenFilters);
+        var caughtF = ValidateFilters(catalog, badF, completeness: false);
+        failures += Check("filter self-test: bad path caught", caughtF.Any(p => p.Contains("NoSuchLink")));
+        failures += Check("filter self-test: bad flag member caught", caughtF.Any(p => p.Contains("NotARealFlag")));
+        failures += Check("filter self-test: non-catalog filter caught", caughtF.Any(p => p.Contains("notACatalogFilter")));
 
         Console.WriteLine(failures == 0
             ? "[skypatcher-fieldmap-guard] PASS — catalog ⇄ field map ⇄ Mutagen agree."
@@ -215,6 +245,132 @@ public static class SkyPatcherFieldMapProbe
             }
         }
         return problems;
+    }
+
+    /// <summary>The Wave-2 filter triangle: every catalog filter that is not a primary/gate/noFilter
+    /// token is either a BUILT-IN family (<see cref="SkyPatcherOverlay.BuiltInFilterBases"/>) or has a
+    /// per-record <see cref="FilterSpec"/> (mapped, or explicitly unmapped WITH a reason) — and every
+    /// spec's paths/flags/valueMaps walk the real Mutagen types. A filter that is neither would skip
+    /// lines loud at runtime forever without CI ever noticing the coverage gap.</summary>
+    internal static List<string> ValidateFilters(SkyPatcherCatalog catalog, SkyPatcherFieldMap map, bool completeness = true)
+    {
+        var problems = new List<string>();
+        var asm = typeof(SkyrimMod).Assembly;
+
+        if (completeness)
+        {
+            foreach (var rec in catalog.Records)
+            {
+                if (rec.Sig.Equals("OMOD", StringComparison.OrdinalIgnoreCase)) continue;
+                var maps = map.ForSubfolder(rec.Subfolder);
+                if (maps.Count == 0) continue;   // already a Validate() failure
+                foreach (var f in rec.Filters)
+                {
+                    if (f.Kind is SkyPatcherFilterKind.Primary or SkyPatcherFilterKind.HasPlugins or SkyPatcherFilterKind.NoFilter) continue;
+                    if (SkyPatcherOverlay.BuiltInFilterBases.Contains(f.Name)) continue;
+                    if (!maps.Any(m => m.Filters.ContainsKey(f.Name)))
+                        problems.Add($"{rec.Subfolder}.{f.Name} ({f.Kind}) is neither a built-in filter family nor in the filter map (map it, or declare it unmapped with a reason).");
+                }
+            }
+        }
+
+        foreach (var r in map.Records)
+        {
+            var rec = catalog.ForSubfolder(r.Subfolder);
+            var rootType = asm.GetType("Mutagen.Bethesda.Skyrim." + r.RecordType);
+            if (rec is null || rootType is null) continue;   // already Validate() failures
+
+            foreach (var (name, spec) in r.Filters)
+            {
+                var ctx = $"{r.Subfolder}.filters.{name}";
+                if (!rec.Filters.Any(f => f.Name == name))
+                { problems.Add($"{ctx}: not a filter in the catalog for this record type."); continue; }
+                if (spec.IsUnmapped)
+                {
+                    if (string.IsNullOrWhiteSpace(spec.Unmapped)) problems.Add($"{ctx}: unmapped without a reason.");
+                    continue;
+                }
+
+                if (spec.FormType is { } ft
+                    && asm.GetType("Mutagen.Bethesda.Skyrim." + ft) is null
+                    && asm.GetType("Mutagen.Bethesda.Skyrim.I" + ft + "Getter") is null)
+                    problems.Add($"{ctx}: formType '{ft}' is neither a Mutagen.Bethesda.Skyrim record class nor a link interface (I{ft}Getter).");
+
+                // Donor kinds read their path off ANOTHER record: the linkPath walks the record, the
+                // path walks the LINKED type (recovered from the formlink's getter argument).
+                if (spec.Eval is SkyPatcherFilterEval.DonorSubstring or SkyPatcherFilterEval.DonorKeywords)
+                {
+                    if (spec.LinkPath is null) { problems.Add($"{ctx}: donor eval needs linkPath."); continue; }
+                    var link = WalkPath(rootType, spec.LinkPath, $"{ctx} (linkPath)", problems);
+                    if (link is null) continue;
+                    if (spec.Eval == SkyPatcherFilterEval.DonorSubstring)
+                    {
+                        var donorType = FormLinkTargetType(asm, link.PropertyType);
+                        if (donorType is null) { problems.Add($"{ctx}: linkPath '{spec.LinkPath}' is not a formlink (can't resolve the donor type)."); continue; }
+                        WalkPath(donorType, spec.Paths[0], $"{ctx} (donor path)", problems);
+                    }
+                    continue;
+                }
+
+                foreach (var path in spec.Paths)
+                {
+                    var leaf = WalkPath(rootType, path, ctx, problems);
+                    if (leaf is null) continue;
+                    var et = StripNullable(leaf.PropertyType);
+                    switch (spec.Eval)
+                    {
+                        case SkyPatcherFilterEval.EnumEquals:
+                            if (!et.IsEnum) problems.Add($"{ctx}: enumEquals targets non-enum '{path}' ({et.Name}).");
+                            else if (spec.ValueMap is not null)
+                                foreach (var (tok, member) in spec.ValueMap)
+                                    if (!EnumHas(et, member)) problems.Add($"{ctx}: valueMap '{tok}' → '{member}' is not a member of {et.Name}.");
+                            break;
+                        case SkyPatcherFilterEval.FlagBool:
+                        case SkyPatcherFilterEval.FlagAnyOf:
+                        case SkyPatcherFilterEval.BipedSlots:
+                        case SkyPatcherFilterEval.Gender:
+                            if (!et.IsEnum) { problems.Add($"{ctx}: flag eval targets non-enum '{path}' ({et.Name})."); break; }
+                            if (spec.Eval == SkyPatcherFilterEval.FlagBool && (spec.Flag is null || !EnumHas(et, spec.Flag)))
+                                problems.Add($"{ctx}: flagBool flag '{spec.Flag ?? "<null>"}' is not a member of {et.Name}.");
+                            if (spec.Eval == SkyPatcherFilterEval.Gender && !EnumHas(et, "Female"))
+                                problems.Add($"{ctx}: gender eval needs a Female member on {et.Name}.");
+                            if (spec.ValueMap is not null)
+                                foreach (var (tok, member) in spec.ValueMap)
+                                    if (!EnumHas(et, member)) problems.Add($"{ctx}: valueMap '{tok}' → '{member}' is not a member of {et.Name}.");
+                            break;
+                        case SkyPatcherFilterEval.NumericLess:
+                            if (!IsNumeric(et)) problems.Add($"{ctx}: numericLess targets non-numeric '{path}' ({et.Name}).");
+                            break;
+                        case SkyPatcherFilterEval.FormEquals:
+                        case SkyPatcherFilterEval.LinkedOriginPlugin:
+                            if (!et.Name.Contains("FormLink", StringComparison.Ordinal))
+                                problems.Add($"{ctx}: {spec.Eval} targets non-formlink '{path}' ({et.Name}).");
+                            break;
+                        case SkyPatcherFilterEval.FormInList:
+                        {
+                            if (!IsList(et)) { problems.Add($"{ctx}: formInList targets non-list '{path}'."); break; }
+                            var el = ListElement(et)!;
+                            if (spec.KeyPath is { } kp) WalkPath(el, kp, $"{ctx} (keyPath)", problems);
+                            else if (!el.Name.Contains("FormLink", StringComparison.Ordinal))
+                                problems.Add($"{ctx}: formInList without keyPath needs a formlink list, got List<{el.Name}>.");
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        return problems;
+    }
+
+    /// <summary>The MUTABLE Mutagen class a FormLink&lt;IXGetter&gt; leaf points at (null when the
+    /// property isn't a formlink or the target class doesn't resolve).</summary>
+    static Type? FormLinkTargetType(Assembly asm, Type linkProp)
+    {
+        var t = StripNullable(linkProp);
+        if (!t.IsGenericType || !t.Name.Contains("FormLink", StringComparison.Ordinal)) return null;
+        var getter = t.GetGenericArguments()[0].Name;                       // "IRaceGetter"
+        if (!getter.StartsWith('I') || !getter.EndsWith("Getter", StringComparison.Ordinal)) return null;
+        return asm.GetType("Mutagen.Bethesda.Skyrim." + getter[1..^"Getter".Length]);
     }
 
     static void CheckValueMap(OpMap m, Type enumType, string ctx, List<string> problems)
