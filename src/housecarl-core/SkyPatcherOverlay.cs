@@ -800,7 +800,7 @@ public static class SkyPatcherOverlay
     /// Review finding #4: the bare 24-bit mask made every full ESL FormID silently match nothing.
     /// Residual EMPIRICAL item: a bare 6-hex ESL spelling like <c>800123</c> is inherently ambiguous
     /// (documented in the plan's Wave-1 list) — the 24-bit mask applies to it.</summary>
-    internal static bool TryFormKey(FormAddress a, out FormKey fk)
+    public static bool TryFormKey(FormAddress a, out FormKey fk)
     {
         fk = default;
         if (a.Plugin is null || a.FormId is null) return false;

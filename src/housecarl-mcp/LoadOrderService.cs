@@ -353,30 +353,49 @@ public sealed class LoadOrderService : IDisposable
             profileName = _profileName;
         }
 
+        var fieldMap = SkyPatcherFieldMap.Load();
+        var catalog = SkyPatcherCatalog.Load();
+        using var session = resolver.OpenSession();
+        var scan = SkyPatcherDiscovery.Scan(assets, catalog, view.ContainsPlugin, _skyPatcherParseCache);
+        var scratch = new SkyrimMod(SkyPatcherScratchKey, SkyrimRelease.SkyrimSE);
+        var formResolver = new SkyPatcherServiceResolver(this, view, session);
+
+        var r = ReplaySkyPatcher(view, session, scan, catalog, fieldMap, scratch, formResolver, fk, linesCache: null);
+        if (r.Error is not null) return SkyPatcherPostStateData.Fail(fk, r.Error);
+        return new SkyPatcherPostStateData(null, fk, r.EditorId, r.TypeName, r.WinnerPlugin,
+            r.Folders, scan.Notes, scan.ReadIncomplete || assets.ReadIncomplete, assetWarnings, profileName);
+    }
+
+    /// <summary>The per-record SkyPatcher replay core, shared by the post-state read and the layer
+    /// no-op (true-ITM) scan: resolve the winner, materialize a mutable scratch copy, apply every
+    /// type folder's ordered lines in field-map order. Error = the named reason the record can't be
+    /// replayed (Q3 — the caller decides whether that's a Fail or a skip-with-count).</summary>
+    (string? TypeName, string? WinnerPlugin, string? EditorId, List<SkyPatcherFolderOutcome> Folders, string? Error)
+        ReplaySkyPatcher(
+            LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session,
+            SkyPatcherDiscovery.LayerScan scan, SkyPatcherCatalog catalog, SkyPatcherFieldMap fieldMap,
+            SkyrimMod scratch, SkyPatcherOverlay.IFormResolver formResolver, FormKey fk,
+            Dictionary<string, IReadOnlyList<SkyPatcherOverlay.OrderedLine>>? linesCache)
+    {
+        var none = new List<SkyPatcherFolderOutcome>();
         var winner = view.ResolveWinner(fk);
         if (winner is null)
-            return SkyPatcherPostStateData.Fail(fk, $"FormID {fk} is not present in the load order ({view.PluginCount} plugins).");
+            return (null, null, null, none, $"FormID {fk} is not present in the load order ({view.PluginCount} plugins).");
 
-        using var session = resolver.OpenSession();
         var body = view.GetRecord(session, winner.Value.WinnerPlugin, fk);
         if (body is null)
-            return SkyPatcherPostStateData.Fail(fk, $"Winner '{winner.Value.WinnerPlugin}' did not yield {fk} on fetch — a load-order inconsistency.");
+            return (null, winner.Value.WinnerPlugin, null, none, $"Winner '{winner.Value.WinnerPlugin}' did not yield {fk} on fetch — a load-order inconsistency.");
 
         var typeName = ReadEngine.ReadFields(body, new[] { "EditorID" }).Type;   // the same type naming every read tool reports
-        var fieldMap = SkyPatcherFieldMap.Load();
         var maps = fieldMap.ForRecordType(typeName);
         if (maps.Count == 0)
-            return SkyPatcherPostStateData.Fail(fk,
+            return (typeName, winner.Value.WinnerPlugin, body.EditorID, none,
                 $"Record type '{typeName}' is not a SkyPatcher-patchable type (or has no field map) — the SkyPatcher layer cannot touch {fk}.");
-
-        var catalog = SkyPatcherCatalog.Load();
-        var scan = SkyPatcherDiscovery.Scan(assets, catalog, view.ContainsPlugin, _skyPatcherParseCache);
 
         // The running copy: the winner overridden into an in-memory scratch mod (never written to disk).
         // Nested-group types (CELL / REFR / INFO…) need the source link cache to rebuild their parent
         // chain — the same RecordNeedsSourceCache + LinkCacheFor idiom every write path uses (PR #165
         // review finding #1: without it, 2 of the 27 covered types threw unhandled instead of failing named).
-        var scratch = new SkyrimMod(SkyPatcherScratchKey, SkyrimRelease.SkyrimSE);
         IMajorRecord copy;
         try
         {
@@ -386,11 +405,10 @@ public sealed class LoadOrderService : IDisposable
         }
         catch (Exception ex)
         {
-            return SkyPatcherPostStateData.Fail(fk,
+            return (typeName, winner.Value.WinnerPlugin, body.EditorID, none,
                 $"Could not materialize a mutable copy of {fk} ({typeName}) for the replay — {ex.GetType().Name}: {ex.Message}");
         }
 
-        var formResolver = new SkyPatcherServiceResolver(this, view, session);
         var folders = new List<SkyPatcherFolderOutcome>();
         foreach (var m in maps)
         {
@@ -400,7 +418,10 @@ public sealed class LoadOrderService : IDisposable
                 folders.Add(new SkyPatcherFolderOutcome(m.Subfolder, 0, 0, null, true));
                 continue;
             }
-            var lines = SkyPatcherDiscovery.OrderedLines(folder);
+            IReadOnlyList<SkyPatcherOverlay.OrderedLine> lines;
+            if (linesCache is null) lines = SkyPatcherDiscovery.OrderedLines(folder);
+            else if (!linesCache.TryGetValue(folder.Subfolder, out lines!))
+                linesCache[folder.Subfolder] = lines = SkyPatcherDiscovery.OrderedLines(folder);
             var result = SkyPatcherOverlay.Apply(copy, fk, body.EditorID, catalog, folder.Catalog, m, lines, formResolver);
             // A toggled-off folder contributes NOTHING — reporting its files as "applied" would assert
             // as live the INIs the DLL skips wholesale (review finding #7). Enabled rides along so the
@@ -410,17 +431,18 @@ public sealed class LoadOrderService : IDisposable
                 folder.PatchingEnabled));
         }
 
-        return new SkyPatcherPostStateData(null, fk, body.EditorID, typeName, winner.Value.WinnerPlugin,
-            folders, scan.Notes, scan.ReadIncomplete || assets.ReadIncomplete, assetWarnings, profileName);
+        return (typeName, winner.Value.WinnerPlugin, body.EditorID, folders, null);
     }
 
     /// <summary>
     /// Scan the WHOLE SkyPatcher layer (housecarl_skypatcher_layer): every loose INI as the DLL reads
     /// it (ordered union, VFS same-path collisions surfaced, gates + toggles evaluated) plus the
-    /// INI-vs-INI same-field SET collisions per type folder (<see cref="SkyPatcherConflicts"/>,
-    /// report-only). ONE record capture answers the filename gates + ONE asset capture pins the scan
-    /// (the SkseInventory discipline); the enumerate + parse + detect run OUTSIDE the gate on the
-    /// handle-free captured view. A layer with no INIs is a NAMED outcome, never an empty guess (Q3).
+    /// INI-vs-INI same-field SET collisions and the three ITM classes — intra-file dead writes +
+    /// cross-INI duplicates (<see cref="SkyPatcherConflicts"/>) and the no-op writes (the per-record
+    /// replay below), all report-only. ONE record capture answers the filename gates + ONE asset
+    /// capture pins the scan (the SkseInventory discipline); the enumerate + parse + detect run
+    /// OUTSIDE the gate on the handle-free captured view. A layer with no INIs is a NAMED outcome,
+    /// never an empty guess (Q3).
     /// </summary>
     public SkyPatcherLayerData SkyPatcherLayer()
     {
@@ -440,13 +462,85 @@ public sealed class LoadOrderService : IDisposable
         var scan = SkyPatcherDiscovery.Scan(assets, catalog, view.ContainsPlugin, _skyPatcherParseCache);
         var conflicts = new List<SkyPatcherConflicts.SkyPatcherConflict>();
         var itms = new List<SkyPatcherConflicts.SkyPatcherItm>();
+        var duplicates = new List<SkyPatcherConflicts.SkyPatcherDuplicate>();
         foreach (var folder in scan.Folders)
         {
             var report = SkyPatcherConflicts.Detect(folder, catalog, fieldMap);
             conflicts.AddRange(report.Conflicts);
             itms.AddRange(report.Itms);
+            duplicates.AddRange(report.Duplicates);
         }
-        return new SkyPatcherLayerData(scan, conflicts, itms, scan.ReadIncomplete || assets.ReadIncomplete, assetWarnings, profileName);
+
+        // ---- the TRUE-ITM (no-op write) scan: replay every explicitly-targeted record through the
+        //      same per-record core the post-state read uses, and flag SET-class ops whose before ==
+        //      after — the line writes the value the record already has at that point in the replay
+        //      (which handles chains: a set that restores an earlier INI's change is NOT a no-op).
+        //      Broad (type-wide) lines are evaluated only against the explicitly-targeted records —
+        //      replaying every record of a type is not attempted; the note says so (Q3). Deliberate
+        //      leave-unchanged values ('none') are the author's explicit choice, not flagged. ----
+        var noOps = new List<SkyPatcherNoOpWrite>();
+        var noOpNotes = new List<string>();
+        {
+            using var session = Resolver.OpenSession();
+            var formResolver = new SkyPatcherServiceResolver(this, view, session);
+            var scratch = new SkyrimMod(SkyPatcherScratchKey, SkyrimRelease.SkyrimSE);
+            var linesCache = new Dictionary<string, IReadOnlyList<SkyPatcherOverlay.OrderedLine>>(StringComparer.OrdinalIgnoreCase);
+            var targets = new HashSet<FormKey>();
+            int broadLines = 0, unresolvedTargets = 0, failedReplays = 0;
+            foreach (var folder in scan.Folders)
+            {
+                if (folder.Catalog is null || !folder.PatchingEnabled) continue;
+                var folderTypes = fieldMap.ForSubfolder(folder.Subfolder).Select(m => m.RecordType).ToList();
+                foreach (var ol in SkyPatcherDiscovery.OrderedLines(folder))
+                {
+                    if (ol.Parsed.Kind != SkyPatcherLineKind.Patch) continue;
+                    bool hasOp = false, hasExplicit = false;
+                    foreach (var seg in ol.Parsed.Segments)
+                    {
+                        var cls = catalog.Classify(folder.Catalog, seg.Key);
+                        if (cls.Role == SkyPatcherKeyRole.Operation) hasOp = true;
+                        else if (cls.Role == SkyPatcherKeyRole.Filter
+                                 && cls.Filter!.Kind == SkyPatcherFilterKind.Primary && (cls.Connective ?? "") == "")
+                            foreach (var v in seg.Values)
+                            {
+                                hasExplicit = true;
+                                if (v.Address is { IsFormId: true } a && SkyPatcherOverlay.TryFormKey(a, out var tfk)) targets.Add(tfk);
+                                else
+                                {
+                                    var rfk = folderTypes.Select(t => formResolver.ResolveEditorId(v.Raw, t)).FirstOrDefault(x => x is not null);
+                                    if (rfk is not null) targets.Add(rfk.Value); else unresolvedTargets++;
+                                }
+                            }
+                    }
+                    if (hasOp && !hasExplicit) broadLines++;
+                }
+            }
+            foreach (var fk in targets)
+            {
+                var r = ReplaySkyPatcher(view, session, scan, catalog, fieldMap, scratch, formResolver, fk, linesCache);
+                if (r.Error is not null) { failedReplays++; continue; }
+                foreach (var fo in r.Folders)
+                {
+                    if (fo.Result is not { } res) continue;
+                    var map = fieldMap.For(fo.Subfolder, r.TypeName!);
+                    foreach (var a in res.Applied)
+                    {
+                        if (a.Before is null || a.Before != a.After) continue;
+                        if (a.RawValue.Trim().Equals("none", StringComparison.OrdinalIgnoreCase)) continue;   // deliberate leave-unchanged
+                        var op = map?.Ops.GetValueOrDefault(a.Op);
+                        if (op is null || op.IsUnmapped || !SkyPatcherConflicts.SetClassSemantics.Contains(op.Semantic)) continue;
+                        noOps.Add(new SkyPatcherNoOpWrite(fo.Subfolder, fk.ToString(), r.EditorId,
+                            a.FieldPath, a.File, a.LineNumber, a.Op, a.RawValue, a.Before));
+                    }
+                }
+            }
+            if (broadLines > 0) noOpNotes.Add($"no-op scan: {broadLines} broad (type-wide) line(s) were evaluated only against the explicitly-targeted records, not every record of their type.");
+            if (unresolvedTargets > 0) noOpNotes.Add($"no-op scan: {unresolvedTargets} explicit target(s) did not resolve (the overlay's per-record warnings name them via housecarl_skypatcher_read).");
+            if (failedReplays > 0) noOpNotes.Add($"no-op scan: {failedReplays} targeted record(s) could not be replayed (not in the order / unpatchable type / copy failure).");
+        }
+
+        return new SkyPatcherLayerData(scan, conflicts, itms, duplicates, noOps, noOpNotes,
+            scan.ReadIncomplete || assets.ReadIncomplete, assetWarnings, profileName);
     }
 
     /// <summary>The live-load-order lookups the overlay needs (<see cref="SkyPatcherOverlay.IFormResolver"/>),
@@ -4171,15 +4265,25 @@ public sealed record SkseInventoryData(
     string ProfileName);
 
 /// <summary>The data behind the whole-layer SkyPatcher scan (Wave 2): the ordered discovery scan, the
-/// per-folder INI-vs-INI set collisions, the intra-file dead lines (ITM-class), and the build-level
-/// Q3 caveats.</summary>
+/// per-folder INI-vs-INI set collisions, the three ITM classes (intra-file dead writes, cross-INI
+/// duplicates, no-op writes), and the build-level Q3 caveats.</summary>
 public sealed record SkyPatcherLayerData(
     HousecarlCore.SkyPatcherDiscovery.LayerScan Scan,
     IReadOnlyList<HousecarlCore.SkyPatcherConflicts.SkyPatcherConflict> Conflicts,
     IReadOnlyList<HousecarlCore.SkyPatcherConflicts.SkyPatcherItm> Itms,
+    IReadOnlyList<HousecarlCore.SkyPatcherConflicts.SkyPatcherDuplicate> Duplicates,
+    IReadOnlyList<SkyPatcherNoOpWrite> NoOps,
+    IReadOnlyList<string> NoOpNotes,
     bool ReadIncomplete,
     IReadOnlyList<string> AssetWarnings,
     string ProfileName);
+
+/// <summary>One no-op write (the third ITM class — true ITM): a SET-class op that applied to the
+/// record in the full replay but wrote the value the record already had at that point.
+/// <see cref="Already"/> is that value (the overlay's before == after leaf token).</summary>
+public sealed record SkyPatcherNoOpWrite(
+    string Subfolder, string FormKey, string? EditorId, string FieldPath,
+    string File, int Line, string Op, string Value, string Already);
 
 /// <summary>The data behind the SkyPatcher post-state read (Wave 1): the record's identity + winner, one
 /// <see cref="SkyPatcherFolderOutcome"/> per type folder that can patch it (RACE gets two — race/ + raceHook/),

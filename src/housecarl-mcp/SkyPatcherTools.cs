@@ -27,10 +27,12 @@ public static class SkyPatcherTools
          "that wins the VFS for each file, same-path collisions (the loser's content is never read — flagged), " +
          "Plugin.esp.ini filename gates evaluated against the load order, and SkyPatcher.ini per-type toggles. Then " +
          "reports the INI-vs-INI CONFLICTS: two files setting the SAME field of the SAME record to different values " +
-         "(the later-sorted file wins; add/remove ops accumulate and are not conflicts), plus the intra-file DEAD " +
-         "WRITES (ITM-class): a later line of the SAME file unconditionally re-covers every target of an earlier " +
-         "set — dead regardless of value (a partial or conditional-only overwrite is NOT flagged; the write may " +
-         "still fire). Entries whose applicability " +
+         "(the later-sorted file wins; add/remove ops accumulate and are not conflicts), plus the three ITM " +
+         "classes: intra-file DEAD WRITES (a later line of the SAME file unconditionally re-covers every target " +
+         "of an earlier set — dead regardless of value; partial or conditional-only overwrites are NOT flagged), " +
+         "cross-INI DUPLICATES (two files set the same field/target to the SAME value — one copy is redundant), " +
+         "and NO-OP WRITES (true ITM — the replay shows the SET writes the value the record already has). " +
+         "Entries whose applicability " +
          "also hangs on other filters are flagged conditional rather than guessed. Pass filter= a type folder, mod, " +
          "or filename substring to expand matching files to their patch lines. For ONE record's computed " +
          "post-SkyPatcher state use housecarl_skypatcher_read. Read-only.")]
@@ -96,8 +98,10 @@ static class SkyPatcherWire
           .Append(applied).Append(" applied), ").Append(lines).Append(" patch line(s)");
         if (appliedLines != lines) sb.Append(" (").Append(appliedLines).Append(" in applied files)");   // files vs lines units — don't let a gated file's lines read as live
         int deadWrites = d.Itms.Sum(m => m.Entries.Count);   // entries ARE the dead writes — exact units
-        sb.Append(", ").Append(d.Conflicts.Count).Append(" set-conflict(s), ")
-          .Append(deadWrites).Append(" intra-file dead write(s) (ITM)\n");
+        sb.Append(", ").Append(d.Conflicts.Count).Append(" set-conflict(s); ITM: ")
+          .Append(deadWrites).Append(" intra-file dead write(s), ")
+          .Append(d.Duplicates.Count).Append(" cross-INI duplicate(s), ")
+          .Append(d.NoOps.Count).Append(" no-op write(s)\n");
         if (folders.Count == 0)
             sb.Append("\nno SkyPatcher INIs in the active order (no Data\\SKSE\\Plugins\\SkyPatcher content, or SkyPatcher itself is not installed).\n");
 
@@ -180,6 +184,50 @@ static class SkyPatcherWire
                 shownItms++;
             }
             sb.Append("  (report-only: in YOUR ini a dead write is an authoring slip to fix at the source; in a downloaded mod's it is usually harmless — the last write is what applies. A write partially overwritten, or overwritten only by a conditional line, is NOT listed — it may still fire.)\n");
+        }
+
+        if (d.Duplicates.Count > 0)
+        {
+            sb.Append("\ncross-INI duplicate writes (").Append(d.Duplicates.Count)
+              .Append(") — ITM-class: two or more files set the same field of the same target to the SAME value; one copy is redundant (keep either — the LAST would win if they ever diverge):\n");
+            int shownDups = 0;
+            foreach (var c in d.Duplicates)
+            {
+                if (sb.Length >= cap) { sb.Append("  ... [showing ").Append(shownDups).Append(" of ").Append(d.Duplicates.Count).Append("; raise max_chars]\n"); break; }
+                sb.Append("  - [").Append(c.Subfolder).Append("] ").Append(c.Field).Append(" @ ").Append(c.Target).Append(":\n");
+                foreach (var e in c.Entries)
+                {
+                    if (sb.Length >= cap) { sb.Append("      ... [entries cut at max_chars]\n"); break; }
+                    sb.Append("      ").Append(Path.GetFileName(e.File)).Append(':').Append(e.Line)
+                      .Append("  ").Append(e.Op).Append('=').Append(e.Value)
+                      .Append(e.Conditional ? "   [conditional — the line carries further filters]" : "")
+                      .Append('\n');
+                }
+                shownDups++;
+            }
+        }
+
+        if (d.NoOps.Count > 0)
+        {
+            sb.Append("\nno-op writes (").Append(d.NoOps.Count)
+              .Append(") — true ITM: the SET writes the value the record already has at that point in the replay, so the op changes nothing:\n");
+            int shownNoOps = 0;
+            foreach (var n in d.NoOps)
+            {
+                if (sb.Length >= cap) { sb.Append("  ... [showing ").Append(shownNoOps).Append(" of ").Append(d.NoOps.Count).Append("; raise max_chars]\n"); break; }
+                sb.Append("  - [").Append(n.Subfolder).Append("] ").Append(Path.GetFileName(n.File)).Append(':').Append(n.Line)
+                  .Append("  ").Append(n.Op).Append('=').Append(n.Value)
+                  .Append(" @ ").Append(n.FormKey).Append(n.EditorId is null ? "" : $" ({n.EditorId})")
+                  .Append(" — ").Append(n.FieldPath).Append(" is already ").Append(n.Already)
+                  .Append('\n');
+                shownNoOps++;
+            }
+            sb.Append("  (report-only, and relative to THIS load order: the same line matters in an order where the record's winner differs — unlike dead writes and duplicates, a no-op is not an authoring slip in the INI itself unless you author for this order.)\n");
+        }
+        foreach (var note in d.NoOpNotes)
+        {
+            if (sb.Length >= cap) break;
+            sb.Append("[!] ").Append(note).Append('\n');
         }
 
         foreach (var note in d.Scan.Notes)

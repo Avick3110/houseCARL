@@ -74,6 +74,14 @@ public static class SkyPatcherConflictsProbe
             conflicts.All(c => c.Field != "Keywords"), Dump());
         failures += Check("same-value sets are NOT a conflict (weight 5 vs 5)",
             conflicts.All(c => c.Field != "BasicStats.Weight"), Dump());
+        var dup = report.Duplicates.FirstOrDefault(x => x.Field == "BasicStats.Weight");
+        failures += Check("same-value sets across files ARE a cross-INI DUPLICATE (weight 5 vs 5, a.ini + m.ini)",
+            dup is not null && dup.Entries.Count == 2
+            && dup.Entries.Select(e => Path.GetFileName(e.File)).SequenceEqual(new[] { "a.ini", "m.ini" }),
+            string.Join(" ; ", report.Duplicates.Select(x => $"{x.Field}@{x.Target}")));
+        failures += Check("a value-MIXED group stays a conflict only, never double-reported as a duplicate",
+            report.Duplicates.All(x => x.Field != "BasicStats.Damage" && x.Field != "Data.Reach" && x.Field != "Data.Speed"),
+            string.Join(" ; ", report.Duplicates.Select(x => $"{x.Field}@{x.Target}")));
         var reach = conflicts.FirstOrDefault(c => c.Field == "Data.Reach");
         failures += Check("a BROAD set collides with an explicit-target set (reach 1.5 vs 2.5)",
             reach is not null && reach.Entries.Count == 2 && reach.Winner.Value == "2.5", Dump());

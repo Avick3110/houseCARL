@@ -36,6 +36,12 @@ namespace HousecarlCore;
 /// reported; a conditional EARLIER write killed unconditionally is dead either way — applied or not,
 /// the later write decides the field). These are a separate report class, not conflicts — no
 /// cross-mod judgment call, just same-author redundancy.</para>
+///
+/// <para><b>Cross-INI duplicate writes (the second ITM class).</b> Two files SET the same field of
+/// the same target to the SAME value — the value-identical complement of a conflict (which requires
+/// differing values). Nothing is wrong in game, but one copy is redundant: keep either (the LAST
+/// would win if they ever diverge). A value-MIXED group stays a conflict only — the duplicate pair
+/// inside it is visible in the conflict's own entry list, not double-reported.</para>
 /// </summary>
 public static class SkyPatcherConflicts
 {
@@ -73,10 +79,23 @@ public static class SkyPatcherConflicts
     public sealed record SkyPatcherItmEntry(
         int Line, string Op, string Value, string Targets, bool Conditional, IReadOnlyList<int> KillerLines);
 
-    /// <summary>Both report classes from the one detection pass.</summary>
+    /// <summary>One cross-INI duplicate: ≥2 files write the same field/target with ONE distinct value
+    /// (case-insensitive). Same entry shape as a conflict — the classes differ only by the value gate.</summary>
+    public sealed record SkyPatcherDuplicate(
+        string Subfolder,
+        string Field,
+        string Target,
+        IReadOnlyList<SkyPatcherConflictEntry> Entries)
+    {
+        /// <summary>True when ANY entry's applicability also hangs on non-primary filters.</summary>
+        public bool Conditional => Entries.Any(e => e.Conditional);
+    }
+
+    /// <summary>All report classes from the one detection pass.</summary>
     public sealed record Report(
         IReadOnlyList<SkyPatcherConflict> Conflicts,
-        IReadOnlyList<SkyPatcherItm> Itms);
+        IReadOnlyList<SkyPatcherItm> Itms,
+        IReadOnlyList<SkyPatcherDuplicate> Duplicates);
 
     /// <summary>All records of the type — the target token a primary-filter-less line writes.</summary>
     const string Broad = "*";
@@ -88,7 +107,8 @@ public static class SkyPatcherConflicts
     {
         var conflicts = new List<SkyPatcherConflict>();
         var itms = new List<SkyPatcherItm>();
-        if (folder.Catalog is null) return new Report(conflicts, itms);
+        var duplicates = new List<SkyPatcherDuplicate>();
+        if (folder.Catalog is null) return new Report(conflicts, itms, duplicates);
         var maps = fieldMap.ForSubfolder(folder.Subfolder);
 
         // ---- collect every SET-class event in apply order (seq = the apply-order index) ----
@@ -136,8 +156,8 @@ public static class SkyPatcherConflicts
 
             foreach (var (token, own) in byToken.OrderBy(kv => kv.Key, StringComparer.OrdinalIgnoreCase))
                 // Explicit-target group + every broad write of the same field, merged back into apply order.
-                Emit(conflicts, folder.Subfolder, fieldGroup.Key, token, own.Concat(broad).OrderBy(h => h.seq).ToList());
-            Emit(conflicts, folder.Subfolder, fieldGroup.Key, Broad, broad);
+                Emit(conflicts, duplicates, folder.Subfolder, fieldGroup.Key, token, own.Concat(broad).OrderBy(h => h.seq).ToList());
+            Emit(conflicts, duplicates, folder.Subfolder, fieldGroup.Key, Broad, broad);
         }
 
         // ---- intra-file dead writes (ITM-class): a later line of the SAME file unconditionally
@@ -190,17 +210,21 @@ public static class SkyPatcherConflicts
                 itms.Add(new SkyPatcherItm(folder.Subfolder, fileFieldGroup.Key.field, fileFieldGroup.Key.file, dead));
             }
         }
-        return new Report(conflicts, itms);
+        return new Report(conflicts, itms, duplicates);
     }
 
-    static void Emit(List<SkyPatcherConflict> conflicts, string subfolder, string field, string token,
+    static void Emit(List<SkyPatcherConflict> conflicts, List<SkyPatcherDuplicate> duplicates,
+        string subfolder, string field, string token,
         IReadOnlyList<(int seq, string file, int line, string op, string value, bool conditional)> hits)
     {
         if (hits.Select(e => e.file).Distinct(StringComparer.OrdinalIgnoreCase).Count() < 2) return;
-        if (hits.Select(e => e.value).Distinct(StringComparer.OrdinalIgnoreCase).Count() < 2) return;
-        conflicts.Add(new SkyPatcherConflict(subfolder, field,
-            token == Broad ? $"(all {subfolder} records)" : token,
-            hits.Select(e => new SkyPatcherConflictEntry(e.file, e.line, e.op, e.value, e.conditional)).ToList()));
+        var target = token == Broad ? $"(all {subfolder} records)" : token;
+        var entries = hits.Select(e => new SkyPatcherConflictEntry(e.file, e.line, e.op, e.value, e.conditional)).ToList();
+        // One distinct value across ≥2 files = the cross-INI DUPLICATE class (ITM); ≥2 = a conflict.
+        if (hits.Select(e => e.value).Distinct(StringComparer.OrdinalIgnoreCase).Count() < 2)
+            duplicates.Add(new SkyPatcherDuplicate(subfolder, field, target, entries));
+        else
+            conflicts.Add(new SkyPatcherConflict(subfolder, field, target, entries));
     }
 
     /// <summary>The line's target tokens from its PRIMARY filter (normalized FormKey / case-folded
@@ -225,8 +249,9 @@ public static class SkyPatcherConflicts
     }
 
     /// <summary>The last-write-wins SET-class semantics — a later write of the same field/target
-    /// REPLACES an earlier one, the collision class this detector reports.</summary>
-    internal static readonly IReadOnlySet<SkyPatcherOpSemantic> SetClassSemantics = new HashSet<SkyPatcherOpSemantic>
+    /// REPLACES an earlier one, the collision class this detector reports. Public: the layer no-op
+    /// (true-ITM) scan uses the same partition to flag only literal same-value SETs.</summary>
+    public static readonly IReadOnlySet<SkyPatcherOpSemantic> SetClassSemantics = new HashSet<SkyPatcherOpSemantic>
     {
         SkyPatcherOpSemantic.Set, SkyPatcherOpSemantic.SetFromOwnField, SkyPatcherOpSemantic.ModelPath,
         SkyPatcherOpSemantic.VecComponent, SkyPatcherOpSemantic.ColorChannel, SkyPatcherOpSemantic.FlagBool,
