@@ -174,15 +174,13 @@ public static class SkyPatcherDiscovery
     }
 
     /// <summary>The plugin a filename gates on: 'Skyrim.esm.ini' → "Skyrim.esm"; 'myEdits.ini' → null.
-    /// The gate is the ini-stripped basename ending in a plugin extension (grammar §2).</summary>
+    /// The gate is the ini-stripped basename ending in a plugin extension (grammar §2; the ONE
+    /// extension list — <see cref="PluginFile.Extensions"/>).</summary>
     public static string? GatePluginOf(string relPath)
     {
         var stem = Path.GetFileNameWithoutExtension(relPath);   // strips the '.ini'
         var ext = Path.GetExtension(stem);
-        return ext.Equals(".esp", StringComparison.OrdinalIgnoreCase)
-            || ext.Equals(".esm", StringComparison.OrdinalIgnoreCase)
-            || ext.Equals(".esl", StringComparison.OrdinalIgnoreCase)
-            ? stem : null;
+        return PluginFile.Extensions.Any(e => ext.Equals(e, StringComparison.OrdinalIgnoreCase)) ? stem : null;
     }
 
     /// <summary>The ordered, game-visible line union for one folder — what the overlay replays. Only
