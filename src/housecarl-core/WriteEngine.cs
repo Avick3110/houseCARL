@@ -2123,7 +2123,15 @@ public static class WriteEngine
                 int count = CollectionCount(list);
                 if (idx < 0 || idx >= count)
                     throw new ExpectedApplyRejectionException(IndexRangeMessage(prop.Name, idx, count, append: true));
-                Indexer(lt).GetSetMethod()!.Invoke(list, new[] { (object)idx, Coerce(req.Value!, elem) });
+                // Build the replacement the SAME way Add does — a composable (struct/arm) element FROM PARTS
+                // (req.Struct → BuildStruct), a coercible element by coercing req.Value — then OVERWRITE in place,
+                // preserving the element's list position. Closes HCBR-2026-07-10: replacing one condition row no longer
+                // needs Remove+Add, which moved the row to the list END (harmless for an AND row, but breaking an
+                // OR-group). The gate (CorpusRulebook's composable block) admits a SetAtIndex compose ONLY for a
+                // Struct/Arm element, through the SAME StructElementLegality Add passes, so req.Struct is pre-validated
+                // here; a coercible element still coerces req.Value exactly as before (req.Struct null → the Coerce arm).
+                Indexer(lt).GetSetMethod()!.Invoke(list,
+                    new[] { (object)idx, req.Struct is not null ? BuildStruct(req.Struct) : Coerce(req.Value!, elem) });
                 break;
             }
             case "Remove":
