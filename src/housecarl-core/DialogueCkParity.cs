@@ -1,3 +1,4 @@
+using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Skyrim;
 
 namespace HousecarlCore;
@@ -39,6 +40,8 @@ namespace HousecarlCore;
 //                                                    on vanilla Custom topics — NON-NULLABLE float, see below)
 //    • QUST (Quest)          NextAliasID (ANAM)    → next-alias-ID counter: max(existing alias ID)+1, else 0
 //    • QUST QuestObjective   Flags      (FNAM)     → 0 (no flags), materialised per objective
+//    • QUST QuestAlias       Flags      (FNAM)     → 0 (no flags), materialised per alias
+//    • QUST QuestAlias       VoiceTypes (VTCK)     → null-link (0x00000000), materialised per alias
 //
 //  ONE S2 FIELD IS NOT NULLABLE — DIAL Priority is a plain float that defaults to 0, so "the author left it unset"
 //  can't be read off is-null the way every other field here is. The create path detects it from the AUTHOR'S OP LIST
@@ -299,8 +302,9 @@ public static class DialogueCkParity
             + "Priority at all — an explicit value, including 0, always wins. CK-parity seed.");
     }
 
-    /// <summary>QUST (Quest) CK-parity defaults — the NextAliasID (ANAM) counter and each objective's Flags (FNAM),
-    /// both nullable and omitted by Mutagen when unset; a CK-authored Quest carries both. NON-OVERRIDE throughout.
+    /// <summary>QUST (Quest) CK-parity defaults — the NextAliasID (ANAM) counter, each objective's Flags (FNAM), and
+    /// each alias's Flags (FNAM) + VoiceTypes (VTCK), all nullable and omitted by Mutagen when unset; a CK-authored
+    /// Quest carries every one. NON-OVERRIDE throughout.
     ///
     /// NextAliasID (ANAM): the next alias ID the CK would hand out. For a FRESHLY-created quest (no deletion history)
     /// that is max(existing alias ID)+1, or 0 for an alias-less quest (160 vanilla alias-less quests read 0). NOTE the
@@ -311,7 +315,20 @@ public static class DialogueCkParity
     ///
     /// QuestObjective.Flags (FNAM): materialise 0 (no flags) on each objective the author left null — the value every
     /// vanilla objective carries. The sole flag (OrWithPrevious) stays an explicit authoring choice a 0-fill does NOT
-    /// set (like Goodbye on the INFO Flags struct). Returns every fill applied (ANAM + one per materialised objective).</summary>
+    /// set (like Goodbye on the INFO Flags struct).
+    ///
+    /// QuestAlias.Flags (FNAM) + VoiceTypes (VTCK): the CK writes both on a REFERENCE alias, even zero/null
+    /// (HCBR-2026-07-10 — a byte-audit vs a CK-authored sibling whose every alias carries FNAM + VTCK; the reported
+    /// shape is a reference alias, block ALST/ALID/FNAM/ALFR/VTCK/ALED). Mutagen omits each when unset, so a composed
+    /// QuestAlias that sets neither writes ALST/ALID/ALFR/ALED (FNAM + VTCK absent) instead. Materialise Flags→0 (no
+    /// flags — named alias flags like Optional/Essential stay an explicit authoring choice a 0-fill does NOT set) on
+    /// EVERY alias (FNAM is carried by both reference and location aliases), and VoiceTypes→the null link (0x00000000,
+    /// a present-but-empty VTCK) only on a REFERENCE alias (voice types are an actor/reference concept — a Location
+    /// alias resolves to a place, not an actor; scoping VTCK to reference aliases covers the report without over-adding
+    /// a subrecord CK may omit on location aliases, which would also make MissingQuestDefaults false-warn on real
+    /// CK-authored location aliases). Same #131 asymmetry as the objective FNAM right above; S2 (byte-parity — no
+    /// confirmed crash: the report did NOT launch-test the omitted shape, so this closes the CK divergence, not a
+    /// proven CTD). Returns every fill applied (ANAM + one per materialised objective + up to two per materialised alias).</summary>
     public static IReadOnlyList<CkParityFill> ApplyQuestDefaults(IQuest quest)
     {
         var fills = new List<CkParityFill>();
@@ -343,13 +360,51 @@ public static class DialogueCkParity
             idx++;
         }
 
+        // QuestAlias FNAM (Flags) + VTCK (VoiceTypes): the CK writes both on a reference alias (HCBR-2026-07-10).
+        // Materialise each the author left null — Flags→0 on EVERY alias (both alias types carry FNAM); VoiceTypes→the
+        // null link only on a REFERENCE alias (VTCK is an actor/reference concept — a Location alias resolves to a
+        // place, and CK may omit VTCK there; scoping avoids over-adding + a MissingQuestDefaults false-warn on real
+        // CK-authored location aliases). Non-override throughout.
+        int aidx = 0;
+        foreach (var alias in quest.Aliases)
+        {
+            if (!HasAliasFlags(alias))
+            {
+                alias.Flags = default(QuestAlias.Flag);           // (QuestAlias.Flag)0 — no flags set
+                fills.Add(new CkParityFill(
+                    $"Aliases[{aidx}] (ID {alias.ID}) Flags (FNAM subrecord) auto-set to 0 (no flags)",
+                    "0 — every CK-authored quest alias carries the FNAM (flags) subrecord, value 0 when no alias flags "
+                    + "are set. This materialises the subrecord only; alias flags (Optional, Essential, …) stay an "
+                    + "explicit authoring choice. CK-parity default-populate."));
+            }
+            if (IsReferenceAlias(alias) && !HasAliasVoiceTypes(alias))
+            {
+                alias.VoiceTypes.SetTo(FormKey.Null);             // present-but-null VTCK (0x00000000), the CK's empty voice-type link
+                fills.Add(new CkParityFill(
+                    $"Aliases[{aidx}] (ID {alias.ID}) VoiceTypes (VTCK subrecord) auto-set to the null link (0x00000000)",
+                    "null link — every CK-authored quest REFERENCE alias carries the VTCK (voice-types) subrecord; an "
+                    + "alias with no voice type carries it as a null link (0x00000000), not omitted. This materialises "
+                    + "the empty subrecord only; a real voice-type list stays an explicit authoring choice. CK-parity "
+                    + "default-populate."));
+            }
+            aidx++;
+        }
+
         return fills;
     }
 
     // --- QUST presence predicates: the single home for "does this Quest carry the CK-parity subrecord?", consulted
-    //     by BOTH ApplyQuestDefaults (fills when absent) and MissingQuestDefaults (flags when absent) — no drift (Q3). ---
+    //     by BOTH ApplyQuestDefaults (fills when absent) and MissingQuestDefaults (flags when absent) — no drift (Q3).
+    //     The alias VTCK probe reads FormKeyNullable (not the rendered value): an ABSENT VTCK and a present null-link
+    //     both render "(null link)" (ReadEngine.NullLinkNote — a null FormKey), so only FormKeyNullable distinguishes
+    //     "author set no voice types" (null → fill) from "author set the null link / a real list" (non-null → keep). ---
     static bool HasNextAliasID(IQuestGetter quest) => quest.NextAliasID is not null;                 // ANAM
     static bool HasObjectiveFlags(IQuestObjectiveGetter objective) => objective.Flags is not null;   // FNAM
+    static bool HasAliasFlags(IQuestAliasGetter alias) => alias.Flags is not null;                    // FNAM (alias)
+    static bool HasAliasVoiceTypes(IQuestAliasGetter alias) => alias.VoiceTypes.FormKeyNullable is not null;  // VTCK
+    // VTCK is scoped to reference aliases: a Location alias resolves to a place, not an actor, so voice types don't
+    // apply and CK may omit VTCK there — the same gate guards both the fill and the gap so they can't drift.
+    static bool IsReferenceAlias(IQuestAliasGetter alias) => alias.Type == QuestAlias.TypeEnum.Reference;
 
     /// <summary>The CK-parity subrecords a QUST (Quest) is MISSING — the read-only counterpart of
     /// <see cref="ApplyQuestDefaults"/>, for the on-demand dialogue validator's QUEST input (checked ONCE per quest,
@@ -357,7 +412,7 @@ public static class DialogueCkParity
     /// disagree. S2 (byte-parity only — no confirmed crash). PRESENCE only: the fill's max-alias-id+1 derivation is
     /// create-lane-correct (an edited quest's ANAM is a CK high-water mark that can legitimately exceed max+1), so
     /// this checks "is ANAM absent?", never judges its VALUE. Empty when ANAM is present and every objective carries
-    /// FNAM. Reads only the getter; NEVER mutates.</summary>
+    /// FNAM and every alias carries FNAM + VTCK. Reads only the getter; NEVER mutates.</summary>
     public static IReadOnlyList<CkParityGap> MissingQuestDefaults(IQuestGetter quest)
     {
         var gaps = new List<CkParityGap>();
@@ -377,6 +432,23 @@ public static class DialogueCkParity
                     + "an objective missing it differs structurally from a CK-authored one (byte-parity only — no "
                     + "confirmed crash). houseCARL's create tools auto-fill it — set the objective's Flags to populate it."));
             idx++;
+        }
+
+        int aidx = 0;
+        foreach (var alias in quest.Aliases)
+        {
+            if (!HasAliasFlags(alias))
+                gaps.Add(new CkParityGap($"Aliases[{aidx}] (ID {alias.ID}) FNAM (Flags)",
+                    "every CK-authored quest alias carries the FNAM (flags) subrecord (value 0 when no alias flags are "
+                    + "set); an alias missing it differs structurally from a CK-authored one (byte-parity only — no "
+                    + "confirmed crash). houseCARL's create tools auto-fill it — set the alias's Flags to populate it."));
+            if (IsReferenceAlias(alias) && !HasAliasVoiceTypes(alias))
+                gaps.Add(new CkParityGap($"Aliases[{aidx}] (ID {alias.ID}) VTCK (VoiceTypes)",
+                    "every CK-authored quest REFERENCE alias carries the VTCK (voice-types) subrecord (a null link, "
+                    + "0x00000000, when no voice type is set); a reference alias missing it differs structurally from a "
+                    + "CK-authored one (byte-parity only — no confirmed crash). houseCARL's create tools auto-fill it — "
+                    + "set the alias's VoiceTypes to populate it."));
+            aidx++;
         }
 
         return gaps;
