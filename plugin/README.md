@@ -26,6 +26,13 @@ It can:
   existing plugin (including one houseCARL didn't author) instead of writing a separate patch. Opt-in, gated
   by a one-time per-plugin consent prompt, and it keeps **no backup**; the default new-patch lane stays the
   default.
+- **Compact and merge plugins** — ESL-compact a plugin into the light-master FormID window, carrying its
+  FormID-keyed assets (facegen, voice) along so a compacted mod's faces don't go dark; or merge several
+  plugins into one (collision-only renumber, unused masters dropped), with the donor mods swapped out at the
+  MO2 layer and originals intact.
+- **Copy an NPC's appearance into a standalone** — lift a face (head parts, tints, the FaceGen mesh and
+  textures) from a donor NPC into a fresh record with no dependency on the donor's plugin — the build behind
+  a portable follower or a face moved between mods.
 - **Trace a magic effect** — resolve a MagicEffect to every spell, enchantment, potion, scroll, and
   ingredient that carries it, with each one's magnitude, in a single call.
 - **VFS asset layer** — read which copy of any Data-relative file (mesh, texture, script, sound,
@@ -33,9 +40,17 @@ It can:
   and place a file as a winning override into a new MO2 mod folder; loose-vs-BSA aware, with FaceGen as the
   headline use case. "Wrote it" is reported honestly as not yet "it wins" — you still enable and sort the
   new mod in MO2.
+- **Read and write a mesh's internals** — open the winning copy of a `.nif` and read the values baked inside
+  it (shape names, embedded skin / FaceTint texture paths, flags, alpha, partitions), and write a whitelisted
+  value back — fix a wrong texture path, rename a shape — verified against a two-gate read-back. The mesh half
+  of the dark-face fix, beside the record half.
 - **See the SKSE-plugin layer** — inventory the DLLs and their configs under `Data\SKSE\Plugins`, each
   resolved to the mod that wins it (with the conflict chain), and read each winning DLL's version metadata
   (name, author, target runtime, Address-Library flag) statically, without loading it.
+- **See through the SkyPatcher layer** — inventory every SkyPatcher INI in your load order at once (apply
+  order, VFS shadows, INI-vs-INI conflicts, and dead / duplicate / no-op writes), or read one record's *true*
+  state after the whole SkyPatcher layer has replayed over it — a runtime INI edit made as visible as a plugin
+  override. Report-only.
 - **Drive the external toolchain** — compile Papyrus scripts through the Creation Kit's compiler, and
   list / extract / repack BSA archives via BSArch; each tool's path is auto-detected or set once.
 - **Decompile compiled scripts** — reconstruct reviewable `.psc` source from any `.pex` (Mutagen-native,
