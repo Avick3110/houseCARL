@@ -34,8 +34,9 @@ namespace HousecarlGenerator;
 ///                       via MissingViewDefaults, none after ApplyViewDefaults (shared presence predicates).
 ///   DLBR-GAP-PROBE    — same tie for the DLBR: a bare DialogBranch reports exactly the TNAM gap via
 ///                       MissingBranchDefaults, none after ApplyBranchDefaults.
-///   QUST-GAP-PROBE    — same tie for the QUST: a bare quest with one Flags-less objective reports exactly the
-///                       ANAM + FNAM gaps via MissingQuestDefaults, none after ApplyQuestDefaults.
+///   QUST-GAP-PROBE    — same tie for the QUST: a bare quest with one Flags-less objective AND one bare alias reports
+///                       exactly the ANAM + objective-FNAM + alias-FNAM + alias-VTCK gaps via MissingQuestDefaults,
+///                       none after ApplyQuestDefaults.
 ///   DLVW-AUTOFILL     — create a bare DialogView → written DNAM=00, ENAM=00000000, both REPORTED.
 ///   DLVW-DNAM-WINS    — an explicit DNAM=FF is NOT overridden to 00 (ENAM still auto-fills).
 ///   BNAM-LINT         — a Custom topic with no Branch → validate_dialogue raises a Warning naming Branch (BNAM); a
@@ -50,6 +51,12 @@ namespace HousecarlGenerator;
 ///   QUST-ANAM-WINS     — (direct) an explicit NextAliasID=9 is NOT overridden by the derive.
 ///   QUST-FNAM-AUTOFILL — (direct) an objective with no Flags → Flags materialised to 0, REPORTED; an explicit
 ///                       objective Flags=OrWithPrevious is NOT reset.
+///   QUST-ALIAS-AUTOFILL— a quest with a bare alias → the alias FNAM (Flags=0) + VTCK (VoiceTypes=null link) are
+///                       materialised, REPORTED, and — the empirical crux — BOTH survive a disk round-trip (a
+///                       present-but-null VTCK is serialised, not skipped). The HCBR-2026-07-10 fix.
+///   QUST-ALIAS-WINS    — (direct) an alias with explicit Flags + explicit VoiceTypes is NOT overridden (no fill).
+///   QUST-ALIAS-LOCATION— (direct) a Location-type alias gets FNAM (Flags=0) but NOT VTCK (VTCK is scoped to reference
+///                       aliases); MissingQuestDefaults raises no VTCK gap for it (no false-warn on CK location aliases).
 /// </summary>
 internal static class DialogueCkParityGuardProbe
 {
@@ -213,19 +220,23 @@ internal static class DialogueCkParityGuardProbe
                     $"DLBR-GAP-PROBE bare DialogBranch → TNAM gap (before={before.Count}), none after fill (after={after}) — check/fill share one predicate");
             }
 
-            // ---- QUST-GAP-PROBE: the same tie for the Quest — a bare quest with one Flags-less objective reports
-            //      exactly the ANAM + FNAM gaps, none after ApplyQuestDefaults. ----
+            // ---- QUST-GAP-PROBE: the same tie for the Quest — a bare quest with one Flags-less objective AND one bare
+            //      alias reports exactly the ANAM + objective-FNAM + alias-FNAM + alias-VTCK gaps, none after
+            //      ApplyQuestDefaults. ----
             {
                 var q = new Quest(FormKey.Factory("000803:HcCkpGapProbe.esm"), SkyrimRelease.SkyrimSE);
                 q.Objectives.Add(new QuestObjective { Index = 10 });   // Flags null
+                q.Aliases.Add(new QuestAlias { ID = 0 });              // Flags + VoiceTypes both null
                 var before = DialogueCkParity.MissingQuestDefaults(q);
-                bool flaggedBoth = before.Count == 2
+                bool flaggedAll = before.Count == 4
                     && before.Any(g => g.Subrecord.Contains("ANAM", StringComparison.OrdinalIgnoreCase))
-                    && before.Any(g => g.Subrecord.Contains("FNAM", StringComparison.OrdinalIgnoreCase) && g.Subrecord.Contains("Objectives[0]", StringComparison.Ordinal));
+                    && before.Any(g => g.Subrecord.Contains("FNAM", StringComparison.OrdinalIgnoreCase) && g.Subrecord.Contains("Objectives[0]", StringComparison.Ordinal))
+                    && before.Any(g => g.Subrecord.Contains("FNAM", StringComparison.OrdinalIgnoreCase) && g.Subrecord.Contains("Aliases[0]", StringComparison.Ordinal))
+                    && before.Any(g => g.Subrecord.Contains("VTCK", StringComparison.OrdinalIgnoreCase) && g.Subrecord.Contains("Aliases[0]", StringComparison.Ordinal));
                 DialogueCkParity.ApplyQuestDefaults(q);
                 int after = DialogueCkParity.MissingQuestDefaults(q).Count;
-                Check(flaggedBoth && after == 0,
-                    $"QUST-GAP-PROBE bare Quest+objective → ANAM+FNAM gaps (before={before.Count}), none after fill (after={after}) — check/fill share one predicate");
+                Check(flaggedAll && after == 0,
+                    $"QUST-GAP-PROBE bare Quest+objective+alias → ANAM+objFNAM+aliasFNAM+aliasVTCK gaps (before={before.Count}), none after fill (after={after}) — check/fill share one predicate");
             }
 
             // ---- DLVW-AUTOFILL: create a bare DialogView → written DNAM=00, ENAM=00000000, both reported. ----
@@ -358,6 +369,79 @@ internal static class DialogueCkParityGuardProbe
                 bool fnamReported = ofills.Count(f => f.Label.Contains("Flags (FNAM", StringComparison.OrdinalIgnoreCase)) == 1;
                 Check(obj0Filled && obj1Kept && fnamReported,
                     $"QUST-FNAM-AUTOFILL null objective Flags→0 (reported), explicit OrWithPrevious kept — obj0={qObj.Objectives[0].Flags} obj1={qObj.Objectives[1].Flags} reportedOnce={fnamReported}");
+            }
+
+            // ---- QUST-ALIAS-AUTOFILL: a quest with a bare alias (no Flags/VoiceTypes) → the alias FNAM (Flags=0) and
+            //      VTCK (VoiceTypes=null link) are materialised, REPORTED, and — the empirical crux of the HCBR-2026-07-10
+            //      fix — BOTH survive a disk round-trip. VTCK is the risky one: a present-but-null link (FormKey.Null)
+            //      must be SERIALISED, not skipped as "no value". Write it out, re-read off the binary overlay, confirm
+            //      both subrecords are present. ----
+            {
+                var mA = new SkyrimMod(new ModKey("HcCkpAlias", ModType.Master), SkyrimRelease.SkyrimSE);
+                var qA = mA.Quests.AddNew(); qA.EditorID = "HcCkpAliasQ";
+                qA.NextAliasID = 0;                                                 // isolate the alias findings (no ANAM fill)
+                qA.Aliases.Add(new QuestAlias { ID = 0, Name = "PlayerAlias" });    // Flags + VoiceTypes both null
+                var afills = DialogueCkParity.ApplyQuestDefaults(qA);
+                bool flagsFilled = qA.Aliases[0].Flags == default(QuestAlias.Flag);
+                bool voiceFilled = qA.Aliases[0].VoiceTypes.FormKeyNullable is not null;
+                bool fnamReported = afills.Any(f => f.Label.Contains("Aliases[0]", StringComparison.Ordinal) && f.Label.Contains("FNAM", StringComparison.OrdinalIgnoreCase));
+                bool vtckReported = afills.Any(f => f.Label.Contains("Aliases[0]", StringComparison.Ordinal) && f.Label.Contains("VTCK", StringComparison.OrdinalIgnoreCase));
+
+                var aliasPath = Path.Combine(root, "HcCkpAlias.esm");
+                mA.BeginWrite.ToPath(aliasPath).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
+                bool diskFnam = false, diskVtck = false;
+                ISkyrimModGetter? ov = null;
+                try
+                {
+                    ov = SkyrimMod.CreateFromBinaryOverlay(aliasPath, SkyrimRelease.SkyrimSE);
+                    var ar = ov.Quests.FirstOrDefault(x => x.FormKey == qA.FormKey)?.Aliases.FirstOrDefault(x => x.ID == 0);
+                    diskFnam = ar?.Flags is not null;
+                    diskVtck = ar?.VoiceTypes.FormKeyNullable is not null;
+                }
+                catch { }
+                finally { (ov as IDisposable)?.Dispose(); }
+
+                Check(flagsFilled && voiceFilled && fnamReported && vtckReported && diskFnam && diskVtck,
+                    $"QUST-ALIAS-AUTOFILL bare alias → FNAM=0 + VTCK=null-link materialised + reported + survive disk round-trip — "
+                    + $"flags={flagsFilled} voice={voiceFilled} fnamRep={fnamReported} vtckRep={vtckReported} diskFNAM={diskFnam} diskVTCK={diskVtck}");
+            }
+
+            // ---- QUST-ALIAS-WINS: an alias with explicit Flags + explicit VoiceTypes is NOT overridden (no fill). ----
+            {
+                var mW = new SkyrimMod(new ModKey("HcCkpAliasWins", ModType.Master), SkyrimRelease.SkyrimSE);
+                var qW = mW.Quests.AddNew();
+                qW.NextAliasID = 0;                                                 // isolate the alias findings
+                var explicitVoice = FormKey.Factory("02F7C3:Skyrim.esm");           // a real (non-null) voice-type link — value irrelevant, must be kept
+                var al = new QuestAlias { ID = 0, Flags = QuestAlias.Flag.Optional };
+                al.VoiceTypes.SetTo(explicitVoice);
+                qW.Aliases.Add(al);
+                var wfills = DialogueCkParity.ApplyQuestDefaults(qW);
+                bool flagsKept = qW.Aliases[0].Flags == QuestAlias.Flag.Optional;
+                bool voiceKept = qW.Aliases[0].VoiceTypes.FormKeyNullable == explicitVoice;
+                bool noAliasFill = !wfills.Any(f => f.Label.Contains("Aliases[0]", StringComparison.Ordinal));
+                Check(flagsKept && voiceKept && noAliasFill,
+                    $"QUST-ALIAS-WINS explicit alias Flags=Optional + VoiceTypes kept, no fill — flags={qW.Aliases[0].Flags} voiceKept={voiceKept} noFill={noAliasFill}");
+            }
+
+            // ---- QUST-ALIAS-LOCATION: a LOCATION-type alias gets FNAM (Flags=0) but NOT VTCK — VTCK is scoped to
+            //      reference aliases (voice types are an actor concept; a location alias resolves to a place). Both the
+            //      fill and MissingQuestDefaults must honour the scope (no VTCK fill, no VTCK gap) so no false-warn on a
+            //      CK-authored location alias. ----
+            {
+                var mL = new SkyrimMod(new ModKey("HcCkpAliasLoc", ModType.Master), SkyrimRelease.SkyrimSE);
+                var qL = mL.Quests.AddNew();
+                qL.NextAliasID = 0;                                                             // isolate the alias findings
+                qL.Aliases.Add(new QuestAlias { ID = 0, Type = QuestAlias.TypeEnum.Location });  // Flags + VoiceTypes null
+                var beforeL = DialogueCkParity.MissingQuestDefaults(qL);
+                bool locFnamGap = beforeL.Any(g => g.Subrecord.Contains("FNAM", StringComparison.OrdinalIgnoreCase) && g.Subrecord.Contains("Aliases[0]", StringComparison.Ordinal));
+                bool noLocVtckGap = !beforeL.Any(g => g.Subrecord.Contains("VTCK", StringComparison.OrdinalIgnoreCase));
+                var lfills = DialogueCkParity.ApplyQuestDefaults(qL);
+                bool flagsFilled = qL.Aliases[0].Flags == default(QuestAlias.Flag);
+                bool voiceNotFilled = qL.Aliases[0].VoiceTypes.FormKeyNullable is null;
+                bool noVtckFill = !lfills.Any(f => f.Label.Contains("VTCK", StringComparison.OrdinalIgnoreCase));
+                int afterL = DialogueCkParity.MissingQuestDefaults(qL).Count;
+                Check(locFnamGap && noLocVtckGap && flagsFilled && voiceNotFilled && noVtckFill && afterL == 0,
+                    $"QUST-ALIAS-LOCATION location alias → FNAM filled, VTCK NOT (scoped to reference) — fnamGap={locFnamGap} noVtckGap={noLocVtckGap} flags={flagsFilled} voiceUnset={voiceNotFilled} noVtckFill={noVtckFill} after={afterL}");
             }
         }
         catch (Exception ex)
