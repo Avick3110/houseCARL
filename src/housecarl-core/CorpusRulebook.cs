@@ -486,8 +486,9 @@ public sealed class CorpusRulebook
         // but for the absent-value case: the step-4a formlink check below uses `is { } ev`, which SKIPS a null slot.
         // Gate it here for EVERY coercible element (formlink + non-formlink), by construction. NO req.Struct guard, by
         // design (PR #77 review finding 1): a coercible element is NEVER built from a StructSpec, so a struct supplied
-        // with a null value is itself malformed — SetAtIndex ignores req.Struct entirely (ApplyListVerb is
-        // unconditionally Coerce(req.Value!)), and an Add's BuildStruct on a coercible element throws too; firing on a
+        // with a null value is itself malformed — SetAtIndex now mirrors Add (ApplyListVerb builds from a non-null
+        // req.Struct, else coerces req.Value), and BuildStruct on a coercible element throws for BOTH verbs, so a struct
+        // here can never rescue a null value; firing on a
         // null value REGARDLESS of req.Struct closes both, and "requires an element value" is the right guidance either
         // way (this also matches the singular Set mirror, which carries no struct guard). Verb-scoped to the verbs that
         // consume the singular req.Value — ReplaceAll (req.Values) / Merge (req.Entries) carry their elements elsewhere
