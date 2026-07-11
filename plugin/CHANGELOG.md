@@ -4,6 +4,58 @@ All notable changes to houseCARL are documented here. Versioning is [semantic](h
 the `version` in `.claude-plugin/plugin.json` is bumped on each release, so installed users update only
 when it changes.
 
+## 1.7.0 — 2026-07-11
+
+houseCARL learns to **see through more of the runtime layer than the record alone**: merge plugins together,
+read and write the data baked inside a mesh (`.nif`), and read the entire SkyPatcher layer end to end — what
+it does, where it conflicts, and what a record truly looks like after it replays. **Six new tools (→ 37)**;
+the skill set is unchanged at 12. Plus a dialogue CK-parity push and a batch of write-lane fixes.
+
+**Six new tools (→ 37)**
+
+- **`housecarl_merge_plugins` — merge several plugins into one new plugin.** A RECORDS-level merge with a
+  winner-first graft walk: it renumbers FormIDs **only on collision**, drops masters the merged set no longer
+  needs, and swaps the donor mods out at the **MO2 layer** (their folders stay on disk, just disabled) — your
+  originals are never rewritten. References it can't fold are reported, never silently dropped.
+- **`housecarl_copy_npc_appearance` — copy an NPC's appearance into a standalone.** The composed payoff of the
+  standalone-NPC-copy chain: lift a donor NPC's whole appearance — head parts, tints, and the FaceGen mesh and
+  textures — into a fresh record that carries **no dependency on the donor's plugin**, auto-widening the file
+  lane to the donor's defining plugin. The build behind a portable follower or a face moved between mods, in
+  one call instead of a dozen papercut edits.
+- **`housecarl_nif_inspect` — read the data values inside a Skyrim mesh (`.nif`).** Open the winning copy of a
+  mesh and read what's baked inside it: shape names, the embedded skin / FaceTint texture paths, shader flags,
+  alpha, and partitions. houseCARL's first look *inside* a NIF, and the diagnostic half of the dark-face bug —
+  is the face mesh pointing at the wrong texture, or is a shape misnamed?
+- **`housecarl_nif_set` — write a whitelisted value back into a mesh (`.nif`).** The write companion to
+  `nif_inspect`: rewrite a wrong embedded texture path or rename a shape, gated to a whitelist of safe fields
+  and verified two ways — an offset-immune block-content diff **plus** a semantic read-back — so a mesh is
+  never quietly corrupted. The repair half of the dark-face fix, without leaving houseCARL for NifSkope.
+- **`housecarl_skypatcher_layer` — inventory the entire SkyPatcher layer at once.** Every SkyPatcher INI across
+  your load order resolved into one picture: apply-order union, VFS shadows, filename gates, and INI-vs-INI
+  conflicts — plus the full **ITM triple** (intra-file dead writes, cross-INI duplicates, and true no-op writes
+  that change nothing). Report-only: it tells you what the layer does, it never touches it.
+- **`housecarl_skypatcher_read` — a record's true state after SkyPatcher.** Replays the whole SkyPatcher layer
+  over a single record, in order, and reports what it actually looks like at runtime — the complete filter
+  surface, stateful op-by-op, with tiered honesty on the operations it can't fully model. A runtime INI edit
+  made as visible as a plugin override.
+
+**Dialogue & authoring (CK parity)**
+
+- **Authored dialogue now matches the Creation Kit down to the byte on quest aliases.** Beyond the
+  INFO / DLVW / DLBR / QUST / DIAL fields 1.6.0 closed, a newly-authored quest alias now gets the flags (FNAM)
+  and voice types (VTCK) the CK fills in — so a hand-built quest's aliases don't read as subtly wrong.
+- **`housecarl_validate_dialogue` closes the matching residual.** It validates the DLVW / DLBR inputs and the
+  quest ANAM / FNAM the CK-parity pass fills, and flags a live INFO that's missing its prompt / response text
+  (CNAM / ENAM).
+- **The SkyPatcher authoring reference is extended to the full Wave 0–2 grammar** and the 27-record-type
+  operation→field map that underpins the two new SkyPatcher tools.
+
+**Fixes**
+
+- **Edit tools resolve the extended patch.** An `@editorid` self-reference, and an edit whose `into=` targets a
+  patch you haven't enabled yet, now resolve correctly against the patch being extended.
+- **In-place and forward-record flows hardened** against a batch of edge-case defects surfaced in live testing.
+
 ## 1.6.0 — 2026-07-06
 
 houseCARL learns to **see the parts of your workspace it was blind to**: read a plugin that isn't in your
