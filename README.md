@@ -32,6 +32,13 @@ models — by construction, not a hand-maintained subset.
   directly inside an existing plugin (including one it didn't author) instead of writing a separate patch.
   Opt-in, gated by a one-time per-plugin consent prompt, and it keeps **no backup** — so the default
   new-patch lane above stays the default.
+- **Compact and merge plugins** — ESL-compact a plugin into the light-master FormID window, carrying its
+  FormID-keyed assets (facegen, voice) along so a compacted mod's faces don't go dark; or merge several
+  plugins into one, renumbering only on collision and dropping now-unused masters — with the donor mods
+  swapped out at the MO2 layer, originals intact.
+- **Copy an NPC's appearance into a standalone** — lift a face (head parts, tints, the FaceGen mesh and
+  textures) from a donor NPC into a fresh record that carries no dependency on the donor's plugin — the
+  build behind a portable follower or a face transplanted between mods.
 - **Trace a magic effect** — resolve a MagicEffect to every spell, enchantment, potion, scroll, and
   ingredient that carries it, with each one's magnitude, in a single call.
 - **VFS asset layer** — read which copy of any Data-relative file (mesh, texture, script, sound,
@@ -39,9 +46,17 @@ models — by construction, not a hand-maintained subset.
   and place a file as a winning override into a new MO2 mod folder; loose-vs-BSA aware, with FaceGen as the
   headline use case. "Wrote it" is reported honestly as not yet "it wins" — you still enable and sort the
   new mod in MO2.
+- **Read and write a mesh's internals** — open the winning copy of a `.nif` and read the values baked
+  inside it — shape names, embedded skin / FaceTint texture paths, flags, alpha, partitions — and write a
+  whitelisted value back (fix a wrong texture path, rename a shape), verified against a two-gate read-back.
+  The mesh half of the dark-face fix, beside the record half.
 - **See the SKSE-plugin layer** — inventory the DLLs and their config files under `Data\SKSE\Plugins`, each
   resolved to the mod that wins it (with the full conflict chain), and read each winning DLL's declared version
   metadata — name, author, target runtime, Address-Library flag — statically, without loading it.
+- **See through the SkyPatcher layer** — inventory every SkyPatcher INI in your load order at once (apply
+  order, VFS shadows, INI-vs-INI conflicts, and dead / duplicate / no-op writes), or read one record's
+  *true* state after the whole SkyPatcher layer has replayed over it — so a runtime INI edit is as visible
+  as a plugin override. Report-only.
 - **Drive the external toolchain** — compile Papyrus scripts through the Creation Kit's compiler, and
   list / extract / repack BSA archives via BSArch; each tool's path is auto-detected or set once.
 - **Decompile compiled scripts** — reconstruct reviewable `.psc` source from any `.pex` (Mutagen-native,
@@ -76,7 +91,7 @@ models — by construction, not a hand-maintained subset.
 
 ### Download — recommended (modders)
 
-1. Download **`houseCARL-1.6.0.zip`** from the [latest release](https://github.com/Avick3110/houseCARL/releases).
+1. Download **`houseCARL-1.7.0.zip`** from the [latest release](https://github.com/Avick3110/houseCARL/releases).
 2. Unzip it and run **`houseCARL-Setup.exe`**.
 3. Pick your host — **`[1] Claude Code`**, **`[2] Codex`**, or **`[3] Both`**. The installer wires
    everything up:
@@ -106,7 +121,7 @@ cd houseCARL
 
 The script regenerates the reflection rulebook, publishes the server framework-dependent (trimming **off**
 — houseCARL is reflection-driven, so trimming would strip types and silently lose coverage), bundles the
-skills, builds the setup utility, and packs `release/houseCARL-1.6.0.zip`. Install the output with
+skills, builds the setup utility, and packs `release/houseCARL-1.7.0.zip`. Install the output with
 `houseCARL-Setup.exe`, `claude --plugin-dir ./dist/housecarl`, or the bundled local-marketplace
 descriptor — see the script header for details.
 
