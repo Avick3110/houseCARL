@@ -245,14 +245,17 @@ namespace HousecarlGenerator;
 /// inputs (target/location/bool/int/float/objectlist/topic). Before Gap 3 the gate refused a dict Add carrying a compose
 /// ('dict-element composition is a later surface') and ApplyDictVerb ignored req.Struct — a correct-but-incomplete case-(c)
 /// deferral, NOT an accept-then-throw. Gap 3 BUILDS it by construction, mirroring the LIST compose path: ApplyDictVerb
-/// Add/Set now BuildStruct(req.Struct) for a composable element, and the gate ACCEPTS the spec via the SAME
+/// Add/Set/SetAtIndex now BuildStruct(req.Struct) for a composable element, and the gate ACCEPTS the spec via the SAME
 /// StructElementLegality the list Add uses (poly-base arm resolution + recursive contents — no per-type wiring). Add stays
-/// throw-on-duplicate (Aaron 2026-06-18); overwrite is Set-with-compose. G6/G7 keep record-element verbs +
-/// ReplaceAll/SetAtIndex/Merge deferred, so only Add/Set compose:
+/// throw-on-duplicate (Aaron 2026-06-18); overwrite is Set-with-compose (dict) or SetAtIndex-with-compose (list, GAP4
+/// below). G6/G7 keep record-element verbs deferred; only ReplaceAll/Merge of modeled elements now stay a later surface:
 ///   GAP3-OK-DICTADD-COMPOSE  — a Package.Data Add carrying a PackageDataBool compose is ACCEPTED (RED before: 'later surface').
 ///   GAP3-OK-DICTSET-COMPOSE  — a Package.Data Set carrying a compose is ACCEPTED (the overwrite path; RED before: 'requires a value').
 ///   GAP3-REJ-BADARM          — a compose type that is not an APackageData arm refuses, naming the legal arms (RED before: 'later surface').
 ///   GAP3-OK-LIST-UNCHANGED   — an ARM-element LIST compose (Faction.Conditions) still composes (the dict-Add change didn't disturb the list path).
+///   GAP4-OK-SETIDX-COMPOSE   — a list SetAtIndex carrying an arm compose is ACCEPTED at the gate (RED before: 'SetAtIndex of modeled elements is a later surface'; HCBR-2026-07-10).
+///   GAP4-REJ-SETIDX-NOSTRUCT — a plain-value SetAtIndex on an arm-element list refuses (needs a compose spec), same as Add — gate==apply.
+///   GAP4-E2E-SETIDX-COMPOSE  — SetAtIndex[0] OVERWRITES an arm element in place (count unchanged, [0]=new, [1]=untouched — the list POSITION the Remove+Add workaround lost).
 ///   GAP3-E2E                 — a composed PackageDataBool(Data=true) round-trips through the real create+apply path onto Package.Data[0] on disk.
 ///   GAP3-E2E-SET             — the Set-OVERWRITE apply branch round-trips: Add Data[0]=false then Set Data[0]=true reads Data==true on disk (the dup escape hatch).
 ///   GAP3-REJ-DUP             — an Add of an already-present key refuses (apply-time) end-to-end, NO file written, naming Set as the overwrite path,
@@ -1020,18 +1023,20 @@ public static class NestedCreateGuardProbe
         }
 
         // ---------- FLELEM-REJ-NULLSETIDX: a compose supplied with NO value on a coercible SetAtIndex still refuses ----------
-        // (PR #77 review finding 1.) SetAtIndex NEVER consumes req.Struct — ApplyListVerb's SetAtIndex is unconditionally
-        // Coerce(req.Value!, elem) — so a compose+no-value must NOT suppress the presence gate, else Coerce(null) hits the
-        // same serialize NRE the gate exists to kill. The gate therefore has NO req.Struct guard (a coercible element is
-        // never built from a struct, so a struct here is itself malformed). RED before the finding-1 fold: the gate's old
-        // `&& req.Struct is null` clause let a non-null Struct skip the gate → accepted. Race.MovementTypeNames = List<String>.
+        // (PR #77 review finding 1.) On a COERCIBLE-element list, SetAtIndex coerces req.Value and IGNORES req.Struct
+        // (ApplyListVerb's SetAtIndex coerce arm) — so a compose+no-value must NOT suppress the presence gate, else
+        // Coerce(null) hits the same serialize NRE the gate exists to kill. The presence gate (step-4-pre) therefore has
+        // NO req.Struct guard for a coercible element (which is never built from a struct, so a struct here is itself
+        // malformed). RED before the finding-1 fold: the gate's old `&& req.Struct is null` clause let a non-null Struct
+        // skip the gate → accepted. Race.MovementTypeNames = List<String>, a coercible element. (A SetAtIndex compose on
+        // a STRUCT/ARM element is a different, valid path — built FROM PARTS via the composable block; see GAP4 below.)
         bool flElemRejNullSetIdxOk;
         {
             var req = new WriteRequest { RecordType = "Race", Path = new[] { "MovementTypeNames" }, Verb = "SetAtIndex",
                 Key = "0", Value = null, Struct = new StructSpec { Type = "Keyword" } };
             var reject = rulebook.Validate(req);
             flElemRejNullSetIdxOk = reject is not null && reject.Contains("requires an element value", StringComparison.OrdinalIgnoreCase);
-            Console.WriteLine($"   FLELEM-REJ-NULLSETIDX struct+no value: {(flElemRejNullSetIdxOk ? "PASS — a compose can't suppress the gate on SetAtIndex (which ignores req.Struct)" : $"FAIL — reject=[{reject}]")}");
+            Console.WriteLine($"   FLELEM-REJ-NULLSETIDX struct+no value: {(flElemRejNullSetIdxOk ? "PASS — a compose can't suppress the presence gate on a SetAtIndex into a COERCIBLE element (which ignores req.Struct)" : $"FAIL — reject=[{reject}]")}");
         }
 
         // ---------- FLELEM-REJ-NULLADD-E2E: a missing element value refuses end-to-end with NO file written ----------
@@ -1687,6 +1692,56 @@ public static class NestedCreateGuardProbe
             var reject = rulebook.Validate(req);
             gap3OkListUnchangedOk = reject is null;
             Console.WriteLine($"   GAP3-OK-LIST-UNCHANGED arm-list Add: {(gap3OkListUnchangedOk ? "PASS — an arm-element list compose still composes (the dict-Add change didn't disturb the list path)" : $"FAIL — reject=[{reject}]")}");
+        }
+
+        // ---------- GAP4: SetAtIndex COMPOSING a modeled (arm) element — the HCBR-2026-07-10 gap now closed ----------
+        // Replacing one condition row IN PLACE (the report: swap a faction check across 23 dialogue INFOs) needed
+        // Remove+Add, which moved the row to the list END — harmless for an AND row, but silently breaking an OR-group.
+        // SetAtIndex now composes the replacement FROM PARTS (the SAME StructElementLegality gate + BuildStruct apply the
+        // arm-element Add uses), overwriting the element in place. Proven on Faction.Conditions (List<Condition>, an arm
+        // element — the exact shape of a dialogue INFO's Conditions).
+
+        // GAP4-OK-SETIDX-COMPOSE: the gate ACCEPTS a SetAtIndex carrying an arm compose (RED before: 'later surface').
+        bool gap4OkSetIdxComposeOk;
+        {
+            var req = new WriteRequest { RecordType = "Faction", Path = new[] { "Conditions" }, Verb = "SetAtIndex", Key = "0",
+                Struct = new StructSpec { Type = "ConditionFloat" } };
+            var reject = rulebook.Validate(req);
+            gap4OkSetIdxComposeOk = reject is null;
+            Console.WriteLine($"   GAP4-OK-SETIDX-COMPOSE arm compose : {(gap4OkSetIdxComposeOk ? "PASS — a SetAtIndex carrying an arm compose is ACCEPTED at the gate (RED before: 'SetAtIndex of modeled elements is a later surface')" : $"FAIL — reject=[{reject}]")}");
+        }
+
+        // GAP4-REJ-SETIDX-NOSTRUCT: a SetAtIndex on a composable element with a PLAIN VALUE (no compose spec) refuses the
+        // SAME way Add does — StructElementLegality(null) names the compose-spec requirement (gate==apply, no accept-then-throw).
+        bool gap4RejSetIdxNoStructOk;
+        {
+            var req = new WriteRequest { RecordType = "Faction", Path = new[] { "Conditions" }, Verb = "SetAtIndex", Key = "0",
+                Value = "1" };
+            var reject = rulebook.Validate(req);
+            gap4RejSetIdxNoStructOk = reject is not null && reject.Contains("compose spec", StringComparison.OrdinalIgnoreCase);
+            Console.WriteLine($"   GAP4-REJ-SETIDX-NOSTRUCT plain value: {(gap4RejSetIdxNoStructOk ? "PASS — a plain-value SetAtIndex on an arm-element list refuses (needs a compose spec), same as Add" : $"FAIL — reject=[{reject}]")}");
+        }
+
+        // GAP4-E2E-SETIDX-COMPOSE: the apply mechanism — OVERWRITE IN PLACE, POSITION PRESERVED. Direct engine (a
+        // Condition list carries no master ref to serialize, mirroring EXPECTED-OK-SETIDX-INRANGE): Add ConditionFloat
+        // {ComparisonValue=1} then {=2}, then SetAtIndex[0] {=3}. Assert the count stayed 2 (OVERWRITE, not append),
+        // element[0] is the NEW value (3), and element[1] is UNCHANGED (2) — the position the Remove+Add workaround lost.
+        // RED before: the gate refused the compose ('later surface'), so the overwrite never ran.
+        bool gap4OkSetIdxComposeE2eOk;
+        {
+            var fac = new Faction(new FormKey(mKey, 0x930u), SkyrimRelease.SkyrimSE);
+            void AddCond(string v) => WriteEngine.ApplyVerb(fac, new WriteRequest { RecordType = "Faction",
+                Path = new[] { "Conditions" }, Verb = "Add",
+                Struct = new StructSpec { Type = "ConditionFloat", Fields = new() { ["ComparisonValue"] = v } } });
+            AddCond("1"); AddCond("2");
+            WriteEngine.ApplyVerb(fac, new WriteRequest { RecordType = "Faction", Path = new[] { "Conditions" },
+                Verb = "SetAtIndex", Key = "0",
+                Struct = new StructSpec { Type = "ConditionFloat", Fields = new() { ["ComparisonValue"] = "3" } } });
+            bool overwrote = fac.Conditions is { Count: 2 } c
+                && c[0] is IConditionFloatGetter c0 && c0.ComparisonValue == 3f
+                && c[1] is IConditionFloatGetter c1 && c1.ComparisonValue == 2f;
+            gap4OkSetIdxComposeE2eOk = overwrote;
+            Console.WriteLine($"   GAP4-E2E-SETIDX-COMPOSE overwrite  : {(gap4OkSetIdxComposeE2eOk ? "PASS — SetAtIndex[0] OVERWROTE in place (count 2, [0]=3 the new value, [1]=2 unchanged — position preserved)" : $"FAIL — conditions=[{string.Join(",", (fac.Conditions ?? new()).OfType<IConditionFloatGetter>().Select(x => x.ComparisonValue))}]")}");
         }
 
         // ---------- GAP3-E2E: a composed PackageDataBool round-trips through the REAL create+apply path onto disk ----------
@@ -2606,6 +2661,7 @@ public static class NestedCreateGuardProbe
                     && g4RejCtorArgShapeOk && g4RejCtorArgArityOk && g4OkCtorArgOk && g4OkNoCtorArgsOk && g4RejCtorArgE2eOk
                     && g7RejDictMergeOk && g7RejComposableRemoveOk && g7RejRecordRemoveOk && g7OkComposableRemoveIdxOk && g7OkDictRemoveKeyOk
                     && gap3OkDictAddComposeOk && gap3OkDictSetComposeOk && gap3RejBadArmOk && gap3OkListUnchangedOk
+                    && gap4OkSetIdxComposeOk && gap4RejSetIdxNoStructOk && gap4OkSetIdxComposeE2eOk
                     && gap3OkE2eOk && gap3OkE2eSetOk && gap3RejDupOk
                     && gap3RejBaseArmOk && gap3RejBaseArmListOk && gap3OkBaseNoOverRejectOk && gap3RejBaseArmE2eOk
                     && gap3RejBaseArmFieldOk && gap3OkArmFieldUnchangedOk

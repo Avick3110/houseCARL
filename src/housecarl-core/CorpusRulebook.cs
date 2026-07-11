@@ -589,15 +589,25 @@ public sealed class CorpusRulebook
             // earlier PR-review note guarded against). StructElementLegality resolves a polymorphic-base element's arm
             // (Package.Data -> an APackageData arm) + validates contents recursively. (A composable dict SET is gated at
             // the dict-Set block above — same StructElementLegality.)
-            if (req.Verb == "Add")
+            // Add (append a new element) and SetAtIndex (overwrite the element at an index) both build the element FROM
+            // PARTS against the element type, validated by the SAME StructElementLegality (poly-base arm resolution +
+            // recursive contents; a null spec → "supply a compose spec, not a plain value"). SetAtIndex's index PRESENCE
+            // (VerbLegality) and SHAPE (step-4-key block above) are already gated by the time control reaches here, and
+            // the in-RANGE bound is apply's (no live list at the gate) — so the only thing left for a SetAtIndex compose
+            // is the spec, identical to Add. This closes HCBR-2026-07-10: an in-place condition-row REPLACEMENT no longer
+            // needs Remove+Add (which moved the row to the list END — harmless for an AND row, but breaking an OR-group).
+            // The composable fence (IsComposableElement = Struct/Arm ONLY) keeps this off owned-record elements, which
+            // step-4-rec above already redirects to the record axis.
+            if (req.Verb is "Add" or "SetAtIndex")
                 return StructElementLegality(leaf, req.Struct, siblingEditorIds);
-            // ReplaceAll/SetAtIndex/Merge of modeled elements are all deferred (only Add/Set composes). Merge is dict-only
-            // and was previously OMITTED here, so a Package.Data Merge fell through to ACCEPT then threw 'No coercion
-            // rule' at apply (matrix-critic finding) — folding it in closes that. Verb named in the message so it reads
-            // accurately for each.
-            if (req.Verb is "ReplaceAll" or "SetAtIndex" or "Merge")
-                return $"'{leaf.Name}' holds modeled elements ({leaf.ElementTypeRef}); only Add (build-from-parts) " +
-                       $"composes them — {req.Verb} of modeled elements is a later surface.";
+            // ReplaceAll/Merge of modeled elements stay deferred: ReplaceAll would need a LIST of compose specs and Merge
+            // a dict of them (req.Values / req.Entries are plain-string shapes), distinct input surfaces not opened here.
+            // Merge is dict-only and was previously OMITTED, so a Package.Data Merge fell through to ACCEPT then threw
+            // 'No coercion rule' at apply (matrix-critic finding) — folding it in closes that. Verb named in the message.
+            if (req.Verb is "ReplaceAll" or "Merge")
+                return $"'{leaf.Name}' holds modeled elements ({leaf.ElementTypeRef}); compose them one at a time " +
+                       $"(Add to append, SetAtIndex to overwrite an index; Set for a dict key) — {req.Verb} of modeled " +
+                       $"elements is a later surface.";
         }
         // (step 4-rmv) Remove-BY-VALUE on a NON-PLAIN-VALUE element — a list Remove with NO key is by-value
         // (ApplyListVerb -> Coerce(req.Value!, elem)); an element that is neither coercible (step-4b) nor formlink
