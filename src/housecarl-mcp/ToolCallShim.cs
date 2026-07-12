@@ -208,11 +208,15 @@ internal static class ToolCallShim
 
         var supported = props.EnumerateObject().Select(prop => prop.Name).ToList();
         string plural = unknown.Count == 1 ? "" : "s";
+        // Only nudge toward depth= on a tool that actually HAS it (the read tools) — a depth-less tool would
+        // point at a knob that doesn't exist. The supported list is printed either way, so the nudge is a bonus.
+        string knobHint = supported.Contains("depth")
+            ? " (a wrong/guessed parameter often means the real knob is one of the above, e.g. depth= to expand a list/substruct)"
+            : "";
         return NamedError(
             $"error: {p.Name}: unknown parameter{plural}: {string.Join(", ", unknown)}. This tool accepts only: " +
             $"{string.Join(", ", supported)}. An unrecognized argument is IGNORED (it does not change behavior), so " +
-            $"the call would otherwise run with that intent silently dropped — fix the name (a wrong/guessed parameter " +
-            $"often means the real knob is one of the above, e.g. depth= to expand a list/substruct) and retry.");
+            $"the call would otherwise run with that intent silently dropped — fix the name{knobHint} and retry.");
     }
 
     static CallToolResult NamedError(string text) => new()
