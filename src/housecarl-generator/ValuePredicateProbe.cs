@@ -255,6 +255,18 @@ public static class ValuePredicateProbe
             Console.WriteLine($"     note: {Trunc(note)}");
         }
 
+        // 9b. A whole-LIST path (a POPULATED Keywords list) lands in the same container branch — exercising the
+        //     [list: N item(s)] rendering directly, not just the substruct summary above (review item 3).
+        {
+            var kwArmo = mod.Armors.AddNew();
+            kwArmo.Keywords = new() { new FormLink<IKeywordGetter>(projX) };   // a present, non-empty list → container summary, never "unset"
+            var (matched, set) = RunWithSet(new[] { "Keywords = 0FFFFF:hcvalguard.esp" }, new List<IMajorRecordGetter> { kwArmo });
+            var note = set.AccountingNote();
+            Check("list path: 0 matches", matched.Count == 0);
+            Check("list path: surfaced (note mentions container/list)",
+                  note is not null && note.Contains("container/list", StringComparison.Ordinal));
+        }
+
         // 10. NUMERIC operator on a NON-numeric field → fast typed FatalError (not a whole-scan silent skip).
         {
             var (matched, set) = RunWithSet(new[] { "MagicSkill > 5" }, mgefBodies);
