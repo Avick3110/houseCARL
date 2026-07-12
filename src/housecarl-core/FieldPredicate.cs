@@ -51,7 +51,9 @@ public sealed class FieldPredicateSet
 
     readonly IReadOnlyList<Predicate> _predicates;
     readonly long[] _valueRead;   // per-predicate: candidates whose path read SOME value
-    readonly long[] _noValue;     // per-predicate: candidates whose path read NO value (absent / no-such-field / container / fault)
+    readonly long[] _noValue;     // per-predicate: candidates whose path read NO value (any reason below)
+    readonly long[] _noField;     // per-predicate SUBSET of _noValue: the path is not a field on the record (mistyped / wrong for this type)
+    readonly long[] _container;   // per-predicate SUBSET of _noValue: the path resolves to a container/list, not a scalar leaf
     long _scanned;
     string? _fatal;
 
@@ -60,6 +62,8 @@ public sealed class FieldPredicateSet
         _predicates = predicates;
         _valueRead = new long[predicates.Count];
         _noValue = new long[predicates.Count];
+        _noField = new long[predicates.Count];
+        _container = new long[predicates.Count];
     }
 
     /// <summary>Set once when a numeric operator meets a non-numeric field value on the first value-bearing
@@ -176,7 +180,19 @@ public sealed class FieldPredicateSet
         {
             var p = _predicates[k];
             var leaf = ReadEngine.ReadLeaf(body, p.PathSegments);   // internal, same assembly — the by-construction read walk
-            if (!leaf.HasValue) { _noValue[k]++; all = false; continue; }
+            if (!leaf.HasValue)
+            {
+                // Classify WHY there was no value, so the Q3 accounting can distinguish a MISTYPED path (no such
+                // field anywhere) from a VALID-but-unset field (the path reads fine; there simply are no values in
+                // this scope) — the two look identical in a bare "0 matches", and conflating them sent a reporter
+                // hunting a non-bug (HCBR-2026-07-12: 'Prompt' is a real INFO field, just unset on all 531 scanned).
+                // Reason vocabulary is ReadLeaf's own notes: "(no field …" = mistyped/wrong-type; a leading '[' =
+                // a container/list summary; anything else (absent / null link / unresolved string / fault) = unset.
+                var note = leaf.Note ?? "";
+                if (note.StartsWith("(no field", StringComparison.Ordinal)) _noField[k]++;
+                else if (note.Length > 0 && note[0] == '[') _container[k]++;
+                _noValue[k]++; all = false; continue;
+            }
             _valueRead[k]++;
             var (satisfied, err) = Compare(p, leaf);
             if (err is not null) { _fatal ??= err; return false; }
@@ -307,10 +323,28 @@ public sealed class FieldPredicateSet
         {
             var path = _predicates[k].PathDisplay;
             if (_valueRead[k] == 0)
-                (notes ??= new()).Add(
-                    $"predicate field '{path}' yielded no readable value on any of {_scanned:N0} scanned record(s) — likely a mistyped path, " +
-                    $"or a container/list path (use a scalar leaf like 'Archetype.ActorValue', or references= for list→FormID membership). " +
-                    $"0 matches on that basis is NOT a confirmed 'nothing matches'.");
+            {
+                // No candidate read a value — but the CAUSE decides whether this is a wrong path or a correct path
+                // over a value-less scope, and those need opposite next moves (fix the path vs. widen the scope). All
+                // four keep the loud marker "yielded no readable value on any" (distinct from the SOFT "had no readable
+                // value on" for a >half-but-not-all miss), then diverge on the actionable reason.
+                const string loud = "yielded no readable value on any of";
+                string reason;
+                if (_noField[k] == _scanned)
+                    reason = $"predicate field '{path}' {loud} {_scanned:N0} scanned record(s) — it is NOT A FIELD on these records " +
+                             $"(a mistyped path, or a field that doesn't exist on this record type); check the field name against the record's schema.";
+                else if (_container[k] == _scanned)
+                    reason = $"predicate field '{path}' {loud} {_scanned:N0} scanned record(s) — it resolves to a container/list here, not a scalar " +
+                             $"leaf; filter on a scalar sub-path (e.g. '{path}[0]' or a nested field), or use references= for list→FormID membership.";
+                else if (_noField[k] == 0 && _container[k] == 0)
+                    reason = $"predicate field '{path}' {loud} {_scanned:N0} scanned record(s) — but the field IS VALID; it is simply UNSET " +
+                             $"(absent/null) on every one, so the path reads fine and there are just no values in this scope. Widen the scope, or " +
+                             $"the value you want may live on a different field (e.g. a dialogue topic's player text is on DIAL 'Name', not INFO 'Prompt').";
+                else
+                    reason = $"predicate field '{path}' {loud} {_scanned:N0} scanned record(s) — a mix of no-such-field ({_noField[k]:N0}), " +
+                             $"container/list ({_container[k]:N0}), and unset; check it's a scalar leaf that exists on these records.";
+                (notes ??= new()).Add(reason + " 0 matches on that basis is NOT a confirmed 'nothing matches'.");
+            }
             else if (_noValue[k] * 2 > _scanned)
                 (notes ??= new()).Add(
                     $"note: '{path}' had no readable value on {_noValue[k]:N0} of {_scanned:N0} scanned record(s) " +

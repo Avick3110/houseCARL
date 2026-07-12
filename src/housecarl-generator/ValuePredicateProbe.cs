@@ -228,13 +228,31 @@ public static class ValuePredicateProbe
             Console.WriteLine($"     note: {Trunc(note)}");
         }
 
-        // 9. LIST path (Keywords) reads as a container → no value → surfaced, never silently matched.
+        // 8b. VALID field, UNSET on ALL scanned → still LOUD, but DISTINGUISHED from a mistyped path: the note says
+        //     the field is valid/unset and does NOT call it "mistyped" (HCBR-2026-07-12 — 'Prompt' is a real INFO
+        //     field, just unset on every one of the 531 scanned; the old "likely a mistyped path" note sent the
+        //     reporter hunting a non-bug). 'Name' (FULL) is a real MagicEffect field left unset by MakeMgef.
         {
-            var (matched, set) = RunWithSet(new[] { "Keywords = 0ABCDE:hcvalguard.esp" }, mgefBodies);
+            var (matched, set) = RunWithSet(new[] { "Name = Whatever" }, mgefBodies);
             var note = set.AccountingNote();
-            Check("list path: 0 matches", matched.Count == 0);
-            Check("list path: surfaced (note mentions list/container)",
+            Check("valid-but-unset: 0 matches", matched.Count == 0);
+            Check("valid-but-unset: LOUD note (not silent zero)",
+                  note is not null && note.Contains("no readable value", StringComparison.Ordinal));
+            Check("valid-but-unset: says VALID/unset, NOT 'mistyped'",
+                  note is not null && note.Contains("VALID", StringComparison.Ordinal) && !note.Contains("mistyped", StringComparison.Ordinal));
+            Console.WriteLine($"     note: {Trunc(note)}");
+        }
+
+        // 9. CONTAINER path (a non-scalar leaf — here the Archetype substruct, populated on every MGEF fixture)
+        //    reads as a container summary → no scalar value → surfaced with the container-specific guidance, never
+        //    silently matched. (A whole-LIST path lands in the same branch by the same '['-summary signal.)
+        {
+            var (matched, set) = RunWithSet(new[] { "Archetype = whatever" }, mgefBodies);
+            var note = set.AccountingNote();
+            Check("container path: 0 matches", matched.Count == 0);
+            Check("container path: surfaced (note mentions container/list)",
                   note is not null && note.Contains("container/list", StringComparison.Ordinal));
+            Console.WriteLine($"     note: {Trunc(note)}");
         }
 
         // 10. NUMERIC operator on a NON-numeric field → fast typed FatalError (not a whole-scan silent skip).
