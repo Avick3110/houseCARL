@@ -158,6 +158,26 @@ public static class BindingShimProbe
                 !h.text.Contains(GenericError) && !h.text.Contains("internal houseCARL failure")
                 && h.text.Contains("required parameter") && h.text.Contains("formids"),
                 h.Describe());
+
+            // -- I: an UNKNOWN parameter (HCBR-2026-07-12). expand=/path=/field= were the audit agent's
+            //    inventions; the SDK binder SILENTLY IGNORES an undeclared argument, so the call ran with the
+            //    intent dropped and no correction reached the agent — which then concluded the capability was
+            //    missing and hand-rolled a parser. Must be a NAMED refusal that names the offender AND lists the
+            //    supported params (pointing at the real knob, depth=), never a silent run (no ConfigPrompt = the
+            //    body never executed) and never the generic error. Required check passes first (formid present).
+            var iRes = Call(stdin, stdout, 10, "housecarl_read_record",
+                """{"formid":"0F1AC1:Skyrim.esm","expand":true}""");
+            failures += Check("I unknown: an undeclared parameter is refused by NAME, listing supported params",
+                !iRes.text.Contains(GenericError) && !iRes.text.Contains(ConfigPrompt)
+                && iRes.text.Contains("unknown parameter") && iRes.text.Contains("expand") && iRes.text.Contains("depth"),
+                iRes.Describe());
+
+            // -- I2: control — the SAME call WITHOUT the stray param binds and reaches the body (proves the
+            //    unknown-param check never rejects a well-formed call; it reaches the config prompt here).
+            var i2 = Call(stdin, stdout, 11, "housecarl_read_record",
+                """{"formid":"0F1AC1:Skyrim.esm"}""");
+            failures += Check("I2 control: the same call without the stray param binds and runs the tool body",
+                !i2.text.Contains(GenericError) && i2.text.Contains(ConfigPrompt), i2.Describe());
         }
         catch (Exception ex)
         {

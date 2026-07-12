@@ -49,6 +49,7 @@ internal static class ToolCallShim
                 var schema = tool.ProtocolTool.InputSchema;
                 CoerceObviousShapes(p, schema);
                 if (MissingRequired(p, schema) is { } refusal) return refusal;
+                if (UnknownParameters(p, schema) is { } unknownRefusal) return unknownRefusal;
             }
             return await next(request, cancellationToken);
         }
@@ -175,6 +176,43 @@ internal static class ToolCallShim
         return NamedError(
             $"error: {p.Name}: required parameter{plural} missing: {string.Join(", ", missing)}. Supplied: " +
             $"{(p.Arguments is { Count: > 0 } a ? string.Join(", ", a.Keys) : "(none)")}. Add the missing argument{plural} and retry.");
+    }
+
+    /// <summary>Schema-UNDECLARED arguments in the call → a named refusal listing the offenders and the tool's
+    /// supported parameters, or null to proceed. THE root-cause fix for HCBR-2026-07-12: an argument a tool does
+    /// not declare (<c>expand=</c>, <c>path=</c>, <c>field=</c>) is SILENTLY IGNORED by the SDK binder, so the
+    /// call runs with that intent dropped and no correction reaches the caller — the agent, getting a normal
+    /// (un-expanded) result, concluded the capability was missing and hand-rolled a workaround instead of
+    /// discovering the real knob (<c>depth=</c>). A silently-ignored argument is a silent tool-surface failure
+    /// (Q3); naming it — with the supported list — turns the dead end into a self-correction, exactly as
+    /// <see cref="MissingRequired"/> does for the absent-required case. Schema-driven off the tool's own
+    /// InputSchema, so every current and future parameter is covered by construction. Skipped when a tool's schema
+    /// opts into free-form args (<c>additionalProperties</c> not <c>false</c>); none of houseCARL's tools do today,
+    /// but the check does not assume it. Runs AFTER <see cref="CoerceObviousShapes"/> (which only ever rewrites
+    /// DECLARED keys) and <see cref="MissingRequired"/>, so a well-formed call is byte-identical to before.</summary>
+    static CallToolResult? UnknownParameters(CallToolRequestParams p, JsonElement schema)
+    {
+        if (p.Arguments is not { Count: > 0 } args) return null;
+        if (schema.ValueKind != JsonValueKind.Object) return null;
+        // Respect an explicit opt-in to extra properties: only reject when additionalProperties is absent or false.
+        if (schema.TryGetProperty("additionalProperties", out var ap) && ap.ValueKind != JsonValueKind.False) return null;
+        if (!schema.TryGetProperty("properties", out var props) || props.ValueKind != JsonValueKind.Object) return null;
+
+        List<string>? unknown = null;
+        foreach (var kv in args)
+        {
+            if (kv.Key.Length > 0 && kv.Key[0] == '_') continue;   // MCP/JSON-RPC metadata convention — never a real tool param
+            if (!props.TryGetProperty(kv.Key, out _)) (unknown ??= new()).Add(kv.Key);
+        }
+        if (unknown is null) return null;
+
+        var supported = props.EnumerateObject().Select(prop => prop.Name).ToList();
+        string plural = unknown.Count == 1 ? "" : "s";
+        return NamedError(
+            $"error: {p.Name}: unknown parameter{plural}: {string.Join(", ", unknown)}. This tool accepts only: " +
+            $"{string.Join(", ", supported)}. An unrecognized argument is IGNORED (it does not change behavior), so " +
+            $"the call would otherwise run with that intent silently dropped — fix the name (a wrong/guessed parameter " +
+            $"often means the real knob is one of the above, e.g. depth= to expand a list/substruct) and retry.");
     }
 
     static CallToolResult NamedError(string text) => new()
