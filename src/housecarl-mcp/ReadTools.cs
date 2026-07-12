@@ -568,7 +568,9 @@ static class Wire
                 break;
             }
             var f = r.Fields[i];
-            sb.Append("  ").Append(f.Path).Append(" = ").Append(f.HasValue ? f.Token : f.Note).Append('\n');
+            sb.Append("  ").Append(f.Path).Append(" = ").Append(f.HasValue ? f.Token : f.Note);
+            if (f.Display is not null) sb.Append("   (").Append(f.Display).Append(')');   // display-only annotation (e.g. decoded biped slots) — never the round-trip token
+            sb.Append('\n');
         }
     }
 
@@ -712,7 +714,9 @@ static class Wire
                     break;
                 }
                 var f = r.Fields[i];
-                sb.Append("  ").Append(f.Path).Append(" = ").Append(f.HasValue ? f.Token : f.Note).Append('\n');
+                sb.Append("  ").Append(f.Path).Append(" = ").Append(f.HasValue ? f.Token : f.Note);
+                if (f.Display is not null) sb.Append("   (").Append(f.Display).Append(')');   // display-only annotation (e.g. decoded biped slots) — never the round-trip token
+                sb.Append('\n');
             }
         }
         else if (o.Mode == "enumerate")
