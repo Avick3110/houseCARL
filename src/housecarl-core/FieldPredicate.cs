@@ -54,6 +54,7 @@ public sealed class FieldPredicateSet
     readonly long[] _noValue;     // per-predicate: candidates whose path read NO value (any reason below)
     readonly long[] _noField;     // per-predicate SUBSET of _noValue: the path is not a field on the record (mistyped / wrong for this type)
     readonly long[] _container;   // per-predicate SUBSET of _noValue: the path resolves to a container/list, not a scalar leaf
+    readonly long[] _unreadable;  // per-predicate SUBSET of _noValue: the path READ FAULTED (Mutagen-unparseable content) — a fault, NOT an unset value
     long _scanned;
     string? _fatal;
 
@@ -64,6 +65,7 @@ public sealed class FieldPredicateSet
         _noValue = new long[predicates.Count];
         _noField = new long[predicates.Count];
         _container = new long[predicates.Count];
+        _unreadable = new long[predicates.Count];
     }
 
     /// <summary>Set once when a numeric operator meets a non-numeric field value on the first value-bearing
@@ -187,9 +189,12 @@ public sealed class FieldPredicateSet
                 // this scope) — the two look identical in a bare "0 matches", and conflating them sent a reporter
                 // hunting a non-bug (HCBR-2026-07-12: 'Prompt' is a real INFO field, just unset on all 531 scanned).
                 // Reason vocabulary is ReadLeaf's own notes: "(no field …" = mistyped/wrong-type; a leading '[' =
-                // a container/list summary; anything else (absent / null link / unresolved string / fault) = unset.
+                // a container/list summary; "(unreadable …" = a Mutagen-parse FAULT (must NOT read as "unset" — that
+                // would confidently assert a valid empty field where the truth is a read fault, Q3); anything else
+                // (absent / null link / unresolved string) = a genuinely-unset valid field.
                 var note = leaf.Note ?? "";
                 if (note.StartsWith("(no field", StringComparison.Ordinal)) _noField[k]++;
+                else if (note.StartsWith("(unreadable", StringComparison.Ordinal)) _unreadable[k]++;
                 else if (note.Length > 0 && note[0] == '[') _container[k]++;
                 _noValue[k]++; all = false; continue;
             }
@@ -329,6 +334,7 @@ public sealed class FieldPredicateSet
                 // four keep the loud marker "yielded no readable value on any" (distinct from the SOFT "had no readable
                 // value on" for a >half-but-not-all miss), then diverge on the actionable reason.
                 const string loud = "yielded no readable value on any of";
+                long unset = _noValue[k] - _noField[k] - _container[k] - _unreadable[k];   // the residue: genuinely-unset valid fields
                 string reason;
                 if (_noField[k] == _scanned)
                     reason = $"predicate field '{path}' {loud} {_scanned:N0} scanned record(s) — it is NOT A FIELD on these records " +
@@ -336,13 +342,18 @@ public sealed class FieldPredicateSet
                 else if (_container[k] == _scanned)
                     reason = $"predicate field '{path}' {loud} {_scanned:N0} scanned record(s) — it resolves to a container/list here, not a scalar " +
                              $"leaf; filter on a scalar sub-path (e.g. '{path}[0]' or a nested field), or use references= for list→FormID membership.";
-                else if (_noField[k] == 0 && _container[k] == 0)
+                else if (_unreadable[k] == _scanned)
+                    reason = $"predicate field '{path}' could not be READ on any of {_scanned:N0} scanned record(s) — a read FAULT (Mutagen could not " +
+                             $"parse the field's content), NOT an unset value. This is a coverage/parse limit on this field, not a filter miss; the " +
+                             $"filter can't judge these records.";
+                else if (_noField[k] == 0 && _container[k] == 0 && _unreadable[k] == 0)
                     reason = $"predicate field '{path}' {loud} {_scanned:N0} scanned record(s) — but the field IS VALID; it is simply UNSET " +
                              $"(absent/null) on every one, so the path reads fine and there are just no values in this scope. Widen the scope, or " +
                              $"the value you want may live on a different field (e.g. a dialogue topic's player text is on DIAL 'Name', not INFO 'Prompt').";
                 else
                     reason = $"predicate field '{path}' {loud} {_scanned:N0} scanned record(s) — a mix of no-such-field ({_noField[k]:N0}), " +
-                             $"container/list ({_container[k]:N0}), and unset; check it's a scalar leaf that exists on these records.";
+                             $"container/list ({_container[k]:N0}), read-fault ({_unreadable[k]:N0}), and unset ({unset:N0}); check it's a scalar " +
+                             $"leaf that exists on these records.";
                 (notes ??= new()).Add(reason + " 0 matches on that basis is NOT a confirmed 'nothing matches'.");
             }
             else if (_noValue[k] * 2 > _scanned)
