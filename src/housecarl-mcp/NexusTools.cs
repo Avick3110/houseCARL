@@ -371,12 +371,13 @@ static class Render
             "MAIN" => 0, "UPDATE" => 1, "OPTIONAL" => 2, "MISCELLANEOUS" => 3,
             "OLD_VERSION" => 5, "ARCHIVED" => 6, _ => 4,
         };
-        const int Cap = 6000;   // ≈ the description cap; bounds a pathological archived list
+        const int Cap = 6000;   // ≈ the description cap; bounds a pathological archived list. Measured as a per-SECTION
+        int start = sb.Length;  // delta, not total sb.Length — else files=true + changelog=true lets files starve the changelog.
         string? group = null;
         int shown = 0;
         foreach (var f in files.OrderBy(f => Order(f.Category)).ThenByDescending(f => f.Date))
         {
-            if (sb.Length >= Cap) { sb.Append("\n  ... [").Append(files.Count - shown).Append(" more file(s) omitted — raise the ask or open the page.]"); break; }
+            if (sb.Length - start >= Cap) { sb.Append("\n  ... [").Append(files.Count - shown).Append(" more file(s) omitted — raise the ask or open the page.]"); break; }
             if (!string.Equals(f.Category, group, StringComparison.Ordinal))
             {
                 group = f.Category;
@@ -537,10 +538,11 @@ static class Render
         }
 
         const int Cap = 6000;
+        int start = sb.Length;   // per-SECTION delta (see AppendFiles) — so a big file list can't blank the changelog
         int shown = 0;
         foreach (var v in versions)
         {
-            if (sb.Length >= Cap) { sb.Append("\n  ... [").Append(versions.Count - shown).Append(" older release(s) omitted — narrow with since=, or open the page.]"); break; }
+            if (sb.Length - start >= Cap) { sb.Append("\n  ... [").Append(versions.Count - shown).Append(" older release(s) omitted — narrow with since=, or open the page.]"); break; }
             var (date, lines) = byVersion[v];
             sb.Append("\n\nv").Append(v);
             if (date > 0) sb.Append("  (").Append(Day(date)).Append(')');
