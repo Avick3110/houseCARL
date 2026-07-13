@@ -99,6 +99,9 @@ public static class CiAll
         // the honest-degrade paths (real-PE Read → NotSkse; non-PE / missing → Unreadable, never a throw).
         ("skse-reader-guard", SkseReaderProbe.RunGuard),
         ("mo2instance-probe", Mo2InstanceProbe.RunProbe),
+        // meta.ini Nexus-update-cache parse (Tier 0 PR review fold): the QSettings quirks + exact-key vs [installedFiles]
+        // 1\modid, the fiddliest OFFLINE logic behind housecarl_update_status — locked with synthetic fixtures.
+        ("mo2-modmeta-guard", Mo2ModMetaProbe.RunGuard),
         ("atomic-commit-guard", AtomicCommitProbe.RunGuard),
         ("place-asset-guard", PlaceAssetProbe.RunGuard),
         // NIF layer Wave 1: NifService.Inspect decodes an authored SE mesh's N2-whitelist values (version, census, node
