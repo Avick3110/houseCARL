@@ -4,6 +4,29 @@ All notable changes to houseCARL are documented here. Versioning is [semantic](h
 the `version` in `.claude-plugin/plugin.json` is bumped on each release, so installed users update only
 when it changes.
 
+## 1.7.1 — 2026-07-13
+
+A maintenance release: sharper, louder tool feedback and a write-lane fix. No new tools (still 37) or
+skills (still 12).
+
+**Query & read surface**
+
+- **A `where=` filter that finds nothing now tells you *why*.** When a field-value predicate read no value
+  on every scanned record, the note used to guess "likely a mistyped path" for *every* cause — so a perfectly
+  valid field that simply happens to be unset everywhere read as "this field is unreadable." It now classifies
+  the actual cause — a wrong/mistyped field, a container/list path, a read fault, or a valid-but-unset field —
+  and names the matching next move (for example, that a dialogue topic's player-facing text lives on the DIAL
+  `Name`, not the INFO `Prompt`).
+- **Unknown tool parameters are now rejected instead of ignored.** A misspelled or unsupported parameter name
+  fails loud, rather than being silently dropped and looking like it had no effect.
+- **Clearer container/list rendering and biped-slot decode in reads**, and the `depth=` hint now appears only
+  on the tools that actually support it.
+
+**Write lane**
+
+- **`housecarl_set_field` `SetAtIndex` composes modeled list elements correctly** — setting an element of a
+  modeled list (rather than a plain scalar) no longer mis-applies.
+
 ## 1.7.0 — 2026-07-11
 
 houseCARL learns to **see through more of the runtime layer than the record alone**: merge plugins together,
