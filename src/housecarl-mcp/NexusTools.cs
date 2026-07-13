@@ -106,6 +106,59 @@ public static class NexusTools
         return Render.Mod(detail!, description, files, changelog, since);
     }, ct);
 
+    [McpServerTool(Name = "housecarl_nexus_check_updates", ReadOnly = true, Title = "Batch-check Nexus mods for updates"),
+     Description(
+         "Check MANY Skyrim Special Edition mods for available updates in ONE call — without a browser and without an API " +
+         "key. Give a list of mods (each a numeric Nexus mod id, optionally with your installed version); houseCARL " +
+         "resolves each mod's newest MAIN file — the accurate 'latest version', because a mod's version header can lag its " +
+         "newest file — and reports per mod: CURRENT, DIFFERS (your version ≠ the newest MAIN; both are shown and the " +
+         "direction is NOT asserted, since freeform version strings aren't safely comparable), no-main-file, or not-found " +
+         "(wrong id, or an LE/other-game mod). Batched into few requests (dozens of mods per call). READ-ONLY, needs an " +
+         "internet connection (local tools work offline). Does NOT download or update anything — it is a REPORT. Build the " +
+         "list cheaply with housecarl_update_status (reads MO2's own local update cache, no network), then use " +
+         "housecarl_nexus_mod changelog=true on anything that DIFFERS to see what actually changed.")]
+    public static Task<string> NexusCheckUpdates(
+        NexusClient nexus,
+        [Description("The mods to check — one entry per mod, separated by commas or newlines. Each entry is a numeric " +
+            "Nexus mod id, optionally followed by your installed version after '=' (or a space or ':'): e.g. " +
+            "'12604=6.9, 266=4.3.8a, 3863'. An entry with no version is reported with its latest version only (no " +
+            "current/behind verdict). Non-numeric junk is skipped and listed back to you.")]
+            string mods,
+        CancellationToken ct = default) => Guard.Tool("housecarl_nexus_check_updates", async () =>
+    {
+        var (pairs, bad) = ParseUpdatePairs(mods);
+        if (pairs.Count == 0)
+            return "error: no mod ids found. Pass entries like '12604=6.9, 266=4.3.8a' (id, optional =installed version), "
+                 + "comma/newline separated." + (bad.Count > 0 ? " Unreadable: " + string.Join(", ", bad) : "");
+
+        var (ok, error, results) = await nexus.CheckUpdatesAsync(pairs, ct);
+        if (!ok) return "error: " + error;
+        return Render.Updates(results, bad);
+    }, ct);
+
+    /// <summary>Parse the check-updates input — comma/newline/semicolon-separated entries, each a numeric mod id with an
+    /// OPTIONAL installed version after '=', ':' or whitespace (e.g. '12604=6.9', '266 4.3.8a', '3863'). Returns the
+    /// (modId, installedVersion|null) pairs plus the tokens it couldn't read (surfaced back, never silently dropped — Q3).</summary>
+    static (List<(int modId, string? installed)> pairs, List<string> bad) ParseUpdatePairs(string input)
+    {
+        var pairs = new List<(int, string?)>();
+        var bad = new List<string>();
+        if (string.IsNullOrWhiteSpace(input)) return (pairs, bad);
+        foreach (var raw in input.Split(new[] { ',', '\n', ';', '\r' }, StringSplitOptions.RemoveEmptyEntries))
+        {
+            var entry = raw.Trim();
+            if (entry.Length == 0) continue;
+            var m = Regex.Match(entry, @"^(\d+)\s*[:=\s]?\s*(.*)$");
+            if (m.Success && int.TryParse(m.Groups[1].Value, out var id) && id > 0)
+            {
+                var ver = m.Groups[2].Value.Trim();
+                pairs.Add((id, ver.Length == 0 ? null : ver));
+            }
+            else bad.Add(entry);
+        }
+        return (pairs, bad);
+    }
+
     /// <summary>Map a friendly sort word to a ModsSort field name; null if unrecognised (the tool reports it — Q3).</summary>
     static string? MapSort(string s) => s.Trim().ToLowerInvariant() switch
     {
@@ -289,6 +342,70 @@ static class Render
             sb.Append("\n  - ").Append(f.Name).Append("  v").Append(f.Version ?? "?")
               .Append("  (").Append(f.Date > 0 ? Day(f.Date) : "?").Append(')');
             shown++;
+        }
+    }
+
+    /// <summary>Render a batch update check: a one-line summary (how many differ / current / not-found / …) then the mods
+    /// grouped by verdict, ACTIONABLE first (differ → latest-only → no-main → current → not-found → error). Unreadable
+    /// input tokens are listed back at the end (Q3 — a skipped entry is never silently dropped).</summary>
+    public static string Updates(IReadOnlyList<NexusUpdateStatus> results, IReadOnlyList<string> unreadable)
+    {
+        var sb = new StringBuilder();
+        int differ = results.Count(r => r.Verdict == UpdateVerdict.Differs);
+        int current = results.Count(r => r.Verdict == UpdateVerdict.Current);
+        int latest = results.Count(r => r.Verdict == UpdateVerdict.LatestOnly);
+        int noMain = results.Count(r => r.Verdict == UpdateVerdict.NoMainFile);
+        int notFound = results.Count(r => r.Verdict == UpdateVerdict.NotFound);
+        int errored = results.Count(r => r.Verdict == UpdateVerdict.Error);
+
+        sb.Append("update check — ").Append(results.Count).Append(" mod(s): ")
+          .Append(differ).Append(" differ · ").Append(current).Append(" current · ")
+          .Append(latest).Append(" latest-only · ").Append(noMain).Append(" no-main · ")
+          .Append(notFound).Append(" not-found");
+        if (errored > 0) sb.Append(" · ").Append(errored).Append(" error");
+
+        AppendUpdateGroup(sb, "DIFFER — installed ≠ newest MAIN (check the changelog before updating)", results, UpdateVerdict.Differs);
+        AppendUpdateGroup(sb, "latest version (no installed version was given to compare)", results, UpdateVerdict.LatestOnly);
+        AppendUpdateGroup(sb, "no MAIN file — the header version may lag, so UNKNOWN", results, UpdateVerdict.NoMainFile);
+        AppendUpdateGroup(sb, "current", results, UpdateVerdict.Current);
+        AppendUpdateGroup(sb, "not found on Skyrim SE (wrong id, or an LE/other-game mod)", results, UpdateVerdict.NotFound);
+        AppendUpdateGroup(sb, "check FAILED (surface, don't assume current)", results, UpdateVerdict.Error);
+
+        if (unreadable.Count > 0)
+            sb.Append("\n\nunreadable entries (skipped): ").Append(string.Join(", ", unreadable));
+        return sb.ToString();
+    }
+
+    static void AppendUpdateGroup(StringBuilder sb, string label, IReadOnlyList<NexusUpdateStatus> all, UpdateVerdict v)
+    {
+        var rows = all.Where(r => r.Verdict == v).ToList();
+        if (rows.Count == 0) return;
+        sb.Append("\n\n").Append(label).Append(" (").Append(rows.Count).Append("):");
+        foreach (var r in rows)
+        {
+            sb.Append("\n  [").Append(r.ModId).Append("] ").Append(r.Name ?? "?");
+            switch (r.Verdict)
+            {
+                case UpdateVerdict.Differs:
+                    sb.Append(" — installed v").Append(r.Installed).Append(", newest MAIN v").Append(r.LatestMainVersion ?? "?");
+                    if (r.LatestMainDate > 0) sb.Append(" (").Append(Day(r.LatestMainDate)).Append(')');
+                    break;
+                case UpdateVerdict.Current:
+                    sb.Append(" — v").Append(r.Installed).Append(" (current)");
+                    break;
+                case UpdateVerdict.LatestOnly:
+                    sb.Append(" — newest MAIN v").Append(r.LatestMainVersion ?? "?");
+                    if (r.LatestMainDate > 0) sb.Append(" (").Append(Day(r.LatestMainDate)).Append(')');
+                    break;
+                case UpdateVerdict.NoMainFile:
+                    sb.Append(" — no MAIN file; header v").Append(r.HeaderVersion ?? "?");
+                    break;
+                case UpdateVerdict.Error:
+                    sb.Append(" — ").Append(r.Note ?? "check failed");
+                    break;
+                case UpdateVerdict.NotFound:
+                    break;   // the group label already says it
+            }
         }
     }
 
