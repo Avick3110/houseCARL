@@ -23,12 +23,24 @@ namespace HousecarlCore;
 //  doubled, and string values can be surrounded by double quotes. The
 //  [installedFiles] section uses prefixed keys (1\modid=...) so a plain
 //  first-match on "modid" reads the [General] one, which is written first.
+//
+//  That same [installedFiles] section ALSO records the exact Nexus FILE id(s)
+//  MO2 installed (1\fileid=..., 2\fileid=..., a size= count key in any order),
+//  which is the join key for a FILE-level currency check — "is the file I have
+//  still a current file, or did Nexus retire it to OLD_VERSION/ARCHIVED?" —
+//  immune to the multi-file-page confusion a mod-level version compare falls
+//  into (a Nexus page hosts many independently-versioned files). A FOMOD /
+//  merged / hand-installed mod has size=0 with no fileid, so the check must
+//  degrade LOUDLY there rather than guess (Q3).
 // ======================================================================
 
 /// <summary>The Nexus update-cache fields from one mod's meta.ini. <see cref="ModId"/> is 0 when the mod has no Nexus
-/// id (a hand-installed mod / separator). <see cref="NewestVersion"/> empty ⇒ MO2 never learned a newer version.</summary>
+/// id (a hand-installed mod / separator). <see cref="NewestVersion"/> empty ⇒ MO2 never learned a newer version.
+/// <see cref="InstalledFileIds"/> are the <c>[installedFiles] N\fileid</c> values — the exact Nexus file(s) installed,
+/// the FILE-level currency join key; empty for a FOMOD/manual install (<c>size=0</c>, no fileid).</summary>
 public sealed record ModMetaIni(
-    int ModId, string? Version, string? NewestVersion, string? IgnoredVersion, string? LastNexusUpdate);
+    int ModId, string? Version, string? NewestVersion, string? IgnoredVersion, string? LastNexusUpdate,
+    IReadOnlyList<int> InstalledFileIds);
 
 public static class Mo2ModMeta
 {
@@ -47,7 +59,42 @@ public static class Mo2ModMeta
             Clean(FindValue(lines, "version")),
             Clean(FindValue(lines, "newestVersion")),
             Clean(FindValue(lines, "ignoredVersion")),
-            Clean(FindValue(lines, "lastNexusUpdate")));
+            Clean(FindValue(lines, "lastNexusUpdate")),
+            ReadInstalledFileIds(lines));
+    }
+
+    /// <summary>The <c>N\fileid</c> values from the <c>[installedFiles]</c> section, in index (N) order — the exact Nexus
+    /// file(s) MO2 recorded as installed for this mod. A mod can have several (<c>1\fileid</c>, <c>2\fileid</c>, …); a
+    /// FOMOD/manual install has <c>size=0</c> and none (⇒ empty list). Scoped to the section (a stray <c>fileid=</c>
+    /// elsewhere is ignored) and tolerant of the <c>size=</c> / <c>N\modid</c> siblings and any key ordering. Empty,
+    /// never null, so the caller can treat "no fileids" as the loud no-fileid-fallback case, not a crash.</summary>
+    static IReadOnlyList<int> ReadInstalledFileIds(string[] lines)
+    {
+        List<(int idx, int fileId)>? found = null;
+        bool inSection = false;
+        foreach (var raw in lines)
+        {
+            var line = raw.Trim();
+            if (line.Length == 0) continue;
+            if (line[0] == '[')   // a new section header ends [installedFiles]
+            {
+                inSection = line.Equals("[installedFiles]", StringComparison.OrdinalIgnoreCase);
+                continue;
+            }
+            if (!inSection) continue;
+            int eq = line.IndexOf('=');
+            if (eq < 0) continue;
+            var key = line.AsSpan(0, eq).TrimEnd();
+            int bs = key.IndexOf('\\');                                   // key is "<N>\fileid"; split on the QSettings group sep
+            if (bs < 0) continue;                                         // e.g. the section's own "size=" key — no '\'
+            if (!key[(bs + 1)..].Trim().Equals("fileid", StringComparison.OrdinalIgnoreCase)) continue;   // skip N\modid etc.
+            if (!int.TryParse(key[..bs].Trim(), out var idx)) continue;
+            var val = Clean(line[(eq + 1)..]);
+            if (val is not null && int.TryParse(val, out var fid) && fid > 0)
+                (found ??= new()).Add((idx, fid));
+        }
+        if (found is null) return Array.Empty<int>();
+        return found.OrderBy(t => t.idx).Select(t => t.fileId).ToList();
     }
 
     /// <summary>First <c>key=</c> line's raw value, key matched case-insensitively and EXACTLY (so "modid" never matches
