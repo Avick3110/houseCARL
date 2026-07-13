@@ -100,8 +100,13 @@ public static class CiAll
         ("skse-reader-guard", SkseReaderProbe.RunGuard),
         ("mo2instance-probe", Mo2InstanceProbe.RunProbe),
         // meta.ini Nexus-update-cache parse (Tier 0 PR review fold): the QSettings quirks + exact-key vs [installedFiles]
-        // 1\modid, the fiddliest OFFLINE logic behind housecarl_update_status — locked with synthetic fixtures.
+        // 1\modid, the fiddliest OFFLINE logic behind housecarl_update_status — locked with synthetic fixtures. Now also
+        // pins the [installedFiles] N\fileid capture (single / multi / size=0 no-fileid) the file-level check joins on.
         ("mo2-modmeta-guard", Mo2ModMetaProbe.RunGuard),
+        // FILE-LEVEL Nexus update check (fixes the multi-file-page false positive): ComputeStatus verdicts (live→current,
+        // archived→outdated+same-name pointer, missing→file-gone, no-fileid→loud fallback), the id#fileid parse, and the
+        // same-modId-across-folders fileid MERGE (never dedup-drop). Pure, network-free; synthetic AMON-shaped fixtures.
+        ("nexus-file-check-guard", NexusFileCheckProbe.RunGuard),
         ("atomic-commit-guard", AtomicCommitProbe.RunGuard),
         ("place-asset-guard", PlaceAssetProbe.RunGuard),
         // NIF layer Wave 1: NifService.Inspect decodes an authored SE mesh's N2-whitelist values (version, census, node
