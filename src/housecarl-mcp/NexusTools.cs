@@ -62,7 +62,10 @@ public static class NexusTools
          "version — the accurate 'latest version', because a mod's own version header can lag its newest file. " +
          "Pass description=true to ALSO get the mod's full page write-up (what it does, how it works, usage, " +
          "recommended INI settings, compatibility/conflict notes), cleaned of Nexus markup to plain text — off by default because it can run " +
-         "several KB. READ-ONLY and needs an internet connection (local tools unaffected offline). Does NOT download or install — " +
+         "several KB. Pass files=true to list EVERY uploaded file (not just the newest MAIN) — each variant's name, " +
+         "version, category, and date — the accurate way to pin the version of a specific FOMOD/modular variant (an " +
+         "'SE' vs 'AE' main, an optional patch, a texture-size option) rather than the single newest-main summary. " +
+         "READ-ONLY and needs an internet connection (local tools unaffected offline). Does NOT download or install — " +
          "use your mod manager's 'Mod Manager Download' for that. To find a mod by name first, use housecarl_nexus_search.")]
     public static Task<string> NexusMod(
         NexusClient nexus,
@@ -74,6 +77,12 @@ public static class NexusTools
             "requirements, and latest version only, because the full description can run several KB. Set true when you " +
             "need the detail, e.g. comparing two mods or understanding how one works.")]
             bool description = false,
+        [Description("Optional. When true, list ALL of the mod's uploaded files — every MAIN, UPDATE, OPTIONAL, " +
+            "MISCELLANEOUS, and archived/old file — with each one's name, version, category, and upload date, grouped by " +
+            "category. Default false: the lookup shows only the newest MAIN file. Set true to pin the version of a " +
+            "specific variant (e.g. which 'main' is the AE build, an optional add-on's version) — the fix for modular/FOMOD " +
+            "mods where the single newest-main line isn't enough.")]
+            bool files = false,
         CancellationToken ct = default) => Guard.Tool("housecarl_nexus_mod", async () =>
     {
         var (modId, parseError) = ResolveModId(mod);
@@ -81,7 +90,7 @@ public static class NexusTools
 
         var (ok, error, detail) = await nexus.GetModAsync(modId, ct);
         if (!ok) return "error: " + error;
-        return Render.Mod(detail!, description);
+        return Render.Mod(detail!, description, files);
     }, ct);
 
     /// <summary>Map a friendly sort word to a ModsSort field name; null if unrecognised (the tool reports it — Q3).</summary>
@@ -173,7 +182,7 @@ static class Render
         return sb.ToString();
     }
 
-    public static string Mod(NexusModDetail m, bool includeDescription = false)
+    public static string Mod(NexusModDetail m, bool includeDescription = false, bool includeFiles = false)
     {
         var sb = new StringBuilder();
         sb.Append(m.Name).Append("  [id ").Append(m.ModId).Append(']');
@@ -213,6 +222,11 @@ static class Render
         }
         else sb.Append("\n\nno Nexus requirements listed.");
 
+        // Full file list is opt-in (a big mod has dozens of archived files). When asked, list EVERY file grouped by
+        // category — the fix for modular/FOMOD mods where the single newest-MAIN line can't pin a specific variant's
+        // version. GetModAsync already fetches the whole list; this just renders it.
+        if (includeFiles) AppendFiles(sb, m.Files);
+
         // Full description is opt-in (it can run several KB of BBCode/HTML). When asked, clean it to plain text; if the
         // page genuinely has none, SAY so rather than silently omitting (Q3 — an empty section reads as a missing one).
         if (includeDescription)
@@ -224,6 +238,39 @@ static class Render
 
         sb.Append("\n\n").Append(ModUrlBase).Append(m.ModId);
         return sb.ToString();
+    }
+
+    /// <summary>List every uploaded file, grouped by category in a sensible order (MAIN → UPDATE → OPTIONAL →
+    /// MISCELLANEOUS → other → OLD_VERSION → ARCHIVED), newest-first within each group, as "name  vX  (date)". The whole
+    /// section is bounded (Q3 — a mod with hundreds of archived files can't dominate the response; an over-length cut is
+    /// explicit, never silent). This is the per-variant version detail the newest-MAIN summary can't give.</summary>
+    static void AppendFiles(StringBuilder sb, IReadOnlyList<NexusFile> files)
+    {
+        sb.Append("\n\n── files (").Append(files.Count).Append(") ──");
+        if (files.Count == 0) { sb.Append("\n(this mod has no uploaded files listed.)"); return; }
+
+        // Display order for the categories Nexus emits; an unrecognised category sorts between MISCELLANEOUS and
+        // OLD_VERSION (4) rather than being dropped — a new category type is surfaced, never silently hidden (Q3).
+        static int Order(string c) => c switch
+        {
+            "MAIN" => 0, "UPDATE" => 1, "OPTIONAL" => 2, "MISCELLANEOUS" => 3,
+            "OLD_VERSION" => 5, "ARCHIVED" => 6, _ => 4,
+        };
+        const int Cap = 6000;   // ≈ the description cap; bounds a pathological archived list
+        string? group = null;
+        int shown = 0;
+        foreach (var f in files.OrderBy(f => Order(f.Category)).ThenByDescending(f => f.Date))
+        {
+            if (sb.Length >= Cap) { sb.Append("\n  ... [").Append(files.Count - shown).Append(" more file(s) omitted — raise the ask or open the page.]"); break; }
+            if (!string.Equals(f.Category, group, StringComparison.Ordinal))
+            {
+                group = f.Category;
+                sb.Append("\n ").Append(string.IsNullOrWhiteSpace(group) ? "(uncategorised)" : group).Append(':');
+            }
+            sb.Append("\n  - ").Append(f.Name).Append("  v").Append(f.Version ?? "?")
+              .Append("  (").Append(f.Date > 0 ? Day(f.Date) : "?").Append(')');
+            shown++;
+        }
     }
 
     /// <summary>Substring(0, n) that never splits a surrogate pair: an astral char (emoji, CJK extension B+, …) is two
