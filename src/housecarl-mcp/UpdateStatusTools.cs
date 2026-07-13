@@ -1,7 +1,6 @@
 using System.ComponentModel;
 using System.Text;
 using ModelContextProtocol.Server;
-using HousecarlCore;
 
 namespace HousecarlMcp;
 
