@@ -141,7 +141,10 @@ public sealed class NexusClient
                 $"{{gameId:{{value:\"{g}\",op:EQUALS}},modId:{{value:\"{c.modId}\",op:EQUALS}}}}"));
             var aliases = string.Join(" ", chunk.Select(c =>
                 $"f{c.modId}:modFiles(modId:\"{c.modId}\",gameId:\"{g}\"){{ version category date }}"));
-            var query = $"query{{ mods(filter:{{op:OR, filter:[{branches}]}}){{ nodes{{ modId name version }} }} {aliases} }}";
+            // count MUST be >= the chunk size: the mods field defaults to a 20-item page, so without it any chunk of 21+
+            // silently drops the overflow from nodes — and the verdict path reads an absent mod as NotFound, a confidently
+            // WRONG answer at the tool's intended scale (live-proven: 21 matches → 20 nodes without count, 21 with).
+            var query = $"query{{ mods(count:{chunk.Count}, filter:{{op:OR, filter:[{branches}]}}){{ nodes{{ modId name version }} }} {aliases} }}";
 
             var (ok, error, data) = await PostAsync(query, new { }, ct);
             if (!ok)
