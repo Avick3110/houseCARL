@@ -1060,7 +1060,8 @@ public sealed class LoadOrderService : IDisposable
             if (meta is null || meta.ModId == 0) { untracked++; continue; }   // not a Nexus-linked mod → not update-checkable
             bool? state = enabled.Contains(folder) ? true : disabled.Contains(folder) ? false : (bool?)null;
             entries.Add(new ModUpdateEntry(
-                folder, state, meta.ModId, meta.Version, meta.NewestVersion, meta.IgnoredVersion, meta.LastNexusUpdate));
+                folder, state, meta.ModId, meta.Version, meta.NewestVersion, meta.IgnoredVersion, meta.LastNexusUpdate,
+                meta.InstalledFileIds));
         }
         entries.Sort((a, b) => string.Compare(a.Folder, b.Folder, StringComparison.OrdinalIgnoreCase));
         return new UpdateCacheData(modsDir, instanceDir, entries, Array.Empty<string>(), untracked);
@@ -4242,9 +4243,12 @@ public sealed record UpdateCacheData(
 /// <summary>One Nexus-linked mod's update-cache row. <see cref="Newest"/> empty ⇒ MO2 never learned a newer version.
 /// MO2's own "update available" rule: <see cref="Newest"/> is set, non-empty, != <see cref="Installed"/>, and !=
 /// <see cref="Ignored"/>. <see cref="Enabled"/> is null when the mod isn't in the active profile (state unknown).
-/// <see cref="LastUpdate"/> is unix-seconds of MO2's last Nexus check (staleness signal).</summary>
+/// <see cref="LastUpdate"/> is unix-seconds of MO2's last Nexus check (staleness signal). <see cref="InstalledFileIds"/>
+/// are the exact Nexus file id(s) MO2 installed (from meta.ini <c>[installedFiles]</c>) — the FILE-level currency join
+/// key that makes a live check immune to the multi-file-page false positive; empty for a FOMOD/manual install.</summary>
 public sealed record ModUpdateEntry(
-    string Folder, bool? Enabled, int ModId, string? Installed, string? Newest, string? Ignored, string? LastUpdate);
+    string Folder, bool? Enabled, int ModId, string? Installed, string? Newest, string? Ignored, string? LastUpdate,
+    IReadOnlyList<int> InstalledFileIds);
 
 /// <summary>The result of <see cref="LoadOrderService.NamedProfileComposition"/> — the profiles affordance behind
 /// housecarl_load_order_status' profile= param. <see cref="InstanceMode"/> is false in explicit-paths mode (no profiles

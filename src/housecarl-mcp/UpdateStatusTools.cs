@@ -74,9 +74,12 @@ static class UpdateStatusWire
 
         sb.Append("\nnote: this is MO2's OWN cached view, not a live check. A 'differ' is only a CANDIDATE — MO2's cached ")
           .Append("'newest' can be stale or a different version scheme (some installed versions here are actually NEWER than ")
-          .Append("the cached value), so the direction is not assured and 'never checked' is NOT 'up to date'. To confirm ")
-          .Append("what's genuinely behind, feed these mod ids to housecarl_nexus_check_updates (authoritative newest MAIN " )
-          .Append("file), then housecarl_nexus_mod changelog=true to see what changed.");
+          .Append("the cached value), so the direction is not assured and 'never checked' is NOT 'up to date'. Many Nexus ")
+          .Append("pages also host several independently-versioned files, so a cached 'differ' is often a false alarm. To ")
+          .Append("confirm, feed these mods to housecarl_nexus_check_updates using the 'id#fileid' form shown per row (the ")
+          .Append("'verify:' token) — it checks each installed FILE's live status directly, clearing the multi-file-page ")
+          .Append("false positive; then housecarl_nexus_mod changelog=true to see what changed. (Rows with no fileid can't ")
+          .Append("be checked at file level — verify those by hand.)");
         return sb.ToString().TrimEnd('\n');
     }
 
@@ -93,6 +96,14 @@ static class UpdateStatusWire
             if (e.Enabled == false) sb.Append("  [disabled]");
             sb.Append("  [id ").Append(e.ModId).Append("]  installed v").Append(e.Installed ?? "?")
               .Append(" · MO2 cached v").Append(e.Newest ?? "?");
+            // Surface the exact installed file id(s): the join key for a FILE-level live check (housecarl_nexus_check_updates
+            // 'id#fileid' form) — the way to clear the multi-file-page false positive this cached diff can't tell from a real
+            // update. A FOMOD/manual mod has none, and that's stated (Q3 — the file-level check can't run there, don't imply it can).
+            if (e.InstalledFileIds.Count > 0)
+                sb.Append("  · verify: ").Append(e.ModId).Append('#')
+                  .Append(string.Join("#", e.InstalledFileIds));   // '#' joins fileids — ',' separates ENTRIES in the check grammar
+            else
+                sb.Append("  · no fileid (FOMOD/manual — file-level check n/a)");
             var checkedOn = StaleDay(e.LastUpdate);
             if (checkedOn is not null) sb.Append("  (checked ").Append(checkedOn).Append(')');
             sb.Append('\n'); shown++;

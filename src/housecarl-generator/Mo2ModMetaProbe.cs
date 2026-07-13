@@ -43,6 +43,7 @@ internal static class Mo2ModMetaProbe
             Check(ma.NewestVersion == "6.11", "A: newestVersion = 6.11");
             Check(ma.IgnoredVersion == "6.10", "A: ignoredVersion = 6.10");
             Check(ma.LastNexusUpdate == "1778020881", "A: lastNexusUpdate raw unix seconds");
+            Check(Seq(ma.InstalledFileIds, 749043), "A: [installedFiles] 1\\fileid → [749043] (NOT the 1\\modid 99999)");
 
             // B — QSettings quirks: @ByteArray wrap, @Invalid unset, surrounding quotes, doubled backslash.
             var b = Write(dir, "b.ini",
@@ -56,12 +57,41 @@ internal static class Mo2ModMetaProbe
             Check(mb.Version == "5.2SE", "B: surrounding quotes stripped → 5.2SE");
             Check(mb.NewestVersion is null, "B: @Invalid() → null");
             Check(mb.IgnoredVersion == "a\\b", "B: doubled backslash unescaped → a\\b");
+            Check(mb.InstalledFileIds.Count == 0, "B: no [installedFiles] section → empty fileids (never null)");
 
             // C — no/invalid modid → ModId 0; absent fields → null (still returns a record, never throws).
             var c = Write(dir, "c.ini", "[General]", "version=1.0", "modid=notanumber");
             var mc = Mo2ModMeta.Read(c);
             Check(mc is not null && mc.ModId == 0, "C: non-integer modid → 0");
             Check(mc!.NewestVersion is null && mc.IgnoredVersion is null && mc.LastNexusUpdate is null, "C: absent fields → null");
+            Check(mc.InstalledFileIds.Count == 0, "C: no [installedFiles] → empty fileids");
+
+            // E — MULTIPLE installed files, with the size= key BETWEEN the indexed keys and the indices OUT OF ORDER
+            //     (real meta.ini writes them in any order — AMON's live file even puts size= between 1\modid and 1\fileid).
+            //     Must return every fileid, ordered by index N, ignoring the size= and N\modid siblings.
+            var e = Write(dir, "e.ini",
+                "[General]",
+                "modid=126608",
+                "[installedFiles]",
+                "2\\fileid=222",
+                "1\\modid=126608",
+                "size=2",
+                "2\\modid=126608",
+                "1\\fileid=111");
+            var me = Mo2ModMeta.Read(e);
+            Check(Seq(me!.InstalledFileIds, 111, 222), "E: multi fileid, size= interleaved, out-of-order N → [111,222] by index");
+
+            // F — a FOMOD/manual install: [installedFiles] size=0 with NO fileid (City Trees is the live example). Must be
+            //     empty (⇒ the loud no-fileid fallback), never a guess. Also proves a section AFTER installedFiles doesn't leak.
+            var f = Write(dir, "f.ini",
+                "[General]",
+                "modid=35546",
+                "[installedFiles]",
+                "size=0",
+                "[Plugins]",
+                "1\\fileid=999");                 // a fileid OUTSIDE [installedFiles] must be ignored (scoped scan)
+            var mf = Mo2ModMeta.Read(f);
+            Check(mf!.InstalledFileIds.Count == 0, "F: [installedFiles] size=0 → empty fileids (FOMOD/manual); stray fileid in [Plugins] ignored");
 
             // D — a file that doesn't exist → null, never a throw (the caller keeps walking the mods folder).
             Check(Mo2ModMeta.Read(Path.Combine(dir, "does-not-exist.ini")) is null, "D: missing file → null, no throw");
@@ -77,5 +107,13 @@ internal static class Mo2ModMetaProbe
         var p = Path.Combine(dir, name);
         File.WriteAllLines(p, lines);
         return p;
+    }
+
+    /// <summary>True iff the actual fileid list equals the expected ints in order.</summary>
+    static bool Seq(IReadOnlyList<int> actual, params int[] expected)
+    {
+        if (actual.Count != expected.Length) return false;
+        for (int i = 0; i < expected.Length; i++) if (actual[i] != expected[i]) return false;
+        return true;
     }
 }
