@@ -159,6 +159,49 @@ public static class NexusTools
         return (pairs, bad);
     }
 
+    [McpServerTool(Name = "housecarl_nexus_identify", ReadOnly = true, Title = "Identify a file on Nexus by MD5"),
+     Description(
+         "Identify which Nexus mod (and which uploaded file) a file came from, by its MD5 hash — without a browser or an " +
+         "API key. Give one or more 32-char MD5 hashes; houseCARL returns, per hash, the matching mod (name + id) and the " +
+         "file's name/version/category/size — or 'no match' when no Nexus file has that hash (a hand-edited, repacked, or " +
+         "non-Nexus file). Matching is across ALL games, so a hash belonging to a non-Skyrim-SE file is FLAGGED as such " +
+         "rather than mis-attributed to a same-hash SSE mod (Q3). Use it to trace a mystery loose file back to its source " +
+         "mod. READ-ONLY, needs an internet connection. To get a file's MD5 first, hash it locally (e.g. PowerShell " +
+         "Get-FileHash -Algorithm MD5).")]
+    public static Task<string> NexusIdentify(
+        NexusClient nexus,
+        [Description("One or more MD5 hashes (32 hex characters each), separated by commas, spaces, or newlines. " +
+            "Case-insensitive. Non-hash junk is skipped and listed back to you.")]
+            string md5,
+        CancellationToken ct = default) => Guard.Tool("housecarl_nexus_identify", async () =>
+    {
+        var (hashes, bad) = ParseHashes(md5);
+        if (hashes.Count == 0)
+            return "error: no valid MD5 hashes found — each must be 32 hex characters."
+                 + (bad.Count > 0 ? " Unreadable: " + string.Join(", ", bad) : "");
+
+        var (ok, error, results) = await nexus.IdentifyByHashAsync(hashes, ct);
+        if (!ok) return "error: " + error;
+        return Render.Identify(hashes, results, bad);
+    }, ct);
+
+    /// <summary>Parse the identify input into normalized (lowercase) 32-hex MD5 hashes, de-duplicated, plus the tokens
+    /// that weren't valid hashes (surfaced back, never silently dropped — Q3).</summary>
+    static (List<string> hashes, List<string> bad) ParseHashes(string input)
+    {
+        var hashes = new List<string>();
+        var bad = new List<string>();
+        if (string.IsNullOrWhiteSpace(input)) return (hashes, bad);
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var raw in input.Split(new[] { ',', '\n', ';', '\r', ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries))
+        {
+            var h = raw.Trim().ToLowerInvariant();
+            if (Regex.IsMatch(h, "^[0-9a-f]{32}$")) { if (seen.Add(h)) hashes.Add(h); }
+            else bad.Add(raw.Trim());
+        }
+        return (hashes, bad);
+    }
+
     /// <summary>Map a friendly sort word to a ModsSort field name; null if unrecognised (the tool reports it — Q3).</summary>
     static string? MapSort(string s) => s.Trim().ToLowerInvariant() switch
     {
@@ -343,6 +386,49 @@ static class Render
               .Append("  (").Append(f.Date > 0 ? Day(f.Date) : "?").Append(')');
             shown++;
         }
+    }
+
+    /// <summary>Render MD5-identify results: one block per REQUESTED hash (so a no-match is shown explicitly, not just
+    /// absent), each listing the matched mod + file, or a "no Nexus file matches" line. A match on a non-Skyrim-SE game
+    /// is flagged loud (Q3 — never silently attributed to a same-hash SSE mod). Unreadable tokens are listed at the end.</summary>
+    public static string Identify(IReadOnlyList<string> requested, IReadOnlyList<NexusFileHash> matches, IReadOnlyList<string> unreadable)
+    {
+        var byHash = matches.GroupBy(m => m.Md5, StringComparer.OrdinalIgnoreCase)
+                            .ToDictionary(g => g.Key, g => g.ToList(), StringComparer.OrdinalIgnoreCase);
+        var sb = new StringBuilder();
+        sb.Append("identify — ").Append(requested.Count).Append(" hash(es):");
+        foreach (var h in requested)
+        {
+            sb.Append("\n\n").Append(h);
+            if (!byHash.TryGetValue(h, out var ms) || ms.Count == 0)
+            {
+                sb.Append("\n  no Nexus file matches this md5 — a hand-edited/repacked file, or not from Nexus.");
+                continue;
+            }
+            foreach (var m in ms)
+            {
+                if (m.GameId != NexusClient.SkyrimSeGameId)
+                    sb.Append("\n  [!] this hash matches a NON-Skyrim-SE file (Nexus game id ").Append(m.GameId)
+                      .Append(") — not part of your SSE load order:");
+                sb.Append("\n  ").Append(m.ModName ?? "?").Append("  [id ").Append(m.ModId).Append(']');
+                sb.Append("\n    file: ").Append(m.FileName);
+                if (!string.IsNullOrWhiteSpace(m.FileVersion)) sb.Append("  v").Append(m.FileVersion);
+                if (!string.IsNullOrWhiteSpace(m.FileCategory)) sb.Append("  [").Append(m.FileCategory).Append(']');
+                if (m.FileSize > 0) sb.Append("  ").Append(HumanSize(m.FileSize));
+                if (m.ModId > 0 && m.GameId == NexusClient.SkyrimSeGameId)
+                    sb.Append("\n    ").Append(ModUrlBase).Append(m.ModId);
+            }
+        }
+        if (unreadable.Count > 0) sb.Append("\n\nnot valid md5s (skipped): ").Append(string.Join(", ", unreadable));
+        return sb.ToString();
+    }
+
+    /// <summary>Bytes → a compact human size (B / KB / MB), one decimal.</summary>
+    static string HumanSize(long bytes)
+    {
+        if (bytes >= 1L << 20) return (bytes / (double)(1 << 20)).ToString("0.#") + " MB";
+        if (bytes >= 1L << 10) return (bytes / (double)(1 << 10)).ToString("0.#") + " KB";
+        return bytes + " B";
     }
 
     /// <summary>Render a batch update check: a one-line summary (how many differ / current / not-found / …) then the mods

@@ -194,6 +194,38 @@ public sealed class NexusClient
         return (bestVer, bestDate);
     }
 
+    /// <summary>Identify uploaded files by MD5 hash — bulk (v2 <c>fileHashes(md5s: [String!]!)</c>, keyless). For each
+    /// matched hash, return the mod (id + name), the file (name/version/category/size), and the game id (so a hash that
+    /// belongs to a NON-Skyrim-SE file is flagged, never mis-attributed — Q3). Hashes with no match simply don't appear
+    /// in the response; the tool maps them back to an explicit "no match". md5s go through a query VARIABLE (never
+    /// concatenated into the query text).</summary>
+    public async Task<(bool ok, string? error, IReadOnlyList<NexusFileHash> results)> IdentifyByHashAsync(
+        IReadOnlyList<string> md5s, CancellationToken ct)
+    {
+        var (ok, error, data) = await PostAsync(FileHashQuery, new { md5s }, ct);
+        if (!ok) return (false, error, Array.Empty<NexusFileHash>());
+
+        var list = new List<NexusFileHash>();
+        if (data.TryGetProperty("fileHashes", out var fh) && fh.ValueKind == JsonValueKind.Array)
+            foreach (var h in fh.EnumerateArray())
+            {
+                int modId = 0; string? modName = null, fileVer = null, fileCat = null;
+                if (h.TryGetProperty("modFile", out var mf) && mf.ValueKind == JsonValueKind.Object)
+                {
+                    modId = Int(mf, "modId"); fileVer = Str(mf, "version"); fileCat = Str(mf, "category");
+                    if (mf.TryGetProperty("mod", out var mod) && mod.ValueKind == JsonValueKind.Object)
+                    {
+                        if (modId == 0) modId = Int(mod, "modId");
+                        modName = Str(mod, "name");
+                    }
+                }
+                list.Add(new NexusFileHash(
+                    Str(h, "md5") ?? "", Str(h, "fileName") ?? "", Str(h, "fileType") ?? "",
+                    Long(h, "fileSize"), Int(h, "gameId"), Int(h, "modFileId"), modId, modName, fileVer, fileCat));
+            }
+        return (true, null, list);
+    }
+
     // ──────────────────────────────────────────────────────────────────────────────────────────────────────────
     //  Core POST — the ONE place an exception can come from a Nexus call, so the ONE place Q3 turns every failure into
     //  a returned message. Returns the GraphQL `data` element (cloned to outlive the JsonDocument) on success.
@@ -293,6 +325,14 @@ public sealed class NexusClient
               fileId name version category date description changelogText
             }
           }";
+
+    const string FileHashQuery =
+        @"query FileHashes($md5s: [String!]!) {
+            fileHashes(md5s: $md5s) {
+              md5 fileName fileType fileSize gameId modFileId
+              modFile { modId version category name mod { modId name } }
+            }
+          }";
 }
 
 // ── result shapes (records ⇒ immutable, value-equal; the tools render these to text) ──
@@ -335,3 +375,9 @@ public enum UpdateVerdict { NotFound, NoMainFile, Current, Differs, LatestOnly, 
 public sealed record NexusUpdateStatus(
     int ModId, bool Found, string? Name, string? HeaderVersion,
     string? LatestMainVersion, long LatestMainDate, string? Installed, UpdateVerdict Verdict, string? Note = null);
+
+/// <summary>One MD5-hash match: the Nexus file (name/type/size) and the mod it belongs to (id + name), plus the file's
+/// version + category and the <paramref name="GameId"/> — a match on a non-Skyrim-SE game is flagged, not mis-attributed.</summary>
+public sealed record NexusFileHash(
+    string Md5, string FileName, string FileType, long FileSize, int GameId, int ModFileId,
+    int ModId, string? ModName, string? FileVersion, string? FileCategory);
