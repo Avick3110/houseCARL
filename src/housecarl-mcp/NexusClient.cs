@@ -113,6 +113,87 @@ public sealed class NexusClient
             Bool(m, "directDownloadEnabled"), reqs, files));
     }
 
+    /// <summary>Batch "is each of these mods behind?" — for a list of (modId, installedVersion) pairs, resolve each mod's
+    /// name + newest MAIN file (the accurate version of record; a mod's version HEADER can lag its newest file) in as few
+    /// requests as possible. One combined query PER CHUNK: an OR-batched <c>mods()</c> for names/headers + one aliased
+    /// <c>modFiles()</c> per mod for the newest MAIN. modIds are integers (the tool parses them), so inlining them in the
+    /// query text is injection-safe — no user STRING is concatenated in, and the installed version is compared LOCALLY,
+    /// never sent to Nexus. A chunk that fails marks only its own mods Verdict=Error (with the reason) instead of sinking
+    /// the whole batch; the call fails loud only if EVERY chunk failed (Q3).</summary>
+    public async Task<(bool ok, string? error, IReadOnlyList<NexusUpdateStatus> results)> CheckUpdatesAsync(
+        IReadOnlyList<(int modId, string? installed)> mods, CancellationToken ct)
+    {
+        // Dedupe by modId (keep the first installed), preserving order — a duplicate alias would collide in the query.
+        var seen = new HashSet<int>();
+        var ordered = new List<(int modId, string? installed)>();
+        foreach (var m in mods) if (m.modId > 0 && seen.Add(m.modId)) ordered.Add(m);
+        if (ordered.Count == 0) return (false, "no valid mod ids to check.", Array.Empty<NexusUpdateStatus>());
+
+        const int ChunkSize = 25;   // OR-branches + modFiles aliases per request; conservative vs an unknown complexity cap
+        var results = new List<NexusUpdateStatus>(ordered.Count);
+        string? firstError = null;
+
+        for (int i = 0; i < ordered.Count; i += ChunkSize)
+        {
+            var chunk = ordered.Skip(i).Take(ChunkSize).ToList();
+            var g = SkyrimSeGameId;
+            var branches = string.Join(",", chunk.Select(c =>
+                $"{{gameId:{{value:\"{g}\",op:EQUALS}},modId:{{value:\"{c.modId}\",op:EQUALS}}}}"));
+            var aliases = string.Join(" ", chunk.Select(c =>
+                $"f{c.modId}:modFiles(modId:\"{c.modId}\",gameId:\"{g}\"){{ version category date }}"));
+            var query = $"query{{ mods(filter:{{op:OR, filter:[{branches}]}}){{ nodes{{ modId name version }} }} {aliases} }}";
+
+            var (ok, error, data) = await PostAsync(query, new { }, ct);
+            if (!ok)
+            {
+                firstError ??= error;
+                foreach (var c in chunk)
+                    results.Add(new NexusUpdateStatus(c.modId, false, null, null, null, 0, c.installed, UpdateVerdict.Error, error));
+                continue;
+            }
+
+            var nodeById = new Dictionary<int, (string? name, string? version)>();
+            if (data.TryGetProperty("mods", out var mm) && mm.ValueKind == JsonValueKind.Object
+                && mm.TryGetProperty("nodes", out var nodes) && nodes.ValueKind == JsonValueKind.Array)
+                foreach (var n in nodes.EnumerateArray())
+                    nodeById[Int(n, "modId")] = (Str(n, "name"), Str(n, "version"));
+
+            foreach (var c in chunk)
+            {
+                bool found = nodeById.TryGetValue(c.modId, out var meta);
+                var (mainVer, mainDate) = NewestMainFromAlias(data, $"f{c.modId}");
+                UpdateVerdict verdict =
+                    !found                                     ? UpdateVerdict.NotFound :
+                    mainVer is null                            ? UpdateVerdict.NoMainFile :
+                    string.IsNullOrWhiteSpace(c.installed)     ? UpdateVerdict.LatestOnly :
+                    string.Equals(c.installed.Trim(), mainVer.Trim(), StringComparison.OrdinalIgnoreCase)
+                                                               ? UpdateVerdict.Current : UpdateVerdict.Differs;
+                results.Add(new NexusUpdateStatus(
+                    c.modId, found, meta.name, meta.version, mainVer, mainDate, c.installed, verdict));
+            }
+        }
+
+        // Partial failures ride as Error rows; only an all-failed batch fails the call loud (Q3 — never a silent empty).
+        if (firstError is not null && results.All(r => r.Verdict == UpdateVerdict.Error))
+            return (false, firstError, Array.Empty<NexusUpdateStatus>());
+        return (true, null, results);
+    }
+
+    /// <summary>Newest MAIN file (version + unix-seconds date) from an aliased <c>f&lt;modId&gt;</c> modFiles array in a
+    /// batch response; (null, 0) when the mod has no MAIN file. The MAIN file is the accurate version of record.</summary>
+    static (string? version, long date) NewestMainFromAlias(JsonElement data, string alias)
+    {
+        if (!data.TryGetProperty(alias, out var arr) || arr.ValueKind != JsonValueKind.Array) return (null, 0);
+        string? bestVer = null; long bestDate = 0;
+        foreach (var f in arr.EnumerateArray())
+        {
+            if (Str(f, "category") != "MAIN") continue;
+            var d = Long(f, "date");
+            if (bestVer is null || d > bestDate) { bestVer = Str(f, "version") ?? "?"; bestDate = d; }
+        }
+        return (bestVer, bestDate);
+    }
+
     // ──────────────────────────────────────────────────────────────────────────────────────────────────────────
     //  Core POST — the ONE place an exception can come from a Nexus call, so the ONE place Q3 turns every failure into
     //  a returned message. Returns the GraphQL `data` element (cloned to outlive the JsonDocument) on success.
@@ -240,3 +321,17 @@ public sealed record NexusModDetail(
     int ModId, string Name, string? Version, string? Summary, string? Description, string? Author, string Category,
     int Endorsements, int Downloads, string? UpdatedAt, string? CreatedAt, bool AdultContent, string Status,
     bool DirectDownloadEnabled, IReadOnlyList<NexusRequirement> NexusRequirements, IReadOnlyList<NexusFile> Files);
+
+/// <summary>The verdict for one mod in a batch update check. <see cref="Differs"/> deliberately does NOT assert a
+/// direction (behind vs ahead) — a freeform version string like '6.9' vs '6.11' isn't safely comparable, so the tool
+/// reports both versions and lets the reader (or the triage skill) judge; asserting "you're behind" could be wrong when
+/// the user is on a hotfix. <see cref="NoMainFile"/> / <see cref="NotFound"/> / <see cref="Error"/> are the Q3 honest
+/// "couldn't decide" states, never silently folded into "current".</summary>
+public enum UpdateVerdict { NotFound, NoMainFile, Current, Differs, LatestOnly, Error }
+
+/// <summary>One mod's batch update-check result. <paramref name="LatestMainVersion"/>/<paramref name="LatestMainDate"/>
+/// are the newest MAIN file (the accurate version of record); <paramref name="HeaderVersion"/> is the mod's version
+/// header (which can lag). <paramref name="Note"/> carries the failure reason when <paramref name="Verdict"/> is Error.</summary>
+public sealed record NexusUpdateStatus(
+    int ModId, bool Found, string? Name, string? HeaderVersion,
+    string? LatestMainVersion, long LatestMainDate, string? Installed, UpdateVerdict Verdict, string? Note = null);
