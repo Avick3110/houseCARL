@@ -113,34 +113,40 @@ public sealed class NexusClient
             Bool(m, "directDownloadEnabled"), reqs, files));
     }
 
-    /// <summary>Batch "is each of these mods behind?" — for a list of (modId, installedVersion) pairs, resolve each mod's
-    /// name + newest MAIN file (the accurate version of record; a mod's version HEADER can lag its newest file) in as few
-    /// requests as possible. One combined query PER CHUNK: an OR-batched <c>mods()</c> for names/headers + one aliased
-    /// <c>modFiles()</c> per mod for the newest MAIN. modIds are integers (the tool parses them), so inlining them in the
-    /// query text is injection-safe — no user STRING is concatenated in, and the installed version is compared LOCALLY,
-    /// never sent to Nexus. A chunk that fails marks only its own mods Verdict=Error (with the reason) instead of sinking
-    /// the whole batch; the call fails loud only if EVERY chunk failed (Q3).</summary>
+    /// <summary>Batch FILE-LEVEL currency check — "is the exact file each of these mods installed still a current file?"
+    /// For each (modId, installedVersion?, installedFileIds) it resolves every installed file id to its live category in
+    /// the mod's file list: still a live file (MAIN/UPDATE/OPTIONAL/MISCELLANEOUS) ⇒ CURRENT; moved to OLD_VERSION/
+    /// ARCHIVED ⇒ OUTDATED (and it points to the newest same-name file to update to); no longer on the page ⇒ FileGone (a
+    /// loud UNKNOWN). This is immune to the multi-file-page false positive a mod-level "installed == newest MAIN" compare
+    /// falls into — a Nexus page hosts many independently-versioned files, and the version of record is the file you
+    /// actually installed, not the page's single newest main. When NO file id is available (a FOMOD/manual install) it
+    /// degrades LOUDLY to NoFileId (never the old confidently-wrong mod-level compare — the very bug this fixes).
+    /// Entries are GROUPED by modId (a page split across several mod folders — e.g. one Xtudo pack per creature — shares a
+    /// modId; their file ids MERGE, so the page is queried ONCE and each installed file checked, never dropped). One
+    /// combined query per chunk: an OR-batched <c>mods()</c> for names/headers + one aliased <c>modFiles()</c> per mod.
+    /// modIds/fileIds are integers (parsed by the tool), so inlining them is injection-safe; the installed version is only
+    /// ever compared LOCALLY. A chunk that fails marks only its own mods Error; the call fails loud only if EVERY chunk
+    /// failed (Q3).</summary>
     public async Task<(bool ok, string? error, IReadOnlyList<NexusUpdateStatus> results)> CheckUpdatesAsync(
-        IReadOnlyList<(int modId, string? installed)> mods, CancellationToken ct)
+        IReadOnlyList<(int modId, string? installed, IReadOnlyList<int> fileIds)> mods, CancellationToken ct)
     {
-        // Dedupe by modId (keep the first installed), preserving order — a duplicate alias would collide in the query.
-        var seen = new HashSet<int>();
-        var ordered = new List<(int modId, string? installed)>();
-        foreach (var m in mods) if (m.modId > 0 && seen.Add(m.modId)) ordered.Add(m);
-        if (ordered.Count == 0) return (false, "no valid mod ids to check.", Array.Empty<NexusUpdateStatus>());
+        var (order, map) = GroupRequests(mods);
+        if (order.Count == 0) return (false, "no valid mod ids to check.", Array.Empty<NexusUpdateStatus>());
 
         const int ChunkSize = 25;   // OR-branches + modFiles aliases per request; conservative vs an unknown complexity cap
-        var results = new List<NexusUpdateStatus>(ordered.Count);
+        var results = new List<NexusUpdateStatus>(order.Count);
         string? firstError = null;
 
-        for (int i = 0; i < ordered.Count; i += ChunkSize)
+        for (int i = 0; i < order.Count; i += ChunkSize)
         {
-            var chunk = ordered.Skip(i).Take(ChunkSize).ToList();
+            var chunk = order.Skip(i).Take(ChunkSize).ToList();
             var g = SkyrimSeGameId;
-            var branches = string.Join(",", chunk.Select(c =>
-                $"{{gameId:{{value:\"{g}\",op:EQUALS}},modId:{{value:\"{c.modId}\",op:EQUALS}}}}"));
-            var aliases = string.Join(" ", chunk.Select(c =>
-                $"f{c.modId}:modFiles(modId:\"{c.modId}\",gameId:\"{g}\"){{ version category date }}"));
+            var branches = string.Join(",", chunk.Select(id =>
+                $"{{gameId:{{value:\"{g}\",op:EQUALS}},modId:{{value:\"{id}\",op:EQUALS}}}}"));
+            // The alias now selects fileId + name too (was version/category/date) — the fields a FILE-level check needs to
+            // join the installed file id to its live category and name.
+            var aliases = string.Join(" ", chunk.Select(id =>
+                $"f{id}:modFiles(modId:\"{id}\",gameId:\"{g}\"){{ fileId name version category date }}"));
             // count MUST be >= the chunk size: the mods field defaults to a 20-item page, so without it any chunk of 21+
             // silently drops the overflow from nodes — and the verdict path reads an absent mod as NotFound, a confidently
             // WRONG answer at the tool's intended scale (live-proven: 21 matches → 20 nodes without count, 21 with).
@@ -150,8 +156,9 @@ public sealed class NexusClient
             if (!ok)
             {
                 firstError ??= error;
-                foreach (var c in chunk)
-                    results.Add(new NexusUpdateStatus(c.modId, false, null, null, null, 0, c.installed, UpdateVerdict.Error, error));
+                foreach (var id in chunk)
+                    results.Add(new NexusUpdateStatus(id, false, null, null, map[id].installed, UpdateVerdict.Error,
+                        NoFiles, null, 0, 0, error));
                 continue;
             }
 
@@ -161,18 +168,11 @@ public sealed class NexusClient
                 foreach (var n in nodes.EnumerateArray())
                     nodeById[Int(n, "modId")] = (Str(n, "name"), Str(n, "version"));
 
-            foreach (var c in chunk)
+            foreach (var id in chunk)
             {
-                bool found = nodeById.TryGetValue(c.modId, out var meta);
-                var (mainVer, mainDate) = NewestMainFromAlias(data, $"f{c.modId}");
-                UpdateVerdict verdict =
-                    !found                                     ? UpdateVerdict.NotFound :
-                    mainVer is null                            ? UpdateVerdict.NoMainFile :
-                    string.IsNullOrWhiteSpace(c.installed)     ? UpdateVerdict.LatestOnly :
-                    string.Equals(c.installed.Trim(), mainVer.Trim(), StringComparison.OrdinalIgnoreCase)
-                                                               ? UpdateVerdict.Current : UpdateVerdict.Differs;
-                results.Add(new NexusUpdateStatus(
-                    c.modId, found, meta.name, meta.version, mainVer, mainDate, c.installed, verdict));
+                bool found = nodeById.TryGetValue(id, out var meta);
+                var files = FilesFromAlias(data, $"f{id}");
+                results.Add(ComputeStatus(id, found, meta.name, meta.version, map[id].installed, map[id].fileIds, files));
             }
         }
 
@@ -182,19 +182,91 @@ public sealed class NexusClient
         return (true, null, results);
     }
 
-    /// <summary>Newest MAIN file (version + unix-seconds date) from an aliased <c>f&lt;modId&gt;</c> modFiles array in a
-    /// batch response; (null, 0) when the mod has no MAIN file. The MAIN file is the accurate version of record.</summary>
-    static (string? version, long date) NewestMainFromAlias(JsonElement data, string alias)
+    static readonly IReadOnlyList<InstalledFileCurrency> NoFiles = Array.Empty<InstalledFileCurrency>();
+
+    /// <summary>Group the check-update requests by modId — NOT dedupe-drop. A Nexus page split across several MO2 mod
+    /// folders (e.g. one Xtudo pack per creature) shares a modId, and each folder installed a DIFFERENT file; keeping only
+    /// the first would silently un-check the rest (the multi-folder-page silent-drop class). So merge every entry's file
+    /// ids (order-preserving, deduped) under its modId, and keep the FIRST non-empty installed version for the
+    /// no-file-id fallback display. Returns the modId order (first-seen) + the per-modId merged state. Internal for the CI
+    /// guard.</summary>
+    internal static (List<int> order, Dictionary<int, (string? installed, List<int> fileIds)> map) GroupRequests(
+        IReadOnlyList<(int modId, string? installed, IReadOnlyList<int> fileIds)> mods)
     {
-        if (!data.TryGetProperty(alias, out var arr) || arr.ValueKind != JsonValueKind.Array) return (null, 0);
-        string? bestVer = null; long bestDate = 0;
-        foreach (var f in arr.EnumerateArray())
+        var order = new List<int>();
+        var map = new Dictionary<int, (string? installed, List<int> fileIds)>();
+        foreach (var m in mods)
         {
-            if (Str(f, "category") != "MAIN") continue;
-            var d = Long(f, "date");
-            if (bestVer is null || d > bestDate) { bestVer = Str(f, "version") ?? "?"; bestDate = d; }
+            if (m.modId <= 0) continue;
+            if (!map.TryGetValue(m.modId, out var grp)) { grp = (null, new List<int>()); order.Add(m.modId); }
+            if (grp.installed is null && !string.IsNullOrWhiteSpace(m.installed)) grp.installed = m.installed;
+            if (m.fileIds is not null)
+                foreach (var fid in m.fileIds) if (fid > 0 && !grp.fileIds.Contains(fid)) grp.fileIds.Add(fid);
+            map[m.modId] = grp;
         }
-        return (bestVer, bestDate);
+        return (order, map);
+    }
+
+    /// <summary>Whether a file category is one of Nexus's two RETIREMENT buckets (OLD_VERSION / ARCHIVED) — the CLOSED
+    /// superseded set. Every other category (MAIN/UPDATE/OPTIONAL/MISCELLANEOUS, or one Nexus adds later) is treated as
+    /// live/offered, and the category string is always carried into the output, so an unfamiliar one is visible rather
+    /// than silently mis-bucketed (Q3).</summary>
+    static bool IsSuperseded(string category) => category is "OLD_VERSION" or "ARCHIVED";
+
+    /// <summary>Resolve one mod's file-level currency from its installed file id(s) and its full file list. See
+    /// <see cref="CheckUpdatesAsync"/> for what each verdict means. Internal (pure) for the CI guard.</summary>
+    internal static NexusUpdateStatus ComputeStatus(int modId, bool found, string? name, string? header, string? installed,
+        IReadOnlyList<int> fileIds, List<(int fileId, string name, string? version, string category, long date)> files)
+    {
+        if (!found) return new NexusUpdateStatus(modId, false, name, header, installed, UpdateVerdict.NotFound, NoFiles, null, 0, 0);
+
+        // Newest live MAIN + how many — context for LatestOnly and the no-file-id fallback (LiveMainCount>1 ⇒ a multi-main
+        // page a version compare can't safely resolve: the false-positive root cause).
+        string? mainVer = null; long mainDate = 0; int mainCount = 0;
+        foreach (var f in files)
+            if (f.category == "MAIN") { mainCount++; if (mainVer is null || f.date > mainDate) { mainVer = f.version ?? "?"; mainDate = f.date; } }
+
+        // FILE-LEVEL — the exact installed file id(s) are the honest currency key.
+        if (fileIds.Count > 0)
+        {
+            var detail = new List<InstalledFileCurrency>(fileIds.Count);
+            foreach (var fid in fileIds)
+            {
+                int idx = files.FindIndex(f => f.fileId == fid);
+                if (idx < 0) { detail.Add(new InstalledFileCurrency(fid, null, null, null, FileVerdict.Missing, null, null, 0)); continue; }
+                var hit = files[idx];
+                if (IsSuperseded(hit.category))
+                {
+                    // Point to the newest LIVE file with the SAME name (the variant line's replacement); left null if the
+                    // author renamed it or dropped the variant — then the report says so rather than guess the wrong file.
+                    string? rn = null, rv = null; long rd = 0;
+                    foreach (var f in files)
+                        if (!IsSuperseded(f.category) && string.Equals(f.name, hit.name, StringComparison.OrdinalIgnoreCase) && (rn is null || f.date > rd))
+                            { rn = f.name; rv = f.version ?? "?"; rd = f.date; }
+                    detail.Add(new InstalledFileCurrency(fid, hit.name, hit.version, hit.category, FileVerdict.Superseded, rn, rv, rd));
+                }
+                else detail.Add(new InstalledFileCurrency(fid, hit.name, hit.version, hit.category, FileVerdict.Live, null, null, 0));
+            }
+            var verdict = detail.Any(d => d.Verdict == FileVerdict.Superseded) ? UpdateVerdict.Outdated
+                        : detail.Any(d => d.Verdict == FileVerdict.Missing)    ? UpdateVerdict.FileGone
+                        :                                                        UpdateVerdict.Current;
+            return new NexusUpdateStatus(modId, true, name, header, installed, verdict, detail, mainVer, mainDate, mainCount);
+        }
+
+        // NO FILE ID — degrade LOUDLY (never the old mod-level compare). Bare id (no version either) ⇒ just list newest.
+        var fallback = string.IsNullOrWhiteSpace(installed) ? UpdateVerdict.LatestOnly : UpdateVerdict.NoFileId;
+        return new NexusUpdateStatus(modId, true, name, header, installed, fallback, NoFiles, mainVer, mainDate, mainCount);
+    }
+
+    /// <summary>Parse an aliased <c>f&lt;modId&gt;</c> modFiles array from a batch response into (fileId, name, version,
+    /// category, date) tuples; empty when the alias is absent or not an array.</summary>
+    static List<(int fileId, string name, string? version, string category, long date)> FilesFromAlias(JsonElement data, string alias)
+    {
+        var list = new List<(int, string, string?, string, long)>();
+        if (!data.TryGetProperty(alias, out var arr) || arr.ValueKind != JsonValueKind.Array) return list;
+        foreach (var f in arr.EnumerateArray())
+            list.Add((Int(f, "fileId"), Str(f, "name") ?? "", Str(f, "version"), Str(f, "category") ?? "", Long(f, "date")));
+        return list;
     }
 
     /// <summary>Identify uploaded files by MD5 hash — bulk (v2 <c>fileHashes(md5s: [String!]!)</c>, keyless). For each
@@ -365,19 +437,42 @@ public sealed record NexusModDetail(
     int Endorsements, int Downloads, string? UpdatedAt, string? CreatedAt, bool AdultContent, string Status,
     bool DirectDownloadEnabled, IReadOnlyList<NexusRequirement> NexusRequirements, IReadOnlyList<NexusFile> Files);
 
-/// <summary>The verdict for one mod in a batch update check. <see cref="Differs"/> deliberately does NOT assert a
-/// direction (behind vs ahead) — a freeform version string like '6.9' vs '6.11' isn't safely comparable, so the tool
-/// reports both versions and lets the reader (or the triage skill) judge; asserting "you're behind" could be wrong when
-/// the user is on a hotfix. <see cref="NoMainFile"/> / <see cref="NotFound"/> / <see cref="Error"/> are the Q3 honest
-/// "couldn't decide" states, never silently folded into "current".</summary>
-public enum UpdateVerdict { NotFound, NoMainFile, Current, Differs, LatestOnly, Error }
+/// <summary>Whether one installed file is still a LIVE file on its mod's page, has been SUPERSEDED (the author moved it
+/// to OLD_VERSION/ARCHIVED), or is MISSING entirely (hidden/deleted — can't determine). The file-level currency signal a
+/// mod-level version compare can't give: Nexus itself retires a file, so its category IS the honest "is my exact file
+/// current" answer — immune to the multi-file-page confusion.</summary>
+public enum FileVerdict { Live, Superseded, Missing }
 
-/// <summary>One mod's batch update-check result. <paramref name="LatestMainVersion"/>/<paramref name="LatestMainDate"/>
-/// are the newest MAIN file (the accurate version of record); <paramref name="HeaderVersion"/> is the mod's version
-/// header (which can lag). <paramref name="Note"/> carries the failure reason when <paramref name="Verdict"/> is Error.</summary>
+/// <summary>One installed file's currency: the file (resolved from its id) and its verdict, plus — when
+/// <see cref="Verdict"/> is <see cref="FileVerdict.Superseded"/> — the newest LIVE file with the SAME name (the same
+/// variant line's replacement to update to; null when the author renamed/dropped that variant). <see cref="Name"/>/
+/// <see cref="Version"/>/<see cref="Category"/> are null only for a <see cref="FileVerdict.Missing"/> file (not on the
+/// page to resolve).</summary>
+public sealed record InstalledFileCurrency(
+    int FileId, string? Name, string? Version, string? Category, FileVerdict Verdict,
+    string? NewestSameName, string? NewestSameVersion, long NewestSameDate);
+
+/// <summary>The verdict for one mod in a batch FILE-LEVEL update check — "is the exact file I installed still current?"
+/// <see cref="Current"/> = every installed file is still a live file; <see cref="Outdated"/> = at least one was retired
+/// to OLD_VERSION/ARCHIVED (the per-file detail points to its same-name replacement); <see cref="FileGone"/> = an
+/// installed file id is no longer on the page (hidden/deleted) — a loud UNKNOWN, never "current". <see cref="NoFileId"/>
+/// = no file id was available (a FOMOD/manual install) so a file-level check can't run — a LOUD best-effort fallback,
+/// never the old confidently-wrong mod-level compare. <see cref="LatestOnly"/> = only a mod id was given (no version, no
+/// file id) → newest listed, no verdict. <see cref="NotFound"/> / <see cref="Error"/> are the Q3 honest "couldn't
+/// decide" states, never silently folded into "current".</summary>
+public enum UpdateVerdict { Current, Outdated, FileGone, NoFileId, LatestOnly, NotFound, Error }
+
+/// <summary>One mod's batch update-check result. <paramref name="Files"/> is the per-installed-file currency detail
+/// (present for the file-level verdicts Current/Outdated/FileGone; empty otherwise). <paramref name="LatestMainVersion"/>
+/// /<paramref name="LatestMainDate"/> + <paramref name="LiveMainCount"/> are the newest live MAIN file — context for
+/// LatestOnly and the NoFileId fallback (LiveMainCount &gt; 1 ⇒ a multi-main page a version compare can't safely
+/// resolve). <paramref name="HeaderVersion"/> is the mod's version header (can lag). <paramref name="Installed"/> is the
+/// caller's installed version string (for the NoFileId display). <paramref name="Note"/> carries the failure reason when
+/// <paramref name="Verdict"/> is Error.</summary>
 public sealed record NexusUpdateStatus(
-    int ModId, bool Found, string? Name, string? HeaderVersion,
-    string? LatestMainVersion, long LatestMainDate, string? Installed, UpdateVerdict Verdict, string? Note = null);
+    int ModId, bool Found, string? Name, string? HeaderVersion, string? Installed, UpdateVerdict Verdict,
+    IReadOnlyList<InstalledFileCurrency> Files, string? LatestMainVersion, long LatestMainDate, int LiveMainCount,
+    string? Note = null);
 
 /// <summary>One MD5-hash match: the Nexus file (name/type/size) and the mod it belongs to (id + name), plus the file's
 /// version + category and the <paramref name="GameId"/> — a match on a non-Skyrim-SE game is flagged, not mis-attributed.</summary>

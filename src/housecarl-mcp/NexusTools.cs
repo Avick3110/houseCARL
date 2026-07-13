@@ -106,23 +106,31 @@ public static class NexusTools
         return Render.Mod(detail!, description, files, changelog, since);
     }, ct);
 
-    [McpServerTool(Name = "housecarl_nexus_check_updates", ReadOnly = true, Title = "Batch-check Nexus mods for updates"),
+    [McpServerTool(Name = "housecarl_nexus_check_updates", ReadOnly = true, Title = "Batch-check Nexus mods for updates (file-level)"),
      Description(
-         "Check MANY Skyrim Special Edition mods for available updates in ONE call — without a browser and without an API " +
-         "key. Give a list of mods (each a numeric Nexus mod id, optionally with your installed version); houseCARL " +
-         "resolves each mod's newest MAIN file — the accurate 'latest version', because a mod's version header can lag its " +
-         "newest file — and reports per mod: CURRENT, DIFFERS (your version ≠ the newest MAIN; both are shown and the " +
-         "direction is NOT asserted, since freeform version strings aren't safely comparable), no-main-file, or not-found " +
-         "(wrong id, or an LE/other-game mod). Batched into few requests (dozens of mods per call). READ-ONLY, needs an " +
-         "internet connection (local tools work offline). Does NOT download or update anything — it is a REPORT. Build the " +
-         "list cheaply with housecarl_update_status (reads MO2's own local update cache, no network), then use " +
-         "housecarl_nexus_mod changelog=true on anything that DIFFERS to see what actually changed.")]
+         "Check MANY Skyrim Special Edition mods for updates in ONE call — at the FILE level, without a browser or an API " +
+         "key. The accurate question is 'is the exact FILE I installed still current?', NOT 'does my version match the " +
+         "page's newest main' — a Nexus page hosts many independently-versioned files (patch hubs, ENB pages, Xtudo " +
+         "mega-packs), so comparing your file to the page's single newest main is confidently WRONG for those. Pass each " +
+         "mod as 'id#fileid' — the fileid MO2 recorded for what you installed, which housecarl_update_status prints per " +
+         "row as a 'verify:' token (several files installed from one page → 'id#fileid1#fileid2'). houseCARL resolves each " +
+         "installed file to its live status and reports per mod: CURRENT (your file is still a live file on the page), " +
+         "OUTDATED (your file was RETIRED to OLD_VERSION/ARCHIVED — it names the newest same-name file to grab), FILE-GONE " +
+         "(your file is no longer on the page — hidden/deleted, a loud unknown), or not-found (wrong id / LE/other-game). " +
+         "If you pass only 'id=version' with NO fileid (a FOMOD/manual install), it degrades LOUDLY to a best-effort " +
+         "'no-fileid' note — never a confident verdict, because the mod-level compare lies for multi-file pages. Batched " +
+         "(dozens of mods per call). READ-ONLY, needs an internet connection (local tools work offline). Does NOT download " +
+         "or update anything — it is a REPORT. Build the list cheaply with housecarl_update_status (reads MO2's own local " +
+         "cache, no network, and prints each mod's fileid), then housecarl_nexus_mod changelog=true on anything OUTDATED " +
+         "to see what actually changed.")]
     public static Task<string> NexusCheckUpdates(
         NexusClient nexus,
-        [Description("The mods to check — one entry per mod, separated by commas or newlines. Each entry is a numeric " +
-            "Nexus mod id, optionally followed by your installed version after '=' (or a space or ':'): e.g. " +
-            "'12604=6.9, 266=4.3.8a, 3863'. An entry with no version is reported with its latest version only (no " +
-            "current/behind verdict). Non-numeric junk is skipped and listed back to you.")]
+        [Description("The mods to check — one entry per mod, separated by commas or newlines. Preferred (FILE-LEVEL) form: " +
+            "'id#fileid', the mod id then '#' then the Nexus file id MO2 recorded for what you installed (housecarl_update_status " +
+            "prints this as the 'verify:' token); if you installed several files from one page, add more with '#': " +
+            "'126608#533265, 99786#585300#585301'. Without a fileid you can pass 'id=version' (or 'id version') for a LOUD " +
+            "best-effort no-fileid note, or a bare 'id' for its latest version only — e.g. '12604=6.9, 3863'. The " +
+            "intra-fileid separator is '#', because ',' separates entries. Non-numeric junk is skipped and listed back to you.")]
             string mods,
         CancellationToken ct = default) => Guard.Tool("housecarl_nexus_check_updates", async () =>
     {
@@ -136,23 +144,41 @@ public static class NexusTools
         return Render.Updates(results, bad);
     }, ct);
 
-    /// <summary>Parse the check-updates input — comma/newline/semicolon-separated entries, each a numeric mod id with an
-    /// OPTIONAL installed version after '=', ':' or whitespace (e.g. '12604=6.9', '266 4.3.8a', '3863'). Returns the
-    /// (modId, installedVersion|null) pairs plus the tokens it couldn't read (surfaced back, never silently dropped — Q3).</summary>
-    static (List<(int modId, string? installed)> pairs, List<string> bad) ParseUpdatePairs(string input)
+    /// <summary>Parse the check-updates input — comma/newline/semicolon-separated entries. Two forms per entry:
+    /// FILE-LEVEL <c>&lt;modid&gt;#&lt;fileid&gt;[#&lt;fileid&gt;…]</c> (the honest check — the fileid(s) MO2 recorded,
+    /// several installed files on one page joined with more '#'), or VERSION/bare <c>&lt;modid&gt;[=&lt;version&gt;]</c>
+    /// (a '#'-less entry — the no-fileid FOMOD/manual fallback, or a bare id for latest-only). Returns
+    /// (modId, installedVersion|null, fileIds) triples plus the tokens it couldn't read (surfaced back, never silently
+    /// dropped — Q3). The intra-fileid separator is '#', not ',', because ',' already splits ENTRIES. Internal for the CI guard.</summary>
+    internal static (List<(int modId, string? installed, IReadOnlyList<int> fileIds)> pairs, List<string> bad) ParseUpdatePairs(string input)
     {
-        var pairs = new List<(int, string?)>();
+        var pairs = new List<(int, string?, IReadOnlyList<int>)>();
         var bad = new List<string>();
         if (string.IsNullOrWhiteSpace(input)) return (pairs, bad);
         foreach (var raw in input.Split(new[] { ',', '\n', ';', '\r' }, StringSplitOptions.RemoveEmptyEntries))
         {
             var entry = raw.Trim();
             if (entry.Length == 0) continue;
+
+            // FILE-LEVEL form: <modid>#<fileid>[#<fileid>...]
+            int hash = entry.IndexOf('#');
+            if (hash >= 0)
+            {
+                if (!int.TryParse(entry[..hash].Trim(), out var mid) || mid <= 0) { bad.Add(entry); continue; }
+                var fids = new List<int>();
+                foreach (var tok in entry[(hash + 1)..].Split('#', StringSplitOptions.RemoveEmptyEntries))
+                    if (int.TryParse(tok.Trim(), out var fid) && fid > 0) fids.Add(fid);
+                if (fids.Count == 0) { bad.Add(entry); continue; }   // a '#' with no readable fileid — surface, don't downgrade to a silent no-fileid verdict
+                pairs.Add((mid, null, fids));
+                continue;
+            }
+
+            // VERSION / bare form: <modid>[ (= | : | space) <version> ]
             var m = Regex.Match(entry, @"^(\d+)\s*[:=\s]?\s*(.*)$");
             if (m.Success && int.TryParse(m.Groups[1].Value, out var id) && id > 0)
             {
                 var ver = m.Groups[2].Value.Trim();
-                pairs.Add((id, ver.Length == 0 ? null : ver));
+                pairs.Add((id, ver.Length == 0 ? null : ver, Array.Empty<int>()));
             }
             else bad.Add(entry);
         }
@@ -432,29 +458,32 @@ static class Render
         return bytes + " B";
     }
 
-    /// <summary>Render a batch update check: a one-line summary (how many differ / current / not-found / …) then the mods
-    /// grouped by verdict, ACTIONABLE first (differ → latest-only → no-main → current → not-found → error). Unreadable
+    /// <summary>Render a batch FILE-LEVEL update check: a one-line summary then the mods grouped by verdict, ACTIONABLE
+    /// first (outdated → file-gone → no-fileid → current → latest-only → not-found → error). Each file-level row lists its
+    /// installed file(s) with the live/retired/missing verdict; a retired file names the same-name replacement. Unreadable
     /// input tokens are listed back at the end (Q3 — a skipped entry is never silently dropped).</summary>
     public static string Updates(IReadOnlyList<NexusUpdateStatus> results, IReadOnlyList<string> unreadable)
     {
         var sb = new StringBuilder();
-        int differ = results.Count(r => r.Verdict == UpdateVerdict.Differs);
+        int outdated = results.Count(r => r.Verdict == UpdateVerdict.Outdated);
         int current = results.Count(r => r.Verdict == UpdateVerdict.Current);
+        int fileGone = results.Count(r => r.Verdict == UpdateVerdict.FileGone);
+        int noFileId = results.Count(r => r.Verdict == UpdateVerdict.NoFileId);
         int latest = results.Count(r => r.Verdict == UpdateVerdict.LatestOnly);
-        int noMain = results.Count(r => r.Verdict == UpdateVerdict.NoMainFile);
         int notFound = results.Count(r => r.Verdict == UpdateVerdict.NotFound);
         int errored = results.Count(r => r.Verdict == UpdateVerdict.Error);
 
-        sb.Append("update check — ").Append(results.Count).Append(" mod(s): ")
-          .Append(differ).Append(" differ · ").Append(current).Append(" current · ")
-          .Append(latest).Append(" latest-only · ").Append(noMain).Append(" no-main · ")
-          .Append(notFound).Append(" not-found");
+        sb.Append("update check (file-level) — ").Append(results.Count).Append(" mod(s): ")
+          .Append(outdated).Append(" outdated · ").Append(current).Append(" current · ")
+          .Append(fileGone).Append(" file-gone · ").Append(noFileId).Append(" no-fileid · ")
+          .Append(latest).Append(" latest-only · ").Append(notFound).Append(" not-found");
         if (errored > 0) sb.Append(" · ").Append(errored).Append(" error");
 
-        AppendUpdateGroup(sb, "DIFFER — installed ≠ newest MAIN (check the changelog before updating)", results, UpdateVerdict.Differs);
-        AppendUpdateGroup(sb, "latest version (no installed version was given to compare)", results, UpdateVerdict.LatestOnly);
-        AppendUpdateGroup(sb, "no MAIN file — the header version may lag, so UNKNOWN", results, UpdateVerdict.NoMainFile);
-        AppendUpdateGroup(sb, "current", results, UpdateVerdict.Current);
+        AppendUpdateGroup(sb, "OUTDATED — an installed file was RETIRED to OLD/ARCHIVED (grab the newest same-name file)", results, UpdateVerdict.Outdated);
+        AppendUpdateGroup(sb, "FILE GONE — your installed file is no longer on the page (hidden/deleted) — verify by hand, don't assume", results, UpdateVerdict.FileGone);
+        AppendUpdateGroup(sb, "NO FILEID — couldn't verify at file level (FOMOD/manual install); best-effort only, not a verdict", results, UpdateVerdict.NoFileId);
+        AppendUpdateGroup(sb, "current — the exact file you installed is still a live file on the page", results, UpdateVerdict.Current);
+        AppendUpdateGroup(sb, "latest version (no installed version/fileid was given to compare)", results, UpdateVerdict.LatestOnly);
         AppendUpdateGroup(sb, "not found on Skyrim SE (wrong id, or an LE/other-game mod)", results, UpdateVerdict.NotFound);
         AppendUpdateGroup(sb, "check FAILED (surface, don't assume current)", results, UpdateVerdict.Error);
 
@@ -473,19 +502,27 @@ static class Render
             sb.Append("\n  [").Append(r.ModId).Append("] ").Append(r.Name ?? "?");
             switch (r.Verdict)
             {
-                case UpdateVerdict.Differs:
-                    sb.Append(" — installed v").Append(r.Installed).Append(", newest MAIN v").Append(r.LatestMainVersion ?? "?");
-                    if (r.LatestMainDate > 0) sb.Append(" (").Append(Day(r.LatestMainDate)).Append(')');
-                    break;
+                case UpdateVerdict.Outdated:
+                case UpdateVerdict.FileGone:
                 case UpdateVerdict.Current:
-                    sb.Append(" — v").Append(r.Installed).Append(" (current)");
+                    foreach (var f in r.Files) AppendFileCurrency(sb, f);
+                    break;
+                case UpdateVerdict.NoFileId:
+                    sb.Append(" — installed v").Append(r.Installed ?? "?");
+                    if (r.LiveMainCount == 1)
+                        sb.Append("; newest MAIN v").Append(r.LatestMainVersion ?? "?")
+                          .Append(r.LatestMainDate > 0 ? " (" + Day(r.LatestMainDate) + ")" : "")
+                          .Append(" — VERSION compare only (single-main page; no fileid to verify the exact file)");
+                    else if (r.LiveMainCount > 1)
+                        sb.Append("; this page has ").Append(r.LiveMainCount)
+                          .Append(" current MAIN files — can't tell which you have without a fileid (open the page)");
+                    else
+                        sb.Append("; no MAIN file listed — can't verify at file level without a fileid");
                     break;
                 case UpdateVerdict.LatestOnly:
                     sb.Append(" — newest MAIN v").Append(r.LatestMainVersion ?? "?");
                     if (r.LatestMainDate > 0) sb.Append(" (").Append(Day(r.LatestMainDate)).Append(')');
-                    break;
-                case UpdateVerdict.NoMainFile:
-                    sb.Append(" — no MAIN file; header v").Append(r.HeaderVersion ?? "?");
+                    if (r.LiveMainCount > 1) sb.Append(" [+").Append(r.LiveMainCount - 1).Append(" other current MAIN file(s)]");
                     break;
                 case UpdateVerdict.Error:
                     sb.Append(" — ").Append(r.Note ?? "check failed");
@@ -493,6 +530,30 @@ static class Render
                 case UpdateVerdict.NotFound:
                     break;   // the group label already says it
             }
+        }
+    }
+
+    /// <summary>Render one installed file's currency line under its mod: id, then (unless the file is gone) its name /
+    /// version / category and the live/retired verdict; a RETIRED file names the newest same-name replacement (or says
+    /// there isn't one). The category is always shown, so an unfamiliar Nexus category is visible, not hidden (Q3).</summary>
+    static void AppendFileCurrency(StringBuilder sb, InstalledFileCurrency f)
+    {
+        sb.Append("\n      · file #").Append(f.FileId);
+        if (f.Verdict == FileVerdict.Missing)
+        {
+            sb.Append(" — not on the page anymore (hidden/deleted; can't determine currency)");
+            return;
+        }
+        sb.Append(" '").Append(f.Name ?? "?").Append("' v").Append(f.Version ?? "?").Append(" [").Append(f.Category ?? "?").Append(']');
+        if (f.Verdict == FileVerdict.Live) sb.Append(" — current");
+        else
+        {
+            sb.Append(" — RETIRED");
+            if (f.NewestSameName is not null)
+                sb.Append("; newest '").Append(f.NewestSameName).Append("' v").Append(f.NewestSameVersion ?? "?")
+                  .Append(f.NewestSameDate > 0 ? " (" + Day(f.NewestSameDate) + ")" : "");
+            else
+                sb.Append("; no current file with that exact name — open the page to pick the replacement");
         }
     }
 
