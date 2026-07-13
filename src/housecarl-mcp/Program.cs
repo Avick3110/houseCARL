@@ -114,6 +114,11 @@ static (LoadOrderService svc, bool explicitMode, string? instanceDir, string ins
     {
         c.Timeout = TimeSpan.FromSeconds(20);
         c.DefaultRequestHeaders.UserAgent.ParseAdd("houseCARL (+https://github.com/Avick3110/houseCARL)");
+        // Nexus API Acceptable-Use Policy requires Application-Name + Application-Version on API traffic
+        // (article 114). We send them on every request regardless of tier — cheap, compliant, and it identifies
+        // houseCARL honestly to Nexus. The version is the exe's stamped release (ServerVersion), 0.0.0-dev unstamped.
+        c.DefaultRequestHeaders.Add("Application-Name", "houseCARL");
+        c.DefaultRequestHeaders.Add("Application-Version", ServerVersion());
     });
 
     return (svc, explicitMode, instanceDir, instanceSource, configNote);
