@@ -65,6 +65,10 @@ public static class NexusTools
          "several KB. Pass files=true to list EVERY uploaded file (not just the newest MAIN) — each variant's name, " +
          "version, category, and date — the accurate way to pin the version of a specific FOMOD/modular variant (an " +
          "'SE' vs 'AE' main, an optional patch, a texture-size option) rather than the single newest-main summary. " +
+         "Pass changelog=true to read the mod's per-version CHANGELOG (what changed in each release); combine with " +
+         "since='<your installed version>' to show ONLY entries newer than what you have — the 'is this update worth " +
+         "installing' delta. A mod whose author wrote no changelog is reported UNKNOWN, never 'no changes', so a silent " +
+         "gap is never read as 'safe'. " +
          "READ-ONLY and needs an internet connection (local tools unaffected offline). Does NOT download or install — " +
          "use your mod manager's 'Mod Manager Download' for that. To find a mod by name first, use housecarl_nexus_search.")]
     public static Task<string> NexusMod(
@@ -83,6 +87,15 @@ public static class NexusTools
             "specific variant (e.g. which 'main' is the AE build, an optional add-on's version) — the fix for modular/FOMOD " +
             "mods where the single newest-main line isn't enough.")]
             bool files = false,
+        [Description("Optional. When true, include the mod's per-version CHANGELOG — each release's changelog lines, " +
+            "newest first. Default false. Versions whose author wrote no changelog are reported as UNKNOWN (never 'no " +
+            "changes'). Pair with since= to see only what's newer than your installed version.")]
+            bool changelog = false,
+        [Description("Optional. Your currently-installed version (e.g. '5.2SE', '6.9'). When changelog=true, limits the " +
+            "changelog to releases uploaded AFTER the file matching this version — the 'what changed since I installed it' " +
+            "delta. Matching is by upload DATE (robust), so if this exact version string isn't found among the files, the " +
+            "tool says so and shows the full changelog rather than guessing (Q3). Ignored unless changelog=true.")]
+            string? since = null,
         CancellationToken ct = default) => Guard.Tool("housecarl_nexus_mod", async () =>
     {
         var (modId, parseError) = ResolveModId(mod);
@@ -90,7 +103,7 @@ public static class NexusTools
 
         var (ok, error, detail) = await nexus.GetModAsync(modId, ct);
         if (!ok) return "error: " + error;
-        return Render.Mod(detail!, description, files);
+        return Render.Mod(detail!, description, files, changelog, since);
     }, ct);
 
     /// <summary>Map a friendly sort word to a ModsSort field name; null if unrecognised (the tool reports it — Q3).</summary>
@@ -182,7 +195,8 @@ static class Render
         return sb.ToString();
     }
 
-    public static string Mod(NexusModDetail m, bool includeDescription = false, bool includeFiles = false)
+    public static string Mod(NexusModDetail m, bool includeDescription = false, bool includeFiles = false,
+                             bool includeChangelog = false, string? since = null)
     {
         var sb = new StringBuilder();
         sb.Append(m.Name).Append("  [id ").Append(m.ModId).Append(']');
@@ -227,6 +241,11 @@ static class Render
         // version. GetModAsync already fetches the whole list; this just renders it.
         if (includeFiles) AppendFiles(sb, m.Files);
 
+        // Per-version changelog is opt-in. since= limits it to releases newer than the installed version — the update
+        // delta. Files with no changelog lines are reported UNKNOWN, never silently dropped (Q3 — a missing changelog
+        // must never read as "nothing changed / safe to skip").
+        if (includeChangelog) AppendChangelog(sb, m.Files, since);
+
         // Full description is opt-in (it can run several KB of BBCode/HTML). When asked, clean it to plain text; if the
         // page genuinely has none, SAY so rather than silently omitting (Q3 — an empty section reads as a missing one).
         if (includeDescription)
@@ -269,6 +288,62 @@ static class Render
             }
             sb.Append("\n  - ").Append(f.Name).Append("  v").Append(f.Version ?? "?")
               .Append("  (").Append(f.Date > 0 ? Day(f.Date) : "?").Append(')');
+            shown++;
+        }
+    }
+
+    /// <summary>The per-version changelog, newest release first. Each release's changelog can sit on any of its files
+    /// (a MAIN, an OLD_VERSION, an ARCHIVED copy), so fold the lines together per version and order by the newest upload
+    /// date in the group. <paramref name="since"/> deltas to releases AFTER the installed version's upload date — dates
+    /// are monotonic where freeform version strings ('5.2SE', '6.9') are not comparable, so date is the honest key. A
+    /// version with NO changelog lines is reported UNKNOWN, never omitted (Q3 — a missing changelog is not "no change").
+    /// The section is bounded with an explicit cut (Q3).</summary>
+    static void AppendChangelog(StringBuilder sb, IReadOnlyList<NexusFile> files, string? since)
+    {
+        var byVersion = new Dictionary<string, (long date, List<string> lines)>(StringComparer.OrdinalIgnoreCase);
+        var order = new List<string>();     // first-seen versions — a stable base order before the date sort
+        foreach (var f in files)
+        {
+            var v = f.Version?.Trim();
+            if (string.IsNullOrEmpty(v)) continue;   // a file with no version isn't a release
+            if (!byVersion.TryGetValue(v, out var agg)) { agg = (0L, new List<string>()); order.Add(v); }
+            if (f.Date > agg.date) agg.date = f.Date;
+            foreach (var line in f.ChangelogText) if (!agg.lines.Contains(line)) agg.lines.Add(line);
+            byVersion[v] = agg;
+        }
+
+        sb.Append("\n\n── changelog ──");
+        if (byVersion.Count == 0) { sb.Append("\n(this mod has no versioned files to read a changelog from.)"); return; }
+
+        var versions = order.OrderByDescending(v => byVersion[v].date).ToList();
+
+        // since= delta: keep only releases uploaded AFTER the installed version's file. If that version isn't among the
+        // uploads, say so and show the whole changelog — never silently guess a cutoff (Q3).
+        if (!string.IsNullOrWhiteSpace(since))
+        {
+            var key = since.Trim();
+            if (byVersion.TryGetValue(key, out var found))
+            {
+                var newer = versions.Where(v => byVersion[v].date > found.date).ToList();
+                if (newer.Count == 0) { sb.Append("\nyou're on v").Append(key).Append(" — no newer release on Nexus (you're current)."); return; }
+                sb.Append("\n(only releases newer than your v").Append(key).Append(")");
+                versions = newer;
+            }
+            else sb.Append("\nnote: no file at version '").Append(key)
+                    .Append("' among this mod's uploads — showing the full changelog rather than guessing a delta.");
+        }
+
+        const int Cap = 6000;
+        int shown = 0;
+        foreach (var v in versions)
+        {
+            if (sb.Length >= Cap) { sb.Append("\n  ... [").Append(versions.Count - shown).Append(" older release(s) omitted — narrow with since=, or open the page.]"); break; }
+            var (date, lines) = byVersion[v];
+            sb.Append("\n\nv").Append(v);
+            if (date > 0) sb.Append("  (").Append(Day(date)).Append(')');
+            sb.Append(':');
+            if (lines.Count == 0) sb.Append("\n  (no changelog for this version — UNKNOWN, not necessarily unchanged)");
+            else foreach (var line in lines) sb.Append("\n  - ").Append(OneLine(line, 300));
             shown++;
         }
     }
