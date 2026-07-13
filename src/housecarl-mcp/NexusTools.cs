@@ -484,7 +484,7 @@ static class Render
         AppendUpdateGroup(sb, "NO FILEID — couldn't verify at file level (FOMOD/manual install); best-effort only, not a verdict", results, UpdateVerdict.NoFileId);
         AppendUpdateGroup(sb, "current — the exact file you installed is still a live file on the page", results, UpdateVerdict.Current);
         AppendUpdateGroup(sb, "latest version (no installed version/fileid was given to compare)", results, UpdateVerdict.LatestOnly);
-        AppendUpdateGroup(sb, "not found on Skyrim SE (wrong id, or an LE/other-game mod)", results, UpdateVerdict.NotFound);
+        AppendUpdateGroup(sb, "not found on Skyrim SE (wrong id, an LE/other-game mod, or a hidden/deleted page)", results, UpdateVerdict.NotFound);
         AppendUpdateGroup(sb, "check FAILED (surface, don't assume current)", results, UpdateVerdict.Error);
 
         if (unreadable.Count > 0)

@@ -214,11 +214,20 @@ public sealed class NexusClient
     static bool IsSuperseded(string category) => category is "OLD_VERSION" or "ARCHIVED";
 
     /// <summary>Resolve one mod's file-level currency from its installed file id(s) and its full file list. See
-    /// <see cref="CheckUpdatesAsync"/> for what each verdict means. Internal (pure) for the CI guard.</summary>
+    /// <see cref="CheckUpdatesAsync"/> for what each verdict means. Internal (pure) for the CI guard. A mod absent from
+    /// the mods() SEARCH (<paramref name="found"/> false) but whose direct modFiles lookup returned files — the
+    /// manager-only (nxm) class Nexus hides from its search collection — is still resolved FROM those files, never
+    /// stamped NotFound; only a mod that is both search-absent AND fileless is genuinely not found.</summary>
     internal static NexusUpdateStatus ComputeStatus(int modId, bool found, string? name, string? header, string? installed,
         IReadOnlyList<int> fileIds, List<(int fileId, string name, string? version, string category, long date)> files)
     {
-        if (!found) return new NexusUpdateStatus(modId, false, name, header, installed, UpdateVerdict.NotFound, NoFiles, null, 0, 0);
+        // NotFound only when the mod is BOTH absent from the mods() search AND returned no files from the direct modFiles
+        // lookup. The search collection silently EXCLUDES manager-only (nxm) mods — a large, mainstream class — yet their
+        // modFiles lookup resolves fine; gating NotFound on the search alone would discard those already-fetched files and
+        // stamp a real, checkable mod "not found" (the same confidently-wrong class this whole check exists to kill). Files
+        // present ⇒ the mod exists: fall through and check them (the friendly name may be null — the file rows carry names).
+        if (!found && files.Count == 0)
+            return new NexusUpdateStatus(modId, false, name, header, installed, UpdateVerdict.NotFound, NoFiles, null, 0, 0);
 
         // Newest live MAIN + how many — context for LatestOnly and the no-file-id fallback (LiveMainCount>1 ⇒ a multi-main
         // page a version compare can't safely resolve: the false-positive root cause).

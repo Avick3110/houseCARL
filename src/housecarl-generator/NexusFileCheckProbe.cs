@@ -9,7 +9,9 @@ namespace HousecarlGenerator;
 ///   • NexusClient.ComputeStatus — the currency verdict from an installed fileid + the mod's file list: a live-category
 ///     file ⇒ Current, an OLD_VERSION/ARCHIVED file ⇒ Outdated (pointing to the newest SAME-NAME live file, not the
 ///     page's global newest), an absent fileid ⇒ FileGone (loud), no fileid ⇒ NoFileId/LatestOnly (loud fallback,
-///     never a confident mod-level verdict), plus multi-file aggregation and the not-found state.
+///     never a confident mod-level verdict), plus multi-file aggregation and the not-found state. A mod hidden from the
+///     mods() SEARCH but resolvable via its direct modFiles lookup (the manager-only/nxm class) is still checked from
+///     its files, never mis-stamped NotFound — the search's "found" flag no longer vetoes already-fetched data (G/J).
 ///   • NexusTools.ParseUpdatePairs — the 'id#fileid' input grammar (file-level vs version vs bare, junk surfaced).
 ///   • NexusClient.GroupRequests — same-modId-across-folders MERGES fileids (the Xtudo multi-folder case), never
 ///     dedup-drops a folder.
@@ -73,9 +75,29 @@ internal static class NexusFileCheckProbe
         var f = NexusClient.ComputeStatus(3863, true, "Some Mod", "1.0", null, Array.Empty<int>(), files);
         Check(f.Verdict == UpdateVerdict.LatestOnly, "F: bare id (no version, no fileid) → LatestOnly");
 
-        // G — mod not found on SSE ⇒ NotFound (never folded into current).
-        var g = NexusClient.ComputeStatus(1, false, null, null, "1.0", new[] { 123 }, files);
-        Check(g.Verdict == UpdateVerdict.NotFound, "G: mod not found → NotFound");
+        // G — GENUINELY not found: absent from the mods() search AND the modFiles lookup returned NOTHING (a missing mod
+        //     comes back as an empty file list, never an error). The EMPTY list is what makes it genuine — contrast J,
+        //     where files DID come back for a search-absent mod and it must still be checked.
+        var g = NexusClient.ComputeStatus(1, false, null, null, "1.0", new[] { 123 }, new List<(int, string, string?, string, long)>());
+        Check(g.Verdict == UpdateVerdict.NotFound, "G: not in search AND no files returned → NotFound (genuinely gone/wrong-id)");
+
+        // J — the nxm-only BLIND SPOT this guard was extended to lock. Nexus EXCLUDES manager-only (direct-download-
+        //     disabled) mods from the mods() search collection, so found=false — but their direct modFiles lookup resolves
+        //     fine and returned files. The installed file MUST be checked from that list, never stamped NotFound (a
+        //     confidently-wrong "not found" for a real, checkable mod — the same false-answer class the file-level fix
+        //     exists to kill). 585300 is a LIVE MAIN in the synthetic list ⇒ Current, and the mod reports Found (exists).
+        var jLive = NexusClient.ComputeStatus(90696, false, null, null, null, new[] { 585300 }, files);
+        Check(jLive.Verdict == UpdateVerdict.Current, "J: found=false but modFiles returned files → check them (Current), NOT NotFound (nxm-only)");
+        Check(jLive.Found, "J: a mod resolved via its file list is reported Found — it exists (a null friendly name is fine)");
+
+        // J2 — same blind spot, installed file RETIRED ⇒ Outdated (still checked from the file list, not NotFound).
+        var jOut = NexusClient.ComputeStatus(132337, false, null, null, "1", new[] { 483794 }, files);
+        Check(jOut.Verdict == UpdateVerdict.Outdated, "J2: found=false + retired installed file → Outdated (checked, not NotFound)");
+
+        // J3 — a search-absent mod with NO fileid (FOMOD/manual) can't be file-checked, but we now know it EXISTS (files
+        //      came back), so it degrades to the LOUD NoFileId fallback — never NotFound.
+        var jNo = NexusClient.ComputeStatus(90696, false, null, null, "2.0.0.0", Array.Empty<int>(), files);
+        Check(jNo.Verdict == UpdateVerdict.NoFileId, "J3: found=false, files present, no fileid → NoFileId fallback (exists), not NotFound");
 
         // H — single-main page, no fileid + version ⇒ NoFileId with LiveMainCount==1 (the labeled version-compare case).
         var single = new List<(int, string, string?, string, long)>
