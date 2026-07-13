@@ -104,7 +104,7 @@ public sealed class NexusClient
             foreach (var f in mf.EnumerateArray())
                 files.Add(new NexusFile(
                     Int(f, "fileId"), Str(f, "name") ?? "", Str(f, "version"),
-                    Str(f, "category") ?? "", Long(f, "date"), Str(f, "description")));
+                    Str(f, "category") ?? "", Long(f, "date"), Str(f, "description"), StrList(f, "changelogText")));
 
         return (true, null, new NexusModDetail(
             Int(m, "modId"), Str(m, "name") ?? "", Str(m, "version"), Str(m, "summary"), Str(m, "description"),
@@ -183,6 +183,14 @@ public sealed class NexusClient
         return 0;
     }
     static bool Bool(JsonElement e, string p) => e.TryGetProperty(p, out var v) && v.ValueKind == JsonValueKind.True;
+    static IReadOnlyList<string> StrList(JsonElement e, string p)
+    {
+        if (!e.TryGetProperty(p, out var v) || v.ValueKind != JsonValueKind.Array) return Array.Empty<string>();
+        var list = new List<string>();
+        foreach (var x in v.EnumerateArray())
+            if (x.ValueKind == JsonValueKind.String) { var s = x.GetString(); if (!string.IsNullOrWhiteSpace(s)) list.Add(s!); }
+        return list;
+    }
 
     // ── GraphQL documents (variable-based ⇒ user input is never string-concatenated into the query) ──
     const string SearchQuery =
@@ -201,7 +209,7 @@ public sealed class NexusClient
               modRequirements { nexusRequirements { nodes { modId modName url notes externalRequirement } } }
             }
             modFiles(modId: $modId, gameId: $gameId) {
-              fileId name version category date description
+              fileId name version category date description changelogText
             }
           }";
 }
@@ -221,8 +229,10 @@ public sealed record NexusSearchResult(int TotalCount, IReadOnlyList<NexusSearch
 public sealed record NexusRequirement(string ModId, string ModName, string? Url, string? Notes, bool ExternalRequirement);
 
 /// <summary>One uploaded file of a mod. <paramref name="Category"/> is MAIN / OPTIONAL / OLD_VERSION / ARCHIVED / …;
-/// <paramref name="Date"/> is a unix-seconds timestamp.</summary>
-public sealed record NexusFile(int FileId, string Name, string? Version, string Category, long Date, string? Description);
+/// <paramref name="Date"/> is a unix-seconds timestamp. <paramref name="ChangelogText"/> is that file/version's changelog
+/// lines (empty when the author wrote none — the caller reports "unknown", never "no changes", per Q3).</summary>
+public sealed record NexusFile(
+    int FileId, string Name, string? Version, string Category, long Date, string? Description, IReadOnlyList<string> ChangelogText);
 
 /// <summary>Full detail for one mod plus its files. Note: <paramref name="Version"/> is the mod's version HEADER, which
 /// can lag the newest MAIN file — the accurate "latest version" is the most recent MAIN entry in <paramref name="Files"/>.</summary>
