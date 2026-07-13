@@ -1014,6 +1014,58 @@ public sealed class LoadOrderService : IDisposable
             comp, warnings, view.PluginCount, _maxPlugins, profileChanged, profileDir, profileName, instanceDir, view.ExcludedPlugins);
     }
 
+    /// <summary>Read MO2's OWN local Nexus update cache — the modid / version / newestVersion / ignoredVersion /
+    /// lastNexusUpdate fields in every managed mod's meta.ini — with NO network (MO2 already paid the API cost). The
+    /// cheap local pre-filter for update triage: it names which mods MO2 already learned a newer version for, plus the
+    /// raw fields so the caller can verify online. Enabled/disabled comes from the ACTIVE profile. Config-gated and uses
+    /// the same lazy path derivation as the other reads; a missing mods folder is NAMED, never a silent empty (Q3).
+    /// Only Nexus-linked mods (a real modid) become entries; hand-installed mods / separators are counted, not listed.</summary>
+    public UpdateCacheData UpdateCache()
+    {
+        string modsDir, profileDir; string? instanceDir;
+        lock (_gate)
+        {
+            if (!_configured) throw NotConfigured();               // fresh install → the tool surfaces the trained prompt
+            EnsurePathsDerived();                                  // instance mode: derive _modsDir/_profileDir from the ini (throws Q3 if unusable)
+            modsDir = _modsDir; profileDir = _profileDir; instanceDir = _instanceDir;
+        }
+
+        if (string.IsNullOrEmpty(modsDir) || !Directory.Exists(modsDir))
+            return new UpdateCacheData(modsDir, instanceDir, Array.Empty<ModUpdateEntry>(), new[] { $"the mods folder is missing: '{modsDir}'" }, 0);
+
+        // Enabled/disabled from the active profile (cheap text read, OUTSIDE the gate; explicit-paths mode may have no
+        // profile → every mod's state is 'unknown', which the render states rather than guessing).
+        var enabled = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var disabled = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (!string.IsNullOrEmpty(profileDir) && Directory.Exists(profileDir))
+        {
+            var comp = Mo2LoadOrder.ReadComposition(profileDir);
+            foreach (var e in comp.EnabledMods) enabled.Add(e);
+            foreach (var d in comp.DisabledMods) disabled.Add(d);
+        }
+
+        IEnumerable<string> dirs;
+        try { dirs = Directory.EnumerateDirectories(modsDir); }
+        catch (Exception ex)
+        { return new UpdateCacheData(modsDir, instanceDir, Array.Empty<ModUpdateEntry>(), new[] { $"cannot list the mods folder '{modsDir}': {ex.Message}" }, 0); }
+
+        var entries = new List<ModUpdateEntry>();
+        int untracked = 0;
+        foreach (var dir in dirs)
+        {
+            var folder = Path.GetFileName(dir);
+            var metaPath = Path.Combine(dir, "meta.ini");
+            if (!File.Exists(metaPath)) { untracked++; continue; }     // separators / hand-installed mods carry no meta.ini
+            var meta = Mo2ModMeta.Read(metaPath);
+            if (meta is null || meta.ModId == 0) { untracked++; continue; }   // not a Nexus-linked mod → not update-checkable
+            bool? state = enabled.Contains(folder) ? true : disabled.Contains(folder) ? false : (bool?)null;
+            entries.Add(new ModUpdateEntry(
+                folder, state, meta.ModId, meta.Version, meta.NewestVersion, meta.IgnoredVersion, meta.LastNexusUpdate));
+        }
+        entries.Sort((a, b) => string.Compare(a.Folder, b.Folder, StringComparison.OrdinalIgnoreCase));
+        return new UpdateCacheData(modsDir, instanceDir, entries, Array.Empty<string>(), untracked);
+    }
+
     /// <summary>Inspect a NAMED profile's enabled/disabled composition WITHOUT switching to it (9.2: "can't inspect an
     /// inactive profile") — INSTANCE MODE ONLY. The profiles root is the PARENT of the active profile's dir, so MO2's
     /// base_directory redirect is honored by construction (the active ProfileDir already incorporates it) and a stale
@@ -4175,6 +4227,24 @@ public sealed record LoadOrderStatusData(
     string ProfileName,         // the ACTIVE profile (instance mode: MO2's selected_profile; explicit: the dir name) — captured under the gate, not re-derived at render
     string? InstanceDir,        // the resolved MO2 instance folder houseCARL is pointed at; null ⇒ explicit-paths / unconfigured mode
     IReadOnlyDictionary<string, string> ExcludedPlugins);
+
+/// <summary>The data behind housecarl_update_status: MO2's own local Nexus update cache read from meta.ini, with no
+/// network. <see cref="Entries"/> is one row per Nexus-linked mod (installed vs newest version, modid, enabled state);
+/// <see cref="UntrackedCount"/> is how many mod folders were skipped as not Nexus-linked (no meta.ini or no modid).
+/// <see cref="Problems"/> carries any Q3 read faults (e.g. a missing mods folder), never a silent empty.</summary>
+public sealed record UpdateCacheData(
+    string ModsDir,
+    string? InstanceDir,
+    IReadOnlyList<ModUpdateEntry> Entries,
+    IReadOnlyList<string> Problems,
+    int UntrackedCount);
+
+/// <summary>One Nexus-linked mod's update-cache row. <see cref="Newest"/> empty ⇒ MO2 never learned a newer version.
+/// MO2's own "update available" rule: <see cref="Newest"/> is set, non-empty, != <see cref="Installed"/>, and !=
+/// <see cref="Ignored"/>. <see cref="Enabled"/> is null when the mod isn't in the active profile (state unknown).
+/// <see cref="LastUpdate"/> is unix-seconds of MO2's last Nexus check (staleness signal).</summary>
+public sealed record ModUpdateEntry(
+    string Folder, bool? Enabled, int ModId, string? Installed, string? Newest, string? Ignored, string? LastUpdate);
 
 /// <summary>The result of <see cref="LoadOrderService.NamedProfileComposition"/> — the profiles affordance behind
 /// housecarl_load_order_status' profile= param. <see cref="InstanceMode"/> is false in explicit-paths mode (no profiles
