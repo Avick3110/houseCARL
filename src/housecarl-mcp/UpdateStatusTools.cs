@@ -17,10 +17,11 @@ public static class UpdateStatusTools
 {
     [McpServerTool(Name = "housecarl_update_status", ReadOnly = true, Title = "MO2's local mod-update cache (no network)"),
      Description(
-         "Report which of your installed mods MO2 already thinks have a newer version — read from MO2's OWN local cache " +
-         "(each mod's meta.ini), with NO network and NO API key. For every Nexus-linked mod it compares the installed " +
-         "version against the newest version MO2 last learned and lists the ones that DIFFER (plus any you told MO2 to " +
-         "ignore, and how many were never checked or are current). This is the cheap FIRST pass of update triage — it " +
+         "Report which installed mods have a version DIFFERENT from MO2's cached 'newest' — read from MO2's OWN local " +
+         "cache (each mod's meta.ini), with NO network and NO API key. For every Nexus-linked mod it compares the " +
+         "installed version against the newest version MO2 last learned and lists the ones that DIFFER (candidates only — " +
+         "MO2's cache can be stale or a different version scheme, so direction isn't assured), plus any you told MO2 to " +
+         "ignore, and how many were never checked or match. This is the cheap FIRST pass of update triage — it " +
          "narrows a big modlist to the handful worth checking online — but it is only as fresh as MO2's last Nexus check, " +
          "and a 'never checked' mod is NOT 'up to date' (Q3). To verify live, pass the flagged mod ids to " +
          "housecarl_nexus_check_updates; use housecarl_nexus_mod changelog=true to see what changed. READ-ONLY, works " +
@@ -61,20 +62,22 @@ static class UpdateStatusWire
         }
 
         sb.Append(d.Entries.Count).Append(" Nexus-linked mod(s): ")
-          .Append(flagged.Count).Append(" with a newer version cached · ")
+          .Append(flagged.Count).Append(" differ from MO2's cached newest · ")
           .Append(ignored.Count).Append(" ignored · ")
-          .Append(current).Append(" current · ")
+          .Append(current).Append(" match · ")
           .Append(neverChecked).Append(" never checked");
         if (d.UntrackedCount > 0) sb.Append("  (+").Append(d.UntrackedCount).Append(" non-Nexus mods/separators skipped)");
         sb.Append('\n');
         foreach (var p in d.Problems) sb.Append("[!] ").Append(p).Append('\n');
 
-        AppendEntries(sb, "UPDATE cached — MO2 learned a newer version (verify live before updating)", flagged, cap);
-        AppendEntries(sb, "ignored — you told MO2 to skip this newer version", ignored, cap);
+        AppendEntries(sb, "installed ≠ MO2's cached newest — CANDIDATES to verify (direction not assured)", flagged, cap);
+        AppendEntries(sb, "ignored — you told MO2 to skip this version", ignored, cap);
 
-        sb.Append("\nnote: this is MO2's OWN cached view — only as fresh as MO2's last Nexus check, and 'never checked' is ")
-          .Append("NOT 'up to date'. To verify against Nexus right now, feed the flagged mod ids to ")
-          .Append("housecarl_nexus_check_updates.");
+        sb.Append("\nnote: this is MO2's OWN cached view, not a live check. A 'differ' is only a CANDIDATE — MO2's cached ")
+          .Append("'newest' can be stale or a different version scheme (some installed versions here are actually NEWER than ")
+          .Append("the cached value), so the direction is not assured and 'never checked' is NOT 'up to date'. To confirm ")
+          .Append("what's genuinely behind, feed these mod ids to housecarl_nexus_check_updates (authoritative newest MAIN " )
+          .Append("file), then housecarl_nexus_mod changelog=true to see what changed.");
         return sb.ToString().TrimEnd('\n');
     }
 
@@ -89,7 +92,8 @@ static class UpdateStatusWire
             if (sb.Length >= cap) { sb.Append("  ... [").Append(rows.Count - shown).Append(" more omitted at max_chars=").Append(cap).Append("]\n"); break; }
             sb.Append("  - ").Append(e.Folder);
             if (e.Enabled == false) sb.Append("  [disabled]");
-            sb.Append("  [id ").Append(e.ModId).Append("]  v").Append(e.Installed ?? "?").Append(" → v").Append(e.Newest ?? "?");
+            sb.Append("  [id ").Append(e.ModId).Append("]  installed v").Append(e.Installed ?? "?")
+              .Append(" · MO2 cached v").Append(e.Newest ?? "?");
             var checkedOn = StaleDay(e.LastUpdate);
             if (checkedOn is not null) sb.Append("  (checked ").Append(checkedOn).Append(')');
             sb.Append('\n'); shown++;
