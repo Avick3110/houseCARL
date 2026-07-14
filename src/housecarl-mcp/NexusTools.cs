@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Text;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using ModelContextProtocol.Server;
 
@@ -104,6 +105,41 @@ public static class NexusTools
         var (ok, error, detail) = await nexus.GetModAsync(modId, ct);
         if (!ok) return "error: " + error;
         return Render.Mod(detail!, description, files, changelog, since);
+    }, ct);
+
+    [McpServerTool(Name = "housecarl_nexus_graphql", ReadOnly = true, Title = "Run a raw Nexus GraphQL query"),
+     Description(
+         "The COMPLETENESS BACKSTOP behind houseCARL's curated Nexus tools: run a RAW read-only query against the Nexus " +
+         "Mods public v2 GraphQL API (keyless), so any field the opinionated tools don't surface yet is never invisible. " +
+         "PREFER housecarl_nexus_search / housecarl_nexus_mod / housecarl_nexus_check_updates for the common lookups — " +
+         "they render results with houseCARL's honest semantics (newest-file-vs-header version, changelog UNKNOWN-not-" +
+         "empty, manager-only flags) that a raw dump loses. Reach for THIS only for a field or query they don't cover — " +
+         "e.g. a mod's page tags, or other Mod/File metadata. Pass a GraphQL query string (and optional variables as a " +
+         "JSON object); it returns the raw JSON data, pretty-printed and bounded. READ-ONLY: mutation/subscription is " +
+         "refused, and the keyless endpoint cannot change anything regardless. Needs an internet connection (local tools " +
+         "work offline). The Skyrim SE gameId is 1704. Example: query{ mod(modId:\"51614\", gameId:\"1704\"){ name tags{ name } } }")]
+    public static Task<string> NexusGraphql(
+        NexusClient nexus,
+        [Description("The GraphQL query to run against Nexus's v2 endpoint. Read-only — a query{ ... } document; " +
+            "mutation/subscription is refused. Inline arguments or use variables=. The Skyrim SE gameId is 1704. " +
+            "Example: 'query{ mod(modId:\"51614\", gameId:\"1704\"){ name summary tags{ name } } }'.")]
+            string query,
+        [Description("Optional. GraphQL variables as a JSON OBJECT string, e.g. '{\"modId\":\"51614\"}'. Omit when the " +
+            "query inlines its arguments.")]
+            string? variables = null,
+        CancellationToken ct = default) => Guard.Tool("housecarl_nexus_graphql", async () =>
+    {
+        JsonElement? vars = null;
+        if (!string.IsNullOrWhiteSpace(variables))
+        {
+            try { vars = JsonDocument.Parse(variables).RootElement.Clone(); }
+            catch (Exception ex) { return $"error: variables= isn't valid JSON ({ex.Message}). Pass a JSON object like '{{\"modId\":\"51614\"}}'."; }
+            if (vars.Value.ValueKind != JsonValueKind.Object)
+                return $"error: variables= must be a JSON OBJECT (e.g. '{{\"modId\":\"51614\"}}'), not {vars.Value.ValueKind}.";
+        }
+        var (ok, error, data) = await nexus.RawQueryAsync(query, vars, ct);
+        if (!ok) return "error: " + error;
+        return Render.Graphql(data);
     }, ct);
 
     [McpServerTool(Name = "housecarl_nexus_check_updates", ReadOnly = true, Title = "Batch-check Nexus mods for updates (file-level)"),
@@ -280,6 +316,20 @@ static class Render
     /// can't dominate the response; an over-length body is cut at a word boundary with an explicit marker (Q3 — never a
     /// silent truncation, like <see cref="OneLine"/>).</summary>
     const int DescriptionCap = 6000;
+
+    /// <summary>Render a raw GraphQL <c>data</c> payload for the backstop tool: pretty-printed JSON, BOUNDED with an
+    /// explicit marker so a huge response is never silently truncated (Q3). Deliberately unopinionated — the whole point
+    /// of the backstop is to show EXACTLY what the graph returned, not houseCARL's curated view of it.</summary>
+    public static string Graphql(JsonElement data)
+    {
+        var json = JsonSerializer.Serialize(data, GraphqlJson);
+        if (json.Length > GraphqlCap)
+            return json.Substring(0, GraphqlCap)
+                + $"\n\n… [output truncated at {GraphqlCap:N0} chars — narrow the query (fewer fields, a smaller page/list) to see the rest]";
+        return json;
+    }
+    const int GraphqlCap = 40000;
+    static readonly JsonSerializerOptions GraphqlJson = new() { WriteIndented = true };
 
     public static string Search(string term, string? category, string sort, NexusSearchResult r)
     {
