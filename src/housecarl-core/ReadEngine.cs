@@ -20,6 +20,15 @@ namespace HousecarlCore;
 /// no annotation.</para></summary>
 public sealed record FieldValue(string Path, bool HasValue, string? Token, string? Note, string? Display = null);
 
+/// <summary>The resolved identity of a form reference — the shared contract behind housecarl_resolve (P3, a full
+/// row) and the resolve_names field annotation (P7). <see cref="Resolved"/> false ⇒ the FormKey is valid but not
+/// present in the active order (a dangling target — named, never dropped or guessed, Q3). <see cref="Error"/> is set
+/// only on the housecarl_resolve path when the INPUT string is not a legal FormID at all. When used for the P7
+/// annotation it is DISPLAY-ONLY: it never replaces the leaf's round-trip <see cref="FieldValue.Token"/>.</summary>
+public sealed record ResolvedRef(
+    string Token, bool Resolved, string? Type = null, string? EditorId = null,
+    string? Name = null, string? Winner = null, string? Error = null);
+
 /// <summary>A located record read out as structured fields — the public (params)->(result) result the MCP
 /// server's read tools return (the §8.4 read cleave). Identity (<see cref="Type"/> / <see cref="FormKey"/> /
 /// <see cref="EditorId"/>) plus the requested (or all modeled) field reads.</summary>

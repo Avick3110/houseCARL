@@ -138,6 +138,32 @@ public static class ReadTools
         return Wire.RenderCrossQuery(svc, outcome, fields, conflict_tree, max_chars);
     });
 
+    [McpServerTool(Name = "housecarl_resolve", ReadOnly = true, Title = "Resolve FormIDs to their identity"),
+     Description(
+         "Turn a batch of FormIDs into their load-order identity — for EACH: type, editorid, display name, and " +
+         "winning plugin — in ONE call. The bulk name-resolution primitive: where housecarl_batch_record_detail frames " +
+         "every record (fields, override depth, per-record header), this returns one compact identity line (or JSON " +
+         "row) per FormID and nothing else — the cheap way to label a list of material/perk/keyword FormIDs. Resolved " +
+         "in order; a bad or absent FormID yields a per-item error without failing the batch (never a silent drop — " +
+         "Q3). Winners only (the load-order-effective identity of each target). Deliberately minimal: no fields=, no " +
+         "depth, no conflict_tree — for those use housecarl_batch_record_detail. Does NOT modify anything.")]
+    public static string Resolve(
+        LoadOrderService svc,
+        [Description("The FormIDs to resolve, each 'XXXXXX:Plugin.esp'. Resolved in order; results are returned in the same order.")]
+            string[] formids,
+        [Description("Optional. 'text' (default) — one compact identity line per FormID — or 'json' for a machine-readable document (one {formid,type,editorid,name,winner} row per input; a bad/absent input carries {formid,error}).")]
+            string? format = null,
+        [Description("Optional. Max characters before the text response stops with an explicit notice. 0 = the server default (~80k). (JSON is bounded by the input count — each row is one small object.)")]
+            int max_chars = 0) => Guard.Tool("housecarl_resolve", () =>
+    {
+        if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
+        if (formids is null || formids.Length == 0) return "error: formids is empty. Pass one or more 'XXXXXX:Plugin.esp' FormIDs.";
+        bool json = Wire.WantsJson(format, out var ferr);
+        if (ferr is not null) return ferr;
+        var rows = svc.ResolveRefs(formids);
+        return json ? JsonWire.RenderResolve(rows) : Wire.RenderResolve(rows, max_chars);
+    });
+
     [McpServerTool(Name = "housecarl_effect_chain", ReadOnly = true, Title = "Resolve an effect's carriers + magnitudes"),
      Description(
          "Given a MagicEffect (MGEF), return every Spell/Enchantment/Potion/Scroll/Ingredient (SPEL/ENCH/ALCH/SCRL/INGR) " +
@@ -286,6 +312,50 @@ static class Wire
     public const int ReadbackMaxChars = 24_000;
 
     static int Cap(int maxChars) => maxChars > 0 ? maxChars : DefaultMaxChars;
+
+    /// <summary>Parse the shared format= param (Wave 2 / P6): null/"text" ⇒ false (the default text render), "json" ⇒
+    /// true, anything else ⇒ false with a NAMED error in <paramref name="error"/> (never a silent fall-through to
+    /// text on a typo — Q3). Case/whitespace-insensitive.</summary>
+    public static bool WantsJson(string? format, out string? error)
+    {
+        error = null;
+        var f = format?.Trim();
+        if (string.IsNullOrEmpty(f) || f.Equals("text", StringComparison.OrdinalIgnoreCase)) return false;
+        if (f.Equals("json", StringComparison.OrdinalIgnoreCase)) return true;
+        error = $"error: format='{format}' is not recognized — use 'text' (the default) or 'json'.";
+        return false;
+    }
+
+    // ---- housecarl_resolve --------------------------------------------------------------------------
+    /// <summary>Render the bulk name-resolution result (housecarl_resolve — P3): one compact identity line per input
+    /// FormID (type/editorid/name/winner), or <c>error=</c> for a bad/absent input (per-item, the batch survives — Q3).
+    /// Budget-bounded with the same explicit cut the other reads use.</summary>
+    public static string RenderResolve(IReadOnlyList<ResolvedRef> rows, int maxChars)
+    {
+        int cap = Cap(maxChars);
+        var sb = new StringBuilder();
+        sb.Append("resolve: ").Append(rows.Count).Append(rows.Count == 1 ? " formid\n" : " formids\n");
+        for (int i = 0; i < rows.Count; i++)
+        {
+            if (sb.Length >= cap)
+            {
+                sb.Append("... [truncated: rendered ").Append(i).Append(" of ").Append(rows.Count)
+                  .Append(" at max_chars=").Append(cap).Append("; request fewer formids or raise max_chars]\n");
+                break;
+            }
+            var r = rows[i];
+            sb.Append("  ").Append(r.Token);
+            if (r.Resolved)
+            {
+                sb.Append("  type=").Append(r.Type).Append("  editorid=").Append(r.EditorId ?? "<none>");
+                if (!string.IsNullOrEmpty(r.Name)) sb.Append("  name=\"").Append(r.Name).Append('"');
+                sb.Append("  winner=").Append(r.Winner);
+            }
+            else sb.Append("  error=").Append(r.Error ?? "not present in the active order");
+            sb.Append('\n');
+        }
+        return sb.ToString().TrimEnd('\n');
+    }
 
     // ---- housecarl_read_record ----------------------------------------------------------------------
     public static string RenderRecord(LoadOrderService svc, ReadOutcome o, IReadOnlyList<string>? fields, bool conflictTree, int maxChars)
