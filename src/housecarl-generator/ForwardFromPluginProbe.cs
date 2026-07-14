@@ -40,6 +40,8 @@ namespace HousecarlGenerator;
 ///   ALREADY-WINNER    — forward ModB's X (already winning): succeeds, Dmg 30, flagged WasAlreadyWinner (redundant — surfaced, not silent Q3).
 ///   MULTI             — forward [X,Y] from ModA in ONE call: both land (20, 200).
 ///   EXTEND            — forward X (fresh) then Y into the SAME patch (into=): both present (20, 200).
+///   FORWARD-THEN-EDIT — forward ModA's X then bulk_apply into= the same patch: the op edits the FORWARDED copy
+///                       (Dmg stays 20, the edit lands) — never re-resolves the stale winner (HCBR-2026-07-14-02 gap 4).
 ///   REPLACE           — forward X again from ModB into the same patch: the existing override is REPLACED (30, not 20),
 ///                       flagged ReplacedExisting, and the header grows from the NEW body (+ModB via its keyword) —
 ///                       HCBR-2026-07-08-01 F1 (the pre-fix GetOrAdd kept the old body, skipped the copy AND the
@@ -260,6 +262,35 @@ public static class ForwardFromPluginProbe
             Check("REPLACE: re-forwarding a FormKey the patch already carries replaces the body (X=30, not 20), flags it, grows masters (+ModB)",
                 firstOk && o2.Success && dmg == 30 && flagged && masterGrown,
                 $"first={firstOk} second={o2.Success} dmg={dmg} (want 30) flagged={flagged} masterGrown={masterGrown} masters=[{(o2.Success ? string.Join(",", o2.Masters) : "")}] err=[{Trim(o2.Error)}]");
+        }
+
+        // ---- FORWARD-THEN-EDIT (HCBR-2026-07-14-02 gap 4 — THE stale-winner bypass recipe, pinned): forward ModA's X
+        //      (Dmg 20; the LIVE winner is ModB's 30), then a bulk_apply-shaped Apply into= the same patch editing a
+        //      DIFFERENT field (Weight). The op must land on the patch's ALREADY-FORWARDED copy (override get-semantics
+        //      on the re-imported patch) — NOT re-resolve the load-order winner and rebuild the record from ModB's body.
+        //      Contract: Damage stays 20 (the forwarded body survives) AND Weight lands 7 (the edit applied). ----
+        {
+            string pPath = Path.Combine(tmpDir, "HcFwdThenEdit.esp");
+            bool firstOk; WritePatchBuilder.PatchOutcome o2;
+            using (var r = LoadOrderResolver.Build(orderPaths))
+                firstOk = WritePatchBuilder.ForwardRecords(r,
+                    new[] { new WritePatchBuilder.ForwardSpec { Target = xFk, FromPlugin = ModAName } }, pPath, extend: false).Success;
+            using (var r = LoadOrderResolver.Build(orderPaths))
+            {
+                var rulebook = CorpusRulebook.Load();
+                var edit = new WritePatchBuilder.PatchEdit { Target = xFk, Path = new[] { "BasicStats", "Weight" }, Verb = "Set", Value = "7" };
+                o2 = WritePatchBuilder.Apply(r, rulebook, new[] { edit }, pPath, extend: true);
+            }
+            ushort? dmg = null; float? weight = null;
+            if (firstOk && o2.Success)
+            {
+                dmg = ReadWeaponDamage(pPath, xFk);
+                using var pp = SkyrimMod.CreateFromBinaryOverlay(pPath, SkyrimRelease.SkyrimSE);
+                weight = pp.EnumerateMajorRecords<IWeaponGetter>().FirstOrDefault(w => w.FormKey == xFk)?.BasicStats?.Weight;
+            }
+            Check("FORWARD-THEN-EDIT: bulk_apply into= edits the patch's FORWARDED copy (Dmg stays 20 + Weight lands 7) — never re-resolves the stale winner (30)",
+                firstOk && o2.Success && dmg == 20 && weight == 7f,
+                $"first={firstOk} second={o2.Success} dmg={dmg} (want 20) weight={weight} (want 7) err=[{Trim(o2.Error)}]");
         }
 
         // ---- Q3 rejects (whole call refused, NO file written, named reason). ----
