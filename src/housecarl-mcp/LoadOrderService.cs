@@ -1625,7 +1625,7 @@ public sealed class LoadOrderService : IDisposable
                             var hitSet = new HashSet<FormKey>();
                             foreach (var l in flc.EnumerateFormLinks()) if (refSet.Contains(l.FormKey)) hitSet.Add(l.FormKey);
                             if (hitSet.Count == 0) continue;
-                            if (multiTarget) hitTargets = references!.Where(hitSet.Contains).Distinct().ToList();   // in input order, deterministic
+                            if (multiTarget && groups is null) hitTargets = references!.Where(hitSet.Contains).Distinct().ToList();   // in input order; only the match-line path consumes it (group_by ignores it)
                         }
                         if (predicate is not null && !predicate.Matches(body))    // value filter — same in-hand body, no extra fetch
                         {
@@ -1679,6 +1679,9 @@ public sealed class LoadOrderService : IDisposable
                 total++;
                 if (groups is not null)
                 {
+                    // group_by=winner here does an index-level ResolveWinner PER conflict key — a resolve, not a body
+                    // parse, and unavoidable for the aggregate (the non-group path defers winner= to the renderer, which
+                    // only fetches the capped rows). Intentional under accuracy-over-perf; don't "optimize" it away.
                     var gk = groupBy == "defined_in" ? fk.ModKey.FileName.ToString() : view.ResolveWinner(fk)?.WinnerPlugin ?? "?";
                     groups[gk] = groups.GetValueOrDefault(gk) + 1;
                 }
