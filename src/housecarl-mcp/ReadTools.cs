@@ -177,7 +177,7 @@ public static class ReadTools
             string[] formids,
         [Description("Optional. 'text' (default) — one compact identity line per FormID — or 'json' for a machine-readable document (one {formid,type,editorid,name,winner} row per input; a bad/absent input carries {formid,error}).")]
             string? format = null,
-        [Description("Optional. Max characters before the text response stops with an explicit notice. 0 = the server default (~80k). (JSON is bounded by the input count — each row is one small object.)")]
+        [Description("Optional. Max characters before the response stops with an explicit notice (text) or drops trailing rows with truncated=true (json). 0 = the server default (~80k).")]
             int max_chars = 0) => Guard.Tool("housecarl_resolve", () =>
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
@@ -185,7 +185,7 @@ public static class ReadTools
         bool json = Wire.WantsJson(format, out var ferr);
         if (ferr is not null) return ferr;
         var rows = svc.ResolveRefs(formids);
-        return json ? JsonWire.RenderResolve(rows) : Wire.RenderResolve(rows, max_chars);
+        return json ? JsonWire.RenderResolve(rows, max_chars) : Wire.RenderResolve(rows, max_chars);
     });
 
     [McpServerTool(Name = "housecarl_effect_chain", ReadOnly = true, Title = "Resolve an effect's carriers + magnitudes"),

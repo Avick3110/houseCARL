@@ -31,20 +31,30 @@ static class JsonWire
     }
 
     // ---- housecarl_resolve (P3) ---------------------------------------------------------------------
-    /// <summary>Render the bulk name-resolution result as JSON: <c>{count, resolved:[…]}</c> — one
-    /// <c>{formid,type,editorid,name,winner}</c> row per resolvable input, or <c>{formid,error}</c> for a
-    /// bad/absent one (per-item, the batch survives — Q3). Rows are one small object each; the input count bounds
-    /// the document, so no row truncation is needed here.</summary>
-    public static string RenderResolve(IReadOnlyList<ResolvedRef> rows)
+    /// <summary>Render the bulk name-resolution result as JSON: <c>{count, resolved:[…], rendered, truncated}</c> —
+    /// one <c>{formid,type,editorid,name,winner}</c> row per resolvable input, or <c>{formid,error}</c> for a
+    /// bad/absent one (per-item, the batch survives — Q3). Budget-aware like the other JSON renders: over max_chars it
+    /// drops trailing rows and flags <c>truncated</c>, keeping the document valid JSON with an exact <c>count</c>.</summary>
+    public static string RenderResolve(IReadOnlyList<ResolvedRef> rows, int maxChars)
     {
+        int cap = Cap(maxChars);
         using var ms = new MemoryStream();
         using (var w = new Utf8JsonWriter(ms, Opts))
         {
             w.WriteStartObject();
             w.WriteNumber("count", rows.Count);
             w.WriteStartArray("resolved");
-            foreach (var r in rows) WriteResolvedRow(w, r);
+            int rendered = 0; bool truncated = false;
+            foreach (var r in rows)
+            {
+                w.Flush();
+                if (ms.Length >= cap) { truncated = true; break; }
+                WriteResolvedRow(w, r);
+                rendered++;
+            }
             w.WriteEndArray();
+            w.WriteNumber("rendered", rendered);
+            w.WriteBoolean("truncated", truncated);
             w.WriteEndObject();
         }
         return Finish(ms);
@@ -77,12 +87,12 @@ static class JsonWire
     }
 
     // ---- shared record + field writers (P6/P7) ------------------------------------------------------
-    /// <summary>Serialize one field leaf: <c>{path, value}</c> for a round-trippable leaf (value = the SAME wire
-    /// token the text mode emits) or <c>{path, note}</c> for a no-value leaf; the display-only <c>display</c> (biped
-    /// slots) and the resolve_names <c>link</c> sibling (P7) ride alongside, never in place of the token.</summary>
-    /// <summary>Serialize the fields array, BUDGET-AWARE: a fat record (deep list expansion) is field-truncated the
-    /// same way the text render caps field lines — a sentinel field names the cut and the array closes, so the
-    /// document stays valid JSON (never silently over budget — Q3).</summary>
+    /// <summary>Serialize the fields array. Each leaf is <c>{path, value}</c> for a round-trippable leaf (value = the
+    /// SAME wire token the text mode emits) or <c>{path, note}</c> for a no-value leaf; the display-only <c>display</c>
+    /// (biped slots) and the resolve_names <c>link</c> sibling (P7) ride alongside, never in place of the token.
+    /// BUDGET-AWARE: a fat record (deep list expansion) is field-truncated the same way the text render caps field
+    /// lines — a sentinel field names the cut and the array closes, so the document stays valid JSON (never silently
+    /// over budget — Q3).</summary>
     static void WriteFieldsArray(Utf8JsonWriter w, RecordFields r, MemoryStream ms, int cap)
     {
         w.WriteStartArray("fields");
