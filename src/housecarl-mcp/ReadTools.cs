@@ -130,6 +130,8 @@ public static class ReadTools
             bool conflict_tree = false,
         [Description("When true (with fields=), annotate every FormLink field value with its target's identity (→ editorid \"Name\"), resolved against the load order and cached across all matches. Display-only; the token is unchanged. No effect on summary lines or group_by (there are no field tokens to annotate).")]
             bool resolve_names = false,
+        [Description("When true (with fields= under a plugins= scope), expand each match's fields from the load-order WINNER's body instead of the scoped plugin's OWN version. WITHOUT this, plugins=-scoped fields are that plugin's values (e.g. a defining esp's AR 38), NOT the live winner (AR 200) — a note names the source either way. No effect under type= scope (already the winner).")]
+            bool winner_fields = false,
         [Description("Optional. 'text' (default) or 'json' — a machine-readable document (group_by count table, detail record objects with fields, or summary rows), with total/capped/notes/truncated accounting in-band. conflict_tree is a text-only diff view.")]
             string? format = null,
         [Description("Optional. Max matches to return (default 500). The TRUE total is always reported; over the cap it says 'showing first N'.")]
@@ -156,8 +158,8 @@ public static class ReadTools
             if (list.Count > 0) refFks = list.Distinct().ToList();   // preserve input order, drop dupes
         }
         var outcome = svc.CrossQuery(type, refFks, editorid_contains, conflicts_only, plugins, where, limit <= 0 ? 500 : limit, defined_in, group_by);
-        return json ? JsonWire.RenderCrossQuery(svc, outcome, fields, max_chars, resolve_names)
-                    : Wire.RenderCrossQuery(svc, outcome, fields, conflict_tree, max_chars, resolve_names);
+        return json ? JsonWire.RenderCrossQuery(svc, outcome, fields, max_chars, resolve_names, winner_fields)
+                    : Wire.RenderCrossQuery(svc, outcome, fields, conflict_tree, max_chars, resolve_names, winner_fields);
     });
 
     [McpServerTool(Name = "housecarl_resolve", ReadOnly = true, Title = "Resolve FormIDs to their identity"),
@@ -421,13 +423,14 @@ static class Wire
 
     // ---- housecarl_cross_plugin_query ---------------------------------------------------------------
     public static string RenderCrossQuery(LoadOrderService svc, CrossQueryOutcome q, IReadOnlyList<string>? fields, bool conflictTree, int maxChars,
-                                          bool resolveNames = false)
+                                          bool resolveNames = false, bool winnerFields = false)
     {
         if (q.Error is not null) return "error: " + q.Error;
         int cap = Cap(maxChars);
         if (q.Groups is not null) return RenderCrossQueryGroups(q, cap);   // group_by= → a count table, not per-match lines
         bool detail = (fields is { Count: > 0 }) || conflictTree;          // expand matches, vs. one-line summaries
         var linkMemo = resolveNames && detail ? new Dictionary<FormKey, ResolvedRef>() : null;   // P7: one link cache across all rendered matches
+        bool anyScoped = detail && q.Sources is { } ss && ss.Take(q.Keys.Count).Any(s => s is not null);   // P5: plugins= scope shows a plugin's OWN body
         var sb = new StringBuilder();
         sb.Append("cross_plugin_query: ").Append(q.Total).Append(q.Total == 1 ? " match" : " matches");
         if (q.ScopeLabel is not null) sb.Append(" DEFINED IN ").Append(q.ScopeLabel);   // P1: explicit scope — NOT the 'touches' default
@@ -435,6 +438,11 @@ static class Wire
         sb.Append('\n');
         if (q.PredicateNote is not null) sb.Append(q.PredicateNote).Append('\n');   // where= Q3 accounting (wrong-path/no-value surface)
         if (q.ScanNote is not null) sb.Append(q.ScanNote).Append('\n');             // unscannable-record Q3 accounting (Mutagen-unparseable content)
+        // P5: under a plugins= scope the per-match fields are the SCOPED plugin's OWN values, not the live winner's —
+        // the silent-wrong trap (a defining esp's AR 38 vs the winner's live AR 200). Name it loud, once (Q3).
+        if (anyScoped) sb.Append(winnerFields
+            ? "note: field values are the load-order WINNER's (winner_fields=true); each match was SELECTED on its scoped plugin's body.\n"
+            : "note: field values are each match's SCOPED plugin's OWN version, NOT the live load-order winner — pass winner_fields=true for load-order truth.\n");
 
         int rendered = 0;
         for (int i = 0; i < q.Keys.Count; i++)
@@ -450,7 +458,9 @@ static class Wire
             string? matches = q.MatchedTargets is { } mt && i < mt.Count ? mt[i] : null;   // multi-target references= un-merge
             if (detail)
             {
-                var o = svc.ResolveRead(fk, q.Sources is { } src ? src[i] : null, fields, conflictTree, resolveNames: resolveNames, linkMemo: linkMemo);   // display the body the scan filtered: scoped plugin under plugins=, else winner
+                // winner_fields=: read the load-order WINNER's body (source=null) regardless of scan scope; else the
+                // body the scan filtered (scoped plugin under plugins=, else winner) — so display never contradicts filter.
+                var o = svc.ResolveRead(fk, winnerFields ? null : (q.Sources is { } src ? src[i] : null), fields, conflictTree, resolveNames: resolveNames, linkMemo: linkMemo);
                 sb.Append('\n');
                 if (matches is not null) sb.Append("  ").Append(fk).Append("  matches=").Append(matches).Append('\n');
                 if (o.Error is not null) sb.Append(fk).Append(": error: ").Append(o.Error).Append('\n');
