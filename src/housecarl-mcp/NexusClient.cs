@@ -226,6 +226,9 @@ public sealed class NexusClient
         // modFiles lookup resolves fine; gating NotFound on the search alone would discard those already-fetched files and
         // stamp a real, checkable mod "not found" (the same confidently-wrong class this whole check exists to kill). Files
         // present ⇒ the mod exists: fall through and check them (the friendly name may be null — the file rows carry names).
+        // Load-bearing assumption: a genuinely-absent mod (wrong id / LE-only / hidden) returns an EMPTY modFiles list here
+        // (not an error, not cross-game files) — that empty list is what makes NotFound genuine. Even if that ever broke and
+        // files came back for a non-SSE mod, its installed fileid won't match one → FileGone (loud), never a silent "current".
         if (!found && files.Count == 0)
             return new NexusUpdateStatus(modId, false, name, header, installed, UpdateVerdict.NotFound, NoFiles, null, 0, 0);
 
