@@ -99,6 +99,12 @@ internal static class NexusFileCheckProbe
         var jNo = NexusClient.ComputeStatus(90696, false, null, null, "2.0.0.0", Array.Empty<int>(), files);
         Check(jNo.Verdict == UpdateVerdict.NoFileId, "J3: found=false, files present, no fileid → NoFileId fallback (exists), not NotFound");
 
+        // J4 — the SAFETY-relevant nxm combination: a search-absent mod (found=false) whose modFiles DID come back, but the
+        //      exact installed fileid is NO LONGER in that list (a hidden/pulled file) ⇒ FileGone (loud unknown), never
+        //      NotFound and never a silent "current". 999999 isn't in the synthetic list.
+        var jGone = NexusClient.ComputeStatus(90696, false, null, null, "1.0", new[] { 999999 }, files);
+        Check(jGone.Verdict == UpdateVerdict.FileGone, "J4: found=false + files present + installed fileid absent → FileGone (loud), not NotFound");
+
         // H — single-main page, no fileid + version ⇒ NoFileId with LiveMainCount==1 (the labeled version-compare case).
         var single = new List<(int, string, string?, string, long)>
         {
