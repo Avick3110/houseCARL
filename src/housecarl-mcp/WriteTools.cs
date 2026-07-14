@@ -82,7 +82,11 @@ public static class WriteTools
          "masters automatically when edits reference forms across several plugins (cross-master merge). ALL-OR-NOTHING " +
          "(Q3): if ANY operation is malformed or fails pre-flight, the whole call is refused with per-op reasons and " +
          "nothing is written — no partial patches. By default writes a fresh patch named patch_name; pass into= to extend " +
-         "an existing one. To edit an EXISTING plugin IN PLACE instead — rewriting your ORIGINAL file (incl. a mod houseCARL " +
+         "an existing one. PRECEDENCE with into= (pinned): a FormKey the patch ALREADY CARRIES (e.g. from a prior " +
+         "housecarl_forward_record) is edited AS-IS in the patch — the op lands on the patch's own copy; only a FormKey " +
+         "the patch does NOT yet carry copies the load-order winner in first. So forward_record from a source + " +
+         "bulk_apply into= is THE recipe to build on a specific plugin's version while a stale winner sits above it. " +
+         "To edit an EXISTING plugin IN PLACE instead — rewriting your ORIGINAL file (incl. a mod houseCARL " +
          "didn't make), not a patch — pass target=<plugin filename> + in_place=true (opt-in; the default lane leaves originals " +
          "untouched). Returns the patch path, masters, and per-op read-back.")]
     public static string BulkApply(
@@ -273,8 +277,11 @@ public static class WriteTools
          "existing override is REPLACED by from_plugin's body (xEdit's copy-as-override overwrite — flagged per record in the " +
          "response). target= + in_place=true is the opt-in THIRD route: forward INTO an existing plugin's OWN file (incl. one " +
          "houseCARL didn't author) — same replace-on-collision semantics, same one-time acknowledge= consent as the sibling " +
-         "write tools, master header grown from the copied bodies. Returns the patch path, masters, and per-record what was " +
-         "copied + the current winner it will out-rank (a forward whose version is ALREADY winning is flagged redundant).")]
+         "write tools, master header grown from the copied bodies. THE STALE-WINNER BYPASS RECIPE (pinned): forward from " +
+         "the source you want, then bulk_apply into= the same patch — the ops edit the patch's FORWARDED copy, never " +
+         "re-resolve the (stale) load-order winner, so you build on the forwarded body directly. Returns the patch path, " +
+         "masters, and per-record what was copied + the current winner it will out-rank (a forward whose version is " +
+         "ALREADY winning is flagged redundant).")]
     public static string ForwardRecord(
         LoadOrderService svc,
         [Description("The record(s) to forward, each as 'XXXXXX:Plugin.esp' (6 hex digits, the defining master's filename). All are copied from the SAME from_plugin.")]
