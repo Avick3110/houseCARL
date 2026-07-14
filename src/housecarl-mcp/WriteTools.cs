@@ -350,13 +350,18 @@ public static class WriteTools
          "houseCARL scans the WHOLE load order for such external referencers (a one-pass walk — can take ~25s on a big order): " +
          "if NONE, it's a clean compaction; if SOME, the call is REFUSED and lists them, UNLESS repoint_externals=true, which " +
          "ALSO rewrites each of them in place to follow the renumber (needs acknowledge=true; no backup of them either). " +
-         "Refuses loud + writes nothing on: the plugin not active / unparseable / not on disk; MORE records than the light " +
+         "The target need NOT be active: a plugin on disk but not (yet) in the load order — e.g. the patch houseCARL just " +
+         "wrote, before the MO2 refresh — is resolved by filename across ALL mod folders and compacted OFF-ORDER (its " +
+         "declared masters must still be active). An override-only plugin with esl=true takes the FLAG-ONLY lane: nothing " +
+         "to renumber, every record copies verbatim, the ESL flag is set (always valid — the light window only constrains " +
+         "originating records). Refuses loud + writes nothing on: the plugin found nowhere on disk / ambiguous across " +
+         "folders / unparseable; an override-only plugin with esl=false (nothing to do); MORE records than the light " +
          "range holds (the hard 2048 ESL ceiling — named, never truncated); a declared master not active; a serialize fault. " +
          "Note: references compiled into Papyrus scripts (.pex hardcoded FormIDs / GetFormFromFile) are NOT remappable — " +
          "verify scripted records after compacting.")]
     public static string CompactPlugin(
         LoadOrderService svc,
-        [Description("The plugin's filename to compact (e.g. 'CoolMod.esp') — must be active in your load order. The compacted output keeps this EXACT basename.")]
+        [Description("The plugin's filename to compact (e.g. 'CoolMod.esp'). Usually active in your load order; a plugin on disk but not in the order (a fresh houseCARL patch, a disabled mod) is resolved by filename and compacted OFF-ORDER — its declared masters must still be active. The compacted output keeps this EXACT basename.")]
             string plugin,
         [Description("When true (default), renumber into the light/ESL range (0x800–0xFFF, 2048 IDs) and flag the result a light master (ESPFE) — the canonical 'compact for ESL'. false = renumber contiguously from 0x800 with no light flag or 2048 ceiling (just closes FormID gaps).")]
             bool esl = true,

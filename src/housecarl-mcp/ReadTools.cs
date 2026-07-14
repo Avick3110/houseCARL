@@ -161,14 +161,17 @@ public static class ReadTools
          "references — a non-null link whose target NO plugin in the ACTIVE order defines (a broken reference); (2) " +
          "MISSING MASTERS — a master a plugin DECLARES that is not present in the active order (its dependency is not " +
          "installed/enabled — the most common load-order break); (3) PARSE failures — records houseCARL/Mutagen could not " +
-         "read (per record), plus whole plugins the index excluded as unparseable. Read-only — writes nothing. BOUNDARY " +
+         "read (per record), plus whole plugins the index excluded as unparseable. A scoped name NOT in the active order " +
+         "is resolved on disk (any mod folder — enabled, disabled, or not yet listed in MO2) and swept OFF-ORDER: its own " +
+         "records, links resolved against the active order PLUS the file's own definitions — the pre-enable verify sweep " +
+         "for a patch houseCARL just wrote. Read-only — writes nothing. BOUNDARY " +
          "(never a silent claim of more — Q3): this covers the FormLink-resolution / missing-master / parse class. It does " +
          "NOT verify navmesh or terrain spatial integrity (CRC/grid — a Mutagen-delta residual), does NOT flag a required " +
          "field left null (a null FormLink is a legal optional, not an error), and does NOT list unused-master cleanup " +
          "(a FormLink scan cannot prove a master is unused). Results cap at limit= and max_chars (both overruns explicit).")]
     public static string CheckErrorsTool(
         LoadOrderService svc,
-        [Description("Optional. Plugin filenames to check (e.g. 'MyMod.esp'). A name not in the load order is an error. Omit to sweep the WHOLE active order (every non-excluded plugin) — thorough but heavier; scope to one plugin for a fast, focused check like the CK's per-plugin 'Check For Errors'.")]
+        [Description("Optional. Plugin filenames to check (e.g. 'MyMod.esp'). A name not in the active order is resolved on disk (a fresh houseCARL patch, a disabled mod) and swept OFF-ORDER; found nowhere (or in several folders) it is an error. Omit to sweep the WHOLE active order (every non-excluded plugin) — thorough but heavier; scope to one plugin for a fast, focused check like the CK's per-plugin 'Check For Errors'.")]
             string[]? plugins = null,
         [Description("Optional. Max dangling references to list across the whole sweep (default 1000). The TRUE total is always reported; over the cap it says so. Master-table findings are always listed in full (they are few).")]
             int limit = 1000,
@@ -410,6 +413,9 @@ static class Wire
         if (r.ExcludedPlugins.Count > 0)
             sb.Append(" · ").Append(r.ExcludedPlugins.Count).Append(" plugin(s) excluded (unparseable)");
         sb.Append('\n');
+        if (r.OffOrderScanned is { Count: > 0 } off)
+            sb.Append("swept OFF-ORDER (on disk, not in the active load order): ").Append(string.Join(", ", off))
+              .Append("   [the file's own records; links resolved against the active order + the file's own definitions]\n");
 
         if (r.Reports.Count == 0 && r.ExcludedPlugins.Count == 0)
             sb.Append("\nNo errors found in the scanned scope.\n");

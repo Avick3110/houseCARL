@@ -19,7 +19,10 @@ namespace HousecarlGenerator;
 ///               cell at its master FormID while the new child renumbers (the realistic patch case; copied 2 / renum 1).
 ///   REFUSE-EXT— a mod another plugin references is REFUSED (the external referencer named), nothing written.
 ///   GATE      — repoint_externals without in_place is REFUSED (the coherence gate; review #1).
-///   NOT-ACTIVE— an unknown plugin is refused.
+///   NOT-ACTIVE— a plugin found nowhere on disk is refused (an inactive one FOUND on disk now compacts — see OFF-ORDER).
+///   OFF-ORDER — a plugin in an UNLISTED mod folder (a fresh houseCARL patch pre-MO2-refresh; HCBR-2026-07-14-02 gap 3)
+///               resolves by filename and compacts normally, with the OFF-ORDER note.
+///   FLAG-ONLY — an override-only plugin: esl=true copies verbatim + sets the light flag (renum 0); esl=false refuses.
 ///   CONSENT   — in_place + repoint without acknowledge returns the CONFIRM prompt (no write); WITH acknowledge it
 ///               compacts the target IN PLACE and repoints the external referencer to the new key (the full opt-in path).
 /// Run: dotnet run --project src/housecarl-generator compact-service-guard
@@ -161,11 +164,66 @@ public static class CompactServiceGuardProbe
                     $"GATE repoint_externals requires in_place ({o.Error?.Split('.')[0]})");
             }
 
-            // ---- NOT-ACTIVE: unknown plugin -> refused ----
+            // ---- NOT-ACTIVE: a plugin found NOWHERE on disk -> still refused (the gate now falls through to a locate) ----
             {
                 var o = svc.CompactPlugin("HcCsNope.esp");
-                Check(!o.Success && (o.Error?.Contains("not an active plugin", StringComparison.OrdinalIgnoreCase) ?? false),
-                    $"NOT-ACTIVE unknown plugin refused ({o.Error?.Split('—')[0].Trim()})");
+                Check(!o.Success && (o.Error?.Contains("not an active plugin", StringComparison.OrdinalIgnoreCase) ?? false)
+                                 && (o.Error?.Contains("no on-disk copy", StringComparison.OrdinalIgnoreCase) ?? false),
+                    $"NOT-ACTIVE nowhere-on-disk plugin refused ({o.Error?.Split('—')[0].Trim()})");
+            }
+
+            // ---- OFF-ORDER: a plugin in an UNLISTED mod folder (not in modlist/plugins/loadorder — the fresh houseCARL
+            //      patch before the MO2 refresh, HCBR-2026-07-14-02 gap 3) resolves by filename and compacts normally ----
+            {
+                var offKey = new ModKey("HcCsOff", ModType.Plugin);
+                var owOld = new FormKey(offKey, 0xA01);
+                WriteMod(mods, "OffOrderMod", offKey, Array.Empty<string>(), m =>
+                    m.Weapons.Add(new Weapon(owOld, SkyrimRelease.SkyrimSE) { EditorID = "HcCsOffWeap", BasicStats = new WeaponBasicStats { Damage = 3 } }));
+                var o = svc.CompactPlugin("HcCsOff.esp");
+                bool lightOk = false;
+                if (o.Success && File.Exists(o.OutputPath))
+                {
+                    using var pp = SkyrimMod.CreateFromBinaryOverlay(o.OutputPath, SkyrimRelease.SkyrimSE);
+                    lightOk = pp.IsSmallMaster && pp.EnumerateMajorRecords().All(r => r.FormKey.ID >= RemapEngine.EslFloor && r.FormKey.ID <= RemapEngine.EslCeiling);
+                }
+                Check(o.Success && o.RecordsRenumbered == 1 && lightOk && (o.Note?.Contains("OFF-ORDER") ?? false),
+                    $"OFF-ORDER unlisted-folder plugin compacts, noted (renum {o.RecordsRenumbered}, light {lightOk}, note {(o.Note?.Contains("OFF-ORDER") ?? false)}{(o.Success ? "" : "; ERR " + o.Error)})");
+            }
+
+            // ---- FLAG-ONLY: an override-only plugin (nothing to renumber). esl=true sets the light flag on a verbatim
+            //      copy (the all-override compatibility patch's ESL endgame); esl=false refuses (nothing to do) ----
+            {
+                var flagKey = new ModKey("HcCsFlag", ModType.Plugin);
+                using (var libOv = SkyrimMod.CreateFromBinaryOverlay(Path.Combine(mods, "LibMod", libKey.FileName.String), SkyrimRelease.SkyrimSE))
+                {
+                    var libCache = libOv.ToImmutableLinkCache();
+                    var modDir = Path.Combine(mods, "FlagOnlyMod"); Directory.CreateDirectory(modDir);   // deliberately UNLISTED too
+                    var f = new SkyrimMod(flagKey, SkyrimRelease.SkyrimSE);
+                    var ow = (IWeapon)WriteEngine.GenericGetOrAddAsOverride(f, libOv.Weapons.First(), libCache);
+                    ow.BasicStats!.Damage = 42;                                          // an actual override delta
+                    f.BeginWrite.ToPath(Path.Combine(modDir, flagKey.FileName.String)).WithLoadOrder(new[] { libOv }).Write();
+                }
+                // esl=false FIRST — the esl=true success below writes a second on-disk copy of the basename (the
+                // compacted output folder), after which a bare-filename locate is legitimately AMBIGUOUS.
+                var oNo = svc.CompactPlugin("HcCsFlag.esp", esl: false);
+                Check(!oNo.Success && (oNo.Error?.Contains("nothing to compact", StringComparison.OrdinalIgnoreCase) ?? false),
+                    $"FLAG-ONLY esl=false: refused, nothing to do ({oNo.Error?.Split('.')[0]})");
+                var o = svc.CompactPlugin("HcCsFlag.esp");
+                bool lightOk = false, verbatim = false;
+                if (o.Success && File.Exists(o.OutputPath))
+                {
+                    using var pp = SkyrimMod.CreateFromBinaryOverlay(o.OutputPath, SkyrimRelease.SkyrimSE);
+                    lightOk = pp.IsSmallMaster;
+                    var w = pp.EnumerateMajorRecords<IWeaponGetter>().FirstOrDefault();
+                    verbatim = w is not null && w.FormKey == lwOld && w.BasicStats?.Damage == 42;   // override kept at the master key, delta intact
+                }
+                Check(o.Success && o.RecordsRenumbered == 0 && lightOk && verbatim && (o.Note?.Contains("no originating records") ?? false),
+                    $"FLAG-ONLY esl=true: verbatim copy + light flag (renum {o.RecordsRenumbered}, light {lightOk}, verbatim {verbatim}{(o.Success ? "" : "; ERR " + o.Error)})");
+                // …and NOW the bare name resolves to TWO on-disk copies (the unlisted fixture + the compacted output) —
+                // the off-order locate must surface the ambiguity, never guess (Q3).
+                var oAmb = svc.CompactPlugin("HcCsFlag.esp");
+                Check(!oAmb.Success && (oAmb.Error?.Contains("ambiguous", StringComparison.OrdinalIgnoreCase) ?? false),
+                    $"OFF-ORDER-AMBIGUOUS: a basename two folders provide is refused, named ({oAmb.Error?.Split('—')[0].Trim()})");
             }
 
             // ---- CONSENT: in_place + repoint WITHOUT acknowledge -> confirm prompt (no write); WITH it -> in-place compact + repoint ----
