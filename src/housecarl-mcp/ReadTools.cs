@@ -38,16 +38,21 @@ public static class ReadTools
             bool conflict_tree = false,
         [Description("When true, annotate every FormLink field value with its target's identity (→ editorid \"Name\"), resolved against the load order — so a Keywords/Template/DeathItem token reads as what it points AT, not just a FormID. Display-only: the token itself is unchanged (a write can still reuse it). A target no active plugin defines is marked 'unresolved'.")]
             bool resolve_names = false,
+        [Description("Optional. 'text' (default) or 'json' — a machine-readable {formid,type,editorid,winner,override_depth,source,fields[]} document (field values are the SAME tokens as text). conflict_tree is a text-only diff view.")]
+            string? format = null,
         [Description("Optional. Max characters before the diff is cut with an explicit notice (never silent). 0 = the server default (~80k). Raise to see a very deep conflict tree in full.")]
             int max_chars = 0) => Guard.Tool("housecarl_read_record", () =>
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
+        bool json = Wire.WantsJson(format, out var ferr);
+        if (ferr is not null) return ferr;
+        if (json && conflict_tree) return "error: conflict_tree=true is a text-only diff view and is not carried in json mode — use format=text for the conflict tree, or drop conflict_tree for the json field data.";
         FormKey fk;
         try { fk = FormKey.Factory(formid.Trim()); }
         catch (Exception ex) { return $"error: bad FormID '{formid}': {ex.Message}. Expected 'XXXXXX:Plugin.esp', e.g. '0F1AC1:Skyrim.esm'."; }
 
         var outcome = svc.ResolveRead(fk, plugin?.Trim(), fields, conflict_tree, depth <= 0 ? 1 : depth, resolve_names);
-        return Wire.RenderRecord(svc, outcome, fields, conflict_tree, max_chars);
+        return json ? JsonWire.RenderRecord(outcome, max_chars) : Wire.RenderRecord(svc, outcome, fields, conflict_tree, max_chars);
     });
 
     [McpServerTool(Name = "housecarl_batch_record_detail", ReadOnly = true, Title = "Read many records"),
@@ -70,13 +75,18 @@ public static class ReadTools
             bool conflict_tree = false,
         [Description("When true, annotate every FormLink field value across every record with its target's identity (→ editorid \"Name\"), resolved against the load order and cached across the whole batch. Display-only: the token itself is unchanged. Unresolvable targets are marked.")]
             bool resolve_names = false,
+        [Description("Optional. 'text' (default) or 'json' — a machine-readable {count, records:[…], rendered, truncated} document (each record like read_record's json; field values are the SAME tokens as text). conflict_tree is a text-only diff view.")]
+            string? format = null,
         [Description("Optional. Max characters before the response stops with an explicit 'rendered X of N' notice. 0 = the server default (~80k).")]
             int max_chars = 0) => Guard.Tool("housecarl_batch_record_detail", () =>
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
         if (formids is null || formids.Length == 0) return "error: formids is empty. Pass one or more 'XXXXXX:Plugin.esp' FormIDs.";
+        bool json = Wire.WantsJson(format, out var ferr);
+        if (ferr is not null) return ferr;
+        if (json && conflict_tree) return "error: conflict_tree=true is a text-only diff view and is not carried in json mode — use format=text for the conflict tree, or drop conflict_tree for the json field data.";
         var outcomes = svc.ResolveBatch(formids, fields, conflict_tree, depth <= 0 ? 1 : depth, resolve_names);
-        return Wire.RenderBatch(svc, outcomes, fields, conflict_tree, max_chars);
+        return json ? JsonWire.RenderBatch(outcomes, max_chars) : Wire.RenderBatch(svc, outcomes, fields, conflict_tree, max_chars);
     });
 
     [McpServerTool(Name = "housecarl_cross_plugin_query", ReadOnly = true, Title = "Query records across the load order"),
@@ -120,12 +130,17 @@ public static class ReadTools
             bool conflict_tree = false,
         [Description("When true (with fields=), annotate every FormLink field value with its target's identity (→ editorid \"Name\"), resolved against the load order and cached across all matches. Display-only; the token is unchanged. No effect on summary lines or group_by (there are no field tokens to annotate).")]
             bool resolve_names = false,
+        [Description("Optional. 'text' (default) or 'json' — a machine-readable document (group_by count table, detail record objects with fields, or summary rows), with total/capped/notes/truncated accounting in-band. conflict_tree is a text-only diff view.")]
+            string? format = null,
         [Description("Optional. Max matches to return (default 500). The TRUE total is always reported; over the cap it says 'showing first N'.")]
             int limit = 500,
         [Description("Optional. Max characters before the response stops with an explicit notice. 0 = the server default (~80k).")]
             int max_chars = 0) => Guard.Tool("housecarl_cross_plugin_query", () =>
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
+        bool json = Wire.WantsJson(format, out var ferr);
+        if (ferr is not null) return ferr;
+        if (json && conflict_tree) return "error: conflict_tree=true is a text-only diff view and is not carried in json mode — use format=text for the conflict tree, or drop conflict_tree for the json field data.";
         if (group_by is not null && ((fields is { Length: > 0 }) || conflict_tree))
             return "error: group_by aggregates matches into a count table and cannot be combined with fields= or conflict_tree=true (those expand each match to full detail — pick one). Drop fields=/conflict_tree, or drop group_by.";
         IReadOnlyList<FormKey>? refFks = null;
@@ -141,7 +156,8 @@ public static class ReadTools
             if (list.Count > 0) refFks = list.Distinct().ToList();   // preserve input order, drop dupes
         }
         var outcome = svc.CrossQuery(type, refFks, editorid_contains, conflicts_only, plugins, where, limit <= 0 ? 500 : limit, defined_in, group_by);
-        return Wire.RenderCrossQuery(svc, outcome, fields, conflict_tree, max_chars, resolve_names);
+        return json ? JsonWire.RenderCrossQuery(svc, outcome, fields, max_chars, resolve_names)
+                    : Wire.RenderCrossQuery(svc, outcome, fields, conflict_tree, max_chars, resolve_names);
     });
 
     [McpServerTool(Name = "housecarl_resolve", ReadOnly = true, Title = "Resolve FormIDs to their identity"),
@@ -293,12 +309,16 @@ public static class ReadTools
             int limit = 500,
         [Description("Optional. With formid=: annotate every FormLink field value with its target's identity (→ editorid \"Name\"), resolved against the ACTIVE load order (the only identity frame — this file may itself be inactive). Display-only; the token is unchanged. A target the active order doesn't define is marked 'unresolved'. Forces the load-order build (opt-in), unlike the default cheap raw read.")]
             bool resolve_names = false,
+        [Description("Optional. 'text' (default) or 'json' — a machine-readable document (always stamped out_of_load_order:true; the file's masters context, then the record/records/type_counts payload). Field values are the SAME tokens as text.")]
+            string? format = null,
         [Description("Optional. Max characters before the response stops with an explicit notice. 0 = the server default (~80k).")]
             int max_chars = 0) => Guard.Tool("housecarl_read_plugin_file", () =>
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
+        bool json = Wire.WantsJson(format, out var ferr);
+        if (ferr is not null) return ferr;
         var outcome = svc.ReadPluginFile(plugin, formid, type, mod, fields, depth <= 0 ? 1 : depth, editorid_contains, limit <= 0 ? 500 : limit, resolve_names);
-        return Wire.RenderPluginFile(outcome, max_chars);
+        return json ? JsonWire.RenderPluginFile(outcome, max_chars) : Wire.RenderPluginFile(outcome, max_chars);
     });
 }
 
