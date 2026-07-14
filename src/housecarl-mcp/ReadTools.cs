@@ -80,29 +80,36 @@ public static class ReadTools
          "Find records across the whole load order matching a filter — returns matches only, each as a compact " +
          "summary line (FormID, type, editorid, winner, override depth). Filters (combine freely): type= a record " +
          "signature ('WEAP') or catalog name ('Weapon'); conflicts_only=true for records >1 plugin touches; " +
-         "editorid_contains= a substring of the EditorID; references= a FormID the record points at (reverse lookup, " +
-         "e.g. 'what uses this keyword'); where= filters by a field's VALUE (e.g. 'MagicSkill = Destruction', " +
+         "editorid_contains= a substring of the EditorID; references= one or more FormIDs the record points at " +
+         "(reverse lookup, e.g. 'what uses this keyword' — OR over the list, and each match shows which target(s) it " +
+         "hit); where= filters by a field's VALUE (e.g. 'MagicSkill = Destruction', " +
          "'BasicStats.Damage >= 50' — any scalar field, ANDed); plugins= limits the scan to records those plugins " +
-         "touch (a bare plugins= is 'everything this plugin touches'). At least one filter or plugins= is required. " +
-         "editorid_contains/references/where " +
+         "touch (a bare plugins= is 'everything this plugin touches'); defined_in=true narrows a plugins= scope to " +
+         "records DEFINED in those plugins (not overrides they merely touch). At least one filter or plugins= is " +
+         "required. editorid_contains/references/where " +
          "are body scans and MUST be combined with type= or plugins= to bound the work (conflicts_only= alone is not " +
          "enough). Pass fields= " +
-         "or conflict_tree=true to expand each match from a summary line to full detail. Results cap at limit= matches " +
-         "and max_chars; both overruns are reported explicitly (never silent). Does NOT modify anything.")]
+         "or conflict_tree=true to expand each match from a summary line to full detail; or group_by= " +
+         "(winner|type|defined_in) for a count table over ALL matches instead of per-match lines. Results cap at " +
+         "limit= matches and max_chars; both overruns are reported explicitly (never silent). Does NOT modify anything.")]
     public static string CrossPluginQuery(
         LoadOrderService svc,
         [Description("Optional. A record signature ('WEAP', 'NPC_') or catalog name ('Weapon', 'Npc'). Cheap — uses typed group enumeration.")]
             string? type = null,
-        [Description("Optional. A FormID 'XXXXXX:Plugin.esp'; matches records whose winner references it (deep link scan). Must be combined with type= or plugins= (conflicts_only= alone is not enough).")]
-            string? references = null,
+        [Description("Optional. One or more FormIDs 'XXXXXX:Plugin.esp'; matches records that reference ANY of them (OR, deep link scan). Each match line shows matches=<which target(s)> when you pass 2+. Must be combined with type= or plugins= (conflicts_only= alone is not enough).")]
+            string[]? references = null,
         [Description("Optional. Case-insensitive substring of the EditorID. Body scan — must be combined with type= or plugins= (conflicts_only= alone is not enough).")]
             string? editorid_contains = null,
         [Description("When true, restrict to records more than one plugin touches (the contested set).")]
             bool conflicts_only = false,
         [Description("Optional. Plugin filenames to scope the scan to (records those plugins touch). A name not in the load order is an error. Omit to scan the whole order.")]
             string[]? plugins = null,
+        [Description("When true, narrow a plugins= scope to records DEFINED in those plugins (origin FormID), not overrides they merely touch — the catalogue-scope semantics. Requires plugins= (refused loud otherwise).")]
+            bool defined_in = false,
         [Description("Optional. Field-VALUE predicates, each \"<path> <op> <value>\" — e.g. 'MagicSkill = Destruction', 'BasicStats.Damage >= 50', 'Archetype.ActorValue = Infamy'. Operators: = != > >= < <= (>/< numeric) and contains (case-insensitive substring); multiple are ANDed. Filters on ANY scalar field the read tools can read (any type, any depth). A body scan — MUST be combined with type= or plugins=. A wrong or container/list path is reported, never a silent '0 matches'.")]
             string[]? where = null,
+        [Description("Optional. Aggregate matches into a count table (sorted desc) instead of listing them: 'winner' (by load-order-winning plugin), 'type' (by record type — needs type= or plugins=), or 'defined_in' (by defining plugin). Counts ALL matches (not capped by limit=). Cannot combine with fields= or conflict_tree=.")]
+            string? group_by = null,
         [Description("Optional. Dotted field paths to show for each match (e.g. 'BasicStats.Damage'). Omit for a one-line summary per match.")]
             string[]? fields = null,
         [Description("When true, include each match's touching-plugin list (winner last) + winner-relative field diff.")]
@@ -113,13 +120,21 @@ public static class ReadTools
             int max_chars = 0) => Guard.Tool("housecarl_cross_plugin_query", () =>
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
-        FormKey? refFk = null;
-        if (!string.IsNullOrWhiteSpace(references))
+        if (group_by is not null && ((fields is { Length: > 0 }) || conflict_tree))
+            return "error: group_by aggregates matches into a count table and cannot be combined with fields= or conflict_tree=true (those expand each match to full detail — pick one). Drop fields=/conflict_tree, or drop group_by.";
+        IReadOnlyList<FormKey>? refFks = null;
+        if (references is { Length: > 0 })
         {
-            try { refFk = FormKey.Factory(references.Trim()); }
-            catch (Exception ex) { return $"error: bad references FormID '{references}': {ex.Message}. Expected 'XXXXXX:Plugin.esp'."; }
+            var list = new List<FormKey>();
+            foreach (var r in references)
+            {
+                if (string.IsNullOrWhiteSpace(r)) continue;
+                try { list.Add(FormKey.Factory(r.Trim())); }
+                catch (Exception ex) { return $"error: bad references FormID '{r}': {ex.Message}. Expected 'XXXXXX:Plugin.esp'."; }
+            }
+            if (list.Count > 0) refFks = list.Distinct().ToList();   // preserve input order, drop dupes
         }
-        var outcome = svc.CrossQuery(type, refFk, editorid_contains, conflicts_only, plugins, where, limit <= 0 ? 500 : limit);
+        var outcome = svc.CrossQuery(type, refFks, editorid_contains, conflicts_only, plugins, where, limit <= 0 ? 500 : limit, defined_in, group_by);
         return Wire.RenderCrossQuery(svc, outcome, fields, conflict_tree, max_chars);
     });
 
@@ -311,9 +326,11 @@ static class Wire
     {
         if (q.Error is not null) return "error: " + q.Error;
         int cap = Cap(maxChars);
+        if (q.Groups is not null) return RenderCrossQueryGroups(q, cap);   // group_by= → a count table, not per-match lines
         bool detail = (fields is { Count: > 0 }) || conflictTree;          // expand matches, vs. one-line summaries
         var sb = new StringBuilder();
         sb.Append("cross_plugin_query: ").Append(q.Total).Append(q.Total == 1 ? " match" : " matches");
+        if (q.ScopeLabel is not null) sb.Append(" DEFINED IN ").Append(q.ScopeLabel);   // P1: explicit scope — NOT the 'touches' default
         if (q.Capped) sb.Append(" (showing first ").Append(q.Keys.Count).Append("; raise limit= or narrow to see more)");
         sb.Append('\n');
         if (q.PredicateNote is not null) sb.Append(q.PredicateNote).Append('\n');   // where= Q3 accounting (wrong-path/no-value surface)
@@ -330,10 +347,12 @@ static class Wire
                 break;
             }
             var fk = q.Keys[i];
+            string? matches = q.MatchedTargets is { } mt && i < mt.Count ? mt[i] : null;   // multi-target references= un-merge
             if (detail)
             {
                 var o = svc.ResolveRead(fk, q.Sources is { } src ? src[i] : null, fields, conflictTree);   // display the body the scan filtered: scoped plugin under plugins=, else winner
                 sb.Append('\n');
+                if (matches is not null) sb.Append("  ").Append(fk).Append("  matches=").Append(matches).Append('\n');
                 if (o.Error is not null) sb.Append(fk).Append(": error: ").Append(o.Error).Append('\n');
                 else { AppendRecord(sb, o, cap); if (conflictTree) AppendConflictTree(sb, svc, o, fields, cap); }
             }
@@ -342,10 +361,43 @@ static class Wire
                 var m = q.Prefilled is not null ? q.Prefilled[i] : svc.ResolveSummary(fk);   // lazy fill for conflicts-only
                 sb.Append("  ").Append(m.FormKey);
                 if (m.Error is not null) sb.Append("  error=").Append(m.Error).Append('\n');
-                else sb.Append("  type=").Append(m.Type).Append("  editorid=").Append(m.EditorId ?? "<none>")
-                       .Append("  winner=").Append(m.Winner).Append("  override_depth=").Append(m.OverrideDepth).Append('\n');
+                else
+                {
+                    sb.Append("  type=").Append(m.Type).Append("  editorid=").Append(m.EditorId ?? "<none>")
+                      .Append("  winner=").Append(m.Winner).Append("  override_depth=").Append(m.OverrideDepth);
+                    if (matches is not null) sb.Append("  matches=").Append(matches);
+                    sb.Append('\n');
+                }
             }
             rendered++;
+        }
+        return sb.ToString().TrimEnd('\n');
+    }
+
+    /// <summary>Render a cross_plugin_query <c>group_by=</c> aggregation: a header naming the key + true total + group
+    /// count, then one "  &lt;key&gt; = &lt;count&gt;" row per group (already sorted desc by the core). Q3 accounting
+    /// (where= / unscannable notes) survives the aggregation. Over max_chars it stops with the explicit truncation
+    /// notice — the count is exact even when the row LIST is clipped (aggregation isn't limit-capped; only rendering is).</summary>
+    static string RenderCrossQueryGroups(CrossQueryOutcome q, int cap)
+    {
+        var groups = q.Groups!;
+        var sb = new StringBuilder();
+        sb.Append("cross_plugin_query: grouped by ").Append(q.GroupBy).Append(" — ")
+          .Append(q.Total).Append(q.Total == 1 ? " match" : " matches")
+          .Append(" across ").Append(groups.Count).Append(groups.Count == 1 ? " group" : " groups");
+        if (q.ScopeLabel is not null) sb.Append(" (DEFINED IN ").Append(q.ScopeLabel).Append(')');
+        sb.Append('\n');
+        if (q.PredicateNote is not null) sb.Append(q.PredicateNote).Append('\n');
+        if (q.ScanNote is not null) sb.Append(q.ScanNote).Append('\n');
+        for (int i = 0; i < groups.Count; i++)
+        {
+            if (sb.Length >= cap)
+            {
+                sb.Append("... [truncated: rendered ").Append(i).Append(" of ").Append(groups.Count)
+                  .Append(" groups before hitting max_chars=").Append(cap).Append("; raise max_chars — the total above is exact]\n");
+                break;
+            }
+            sb.Append("  ").Append(groups[i].Key).Append(" = ").Append(groups[i].Count).Append('\n');
         }
         return sb.ToString().TrimEnd('\n');
     }

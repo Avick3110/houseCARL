@@ -1511,22 +1511,57 @@ public sealed class LoadOrderService : IDisposable
     /// pass with the matching record's body in hand (no per-candidate re-fetch): type= streams the WINNER body
     /// (effective truth) via typed group enumeration; plugins= streams each scoped plugin's OWN body (a content
     /// audit); conflicts_only= alone reads the index. Body filters (editorid_contains/references) test the
-    /// in-hand body and so require type= or plugins= to bound them. Returns pre-built match summaries (capped at
-    /// <paramref name="limit"/>, with the true total) or a recoverable Q3 error. Holds nothing.</summary>
-    public CrossQueryOutcome CrossQuery(string? type, FormKey? references, string? editoridContains,
-                                        bool conflictsOnly, IReadOnlyList<string>? plugins, IReadOnlyList<string>? where, int limit)
+    /// in-hand body and so require type= or plugins= to bound them. <paramref name="references"/> is a LIST — a
+    /// record matches if it references ANY target (OR), and each match records which target(s) it hit (multi-target
+    /// un-merge). <paramref name="definedIn"/> keeps only matches whose FormKey ORIGINATES in a scoped plugin
+    /// (definitions, not overrides) — requires plugins=, refused loud otherwise. <paramref name="groupBy"/>
+    /// ("winner"|"type"|"defined_in") replaces per-match lines with a count table over ALL matches (not capped by
+    /// limit=). Returns pre-built match summaries (capped at <paramref name="limit"/>, with the true total), a group
+    /// table, or a recoverable Q3 error. Holds nothing.</summary>
+    public CrossQueryOutcome CrossQuery(string? type, IReadOnlyList<FormKey>? references, string? editoridContains,
+                                        bool conflictsOnly, IReadOnlyList<string>? plugins, IReadOnlyList<string>? where, int limit,
+                                        bool definedIn = false, string? groupBy = null)
     {
         var resolver = Resolver;
         var view = resolver.Capture();          // ONE build for the SCAN and every per-match fill it makes (HCBR-2026-06-11-02)
         bool hasPlugins = plugins is { Count: > 0 };
         bool hasType = type is not null;
         bool hasWhere = where is { Count: > 0 };
-        bool bodyFilter = references is not null || !string.IsNullOrEmpty(editoridContains) || hasWhere;
+        bool hasReferences = references is { Count: > 0 };
+        bool bodyFilter = hasReferences || !string.IsNullOrEmpty(editoridContains) || hasWhere;
 
         if (!hasType && !conflictsOnly && !hasPlugins && !bodyFilter)
             return CrossQueryOutcome.Fail("cross_plugin_query needs at least one of: type=, conflicts_only=true, editorid_contains=, references=, where=, or plugins=.");
         if (bodyFilter && !hasType && !hasPlugins)
             return CrossQueryOutcome.Fail("editorid_contains/references/where is a body scan and must be combined with type= or plugins= to bound it (conflicts_only= alone is not enough — an unbounded body scan over the whole order is refused). A global reverse-reference index is a future capability.");
+
+        // defined_in= keeps only records DEFINED in the scoped plugins (origin FormKey), the catalogue-scope semantics
+        // distinct from plugins='everything this plugin TOUCHES'. It needs a plugins= scope to mean anything — refused
+        // loud otherwise, never silently ignored (Q3).
+        if (definedIn && !hasPlugins)
+            return CrossQueryOutcome.Fail("defined_in=true keeps only records DEFINED in a scoped plugin, so it requires plugins= to name that scope. Add plugins=, or drop defined_in= (a bare scan already reports each match's defining plugin via its FormID suffix).");
+        HashSet<ModKey>? scopedModKeys = null;
+        if (definedIn)
+        {
+            scopedModKeys = new();
+            foreach (var p in plugins!)
+                try { scopedModKeys.Add(ModKey.FromFileName(p.Trim())); }
+                catch (Exception ex) { return CrossQueryOutcome.Fail($"defined_in: '{p}' is not a valid plugin filename: {ex.Message}"); }
+        }
+
+        // group_by= aggregates matches into a count table. Validated up front (an unknown key refuses BEFORE any scan,
+        // Q3). group_by=type needs the matched body to name the type, so it requires a body-bearing scope (type= or
+        // plugins=); winner/defined_in are derivable from the FormKey alone and work with conflicts_only= too.
+        if (groupBy is not null)
+        {
+            groupBy = groupBy.Trim().ToLowerInvariant();
+            if (groupBy is not ("winner" or "type" or "defined_in"))
+                return CrossQueryOutcome.Fail($"group_by='{groupBy}' is not a known aggregation key — use 'winner', 'type', or 'defined_in'.");
+            if (groupBy == "type" && !hasType && !hasPlugins)
+                return CrossQueryOutcome.Fail("group_by=type needs each match's type, which requires a body-bearing scope — add type= or plugins= (winner/defined_in group without a body).");
+        }
+        var refSet = hasReferences ? new HashSet<FormKey>(references!) : null;
+        bool multiTarget = references is { Count: >= 2 };
 
         // where= → the field-value predicate set. Parsed up front so a malformed predicate refuses the call BEFORE
         // any scan (Q3). The predicate reuses the read engine's path-walk, so its reach == the read surface's reach.
@@ -1544,7 +1579,9 @@ public sealed class LoadOrderService : IDisposable
 
         var keys = new List<FormKey>();
         var sources = new List<string?>();                                    // parallel to keys: the plugin whose body matched (null ⇒ winner), so the render displays the SAME body it filtered
+        List<string?>? matched = multiTarget ? new() : null;                  // parallel to keys: which target(s) each hit referenced (multi-target references= un-merge); null when 0/1 target
         List<RecordSummary>? prefilled = (hasType || hasPlugins) ? new() : null;   // parallel to keys; null = renderer fills lazily
+        Dictionary<string, int>? groups = groupBy is not null ? new(StringComparer.Ordinal) : null;   // group_by= aggregation (bumped per match, over ALL matches — not limit-capped)
         int total = 0;
         int unscannable = 0;                                                  // records whose body tests THREW (Mutagen-unparseable content) — excluded + accounted, never silent (Q3)
         var unscannableSamples = new List<string>();
@@ -1565,6 +1602,9 @@ public sealed class LoadOrderService : IDisposable
                 foreach (var (fk, depth, body, source) in stream)
                 {
                     if (conflictsOnly && depth <= 1) continue;
+                    // defined_in=: keep only records whose ORIGIN FormKey is a scoped plugin (a DEFINITION here, not
+                    // an override this plugin merely touches). A FormKey test — no body needed, so it runs before the try.
+                    if (definedIn && !scopedModKeys!.Contains(fk.ModKey)) continue;
                     // PER-RECORD FAULT ISOLATION (HCBR-2026-06-09-03): the body tests lazily parse subrecord
                     // content (references= walks Effects etc. via Mutagen's EnumerateFormLinks), so ONE record
                     // Mutagen can't parse used to abort the WHOLE call as an opaque transport error — the
@@ -1575,9 +1615,18 @@ public sealed class LoadOrderService : IDisposable
                         if (!string.IsNullOrEmpty(editoridContains)
                             && (body.EditorID is null || body.EditorID.IndexOf(editoridContains, StringComparison.OrdinalIgnoreCase) < 0))
                             continue;
-                        if (references is { } target
-                            && !(body is IFormLinkContainerGetter flc && flc.EnumerateFormLinks().Any(l => l.FormKey == target)))
-                            continue;
+                        // references= (LIST, OR semantics): a record matches if it links to ANY target. One
+                        // EnumerateFormLinks pass collects the intersection so a multi-target lookup can be un-merged
+                        // (matches=<which target(s)>) — the same single pass, membership-in-a-set instead of ==.
+                        List<FormKey>? hitTargets = null;
+                        if (refSet is not null)
+                        {
+                            if (body is not IFormLinkContainerGetter flc) continue;
+                            var hitSet = new HashSet<FormKey>();
+                            foreach (var l in flc.EnumerateFormLinks()) if (refSet.Contains(l.FormKey)) hitSet.Add(l.FormKey);
+                            if (hitSet.Count == 0) continue;
+                            if (multiTarget) hitTargets = references!.Where(hitSet.Contains).Distinct().ToList();   // in input order, deterministic
+                        }
                         if (predicate is not null && !predicate.Matches(body))    // value filter — same in-hand body, no extra fetch
                         {
                             if (predicate.FatalError is not null) break;          // numeric op vs non-numeric field — abort + surface (Q3)
@@ -1588,10 +1637,18 @@ public sealed class LoadOrderService : IDisposable
                         // array order) whose body PASSED the filters — deterministic, and it's the body we'll display.
                         if (!seen.Add(fk)) continue;
                         total++;
-                        if (keys.Count < limit)                                   // in-hand body → fill the summary for free
+                        if (groups is not null)                                   // group_by=: aggregate over ALL matches, no keys/prefill, no limit cap
+                        {
+                            var gk = groupBy == "type" ? RecordNaming.StripOverlay(body.GetType().Name)
+                                   : groupBy == "defined_in" ? fk.ModKey.FileName.ToString()
+                                   : view.ResolveWinner(fk)?.WinnerPlugin ?? "?";  // "winner"
+                            groups[gk] = groups.GetValueOrDefault(gk) + 1;
+                        }
+                        else if (keys.Count < limit)                              // in-hand body → fill the summary for free
                         {
                             keys.Add(fk);
                             sources.Add(source);                                  // the body we filtered IS the body we'll display (null ⇒ winner)
+                            matched?.Add(hitTargets is not null ? string.Join(", ", hitTargets) : null);   // parallel to keys (multi-target only)
                             // winner= off the SAME view the scan runs on — a rebuild landing mid-scan can no longer
                             // make a row's winner reflect a newer build than the depth beside it (HCBR-2026-06-11-02).
                             prefilled!.Add(new RecordSummary(fk, RecordNaming.StripOverlay(body.GetType().Name), body.EditorID,
@@ -1616,10 +1673,16 @@ public sealed class LoadOrderService : IDisposable
         {
             // Summaries here would each need a winner-body fetch; leaving them to the renderer (which stops at
             // max_chars) means a big limit with a small max_chars doesn't fetch bodies it will never show.
+            // group_by= here can only be winner/defined_in (type was refused up front — no body to name the type).
             foreach (var fk in view.ConflictKeys())
             {
                 total++;
-                if (keys.Count < limit) { keys.Add(fk); sources.Add(null); }   // no scoped plugin → display the winner
+                if (groups is not null)
+                {
+                    var gk = groupBy == "defined_in" ? fk.ModKey.FileName.ToString() : view.ResolveWinner(fk)?.WinnerPlugin ?? "?";
+                    groups[gk] = groups.GetValueOrDefault(gk) + 1;
+                }
+                else if (keys.Count < limit) { keys.Add(fk); sources.Add(null); }   // no scoped plugin → display the winner
             }
         }
         // Unscannable accounting (Q3): name the count, the first few offenders with Mutagen's reason, and what
@@ -1631,7 +1694,12 @@ public sealed class LoadOrderService : IDisposable
               + string.Join("; ", unscannableSamples)
               + (unscannable > unscannableSamples.Count ? $"; and {unscannable - unscannableSamples.Count} more" : "")
               + ". Inspect one with read_record (per-field fault isolation applies).";
-        return new CrossQueryOutcome(keys, prefilled, total, total > keys.Count, null, predicate?.AccountingNote(), sources, scanNote);
+        // group_by= aggregation isn't limit-capped (cheap), so Capped is a match-line concern only.
+        var groupRows = groups?.Select(kv => new GroupCount(kv.Key, kv.Value))
+                              .OrderByDescending(g => g.Count).ThenBy(g => g.Key, StringComparer.Ordinal).ToList();
+        return new CrossQueryOutcome(keys, prefilled, total, groups is null && total > keys.Count, null,
+                                     predicate?.AccountingNote(), sources, scanNote,
+                                     matched, groupRows, groupBy, definedIn ? string.Join(", ", plugins!) : null);
     }
 
     // ---- effect-chain resolver (housecarl_effect_chain — gap 2026-06-08) --------------------------------
@@ -4236,10 +4304,16 @@ public sealed record ReadOutcome(
 /// <see cref="Total"/> is the true match count; <see cref="Capped"/> is true when Total exceeded what was returned.</summary>
 public sealed record CrossQueryOutcome(
     IReadOnlyList<FormKey> Keys, IReadOnlyList<RecordSummary>? Prefilled, int Total, bool Capped, string? Error,
-    string? PredicateNote = null, IReadOnlyList<string?>? Sources = null, string? ScanNote = null)
+    string? PredicateNote = null, IReadOnlyList<string?>? Sources = null, string? ScanNote = null,
+    IReadOnlyList<string?>? MatchedTargets = null, IReadOnlyList<GroupCount>? Groups = null,
+    string? GroupBy = null, string? ScopeLabel = null)
 {
     public static CrossQueryOutcome Fail(string error) => new(Array.Empty<FormKey>(), null, 0, false, error);
 }
+
+/// <summary>One row of a cross_plugin_query <c>group_by=</c> aggregation: a group key (winner plugin / record type /
+/// defining plugin) and how many matches fell in it. Emitted instead of per-match lines when group_by is set.</summary>
+public sealed record GroupCount(string Key, int Count);
 
 /// <summary>A compact, header-only record summary (no field dump) — the per-match line cross_plugin_query emits
 /// by default. <see cref="Error"/> non-null ⇒ the winner couldn't be summarised (named, recoverable — Q3).</summary>

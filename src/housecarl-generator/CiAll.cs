@@ -48,6 +48,11 @@ public static class CiAll
         ("check-errors-guard", CheckErrorsProbe.RunGuard),
         ("script-property-check-guard", ScriptPropertyCheckProbe.RunGuard),
         ("source-display-guard", SourceDisplayProbe.RunGuard),
+        // BULK-PRIMITIVES Wave 1 — the three type-agnostic cross_plugin_query additions (PLAN P1/P2/P4): defined_in=
+        // (definitions vs touches), list-valued references= (OR + matches= un-merge), group_by= (winner|type|
+        // defined_in count table). Drives the real service scan + the tool-layer group_by/fields guard on a synthetic
+        // master+replacer order; group_by counts are cross-checked against a hand tally; both loud refusals asserted.
+        ("bulk-query-primitives-guard", BulkQueryPrimitivesProbe.RunGuard),
         ("writelock-guard", WriteLockProbe.RunGuard),
         ("inplace-guard", InPlaceProbe.RunGuard),
         ("subclass-remove-guard", SubclassRemoveGuardProbe.RunGuard),
