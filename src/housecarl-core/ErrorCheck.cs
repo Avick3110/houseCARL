@@ -1,5 +1,6 @@
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Plugins.Records;
+using Mutagen.Bethesda.Skyrim;
 
 namespace HousecarlCore;
 
@@ -45,8 +46,15 @@ public static class ErrorCheck
     /// plugins) over the order <paramref name="resolver"/> holds. One <see cref="LoadOrderResolver.Capture"/> pins the
     /// whole sweep. <paramref name="limit"/> caps the number of dangling refs collected across the sweep (the true
     /// total is always counted); missing-master findings are few and never capped. A bad/excluded scope name fails
-    /// LOUD (Q3) with no partial result.</summary>
-    public static ErrorCheckResult Run(LoadOrderResolver resolver, IReadOnlyList<string>? scope, int limit)
+    /// LOUD (Q3) with no partial result.
+    /// <para><paramref name="offOrder"/> — plugin FILES to sweep that are NOT in the active order (name + on-disk path;
+    /// the caller located them), the pre-enable verify lane (HCBR-2026-07-14-02 gap 3: a patch houseCARL just wrote is
+    /// not in plugins.txt until the MO2 refresh, yet its pre-ship dangling-ref sweep is exactly when check_errors is
+    /// wanted). Each is opened as its OWN overlay; its links resolve against the active order PLUS the file's own
+    /// records (a patch's link to its own new record is not dangling), and a declared master absent from the active
+    /// order is a MISSING MASTER finding — same classes, same rendering, plus an OFF-ORDER stamp in the result.</para></summary>
+    public static ErrorCheckResult Run(LoadOrderResolver resolver, IReadOnlyList<string>? scope, int limit,
+                                       IReadOnlyList<(string Name, string Path)>? offOrder = null)
     {
         var view = resolver.Capture();
 
@@ -64,6 +72,10 @@ public static class ErrorCheck
                         $"plugin '{name}' was excluded from this session because it could not be parsed ({why}) — fix or remove it upstream; it cannot be checked.");
                 targets.Add(name);
             }
+        }
+        else if (offOrder is { Count: > 0 })
+        {
+            targets = new List<string>();   // the caller's explicit scope resolved ENTIRELY off-order — don't widen to the whole order
         }
         else
         {
@@ -143,8 +155,89 @@ public static class ErrorCheck
                 reports.Add(new PluginErrors(plugin, dangling, missingMasters, unscannable, unscannableSamples, scanError));
         }
 
-        return new ErrorCheckResult(reports, targets.Count, totalDangling, totalMissing,
-                                    totalUnscannable, capped, view.ExcludedPlugins, null);
+        // --- off-order files (the pre-enable verify lane): the file's OWN overlay, links resolved against the active
+        //     order PLUS the file's own records. Same fault-isolation contract as the active loop (Q3).
+        var offOrderScanned = new List<string>();
+        if (offOrder is { Count: > 0 })
+        {
+            foreach (var (name, path) in offOrder)
+            {
+                offOrderScanned.Add(name);
+                string? scanError = null;
+                var missingMasters = new List<string>();
+                var dangling = new List<DanglingRef>();
+                int unscannable = 0;
+                var unscannableSamples = new List<string>();
+
+                ISkyrimModGetter? ov = null;
+                try
+                {
+                    ov = SkyrimMod.CreateFromBinaryOverlay(path, SkyrimRelease.SkyrimSE);
+
+                    foreach (var m in ov.ModHeader.MasterReferences)
+                        if (!view.ContainsPlugin(m.Master.FileName)) missingMasters.Add(m.Master.FileName);
+                    missingMasters.Sort(StringComparer.OrdinalIgnoreCase);
+
+                    // Pass 1 — the file's OWN FormKeys: a link into a record this same file defines is satisfied the
+                    // moment the plugin is enabled, so it must not read as dangling (the patch-links-its-own-new-record
+                    // case). An enumeration abort leaves a PARTIAL set — named below, and pass 2 aborts the same way.
+                    var selfKeys = new HashSet<FormKey>();
+                    try { foreach (var r in ov.EnumerateMajorRecords()) selfKeys.Add(r.FormKey); }
+                    catch (Exception ex) { scanError = $"record enumeration aborted partway: {ex.GetType().Name}: {ex.Message}"; }
+
+                    // Pass 2 — the link walk, per-record fault isolation (the active loop's exact contract).
+                    try
+                    {
+                        foreach (var rec in ov.EnumerateMajorRecords())
+                        {
+                            try
+                            {
+                                if (rec is not IFormLinkContainerGetter flc) continue;
+                                foreach (var link in flc.EnumerateFormLinks())
+                                {
+                                    var target = link.FormKey;
+                                    if (target.IsNull) continue;
+                                    if (view.ResolveWinner(target) is not null) continue;
+                                    if (selfKeys.Contains(target)) continue;            // defined by this very file
+                                    if (EngineImplicit.IsImplicit(target)) continue;
+                                    totalDangling++;
+                                    if (danglingBudget > 0)
+                                    {
+                                        dangling.Add(new DanglingRef(rec.FormKey, RecordNaming.StripOverlay(rec.GetType().Name), rec.EditorID, target));
+                                        danglingBudget--;
+                                    }
+                                    else capped = true;
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                unscannable++;
+                                if (unscannableSamples.Count < 3) unscannableSamples.Add($"{rec.FormKey} — {ex.GetType().Name}: {ex.Message}");
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        scanError = (scanError is null ? "" : scanError + "; ")
+                                  + $"record enumeration aborted partway: {ex.GetType().Name}: {ex.Message}";
+                    }
+                }
+                catch (Exception ex)
+                {
+                    scanError = $"could not open '{path}' as a Skyrim plugin: {ex.GetType().Name}: {ex.Message}";
+                }
+                finally { (ov as IDisposable)?.Dispose(); }
+
+                totalMissing += missingMasters.Count;
+                totalUnscannable += unscannable;
+
+                if (dangling.Count > 0 || missingMasters.Count > 0 || unscannable > 0 || scanError is not null)
+                    reports.Add(new PluginErrors(name, dangling, missingMasters, unscannable, unscannableSamples, scanError));
+            }
+        }
+
+        return new ErrorCheckResult(reports, targets.Count + offOrderScanned.Count, totalDangling, totalMissing,
+                                    totalUnscannable, capped, view.ExcludedPlugins, null, offOrderScanned);
     }
 }
 
@@ -175,7 +268,8 @@ public sealed record ErrorCheckResult(
     int TotalUnscannableRecords,
     bool Capped,
     IReadOnlyDictionary<string, string> ExcludedPlugins,
-    string? Error)
+    string? Error,
+    IReadOnlyList<string>? OffOrderScanned = null)
 {
     public bool Success => Error is null;
     public static ErrorCheckResult Fail(string error) =>

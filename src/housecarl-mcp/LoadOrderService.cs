@@ -1673,9 +1673,42 @@ public sealed class LoadOrderService : IDisposable
     /// <summary>Sweep the active order (or the given <paramref name="plugins"/> scope) for record integrity errors —
     /// dangling FormLinks, missing masters, and parse failures (housecarl_check_errors). Thin wiring over the
     /// core <see cref="ErrorCheck.Run"/>, which holds all the scan logic + Q3 teeth so the self-contained guard drives
-    /// this same path over synthetic plugins. Read-only; composes existing primitives, no new dependency.</summary>
+    /// this same path over synthetic plugins. Read-only; composes existing primitives, no new dependency.
+    /// <para>A scope name NOT in the active order is resolved on disk by the shared plugin-locate contract
+    /// (<see cref="LocatePluginFileOnDisk"/> — enabled, disabled, AND unlisted mod folders) and swept OFF-ORDER: its
+    /// own overlay, links resolved against the active order + the file's own records. This is the pre-enable verify
+    /// lane (HCBR-2026-07-14-02 gap 3) — the pre-ship dangling-ref sweep of a patch houseCARL just wrote, BEFORE the
+    /// MO2 refresh puts it in plugins.txt. A name found nowhere, or in several folders, still fails loud (Q3).</para></summary>
     public ErrorCheckResult CheckErrors(IReadOnlyList<string>? plugins, int limit)
-        => ErrorCheck.Run(Resolver, plugins, limit);
+    {
+        if (plugins is { Count: > 0 })
+        {
+            var view = Resolver.Capture();
+            var active = new List<string>();
+            var offOrder = new List<(string Name, string Path)>();
+            string modsDir, dataDir, overwriteDir, profileDir;
+            lock (_gate) { EnsurePathsDerived(); modsDir = _modsDir; dataDir = _dataDir; overwriteDir = _overwriteDir; profileDir = _profileDir; }
+            Mo2Composition? comp = null;
+            foreach (var name in plugins)
+            {
+                var n = name?.Trim() ?? "";
+                if (n.Length == 0) return ErrorCheckResult.Fail("a blank plugin name in the scope — pass plugin filenames (e.g. 'CoolMod.esp').");
+                if (view.ContainsPlugin(n)) { active.Add(n); continue; }
+                comp ??= Mo2LoadOrder.ReadComposition(profileDir);
+                var loc = LocatePluginFileOnDisk(comp, modsDir, dataDir, overwriteDir, n, null);
+                if (loc.Error is not null)
+                    return ErrorCheckResult.Fail($"plugin not in the load order: {n} — and no on-disk copy was found either ({loc.Error})");
+                if (loc.Ambiguous is not null)
+                    return ErrorCheckResult.Fail(
+                        $"plugin '{n}' is not in the active load order and {loc.Ambiguous.Count} mod folders provide a file with that name " +
+                        $"({string.Join(", ", loc.Ambiguous.Select(h => h.Where))}) — ambiguous, refusing to guess which to sweep. " +
+                        "Enable the one you mean in MO2, or remove the duplicates.");
+                offOrder.Add((n, loc.Path!));
+            }
+            return ErrorCheck.Run(Resolver, active, limit, offOrder.Count > 0 ? offOrder : null);
+        }
+        return ErrorCheck.Run(Resolver, plugins, limit);
+    }
 
     // ---- script-property sweep (housecarl_validate_scripts) --------------------------------------------
 
@@ -2292,7 +2325,11 @@ public sealed class LoadOrderService : IDisposable
     /// <paramref name="acknowledge"/>=true — a first call without it returns a CONFIRM prompt listing exactly what will be
     /// rewritten (never a silent original-file edit).</para>
     ///
-    /// <para>Refuses loud + writes nothing on: the plugin not active / excluded (unparseable) / not on disk; MORE than the
+    /// <para>An INACTIVE target (on disk but not in the load order — the fresh houseCARL patch pre-MO2-refresh, or a
+    /// disabled mod) is resolved by filename via the shared locate contract and compacted OFF-ORDER; its declared
+    /// masters must still be active (HCBR-2026-07-14-02 gap 3). An override-only target with esl=true takes the
+    /// FLAG-ONLY lane (empty remap; the write sets the light flag).</para>
+    /// <para>Refuses loud + writes nothing on: the plugin not found on disk / ambiguous / excluded (unparseable); MORE than the
     /// light window holds (the hard ESL ceiling — named, never truncated); a declared master not active; a serialize fault.
     /// Renumber mechanism + nested coverage: <see cref="RemapEngine.RenumberModInto"/> (remap-wave1/2). Serialized on the
     /// write gate; the identify-pass is one whole-order link walk (~25s at full scale — a deliberate, one-shot operation).</para></summary>
@@ -2311,16 +2348,41 @@ public sealed class LoadOrderService : IDisposable
                 return WritePatchBuilder.CompactOutcome.Fail($"cannot write: ModsDir '{_modsDir}' does not exist. Check HouseCarl:ModsDir.");
 
             var name = pluginName.Trim();
-            if (!view.ContainsPlugin(name))
-                return WritePatchBuilder.CompactOutcome.Fail(
-                    $"'{name}' is not an active plugin in your load order — compact targets an active plugin (so its records, and the plugins that reference it, can be read). Pass the exact filename (e.g. 'CoolMod.esp').");
-            if (view.ExcludedPlugins.TryGetValue(name, out var excluded))
-                return WritePatchBuilder.CompactOutcome.Fail(
-                    $"cannot compact '{name}': it was EXCLUDED from this session ({excluded}) — houseCARL won't renumber a plugin it can't fully parse. The file is untouched.");
-
-            var srcPath = view.PluginPath(name);
-            if (srcPath is null || !File.Exists(srcPath))
-                return WritePatchBuilder.CompactOutcome.Fail($"'{name}' not found on disk at {srcPath ?? "<unresolved>"} — nothing to compact.");
+            string? srcPath;
+            string? offOrderNote = null;
+            if (view.ContainsPlugin(name))
+            {
+                if (view.ExcludedPlugins.TryGetValue(name, out var excluded))
+                    return WritePatchBuilder.CompactOutcome.Fail(
+                        $"cannot compact '{name}': it was EXCLUDED from this session ({excluded}) — houseCARL won't renumber a plugin it can't fully parse. The file is untouched.");
+                srcPath = view.PluginPath(name);
+                if (srcPath is null || !File.Exists(srcPath))
+                    return WritePatchBuilder.CompactOutcome.Fail($"'{name}' not found on disk at {srcPath ?? "<unresolved>"} — nothing to compact.");
+            }
+            else
+            {
+                // NOT in the active order → resolve the FILE on disk (enabled, disabled, AND unlisted mod folders — the
+                // shared locate contract). This is the pre-enable finishing lane (HCBR-2026-07-14-02 gap 3): ESL-flagging
+                // the patch houseCARL just wrote, BEFORE the MO2 refresh puts it in plugins.txt. The requirement that
+                // actually protects correctness is unchanged: every DECLARED MASTER must be active (CompactBuild refuses
+                // otherwise), and the external-referencer scan still runs over the active order — which, for a plugin
+                // nothing active can master, is exactly the right (empty) answer.
+                string modsDir, dataDir, overwriteDir, profileDir;
+                lock (_gate) { EnsurePathsDerived(); modsDir = _modsDir; dataDir = _dataDir; overwriteDir = _overwriteDir; profileDir = _profileDir; }
+                var comp = Mo2LoadOrder.ReadComposition(profileDir);
+                var loc = LocatePluginFileOnDisk(comp, modsDir, dataDir, overwriteDir, name, null);
+                if (loc.Error is not null)
+                    return WritePatchBuilder.CompactOutcome.Fail(
+                        $"'{name}' is not an active plugin in your load order, and no on-disk copy was found either ({loc.Error})");
+                if (loc.Ambiguous is not null)
+                    return WritePatchBuilder.CompactOutcome.Fail(
+                        $"'{name}' is not in the active load order and {loc.Ambiguous.Count} mod folders provide a file with that name " +
+                        $"({string.Join(", ", loc.Ambiguous.Select(h => h.Where))}) — ambiguous, refusing to guess which to compact. " +
+                        "Enable the one you mean in MO2, or remove the duplicates.");
+                srcPath = loc.Path!;
+                offOrderNote = $"'{name}' is not in the active load order (found: {loc.Where}) — compacted OFF-ORDER; " +
+                               "masters resolved from the active order. Enable the result in MO2 to use it.";
+            }
 
             ModKey modKey;
             try { modKey = ModKey.FromFileName(name); }
@@ -2329,19 +2391,38 @@ public sealed class LoadOrderService : IDisposable
             // 1. originating record keys + the remap into the (light, by default) window.
             if (!WritePatchBuilder.TryReadOriginatingKeys(srcPath, modKey, out var keys, out var keyErr))
                 return WritePatchBuilder.CompactOutcome.Fail(keyErr!);
-            if (keys.Count == 0)
-                return WritePatchBuilder.CompactOutcome.Fail(
-                    $"'{name}' defines no originating records to renumber (it carries only overrides, or is empty) — nothing to compact.");
-
+            string? flagOnlyNote = null;
             uint floor = RemapEngine.EslFloor;
-            uint ceiling = esl ? RemapEngine.EslCeiling : FormIdRange.ObjectIdMax;   // light window, or the full 24-bit object-ID range
-            var plan = RemapEngine.BuildSequentialRemap(keys, modKey, floor, ceiling);
-            if (!plan.Success) return WritePatchBuilder.CompactOutcome.Fail(plan.Error!);
+            IReadOnlyDictionary<FormKey, FormKey> remapDict;
+            if (keys.Count == 0)
+            {
+                // Override-only (or empty) plugin: nothing to RENUMBER — but with esl=true the job the caller actually
+                // wants (make it light) is trivially satisfiable, because the light window only constrains ORIGINATING
+                // records. Proceed with an empty remap: every record copies verbatim and the write sets the light flag
+                // (the flag-only lane — the all-override compatibility patch, HCBR-2026-07-14-02 gap 3's ESL endgame).
+                if (!esl)
+                    return WritePatchBuilder.CompactOutcome.Fail(
+                        $"'{name}' defines no originating records to renumber (it carries only overrides, or is empty) — nothing to compact. " +
+                        "(With esl=true this would still set the ESL/light header flag — always valid for an override-only plugin.)");
+                remapDict = new Dictionary<FormKey, FormKey>();
+                flagOnlyNote = $"'{name}' defines no originating records — nothing renumbered; every record copied verbatim with the ESL (light) flag set (always valid for an override-only plugin).";
+            }
+            else
+            {
+                uint ceiling = esl ? RemapEngine.EslCeiling : FormIdRange.ObjectIdMax;   // light window, or the full 24-bit object-ID range
+                var plan = RemapEngine.BuildSequentialRemap(keys, modKey, floor, ceiling);
+                if (!plan.Success) return WritePatchBuilder.CompactOutcome.Fail(plan.Error!);
+                remapDict = plan.Dict;
+            }
 
             // 2. identify-pass — which plugins OUTSIDE the target reference a record being renumbered (the break risk).
-            var targets = plan.Dict.Keys.ToHashSet();
+            //    Nothing being renumbered ⇒ nothing can break ⇒ the scan has nothing to ask (skip the whole-order walk).
+            var targets = remapDict.Keys.ToHashSet();
             var transformSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { name };
-            var id = RemapEngine.IdentifyExternalReferencers(resolver, targets, transformSet);
+            var id = targets.Count == 0
+                ? new RemapEngine.IdentifyResult(Array.Empty<RemapEngine.ExternalRef>(), Array.Empty<string>(), 0, 0,
+                                                 Array.Empty<string>(), Array.Empty<RemapEngine.ExternalOverride>(), Array.Empty<string>())
+                : RemapEngine.IdentifyExternalReferencers(resolver, targets, transformSet);
 
             // 3. external-referencer policy (Q3 — never silently ship a compaction that dangles an external reference).
             if (id.HasExternalReferencers)
@@ -2402,7 +2483,7 @@ public sealed class LoadOrderService : IDisposable
             }
 
             // 6. build + write the compacted plugin.
-            var build = WritePatchBuilder.CompactBuild(srcPath, modKey, plan.Dict, view.PluginPath, outPath, esl, floor);
+            var build = WritePatchBuilder.CompactBuild(srcPath, modKey, remapDict, view.PluginPath, outPath, esl, floor);
             if (!build.Success)
             {
                 if (!inPlace && createdFresh) RemoveOrNameRiderResidue(rf);   // a refused build leaves no orphan folder
@@ -2414,7 +2495,7 @@ public sealed class LoadOrderService : IDisposable
             if (willRepoint)
                 foreach (var ext in id.ExternalPlugins)
                 {
-                    var rep = RemapEngine.RepointInPlace(resolver, ext, plan.Dict);
+                    var rep = RemapEngine.RepointInPlace(resolver, ext, remapDict);
                     repointed.Add(new WritePatchBuilder.RepointReport(ext, rep.Success, rep.Error));
                 }
 
@@ -2441,8 +2522,8 @@ public sealed class LoadOrderService : IDisposable
                 var assetView = assetResolver.Capture();
                 seqGate = assetView.ResolveForPlacement(srcSeqRel).Sources.Count > 0;   // VFS-aware (loose roots + active BSAs)
                 var outDir = Path.GetDirectoryName(outPath)!;
-                assetRename = AssetRenameService.CarryFaceGen(outPath, plan.Dict, assetView, outDir);
-                voiceRename = AssetRenameService.CarryVoice(outPath, plan.Dict, assetView, outDir);
+                assetRename = AssetRenameService.CarryFaceGen(outPath, remapDict, assetView, outDir);
+                voiceRename = AssetRenameService.CarryVoice(outPath, remapDict, assetView, outDir);
             }
             catch (Exception ex)
             {
@@ -2479,6 +2560,8 @@ public sealed class LoadOrderService : IDisposable
             //    field-edit ack silently authorize a full renumber. Markers are best-effort (a miss never fails the done
             //    write, Q3) — any miss is surfaced in Note.
             var markerNotes = new List<string>();
+            if (offOrderNote is not null) markerNotes.Add(offOrderNote);
+            if (flagOnlyNote is not null) markerNotes.Add(flagOnlyNote);
             if (inPlace) { var n = MergeEditedInPlaceMarker(Path.GetDirectoryName(srcPath)); if (n is not null) markerNotes.Add(n); }
             foreach (var r in repointed.Where(r => r.Success))
             {
