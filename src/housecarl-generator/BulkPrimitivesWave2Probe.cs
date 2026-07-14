@@ -138,6 +138,14 @@ public static class BulkPrimitivesWave2Probe
             Check("an unrecognized format= is REFUSED loud (never a silent fall-through to text — Q3)",
                   badFmt.StartsWith("error:", StringComparison.OrdinalIgnoreCase) && badFmt.Contains("format", StringComparison.OrdinalIgnoreCase));
 
+            // resolve json honors max_chars too (review cleanup #2): row-drop truncation, valid json, exact count.
+            var resClip = ReadTools.Resolve(svc, new[] { w1Fk.ToString(), kaFk.ToString(), w3Fk.ToString() }, format: "json", max_chars: 60);
+            var resClipDoc = ParseOrNull(resClip);
+            Check("housecarl_resolve json honors max_chars: valid json, truncated=true, rendered<count (row-drop — Q3)",
+                  resClipDoc is not null && resClipDoc.RootElement.GetProperty("truncated").GetBoolean()
+                  && resClipDoc.RootElement.GetProperty("rendered").GetInt32() < resClipDoc.RootElement.GetProperty("count").GetInt32());
+            resClipDoc?.Dispose();
+
             // ================= P7 — resolve_names (FormLink token → target identity, DISPLAY-ONLY) =================
             Console.WriteLine();
             Console.WriteLine("── P7: resolve_names annotates FormLink tokens with target identity, NEVER replacing the token ──");
