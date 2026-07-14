@@ -236,14 +236,18 @@ public static class Mo2LoadOrder
     }
 
     /// <summary>Locate every on-disk copy of a plugin FILENAME across the WHOLE MO2 install — the overwrite layer,
-    /// EVERY mod folder (enabled AND disabled), and the game Data folder — NOT just the active order's winner map
-    /// (<see cref="Build"/>, which resolves enabled mods only). This is what lets a read of an INACTIVE plugin reach a
-    /// DISABLED donor's file — the realistic standalone-copy case (you standalone-ize a follower you're REMOVING from
-    /// the active order). Priority-ordered like the active map (overwrite → enabled by modlist priority → disabled →
-    /// Data), but ALL hits are returned, not just the first: a filename several folders provide is reported so the
-    /// caller can ask WHICH rather than silently pick one (Q3). Pure disk existence checks (one stat per candidate
-    /// folder — no folder enumeration, opens no plugin). <paramref name="filename"/> is reduced to a bare name so a
-    /// caller's stray path parts can't escape a folder; the direct-path case is the caller's to handle before here.</summary>
+    /// EVERY mod folder (enabled, disabled, AND unlisted), and the game Data folder — NOT just the active order's
+    /// winner map (<see cref="Build"/>, which resolves enabled mods only). This is what lets a read of an INACTIVE
+    /// plugin reach a DISABLED donor's file — the realistic standalone-copy case (you standalone-ize a follower you're
+    /// REMOVING from the active order). UNLISTED = a mod folder on disk that modlist.txt does not mention at all —
+    /// exactly the state of a patch houseCARL just wrote, before the MO2 refresh registers it (HCBR-2026-07-14-02
+    /// gap 3: writes resolved the fresh patch by filename while this read-side locate missed it). Priority-ordered
+    /// like the active map (overwrite → enabled by modlist priority → disabled → unlisted → Data), but ALL hits are
+    /// returned, not just the first: a filename several folders provide is reported so the caller can ask WHICH
+    /// rather than silently pick one (Q3). One stat per LISTED candidate folder plus one directory listing of ModsDir
+    /// for the unlisted sweep (no per-folder enumeration, opens no plugin). <paramref name="filename"/> is reduced to
+    /// a bare name so a caller's stray path parts can't escape a folder; the direct-path case is the caller's to
+    /// handle before here.</summary>
     public static IReadOnlyList<PluginFileHit> LocatePlugin(
         string profileDir, string modsDir, string dataDir, string overwriteDir, string filename)
         => LocatePlugin(ReadComposition(profileDir), modsDir, dataDir, overwriteDir, filename);
@@ -267,8 +271,27 @@ public static class Mo2LoadOrder
         TryDir(overwriteDir, "overwrite", enabled: true);             // MO2's overwrite layer (top of the VFS)
         foreach (var mod in comp.EnabledMods) TryDir(Path.Combine(modsDir, mod), $"mod '{mod}' (enabled)", enabled: true);
         foreach (var mod in comp.DisabledMods) TryDir(Path.Combine(modsDir, mod), $"mod '{mod}' (DISABLED)", enabled: false);
+        foreach (var dir in UnlistedModFolders(comp, modsDir))        // on disk but not in modlist.txt (a fresh houseCARL patch pre-refresh)
+            TryDir(dir, $"mod '{Path.GetFileName(dir)}' (UNLISTED — not in modlist.txt yet; refresh MO2 to register it)", enabled: false);
         TryDir(dataDir, "game Data", enabled: true);                  // vanilla / base — lowest priority
         return hits;
+    }
+
+    /// <summary>Mod folders that exist under <paramref name="modsDir"/> on disk but that modlist.txt mentions in
+    /// NEITHER list — the state of a mod folder created since MO2 last rewrote the profile (houseCARL's own fresh
+    /// patches live here until the refresh). One directory listing; a missing/inaccessible ModsDir yields nothing
+    /// (never a false hit — Q3).</summary>
+    static IEnumerable<string> UnlistedModFolders(Mo2Composition comp, string modsDir)
+    {
+        if (string.IsNullOrWhiteSpace(modsDir) || !Directory.Exists(modsDir)) yield break;
+        var listed = new HashSet<string>(comp.EnabledMods, StringComparer.OrdinalIgnoreCase);
+        listed.UnionWith(comp.DisabledMods);
+        IEnumerable<string> dirs;
+        try { dirs = Directory.EnumerateDirectories(modsDir); }
+        catch { yield break; }
+        foreach (var dir in dirs)
+            if (!listed.Contains(Path.GetFileName(dir)))
+                yield return dir;
     }
 
     /// <summary>True iff SOME on-disk copy of <paramref name="filename"/> exists anywhere in the install (overwrite,
@@ -288,6 +311,7 @@ public static class Mo2LoadOrder
         if (Has(overwriteDir)) return true;
         foreach (var mod in comp.EnabledMods) if (Has(Path.Combine(modsDir, mod))) return true;
         foreach (var mod in comp.DisabledMods) if (Has(Path.Combine(modsDir, mod))) return true;
+        foreach (var dir in UnlistedModFolders(comp, modsDir)) if (Has(dir)) return true;   // pre-refresh houseCARL patches — pays only on a miss above
         return Has(dataDir);
     }
 }

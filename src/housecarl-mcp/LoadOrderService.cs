@@ -4045,7 +4045,7 @@ public sealed class LoadOrderService : IDisposable
         var hits = Mo2LoadOrder.LocatePlugin(comp, modsDir, dataDir, overwriteDir, plugin);
         if (hits.Count == 0)
             return new(null, "", false, null,
-                $"'{Path.GetFileName(plugin)}' is in no mod folder (enabled or disabled), the overwrite folder, or the game Data folder. Check the filename, pass an absolute path, or (if it's an MO2 mod) the exact folder via mod=.");
+                $"'{Path.GetFileName(plugin)}' is in no mod folder (enabled, disabled, or not-yet-listed in MO2), the overwrite folder, or the game Data folder. Check the filename, pass an absolute path, or (if it's an MO2 mod) the exact folder via mod=.");
         if (hits.Count > 1) return new(null, "", false, hits, null);
         return new(hits[0].Path, hits[0].Where, hits[0].Enabled, null, null);
     }
