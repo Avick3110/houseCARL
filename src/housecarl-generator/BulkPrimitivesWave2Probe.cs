@@ -212,6 +212,15 @@ public static class BulkPrimitivesWave2Probe
                 linkDoc.Dispose();
             }
 
+            // field-level json truncation stays VALID json (Q3): a whole-record dump under a tiny cap emits a
+            // sentinel field, never a malformed (string-cut) document.
+            var clipJson = ReadTools.ReadRecord(svc, w1Fk.ToString(), plugin: null, fields: null, depth: 1,
+                conflict_tree: false, resolve_names: false, format: "json", max_chars: 200);
+            var clipDoc = ParseOrNull(clipJson);
+            Check("read_record json under a tiny max_chars is STILL valid json, field-truncated with a sentinel (not string-cut — Q3)",
+                  clipDoc is not null && FindField(clipDoc.RootElement, "…") is not null);
+            clipDoc?.Dispose();
+
             // conflict_tree + json is REFUSED loud (a text-only diff view — never silently dropped, Q3).
             var ctJson = ReadTools.ReadRecord(svc, w1Fk.ToString(), plugin: null, fields: null, depth: 1,
                 conflict_tree: true, resolve_names: false, format: "json", max_chars: 0);
