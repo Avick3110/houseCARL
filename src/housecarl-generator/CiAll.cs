@@ -53,6 +53,11 @@ public static class CiAll
         // defined_in count table). Drives the real service scan + the tool-layer group_by/fields guard on a synthetic
         // master+replacer order; group_by counts are cross-checked against a hand tally; both loud refusals asserted.
         ("bulk-query-primitives-guard", BulkQueryPrimitivesProbe.RunGuard),
+        // WAVE 2 output contract — housecarl_resolve (P3), winner_fields= (P5), format=json (P6), resolve_names= (P7).
+        // Drives the real service + tool layer on a synthetic order with NAMED weapons; asserts identity resolution,
+        // per-item error isolation, always-valid JSON with token parity, the winner-vs-scoped body choice, and the
+        // display-only link annotation.
+        ("bulk-primitives-wave2-guard", BulkPrimitivesWave2Probe.RunGuard),
         ("writelock-guard", WriteLockProbe.RunGuard),
         ("inplace-guard", InPlaceProbe.RunGuard),
         ("subclass-remove-guard", SubclassRemoveGuardProbe.RunGuard),

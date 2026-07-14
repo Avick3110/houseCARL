@@ -1,4 +1,5 @@
 using Mutagen.Bethesda.Plugins;
+using Mutagen.Bethesda.Plugins.Aspects;
 using Mutagen.Bethesda.Plugins.Records;
 using Mutagen.Bethesda.Skyrim;
 
@@ -1483,6 +1484,60 @@ public sealed class LoadOrderService : IDisposable
                 $"winner '{w.Value.WinnerPlugin}' did not yield {fk} on fetch");
         return new RecordSummary(fk, RecordNaming.StripOverlay(body.GetType().Name), body.EditorID,
                                  w.Value.WinnerPlugin, w.Value.OverrideDepth, null);
+    }
+
+    /// <summary>The best-effort display Name of a record body — reflection-generic via Mutagen's <c>INamedGetter</c>
+    /// aspect, so it inherits coverage from the model (no per-record-type wiring): every named record answers, a
+    /// type with no Name (KYWD, most references) returns null. A translated Name resolves to its default-language
+    /// string. Used by housecarl_resolve (P3) and the resolve_names annotation (P7).</summary>
+    static string? ReadDisplayName(IMajorRecordGetter body) =>
+        body is INamedGetter named && !string.IsNullOrEmpty(named.Name) ? named.Name : null;
+
+    /// <summary>Resolve ONE FormKey to its load-order identity (type/editorid/name/winner) off a captured view + open
+    /// session, memoised so a target that recurs across a batch (the SAME keyword on 500 items) resolves once. A
+    /// FormKey not in the order is a NAMED unresolved result (Resolved=false), never dropped or guessed (Q3). Shared
+    /// by housecarl_resolve (P3) and the resolve_names field annotation (P7).</summary>
+    static ResolvedRef ResolveRefOne(LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session,
+                                     FormKey fk, Dictionary<FormKey, ResolvedRef> memo)
+    {
+        if (memo.TryGetValue(fk, out var hit)) return hit;
+        ResolvedRef result;
+        var w = view.ResolveWinner(fk);
+        if (w is null)
+            result = new ResolvedRef(fk.ToString(), Resolved: false);   // valid FormKey, but no active plugin defines it (a dangling target)
+        else
+        {
+            var body = view.GetRecord(session, w.Value.WinnerPlugin, fk);
+            result = body is null
+                ? new ResolvedRef(fk.ToString(), Resolved: false, Winner: w.Value.WinnerPlugin)   // winner named but the fetch didn't yield it
+                : new ResolvedRef(fk.ToString(), Resolved: true, Type: RecordNaming.StripOverlay(body.GetType().Name),
+                                  EditorId: body.EditorID, Name: ReadDisplayName(body), Winner: w.Value.WinnerPlugin);
+        }
+        memo[fk] = result;
+        return result;
+    }
+
+    /// <summary>Bulk name resolution (housecarl_resolve — P3): turn a list of FormIDs into their load-order identity
+    /// (type/editorid/name/winner) in ONE call over ONE captured view, memoised across the batch. A bad/absent FormID
+    /// yields a per-item result carrying its reason (Error for a malformed string, Resolved=false for a valid-but-absent
+    /// FormKey) without failing the whole batch (Q3, the batch_record_detail convention). Deliberately minimal — no
+    /// fields/depth/conflict_tree; anything richer is housecarl_batch_record_detail's job.</summary>
+    public IReadOnlyList<ResolvedRef> ResolveRefs(IReadOnlyList<string> formids)
+    {
+        var resolver = Resolver;
+        var view = resolver.Capture();                  // ONE build for the whole batch (HCBR-2026-06-11-02)
+        using var session = resolver.OpenSession();
+        var memo = new Dictionary<FormKey, ResolvedRef>();
+        var results = new List<ResolvedRef>(formids.Count);
+        foreach (var raw in formids)
+        {
+            var t = raw?.Trim() ?? "";
+            FormKey fk;
+            try { fk = FormKey.Factory(t); }
+            catch (Exception ex) { results.Add(new ResolvedRef(t, Resolved: false, Error: $"bad FormID: {ex.Message}. Expected 'XXXXXX:Plugin.esp'.")); continue; }
+            results.Add(ResolveRefOne(view, session, fk, memo));
+        }
+        return results;
     }
 
     // ---- batch (Q4.9) -----------------------------------------------------------------------------------
