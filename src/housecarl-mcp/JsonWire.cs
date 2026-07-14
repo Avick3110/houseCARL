@@ -80,11 +80,24 @@ static class JsonWire
     /// <summary>Serialize one field leaf: <c>{path, value}</c> for a round-trippable leaf (value = the SAME wire
     /// token the text mode emits) or <c>{path, note}</c> for a no-value leaf; the display-only <c>display</c> (biped
     /// slots) and the resolve_names <c>link</c> sibling (P7) ride alongside, never in place of the token.</summary>
-    static void WriteFieldsArray(Utf8JsonWriter w, RecordFields r)
+    /// <summary>Serialize the fields array, BUDGET-AWARE: a fat record (deep list expansion) is field-truncated the
+    /// same way the text render caps field lines — a sentinel field names the cut and the array closes, so the
+    /// document stays valid JSON (never silently over budget — Q3).</summary>
+    static void WriteFieldsArray(Utf8JsonWriter w, RecordFields r, MemoryStream ms, int cap)
     {
         w.WriteStartArray("fields");
-        foreach (var f in r.Fields)
+        for (int i = 0; i < r.Fields.Count; i++)
         {
+            w.Flush();
+            if (ms.Length >= cap)
+            {
+                w.WriteStartObject();
+                w.WriteString("path", "…");   // …
+                w.WriteString("note", $"[truncated at max_chars: {i} of {r.Fields.Count} fields shown; narrow with fields=, lower depth=, or raise max_chars]");
+                w.WriteEndObject();
+                break;
+            }
+            var f = r.Fields[i];
             w.WriteStartObject();
             w.WriteString("path", f.Path);
             if (f.HasValue) w.WriteString("value", f.Token);   // round-trip parity: identical token to the text render
@@ -110,7 +123,7 @@ static class JsonWire
     /// <summary>Serialize a resolved record: identity + winner/override_depth/source + the fields array. Shared by
     /// read_record, batch_record_detail, and the cross_plugin_query detail path (one shape, no drift). <paramref
     /// name="matches"/> carries the multi-target references= un-merge when present.</summary>
-    static void WriteReadRecord(Utf8JsonWriter w, ReadOutcome o, string? matches = null)
+    static void WriteReadRecord(Utf8JsonWriter w, ReadOutcome o, MemoryStream ms, int cap, string? matches = null)
     {
         var r = o.Record!;
         w.WriteStartObject();
@@ -121,7 +134,7 @@ static class JsonWire
         w.WriteNumber("override_depth", o.OverrideDepth);
         WriteNullable(w, "source", o.SourcePlugin);   // the body these field VALUES came from (scoped plugin vs winner)
         if (matches is not null) w.WriteString("matches", matches);
-        WriteFieldsArray(w, r);
+        WriteFieldsArray(w, r, ms, cap);
         w.WriteEndObject();
     }
 
@@ -130,11 +143,12 @@ static class JsonWire
     /// the tool layer for json (a text-only diff view), so only the field data reaches here.</summary>
     public static string RenderRecord(ReadOutcome o, int maxChars)
     {
+        int cap = Cap(maxChars);
         using var ms = new MemoryStream();
         using (var w = new Utf8JsonWriter(ms, Opts))
         {
             if (o.Error is not null) { w.WriteStartObject(); w.WriteString("error", o.Error); w.WriteEndObject(); }
-            else WriteReadRecord(w, o);
+            else WriteReadRecord(w, o, ms, cap);
         }
         return Finish(ms);
     }
@@ -158,7 +172,7 @@ static class JsonWire
                 w.Flush();
                 if (ms.Length >= cap) { truncated = true; break; }
                 if (o.Error is not null) { w.WriteStartObject(); w.WriteString("formid", o.FormKey.ToString()); w.WriteString("error", o.Error); w.WriteEndObject(); }
-                else WriteReadRecord(w, o);
+                else WriteReadRecord(w, o, ms, cap);
                 rendered++;
             }
             w.WriteEndArray();
@@ -229,7 +243,7 @@ static class JsonWire
                         // "source" field still names the body read, so the json carries the same source/winner truth.
                         var o = svc.ResolveRead(fk, winnerFields ? null : (q.Sources is { } src ? src[i] : null), fields, false, resolveNames: resolveNames, linkMemo: linkMemo);
                         if (o.Error is not null) { w.WriteStartObject(); w.WriteString("formid", fk.ToString()); w.WriteString("error", o.Error); if (matches is not null) w.WriteString("matches", matches); w.WriteEndObject(); }
-                        else WriteReadRecord(w, o, matches);
+                        else WriteReadRecord(w, o, ms, cap, matches);
                     }
                     else
                     {
@@ -312,7 +326,7 @@ static class JsonWire
                     w.WriteString("formid", rf.FormKey);
                     w.WriteString("type", rf.Type);
                     WriteNullable(w, "editorid", rf.EditorId);
-                    WriteFieldsArray(w, rf);
+                    WriteFieldsArray(w, rf, ms, cap);
                     w.WriteEndObject();
                 }
                 else if (o.Mode == "enumerate")
