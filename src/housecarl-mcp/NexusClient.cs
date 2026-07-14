@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace HousecarlMcp;
 
@@ -112,6 +113,29 @@ public sealed class NexusClient
             Str(m, "updatedAt"), Str(m, "createdAt"), Bool(m, "adultContent"), Str(m, "status") ?? "",
             Bool(m, "directDownloadEnabled"), reqs, files));
     }
+
+    /// <summary>Run a RAW keyless query against the Nexus v2 endpoint — the COMPLETENESS BACKSTOP behind the curated
+    /// tools (search / mod / check-updates). Those render a hand-picked field set with houseCARL's honest semantics; this
+    /// exposes the WHOLE public graph, so a field they don't surface yet (a mod's page <c>tags</c>, other metadata) is
+    /// never invisible. Read-only by CONTRACT: <see cref="IsMutatingQuery"/> refuses mutation/subscription (the keyless
+    /// endpoint can't run them regardless, but the promise is explicit, not incidental). Returns the raw GraphQL
+    /// <c>data</c> element; every transport/GraphQL failure rides back through <see cref="PostAsync"/> as a Q3 message.
+    /// Variables ride the same variable channel the typed queries use (never string-concatenated into the query).</summary>
+    public async Task<(bool ok, string? error, JsonElement data)> RawQueryAsync(string query, JsonElement? variables, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(query)) return (false, "no GraphQL query given.", default);
+        if (IsMutatingQuery(query))
+            return (false, "this tool is READ-ONLY: mutation/subscription operations are refused (the keyless Nexus "
+                + "endpoint can't run them anyway). Pass a query{ ... }.", default);
+        object vars = variables is { ValueKind: JsonValueKind.Object } v ? v : new { };
+        return await PostAsync(query, vars, ct);
+    }
+
+    /// <summary>True when a GraphQL document contains a mutation/subscription operation — the keyword at document start or
+    /// after a prior operation's closing '}'. Deliberately does NOT match a field that merely CONTAINS the word (e.g. a
+    /// selection 'mutationCount'), so a legitimate read is never falsely refused. Internal for the CI guard.</summary>
+    internal static bool IsMutatingQuery(string query) =>
+        Regex.IsMatch(query, @"(^|\})\s*(mutation|subscription)\b", RegexOptions.IgnoreCase);
 
     /// <summary>Batch FILE-LEVEL currency check — "is the exact file each of these mods installed still a current file?"
     /// For each (modId, installedVersion?, installedFileIds) it resolves every installed file id to its live category in

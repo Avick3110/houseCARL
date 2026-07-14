@@ -107,6 +107,9 @@ public static class CiAll
         // archived→outdated+same-name pointer, missing→file-gone, no-fileid→loud fallback), the id#fileid parse, and the
         // same-modId-across-folders fileid MERGE (never dedup-drop). Pure, network-free; synthetic AMON-shaped fixtures.
         ("nexus-file-check-guard", NexusFileCheckProbe.RunGuard),
+        // The raw GraphQL passthrough backstop: read-only mutation/subscription refusal (an op keyword at doc start or
+        // after a prior '}', never a field that merely contains the word) + BOUNDED pretty-printed output. Pure, no network.
+        ("nexus-graphql-guard", NexusGraphqlProbe.RunGuard),
         ("atomic-commit-guard", AtomicCommitProbe.RunGuard),
         ("place-asset-guard", PlaceAssetProbe.RunGuard),
         // NIF layer Wave 1: NifService.Inspect decodes an authored SE mesh's N2-whitelist values (version, census, node
