@@ -379,6 +379,7 @@ static class Render
           .Append(m.Downloads.ToString("N0")).Append(" downloads");
         if (!string.IsNullOrWhiteSpace(m.Category)) sb.Append(" · ").Append(m.Category);
         if (!string.IsNullOrWhiteSpace(m.UpdatedAt)) sb.Append(" · updated ").Append(Day(m.UpdatedAt!));
+        if (m.Tags.Count > 0) sb.Append("\ntags: ").Append(string.Join(", ", m.Tags));
         if (!m.DirectDownloadEnabled)
             sb.Append("\nnote: the author disabled direct download — manager (nxm) download only.");
         if (!string.IsNullOrWhiteSpace(m.Summary)) sb.Append("\n\n").Append(m.Summary);
