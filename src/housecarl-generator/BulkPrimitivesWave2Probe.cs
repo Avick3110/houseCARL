@@ -279,6 +279,66 @@ public static class BulkPrimitivesWave2Probe
             Check("cross_plugin_query unrecognized format= is REFUSED loud (shared parser, Q3)",
                   cqBadFmt.StartsWith("error:", StringComparison.OrdinalIgnoreCase) && cqBadFmt.Contains("format", StringComparison.OrdinalIgnoreCase));
 
+            // ================= P5 — winner_fields= (scoped body vs live winner) + the loud scoped-values note =================
+            Console.WriteLine();
+            Console.WriteLine("── P5: plugins=-scoped fields are the plugin's OWN body; winner_fields= reads the winner; the trap is named loud ──");
+            // W1 is defined in master (damage 10) and OVERRIDDEN in Repl (damage 15 = the live winner). Scope to [master].
+            var scopedText = ReadTools.CrossPluginQuery(svc, type: "Weapon", references: null, editorid_contains: null,
+                conflicts_only: false, plugins: new[] { masterName }, defined_in: false, where: null, group_by: null,
+                resolve_names: false, winner_fields: false, fields: new[] { "BasicStats.Damage" }, conflict_tree: false,
+                format: "text", limit: 500, max_chars: 0);
+            Check("plugins=[master] fields= shows the MASTER's OWN W1 value (damage 10), NOT the live winner",
+                  scopedText.Contains("BasicStats.Damage = 10") && !scopedText.Contains("BasicStats.Damage = 15"));
+            Check("... and the silent-wrong trap is named LOUD (scoped-values note pointing at winner_fields=true)",
+                  scopedText.Contains("SCOPED plugin's OWN version") && scopedText.Contains("winner_fields=true"));
+
+            var winnerText = ReadTools.CrossPluginQuery(svc, type: "Weapon", references: null, editorid_contains: null,
+                conflicts_only: false, plugins: new[] { masterName }, defined_in: false, where: null, group_by: null,
+                resolve_names: false, winner_fields: true, fields: new[] { "BasicStats.Damage" }, conflict_tree: false,
+                format: "text", limit: 500, max_chars: 0);
+            Check("winner_fields=true shows the LIVE WINNER's W1 value (damage 15) instead of the master's 10",
+                  winnerText.Contains("BasicStats.Damage = 15") && !winnerText.Contains("BasicStats.Damage = 10"));
+            Check("... and the header truthfully says the values are the WINNER's",
+                  winnerText.Contains("field values are the load-order WINNER's"));
+
+            // type= scope (no plugins=) already shows the winner — no scoped-values note (winner_fields is a no-op there).
+            var typeScoped = ReadTools.CrossPluginQuery(svc, type: "Weapon", references: null, editorid_contains: null,
+                conflicts_only: false, plugins: null, defined_in: false, where: null, group_by: null,
+                resolve_names: false, winner_fields: false, fields: new[] { "BasicStats.Damage" }, conflict_tree: false,
+                format: "text", limit: 500, max_chars: 0);
+            Check("type= scope (no plugins=) already shows winners — no scoped-values note, and W1=15 (the winner)",
+                  !typeScoped.Contains("SCOPED plugin's OWN version") && typeScoped.Contains("BasicStats.Damage = 15"));
+
+            // json parity: the scoped note rides notes[], and each match's source/winner fields carry the truth.
+            var scopedJson = ReadTools.CrossPluginQuery(svc, type: "Weapon", references: null, editorid_contains: null,
+                conflicts_only: false, plugins: new[] { masterName }, defined_in: false, where: null, group_by: null,
+                resolve_names: false, winner_fields: false, fields: new[] { "BasicStats.Damage" }, conflict_tree: false,
+                format: "json", limit: 500, max_chars: 0);
+            var sjDoc = ParseOrNull(scopedJson);
+            Check("json (scoped, no winner_fields) carries the scoped-values note in notes[]",
+                  sjDoc is not null && HasNoteContaining(sjDoc.RootElement, "SCOPED plugin's OWN version"));
+            if (sjDoc is not null)
+            {
+                var w1Row = FindMatch(sjDoc.RootElement, w1Fk.ToString());
+                Check("json scoped W1 row: source=master and value=10 (the scoped body — machine-readable truth)",
+                      w1Row is not null && w1Row.Value.GetProperty("source").GetString() == masterName
+                      && FindField(w1Row.Value, "BasicStats.Damage")?.GetProperty("value").GetString() == "10");
+                sjDoc.Dispose();
+            }
+            var winnerJson = ReadTools.CrossPluginQuery(svc, type: "Weapon", references: null, editorid_contains: null,
+                conflicts_only: false, plugins: new[] { masterName }, defined_in: false, where: null, group_by: null,
+                resolve_names: false, winner_fields: true, fields: new[] { "BasicStats.Damage" }, conflict_tree: false,
+                format: "json", limit: 500, max_chars: 0);
+            var wjDoc = ParseOrNull(winnerJson);
+            if (wjDoc is not null)
+            {
+                var w1Row = FindMatch(wjDoc.RootElement, w1Fk.ToString());
+                Check("json winner_fields W1 row: source=Repl (the winner) and value=15",
+                      w1Row is not null && w1Row.Value.GetProperty("source").GetString() == replName
+                      && FindField(w1Row.Value, "BasicStats.Damage")?.GetProperty("value").GetString() == "15");
+                wjDoc.Dispose();
+            }
+
             Console.WriteLine();
             Console.WriteLine($"=== bulk-primitives-wave2-guard: {_pass} passed, {_fail} failed -> {(_fail == 0 ? "PASS" : "FAIL")} ===");
             return _fail == 0 ? 0 : 1;
@@ -307,5 +367,23 @@ public static class BulkPrimitivesWave2Probe
         foreach (var f in fields.EnumerateArray())
             if (f.TryGetProperty("path", out var p) && p.GetString() == path) return f;
         return null;
+    }
+
+    /// <summary>Find a cross_plugin_query match object by its "formid" in the "matches" array (null if absent).</summary>
+    static JsonElement? FindMatch(JsonElement root, string formid)
+    {
+        if (!root.TryGetProperty("matches", out var matches)) return null;
+        foreach (var m in matches.EnumerateArray())
+            if (m.TryGetProperty("formid", out var f) && f.GetString() == formid) return m;
+        return null;
+    }
+
+    /// <summary>True if the document's "notes" array carries a note containing the given substring.</summary>
+    static bool HasNoteContaining(JsonElement root, string needle)
+    {
+        if (!root.TryGetProperty("notes", out var notes)) return false;
+        foreach (var n in notes.EnumerateArray())
+            if (n.GetString() is { } s && s.Contains(needle, StringComparison.Ordinal)) return true;
+        return false;
     }
 }

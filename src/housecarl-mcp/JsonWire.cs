@@ -175,7 +175,7 @@ static class JsonWire
     /// (<c>{formid,type,editorid,winner,override_depth}</c>). Q3 accounting (total/capped/notes/truncated) rides
     /// in-band. The detail path threads resolve_names through the SAME ResolveRead the text render uses, so the two
     /// modes read one path.</summary>
-    public static string RenderCrossQuery(LoadOrderService svc, CrossQueryOutcome q, IReadOnlyList<string>? fields, int maxChars, bool resolveNames)
+    public static string RenderCrossQuery(LoadOrderService svc, CrossQueryOutcome q, IReadOnlyList<string>? fields, int maxChars, bool resolveNames, bool winnerFields)
     {
         int cap = Cap(maxChars);
         using var ms = new MemoryStream();
@@ -205,10 +205,15 @@ static class JsonWire
             else                                                            // per-match: detail (fields=) or summary
             {
                 bool detail = fields is { Count: > 0 };
+                bool anyScoped = detail && q.Sources is { } ss && ss.Take(q.Keys.Count).Any(s => s is not null);   // P5
+                string? p5 = anyScoped
+                    ? (winnerFields ? "field values are the load-order WINNER's (winner_fields=true); each match was SELECTED on its scoped plugin's body."
+                                    : "field values are each match's SCOPED plugin's OWN version, NOT the live load-order winner — pass winner_fields=true for load-order truth.")
+                    : null;
                 w.WriteNumber("total", q.Total);
                 w.WriteBoolean("capped", q.Capped);
                 if (q.ScopeLabel is not null) w.WriteString("scope", q.ScopeLabel);
-                WriteNotes(w, q);
+                WriteNotes(w, q, p5);
                 var linkMemo = resolveNames && detail ? new Dictionary<FormKey, ResolvedRef>() : null;
                 w.WriteStartArray("matches");
                 int rendered = 0; bool truncated = false;
@@ -220,7 +225,9 @@ static class JsonWire
                     string? matches = q.MatchedTargets is { } mt && i < mt.Count ? mt[i] : null;
                     if (detail)
                     {
-                        var o = svc.ResolveRead(fk, q.Sources is { } src ? src[i] : null, fields, false, resolveNames: resolveNames, linkMemo: linkMemo);
+                        // winner_fields=: read the WINNER's body (source=null) regardless of scan scope; the record's
+                        // "source" field still names the body read, so the json carries the same source/winner truth.
+                        var o = svc.ResolveRead(fk, winnerFields ? null : (q.Sources is { } src ? src[i] : null), fields, false, resolveNames: resolveNames, linkMemo: linkMemo);
                         if (o.Error is not null) { w.WriteStartObject(); w.WriteString("formid", fk.ToString()); w.WriteString("error", o.Error); if (matches is not null) w.WriteString("matches", matches); w.WriteEndObject(); }
                         else WriteReadRecord(w, o, matches);
                     }
@@ -258,12 +265,13 @@ static class JsonWire
 
     /// <summary>Q3 accounting notes (where= predicate note, unscannable-record note) carried IN the JSON document —
     /// so json is never a silently degraded mode vs text. Omitted when there are none.</summary>
-    static void WriteNotes(Utf8JsonWriter w, CrossQueryOutcome q)
+    static void WriteNotes(Utf8JsonWriter w, CrossQueryOutcome q, string? extra = null)
     {
-        if (q.PredicateNote is null && q.ScanNote is null) return;
+        if (q.PredicateNote is null && q.ScanNote is null && extra is null) return;
         w.WriteStartArray("notes");
         if (q.PredicateNote is not null) w.WriteStringValue(q.PredicateNote);
         if (q.ScanNote is not null) w.WriteStringValue(q.ScanNote);
+        if (extra is not null) w.WriteStringValue(extra);   // P5 scoped-vs-winner fields note
         w.WriteEndArray();
     }
 
