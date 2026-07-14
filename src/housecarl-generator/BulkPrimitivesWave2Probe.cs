@@ -56,8 +56,10 @@ public static class BulkPrimitivesWave2Probe
             // ---- MASTER: keyword KA (no Name), two NAMED weapons. W1 carries KA and will be OVERRIDDEN by the replacer. ----
             var master = new SkyrimMod(ModKey.FromNameAndExtension(masterName), SkyrimRelease.SkyrimSE);
             var ka = master.Keywords.AddNew(); ka.EditorID = "hcw2KwA"; var kaFk = ka.FormKey;
+            var ghostFk = new FormKey(master.ModKey, 0x000FFF);   // a keyword link to a FormID NOTHING defines (a dangling ref, in the master's own space so no missing-master)
             var w1 = master.Weapons.AddNew(); w1.EditorID = "hcw2Sword1"; w1.Name = "Iron Sword"; w1.BasicStats = new WeaponBasicStats { Damage = 10 };
-            w1.Keywords = new Noggog.ExtendedList<IFormLinkGetter<IKeywordGetter>> { new FormLink<IKeywordGetter>(kaFk) };
+            w1.Keywords = new Noggog.ExtendedList<IFormLinkGetter<IKeywordGetter>>
+                { new FormLink<IKeywordGetter>(kaFk), new FormLink<IKeywordGetter>(ghostFk) };
             var w1Fk = w1.FormKey;
             var w2 = master.Weapons.AddNew(); w2.EditorID = "hcw2Sword2"; w2.Name = "Steel Sword"; w2.BasicStats = new WeaponBasicStats { Damage = 20 };
             var w2Fk = w2.FormKey;
@@ -135,6 +137,35 @@ public static class BulkPrimitivesWave2Probe
             var badFmt = ReadTools.Resolve(svc, new[] { w1Fk.ToString() }, format: "bogus", max_chars: 0);
             Check("an unrecognized format= is REFUSED loud (never a silent fall-through to text — Q3)",
                   badFmt.StartsWith("error:", StringComparison.OrdinalIgnoreCase) && badFmt.Contains("format", StringComparison.OrdinalIgnoreCase));
+
+            // ================= P7 — resolve_names (FormLink token → target identity, DISPLAY-ONLY) =================
+            Console.WriteLine();
+            Console.WriteLine("── P7: resolve_names annotates FormLink tokens with target identity, NEVER replacing the token ──");
+            var named = svc.ResolveRead(w1Fk, null, new[] { "Keywords" }, false, depth: 2, resolveNames: true);
+            var kwFields = named.Record!.Fields.Where(f => f.Path.StartsWith("Keywords[", StringComparison.Ordinal)).ToList();
+            Check($"resolve_names read surfaced the 2 keyword elements — got {kwFields.Count}", kwFields.Count == 2);
+            var kaField = kwFields.FirstOrDefault(f => f.Token == kaFk.ToString());
+            Check("the KA element's ROUND-TRIP TOKEN is unchanged (still the raw FormKey a write can reuse)",
+                  kaField is { HasValue: true } && kaField.Token == kaFk.ToString());
+            Check("... and its Link annotation resolves to the keyword identity (editorid hcw2KwA) — ADDED, not substituted",
+                  kaField?.Link is { Resolved: true, EditorId: "hcw2KwA" });
+            var ghostField = kwFields.FirstOrDefault(f => f.Token == ghostFk.ToString());
+            Check("a link whose target no active plugin defines is annotated UNRESOLVED (named, not dropped/guessed — Q3), token still intact",
+                  ghostField is { HasValue: true } && ghostField.Token == ghostFk.ToString() && ghostField.Link is { Resolved: false });
+
+            var plainRead = svc.ResolveRead(w1Fk, null, new[] { "Keywords" }, false, depth: 2, resolveNames: false);
+            Check("without resolve_names, NO leaf carries a Link annotation (default behavior unchanged)",
+                  plainRead.Record!.Fields.All(f => f.Link is null));
+
+            var tRec = ReadTools.ReadRecord(svc, w1Fk.ToString(), plugin: null, fields: new[] { "Keywords" }, depth: 2,
+                conflict_tree: false, resolve_names: true, max_chars: 0);
+            Check("text render carries BOTH the raw token AND the → identity parenthetical",
+                  tRec.Contains(kaFk.ToString()) && tRec.Contains("→ hcw2KwA"));
+            Check("text render marks the dangling target 'unresolved'", tRec.Contains("unresolved"));
+
+            var tBatch = ReadTools.BatchRecordDetail(svc, new[] { w1Fk.ToString() }, fields: new[] { "Keywords" }, depth: 2,
+                conflict_tree: false, resolve_names: true, max_chars: 0);
+            Check("batch_record_detail resolve_names annotates too (shared batch memo)", tBatch.Contains("→ hcw2KwA"));
 
             Console.WriteLine();
             Console.WriteLine($"=== bulk-primitives-wave2-guard: {_pass} passed, {_fail} failed -> {(_fail == 0 ? "PASS" : "FAIL")} ===");

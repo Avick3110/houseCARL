@@ -1374,10 +1374,11 @@ public sealed class LoadOrderService : IDisposable
     /// named <paramref name="plugin"/>'s version; with <paramref name="conflictTree"/> also returns the ordered
     /// touching-plugin list. Honest, recoverable errors (Q3): not-in-order, plugin-doesn't-touch, fetch
     /// inconsistency — never a silent empty result.</summary>
-    public ReadOutcome ResolveRead(FormKey fk, string? plugin, IReadOnlyList<string>? fields, bool conflictTree, int depth = 1)
+    public ReadOutcome ResolveRead(FormKey fk, string? plugin, IReadOnlyList<string>? fields, bool conflictTree, int depth = 1,
+                                   bool resolveNames = false, Dictionary<FormKey, ResolvedRef>? linkMemo = null)
     {
         var resolver = Resolver;
-        return ResolveRead(resolver, resolver.Capture(), fk, plugin, fields, conflictTree, depth);
+        return ResolveRead(resolver, resolver.Capture(), fk, plugin, fields, conflictTree, depth, resolveNames, linkMemo);
     }
 
     /// <summary>Layer B unit C2 — the on-demand whole-topic dialogue-graph validator (housecarl_validate_dialogue):
@@ -1400,7 +1401,8 @@ public sealed class LoadOrderService : IDisposable
     /// call with its own capture, so one rendered response can still pair this read's build with an adjacent build's
     /// diff — same low-severity class, named for the next wave rather than threaded through the render API here.)</summary>
     ReadOutcome ResolveRead(LoadOrderResolver resolver, LoadOrderResolver.IndexView view,
-                            FormKey fk, string? plugin, IReadOnlyList<string>? fields, bool conflictTree, int depth)
+                            FormKey fk, string? plugin, IReadOnlyList<string>? fields, bool conflictTree, int depth,
+                            bool resolveNames = false, Dictionary<FormKey, ResolvedRef>? linkMemo = null)
     {
         // An explicitly-requested plugin that was EXCLUDED this session (unparseable/unopenable) → say so (Q3),
         // rather than fall through to a misleading "does not define this record".
@@ -1441,8 +1443,33 @@ public sealed class LoadOrderService : IDisposable
                 : $"Plugin '{plugin}' does not define {fk} (it does not touch this record). The winner is '{winner.Value.WinnerPlugin}'.");
 
         var record = ReadEngine.ReadFields(rec, fields, depth);           // materialise while the session (overlay) is open
+        if (resolveNames) record = AnnotateLinks(record, view, session, linkMemo ?? new());   // P7: identity of every FormLink token, DISPLAY-ONLY (same open session)
         var touching = conflictTree ? view.TouchingPlugins(fk) : null;
         return new ReadOutcome(fk, record, source, winner.Value.WinnerPlugin, winner.Value.OverrideDepth, touching, null);
+    }
+
+    /// <summary>resolve_names (P7): annotate every field whose <see cref="FieldValue.Token"/> is a form reference (a
+    /// token that round-trips to a FormKey) with its target's load-order identity, hung on <see cref="FieldValue.Link"/>
+    /// — DISPLAY-ONLY, never touching the round-trip Token. Type-agnostic: a token that parses as a FormKey IS a form
+    /// reference (FormLinks and condition-target FLOIs both emit a bare FormKey token; scalars never do), so this
+    /// inherits coverage from the read surface with no per-type wiring. Resolution rides the SAME captured view +
+    /// open session the read used, memoised so a keyword that recurs across a whole record (or batch) resolves once.
+    /// An unresolvable target is a NAMED unresolved <see cref="ResolvedRef"/> (Resolved=false), never dropped (Q3).
+    /// Copy-on-first-write: a record with no form-reference leaves returns the SAME instance.</summary>
+    static RecordFields AnnotateLinks(RecordFields rf, LoadOrderResolver.IndexView view,
+                                      LoadOrderResolver.OverlaySession session, Dictionary<FormKey, ResolvedRef> memo)
+    {
+        List<FieldValue>? rebuilt = null;
+        for (int i = 0; i < rf.Fields.Count; i++)
+        {
+            var f = rf.Fields[i];
+            if (f.HasValue && f.Token is { } tok && FormKey.TryFactory(tok, out var fk) && !fk.IsNull)
+            {
+                rebuilt ??= new List<FieldValue>(rf.Fields);
+                rebuilt[i] = f with { Link = ResolveRefOne(view, session, fk, memo) };
+            }
+        }
+        return rebuilt is null ? rf : rf with { Fields = rebuilt };
     }
 
     /// <summary>How deep the conflict diff reads each touching body. The diff must compare CONTENT, not the
@@ -1545,17 +1572,19 @@ public sealed class LoadOrderService : IDisposable
     /// <summary>Resolve+read many records in one call (housecarl_batch_record_detail). Each formid runs the same
     /// <see cref="ResolveRead"/> path, so a bad/absent formid yields a per-item recoverable error (Q3) without
     /// failing the batch. Returns one <see cref="ReadOutcome"/> per input, in order.</summary>
-    public IReadOnlyList<ReadOutcome> ResolveBatch(IReadOnlyList<string> formids, IReadOnlyList<string>? fields, bool conflictTree, int depth = 1)
+    public IReadOnlyList<ReadOutcome> ResolveBatch(IReadOnlyList<string> formids, IReadOnlyList<string>? fields, bool conflictTree, int depth = 1,
+                                                   bool resolveNames = false)
     {
         var resolver = Resolver;                // build/refresh ONCE for the batch
         var view = resolver.Capture();          // ONE build for every item — the whole batch is one logical operation (HCBR-2026-06-11-02)
+        var linkMemo = resolveNames ? new Dictionary<FormKey, ResolvedRef>() : null;   // P7: one link-resolution cache across the WHOLE batch
         var outcomes = new List<ReadOutcome>(formids.Count);
         foreach (var raw in formids)
         {
             FormKey fk;
             try { fk = FormKey.Factory(raw.Trim()); }
             catch (Exception ex) { outcomes.Add(ReadOutcome.Fail(default, $"bad FormID '{raw}': {ex.Message}")); continue; }
-            outcomes.Add(ResolveRead(resolver, view, fk, null, fields, conflictTree, depth));
+            outcomes.Add(ResolveRead(resolver, view, fk, null, fields, conflictTree, depth, resolveNames, linkMemo));
         }
         return outcomes;
     }
@@ -4109,7 +4138,8 @@ public sealed class LoadOrderService : IDisposable
     /// <para>Read-only. Q3: a missing/ambiguous filename, a bad or absent FormID, or a record Mutagen cannot parse is
     /// NAMED, never a silent wrong answer.</para></summary>
     public PluginFileOutcome ReadPluginFile(string plugin, string? formid, string? type, string? mod,
-                                            IReadOnlyList<string>? fields, int depth, string? editoridContains, int limit)
+                                            IReadOnlyList<string>? fields, int depth, string? editoridContains, int limit,
+                                            bool resolveNames = false)
     {
         if (string.IsNullOrWhiteSpace(plugin))
             return PluginFileOutcome.Fail(plugin ?? "", "plugin is required — a plugin filename (e.g. 'Vivace.esp') or an absolute path to a .esp/.esm/.esl.");
@@ -4179,7 +4209,18 @@ public sealed class LoadOrderService : IDisposable
                 catch (Exception ex) { return baseOut with { Mode = "error", Error = $"'{Path.GetFileName(path)}' could not be fully read — a record Mutagen cannot parse before reaching {fk}: {ex.Message}" }; }
                 if (rec is null)
                     return baseOut with { Mode = "error", Error = $"file '{Path.GetFileName(path)}' does not define or override {fk}. This reads the FILE's OWN records only — it does not resolve across masters or report a load-order winner; use housecarl_read_record for the winner." };
-                return baseOut with { Mode = "read", Record = ReadEngine.ReadFields(rec, fields, depth <= 0 ? 1 : depth) };
+                var rf = ReadEngine.ReadFields(rec, fields, depth <= 0 ? 1 : depth);
+                if (resolveNames)
+                {
+                    // resolve_names on a RAW file read: the FILE's link tokens are resolved against the ACTIVE order
+                    // (the only identity frame houseCARL holds) — honest, and a target the active order doesn't define
+                    // is marked 'unresolved', not guessed. Opt-in only, so the deliberate no-resolver cheapness of the
+                    // default path is untouched; a caller asking for identities accepts the resolver build.
+                    var view = Resolver.Capture();
+                    using var session = Resolver.OpenSession();
+                    rf = AnnotateLinks(rf, view, session, new());
+                }
+                return baseOut with { Mode = "read", Record = rf };
             }
 
             if (hasType)
