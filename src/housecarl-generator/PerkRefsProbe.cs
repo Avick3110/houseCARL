@@ -83,7 +83,7 @@ public static class PerkRefsProbe
         using var resolver = LoadOrderResolver.Build(new[] { espPath });
         var svc = LoadOrderService.ForGuard(resolver, new UserConfigStore(Path.Combine(tmpDir, "houseCARL.user.json")));
         CrossQueryOutcome q;
-        try { q = svc.CrossQuery(type: null, references: targetFk, editoridContains: null, conflictsOnly: false,
+        try { q = svc.CrossQuery(type: null, references: new[] { targetFk }, editoridContains: null, conflictsOnly: false,
                                  plugins: new[] { modKey.FileName.String }, where: null, limit: 500); }
         catch (Exception ex)
         {
@@ -137,7 +137,7 @@ public static class PerkRefsProbe
 
         CrossQueryOutcome q;
         var sw = System.Diagnostics.Stopwatch.StartNew();
-        try { q = svc.CrossQuery(type: "Perk", references: refFk, editoridContains: null, conflictsOnly: false,
+        try { q = svc.CrossQuery(type: "Perk", references: new[] { refFk }, editoridContains: null, conflictsOnly: false,
                                  plugins: null, where: null, limit: 500); }
         catch (Exception ex)
         {
