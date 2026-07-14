@@ -185,6 +185,20 @@ public static class BulkQueryPrimitivesProbe
             Check("group_by=winner renders a 'grouped by winner' count table",
                   sGroup.Contains("grouped by winner") && sGroup.Contains($"{replName} = 2"));
 
+            // Group-table max_chars truncation: a tiny cap clips the ROW list but the header total stays EXACT (Q3).
+            var sGroupClip = ReadTools.CrossPluginQuery(svc, type: null, references: null, editorid_contains: null,
+                conflicts_only: false, plugins: new[] { masterName, replName }, defined_in: false, where: null,
+                group_by: "type", fields: null, conflict_tree: false, limit: 500, max_chars: 60);
+            Check("group_by table truncates the ROW list under max_chars but keeps the exact total (Q3)",
+                  sGroupClip.Contains("7 matches across 3 groups") && sGroupClip.Contains("before hitting max_chars=") && sGroupClip.Contains("the total above is exact"));
+
+            // Detail-mode (fields=) multi-target references= still renders the per-match matches= un-merge line.
+            var sDetail = ReadTools.CrossPluginQuery(svc, type: "Weapon", references: new[] { $"{kaFk}", $"{kbFk}" },
+                editorid_contains: null, conflicts_only: false, plugins: null, defined_in: false, where: null,
+                group_by: null, fields: new[] { "BasicStats.Damage" }, conflict_tree: false, limit: 500, max_chars: 0);
+            Check("detail-mode (fields=) multi-target references= renders the matches= line (W3 → both targets)",
+                  sDetail.Contains("matches=") && sDetail.Contains($"matches={kaFk}, {kbFk}"));
+
             Console.WriteLine();
             Console.WriteLine($"=== bulk-query-primitives-guard: {_pass} passed, {_fail} failed -> {(_fail == 0 ? "PASS" : "FAIL")} ===");
             return _fail == 0 ? 0 : 1;
