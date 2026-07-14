@@ -45,6 +45,16 @@ internal static class NexusGraphqlProbe
             Check(outp.Length < 41000, "oversize payload -> bounded near the cap");
         }
 
+        // EXACT-OUTPUT fidelity — the backstop must show what the graph returned, not a \uXXXX-escaped view of it. The
+        // default encoder would mangle '+', '&', and non-ASCII (a version '1.0+SE', an accented author name); the relaxed
+        // encoder keeps them literal.
+        using (var raw = JsonDocument.Parse("{\"version\":\"1.0+SE\",\"name\":\"Brivé & Co\"}"))
+        {
+            var outp = Render.Graphql(raw.RootElement);
+            Check(outp.Contains("1.0+SE") && !outp.Contains("\\u002B"), "'+' rendered literal, not escaped (exact-output fidelity)");
+            Check(outp.Contains("Brivé & Co") && !outp.Contains("\\u00e9") && !outp.Contains("\\u0026"), "non-ASCII and '&' rendered literal, not escaped");
+        }
+
         Console.WriteLine(fail == 0
             ? "[nexus-graphql] PASS - read-only refusal + bounded output hold."
             : $"[nexus-graphql] FAIL ({fail})");

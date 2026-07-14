@@ -132,7 +132,7 @@ public static class NexusTools
         JsonElement? vars = null;
         if (!string.IsNullOrWhiteSpace(variables))
         {
-            try { vars = JsonDocument.Parse(variables).RootElement.Clone(); }
+            try { using var doc = JsonDocument.Parse(variables); vars = doc.RootElement.Clone(); }
             catch (Exception ex) { return $"error: variables= isn't valid JSON ({ex.Message}). Pass a JSON object like '{{\"modId\":\"51614\"}}'."; }
             if (vars.Value.ValueKind != JsonValueKind.Object)
                 return $"error: variables= must be a JSON OBJECT (e.g. '{{\"modId\":\"51614\"}}'), not {vars.Value.ValueKind}.";
@@ -329,7 +329,12 @@ static class Render
         return json;
     }
     const int GraphqlCap = 40000;
-    static readonly JsonSerializerOptions GraphqlJson = new() { WriteIndented = true };
+    // UnsafeRelaxedJsonEscaping: the backstop's whole promise is to show EXACTLY what the graph returned. The DEFAULT
+    // encoder escapes '+', '&', '<', '>' and ALL non-ASCII to \uXXXX — so a version '1.0+SE' or an accented author name
+    // would render mangled, undercutting that promise. "Unsafe" here is about HTML/JS injection sinks; this output is
+    // read as terminal text and never re-parsed into one, so relaxed escaping is the correct call.
+    static readonly JsonSerializerOptions GraphqlJson = new()
+        { WriteIndented = true, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
 
     public static string Search(string term, string? category, string sort, NexusSearchResult r)
     {

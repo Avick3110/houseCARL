@@ -144,7 +144,9 @@ static void AddMcp(IServiceCollection services, bool stdio)
             "list and changelog=true / since= for the per-version CHANGELOG and update delta, by id or URL); " +
             "housecarl_nexus_check_updates (batch FILE-LEVEL update check — pass each mod as 'id#fileid' to tell CURRENT " +
             "from OUTDATED for the EXACT file installed, correct for the multi-file pages where a version compare lies); and " +
-            "housecarl_nexus_identify (trace a file to its source mod by MD5 hash). For mod updates, start with " +
+            "housecarl_nexus_identify (trace a file to its source mod by MD5 hash); and housecarl_nexus_graphql (a RAW " +
+            "read-only query over the same keyless GraphQL — the completeness backstop: prefer the curated tools above, and " +
+            "reach for this ONLY for a field they don't surface yet, e.g. a mod's page tags). For mod updates, start with " +
             "housecarl_update_status — it reads MO2's OWN local update cache with NO network to narrow the list AND prints " +
             "each mod's 'id#fileid' verify token — then feed those tokens to housecarl_nexus_check_updates to confirm live. " +
             "Prefer these over a browser or generic web search for any Nexus lookup: " +
