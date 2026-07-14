@@ -107,11 +107,19 @@ public sealed class NexusClient
                     Int(f, "fileId"), Str(f, "name") ?? "", Str(f, "version"),
                     Str(f, "category") ?? "", Long(f, "date"), Str(f, "description"), StrList(f, "changelogText")));
 
+        // Page tags — author/community labels (Gameplay, Lore-Friendly, SKSE, …), a list of { name } objects (so not the
+        // plain-string StrList). A cross-cutting, multi-valued facet the single `category` can't capture. First field
+        // "lifted" from the raw-graphql backstop into a curated tool.
+        var tags = new List<string>();
+        if (m.TryGetProperty("tags", out var tg) && tg.ValueKind == JsonValueKind.Array)
+            foreach (var t in tg.EnumerateArray())
+            { var n = Str(t, "name"); if (!string.IsNullOrWhiteSpace(n)) tags.Add(n!); }
+
         return (true, null, new NexusModDetail(
             Int(m, "modId"), Str(m, "name") ?? "", Str(m, "version"), Str(m, "summary"), Str(m, "description"),
             Str(m, "author"), Str(m, "category") ?? "", Int(m, "endorsements"), Int(m, "downloads"),
             Str(m, "updatedAt"), Str(m, "createdAt"), Bool(m, "adultContent"), Str(m, "status") ?? "",
-            Bool(m, "directDownloadEnabled"), reqs, files));
+            Bool(m, "directDownloadEnabled"), reqs, files, tags));
     }
 
     /// <summary>Run a RAW keyless query against the Nexus v2 endpoint — the COMPLETENESS BACKSTOP behind the curated
@@ -430,6 +438,7 @@ public sealed class NexusClient
             mod(modId: $modId, gameId: $gameId) {
               modId name version summary description author category endorsements downloads
               updatedAt createdAt adultContent status directDownloadEnabled
+              tags { name }
               modRequirements { nexusRequirements { nodes { modId modName url notes externalRequirement } } }
             }
             modFiles(modId: $modId, gameId: $gameId) {
@@ -471,7 +480,8 @@ public sealed record NexusFile(
 public sealed record NexusModDetail(
     int ModId, string Name, string? Version, string? Summary, string? Description, string? Author, string Category,
     int Endorsements, int Downloads, string? UpdatedAt, string? CreatedAt, bool AdultContent, string Status,
-    bool DirectDownloadEnabled, IReadOnlyList<NexusRequirement> NexusRequirements, IReadOnlyList<NexusFile> Files);
+    bool DirectDownloadEnabled, IReadOnlyList<NexusRequirement> NexusRequirements, IReadOnlyList<NexusFile> Files,
+    IReadOnlyList<string> Tags);
 
 /// <summary>Whether one installed file is still a LIVE file on its mod's page, has been SUPERSEDED (the author moved it
 /// to OLD_VERSION/ARCHIVED), or is MISSING entirely (hidden/deleted — can't determine). The file-level currency signal a
