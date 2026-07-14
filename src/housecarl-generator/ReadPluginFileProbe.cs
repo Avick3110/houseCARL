@@ -11,6 +11,9 @@ namespace HousecarlGenerator;
 /// read_plugin_file guard — the standalone-copy chain's Stage-1 tool: a RAW, OUT-OF-LOAD-ORDER read of ONE plugin
 /// file straight off disk, INCLUDING a plugin DISABLED in MO2. Proves the load-bearing behaviours:
 ///   1  locate + READ a plugin inside a DISABLED mod folder, by filename (the whole point — reach an inactive donor)
+///   1b locate + READ a plugin in an UNLISTED mod folder — on disk but absent from modlist.txt, the state of a patch
+///      houseCARL just wrote before the MO2 refresh registers it (HCBR-2026-07-14-02 gap 3: the write lane resolved
+///      the fresh patch by bare filename while the read lane demanded an absolute path)
 ///   2  ENUMERATE a type the file defines (+ editorid_contains), and 3 the whole-file record-type SUMMARY
 ///   4  a DIRECT PATH read ("inspect any file")
 ///   5  the render stamps OUT-OF-LOAD-ORDER (the single load-bearing requirement) + read_record's `path = token` format
@@ -78,6 +81,24 @@ internal static class ReadPluginFileProbe
             Check(rd.Record is not null && rd.Record.Fields.Count == 1 && rd.Record.Fields[0].Token == "12",
                   $"field token round-trips like read_record — {(rd.Record is { Fields.Count: > 0 } ? rd.Record.Fields[0].Token : "?")}");
             Check(rd.Where is not null && rd.Where.Contains("DISABLED") && !rd.Enabled, $"located in a DISABLED mod, flagged not-active — where='{rd.Where}', enabled={rd.Enabled}");
+
+            // 1b — locate + read a plugin in an UNLISTED mod folder (a fresh houseCARL patch before the MO2 refresh).
+            //      The folder exists on disk but modlist.txt does NOT mention it — before the fix, the locate missed it
+            //      and the bare-filename read errored "in no mod folder" while into= resolved the same file fine.
+            Console.WriteLine("\n--- 1b: locate + read a plugin in an UNLISTED mod folder (pre-refresh houseCARL patch) ---");
+            var unlistedKey = new ModKey("HcUnlisted", ModType.Plugin);
+            FormKey unlistedFk;
+            {
+                Directory.CreateDirectory(Path.Combine(mods, "UnlistedPatch"));   // deliberately NOT added to modlist.txt
+                var u = new SkyrimMod(unlistedKey, SkyrimRelease.SkyrimSE);
+                var uw = u.Weapons.AddNew(); uw.EditorID = "UnlistedSword"; uw.BasicStats = new WeaponBasicStats { Damage = 9 }; unlistedFk = uw.FormKey;
+                u.BeginWrite.ToPath(Path.Combine(mods, "UnlistedPatch", unlistedKey.FileName.String)).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
+            }
+            var ur = svc.ReadPluginFile("HcUnlisted.esp", unlistedFk.ToString(), null, null, new[] { "BasicStats.Damage" }, 1, null, 500);
+            Check(ur.Error is null && ur.Mode == "read" && ur.Record?.EditorId == "UnlistedSword",
+                  $"reads an UNLISTED-folder plugin by bare filename — mode={ur.Mode}, editorid={ur.Record?.EditorId ?? "?"}, err={ur.Error ?? "none"}");
+            Check(ur.Where is not null && ur.Where.Contains("UNLISTED") && !ur.Enabled,
+                  $"located as UNLISTED, flagged not-active — where='{ur.Where}', enabled={ur.Enabled}");
 
             // 2 — enumerate a type the file defines (+ editorid_contains)
             Console.WriteLine("\n--- 2: enumerate a type the file defines ---");
