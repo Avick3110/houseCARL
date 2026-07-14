@@ -123,7 +123,7 @@ internal static class ReadPluginFileProbe
 
             // 5 — render stamps OUT-OF-LOAD-ORDER (end-to-end through the tool)
             Console.WriteLine("\n--- 5: render stamps OUT-OF-LOAD-ORDER ---");
-            var render = ReadTools.ReadPluginFile(svc, "Donor.esp", swordFk.ToString(), null, null, new[] { "BasicStats.Damage" }, 1, null, 500, 0);
+            var render = ReadTools.ReadPluginFile(svc, "Donor.esp", swordFk.ToString(), null, null, new[] { "BasicStats.Damage" }, 1, null, limit: 500, max_chars: 0);
             Check(render.Contains("OUT-OF-LOAD-ORDER"), "the rendered read is stamped OUT-OF-LOAD-ORDER (the load-bearing requirement)");
             Check(render.Contains("BasicStats.Damage = 12"), "…and shows the field line in read_record's `path = token` format");
 
@@ -168,7 +168,7 @@ internal static class ReadPluginFileProbe
                   $"6b the disabled-mod-only master is INACTIVE, NOT satisfied (the fixed false-negative) — inactive=[{string.Join(", ", mm.InactiveMasters)}]");
             Check(!mm.MissingMasters.Concat(mm.InactiveMasters).Any(x => x.Equals("HcRpfActive.esm", StringComparison.OrdinalIgnoreCase)),
                   "6c the enabled+checked master is satisfied — in neither list");
-            var mmRender = ReadTools.ReadPluginFile(svc, "Dependent.esp", null, null, null, null, 1, null, 500, 0);
+            var mmRender = ReadTools.ReadPluginFile(svc, "Dependent.esp", null, null, null, null, 1, null, limit: 500, max_chars: 0);
             Check(mmRender.Contains("NOT installed anywhere") && mmRender.Contains("NOT ACTIVE"),
                   "…and the render shows BOTH the not-installed and the not-active advisory lines");
 
@@ -197,7 +197,7 @@ internal static class ReadPluginFileProbe
             }
             var amb = svc.ReadPluginFile("Dup.esp", null, "Weapon", null, null, 1, null, 500);
             Check(amb.Mode == "ambiguous" && amb.Ambiguous.Count == 2, $"a name in 2 folders is AMBIGUOUS, not guessed — mode={amb.Mode}, hits={amb.Ambiguous.Count}");
-            var ambRender = ReadTools.ReadPluginFile(svc, "Dup.esp", null, "Weapon", null, null, 1, null, 500, 0);
+            var ambRender = ReadTools.ReadPluginFile(svc, "Dup.esp", null, "Weapon", null, null, 1, null, limit: 500, max_chars: 0);
             Check(ambRender.Contains("mod="), "…and the render tells the caller to pass mod=");
             var disamb = svc.ReadPluginFile("Dup.esp", null, "Weapon", "DupModB", null, 1, null, 500);
             Check(disamb.Mode == "enumerate" && disamb.Rows.Count == 1 && disamb.Rows[0].EditorId == "DupDisabledW",

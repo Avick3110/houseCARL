@@ -17,8 +17,15 @@ namespace HousecarlCore;
 /// drives the internal <c>LeafRead</c>, and <c>FieldsDiff</c> compares Token/Note), so it is invisible to write,
 /// read-proof, and diff. Used to decode a value that is correct but opaque — a biped-slot bitmask into its slot
 /// numbers (HCBR-2026-07-12) — without disturbing the token that must round-trip. Null on every leaf that needs
-/// no annotation.</para></summary>
-public sealed record FieldValue(string Path, bool HasValue, string? Token, string? Note, string? Display = null);
+/// no annotation.</para>
+///
+/// <para><see cref="Link"/> is the resolve_names annotation (Wave 2 / P7): when a leaf's <see cref="Token"/> is a
+/// form reference (a token that round-trips to a FormKey), the SERVICE layer resolves its target's identity
+/// (editorid/name) against the load order and hangs it here. Like <see cref="Display"/> it is DISPLAY-ONLY — never
+/// part of the round-trip <see cref="Token"/>, so it is invisible to write, read-proof, and diff. Populated by the
+/// service (which holds the resolver), never by the core read (which reads one record's bytes and cannot resolve a
+/// target). Null unless resolve_names was requested and the leaf carries a resolvable FormKey.</para></summary>
+public sealed record FieldValue(string Path, bool HasValue, string? Token, string? Note, string? Display = null, ResolvedRef? Link = null);
 
 /// <summary>The resolved identity of a form reference — the shared contract behind housecarl_resolve (P3, a full
 /// row) and the resolve_names field annotation (P7). <see cref="Resolved"/> false ⇒ the FormKey is valid but not

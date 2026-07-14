@@ -36,6 +36,8 @@ public static class ReadTools
             int depth = 1,
         [Description("When true, also return the ordered list of every plugin that touches this record (winner last) and the winner-relative field diff for each.")]
             bool conflict_tree = false,
+        [Description("When true, annotate every FormLink field value with its target's identity (→ editorid \"Name\"), resolved against the load order — so a Keywords/Template/DeathItem token reads as what it points AT, not just a FormID. Display-only: the token itself is unchanged (a write can still reuse it). A target no active plugin defines is marked 'unresolved'.")]
+            bool resolve_names = false,
         [Description("Optional. Max characters before the diff is cut with an explicit notice (never silent). 0 = the server default (~80k). Raise to see a very deep conflict tree in full.")]
             int max_chars = 0) => Guard.Tool("housecarl_read_record", () =>
     {
@@ -44,7 +46,7 @@ public static class ReadTools
         try { fk = FormKey.Factory(formid.Trim()); }
         catch (Exception ex) { return $"error: bad FormID '{formid}': {ex.Message}. Expected 'XXXXXX:Plugin.esp', e.g. '0F1AC1:Skyrim.esm'."; }
 
-        var outcome = svc.ResolveRead(fk, plugin?.Trim(), fields, conflict_tree, depth <= 0 ? 1 : depth);
+        var outcome = svc.ResolveRead(fk, plugin?.Trim(), fields, conflict_tree, depth <= 0 ? 1 : depth, resolve_names);
         return Wire.RenderRecord(svc, outcome, fields, conflict_tree, max_chars);
     });
 
@@ -66,12 +68,14 @@ public static class ReadTools
             int depth = 1,
         [Description("When true, include each record's touching-plugin list (winner last) + winner-relative field diff.")]
             bool conflict_tree = false,
+        [Description("When true, annotate every FormLink field value across every record with its target's identity (→ editorid \"Name\"), resolved against the load order and cached across the whole batch. Display-only: the token itself is unchanged. Unresolvable targets are marked.")]
+            bool resolve_names = false,
         [Description("Optional. Max characters before the response stops with an explicit 'rendered X of N' notice. 0 = the server default (~80k).")]
             int max_chars = 0) => Guard.Tool("housecarl_batch_record_detail", () =>
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
         if (formids is null || formids.Length == 0) return "error: formids is empty. Pass one or more 'XXXXXX:Plugin.esp' FormIDs.";
-        var outcomes = svc.ResolveBatch(formids, fields, conflict_tree, depth <= 0 ? 1 : depth);
+        var outcomes = svc.ResolveBatch(formids, fields, conflict_tree, depth <= 0 ? 1 : depth, resolve_names);
         return Wire.RenderBatch(svc, outcomes, fields, conflict_tree, max_chars);
     });
 
@@ -114,6 +118,8 @@ public static class ReadTools
             string[]? fields = null,
         [Description("When true, include each match's touching-plugin list (winner last) + winner-relative field diff.")]
             bool conflict_tree = false,
+        [Description("When true (with fields=), annotate every FormLink field value with its target's identity (→ editorid \"Name\"), resolved against the load order and cached across all matches. Display-only; the token is unchanged. No effect on summary lines or group_by (there are no field tokens to annotate).")]
+            bool resolve_names = false,
         [Description("Optional. Max matches to return (default 500). The TRUE total is always reported; over the cap it says 'showing first N'.")]
             int limit = 500,
         [Description("Optional. Max characters before the response stops with an explicit notice. 0 = the server default (~80k).")]
@@ -135,7 +141,7 @@ public static class ReadTools
             if (list.Count > 0) refFks = list.Distinct().ToList();   // preserve input order, drop dupes
         }
         var outcome = svc.CrossQuery(type, refFks, editorid_contains, conflicts_only, plugins, where, limit <= 0 ? 500 : limit, defined_in, group_by);
-        return Wire.RenderCrossQuery(svc, outcome, fields, conflict_tree, max_chars);
+        return Wire.RenderCrossQuery(svc, outcome, fields, conflict_tree, max_chars, resolve_names);
     });
 
     [McpServerTool(Name = "housecarl_resolve", ReadOnly = true, Title = "Resolve FormIDs to their identity"),
@@ -285,11 +291,13 @@ public static class ReadTools
             string? editorid_contains = null,
         [Description("Optional. With type=: max rows to return (default 500). The TRUE total is always reported; over the cap it says 'showing first N'.")]
             int limit = 500,
+        [Description("Optional. With formid=: annotate every FormLink field value with its target's identity (→ editorid \"Name\"), resolved against the ACTIVE load order (the only identity frame — this file may itself be inactive). Display-only; the token is unchanged. A target the active order doesn't define is marked 'unresolved'. Forces the load-order build (opt-in), unlike the default cheap raw read.")]
+            bool resolve_names = false,
         [Description("Optional. Max characters before the response stops with an explicit notice. 0 = the server default (~80k).")]
             int max_chars = 0) => Guard.Tool("housecarl_read_plugin_file", () =>
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
-        var outcome = svc.ReadPluginFile(plugin, formid, type, mod, fields, depth <= 0 ? 1 : depth, editorid_contains, limit <= 0 ? 500 : limit);
+        var outcome = svc.ReadPluginFile(plugin, formid, type, mod, fields, depth <= 0 ? 1 : depth, editorid_contains, limit <= 0 ? 500 : limit, resolve_names);
         return Wire.RenderPluginFile(outcome, max_chars);
     });
 }
@@ -392,12 +400,14 @@ static class Wire
     }
 
     // ---- housecarl_cross_plugin_query ---------------------------------------------------------------
-    public static string RenderCrossQuery(LoadOrderService svc, CrossQueryOutcome q, IReadOnlyList<string>? fields, bool conflictTree, int maxChars)
+    public static string RenderCrossQuery(LoadOrderService svc, CrossQueryOutcome q, IReadOnlyList<string>? fields, bool conflictTree, int maxChars,
+                                          bool resolveNames = false)
     {
         if (q.Error is not null) return "error: " + q.Error;
         int cap = Cap(maxChars);
         if (q.Groups is not null) return RenderCrossQueryGroups(q, cap);   // group_by= → a count table, not per-match lines
         bool detail = (fields is { Count: > 0 }) || conflictTree;          // expand matches, vs. one-line summaries
+        var linkMemo = resolveNames && detail ? new Dictionary<FormKey, ResolvedRef>() : null;   // P7: one link cache across all rendered matches
         var sb = new StringBuilder();
         sb.Append("cross_plugin_query: ").Append(q.Total).Append(q.Total == 1 ? " match" : " matches");
         if (q.ScopeLabel is not null) sb.Append(" DEFINED IN ").Append(q.ScopeLabel);   // P1: explicit scope — NOT the 'touches' default
@@ -420,7 +430,7 @@ static class Wire
             string? matches = q.MatchedTargets is { } mt && i < mt.Count ? mt[i] : null;   // multi-target references= un-merge
             if (detail)
             {
-                var o = svc.ResolveRead(fk, q.Sources is { } src ? src[i] : null, fields, conflictTree);   // display the body the scan filtered: scoped plugin under plugins=, else winner
+                var o = svc.ResolveRead(fk, q.Sources is { } src ? src[i] : null, fields, conflictTree, resolveNames: resolveNames, linkMemo: linkMemo);   // display the body the scan filtered: scoped plugin under plugins=, else winner
                 sb.Append('\n');
                 if (matches is not null) sb.Append("  ").Append(fk).Append("  matches=").Append(matches).Append('\n');
                 if (o.Error is not null) sb.Append(fk).Append(": error: ").Append(o.Error).Append('\n');
@@ -698,9 +708,18 @@ static class Wire
             var f = r.Fields[i];
             sb.Append("  ").Append(f.Path).Append(" = ").Append(f.HasValue ? f.Token : f.Note);
             if (f.Display is not null) sb.Append("   (").Append(f.Display).Append(')');   // display-only annotation (e.g. decoded biped slots) — never the round-trip token
+            if (f.Link is not null) sb.Append("   (").Append(LinkText(f.Link)).Append(')');   // resolve_names: target identity, DISPLAY-ONLY — never the round-trip token
             sb.Append('\n');
         }
     }
+
+    /// <summary>The resolve_names parenthetical (P7): a FormLink token's target identity as "→ editorid "Name"", or
+    /// "unresolved: not in the active order" for a dangling target (named, never dropped — Q3). DISPLAY-ONLY: this
+    /// is appended AFTER the round-trip token, never in place of it.</summary>
+    static string LinkText(ResolvedRef r) =>
+        !r.Resolved ? "unresolved: target not in the active order"
+        : string.IsNullOrEmpty(r.Name) ? $"→ {r.EditorId ?? "<no editorid>"}"
+        : $"→ {r.EditorId ?? "<no editorid>"} \"{r.Name}\"";
 
     /// <summary>The conflict tree: the ordered touching-plugin list, then (when >1 plugin touches) the
     /// winner-relative field diff — each other plugin's only-the-fields-that-differ, as `path=theirs (winner X)`.
@@ -844,6 +863,7 @@ static class Wire
                 var f = r.Fields[i];
                 sb.Append("  ").Append(f.Path).Append(" = ").Append(f.HasValue ? f.Token : f.Note);
                 if (f.Display is not null) sb.Append("   (").Append(f.Display).Append(')');   // display-only annotation (e.g. decoded biped slots) — never the round-trip token
+                if (f.Link is not null) sb.Append("   (").Append(LinkText(f.Link)).Append(')');   // resolve_names: target identity (resolved against the ACTIVE order), DISPLAY-ONLY
                 sb.Append('\n');
             }
         }
