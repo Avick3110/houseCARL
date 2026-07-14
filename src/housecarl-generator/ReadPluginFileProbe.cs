@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Mutagen.Bethesda;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Plugins.Records;
@@ -126,6 +127,24 @@ internal static class ReadPluginFileProbe
             var render = ReadTools.ReadPluginFile(svc, "Donor.esp", swordFk.ToString(), null, null, new[] { "BasicStats.Damage" }, 1, null, limit: 500, max_chars: 0);
             Check(render.Contains("OUT-OF-LOAD-ORDER"), "the rendered read is stamped OUT-OF-LOAD-ORDER (the load-bearing requirement)");
             Check(render.Contains("BasicStats.Damage = 12"), "…and shows the field line in read_record's `path = token` format");
+
+            // 5b — json render (P6): a valid document stamped out_of_load_order, same field token as the text render.
+            var renderJson = ReadTools.ReadPluginFile(svc, "Donor.esp", swordFk.ToString(), null, null, new[] { "BasicStats.Damage" }, 1, null, limit: 500, format: "json", max_chars: 0);
+            JsonDocument? pfDoc = null;
+            try { pfDoc = JsonDocument.Parse(renderJson); } catch { }
+            Check(pfDoc is not null, "read_plugin_file format=json is VALID json (P6)");
+            if (pfDoc is not null)
+            {
+                var pfRoot = pfDoc.RootElement;
+                bool okShape = pfRoot.TryGetProperty("out_of_load_order", out var ool) && ool.GetBoolean()
+                               && pfRoot.TryGetProperty("mode", out var m) && m.GetString() == "read";
+                string? dmg = null;
+                if (pfRoot.TryGetProperty("record", out var rec) && rec.TryGetProperty("fields", out var flds))
+                    foreach (var f in flds.EnumerateArray())
+                        if (f.TryGetProperty("path", out var p) && p.GetString() == "BasicStats.Damage" && f.TryGetProperty("value", out var v)) dmg = v.GetString();
+                Check(okShape && dmg == "12", $"read_plugin_file json: out_of_load_order + mode=read + the SAME field token as text (damage={dmg ?? "?"})");
+                pfDoc.Dispose();
+            }
 
             // 6 — master advisory (Q3): each declared master classified by whether it will actually LOAD.
             //   6a missing  — installed NOWHERE in the install

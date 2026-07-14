@@ -167,6 +167,118 @@ public static class BulkPrimitivesWave2Probe
                 conflict_tree: false, resolve_names: true, max_chars: 0);
             Check("batch_record_detail resolve_names annotates too (shared batch memo)", tBatch.Contains("→ hcw2KwA"));
 
+            // ================= P6 — format="json" (same data as text, valid JSON, accounting in-band) =================
+            Console.WriteLine();
+            Console.WriteLine("── P6: format=json — token parity with text, stable DTO shape, Q3 accounting in-band ──");
+
+            // read_record: text and json emit the SAME field token (round-trip parity). W1's winner (override) damage = 15.
+            var recText = ReadTools.ReadRecord(svc, w1Fk.ToString(), plugin: null, fields: new[] { "BasicStats.Damage", "Name" }, depth: 1,
+                conflict_tree: false, resolve_names: false, format: "text", max_chars: 0);
+            var recJsonStr = ReadTools.ReadRecord(svc, w1Fk.ToString(), plugin: null, fields: new[] { "BasicStats.Damage", "Name" }, depth: 1,
+                conflict_tree: false, resolve_names: false, format: "json", max_chars: 0);
+            var recDoc = ParseOrNull(recJsonStr);
+            Check("read_record json is VALID json", recDoc is not null);
+            if (recDoc is not null)
+            {
+                var root = recDoc.RootElement;
+                // DTO shape pin: the record object carries exactly the contracted keys.
+                Check("read_record json DTO carries {formid,type,editorid,winner,override_depth,source,fields}",
+                      root.TryGetProperty("formid", out _) && root.TryGetProperty("type", out _) && root.TryGetProperty("editorid", out _)
+                      && root.TryGetProperty("winner", out _) && root.TryGetProperty("override_depth", out _)
+                      && root.TryGetProperty("source", out _) && root.TryGetProperty("fields", out _));
+                Check("read_record json identity matches (Weapon/hcw2Sword1/winner=Repl)",
+                      root.GetProperty("type").GetString() == "Weapon" && root.GetProperty("editorid").GetString() == "hcw2Sword1"
+                      && root.GetProperty("winner").GetString() == replName);
+                var dmg = FindField(root, "BasicStats.Damage");
+                Check("read_record json field VALUE is the SAME token text emits (damage 15, the winner override)",
+                      dmg is not null && dmg.Value.GetProperty("value").GetString() == "15" && recText.Contains("BasicStats.Damage = 15"));
+                recDoc.Dispose();
+            }
+
+            // read_record json + resolve_names: the link sibling is STRUCTURED, the value is still the raw token.
+            var linkJson = ReadTools.ReadRecord(svc, w1Fk.ToString(), plugin: null, fields: new[] { "Keywords" }, depth: 2,
+                conflict_tree: false, resolve_names: true, format: "json", max_chars: 0);
+            var linkDoc = ParseOrNull(linkJson);
+            Check("read_record json+resolve_names is VALID json", linkDoc is not null);
+            if (linkDoc is not null)
+            {
+                var kaEl = FindField(linkDoc.RootElement, "Keywords[0]");
+                bool ok = kaEl is not null
+                          && kaEl.Value.GetProperty("value").GetString() == kaFk.ToString()          // round-trip token intact
+                          && kaEl.Value.TryGetProperty("link", out var link)                          // structured sibling, not a mangled token
+                          && link.GetProperty("resolved").GetBoolean()
+                          && link.GetProperty("editorid").GetString() == "hcw2KwA";
+                Check("read_record json resolve_names: value is the raw token, link:{resolved,editorid} is a STRUCTURED sibling (P7 in json)", ok);
+                linkDoc.Dispose();
+            }
+
+            // conflict_tree + json is REFUSED loud (a text-only diff view — never silently dropped, Q3).
+            var ctJson = ReadTools.ReadRecord(svc, w1Fk.ToString(), plugin: null, fields: null, depth: 1,
+                conflict_tree: true, resolve_names: false, format: "json", max_chars: 0);
+            Check("conflict_tree=true + format=json is REFUSED loud (text-only diff, not silently dropped — Q3)",
+                  ctJson.StartsWith("error:", StringComparison.OrdinalIgnoreCase) && ctJson.Contains("conflict_tree", StringComparison.OrdinalIgnoreCase));
+
+            // batch json: {count, records, rendered, truncated}; records carry the same record objects.
+            var batchJson = ReadTools.BatchRecordDetail(svc, new[] { w1Fk.ToString(), "not-a-formid" }, fields: new[] { "Name" }, depth: 1,
+                conflict_tree: false, resolve_names: false, format: "json", max_chars: 0);
+            var batchDoc = ParseOrNull(batchJson);
+            Check("batch_record_detail json is VALID json with {count,records,rendered,truncated}",
+                  batchDoc is not null && batchDoc.RootElement.TryGetProperty("count", out _)
+                  && batchDoc.RootElement.TryGetProperty("records", out _) && batchDoc.RootElement.TryGetProperty("truncated", out _));
+            if (batchDoc is not null)
+            {
+                var records = batchDoc.RootElement.GetProperty("records");
+                Check("batch json: good record resolves, bad formid is a per-item {formid,error} (batch survives — Q3)",
+                      records.GetArrayLength() == 2 && records[0].GetProperty("type").GetString() == "Weapon"
+                      && records[1].TryGetProperty("error", out _));
+                batchDoc.Dispose();
+            }
+
+            // cross_plugin_query json — summary rows, group_by table, and Q3 notes survival.
+            var cqSummary = ReadTools.CrossPluginQuery(svc, type: "Weapon", references: null, editorid_contains: null,
+                conflicts_only: false, plugins: null, defined_in: false, where: null, group_by: null, resolve_names: false,
+                fields: null, conflict_tree: false, format: "json", limit: 500, max_chars: 0);
+            var cqDoc = ParseOrNull(cqSummary);
+            Check("cross_plugin_query json summary is VALID json {total,capped,matches}",
+                  cqDoc is not null && cqDoc.RootElement.GetProperty("total").GetInt32() == 3
+                  && cqDoc.RootElement.GetProperty("matches").GetArrayLength() == 3);
+            cqDoc?.Dispose();
+
+            var cqGroup = ReadTools.CrossPluginQuery(svc, type: "Weapon", references: null, editorid_contains: null,
+                conflicts_only: false, plugins: null, defined_in: false, where: null, group_by: "winner", resolve_names: false,
+                fields: null, conflict_tree: false, format: "json", limit: 500, max_chars: 0);
+            var cqgDoc = ParseOrNull(cqGroup);
+            Check("cross_plugin_query json group_by is VALID json {group_by,total,groups}",
+                  cqgDoc is not null && cqgDoc.RootElement.GetProperty("group_by").GetString() == "winner"
+                  && cqgDoc.RootElement.GetProperty("total").GetInt32() == 3
+                  && cqgDoc.RootElement.GetProperty("groups").GetArrayLength() == 2);
+            cqgDoc?.Dispose();
+
+            // Q3 accounting parity: a where= wrong-path note must survive INTO json (json is never a degraded mode).
+            const string badWhere = "NoSuchField = 5";
+            var noteText = ReadTools.CrossPluginQuery(svc, type: "Weapon", references: null, editorid_contains: null,
+                conflicts_only: false, plugins: null, defined_in: false, where: new[] { badWhere }, group_by: null, resolve_names: false,
+                fields: null, conflict_tree: false, format: "text", limit: 500, max_chars: 0);
+            var noteJsonStr = ReadTools.CrossPluginQuery(svc, type: "Weapon", references: null, editorid_contains: null,
+                conflicts_only: false, plugins: null, defined_in: false, where: new[] { badWhere }, group_by: null, resolve_names: false,
+                fields: null, conflict_tree: false, format: "json", limit: 500, max_chars: 0);
+            var noteDoc = ParseOrNull(noteJsonStr);
+            bool jsonHasNotes = false; string? firstNote = null;
+            if (noteDoc is not null && noteDoc.RootElement.TryGetProperty("notes", out var notesEl) && notesEl.GetArrayLength() > 0)
+            { jsonHasNotes = true; firstNote = notesEl[0].GetString(); }
+            // The real parity check: the where= accounting note is present in json AND its EXACT text also appears in
+            // the text render — the same Q3 note reaches both surfaces, so json is not a silently degraded mode.
+            Check("a where= accounting note is carried in json AND its exact text is in the text render (json is not a degraded mode — Q3)",
+                  jsonHasNotes && firstNote is not null && noteText.Contains(firstNote, StringComparison.Ordinal));
+            noteDoc?.Dispose();
+
+            // read_plugin_file json is exercised in ReadPluginFileProbe's own order; here confirm bad-format refusal is shared.
+            var cqBadFmt = ReadTools.CrossPluginQuery(svc, type: "Weapon", references: null, editorid_contains: null,
+                conflicts_only: false, plugins: null, defined_in: false, where: null, group_by: null, resolve_names: false,
+                fields: null, conflict_tree: false, format: "xml", limit: 500, max_chars: 0);
+            Check("cross_plugin_query unrecognized format= is REFUSED loud (shared parser, Q3)",
+                  cqBadFmt.StartsWith("error:", StringComparison.OrdinalIgnoreCase) && cqBadFmt.Contains("format", StringComparison.OrdinalIgnoreCase));
+
             Console.WriteLine();
             Console.WriteLine($"=== bulk-primitives-wave2-guard: {_pass} passed, {_fail} failed -> {(_fail == 0 ? "PASS" : "FAIL")} ===");
             return _fail == 0 ? 0 : 1;
@@ -179,5 +291,21 @@ public static class BulkPrimitivesWave2Probe
     {
         Console.WriteLine($"   [{(ok ? "PASS" : "FAIL")}] {label}");
         if (ok) _pass++; else _fail++;
+    }
+
+    /// <summary>Parse a JSON string, returning null (not throwing) on malformed input — so an assertion can report
+    /// "invalid json" as a FAIL rather than crashing the whole guard.</summary>
+    static JsonDocument? ParseOrNull(string s)
+    {
+        try { return JsonDocument.Parse(s); } catch { return null; }
+    }
+
+    /// <summary>Find a field object by its "path" in a record object's "fields" array (null if absent).</summary>
+    static JsonElement? FindField(JsonElement record, string path)
+    {
+        if (!record.TryGetProperty("fields", out var fields)) return null;
+        foreach (var f in fields.EnumerateArray())
+            if (f.TryGetProperty("path", out var p) && p.GetString() == path) return f;
+        return null;
     }
 }

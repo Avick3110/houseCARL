@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using HousecarlCore;
+using Mutagen.Bethesda.Plugins;
 
 namespace HousecarlMcp;
 
@@ -64,5 +65,275 @@ static class JsonWire
         }
         else w.WriteString("error", r.Error ?? "not present in the active order");
         w.WriteEndObject();
+    }
+
+    static int Cap(int maxChars) => maxChars > 0 ? maxChars : Wire.DefaultMaxChars;
+
+    static void WriteStringArray(Utf8JsonWriter w, string name, IReadOnlyList<string> items)
+    {
+        w.WriteStartArray(name);
+        foreach (var s in items) w.WriteStringValue(s);
+        w.WriteEndArray();
+    }
+
+    // ---- shared record + field writers (P6/P7) ------------------------------------------------------
+    /// <summary>Serialize one field leaf: <c>{path, value}</c> for a round-trippable leaf (value = the SAME wire
+    /// token the text mode emits) or <c>{path, note}</c> for a no-value leaf; the display-only <c>display</c> (biped
+    /// slots) and the resolve_names <c>link</c> sibling (P7) ride alongside, never in place of the token.</summary>
+    static void WriteFieldsArray(Utf8JsonWriter w, RecordFields r)
+    {
+        w.WriteStartArray("fields");
+        foreach (var f in r.Fields)
+        {
+            w.WriteStartObject();
+            w.WriteString("path", f.Path);
+            if (f.HasValue) w.WriteString("value", f.Token);   // round-trip parity: identical token to the text render
+            else WriteNullable(w, "note", f.Note);
+            if (f.Display is not null) w.WriteString("display", f.Display);
+            if (f.Link is { } link)
+            {
+                w.WriteStartObject("link");
+                w.WriteBoolean("resolved", link.Resolved);
+                if (link.Resolved)
+                {
+                    WriteNullable(w, "type", link.Type);
+                    WriteNullable(w, "editorid", link.EditorId);
+                    WriteNullable(w, "name", link.Name);
+                }
+                w.WriteEndObject();
+            }
+            w.WriteEndObject();
+        }
+        w.WriteEndArray();
+    }
+
+    /// <summary>Serialize a resolved record: identity + winner/override_depth/source + the fields array. Shared by
+    /// read_record, batch_record_detail, and the cross_plugin_query detail path (one shape, no drift). <paramref
+    /// name="matches"/> carries the multi-target references= un-merge when present.</summary>
+    static void WriteReadRecord(Utf8JsonWriter w, ReadOutcome o, string? matches = null)
+    {
+        var r = o.Record!;
+        w.WriteStartObject();
+        w.WriteString("formid", r.FormKey);
+        w.WriteString("type", r.Type);
+        WriteNullable(w, "editorid", r.EditorId);
+        WriteNullable(w, "winner", o.WinnerPlugin);
+        w.WriteNumber("override_depth", o.OverrideDepth);
+        WriteNullable(w, "source", o.SourcePlugin);   // the body these field VALUES came from (scoped plugin vs winner)
+        if (matches is not null) w.WriteString("matches", matches);
+        WriteFieldsArray(w, r);
+        w.WriteEndObject();
+    }
+
+    // ---- housecarl_read_record (P6) -----------------------------------------------------------------
+    /// <summary>read_record as JSON: the record object at top level, or <c>{error}</c>. conflict_tree is refused at
+    /// the tool layer for json (a text-only diff view), so only the field data reaches here.</summary>
+    public static string RenderRecord(ReadOutcome o, int maxChars)
+    {
+        using var ms = new MemoryStream();
+        using (var w = new Utf8JsonWriter(ms, Opts))
+        {
+            if (o.Error is not null) { w.WriteStartObject(); w.WriteString("error", o.Error); w.WriteEndObject(); }
+            else WriteReadRecord(w, o);
+        }
+        return Finish(ms);
+    }
+
+    // ---- housecarl_batch_record_detail (P6) ---------------------------------------------------------
+    /// <summary>batch_record_detail as JSON: <c>{count, records:[…], rendered, truncated}</c>. A bad/absent formid is
+    /// a per-item <c>{formid,error}</c> (the batch survives). Truncation drops trailing records and flags it — the
+    /// document stays valid JSON (Q3), and count is exact.</summary>
+    public static string RenderBatch(IReadOnlyList<ReadOutcome> outcomes, int maxChars)
+    {
+        int cap = Cap(maxChars);
+        using var ms = new MemoryStream();
+        using (var w = new Utf8JsonWriter(ms, Opts))
+        {
+            w.WriteStartObject();
+            w.WriteNumber("count", outcomes.Count);
+            w.WriteStartArray("records");
+            int rendered = 0; bool truncated = false;
+            foreach (var o in outcomes)
+            {
+                w.Flush();
+                if (ms.Length >= cap) { truncated = true; break; }
+                if (o.Error is not null) { w.WriteStartObject(); w.WriteString("formid", o.FormKey.ToString()); w.WriteString("error", o.Error); w.WriteEndObject(); }
+                else WriteReadRecord(w, o);
+                rendered++;
+            }
+            w.WriteEndArray();
+            w.WriteNumber("rendered", rendered);
+            w.WriteBoolean("truncated", truncated);
+            w.WriteEndObject();
+        }
+        return Finish(ms);
+    }
+
+    // ---- housecarl_cross_plugin_query (P6) ----------------------------------------------------------
+    /// <summary>cross_plugin_query as JSON — three shapes matching the text render: group_by count table
+    /// (<c>{group_by, total, groups:[…]}</c>), detail rows (full record objects with fields), or summary rows
+    /// (<c>{formid,type,editorid,winner,override_depth}</c>). Q3 accounting (total/capped/notes/truncated) rides
+    /// in-band. The detail path threads resolve_names through the SAME ResolveRead the text render uses, so the two
+    /// modes read one path.</summary>
+    public static string RenderCrossQuery(LoadOrderService svc, CrossQueryOutcome q, IReadOnlyList<string>? fields, int maxChars, bool resolveNames)
+    {
+        int cap = Cap(maxChars);
+        using var ms = new MemoryStream();
+        using (var w = new Utf8JsonWriter(ms, Opts))
+        {
+            w.WriteStartObject();
+            if (q.Error is not null) w.WriteString("error", q.Error);
+            else if (q.Groups is not null)                                   // group_by= → count table
+            {
+                WriteNullable(w, "group_by", q.GroupBy);
+                w.WriteNumber("total", q.Total);
+                if (q.ScopeLabel is not null) w.WriteString("scope", q.ScopeLabel);
+                WriteNotes(w, q);
+                w.WriteStartArray("groups");
+                int gRendered = 0; bool gTrunc = false;
+                foreach (var g in q.Groups)
+                {
+                    w.Flush();
+                    if (ms.Length >= cap) { gTrunc = true; break; }
+                    w.WriteStartObject(); w.WriteString("key", g.Key); w.WriteNumber("count", g.Count); w.WriteEndObject();
+                    gRendered++;
+                }
+                w.WriteEndArray();
+                w.WriteNumber("rendered", gRendered);
+                w.WriteBoolean("truncated", gTrunc);
+            }
+            else                                                            // per-match: detail (fields=) or summary
+            {
+                bool detail = fields is { Count: > 0 };
+                w.WriteNumber("total", q.Total);
+                w.WriteBoolean("capped", q.Capped);
+                if (q.ScopeLabel is not null) w.WriteString("scope", q.ScopeLabel);
+                WriteNotes(w, q);
+                var linkMemo = resolveNames && detail ? new Dictionary<FormKey, ResolvedRef>() : null;
+                w.WriteStartArray("matches");
+                int rendered = 0; bool truncated = false;
+                for (int i = 0; i < q.Keys.Count; i++)
+                {
+                    w.Flush();
+                    if (ms.Length >= cap) { truncated = true; break; }
+                    var fk = q.Keys[i];
+                    string? matches = q.MatchedTargets is { } mt && i < mt.Count ? mt[i] : null;
+                    if (detail)
+                    {
+                        var o = svc.ResolveRead(fk, q.Sources is { } src ? src[i] : null, fields, false, resolveNames: resolveNames, linkMemo: linkMemo);
+                        if (o.Error is not null) { w.WriteStartObject(); w.WriteString("formid", fk.ToString()); w.WriteString("error", o.Error); if (matches is not null) w.WriteString("matches", matches); w.WriteEndObject(); }
+                        else WriteReadRecord(w, o, matches);
+                    }
+                    else
+                    {
+                        var m = q.Prefilled is not null ? q.Prefilled[i] : svc.ResolveSummary(fk);
+                        WriteSummaryRow(w, m, matches);
+                    }
+                    rendered++;
+                }
+                w.WriteEndArray();
+                w.WriteNumber("rendered", rendered);
+                w.WriteBoolean("truncated", truncated);
+            }
+            w.WriteEndObject();
+        }
+        return Finish(ms);
+    }
+
+    static void WriteSummaryRow(Utf8JsonWriter w, RecordSummary m, string? matches)
+    {
+        w.WriteStartObject();
+        w.WriteString("formid", m.FormKey.ToString());
+        if (m.Error is not null) w.WriteString("error", m.Error);
+        else
+        {
+            w.WriteString("type", m.Type);
+            WriteNullable(w, "editorid", m.EditorId);
+            w.WriteString("winner", m.Winner);
+            w.WriteNumber("override_depth", m.OverrideDepth);
+        }
+        if (matches is not null) w.WriteString("matches", matches);
+        w.WriteEndObject();
+    }
+
+    /// <summary>Q3 accounting notes (where= predicate note, unscannable-record note) carried IN the JSON document —
+    /// so json is never a silently degraded mode vs text. Omitted when there are none.</summary>
+    static void WriteNotes(Utf8JsonWriter w, CrossQueryOutcome q)
+    {
+        if (q.PredicateNote is null && q.ScanNote is null) return;
+        w.WriteStartArray("notes");
+        if (q.PredicateNote is not null) w.WriteStringValue(q.PredicateNote);
+        if (q.ScanNote is not null) w.WriteStringValue(q.ScanNote);
+        w.WriteEndArray();
+    }
+
+    // ---- housecarl_read_plugin_file (P6) ------------------------------------------------------------
+    /// <summary>read_plugin_file as JSON — always stamped <c>out_of_load_order:true</c> (the load-bearing raw-file
+    /// caveat), then the file/masters context and the mode payload: <c>record</c> (the FILE's own record — no winner,
+    /// it's not resolved), <c>records</c> (enumerate), or <c>type_counts</c> (summary). <c>error</c>/<c>ambiguous</c>
+    /// on failure.</summary>
+    public static string RenderPluginFile(PluginFileOutcome o, int maxChars)
+    {
+        int cap = Cap(maxChars);
+        using var ms = new MemoryStream();
+        using (var w = new Utf8JsonWriter(ms, Opts))
+        {
+            w.WriteStartObject();
+            if (o.Mode == "error") { w.WriteString("error", o.Error); }
+            else if (o.Mode == "ambiguous")
+            {
+                w.WriteString("error", $"'{Path.GetFileName(o.Requested)}' is provided by {o.Ambiguous.Count} locations — specify which with mod= (or pass an absolute path).");
+                w.WriteStartArray("ambiguous");
+                foreach (var h in o.Ambiguous) { w.WriteStartObject(); w.WriteString("where", h.Where); w.WriteString("path", h.Path); w.WriteEndObject(); }
+                w.WriteEndArray();
+            }
+            else
+            {
+                w.WriteBoolean("out_of_load_order", true);
+                WriteNullable(w, "file", o.FilePath);
+                WriteNullable(w, "where", o.Where);
+                w.WriteBoolean("enabled", o.Enabled);
+                WriteStringArray(w, "masters", o.Masters);
+                WriteStringArray(w, "missing_masters", o.MissingMasters);
+                WriteStringArray(w, "inactive_masters", o.InactiveMasters);
+                w.WriteString("mode", o.Mode);
+                if (o.Mode == "read" && o.Record is { } rf)
+                {
+                    w.WritePropertyName("record");
+                    w.WriteStartObject();
+                    w.WriteString("formid", rf.FormKey);
+                    w.WriteString("type", rf.Type);
+                    WriteNullable(w, "editorid", rf.EditorId);
+                    WriteFieldsArray(w, rf);
+                    w.WriteEndObject();
+                }
+                else if (o.Mode == "enumerate")
+                {
+                    w.WriteNumber("total", o.RowTotal);
+                    w.WriteBoolean("capped", o.Capped);
+                    w.WriteStartArray("records");
+                    int rendered = 0; bool truncated = false;
+                    foreach (var row in o.Rows)
+                    {
+                        w.Flush();
+                        if (ms.Length >= cap) { truncated = true; break; }
+                        w.WriteStartObject(); w.WriteString("formid", row.FormKey); w.WriteString("type", row.Type); WriteNullable(w, "editorid", row.EditorId); w.WriteEndObject();
+                        rendered++;
+                    }
+                    w.WriteEndArray();
+                    w.WriteNumber("rendered", rendered);
+                    w.WriteBoolean("truncated", truncated);
+                }
+                else   // summary
+                {
+                    w.WriteNumber("total", o.RecordTotal);
+                    w.WriteStartArray("type_counts");
+                    foreach (var tc in o.TypeCounts) { w.WriteStartObject(); w.WriteString("type", tc.Type); w.WriteNumber("count", tc.Count); w.WriteEndObject(); }
+                    w.WriteEndArray();
+                }
+            }
+            w.WriteEndObject();
+        }
+        return Finish(ms);
     }
 }
