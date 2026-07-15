@@ -203,7 +203,7 @@ and the final deliverable alike; add job-specific keys rather than restructuring
 ```json
 {
   "job": "one line: what this deliverable is",
-  "scope": {"type": "ARMO", "plugins": ["ModA.esp"], "defined_in": true, "winner_fields": true},
+  "scope": {"type": "WEAP", "plugins": ["ModA.esp"], "defined_in": true, "winner_fields": true},
   "total": 548,
   "complete": true,
   "notes": ["tool notes + job caveats carried here, never dropped"],
@@ -214,7 +214,7 @@ and the final deliverable alike; add job-specific keys rather than restructuring
       "editorid": "IronSword",
       "name": "Iron Sword",
       "winner": "SomePlugin.esp",
-      "fields": {"ArmorRating": "135"}
+      "fields": {"Damage": "7"}
     }
   ]
 }
