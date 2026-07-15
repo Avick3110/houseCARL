@@ -17,6 +17,7 @@ public sealed class WriteRequest
     public string[]? Values { get; init; }              // list ReplaceAll — the whole new contents
     public Dictionary<string, string>? Entries { get; init; } // dict ReplaceAll / Merge — key→value pairs
     public StructSpec? Struct { get; init; }            // build-from-parts spec: the arm for a polymorphic Set, OR the new element for a struct-element Add
+    public IReadOnlyList<StructSpec>? Structs { get; init; } // P8a: a LIST of build-from-parts elements (composes=) — Add appends each, ReplaceAll clears then appends each
 }
 
 /// <summary>
@@ -229,6 +230,14 @@ public sealed class CorpusRulebook
         if (leafPolyErr is not null) return leafPolyErr;
         if (leaf is null) return FieldNotFound(current, leafName);
 
+        // (3a-composes) P8a batch struct-list surface: composes= is a distinct input shape (a LIST of build-from-parts
+        // element specs) that short-circuits the singular verb/value pipeline — Add appends each, ReplaceAll clears then
+        // appends each (the modeled-list replace the singular composable block below still defers; THIS is that input
+        // surface). Validated whole, all-or-nothing per element (Q3). Gated FIRST so composes on a dict/substruct gets a
+        // composes-specific message, not the singular VerbLegality reject.
+        if (req.Structs is not null)
+            return ComposesLegality(leaf, leafOwner, req, siblingEditorIds);
+
         // (3a) verb legal for this cardinality?
         if (VerbLegality(leaf, req) is { } verbErr) return verbErr;
 
@@ -294,6 +303,37 @@ public sealed class CorpusRulebook
             default:
                 return $"Unknown verb '{req.Verb}'. Legal: Set, Add, Remove, ReplaceAll, SetAtIndex, Merge.";
         }
+    }
+
+    /// <summary>P8a — validate a composes= batch (a LIST of build-from-parts element specs) whole: Add appends each,
+    /// ReplaceAll clears then appends each. LIST-of-modeled-elements ONLY (a dict needs keyed entries; a substruct/
+    /// scalar takes compose=/value=). Each element is validated by the SAME <see cref="StructElementLegality"/> the
+    /// singular compose Add uses (poly-base arm resolution + recursive contents), so composes can never admit a shape
+    /// the singular path rejects. All-or-nothing: the first bad element names itself (composes[i]) and refuses the whole
+    /// op (Q3). ReplaceAll here OPENS the modeled-list replace the singular composable block defers — that block has no
+    /// per-element input surface; composes IS that surface.</summary>
+    string? ComposesLegality(FieldSchema leaf, TypeSchema owner, WriteRequest req,
+        IReadOnlyCollection<string>? siblingEditorIds)
+    {
+        if (req.Verb is not ("Add" or "ReplaceAll"))
+            return $"composes= appends/replaces a LIST of modeled elements — use it with Add (append each) or " +
+                   $"ReplaceAll (clear, then append each), not {req.Verb}. (For one element use compose=; to overwrite " +
+                   "one index use SetAtIndex with compose=.)";
+        if (leaf.Cardinality != "list")
+            return $"composes= builds a LIST of modeled elements, but '{leaf.Name}' on '{owner.Name}' is a " +
+                   $"{leaf.Cardinality}. (A dict takes keyed entries, not a positional list; a substruct/scalar takes " +
+                   "compose= / value=.)";
+        if (!IsComposableElement(leaf))
+            return $"'{leaf.Name}' on '{owner.Name}' holds " +
+                   (leaf.FormLinkTarget is not null ? "formlink" : "coercible") +
+                   $" values ({leaf.ElementTypeRef ?? leaf.ElementType}), not modeled structs — use values= " +
+                   "(ReplaceAll) / value= (Add), not composes=.";
+        if (req.Structs!.Count == 0)
+            return $"composes= for '{leaf.Name}' is empty — supply one or more element specs (or compose= for exactly one).";
+        for (int i = 0; i < req.Structs.Count; i++)
+            if (StructElementLegality(leaf, req.Structs[i], siblingEditorIds) is { } elemErr)
+                return $"composes[{i}]: {elemErr}";
+        return null;
     }
 
     // ---- writability rejection (plan §3 P-DISC) ----

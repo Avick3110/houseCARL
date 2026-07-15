@@ -48,6 +48,7 @@ public static class WritePatchBuilder
         public string[]? Values { get; init; }
         public Dictionary<string, string>? Entries { get; init; }
         public StructSpec? Struct { get; init; }
+        public IReadOnlyList<StructSpec>? Structs { get; init; } // P8a batch struct-list ops (composes=): Add appends each, ReplaceAll clears+appends each.
     }
 
     /// <summary>Per-edit result. On a successful call every op has <see cref="Applied"/>=true (all-or-nothing);
@@ -356,7 +357,7 @@ public static class WritePatchBuilder
             var req = new WriteRequest
             {
                 RecordType = recType, Path = e.Path, Verb = e.Verb,
-                Key = e.Key, Value = e.Value, Values = e.Values, Entries = e.Entries, Struct = e.Struct,
+                Key = e.Key, Value = e.Value, Values = e.Values, Entries = e.Entries, Struct = e.Struct, Structs = e.Structs,
             };
             var label = Label(req);
             if (rulebook.Validate(req) is { } reject) { problems.Add($"{recType} {e.Target} [{label}]: {reject}"); continue; }
@@ -550,7 +551,7 @@ public static class WritePatchBuilder
             var req = new WriteRequest
             {
                 RecordType = recType, Path = e.Path, Verb = e.Verb,
-                Key = e.Key, Value = e.Value, Values = e.Values, Entries = e.Entries, Struct = e.Struct,
+                Key = e.Key, Value = e.Value, Values = e.Values, Entries = e.Entries, Struct = e.Struct, Structs = e.Structs,
             };
             var label = Label(req);
             if (rulebook.Validate(req) is { } reject) { problems.Add($"{recType} {e.Target} [{label}]: {reject}"); continue; }
@@ -2225,13 +2226,29 @@ public static class WritePatchBuilder
             err ??= sErr;
             strct = rs;
         }
+        // P8a: a composes= op carries a LIST of specs; in create context each may @editorid-reference a same-call
+        // sibling, so resolve every element the same clone-only-on-change way, fail loud on a miss (Q3).
+        var structs = r.Structs;
+        if (structs is not null)
+        {
+            List<StructSpec>? repl = null;
+            for (int i = 0; i < structs.Count; i++)
+            {
+                var (rs2, e2) = ResolveStructSiblingRefs(structs[i], created, onWhat);
+                err ??= e2;
+                if (repl is null && !ReferenceEquals(rs2, structs[i])) repl = new List<StructSpec>(structs);
+                if (repl is not null) repl[i] = rs2;
+            }
+            if (repl is not null) structs = repl;
+        }
         if (err is not null) return (r, err);
-        if (ReferenceEquals(value, r.Value) && ReferenceEquals(values, r.Values) && ReferenceEquals(strct, r.Struct))
+        if (ReferenceEquals(value, r.Value) && ReferenceEquals(values, r.Values) && ReferenceEquals(strct, r.Struct)
+            && ReferenceEquals(structs, r.Structs))
             return (r, null);
         return (new WriteRequest
         {
             RecordType = r.RecordType, Path = r.Path, Verb = r.Verb, Key = r.Key,
-            Value = value, Values = values, Entries = r.Entries, Struct = strct,
+            Value = value, Values = values, Entries = r.Entries, Struct = strct, Structs = structs,
         }, null);
     }
 

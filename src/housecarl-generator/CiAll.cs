@@ -58,6 +58,11 @@ public static class CiAll
         // per-item error isolation, always-valid JSON with token parity, the winner-vs-scoped body choice, and the
         // display-only link annotation.
         ("bulk-primitives-wave2-guard", BulkPrimitivesWave2Probe.RunGuard),
+        // WAVE 3 write batch + diff — composes= (P8a batch struct-list Add/ReplaceAll), CopyFrom (P8b field transplant),
+        // housecarl_diff_record (P8c pairwise diff). Drives the real tool path on a synthetic order (+ an off-order pole
+        // for CopyFrom/diff); asserts append-vs-clear semantics, all-or-nothing per-element reasons, copy-then-readback
+        // equality across field kinds + named non-transplantable refusals, and the two-pole diff incl. an off-order side.
+        ("bulk-primitives-wave3-guard", BulkPrimitivesWave3Probe.RunGuard),
         ("writelock-guard", WriteLockProbe.RunGuard),
         ("inplace-guard", InPlaceProbe.RunGuard),
         ("subclass-remove-guard", SubclassRemoveGuardProbe.RunGuard),

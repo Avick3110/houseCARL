@@ -2110,6 +2110,13 @@ public static class WriteEngine
             case "Add":
                 // struct-element list (modeled-struct elements) → build the new element FROM PARTS (wave-1 half B);
                 // coercible-element list → coerce the plain value as before. ResolveProperty/AddMethod handle the rest.
+                // P8a composes= appends MANY built elements in ONE op (each pre-flighted by ComposesLegality).
+                if (req.Structs is { } addSpecs)
+                {
+                    var addM = AddMethod(lt, elem);
+                    foreach (var s in addSpecs) addM.Invoke(list, new[] { BuildStruct(s) });
+                    break;
+                }
                 AddMethod(lt, elem).Invoke(list,
                     new[] { req.Struct is not null ? BuildStruct(req.Struct) : Coerce(req.Value!, elem) });
                 break;
@@ -2156,7 +2163,12 @@ public static class WriteEngine
             case "ReplaceAll":
                 lt.GetMethod("Clear")!.Invoke(list, null);
                 var add = AddMethod(lt, elem);
-                foreach (var v in req.Values ?? Array.Empty<string>()) add.Invoke(list, new[] { Coerce(v, elem) });
+                // P8a composes= ReplaceAll = clear then append each BUILT element (the modeled-list replace the singular
+                // compose block still defers); a coercible-element list still ReplaceAlls plain req.Values as before.
+                if (req.Structs is { } replSpecs)
+                    foreach (var s in replSpecs) add.Invoke(list, new[] { BuildStruct(s) });
+                else
+                    foreach (var v in req.Values ?? Array.Empty<string>()) add.Invoke(list, new[] { Coerce(v, elem) });
                 break;
             default:
                 throw new InvalidOperationException($"Verb '{req.Verb}' is not valid on list '{prop.Name}'.");

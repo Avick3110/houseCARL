@@ -71,14 +71,19 @@ public static class WriteTools
      Description(
          "Apply MANY edits in ONE patch plugin (originals untouched) — the batch form of housecarl_set_field, and the way " +
          "to COMPOSE modeled structs. Each operation is {formid, field_path, verb, value?, key?, values?, entries?, " +
-         "compose?}: scalar/collection verbs work as in set_field; entries (a key→value map) drives a dict Merge or " +
+         "compose?, composes?}: scalar/collection verbs work as in set_field; entries (a key→value map) drives a dict Merge or " +
          "ReplaceAll; compose builds a modeled struct for an Add (a leveled-list entry, an effect — and a POLYMORPHIC " +
          "list element composes by its concrete arm type, e.g. a VMAD script property: verb=Add, " +
          "field_path='VirtualMachineAdapter.Scripts[0].Properties', compose={type:'ScriptObjectProperty', " +
          "fields:{Name:'MyProp', Flags:'Edited', Object:'XXXXXX:Plugin.esp', Alias:'-1'}}) or a polymorphic Set " +
          "(an arm) — e.g. merge a weapon into a leveled list with verb=Add, field_path='Entries', " +
          "compose={type:'LeveledItemEntry', sets:[{path:'Data.Level',value:'1'},{path:'Data.Count',value:'1'}," +
-         "{path:'Data.Reference',value:'<weapon FormID>'}]}. All edits land in ONE reviewable .esp; the patch spans " +
+         "{path:'Data.Reference',value:'<weapon FormID>'}]}. composes is the BATCH sibling of compose — a LIST of " +
+         "elements built in ONE op: verb=Add APPENDS each in order (author many leveled-list entries / condition rows " +
+         "at once, e.g. field_path='Conditions', composes=[{type:'Condition',...},{type:'Condition',...}]), verb=ReplaceAll " +
+         "CLEARS the list then appends each (the way to replace a whole modeled list — conditions, effects, entries). " +
+         "compose and composes are mutually exclusive; a bad element refuses the whole call with per-element " +
+         "(composes[i]) reasons. All edits land in ONE reviewable .esp; the patch spans " +
          "masters automatically when edits reference forms across several plugins (cross-master merge). ALL-OR-NOTHING " +
          "(Q3): if ANY operation is malformed or fails pre-flight, the whole call is refused with per-op reasons and " +
          "nothing is written — no partial patches. By default writes a fresh patch named patch_name; pass into= to extend " +
@@ -1067,6 +1072,9 @@ public sealed record BulkOp
 
     [JsonPropertyName("compose"), Description("Build a modeled struct: an arm for a polymorphic Set, or the element for a struct-element Add (e.g. a leveled-list entry; for a polymorphic list like VMAD Scripts[i].Properties, the element's CONCRETE arm type, e.g. 'ScriptObjectProperty').")]
     public StructInput? Compose { get; init; }
+
+    [JsonPropertyName("composes"), Description("Build MANY modeled list elements in ONE op — the batch sibling of compose (each entry the same {type, fields?, ctor_args?, sets?} shape). With verb=Add, APPENDS each element in order (e.g. 10 leveled-list entries, a whole block of condition rows in one op instead of ten Adds). With verb=ReplaceAll, CLEARS the list then appends each — the way to replace a whole modeled list (conditions, effects, entries). LIST elements only; mutually exclusive with compose/value/values. All-or-nothing: a bad element refuses the whole call with per-element (composes[i]) reasons.")]
+    public StructInput[]? Composes { get; init; }
 }
 
 /// <summary>One brand-new record to create off the wire (housecarl_bulk_create) — the batch element matching the scalar
