@@ -303,7 +303,8 @@ static class JsonWire
                     {
                         // winner_fields=: read the WINNER's body (source=null) regardless of scan scope; the record's
                         // "source" field still names the body read, so the json carries the same source/winner truth.
-                        var o = svc.ResolveRead(fk, winnerFields ? null : (q.Sources is { } src ? src[i] : null), fields, false, resolveNames: resolveNames, linkMemo: linkMemo);
+                        var o = svc.ResolveRead(fk, winnerFields ? null : (q.Sources is { } src ? src[i] : null), fields, false, resolveNames: resolveNames, linkMemo: linkMemo,
+                                                containerHint: Wire.CrossQueryContainerHint);   // no depth= on this tool — same redirect as the text render
                         if (o.Error is not null) { w.WriteStartObject(); w.WriteString("formid", fk.ToString()); w.WriteString("error", o.Error); if (matches is not null) w.WriteString("matches", matches); w.WriteEndObject(); }
                         else WriteReadRecord(w, o, ms, cap, matches);
                     }

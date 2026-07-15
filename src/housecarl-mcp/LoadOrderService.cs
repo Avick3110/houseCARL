@@ -1375,10 +1375,11 @@ public sealed class LoadOrderService : IDisposable
     /// touching-plugin list. Honest, recoverable errors (Q3): not-in-order, plugin-doesn't-touch, fetch
     /// inconsistency — never a silent empty result.</summary>
     public ReadOutcome ResolveRead(FormKey fk, string? plugin, IReadOnlyList<string>? fields, bool conflictTree, int depth = 1,
-                                   bool resolveNames = false, Dictionary<FormKey, ResolvedRef>? linkMemo = null)
+                                   bool resolveNames = false, Dictionary<FormKey, ResolvedRef>? linkMemo = null,
+                                   string? containerHint = ReadEngine.DepthExpandHint)
     {
         var resolver = Resolver;
-        return ResolveRead(resolver, resolver.Capture(), fk, plugin, fields, conflictTree, depth, resolveNames, linkMemo);
+        return ResolveRead(resolver, resolver.Capture(), fk, plugin, fields, conflictTree, depth, resolveNames, linkMemo, containerHint);
     }
 
     /// <summary>Layer B unit C2 — the on-demand whole-topic dialogue-graph validator (housecarl_validate_dialogue):
@@ -1402,7 +1403,8 @@ public sealed class LoadOrderService : IDisposable
     /// diff — same low-severity class, named for the next wave rather than threaded through the render API here.)</summary>
     ReadOutcome ResolveRead(LoadOrderResolver resolver, LoadOrderResolver.IndexView view,
                             FormKey fk, string? plugin, IReadOnlyList<string>? fields, bool conflictTree, int depth,
-                            bool resolveNames = false, Dictionary<FormKey, ResolvedRef>? linkMemo = null)
+                            bool resolveNames = false, Dictionary<FormKey, ResolvedRef>? linkMemo = null,
+                            string? containerHint = ReadEngine.DepthExpandHint)
     {
         // An explicitly-requested plugin that was EXCLUDED this session (unparseable/unopenable) → say so (Q3),
         // rather than fall through to a misleading "does not define this record".
@@ -1442,7 +1444,7 @@ public sealed class LoadOrderService : IDisposable
                 ? $"Winner '{winner.Value.WinnerPlugin}' did not yield {fk} on fetch — a load-order inconsistency."
                 : $"Plugin '{plugin}' does not define {fk} (it does not touch this record). The winner is '{winner.Value.WinnerPlugin}'.");
 
-        var record = ReadEngine.ReadFields(rec, fields, depth);           // materialise while the session (overlay) is open
+        var record = ReadEngine.ReadFields(rec, fields, depth, containerHint);   // materialise while the session (overlay) is open
         if (resolveNames) record = AnnotateLinks(record, view, session, linkMemo ?? new());   // P7: identity of every FormLink token, DISPLAY-ONLY (same open session)
         var touching = conflictTree ? view.TouchingPlugins(fk) : null;
         return new ReadOutcome(fk, record, source, winner.Value.WinnerPlugin, winner.Value.OverrideDepth, touching, null);

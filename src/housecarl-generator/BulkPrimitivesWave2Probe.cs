@@ -356,6 +356,39 @@ public static class BulkPrimitivesWave2Probe
                 wjDoc.Dispose();
             }
 
+            // ================= container hint — the depth= knob is hinted only where it EXISTS =================
+            // The depth-1 container note self-documents the expansion lever (HCBR-2026-07-12). cross_plugin_query
+            // has NO depth= (its unknown-param guard refuses it), so its note must redirect to the batch-read hop
+            // instead of naming a knob the tool refuses — while read_record (which HAS depth=) keeps the classic
+            // hint, and a write read-back (no knob at all) carries a bare count.
+            Console.WriteLine();
+            Console.WriteLine("── container hint: cross_plugin_query names the batch hop (no depth= here); read tools keep depth=2; write read-backs stay bare ──");
+            var cqList = ReadTools.CrossPluginQuery(svc, type: "Weapon", references: null, editorid_contains: null,
+                conflicts_only: false, plugins: null, defined_in: false, where: null, group_by: null,
+                resolve_names: false, winner_fields: false, fields: new[] { "Keywords" }, conflict_tree: false,
+                format: "text", limit: 500, max_chars: 0);
+            Check("cross_plugin_query container note redirects to housecarl_batch_record_detail depth=2",
+                  cqList.Contains("housecarl_batch_record_detail depth=2"));
+            Check("... and does NOT hint 'pass depth=2 to expand' — a knob this tool refuses",
+                  !cqList.Contains("pass depth=2 to expand"));
+
+            var cqListJson = ReadTools.CrossPluginQuery(svc, type: "Weapon", references: null, editorid_contains: null,
+                conflicts_only: false, plugins: null, defined_in: false, where: null, group_by: null,
+                resolve_names: false, winner_fields: false, fields: new[] { "Keywords" }, conflict_tree: false,
+                format: "json", limit: 500, max_chars: 0);
+            Check("json parity: the redirect note rides the json render too, never the depth= hint",
+                  cqListJson.Contains("housecarl_batch_record_detail depth=2") && !cqListJson.Contains("pass depth=2 to expand"));
+
+            var rrHint = svc.ResolveRead(w1Fk, null, new[] { "Keywords" }, false);
+            var rrNote = rrHint.Record?.Fields.FirstOrDefault(f => f.Path == "Keywords")?.Note;
+            Check("read_record (HAS depth=) keeps the classic ' — pass depth=2 to expand' hint (default preserved)",
+                  rrNote is not null && rrNote.Contains("pass depth=2 to expand"));
+
+            var bareNote = ReadEngine.ReadFields(w1, new[] { "Keywords" }, containerHint: null)
+                .Fields.FirstOrDefault()?.Note;
+            Check("containerHint:null (the write read-back lane) renders the bare count — no hint at all",
+                  bareNote is not null && bareNote.StartsWith("[list:") && !bareNote.Contains("depth"));
+
             Console.WriteLine();
             Console.WriteLine($"=== bulk-primitives-wave2-guard: {_pass} passed, {_fail} failed -> {(_fail == 0 ? "PASS" : "FAIL")} ===");
             return _fail == 0 ? 0 : 1;
