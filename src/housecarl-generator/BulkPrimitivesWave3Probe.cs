@@ -42,7 +42,8 @@ public static class BulkPrimitivesWave3Probe
         try
         {
             ComposesArm(Path.Combine(root, "p8a"));   // P8a
-            // P8b CopyFrom + P8c diff_record arms land in their own commits.
+            CopyFromArm(Path.Combine(root, "p8b"));    // P8b (active-order source; off-order pole added with the service support)
+            // P8c diff_record arm lands in its own commit.
 
             Console.WriteLine();
             Console.WriteLine($"=== bulk-primitives-wave3-guard: {_pass} passed, {_fail} failed -> {(_fail == 0 ? "PASS" : "FAIL")} ===");
@@ -206,5 +207,179 @@ public static class BulkPrimitivesWave3Probe
         }, "P8aVerb", null);
         Check("wrong verb SetAtIndex + composes → refused (Add or ReplaceAll)",
               !wrongVerb.Success && wrongVerb.Error is { } eVerb && eVerb.Contains("Add") && eVerb.Contains("ReplaceAll"));
+    }
+
+    // ================= P8b — CopyFrom (reflection-generic field transplant from another plugin's version) =================
+    static void CopyFromArm(string dir)
+    {
+        Console.WriteLine();
+        Console.WriteLine("── P8b: CopyFrom — deep-copy a field from another plugin's version (copy-then-readback across kinds) + refusals ──");
+
+        // Master defines a weapon W (populated) + a REPLACER overrides W with DIFFERENT values (so the REPLACER wins).
+        // CopyFrom from_plugin=MASTER reverts a field on the patch to the master's value → the readback proves the copy
+        // took the SOURCE plugin's value (not the winner's). Also W2 (master-only) + W3 (no BasicStats) for refusals.
+        string instance = Path.Combine(dir, "instance");
+        string profiles = Path.Combine(instance, "profiles", "Default");
+        string mods = Path.Combine(instance, "mods");
+        Directory.CreateDirectory(profiles); Directory.CreateDirectory(mods);
+        Directory.CreateDirectory(Path.Combine(dir, "game", "Data"));
+        File.WriteAllText(Path.Combine(instance, "ModOrganizer.ini"),
+            "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(Default)\r\ngamePath=@ByteArray("
+            + Path.Combine(dir, "game").Replace(@"\", @"\\") + ")\r\n");
+
+        var mKey = new ModKey("HcW3CfMaster", ModType.Master);
+        var rKey = new ModKey("HcW3CfRepl", ModType.Plugin);
+        var masterPath = Path.Combine(mods, "CfMaster", mKey.FileName.String);
+        var replPath = Path.Combine(mods, "CfRepl", rKey.FileName.String);
+        Directory.CreateDirectory(Path.GetDirectoryName(masterPath)!);
+        Directory.CreateDirectory(Path.GetDirectoryName(replPath)!);
+
+        var m = new SkyrimMod(mKey, SkyrimRelease.SkyrimSE);
+        var k1 = m.Keywords.AddNew(); k1.EditorID = "CfKw1"; var kw1 = k1.FormKey;
+        var k2 = m.Keywords.AddNew(); k2.EditorID = "CfKw2"; var kw2 = k2.FormKey;
+        var w = m.Weapons.AddNew(); w.EditorID = "CfW";
+        w.Name = "Base Sword";
+        w.BasicStats = new WeaponBasicStats { Damage = 10 };
+        w.Keywords = new Noggog.ExtendedList<IFormLinkGetter<IKeywordGetter>> { new FormLink<IKeywordGetter>(kw1), new FormLink<IKeywordGetter>(kw2) };
+        var wFk = w.FormKey;
+        var w2 = m.Weapons.AddNew(); w2.EditorID = "CfW2"; w2.BasicStats = new WeaponBasicStats { Damage = 5 }; var w2Fk = w2.FormKey;  // master-only
+        var w3 = m.Weapons.AddNew(); w3.EditorID = "CfW3"; w3.Name = "No Stats"; var w3Fk = w3.FormKey;                                  // NO BasicStats
+        var mg = m.MagicEffects.AddNew(); mg.EditorID = "CfMgef"; var mgFk = mg.FormKey;
+        var pot = m.Ingestibles.AddNew(); pot.EditorID = "CfPotion";     // a modeled-list field (Effects) for the element-DeepCopy arm
+        var seedEff = new Effect { Data = new EffectData { Magnitude = 5 } };
+        seedEff.BaseEffect.SetTo(mgFk);
+        pot.Effects.Add(seedEff);
+        var potFk = pot.FormKey;
+        m.BeginWrite.ToPath(masterPath).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
+
+        var r = new SkyrimMod(rKey, SkyrimRelease.SkyrimSE);
+        var rw = (IWeapon)WriteEngine.GenericGetOrAddAsOverride(r, w);
+        rw.Name = "Winner Sword";
+        rw.BasicStats = new WeaponBasicStats { Damage = 99 };
+        rw.Keywords = new Noggog.ExtendedList<IFormLinkGetter<IKeywordGetter>>();   // winner CLEARS the keywords
+        ((IIngestible)WriteEngine.GenericGetOrAddAsOverride(r, pot)).Effects.Clear();  // winner CLEARS the effects
+        r.BeginWrite.ToPath(replPath).WithLoadOrder(new ISkyrimModGetter[] { m }).Write();
+
+        // an OFF-ORDER donor: overrides W with Damage=77, on disk in a DISABLED mod folder (NOT in the active order).
+        var dKey = new ModKey("DonorOld", ModType.Plugin);
+        var donorPath = Path.Combine(mods, "DonorOld", dKey.FileName.String);
+        Directory.CreateDirectory(Path.GetDirectoryName(donorPath)!);
+        var dmod = new SkyrimMod(dKey, SkyrimRelease.SkyrimSE);
+        ((IWeapon)WriteEngine.GenericGetOrAddAsOverride(dmod, w)).BasicStats = new WeaponBasicStats { Damage = 77 };
+        dmod.BeginWrite.ToPath(donorPath).WithLoadOrder(new ISkyrimModGetter[] { m }).Write();
+
+        // master loads FIRST, replacer LAST → the replacer wins W's record. master+replacer enabled; DonorOld DISABLED (off-order).
+        File.WriteAllText(Path.Combine(profiles, "loadorder.txt"), "# header\r\n" + mKey.FileName + "\r\n" + rKey.FileName + "\r\n");
+        File.WriteAllText(Path.Combine(profiles, "plugins.txt"), "*" + mKey.FileName + "\r\n*" + rKey.FileName + "\r\n");
+        File.WriteAllText(Path.Combine(profiles, "modlist.txt"), "# header\r\n+CfRepl\r\n+CfMaster\r\n-DonorOld\r\n");
+
+        var genDir = Path.Combine(dir, "corpus-gen");
+        try { _ = CorpusRulebook.LoadCorpus(); }
+        catch { CorpusGenerator.GenerateAll(genDir, Path.Combine(dir, "corpus-ref")); CorpusRulebook.CorpusPath = Path.Combine(genDir, "corpus.json"); }
+
+        var store = new UserConfigStore(Path.Combine(dir, "houseCARL.user.json"));
+        using var svc = LoadOrderService.WithInstance(instance, 0, store);
+        svc.Stats();
+
+        string wFid = $"{wFk.ID:X6}:{wFk.ModKey.FileName}";
+        string w2Fid = $"{w2Fk.ID:X6}:{w2Fk.ModKey.FileName}";
+        string w3Fid = $"{w3Fk.ID:X6}:{w3Fk.ModKey.FileName}";
+        string masterName = mKey.FileName.String;
+        string replName = rKey.FileName.String;
+
+        (ushort? dmg, string? name, int? kwCount) ReadW(string espPath, FormKey fk)
+        {
+            ISkyrimModGetter? ov = null;
+            try
+            {
+                ov = SkyrimMod.CreateFromBinaryOverlay(espPath, SkyrimRelease.SkyrimSE);
+                var wr = ov.Weapons.FirstOrDefault(x => x.FormKey == fk);
+                return (wr?.BasicStats?.Damage, wr?.Name?.String, wr?.Keywords?.Count);
+            }
+            catch { return (null, null, null); }
+            finally { (ov as IDisposable)?.Dispose(); }
+        }
+
+        BulkOp Copy(string path) => new() { Formid = wFid, FieldPath = path, Verb = "CopyFrom", FromPlugin = masterName };
+
+        // sanity: the REPLACER wins W (Damage 99) — so a copy from the master genuinely changes the value
+        var winner = svc.ResolveRefs(new[] { wFid });
+        Check($"fixture: the replacer WINS W (winner={winner[0].Winner})", winner[0].Winner == replName);
+
+        // scalar-in-substruct: BasicStats.Damage  (winner 99 → master 10)
+        var d = svc.ApplyEdits(new[] { Copy("BasicStats.Damage") }, "CfDmg", null);
+        Check($"CopyFrom scalar BasicStats.Damage: winner 99 → source 10 (got {(d.Success ? ReadW(d.OutputPath, wFk).dmg : null)})",
+              d.Success && ReadW(d.OutputPath, wFk).dmg == 10);
+
+        // whole loqui sub-struct: BasicStats  (DeepCopy)
+        var bs = svc.ApplyEdits(new[] { Copy("BasicStats") }, "CfBs", null);
+        Check($"CopyFrom sub-struct BasicStats (whole): Damage 10 (got {(bs.Success ? ReadW(bs.OutputPath, wFk).dmg : null)})",
+              bs.Success && ReadW(bs.OutputPath, wFk).dmg == 10);
+
+        // TranslatedString: Name  (winner "Winner Sword" → master "Base Sword")
+        var nm = svc.ApplyEdits(new[] { Copy("Name") }, "CfName", null);
+        Check($"CopyFrom TranslatedString Name: → \"Base Sword\" (got \"{(nm.Success ? ReadW(nm.OutputPath, wFk).name : null)}\")",
+              nm.Success && ReadW(nm.OutputPath, wFk).name == "Base Sword");
+
+        // formlink list: Keywords  (winner [] → master [kw1,kw2])  — BuildCopiedList
+        var kwc = svc.ApplyEdits(new[] { Copy("Keywords") }, "CfKw", null);
+        Check($"CopyFrom formlink-list Keywords: winner 0 → source 2 (got {(kwc.Success ? ReadW(kwc.OutputPath, wFk).kwCount : null)})",
+              kwc.Success && ReadW(kwc.OutputPath, wFk).kwCount == 2);
+
+        // modeled list (per-element DeepCopy): Ingestible.Effects (winner 0 → master 1) — the "copy Perks/Effects" headline
+        string potFid = $"{potFk.ID:X6}:{potFk.ModKey.FileName}";
+        int? EffCount(string espPath)
+        {
+            ISkyrimModGetter? ov = null;
+            try { ov = SkyrimMod.CreateFromBinaryOverlay(espPath, SkyrimRelease.SkyrimSE); return ov.Ingestibles.FirstOrDefault(x => x.FormKey == potFk)?.Effects?.Count; }
+            catch { return null; }
+            finally { (ov as IDisposable)?.Dispose(); }
+        }
+        var effc = svc.ApplyEdits(new[] { new BulkOp { Formid = potFid, FieldPath = "Effects", Verb = "CopyFrom", FromPlugin = masterName } }, "CfEff", null);
+        Check($"CopyFrom modeled-list Effects (element DeepCopy): winner 0 → source 1 (got {(effc.Success ? EffCount(effc.OutputPath) : null)})",
+              effc.Success && EffCount(effc.OutputPath) == 1);
+
+        // OFF-ORDER source: copy from a DISABLED plugin on disk (not in the active order) — the "copy from the OLD patch" headline
+        var offOrder = svc.ApplyEdits(new[] { new BulkOp { Formid = wFid, FieldPath = "BasicStats.Damage", Verb = "CopyFrom", FromPlugin = "DonorOld.esp" } }, "CfOff", null);
+        Check($"CopyFrom OFF-ORDER source (disabled DonorOld.esp): winner 99 → off-order 77 (got {(offOrder.Success ? ReadW(offOrder.OutputPath, wFk).dmg : null)})",
+              offOrder.Success && ReadW(offOrder.OutputPath, wFk).dmg == 77);
+
+        // ---- refusals ----
+        var noFrom = svc.ApplyEdits(new[] { new BulkOp { Formid = wFid, FieldPath = "BasicStats.Damage", Verb = "CopyFrom" } }, "CfNoFrom", null);
+        Check("refusal: CopyFrom without from_plugin → refused ('requires from_plugin')",
+              !noFrom.Success && noFrom.Error is { } e1 && e1.Contains("requires from_plugin"));
+
+        var strayFrom = svc.ApplyEdits(new[] { new BulkOp { Formid = wFid, FieldPath = "BasicStats.Damage", Verb = "Set", Value = "5", FromPlugin = masterName } }, "CfStray", null);
+        Check("refusal: from_plugin on a non-CopyFrom verb → refused ('only valid with verb=CopyFrom')",
+              !strayFrom.Success && strayFrom.Error is { } e2 && e2.Contains("only valid with verb=CopyFrom"));
+
+        var withVal = svc.ApplyEdits(new[] { new BulkOp { Formid = wFid, FieldPath = "BasicStats.Damage", Verb = "CopyFrom", FromPlugin = masterName, Value = "5" } }, "CfVal", null);
+        Check("refusal: CopyFrom + value → refused ('takes no value')",
+              !withVal.Success && withVal.Error is { } e3 && e3.Contains("takes no value"));
+
+        var notInOrder = svc.ApplyEdits(new[] { new BulkOp { Formid = wFid, FieldPath = "BasicStats.Damage", Verb = "CopyFrom", FromPlugin = "Nope.esp" } }, "CfNope", null);
+        Check("refusal: from_plugin not in the load order → refused ('not in the load order')",
+              !notInOrder.Success && notInOrder.Error is { } e4 && e4.Contains("not in the load order"));
+
+        var noDefine = svc.ApplyEdits(new[] { new BulkOp { Formid = w2Fid, FieldPath = "BasicStats.Damage", Verb = "CopyFrom", FromPlugin = replName } }, "CfNoDef", null);
+        Check("refusal: from_plugin doesn't define/override the record → refused ('does NOT define or override')",
+              !noDefine.Success && noDefine.Error is { } e5 && e5.Contains("does NOT define or override"));
+
+        var absentField = svc.ApplyEdits(new[] { new BulkOp { Formid = w3Fid, FieldPath = "BasicStats", Verb = "CopyFrom", FromPlugin = masterName } }, "CfAbsent", null);
+        Check("refusal: source field unset (W3 has no BasicStats) → refused ('nothing to copy')",
+              !absentField.Success && absentField.Error is { } e6 && e6.Contains("nothing to copy"));
+
+        // owned-child record collection is refused at PRE-FLIGHT (rulebook), by name — via CorpusRulebook.Validate directly
+        var rulebook = CorpusRulebook.Load();
+        var ownedReject = rulebook.Validate(new WriteRequest { RecordType = "Cell", Path = new[] { "Persistent" }, Verb = "CopyFrom" });
+        Check($"refusal: owned-child collection Cell.Persistent + CopyFrom → refused by name (\"{ownedReject}\")",
+              ownedReject is { } orr && orr.Contains("owned child records"));
+
+        // create-context: CopyFrom isn't valid when creating a record
+        var createCopy = svc.CreateRecords("Weapon", "CfCreated",
+            new[] { new BulkOp { FieldPath = "BasicStats.Damage", Verb = "CopyFrom", FromPlugin = masterName } },
+            "CfCreate", null);
+        Check("refusal: CopyFrom in a CREATE op → refused (isn't valid when creating)",
+              !createCopy.Success && createCopy.Error is { } e7 && e7.Contains("isn't valid when CREATING"));
     }
 }

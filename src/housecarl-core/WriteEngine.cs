@@ -1746,6 +1746,202 @@ public static class WriteEngine
         ApplyScalarVerb(current, leaf, req);
     }
 
+    // ======================================================================
+    //  P8b — CopyFrom: transplant a FIELD's value from another plugin's version of a record into the patch's copy.
+    //  The reflection-generic generalisation of the hand-typed NpcAppearanceCopy.CopyAppearanceFields: by construction,
+    //  every transplantable field KIND is covered by the shape of the target property + source value, not a per-type
+    //  list. Owned-child record collections are refused at PRE-FLIGHT (CorpusRulebook.CopyFromLegality) — this only
+    //  ever runs on a transplantable leaf. Byte-identity of copy-then-readback is proven by bulk-primitives-wave3-guard.
+    // ======================================================================
+
+    /// <summary>Deep-copy the value at <paramref name="path"/> from <paramref name="source"/>'s version of a record into
+    /// the patch's settable copy <paramref name="target"/>. An ABSENT/null source value is refused (nothing to copy) —
+    /// never a silent destructive clear (Q3; use Remove to clear). Throws an <see cref="ExpectedApplyRejectionException"/>
+    /// for a clean live-state refusal (absent source), else a plain throw for a genuine engine inconsistency (surfaced,
+    /// all-or-nothing at the cleave). The source overlay must stay OPEN through the patch serialize (the cleave holds its
+    /// session; an off-order source overlay is held by the service) — reference-shared immutables (strings, formlink
+    /// getters) are only valid while it is.</summary>
+    public static void CopyField(IMajorRecordGetter source, IMajorRecord target, string[] path)
+    {
+        // --- navigate the SOURCE (read-only, never materialize) to the leaf's value ---
+        object srcCur = source;
+        for (int i = 0; i < path.Length - 1; i++)
+        {
+            var (segName, segKey) = ParseSegment(path[i]);
+            var p = ResolveProperty(srcCur.GetType(), segName)
+                ?? throw new InvalidOperationException($"CopyFrom: the source's version has no field '{segName}' on {srcCur.GetType().Name}.");
+            var next = segKey is null ? p.GetValue(srcCur) : StepIntoElement(srcCur, p, segName, segKey);
+            if (next is null)
+                throw new ExpectedApplyRejectionException(
+                    $"CopyFrom: the source plugin's version has no value at '{string.Join('.', path[..(i + 1)])}' — nothing to copy.");
+            srcCur = next;
+        }
+        var (leafName, leafKey) = ParseSegment(path[^1]);
+        if (leafKey is not null)
+            throw new InvalidOperationException(
+                "CopyFrom copies a WHOLE field (its entire contents) — brackets at the leaf aren't supported; name the collection/field itself.");
+        var srcLeaf = ResolveProperty(srcCur.GetType(), leafName)
+            ?? throw new InvalidOperationException($"CopyFrom: the source's version has no field '{leafName}' on {srcCur.GetType().Name}.");
+        var srcVal = srcLeaf.GetValue(srcCur);
+        if (srcVal is null)
+            throw new ExpectedApplyRejectionException(
+                $"CopyFrom: the source plugin's version has '{string.Join('.', path)}' unset — nothing to copy (use verb=Remove to clear the target).");
+
+        // --- navigate the TARGET (materialize absent intermediate substructs, exactly like ApplyVerb) to the leaf's owner ---
+        object tgtCur = target;
+        for (int i = 0; i < path.Length - 1; i++)
+        {
+            var (segName, segKey) = ParseSegment(path[i]);
+            var p = ResolveProperty(tgtCur.GetType(), segName)
+                ?? throw new InvalidOperationException($"CopyFrom: the target has no field '{segName}' on {tgtCur.GetType().Name}.");
+            tgtCur = segKey is null
+                ? (p.GetValue(tgtCur) ?? MaterializeSubstruct(tgtCur, p, segName))
+                : StepIntoElement(tgtCur, p, segName, segKey, materialize: true);
+        }
+        var tgtLeaf = ResolveProperty(tgtCur.GetType(), leafName)
+            ?? throw new InvalidOperationException($"CopyFrom: the target has no field '{leafName}' on {tgtCur.GetType().Name}.");
+
+        TransplantValue(tgtCur, tgtLeaf, srcVal);
+    }
+
+    /// <summary>Assign a getter-side <paramref name="srcVal"/> into leaf <paramref name="prop"/> on
+    /// <paramref name="parent"/>, deep-copying so the patch owns its own instances. Three property shapes cover every
+    /// transplantable kind: a SETTABLE property (a value assigned directly; a Loqui getter DeepCopy'd; a modeled/formlink
+    /// list rebuilt from copied elements); a GET-ONLY FormLink (SetTo the source FormKey); a GET-ONLY collection (its
+    /// contents replaced with copied elements). A shape it can't place is a loud throw (Q3 — never a silent partial copy;
+    /// pre-flight already excluded owned-child records).</summary>
+    static void TransplantValue(object parent, PropertyInfo prop, object srcVal)
+    {
+        var pt = prop.PropertyType;
+        if (prop.CanWrite)
+        {
+            // a value/enum/struct-value (int, float, enum, Color, Percent, FormKey…) — copied by value on assign
+            if (srcVal.GetType().IsValueType && pt.IsInstanceOfType(srcVal)) { prop.SetValue(parent, srcVal); return; }
+            // a settable modeled collection (ExtendedList<T>? — Keywords, Perks, Effects…) — rebuild from copied elements
+            if (ClosedInterface(pt, typeof(IList<>)) is { } wlif && srcVal is System.Collections.IEnumerable wsrc)
+            { prop.SetValue(parent, BuildCopiedList(pt, wlif.GetGenericArguments()[0], wsrc)); return; }
+            // a Loqui sub-object / TranslatedString / any getter with a generated DeepCopy() — deep copy to the settable concrete
+            if (TryDeepCopy(srcVal) is { } deep && pt.IsInstanceOfType(deep)) { prop.SetValue(parent, deep); return; }
+            // a directly-assignable immutable reference (string, MemorySlice…) — safe to share while the source overlay lives
+            if (pt.IsInstanceOfType(srcVal)) { prop.SetValue(parent, srcVal); return; }
+            // a settable FormLink slot (rare) — build the matching concrete from the source key
+            if (srcVal is IFormLinkGetter sfl && TryFormLink(sfl.FormKey.ToString(), Nullable.GetUnderlyingType(pt) ?? pt, out var mk)
+                && mk is not null && pt.IsInstanceOfType(mk)) { prop.SetValue(parent, mk); return; }
+            throw new InvalidOperationException(
+                $"CopyFrom cannot assign a {Pretty(srcVal.GetType())} into settable '{prop.Name}' ({Pretty(pt)}) — a field kind CopyFrom doesn't yet transplant (surfaced, not silently skipped).");
+        }
+
+        // get-only: mutate the live instance in place
+        if (srcVal is IFormLinkGetter fl)   // get-only FormLink (IFormLink<T> / IFormLinkNullable<T>) → SetTo the source key
+        {
+            var live = prop.GetValue(parent)
+                ?? throw new InvalidOperationException($"CopyFrom: get-only formlink '{prop.Name}' is null on the target.");
+            InvokeSetTo(live, fl.FormKey); return;
+        }
+        if (ClosedInterface(pt, typeof(IList<>)) is { } lif && srcVal is System.Collections.IEnumerable lsrc)
+        {
+            var live = prop.GetValue(parent)
+                ?? throw new InvalidOperationException($"CopyFrom: get-only collection '{prop.Name}' is null on the target.");
+            ReplaceListInPlace(live, lif.GetGenericArguments()[0], lsrc); return;
+        }
+        throw new InvalidOperationException(
+            $"CopyFrom cannot transplant get-only '{prop.Name}' ({Pretty(pt)}) — not a formlink or collection (surfaced, not silently skipped).");
+    }
+
+    // Cache of the DeepCopy method (instance or Mutagen extension) per getter runtime type — the reflection search below
+    // is done ONCE per type. A null entry means "no DeepCopy" (a plain scalar/value) — memoised too.
+    static readonly System.Collections.Concurrent.ConcurrentDictionary<Type, (MethodInfo? m, bool isExtension)> _deepCopyOf = new();
+
+    /// <summary>DeepCopy a Loqui getter to its settable concrete. Mutagen generates DeepCopy as an EXTENSION method
+    /// (<c>SomethingMixIn.DeepCopy(this ISomethingGetter, TranslationMask? = null)</c>), not a parameterless instance
+    /// method, so this finds and invokes it (or a same-shape instance overload where one exists). Returns null when the
+    /// value has no DeepCopy (a plain scalar/value/string — the caller then assigns it directly). Per-type memoised.</summary>
+    static object? TryDeepCopy(object val)
+    {
+        var t = val.GetType();
+        var (m, isExtension) = _deepCopyOf.GetOrAdd(t, FindDeepCopy);
+        if (m is null) return null;
+        var ps = m.GetParameters();
+        var args = new object?[ps.Length];
+        int start = 0;
+        if (isExtension) { args[0] = val; start = 1; }
+        for (int i = start; i < ps.Length; i++) args[i] = ps[i].HasDefaultValue ? ps[i].DefaultValue : null;
+        return m.Invoke(isExtension ? null : val, args);
+    }
+
+    /// <summary>Locate a DeepCopy for <paramref name="getterType"/>: first a same-shape INSTANCE overload (all args
+    /// optional), else the Mutagen static EXTENSION (<c>DeepCopy(this &lt;getter&gt;, optional…)</c>) — the most-derived
+    /// first-parameter among matches (so a specific arm's extension is preferred over a base one). Non-void, non-generic.</summary>
+    static (MethodInfo? m, bool isExtension) FindDeepCopy(Type getterType)
+    {
+        var inst = getterType.GetMethods(BindingFlags.Public | BindingFlags.Instance)
+            .Where(mm => mm.Name == "DeepCopy" && mm.ReturnType != typeof(void) && !mm.IsGenericMethodDefinition
+                      && mm.GetParameters().All(pp => pp.IsOptional))
+            .OrderBy(mm => mm.GetParameters().Length).FirstOrDefault();
+        if (inst is not null) return (inst, false);
+
+        MethodInfo? best = null;
+        foreach (var asm in AppDomain.CurrentDomain.GetAssemblies().Where(a => (a.GetName().Name ?? "").StartsWith("Mutagen")))
+            foreach (var type in SafeTypes(asm))
+            {
+                if (!(type.IsAbstract && type.IsSealed)) continue;   // a C# static class (holds extension methods)
+                foreach (var mm in type.GetMethods(BindingFlags.Public | BindingFlags.Static))
+                {
+                    if (mm.Name != "DeepCopy" || mm.ReturnType == typeof(void) || mm.IsGenericMethodDefinition) continue;
+                    var ps = mm.GetParameters();
+                    if (ps.Length == 0 || !ps[0].ParameterType.IsAssignableFrom(getterType)) continue;   // receiver accepts this getter
+                    if (!ps.Skip(1).All(pp => pp.IsOptional)) continue;                                   // every other arg optional
+                    if (best is null || best.GetParameters()[0].ParameterType.IsAssignableFrom(ps[0].ParameterType))
+                        best = mm;   // prefer the most-derived receiver type among matches
+                }
+            }
+        return (best, true);
+    }
+
+    /// <summary>Copy ONE collection element to a target element of <paramref name="elemType"/>: a formlink/value element
+    /// the target already accepts passes through (immutable while the source overlay lives); a Loqui element is
+    /// DeepCopy'd. Loud on an unhandled element kind.</summary>
+    static object CopyElement(Type elemType, object elem)
+    {
+        if (elemType.IsInstanceOfType(elem)) return elem;                                   // formlink getter / value — share is safe
+        if (TryDeepCopy(elem) is { } deep && elemType.IsInstanceOfType(deep)) return deep;   // Loqui element → settable copy
+        throw new InvalidOperationException($"CopyFrom: cannot copy a {Pretty(elem.GetType())} element into a {Pretty(elemType)} list.");
+    }
+
+    /// <summary>Build a fresh settable collection of <paramref name="collType"/> (ExtendedList&lt;T&gt;) holding copies of
+    /// every element of <paramref name="src"/> — the settable-collection transplant.</summary>
+    static object BuildCopiedList(Type collType, Type elemType, System.Collections.IEnumerable src)
+    {
+        var list = System.Activator.CreateInstance(collType)
+            ?? throw new InvalidOperationException($"CopyFrom: could not instantiate collection {Pretty(collType)}.");
+        var add = list.GetType().GetMethod("Add", new[] { elemType })
+            ?? throw new InvalidOperationException($"CopyFrom: no Add({Pretty(elemType)}) on {Pretty(list.GetType())}.");
+        foreach (var e in src) if (e is not null) add.Invoke(list, new[] { CopyElement(elemType, e) });
+        return list;
+    }
+
+    /// <summary>Replace a live get-only collection's contents with copies of every element of <paramref name="src"/>
+    /// (Clear then Add) — the get-only-collection transplant.</summary>
+    static void ReplaceListInPlace(object live, Type elemType, System.Collections.IEnumerable src)
+    {
+        var lt = live.GetType();
+        lt.GetMethod("Clear")!.Invoke(live, null);
+        var add = lt.GetMethod("Add", new[] { elemType })
+            ?? throw new InvalidOperationException($"CopyFrom: no Add({Pretty(elemType)}) on {Pretty(lt)}.");
+        foreach (var e in src) if (e is not null) add.Invoke(live, new[] { CopyElement(elemType, e) });
+    }
+
+    /// <summary>Reflectively call <c>SetTo(FormKey)</c> on a live get-only FormLink (IFormLink&lt;T&gt; /
+    /// IFormLinkNullable&lt;T&gt;) — the same mutation NpcAppearanceCopy does typed.</summary>
+    static void InvokeSetTo(object link, FormKey fk)
+    {
+        var m = link.GetType().GetMethod("SetTo", new[] { typeof(FormKey) });
+        if (m is not null) { m.Invoke(link, new object[] { fk }); return; }
+        var mn = link.GetType().GetMethod("SetTo", new[] { typeof(FormKey?) });
+        if (mn is not null) { mn.Invoke(link, new object?[] { (FormKey?)fk }); return; }
+        throw new InvalidOperationException($"CopyFrom: no SetTo(FormKey) on formlink {Pretty(link.GetType())}.");
+    }
+
     static void ApplyScalarVerb(object parent, PropertyInfo prop, WriteRequest req)
     {
         if (!prop.CanWrite) throw new InvalidOperationException($"Property '{prop.Name}' is not writable");

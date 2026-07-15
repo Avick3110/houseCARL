@@ -238,6 +238,13 @@ public sealed class CorpusRulebook
         if (req.Structs is not null)
             return ComposesLegality(leaf, leafOwner, req, siblingEditorIds);
 
+        // (3a-copyfrom) P8b CopyFrom transplants the WHOLE field from another plugin's version — a distinct input shape
+        // (no wire value; the source is from_plugin). Gate writable + not-identity + a transplantable KIND here; the
+        // SOURCE resolution (is from_plugin in the order / does it define the record) is the cleave's Phase 1. The one
+        // non-transplantable kind is an owned-child record collection — refused by name (forward the whole record).
+        if (string.Equals(req.Verb, "CopyFrom", StringComparison.Ordinal))
+            return CopyFromLegality(leaf, leafOwner);
+
         // (3a) verb legal for this cardinality?
         if (VerbLegality(leaf, req) is { } verbErr) return verbErr;
 
@@ -333,6 +340,24 @@ public sealed class CorpusRulebook
         for (int i = 0; i < req.Structs.Count; i++)
             if (StructElementLegality(leaf, req.Structs[i], siblingEditorIds) is { } elemErr)
                 return $"composes[{i}]: {elemErr}";
+        return null;
+    }
+
+    /// <summary>P8b — validate a CopyFrom target leaf: writable, not record identity, and a TRANSPLANTABLE kind. The one
+    /// non-transplantable kind is an owned-child record collection (Cell.Persistent, DialogTopic.Responses, …) — CopyFrom
+    /// copies a FIELD's value, not owned child records; refuse by name and redirect to forward_record (whole record) or
+    /// the record axis (create_record). Everything else — scalar/enum/value, formlink, formlink/modeled list, sub-struct,
+    /// polymorphic arm — WriteEngine.CopyField transplants by construction. The SAME record-element predicate the write
+    /// verbs use (step 4-rec), so gate and apply can't drift on what counts as an owned child.</summary>
+    string? CopyFromLegality(FieldSchema leaf, TypeSchema owner)
+    {
+        if (leaf.IsIdentity)
+            return $"'{leaf.Name}' on '{owner.Name}' is record identity (FormKey/ModKey), not a copyable content field.";
+        if (!leaf.Writable) return WritabilityRejection(owner, leaf);
+        if (leaf.Cardinality is "list" or "dict" && SchemaClassifier.ClassifyElement(leaf, _corpus) == ElementKind.Record)
+            return $"'{leaf.Name}' on '{owner.Name}' holds owned child records ({leaf.ElementTypeRef}); CopyFrom copies a " +
+                   "FIELD's value, not owned child records. To carry the WHOLE record from another plugin use " +
+                   "housecarl_forward_record; a child record is authored on its own (housecarl_create_record with parent=).";
         return null;
     }
 
