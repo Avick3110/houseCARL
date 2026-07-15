@@ -358,6 +358,9 @@ public sealed class CorpusRulebook
             return $"'{leaf.Name}' on '{owner.Name}' holds owned child records ({leaf.ElementTypeRef}); CopyFrom copies a " +
                    "FIELD's value, not owned child records. To carry the WHOLE record from another plugin use " +
                    "housecarl_forward_record; a child record is authored on its own (housecarl_create_record with parent=).";
+        if (leaf.Cardinality == "dict")
+            return $"'{leaf.Name}' on '{owner.Name}' is a dict field; CopyFrom transplants scalar / formlink / list / " +
+                   "sub-struct fields — a dict isn't transplanted yet. Set its entries individually, or forward the whole record.";
         return null;
     }
 

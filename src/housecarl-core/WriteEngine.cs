@@ -1813,6 +1813,12 @@ public static class WriteEngine
     static void TransplantValue(object parent, PropertyInfo prop, object srcVal)
     {
         var pt = prop.PropertyType;
+        // Array-backed collections (a fixed-size game structure, e.g. Weather clouds) implement IList<T> but can't be
+        // Activator-instantiated without a length — the write verbs already refuse them; CopyFrom does too, CLEANLY (a
+        // clean apply-time refusal, not the "pre-flight accepted but apply threw" inconsistency wrapper). Tracked gap.
+        if (pt.IsArray)
+            throw new ExpectedApplyRejectionException(
+                $"CopyFrom does not transplant the array-backed collection '{prop.Name}' ({Pretty(pt)}) — a fixed-size game structure; a tracked gap, mirroring the write verbs.");
         if (prop.CanWrite)
         {
             // a value/enum/struct-value (int, float, enum, Color, Percent, FormKey…) — copied by value on assign
@@ -1827,8 +1833,8 @@ public static class WriteEngine
             // a settable FormLink slot (rare) — build the matching concrete from the source key
             if (srcVal is IFormLinkGetter sfl && TryFormLink(sfl.FormKey.ToString(), Nullable.GetUnderlyingType(pt) ?? pt, out var mk)
                 && mk is not null && pt.IsInstanceOfType(mk)) { prop.SetValue(parent, mk); return; }
-            throw new InvalidOperationException(
-                $"CopyFrom cannot assign a {Pretty(srcVal.GetType())} into settable '{prop.Name}' ({Pretty(pt)}) — a field kind CopyFrom doesn't yet transplant (surfaced, not silently skipped).");
+            throw new ExpectedApplyRejectionException(
+                $"CopyFrom cannot assign a {Pretty(srcVal.GetType())} into settable '{prop.Name}' ({Pretty(pt)}) — a field kind CopyFrom doesn't transplant yet (a clean refusal, not a silent skip).");
         }
 
         // get-only: mutate the live instance in place
@@ -1844,8 +1850,8 @@ public static class WriteEngine
                 ?? throw new InvalidOperationException($"CopyFrom: get-only collection '{prop.Name}' is null on the target.");
             ReplaceListInPlace(live, lif.GetGenericArguments()[0], lsrc); return;
         }
-        throw new InvalidOperationException(
-            $"CopyFrom cannot transplant get-only '{prop.Name}' ({Pretty(pt)}) — not a formlink or collection (surfaced, not silently skipped).");
+        throw new ExpectedApplyRejectionException(
+            $"CopyFrom cannot transplant get-only '{prop.Name}' ({Pretty(pt)}) — not a formlink or collection (a field kind CopyFrom doesn't transplant yet; a clean refusal, not a silent skip).");
     }
 
     // Cache of the DeepCopy method (instance or Mutagen extension) per getter runtime type — the reflection search below
