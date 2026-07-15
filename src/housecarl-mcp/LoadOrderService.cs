@@ -3477,11 +3477,13 @@ public sealed class LoadOrderService : IDisposable
             spec = MapStruct(op.Compose, where, out error);
             if (error is not null) return null;
         }
+        var specs = MapComposes(op, where, spec, out error);
+        if (error is not null) return null;
 
         return new WriteRequest
         {
             RecordType = recordType, Path = path, Verb = string.IsNullOrWhiteSpace(op.Verb) ? "Set" : op.Verb,
-            Key = op.Key, Value = op.Value, Values = op.Values, Entries = op.Entries, Struct = spec,
+            Key = op.Key, Value = op.Value, Values = op.Values, Entries = op.Entries, Struct = spec, Structs = specs,
         };
     }
 
@@ -3506,11 +3508,13 @@ public sealed class LoadOrderService : IDisposable
             spec = MapStruct(op.Compose, where, out error);
             if (error is not null) return null;
         }
+        var specs = MapComposes(op, where, spec, out error);
+        if (error is not null) return null;
 
         return new WritePatchBuilder.PatchEdit
         {
             Target = fk, Path = path, Verb = string.IsNullOrWhiteSpace(op.Verb) ? "Set" : op.Verb,
-            Key = op.Key, Value = op.Value, Values = op.Values, Entries = op.Entries, Struct = spec,
+            Key = op.Key, Value = op.Value, Values = op.Values, Entries = op.Entries, Struct = spec, Structs = specs,
         };
     }
 
@@ -3551,6 +3555,35 @@ public sealed class LoadOrderService : IDisposable
             }
         }
         return new StructSpec { Type = s.Type!, Fields = s.Fields, CtorArgs = s.CtorArgs, Sets = sets };
+    }
+
+    /// <summary>P8a — map a wire op's composes[] (MANY build-from-parts list elements) to core StructSpecs. Mutually
+    /// exclusive with the singular compose (both set → refused loud, Q3, never silently merged). Each element maps via
+    /// the SAME <see cref="MapStruct"/> the singular compose uses, so a composes element can never be shaped differently
+    /// from a compose element; a bad element names itself (composes[i]). Returns null when no composes= is present; an
+    /// explicitly EMPTY composes=[] is a named caller mistake, not a silent no-op.</summary>
+    static List<StructSpec>? MapComposes(BulkOp op, string where, StructSpec? singular, out string? error)
+    {
+        error = null;
+        if (op.Composes is null) return null;
+        if (op.Composes.Length == 0)
+        {
+            error = $"{where}: composes=[] is empty — supply one or more element specs, or use compose= for exactly one.";
+            return null;
+        }
+        if (singular is not null)
+        {
+            error = $"{where}: pass compose= (one element) OR composes= (many), not both.";
+            return null;
+        }
+        var specs = new List<StructSpec>(op.Composes.Length);
+        for (int j = 0; j < op.Composes.Length; j++)
+        {
+            var s = MapStruct(op.Composes[j], $"{where} composes[{j}]", out error);
+            if (error is not null) return null;
+            specs.Add(s!);
+        }
+        return specs;
     }
 
     static string[] SplitPath(string dotted)
