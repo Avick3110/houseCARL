@@ -1,0 +1,21 @@
+[
+  {"query": "Build me a catalogue of every piece of armour the exotic armour plugins add — name, armor rating, slots, and how you craft each one. I want it as a spreadsheet eventually.", "should_trigger": true},
+  {"query": "which mods win the contested Apocalypse spell records? there are like 800 of them, i just want a breakdown by plugin", "should_trigger": true},
+  {"query": "I need to rebuild the old Requiem-Apocalypse patch against Apocalypse 10.2.3 — the old patch is disabled in MO2 but still on disk. Figure out what deltas it applied and re-apply the still-valid ones onto the new baseline.", "should_trigger": true},
+  {"query": "Extract every weapon defined in Heavy Armory.esp with its damage, reach, speed and material keywords, and return the results as JSON rows.", "should_trigger": true},
+  {"query": "can you list all the smithing recipes that use ebony ingots across my whole load order and which perks gate them", "should_trigger": true},
+  {"query": "Aaron wants an in-game book listing every craftable jewelry piece with materials and stations - can you pull that data together?", "should_trigger": true},
+  {"query": "audit Immersive Weapons for me - what does it actually add vs just override, and are its stats still live after all my patches?", "should_trigger": true},
+  {"query": "I'm fanning this out to 6 subagents, each takes a plugin group and extracts the NPC data. What should I tell them so the outputs merge cleanly?", "should_trigger": true},
+  {"query": "make me a table of all requiem heavy armors w/ live AR values, the ones in the esp are stale i think", "should_trigger": true},
+  {"query": "What fields does the COBJ record type have? Is WorkbenchKeyword writable?", "should_trigger": false},
+  {"query": "Why does my character's face turn grey when I install this NPC replacer mod?", "should_trigger": false},
+  {"query": "Change the damage on Chillrend to 25 in a new patch plugin", "should_trigger": false},
+  {"query": "Write a SPID ini that distributes this cloak spell to all bandit NPCs", "should_trigger": false},
+  {"query": "Which armors sit on biped slot 52 in my load order?", "should_trigger": false},
+  {"query": "What does REQ_DisableRecipe mean when it's the workbench keyword on a recipe record?", "should_trigger": false},
+  {"query": "My game CTDs when I open the smithing menu at the forge, can you check the crash logs?", "should_trigger": false},
+  {"query": "read me the stats of the iron sword real quick", "should_trigger": false},
+  {"query": "Compact my new patch plugin to ESL and run the error check on it", "should_trigger": false},
+  {"query": "what changed between the two versions of this one perk record, 0A1B2C in the old esp vs the new one?", "should_trigger": false}
+]
