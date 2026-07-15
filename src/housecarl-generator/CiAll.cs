@@ -42,6 +42,11 @@ public static class CiAll
         ("floi-fields-guard", FloiFieldsProbe.RunGuard),
         ("forward-from-plugin-guard", ForwardFromPluginProbe.RunGuard),
         ("extend-resolve-guard", ExtendResolveProbe.RunGuard),
+        // Patch-stem load-order collision (PR #192 review): the default stem "Patch" → "Patch.esp" basename is common,
+        // and mod-folder uniqueness alone can't see a same-named plugin in another mod, so UniqueStem now also uniquifies
+        // against the active load order. Drives the real service write on a synth order that already holds an active
+        // "Patch.esp"; a default-stem write must dodge to "Patch_001", a non-colliding stem stays bare, base byte-intact.
+        ("patch-stem-collision-guard", PatchStemCollisionProbe.RunGuard),
         ("create-plugin-guard", CreatePluginGuardProbe.RunGuard),
         ("value-predicate-guard", ValuePredicateProbe.RunGuard),
         ("effect-chain-guard", EffectChainProbe.RunGuard),
