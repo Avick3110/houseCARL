@@ -273,6 +273,22 @@ public sealed class CorpusRulebook
         return inner.Length == 0 ? null : inner;
     }
 
+    /// <summary>True iff the leaf is a <c>[Flags]</c>-attributed enum — the ONLY scalar/enum kind the bit verbs
+    /// <c>Add</c>/<c>Remove</c> operate on (a single-value enum like CastType has no bits to OR/clear, so it stays
+    /// refused). Resolved from the field's OWN assembly-qualified type — never the simple-name catalog, which
+    /// collides on shared enum names ("Flags", "MajorFlags", …) — checking <see cref="FlagsAttribute"/>. False when
+    /// the AQ won't resolve (Q3 — never ASSUME flags-ness, so a bit verb is refused rather than accepted-then-thrown).
+    /// The SAME resolution the apply path keys on (WriteEngine.ApplyScalarVerb's [Flags] gate), so gate and apply
+    /// can't drift on which leaves accept a bit verb.</summary>
+    static bool IsFlagsEnumLeaf(FieldSchema leaf)
+    {
+        if (leaf.Cardinality != "enum") return false;
+        var aq = leaf.MutableTypeAssemblyQualified ?? leaf.GetterTypeAssemblyQualified;
+        if (WriteEngine.ResolveType(aq) is not { } rt) return false;
+        var u = Nullable.GetUnderlyingType(rt) ?? rt;
+        return u.IsEnum && u.IsDefined(typeof(FlagsAttribute), false);
+    }
+
     // ---- verb × cardinality (plan §3 P-VERBS) ----
     static string? VerbLegality(FieldSchema leaf, WriteRequest req)
     {
@@ -289,13 +305,24 @@ public sealed class CorpusRulebook
                 // MISSING key reaches apply and throws UNNAMED (Coerce(null)). A list Add appends — no key. Gate dict-Add
                 // key PRESENCE here, the structural twin of Set-on-dict above (key VALUE-shape is ValueLegality's step-4-key).
                 if (c == "dict") return hasKey ? null : $"Add on dict field '{leaf.Name}' requires a key.";
-                return c == "list" ? null : $"Add is only valid on list/dict; '{leaf.Name}' is {c}.";
+                if (c == "list") return null;
+                // A [Flags] enum accepts Add as a bit-SET (OR the flag in, other bits preserved) — the fix for the
+                // silent-clobber a whole-value Set caused (HCBR-2026-07-15). A bit verb takes no key (it is not a
+                // collection); the flag VALUE is gated in ValueLegality. Non-flags scalars/enums still refuse below.
+                if (IsFlagsEnumLeaf(leaf))
+                    return hasKey ? $"Add on flags field '{leaf.Name}' takes no key — the value IS the flag to set." : null;
+                return $"Add is only valid on a list/dict or a [Flags] enum; '{leaf.Name}' is {c}.";
             case "Remove":
                 // A dict Remove identifies the entry to drop BY KEY (ApplyDictVerb -> Coerce(req.Key!, kType)); a MISSING
                 // key throws UNNAMED at apply. A list Remove is by-index-OR-by-value (ApplyListVerb): a null key legally
                 // falls back to remove-by-value, so list Remove needs NO key — gate dict-Remove key PRESENCE only.
                 if (c == "dict") return hasKey ? null : $"Remove on dict field '{leaf.Name}' requires a key.";
                 if (c == "list") return null;
+                // A [Flags] enum accepts Remove as a bit-CLEAR (AND-NOT the flag out, other bits preserved) — the
+                // Remove twin of the flags Add above (HCBR-2026-07-15). Distinct from the nullable-scalar whole-clear
+                // below: it clears ONE bit, not the whole field. No key; the flag VALUE is gated in ValueLegality.
+                if (IsFlagsEnumLeaf(leaf))
+                    return hasKey ? $"Remove on flags field '{leaf.Name}' takes no key — the value IS the flag to clear." : null;
                 return leaf.Nullable ? null : $"Remove on non-nullable {c} field '{leaf.Name}' is not valid.";
             case "ReplaceAll":
                 return c is "list" or "dict" ? null : $"ReplaceAll is only valid on list/dict; '{leaf.Name}' is {c}.";
@@ -545,6 +572,19 @@ public sealed class CorpusRulebook
                 return CoercibilityReject(leaf);
             }
             return CheckValue(leaf.Type, req.Value, $"value for '{leaf.Name}'",
+                leaf.MutableTypeAssemblyQualified ?? leaf.GetterTypeAssemblyQualified);
+        }
+        // (step 4-flags) Add/Remove on a [Flags] enum are bit-SET / bit-CLEAR (HCBR-2026-07-15): the value is the
+        // flag(s) to OR in or AND-NOT out. VerbLegality already admitted the verb for a [Flags] leaf; validate the
+        // flag NAME/bits here with the SAME CheckValue recognizer a Set uses (the field's real enum AQ), so a bogus
+        // flag fails LOUD at the gate instead of throwing Enum.Parse at apply (Q3 accept-then-throw). Value PRESENCE
+        // mirrors Set's "requires a value". Gated ahead of the collection branches (which are list/dict-scoped and
+        // would ignore an enum leaf anyway) so it can't fall through to the terminal `return null` accept.
+        if (req.Verb is "Add" or "Remove" && IsFlagsEnumLeaf(leaf))
+        {
+            if (req.Value is null)
+                return $"{req.Verb} on flags field '{leaf.Name}' requires a flag value (the bit to {(req.Verb == "Add" ? "set" : "clear")}).";
+            return CheckValue(leaf.Type, req.Value, $"flag value for '{leaf.Name}'",
                 leaf.MutableTypeAssemblyQualified ?? leaf.GetterTypeAssemblyQualified);
         }
         // (step 4-pre) ELEMENT-VALUE PRESENCE — the collection twin of the singular Set "requires a value" reject
