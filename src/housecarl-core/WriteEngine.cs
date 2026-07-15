@@ -1959,6 +1959,18 @@ public static class WriteEngine
         // §E.1). Recognised by the generic definition (IsFormLinkOrIndex) — no per-record-type wiring.
         if (req.Verb == "Set" && IsFormLinkOrIndex(prop.PropertyType)) { SetFloi(parent, prop, req.Value!); return; }
 
+        // Add/Remove on a [Flags] enum are BIT operations (HCBR-2026-07-15), NOT whole-value Set/clear: Add ORs the
+        // operand's bit(s) into the current value, Remove ANDs them out — so a single flag flips without the caller
+        // re-listing every OTHER bit (the silent-clobber this closes: a literal Set dropped every unlisted bit). Gated
+        // to [Flags] enums; Remove on any other scalar stays the whole-field clear below, and Add on a non-flags scalar
+        // still hits the default reject. Pre-flight (CorpusRulebook's flags-enum branch) already validated the operand
+        // as a legal flag name / bit value, but we fail LOUD here for a pre-flight-bypassing direct/CLI caller (Q3).
+        if (req.Verb is "Add" or "Remove")
+        {
+            var ut = Nullable.GetUnderlyingType(prop.PropertyType) ?? prop.PropertyType;
+            if (ut.IsEnum && ut.IsDefined(typeof(FlagsAttribute), false)) { ApplyFlagsBitVerb(parent, prop, ut, req); return; }
+        }
+
         switch (req.Verb)
         {
             case "Set":
@@ -1987,6 +1999,33 @@ public static class WriteEngine
             default:
                 throw new InvalidOperationException($"Verb '{req.Verb}' is not valid on scalar/substruct '{prop.Name}'.");
         }
+    }
+
+    /// <summary>Flags-enum bit op (HCBR-2026-07-15): OR (<c>Add</c>) or AND-NOT (<c>Remove</c>) the operand's bit(s)
+    /// into the leaf's CURRENT value, so one flag flips while every other bit is preserved — the fix for the
+    /// silent-clobber a literal <see cref="Coerce"/> Set caused (an unlisted bit was dropped). The operand is resolved
+    /// through the SAME enum coercion a Set uses (<see cref="Coerce"/> → <c>Enum.Parse</c>: a flag NAME, a
+    /// case-insensitive comma-combo, or a decimal literal) so pre-flight (CheckValue → TryCoerce) and apply can't
+    /// disagree on a legal operand; its bits and the current value's bits are read through
+    /// <see cref="ReadEngine.TryEnumBits"/> (robust across every underlying integer type). The combined pattern is
+    /// re-boxed to the enum type via <c>Enum.ToObject</c>. Called only for a confirmed <c>[Flags]</c> leaf.</summary>
+    static void ApplyFlagsBitVerb(object parent, PropertyInfo prop, Type enumType, WriteRequest req)
+    {
+        if (!prop.CanWrite) throw new InvalidOperationException($"Property '{prop.Name}' is not writable");
+        if (req.Value is null)
+            throw new InvalidOperationException($"Flags {req.Verb} on '{prop.Name}' requires a flag value (the bit to {(req.Verb == "Add" ? "set" : "clear")}).");
+
+        var current = prop.GetValue(parent);
+        ulong curBits = 0;
+        if (current is not null && !ReadEngine.TryEnumBits(current, enumType, out curBits))
+            throw new InvalidOperationException($"Flags {req.Verb} on '{prop.Name}': could not read the current {enumType.Name} value as bits.");
+
+        var opVal = Coerce(req.Value, enumType);   // Enum.Parse via the enum coercion family — fail-loud on a bad flag
+        if (opVal is null || !ReadEngine.TryEnumBits(opVal, enumType, out var opBits))
+            throw new InvalidOperationException($"Flags {req.Verb} on '{prop.Name}': '{req.Value}' is not a legal {enumType.Name} flag name or bit value.");
+
+        ulong combined = req.Verb == "Add" ? (curBits | opBits) : (curBits & ~opBits);
+        prop.SetValue(parent, Enum.ToObject(enumType, combined));
     }
 
     /// <summary>

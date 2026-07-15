@@ -97,6 +97,11 @@ public static class CiAll
         ("nullarm-guard", NullArmGuardProbe.RunGuard),
         ("formlink-null-guard", FormLinkNullProbe.RunGuard),
         ("formlink-remove-guard", FormLinkRemoveProbe.RunGuard),
+        // Flags-enum bit verbs (HCBR-2026-07-15): Add/Remove on a [Flags] enum are bit-SET / bit-CLEAR, preserving the
+        // OTHER bits — closing the silent-clobber a whole-value Set caused. Pre-flight admits the verb + validates the
+        // flag (gate), apply ORs/AND-NOTs the bit (WriteEngine), the two keyed off the SAME FlagsAttribute test; the
+        // anti-clobber Add + scoped-not-universal controls are the teeth. Self-contained (Quest.Flags, no Skyrim.esm).
+        ("flags-bit-verb-guard", FlagsBitVerbProbe.RunGuard),
         ("gendered-nav-guard", GenderedNavProbe.RunGuard),
         ("loadorder-status-guard", LoadOrderStatusProbe.RunGuard),
         ("compile-ergonomics-guard", CompileErgonomicsProbe.RunGuard),

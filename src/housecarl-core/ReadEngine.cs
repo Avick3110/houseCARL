@@ -642,9 +642,10 @@ public static class ReadEngine
     }
 
     /// <summary>The unsigned bit pattern of a boxed enum value, robust across every underlying integer type
-    /// (signed or unsigned) — the bits a <c>has</c> predicate ANDs against. Read through the declared underlying
-    /// type so a high-bit-set signed enum yields its two's-complement pattern rather than overflowing.</summary>
-    static bool TryEnumBits(object val, Type enumType, out ulong bits)
+    /// (signed or unsigned) — the bits a <c>has</c> predicate ANDs against, and the write engine's flags
+    /// Add/Remove OR/AND-NOT operand. Read through the declared underlying type so a high-bit-set signed enum
+    /// yields its two's-complement pattern rather than overflowing.</summary>
+    internal static bool TryEnumBits(object val, Type enumType, out ulong bits)
     {
         bits = 0;
         try

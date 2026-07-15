@@ -36,9 +36,9 @@ public static class WriteTools
             string formid,
         [Description("Dotted field path to edit, e.g. 'BasicStats.Damage', 'Name', 'Keywords'. Step into a list/dict element MID-PATH with brackets, e.g. 'Effects[0].Data.Magnitude' or 'VirtualMachineAdapter.Aliases[0].Scripts[0].Properties'. At the LEAF, edit a collection element with verb + key (SetAtIndex/Remove by index, Set/Remove by dict key) — not brackets.")]
             string field_path,
-        [Description("The value, coerced to the field's type: a number, an enum name (e.g. 'OneHanded'), or a FormID 'XXXXXX:Plugin.esp' for a reference. Omit only for Remove.")]
+        [Description("The value, coerced to the field's type: a number, an enum name (e.g. 'OneHanded'), or a FormID 'XXXXXX:Plugin.esp' for a reference. On a [Flags] enum, the flag(s) to Add/Remove (a name or comma-combo, e.g. 'ManualCostCalc'). Omit only for a Remove that CLEARS a whole scalar/link (a flags Remove still needs the bit to clear).")]
             string? value = null,
-        [Description("Set (default) | Add | Remove | SetAtIndex | ReplaceAll. Set edits a scalar (or a dict element with key=); Add/Remove/SetAtIndex/ReplaceAll edit a collection.")]
+        [Description("Set (default) | Add | Remove | SetAtIndex | ReplaceAll. Set edits a scalar (or a dict element with key=); Add/Remove/SetAtIndex/ReplaceAll edit a collection. On a [Flags] enum (SPEL Flags, NPC Configuration.Flags, WEAP Data.Flags, …), Add SETS a bit and Remove CLEARS one, leaving the OTHER bits untouched — the way to flip one flag WITHOUT a Set re-listing (and silently dropping) every bit you didn't mention.")]
             string verb = "Set",
         [Description("Optional. The dict key or list index at the leaf (for a dict Set, a SetAtIndex/Remove on a list, etc.).")]
             string? key = null,
