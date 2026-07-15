@@ -49,7 +49,7 @@ internal static class BsaContractProbe
             Console.WriteLine("--- 1: unpack provenance ---");
             var seeded = Path.Combine(work, "seeded");
             Directory.CreateDirectory(seeded);
-            File.WriteAllText(Path.Combine(seeded, "meta.ini"), "[houseCARL]\ngenerated=true\n");
+            File.WriteAllText(Path.Combine(seeded, "meta.ini"), $"{HousecarlOwnerMeta.Section}\ngenerated=true\n");
             var r1 = BsaArchive.Unpack(stub, fakeArchive, seeded, timeoutMs: 30_000);
             Check(r1.Ran, "stub ran (the failure is BSArch's, not a run error)");
             Check(!r1.Success, "pre-seeded dest + failing BSArch = FAILURE (the marker alone no longer reads as success)");

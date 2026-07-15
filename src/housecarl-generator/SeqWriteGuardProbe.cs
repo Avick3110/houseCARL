@@ -195,7 +195,7 @@ internal static class SeqWriteGuardProbe
             // SERVICE-WRITE + SAME-FOLDER: a houseCARL-OWNED patch folder under mods, holding an SGE-quest plugin.
             string ownedFolder = Path.Combine(mods, "houseCARL - HcSeqSvc");
             Directory.CreateDirectory(ownedFolder);
-            File.WriteAllText(Path.Combine(ownedFolder, "meta.ini"), "[General]\r\ngameName=skyrimse\r\n\r\n[houseCARL]\r\ngenerated=true\r\n");
+            File.WriteAllText(Path.Combine(ownedFolder, "meta.ini"), $"[General]\r\ngameName=skyrimse\r\n\r\n{HousecarlOwnerMeta.Section}\r\ngenerated=true\r\n");
             string svcPlugin = Path.Combine(ownedFolder, "HcSeqSvc.esp");
             {
                 var p = new SkyrimMod(new ModKey("HcSeqSvc", ModType.Plugin), SkyrimRelease.SkyrimSE);
