@@ -42,8 +42,8 @@ public static class BulkPrimitivesWave3Probe
         try
         {
             ComposesArm(Path.Combine(root, "p8a"));   // P8a
-            CopyFromArm(Path.Combine(root, "p8b"));    // P8b (active-order source; off-order pole added with the service support)
-            // P8c diff_record arm lands in its own commit.
+            CopyFromArm(Path.Combine(root, "p8b"));    // P8b (active-order + off-order source)
+            DiffArm(Path.Combine(root, "p8c"));        // P8c
 
             Console.WriteLine();
             Console.WriteLine($"=== bulk-primitives-wave3-guard: {_pass} passed, {_fail} failed -> {(_fail == 0 ? "PASS" : "FAIL")} ===");
@@ -381,5 +381,105 @@ public static class BulkPrimitivesWave3Probe
             "CfCreate", null);
         Check("refusal: CopyFrom in a CREATE op → refused (isn't valid when creating)",
               !createCopy.Success && createCopy.Error is { } e7 && e7.Contains("isn't valid when CREATING"));
+    }
+
+    // ================= P8c — housecarl_diff_record (pairwise field diff, active + off-order poles) =================
+    static void DiffArm(string dir)
+    {
+        Console.WriteLine();
+        Console.WriteLine("── P8c: housecarl_diff_record — pairwise field diff (active + off-order poles) + refusals ──");
+
+        string instance = Path.Combine(dir, "instance");
+        string profiles = Path.Combine(instance, "profiles", "Default");
+        string mods = Path.Combine(instance, "mods");
+        Directory.CreateDirectory(profiles); Directory.CreateDirectory(mods);
+        Directory.CreateDirectory(Path.Combine(dir, "game", "Data"));
+        File.WriteAllText(Path.Combine(instance, "ModOrganizer.ini"),
+            "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(Default)\r\ngamePath=@ByteArray("
+            + Path.Combine(dir, "game").Replace(@"\", @"\\") + ")\r\n");
+
+        var mKey = new ModKey("HcW3DiffMaster", ModType.Master);
+        var rKey = new ModKey("HcW3DiffRepl", ModType.Plugin);
+        var masterPath = Path.Combine(mods, "DiffMaster", mKey.FileName.String);
+        var replPath = Path.Combine(mods, "DiffRepl", rKey.FileName.String);
+        Directory.CreateDirectory(Path.GetDirectoryName(masterPath)!);
+        Directory.CreateDirectory(Path.GetDirectoryName(replPath)!);
+
+        var m = new SkyrimMod(mKey, SkyrimRelease.SkyrimSE);
+        var k1 = m.Keywords.AddNew(); k1.EditorID = "DfKw1"; var dkw1 = k1.FormKey;
+        var k2 = m.Keywords.AddNew(); k2.EditorID = "DfKw2"; var dkw2 = k2.FormKey;
+        var w = m.Weapons.AddNew(); w.EditorID = "DfW"; w.Name = "Base"; w.BasicStats = new WeaponBasicStats { Damage = 10 };
+        w.Keywords = new Noggog.ExtendedList<IFormLinkGetter<IKeywordGetter>> { new FormLink<IKeywordGetter>(dkw1), new FormLink<IKeywordGetter>(dkw2) };
+        var wFk = w.FormKey;
+        var w2 = m.Weapons.AddNew(); w2.EditorID = "DfW2"; w2.BasicStats = new WeaponBasicStats { Damage = 5 }; var w2Fk = w2.FormKey;  // master-only
+        m.BeginWrite.ToPath(masterPath).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
+
+        var r = new SkyrimMod(rKey, SkyrimRelease.SkyrimSE);
+        var rw = (IWeapon)WriteEngine.GenericGetOrAddAsOverride(r, w);
+        rw.Name = "Winner"; rw.BasicStats = new WeaponBasicStats { Damage = 99 };
+        rw.Keywords = new Noggog.ExtendedList<IFormLinkGetter<IKeywordGetter>> { new FormLink<IKeywordGetter>(dkw1) };   // dropped kw2
+        r.BeginWrite.ToPath(replPath).WithLoadOrder(new ISkyrimModGetter[] { m }).Write();
+
+        // OFF-ORDER donor: overrides W with Damage=77, on disk in a DISABLED mod folder (not in the active order).
+        var dKey = new ModKey("DiffDonor", ModType.Plugin);
+        var donorPath = Path.Combine(mods, "DiffDonor", dKey.FileName.String);
+        Directory.CreateDirectory(Path.GetDirectoryName(donorPath)!);
+        var dmod = new SkyrimMod(dKey, SkyrimRelease.SkyrimSE);
+        ((IWeapon)WriteEngine.GenericGetOrAddAsOverride(dmod, w)).BasicStats = new WeaponBasicStats { Damage = 77 };
+        dmod.BeginWrite.ToPath(donorPath).WithLoadOrder(new ISkyrimModGetter[] { m }).Write();
+
+        File.WriteAllText(Path.Combine(profiles, "loadorder.txt"), "# header\r\n" + mKey.FileName + "\r\n" + rKey.FileName + "\r\n");
+        File.WriteAllText(Path.Combine(profiles, "plugins.txt"), "*" + mKey.FileName + "\r\n*" + rKey.FileName + "\r\n");
+        File.WriteAllText(Path.Combine(profiles, "modlist.txt"), "# header\r\n+DiffRepl\r\n+DiffMaster\r\n-DiffDonor\r\n");
+
+        var genDir = Path.Combine(dir, "corpus-gen");
+        try { _ = CorpusRulebook.LoadCorpus(); }
+        catch { CorpusGenerator.GenerateAll(genDir, Path.Combine(dir, "corpus-ref")); CorpusRulebook.CorpusPath = Path.Combine(genDir, "corpus.json"); }
+
+        var store = new UserConfigStore(Path.Combine(dir, "houseCARL.user.json"));
+        using var svc = LoadOrderService.WithInstance(instance, 0, store);
+        svc.Stats();
+
+        string wFid = $"{wFk.ID:X6}:{wFk.ModKey.FileName}";
+        string w2Fid = $"{w2Fk.ID:X6}:{w2Fk.ModKey.FileName}";
+        string masterName = mKey.FileName.String, replName = rKey.FileName.String;
+
+        // ACTIVE vs ACTIVE — master's W (10/Base/2 kw) vs the replacer's (99/Winner/1 kw)
+        var dAvB = svc.DiffRecord(wFid, masterName, replName, null);
+        Check("diff master vs repl: succeeds with differences", dAvB.Error is null && dAvB.Diff!.Deltas.Count > 0);
+        Check("diff: Damage delta shows master's 10 with the replacer's value labeled by its filename (99)",
+              dAvB.Error is null && dAvB.Diff!.Deltas.Any(x => x.Contains("BasicStats.Damage=10") && x.Contains(replName) && x.Contains("99")));
+        Check("diff: both poles report active order", dAvB.Error is null && dAvB.A!.InOrder && dAvB.B!.InOrder);
+
+        // OFF-ORDER pole vs active — the disabled DiffDonor (77) vs the replacer (99)
+        var dOff = svc.DiffRecord(wFid, "DiffDonor.esp", replName, new[] { "BasicStats.Damage" });
+        Check("diff OFF-ORDER (disabled DiffDonor) vs repl: 77 vs 99, pole a OUT-OF-LOAD-ORDER",
+              dOff.Error is null && !dOff.A!.InOrder && dOff.A.Where.Contains("OUT-OF-LOAD-ORDER")
+              && dOff.Diff!.Deltas.Any(x => x.Contains("77") && x.Contains("99")));
+
+        // IDENTICAL — same plugin on both sides
+        var dSame = svc.DiffRecord(wFid, replName, replName, null);
+        Check("diff same plugin both sides → identical (0 deltas, complete)", dSame.Error is null && dSame.Diff!.Deltas.Count == 0 && dSame.Diff.Complete);
+
+        // fields= narrows the comparison
+        var dNarrow = svc.DiffRecord(wFid, masterName, replName, new[] { "BasicStats.Damage" });
+        Check("diff fields=[BasicStats.Damage] → exactly the Damage delta",
+              dNarrow.Error is null && dNarrow.Diff!.Deltas.Count == 1 && dNarrow.Diff.Deltas[0].Contains("BasicStats.Damage"));
+
+        // refusals
+        Check("refusal: bad formid", svc.DiffRecord("not-a-formid", masterName, replName, null).Error is { } de1 && de1.Contains("bad FormID"));
+        Check("refusal: plugin_a not found on disk or in order", svc.DiffRecord(wFid, "Nope.esp", replName, null).Error is { } de2 && de2.Contains("plugin_a") && de2.Contains("not in the load order"));
+        Check("refusal: a plugin doesn't define the record (W2 master-only, via repl)",
+              svc.DiffRecord(w2Fid, masterName, replName, null).Error is { } de3 && de3.Contains("plugin_b") && de3.Contains("does NOT define or override"));
+
+        // render via the TOOL layer (text + json)
+        var textR = ReadTools.DiffRecord(svc, wFid, masterName, replName, fields: null, format: "text", mod_a: null, mod_b: null, max_chars: 0);
+        Check("render(text): header + Damage delta + reference label",
+              textR.Contains("diff " + wFid) && textR.Contains("BasicStats.Damage=10") && textR.Contains(replName));
+        var jsonR = ReadTools.DiffRecord(svc, wFid, masterName, replName, fields: null, format: "json", mod_a: null, mod_b: null, max_chars: 0);
+        bool jsonOk = false;
+        try { using var doc = System.Text.Json.JsonDocument.Parse(jsonR); jsonOk = doc.RootElement.TryGetProperty("deltas", out _) && doc.RootElement.TryGetProperty("complete", out _); }
+        catch { }
+        Check("render(json): valid JSON carrying deltas + complete", jsonOk);
     }
 }
