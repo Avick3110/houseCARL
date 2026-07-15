@@ -308,7 +308,7 @@ public sealed class CorpusRulebook
             case "Merge":
                 return c == "dict" ? null : $"Merge is only valid on dict; '{leaf.Name}' is {c}.";
             default:
-                return $"Unknown verb '{req.Verb}'. Legal: Set, Add, Remove, ReplaceAll, SetAtIndex, Merge.";
+                return $"Unknown verb '{req.Verb}'. Legal: Set, Add, Remove, ReplaceAll, SetAtIndex, Merge, CopyFrom.";
         }
     }
 

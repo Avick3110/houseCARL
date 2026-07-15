@@ -367,6 +367,12 @@ public static class BulkPrimitivesWave3Probe
         Check("refusal: from_plugin on a non-CopyFrom verb → refused ('only valid with verb=CopyFrom')",
               !strayFrom.Success && strayFrom.Error is { } e2 && e2.Contains("only valid with verb=CopyFrom"));
 
+        // PR #186 review #2: the mapper is case-SENSITIVE like the engine — a mis-cased 'copyfrom' is NOT CopyFrom, so
+        // with from_plugin set it fails loud at the mapper (not opaquely at pre-flight with a stray off-order source).
+        var miscased = svc.ApplyEdits(new[] { new BulkOp { Formid = wFid, FieldPath = "BasicStats.Damage", Verb = "copyfrom", FromPlugin = masterName } }, "CfCase", null);
+        Check("refusal: mis-cased verb 'copyfrom' + from_plugin → refused at the mapper ('only valid with verb=CopyFrom')",
+              !miscased.Success && miscased.Error is { } eCase && eCase.Contains("only valid with verb=CopyFrom"));
+
         var withVal = svc.ApplyEdits(new[] { new BulkOp { Formid = wFid, FieldPath = "BasicStats.Damage", Verb = "CopyFrom", FromPlugin = masterName, Value = "5" } }, "CfVal", null);
         Check("refusal: CopyFrom + value → refused ('takes no value')",
               !withVal.Success && withVal.Error is { } e3 && e3.Contains("takes no value"));
