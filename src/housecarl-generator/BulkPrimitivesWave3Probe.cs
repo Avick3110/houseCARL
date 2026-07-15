@@ -243,6 +243,7 @@ public static class BulkPrimitivesWave3Probe
         w.Keywords = new Noggog.ExtendedList<IFormLinkGetter<IKeywordGetter>> { new FormLink<IKeywordGetter>(kw1), new FormLink<IKeywordGetter>(kw2) };
         var wFk = w.FormKey;
         var w2 = m.Weapons.AddNew(); w2.EditorID = "CfW2"; w2.BasicStats = new WeaponBasicStats { Damage = 5 }; var w2Fk = w2.FormKey;  // master-only
+        w.Template.SetTo(w2Fk);   // a single get-only FormLink to exercise the SetTo transplant path (winner clears it)
         var w3 = m.Weapons.AddNew(); w3.EditorID = "CfW3"; w3.Name = "No Stats"; var w3Fk = w3.FormKey;                                  // NO BasicStats
         var mg = m.MagicEffects.AddNew(); mg.EditorID = "CfMgef"; var mgFk = mg.FormKey;
         var pot = m.Ingestibles.AddNew(); pot.EditorID = "CfPotion";     // a modeled-list field (Effects) for the element-DeepCopy arm
@@ -257,6 +258,7 @@ public static class BulkPrimitivesWave3Probe
         rw.Name = "Winner Sword";
         rw.BasicStats = new WeaponBasicStats { Damage = 99 };
         rw.Keywords = new Noggog.ExtendedList<IFormLinkGetter<IKeywordGetter>>();   // winner CLEARS the keywords
+        rw.Template.SetTo(FormKey.Null);                                            // winner CLEARS the Template link
         ((IIngestible)WriteEngine.GenericGetOrAddAsOverride(r, pot)).Effects.Clear();  // winner CLEARS the effects
         r.BeginWrite.ToPath(replPath).WithLoadOrder(new ISkyrimModGetter[] { m }).Write();
 
@@ -338,6 +340,18 @@ public static class BulkPrimitivesWave3Probe
         var effc = svc.ApplyEdits(new[] { new BulkOp { Formid = potFid, FieldPath = "Effects", Verb = "CopyFrom", FromPlugin = masterName } }, "CfEff", null);
         Check($"CopyFrom modeled-list Effects (element DeepCopy): winner 0 → source 1 (got {(effc.Success ? EffCount(effc.OutputPath) : null)})",
               effc.Success && EffCount(effc.OutputPath) == 1);
+
+        // single get-only FormLink (the SetTo path): Template (winner null → master → w2)
+        FormKey? ReadTemplate(string espPath)
+        {
+            ISkyrimModGetter? ov = null;
+            try { ov = SkyrimMod.CreateFromBinaryOverlay(espPath, SkyrimRelease.SkyrimSE); return ov.Weapons.FirstOrDefault(x => x.FormKey == wFk)?.Template.FormKey; }
+            catch { return null; }
+            finally { (ov as IDisposable)?.Dispose(); }
+        }
+        var tmpl = svc.ApplyEdits(new[] { Copy("Template") }, "CfTmpl", null);
+        Check($"CopyFrom single formlink Template (SetTo): winner null → source w2 (got {(tmpl.Success ? ReadTemplate(tmpl.OutputPath) : null)})",
+              tmpl.Success && ReadTemplate(tmpl.OutputPath) == w2Fk);
 
         // OFF-ORDER source: copy from a DISABLED plugin on disk (not in the active order) — the "copy from the OLD patch" headline
         var offOrder = svc.ApplyEdits(new[] { new BulkOp { Formid = wFid, FieldPath = "BasicStats.Damage", Verb = "CopyFrom", FromPlugin = "DonorOld.esp" } }, "CfOff", null);
