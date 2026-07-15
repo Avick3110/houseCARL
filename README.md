@@ -34,8 +34,9 @@ models — by construction, not a hand-maintained subset.
   new-patch lane above stays the default.
 - **Compact and merge plugins** — ESL-compact a plugin into the light-master FormID window, carrying its
   FormID-keyed assets (facegen, voice) along so a compacted mod's faces don't go dark; or merge several
-  plugins into one, renumbering only on collision and dropping now-unused masters — with the donor mods
-  swapped out at the MO2 layer, originals intact.
+  plugins into one, renumbering only on collision and dropping now-unused masters — then guides the MO2
+  swap: enable the merged output, deactivate the donor plugins, and keep their asset folders enabled;
+  originals remain intact.
 - **Copy an NPC's appearance into a standalone** — lift a face (head parts, tints, the FaceGen mesh and
   textures) from a donor NPC into a fresh record that carries no dependency on the donor's plugin — the
   build behind a portable follower or a face transplanted between mods.
