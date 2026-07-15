@@ -171,6 +171,13 @@ public static class SkyPatcherFieldMapProbe
                     && asm.GetType("Mutagen.Bethesda.Skyrim.I" + ft + "Getter") is null)
                     problems.Add($"{ctx}: formType '{ft}' is neither a Mutagen.Bethesda.Skyrim record class nor a link interface (I{ft}Getter).");
 
+                // donorType (optional — the runtime 'copy from a donor of type X' reading, e.g. NPC skin's
+                // donorType=Npc) resolves as a form SCOPE the same way formType does (issue #181).
+                if (m.DonorType is { } dtv
+                    && asm.GetType("Mutagen.Bethesda.Skyrim." + dtv) is null
+                    && asm.GetType("Mutagen.Bethesda.Skyrim.I" + dtv + "Getter") is null)
+                    problems.Add($"{ctx}: donorType '{dtv}' is neither a Mutagen.Bethesda.Skyrim record class nor a link interface (I{dtv}Getter).");
+
                 var leaf = WalkPath(rootType, m.Path, ctx, problems);
                 if (leaf is null) continue;
 

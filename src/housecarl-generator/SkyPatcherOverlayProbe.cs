@@ -26,9 +26,19 @@ public static class SkyPatcherOverlayProbe
     sealed class StubResolver : SkyPatcherOverlay.IFormResolver
     {
         public Dictionary<string, FormKey> EditorIds = new(StringComparer.OrdinalIgnoreCase);
+        // (optional) eid → its Mutagen record type; when set, a type-scoped lookup for a DIFFERENT type
+        // misses — the same per-type scoping the real resolver enforces (an NPC EditorID is invisible to
+        // an 'Armor' lookup). An unregistered eid matches any scope (keeps the type-agnostic fixtures green).
+        public Dictionary<string, string> EditorIdTypes = new(StringComparer.OrdinalIgnoreCase);
         public HashSet<string> Plugins = new(StringComparer.OrdinalIgnoreCase);
         public FormKey? ResolveEditorId(string editorId, string? mutagenType)
-            => EditorIds.TryGetValue(editorId, out var fk) ? fk : null;
+        {
+            if (!EditorIds.TryGetValue(editorId, out var fk)) return null;
+            if (EditorIdTypes.TryGetValue(editorId, out var t) && mutagenType is not null
+                && !t.Equals(mutagenType, StringComparison.OrdinalIgnoreCase))
+                return null;
+            return fk;
+        }
         public Dictionary<FormKey, string> WinnerLeafs = new();       // (donor) → the one leaf the test reads
         public Dictionary<FormKey, IReadOnlyList<FormKey>> Keywords = new();
         public Dictionary<FormKey, string> Winners = new();
@@ -201,6 +211,7 @@ public static class SkyPatcherOverlayProbe
         failures += Wave2FilterArm(catalog, fieldMap, mod);
         failures += Wave2OpClosuresArm(catalog, fieldMap, mod);
         failures += BracketLabelArm(catalog, fieldMap, mod);
+        failures += NpcSkinDonorArm(catalog, fieldMap, mod);
 
         return Done(failures);
     }
@@ -230,6 +241,71 @@ public static class SkyPatcherOverlayProbe
             $"skips={r.LinesSkippedUnresolvedFilter} warns=[{string.Join(" ; ", r.Warnings)}]");
         failures += Check("the patch line below the label still applied (damage=42)",
             w.BasicStats!.Damage == 42, $"got {w.BasicStats.Damage}");
+        return failures;
+    }
+
+    /// <summary>Issue #181: an NPC-replacer's <c>skin=&lt;donor NPC&gt;</c> (the SkyPatcher NPC Replacer
+    /// Converter's shape, paired with <c>copyVisualStyle</c>) must NEVER throw a "Malformed FormKey" — it
+    /// classifies as a runtime donor-copy the static model doesn't cover (like copyVisualStyle), naming the
+    /// donor. The CLEAN <c>skin=&lt;Armor&gt;</c> direct set, <c>skin=null</c> clear, and a genuinely-missing
+    /// donor's loud-and-named skip all still hold.</summary>
+    static int NpcSkinDonorArm(SkyPatcherCatalog catalog, SkyPatcherFieldMap fieldMap, SkyrimMod mod)
+    {
+        Console.WriteLine("  --- NPC skin-donor arm (issue #181: skin=<donor NPC> never throws) ---");
+        int failures = 0;
+        var npcCat = catalog.ForSubfolder("npc")!;
+        var npcMap = fieldMap.For("npc", "Npc");
+        if (npcMap is null) return Check("npc field map present", false);
+
+        var armorFk = new FormKey(new ModKey("HcArm", ModType.Plugin), 0xF01);
+        var donorNpcFk = new FormKey(new ModKey("LRemiel Re", ModType.Plugin), 0x800);
+        var existingSkin = new FormKey(new ModKey("HcArm", ModType.Plugin), 0xE00);
+        var resolver = new StubResolver();
+        resolver.EditorIds["HcWornArmor"] = armorFk;      resolver.EditorIdTypes["HcWornArmor"] = "Armor";
+        resolver.EditorIds["012_HLIORemi"] = donorNpcFk;  resolver.EditorIdTypes["012_HLIORemi"] = "Npc";
+        SkyPatcherOverlay.OrderedLine L(int n, string text) => new("skin.ini", n, SkyPatcherParse.ParseLine(text));
+
+        // (a) the reported real-world shape — skin=<donor NPC EditorID> alongside copyVisualStyle.
+        var target = mod.Npcs.AddNew();
+        target.EditorID = "HLIORemi";
+        target.WornArmor.SetTo(existingSkin);
+        var me = $"HcSpOv.esp|{target.FormKey.ID:X}";
+        var rA = SkyPatcherOverlay.Apply(target, target.FormKey, target.EditorID, catalog, npcCat, npcMap, new[]
+        { L(1, $"filterByNpcs={me}:copyVisualStyle=012_HLIORemi:skin=012_HLIORemi") }, resolver);
+        failures += Check("skin=<donor NPC> does NOT throw a malformed-FormKey",
+            !rA.Warnings.Any(w => w.Contains("Malformed FormKey")), string.Join(" ; ", rA.Warnings));
+        failures += Check("skin=<donor NPC> classifies as an unmodeled donor-copy, naming donor + copyVisualStyle",
+            rA.Warnings.Any(w => w.Contains("skin=012_HLIORemi") && w.Contains("donor") && w.Contains("copyVisualStyle")),
+            string.Join(" ; ", rA.Warnings));
+        failures += Check("skin=<donor NPC> left the target's WornArmor UNCHANGED (not applied)",
+            target.WornArmor.FormKey == existingSkin, target.WornArmor.FormKey.ToString());
+        failures += Check("copyVisualStyle is still surfaced as a HARD directive (tiered honesty intact)",
+            rA.Directives.Any(d => d.Op == "copyVisualStyle"));
+
+        // (b) the CLEAN direct case is unbroken — skin=<Armor EditorID> sets WornArmor.
+        var t2 = mod.Npcs.AddNew(); t2.EditorID = "HcDirectSkin";
+        var me2 = $"HcSpOv.esp|{t2.FormKey.ID:X}";
+        SkyPatcherOverlay.Apply(t2, t2.FormKey, t2.EditorID, catalog, npcCat, npcMap, new[]
+        { L(1, $"filterByNpcs={me2}:skin=HcWornArmor") }, resolver);
+        failures += Check("skin=<Armor> still sets WornArmor directly (CLEAN path unbroken)",
+            t2.WornArmor.FormKey == armorFk, t2.WornArmor.FormKey.ToString());
+
+        // (c) skin=null still clears.
+        var t3 = mod.Npcs.AddNew(); t3.EditorID = "HcClearSkin"; t3.WornArmor.SetTo(armorFk);
+        var me3 = $"HcSpOv.esp|{t3.FormKey.ID:X}";
+        SkyPatcherOverlay.Apply(t3, t3.FormKey, t3.EditorID, catalog, npcCat, npcMap, new[]
+        { L(1, $"filterByNpcs={me3}:skin=null") }, resolver);
+        failures += Check("skin=null still clears WornArmor", t3.WornArmor.IsNull, t3.WornArmor.FormKey.ToString());
+
+        // (d) a genuinely-missing donor stays loud and names the token — never a malformed-FormKey throw.
+        var t4 = mod.Npcs.AddNew(); t4.EditorID = "HcMissingSkin";
+        var me4 = $"HcSpOv.esp|{t4.FormKey.ID:X}";
+        var rD = SkyPatcherOverlay.Apply(t4, t4.FormKey, t4.EditorID, catalog, npcCat, npcMap, new[]
+        { L(1, $"filterByNpcs={me4}:skin=NoSuchThing") }, resolver);
+        failures += Check("a missing skin donor is loud + names the token (never a malformed-FormKey throw)",
+            !rD.Warnings.Any(w => w.Contains("Malformed FormKey"))
+            && rD.Warnings.Any(w => w.Contains("NoSuchThing") && w.Contains("does not resolve")),
+            string.Join(" ; ", rD.Warnings));
         return failures;
     }
 
