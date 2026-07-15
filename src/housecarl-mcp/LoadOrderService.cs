@@ -1932,10 +1932,70 @@ public sealed class LoadOrderService : IDisposable
             try { outPath = ResolveOutputPath(patchName, into, out extend, out created); }
             catch (Exception ex) { return WritePatchBuilder.PatchOutcome.Fail(ex.Message); }
 
-            var outcome = WritePatchBuilder.Apply(resolver, rulebook, edits, outPath, extend, fullReadback);
-            if (!outcome.Success && created) RemoveFolderCreatedThisCall(outPath);   // hunt F4: a refused write leaves no orphan
-            return outcome;
+            // P8b: pre-resolve any CopyFrom source that is OFF-ORDER (from_plugin on disk but NOT in the active order —
+            // the "copy from the disabled OLD patch" case). Active-order sources are resolved INSIDE Apply via its own
+            // captured view (sharing the winner's build); only off-order files need the MO2 on-disk locate here, and
+            // their overlays must stay OPEN through the serialize (CopyField deep-copies through them) — disposed after.
+            Dictionary<WritePatchBuilder.PatchEdit, IMajorRecordGetter>? copyFromSources = null;
+            List<IDisposable>? offOrderOverlays = null;
+            var cfError = ResolveOffOrderCopySources(resolver, edits, ref copyFromSources, ref offOrderOverlays);
+            if (cfError is not null)
+            {
+                if (offOrderOverlays is not null) foreach (var d in offOrderOverlays) d.Dispose();
+                if (created) RemoveFolderCreatedThisCall(outPath);   // a refused write leaves no orphan folder
+                return WritePatchBuilder.PatchOutcome.Fail(cfError);
+            }
+            try
+            {
+                var outcome = WritePatchBuilder.Apply(resolver, rulebook, edits, outPath, extend, fullReadback, copyFromSources);
+                if (!outcome.Success && created) RemoveFolderCreatedThisCall(outPath);   // hunt F4: a refused write leaves no orphan
+                return outcome;
+            }
+            finally { if (offOrderOverlays is not null) foreach (var d in offOrderOverlays) d.Dispose(); }
         }
+    }
+
+    /// <summary>P8b — locate every OFF-ORDER CopyFrom source (from_plugin present on disk but NOT in the active order)
+    /// and fetch its version of the target record, holding each overlay OPEN (returned in <paramref name="overlays"/> for
+    /// the caller to dispose AFTER the patch serialize — CopyField deep-copies through them). Active-order sources are
+    /// left for <see cref="WritePatchBuilder.Apply"/> to resolve via its shared view (so they read the winner's build).
+    /// Returns a Q3 refusal string if any off-order source can't be located/opened/read or doesn't define the record
+    /// (all-or-nothing, before any write); null on success. Uses the SAME on-disk locate as read_plugin_file / the
+    /// copy-npc-appearance donor lane, so the tools can never disagree on which file a filename names.</summary>
+    string? ResolveOffOrderCopySources(LoadOrderResolver resolver, IReadOnlyList<WritePatchBuilder.PatchEdit> edits,
+        ref Dictionary<WritePatchBuilder.PatchEdit, IMajorRecordGetter>? sources, ref List<IDisposable>? overlays)
+    {
+        if (!edits.Any(e => string.Equals(e.Verb, "CopyFrom", StringComparison.Ordinal))) return null;   // no CopyFrom → no source work
+        var view = resolver.Capture();
+        string modsDir = "", dataDir = "", overwriteDir = "", profileDir = "";
+        Mo2Composition? comp = null;
+        var problems = new List<string>();
+        foreach (var e in edits)
+        {
+            if (!string.Equals(e.Verb, "CopyFrom", StringComparison.Ordinal) || string.IsNullOrWhiteSpace(e.FromPlugin)) continue;
+            if (view.ContainsPlugin(e.FromPlugin)) continue;   // active — Apply resolves it (shared build)
+            if (comp is null)
+            {
+                try { lock (_gate) { EnsurePathsDerived(); modsDir = _modsDir; dataDir = _dataDir; overwriteDir = _overwriteDir; profileDir = _profileDir; } }
+                catch (Exception ex) { return $"CopyFrom off-order source locate failed to derive the MO2 roots: {ex.Message}"; }
+                comp = Mo2LoadOrder.ReadComposition(profileDir);
+            }
+            var loc = LocatePluginFileOnDisk(comp, modsDir, dataDir, overwriteDir, e.FromPlugin!, null);
+            if (loc.Error is not null) { problems.Add($"{e.Target}: CopyFrom source '{e.FromPlugin}' is not in the load order and {loc.Error}"); continue; }
+            if (loc.Ambiguous is not null) { problems.Add($"{e.Target}: CopyFrom source '{e.FromPlugin}' matches several mod folders on disk — pass an exact path to disambiguate."); continue; }
+            ISkyrimModGetter ov;
+            try { ov = LoadOrderResolver.OpenOverlay(loc.Path!, string.IsNullOrEmpty(dataDir) ? null : dataDir); }
+            catch (Exception ex) { problems.Add($"{e.Target}: CopyFrom source file '{e.FromPlugin}' could not be opened as a Skyrim plugin ({ex.Message})."); continue; }
+            IMajorRecordGetter? body;
+            try { body = ov.EnumerateMajorRecords().FirstOrDefault(r => r.FormKey == e.Target); }
+            catch (Exception ex) { (ov as IDisposable)?.Dispose(); problems.Add($"{e.Target}: CopyFrom source file '{e.FromPlugin}' could not be read ({ex.Message})."); continue; }
+            if (body is null) { (ov as IDisposable)?.Dispose(); problems.Add($"{e.Target}: CopyFrom source file '{e.FromPlugin}' does not define or override this record — there is no version of it there to copy."); continue; }
+            (overlays ??= new()).Add((IDisposable)ov);
+            (sources ??= new())[e] = body;   // distinct Path-array refs make each PatchEdit a distinct key (value equality); indexer is collision-safe regardless
+        }
+        return problems.Count > 0
+            ? $"refused — {problems.Count} CopyFrom source problem(s); NO patch written:\n  - " + string.Join("\n  - ", problems)
+            : null;
     }
 
     /// <summary>The in-place branch of <see cref="ApplyEdits"/> (in-place write lane, Wave 1) — runs under _writeGate.
@@ -3480,6 +3540,12 @@ public sealed class LoadOrderService : IDisposable
         var specs = MapComposes(op, where, spec, out error);
         if (error is not null) return null;
 
+        if (string.Equals(op.Verb, "CopyFrom", StringComparison.OrdinalIgnoreCase) || !string.IsNullOrWhiteSpace(op.FromPlugin))
+        {
+            error = $"{where}: CopyFrom / from_plugin copies from an EXISTING record's other version — it isn't valid when CREATING a record (there is no other version yet). Set the new field with value= / compose= instead.";
+            return null;
+        }
+
         return new WriteRequest
         {
             RecordType = recordType, Path = path, Verb = string.IsNullOrWhiteSpace(op.Verb) ? "Set" : op.Verb,
@@ -3511,11 +3577,41 @@ public sealed class LoadOrderService : IDisposable
         var specs = MapComposes(op, where, spec, out error);
         if (error is not null) return null;
 
+        var verb = string.IsNullOrWhiteSpace(op.Verb) ? "Set" : op.Verb;
+        var fromPlugin = MapFromPlugin(op, verb, $"{where} ({op.Formid})", spec, specs, out error);
+        if (error is not null) return null;
+
         return new WritePatchBuilder.PatchEdit
         {
-            Target = fk, Path = path, Verb = string.IsNullOrWhiteSpace(op.Verb) ? "Set" : op.Verb,
+            Target = fk, Path = path, Verb = verb,
             Key = op.Key, Value = op.Value, Values = op.Values, Entries = op.Entries, Struct = spec, Structs = specs,
+            FromPlugin = fromPlugin,
         };
+    }
+
+    /// <summary>P8b — validate + extract from_plugin for a CopyFrom op. from_plugin is REQUIRED with (and ONLY with)
+    /// verb=CopyFrom, which copies the field FROM that plugin's version and so takes no value/values/entries/compose/
+    /// composes. Both rules refuse loud (Q3), never silently ignore. Returns null for a non-CopyFrom op.</summary>
+    static string? MapFromPlugin(BulkOp op, string verb, string where, StructSpec? spec, IReadOnlyList<StructSpec>? specs, out string? error)
+    {
+        error = null;
+        if (!string.Equals(verb, "CopyFrom", StringComparison.OrdinalIgnoreCase))
+        {
+            if (!string.IsNullOrWhiteSpace(op.FromPlugin))
+                error = $"{where}: from_plugin is only valid with verb=CopyFrom (got verb={verb}).";
+            return null;
+        }
+        if (string.IsNullOrWhiteSpace(op.FromPlugin))
+        {
+            error = $"{where}: CopyFrom requires from_plugin — the plugin whose version of this record to copy field_path from.";
+            return null;
+        }
+        if (op.Value is not null || op.Values is not null || op.Entries is not null || spec is not null || specs is not null)
+        {
+            error = $"{where}: CopyFrom copies the field from from_plugin's version — it takes no value/values/entries/compose/composes.";
+            return null;
+        }
+        return op.FromPlugin.Trim();
     }
 
     /// <summary>Build a core composition <see cref="StructSpec"/> from the wire shape — flat <c>fields</c> (coercible

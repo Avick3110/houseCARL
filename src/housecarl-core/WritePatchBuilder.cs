@@ -49,6 +49,7 @@ public static class WritePatchBuilder
         public Dictionary<string, string>? Entries { get; init; }
         public StructSpec? Struct { get; init; }
         public IReadOnlyList<StructSpec>? Structs { get; init; } // P8a batch struct-list ops (composes=): Add appends each, ReplaceAll clears+appends each.
+        public string? FromPlugin { get; init; } // P8b verb=CopyFrom: the plugin whose version of Target to deep-copy the field FROM (active, or off-order on disk).
     }
 
     /// <summary>Per-edit result. On a successful call every op has <see cref="Applied"/>=true (all-or-nothing);
@@ -271,7 +272,8 @@ public static class WritePatchBuilder
     /// loop — see <see cref="FullReadback"/>).</summary>
     public static PatchOutcome Apply(
         LoadOrderResolver resolver, CorpusRulebook rulebook,
-        IReadOnlyList<PatchEdit> edits, string outPath, bool extend, bool fullReadback = false)
+        IReadOnlyList<PatchEdit> edits, string outPath, bool extend, bool fullReadback = false,
+        IReadOnlyDictionary<PatchEdit, IMajorRecordGetter>? copyFromSources = null)
     {
         if (edits.Count == 0) return PatchOutcome.Fail("no edits supplied.");
 
@@ -312,7 +314,7 @@ public static class WritePatchBuilder
         //     the current authoring session, never an arbitrary un-enabled plugin, so the Q3 winner-confusion hazard
         //     the declined read-un-enabled-plugins feature guards against doesn't arise. ---
         var view = resolver.Capture();
-        var resolved = new List<(PatchEdit edit, IMajorRecordGetter? body, string? winnerPlugin, IMajorRecord? patchLocal, WriteRequest req, string label)>(edits.Count);
+        var resolved = new List<(PatchEdit edit, IMajorRecordGetter? body, string? winnerPlugin, IMajorRecord? patchLocal, WriteRequest req, string label, IMajorRecordGetter? srcBody)>(edits.Count);
         var problems = new List<string>();
         // Records the extended patch DEFINES (FormKey in the patch's own master space — created by a prior into=
         // call), built lazily ONCE on the first load-order miss (PR #166 review finding 3: not a per-miss deep walk).
@@ -353,6 +355,30 @@ public static class WritePatchBuilder
                 }
             }
 
+            // P8b CopyFrom source: from_plugin's version of e.Target — an OFF-ORDER file the SERVICE pre-located (passed in
+            // copyFromSources), ELSE resolved from the ACTIVE order via this same captured view (the forward_record contract:
+            // in the order, defines/overrides the record, and not the output patch itself). Refused loud, all-or-nothing (Q3).
+            IMajorRecordGetter? srcBody = null;
+            if (string.Equals(e.Verb, "CopyFrom", StringComparison.Ordinal))
+            {
+                if (copyFromSources is not null && copyFromSources.TryGetValue(e, out var offSrc))
+                    srcBody = offSrc;
+                else if (string.IsNullOrWhiteSpace(e.FromPlugin))
+                { problems.Add($"{e.Target}: CopyFrom is missing from_plugin (internal — the mapper should have caught this)."); continue; }
+                else if (string.Equals(e.FromPlugin, fileName, StringComparison.OrdinalIgnoreCase))
+                { problems.Add($"{e.Target}: CopyFrom from_plugin '{e.FromPlugin}' is the output patch itself — name the OTHER plugin whose version to copy from."); continue; }
+                else if (!view.ContainsPlugin(e.FromPlugin))
+                { problems.Add($"{e.Target}: CopyFrom source '{e.FromPlugin}' is not in the load order (and no plugin file by that name was located on disk) — name an active plugin, or a plugin file present on disk."); continue; }
+                else if (view.ExcludedPlugins.TryGetValue(e.FromPlugin, out var why))
+                { problems.Add($"{e.Target}: CopyFrom source '{e.FromPlugin}' was excluded from this session ({why}) — its records aren't resolvable."); continue; }
+                else
+                {
+                    srcBody = view.GetRecord(session, e.FromPlugin, e.Target);
+                    if (srcBody is null)
+                    { problems.Add($"{e.Target}: CopyFrom source '{e.FromPlugin}' is in the load order but does NOT define or override this record — there is no version of it there to copy."); continue; }
+                }
+            }
+
             var recType = RecordNaming.StripOverlay((patchLocal ?? (object)body!).GetType().Name);
             var req = new WriteRequest
             {
@@ -361,7 +387,7 @@ public static class WritePatchBuilder
             };
             var label = Label(req);
             if (rulebook.Validate(req) is { } reject) { problems.Add($"{recType} {e.Target} [{label}]: {reject}"); continue; }
-            resolved.Add((e, body, winnerPlugin, patchLocal, req, label));
+            resolved.Add((e, body, winnerPlugin, patchLocal, req, label, srcBody));
         }
         if (problems.Count > 0)
             return PatchOutcome.Fail(
@@ -373,7 +399,7 @@ public static class WritePatchBuilder
         //     (costly → only here, never for the flat common case, never held). A throw here AFTER pre-flight passed is
         //     a real engine inconsistency — fail the WHOLE call (no partial patch), surfaced not swallowed (Q3). ---
         var ops = new List<OpResult>(resolved.Count);
-        foreach (var (e, body, winnerPlugin, patchLocal, req, label) in resolved)
+        foreach (var (e, body, winnerPlugin, patchLocal, req, label, srcBody) in resolved)
         {
             try
             {
@@ -386,7 +412,11 @@ public static class WritePatchBuilder
                     ILinkCache? cache = WriteEngine.RecordNeedsSourceCache(body!) ? session.LinkCacheFor(winnerPlugin!) : null;
                     ov = WriteEngine.GenericGetOrAddAsOverride(patchMod, body!, cache);
                 }
-                WriteEngine.ApplyVerb(ov, req);
+                // P8b CopyFrom transplants the field FROM the source body into ov; every other verb applies to ov directly.
+                if (string.Equals(req.Verb, "CopyFrom", StringComparison.Ordinal))
+                    WriteEngine.CopyField(srcBody!, ov, req.Path);
+                else
+                    WriteEngine.ApplyVerb(ov, req);
                 var (after, landed) = DescribeApplied(ov, req);
                 ops.Add(new OpResult(e.Target, req.RecordType, label, true, null, after, landed));
             }
