@@ -411,7 +411,7 @@ public static class NpcAppearanceCopy
             uint next = patchMod.ModHeader.Stats.NextFormID;
             foreach (var rec in toCopy)
             {
-                if (next > FormIdRange.ObjectIdMax)
+                if (FormIdRange.ObjectIdSpaceExhausted(next))
                     return NpcCopyOutcome.Fail($"cannot allocate a new FormID: the patch's NextObjectID counter is past 0x{FormIdRange.ObjectIdMax:X}.");
                 dict[rec.FormKey] = new FormKey(patchMod.ModKey, next++);
             }
