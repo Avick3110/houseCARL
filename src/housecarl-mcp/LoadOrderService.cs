@@ -3629,7 +3629,7 @@ public sealed class LoadOrderService : IDisposable
         var specs = MapComposes(op, where, spec, out error);
         if (error is not null) return null;
 
-        if (string.Equals(op.Verb, "CopyFrom", StringComparison.OrdinalIgnoreCase) || !string.IsNullOrWhiteSpace(op.FromPlugin))
+        if (string.Equals(op.Verb, "CopyFrom", StringComparison.Ordinal) || !string.IsNullOrWhiteSpace(op.FromPlugin))
         {
             error = $"{where}: CopyFrom / from_plugin copies from an EXISTING record's other version — it isn't valid when CREATING a record (there is no other version yet). Set the new field with value= / compose= instead.";
             return null;
@@ -3684,7 +3684,7 @@ public sealed class LoadOrderService : IDisposable
     static string? MapFromPlugin(BulkOp op, string verb, string where, StructSpec? spec, IReadOnlyList<StructSpec>? specs, out string? error)
     {
         error = null;
-        if (!string.Equals(verb, "CopyFrom", StringComparison.OrdinalIgnoreCase))
+        if (!string.Equals(verb, "CopyFrom", StringComparison.Ordinal))   // match the engine's Ordinal verb compare — a mis-cased verb fails loud uniformly (Unknown verb … Legal: …CopyFrom)
         {
             if (!string.IsNullOrWhiteSpace(op.FromPlugin))
                 error = $"{where}: from_plugin is only valid with verb=CopyFrom (got verb={verb}).";

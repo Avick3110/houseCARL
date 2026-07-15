@@ -1055,7 +1055,7 @@ public sealed record BulkOp
     [JsonPropertyName("field_path"), Description("Dotted field path, e.g. 'BasicStats.Damage' or 'Entries'. Step into a list/dict element mid-path with brackets, e.g. 'Effects[0].Data.Magnitude'; at the LEAF use verb + key, not brackets.")]
     public string? FieldPath { get; init; }
 
-    [JsonPropertyName("verb"), Description("Set (default) | Add | Remove | SetAtIndex | ReplaceAll | Merge.")]
+    [JsonPropertyName("verb"), Description("Set (default) | Add | Remove | SetAtIndex | ReplaceAll | Merge | CopyFrom (deep-copy the field at field_path from from_plugin's version — see from_plugin).")]
     public string Verb { get; init; } = "Set";
 
     [JsonPropertyName("value"), Description("The value (coerced to the field's type). Omit for Remove / ReplaceAll / Merge / compose.")]
