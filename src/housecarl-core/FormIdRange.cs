@@ -39,4 +39,12 @@ public static class FormIdRange
     /// master-index byte to leave the bare object ID. Same value as the ceiling; named for the masking use so a call
     /// site reads "mask off the index byte", not "compare against the max".</summary>
     public const uint ObjectIdMask = ObjectIdMax;
+
+    /// <summary>True once a plugin's new-record counter (<c>ModHeader.Stats.NextFormID</c>) has run PAST the 24-bit
+    /// object-ID ceiling (<see cref="ObjectIdMax"/>): no further FormID can be allocated — the object-ID space is full
+    /// or the header counter is corrupt. The single home for the "is this patch out of object IDs?" test, shared by the
+    /// create-path allocation guard (<see cref="WriteEngine.EnsureAllocatable"/>) and the NPC-appearance batch
+    /// allocator — each keeps its OWN error surface (a throw at the create boundary vs a graceful Fail outcome in the
+    /// copy flow), only the ceiling comparison is single-sourced here.</summary>
+    public static bool ObjectIdSpaceExhausted(uint nextFormId) => nextFormId > ObjectIdMax;
 }

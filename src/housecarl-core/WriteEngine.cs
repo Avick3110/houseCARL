@@ -1123,7 +1123,7 @@ public static class WriteEngine
     /// the ceiling and its message live in ONE place rather than four identical copies.</summary>
     static void EnsureAllocatable(SkyrimMod patchMod)
     {
-        if (patchMod.ModHeader.Stats.NextFormID > FormIdRange.ObjectIdMax)
+        if (FormIdRange.ObjectIdSpaceExhausted(patchMod.ModHeader.Stats.NextFormID))
             throw new InvalidOperationException(
                 $"cannot allocate a new FormID: the patch's NextObjectID counter is 0x{patchMod.ModHeader.Stats.NextFormID:X} — " +
                 $"past the 24-bit object-ID ceiling (0x{FormIdRange.ObjectIdMax:X}). The plugin is full or its header counter is corrupt.");
