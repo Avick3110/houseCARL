@@ -4,6 +4,101 @@ All notable changes to houseCARL are documented here. Versioning is [semantic](h
 the `version` in `.claude-plugin/plugin.json` is bumped on each release, so installed users update only
 when it changes.
 
+## 1.8.0 — 2026-07-15
+
+houseCARL gains two capability layers at once: a **keyless Nexus update-checking** stack — know which of
+your installed files are actually out of date, at the exact-file level, trace a file to its mod by hash,
+with a raw GraphQL backstop under it — and a **bulk / fleet data surface** — resolve many FormIDs to
+identity, diff two plugins' versions of a record, and a batch of aggregation flags on the query, write, and
+read surfaces, fronted by a new planning skill. **Six new tools (→ 43) and one new skill (→ 13).**
+
+**Nexus update checking — four new tools and a wider `nexus_mod`**
+
+- **`housecarl_update_status` — read MO2's own update cache, with no network.** MO2 already records, per
+  mod, the newest file it last saw on Nexus; this reads that local cache (each mod's `meta.ini`) and reports
+  every installed mod whose cached "newest" differs from what's installed — narrowing a whole-order update
+  pass to just the candidates before a single network call — and prints each mod's `id#fileid` verify token
+  for the live check below. It reports a *difference to verify*, never an asserted "a newer version exists"
+  (the cache can lag or lead), and sets the mods with no fileid (FOMOD / manual installs) aside as their own
+  manual-verify bucket instead of folding them into "fine".
+- **`housecarl_nexus_check_updates` — batch, file-level "is this the current file?".** Pass each mod as
+  `id#fileid` and it tells CURRENT from OUTDATED for the **exact file you installed**, not the mod's newest
+  MAIN file — the distinction that matters on a multi-file page, where an old-version compatibility patch and
+  the current main file share one mod id and a mod-level version compare lies. It resolves manager-only
+  (`nxm`, "author disabled direct download") mods that the Nexus search collection excludes — reading them
+  through their file data rather than stamping them "not found" — and calls out a genuinely hidden / deleted
+  page, and an installed file that's since been pulled, as their own distinct, loud outcomes.
+- **`housecarl_nexus_identify` — trace a file to its mod by MD5 hash.** Give it one or more file MD5 hashes
+  (the fingerprint a mod manager matches an unknown download by) and it names the source mod, file, and
+  version straight from Nexus — keyless — for a file whose origin you've lost.
+- **`housecarl_nexus_graphql` — raw, read-only query over the keyless GraphQL.** The completeness backstop
+  beneath the curated Nexus tools: when you need a field they don't surface yet (a mod's page tags, say),
+  this passes a read-only query through the same public keyless API, so nothing on Nexus is permanently out
+  of reach. Prefer the curated tools; this is the escape hatch, not the front door.
+- **`housecarl_nexus_mod` reads more of a page.** `files=true` lists every uploaded file; `changelog=true`
+  (with an optional `since=`) returns the per-version changelog and the delta between your version and the
+  latest; and a mod's page tags now come through — so "what changed since my version, and what kind of mod
+  is this?" is answered without a browser. All Nexus traffic now identifies houseCARL by name and version,
+  per Nexus's Acceptable Use Policy.
+
+**Bulk / fleet data surface — two new tools, plus query, write, and read flags**
+
+The tool surface was shaped for one record at a time; heavy fan-out runs used it as a bulk data API and had
+to improvise the aggregation themselves. This wave adds that aggregation as type-agnostic primitives —
+coverage still inherited from the reflection layer, so there are no per-record-type tools.
+
+- **`housecarl_resolve` — many FormIDs → identity, in one call.** Hand it a list of FormIDs and it returns
+  each one's record type, EditorID, display name, and load-order winner, with a malformed entry isolated as
+  its own per-item error instead of failing the batch. The bulk answer to "what *are* all these forms?".
+- **`housecarl_diff_record` — a field-level diff between two plugins' versions of a record.** Point it at a
+  FormID and two plugins (`plugin_a` vs `plugin_b`) and it returns only what differs between their two
+  versions — either pole active in the load order or read off-order from a plugin sitting on disk — each
+  delta self-labeled by the plugin it came from, so a patch rebuild reads the change instead of re-deriving
+  it from two full reads and hand subtraction.
+- **`housecarl_cross_plugin_query` gains aggregation.** `defined_in=` narrows a `plugins=` scope from every
+  record a plugin *touches* (definitions plus overrides) to only the ones it *defines*; a list-valued
+  `references=` runs N reverse-lookups in one scan (each hit labeled with which target it matched);
+  `group_by=winner|type|defined_in` returns a count table over **all** matches instead of a capped list; and
+  `winner_fields=` reads each match's field values from the true load-order winner — with a loud note when a
+  `plugins=` scope is otherwise showing scoped-not-winner values, closing a subtle "these numbers don't
+  match what I see in game" trap.
+- **`resolve_names=` and `format="json"` across the read surfaces.** `resolve_names=true` annotates every
+  FormLink in a read with its EditorID and name inline (display-only — the underlying wire token is
+  untouched); `format="json"` returns the same outcomes as a machine-readable document with the accounting
+  (truncation, no-value leaves) carried in-band, so a fan-out consumer parses the result instead of scraping
+  the text.
+- **Batch writes — `composes=` and `CopyFrom`.** A write op can now carry `composes=`: a list of
+  build-from-parts elements applied in one operation (`Add` appends each, `ReplaceAll` replaces the whole
+  modeled list — and `ReplaceAll composes=[]` clears it). And a new **`CopyFrom`** verb transplants a
+  field's value from another plugin's version of the record — active or off-order, any field the reflection
+  layer models — the reflection-generic generalization of copying an appearance or a stat block across
+  plugins.
+
+**New skill (→ 13)**
+
+- **`bulk-record-jobs` — plan "many records → one structured deliverable" jobs.** Catalogues, link and
+  recipe graphs, conflict surveys, patch rebuilds, and any fan-out that extracts structured data: this skill
+  routes them onto the bulk primitives above (scoped queries, `group_by`, `resolve`, `diff_record`, batch
+  writes) instead of per-record loops, carries the game-generic Creation-Kit conventions those jobs need
+  (craft vs temper, what a workbench keyword means structurally), and pins one canonical deliverable schema
+  so a fleet of subagents stops inventing eight different output shapes. Game-generic only — a specific mod's
+  own conventions stay in that mod's skill.
+
+**Finishing an unenabled plugin, and fixes**
+
+- **A pre-enable finishing lane.** `housecarl_check_errors` and `housecarl_compact_plugin` now accept a
+  plugin that isn't enabled yet, and `housecarl_read_plugin_file` locates a mod folder that isn't in your
+  load order (a freshly-authored houseCARL patch, found by filename) — so you can sweep, compact, or read a
+  just-authored plugin before enabling and sorting it in MO2.
+- **SkyPatcher interpretation reads more INIs honestly.** A `skin=<donor NPC>` directive is now classified
+  rather than throwing, and a bracketed `[Label]` line is treated as the inert grouping label it is, not a
+  malformed patch.
+- **New-patch naming is collision-safe and un-doubled.** The default patch stem is now `Patch` — dropping
+  the doubled `houseCARL - houseCARL_Patch` — and it is checked against the active load order so a fresh
+  patch can't collide with an existing plugin's name.
+- **A container-read hint now names a knob that actually exists** (it had pointed at a parameter the tool
+  doesn't take).
+
 ## 1.7.1 — 2026-07-13
 
 A maintenance release: sharper, louder tool feedback and a write-lane fix. No new tools (still 37) or
