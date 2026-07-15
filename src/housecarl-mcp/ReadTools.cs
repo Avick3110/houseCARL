@@ -58,15 +58,17 @@ public static class ReadTools
     [McpServerTool(Name = "housecarl_batch_record_detail", ReadOnly = true, Title = "Read many records"),
      Description(
          "Read many records in ONE call (saves per-record tool-call overhead). Each FormID resolves to its " +
-         "load-order winner and renders like housecarl_read_record; a bad or absent FormID yields a per-item error " +
-         "without failing the batch. With conflict_tree=true each record also gets its touching-plugin list + " +
-         "winner-relative field diff. The combined response is size-estimated: over the cap it stops with an explicit " +
-         "'rendered X of N' notice (never silent truncation) — request fewer formids, pass fields= to slim each, or " +
-         "raise max_chars. Does NOT modify anything.")]
+         "load-order winner (or a named plugin's version via plugin=) and renders like housecarl_read_record; a bad " +
+         "or absent FormID yields a per-item error without failing the batch. With conflict_tree=true each record " +
+         "also gets its touching-plugin list + winner-relative field diff. The combined response is size-estimated: " +
+         "over the cap it stops with an explicit 'rendered X of N' notice (never silent truncation) — request fewer " +
+         "formids, pass fields= to slim each, or raise max_chars. Does NOT modify anything.")]
     public static string BatchRecordDetail(
         LoadOrderService svc,
         [Description("The FormIDs to read, each 'XXXXXX:Plugin.esp'. Resolved in order; results are returned in the same order.")]
             string[] formids,
+        [Description("Optional. Read THIS plugin's version of EVERY record instead of the load-order winner (a filename, e.g. 'Gray Fox Cowl.esm') — the batch twin of housecarl_read_record's plugin=. Use to bulk-read a specific override's version (e.g. a mod's OWN records when something else currently wins). A formid that plugin doesn't touch gets its own per-item error; the rest still read.")]
+            string? plugin = null,
         [Description("Optional. Dotted field paths to read for EVERY record (e.g. 'Name', 'BasicStats.Damage'); index a list/dict element with BRACKETS, e.g. 'Effects[0].Data.Magnitude'. Omit to dump every modeled field one level deep per record.")]
             string[]? fields = null,
         [Description("Optional. Expansion depth for list/dict/substruct CONTENTS per record (default 1). depth=2 enumerates each container's elements with index + identity (see housecarl_read_record). Bounded per record with an explicit truncation note.")]
@@ -85,7 +87,7 @@ public static class ReadTools
         bool json = Wire.WantsJson(format, out var ferr);
         if (ferr is not null) return ferr;
         if (json && conflict_tree) return "error: conflict_tree=true is a text-only diff view and is not carried in json mode — use format=text for the conflict tree, or drop conflict_tree for the json field data.";
-        var outcomes = svc.ResolveBatch(formids, fields, conflict_tree, depth <= 0 ? 1 : depth, resolve_names);
+        var outcomes = svc.ResolveBatch(formids, fields, conflict_tree, depth <= 0 ? 1 : depth, resolve_names, plugin?.Trim());
         return json ? JsonWire.RenderBatch(outcomes, max_chars) : Wire.RenderBatch(svc, outcomes, fields, conflict_tree, max_chars);
     });
 

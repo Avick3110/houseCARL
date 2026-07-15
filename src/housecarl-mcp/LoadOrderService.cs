@@ -1662,9 +1662,12 @@ public sealed class LoadOrderService : IDisposable
 
     /// <summary>Resolve+read many records in one call (housecarl_batch_record_detail). Each formid runs the same
     /// <see cref="ResolveRead"/> path, so a bad/absent formid yields a per-item recoverable error (Q3) without
-    /// failing the batch. Returns one <see cref="ReadOutcome"/> per input, in order.</summary>
+    /// failing the batch. Returns one <see cref="ReadOutcome"/> per input, in order. <paramref name="plugin"/> —
+    /// when set — reads every formid AS THAT NAMED PLUGIN'S version (its override, not the load-order winner), the
+    /// batch twin of housecarl_read_record's plugin= (HCBR-2026-07-15): a formid that plugin doesn't touch yields
+    /// its own per-item error (ResolveRead's "does not define this record"), never failing the batch.</summary>
     public IReadOnlyList<ReadOutcome> ResolveBatch(IReadOnlyList<string> formids, IReadOnlyList<string>? fields, bool conflictTree, int depth = 1,
-                                                   bool resolveNames = false)
+                                                   bool resolveNames = false, string? plugin = null)
     {
         var resolver = Resolver;                // build/refresh ONCE for the batch
         var view = resolver.Capture();          // ONE build for every item — the whole batch is one logical operation (HCBR-2026-06-11-02)
@@ -1675,7 +1678,7 @@ public sealed class LoadOrderService : IDisposable
             FormKey fk;
             try { fk = FormKey.Factory(raw.Trim()); }
             catch (Exception ex) { outcomes.Add(ReadOutcome.Fail(default, $"bad FormID '{raw}': {ex.Message}")); continue; }
-            outcomes.Add(ResolveRead(resolver, view, fk, null, fields, conflictTree, depth, resolveNames, linkMemo));
+            outcomes.Add(ResolveRead(resolver, view, fk, plugin, fields, conflictTree, depth, resolveNames, linkMemo));
         }
         return outcomes;
     }
