@@ -31,7 +31,10 @@ namespace HousecarlGenerator;
 /// silently), PRE-ACCEPT (pre-flight now ADMITS flags Add/Remove — was the report's refusal), PRE-BADFLAG (a bogus
 /// flag is REFUSED at the gate, not accepted-then-thrown — Q3), PRE-KEY (a stray key is refused — a bit verb takes
 /// none), PRE-SCALAR / APPLY-SCALAR (a plain scalar still REFUSES Add at BOTH gate and apply — the acceptance is
-/// scoped to [Flags], it did not go universal).
+/// scoped to [Flags], it did not go universal), and NONNULL-VALUELESS / NULLABLE-VALUELESS (PR #202 review: a
+/// VALUELESS Remove keeps its pre-bit-verb whole-clear meaning — accepted on a nullable flags field, refused with a
+/// Set-'0' redirect on a non-nullable one — so the bit verbs ADD capability without removing the only path to null a
+/// nullable flags field; the scan also reports the live nullable-flags blast radius).
 ///
 /// Self-contained: the apply/E2E teeth are pure in-memory Mutagen (no plugin file, no Skyrim.esm); the PRE-* checks
 /// use the GENERATED corpus.json (built into a unique temp dir on a fresh checkout, exactly as formlink-remove-guard).
@@ -123,6 +126,37 @@ public static class FlagsBitVerbProbe
             preScalar is not null && preScalar.Contains("[Flags]", StringComparison.Ordinal),
             preScalar ?? "ACCEPTED — Add must NOT be universal");
 
+        // ---- NULLABLE-FLAGS whole-clear PRESERVATION (PR #202 review): the bit verbs must ADD capability without
+        //      removing any. A VALUELESS Remove keeps its pre-bit-verb meaning — the whole-field clear of a NULLABLE
+        //      scalar, the only path to make a nullable flags field absent (null) — so it is still accepted on a
+        //      nullable flags field and refused (with a turn-all-off redirect) only on a NON-nullable one.
+        Console.WriteLine();
+        Console.WriteLine("── NULLABLE flags: valueless Remove still whole-clears (nullable) / refused w/ redirect (non-nullable) ──");
+        var preNoVal = rb.Validate(FReq("Remove", null));
+        Check("NONNULL-VALUELESS: valueless Remove on non-nullable Quest.Flags is REFUSED, names the Set '0' redirect (not a dead end)",
+            preNoVal is not null && preNoVal.Contains("'0'", StringComparison.Ordinal),
+            preNoVal ?? "ACCEPTED — a non-nullable flags field can't be whole-cleared");
+
+        // Discover the ACTUAL nullable [Flags] surface from the live corpus (measures the change's blast radius, and if
+        // any ROOT-record one exists, proves the gate still ACCEPTS its valueless whole-clear).
+        var corpus = CorpusRulebook.LoadCorpus();
+        var nullableFlags = new List<(string Type, string Field, bool Root)>();
+        foreach (var ts in corpus.Types.Values)
+            foreach (var f in ts.Fields)
+                if (f.Cardinality == "enum" && f.Nullable && ResolvesToFlags(f.MutableTypeAssemblyQualified ?? f.GetterTypeAssemblyQualified))
+                    nullableFlags.Add((ts.Name, f.Name, ts.Kind == "record"));
+        Console.WriteLine($"  corpus nullable [Flags] fields: {nullableFlags.Count}" +
+            (nullableFlags.Count > 0 ? " — e.g. " + string.Join(", ", nullableFlags.Take(6).Select(x => $"{x.Type}.{x.Field}")) : " (none — whole-clear preservation is vacuously safe, kept by construction)"));
+        var rootNullable = nullableFlags.FirstOrDefault(x => x.Root);
+        if (rootNullable.Type is not null)
+        {
+            var preNullClear = rb.Validate(new WriteRequest { RecordType = rootNullable.Type, Path = new[] { rootNullable.Field }, Verb = "Remove", Value = null });
+            Check($"NULLABLE-VALUELESS: valueless Remove on a nullable flags field ({rootNullable.Type}.{rootNullable.Field}) is ACCEPTED (whole-clear preserved)",
+                preNullClear is null, preNullClear);
+        }
+        else
+            Console.WriteLine("  (no ROOT-record nullable flags field to gate-test; the leaf.Nullable branch is still exercised by the non-nullable refusal above)");
+
         // ---- A1 (apply TOOTH — the anti-clobber core): Set flag A, then Add flag B -> BOTH bits set. RED before the
         //      fix: Add on a flags enum was refused outright, so the only path was a Set that dropped A.
         bool a1Ok; string? a1Detail;
@@ -210,6 +244,18 @@ public static class FlagsBitVerbProbe
         Console.WriteLine();
         Console.WriteLine(failures == 0 ? "flags-bit-verb-guard: ALL PASS" : $"flags-bit-verb-guard: {failures} FAILURE(S)");
         return failures == 0 ? 0 : 1;
+    }
+
+    /// <summary>Does the field's assembly-qualified type resolve to a <c>[Flags]</c> enum? The probe-side mirror of
+    /// <c>CorpusRulebook.IsFlagsEnumLeaf</c>'s flags test — resolved via <c>Type.GetType(aq)</c> (Mutagen is loaded),
+    /// so the discovery scan classifies exactly what the gate does.</summary>
+    static bool ResolvesToFlags(string? aq)
+    {
+        if (string.IsNullOrEmpty(aq)) return false;
+        var rt = Type.GetType(aq);
+        if (rt is null) return false;
+        var u = Nullable.GetUnderlyingType(rt) ?? rt;
+        return u.IsEnum && u.IsDefined(typeof(FlagsAttribute), false);
     }
 
     static string OutPath(string stem) =>

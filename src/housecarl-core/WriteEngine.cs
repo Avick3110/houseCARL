@@ -1959,13 +1959,14 @@ public static class WriteEngine
         // §E.1). Recognised by the generic definition (IsFormLinkOrIndex) — no per-record-type wiring.
         if (req.Verb == "Set" && IsFormLinkOrIndex(prop.PropertyType)) { SetFloi(parent, prop, req.Value!); return; }
 
-        // Add/Remove on a [Flags] enum are BIT operations (HCBR-2026-07-15), NOT whole-value Set/clear: Add ORs the
-        // operand's bit(s) into the current value, Remove ANDs them out — so a single flag flips without the caller
-        // re-listing every OTHER bit (the silent-clobber this closes: a literal Set dropped every unlisted bit). Gated
-        // to [Flags] enums; Remove on any other scalar stays the whole-field clear below, and Add on a non-flags scalar
-        // still hits the default reject. Pre-flight (CorpusRulebook's flags-enum branch) already validated the operand
-        // as a legal flag name / bit value, but we fail LOUD here for a pre-flight-bypassing direct/CLI caller (Q3).
-        if (req.Verb is "Add" or "Remove")
+        // Add / valued-Remove on a [Flags] enum are BIT operations (HCBR-2026-07-15), NOT whole-value Set/clear: Add
+        // ORs the operand's bit(s) into the current value, Remove ANDs them out — so a single flag flips without the
+        // caller re-listing every OTHER bit (the silent-clobber this closes: a literal Set dropped every unlisted bit).
+        // Gated to [Flags] enums. A VALUELESS Remove is NOT a bit op — it keeps its pre-bit-verb meaning (the whole-field
+        // clear of a nullable scalar, the case below), so it falls through here; that preserves the only path to make a
+        // nullable flags field absent (pre-flight admits it only when nullable). Add on a non-flags scalar still hits the
+        // default reject. Pre-flight validated the operand, but we fail LOUD here for a pre-flight-bypassing caller (Q3).
+        if (req.Verb == "Add" || (req.Verb == "Remove" && req.Value is not null))
         {
             var ut = Nullable.GetUnderlyingType(prop.PropertyType) ?? prop.PropertyType;
             if (ut.IsEnum && ut.IsDefined(typeof(FlagsAttribute), false)) { ApplyFlagsBitVerb(parent, prop, ut, req); return; }
