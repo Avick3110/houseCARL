@@ -4189,17 +4189,48 @@ public sealed class LoadOrderService : IDisposable
         return string.IsNullOrEmpty(name) ? "Patch" : name;
     }
 
-    /// <summary>The given stem if its mod folder is free, else the first free "<c>&lt;stem&gt;_NNN</c>" — never clobbers
-    /// an existing folder (houseCARL's own OR a user's; into= is the way to grow an existing houseCARL patch).</summary>
+    /// <summary>The given stem if it's free, else the first free "<c>&lt;stem&gt;_NNN</c>". "Free" means BOTH: no mod
+    /// folder "<c>houseCARL - &lt;stem&gt;</c>" already exists (houseCARL's own OR a user's), AND no plugin
+    /// "<c>&lt;stem&gt;.esp</c>" is already in the active load order. The load-order arm stops a GENERIC default stem
+    /// (e.g. "Patch") from emitting a "Patch.esp" that DUPLICATES a foreign active plugin — the engine forbids two active
+    /// plugins sharing a basename, and mod-folder uniqueness alone never sees a same-named plugin that lives in another
+    /// mod (PR #192 review). into= remains the way to grow an existing houseCARL patch; this is only the fresh path.</summary>
     string UniqueStem(string stem)
     {
-        if (!Directory.Exists(Path.Combine(_modsDir, ModFolderName(stem)))) return stem;
+        var active = ActivePluginBasenames();
+        if (IsStemFree(stem, active)) return stem;
         for (int i = 1; i < 10000; i++)
         {
             var cand = $"{stem}_{i:D3}";
-            if (!Directory.Exists(Path.Combine(_modsDir, ModFolderName(cand)))) return cand;
+            if (IsStemFree(cand, active)) return cand;
         }
         throw new InvalidOperationException($"too many patches named '{stem}' under ModsDir — clean some out.");
+    }
+
+    /// <summary>A stem is free to claim when no houseCARL mod folder for it exists AND its plugin "<c>&lt;stem&gt;.esp</c>"
+    /// isn't already an active load-order plugin (case-insensitive — Skyrim plugin basenames are).</summary>
+    bool IsStemFree(string stem, IReadOnlySet<string> activePlugins)
+        => !Directory.Exists(Path.Combine(_modsDir, ModFolderName(stem))) && !activePlugins.Contains(stem + ".esp");
+
+    /// <summary>The active load order's plugin filenames (case-insensitive) for the UniqueStem collision arm. Read from
+    /// the already-built resolver if present, else the SAME cheap composition it builds from — deliberately NOT via the
+    /// <see cref="Resolver"/> getter, which REFUSES a zero-plugin instance (a legitimate minimal write). BEST-EFFORT: any
+    /// read failure (or no active plugins) yields an EMPTY set — folder-only uniqueness, exactly the behaviour before the
+    /// load-order arm. So the collision check is a pure safety net; it never turns a previously-valid write into a failure
+    /// (Q3 degrade — the write itself, if it needs the load order, still surfaces a genuine problem through its own read).</summary>
+    IReadOnlySet<string> ActivePluginBasenames()
+    {
+        var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            IReadOnlyList<string>? names = _resolver?.PluginNames;
+            if (names is null)
+                names = Mo2LoadOrder.Build(_profileDir, _modsDir, _dataDir, _overwriteDir)
+                    .OrderedPaths.Select(Path.GetFileName).Where(n => !string.IsNullOrEmpty(n)).ToList()!;
+            foreach (var n in names) set.Add(n);
+        }
+        catch { /* unreadable / empty load order → folder-only uniqueness (the pre-guard behaviour) */ }
+        return set;
     }
 
     /// <summary>The 4-step <c>into=</c> EXTEND resolver, SHARED by the .esp write path (<see cref="ResolveOutputPath"/>)
