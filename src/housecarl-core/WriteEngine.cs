@@ -220,7 +220,7 @@ public static class WriteEngine
             });
         }
 
-        var name = f.GetValueOrDefault("name") ?? "houseCARL_Patch";
+        var name = f.GetValueOrDefault("name") ?? "Patch";
         var outPath = f.GetValueOrDefault("out");
         if (outPath is null)
         {

@@ -3820,7 +3820,7 @@ public sealed class LoadOrderService : IDisposable
             }
 
             extend = false;
-            var baseStem = PatchStem(string.IsNullOrWhiteSpace(patchName) ? "houseCARL_Patch" : patchName!);
+            var baseStem = PatchStem(string.IsNullOrWhiteSpace(patchName) ? "Patch" : patchName!);
             var freeStem = UniqueStem(baseStem);
             var newFolder = Path.Combine(_modsDir, ModFolderName(freeStem));
             Directory.CreateDirectory(newFolder);
@@ -4186,7 +4186,7 @@ public sealed class LoadOrderService : IDisposable
         var name = Path.GetFileName(raw.Trim());
         foreach (var ext in PluginExts)
             if (name.EndsWith(ext, StringComparison.OrdinalIgnoreCase)) { name = name[..^ext.Length]; break; }
-        return string.IsNullOrEmpty(name) ? "houseCARL_Patch" : name;
+        return string.IsNullOrEmpty(name) ? "Patch" : name;
     }
 
     /// <summary>The given stem if its mod folder is free, else the first free "<c>&lt;stem&gt;_NNN</c>" — never clobbers
