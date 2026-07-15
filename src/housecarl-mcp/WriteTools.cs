@@ -44,8 +44,8 @@ public static class WriteTools
             string? key = null,
         [Description("Optional. The whole new list contents for ReplaceAll on a list (each coerced).")]
             string[]? values = null,
-        [Description("Optional. Base filename for the new patch (default 'houseCARL_Patch'); auto-suffixed if taken so a prior patch is never overwritten. Ignored if into= is given.")]
-            string patch_name = "houseCARL_Patch",
+        [Description("Optional. Base filename for the new patch (default 'Patch'); auto-suffixed if taken so a prior patch is never overwritten. Ignored if into= is given.")]
+            string patch_name = "Patch",
         [Description("Optional. Filename of an existing patch (from a prior call) to EXTEND with this edit instead of writing a fresh one — the way to accumulate edits into one patch across calls/sessions. Found by the plugin's filename even if you've renamed its MO2 mod folder; for two patches sharing a filename, pass the mod-folder name here instead (folder & plugin names need not match).")]
             string? into = null,
         [Description("Optional. IN-PLACE LANE (opt-in): the filename of an EXISTING active plugin to edit IN PLACE — including one houseCARL didn't author — instead of writing a new patch (e.g. 'CoolWeapons.esp'). Requires in_place=true; mutually exclusive with into=. OMIT this (the default) to write a NEW patch and leave every original untouched — the recommended lane.")]
@@ -98,8 +98,8 @@ public static class WriteTools
         LoadOrderService svc,
         [Description("The edits to apply, all into one patch. Each: {formid, field_path, verb, value?, key?, values?, entries?, compose?}.")]
             BulkOp[] operations,
-        [Description("Optional. Base filename for the new patch (default 'houseCARL_Patch'); auto-suffixed if taken. Ignored if into= is given.")]
-            string patch_name = "houseCARL_Patch",
+        [Description("Optional. Base filename for the new patch (default 'Patch'); auto-suffixed if taken. Ignored if into= is given.")]
+            string patch_name = "Patch",
         [Description("Optional. Filename of an existing patch to EXTEND with these edits instead of writing a fresh one (accumulate across calls/sessions). Found by the plugin's filename even if you've renamed its MO2 mod folder; for two patches sharing a filename, pass the mod-folder name here instead (folder & plugin names need not match).")]
             string? into = null,
         [Description("Optional. IN-PLACE LANE (opt-in): the filename of an EXISTING active plugin to edit IN PLACE — including one houseCARL didn't author — instead of writing a new patch (e.g. 'CoolWeapons.esp'). Requires in_place=true; mutually exclusive with into=. OMIT this (the default) to write a NEW patch and leave every original untouched — the recommended lane.")]
@@ -192,8 +192,8 @@ public static class WriteTools
             string? collection = null,
         [Description("Optional. For an EXTERIOR cell (record_type 'Cell' with parent= a Worldspace FormID): the cell's grid as \"X,Y\" (e.g. \"5,-12\") — houseCARL files it into the worldspace's block tree (block=floor(grid/32), subblock=floor(grid/8)). A 'Cell' with NO parent and NO grid is an INTERIOR cell (self-files by FormID). Ignored for non-Cell types.")]
             string? grid = null,
-        [Description("Optional. Base filename for the new patch (default 'houseCARL_Patch'); auto-suffixed if taken. Ignored if into= is given.")]
-            string patch_name = "houseCARL_Patch",
+        [Description("Optional. Base filename for the new patch (default 'Patch'); auto-suffixed if taken. Ignored if into= is given.")]
+            string patch_name = "Patch",
         [Description("Optional. Filename of an existing houseCARL patch to add this new record to instead of writing a fresh one (accumulate across calls/sessions). Found by the plugin's filename even if you've renamed its MO2 mod folder; for two patches sharing a filename, pass the mod-folder name here instead (folder & plugin names need not match).")]
             string? into = null,
         [Description("Optional. IN-PLACE LANE (opt-in): the filename of an EXISTING active plugin to create the new record straight INTO, IN PLACE — including one houseCARL didn't author — instead of writing a new patch (e.g. 'CoolWeapons.esp'). Requires in_place=true; mutually exclusive with into=. Full create parity in place — incl. a nested record (parent=): a parent the target already owns is edited to host the child, a parent from another plugin is overridden in (exactly as the patch lane does). OMIT this (the default) to write a NEW patch and leave every original untouched — the recommended lane.")]
@@ -241,8 +241,8 @@ public static class WriteTools
         LoadOrderService svc,
         [Description("The records to create, all into one patch. Each: {record_type, editorid, operations?, parent?, collection?}. For a nested one-shot, declare the parent (e.g. a DialogTopic) BEFORE the children whose parent= names its editorid.")]
             CreateOp[] records,
-        [Description("Optional. Base filename for the new patch (default 'houseCARL_Patch'); auto-suffixed if taken. Ignored if into= is given.")]
-            string patch_name = "houseCARL_Patch",
+        [Description("Optional. Base filename for the new patch (default 'Patch'); auto-suffixed if taken. Ignored if into= is given.")]
+            string patch_name = "Patch",
         [Description("Optional. Filename of an existing houseCARL patch to add these new records to instead of writing a fresh one (accumulate across calls/sessions). Found by the plugin's filename even if you've renamed its MO2 mod folder; for two patches sharing a filename, pass the mod-folder name here instead (folder & plugin names need not match).")]
             string? into = null,
         [Description("Optional. IN-PLACE LANE (opt-in): the filename of an EXISTING active plugin to create the new records straight INTO, IN PLACE — including one houseCARL didn't author — instead of writing a new patch (e.g. 'CoolWeapons.esp'). Requires in_place=true; mutually exclusive with into=. Full create parity in place — incl. a nested one-shot (a topic AND its lines, a cell AND its refs): a same-call or target-owned parent hosts the child, a parent from another plugin is overridden in (exactly as the patch lane does). OMIT this (the default) to write a NEW patch and leave every original untouched — the recommended lane.")]
@@ -293,8 +293,8 @@ public static class WriteTools
             string[] formids,
         [Description("The plugin filename whose version of the record(s) to copy (e.g. 'Authoria - ATweaks.esp', or a master like 'Skyrim.esm' to revert to vanilla). Must be an active plugin that DEFINES or overrides each formid.")]
             string from_plugin,
-        [Description("Optional. Base filename for the new patch (default 'houseCARL_Patch'); auto-suffixed if taken so a prior patch is never overwritten. Ignored if into= is given.")]
-            string patch_name = "houseCARL_Patch",
+        [Description("Optional. Base filename for the new patch (default 'Patch'); auto-suffixed if taken so a prior patch is never overwritten. Ignored if into= is given.")]
+            string patch_name = "Patch",
         [Description("Optional. Filename of an existing houseCARL patch to ADD these forwards to instead of writing a fresh one (accumulate across calls — e.g. forward from a different source plugin into the same patch). Found by the plugin's filename even if you've renamed its MO2 mod folder; for two patches sharing a filename, pass the mod-folder name here instead (folder & plugin names need not match). If the patch already carries a forwarded FormKey, its existing override is REPLACED by from_plugin's body.")]
             string? into = null,
         [Description("When true, the response ALSO returns each forwarded record IN FULL, read back from the written patch file on disk (every field, deep). The pre-enable verification: confirm the copied version is exactly the source's, WITHOUT enabling the patch in MO2 (the written file's content, not load-order truth).")]
