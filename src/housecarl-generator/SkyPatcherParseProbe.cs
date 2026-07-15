@@ -27,6 +27,17 @@ public static class SkyPatcherParseProbe
         failures += Check("';'-led line ⇒ Comment", SkyPatcherParse.ParseLine("  ; a note").Kind == SkyPatcherLineKind.Comment);
         failures += Check("key=value line ⇒ Patch", SkyPatcherParse.ParseLine("attackDamage=99").Kind == SkyPatcherLineKind.Patch);
 
+        // -- INI section/label line ('[Name]') ⇒ inert Label kind, no segments, no note (issue #180) -----
+        var lbl = SkyPatcherParse.ParseLine("[Vernaccus]");
+        failures += Check("'[Name]' ⇒ Label (inert): no segments, no note",
+            lbl.Kind == SkyPatcherLineKind.Label && lbl.Segments.Count == 0 && lbl.Note is null,
+            $"kind={lbl.Kind} segs={lbl.Segments.Count} note={lbl.Note ?? "<null>"}");
+        failures += Check("a whitespace-padded '[Name]' still ⇒ Label",
+            SkyPatcherParse.ParseLine("  [Deathbringer Vorla]  ").Kind == SkyPatcherLineKind.Label);
+        failures += Check("a real patch line is NOT mistaken for a label (leads with a key, not '[')",
+            SkyPatcherParse.ParseLine("filterByNpcs=Vigilant.esm|1D0ECCB3:shoutsToRemove=Vigilant.esm|020ECCB9").Kind
+                == SkyPatcherLineKind.Patch);
+
         // -- the canonical weapon patch (grammar-core §3 worked example) ------------------------
         var w = SkyPatcherParse.ParseLine("filterByWeapons=Skyrim.esm|00012EB7:attackDamage=99:weight=0");
         failures += Check("weapon patch ⇒ 3 segments", w.Segments.Count == 3, $"got {w.Segments.Count}");
@@ -121,14 +132,17 @@ public static class SkyPatcherParseProbe
         // -- whole-file parse: counts by kind ----------------------------------------------------
         var file = SkyPatcherParse.ParseFile(
             "; header comment\n" +
+            "[Some NPC]\n" +
             "filterByWeapons=Skyrim.esm|12EB7:attackDamage=99\n" +
             "\n" +
             "filterByArmors=Skyrim.esm|12E49:armorRating=40\n");
         int patches = file.Count(l => l.Kind == SkyPatcherLineKind.Patch);
         int comments = file.Count(l => l.Kind == SkyPatcherLineKind.Comment);
         int blanks = file.Count(l => l.Kind == SkyPatcherLineKind.Blank);
-        failures += Check("file parse ⇒ 2 patch, 1 comment, ≥1 blank",
-            patches == 2 && comments == 1 && blanks >= 1, $"patch={patches} comment={comments} blank={blanks}");
+        int labels = file.Count(l => l.Kind == SkyPatcherLineKind.Label);
+        failures += Check("file parse ⇒ 2 patch, 1 comment, 1 label, ≥1 blank (the label is not a patch)",
+            patches == 2 && comments == 1 && labels == 1 && blanks >= 1,
+            $"patch={patches} comment={comments} label={labels} blank={blanks}");
 
         // -- UTF-8 BOM (Wave-1 crux finding: a shipped INI's BOM rode into the first key) --------
         var bomFile = SkyPatcherParse.ParseFile("\uFEFF" + "filterByWeapons=Skyrim.esm|12EB7:weight=0");
