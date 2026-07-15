@@ -28,8 +28,8 @@ public static class WriteTools
          "didn't make), not a patch — pass target=<plugin filename> + in_place=true (opt-in; see those params; the default " +
          "patch lane leaves originals untouched). Pre-flight rejects an illegal edit with the reason and writes nothing (Q3). Returns the patch path, " +
          "its masters, and the value read back. Does NOT compose modeled structs (leveled-list entries, polymorphic " +
-         "fields) or edit a dict via Merge — use housecarl_bulk_apply for those, or for many edits in one patch. Read " +
-         "first with housecarl_read_record.")]
+         "fields), edit a dict via Merge, or copy a field from another plugin's version (CopyFrom) — use " +
+         "housecarl_bulk_apply for those, or for many edits in one patch. Read first with housecarl_read_record.")]
     public static string SetField(
         LoadOrderService svc,
         [Description("The record's FormID as 'XXXXXX:Plugin.esp' (6 hex digits, the defining master's filename).")]
