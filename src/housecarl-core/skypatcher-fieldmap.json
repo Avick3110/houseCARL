@@ -534,7 +534,8 @@
                                  "semantic":  "set",
                                  "path":  "WornArmor",
                                  "formType":  "Armor",
-                                 "note":  "null disables (field is nullable in Mutagen); NPC \u0027skin\u0027 is the WNAM worn-armor link"
+                                 "donorType":  "Npc",
+                                 "note":  "null disables (field is nullable in Mutagen); NPC \u0027skin\u0027 is the WNAM worn-armor link. skin=<Armor> sets it directly; the NPC-Replacer-Converter shape skin=<donor NPC> copies that donor NPC worn-armor at runtime (donorType=Npc) — an unmodeled donor-copy, not a malformed FormKey (issue #181)"
                              },
                     "deathItem":  {
                                       "semantic":  "set",

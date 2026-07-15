@@ -1162,8 +1162,32 @@ public static class SkyPatcherOverlay
         if (v.IsNameLiteral) token = v.NameText!;                       // rename literal, wrapper stripped
         else if (v.Address is { IsFormId: true } a && TryFormKey(a, out var fk1)) token = fk1.ToString();
         else if (map.ValueMap is { } vm && vm.TryGetValue(v.Raw, out var mapped)) token = mapped;
-        else if (map.FormType is not null && ResolveFormValue(v, map.FormType, resolver) is { } rk) token = rk.ToString();
-        else token = v.Raw;                                             // scalar / enum member (ignore-case coercion downstream)
+        else if (map.FormType is not null)
+        {
+            // A form-valued target: the value MUST resolve to a form. A bare non-form string must NOT fall
+            // through to the engine as a raw FormKey — that throws "Malformed FormKey" and mislabels a
+            // VALID INI as broken (issue #181, Q3). The real-world case is an NPC-replacer's
+            // 'skin=<donor NPC EditorID>', where the value is an NPC, not the Armor the field expects.
+            if (ResolveFormValue(v, map.FormType, resolver) is { } rk) token = rk.ToString();
+            else
+            {
+                // Didn't resolve as FormType. If the op declares a donor kind (NPC skin's donorType=Npc)
+                // and the value DOES resolve as that kind, it is a runtime donor-copy the static model
+                // doesn't cover ('skin=<donor NPC>' copies the donor's worn armor at load — like
+                // copyVisualStyle): name it honestly. Otherwise the form is genuinely missing/typo'd —
+                // loud, named. Either path: never a thrown malformed-FormKey.
+                if (map.DonorType is { } dt && v.Address is not { IsFormId: true }
+                    && resolver.ResolveEditorId(v.Raw, dt) is not null)
+                    warnings.Add($"{where}: '{opKey}={v.Raw}' — '{v.Raw}' is a {dt}, not a {map.FormType}. " +
+                        $"'{opKey}=<donor {dt}>' copies the donor's {map.Path} at runtime — a donor-copy houseCARL does not " +
+                        $"statically model (like copyVisualStyle); the INI line is valid, but its post-state is NOT computed here.");
+                else
+                    warnings.Add($"{where}: '{opKey}={v.Raw}' — does not resolve to a {map.FormType} in the active order; " +
+                        $"not applied (named gap, never a malformed-form guess).");
+                return;
+            }
+        }
+        else token = v.Raw;                                             // scalar / enum member on a non-form field (ignore-case coercion downstream)
 
         WriteEngine.ApplyVerb(record, new WriteRequest { RecordType = fieldMap.RecordType, Path = segs, Verb = "Set", Value = token });
         applied.Add(new SkyPatcherAppliedOp(line.File, line.LineNumber, opKey, v.Raw, map.Path, before, LeafToken(record, segs), map.Note));

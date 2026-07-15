@@ -222,6 +222,7 @@ public sealed class SkyPatcherFieldMap
             SourcePath: OptStr(el, "sourcePath"),
             Flag: OptStr(el, "flag"),
             FormType: OptStr(el, "formType"),
+            DonorType: OptStr(el, "donorType"),
             EqPacked: el.TryGetProperty("pack", out var pk) && pk.ValueKind == JsonValueKind.String && pk.GetString() == "eq",
             ValueMap: valueMap,
             Element: element,
@@ -407,7 +408,13 @@ public sealed record FilterSpec(
 }
 
 /// <summary>One operation's mapping. <see cref="Unmapped"/> non-null ⇒ the op is EXPLICITLY not
-/// modelable, with the reason the overlay surfaces loud (all other members are then unset).</summary>
+/// modelable, with the reason the overlay surfaces loud (all other members are then unset).
+/// <para><see cref="DonorType"/> (optional) names a SECOND record kind the op's value may legitimately be
+/// — the runtime "copy from a donor of type X" reading of an otherwise form-valued op. NPC <c>skin</c> is
+/// the case: <c>skin=&lt;Armor&gt;</c> sets WornArmor directly, but the NPC-Replacer-Converter shape
+/// <c>skin=&lt;donor NPC&gt;</c> copies that NPC's worn armor at load. When the value fails to resolve as
+/// <see cref="FormType"/> but DOES resolve as DonorType, the overlay names it an unmodeled donor-copy
+/// (like copyVisualStyle) instead of throwing a malformed-FormKey — issue #181.</para></summary>
 public sealed record OpMap(
     SkyPatcherOpSemantic Semantic,
     string Path,
@@ -415,6 +422,7 @@ public sealed record OpMap(
     string? SourcePath,
     string? Flag,
     string? FormType,
+    string? DonorType,
     bool EqPacked,
     IReadOnlyDictionary<string, string>? ValueMap,
     ElementMap? Element,
@@ -423,7 +431,7 @@ public sealed record OpMap(
     string? Unmapped)
 {
     internal static OpMap MakeUnmapped(string reason)
-        => new(SkyPatcherOpSemantic.Set, "", null, null, null, null, false, null, null, null, null, reason);
+        => new(SkyPatcherOpSemantic.Set, "", null, null, null, null, null, false, null, null, null, null, reason);
     /// <summary>True when this op is explicitly declared un-modelable (loud in the overlay).</summary>
     public bool IsUnmapped => Unmapped is not null;
 }
