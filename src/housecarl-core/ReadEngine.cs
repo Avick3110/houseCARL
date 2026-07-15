@@ -165,7 +165,16 @@ public static class ReadEngine
     /// proven internal <see cref="ReadLeaf"/> (the round-trip oracle drives it), so the server's reads inherit the
     /// read-proof by construction. Per-leaf fault isolation (Q3): an unreadable field names itself in its
     /// <see cref="FieldValue.Note"/>, never throws out of the record read.</summary>
-    public static RecordFields ReadFields(IMajorRecordGetter record, IReadOnlyList<string>? paths = null, int depth = 1)
+    /// <summary>The depth-1 container hint (HCBR-2026-07-12): appended to an unexpanded container/substruct summary so
+    /// an agent turns the depth= knob instead of inventing a param or hand-rolling a parser. It names <c>depth=2</c>,
+    /// which is only honest on a surface that HAS a depth= parameter (read_record / batch_record_detail /
+    /// read_plugin_file / the CLI) — a caller whose surface has no depth= passes its own redirect via
+    /// <c>containerHint</c> (cross_plugin_query names the batch-read hop) or null to suppress (write read-backs,
+    /// where the count IS the confirmation and there is no knob to turn).</summary>
+    public const string DepthExpandHint = " — pass depth=2 to expand";
+
+    public static RecordFields ReadFields(IMajorRecordGetter record, IReadOnlyList<string>? paths = null, int depth = 1,
+                                          string? containerHint = DepthExpandHint)
     {
         var typeName = RecordNaming.StripGetterInterface(WriteEngine.PrimaryGetter(record.GetType())?.Name ?? "I?Getter");
         var targets = paths is { Count: > 0 } ? (IEnumerable<string>)paths : ModeledFieldNames(typeName, record.GetType());
@@ -186,7 +195,8 @@ public static class ReadEngine
                 // (HCBR-2026-07-12). No-value NOTES are parenthesized ("(absent)", "(null link)"), so the leading-'['
                 // test targets exactly the container/substruct summaries. Depth-1 only (this branch) — the deep read
                 // FieldsDiff runs never sees the hint (it reads at expansion depth, a different summary path).
-                if (note is { Length: > 0 } && note[0] == '[') note += " — pass depth=2 to expand";
+                // The hint text is the caller's (containerHint): depth=2 is only a real knob on some surfaces.
+                if (note is { Length: > 0 } && note[0] == '[' && !string.IsNullOrEmpty(containerHint)) note += containerHint;
                 fields.Add(new FieldValue(p, r.HasValue, r.HasValue ? r.Token : null, note, FlagSlotDisplay(r)));
             }
         }

@@ -509,6 +509,12 @@ static class Wire
     }
 
     // ---- housecarl_cross_plugin_query ---------------------------------------------------------------
+
+    /// <summary>The container hint for cross_plugin_query field expansions: this tool has NO depth= parameter, so the
+    /// generic " — pass depth=2 to expand" would name a knob the tool refuses (the unknown-param guard rejects depth=)
+    /// — the honest redirect is the batch-read hop. Shared by the text render (here) and <see cref="JsonWire"/>.</summary>
+    internal const string CrossQueryContainerHint = " — cross_plugin_query has no depth=; expand these via housecarl_batch_record_detail depth=2";
+
     public static string RenderCrossQuery(LoadOrderService svc, CrossQueryOutcome q, IReadOnlyList<string>? fields, bool conflictTree, int maxChars,
                                           bool resolveNames = false, bool winnerFields = false)
     {
@@ -547,7 +553,8 @@ static class Wire
             {
                 // winner_fields=: read the load-order WINNER's body (source=null) regardless of scan scope; else the
                 // body the scan filtered (scoped plugin under plugins=, else winner) — so display never contradicts filter.
-                var o = svc.ResolveRead(fk, winnerFields ? null : (q.Sources is { } src ? src[i] : null), fields, conflictTree, resolveNames: resolveNames, linkMemo: linkMemo);
+                var o = svc.ResolveRead(fk, winnerFields ? null : (q.Sources is { } src ? src[i] : null), fields, conflictTree, resolveNames: resolveNames, linkMemo: linkMemo,
+                                        containerHint: CrossQueryContainerHint);   // this tool has no depth= — don't hint a knob it refuses
                 sb.Append('\n');
                 if (matches is not null) sb.Append("  ").Append(fk).Append("  matches=").Append(matches).Append('\n');
                 if (o.Error is not null) sb.Append(fk).Append(": error: ").Append(o.Error).Append('\n');
