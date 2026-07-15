@@ -98,7 +98,7 @@ internal static class ExtendResolveProbe
             static bool Ends(string path, params string[] parts) =>
                 path.EndsWith(Path.Combine(parts), StringComparison.OrdinalIgnoreCase);
             void MarkOwned(string folder, string plugin) =>
-                File.WriteAllText(Path.Combine(folder, "meta.ini"), $"[houseCARL]\r\ngenerated=true\r\nplugin={plugin}\r\n");
+                File.WriteAllText(Path.Combine(folder, "meta.ini"), $"{HousecarlOwnerMeta.Section}\r\ngenerated=true\r\nplugin={plugin}\r\n");
 
             // ---- SEED: create the patch fresh — "houseCARL - SeedA\SeedA.esp" carrying a Damage=50 override ----
             var seed = svc.ApplyEdits(new[] { Dmg(50) }, "SeedA", null);
