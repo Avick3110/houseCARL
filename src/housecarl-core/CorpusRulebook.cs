@@ -336,7 +336,9 @@ public sealed class CorpusRulebook
                    $" values ({leaf.ElementTypeRef ?? leaf.ElementType}), not modeled structs — use values= " +
                    "(ReplaceAll) / value= (Add), not composes=.";
         if (req.Structs!.Count == 0)
-            return $"composes= for '{leaf.Name}' is empty — supply one or more element specs (or compose= for exactly one).";
+            return req.Verb is "ReplaceAll"
+                ? null   // ReplaceAll composes=[] = CLEAR the modeled list (the modeled twin of ReplaceAll values=[]); apply Clears + appends nothing
+                : $"composes= for '{leaf.Name}' is empty — supply one or more element specs (only ReplaceAll composes=[] is meaningful, to clear the list).";
         for (int i = 0; i < req.Structs.Count; i++)
             if (StructElementLegality(leaf, req.Structs[i], siblingEditorIds) is { } elemErr)
                 return $"composes[{i}]: {elemErr}";

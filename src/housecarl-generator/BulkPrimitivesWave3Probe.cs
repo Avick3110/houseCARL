@@ -159,6 +159,22 @@ public static class BulkPrimitivesWave3Probe
             Check($"ReplaceAll composes: CLEARED the 3 seeds then appended 2 → count==2 (count={CountEntries(repl.OutputPath)})",
                   CountEntries(repl.OutputPath) == 2);
 
+        // PR #186 review #3: ReplaceAll composes=[] (empty) CLEARS the modeled list — the modeled twin of ReplaceAll
+        // values=[] (which already clears a coercible list). Seed 3, then ReplaceAll to empty → count 0.
+        var seedC = svc.ApplyEdits(new[]
+        {
+            new BulkOp { Formid = llFid, FieldPath = "Entries", Verb = "Add", Composes = new[] { Entry(1), Entry(2), Entry(3) } },
+        }, "P8aClr", null);
+        var clr = seedC.Success
+            ? svc.ApplyEdits(new[] { new BulkOp { Formid = llFid, FieldPath = "Entries", Verb = "ReplaceAll", Composes = Array.Empty<StructInput>() } }, null, "P8aClr")
+            : seedC;
+        Check($"ReplaceAll composes=[] CLEARS the modeled list → count 0 (count={(clr.Success ? CountEntries(clr.OutputPath) : null)})",
+              clr.Success && CountEntries(clr.OutputPath) == 0);
+        // but Add composes=[] (empty) is still refused — appending nothing is a caller mistake
+        var addEmpty = svc.ApplyEdits(new[] { new BulkOp { Formid = llFid, FieldPath = "Entries", Verb = "Add", Composes = Array.Empty<StructInput>() } }, "P8aAddEmpty", null);
+        Check("Add composes=[] (empty) still refused (only ReplaceAll clears)",
+              !addEmpty.Success && addEmpty.Error is { } eAE && eAE.Contains("ReplaceAll"));
+
         // ---- all-or-nothing: one bad element refuses the WHOLE call, names composes[1], writes nothing ----
         var bad = svc.ApplyEdits(new[]
         {
