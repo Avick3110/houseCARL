@@ -35,6 +35,9 @@ It can:
   a portable follower or a face moved between mods.
 - **Trace a magic effect** — resolve a MagicEffect to every spell, enchantment, potion, scroll, and
   ingredient that carries it, with each one's magnitude, in a single call.
+- **Answer bulk / fleet questions** — resolve many FormIDs to their identity in one call, diff two plugins'
+  versions of a record down to the changed fields, and aggregate a cross-plugin query (define-vs-touch
+  scope, multi-target reverse lookups, group-by counts, winner-value columns, JSON output).
 - **VFS asset layer** — read which copy of any Data-relative file (mesh, texture, script, sound,
   interface) actually wins your load order (the overwrite folder, a specific mod, Data, or inside a BSA),
   and place a file as a winning override into a new MO2 mod folder; loose-vs-BSA aware, with FaceGen as the
@@ -56,19 +59,22 @@ It can:
 - **Decompile compiled scripts** — reconstruct reviewable `.psc` source from any `.pex` (Mutagen-native,
   no external tool needed), measured at 98.8% byte-exact recompile round-trips across every provable
   script in a 3,400-plugin load order; anything it can't prove fails loudly, never silently wrong.
-- **Look mods up on Nexus** — search the Skyrim SE catalogue and read any mod's version, requirements,
-  and latest release straight from Nexus Mods, no browser needed. Read-only; downloading stays your mod
-  manager's job.
+- **Look mods up on Nexus — and check your load order for updates** — search the catalogue and read any
+  mod's version, requirements, file list, and per-version changelog straight from Nexus Mods, no browser
+  needed; check your installed mods for updates at the **exact-file level** (MO2's local cache first, then a
+  live confirm) so a deliberately-old compatibility patch isn't misread as outdated; trace a file to its mod
+  by MD5 hash; and a raw GraphQL backstop reaches any field the curated tools don't surface yet. Keyless and
+  read-only; downloading stays your mod manager's job.
 - Look up **record schemas** (every type Mutagen models) and **Papyrus / SKSE signatures**, author
   **SkyPatcher**, **SPID**, and **KID** distributor files, **author Skyrim dialogue** and **Open Animation
   Replacer configs**, **author SKSE plugins in C++** (CommonLibSSE-NG), **review Papyrus scripts for
-  performance**, **diagnose the dark / grey / black-face NPC bug**, **find armor by equip slot**, and
-  **recognize generated tool output** — through 12 bundled,
+  performance**, **diagnose the dark / grey / black-face NPC bug**, **find armor by equip slot**,
+  **recognize generated tool output**, and **plan bulk record-jobs** — through 13 bundled,
   namespaced skills (`/housecarl:mutagen-reference`, `/housecarl:papyrus-reference`,
   `/housecarl:skypatcher-authoring`, `/housecarl:spid-authoring`, `/housecarl:kid-authoring`,
   `/housecarl:dialogue-authoring`, `/housecarl:papyrus-optimization`, `/housecarl:facegen-diagnostics`,
   `/housecarl:oar-authoring`, `/housecarl:skse-plugin-authoring`, `/housecarl:tool-output-awareness`,
-  `/housecarl:biped-slot-reference`).
+  `/housecarl:biped-slot-reference`, `/housecarl:bulk-record-jobs`).
 
 Coverage is **reflection-driven**: the set of record types houseCARL understands *is* the set Mutagen
 models, by construction — not a hand-maintained subset.

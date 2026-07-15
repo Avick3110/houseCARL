@@ -42,6 +42,10 @@ models — by construction, not a hand-maintained subset.
   build behind a portable follower or a face transplanted between mods.
 - **Trace a magic effect** — resolve a MagicEffect to every spell, enchantment, potion, scroll, and
   ingredient that carries it, with each one's magnitude, in a single call.
+- **Answer bulk / fleet questions** — resolve many FormIDs to their identity in one call, diff two plugins'
+  versions of a record down to just the changed fields, and aggregate a cross-plugin query (define-vs-touch
+  scope, multi-target reverse lookups, group-by counts, winner-value columns, JSON output) — the surface a
+  catalogue, conflict survey, or patch rebuild runs on.
 - **VFS asset layer** — read which copy of any Data-relative file (mesh, texture, script, sound,
   interface) actually wins your load order (the overwrite folder, a specific mod, Data, or inside a BSA),
   and place a file as a winning override into a new MO2 mod folder; loose-vs-BSA aware, with FaceGen as the
@@ -64,14 +68,18 @@ models — by construction, not a hand-maintained subset.
   no external tool needed), measured at 98.8% byte-exact recompile round-trips across every provable
   script in a 3,400-plugin load order; anything it can't prove fails loudly in the output, never
   silently wrong.
-- **Look mods up on Nexus** — search the Skyrim SE catalogue and pull any mod's version, requirements,
-  and *true* latest release straight from Nexus Mods, without opening a browser. Read-only: it finds
-  and informs; downloading stays your mod manager's "Mod Manager Download" handoff.
-- **Look things up, author distributor files, and review scripts** through 12 bundled, namespaced skills:
+- **Look mods up on Nexus — and check your load order for updates.** Search the Skyrim SE catalogue and
+  pull any mod's version, requirements, file list, per-version changelog, and *true* latest release straight
+  from Nexus Mods, without opening a browser. Check your whole load order for updates **at the exact-file
+  level** — reading MO2's own local cache first to narrow the list, then confirming live — so an old-version
+  compatibility patch installed on purpose isn't misread as out of date; trace a file to its mod by MD5
+  hash; and a raw GraphQL backstop reaches any field the curated tools don't surface yet. All keyless and
+  read-only: it finds and informs; downloading stays your mod manager's "Mod Manager Download" handoff.
+- **Look things up, author distributor files, and review scripts** through 13 bundled, namespaced skills:
   record schemas (every type Mutagen models), Papyrus / SKSE signatures, SkyPatcher / SPID / KID
   distributor grammars, Skyrim dialogue authoring, Open Animation Replacer config authoring, SKSE plugin
   (C++/CommonLibSSE-NG) authoring, Papyrus performance review, dark-face NPC diagnosis, equip-slot lookup,
-  and tool-output awareness.
+  tool-output awareness, and bulk record-job planning.
 
 ## Requirements
 
@@ -92,7 +100,7 @@ models — by construction, not a hand-maintained subset.
 
 ### Download — recommended (modders)
 
-1. Download **`houseCARL-1.7.1.zip`** from the [latest release](https://github.com/Avick3110/houseCARL/releases).
+1. Download **`houseCARL-1.8.0.zip`** from the [latest release](https://github.com/Avick3110/houseCARL/releases).
 2. Unzip it and run **`houseCARL-Setup.exe`**.
 3. Pick your host — **`[1] Claude Code`**, **`[2] Codex`**, or **`[3] Both`**. The installer wires
    everything up:
@@ -122,7 +130,7 @@ cd houseCARL
 
 The script regenerates the reflection rulebook, publishes the server framework-dependent (trimming **off**
 — houseCARL is reflection-driven, so trimming would strip types and silently lose coverage), bundles the
-skills, builds the setup utility, and packs `release/houseCARL-1.7.1.zip`. Install the output with
+skills, builds the setup utility, and packs `release/houseCARL-1.8.0.zip`. Install the output with
 `houseCARL-Setup.exe`, `claude --plugin-dir ./dist/housecarl`, or the bundled local-marketplace
 descriptor — see the script header for details.
 
@@ -187,6 +195,12 @@ Namespaced under `/housecarl:` in Claude (and reachable via `$housecarl` in Code
   native Papyrus functions from C++, target SE + AE + VR from one DLL, or read an open-source plugin's source
   to explain what it does. Distinct from ESP/record work and from `.psc` Papyrus (owned by `papyrus-reference`);
   its runtime claims still await an in-game validation pass.
+- **`bulk-record-jobs`** — plan a "many records → one structured deliverable" job (a catalogue, a link or
+  recipe graph, a conflict survey, a patch rebuild, a fan-out extraction) onto the bulk primitives — scoped
+  queries, `group_by`, `housecarl_resolve`, `housecarl_diff_record`, batch writes — instead of per-record
+  loops, with the game-generic Creation-Kit conventions those jobs need and one canonical deliverable schema
+  so a fleet of subagents doesn't invent a different output shape each. Game-generic only — a specific mod's
+  own conventions stay in that mod's skill.
 
 ## License
 
