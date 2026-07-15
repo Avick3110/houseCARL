@@ -3751,15 +3751,22 @@ public sealed class LoadOrderService : IDisposable
     {
         error = null;
         if (op.Composes is null) return null;
-        if (op.Composes.Length == 0)
-        {
-            error = $"{where}: composes=[] is empty — supply one or more element specs, or use compose= for exactly one.";
-            return null;
-        }
         if (singular is not null)
         {
             error = $"{where}: pass compose= (one element) OR composes= (many), not both.";
             return null;
+        }
+        if (op.Composes.Length == 0)
+        {
+            // An EMPTY composes=[] is the CLEAR intent for a ReplaceAll (empty the modeled list — the modeled twin of
+            // ReplaceAll values=[], which already clears a coercible list); for any other verb an empty batch is a
+            // caller mistake worth naming.
+            if (!string.Equals(op.Verb, "ReplaceAll", StringComparison.Ordinal))
+            {
+                error = $"{where}: composes=[] is empty — supply one or more element specs (or compose= for one); an empty composes= is only meaningful with verb=ReplaceAll, to CLEAR the list.";
+                return null;
+            }
+            return new List<StructSpec>();   // ReplaceAll composes=[] → clear the modeled list
         }
         var specs = new List<StructSpec>(op.Composes.Length);
         for (int j = 0; j < op.Composes.Length; j++)
