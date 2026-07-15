@@ -1567,6 +1567,95 @@ public sealed class LoadOrderService : IDisposable
         return results;
     }
 
+    // ---- pairwise record diff (housecarl_diff_record — P8c) --------------------------------------------
+
+    /// <summary>P8c — field-level diff between TWO named plugins' versions of ONE record (housecarl_diff_record). Each
+    /// pole resolves ACTIVE-order (<see cref="LoadOrderResolver.IndexView.GetRecord"/>) OR OFF-ORDER (a plugin file on
+    /// disk not in the load order — the report's case diffs a DISABLED old patch against the mod that supersedes it, via
+    /// the shared <see cref="LocatePluginFileOnDisk"/>). Both sides are deep-read (<see cref="ConflictDiffDepth"/>) with
+    /// the SAME fields= so line sets correspond, then compared by <see cref="FieldsDiff.Compare"/> — the SAME
+    /// order-insensitive, truncation-honest engine the conflict tree uses, with plugin_b as the reference label. A bad
+    /// FormID, an unresolvable pole, or a plugin that doesn't define the record is a NAMED refusal (Q3).</summary>
+    public DiffRecordOutcome DiffRecord(string formid, string pluginA, string pluginB, IReadOnlyList<string>? fields,
+                                        string? modA = null, string? modB = null)
+    {
+        var fidLabel = formid?.Trim() ?? "";
+        if (string.IsNullOrWhiteSpace(pluginA) || string.IsNullOrWhiteSpace(pluginB))
+            return DiffRecordOutcome.Fail(fidLabel, "diff_record needs BOTH plugin_a and plugin_b — the two plugins whose versions of the record to compare.");
+        FormKey fk;
+        try { fk = FormKey.Factory(fidLabel); }
+        catch (Exception ex) { return DiffRecordOutcome.Fail(fidLabel, $"bad FormID '{formid}': {ex.Message}. Expected 'XXXXXX:Plugin.esp'."); }
+
+        var resolver = Resolver;
+        var view = resolver.Capture();
+        using var session = resolver.OpenSession();
+
+        var a = ResolveDiffPole(view, session, fk, pluginA.Trim(), modA, fields);
+        if (a.Error is not null) return DiffRecordOutcome.Fail(fidLabel, $"plugin_a: {a.Error}");
+        var b = ResolveDiffPole(view, session, fk, pluginB.Trim(), modB, fields);
+        if (b.Error is not null) return DiffRecordOutcome.Fail(fidLabel, $"plugin_b: {b.Error}");
+
+        var diff = FieldsDiff.Compare(a.Fields!, b.Fields!, referenceLabel: pluginB.Trim());
+        return new DiffRecordOutcome(fidLabel, a.Pole!, b.Pole!, diff, null);
+    }
+
+    /// <summary>Resolve ONE diff pole: the named plugin's version of <paramref name="fk"/> + its deep-read fields. An
+    /// ACTIVE-order plugin reads through the captured view; a plugin NOT in the order is looked up on disk (the shared
+    /// <see cref="LocatePluginFileOnDisk"/> + <see cref="LoadOrderResolver.OpenOverlay"/>, materialised then DISPOSED —
+    /// the RecordFields is a value snapshot, so no handle is held). A named error (never a silent miss) if the plugin
+    /// isn't found, is excluded, or doesn't define/override the record.</summary>
+    (RecordFields? Fields, DiffPole? Pole, string? Error) ResolveDiffPole(
+        LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session, FormKey fk,
+        string plugin, string? mod, IReadOnlyList<string>? fields)
+    {
+        if (view.ContainsPlugin(plugin))
+        {
+            if (view.ExcludedPlugins.TryGetValue(plugin, out var why))
+                return (null, null, $"'{plugin}' was excluded from this session ({why}) — its records aren't resolvable.");
+            var body = view.GetRecord(session, plugin, fk);
+            if (body is null)
+                return (null, null, $"'{plugin}' is in the load order but does NOT define or override {fk} — it has no version to diff.");
+            return (ReadEngine.ReadFields(body, fields, ConflictDiffDepth),
+                    new DiffPole(plugin, "active order", true, RecordNaming.StripOverlay(body.GetType().Name), body.EditorID), null);
+        }
+
+        // OFF-ORDER: a plugin file on disk that isn't in the active order (the shared locate — cheap, no index build).
+        string modsDir, dataDir, overwriteDir, profileDir;
+        try { lock (_gate) { EnsurePathsDerived(); modsDir = _modsDir; dataDir = _dataDir; overwriteDir = _overwriteDir; profileDir = _profileDir; } }
+        catch (Exception ex) { return (null, null, $"'{plugin}' is not in the load order and the MO2 roots couldn't be derived to find it on disk: {ex.Message}"); }
+        var comp = Mo2LoadOrder.ReadComposition(profileDir);
+        var loc = LocatePluginFileOnDisk(comp, modsDir, dataDir, overwriteDir, plugin, mod);
+        if (loc.Error is not null) return (null, null, $"'{plugin}' is not in the load order and {loc.Error}");
+        if (loc.Ambiguous is not null) return (null, null, $"'{plugin}' matches several mod folders on disk — pass an exact path to disambiguate.");
+        ISkyrimModGetter ov;
+        try { ov = LoadOrderResolver.OpenOverlay(loc.Path!, string.IsNullOrEmpty(dataDir) ? null : dataDir); }
+        catch (Exception ex) { return (null, null, $"could not open '{loc.Path}' as a Skyrim plugin: {ex.Message}"); }
+        try
+        {
+            IMajorRecordGetter? rec;
+            try { rec = ov.EnumerateMajorRecords().FirstOrDefault(r => r.FormKey == fk); }
+            catch (Exception ex) { return (null, null, $"file '{plugin}' could not be read ({ex.Message})."); }
+            if (rec is null)
+                return (null, null, $"file '{plugin}' (OUT-OF-LOAD-ORDER, {loc.Where}) does not define or override {fk} — no version to diff.");
+            return (ReadEngine.ReadFields(rec, fields, ConflictDiffDepth),   // materialised here → the overlay can close
+                    new DiffPole(plugin, $"OUT-OF-LOAD-ORDER ({loc.Where}{(loc.Enabled ? "" : ", disabled")})", false,
+                                 RecordNaming.StripOverlay(rec.GetType().Name), rec.EditorID), null);
+        }
+        finally { (ov as IDisposable)?.Dispose(); }
+    }
+
+    /// <summary>One side of a housecarl_diff_record comparison: the plugin named, WHERE its version was found (active
+    /// order, or OUT-OF-LOAD-ORDER on disk), whether it's in the active order, and the record identity it carries.</summary>
+    public sealed record DiffPole(string Plugin, string Where, bool InOrder, string? RecordType, string? EditorId);
+
+    /// <summary>The outcome of a housecarl_diff_record call. <see cref="Error"/> non-null ⇒ refused (a bad FormID, an
+    /// unresolvable pole, or a plugin that doesn't define the record) with no diff. Otherwise <see cref="Diff"/> is the
+    /// field-level delta of <see cref="A"/> vs <see cref="B"/> (B the reference side), truncation-honest via Complete.</summary>
+    public sealed record DiffRecordOutcome(string Formid, DiffPole? A, DiffPole? B, FieldsDiff.Result? Diff, string? Error)
+    {
+        public static DiffRecordOutcome Fail(string formid, string error) => new(formid, null, null, null, error);
+    }
+
     // ---- batch (Q4.9) -----------------------------------------------------------------------------------
 
     /// <summary>Resolve+read many records in one call (housecarl_batch_record_detail). Each formid runs the same

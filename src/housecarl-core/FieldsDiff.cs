@@ -57,7 +57,7 @@ public static class FieldsDiff
 
     /// <summary>Compare one plugin's deep-read fields against the winner's. Both sides should be read by the
     /// same <see cref="ReadEngine.ReadFields"/> call shape (same paths, same depth) so line sets correspond.</summary>
-    public static Result Compare(RecordFields theirs, RecordFields winner)
+    public static Result Compare(RecordFields theirs, RecordFields winner, string referenceLabel = "winner")
     {
         var tValueLeaves = new HashSet<string>(StringComparer.Ordinal);
         var wValueLeaves = new HashSet<string>(StringComparer.Ordinal);
@@ -114,16 +114,16 @@ public static class FieldsDiff
                     // FIRST-CLASS absent state (item 4.3): the contributor doesn't carry this field but the
                     // winner does. Rendered as ABSENT, not as a "=(absent)" phantom value delta. Only nullable
                     // fields reach here — the read engine emits the sentinel only for them.
-                    deltas.Add($"{path}: ABSENT here (winner has {wv})");
+                    deltas.Add($"{path}: ABSENT here ({referenceLabel} has {wv})");
                 }
                 else if (wAbsent)
                 {
                     // The contributor carries a value the WINNER doesn't — the field is absent on the winner.
-                    deltas.Add($"{path}={val} (winner has {path} ABSENT)");
+                    deltas.Add($"{path}={val} ({referenceLabel} has {path} ABSENT)");
                 }
                 else if (!string.Equals(NormalizeForCompare(val), NormalizeForCompare(wv), StringComparison.Ordinal))
                 {
-                    deltas.Add($"{path}={val} (winner {wv})");
+                    deltas.Add($"{path}={val} ({referenceLabel} {wv})");
                 }
                 else if (tValueLeaves.Contains(path) && wValueLeaves.Contains(path))
                 {
@@ -138,11 +138,11 @@ public static class FieldsDiff
             // One-sided presence is only a delta when BOTH sides were fully read: on a truncated side a
             // missing line is an artifact of WHERE its cap fell, not of content — reporting it would
             // FABRICATE a difference (PR #28 review finding 1).
-            else if (complete) deltas.Add($"{path}={val} (winner has no {path})");   // shape difference (e.g. another ConditionData arm)
+            else if (complete) deltas.Add($"{path}={val} ({referenceLabel} has no {path})");   // shape difference (e.g. another ConditionData arm)
         }
         if (complete)
             foreach (var (path, wv) in wScalar)
-                if (!tScalar.ContainsKey(path)) deltas.Add($"{path} only in winner: {wv}");
+                if (!tScalar.ContainsKey(path)) deltas.Add($"{path} only in {referenceLabel}: {wv}");
 
         // ---- positional lists: order-insensitive whole-element multiset comparison. SKIPPED entirely on a
         //      truncated comparison — a cap landing mid-list fabricates one-sided elements and wrong counts;
@@ -155,7 +155,7 @@ public static class FieldsDiff
                 var wElems = ElementsOf(wLines, root);
                 var (onlyT, onlyW) = MultisetDiff(tElems, wElems);
                 if (onlyT.Count == 0 && onlyW.Count == 0) continue;    // same contents (possibly reordered) — no delta
-                deltas.Add(DescribeListDelta(root, tElems.Count, wElems.Count, onlyT, onlyW));
+                deltas.Add(DescribeListDelta(root, tElems.Count, wElems.Count, onlyT, onlyW, referenceLabel));
             }
         }
 
@@ -286,13 +286,13 @@ public static class FieldsDiff
         return (onlyT, onlyW);
     }
 
-    static string DescribeListDelta(string root, int tCount, int wCount, List<Element> onlyT, List<Element> onlyW)
+    static string DescribeListDelta(string root, int tCount, int wCount, List<Element> onlyT, List<Element> onlyW, string referenceLabel = "winner")
     {
         var sb = new StringBuilder();
-        sb.Append(root).Append(": ").Append(tCount).Append(" vs winner ").Append(wCount).Append(" item(s)");
+        sb.Append(root).Append(": ").Append(tCount).Append(" vs ").Append(referenceLabel).Append(' ').Append(wCount).Append(" item(s)");
         if (tCount == wCount) sb.Append(", contents differ");
         if (onlyT.Count > 0) sb.Append(" — only here: ").Append(DescribeElements(onlyT));
-        if (onlyW.Count > 0) sb.Append(onlyT.Count > 0 ? "; " : " — ").Append("only in winner: ").Append(DescribeElements(onlyW));
+        if (onlyW.Count > 0) sb.Append(onlyT.Count > 0 ? "; " : " — ").Append("only in ").Append(referenceLabel).Append(": ").Append(DescribeElements(onlyW));
         return sb.ToString();
     }
 

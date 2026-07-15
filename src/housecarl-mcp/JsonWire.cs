@@ -77,6 +77,58 @@ static class JsonWire
         w.WriteEndObject();
     }
 
+    // ---- housecarl_diff_record (P8c) ----------------------------------------------------------------
+    /// <summary>Render a pairwise record diff as JSON: <c>{formid, a:{plugin,where,in_order,type,editorid}, b:{…},
+    /// complete, deltas:[…], delta_count, rendered, truncated, agreed_count, agreed_sample:[…]}</c>. Deltas are the SAME
+    /// strings text emits; budget-aware (drops trailing deltas past max_chars, flags <c>truncated</c>) and always valid
+    /// JSON. On refusal a single <c>{formid, error}</c>.</summary>
+    public static string RenderDiffRecord(LoadOrderService.DiffRecordOutcome o, int maxChars)
+    {
+        int cap = Cap(maxChars);
+        using var ms = new MemoryStream();
+        using (var w = new Utf8JsonWriter(ms, Opts))
+        {
+            w.WriteStartObject();
+            w.WriteString("formid", o.Formid);
+            if (o.Error is not null) w.WriteString("error", o.Error);
+            else
+            {
+                WriteDiffPole(w, "a", o.A!);
+                WriteDiffPole(w, "b", o.B!);
+                var d = o.Diff!;
+                w.WriteBoolean("complete", d.Complete);
+                w.WriteStartArray("deltas");
+                int rendered = 0; bool truncated = false;
+                foreach (var delta in d.Deltas)
+                {
+                    w.Flush();
+                    if (ms.Length >= cap) { truncated = true; break; }
+                    w.WriteStringValue(delta);
+                    rendered++;
+                }
+                w.WriteEndArray();
+                w.WriteNumber("delta_count", d.Deltas.Count);
+                w.WriteNumber("rendered", rendered);
+                w.WriteBoolean("truncated", truncated);
+                w.WriteNumber("agreed_count", d.AgreedCount);
+                WriteStringArray(w, "agreed_sample", d.AgreedSample);
+            }
+            w.WriteEndObject();
+        }
+        return Finish(ms);
+    }
+
+    static void WriteDiffPole(Utf8JsonWriter w, string name, LoadOrderService.DiffPole p)
+    {
+        w.WriteStartObject(name);
+        w.WriteString("plugin", p.Plugin);
+        w.WriteString("where", p.Where);
+        w.WriteBoolean("in_order", p.InOrder);
+        WriteNullable(w, "type", p.RecordType);
+        WriteNullable(w, "editorid", p.EditorId);
+        w.WriteEndObject();
+    }
+
     static int Cap(int maxChars) => maxChars > 0 ? maxChars : Wire.DefaultMaxChars;
 
     static void WriteStringArray(Utf8JsonWriter w, string name, IReadOnlyList<string> items)

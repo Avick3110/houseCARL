@@ -89,6 +89,43 @@ public static class ReadTools
         return json ? JsonWire.RenderBatch(outcomes, max_chars) : Wire.RenderBatch(svc, outcomes, fields, conflict_tree, max_chars);
     });
 
+    [McpServerTool(Name = "housecarl_diff_record", ReadOnly = true, Title = "Diff two plugins' versions of a record"),
+     Description(
+         "Field-level diff between TWO plugins' versions of ONE record — plugin_a vs plugin_b. Each plugin may be an " +
+         "ACTIVE plugin OR a plugin FILE on disk that isn't in the load order (e.g. a DISABLED old patch): the classic " +
+         "use is diffing a disabled OLD patch against the mod that supersedes it, to see exactly what changed. Both " +
+         "sides are deep-read and compared by the SAME order-insensitive, truncation-honest engine the conflict tree " +
+         "uses; each delta line shows plugin_a's value with plugin_b's (the reference) value labeled by plugin_b's " +
+         "filename. A FormID is 'XXXXXX:Plugin.esp'. Read-only. Unlike housecarl_read_record conflict_tree (which diffs " +
+         "every toucher against the load-order WINNER), this compares TWO explicit plugins with no winner pole — use it " +
+         "when neither side is the winner (an off-order file), or to compare two specific overrides directly. On a " +
+         "TRUNCATED deep read it reports the truncation rather than claiming 'identical' (Q3).")]
+    public static string DiffRecord(
+        LoadOrderService svc,
+        [Description("The record's FormID as 'XXXXXX:Plugin.esp' — the record whose two versions to compare.")]
+            string formid,
+        [Description("The FIRST plugin whose version to compare — a filename (e.g. 'OldPatch.esp'); an ACTIVE plugin OR a file on disk not in the load order.")]
+            string plugin_a,
+        [Description("The SECOND plugin whose version to compare — the REFERENCE side (each delta labels this plugin's value by its filename). A filename, active OR on disk.")]
+            string plugin_b,
+        [Description("Optional. Dotted field paths to compare (e.g. 'BasicStats.Damage', 'Keywords'); omit to diff every modeled field (deep). BOTH sides read the SAME paths so the comparison is apples-to-apples.")]
+            string[]? fields = null,
+        [Description("Optional. 'text' (default) or 'json' — a machine-readable {formid, a:{plugin,where,type,editorid}, b:{…}, complete, deltas[], delta_count, agreed_count} document. Deltas are the SAME strings text emits.")]
+            string? format = null,
+        [Description("Optional. Disambiguate plugin_a when its filename lives in more than one mod folder on disk (the mod-folder name) — or omit and pass an exact path in plugin_a.")]
+            string? mod_a = null,
+        [Description("Optional. Disambiguate plugin_b (see mod_a).")]
+            string? mod_b = null,
+        [Description("Optional. Max characters before the delta list is cut with an explicit notice (never silent). 0 = the server default.")]
+            int max_chars = 0) => Guard.Tool("housecarl_diff_record", () =>
+    {
+        if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
+        bool json = Wire.WantsJson(format, out var ferr);
+        if (ferr is not null) return ferr;
+        var outcome = svc.DiffRecord(formid, plugin_a, plugin_b, fields, mod_a?.Trim(), mod_b?.Trim());
+        return json ? JsonWire.RenderDiffRecord(outcome, max_chars) : Wire.RenderDiffRecord(outcome, max_chars);
+    });
+
     [McpServerTool(Name = "housecarl_cross_plugin_query", ReadOnly = true, Title = "Query records across the load order"),
      Description(
          "Find records across the whole load order matching a filter — returns matches only, each as a compact " +
@@ -355,6 +392,56 @@ static class Wire
         error = $"error: format='{format}' is not recognized — use 'text' (the default) or 'json'.";
         return false;
     }
+
+    // ---- housecarl_diff_record (P8c) ----------------------------------------------------------------
+    /// <summary>Render a pairwise record diff (housecarl_diff_record — P8c): a header naming both poles (plugin + where
+    /// found + record identity), then one line per delta (plugin_a's value, reference = plugin_b), budget-bounded with an
+    /// explicit cut. No deltas ⇒ "identical across the fields read" WITH the agreed-leaf count — UNLESS the deep read was
+    /// TRUNCATED, in which case it says so instead of claiming identical (Q3). On refusal, a single error: line.</summary>
+    public static string RenderDiffRecord(LoadOrderService.DiffRecordOutcome o, int maxChars)
+    {
+        if (o.Error is not null) return $"error: {o.Error}";
+        int cap = Cap(maxChars);
+        var a = o.A!; var b = o.B!; var d = o.Diff!;
+        var sb = new StringBuilder();
+        sb.Append("diff ").Append(o.Formid).Append('\n')
+          .Append("  a: ").Append(PoleLine(a)).Append('\n')
+          .Append("  b: ").Append(PoleLine(b)).Append('\n');
+
+        if (d.Deltas.Count == 0)
+        {
+            if (!d.Complete)
+                sb.Append("no differing fields in what was read, but the deep read was TRUNCATED at the cap — NOT a clean 'identical' (Q3). Narrow with fields= to compare in full.\n");
+            else if (d.AgreedCount > 0)
+                sb.Append("identical across the fields read (").Append(d.AgreedCount).Append(" value leaf/leaves agree")
+                  .Append(d.AgreedSample.Count > 0 ? ": " + string.Join(", ", d.AgreedSample) + (d.AgreedCount > d.AgreedSample.Count ? ", …" : "") : "")
+                  .Append(").\n");
+            else
+                sb.Append("identical across the fields read (no differing fields).\n");
+            return sb.ToString();
+        }
+
+        sb.Append(d.Deltas.Count).Append(d.Deltas.Count == 1 ? " difference" : " differences")
+          .Append(" — each line: ").Append(a.Plugin).Append("'s value (reference = ").Append(b.Plugin).Append("):\n");
+        int shown = 0;
+        foreach (var delta in d.Deltas)
+        {
+            if (sb.Length >= cap)
+            {
+                sb.Append("  ... [truncated: rendered ").Append(shown).Append(" of ").Append(d.Deltas.Count)
+                  .Append(" at max_chars=").Append(cap).Append("; pass fields= to narrow, or raise max_chars]\n");
+                break;
+            }
+            sb.Append("  - ").Append(delta).Append('\n');
+            shown++;
+        }
+        if (!d.Complete)
+            sb.Append("note: the deep read was TRUNCATED — list-content and one-sided-presence deltas are SUPPRESSED (only both-sides value mismatches shown); narrow with fields= to compare those in full.\n");
+        return sb.ToString();
+    }
+
+    static string PoleLine(LoadOrderService.DiffPole p) =>
+        $"{p.Plugin} [{p.Where}{(p.RecordType is not null ? ", " + p.RecordType : "")}{(p.EditorId is not null ? " " + p.EditorId : "")}]";
 
     // ---- housecarl_resolve --------------------------------------------------------------------------
     /// <summary>Render the bulk name-resolution result (housecarl_resolve — P3): one compact identity line per input
