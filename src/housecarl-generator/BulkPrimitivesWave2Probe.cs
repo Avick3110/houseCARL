@@ -18,6 +18,8 @@ namespace HousecarlGenerator;
 ///     accounting carried in-band, always-valid JSON.
 ///   • P7 <c>resolve_names=</c> — every FormLink token in a field dump annotated with its target's identity,
 ///     display-only (never replaces the round-trip token).
+///   • HCBR-2026-07-15 <c>batch_record_detail plugin=</c> — bulk-read a NAMED plugin's version (an override, not
+///     the winner), the batch twin of read_record's plugin=, with a per-item error for a record it doesn't touch.
 ///
 /// Synthesizes a small on-disk order (a master + a replacer that overrides one NAMED weapon and defines others, with
 /// keyword links) and drives the REAL service layer (<see cref="LoadOrderService"/> via the ForGuard seam) + the
@@ -250,6 +252,38 @@ public static class BulkPrimitivesWave2Probe
                       && records[1].TryGetProperty("error", out _));
                 batchDoc.Dispose();
             }
+
+            // ===== HCBR-2026-07-15 — batch_record_detail plugin= (a specific override's version, in BULK) =====
+            // The batch twin of housecarl_read_record's plugin=. W1 is DEFINED in master (damage 10) and OVERRIDDEN
+            // in Repl (damage 15 = the live winner). A bulk read AS THE MASTER's version must read 10 (not the winner's
+            // 15); AS THE REPLACER's must read 15; and a record the named plugin doesn't touch (W2, master-only) gets a
+            // per-item error under plugin=Repl while the batch survives — the coverage this closes (a validation run
+            // fell back to SAMPLING because the batch couldn't scope to a mod's own version).
+            Console.WriteLine();
+            Console.WriteLine("── HCBR-2026-07-15: batch_record_detail plugin= reads a NAMED plugin's version in bulk ──");
+            var bMaster = ReadTools.BatchRecordDetail(svc, new[] { w1Fk.ToString(), w2Fk.ToString() }, plugin: masterName,
+                fields: new[] { "BasicStats.Damage" }, depth: 1, conflict_tree: false, resolve_names: false, format: null, max_chars: 0);
+            Check("plugin=master: W1 reads the MASTER's OWN value (damage 10), NOT the live winner's 15",
+                  bMaster.Contains("BasicStats.Damage = 10") && !bMaster.Contains("BasicStats.Damage = 15"));
+            Check("plugin=master: W2 (master-only) reads its master value (damage 20) in the SAME batch",
+                  bMaster.Contains("BasicStats.Damage = 20"));
+
+            var bRepl = ReadTools.BatchRecordDetail(svc, new[] { w1Fk.ToString() }, plugin: replName,
+                fields: new[] { "BasicStats.Damage" }, depth: 1, conflict_tree: false, resolve_names: false, format: null, max_chars: 0);
+            Check("plugin=Repl: W1 reads the REPLACER's version (damage 15) — the override, on demand",
+                  bRepl.Contains("BasicStats.Damage = 15") && !bRepl.Contains("BasicStats.Damage = 10"));
+
+            var bMiss = ReadTools.BatchRecordDetail(svc, new[] { w2Fk.ToString(), w1Fk.ToString() }, plugin: replName,
+                fields: new[] { "BasicStats.Damage" }, depth: 1, conflict_tree: false, resolve_names: false, format: null, max_chars: 0);
+            Check("plugin=Repl: W2 (untouched by Repl) is a per-item 'does not define' error, W1 still reads (batch survives — Q3)",
+                  bMiss.Contains("does not define") && bMiss.Contains("BasicStats.Damage = 15"));
+
+            var bJson = ReadTools.BatchRecordDetail(svc, new[] { w1Fk.ToString() }, plugin: masterName,
+                fields: new[] { "BasicStats.Damage" }, depth: 1, conflict_tree: false, resolve_names: false, format: "json", max_chars: 0);
+            var bJsonDoc = ParseOrNull(bJson);
+            Check("plugin= json: the record's source is the NAMED plugin (master), not the winner (Repl)",
+                  bJsonDoc is not null && bJsonDoc.RootElement.GetProperty("records")[0].GetProperty("source").GetString() == masterName);
+            bJsonDoc?.Dispose();
 
             // cross_plugin_query json — summary rows, group_by table, and Q3 notes survival.
             var cqSummary = ReadTools.CrossPluginQuery(svc, type: "Weapon", references: null, editorid_contains: null,
