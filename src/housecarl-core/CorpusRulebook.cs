@@ -577,13 +577,23 @@ public sealed class CorpusRulebook
         // (step 4-flags) Add/Remove on a [Flags] enum are bit-SET / bit-CLEAR (HCBR-2026-07-15): the value is the
         // flag(s) to OR in or AND-NOT out. VerbLegality already admitted the verb for a [Flags] leaf; validate the
         // flag NAME/bits here with the SAME CheckValue recognizer a Set uses (the field's real enum AQ), so a bogus
-        // flag fails LOUD at the gate instead of throwing Enum.Parse at apply (Q3 accept-then-throw). Value PRESENCE
-        // mirrors Set's "requires a value". Gated ahead of the collection branches (which are list/dict-scoped and
-        // would ignore an enum leaf anyway) so it can't fall through to the terminal `return null` accept.
+        // flag fails LOUD at the gate instead of throwing Enum.Parse at apply (Q3 accept-then-throw). Gated ahead of
+        // the collection branches (which are list/dict-scoped and would ignore an enum leaf anyway) so it can't fall
+        // through to the terminal `return null` accept.
         if (req.Verb is "Add" or "Remove" && IsFlagsEnumLeaf(leaf))
         {
             if (req.Value is null)
-                return $"{req.Verb} on flags field '{leaf.Name}' requires a flag value (the bit to {(req.Verb == "Add" ? "set" : "clear")}).";
+            {
+                // Add always needs the bit to set. A VALUELESS Remove keeps its pre-bit-verb meaning — the WHOLE-CLEAR
+                // of a nullable scalar (the ONLY path to make a nullable flags field ABSENT/null) — preserved by
+                // construction so the bit verbs ADD capability without removing any (no silent trade-away): allowed iff
+                // the field is nullable, else refused with the turn-all-off redirect (Set '0'), never a dead end (Q3).
+                if (req.Verb == "Add")
+                    return $"Add on flags field '{leaf.Name}' requires a flag value (the bit to set).";
+                return leaf.Nullable ? null
+                    : $"Remove on flags field '{leaf.Name}' needs the flag to clear (value=<flag>) — a non-nullable flags " +
+                      "field can't be whole-cleared; to turn ALL bits off, Set it to '0'.";
+            }
             return CheckValue(leaf.Type, req.Value, $"flag value for '{leaf.Name}'",
                 leaf.MutableTypeAssemblyQualified ?? leaf.GetterTypeAssemblyQualified);
         }
