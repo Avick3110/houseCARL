@@ -200,8 +200,37 @@ public static class SkyPatcherOverlayProbe
         failures += FormListArm(catalog, fieldMap, mod);
         failures += Wave2FilterArm(catalog, fieldMap, mod);
         failures += Wave2OpClosuresArm(catalog, fieldMap, mod);
+        failures += BracketLabelArm(catalog, fieldMap, mod);
 
         return Done(failures);
+    }
+
+    /// <summary>Issue #180: an INI section/label line ('[Name]') is INERT — it must produce no warning and
+    /// no unresolved-skip, and the real patch line right below it must still apply. (Before the fix the
+    /// label parsed as a malformed no-'=' Patch, drew the "unrecognized key may be a filter … UNRESOLVED"
+    /// warning, and inflated the skip count.)</summary>
+    static int BracketLabelArm(SkyPatcherCatalog catalog, SkyPatcherFieldMap fieldMap, SkyrimMod mod)
+    {
+        Console.WriteLine("  --- bracket-label arm (issue #180: '[Name]' is inert, the next line still applies) ---");
+        int failures = 0;
+        var resolver = new StubResolver();
+        var w = mod.Weapons.AddNew();
+        w.EditorID = "HcLabelSword";
+        w.BasicStats = new WeaponBasicStats { Damage = 10, Weight = 1, Value = 1 };
+        var me = $"HcSpOv.esp|{w.FormKey.ID:X}";
+        SkyPatcherOverlay.OrderedLine L(int n, string text) => new("lbl.ini", n, SkyPatcherParse.ParseLine(text));
+        var r = SkyPatcherOverlay.Apply(w, w.FormKey, w.EditorID, catalog, catalog.ForSubfolder("weapon")!,
+            fieldMap.For("weapon", "Weapon"), new[]
+            {
+                L(1, "[Vernaccus]"),                              // an inert human label (converter output)
+                L(2, $"filterByWeapons={me}:attackDamage=42"),    // the real line directly below it
+            }, resolver);
+        failures += Check("the '[Name]' label produced NO warning and NO unresolved-skip",
+            !r.Warnings.Any(x => x.Contains("Vernaccus")) && r.LinesSkippedUnresolvedFilter == 0,
+            $"skips={r.LinesSkippedUnresolvedFilter} warns=[{string.Join(" ; ", r.Warnings)}]");
+        failures += Check("the patch line below the label still applied (damage=42)",
+            w.BasicStats!.Damage == 42, $"got {w.BasicStats.Damage}");
+        return failures;
     }
 
     /// <summary>The Wave-2 unmapped-op CLOSURES — the five semantics that turn 47 explicitly-unmapped

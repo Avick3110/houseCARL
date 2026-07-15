@@ -64,6 +64,16 @@ public static class SkyPatcherParse
         if (trimmed[0] == ';')
             return new SkyPatcherLine(raw, SkyPatcherLineKind.Comment, Array.Empty<SkyPatcherSegment>(), null);
 
+        // An INI-style section/label line — a trimmed line wrapped in '[' … ']' (e.g. a converter's
+        // '[Vernaccus]' human label above the real lines). It carries no key=value segment and cannot
+        // target or mutate a record, so it is INERT — no segments, no note. Without this it parsed as a
+        // malformed no-'=' Patch, and the overlay then warned it as a possible unresolved filter AND
+        // counted it (issue #180). A real patch line always leads with a key, never '[', so the whole-line
+        // bracket wrap is an unambiguous label. Every downstream consumer keys off Patch, so a Label line
+        // is skipped and uncounted everywhere, and its physical position is preserved for later real lines.
+        if (trimmed.Length >= 2 && trimmed[0] == '[' && trimmed[^1] == ']')
+            return new SkyPatcherLine(raw, SkyPatcherLineKind.Label, Array.Empty<SkyPatcherSegment>(), null);
+
         var segments = new List<SkyPatcherSegment>();
         string? note = null;
 
@@ -192,6 +202,11 @@ public enum SkyPatcherLineKind
     Comment,
     /// <summary>A patch line (one or more key=value segments).</summary>
     Patch,
+    /// <summary>An INI-style section/label line — a trimmed line wrapped in '[' … ']' (e.g. a converter's
+    /// '[NpcName]' human label). INERT: it carries no key=value operation, so it holds no segments and no
+    /// note, and every consumer (which all key off <see cref="Patch"/>) skips it — it is neither a patch
+    /// line nor a malformed one (issue #180). Appended last so the earlier members keep their ordinals.</summary>
+    Label,
 }
 
 /// <summary>One parsed SkyPatcher line. <see cref="Note"/> carries any loud parse warning (Q3).</summary>
