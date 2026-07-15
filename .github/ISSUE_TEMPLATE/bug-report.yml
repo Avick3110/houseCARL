@@ -1,0 +1,38 @@
+name: Bug report
+description: A houseCARL tool returned an error, a wrong answer, or a silently degraded result
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: houseCARL version
+      description: Fixes often land on `main` before a release — the version tells us whether you're hitting a known-fixed gap.
+      placeholder: "1.8.0"
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Exact repro
+      description: >-
+        The tool call(s) you made — parameters included — and the full error or wrong output you
+        got. Driving the server directly over stdio and quoting its stderr is gold, but not
+        required. Scrub local machine paths and usernames before posting.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected
+      description: What the correct behaviour/output was, and how you know (xEdit view, in-game check, another tool's read).
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment (where relevant)
+      description: Skyrim SE version, MO2 or manual install, rough load-order size.
+    validations:
+      required: false

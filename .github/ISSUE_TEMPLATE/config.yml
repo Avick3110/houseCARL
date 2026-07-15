@@ -1,0 +1,7 @@
+blank_issues_enabled: true
+contact_links:
+  - name: authoria-requiem skill-pack bug or gap
+    url: https://github.com/Avick3110/authoria-requiem-skills/issues
+    about: >-
+      Bugs and coverage gaps in the authoria-requiem Requiem-patching skills belong on that repo's
+      Issues — this repo tracks houseCARL itself (the MCP server, tools, and bundled skills).
