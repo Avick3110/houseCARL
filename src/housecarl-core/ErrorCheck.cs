@@ -13,6 +13,9 @@ namespace HousecarlCore;
 ///     is null): a broken reference in the resolvable order. Engine-implicit forms (PlayerRef 000014, Player 000007 —
 ///     hardcoded refs the index can't resolve but that are never actually broken) are exempted via <see cref="EngineImplicit"/>,
 ///     so the standard player-state pattern doesn't false-flag (HCBR: 531/531 dangling all → 000014 before this exemption).
+///     A container/leveled-list item's OWNERSHIP "variable" word (an <see cref="IUntypedOwnerGetter.VariableData"/> — a
+///     RequiredRank int, not a reference, that Mutagen exposes AS a FormLink whenever it can't type the owner; #207) is
+///     exempted too, so a rank of -1 (0xFFFFFFFF) is not read as a dangling ref — see <see cref="UntypedOwnerVariableData"/>.
 ///   • MISSING MASTER — a plugin DECLARES a master that is not present in the active order
 ///     (<see cref="LoadOrderResolver.IndexView.ContainsPlugin"/> is false): the plugin's dependency is not installed /
 ///     enabled, the most common load-order break (and the root cause behind a cluster of that master's refs dangling).
@@ -34,7 +37,10 @@ namespace HousecarlCore;
 /// / parse class. It does NOT verify navmesh or terrain SPATIAL integrity (the CrcHash / NavmeshGrid recompute — a known
 /// Mutagen-delta residual), does NOT flag a REQUIRED field left null (needs per-field requiredness; a null FormLink is a
 /// legal optional here), and does NOT list unused-master cleanup (see above). All named in the rendered footer so a
-/// clean result is never read as byte-for-byte xEdit parity.
+/// clean result is never read as byte-for-byte xEdit parity. It also exempts an <see cref="IUntypedOwnerGetter"/>'s
+/// ambiguous "variable" word (#207 — see <see cref="UntypedOwnerVariableData"/>); the one thing that gives up is a
+/// genuinely-dangling Global on an NPC-OWNED item whose owner NPC lives in a master (vanishingly rare, and that owner
+/// NPC is still checked), which we trade for never false-flagging the far commoner faction-owner rank.
 ///
 /// Composes existing primitives only — no new dependency (audit A1 "Verified 2026-06-25"): the per-plugin record stream
 /// (<c>RecordsIn</c>), the O(1) resolution test (<c>ResolveWinner</c>), presence (<c>ContainsPlugin</c>), the declared-
@@ -118,12 +124,15 @@ public static class ErrorCheck
                     try
                     {
                         if (body is not IFormLinkContainerGetter flc) continue;
+                        Dictionary<FormKey, int>? ownerVarExempt = null;   // #207: built lazily on this record's first otherwise-dangling link (see UntypedOwnerVariableData)
                         foreach (var link in flc.EnumerateFormLinks())
                         {
                             var target = link.FormKey;
                             if (target.IsNull) continue;            // a null FormLink is a legal optional — not an error (see the class-doc boundary)
                             if (view.ResolveWinner(target) is not null) continue;   // resolves → fine
                             if (EngineImplicit.IsImplicit(target)) continue;        // engine-implicit (PlayerRef 000014 / Player 000007): the index can't resolve these hardcoded forms, but they are real, never dangling — same precise exemption the dialogue lints use (HCBR: was 531/531 false dangling → 000014)
+                            ownerVarExempt ??= UntypedOwnerVariableData(body);      // #207: an UntypedOwner's VariableData word is a RequiredRank int (esp. -1 → FFFFFFFF), not a reference
+                            if (ownerVarExempt.TryGetValue(target, out int ov) && ov > 0) { ownerVarExempt[target] = ov - 1; continue; }
                             totalDangling++;
                             if (danglingBudget > 0)
                             {
@@ -193,6 +202,7 @@ public static class ErrorCheck
                             try
                             {
                                 if (rec is not IFormLinkContainerGetter flc) continue;
+                                Dictionary<FormKey, int>? ownerVarExempt = null;   // #207 (see UntypedOwnerVariableData)
                                 foreach (var link in flc.EnumerateFormLinks())
                                 {
                                     var target = link.FormKey;
@@ -200,6 +210,8 @@ public static class ErrorCheck
                                     if (view.ResolveWinner(target) is not null) continue;
                                     if (selfKeys.Contains(target)) continue;            // defined by this very file
                                     if (EngineImplicit.IsImplicit(target)) continue;
+                                    ownerVarExempt ??= UntypedOwnerVariableData(rec);   // #207: RequiredRank int mis-exposed as a FormLink
+                                    if (ownerVarExempt.TryGetValue(target, out int rk) && rk > 0) { ownerVarExempt[target] = rk - 1; continue; }
                                     totalDangling++;
                                     if (danglingBudget > 0)
                                     {
@@ -238,6 +250,46 @@ public static class ErrorCheck
 
         return new ErrorCheckResult(reports, targets.Count + offOrderScanned.Count, totalDangling, totalMissing,
                                     totalUnscannable, capped, view.ExcludedPlugins, null, offOrderScanned);
+    }
+
+    /// <summary>Every FormKey carried in an <see cref="IUntypedOwnerGetter.VariableData"/> slot in <paramref name="body"/>,
+    /// as a MULTISET (FormKey → occurrence count) — the FormKeys the dangling sweep must NOT flag (#207).
+    ///
+    /// <para>WHY (Mutagen 0.53.1, confirmed at source — <c>ExtraDataBinaryCreateTranslation.GetBinaryOwner</c> +
+    /// <c>RecordTypeInfoCacheReader.IsOfRecordType</c>): a container / leveled-list item's ownership is a COED block — an
+    /// owner FormID plus a SECOND 4-byte word that is a <c>RequiredRank</c> int when the owner is a FACTION, or a Global
+    /// FormLink when it is an NPC. Mutagen picks the arm by resolving the owner form's record TYPE; when the owner lives
+    /// in a MASTER and the overlay carries no link cache — which is EVERY override this sweep reads — that resolution
+    /// throws <c>LinkCacheMissingException</c> and the arm falls back to <see cref="IUntypedOwnerGetter"/>, which exposes
+    /// BOTH words as <c>FormLink&lt;ISkyrimMajorRecordGetter&gt;</c>. <c>EnumerateFormLinks</c> then walks the second word;
+    /// for the common faction case it is a rank, and a rank of -1 (0xFFFFFFFF → FFFFFF:&lt;self&gt;) resolves to nothing and
+    /// was reported as a false dangling reference — the same COED reads correctly (as FactionOwner + RequiredRank) only
+    /// when the owner faction lives in the very plugin being parsed.</para>
+    ///
+    /// <para>So we drop ONLY that second (VariableData) word from the scan. The owner form itself
+    /// (<see cref="IUntypedOwnerGetter.OwnerData"/> — the FIRST word) is still checked, so a genuinely broken owner still
+    /// surfaces. Exemption is per-record and by exact FormKey with a count, so it can never mask an unrelated dangling
+    /// link elsewhere in the record. Owner targets live ONLY on <see cref="IExtraDataGetter.Owner"/>, carried by exactly
+    /// these four record types (by the generated schema — a fifth would be an upstream Mutagen change, caught by the
+    /// schema regen), so this switch is the complete surface.</para></summary>
+    static Dictionary<FormKey, int> UntypedOwnerVariableData(IMajorRecordGetter body)
+    {
+        var acc = new Dictionary<FormKey, int>();
+        void Add(IExtraDataGetter? ed)
+        {
+            if (ed?.Owner is not IUntypedOwnerGetter uo) return;
+            var vk = uo.VariableData.FormKey;
+            if (vk.IsNull) return;                                     // a null second word is a legal optional anyway (never flagged)
+            acc[vk] = acc.TryGetValue(vk, out var c) ? c + 1 : 1;
+        }
+        switch (body)
+        {
+            case IContainerGetter cont:    if (cont.Items   is { } items)   foreach (var it in items) Add(it.Data);      break;
+            case ILeveledItemGetter lvli:  if (lvli.Entries is { } liEnts)  foreach (var e in liEnts) Add(e.ExtraData);  break;
+            case ILeveledNpcGetter lvln:   if (lvln.Entries is { } lnEnts)  foreach (var e in lnEnts) Add(e.ExtraData);  break;
+            case ILeveledSpellGetter lvsp: if (lvsp.Entries is { } lsEnts)  foreach (var e in lsEnts) Add(e.ExtraData);  break;
+        }
+        return acc;
     }
 }
 
