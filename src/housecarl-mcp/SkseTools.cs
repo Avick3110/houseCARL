@@ -624,7 +624,16 @@ static class NativePairingWire
         if (d.LoadBlocker is { } b) return (DllFate.Dead, b);
         if (d.Info is not { } info) return (DllFate.Verify, "no static manifest read");   // defensive: blocker-less entries carry Info by construction
         if (info.Kind == SksePluginReader.SksePluginKind.LegacyQuery)
-            return (DllFate.Loads, "legacy SE/VR plugin — loads, but its metadata is set at runtime (not statically verifiable)");
+        {
+            // The AE loader loads ONLY version-data plugins (SksePluginReader's first bullet) — a query-only SE/VR-era
+            // plugin will NOT load on a 1.6+ runtime (review finding: rendering these LOADS buried the tool's headline
+            // breakage class, the abandoned SE-era mod on an AE game).
+            if (runtime is { } rt2 && SksePluginReader.IsAeRuntime(rt2))
+                return (DllFate.Dead, $"query-only SE/VR-era plugin — the AE loader (installed game is {rt2}) loads only version-data plugins, so it will NOT load");
+            if (runtime is not null)
+                return (DllFate.Loads, "legacy SE/VR plugin — loads on this SE runtime, but its metadata is set at runtime (not statically verifiable)");
+            return (DllFate.Verify, "legacy SE/VR-era query-only plugin — loads on SE (1.5.x) but NOT on an AE (1.6+) runtime; installed game version unknown, verify");
+        }
         var v = info.Version!;
         if (v.VersionIndependent)
             return (DllFate.Loads, $"version-independent ({(v.UsesAddressLibrary ? "Address Library" : "signature scanning")})");
@@ -658,10 +667,13 @@ static class NativePairingWire
         var skseCore = d.Classes.Where(c => c.Provenance == NativeProvenance.SkseCore).ToList();
         var third = d.Classes.Where(c => c.Provenance == NativeProvenance.ThirdParty).ToList();
         var unpaired = third.Where(c => c.Rung == NativePairingRung.Unpaired).ToList();
-        var paired = third.Where(c => c.Rung != NativePairingRung.Unpaired).ToList();
-        var dead = paired.Where(c => BestFate(c, d.InstalledRuntime) == DllFate.Dead).ToList();
-        var verify = paired.Where(c => BestFate(c, d.InstalledRuntime) == DllFate.Verify).ToList();
-        var healthy = paired.Where(c => BestFate(c, d.InstalledRuntime) == DllFate.Loads).ToList();
+        // ONE fate pass per paired class (review finding: three Where partitions each re-judged every DLL) — the
+        // section split and the per-DLL tags come from the same Judge, so they can never disagree.
+        var byFate = third.Where(c => c.Rung != NativePairingRung.Unpaired)
+            .ToLookup(c => BestFate(c, d.InstalledRuntime));
+        var dead = byFate[DllFate.Dead].ToList();
+        var verify = byFate[DllFate.Verify].ToList();
+        var healthy = byFate[DllFate.Loads].ToList();
 
         var sb = new StringBuilder();
         sb.Append("native pairing audit — profile '").Append(d.ProfileName).Append("' — ")
@@ -671,7 +683,12 @@ static class NativePairingWire
         else sb.Append("installed game runtime: could not be resolved — version-LOCKED findings degrade to 'verify'\n");
 
         if (dead.Count == 0 && unpaired.Count == 0 && verify.Count == 0)
-            sb.Append("✓ every third-party native class pairs to a mod whose DLL statically loads — nothing dead, nothing unpaired.\n");
+        {
+            sb.Append("✓ every third-party native class pairs to a mod whose DLL statically loads — nothing dead, nothing unpaired");
+            // The checkmark must not overclaim a universal the scan didn't verify (review finding): unreadable
+            // .pex files were never examined, and they're where an unpaired class could hide.
+            sb.Append(d.Unreadable.Count > 0 ? $" ({d.Unreadable.Count} unreadable .pex NOT examined — see below).\n" : ".\n");
+        }
         else
         {
             sb.Append(dead.Count > 0 ? "[!] " : "✓ no dead pairings. ");
@@ -708,8 +725,12 @@ static class NativePairingWire
         // ── Accounted-for baseline — everything that ISN'T a finding, so nothing is silently dropped (Q3). ──
         sb.Append("\naccounted for: ").Append(engine.Count).Append(" engine class(es) (carried by an official archive — implemented by the game executable) · ")
           .Append(skseCore.Count).Append(" SKSE-core class(es) (skse64's script additions — implemented by the game-root loader)");
-        if (skseCore.Count > 0 && !d.SkseLoaderSeen)
-            sb.Append("\n  [!] SKSE-core classes are present but no skse64 loader is visible in the game root — if SKSE isn't actually installed, every one of these is dead");
+        // Tri-state (Q3): false = checked, genuinely absent → the definite note; null = the CHECK failed → say that,
+        // never render a failed check as a checked-and-absent verdict (review finding).
+        if (skseCore.Count > 0 && d.SkseLoaderSeen == false)
+            sb.Append("\n  [!] SKSE-core classes are present but no skse64 loader is visible (game root or enabled mods' Root\\ folders) — if SKSE isn't actually installed, every one of these is dead");
+        else if (skseCore.Count > 0 && d.SkseLoaderSeen is null)
+            sb.Append("\n  (skse64 loader visibility could not be checked)");
         sb.Append("\npaired healthy (").Append(healthy.Count).Append(" class(es)) — implementing mod ← its classes:\n");
         foreach (var g in healthy.GroupBy(c => c.PairedMod ?? "(?)", StringComparer.OrdinalIgnoreCase)
                      .OrderBy(g => g.Key, StringComparer.OrdinalIgnoreCase))
@@ -734,11 +755,20 @@ static class NativePairingWire
           .Append(c.WinningProvider ?? "(no provider)")
           .Append(c.Rung == NativePairingRung.ChainMod ? $" — paired via the conflict chain to {c.PairedMod}" : $" — paired to {c.PairedMod}");
         foreach (var dll in c.PairedDlls)
-        {
-            var (fate, detail) = Judge(dll, runtime);
-            sb.Append("\n      ").Append(fate switch { DllFate.Dead => "[DEAD] ", DllFate.Verify => "[VERIFY] ", _ => "[LOADS] " })
-              .Append(dll.Group.Length > 0 ? dll.Group + "\\" : "").Append(dll.FileName).Append(" — ").Append(detail);
-        }
+            sb.Append("\n      ").Append(DllLine(dll, runtime, withVersion: false));
+        return sb.ToString();
+    }
+
+    /// <summary>ONE per-DLL fate line for BOTH the default and the filter= views (review finding: two hand-kept copies
+    /// of the same line drift): "[FATE] group\file ("name" vX)? — detail".</summary>
+    static string DllLine(NativePairedDll dll, string? runtime, bool withVersion)
+    {
+        var (fate, detail) = Judge(dll, runtime);
+        var sb = new StringBuilder();
+        sb.Append(fate switch { DllFate.Dead => "[DEAD] ", DllFate.Verify => "[VERIFY] ", _ => "[LOADS] " })
+          .Append(dll.Group.Length > 0 ? dll.Group + "\\" : "").Append(dll.FileName);
+        if (withVersion && dll.Info?.Version is { } v) sb.Append("  \"").Append(v.Name).Append("\" v").Append(v.PluginVersion);
+        sb.Append(" — ").Append(detail);
         return sb.ToString();
     }
 
@@ -764,6 +794,8 @@ static class NativePairingWire
                 .Concat(d.Classes.Select(c => c.PairedMod).Where(p => !string.IsNullOrEmpty(p)).Select(p => p!))
                 .Concat(d.Classes.SelectMany(c => c.PairedDlls.Select(x => x.FileName)));
             sb.Append("\nno native-declaring class matched. ").Append(HousecarlCore.PluginNameSuggest.DidYouMean(filter, pool));
+            sb.Append('\n');
+            AppendCaveats(sb, d);   // a "no match" over an incompletely-read build must carry the caveat (Q3)
             return sb.ToString().TrimEnd('\n');
         }
 
@@ -789,13 +821,7 @@ static class NativePairingWire
             else
                 sb.Append("  provider: ").Append(c.WinningProvider ?? "(none)").Append(" (").Append(c.ProviderKind).Append(")\n");
             foreach (var dll in c.PairedDlls)
-            {
-                var (fate, detail) = Judge(dll, d.InstalledRuntime);
-                sb.Append("  ").Append(fate switch { DllFate.Dead => "[DEAD]", DllFate.Verify => "[VERIFY]", _ => "[LOADS]" })
-                  .Append(' ').Append(dll.Group.Length > 0 ? dll.Group + "\\" : "").Append(dll.FileName);
-                if (dll.Info?.Version is { } v) sb.Append("  \"").Append(v.Name).Append("\" v").Append(v.PluginVersion);
-                sb.Append(" — ").Append(detail).Append('\n');
-            }
+                sb.Append("  ").Append(DllLine(dll, d.InstalledRuntime, withVersion: true)).Append('\n');
             sb.Append("  native functions (").Append(c.NativeCount).Append("): ");
             var fns = string.Join(", ", c.NativeFunctions);
             if (sb.Length + fns.Length > cap && c.NativeCount > 8)
@@ -804,6 +830,10 @@ static class NativePairingWire
             sb.Append('\n');
             shown++;
         }
+        // The Q3 caveats ride the FILTERED view too (review finding): "no match" or a partial hit over a build whose
+        // BSA failed to read must never read as a clean answer.
+        sb.Append('\n');
+        AppendCaveats(sb, d);
         return sb.ToString().TrimEnd('\n');
     }
 

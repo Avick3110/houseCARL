@@ -89,41 +89,7 @@ public static class SksePluginReader
         try
         {
             using var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-            using var pe = new PEReader(fs);
-            // The COFF machine field is available as soon as the PE opened — read the real bitness even when the optional
-            // header is missing, so an Unreadable-with-no-optional-header still reports a TRUE x64/x86 rather than a
-            // fabricated one. Only the catch paths below (which never got this far) leave bitness null = UNKNOWN.
-            bool is64 = pe.PEHeaders.CoffHeader.Machine == Machine.Amd64;
-            if (pe.PEHeaders.PEHeader is null)
-                return new SksePluginInfo(file, SksePluginKind.Unreadable, is64, null, "no PE optional header");
-
-            var exports = ReadExportRvas(pe);
-            if (exports is null)   // export directory present but CORRUPT — a parse failure, NOT "no exports" (Q3: don't misclassify a corrupt DLL as a bundled dependency)
-                return new SksePluginInfo(file, SksePluginKind.Unreadable, is64, null, "corrupt PE export directory — could not enumerate exports");
-
-            bool hasVersion = exports.TryGetValue("SKSEPlugin_Version", out int versionRva) && versionRva != 0;
-            bool hasQuery = exports.ContainsKey("SKSEPlugin_Query");
-            bool hasLoad = exports.ContainsKey("SKSEPlugin_Load") || exports.ContainsKey("SKSEPlugin_Preload");
-
-            if (!hasVersion && !hasQuery && !hasLoad)
-                return new SksePluginInfo(file, SksePluginKind.NotSkse, is64, null,
-                    "no SKSE export (SKSEPlugin_Version/Query/Load) — a bundled dependency DLL, not a plugin");
-
-            if (!hasVersion)
-                return new SksePluginInfo(file, SksePluginKind.LegacyQuery, is64, null,
-                    "legacy SE/VR plugin: exports SKSEPlugin_Query (metadata is filled at runtime), so name/version are not statically readable");
-
-            // Modern: slice the version blob out of its section and decode. A real SKSEPluginVersionData is a FULL
-            // 0x350-byte struct whose dataVersion (0x000) is kVersion (>= 1); a version export whose RVA maps to no
-            // section, a forwarder, or a corrupt EAT yields a short or all-zero blob — degrade honestly rather than
-            // present a phantom "" v0.0.0 plugin (Q3).
-            var block = pe.GetSectionData(versionRva);
-            byte[] blob = block.GetReader().ReadBytes(Math.Min(0x350, block.Length));
-            if (blob.Length < 0x350 || BitConverter.ToUInt32(blob, 0) == 0)
-                return new SksePluginInfo(file, SksePluginKind.Unreadable, is64, null,
-                    "exports SKSEPlugin_Version but its RVA does not resolve to a readable version blob (a forwarded or corrupt export)");
-            var ver = DecodeVersionBlob(blob);
-            return new SksePluginInfo(file, SksePluginKind.Modern, is64, ver, null);
+            return ReadStream(file, fs);
         }
         catch (BadImageFormatException ex)
         {
@@ -133,6 +99,66 @@ public static class SksePluginReader
         {
             return new SksePluginInfo(file, SksePluginKind.Unreadable, null, null, $"could not read: {ex.GetType().Name}: {ex.Message}");
         }
+    }
+
+    /// <summary>Read a DLL's static SKSE manifest from in-memory bytes — the BSA-packed twin of <see cref="Read"/>
+    /// (the native-pairing audit PE-screens archive-shipped DLLs so a packed non-SKSE dependency never counts as an
+    /// implementation candidate). Same never-throws contract.</summary>
+    public static SksePluginInfo ReadBytes(string fileName, byte[] bytes)
+    {
+        try
+        {
+            using var ms = new MemoryStream(bytes, writable: false);
+            return ReadStream(fileName, ms);
+        }
+        catch (BadImageFormatException ex)
+        {
+            return new SksePluginInfo(fileName, SksePluginKind.Unreadable, null, null, $"not a valid PE image: {ex.Message}");
+        }
+        catch (Exception ex)
+        {
+            return new SksePluginInfo(fileName, SksePluginKind.Unreadable, null, null, $"could not read: {ex.GetType().Name}: {ex.Message}");
+        }
+    }
+
+    /// <summary>The shared decode over any seekable stream (the two entry points above own the never-throws catch).</summary>
+    static SksePluginInfo ReadStream(string file, Stream stream)
+    {
+        using var pe = new PEReader(stream);
+        // The COFF machine field is available as soon as the PE opened — read the real bitness even when the optional
+        // header is missing, so an Unreadable-with-no-optional-header still reports a TRUE x64/x86 rather than a
+        // fabricated one. Only the catch paths below (which never got this far) leave bitness null = UNKNOWN.
+        bool is64 = pe.PEHeaders.CoffHeader.Machine == Machine.Amd64;
+        if (pe.PEHeaders.PEHeader is null)
+            return new SksePluginInfo(file, SksePluginKind.Unreadable, is64, null, "no PE optional header");
+
+        var exports = ReadExportRvas(pe);
+        if (exports is null)   // export directory present but CORRUPT — a parse failure, NOT "no exports" (Q3: don't misclassify a corrupt DLL as a bundled dependency)
+            return new SksePluginInfo(file, SksePluginKind.Unreadable, is64, null, "corrupt PE export directory — could not enumerate exports");
+
+        bool hasVersion = exports.TryGetValue("SKSEPlugin_Version", out int versionRva) && versionRva != 0;
+        bool hasQuery = exports.ContainsKey("SKSEPlugin_Query");
+        bool hasLoad = exports.ContainsKey("SKSEPlugin_Load") || exports.ContainsKey("SKSEPlugin_Preload");
+
+        if (!hasVersion && !hasQuery && !hasLoad)
+            return new SksePluginInfo(file, SksePluginKind.NotSkse, is64, null,
+                "no SKSE export (SKSEPlugin_Version/Query/Load) — a bundled dependency DLL, not a plugin");
+
+        if (!hasVersion)
+            return new SksePluginInfo(file, SksePluginKind.LegacyQuery, is64, null,
+                "legacy SE/VR plugin: exports SKSEPlugin_Query (metadata is filled at runtime), so name/version are not statically readable");
+
+        // Modern: slice the version blob out of its section and decode. A real SKSEPluginVersionData is a FULL
+        // 0x350-byte struct whose dataVersion (0x000) is kVersion (>= 1); a version export whose RVA maps to no
+        // section, a forwarder, or a corrupt EAT yields a short or all-zero blob — degrade honestly rather than
+        // present a phantom "" v0.0.0 plugin (Q3).
+        var block = pe.GetSectionData(versionRva);
+        byte[] blob = block.GetReader().ReadBytes(Math.Min(0x350, block.Length));
+        if (blob.Length < 0x350 || BitConverter.ToUInt32(blob, 0) == 0)
+            return new SksePluginInfo(file, SksePluginKind.Unreadable, is64, null,
+                "exports SKSEPlugin_Version but its RVA does not resolve to a readable version blob (a forwarded or corrupt export)");
+        var ver = DecodeVersionBlob(blob);
+        return new SksePluginInfo(file, SksePluginKind.Modern, is64, ver, null);
     }
 
     /// <summary>Decode the raw <c>SKSEPlugin_Version</c> blob bytes into the manifest. PURE + bounds-checked so the CI
@@ -186,6 +212,18 @@ public static class SksePluginReader
     /// the exe resource 4). Pure; pinned by the native-pairing guard.</summary>
     public static bool RuntimeCompatible(SkseVersionInfo v, string installedRuntime)
         => v.VersionIndependent || v.CompatibleVersions.Any(cv => VersionsEqual(cv, installedRuntime));
+
+    /// <summary>True when the dotted runtime version is AE-era (1.6 or later). Load-bearing for LegacyQuery
+    /// adjudication: the AE SKSE loader loads ONLY plugins exporting the <c>SKSEPlugin_Version</c> data blob (the
+    /// type doc's first bullet), so a query-only SE/VR-era plugin will NOT load on an AE runtime. A non-numeric or
+    /// short version returns FALSE — unknown never becomes a "won't load" claim (Q3).</summary>
+    public static bool IsAeRuntime(string runtime)
+    {
+        var seg = runtime.Split('.');
+        if (seg.Length < 2 || !int.TryParse(seg[0].Trim(), out var maj) || !int.TryParse(seg[1].Trim(), out var min))
+            return false;
+        return maj > 1 || (maj == 1 && min >= 6);
+    }
 
     /// <summary>Numeric dotted-version equality with zero-padding ("1.6.1170" == "1.6.1170.0"). A non-numeric
     /// segment ⇒ NOT equal (never guessed equal — a garbage compat entry must not accidentally PASS a lock, Q3).</summary>
