@@ -353,8 +353,10 @@ static class SkseInventoryWire
 }
 
 /// <summary>Renders <see cref="SkseConfigAuditData"/> as compact, scannable text (housecarl_skse_config_audit, tier B).
-/// Default: a health summary, then the DIAGNOSTICS first and in full (dead references — PLUGIN MISSING gates + tokens,
-/// DANGLING, UNPARSEABLE — and read errors, each with file:line provenance and its winning provider), then the
+/// Default: a health summary that separates BROKEN references (DANGLING + UNPARSEABLE — a reference that should resolve
+/// and doesn't) from INERT ones (PLUGIN MISSING — the named plugin simply isn't installed, usually optional support for
+/// a mod you don't have), then the DIAGNOSTICS first and in full (PLUGIN MISSING gates + tokens, DANGLING, UNPARSEABLE —
+/// and read errors, each with file:line provenance and its winning provider), then the
 /// accounted-for remainder (healthy files counted; no-reference files grouped by folder — the OStim bulk). Bounded by
 /// max_chars with an explicit cut notice (Q3 — never silent truncation). filter= audits one group and lists EVERY
 /// reference with its verdict, OKs included (the positive-confirmation / verifier role).</summary>
@@ -378,20 +380,32 @@ static class SkseConfigAuditWire
         var readErrors   = d.Files.Where(f => f.ReadError is not null).ToList();
 
         int refsChecked = flat.Count;
-        int dead = missingGates.Count + missingToks.Count + dangling.Count + unparseable.Count;
+        // Two distinct signals, kept apart in the headline (framing fix). BROKEN = a reference that SHOULD resolve and
+        // doesn't (DANGLING: plugin present, record absent; UNPARSEABLE: a token we can't read) — the actionable one.
+        // INERT = PLUGIN MISSING (gate or token): the named plugin simply isn't installed, so the entry/file does nothing.
+        // For a config shipping optional support for a mod you don't have that's expected, not a fault — lumping it into
+        // "DEAD" made a healthy order read as thousands of dead references, which is the whole point of this reframe.
+        int broken = dangling.Count + unparseable.Count;
+        int inert  = missingGates.Count + missingToks.Count;
+        int notOk  = broken + inert;                       // every non-OK ref (kept for the accounted-for reconciliation below)
         int filesWithRefs = d.Files.Count(f => f.Refs.Count > 0);
 
         var sb = new StringBuilder();
         sb.Append("SKSE config audit — profile '").Append(d.ProfileName).Append("' — ")
           .Append(d.ConfigCount).Append(" config(s) scanned, ").Append(filesWithRefs).Append(" carry references, ")
           .Append(refsChecked).Append(" reference(s) checked\n");
-        if (dead == 0)
+        if (broken == 0 && inert == 0)
             sb.Append("✓ every reference resolves against the active load order — no dead references found.\n");
+        else if (broken == 0)
+            sb.Append("✓ no broken references — every reference to an installed plugin resolves. (")
+              .Append(inert).Append(" reference(s) point at plugins not in your load order — inert, usually optional support for a mod you don't have.)\n");
         else
         {
-            sb.Append("[!] ").Append(dead).Append(" DEAD reference(s): ")
-              .Append(missingGates.Count + missingToks.Count).Append(" plugin-missing · ")
-              .Append(dangling.Count).Append(" dangling · ").Append(unparseable.Count).Append(" unparseable\n");
+            sb.Append("[!] ").Append(broken).Append(" BROKEN reference(s): ")
+              .Append(dangling.Count).Append(" dangling · ").Append(unparseable.Count).Append(" unparseable");
+            if (inert > 0)
+                sb.Append("   ·   ").Append(inert).Append(" more inert (plugin not installed — usually optional support)");
+            sb.Append('\n');
         }
 
         // ── Diagnostics FIRST, in full (the point of the tool). ──
@@ -437,11 +451,11 @@ static class SkseConfigAuditWire
         // ── Accounted-for remainder — everything that ISN'T a diagnostic, so nothing is silently dropped (Q3). ──
         var healthyFiles = d.Files.Where(f => f.ReadError is null && f.Refs.Count > 0 && f.Refs.All(r => r.Verdict == SkseRefVerdict.Ok)).ToList();
         int healthyRefs = healthyFiles.Sum(f => f.Refs.Count);
-        int okInMixed = (refsChecked - dead) - healthyRefs;   // OK refs living in a file that ALSO has a dead ref — so every ref reconciles: refsChecked = dead + healthyRefs + okInMixed
+        int okInMixed = (refsChecked - notOk) - healthyRefs;   // OK refs living in a file that ALSO has a non-OK ref — so every ref reconciles: refsChecked = notOk + healthyRefs + okInMixed
         var noRefFiles = d.Files.Where(f => f.ReadError is null && f.Refs.Count == 0).ToList();
         sb.Append("\naccounted for: ").Append(healthyFiles.Count).Append(" file(s) with ").Append(healthyRefs)
           .Append(" reference(s) all OK");
-        if (okInMixed > 0) sb.Append(" · ").Append(okInMixed).Append(" more OK ref(s) in files that also have dead references");
+        if (okInMixed > 0) sb.Append(" · ").Append(okInMixed).Append(" more OK ref(s) in files that also carry a non-OK reference");
         sb.Append(" · ").Append(noRefFiles.Count).Append(" file(s) declare no form-shaped references\n");
         if (noRefFiles.Count > 0)
         {
@@ -482,9 +496,16 @@ static class SkseConfigAuditWire
           .Append(hits.Count).Append(" config(s) match [profile '").Append(d.ProfileName).Append("']\n");
         if (hits.Count == 0)
         {
+            // The suggestion pool must span EVERY axis Match filters on — else a mistyped plugin/provider filter gets only
+            // folder/filename suggestions. Match keys on filename/group/provider/relpath + referenced-plugin, so the pool
+            // carries filenames, folders, winning-provider mod names, AND the referenced-plugin names (the axis the tool
+            // exists to check). PluginNameSuggest dedups + skips empties, so no Distinct is needed here.
+            var suggestPool = d.Files.Select(f => f.FileName)
+                .Concat(d.Files.Select(f => f.Group).Where(g => g.Length > 0))
+                .Concat(d.Files.Select(f => f.WinningProvider).Where(p => !string.IsNullOrEmpty(p)).Select(p => p!))
+                .Concat(d.Files.SelectMany(f => f.Refs.Select(r => r.Ref.Plugin)));
             sb.Append("\nnothing under SKSE\\Plugins matched. ")
-              .Append(HousecarlCore.PluginNameSuggest.DidYouMean(filter,
-                  d.Files.Select(f => f.Group).Where(g => g.Length > 0).Concat(d.Files.Select(f => f.FileName)).Distinct()));
+              .Append(HousecarlCore.PluginNameSuggest.DidYouMean(filter, suggestPool));
             return sb.ToString().TrimEnd('\n');
         }
 
