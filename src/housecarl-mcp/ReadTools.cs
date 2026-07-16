@@ -271,8 +271,9 @@ public static class ReadTools
          "for a patch houseCARL just wrote. Read-only — writes nothing. BOUNDARY " +
          "(never a silent claim of more — Q3): this covers the FormLink-resolution / missing-master / parse class. It does " +
          "NOT verify navmesh or terrain spatial integrity (CRC/grid — a Mutagen-delta residual), does NOT flag a required " +
-         "field left null (a null FormLink is a legal optional, not an error), and does NOT list unused-master cleanup " +
-         "(a FormLink scan cannot prove a master is unused). Results cap at limit= and max_chars (both overruns explicit).")]
+         "field left null (a null FormLink is a legal optional, not an error), does NOT list unused-master cleanup " +
+         "(a FormLink scan cannot prove a master is unused), and does NOT link-check an owned item's ownership 'variable' " +
+         "word (a rank/global Mutagen cannot type on an override without a link cache). Results cap at limit= and max_chars (both overruns explicit).")]
     public static string CheckErrorsTool(
         LoadOrderService svc,
         [Description("Optional. Plugin filenames to check (e.g. 'MyMod.esp'). A name not in the active order is resolved on disk (a fresh houseCARL patch, a disabled mod) and swept OFF-ORDER; found nowhere (or in several folders) it is an error. Omit to sweep the WHOLE active order (every non-excluded plugin) — thorough but heavier; scope to one plugin for a fast, focused check like the CK's per-plugin 'Check For Errors'.")]
@@ -726,7 +727,8 @@ static class Wire
         }
 
         sb.Append("\nboundary: checks FormLink resolution, missing masters, and parse failures. Does NOT verify navmesh/terrain ")
-          .Append("spatial integrity (CRC/grid), flag required-but-null fields, or list unused-master cleanup; a null FormLink is a legal optional.\n");
+          .Append("spatial integrity (CRC/grid), flag required-but-null fields, list unused-master cleanup, or link-check an owned ")
+          .Append("item's ownership 'variable' word (a rank/global Mutagen can't type on an override); a null FormLink is a legal optional.\n");
         return sb.ToString().TrimEnd('\n');
     }
 
