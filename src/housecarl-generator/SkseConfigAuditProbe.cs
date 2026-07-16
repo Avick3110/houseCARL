@@ -253,6 +253,13 @@ public static class SkseConfigAuditProbe
             check("② reconciliation: mixed file's OK ref counted in 'accounted for' (okInMixed via notOk)",
                 txt.Contains("1 more OK ref(s) in files that also carry a non-OK reference"));
         }
+        // ② all-clear (broken == 0 && inert == 0): a lone OK ref → the clean ✓ line, no dead/broken/inert alarm.
+        {
+            var txt = SkseConfigAuditWire.Render(MkData(
+                MkFile(@"SKSE\Plugins\Foo\ok.ini", "Foo", "ModA", MkRef("Skyrim.esm", SkseRefVerdict.Ok))), null, 80_000);
+            check("② all-clear: clean ✓ line, no 'dead'/'BROKEN' alarm",
+                txt.Contains("nothing broken, nothing inert") && !txt.Contains("dead") && !txt.Contains("BROKEN"));
+        }
         // ③ did-you-mean: a typo of a REFERENCED plugin (matches nothing) → the suggestion now includes the ref plugin
         //    (before this PR the pool was folders+filenames only, so a mistyped plugin filter got no plugin suggestion).
         {

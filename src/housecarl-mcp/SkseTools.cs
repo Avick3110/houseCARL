@@ -48,16 +48,18 @@ public static class SkseTools
         return SkseInventoryWire.Render(data, filter, max_chars > 0 ? max_chars : 80_000);
     });
 
-    [McpServerTool(Name = "housecarl_skse_config_audit", ReadOnly = true, Title = "SKSE config references vs the load order (dead-reference audit)"),
+    [McpServerTool(Name = "housecarl_skse_config_audit", ReadOnly = true, Title = "SKSE config references vs the load order (reference-validity audit)"),
      Description(
          "Cross-check the form references SKSE-plugin CONFIGS declare against the real records of the ACTIVE load order — so a " +
-         "DEAD reference (a FormID pointing at a plugin that isn't installed, or at a record that doesn't exist in it) is caught " +
-         "by houseCARL instead of by a silent in-game failure. Scans the full depth of Data\\SKSE\\Plugins for .ini/.toml/.json/" +
+         "BROKEN reference (a FormID pointing at a record that doesn't exist in a plugin you DO have) is caught by houseCARL " +
+         "instead of by a silent in-game failure, and kept apart from a merely INERT one (a plugin you don't have installed — " +
+         "usually optional support for a mod you aren't running). Scans the full depth of Data\\SKSE\\Plugins for .ini/.toml/.json/" +
          ".yaml/.yml configs, reads the WINNING copy of each (the copy the DLL actually reads), and extracts every form-shaped " +
          "reference — a hex FormID paired with a plugin filename in EITHER order (0xFORM|Plugin.esp as DSD/CDF/po3 write it, " +
          "Plugin.esp|0xFORM as SkyPatcher writes it, the ~ tilde form) plus plugin-named folder gates (DynamicStringDistributor\\" +
          "Plugin.esp\\...) — then resolves each to a verdict: OK, PLUGIN MISSING (plugin not in the order), DANGLING (plugin " +
-         "present but no such record), or UNPARSEABLE (a shape-matched token that can't be normalized). It is the generic, " +
+         "present but no such record), or UNPARSEABLE (a shape-matched token that can't be normalized) — the summary groups " +
+         "these as BROKEN (dangling/unparseable, actionable) vs INERT (plugin-missing, usually optional support). It is the generic, " +
          "framework-AGNOSTIC twin of the SkyPatcher reader's first half: it checks reference VALIDITY, never what a reference is " +
          "FOR (that's per-framework skill territory) and never what the DLL DOES with it (the honest ceiling). Extraction is a " +
          "heuristic over token SHAPES, so a token in a comment or disabled block still surfaces — the framing is 'references this " +
@@ -70,7 +72,7 @@ public static class SkseTools
         LoadOrderService svc,
         [Description("Optional. A config FOLDER, providing-mod, filename, or REFERENCED-plugin substring (case-insensitive). " +
             "Audits just the matching configs and lists every reference with its verdict, OKs included. Omit for the whole-layer " +
-            "audit (diagnostics — dead references — first, then the accounted-for remainder).")]
+            "audit (diagnostics — broken & inert references — first, then the accounted-for remainder).")]
             string? filter = null,
         [Description("Optional. Max characters before lists are cut with an explicit notice. 0 = the server default (~80k).")]
             int max_chars = 0) => Guard.Tool("housecarl_skse_config_audit", () =>
@@ -395,7 +397,7 @@ static class SkseConfigAuditWire
           .Append(d.ConfigCount).Append(" config(s) scanned, ").Append(filesWithRefs).Append(" carry references, ")
           .Append(refsChecked).Append(" reference(s) checked\n");
         if (broken == 0 && inert == 0)
-            sb.Append("✓ every reference resolves against the active load order — no dead references found.\n");
+            sb.Append("✓ every reference resolves against the active load order — nothing broken, nothing inert.\n");
         else if (broken == 0)
             sb.Append("✓ no broken references — every reference to an installed plugin resolves. (")
               .Append(inert).Append(" reference(s) point at plugins not in your load order — inert, usually optional support for a mod you don't have.)\n");
