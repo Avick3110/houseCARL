@@ -319,6 +319,107 @@ public sealed class LoadOrderService : IDisposable
         return slash < 0 ? "" : rel.Substring(pre.Length, slash - pre.Length);
     }
 
+    // ---- SKSE config audit (tier B, issue #199): cross-check the form references SKSE-plugin configs DECLARE against the
+    //      real records of the active load order. Plan: dev/plans/SKSE_TIER_B_CONFIG_AUDIT_PLAN_2026-07-16.md. ----
+
+    /// <summary>Per-file byte cap for the config scan: a config larger than this is a NAMED skip (Q3), not fed to the token
+    /// scanner. Real distributor configs are KB-scale; a multi-MB "config" is content mislabeled or a runaway, and scanning
+    /// it would waste the whole-layer walk. 16 MB is far above any real config, so the cap trips only on the pathological
+    /// case it exists to name.</summary>
+    const long SkseConfigSizeCap = 16L * 1024 * 1024;
+
+    /// <summary>Audit the SKSE-plugin config layer against the load order (housecarl_skse_config_audit, tier B). For every
+    /// .ini/.toml/.json/.yaml under Data\SKSE\Plugins, read the WINNING copy (VFS truth — losers are never read by the DLL),
+    /// extract the form-shaped references + path-segment plugin gates it declares (<see cref="SkseConfigReferenceExtractor"/>),
+    /// and resolve each against the active order into a verdict: OK, PLUGIN MISSING, DANGLING, or UNPARSEABLE. The generic,
+    /// framework-AGNOSTIC half of the SkyPatcher reader (inventory + reference validity) for the other config folders — it
+    /// never interprets what a reference is FOR (that's per-framework skill territory). ONE asset capture + ONE resolver
+    /// index pin the whole scan (the SkseInventory discipline); the enumerate + read + resolve run OUTSIDE the gate (the
+    /// captured view is handle-free, the index a pure snapshot read). "No references found" is a NORMAL per-file outcome,
+    /// accounted for, never a warning (Q3).</summary>
+    public SkseConfigAuditData SkseConfigAudit()
+    {
+        AssetResolver.AssetView view;
+        IReadOnlyList<string> warnings;
+        string profileName;
+        lock (_gate)
+        {
+            view = Assets.Capture();
+            warnings = _assetWarnings;
+            profileName = _profileName;
+        }
+        var index = Resolver.Capture();   // pure snapshot: ContainsPlugin / ResolveWinner read only this build
+
+        const string pre = "SKSE\\Plugins\\";
+        var files = new List<SkseConfigFileAudit>();
+        foreach (var rel in view.EnumerateUnder("SKSE\\Plugins").OrderBy(p => p, StringComparer.OrdinalIgnoreCase))
+        {
+            var ext = Path.GetExtension(rel).ToLowerInvariant();
+            if (ext is not (".ini" or ".toml" or ".json" or ".yaml" or ".yml")) continue;   // configs only (DLLs/content are SkseInventory's)
+
+            string group = SkseGroupOf(rel, pre);
+            var place = view.ResolveForPlacement(rel);
+            var winner = place.Sources.Count > 0 ? place.Sources[0] : null;
+            var providers = place.Sources.Select(s => new SkseProvider(s.ProviderName, KindLabel(s.Kind))).ToList();
+
+            string? readError = null;
+            string text = "";
+            if (winner is null)
+                readError = "no active mod provides this config";   // shouldn't happen for an enumerated file — named, not assumed (Q3)
+            else if (winner.Kind == AssetKind.Loose && winner.LooseFilePath is { } lp && File.Exists(lp) && new FileInfo(lp).Length > SkseConfigSizeCap)
+                readError = $"config is {new FileInfo(lp).Length / (1024 * 1024)} MB (> {SkseConfigSizeCap / (1024 * 1024)} MB cap) — not scanned";
+            else
+            {
+                var (bytes, err) = AssetResolver.ReadPlacementSource(winner);
+                if (err is not null) readError = err;
+                else if (bytes!.Length > SkseConfigSizeCap) readError = $"config is {bytes.Length / (1024 * 1024)} MB (> {SkseConfigSizeCap / (1024 * 1024)} MB cap) — not scanned";
+                else text = DecodeConfigText(bytes);
+            }
+
+            // Path-segment gates come from the relPath, so they surface even when the file couldn't be READ (the gate is a
+            // property of WHERE the file lives, not its content). Only the token scan needs the text.
+            var extracted = SkseConfigReferenceExtractor.Extract(rel, readError is null ? text : "");
+            var audited = new List<SkseAuditedRef>(extracted.Count);
+            foreach (var r in extracted) audited.Add(Adjudicate(r, index));
+
+            files.Add(new SkseConfigFileAudit(rel, Path.GetFileName(rel), group,
+                winner?.ProviderName, providers.Count, providers, audited, readError));
+        }
+        return new SkseConfigAuditData(files, files.Count, view.BsaFailures, view.ReadIncomplete, warnings, profileName);
+    }
+
+    /// <summary>Resolve one extracted reference into a verdict against the load-order index. A path-segment gate is
+    /// plugin-presence only (OK / PLUGIN MISSING); a form token additionally checks the record exists (DANGLING when the
+    /// plugin is present but the masked FormID resolves to nothing). Never speculates about runtime behavior (Q3).</summary>
+    internal static SkseAuditedRef Adjudicate(SkseConfigRef r, LoadOrderResolver.IndexView index)   // internal: the config-audit guard drives it over a synthetic order
+    {
+        if (r.Unparseable is not null)
+            return new SkseAuditedRef(r, SkseRefVerdict.Unparseable, r.Unparseable);
+
+        if (!index.ContainsPlugin(r.Plugin))
+            return new SkseAuditedRef(r, SkseRefVerdict.PluginMissing, $"'{r.Plugin}' is not in the active load order");
+
+        if (r.Shape == SkseRefShape.PathSegmentGate)
+            return new SkseAuditedRef(r, SkseRefVerdict.Ok, null);   // gate satisfied — the plugin is present
+
+        // Form token: the plugin is present; does the (masked) FormID resolve to a record in the order?
+        if (!ModKey.TryFromNameAndExtension(r.Plugin, out var mk))
+            return new SkseAuditedRef(r, SkseRefVerdict.Unparseable, $"'{r.Plugin}' is not a valid plugin name");
+        var fk = new FormKey(mk, r.LocalId!.Value);
+        return index.ResolveWinner(fk) is not null
+            ? new SkseAuditedRef(r, SkseRefVerdict.Ok, fk.ToString())
+            : new SkseAuditedRef(r, SkseRefVerdict.Dangling, $"{fk} resolves to no record in '{r.Plugin}'");
+    }
+
+    /// <summary>Decode a config file's bytes to text, honoring a BOM (UTF-8/16) when present (real shipped configs carry
+    /// one), defaulting to UTF-8 otherwise — the config formats (.ini/.toml/.json/.yaml) are all UTF-8 in practice.</summary>
+    static string DecodeConfigText(byte[] bytes)
+    {
+        using var ms = new MemoryStream(bytes);
+        using var sr = new StreamReader(ms, System.Text.Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
+        return sr.ReadToEnd();
+    }
+
     // ---- SkyPatcher distributor Wave 1: the per-record TRUE post-SkyPatcher state (plan
     //      dev/plans/SKYPATCHER_DISTRIBUTOR_TOOL_PLAN_2026-07-08.md — reader-only scope, 2026-07-09). ----
 
@@ -4839,6 +4940,47 @@ public sealed record SkseInventoryData(
     IReadOnlyList<SkseFileEntry> Dlls,
     IReadOnlyList<SkseFileEntry> Configs,
     int OtherFileCount,
+    IReadOnlyList<string> BsaFailures,
+    bool ReadIncomplete,
+    IReadOnlyList<string> Warnings,
+    string ProfileName);
+
+/// <summary>The load-order verdict for one reference an SKSE config declares (housecarl_skse_config_audit, tier B).</summary>
+public enum SkseRefVerdict
+{
+    /// <summary>Plugin in the active order, and (for a form token) the FormID resolves to a record in it.</summary>
+    Ok,
+    /// <summary>The named plugin is not in the active load order — the whole entry (or, for a path-segment gate, the whole file) is inert.</summary>
+    PluginMissing,
+    /// <summary>Plugin present, but no record with that (masked) FormID exists in it — a dead reference.</summary>
+    Dangling,
+    /// <summary>The token matched the reference SHAPE but couldn't be normalized (hex overflow, unusable plugin name) — flagged loud, never guessed.</summary>
+    Unparseable,
+}
+
+/// <summary>One reference a config declares (<see cref="HousecarlCore.SkseConfigRef"/>) paired with its load-order
+/// <see cref="Verdict"/> and a Q3 <see cref="Detail"/> line (the resolved FormKey for OK; the reason for a dead/unparseable verdict).</summary>
+public sealed record SkseAuditedRef(HousecarlCore.SkseConfigRef Ref, SkseRefVerdict Verdict, string? Detail);
+
+/// <summary>One config file's audit: its VFS provenance (winning provider + the full winner-first conflict chain — only the
+/// WINNER is read, the losers are shown for transparency), every reference it declares with a verdict, and a Q3
+/// <see cref="ReadError"/> when the winning copy couldn't be read/decoded or was over the size cap.</summary>
+public sealed record SkseConfigFileAudit(
+    string RelPath,
+    string FileName,
+    string Group,
+    string? WinningProvider,
+    int ProviderCount,
+    IReadOnlyList<SkseProvider> Providers,
+    IReadOnlyList<SkseAuditedRef> Refs,
+    string? ReadError);
+
+/// <summary>The data behind housecarl_skse_config_audit (tier B, #199): every SKSE-plugin config with the references it
+/// declares resolved to OK / PLUGIN MISSING / DANGLING / UNPARSEABLE, plus the build-level Q3 caveats
+/// (<see cref="BsaFailures"/> / <see cref="ReadIncomplete"/> / <see cref="Warnings"/>) and the active <see cref="ProfileName"/>.</summary>
+public sealed record SkseConfigAuditData(
+    IReadOnlyList<SkseConfigFileAudit> Files,
+    int ConfigCount,
     IReadOnlyList<string> BsaFailures,
     bool ReadIncomplete,
     IReadOnlyList<string> Warnings,

@@ -108,6 +108,11 @@ public static class CiAll
         ("flags-bit-verb-guard", FlagsBitVerbProbe.RunGuard),
         ("gendered-nav-guard", GenderedNavProbe.RunGuard),
         ("loadorder-status-guard", LoadOrderStatusProbe.RunGuard),
+        // SKSE config audit (tier B, #199): the reference EXTRACTOR pinned against every §3 evidence shape (both token
+        // orders, ESL FExxxYYY vs low-24 masking via the shared FormIdRange home, tilde form, path-segment gate, comment/
+        // overflow/no-ref accounting) PLUS the service VERDICTS (OK/PLUGIN-MISSING/DANGLING/UNPARSEABLE + ESL FE-prefix
+        // resolve) driven through LoadOrderService.Adjudicate over a synthetic full+light order. Self-contained.
+        ("skse-config-audit-guard", SkseConfigAuditProbe.RunGuard),
         ("compile-ergonomics-guard", CompileErgonomicsProbe.RunGuard),
         ("setup-update-lock-guard", SetupUpdateLockProbe.RunGuard),
         ("import-order-guard", ImportOrderProbe.RunGuard),
