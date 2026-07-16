@@ -179,6 +179,29 @@ public static class SksePluginReader
             MinimumXseVersion: xseMin == 0 ? null : UnpackVersion(xseMin));
     }
 
+    /// <summary>Whether a MODERN plugin can load on <paramref name="installedRuntime"/> (a dotted game version, e.g.
+    /// "1.6.1170.0" from the executable's version resource). Version-independent plugins load anywhere → true;
+    /// a version-LOCKED plugin loads only when a listed compatible runtime matches numerically. Numeric,
+    /// zero-padded segment compare — "1.6.1170" and "1.6.1170.0" are the SAME version (the blob lists 3 segments,
+    /// the exe resource 4). Pure; pinned by the native-pairing guard.</summary>
+    public static bool RuntimeCompatible(SkseVersionInfo v, string installedRuntime)
+        => v.VersionIndependent || v.CompatibleVersions.Any(cv => VersionsEqual(cv, installedRuntime));
+
+    /// <summary>Numeric dotted-version equality with zero-padding ("1.6.1170" == "1.6.1170.0"). A non-numeric
+    /// segment ⇒ NOT equal (never guessed equal — a garbage compat entry must not accidentally PASS a lock, Q3).</summary>
+    public static bool VersionsEqual(string a, string b)
+    {
+        var sa = a.Split('.'); var sb = b.Split('.');
+        for (int i = 0; i < Math.Max(sa.Length, sb.Length); i++)
+        {
+            int va = 0, vb = 0;
+            if (i < sa.Length && !int.TryParse(sa[i].Trim(), out va)) return false;
+            if (i < sb.Length && !int.TryParse(sb[i].Trim(), out vb)) return false;
+            if (va != vb) return false;
+        }
+        return true;
+    }
+
     /// <summary>Unpack a <c>REL::Version</c> uint32 to "maj.min.patch[.build]" — the exact CommonLib packing
     /// (maj 8b &lt;&lt; 24 | min 8b &lt;&lt; 16 | patch 12b &lt;&lt; 4 | build 4b). Trailing .build is shown only when non-zero
     /// (most plugins declare only maj[.min.patch]).</summary>

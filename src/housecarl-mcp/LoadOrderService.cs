@@ -307,7 +307,7 @@ public sealed class LoadOrderService : IDisposable
             else
                 configs.Add(new SkseFileEntry(rel, Path.GetFileName(rel), group, providers, null, null));
         }
-        return new SkseInventoryData(dlls, configs, otherFiles, view.BsaFailures, view.ReadIncomplete, warnings, profileName);
+        return new SkseInventoryData(dlls, configs, otherFiles, InstalledGameRuntime(), view.BsaFailures, view.ReadIncomplete, warnings, profileName);
     }
 
     /// <summary>The immediate subfolder under SKSE\Plugins a file sits in ("" = directly at top level) — the DERIVED,
@@ -601,7 +601,7 @@ public sealed class LoadOrderService : IDisposable
 
         return new NativePairingAuditData(classes, pexPaths.Count,
             unreadable.OrderBy(u => u.RelPath, StringComparer.OrdinalIgnoreCase).ToList(),
-            loaderSeen, InstalledRuntime: null,
+            loaderSeen, InstalledGameRuntime(),
             view.BsaFailures, view.ReadIncomplete, warnings, profileName);
     }
 
@@ -1580,6 +1580,49 @@ public sealed class LoadOrderService : IDisposable
     /// when the instance is unusable (EnsurePathsDerived throws naming the missing piece — the rider's own config gate
     /// reports that; here it's just "no hint"), or when DataDir hasn't been derived yet. Takes <see cref="_gate"/> like the
     /// other derived-root reads; works in explicit mode too (DataDir is set directly, EnsurePathsDerived no-ops).</summary>
+    /// <summary>The INSTALLED game runtime version — the dotted file version of the game executable the load order
+    /// actually runs (e.g. "1.6.1170.0") — or null when it can't be resolved. This is what turns a version-LOCKED
+    /// SKSE plugin's compat list from "verify against your game version" into PASS/FAIL (native-pairing audit §4d +
+    /// skse_inventory's locked diagnostic). Preference is the OPPOSITE of <see cref="CompilerGameDirHints"/>: the
+    /// load-order's OWN game dir comes FIRST — an MO2 "Stock Game" setup launches the stock copy's exe, so ITS
+    /// version is the truth — with the located real install (<see cref="GameDirOrNull"/>'s locator twin) only as a
+    /// fallback. BEST-EFFORT + NULL-SAFE end to end (the CompilerGameDirHints contract): a miss degrades the finding
+    /// wording, never fails the audit.</summary>
+    public string? InstalledGameRuntime()
+    {
+        foreach (var dir in GameRuntimeDirCandidates())
+        {
+            try
+            {
+                var exe = Path.Combine(dir, "SkyrimSE.exe");
+                if (!File.Exists(exe)) continue;
+                var fv = System.Diagnostics.FileVersionInfo.GetVersionInfo(exe);
+                // FileVersion can carry vendor noise; the numeric parts are the truth. Prefer them when present.
+                if (fv.FileMajorPart > 0 || fv.FileMinorPart > 0 || fv.FileBuildPart > 0 || fv.FilePrivatePart > 0)
+                    return $"{fv.FileMajorPart}.{fv.FileMinorPart}.{fv.FileBuildPart}.{fv.FilePrivatePart}";
+                if (!string.IsNullOrWhiteSpace(fv.FileVersion)) return fv.FileVersion!.Trim();
+            }
+            catch { /* unreadable exe → try the next candidate (best-effort) */ }
+        }
+        return null;
+    }
+
+    /// <summary>The game-dir candidates for the runtime-version read, LOAD-ORDER dir first (see
+    /// <see cref="InstalledGameRuntime"/> for why the preference inverts CompilerGameDirHints).</summary>
+    IEnumerable<string> GameRuntimeDirCandidates()
+    {
+        if (GameDirOrNull() is { Length: > 0 } own) yield return own;
+        string? located = null;
+        try
+        {
+            if (new Mutagen.Bethesda.Installs.GameLocator().TryGetGameDirectory(
+                    Mutagen.Bethesda.GameRelease.SkyrimSE, out var dir) && !string.IsNullOrWhiteSpace(dir.Path))
+                located = NormalizeGameDir(dir.Path);
+        }
+        catch { /* locator hiccup → just the load-order candidate */ }
+        if (located is not null) yield return located;
+    }
+
     public string? GameDirOrNull()
     {
         lock (_gate)
@@ -5152,6 +5195,7 @@ public sealed record SkseInventoryData(
     IReadOnlyList<SkseFileEntry> Dlls,
     IReadOnlyList<SkseFileEntry> Configs,
     int OtherFileCount,
+    string? InstalledRuntime,
     IReadOnlyList<string> BsaFailures,
     bool ReadIncomplete,
     IReadOnlyList<string> Warnings,
