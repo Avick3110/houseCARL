@@ -47,6 +47,38 @@ public static class SkseTools
         var data = svc.SkseInventory();
         return SkseInventoryWire.Render(data, filter, max_chars > 0 ? max_chars : 80_000);
     });
+
+    [McpServerTool(Name = "housecarl_skse_config_audit", ReadOnly = true, Title = "SKSE config references vs the load order (dead-reference audit)"),
+     Description(
+         "Cross-check the form references SKSE-plugin CONFIGS declare against the real records of the ACTIVE load order — so a " +
+         "DEAD reference (a FormID pointing at a plugin that isn't installed, or at a record that doesn't exist in it) is caught " +
+         "by houseCARL instead of by a silent in-game failure. Scans the full depth of Data\\SKSE\\Plugins for .ini/.toml/.json/" +
+         ".yaml configs, reads the WINNING copy of each (the copy the DLL actually reads), and extracts every form-shaped " +
+         "reference — a hex FormID paired with a plugin filename in EITHER order (0xFORM|Plugin.esp as DSD/CDF/po3 write it, " +
+         "Plugin.esp|0xFORM as SkyPatcher writes it, the ~ tilde form) plus plugin-named folder gates (DynamicStringDistributor\\" +
+         "Plugin.esp\\...) — then resolves each to a verdict: OK, PLUGIN MISSING (plugin not in the order), DANGLING (plugin " +
+         "present but no such record), or UNPARSEABLE (a shape-matched token that can't be normalized). It is the generic, " +
+         "framework-AGNOSTIC twin of the SkyPatcher reader's first half: it checks reference VALIDITY, never what a reference is " +
+         "FOR (that's per-framework skill territory) and never what the DLL DOES with it (the honest ceiling). Extraction is a " +
+         "heuristic over token SHAPES, so a token in a comment or disabled block still surfaces — the framing is 'references this " +
+         "file DECLARES', not 'references the DLL will use'. 'No references found' is the most common per-file outcome and is " +
+         "accounted for, never a warning. Bare EditorID / name strings are NOT validated (Wave 2). Pass filter= a folder, mod, " +
+         "filename, or referenced-plugin substring to audit just that group and list EVERY reference with its verdict (the OKs " +
+         "included — positive confirmation of a patch you just authored). Distributor INIs in Data\\ root (SPID *_DISTR, KID " +
+         "*_KID) are out of scope — owned by their authoring skills. Read-only.")]
+    public static string SkseConfigAudit(
+        LoadOrderService svc,
+        [Description("Optional. A config FOLDER, providing-mod, filename, or REFERENCED-plugin substring (case-insensitive). " +
+            "Audits just the matching configs and lists every reference with its verdict, OKs included. Omit for the whole-layer " +
+            "audit (diagnostics — dead references — first, then the accounted-for remainder).")]
+            string? filter = null,
+        [Description("Optional. Max characters before lists are cut with an explicit notice. 0 = the server default (~80k).")]
+            int max_chars = 0) => Guard.Tool("housecarl_skse_config_audit", () =>
+    {
+        if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
+        var data = svc.SkseConfigAudit();
+        return SkseConfigAuditWire.Render(data, filter, max_chars > 0 ? max_chars : 80_000);
+    });
 }
 
 /// <summary>Renders <see cref="SkseInventoryData"/> as compact, scannable text. Default: summary + compat, the diagnostic
@@ -315,6 +347,192 @@ static class SkseInventoryWire
     {
         if (d.ReadIncomplete)
             sb.Append("[!] a BSA failed to read this build, so a file present only in it may be missing from this inventory (Q3).\n");
+        foreach (var w in d.Warnings) sb.Append("[!] ").Append(w).Append('\n');
+        foreach (var f in d.BsaFailures) sb.Append("[!] archive read failure: ").Append(f).Append('\n');
+    }
+}
+
+/// <summary>Renders <see cref="SkseConfigAuditData"/> as compact, scannable text (housecarl_skse_config_audit, tier B).
+/// Default: a health summary, then the DIAGNOSTICS first and in full (dead references — PLUGIN MISSING gates + tokens,
+/// DANGLING, UNPARSEABLE — and read errors, each with file:line provenance and its winning provider), then the
+/// accounted-for remainder (healthy files counted; no-reference files grouped by folder — the OStim bulk). Bounded by
+/// max_chars with an explicit cut notice (Q3 — never silent truncation). filter= audits one group and lists EVERY
+/// reference with its verdict, OKs included (the positive-confirmation / verifier role).</summary>
+static class SkseConfigAuditWire
+{
+    // (file, ref) pair — a dead reference and where it was declared.
+    readonly record struct Hit(SkseConfigFileAudit File, SkseAuditedRef Audited)
+    {
+        public HousecarlCore.SkseConfigRef Ref => Audited.Ref;
+    }
+
+    public static string Render(SkseConfigAuditData d, string? filter, int cap)
+    {
+        if (filter is { Length: > 0 }) return RenderFiltered(d, filter.Trim(), cap);
+
+        var flat = d.Files.SelectMany(f => f.Refs.Select(r => new Hit(f, r))).ToList();
+        var missingGates = flat.Where(h => h.Audited.Verdict == SkseRefVerdict.PluginMissing && h.Ref.Shape == HousecarlCore.SkseRefShape.PathSegmentGate).ToList();
+        var missingToks  = flat.Where(h => h.Audited.Verdict == SkseRefVerdict.PluginMissing && h.Ref.Shape == HousecarlCore.SkseRefShape.FormToken).ToList();
+        var dangling     = flat.Where(h => h.Audited.Verdict == SkseRefVerdict.Dangling).ToList();
+        var unparseable  = flat.Where(h => h.Audited.Verdict == SkseRefVerdict.Unparseable).ToList();
+        var readErrors   = d.Files.Where(f => f.ReadError is not null).ToList();
+
+        int refsChecked = flat.Count;
+        int dead = missingGates.Count + missingToks.Count + dangling.Count + unparseable.Count;
+        int filesWithRefs = d.Files.Count(f => f.Refs.Count > 0);
+
+        var sb = new StringBuilder();
+        sb.Append("SKSE config audit — profile '").Append(d.ProfileName).Append("' — ")
+          .Append(d.ConfigCount).Append(" config(s) scanned, ").Append(filesWithRefs).Append(" carry references, ")
+          .Append(refsChecked).Append(" reference(s) checked\n");
+        if (dead == 0)
+            sb.Append("✓ every reference resolves against the active load order — no dead references found.\n");
+        else
+        {
+            sb.Append("[!] ").Append(dead).Append(" DEAD reference(s): ")
+              .Append(missingGates.Count + missingToks.Count).Append(" plugin-missing · ")
+              .Append(dangling.Count).Append(" dangling · ").Append(unparseable.Count).Append(" unparseable\n");
+        }
+
+        // ── Diagnostics FIRST, in full (the point of the tool). ──
+        AppendHits(sb, "PLUGIN MISSING — folder gates (the plugin isn't installed, so the WHOLE file is inert)", missingGates, cap,
+            h => $"  - {h.File.RelPath}: folder '{h.Ref.Plugin}' not in the load order{Prov(h.File)}");
+        // Token-level plugin-missing is GROUPED by the target plugin — a whole-layer scan yields tens of thousands of
+        // individual inert refs (a config shipping optional support for a mod you don't have contributes hundreds each),
+        // so a per-ref list is an unreadable wall; the count-per-plugin table is the actionable shape. filter= a plugin to
+        // see its individual refs.
+        if (missingToks.Count > 0)
+        {
+            var byPlugin = missingToks.GroupBy(h => h.Ref.Plugin, StringComparer.OrdinalIgnoreCase)
+                .Select(g => (Plugin: g.Key, Refs: g.Count(),
+                              Files: g.Select(h => h.File.RelPath).Distinct(StringComparer.OrdinalIgnoreCase).Count(),
+                              Example: g.First().File.RelPath))
+                .OrderByDescending(g => g.Refs).ThenBy(g => g.Plugin, StringComparer.OrdinalIgnoreCase).ToList();
+            sb.Append("\nPLUGIN MISSING — target plugin not in the load order (inert; often a config shipping optional support for a mod you don't have) — by plugin (")
+              .Append(byPlugin.Count).Append(" plugins, ").Append(missingToks.Count).Append(" refs):\n");
+            int shown = 0;
+            foreach (var g in byPlugin)
+            {
+                if (sb.Length >= cap) { sb.Append("  ... [showing ").Append(shown).Append(" of ").Append(byPlugin.Count).Append(" plugins; raise max_chars or use filter=]\n"); break; }
+                sb.Append("  - ").Append(g.Plugin).Append(": ").Append(g.Refs).Append(" ref(s)");
+                if (g.Files > 1) sb.Append(" across ").Append(g.Files).Append(" file(s)");
+                sb.Append("  (e.g. ").Append(g.Example).Append(")\n"); shown++;
+            }
+        }
+        AppendHits(sb, "DANGLING — plugin present but no such record (a dead reference)", dangling, cap,
+            h => $"  - {Loc(h)}: '{h.Ref.Raw}' → {h.Audited.Detail}{Prov(h.File)}");
+        AppendHits(sb, "UNPARSEABLE — shape-matched tokens that can't be normalized (flagged, never guessed)", unparseable, cap,
+            h => $"  - {Loc(h)}: '{h.Ref.Raw}' → {h.Audited.Detail}{Prov(h.File)}");
+        if (readErrors.Count > 0)
+        {
+            sb.Append("\nread errors — configs that could not be read/decoded (NOT counted as clean) (").Append(readErrors.Count).Append("):\n");
+            int shown = 0;
+            foreach (var f in readErrors)
+            {
+                if (sb.Length >= cap) { sb.Append("  ... [").Append(shown).Append(" of ").Append(readErrors.Count).Append("; raise max_chars]\n"); break; }
+                sb.Append("  - ").Append(f.RelPath).Append(": ").Append(f.ReadError).Append(Prov(f)).Append('\n'); shown++;
+            }
+        }
+
+        // ── Accounted-for remainder — everything that ISN'T a diagnostic, so nothing is silently dropped (Q3). ──
+        var healthyFiles = d.Files.Where(f => f.ReadError is null && f.Refs.Count > 0 && f.Refs.All(r => r.Verdict == SkseRefVerdict.Ok)).ToList();
+        int healthyRefs = healthyFiles.Sum(f => f.Refs.Count);
+        var noRefFiles = d.Files.Where(f => f.ReadError is null && f.Refs.Count == 0).ToList();
+        sb.Append("\naccounted for: ").Append(healthyFiles.Count).Append(" file(s) with ").Append(healthyRefs)
+          .Append(" reference(s) all OK · ").Append(noRefFiles.Count).Append(" file(s) declare no form-shaped references\n");
+        if (noRefFiles.Count > 0)
+        {
+            var groups = noRefFiles.GroupBy(f => f.Group, StringComparer.OrdinalIgnoreCase)
+                .Select(g => (Name: g.Key.Length == 0 ? "(top level)" : g.Key, Count: g.Count()))
+                .OrderByDescending(g => g.Count).ThenBy(g => g.Name, StringComparer.OrdinalIgnoreCase).ToList();
+            sb.Append("  no-reference configs by folder (").Append(groups.Count).Append("):\n");
+            int shown = 0;
+            foreach (var g in groups)
+            {
+                if (sb.Length >= cap) { sb.Append("    ... [").Append(shown).Append(" of ").Append(groups.Count).Append(" folders; raise max_chars]\n"); break; }
+                sb.Append("    - ").Append(g.Name).Append(": ").Append(g.Count).Append('\n'); shown++;
+            }
+        }
+
+        sb.Append("\n(scope: form-shaped references only — a hex FormID + plugin filename, or a plugin-named folder gate. Bare " +
+                  "EditorID/name strings are not validated (Wave 2). Extraction is heuristic over token shapes: a token in a comment " +
+                  "or disabled block still counts — 'references this file declares', not 'the DLL will use'. A folder that SHOULD carry " +
+                  "references but shows none may use a reference shape not yet recognized.)\n");
+        AppendCaveats(sb, d);
+        sb.Append("\n→ filter='<folder/mod/filename/plugin>' to audit one group and see every reference (OKs included).");
+        return sb.ToString().TrimEnd('\n');
+    }
+
+    /// <summary>filter= : audit just the matching configs (by folder, provider, filename, or a REFERENCED plugin) and list
+    /// every reference with its verdict — OKs included, for positive confirmation (the SkyPatcher-reader verifier role).</summary>
+    static string RenderFiltered(SkseConfigAuditData d, string filter, int cap)
+    {
+        bool In(string? s) => s is not null && s.Contains(filter, StringComparison.OrdinalIgnoreCase);
+        bool Match(SkseConfigFileAudit f) =>
+            In(f.FileName) || In(f.Group) || In(f.WinningProvider) || In(f.RelPath)
+            || f.Refs.Any(r => In(r.Ref.Plugin));
+        var hits = d.Files.Where(Match)
+            .OrderBy(f => f.Group, StringComparer.OrdinalIgnoreCase).ThenBy(f => f.RelPath, StringComparer.OrdinalIgnoreCase).ToList();
+
+        var sb = new StringBuilder();
+        sb.Append("SKSE config audit — filter '").Append(filter).Append("' — ")
+          .Append(hits.Count).Append(" config(s) match [profile '").Append(d.ProfileName).Append("']\n");
+        if (hits.Count == 0)
+        {
+            sb.Append("\nnothing under SKSE\\Plugins matched. ")
+              .Append(HousecarlCore.PluginNameSuggest.DidYouMean(filter,
+                  d.Files.Select(f => f.Group).Where(g => g.Length > 0).Concat(d.Files.Select(f => f.FileName)).Distinct()));
+            return sb.ToString().TrimEnd('\n');
+        }
+
+        int shownFiles = 0;
+        foreach (var f in hits)
+        {
+            if (sb.Length >= cap) { sb.Append("\n  ... [showing ").Append(shownFiles).Append(" of ").Append(hits.Count).Append(" files; raise max_chars]\n"); break; }
+            sb.Append('\n').Append(f.RelPath).Append("  ← ").Append(f.WinningProvider ?? "(no active provider)").Append('\n');
+            if (f.ProviderCount > 1)
+                sb.Append("  [!] contested by ").Append(f.ProviderCount).Append(" mods (winner audited): ")
+                  .Append(string.Join(" › ", f.Providers.Select(p => $"{p.Name} ({p.Kind})"))).Append('\n');
+            if (f.ReadError is not null) { sb.Append("  [!] ").Append(f.ReadError).Append('\n'); continue; }
+            if (f.Refs.Count == 0) { sb.Append("  (no form-shaped references)\n"); continue; }
+            foreach (var r in f.Refs)
+                sb.Append("  ").Append(Tag(r.Verdict)).Append(' ')
+                  .Append(r.Ref.Shape == HousecarlCore.SkseRefShape.PathSegmentGate ? $"folder gate '{r.Ref.Plugin}'" : $"'{r.Ref.Raw}'")
+                  .Append(r.Ref.Line > 0 ? $" (line {r.Ref.Line})" : "")
+                  .Append(r.Detail is null ? "" : " → " + r.Detail).Append('\n');
+            shownFiles++;
+        }
+        return sb.ToString().TrimEnd('\n');
+    }
+
+    static string Tag(SkseRefVerdict v) => v switch
+    {
+        SkseRefVerdict.Ok => "[OK]",
+        SkseRefVerdict.PluginMissing => "[MISSING]",
+        SkseRefVerdict.Dangling => "[DANGLING]",
+        SkseRefVerdict.Unparseable => "[UNPARSEABLE]",
+        _ => "[?]",
+    };
+
+    static string Loc(Hit h) => h.Ref.Line > 0 ? $"{h.File.RelPath}:{h.Ref.Line}" : h.File.RelPath;
+    static string Prov(SkseConfigFileAudit f) => f.WinningProvider is null ? "" : $"  [← {f.WinningProvider}]";
+
+    static void AppendHits(StringBuilder sb, string label, IReadOnlyList<Hit> items, int cap, Func<Hit, string> line)
+    {
+        if (items.Count == 0) return;
+        sb.Append('\n').Append(label).Append(" (").Append(items.Count).Append("):\n");
+        int shown = 0;
+        foreach (var h in items)
+        {
+            if (sb.Length >= cap) { sb.Append("  ... [showing ").Append(shown).Append(" of ").Append(items.Count).Append("; raise max_chars or use filter=]\n"); break; }
+            sb.Append(line(h)).Append('\n'); shown++;
+        }
+    }
+
+    static void AppendCaveats(StringBuilder sb, SkseConfigAuditData d)
+    {
+        if (d.ReadIncomplete)
+            sb.Append("[!] a BSA failed to read this build, so a config present only in it may be missing from this audit (Q3).\n");
         foreach (var w in d.Warnings) sb.Append("[!] ").Append(w).Append('\n');
         foreach (var f in d.BsaFailures) sb.Append("[!] archive read failure: ").Append(f).Append('\n');
     }
