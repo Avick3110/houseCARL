@@ -77,11 +77,17 @@ public static class ReadEngine
     /// numerically WITHOUT tripping over the name/number rendering split that <c>[Flags].ToString()</c> produces
     /// (named bits → "Body"; an unnamed modder slot → "8388608"). The <see cref="Token"/> is unchanged — the
     /// round-trip oracle still drives the same display token — so this is invisible to read/write/diff.</para></summary>
-    internal readonly record struct LeafRead(bool HasValue, string Token, string? Note, FlagBits? Flags = null)
+    internal readonly record struct LeafRead(bool HasValue, string Token, string? Note, FlagBits? Flags = null, int? ContainerCount = null)
     {
         public static LeafRead Value(string token) => new(true, token, null);
         public static LeafRead FlagsValue(string token, FlagBits bits) => new(true, token, null, bits);
         public static LeafRead None(string note) => new(false, "", note);
+        /// <summary>A no-value CONTAINER/substruct summary carrying its element <paramref name="count"/>: null for a
+        /// substruct (present by being non-null — no element count), a number for a list/dict (0 = present-but-EMPTY).
+        /// The count is additive metadata for the presence predicate (<c>exists</c>/<c>missing</c>), which must tell
+        /// an EMPTY list from a carried one WITHOUT re-parsing the display note. The Token is empty and the oracle
+        /// never drives a no-value read, so this is invisible to read/write/diff, exactly like <see cref="Flags"/>.</summary>
+        public static LeafRead Container(string note, int? count) => new(false, "", note, null, count);
         public override string ToString() => HasValue ? Token : Note ?? "(none)";
     }
 
@@ -635,10 +641,13 @@ public static class ReadEngine
 
         // Not a single-token VALUE leaf: a substruct / collection / arm container. The oracle never
         // drives these AS leaves — their sub-leaves are driven individually (exactly like write-proof).
-        // Summarise for the read display, with the same dict-vs-list marker the depth walk renders.
-        return LeafRead.None(SummariseContainer(val,
-            WriteEngine.ClosedInterface(val.GetType(), typeof(IDictionary<,>)) is not null
-            || WriteEngine.ClosedInterface(val.GetType(), typeof(IReadOnlyDictionary<,>)) is not null));
+        // Summarise for the read display, with the same dict-vs-list marker the depth walk renders, and carry the
+        // element count STRUCTURALLY (Container) so the presence predicate tells an empty list from a carried one
+        // without re-parsing the display note.
+        bool isDict = WriteEngine.ClosedInterface(val.GetType(), typeof(IDictionary<,>)) is not null
+                   || WriteEngine.ClosedInterface(val.GetType(), typeof(IReadOnlyDictionary<,>)) is not null;
+        var summary = SummariseContainer(val, isDict, out var count);
+        return LeafRead.Container(summary, count);
     }
 
     /// <summary>The unsigned bit pattern of a boxed enum value, robust across every underlying integer type
@@ -900,12 +909,20 @@ public static class ReadEngine
     /// <c>FieldsDiff</c> splits numeric-keyed dicts (Package.Data) out of positional-list comparison on the
     /// exact <c>" pair(s)]"</c> substring (PR #28 review) — so it is kept verbatim. A substruct keeps its
     /// <c>[TypeName]</c> (e.g. <c>[BodyTemplate]</c>): there the type name IS informative.</summary>
-    static string SummariseContainer(object val, bool isDict = false)
+    static string SummariseContainer(object val, bool isDict = false) => SummariseContainer(val, isDict, out _);
+
+    /// <summary>Overload that also yields the element <paramref name="count"/>: a number for a list/dict (0 = empty),
+    /// null for a substruct (no element count — present by being non-null). The presence predicate reads this to
+    /// tell a carried list from an empty one; every display caller keeps the count-free overload above. One
+    /// enumeration, one format source (the <c>item(s)</c>/<c>pair(s)</c> marker stays load-bearing for FieldsDiff).</summary>
+    static string SummariseContainer(object val, bool isDict, out int? count)
     {
+        count = null;
         if (val is System.Collections.IEnumerable en and not string)
         {
             int n = 0;
             foreach (var _ in en) n++;
+            count = n;
             return $"[{(isDict ? "dict" : "list")}: {n} {(isDict ? "pair(s)" : "item(s)")}]";
         }
         return $"[{RecordNaming.StripGetterInterface(val.GetType().Name)}]";
