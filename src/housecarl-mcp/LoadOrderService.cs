@@ -721,7 +721,12 @@ public sealed class LoadOrderService : IDisposable
     /// LoadBlocker does not stop the descent when a deeper identity has a loadable candidate (review finding: a
     /// bundler shipping one dead helper DLL must not mask the real framework beneath it into a false PAIRED-BUT-DEAD);
     /// if no identity has a loadable candidate, the shallowest with ANY candidate pairs (its deadness is then the
-    /// finding). Structural (file co-location + VFS chains), never semantic — which DLL implements which class is
+    /// finding). Known residual (PR #210 review #2): "loadable" here means no STATIC blocker — version-locked-vs-
+    /// runtime deadness is adjudicated later by the renderer (deadness has one owner, and the ladder deliberately has
+    /// no runtime), so a chain-top mod shipping a locked-MISMATCHED DLL still pairs over a loadable framework beneath
+    /// it and renders a false PAIRED-BUT-DEAD. Contrived (two chain members implementing the same class, the top one
+    /// version-mismatched) and fails toward a false alarm, never a missed problem — accepted, not solved.
+    /// Structural (file co-location + VFS chains), never semantic — which DLL implements which class is
     /// tier-E territory. internal for the guard.</summary>
     internal static (NativePairingRung Rung, string? PairedMod, IReadOnlyList<NativePairedDll> Dlls) Ladder(
         IReadOnlyList<string> identities, IReadOnlyDictionary<string, List<NativePairedDll>> modDlls)
@@ -1627,6 +1632,7 @@ public sealed class LoadOrderService : IDisposable
                         || !PathEq(p.OverwriteDir, _overwriteDir);
         if (!switched) return false;                             // ini touched but nothing we resolve from changed
         _profileDir = p.ProfileDir; _modsDir = p.ModsDir; _dataDir = p.DataDir; _profileName = p.ProfileName; _overwriteDir = p.OverwriteDir;
+        System.Threading.Interlocked.Increment(ref _gameRootsGen);   // the game roots moved → the runtime memo re-probes (PR #210 review #1)
         InvalidateClassParents();                                // the mods tree may have moved — drop the cached hierarchy with it
         ReResolve();                                             // a new profile ⇒ the order differs ⇒ ReResolve deep-re-indexes
         return true;
@@ -1731,8 +1737,15 @@ public sealed class LoadOrderService : IDisposable
     /// (which usually has none). Keying sources off the data dir would re-break exactly the Stock-Game case this fixes.</para></summary>
     // InstalledGameRuntime's memo: the resolved exe re-validated by a cheap mtime stat per call; a probed MISS is
     // session-stable (no re-paying the GameLocator registry/Steam walk per tool call for a permanently-null answer).
+    // _gameRootsGen is the memo's INVALIDATION signal (PR #210 review finding #1): every site that re-points the game
+    // roots (SetInstance, RederiveIfIniChanged's switch) bumps it, and a memo cached at an older generation re-probes —
+    // otherwise an instance switch could keep adjudicating version-LOCKED plugins against the PREVIOUS install's exe
+    // (a silently wrong PASS/FAIL), or stay stuck at a prior instance's null forever. A lock-free Interlocked counter,
+    // NOT a locked reset: the bump sites hold _gate, and taking _runtimeGate under _gate would invert the
+    // _runtimeGate → _gate order InstalledGameRuntime establishes (deadlock), so the roots side never takes _runtimeGate.
     readonly object _runtimeGate = new();
-    bool _runtimeProbed;
+    int _gameRootsGen;
+    int _runtimeGen = -1;   // generation the memo was cached at; -1 = never probed
     string? _runtimeExe, _runtimeVersion;
     DateTime _runtimeExeMtime;
 
@@ -1750,9 +1763,10 @@ public sealed class LoadOrderService : IDisposable
     {
         lock (_runtimeGate)
         {
-            if (_runtimeProbed)
+            int gen = System.Threading.Volatile.Read(ref _gameRootsGen);
+            if (_runtimeGen == gen)                     // cached at the CURRENT roots generation (else: re-probe — the instance moved)
             {
-                if (_runtimeExe is null) return null;   // session-stable miss
+                if (_runtimeExe is null) return null;   // generation-stable miss
                 try
                 {
                     if (File.Exists(_runtimeExe) && File.GetLastWriteTimeUtc(_runtimeExe) == _runtimeExeMtime)
@@ -1760,7 +1774,7 @@ public sealed class LoadOrderService : IDisposable
                 }
                 catch { return _runtimeVersion; }       // stat hiccup → the cached answer beats a re-probe mid-hiccup
             }
-            _runtimeProbed = true; _runtimeExe = null; _runtimeVersion = null;
+            _runtimeGen = gen; _runtimeExe = null; _runtimeVersion = null;
             foreach (var dir in CompilerGameDirHints())
             {
                 try
@@ -1833,6 +1847,7 @@ public sealed class LoadOrderService : IDisposable
             _profileMtimes = new DateTime[ProfileFileNames.Length];   // unset — the next build records fresh baselines against the new profile
             _orderWarnings = Array.Empty<string>();
             InvalidateClassParents();                            // every sibling cache drops on a switch — the hierarchy too (PR #47 review)
+            System.Threading.Interlocked.Increment(ref _gameRootsGen);   // new instance = possibly a different game install — the runtime memo must re-probe, never adjudicate B's locked plugins against A's exe (PR #210 review #1)
         }
         var (persisted, persistError, persistNote) = PersistInstanceDir(paths.InstanceDir);
         return (paths, persisted, persistError, persistNote);
