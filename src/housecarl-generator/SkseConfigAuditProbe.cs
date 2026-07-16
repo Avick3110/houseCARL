@@ -26,6 +26,9 @@ namespace HousecarlGenerator;
 ///   * Unparseable overflow hex — CAPTURED loud (Q3), never silently dropped.
 ///   * Comment-embedded token — still surfaced (§4d: "references this file declares", not "the DLL will use").
 ///
+/// Also drives the SERVICE adjudicator (Part 2 — verdicts vs a synthetic order) and the WIRE renderer (Part 3 — the
+/// broken/inert summary framing + the filter= did-you-mean pool, the tier-B PR #206 review residuals).
+///
 /// Run: dotnet run --project src/housecarl-generator -- skse-config-audit-guard
 /// </summary>
 public static class SkseConfigAuditProbe
@@ -151,6 +154,10 @@ public static class SkseConfigAuditProbe
         VerdictArms(Check);
 
         Console.WriteLine();
+        Console.WriteLine("-- render framing (② broken/inert summary · ③ filter did-you-mean pool) --");
+        RenderArms(Check);
+
+        Console.WriteLine();
         Console.WriteLine($"=== skse-config-audit-guard: {(fails == 0 ? "PASS" : "FAIL")} ({fails} failing) ===");
         return fails == 0 ? 0 : 1;
     }
@@ -206,6 +213,69 @@ public static class SkseConfigAuditProbe
         }
         finally { try { Directory.Delete(dir, recursive: true); } catch { } }
     }
+
+    /// <summary>RENDER-LAYER guard for the framing residuals landed with this PR (tier-B PR #206 review, dev/BACKLOG.md):
+    /// ② the summary separates BROKEN (DANGLING/UNPARSEABLE — a reference that should resolve and doesn't) from INERT
+    /// (PLUGIN MISSING — the plugin isn't installed) instead of calling every non-OK ref "DEAD"; ③ the filter= "did you
+    /// mean" pool includes REFERENCED-plugin (and winning-provider) names, not just folders/filenames. Renders synthetic
+    /// <see cref="SkseConfigAuditData"/> through the REAL wire (<see cref="SkseConfigAuditWire.Render"/>) — the layer
+    /// ci-all didn't exercise before (Render ran only in the live harness, never in the guard).</summary>
+    static void RenderArms(Action<string, bool> check)
+    {
+        // ② a healthy order that still carries inert refs → ✓ (no broken), reframed as optional support, and NEVER "DEAD".
+        {
+            var txt = SkseConfigAuditWire.Render(MkData(
+                MkFile(@"SKSE\Plugins\Foo\ok.ini", "Foo", "ModA", MkRef("Skyrim.esm", SkseRefVerdict.Ok)),
+                MkFile(@"SKSE\Plugins\Bar\opt.ini", "Bar", "ModB", MkRef("NotInstalled.esp", SkseRefVerdict.PluginMissing))), null, 80_000);
+            check("② healthy+inert: no 'DEAD', shows ✓ no-broken + inert/optional-support framing",
+                !txt.Contains("DEAD") && txt.Contains("no broken references") && txt.Contains("inert") && txt.Contains("optional support"));
+        }
+        // ② a real broken ref (DANGLING) → 'BROKEN reference(s)' headline with the dangling count, still no "DEAD".
+        {
+            var txt = SkseConfigAuditWire.Render(MkData(
+                MkFile(@"SKSE\Plugins\Foo\x.ini", "Foo", "ModA", MkRef("Skyrim.esm", SkseRefVerdict.Dangling))), null, 80_000);
+            check("② broken: 'BROKEN reference(s)' headline + '1 dangling', no 'DEAD'",
+                txt.Contains("BROKEN reference(s)") && txt.Contains("1 dangling") && !txt.Contains("DEAD"));
+        }
+        // ② broken AND inert together → the BROKEN headline notes the inert remainder separately.
+        {
+            var txt = SkseConfigAuditWire.Render(MkData(
+                MkFile(@"SKSE\Plugins\Foo\x.ini", "Foo", "ModA", MkRef("Skyrim.esm", SkseRefVerdict.Dangling)),
+                MkFile(@"SKSE\Plugins\Bar\y.ini", "Bar", "ModB", MkRef("Absent.esp", SkseRefVerdict.PluginMissing))), null, 80_000);
+            check("② broken+inert: BROKEN headline + 'more inert' note",
+                txt.Contains("BROKEN reference(s)") && txt.Contains("more inert"));
+        }
+        // ② reconciliation (Q3): a MIXED file (OK + DANGLING) → the OK ref is still counted in 'accounted for' (notOk math intact).
+        {
+            var txt = SkseConfigAuditWire.Render(MkData(
+                MkFile(@"SKSE\Plugins\Foo\mix.ini", "Foo", "ModA",
+                    MkRef("Skyrim.esm", SkseRefVerdict.Ok), MkRef("Skyrim.esm", SkseRefVerdict.Dangling))), null, 80_000);
+            check("② reconciliation: mixed file's OK ref counted in 'accounted for' (okInMixed via notOk)",
+                txt.Contains("1 more OK ref(s) in files that also carry a non-OK reference"));
+        }
+        // ③ did-you-mean: a typo of a REFERENCED plugin (matches nothing) → the suggestion now includes the ref plugin
+        //    (before this PR the pool was folders+filenames only, so a mistyped plugin filter got no plugin suggestion).
+        {
+            var txt = SkseConfigAuditWire.Render(MkData(
+                MkFile(@"SKSE\Plugins\Foo\x.ini", "Foo", "ModA", MkRef("ZzTestRefPlugin.esp", SkseRefVerdict.Ok))),
+                "ZzTestRefPlugni", 80_000);   // transposed stem: no substring match → falls to the DidYouMean path
+            check("③ filter typo of a referenced plugin → 'Did you mean' offers ZzTestRefPlugin.esp",
+                txt.Contains("nothing under SKSE\\Plugins matched") && txt.Contains("ZzTestRefPlugin.esp"));
+        }
+    }
+
+    // Synthetic SkseConfigAuditData builders for RenderArms — the render is pure over the data record, so no load order
+    // or disk is needed (unlike VerdictArms, which must resolve real FormKeys). A form-token ref with a fixed 0x1 id is
+    // enough: the render keys on Verdict + Shape, never the id value.
+    static SkseAuditedRef MkRef(string plugin, SkseRefVerdict v)
+        => new(new SkseConfigRef($"0x1|{plugin}", SkseRefShape.FormToken, plugin, 0x1, "0x1", 1, null), v, null);
+
+    static SkseConfigFileAudit MkFile(string rel, string group, string? provider, params SkseAuditedRef[] refs)
+        => new(rel, Path.GetFileName(rel), group, provider, provider is null ? 0 : 1,
+               Array.Empty<SkseProvider>(), refs, null);
+
+    static SkseConfigAuditData MkData(params SkseConfigFileAudit[] files)
+        => new(files, files.Length, Array.Empty<string>(), false, Array.Empty<string>(), "TestProfile");
 
     /// <summary>MANUAL real-data harness (the tier-B LIVE GATE): run the WHOLE audit against a live MO2 instance and print
     /// exactly what housecarl_skse_config_audit would return, plus a timing line — the empirical re-check Aaron drives (the
