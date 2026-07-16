@@ -4,6 +4,24 @@ All notable changes to houseCARL are documented here. Versioning is [semantic](h
 the `version` in `.claude-plugin/plugin.json` is bumped on each release, so installed users update only
 when it changes.
 
+## 1.8.1 — 2026-07-16
+
+A small read/query-surface patch: two refinements that let a whole-plugin audit and a record read land the
+answer in one call instead of a workaround. No new tools or skills (still 43 tools / 13 skills).
+
+- **`cross_plugin_query where=` gains `exists` / `missing` — presence filtering on whole fields.** The value
+  operators (`=`, `>=`, `contains`, the bitwise `has`, …) test a *scalar* leaf, so "which records actually
+  CARRY a script adapter / an effects list / conditions" meant a sweep-then-filter, one call per record
+  type. `where=["VirtualMachineAdapter exists"]` now returns exactly the records that carry that field, and
+  `missing` is its complement. "Present" means present **and non-empty** — a non-null substruct or a list
+  with at least one element — so an empty list reads as absent, not carried. A mistyped field still fails
+  loud, never a silent "0 matches". (#197)
+- **A struct's lone FormLink now renders as its identity at `depth=2`.** Reading an NPC's `Perks` at depth 2
+  showed each entry as a bare `[PerkPlacement]` with no perk FormID, so the links read as "not surfaced".
+  Any struct that has no name-like identity but exactly one FormLink now surfaces it —
+  `Perks[0] = [PerkPlacement] Perk=03AF81:Skyrim.esm` — matching what script properties already do with
+  `Name=`. Two or more links stay opaque (ambiguous — not guessed). (#198)
+
 ## 1.8.0 — 2026-07-15
 
 houseCARL gains two capability layers at once: a **keyless Nexus update-checking** stack — know which of
