@@ -38,6 +38,10 @@ public static class CiAll
         ("pkcu-regression", PkcuProbe.RunRegression),
         ("depth-leak-guard", DepthLeakProbe.RunGuard),
         ("vmad-property-read-guard", VmadPropertyReadProbe.RunGuard),
+        // depth-2 element identity (#198): a struct with no Name/EditorID/Title but EXACTLY ONE FormLink surfaces
+        // that link as its identity ([PerkPlacement] Perk=…) instead of a bare opaque [PerkPlacement]; name-identity
+        // still wins over the lone link (fallback fires only when no name-like identity exists). Self-contained.
+        ("element-identity-guard", ElementIdentityProbe.RunGuard),
         ("floi-read-guard", FloiReadProbe.RunGuard),
         ("floi-fields-guard", FloiFieldsProbe.RunGuard),
         ("forward-from-plugin-guard", ForwardFromPluginProbe.RunGuard),

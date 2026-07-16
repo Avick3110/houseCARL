@@ -533,7 +533,33 @@ public static class ReadEngine
             var s = iv switch { null => null, string str => str, IFormLinkGetter fl => fl.FormKey.ToString(), _ => iv.ToString() };
             if (!string.IsNullOrEmpty(s)) return $"[{typeName}] {idName}={s}";
         }
+        // No Name/EditorID/Title identity. If the struct carries EXACTLY ONE FormLink field, that link IS its
+        // identity (PerkPlacement.Perk, and any other single-link struct) — surface it so a depth=2 element line
+        // reveals which record it points at, the way a Name= identity does, instead of a bare [Type] that reads as
+        // "the FormID isn't surfaced" one level longer than the depth contract implies (#198). Exactly one link
+        // only — 2+ are ambiguous and we don't guess which is the identity (Q3).
+        if (LoneFormLinkIdentity(val, t) is { } linkId) return $"[{typeName}] {linkId}";
         return $"[{typeName}]";
+    }
+
+    /// <summary>The <c>Field=FormKey</c> identity of a struct element that has EXACTLY ONE FormLink property and no
+    /// Name/EditorID/Title identity — e.g. PerkPlacement → <c>Perk=03AF81:Skyrim.esm</c>. Null when the struct has no
+    /// FormLink or MORE THAN ONE (ambiguous — don't guess which is the identity, #198). A present-but-null link still
+    /// counts: it names the field and shows the null FormKey, the exact signal a reader chasing a dangling ref wants.
+    /// Display-only, best-effort — any reflection fault yields null (falls back to the bare <c>[Type]</c>).</summary>
+    static string? LoneFormLinkIdentity(object val, Type t)
+    {
+        PropertyInfo? only = null;
+        foreach (var p in t.GetProperties(BindingFlags.Public | BindingFlags.Instance))
+        {
+            if (p.GetIndexParameters().Length != 0) continue;
+            if (!typeof(IFormLinkGetter).IsAssignableFrom(p.PropertyType)) continue;
+            if (only is not null) return null;   // 2+ FormLink fields — ambiguous, don't guess
+            only = p;
+        }
+        if (only is null) return null;
+        try { return only.GetValue(val) is IFormLinkGetter fl ? $"{only.Name}={fl.FormKey}" : null; }
+        catch { return null; }
     }
 
     /// <summary>Public-instance modeled field names off a runtime type (Loqui infra filtered) — the reflection
