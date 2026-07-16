@@ -89,40 +89,64 @@ public static class NativePairingProbe
                 !LoadOrderService.IsOfficialArchive(new ActiveArchive(@"D:\m\Campfire.bsa", "Campfire.esm", 40), baseMasters));
 
             var official = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Skyrim - Misc.bsa" };
-            // THE fixture: SKSE's loose Actor.pex WINS over the vanilla archive copy — still ENGINE.
+            static PlacementSource Loose(string mod) => new(mod, AssetKind.Loose, @"D:\x", null, "");
+            static PlacementSource Bsa(string archive) => new(archive, AssetKind.Bsa, null, @"D:\x.bsa", "");
+            // THE fixture: SKSE's loose Actor.pex WINS over the vanilla archive copy — still ENGINE. Keys on the
+            // AssetKind ENUM, never the render label (review finding).
             Check("loose override winning over an official BSA copy → still ENGINE (chain presence)",
-                LoadOrderService.HasOfficialProvider(new[]
-                {
-                    new SkseProvider("Skyrim Script Extender (SKSE64)", "loose"),
-                    new SkseProvider("Skyrim - Misc.bsa", "BSA"),
-                }, official));
+                LoadOrderService.HasOfficialSource(new[] { Loose("Skyrim Script Extender (SKSE64)"), Bsa("Skyrim - Misc.bsa") }, official));
             Check("loose-only chain (StringUtil.pex) → NOT engine",
-                !LoadOrderService.HasOfficialProvider(new[] { new SkseProvider("Skyrim Script Extender (SKSE64)", "loose") }, official));
+                !LoadOrderService.HasOfficialSource(new[] { Loose("Skyrim Script Extender (SKSE64)") }, official));
             Check("a mod BSA in the chain is not mistaken for official",
-                !LoadOrderService.HasOfficialProvider(new[] { new SkseProvider("Campfire.bsa", "BSA") }, official));
+                !LoadOrderService.HasOfficialSource(new[] { Bsa("Campfire.bsa") }, official));
+
+            var shipper = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { ["AHZmoreHUD.bsa"] = "moreHUD SE" };
+            Check("BSA source translates to its shipping mod (pairing identity)",
+                LoadOrderService.PairingIdentity(Bsa("AHZmoreHUD.bsa"), shipper) == "moreHUD SE");
+            Check("loose source's identity is its provider name",
+                LoadOrderService.PairingIdentity(Loose("PapyrusUtil AE"), shipper) == "PapyrusUtil AE");
+            Check("an untranslatable archive keeps its own name",
+                LoadOrderService.PairingIdentity(Bsa("Unknown.bsa"), shipper) == "Unknown.bsa");
         }
         {
-            var dll = new NativePairedDll(@"SKSE\Plugins\PapyrusUtil.dll", "PapyrusUtil.dll", "", "PapyrusUtil AE", null, null);
+            var okDll = new NativePairedDll(@"SKSE\Plugins\PapyrusUtil.dll", "PapyrusUtil.dll", "", "PapyrusUtil AE", null, null);
+            var deadDll = new NativePairedDll(@"SKSE\Plugins\Helper\junk.dll", "junk.dll", "Helper", "Bundler",
+                null, "in subfolder 'Helper' — not on SKSE's loader path");
             var modDlls = new Dictionary<string, List<NativePairedDll>>(StringComparer.OrdinalIgnoreCase)
-            { ["PapyrusUtil AE"] = new() { dll } };
+            { ["PapyrusUtil AE"] = new() { okDll }, ["Bundler"] = new() { deadDll } };
 
-            var (r1, m1, d1) = LoadOrderService.Ladder(new[] { new SkseProvider("PapyrusUtil AE", "loose") }, modDlls);
-            Check("rung 1: winning provider ships the DLL → SameMod",
+            var (r1, m1, d1) = LoadOrderService.Ladder(new[] { "PapyrusUtil AE" }, modDlls);
+            Check("rung 1: winning identity ships the DLL → SameMod",
                 r1 == NativePairingRung.SameMod && m1 == "PapyrusUtil AE" && d1.Count == 1);
 
-            // The Campfire fixture: a bundler wins nothing here — PapyrusUtil wins, but flip it: Campfire wins the
-            // script, PapyrusUtil (with the DLL) sits beneath in the chain → ChainMod.
-            var (r2, m2, _) = LoadOrderService.Ladder(new[]
-            {
-                new SkseProvider("Campfire", "loose"),
-                new SkseProvider("PapyrusUtil AE", "loose"),
-            }, modDlls);
+            var (r2, m2, _) = LoadOrderService.Ladder(new[] { "Campfire", "PapyrusUtil AE" }, modDlls);
             Check("rung 2: framework beneath the winner in the chain → ChainMod (the bundling case)",
                 r2 == NativePairingRung.ChainMod && m2 == "PapyrusUtil AE");
 
-            var (r3, m3, d3) = LoadOrderService.Ladder(new[] { new SkseProvider("Some Scripts-Only Mod", "loose") }, modDlls);
+            var (r3, m3, d3) = LoadOrderService.Ladder(new[] { "Some Scripts-Only Mod" }, modDlls);
             Check("rung 3: nobody in the chain ships a DLL → Unpaired",
                 r3 == NativePairingRung.Unpaired && m3 is null && d3.Count == 0);
+
+            // Review finding: a bundler whose only candidate is statically DEAD must not mask the loadable framework
+            // beneath it (the false PAIRED-BUT-DEAD class); with no loadable candidate anywhere, the shallowest pairs.
+            var (r4, m4, _) = LoadOrderService.Ladder(new[] { "Bundler", "PapyrusUtil AE" }, modDlls);
+            Check("dead-candidate bundler does NOT mask the loadable framework beneath → ChainMod to the framework",
+                r4 == NativePairingRung.ChainMod && m4 == "PapyrusUtil AE");
+            var (r5, m5, _) = LoadOrderService.Ladder(new[] { "Bundler", "Scriptless" }, modDlls);
+            Check("no loadable candidate anywhere → the shallowest with ANY candidate pairs (its deadness is the finding)",
+                r5 == NativePairingRung.SameMod && m5 == "Bundler");
+
+            // The Classify decision order: engine wins outright; pairing beats the SKSE-CORE rescue; the rescue takes
+            // an UNPAIRED class whose WINNING identity ships an engine-class copy; a non-pool winner stays third-party.
+            var pool = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Skyrim Script Extender (SKSE64)" };
+            Check("Classify: engine short-circuits everything",
+                LoadOrderService.Classify(true, new[] { "PapyrusUtil AE" }, modDlls, pool).Provenance == NativeProvenance.Engine);
+            Check("Classify: pairing evidence beats the rescue",
+                LoadOrderService.Classify(false, new[] { "PapyrusUtil AE" }, modDlls, pool) is { Provenance: NativeProvenance.ThirdParty, Rung: NativePairingRung.SameMod });
+            Check("Classify: unpaired + winner in the engine-provider pool → SKSE CORE (the StringUtil rescue)",
+                LoadOrderService.Classify(false, new[] { "Skyrim Script Extender (SKSE64)" }, modDlls, pool).Provenance == NativeProvenance.SkseCore);
+            Check("Classify: unpaired + winner NOT in the pool → stays UNPAIRED third-party",
+                LoadOrderService.Classify(false, new[] { "Scripts Only Mod" }, modDlls, pool) is { Provenance: NativeProvenance.ThirdParty, Rung: NativePairingRung.Unpaired });
         }
         {
             // BSA→shipper translation (live-gate finding: moreHUD's scripts ride its BSA while the DLL is loose in
@@ -150,6 +174,8 @@ public static class NativePairingProbe
                 SksePluginReader.RuntimeCompatible(locked, "1.6.640.0"));
             Check("version-independent plugin → compatible anywhere",
                 SksePluginReader.RuntimeCompatible(Ver(independent: true, compat: Array.Empty<string>()), "9.9.9"));
+            Check("AE runtime boundary: 1.6.1170 IS AE, 1.5.97 is NOT, garbage is NOT (unknown never claims)",
+                SksePluginReader.IsAeRuntime("1.6.1170.0") && !SksePluginReader.IsAeRuntime("1.5.97.0") && !SksePluginReader.IsAeRuntime("bogus"));
         }
 
         // ════ Part 3 — the wire renderer over synthetic data ════
@@ -163,10 +189,10 @@ public static class NativePairingProbe
 
         NativeClassEntry Cls(string name, NativeProvenance prov, NativePairingRung? rung, string? pairedMod,
             IReadOnlyList<NativePairedDll>? dlls = null, string? winner = "SomeMod") =>
-            new($@"Scripts\{name}.pex", name, 2, new[] { "FnA", "FnB" }, winner, "loose", 1,
+            new($@"Scripts\{name}.pex", name, new[] { "FnA", "FnB" },
                 new[] { new SkseProvider(winner ?? "(none)", "loose") }, prov, rung, pairedMod, dlls ?? Array.Empty<NativePairedDll>());
 
-        NativePairingAuditData Data(IReadOnlyList<NativeClassEntry> classes, string? runtime, bool loaderSeen = true,
+        NativePairingAuditData Data(IReadOnlyList<NativeClassEntry> classes, string? runtime, bool? loaderSeen = true,
             IReadOnlyList<NativeUnreadablePex>? unreadable = null) =>
             new(classes, 1000, unreadable ?? Array.Empty<NativeUnreadablePex>(), loaderSeen, runtime,
                 Array.Empty<string>(), false, Array.Empty<string>(), "TestProfile");
@@ -211,6 +237,22 @@ public static class NativePairingProbe
                 s.Contains("no skse64 loader is visible"));
         }
         {
+            // Arm C2 (review finding): a LegacyQuery pairing on an AE runtime is DEAD (the AE loader loads only
+            // version-data plugins); on an SE runtime it loads; with the runtime unknown it is a VERIFY, never a claim.
+            var legacyInfo = new SksePluginReader.SksePluginInfo("OldSe.dll", SksePluginReader.SksePluginKind.LegacyQuery, true, null, "legacy");
+            var legacyDll = new NativePairedDll(@"SKSE\Plugins\OldSe.dll", "OldSe.dll", "", "OldSeMod", legacyInfo, null);
+            var cls = Cls("OldSeUtil", NativeProvenance.ThirdParty, NativePairingRung.SameMod, "OldSeMod", new[] { legacyDll });
+            var ae = Render(Data(new[] { cls }, "1.6.1170.0"));
+            Check("C2: LegacyQuery + AE runtime → PAIRED BUT DEAD (query-only plugins don't load on AE)",
+                ae.Contains("PAIRED BUT DEAD") && ae.Contains("query-only"));
+            var se = Render(Data(new[] { cls }, "1.5.97.0"));
+            Check("C2: LegacyQuery + SE runtime → healthy (loads on SE)",
+                se.Contains("✓") && se.Contains("OldSeMod: OldSeUtil"));
+            var unk = Render(Data(new[] { cls }, runtime: null));
+            Check("C2: LegacyQuery + unknown runtime → verify, never a dead claim",
+                !unk.Contains("PAIRED BUT DEAD") && unk.Contains("verify"));
+        }
+        {
             // Arm E: the all-clear branch + unreadable pex is a named note.
             var okDll = new NativePairedDll(@"SKSE\Plugins\PapyrusUtil.dll", "PapyrusUtil.dll", "", "PapyrusUtil AE", indepInfo, null);
             var s = Render(Data(new[] { Cls("StorageUtil", NativeProvenance.ThirdParty, NativePairingRung.SameMod, "PapyrusUtil AE", new[] { okDll }) }, "1.6.1170.0",
@@ -219,6 +261,19 @@ public static class NativePairingProbe
                 s.Contains("✓ every third-party native class pairs"));
             Check("E: unreadable .pex is a NAMED note, not counted clean",
                 s.Contains("Broken.pex") && s.Contains("NOT counted as native-free"));
+            Check("E: the all-clear headline is QUALIFIED by the unexamined unreadables (review finding)",
+                s.Contains("1 unreadable .pex NOT examined"));
+        }
+        {
+            // Arm G (review finding): the loader note is tri-state — false = the definite checked-and-absent note,
+            // null = "could not check", never the definite claim off a failed check (Q3).
+            var core = Cls("StringUtil", NativeProvenance.SkseCore, null, null, winner: "Skyrim Script Extender (SKSE64)");
+            var absent = Render(Data(new[] { core }, "1.6.1170.0", loaderSeen: false));
+            Check("G: loaderSeen=false → the definite no-loader note",
+                absent.Contains("no skse64 loader is visible"));
+            var unchecked_ = Render(Data(new[] { core }, "1.6.1170.0", loaderSeen: null));
+            Check("G: loaderSeen=null → 'could not be checked', never the definite absence claim",
+                !unchecked_.Contains("no skse64 loader is visible") && unchecked_.Contains("could not be checked"));
         }
         {
             // Arm F: filter= full detail + the did-you-mean pool spans class/mod/DLL axes.

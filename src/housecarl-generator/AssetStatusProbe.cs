@@ -85,7 +85,7 @@ internal static class AssetStatusProbe
 
                 var res = ArchiveDiscovery.Discover(prof, mods, data, "", Path.Combine(a, "game"));
                 var arc = res.Archives;
-                var baseA = arc.Where(x => x.OwningPlugin == "Skyrim.ini [Archive]").ToList();
+                var baseA = arc.Where(x => x.OwningPlugin == ArchiveDiscovery.IniArchiveOwner).ToList();
                 var aArc = arc.Where(x => x.OwningPlugin == "PluginA.esp").ToList();
                 var bArc = arc.Where(x => x.OwningPlugin == "PluginB.esp").ToList();
 
@@ -141,7 +141,7 @@ internal static class AssetStatusProbe
                 var res = ArchiveDiscovery.Discover(prof, mods, data, "", Path.Combine(c, "game"));
                 Check(res.Warnings.Any(w => w.Contains("Skyrim.ini", StringComparison.OrdinalIgnoreCase) && w.Contains("base", StringComparison.OrdinalIgnoreCase)),
                       "a missing Skyrim.ini base list is a LOUD warning (Q3 — 'absent' isn't over-trusted)");
-                Check(res.Archives.All(x => x.OwningPlugin != "Skyrim.ini [Archive]") && res.Archives.Any(x => x.OwningPlugin == "PluginA.esp"),
+                Check(res.Archives.All(x => x.OwningPlugin != ArchiveDiscovery.IniArchiveOwner) && res.Archives.Any(x => x.OwningPlugin == "PluginA.esp"),
                       "no base archive is invented, but plugin co-name discovery still works");
             }
 

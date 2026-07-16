@@ -252,6 +252,32 @@ public sealed class AssetResolver : IDisposable
         finally { (reader as IDisposable)?.Dispose(); }           // INERT in 0.53.1 — belt-and-braces, see ReadArchiveTable
     }
 
+    /// <summary>Read MANY entries' bytes out of ONE archive in a single table walk — the batch sibling of
+    /// <see cref="TryReadArchiveEntry"/> (native-pairing review finding: reading K entries via the single-entry call
+    /// costs K archive opens × a full linear table scan each — O(K·M) against Skyrim - Misc.bsa's ~10k scripts, the
+    /// dominant wall-clock of a whole-order .pex sweep). One reader, one pass over <c>Files</c>, wanted paths matched
+    /// via a normalized set. Returns entryPath → bytes for the entries FOUND (keyed by the caller's own strings);
+    /// a wanted entry absent from the archive is simply absent from the result (the caller Q3-names it). Same
+    /// zero-handle-at-rest contract; an unopenable archive still THROWS (loud), never a silent empty map.</summary>
+    public static Dictionary<string, byte[]> TryReadArchiveEntries(string archivePath, IReadOnlyCollection<string> entryPaths)
+    {
+        var wanted = new Dictionary<string, string>(entryPaths.Count, StringComparer.OrdinalIgnoreCase);
+        foreach (var p in entryPaths) wanted[Normalize(p)] = p;                 // normalized key → the caller's original string
+        var result = new Dictionary<string, byte[]>(entryPaths.Count, StringComparer.OrdinalIgnoreCase);
+        var reader = Archive.CreateReader(GameRelease.SkyrimSE, archivePath);
+        try
+        {
+            foreach (var file in reader.Files)
+            {
+                if (result.Count == wanted.Count) break;                        // everything found — stop walking the table
+                if (wanted.TryGetValue(Normalize(file.Path), out var original) && !result.ContainsKey(original))
+                    result[original] = file.GetBytes();
+            }
+            return result;
+        }
+        finally { (reader as IDisposable)?.Dispose(); }
+    }
+
     /// <summary>Read the bytes of ONE resolved provider — a loose file off disk, or a single BSA entry via
     /// <see cref="TryReadArchiveEntry"/>. THE shared home for the loose-vs-BSA winner read (review finding: this
     /// logic had grown three near-verbatim copies — AssetRenameService.ReadWinner and the NPC-copy asset carry now
