@@ -113,6 +113,10 @@ public static class CiAll
         // overflow/no-ref accounting) PLUS the service VERDICTS (OK/PLUGIN-MISSING/DANGLING/UNPARSEABLE + ESL FE-prefix
         // resolve) driven through LoadOrderService.Adjudicate over a synthetic full+light order. Self-contained.
         ("skse-config-audit-guard", SkseConfigAuditProbe.RunGuard),
+        // Native-function pairing audit guard: the pure pex native-class extractor (raw-bit1 off-by-one pin), the
+        // provenance anchor (official archives / chain presence), the §4c ladder, the runtime compare, and the wire
+        // renderer arms (dead-vs-verify adjudication, unpaired framing, baseline accounting, filter + did-you-mean).
+        ("native-pairing-guard", NativePairingProbe.RunGuard),
         ("compile-ergonomics-guard", CompileErgonomicsProbe.RunGuard),
         ("setup-update-lock-guard", SetupUpdateLockProbe.RunGuard),
         ("import-order-guard", ImportOrderProbe.RunGuard),

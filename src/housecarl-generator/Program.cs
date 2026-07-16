@@ -247,6 +247,11 @@ if (args.Length > 0 && args[0] == "skse-inventory-real") return SkseInventoryPro
 if (args.Length > 0 && args[0] == "skse-config-audit-guard") return SkseConfigAuditProbe.RunGuard(args[1..]);
 if (args.Length > 0 && args[0] == "skse-config-audit-real") return SkseConfigAuditProbe.RunReal(args[1..]);
 
+// Native-function pairing audit: the CI guard (pure extractor + classification + ladder + renderer arms) and the
+// manual real-data harness (the live gate: the whole audit against a live MO2 instance, render + timing).
+if (args.Length > 0 && args[0] == "native-pairing-guard") return NativePairingProbe.RunGuard(args[1..]);
+if (args.Length > 0 && args[0] == "native-pairing-real") return NativePairingProbe.RunReal(args[1..]);
+
 var outputDir = Path.GetFullPath(args.Length > 0 ? args[0] : "generated");
 // The slim reference tree ships INSIDE the skill (tracked); corpus.json + summary stay in generated/.
 // Default assumes the generator is run from the repo root (as `dotnet run --project src/housecarl-generator`).
