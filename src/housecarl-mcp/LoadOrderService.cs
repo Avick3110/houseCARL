@@ -340,15 +340,20 @@ public sealed class LoadOrderService : IDisposable
     public SkseConfigAuditData SkseConfigAudit()
     {
         AssetResolver.AssetView view;
+        LoadOrderResolver.IndexView index;
         IReadOnlyList<string> warnings;
         string profileName;
+        // Capture the asset view AND the record index under ONE gate hold, so a freshness rebuild can't interleave and pair
+        // a config read from asset-build-N against a record index from build-N+1 (both share _gate; the Resolver getter
+        // reenters it, doing its own per-call freshness inside our hold). Both are handle-free snapshots — the enumerate +
+        // read + resolve below then run OUTSIDE the gate without serializing other tools behind our file I/O.
         lock (_gate)
         {
             view = Assets.Capture();
+            index = Resolver.Capture();   // pure snapshot: ContainsPlugin / ResolveWinner read only this build
             warnings = _assetWarnings;
             profileName = _profileName;
         }
-        var index = Resolver.Capture();   // pure snapshot: ContainsPlugin / ResolveWinner read only this build
 
         const string pre = "SKSE\\Plugins\\";
         var files = new List<SkseConfigFileAudit>();
@@ -367,12 +372,12 @@ public sealed class LoadOrderService : IDisposable
             if (winner is null)
                 readError = "no active mod provides this config";   // shouldn't happen for an enumerated file — named, not assumed (Q3)
             else if (winner.Kind == AssetKind.Loose && winner.LooseFilePath is { } lp && File.Exists(lp) && new FileInfo(lp).Length > SkseConfigSizeCap)
-                readError = $"config is {new FileInfo(lp).Length / (1024 * 1024)} MB (> {SkseConfigSizeCap / (1024 * 1024)} MB cap) — not scanned";
+                readError = OverCapNote(new FileInfo(lp).Length);
             else
             {
                 var (bytes, err) = AssetResolver.ReadPlacementSource(winner);
                 if (err is not null) readError = err;
-                else if (bytes!.Length > SkseConfigSizeCap) readError = $"config is {bytes.Length / (1024 * 1024)} MB (> {SkseConfigSizeCap / (1024 * 1024)} MB cap) — not scanned";
+                else if (bytes!.Length > SkseConfigSizeCap) readError = OverCapNote(bytes.Length);
                 else text = DecodeConfigText(bytes);
             }
 
@@ -419,6 +424,11 @@ public sealed class LoadOrderService : IDisposable
         using var sr = new StreamReader(ms, System.Text.Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
         return sr.ReadToEnd();
     }
+
+    /// <summary>The over-size-cap skip note — the actual size to ONE decimal MB so a 16.4 MB file reads "16.4 MB (> 16 MB
+    /// cap)", never the self-contradictory "16 MB (> 16 MB cap)" an integer-MB divide produced.</summary>
+    static string OverCapNote(long len) =>
+        $"config is {len / (1024.0 * 1024):0.0} MB (> {SkseConfigSizeCap / (1024 * 1024)} MB cap) — not scanned";
 
     // ---- SkyPatcher distributor Wave 1: the per-record TRUE post-SkyPatcher state (plan
     //      dev/plans/SKYPATCHER_DISTRIBUTOR_TOOL_PLAN_2026-07-08.md — reader-only scope, 2026-07-09). ----
