@@ -53,7 +53,7 @@ public static class SkseTools
          "Cross-check the form references SKSE-plugin CONFIGS declare against the real records of the ACTIVE load order — so a " +
          "DEAD reference (a FormID pointing at a plugin that isn't installed, or at a record that doesn't exist in it) is caught " +
          "by houseCARL instead of by a silent in-game failure. Scans the full depth of Data\\SKSE\\Plugins for .ini/.toml/.json/" +
-         ".yaml configs, reads the WINNING copy of each (the copy the DLL actually reads), and extracts every form-shaped " +
+         ".yaml/.yml configs, reads the WINNING copy of each (the copy the DLL actually reads), and extracts every form-shaped " +
          "reference — a hex FormID paired with a plugin filename in EITHER order (0xFORM|Plugin.esp as DSD/CDF/po3 write it, " +
          "Plugin.esp|0xFORM as SkyPatcher writes it, the ~ tilde form) plus plugin-named folder gates (DynamicStringDistributor\\" +
          "Plugin.esp\\...) — then resolves each to a verdict: OK, PLUGIN MISSING (plugin not in the order), DANGLING (plugin " +
@@ -437,9 +437,12 @@ static class SkseConfigAuditWire
         // ── Accounted-for remainder — everything that ISN'T a diagnostic, so nothing is silently dropped (Q3). ──
         var healthyFiles = d.Files.Where(f => f.ReadError is null && f.Refs.Count > 0 && f.Refs.All(r => r.Verdict == SkseRefVerdict.Ok)).ToList();
         int healthyRefs = healthyFiles.Sum(f => f.Refs.Count);
+        int okInMixed = (refsChecked - dead) - healthyRefs;   // OK refs living in a file that ALSO has a dead ref — so every ref reconciles: refsChecked = dead + healthyRefs + okInMixed
         var noRefFiles = d.Files.Where(f => f.ReadError is null && f.Refs.Count == 0).ToList();
         sb.Append("\naccounted for: ").Append(healthyFiles.Count).Append(" file(s) with ").Append(healthyRefs)
-          .Append(" reference(s) all OK · ").Append(noRefFiles.Count).Append(" file(s) declare no form-shaped references\n");
+          .Append(" reference(s) all OK");
+        if (okInMixed > 0) sb.Append(" · ").Append(okInMixed).Append(" more OK ref(s) in files that also have dead references");
+        sb.Append(" · ").Append(noRefFiles.Count).Append(" file(s) declare no form-shaped references\n");
         if (noRefFiles.Count > 0)
         {
             var groups = noRefFiles.GroupBy(f => f.Group, StringComparer.OrdinalIgnoreCase)
