@@ -463,7 +463,7 @@ public sealed class LoadOrderService : IDisposable
         AssetResolver.AssetView view;
         IReadOnlyList<ActiveArchive> archives;
         IReadOnlyList<string> warnings;
-        string profileName, dataDir;
+        string profileName, dataDir, modsDir, overwriteDir, profileDir;
         lock (_gate)
         {
             view = Assets.Capture();
@@ -471,6 +471,9 @@ public sealed class LoadOrderService : IDisposable
             warnings = _assetWarnings;
             profileName = _profileName;
             dataDir = _dataDir;
+            modsDir = _modsDir;
+            overwriteDir = _overwriteDir;
+            profileDir = _profileDir;
         }
 
         // ---- the official-archive set: the ENGINE anchor. Filenames, because a BSA provider's name IS the archive filename. ----
@@ -479,6 +482,15 @@ public sealed class LoadOrderService : IDisposable
         foreach (var a in archives)
             if (IsOfficialArchive(a, baseMasters))
                 officialArchives.Add(Path.GetFileName(a.Path));
+
+        // A BSA provider's NAME is the archive filename — pairing identity needs the MOD that ships the archive
+        // (live-gate finding: moreHUD's scripts ride AHZmoreHUD.bsa while its DLL is loose in the SAME mod folder;
+        // untranslated, the ladder saw two unrelated providers and called it UNPAIRED). The winning physical path of
+        // each active archive names its shipper: mods\<mod>\X.bsa → that mod; overwrite\ → "overwrite"; Data → "Data".
+        var archiveShipper = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var a in archives)
+            if (ShipperOfArchivePath(a.Path, modsDir, overwriteDir, dataDir) is { } shipper)
+                archiveShipper[Path.GetFileName(a.Path)] = shipper;
 
         // ---- DLL candidates: one SKSE\Plugins pass. A mod "ships" a DLL when it appears ANYWHERE in that file's
         //      chain (the bundling case pairs through the chain); the health verdict describes the WINNING copy. A
@@ -510,7 +522,8 @@ public sealed class LoadOrderService : IDisposable
             var dll = new NativePairedDll(rel, Path.GetFileName(rel), group, winner?.ProviderName, info, blocker);
             foreach (var src in place.Sources)
             {
-                if (!modDlls.TryGetValue(src.ProviderName, out var list)) modDlls[src.ProviderName] = list = new();
+                var mod = src.Kind == AssetKind.Bsa && archiveShipper.TryGetValue(src.ProviderName, out var s) ? s : src.ProviderName;
+                if (!modDlls.TryGetValue(mod, out var list)) modDlls[mod] = list = new();
                 if (!list.Any(d => d.RelPath.Equals(rel, StringComparison.OrdinalIgnoreCase))) list.Add(dll);
             }
         }
@@ -554,12 +567,15 @@ public sealed class LoadOrderService : IDisposable
         // ---- classify + pair (sequential — cheap set lookups over the parallel parse's output). ----
         // Pass 1: provenance for every native class; collect the providers of ENGINE classes (the SKSE-CORE rescue pool).
         var native = scanned.Where(s => s.Decls.Count > 0).OrderBy(s => s.Rel, StringComparer.OrdinalIgnoreCase).ToList();
+        // Pairing identity: a provider translated to the MOD it means (a BSA provider → the mod shipping the archive).
+        SkseProvider Identity(SkseProvider p) =>
+            p.Kind == "BSA" && archiveShipper.TryGetValue(p.Name, out var s) ? p with { Name = s } : p;
         var engineProviders = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var s in native)
             if (HasOfficialProvider(s.Providers, officialArchives))
                 foreach (var p in s.Providers)
                     if (!(p.Kind == "BSA" && officialArchives.Contains(p.Name)))
-                        engineProviders.Add(p.Name);   // a mod (or Data/overwrite) shipping a copy of an ENGINE class
+                        engineProviders.Add(Identity(p).Name);   // a mod (or Data/overwrite) shipping a copy of an ENGINE class
 
         // Pass 2: build the entries. SKSE-CORE = an otherwise-UNPAIRED third-party class whose winning provider also
         // provides an ENGINE class (the skse64 payload's structural co-shipment signal). Pairing evidence beats the
@@ -577,8 +593,9 @@ public sealed class LoadOrderService : IDisposable
                         NativeProvenance.Engine, null, null, Array.Empty<NativePairedDll>()));
                     continue;
                 }
-                var (rung, pairedMod, pairedDlls) = Ladder(s.Providers, modDlls);
-                var prov = rung == NativePairingRung.Unpaired && s.WinningProvider is { } wp && engineProviders.Contains(wp)
+                var (rung, pairedMod, pairedDlls) = Ladder(s.Providers.Select(Identity).ToList(), modDlls);
+                var prov = rung == NativePairingRung.Unpaired && s.Providers.Count > 0
+                           && engineProviders.Contains(Identity(s.Providers[0]).Name)
                     ? NativeProvenance.SkseCore
                     : NativeProvenance.ThirdParty;
                 classes.Add(new NativeClassEntry(s.Rel, d.ClassName, d.NativeFunctions.Count, d.NativeFunctions,
@@ -587,15 +604,24 @@ public sealed class LoadOrderService : IDisposable
             }
         }
 
-        // SKSE-CORE sanity input: is a game-root skse64 loader visible at all? (§4b's optional note — best-effort,
-        // null-safe; a miss just means the renderer can't add the note, never an audit failure.)
+        // SKSE-CORE sanity input: is an skse64 loader visible at all? Two places to look (§4b's optional note,
+        // best-effort + null-safe — a miss just means the renderer can't add the note, never an audit failure):
+        // the game ROOT (a manual install), and each enabled mod's Root\ folder — the MO2 Root Builder layout,
+        // where the loader lives at mods\<mod>\Root\skse64_loader.exe and only materializes in the game root at
+        // launch (live-gate finding: ARR ships SKSE exactly this way, and the root-only check false-noted it).
         bool loaderSeen = false;
         try
         {
+            static bool LoaderIn(string dir) => Directory.Exists(dir)
+                && (File.Exists(Path.Combine(dir, "skse64_loader.exe"))
+                    || Directory.EnumerateFiles(dir, "skse64_*.dll").Any());
             var gameDir = dataDir.Length > 0 ? Path.GetDirectoryName(dataDir.TrimEnd('\\', '/')) : null;
-            loaderSeen = gameDir is { Length: > 0 } && Directory.Exists(gameDir)
-                && (File.Exists(Path.Combine(gameDir, "skse64_loader.exe"))
-                    || Directory.EnumerateFiles(gameDir, "skse64_*.dll").Any());
+            loaderSeen = gameDir is { Length: > 0 } && LoaderIn(gameDir);
+            if (!loaderSeen && modsDir.Length > 0 && profileDir.Length > 0)
+            {
+                var comp = Mo2LoadOrder.ReadComposition(profileDir);   // cheap static profile read (the discovery pattern)
+                loaderSeen = comp.EnabledMods.Any(m => LoaderIn(Path.Combine(modsDir, m, "Root")));
+            }
         }
         catch { /* best-effort */ }
 
@@ -603,6 +629,30 @@ public sealed class LoadOrderService : IDisposable
             unreadable.OrderBy(u => u.RelPath, StringComparer.OrdinalIgnoreCase).ToList(),
             loaderSeen, InstalledGameRuntime(),
             view.BsaFailures, view.ReadIncomplete, warnings, profileName);
+    }
+
+    /// <summary>The MOD a physical archive path belongs to — the pairing identity behind a BSA provider name:
+    /// mods\&lt;mod&gt;\X.bsa → that mod folder; the overwrite layer → "overwrite"; the game Data folder → "Data";
+    /// anywhere else → null (no translation — the archive name stands). internal for the guard.</summary>
+    internal static string? ShipperOfArchivePath(string archivePath, string modsDir, string overwriteDir, string dataDir)
+    {
+        static bool Under(string path, string root, out string remainder)
+        {
+            remainder = "";
+            if (root.Length == 0) return false;
+            var r = root.TrimEnd('\\', '/') + "\\";
+            if (!path.StartsWith(r, StringComparison.OrdinalIgnoreCase)) return false;
+            remainder = path.Substring(r.Length);
+            return true;
+        }
+        if (Under(archivePath, overwriteDir, out _)) return "overwrite";
+        if (Under(archivePath, modsDir, out var rest))
+        {
+            int slash = rest.IndexOfAny(new[] { '\\', '/' });
+            return slash > 0 ? rest[..slash] : null;   // a .bsa directly in mods\ belongs to no mod — no translation
+        }
+        if (Under(archivePath, dataDir, out _)) return "Data";
+        return null;
     }
 
     /// <summary>An archive is OFFICIAL — its scripts' natives are the engine's own — when it loads from Skyrim.ini's
