@@ -44,6 +44,11 @@ public sealed record ArchiveDiscoveryResult(IReadOnlyList<ActiveArchive> Archive
 
 public static class ArchiveDiscovery
 {
+    /// <summary>The <see cref="ActiveArchive.OwningPlugin"/> marker for a BASE archive (loaded via Skyrim.ini's
+    /// [Archive] list, not bound to a plugin). Single-sourced: consumers that discriminate "official base archive"
+    /// (the native-pairing audit's ENGINE carve-out) key on THIS const, never a re-typed literal.</summary>
+    public const string IniArchiveOwner = "Skyrim.ini [Archive]";
+
     /// <summary>Discover the active BSAs for the MO2 profile at <paramref name="profileDir"/>, resolving each
     /// through the same overwrite &gt; mods(priority) &gt; Data VFS the loose/plugin layers use. The roots are the
     /// ones <see cref="Mo2LoadOrder.Build"/> already receives; <paramref name="gamePath"/> is only the game-dir
@@ -71,7 +76,7 @@ public static class ArchiveDiscovery
         foreach (var fn in ReadBaseArchiveNames(profileDir, gamePath, warnings))
         {
             if (archiveMap.TryGetValue(fn, out var path))
-                archives.Add(new ActiveArchive(path, "Skyrim.ini [Archive]", rank));
+                archives.Add(new ActiveArchive(path, IniArchiveOwner, rank));
             rank++;   // a distinct rank per INI entry (later in the list = later loaded); absent-on-disk just isn't added
         }
 

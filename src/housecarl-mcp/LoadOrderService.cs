@@ -56,6 +56,7 @@ public sealed class LoadOrderService : IDisposable
     // project_facegen_diagnostics_resolver.
     AssetResolver? _assetResolver;
     IReadOnlyList<string> _assetWarnings = Array.Empty<string>();   // discovery warnings from the asset build (e.g. a Skyrim.ini we couldn't find → base BSAs unscanned)
+    IReadOnlyList<ActiveArchive> _activeArchives = Array.Empty<ActiveArchive>();   // the discovered active-BSA list behind the CURRENT asset build (archive → owning plugin — the native-pairing audit's provenance anchor); swapped with _assetResolver
     // Freshness baselines are the files' LAST-SEEN MTIMES compared by VALUE (!=), the same model the resolver itself
     // uses — NOT wall-clock stamps compared by ORDER (2026-06-12 hunt F8: `mtime > builtUtc` was blind to an mtime
     // REGRESSION, so MO2's "Restore Backup" — which restores a profile file with an OLDER mtime — stayed invisible
@@ -211,6 +212,7 @@ public sealed class LoadOrderService : IDisposable
         var gamePath = _dataDir.Length > 0 ? Path.GetDirectoryName(_dataDir.TrimEnd('\\', '/')) ?? "" : "";
         var discovery = ArchiveDiscovery.Discover(_profileDir, _modsDir, _dataDir, _overwriteDir, gamePath);
         _assetWarnings = discovery.Warnings;
+        _activeArchives = discovery.Archives;   // kept alongside the resolver: archive filename → owning plugin (native-pairing provenance)
         return AssetResolver.Build(_overwriteDir, _modsDir, _dataDir, comp.EnabledMods, discovery.Archives);
     }
 
@@ -429,6 +431,206 @@ public sealed class LoadOrderService : IDisposable
     /// cap)", never the self-contradictory "16 MB (> 16 MB cap)" an integer-MB divide produced.</summary>
     static string OverCapNote(long len) =>
         $"config is {len / (1024.0 * 1024):0.0} MB (> {SkseConfigSizeCap / (1024 * 1024)} MB cap) — not scanned";
+
+    // ---- Native-function pairing audit (housecarl_native_pairing_audit; plan
+    //      dev/plans/SKSE_NATIVE_PAIRING_AUDIT_PLAN_2026-07-16.md): cross-check the native Papyrus functions the
+    //      order's SCRIPTS declare against the DLLs that must implement them — the seam none of validate_scripts
+    //      (property binding), skse_inventory (DLL layer), or skse_config_audit (config layer) sees across. ----
+
+    /// <summary>Audit the declaration↔implementation pairing of every native Papyrus class in the active order. One
+    /// pass over the winning <c>.pex</c> files (loose + BSA, the ScriptPropertyCheck resolution), extracting native-
+    /// flagged declarations (<see cref="HousecarlCore.NativePairing"/>); one pass over SKSE\Plugins for the DLL
+    /// candidates each mod ships; then per third-party class the evidence ladder — same-mod DLL, conflict-chain DLL,
+    /// or UNPAIRED (a verify flag, never "broken": registration is runtime behavior, the tier-E ceiling).
+    ///
+    /// The baseline carve-out (§4b — the whole ballgame): a class whose provider CHAIN includes an OFFICIAL archive
+    /// (Skyrim.ini base block or a BaseMaster-owned BSA) is ENGINE — implemented by the executable — even when a mod's
+    /// loose copy WINS it (SKSE overrides Actor/Game/… with native additions; the official-archive presence still marks
+    /// the class baseline, fixture-verified on ARR 2.0). A rung-3 class whose winning provider ALSO provides an
+    /// ENGINE class is SKSE CORE — the skse64 scripts payload structurally co-ships ~100+ vanilla overrides with its
+    /// new classes (StringUtil/UI/…), and its implementation is the game-root loader, not anything under SKSE\Plugins.
+    /// Residual edges, documented not smuggled: an INI-injected third-party BSA reads official (over-baseline), a
+    /// paid-CC archive isn't BaseMaster-owned (its engine-native classes read third-party → a verify flag), and a mod
+    /// co-shipping a vanilla-script override with a declaration copy of an absent framework gets its copy rescued into
+    /// SKSE CORE (visible in the accounting, unflagged) — all three watched at the live gate.
+    ///
+    /// ONE gate hold captures the asset view + the archive list + warnings (the SkseInventory discipline); the
+    /// enumerate + parse + classify run OUTSIDE the gate over the pinned, handle-free view. The per-file Pex parses are
+    /// parallelized (thousands of files; the view's caches are concurrency-safe by design) with deterministic output
+    /// ordering. An unreadable .pex is a NAMED entry, never a silent skip (Q3).</summary>
+    public NativePairingAuditData NativePairingAudit()
+    {
+        AssetResolver.AssetView view;
+        IReadOnlyList<ActiveArchive> archives;
+        IReadOnlyList<string> warnings;
+        string profileName, dataDir;
+        lock (_gate)
+        {
+            view = Assets.Capture();
+            archives = _activeArchives;   // the SAME build as the view (both swapped under _gate)
+            warnings = _assetWarnings;
+            profileName = _profileName;
+            dataDir = _dataDir;
+        }
+
+        // ---- the official-archive set: the ENGINE anchor. Filenames, because a BSA provider's name IS the archive filename. ----
+        var officialArchives = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var baseMasters = Mutagen.Bethesda.Plugins.Implicits.Get(Mutagen.Bethesda.GameRelease.SkyrimSE).BaseMasters;
+        foreach (var a in archives)
+            if (IsOfficialArchive(a, baseMasters))
+                officialArchives.Add(Path.GetFileName(a.Path));
+
+        // ---- DLL candidates: one SKSE\Plugins pass. A mod "ships" a DLL when it appears ANYWHERE in that file's
+        //      chain (the bundling case pairs through the chain); the health verdict describes the WINNING copy. A
+        //      loose winner that PE-reads as NotSkse is a bundled dependency, not an implementation candidate. ----
+        const string skseRootPre = "SKSE\\Plugins\\";
+        var modDlls = new Dictionary<string, List<NativePairedDll>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var rel in view.EnumerateUnder("SKSE\\Plugins").OrderBy(p => p, StringComparer.OrdinalIgnoreCase))
+        {
+            if (!Path.GetExtension(rel).Equals(".dll", StringComparison.OrdinalIgnoreCase)) continue;
+            string group = SkseGroupOf(rel, skseRootPre);
+            var place = view.ResolveForPlacement(rel);
+            var winner = place.Sources.Count > 0 ? place.Sources[0] : null;
+
+            SksePluginReader.SksePluginInfo? info = null;
+            string? blocker = null;
+            if (winner is null) blocker = "no active mod provides it";
+            else if (winner.Kind != AssetKind.Loose)
+                blocker = "provided only inside a BSA — the SKSE loader scans loose DLLs only, so it will not load";
+            else
+            {
+                info = SksePluginReader.Read(winner.LooseFilePath!);
+                if (info.Kind == SksePluginReader.SksePluginKind.NotSkse) continue;   // bundled dependency — not a candidate
+                if (info.Kind == SksePluginReader.SksePluginKind.Unreadable) blocker = $"not a readable SKSE plugin ({info.Note})";
+                else if (info.Is64Bit == false) blocker = "a 32-bit image — cannot load in Skyrim SE/AE";
+            }
+            if (blocker is null && group.Length > 0)
+                blocker = $"in subfolder '{group}' — not on SKSE's loader path (scans SKSE\\Plugins\\*.dll top-level only)";
+
+            var dll = new NativePairedDll(rel, Path.GetFileName(rel), group, winner?.ProviderName, info, blocker);
+            foreach (var src in place.Sources)
+            {
+                if (!modDlls.TryGetValue(src.ProviderName, out var list)) modDlls[src.ProviderName] = list = new();
+                if (!list.Any(d => d.RelPath.Equals(rel, StringComparison.OrdinalIgnoreCase))) list.Add(dll);
+            }
+        }
+
+        // ---- the .pex sweep: winning copy of every compiled script, native classes extracted. Parallel parse
+        //      (the corpus is thousands of files; the captured view's caches are concurrency-safe), deterministic
+        //      output order restored by the final sorts. Per-file fault isolation: an unreadable .pex is a NAMED
+        //      entry (Q3), never a silent skip. ----
+        var pexPaths = view.EnumerateUnder("Scripts")
+            .Where(p => Path.GetExtension(p).Equals(".pex", StringComparison.OrdinalIgnoreCase))
+            .OrderBy(p => p, StringComparer.OrdinalIgnoreCase).ToList();
+
+        var scanned = new System.Collections.Concurrent.ConcurrentBag<(string Rel, IReadOnlyList<SkseProvider> Providers, string? WinningProvider, string ProviderKind, IReadOnlyList<HousecarlCore.NativeClassDecl> Decls)>();
+        var unreadable = new System.Collections.Concurrent.ConcurrentBag<NativeUnreadablePex>();
+        System.Threading.Tasks.Parallel.ForEach(pexPaths, rel =>
+        {
+            var place = view.ResolveForPlacement(rel);
+            var providers = place.Sources.Select(s => new SkseProvider(s.ProviderName, KindLabel(s.Kind))).ToList();
+            var winner = place.Sources.Count > 0 ? place.Sources[0] : null;
+            if (winner is null) { unreadable.Add(new NativeUnreadablePex(rel, null, "enumerated but no active source provides it")); return; }
+            try
+            {
+                Mutagen.Bethesda.Pex.PexFile pex;
+                if (winner.LooseFilePath is { } lp)
+                    pex = Mutagen.Bethesda.Pex.PexFile.CreateFromFile(lp, Mutagen.Bethesda.GameCategory.Skyrim);
+                else
+                {
+                    var bytes = AssetResolver.TryReadArchiveEntry(winner.ArchivePath!, winner.EntryPath);
+                    if (bytes is null) { unreadable.Add(new NativeUnreadablePex(rel, winner.ProviderName, $"vanished from '{Path.GetFileName(winner.ArchivePath!)}' between listing and read")); return; }
+                    using var ms = new MemoryStream(bytes);
+                    pex = Mutagen.Bethesda.Pex.PexFile.CreateFromStream(ms, Mutagen.Bethesda.GameCategory.Skyrim);
+                }
+                scanned.Add((rel, providers, winner.ProviderName, KindLabel(winner.Kind), HousecarlCore.NativePairing.ExtractNativeClasses(pex)));
+            }
+            catch (Exception ex)
+            {
+                unreadable.Add(new NativeUnreadablePex(rel, winner.ProviderName, $"Mutagen cannot read it ({ex.GetType().Name}: {ex.Message}) — the known unreadable-pex class"));
+            }
+        });
+
+        // ---- classify + pair (sequential — cheap set lookups over the parallel parse's output). ----
+        // Pass 1: provenance for every native class; collect the providers of ENGINE classes (the SKSE-CORE rescue pool).
+        var native = scanned.Where(s => s.Decls.Count > 0).OrderBy(s => s.Rel, StringComparer.OrdinalIgnoreCase).ToList();
+        var engineProviders = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var s in native)
+            if (HasOfficialProvider(s.Providers, officialArchives))
+                foreach (var p in s.Providers)
+                    if (!(p.Kind == "BSA" && officialArchives.Contains(p.Name)))
+                        engineProviders.Add(p.Name);   // a mod (or Data/overwrite) shipping a copy of an ENGINE class
+
+        // Pass 2: build the entries. SKSE-CORE = an otherwise-UNPAIRED third-party class whose winning provider also
+        // provides an ENGINE class (the skse64 payload's structural co-shipment signal). Pairing evidence beats the
+        // rescue: a class that pairs to a DLL stays third-party/paired regardless of its provider's other files.
+        var classes = new List<NativeClassEntry>();
+        foreach (var s in native)
+        {
+            bool engine = HasOfficialProvider(s.Providers, officialArchives);
+            foreach (var d in s.Decls)
+            {
+                if (engine)
+                {
+                    classes.Add(new NativeClassEntry(s.Rel, d.ClassName, d.NativeFunctions.Count, d.NativeFunctions,
+                        s.WinningProvider, s.ProviderKind, s.Providers.Count, s.Providers,
+                        NativeProvenance.Engine, null, null, Array.Empty<NativePairedDll>()));
+                    continue;
+                }
+                var (rung, pairedMod, pairedDlls) = Ladder(s.Providers, modDlls);
+                var prov = rung == NativePairingRung.Unpaired && s.WinningProvider is { } wp && engineProviders.Contains(wp)
+                    ? NativeProvenance.SkseCore
+                    : NativeProvenance.ThirdParty;
+                classes.Add(new NativeClassEntry(s.Rel, d.ClassName, d.NativeFunctions.Count, d.NativeFunctions,
+                    s.WinningProvider, s.ProviderKind, s.Providers.Count, s.Providers,
+                    prov, prov == NativeProvenance.ThirdParty ? rung : null, pairedMod, pairedDlls));
+            }
+        }
+
+        // SKSE-CORE sanity input: is a game-root skse64 loader visible at all? (§4b's optional note — best-effort,
+        // null-safe; a miss just means the renderer can't add the note, never an audit failure.)
+        bool loaderSeen = false;
+        try
+        {
+            var gameDir = dataDir.Length > 0 ? Path.GetDirectoryName(dataDir.TrimEnd('\\', '/')) : null;
+            loaderSeen = gameDir is { Length: > 0 } && Directory.Exists(gameDir)
+                && (File.Exists(Path.Combine(gameDir, "skse64_loader.exe"))
+                    || Directory.EnumerateFiles(gameDir, "skse64_*.dll").Any());
+        }
+        catch { /* best-effort */ }
+
+        return new NativePairingAuditData(classes, pexPaths.Count,
+            unreadable.OrderBy(u => u.RelPath, StringComparer.OrdinalIgnoreCase).ToList(),
+            loaderSeen, InstalledRuntime: null,
+            view.BsaFailures, view.ReadIncomplete, warnings, profileName);
+    }
+
+    /// <summary>An archive is OFFICIAL — its scripts' natives are the engine's own — when it loads from Skyrim.ini's
+    /// base [Archive] block or is owned by a base master (Mutagen's implicit list, by construction — never a name
+    /// list). internal: the native-pairing guard pins it over synthetic archives.</summary>
+    internal static bool IsOfficialArchive(ActiveArchive a, IReadOnlyList<ModKey> baseMasters) =>
+        a.OwningPlugin.Equals(ArchiveDiscovery.IniArchiveOwner, StringComparison.Ordinal)
+        || (ModKey.TryFromNameAndExtension(a.OwningPlugin, out var mk) && baseMasters.Contains(mk));
+
+    /// <summary>True when any provider in a file's chain is an official archive — the ENGINE provenance test. Keys on
+    /// the BSA kind + archive filename (a BSA provider's name IS its archive filename), so a LOOSE override winning the
+    /// file (SKSE's Actor.pex over Skyrim - Misc.bsa's) still leaves the class baseline. internal for the guard.</summary>
+    internal static bool HasOfficialProvider(IReadOnlyList<SkseProvider> providers, HashSet<string> officialArchives) =>
+        providers.Any(p => p.Kind == "BSA" && officialArchives.Contains(p.Name));
+
+    /// <summary>The pairing-evidence ladder (§4c) for one third-party class: rung 1 — the WINNING provider ships ≥1
+    /// candidate DLL; rung 2 — a mod elsewhere in the conflict CHAIN does (the bundling case: a patch wins the script,
+    /// the framework beneath ships the DLL); rung 3 — nobody in sight does → UNPAIRED, a verify flag. Structural
+    /// (file co-location + VFS chains), never semantic — which DLL implements which class is tier-E territory.
+    /// internal for the guard.</summary>
+    internal static (NativePairingRung Rung, string? PairedMod, IReadOnlyList<NativePairedDll> Dlls) Ladder(
+        IReadOnlyList<SkseProvider> providers, IReadOnlyDictionary<string, List<NativePairedDll>> modDlls)
+    {
+        for (int i = 0; i < providers.Count; i++)
+            if (modDlls.TryGetValue(providers[i].Name, out var dlls) && dlls.Count > 0)
+                return (i == 0 ? NativePairingRung.SameMod : NativePairingRung.ChainMod, providers[i].Name, dlls);
+        return (NativePairingRung.Unpaired, null, Array.Empty<NativePairedDll>());
+    }
 
     // ---- SkyPatcher distributor Wave 1: the per-record TRUE post-SkyPatcher state (plan
     //      dev/plans/SKYPATCHER_DISTRIBUTOR_TOOL_PLAN_2026-07-08.md — reader-only scope, 2026-07-09). ----
@@ -4991,6 +5193,86 @@ public sealed record SkseConfigFileAudit(
 public sealed record SkseConfigAuditData(
     IReadOnlyList<SkseConfigFileAudit> Files,
     int ConfigCount,
+    IReadOnlyList<string> BsaFailures,
+    bool ReadIncomplete,
+    IReadOnlyList<string> Warnings,
+    string ProfileName);
+
+/// <summary>Who implements a native class's declarations (housecarl_native_pairing_audit).</summary>
+public enum NativeProvenance
+{
+    /// <summary>The class's provider chain includes an OFFICIAL archive — implemented by the game executable. Baseline;
+    /// accounting only (this holds even when a mod's loose copy WINS the file — SKSE overrides vanilla classes).</summary>
+    Engine,
+    /// <summary>An skse64-scripts-payload class (StringUtil, UI, …) — implemented by the game-root skse64 loader, not
+    /// anything under SKSE\Plugins. Detected structurally: an otherwise-unpaired class whose winning provider also
+    /// provides an ENGINE class (the payload co-ships vanilla overrides with its new classes). Baseline.</summary>
+    SkseCore,
+    /// <summary>Anything else — the pairing ladder runs.</summary>
+    ThirdParty,
+}
+
+/// <summary>The §4c pairing-evidence rung a THIRD-PARTY class landed on, by evidence strength.</summary>
+public enum NativePairingRung
+{
+    /// <summary>The winning .pex's own provider mod ships ≥1 candidate DLL — the strong co-shipment signal.</summary>
+    SameMod,
+    /// <summary>A mod elsewhere in the .pex's conflict chain ships the DLL — the bundling case (a patch mod wins the
+    /// script file; the framework mod beneath ships the implementation).</summary>
+    ChainMod,
+    /// <summary>No mod shipping this class's file (winner or chain) ships any candidate DLL. A VERIFY flag, never
+    /// "broken" — a declaration copy of an absent framework lands here, but registration is runtime behavior (tier E).</summary>
+    Unpaired,
+}
+
+/// <summary>One candidate DLL a paired mod ships: its VFS identity, the winning copy's tier-C manifest (loose winners
+/// only), and <see cref="LoadBlocker"/> — the static reason it will NOT load (BSA-only / subfolder / 32-bit /
+/// unreadable), null when no static check rules it out. version-LOCKED-vs-runtime is adjudicated at render time
+/// against <see cref="NativePairingAuditData.InstalledRuntime"/> (it needs the game version, which may be unknown).</summary>
+public sealed record NativePairedDll(
+    string RelPath,
+    string FileName,
+    string Group,
+    string? WinningProvider,
+    SksePluginReader.SksePluginInfo? Info,
+    string? LoadBlocker);
+
+/// <summary>One script class declaring native functions, with its VFS provenance, its <see cref="Provenance"/> class,
+/// and — for a third-party class — the pairing <see cref="Rung"/>, the paired mod, and that mod's candidate DLLs.
+/// <see cref="Rung"/>/<see cref="PairedMod"/> are null for baseline (ENGINE / SKSE CORE) classes.</summary>
+public sealed record NativeClassEntry(
+    string RelPath,
+    string ClassName,
+    int NativeCount,
+    IReadOnlyList<string> NativeFunctions,
+    string? WinningProvider,
+    string ProviderKind,
+    int ProviderCount,
+    IReadOnlyList<SkseProvider> Providers,
+    NativeProvenance Provenance,
+    NativePairingRung? Rung,
+    string? PairedMod,
+    IReadOnlyList<NativePairedDll> PairedDlls)
+{
+    /// <summary>Candidate DLLs exist and EVERY one carries a static <see cref="NativePairedDll.LoadBlocker"/> — the
+    /// audit's sharpest finding: the scripts are installed and paired, and nothing that could implement them loads.</summary>
+    public bool PairedAllDead => PairedDlls.Count > 0 && PairedDlls.All(d => d.LoadBlocker is not null);
+}
+
+/// <summary>A .pex whose winning copy could not be parsed — a NAMED note (Q3), never a silent skip.</summary>
+public sealed record NativeUnreadablePex(string RelPath, string? WinningProvider, string Reason);
+
+/// <summary>The data behind housecarl_native_pairing_audit: every native-declaring class classified and (for third
+/// parties) paired, the scan accounting (<see cref="PexScanned"/> total compiled scripts examined), the unreadable
+/// notes, whether a game-root skse64 loader is visible (<see cref="SkseLoaderSeen"/> — the SKSE-CORE sanity note), the
+/// installed game runtime when resolvable (<see cref="InstalledRuntime"/>, null = unknown → version-LOCKED findings
+/// degrade to "verify"), and the build-level Q3 caveats.</summary>
+public sealed record NativePairingAuditData(
+    IReadOnlyList<NativeClassEntry> Classes,
+    int PexScanned,
+    IReadOnlyList<NativeUnreadablePex> Unreadable,
+    bool SkseLoaderSeen,
+    string? InstalledRuntime,
     IReadOnlyList<string> BsaFailures,
     bool ReadIncomplete,
     IReadOnlyList<string> Warnings,
