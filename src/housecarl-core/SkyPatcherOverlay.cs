@@ -805,9 +805,9 @@ public static class SkyPatcherOverlay
         fk = default;
         if (a.Plugin is null || a.FormId is null) return false;
         if (!ModKey.TryFromNameAndExtension(a.Plugin, out var mk)) return false;
-        var id = a.FormId.Value;
-        id = (id & 0xFF000000) == 0xFE000000 ? id & 0xFFF : id & 0xFFFFFF;
-        fk = new FormKey(mk, id);
+        // The FExxxYYY-light-vs-low-24 normalization lives in one tested home (FormIdRange) so it can't drift between the
+        // SkyPatcher overlay and the SKSE config audit, which both apply it (getting it wrong inverts every verdict).
+        fk = new FormKey(mk, FormIdRange.LocalObjectId(a.FormId.Value));
         return true;
     }
 

@@ -47,4 +47,38 @@ public static class FormIdRange
     /// allocator — each keeps its OWN error surface (a throw at the create boundary vs a graceful Fail outcome in the
     /// copy flow), only the ceiling comparison is single-sourced here.</summary>
     public static bool ObjectIdSpaceExhausted(uint nextFormId) => nextFormId > ObjectIdMax;
+
+    /// <summary>The high-byte signature of a light-master (ESL) RUNTIME FormID (0xFE000000). At load the engine gives every
+    /// light master the shared <c>0xFE</c> index and packs a 12-bit light-order index into the next 12 bits, leaving the
+    /// record its low 12 bits (<see cref="LightObjectIdMask"/>). A full plugin never loads at 0xFE (that slot is reserved
+    /// for the light block; 0xFF is the runtime-dynamic block), so <c>(id &amp; 0xFF000000) == LightMasterIndexPrefix</c> is
+    /// the unambiguous "this token is a light-prefixed runtime FormID" test.</summary>
+    public const uint LightMasterIndexPrefix = 0xFE000000;
+
+    /// <summary>The 12-bit object-ID mask (0xFFF) for a light-master (ESL) record — its local object ID relative to the
+    /// light master, once the shared <c>0xFE</c> index and the 12-bit light-order index are masked off. Same value as
+    /// <see cref="EslWindowCeiling"/> (the ESL window is 0x000–0xFFF); named for the masking use so a call site reads
+    /// "mask off to the light local id", not "compare against the window ceiling".</summary>
+    public const uint LightObjectIdMask = EslWindowCeiling;
+
+    /// <summary>Strip a config-token / runtime FormID down to the record's LOCAL object ID relative to its named plugin —
+    /// the low 12 bits for a light-prefixed (<see cref="LightMasterIndexPrefix"/>) token (the light index is not part of the
+    /// id), the low 24 bits (<see cref="ObjectIdMask"/>) otherwise (the high byte is the load-order master index, which the
+    /// plugin name — not the token — supplies). This is the SINGLE home for the distributor-config FormID normalization the
+    /// SkyPatcher overlay and the SKSE config audit both apply: a full load-indexed light FormID (<c>FExxxYYY</c> — the
+    /// xEdit copy the grammar references treat as always legal) keeps only its <c>YYY</c>. Getting the light-vs-full split
+    /// wrong inverts every resolve verdict, so both consumers read it here rather than restating the hex.
+    ///
+    /// <para>VERIFIED against DSD's own parser (SkyHorizon3/SSE-Dynamic-String-Distributor, <c>src/Utils.cpp</c>
+    /// <c>getRuntimeFormID</c>: <c>(raw &amp; 0xFFF)</c> when the named plugin <c>IsLight()</c>, else <c>(raw &amp; 0xFFFFFF)</c>).
+    /// DSD's authority is the NAMED PLUGIN's light flag; this token-prefix rule (0xFE top byte ⇒ light) produces the
+    /// IDENTICAL local id for every shape DSD emits — the <c>FExxxYYY</c> full-runtime copy and the 0x-/bare-hex full forms.
+    /// The ONE divergence is a bare ≤6-hex token that carries a light index but no 0xFE prefix (e.g. <c>800123</c>): DSD
+    /// masks it to 0x123 via the flag, this rule keeps 0x800123. DSD never EMITS that shape (its export trims ESL to
+    /// ≤0xFFF), so it can only arise from a hand-authored config — the documented Wave-1 residual; a plugin-flag mask would
+    /// close it (a possible refinement, deliberately not adopted under the locked plan).</para></summary>
+    public static uint LocalObjectId(uint runtimeFormId) =>
+        (runtimeFormId & 0xFF000000) == LightMasterIndexPrefix
+            ? runtimeFormId & LightObjectIdMask       // FExxxYYY light runtime FormID → the 12-bit local id (YYY)
+            : runtimeFormId & ObjectIdMask;           // else the high byte is the master index → keep the low 24 bits
 }
