@@ -132,7 +132,7 @@ public static class ErrorCheck
                             if (view.ResolveWinner(target) is not null) continue;   // resolves → fine
                             if (EngineImplicit.IsImplicit(target)) continue;        // engine-implicit (PlayerRef 000014 / Player 000007): the index can't resolve these hardcoded forms, but they are real, never dangling — same precise exemption the dialogue lints use (HCBR: was 531/531 false dangling → 000014)
                             ownerVarExempt ??= UntypedOwnerVariableData(body);      // #207: an UntypedOwner's VariableData word is a RequiredRank int (esp. -1 → FFFFFFFF), not a reference
-                            if (ownerVarExempt.TryGetValue(target, out int ov) && ov > 0) { ownerVarExempt[target] = ov - 1; continue; }
+                            if (ownerVarExempt.TryGetValue(target, out int rank) && rank > 0) { ownerVarExempt[target] = rank - 1; continue; }
                             totalDangling++;
                             if (danglingBudget > 0)
                             {
@@ -211,7 +211,7 @@ public static class ErrorCheck
                                     if (selfKeys.Contains(target)) continue;            // defined by this very file
                                     if (EngineImplicit.IsImplicit(target)) continue;
                                     ownerVarExempt ??= UntypedOwnerVariableData(rec);   // #207: RequiredRank int mis-exposed as a FormLink
-                                    if (ownerVarExempt.TryGetValue(target, out int rk) && rk > 0) { ownerVarExempt[target] = rk - 1; continue; }
+                                    if (ownerVarExempt.TryGetValue(target, out int rank) && rank > 0) { ownerVarExempt[target] = rank - 1; continue; }
                                     totalDangling++;
                                     if (danglingBudget > 0)
                                     {
