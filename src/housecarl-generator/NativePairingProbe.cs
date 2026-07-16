@@ -125,6 +125,18 @@ public static class NativePairingProbe
                 r3 == NativePairingRung.Unpaired && m3 is null && d3.Count == 0);
         }
         {
+            // BSA→shipper translation (live-gate finding: moreHUD's scripts ride its BSA while the DLL is loose in
+            // the SAME mod — the archive filename must translate to the mod for pairing identity).
+            Check("archive under mods\\<mod>\\ → that mod",
+                LoadOrderService.ShipperOfArchivePath(@"E:\mo2\mods\moreHUD SE\AHZmoreHUD.bsa", @"E:\mo2\mods", @"E:\mo2\overwrite", @"D:\g\Data") == "moreHUD SE");
+            Check("archive in the overwrite layer → 'overwrite'",
+                LoadOrderService.ShipperOfArchivePath(@"E:\mo2\overwrite\X.bsa", @"E:\mo2\mods", @"E:\mo2\overwrite", @"D:\g\Data") == "overwrite");
+            Check("archive in game Data → 'Data'",
+                LoadOrderService.ShipperOfArchivePath(@"D:\g\Data\Skyrim - Misc.bsa", @"E:\mo2\mods", @"E:\mo2\overwrite", @"D:\g\Data") == "Data");
+            Check("archive nowhere under the roots → null (no translation)",
+                LoadOrderService.ShipperOfArchivePath(@"C:\elsewhere\X.bsa", @"E:\mo2\mods", @"E:\mo2\overwrite", @"D:\g\Data") is null);
+        }
+        {
             Check("versions equal under zero-padding: 1.6.1170 == 1.6.1170.0",
                 SksePluginReader.VersionsEqual("1.6.1170", "1.6.1170.0"));
             Check("versions differ: 1.6.640 != 1.6.1170.0",
