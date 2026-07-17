@@ -50,6 +50,12 @@ It can:
 - **See the SKSE-plugin layer** — inventory the DLLs and their configs under `Data\SKSE\Plugins`, each
   resolved to the mod that wins it (with the conflict chain), and read each winning DLL's version metadata
   (name, author, target runtime, Address-Library flag) statically, without loading it.
+- **Audit that layer for what's broken** — cross-check the native Papyrus functions your scripts declare
+  against the DLLs that must implement them (a mod whose scripts are installed but whose DLL is missing,
+  32-bit, built for the wrong runtime, or a debug build that won't load — its calls silently no-op), and
+  cross-check the form references your SKSE configs declare against your real load order (a dangling FormID
+  caught here, not by a silent in-game failure). Or peek inside one DLL's image — its imports and the config
+  paths and plugin names it embeds — to see what an unfamiliar plugin touches. Static, report-only.
 - **See through the SkyPatcher layer** — inventory every SkyPatcher INI in your load order at once (apply
   order, VFS shadows, INI-vs-INI conflicts, and dead / duplicate / no-op writes), or read one record's *true*
   state after the whole SkyPatcher layer has replayed over it — a runtime INI edit made as visible as a plugin
