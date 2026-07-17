@@ -67,6 +67,17 @@ internal static class SksePeekProbe
               "a plugin ref inside a PATH yields the FILENAME (what the load-order cross-check keys on)");
         Check(cPath.ConfigPaths.Count == 0, "a path that IS a plugin ref classifies as the plugin ref, not double-counted");
 
+        // fmt/spdlog placeholders — the DOMINANT modern format shape (CommonLibSSE-NG logs through spdlog), so a
+        // classifier that only knows printf's % adjudicates a log template against the load order and flags it ABSENT.
+        var cFmt = SksePeek.ScanBytes(Image(Ascii("{}.esp"), Ascii("loading {}.esm"), Ascii("%s.esp")));
+        Check(cFmt.PluginRefs.Count == 0,
+              $"fmt/spdlog {{}} and printf %s templates are NOT plugin names (got [{string.Join("|", cFmt.PluginRefs)}])");
+        // …but a {}-bearing PATH stays config-surface signal: it is only ever SHOWN, never adjudicated, and
+        // "versionlib-{}.bin" genuinely tells you the plugin reads Address Library (live-gate evidence, SkyPatcher).
+        var cTmpl = SksePeek.ScanBytes(Image(Ascii("Data/SKSE/Plugins/versionlib-{}.bin")));
+        Check(cTmpl.ConfigPaths.Contains("Data/SKSE/Plugins/versionlib-{}.bin"),
+              "a {}-template PATH is still config surface (shown, not adjudicated — the deliberate asymmetry)");
+
         // ---- D: absence is a fact about the image, never a clean bill of health. ----
         Console.WriteLine("\n--- D: an image embedding nothing ---");
         var d = SksePeek.ScanBytes(Image(Junk(512)));
@@ -91,6 +102,26 @@ internal static class SksePeekProbe
             Check(e.Kind == SksePluginReader.SksePluginKind.NotSkse, "a system DLL is still classified NotSkse (no SKSE export)");
         }
         else Check(false, $"expected a system kernel32.dll to walk at '{k32}'");
+
+        // ---- E2: an unresolvable import NAME fails the whole walk (review finding #3). ----
+        // Take a real PE and point its first import descriptor's Name RVA at nothing. Skipping the bad entry (the
+        // original behavior) returned a SHORT list that still renders as a complete "imports (N): …" — and if the
+        // dropped entry were vcruntime140d.dll, the Debug-CRT check would report a clean bill of health. Corruption
+        // must reach the caller as UNKNOWN, matching this walk's directory-level posture.
+        Console.WriteLine("\n--- E2: a corrupt import name is UNKNOWN, not a short list ---");
+        if (File.Exists(k32))
+        {
+            var raw = File.ReadAllBytes(k32);
+            int nameOff = FirstImportNameOffset(raw);
+            if (nameOff > 0)
+            {
+                Check(SksePluginReader.ReadBytes("k32.dll", raw).Imports is { Count: > 0 }, "control: the unpatched image walks");
+                BitConverter.GetBytes(0x7FFFFFFF).CopyTo(raw, nameOff);      // an RVA that maps to no section
+                Check(SksePluginReader.ReadBytes("k32-corrupt.dll", raw).Imports is null,
+                      "an unresolvable import-name RVA fails the WHOLE walk → null (UNKNOWN), never a silent short list");
+            }
+            else Check(false, "expected to locate the first import descriptor's Name RVA in a real PE");
+        }
 
         // ---- F: the tri-state. A managed assembly has no import directory → EMPTY (walked), never null (unknown). ----
         Console.WriteLine("\n--- F: the imports tri-state (empty ≠ unknown) ---");
@@ -143,6 +174,45 @@ internal static class SksePeekProbe
         Check(!noOrder.Contains("NOT in your load order"),
               "with no resolved order, NO name is called absent — an unasked question has no answer (Q3)");
 
+        // ---- I2: the SERVICE must actually be able to PRODUCE that null. ----
+        // The review's finding #1: the renderer honored the null contract, but nothing could emit it —
+        // ReadComposition never throws on a missing plugins.txt/loadorder.txt, and the asset resolver needs only
+        // modlist.txt, so a half-readable profile yielded an EMPTY-but-non-null set and flagged every embedded name
+        // (Dawnguard.esm included) ABSENT. Arm I pinned the renderer and missed it because it hand-built the null.
+        // This arm drives the REAL producer over a profile whose plugin lists don't exist.
+        Console.WriteLine("\n--- I2: the empty-composition → null contract, through the real service ---");
+        string prof = Path.Combine(Path.GetTempPath(), "hc-peek-prof-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            Directory.CreateDirectory(prof);
+            File.WriteAllText(Path.Combine(prof, "modlist.txt"), "+SomeMod\n");   // readable; NO plugins.txt / loadorder.txt
+            var warn = new List<string>();
+            var comp = Mo2LoadOrder.ReadComposition(prof, warn);
+            Check(comp.ActivePluginNames.Count == 0 && comp.ImplicitPluginNames.Count == 0,
+                  "a profile with no plugins.txt/loadorder.txt yields an EMPTY composition (no throw — the bug's premise)");
+            Check(warn.Count > 0, "…and the read SURFACES why (the warning the peek path must not discard)");
+            // THE REAL PRODUCER, not a copy of its rule — the whole reason the original bug survived arm I is that the
+            // arm hand-built the null instead of exercising the code that has to emit one.
+            Check(LoadOrderService.PeekPluginSet(comp) is null,
+                  "…so the peek path hands the renderer NULL, never an empty set that would flag every name ABSENT (Q3)");
+            // …and the healthy direction still resolves, including a force-loaded master absent from plugins.txt.
+            var healthy = new Mo2Composition([], [], ["Skyrim.esm", "Dawnguard.esm"],
+                new HashSet<string>(["Skyrim.esm"], StringComparer.OrdinalIgnoreCase), [], ["Dawnguard.esm"]);
+            var got = LoadOrderService.PeekPluginSet(healthy);
+            Check(got is not null && got.Contains("Skyrim.esm") && got.Contains("Dawnguard.esm"),
+                  "a real composition resolves, implicit force-loaded masters included (Dawnguard.esm is never ABSENT)");
+        }
+        finally { try { Directory.Delete(prof, true); } catch { /* temp scratch */ } }
+
+        // ---- I3: peek honored with nothing to show is still an unanswered question. ----
+        Console.WriteLine("\n--- I3: peek= matched nothing peekable ---");
+        var bsaOnly = new SkseFileEntry("Bsa.dll", "Bsa.dll", "", [new SkseProvider("Archive.bsa", "BSA")], null, "BSA-only");
+        string noPeek = SkseInventoryWire.Render(
+            new SkseInventoryData([bsaOnly], [], 0, "1.6.1170.0", [], false, [], "TestProfile", null, PeekRequested: true),
+            "Bsa", 80_000);
+        Check(noPeek.Contains("peek=true matched no loose DLL"),
+              "a peek that matched only a BSA-only DLL SAYS nothing was peeked (never a silent no-op)");
+
         // ---- J: the Debug-CRT verdict wording — the one peek line allowed "will not load". ----
         Console.WriteLine("\n--- J: Debug-CRT render ---");
         // A debug CRT that is certainly NOT on the machine (a fabricated name in the pinned family shape would not be
@@ -156,6 +226,18 @@ internal static class SksePeekProbe
               $"the verdict matches THIS machine (debug runtime resolvable = {present}) — never a machine-blind claim");
         Check(crtOut.Contains("error 126"), "…and names the actual loader failure (error 126)");
 
+        // BOTH wordings, in ONE run, via the injected machine probe. Without this seam CI (no Visual Studio) only ever
+        // pins the "will NOT load" arm and a dev box only the other — leaving whichever half the current machine can't
+        // produce free to rot. The machine-dependence IS the finding, so both halves have to be pinned.
+        string absent = SkseTools_DebugCrtVerdict(["vcruntime140d.dll"], _ => false);
+        string here = SkseTools_DebugCrtVerdict(["vcruntime140d.dll"], _ => true);
+        Check(absent.Contains("will NOT load") && absent.Contains("error 126"),
+              "debug runtime ABSENT ⇒ the flat 'will NOT load' verdict");
+        Check(here.Contains("loads on THIS machine") && here.Contains("for anyone who doesn't"),
+              "debug runtime PRESENT ⇒ the author-facing 'loads for you, breaks for everyone else' verdict");
+        Check(!here.Contains("will NOT load"),
+              "…and the present case NEVER makes the flat claim (the wrong answer on a dev box — the whole point)");
+
         // The whole-layer escalation (plan §8.3): the flag rides an UNFILTERED inventory, no peek= needed.
         string layer = Render(Data(crtEntry, active: null), filter: null);
         Check(layer.Contains("DEBUG-BUILD plugins"), "a debug build surfaces on the UNFILTERED inventory (§8.3 escalation)");
@@ -168,6 +250,28 @@ internal static class SksePeekProbe
     }
 
     // ---- fixture helpers ----
+
+    /// <summary>The renderer's pure Debug-CRT verdict with the machine probe injected (internal via InternalsVisibleTo).</summary>
+    static string SkseTools_DebugCrtVerdict(IReadOnlyList<string> crt, Func<string, bool> resolvable) =>
+        SkseInventoryWire.DebugCrtVerdict(crt, resolvable);
+
+    /// <summary>File offset of the FIRST <c>IMAGE_IMPORT_DESCRIPTOR</c>'s Name RVA field (descriptor + 0x0C) in a raw PE
+    /// image, or -1. Walks the section table to map the directory RVA to a file offset — the probe's own mapping, kept
+    /// independent of the reader it is testing (a fixture that reused the code under test would prove nothing).</summary>
+    static int FirstImportNameOffset(byte[] raw)
+    {
+        try
+        {
+            using var pe = new System.Reflection.PortableExecutable.PEReader(new MemoryStream(raw, writable: false));
+            int rva = pe.PEHeaders.PEHeader!.ImportTableDirectory.RelativeVirtualAddress;
+            if (rva == 0) return -1;
+            foreach (var s in pe.PEHeaders.SectionHeaders)
+                if (rva >= s.VirtualAddress && rva < s.VirtualAddress + Math.Max(s.VirtualSize, s.SizeOfRawData))
+                    return s.PointerToRawData + (rva - s.VirtualAddress) + 0x0C;
+        }
+        catch { /* fixture setup only — the arm reports a failure if this can't locate the table */ }
+        return -1;
+    }
 
     /// <summary>A synthetic PE-ish image: the parts concatenated. The scanner is a byte walker, so real PE structure is
     /// irrelevant to extraction — the real-PE paths are covered by arms E/F against actual images.</summary>

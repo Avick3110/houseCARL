@@ -310,6 +310,19 @@ static class SkseInventoryWire
             AppendDetail(sb, e, d, shownCfg);
         }
 
+        // peek= honored with NOTHING to show is still an unanswered question — say so. A bare peek=true already fails
+        // loud (PeekArgError); this is the other half: the filter was fine but matched no PEEKABLE DLL, and silently
+        // rendering the config matches would leave the user believing the peek came back empty (Q3).
+        if (d.PeekRequested && dllHits.All(e => e.Peek is null))
+        {
+            sb.Append("\n[!] peek=true matched no loose DLL — nothing was peeked");
+            sb.Append(dllHits.Count == 0
+                ? ": this filter matched no DLL at all"
+                : $": the {dllHits.Count} matching DLL(s) have no loose winner — SKSE loads loose DLLs only, so there is " +
+                  "no image the game would read");
+            sb.Append(". Pass filter= the name of a loose DLL to peek it.\n");
+        }
+
         // Remaining matching configs (not already shown as a DLL's paired config), grouped by folder.
         var rest = cfgHits.Where(e => !shownCfg.Contains(e.RelPath))
             .OrderBy(e => e.Group, StringComparer.OrdinalIgnoreCase).ThenBy(e => e.FileName, StringComparer.OrdinalIgnoreCase).ToList();
@@ -458,7 +471,6 @@ static class SkseInventoryWire
           .Append(peek.BytesScanned / 1024).Append(" KB → showed ")
           .Append(peek.ConfigPaths.Count + peek.PluginRefs.Count)
           .Append(" (the classes above are a FILTER over the image, not the whole haystack)\n");
-        if (peek.Note is { } note) sb.Append("  [!] ").Append(note).Append('\n');
         sb.Append("  (imports/strings are what the image CONTAINS, never what the code DOES — behavior is unreadable by " +
                   "design. Absence proves nothing: many DLLs build their references at runtime or read them from configs.)\n");
     }
@@ -492,11 +504,20 @@ static class SkseInventoryWire
     /// everyone else — which is the more useful finding if you are the one shipping it.</summary>
     static void AppendDebugCrt(StringBuilder sb, SkseFileEntry e)
     {
-        if (e.Plugin is not { } p || p.Imports is null) return;   // never walked ⇒ no claim either way
+        if (e.Plugin is not { Imports: not null } p) return;      // never walked ⇒ no claim either way
         var crt = p.DebugCrtImports;
         if (crt.Count == 0) return;
+        sb.Append(DebugCrtVerdict(crt, SksePluginReader.IsSystemDllResolvable));
+    }
 
-        var missing = crt.Where(c => !SksePluginReader.IsSystemDllResolvable(c)).ToList();
+    /// <summary>The Debug-CRT verdict text — PURE, with the machine probe injected, so the guard can pin BOTH wordings
+    /// in one run. Without the seam CI (no Visual Studio) could only ever pin the "will NOT load" arm and a dev box only
+    /// the other, leaving whichever half the current machine doesn't produce unpinned — which is precisely the half that
+    /// would rot unnoticed.</summary>
+    internal static string DebugCrtVerdict(IReadOnlyList<string> crt, Func<string, bool> resolvable)
+    {
+        var missing = crt.Where(c => !resolvable(c)).ToList();
+        var sb = new StringBuilder();
         sb.Append("  [!] DEBUG BUILD — imports the debug C runtime: ").Append(string.Join(", ", crt)).Append('\n');
         if (missing.Count > 0)
             sb.Append("      → will NOT load: ").Append(string.Join(", ", missing))
@@ -506,6 +527,7 @@ static class SkseInventoryWire
         else
             sb.Append("      → it loads on THIS machine (you have the debug runtime installed — Visual Studio), but it will " +
                       "fail with error 126 for anyone who doesn't. If you built this, ship a Release build.\n");
+        return sb.ToString();
     }
 
     /// <summary>The compat one-word tag for the terse roster: "AddrLib", "SigScan", or "LOCKED→[runtimes]".</summary>

@@ -28,9 +28,15 @@ public sealed record SksePeekResult(
     long BytesScanned,
     string? Note)
 {
-    /// <summary>True when nothing was scanned at all (an unreadable image) — the caller must not render this as a clean
-    /// "embeds nothing" (Q3). <see cref="Note"/> carries the reason.</summary>
-    public bool Failed => Note is not null && BytesScanned == 0;
+    /// <summary>Why the scan produced nothing — set ONLY on failure (unreadable image / past the size cap), null on
+    /// every successful scan. There is deliberately no partial-scan state: an image past <see cref="SksePeek.SizeCap"/>
+    /// is refused and NAMED rather than half-read, because a half-read image's "nothing embedded" would be a silent
+    /// lie. So <see cref="Note"/> is exactly the failure channel, and <see cref="Failed"/> reads off it.</summary>
+    public string? Note { get; init; } = Note;
+
+    /// <summary>True when the scan did not happen — the caller must not render this as a clean "embeds nothing" (Q3).
+    /// <see cref="Note"/> carries the reason.</summary>
+    public bool Failed => Note is not null;
 }
 
 public static class SksePeek
@@ -121,16 +127,26 @@ public static class SksePeek
 
     /// <summary>The plugin FILENAME a run references, or null. Returns the filename alone (not the whole run) because the
     /// load-order cross-check keys on it — "Data\Dawnguard.esm" and "Dawnguard.esm" are the same reference. A run is a
-    /// plugin ref only when the name ENDS the run: a .esp mid-string is a format template or a substring, not a name.</summary>
+    /// plugin ref only when the name ENDS the run: a .esp mid-string is a format template or a substring, not a name.
+    ///
+    /// This classifier is held to a STRICTER bar than <see cref="IsConfigPath"/>, and deliberately: a config path is only
+    /// ever SHOWN ("suggestive of its config surface"), whereas a plugin name is ADJUDICATED against the load order and
+    /// can come back "[!] NOT in your load order". A false positive here is therefore a false ALARM, not just noise — so
+    /// anything that isn't shaped like a real filename is dropped rather than guessed at.</summary>
     static string? PluginRefIn(string run)
     {
         if (!PluginExts.Any(e => run.EndsWith(e, StringComparison.OrdinalIgnoreCase))) return null;
         int cut = run.LastIndexOfAny(['\\', '/']);
         string name = cut >= 0 ? run[(cut + 1)..] : run;
         if (name.Length <= 4) return null;                        // ".esp" alone — an extension constant, not a reference
-        // A plugin filename is a filename: a run carrying separators/quotes past the last slash is a sentence about a
-        // plugin, not the name of one. Bethesda names allow spaces, dashes, apostrophes, parens.
-        return name.Any(ch => ch is '"' or '\'' or '<' or '>' or '|' or '*' or '?' or ':' or '%') ? null : name;
+        // A plugin filename is a filename: a run carrying quotes/separators past the last slash is a sentence about a
+        // plugin, not the name of one. Bethesda names allow spaces, dashes, apostrophes, parens — so the shape check is
+        // this forbidden-char set, and it must carry BOTH format-string dialects:
+        //   %  → printf ("%s.esp")
+        //   {} → fmt / spdlog / std::format ("{}.esp", "loading {}.esp") — the DOMINANT modern shape, because
+        //        CommonLibSSE-NG plugins log through spdlog. Missing these would adjudicate a log template against the
+        //        load order and flag it ABSENT on every healthy install.
+        return name.Any(ch => ch is '"' or '\'' or '<' or '>' or '|' or '*' or '?' or ':' or '%' or '{' or '}') ? null : name;
     }
 
     /// <summary>Whether a run is path-shaped enough to be part of the DLL's CONFIG surface — the "which files does this
@@ -147,6 +163,10 @@ public static class SksePeek
         // Drop the compiler's own noise: a bare extension, and the C++ type/format soup that trips the extension test
         // ("%s.json", "basic_string<...>.ini"). A real config path has a separator or is a plain filename.
         if (run.Length <= 5) return false;
+        // NOTE the asymmetry with PluginRefIn, which also rejects fmt's {} placeholder: a {}-bearing path is a TEMPLATE
+        // the DLL fills in, and it is still real config-surface signal — "Data/SKSE/Plugins/versionlib-{}.bin" tells you
+        // this plugin reads Address Library, which is worth showing. A config path is only ever SHOWN, so a template
+        // costs nothing; a plugin name is ADJUDICATED, so a template would become a false "NOT in your load order".
         return !run.Contains('%') && !run.Contains('<') && !run.Contains('"');
     }
 }
