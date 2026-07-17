@@ -510,10 +510,6 @@ static class SkseInventoryWire
         sb.Append(DebugCrtVerdict(crt, SksePluginReader.IsSystemDllResolvable));
     }
 
-    /// <summary>The Debug-CRT verdict text — PURE, with the machine probe injected, so the guard can pin BOTH wordings
-    /// in one run. Without the seam CI (no Visual Studio) could only ever pin the "will NOT load" arm and a dev box only
-    /// the other, leaving whichever half the current machine doesn't produce unpinned — which is precisely the half that
-    /// would rot unnoticed.</summary>
     /// <summary>The one-line Debug-CRT verdict for the whole-layer summary — the same machine-dependence as
     /// <see cref="DebugCrtVerdict"/>, in the terse register the roster needs. Pure with the probe injected for the same
     /// reason: an inline <c>IsSystemDllResolvable</c> call here would leave whichever wording the current machine can't
@@ -523,6 +519,10 @@ static class SkseInventoryWire
             ? "  loads on THIS machine (you have the debug runtime) — but error 126 for anyone without Visual Studio"
             : "  ≠ this machine — will NOT load (error 126: the debug runtime isn't here)";
 
+    /// <summary>The Debug-CRT verdict text — PURE, with the machine probe injected, so the guard can pin BOTH wordings
+    /// in one run. Without the seam CI (no Visual Studio) could only ever pin the "will NOT load" arm and a dev box only
+    /// the other, leaving whichever half the current machine doesn't produce unpinned — which is precisely the half that
+    /// would rot unnoticed.</summary>
     internal static string DebugCrtVerdict(IReadOnlyList<string> crt, Func<string, bool> resolvable)
     {
         var missing = crt.Where(c => !resolvable(c)).ToList();
