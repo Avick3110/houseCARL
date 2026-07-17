@@ -1886,8 +1886,25 @@ public static class NestedCreateGuardProbe
             var reject = rulebook.Validate(req);
             gap3RejBaseArmFieldOk = reject is not null
                 && reject.Contains("polymorphic base", StringComparison.OrdinalIgnoreCase)
-                && reject.Contains("SceneScriptFragments", StringComparison.Ordinal);   // a real arm is offered instead
-            Console.WriteLine($"   GAP3-REJ-BASEARM-FIELD poly field  : {(gap3RejBaseArmFieldOk ? "PASS — a standalone poly-FIELD Set composing the base 'ScriptFragments' refuses via ArmLegality (RED before: accepted, then silent-write)" : $"FAIL — reject=[{reject}]")}");
+                && reject.Contains("SceneScriptFragments", StringComparison.Ordinal)    // a real arm is offered instead
+                && reject.Contains("dotted path", StringComparison.Ordinal);            // #211: the CONCRETE-base refusal names the working dotted-subfield lane, not just a dead-end arm list
+            Console.WriteLine($"   GAP3-REJ-BASEARM-FIELD poly field  : {(gap3RejBaseArmFieldOk ? "PASS — a standalone poly-FIELD Set composing the base 'ScriptFragments' refuses via ArmLegality AND names the dotted-subfield lane (RED before: accepted, then silent-write; #211: arm-list-only dead end)" : $"FAIL — reject=[{reject}]")}");
+        }
+
+        // ---------- GAP3-REJ-BASEARM-FIELD-ABS: the hint is NARROW — an ABSTRACT base's refusal carries NO dotted-lane hint ----
+        // The #211 hint keys on the field's mutable AQ resolving to a concrete CLASS (the emitted arm lists have the
+        // base's self-listing stripped, so arms can't tell). An abstract base (ANpcLevel on NpcConfiguration.Level)
+        // resolves abstract and a listed arm always fits, so its refusal must stay hint-free — the negative control
+        // proving the hint doesn't leak into cases where "compose a real arm" is the right answer.
+        bool gap3RejBaseArmFieldAbsOk;
+        {
+            var req = new WriteRequest { RecordType = "Npc", Path = new[] { "Configuration", "Level" },
+                Verb = "Set", Struct = new StructSpec { Type = "ANpcLevel" } };
+            var reject = rulebook.Validate(req);
+            gap3RejBaseArmFieldAbsOk = reject is not null
+                && reject.Contains("polymorphic base", StringComparison.OrdinalIgnoreCase)
+                && !reject.Contains("dotted path", StringComparison.Ordinal);
+            Console.WriteLine($"   GAP3-REJ-BASEARM-FIELD-ABS abstract: {(gap3RejBaseArmFieldAbsOk ? "PASS — an ABSTRACT base ('ANpcLevel') still refuses with NO dotted-lane hint (the #211 hint is scoped to concrete bases)" : $"FAIL — reject=[{reject}]")}");
         }
 
         // ---------- GAP3-OK-ARMFIELD-UNCHANGED: a REAL arm on the same poly field still accepts (no over-reject) ----------
@@ -2664,7 +2681,7 @@ public static class NestedCreateGuardProbe
                     && gap4OkSetIdxComposeOk && gap4RejSetIdxNoStructOk && gap4OkSetIdxComposeE2eOk
                     && gap3OkE2eOk && gap3OkE2eSetOk && gap3RejDupOk
                     && gap3RejBaseArmOk && gap3RejBaseArmListOk && gap3OkBaseNoOverRejectOk && gap3RejBaseArmE2eOk
-                    && gap3RejBaseArmFieldOk && gap3OkArmFieldUnchangedOk
+                    && gap3RejBaseArmFieldOk && gap3RejBaseArmFieldAbsOk && gap3OkArmFieldUnchangedOk
                     && expectedRejSetIdxOobOk && expectedRejRemoveIdxOobOk && expectedOkSetIdxInRangeOk && expectedNavTypeOk
                     && expectedRejNavE2eOk
                     && malformedNavTypeOk

@@ -916,11 +916,25 @@ public sealed class CorpusRulebook
         // base instance. Filter the base (leaf.TypeRef — this method is only reached for a polymorphic field) out of the
         // legal set, and reject composing the base itself. Symmetric with StructElementLegality; closes the SECOND
         // composition entry point so the poly-base-by-own-name class is shut at both, by construction.
+        // A concrete base is ALSO the one shape where "no listed arm fits" is real — the field's live type can BE the
+        // base (DialogResponses' ScriptFragments: only arm is the SCENE one), so the refusal must name the working
+        // lane (dotted-subfield Sets, pre-flight-descended since the poly-field-descend fix) or it dead-ends the
+        // caller (#211). Recognizer: the field's MUTABLE AQ resolves to a concrete CLASS (the emitted arm lists have
+        // the base's self-listing stripped, so arms can't tell). An abstract base resolves abstract — there a listed
+        // arm always fits, so the hint stays off.
         var baseName = leaf.TypeRef;
         var legal = (leaf.Arms ?? (baseName is { } tr ? Type(tr)?.Arms : null) ?? new()).Where(a => a != baseName).ToList();
         if (baseName is not null && arm.Type == baseName)
+        {
+            var dottedLane = leaf.MutableTypeAssemblyQualified is { } aq
+                             && WriteEngine.ResolveType(aq) is { IsAbstract: false, IsInterface: false }
+                ? $" If no listed arm fits this record (the field's live type is the base itself), skip the compose " +
+                  $"and Set the base's subfields by dotted path instead ('{leaf.Name}.<subfield>' — the field " +
+                  $"auto-instantiates on first Set)."
+                : "";
             return $"'{arm.Type}' is the polymorphic base of '{leaf.Name}' — the base itself cannot be composed; " +
-                   $"choose a concrete arm. Legal arms: {string.Join(", ", legal)}.";
+                   $"choose a concrete arm. Legal arms: {string.Join(", ", legal)}.{dottedLane}";
+        }
         if (!legal.Contains(arm.Type))
             return $"Illegal arm '{arm.Type}' for '{leaf.Name}'. Legal arms: {string.Join(", ", legal)}.";
         var armSchema = Type(arm.Type);
