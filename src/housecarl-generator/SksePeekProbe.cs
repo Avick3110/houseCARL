@@ -146,6 +146,23 @@ internal static class SksePeekProbe
         Check(SksePluginReader.DebugCrtImportsOf(Info(null)).Count == 0,
               "a FAILED walk yields no debug-CRT claim — absence of evidence is not evidence of absence (Q3)");
 
+        // ---- G2: DebugCrtBlocker — the pairing audit's seventh load blocker (Aaron-go 2026-07-17). ----
+        // Pinned BOTH ways via the injected probe, because NO machine can exercise both: CI has no Visual Studio and a
+        // dev box does. This is also the ONLY gate this capability gets — ARR carries zero debug-built plugins, and
+        // Aaron's machine HAS the debug runtime, so the DEAD path cannot be reproduced live on either. Synthetic by
+        // necessity, and said so rather than implied.
+        Console.WriteLine("\n--- G2: DebugCrtBlocker (the pairing audit's 7th blocker) ---");
+        var dbg = Info(["kernel32.dll", "vcruntime140d.dll"]);
+        var blocked = SksePluginReader.DebugCrtBlocker(dbg, _ => false);
+        Check(blocked is { Length: > 0 } && blocked.Contains("vcruntime140d.dll") && blocked.Contains("error 126"),
+              "debug runtime ABSENT ⇒ a load blocker naming the culprit and the loader failure");
+        Check(SksePluginReader.DebugCrtBlocker(dbg, _ => true) is null,
+              "debug runtime PRESENT (a dev box) ⇒ NO blocker — it genuinely loads there, so there is no claim to make");
+        Check(SksePluginReader.DebugCrtBlocker(Info(["kernel32.dll", "vcruntime140.dll"]), _ => false) is null,
+              "a RELEASE runtime is never a blocker");
+        Check(SksePluginReader.DebugCrtBlocker(Info(null), _ => false) is null,
+              "a FAILED import walk is never a blocker — an unknown must not become a DEAD verdict (Q3)");
+
         // ══ Part 3: renderer ══
         Console.WriteLine("\n── Part 3: SkseInventoryWire render arms ──");
 

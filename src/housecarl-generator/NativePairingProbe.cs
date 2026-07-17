@@ -212,6 +212,28 @@ public static class NativePairingProbe
                 !s.Contains("PAIRED BUT DEAD") && s.Contains("verify") && s.Contains("could not be resolved"));
         }
         {
+            // Arm A2 (tier D, Aaron-go 2026-07-17): the DEBUG-build blocker — the audit's 7th, and the one that used to
+            // read as healthy. This DLL is loose, top-level, x64, readable and version-INDEPENDENT: every other check
+            // passes it, so before this the audit rendered [LOADS] while skse_inventory called the same DLL broken.
+            // The blocker rides LoadBlocker, so it lands in PAIRED-BUT-DEAD by construction — no Judge arm needed.
+            // Drives the REAL service chain (LoadOrderService.LooseDllBlocker), not a hand-built blocker — the wiring is
+            // the one link no live gate can reach here (ARR has zero debug plugins; the dev box HAS the debug runtime,
+            // so it can't produce the dead path either), and a hand-built fixture would pin the render while leaving
+            // the production line uncovered. The probe is injected because no single machine exercises both halves.
+            var dbgInfo = new SksePluginReader.SksePluginInfo("Dbg.dll", SksePluginReader.SksePluginKind.Modern, true,
+                Ver(independent: true, compat: Array.Empty<string>()), null, new[] { "kernel32.dll", "vcruntime140d.dll" });
+            var crtBlocker = LoadOrderService.LooseDllBlocker(dbgInfo, _ => false);
+            Check("A2a: the service's loose-DLL chain blocks a debug build (the production wiring, not a fixture)",
+                crtBlocker is { Length: > 0 });
+            Check("A2b: …and on a box WITH the debug runtime the same chain blocks nothing (it truly loads there)",
+                LoadOrderService.LooseDllBlocker(dbgInfo, _ => true) is null);
+            var dbgDll = new NativePairedDll(@"SKSE\Plugins\Dbg.dll", "Dbg.dll", "", "DbgMod", indepInfo, crtBlocker);
+            var s = Render(Data(new[] { Cls("DbgUtil", NativeProvenance.ThirdParty, NativePairingRung.SameMod, "DbgMod", new[] { dbgDll }) }, "1.6.1170.0"));
+            Check("A2: a DEBUG-built version-INDEPENDENT DLL → 'PAIRED BUT DEAD', not healthy (the tier-D blind spot)",
+                s.Contains("PAIRED BUT DEAD") && s.Contains("DEBUG build") && s.Contains("error 126")
+                && !s.Contains("paired healthy (1"));
+        }
+        {
             // Arm C: a static blocker (BSA-only) is dead regardless of runtime knowledge.
             var bsaDll = new NativePairedDll(@"SKSE\Plugins\X.dll", "X.dll", "", "XMod", null,
                 "provided only inside a BSA — the SKSE loader scans loose DLLs only, so it will not load");

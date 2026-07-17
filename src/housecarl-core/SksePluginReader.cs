@@ -275,6 +275,29 @@ public static class SksePluginReader
         info.Imports is null ? []
             : info.Imports.Where(i => DebugCrtDlls.Contains(i, StringComparer.OrdinalIgnoreCase)).ToList();
 
+    /// <summary>The load-blocker reason when <paramref name="info"/> is a DEBUG build whose debug runtime is ABSENT from
+    /// this machine — else <c>null</c>. The seventh static way an SKSE DLL fails to load, alongside BSA-only / subfolder /
+    /// 32-bit / unreadable / version-locked / query-only-on-AE, and the one the native-pairing audit was blind to: a
+    /// debug-built DLL is loose, top-level, x64, readable and often version-INDEPENDENT, so every existing check passes it
+    /// as healthy while the loader refuses it with error 126. Scripts declaring its natives are then silently no-ops —
+    /// exactly the audit's PAIRED-BUT-DEAD class.
+    ///
+    /// Returns null when the runtime IS present (a developer's box): there the DLL genuinely loads, so there is no
+    /// blocker and no claim to make — the inventory still names it as broken for everyone else. Also null when the import
+    /// walk failed (<see cref="SksePluginInfo.Imports"/> is null) — absence of evidence is never evidence of absence (Q3).
+    ///
+    /// <paramref name="resolvable"/> is injected so the decision is pinnable BOTH ways in one run: CI has no Visual
+    /// Studio and a dev box does, so a hard-wired probe would leave whichever half the current machine can't produce
+    /// unpinned — and that is the half that rots. Pure.</summary>
+    public static string? DebugCrtBlocker(SksePluginInfo info, Func<string, bool> resolvable)
+    {
+        if (info.Imports is null) return null;
+        var missing = DebugCrtImportsOf(info).Where(c => !resolvable(c)).ToList();
+        return missing.Count == 0 ? null
+            : $"a DEBUG build — it imports {string.Join(", ", missing)}, which ships only with Visual Studio and is not " +
+              "present on this machine, so the loader fails with error 126 (ERROR_MOD_NOT_FOUND)";
+    }
+
     /// <summary>Whether <paramref name="dll"/> is resolvable by the Windows loader ON THIS MACHINE — the honest other half
     /// of the Debug-CRT verdict. "Imports the debug CRT ⇒ will not load" is true only where the debug CRT is ABSENT, which
     /// is every stock machine but NOT a developer's (Visual Studio installs it). houseCARL runs on the modder's own box, so

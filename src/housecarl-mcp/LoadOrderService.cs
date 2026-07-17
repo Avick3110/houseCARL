@@ -337,6 +337,28 @@ public sealed class LoadOrderService : IDisposable
             warnings, profileName, activePlugins, peekFilter is { Length: > 0 });
     }
 
+    /// <summary>Why a LOOSE, loader-scoped SKSE plugin DLL statically cannot load — or null when nothing stops it. The
+    /// native-pairing audit's blocker chain for the winning loose copy, in severity order; a non-null result makes the
+    /// pairing PAIRED-BUT-DEAD by construction (it rides <see cref="NativePairedDll.LoadBlocker"/>, which
+    /// <c>NativePairingWire.Judge</c> already treats as dead — no new verdict arm).
+    ///
+    /// The DEBUG-build arm is tier D's addition (Aaron-go 2026-07-17) and the reason this is a named function rather
+    /// than three inline branches: it is the audit's SEVENTH blocker and the one that read as healthy, because a
+    /// debug-built DLL is loose, top-level, x64, readable and usually version-INDEPENDENT — every other check passes it
+    /// while the loader refuses it with error 126. Before it, this audit said [LOADS] about the same DLL
+    /// <c>skse_inventory</c> called broken: two tools, one file, opposite answers.
+    ///
+    /// <paramref name="resolvable"/> is injected so the chain is pinnable without a live order or a live machine. That
+    /// matters more here than usual: this capability gets NO empirical gate — ARR carries zero debug-built plugins, and
+    /// the dev machine HAS the debug runtime (so the dead path cannot be reproduced there either). The guard is the only
+    /// evidence, which is exactly why the wiring is a testable function instead of a line inside a 100-line sweep.</summary>
+    internal static string? LooseDllBlocker(SksePluginReader.SksePluginInfo info, Func<string, bool> resolvable)
+    {
+        if (info.Kind == SksePluginReader.SksePluginKind.Unreadable) return $"not a readable SKSE plugin ({info.Note})";
+        if (info.Is64Bit == false) return "a 32-bit image — cannot load in Skyrim SE/AE";
+        return SksePluginReader.DebugCrtBlocker(info, resolvable);
+    }
+
     /// <summary>The plugin names a tier-D peek adjudicates an embedded reference against — active PLUS the force-loaded
     /// implicit masters (which load despite never appearing in plugins.txt; omitting them would flag Dawnguard.esm
     /// ABSENT on an install that has it). Returns <c>null</c> — never a partial set — when the answer is UNKNOWABLE,
@@ -578,8 +600,7 @@ public sealed class LoadOrderService : IDisposable
             {
                 info = SksePluginReader.Read(winner.LooseFilePath!);
                 if (info.Kind == SksePluginReader.SksePluginKind.NotSkse) continue;   // bundled dependency — not a candidate
-                if (info.Kind == SksePluginReader.SksePluginKind.Unreadable) blocker = $"not a readable SKSE plugin ({info.Note})";
-                else if (info.Is64Bit == false) blocker = "a 32-bit image — cannot load in Skyrim SE/AE";
+                blocker = LooseDllBlocker(info, SksePluginReader.IsSystemDllResolvable);
             }
             if (blocker is null && group.Length > 0)
                 blocker = $"in subfolder '{group}' — not on SKSE's loader path (scans SKSE\\Plugins\\*.dll top-level only)";
