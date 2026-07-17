@@ -2121,7 +2121,7 @@ public static class WritePatchBuilder
                 foreach (var fill in DialogueCkParity.ApplyViewDefaults(viewRec))
                     ops.Add(new OpResult(rec.FormKey, s.RecordType, fill.Label, true, null, fill.Reason));
             }
-            else if (rec is IDialogBranch branchRec)   // S2 — DLBR Category (TNAM)
+            else if (rec is IDialogBranch branchRec)   // S2 — DLBR Category (TNAM); S3 — DLBR Flags (DNAM), #212
             {
                 foreach (var fill in DialogueCkParity.ApplyBranchDefaults(branchRec))
                     ops.Add(new OpResult(rec.FormKey, s.RecordType, fill.Label, true, null, fill.Reason));

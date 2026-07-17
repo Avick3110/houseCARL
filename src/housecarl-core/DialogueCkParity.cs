@@ -43,6 +43,14 @@ namespace HousecarlCore;
 //    • QUST QuestAlias       Flags      (FNAM)     → 0 (no flags), materialised per alias
 //    • QUST QuestAlias       VoiceTypes (VTCK)     → null-link (0x00000000), materialised per alias
 //
+//  SCOPE (S3 — the in-game-behavior tier). The same omitted-subrecord asymmetry, but the consequence is neither a
+//  CK-editor crash (S1) nor a byte-only mismatch the game shrugs off (S2): the RUNNING GAME behaves WRONG (#212).
+//    • DLBR (DialogBranch)   Flags      (DNAM)     → 0 (no flags)
+//  An ABSENT DNAM is read by the engine as TopLevel, so a branch the author never marked top-level is published to
+//  the player's dialogue menu anyway — a nameless Say()-only topic surfaces as a selectable "..." that fires its
+//  lines on click. The output is byte-valid and passes validate_dialogue, so nothing catches it before the game
+//  does; that combination (valid-looking, silently wrong) is what makes this the sharpest tier, not the mildest.
+//
 //  ONE S2 FIELD IS NOT NULLABLE — DIAL Priority is a plain float that defaults to 0, so "the author left it unset"
 //  can't be read off is-null the way every other field here is. The create path detects it from the AUTHOR'S OP LIST
 //  (did any edit touch the Priority path?) and passes that in; a fill happens only when Priority was never mentioned,
@@ -237,16 +245,34 @@ public static class DialogueCkParity
     /// Command appears on just 2 vanilla branches, both deliberately authored. Pinned by the guard.</summary>
     public const DialogBranch.CategoryType BranchCategoryDefault = DialogBranch.CategoryType.Player;
 
+    /// <summary>DLBR Flags (DNAM) CK-parity default — 0 (none of TopLevel/Blocking/Exclusive set), the CK's value for
+    /// a branch whose flag checkboxes the author never ticked. UNLIKE <see cref="BranchCategoryDefault"/>, the
+    /// zero-value is NOT the dominant vanilla value — and that divergence is the whole point, so it is stated here
+    /// rather than left to look like an oversight. Over the 3061 DialogBranches defined in Skyrim.esm (measured
+    /// 2026-07-17): ALL 3061 carry DNAM (none omit it — the CK writes it unconditionally, the #131 asymmetry);
+    /// 2117 are TopLevel, 728 Blocking, 30 Exclusive, and 203 carry it as exactly 0. Those 203 are the proof this
+    /// default is ATTESTED, not invented: a present-but-zero DNAM is a normal CK-authored shape. The 2117 TopLevel
+    /// branches are branches an author deliberately ticked top-level — an authored choice non-override preserves,
+    /// exactly as Category=Command is preserved above. Pinned by the guard.</summary>
+    public const DialogBranch.Flag BranchFlagsDefault = (DialogBranch.Flag)0;
+
     /// <summary>DLBR (DialogBranch) CK-parity default — the Category (TNAM) enum, nullable and omitted by Mutagen when
     /// unset; a CK-authored DialogBranch always carries it. Fill Player (the near-universal value + the enum's
     /// zero-value) UNCONDITIONALLY when the author left it null. A Command branch (a bribe/intimidate speech-challenge
     /// — the only 2 vanilla cases) is a deliberate authored choice that sets Category=Command explicitly, so
     /// non-override leaves it untouched (Aaron-decided 2026-07-04 after the vanilla data falsified the earlier
     /// TopLevel-gated plan: TopLevel doesn't distinguish Player from Command — both Command cases are TopLevel — and
-    /// non-TopLevel branches are reliably Player). Returns the fills applied (empty when the author set a Category).</summary>
+    /// non-TopLevel branches are reliably Player).
+    ///
+    /// ALSO fills the Flags (DNAM) enum — same nullable-and-omitted shape, but S3 (in-game behavior, #212): an absent
+    /// DNAM is read by the engine as TopLevel, publishing a branch the author never marked top-level into the player's
+    /// dialogue menu. Fill 0 (no flags) when the author left it null; an explicit Flags — INCLUDING an explicit
+    /// TopLevel — always wins.
+    ///
+    /// Returns the fills applied (empty when the author set both).</summary>
     public static IReadOnlyList<CkParityFill> ApplyBranchDefaults(IDialogBranch branch)
     {
-        var fills = new List<CkParityFill>(1);
+        var fills = new List<CkParityFill>(2);
 
         if (!HasCategory(branch))
         {
@@ -260,27 +286,55 @@ public static class DialogueCkParity
                 + "untouched. CK-parity default-populate, in-model (#131 pattern)."));
         }
 
+        if (!HasFlags(branch))
+        {
+            branch.Flags = BranchFlagsDefault;
+            fills.Add(new CkParityFill(
+                "Flags (DNAM subrecord) auto-set to 0 (no flags — not top-level, not blocking, not exclusive)",
+                "0 — every CK-authored DialogBranch carries the DNAM (Flags) subrecord, and a branch whose flag "
+                + "checkboxes the author never ticked carries it as 0 (203 of Skyrim.esm's 3061 branches do exactly "
+                + "that). A branch written WITHOUT DNAM is read by the engine as TopLevel, so its topics are published "
+                + "to the player's dialogue menu — a nameless Say()-only topic shows up as a selectable \"...\". This "
+                + "materialises the subrecord only; TopLevel/Blocking/Exclusive stay an explicit authoring choice a "
+                + "0-fill does NOT set, and an explicit Flags always wins. CK-parity default-populate, in-model."));
+        }
+
         return fills;
     }
 
-    // --- DLBR presence predicate: the single home for "does this DialogBranch carry TNAM?", consulted by BOTH
-    //     ApplyBranchDefaults (fills when absent) and MissingBranchDefaults (flags when absent) — no drift (Q3). ---
+    // --- DLBR presence predicates: the single home for "does this DialogBranch carry the CK-parity subrecord?",
+    //     consulted by BOTH ApplyBranchDefaults (fills when absent) and MissingBranchDefaults (flags when absent) —
+    //     no drift (Q3). Flags is an enum-typed nullable (DialogBranch.Flag?), so the null read distinguishes "author
+    //     set no flags" (null → fill 0) from "author set 0 explicitly" (non-null → keep) — the same is-null signal
+    //     every field here uses EXCEPT the non-nullable DIAL Priority (see ApplyTopicPriorityDefault). ---
     static bool HasCategory(IDialogBranchGetter branch) => branch.Category is not null;   // TNAM
+    static bool HasFlags(IDialogBranchGetter branch) => branch.Flags is not null;         // DNAM
 
     /// <summary>The CK-parity subrecord a DLBR (DialogBranch) is MISSING — the read-only counterpart of
     /// <see cref="ApplyBranchDefaults"/>, for the on-demand dialogue validator's DialogBranch input. Shares the exact
-    /// presence predicate the fill path uses, so fill and check can never disagree. S2 (byte-parity only — no
-    /// confirmed crash): a missing TNAM is a structural mismatch vs a CK-authored branch, not a known failure.
-    /// Empty when the branch carries a Category. Reads only the getter; NEVER mutates.</summary>
+    /// presence predicates the fill path uses, so fill and check can never disagree. The two gaps sit in DIFFERENT
+    /// tiers: a missing TNAM is S2 (byte-parity only — a structural mismatch vs a CK-authored branch, not a known
+    /// failure), while a missing DNAM is S3 (#212) — the engine reads it as TopLevel and publishes the branch to the
+    /// player's dialogue menu, a real in-game defect the byte-valid output hides. Empty when the branch carries both.
+    /// Reads only the getter; NEVER mutates.</summary>
     public static IReadOnlyList<CkParityGap> MissingBranchDefaults(IDialogBranchGetter branch)
     {
-        var gaps = new List<CkParityGap>(1);
+        var gaps = new List<CkParityGap>(2);
 
         if (!HasCategory(branch))
             gaps.Add(new CkParityGap("TNAM (Category)",
                 "every CK-authored DialogBranch carries the TNAM (Category) subrecord (~all vanilla branches carry "
                 + "Player); a branch missing it differs structurally from a CK-authored one (byte-parity only — no "
                 + "confirmed crash). houseCARL's create tools auto-fill it — set Category (e.g. Player) to populate it."));
+
+        if (!HasFlags(branch))
+            gaps.Add(new CkParityGap("DNAM (Flags)",
+                "every CK-authored DialogBranch carries the DNAM (Flags) subrecord — as 0 when no flag is ticked (203 "
+                + "of Skyrim.esm's 3061 branches). A branch missing it is read by the ENGINE as TopLevel, so its topics "
+                + "are published to the player's dialogue menu — a nameless Say()-only topic renders as a selectable "
+                + "\"...\". This is an in-game defect, not a byte-parity nit: the record is byte-valid and only "
+                + "misbehaves once loaded. houseCARL's create tools auto-fill it — set Flags (0 for a hidden branch, "
+                + "TopLevel for a player-facing one) to populate it."));
 
         return gaps;
     }

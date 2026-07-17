@@ -96,7 +96,7 @@ static class DialogueWire
             if (r.InputIssues.Count == 0)
                 sb.Append("  CK-parity: OK — ").Append(r.InputKind == "view"
                     ? "the DNAM and ENAM byte subrecords the Creation Kit always writes are both present.\n"
-                    : "the TNAM (Category) subrecord the Creation Kit always writes is present.\n");
+                    : "the TNAM (Category) and DNAM (Flags) subrecords the Creation Kit always writes are both present.\n");
             else
                 AppendIssues(sb, r.InputIssues, "  ", cap);
             sb.Append("scope: this is a record-level CK-parity check only — it does not validate any dialogue graph, "

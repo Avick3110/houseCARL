@@ -35,9 +35,10 @@ namespace HousecarlGenerator;
 ///   VIEW-CKPARITY-GAP— a bare DLVW input → kind "view", zero topics, and Warnings naming DNAM + ENAM (the CK Dialogue
 ///                  Views crash shape) — end-to-end through the new DialogView input path (shared MissingViewDefaults probe).
 ///   VIEW-CKPARITY-OK — a CK-parity-complete DLVW (ApplyViewDefaults-filled) reports NO input issues — no-false-positive lock.
-///   BRANCH-CKPARITY-GAP— a bare DLBR input → kind "branch" and a Warning naming TNAM (S2 byte-parity) — end-to-end
-///                  through the new DialogBranch input path (shared MissingBranchDefaults probe).
-///   BRANCH-CKPARITY-OK— a Category-set DLBR reports NO input issues — no-false-positive lock.
+///   BRANCH-CKPARITY-GAP— a bare DLBR input → kind "branch" and Warnings naming TNAM (S2 byte-parity) + DNAM (S3
+///                  in-game behavior, #212 — an absent Flags reads as TopLevel and publishes the branch to the player's
+///                  dialogue menu) — end-to-end through the DialogBranch input path (shared MissingBranchDefaults probe).
+///   BRANCH-CKPARITY-OK— a CK-parity-complete DLBR (ApplyBranchDefaults-filled) reports NO input issues — no-false-positive lock.
 ///   QUST-CKPARITY-GAP— a QUEST input whose quest lacks ANAM and has a Flags-less objective → InputIssues warns BOTH,
 ///                  ONCE at quest level (never per topic) — the shared MissingQuestDefaults probe end-to-end.
 ///   QUST-CKPARITY-OK — a CK-parity-complete quest (ApplyQuestDefaults-filled) reports NO input issues — no-false-positive lock.
@@ -385,11 +386,14 @@ public static class DialogueValidateGuardProbe
             var vOk = m.DialogViews.AddNew(); vOk.EditorID = "HcDvViewOk";
             DialogueCkParity.ApplyViewDefaults(vOk); viewOkFk = vOk.FormKey;
 
-            // BRANCH-CKPARITY (the new DLBR input kind): a BARE DialogBranch (no Category/TNAM) vs one with an
-            // explicit Category. (The shared `branch` fixture above is only ever a Branch TARGET, never an input.)
+            // BRANCH-CKPARITY (the new DLBR input kind): a BARE DialogBranch (no Category/TNAM, no Flags/DNAM) vs a
+            // CK-parity-COMPLETE one. (The shared `branch` fixture above is only ever a Branch TARGET, never an input.)
+            // The OK fixture is filled via the SAME ApplyBranchDefaults the create path runs (the DLVW/QUST OK-fixture
+            // pattern) rather than hand-setting each field — so a field added to the fill can't leave this fixture
+            // half-built and quietly turn the no-false-positive lock into a failure that looks like a real gap.
             var brGap = m.DialogBranches.AddNew(); brGap.EditorID = "HcDvBrGap"; brGapFk = brGap.FormKey;
             var brOk = m.DialogBranches.AddNew(); brOk.EditorID = "HcDvBrOk";
-            brOk.Category = DialogBranch.CategoryType.Player; brOkFk = brOk.FormKey;
+            DialogueCkParity.ApplyBranchDefaults(brOk); brOkFk = brOk.FormKey;
 
             // QUST-CKPARITY (quest-level InputIssues): a quest lacking ANAM with one Flags-less objective (both
             // gaps) vs a CK-parity-complete quest (ApplyQuestDefaults-filled). Neither owns any topics — the arms
@@ -500,12 +504,15 @@ public static class DialogueValidateGuardProbe
             all &= Pass("VIEW-CKPARITY-OK not flagged", ok, $"kind={r.InputKind} issues={InputIssues(r)}");
         }
 
-        // ---------- BRANCH-CKPARITY-GAP: a bare DLBR input → kind "branch", a Warning naming TNAM ----------
+        // ---------- BRANCH-CKPARITY-GAP: a bare DLBR input → kind "branch", Warnings naming TNAM + DNAM ----------
+        // DNAM is the #212 arm: an absent Flags subrecord is read by the engine as TopLevel, so the validator must
+        // say so on a branch that LOOKS fine (byte-valid, no other finding) — the whole point of the lint.
         {
             var r = DialogueValidate.Run(resolver, assets, brGapFk);
             bool ok = r.InputKind == "branch" && r.Error is null && r.Topics.Count == 0
-                && r.InputIssues.Any(i => i.Severity == DialogueIssueSeverity.Warning && i.Message.Contains("TNAM", StringComparison.Ordinal));
-            all &= Pass("BRANCH-CKPARITY-GAP warns TNAM", ok, $"kind={r.InputKind} issues={InputIssues(r)}");
+                && r.InputIssues.Any(i => i.Severity == DialogueIssueSeverity.Warning && i.Message.Contains("TNAM", StringComparison.Ordinal))
+                && r.InputIssues.Any(i => i.Severity == DialogueIssueSeverity.Warning && i.Message.Contains("DNAM", StringComparison.Ordinal));
+            all &= Pass("BRANCH-CKPARITY-GAP warns TNAM+DNAM", ok, $"kind={r.InputKind} issues={InputIssues(r)}");
         }
 
         // ---------- BRANCH-CKPARITY-OK: a Category-set DLBR reports NO input issues — the no-false-positive lock ----------
