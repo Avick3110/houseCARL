@@ -227,7 +227,11 @@ public static class NativePairingProbe
                 crtBlocker is { Length: > 0 });
             Check("A2b: …and on a box WITH the debug runtime the same chain blocks nothing (it truly loads there)",
                 LoadOrderService.LooseDllBlocker(dbgInfo, _ => true) is null);
-            var dbgDll = new NativePairedDll(@"SKSE\Plugins\Dbg.dll", "Dbg.dll", "", "DbgMod", indepInfo, crtBlocker);
+            // dbgInfo, NOT indepInfo: the rendered candidate must carry the SAME info the blocker was derived from.
+            // They are equivalent today (both version-independent) and the verdict reads LoadBlocker, so the arm passes
+            // either way — but if Judge ever re-derived from Info instead of trusting the blocker, an indepInfo fixture
+            // would keep passing while production broke. The fixture should not be the reason a regression hides.
+            var dbgDll = new NativePairedDll(@"SKSE\Plugins\Dbg.dll", "Dbg.dll", "", "DbgMod", dbgInfo, crtBlocker);
             var s = Render(Data(new[] { Cls("DbgUtil", NativeProvenance.ThirdParty, NativePairingRung.SameMod, "DbgMod", new[] { dbgDll }) }, "1.6.1170.0"));
             Check("A2: a DEBUG-built version-INDEPENDENT DLL → 'PAIRED BUT DEAD', not healthy (the tier-D blind spot)",
                 s.Contains("PAIRED BUT DEAD") && s.Contains("DEBUG build") && s.Contains("error 126")
