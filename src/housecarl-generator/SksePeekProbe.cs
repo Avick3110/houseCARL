@@ -201,6 +201,16 @@ internal static class SksePeekProbe
             var got = LoadOrderService.PeekPluginSet(healthy);
             Check(got is not null && got.Contains("Skyrim.esm") && got.Contains("Dawnguard.esm"),
                   "a real composition resolves, implicit force-loaded masters included (Dawnguard.esm is never ABSENT)");
+
+            // THE RESIDUAL (re-review): loadorder.txt missing, plugins.txt PRESENT. `implicit` is derived by iterating
+            // `ordered`, so it collapses to empty while `active` stays non-empty — a merged-set-non-empty gate returns
+            // an active-only set with the force-loaded masters silently gone, and SeranaMultiformNG's embedded
+            // Dawnguard.esm reads ABSENT on a healthy install. The gate must key on `ordered`, the input `implicit`
+            // comes FROM. This arm fails against `set.Count > 0`.
+            var noOrderFile = new Mo2Composition([], [], [],                       // ordered: [] — no loadorder.txt
+                new HashSet<string>(["SomeMod.esp"], StringComparer.OrdinalIgnoreCase), [], []);
+            Check(LoadOrderService.PeekPluginSet(noOrderFile) is null,
+                  "no loadorder.txt + a NON-EMPTY plugins.txt ⇒ still null — the implicit masters are UNKNOWABLE, not absent");
         }
         finally { try { Directory.Delete(prof, true); } catch { /* temp scratch */ } }
 
@@ -210,8 +220,27 @@ internal static class SksePeekProbe
         string noPeek = SkseInventoryWire.Render(
             new SkseInventoryData([bsaOnly], [], 0, "1.6.1170.0", [], false, [], "TestProfile", null, PeekRequested: true),
             "Bsa", 80_000);
-        Check(noPeek.Contains("peek=true matched no loose DLL"),
-              "a peek that matched only a BSA-only DLL SAYS nothing was peeked (never a silent no-op)");
+        Check(noPeek.Contains("not peeked"),
+              "a matched-but-unpeekable DLL SAYS it wasn't peeked, on its own entry (never a silent no-op)");
+        // The notice is PER-ENTRY, so a MIXED match (one peeked, one not) reports both — the all-or-nothing check this
+        // replaced stayed silent whenever any hit happened to be peekable.
+        string mixed = SkseInventoryWire.Render(
+            new SkseInventoryData([bsaOnly, Entry("Ok.dll", peek, Info(["kernel32.dll"]))], [], 0, "1.6.1170.0", [], false,
+                [], "TestProfile", null, PeekRequested: true), ".dll", 80_000);
+        Check(mixed.Contains("not peeked") && mixed.Contains("── peek (what the image contains) ──"),
+              "a MIXED match renders the peek AND names the entry that had no image to read");
+        // No DLL matched at all ⇒ no entry exists to carry the notice, so the summary carries it.
+        string noDll = SkseInventoryWire.Render(
+            new SkseInventoryData([], [new SkseFileEntry("a.ini", "a.ini", "Grp", [new SkseProvider("M", "loose")], null, null)],
+                0, "1.6.1170.0", [], false, [], "TestProfile", null, PeekRequested: true), "Grp", 80_000);
+        Check(noDll.Contains("matched no DLL at all"), "a config-only filter with peek=true says no DLL matched");
+
+        // ---- I4: the whole-layer Debug-CRT line uses the SAME injected seam as the detail view. ----
+        Console.WriteLine("\n--- I4: whole-layer Debug-CRT verdict seam ---");
+        Check(SkseInventoryWire.DebugCrtLayerVerdict(["vcruntime140d.dll"], _ => false).Contains("will NOT load"),
+              "layer line, runtime ABSENT ⇒ 'will NOT load'");
+        Check(SkseInventoryWire.DebugCrtLayerVerdict(["vcruntime140d.dll"], _ => true).Contains("loads on THIS machine"),
+              "layer line, runtime PRESENT ⇒ the author-facing wording (both halves pinned in ONE run)");
 
         // ---- J: the Debug-CRT verdict wording — the one peek line allowed "will not load". ----
         Console.WriteLine("\n--- J: Debug-CRT render ---");

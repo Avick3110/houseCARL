@@ -339,20 +339,24 @@ public sealed class LoadOrderService : IDisposable
 
     /// <summary>The plugin names a tier-D peek adjudicates an embedded reference against — active PLUS the force-loaded
     /// implicit masters (which load despite never appearing in plugins.txt; omitting them would flag Dawnguard.esm
-    /// ABSENT on an install that has it). Returns <c>null</c> — never an EMPTY set — when the composition yielded no
-    /// plugins at all, because that means "the question could not be answered", NOT "your load order is empty".
+    /// ABSENT on an install that has it). Returns <c>null</c> — never a partial set — when the answer is UNKNOWABLE,
+    /// because "I could not determine your order" and "your order is empty" must never render the same (Q3).
     ///
-    /// That distinction is the whole point, and the empty case is REACHABLE: <see cref="Mo2LoadOrder.ReadComposition"/>
-    /// never throws on a missing/unreadable plugins.txt or loadorder.txt, while the asset resolver needs only
-    /// modlist.txt — so a half-readable profile enumerates every DLL perfectly and still produces an empty plugin set.
-    /// Handing the renderer an empty-but-non-null set there would flag EVERY embedded name as "NOT in your load order":
-    /// a confident wrong answer, which is the one thing this tool must never do (Q3). A real order always carries at
-    /// least Skyrim.esm, so empty means the read failed, never a genuinely plugin-free profile.
+    /// The gate is <see cref="Mo2Composition.OrderedPluginNames"/>, and that exact choice is load-bearing: the implicit
+    /// set is DERIVED by iterating <c>ordered</c>, so with loadorder.txt missing it collapses to empty while
+    /// plugins.txt can still hand back a perfectly non-empty <c>active</c>. Gating on the MERGED set being non-empty
+    /// therefore looks safe and isn't — it returns an active-only set whose force-loaded masters are silently gone, and
+    /// every embedded Dawnguard.esm reads "[!] NOT in your load order" on a healthy install. Keying on the input the
+    /// implicit half is derived FROM covers both states (both-files-missing is just the sub-case where active is empty
+    /// too). Reachable in practice: <see cref="Mo2LoadOrder.ReadComposition"/> never throws on a missing profile file,
+    /// the asset resolver needs only modlist.txt, and houseCARL already models the three profile files as
+    /// independently mutable (it stats each for freshness) — a mid-re-sort or a fresh profile is enough.
     ///
     /// internal + pure so the skse-peek guard pins THIS decision rather than a copy of it — the arm that missed the
     /// original bug tested a hand-built null instead of the code that has to produce one.</summary>
     internal static IReadOnlySet<string>? PeekPluginSet(Mo2Composition comp)
     {
+        if (comp.OrderedPluginNames.Count == 0) return null;   // no loadorder.txt ⇒ the implicit masters are UNKNOWABLE, not absent
         var set = new HashSet<string>(comp.ActivePluginNames, StringComparer.OrdinalIgnoreCase);
         set.UnionWith(comp.ImplicitPluginNames);
         return set.Count > 0 ? set : null;
