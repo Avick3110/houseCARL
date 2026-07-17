@@ -123,6 +123,12 @@ public static class CiAll
         ("render-clamp-guard", RenderClampProbe.RunGuard),
         ("decompile-guard", DecompileGuardProbe.RunGuard),
         ("bsa-contract-guard", BsaContractProbe.RunGuard),
+        // BSA extract read path (#217): housecarl_bsa_extract / _list read through Mutagen's in-process BSA reader
+        // (Archive.CreateReader) instead of shelling BSArch — BSArch's unpacker is stricter than its lister + the game,
+        // so a non-BSArch-written archive could list yet unpack to nothing. Self-contained — hand-authors valid uncompressed
+        // v105/v104 archives Mutagen reads: byte-correct round-trip, content-aware idempotence, path-traversal refusal,
+        // and loud failure on a non-archive. (Real-BSArch + compressed-archive byte parity lives in the opt-in bsa-probe.)
+        ("bsa-extract-guard", BsaExtractProbe.RunGuard),
         ("hierarchy-cache-guard", HierarchyCacheProbe.RunGuard),
         ("write-mutex-guard", WriteMutexProbe.RunGuard),
         // NOTE: freshness-capture-guard is deliberately NOT in the runner — its deferral arm needs a write slow
