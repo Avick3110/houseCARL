@@ -286,10 +286,9 @@ public sealed class LoadOrderService : IDisposable
         IReadOnlySet<string>? activePlugins = null;
         if (peekFilter is { Length: > 0 })
         {
-            var comp = Mo2LoadOrder.ReadComposition(profileDir);
-            var set = new HashSet<string>(comp.ActivePluginNames, StringComparer.OrdinalIgnoreCase);
-            set.UnionWith(comp.ImplicitPluginNames);
-            activePlugins = set;
+            var compWarnings = new List<string>();
+            activePlugins = PeekPluginSet(Mo2LoadOrder.ReadComposition(profileDir, compWarnings));
+            if (compWarnings.Count > 0) warnings = [.. warnings, .. compWarnings];
         }
         // OUTSIDE the gate: the view is pinned + handle-free (AssetResolver.Dispose is a no-op; Resolve reads only the
         // captured snapshot + readonly roots), so enumerating + resolving + PE-reading here can't race a concurrent
@@ -334,7 +333,29 @@ public sealed class LoadOrderService : IDisposable
             else
                 configs.Add(new SkseFileEntry(rel, Path.GetFileName(rel), group, providers, null, null));
         }
-        return new SkseInventoryData(dlls, configs, otherFiles, InstalledGameRuntime(), view.BsaFailures, view.ReadIncomplete, warnings, profileName, activePlugins);
+        return new SkseInventoryData(dlls, configs, otherFiles, InstalledGameRuntime(), view.BsaFailures, view.ReadIncomplete,
+            warnings, profileName, activePlugins, peekFilter is { Length: > 0 });
+    }
+
+    /// <summary>The plugin names a tier-D peek adjudicates an embedded reference against — active PLUS the force-loaded
+    /// implicit masters (which load despite never appearing in plugins.txt; omitting them would flag Dawnguard.esm
+    /// ABSENT on an install that has it). Returns <c>null</c> — never an EMPTY set — when the composition yielded no
+    /// plugins at all, because that means "the question could not be answered", NOT "your load order is empty".
+    ///
+    /// That distinction is the whole point, and the empty case is REACHABLE: <see cref="Mo2LoadOrder.ReadComposition"/>
+    /// never throws on a missing/unreadable plugins.txt or loadorder.txt, while the asset resolver needs only
+    /// modlist.txt — so a half-readable profile enumerates every DLL perfectly and still produces an empty plugin set.
+    /// Handing the renderer an empty-but-non-null set there would flag EVERY embedded name as "NOT in your load order":
+    /// a confident wrong answer, which is the one thing this tool must never do (Q3). A real order always carries at
+    /// least Skyrim.esm, so empty means the read failed, never a genuinely plugin-free profile.
+    ///
+    /// internal + pure so the skse-peek guard pins THIS decision rather than a copy of it — the arm that missed the
+    /// original bug tested a hand-built null instead of the code that has to produce one.</summary>
+    internal static IReadOnlySet<string>? PeekPluginSet(Mo2Composition comp)
+    {
+        var set = new HashSet<string>(comp.ActivePluginNames, StringComparer.OrdinalIgnoreCase);
+        set.UnionWith(comp.ImplicitPluginNames);
+        return set.Count > 0 ? set : null;
     }
 
     /// <summary>The immediate subfolder under SKSE\Plugins a file sits in ("" = directly at top level) — the DERIVED,
@@ -5394,12 +5415,19 @@ public sealed record SkseInventoryData(
     bool ReadIncomplete,
     IReadOnlyList<string> Warnings,
     string ProfileName,
-    IReadOnlySet<string>? ActivePlugins = null)
+    IReadOnlySet<string>? ActivePlugins = null,
+    bool PeekRequested = false)
 {
     /// <summary>The plugin filenames the game actually loads (active + force-loaded implicit) — resolved ONLY for a
-    /// tier-D peek, which cross-checks a DLL's embedded plugin names against it. <c>null</c> ⇒ not resolved, so a
-    /// renderer must NOT call any embedded name "absent from the load order" (Q3: an unasked question has no answer).</summary>
+    /// tier-D peek, which cross-checks a DLL's embedded plugin names against it. <c>null</c> ⇒ NOT RESOLVED (the
+    /// profile's plugin lists were missing or unreadable), so a renderer must NOT call any embedded name "absent from
+    /// the load order" (Q3: an unasked question has no answer). Never handed over EMPTY — see the producer.</summary>
     public IReadOnlySet<string>? ActivePlugins { get; init; } = ActivePlugins;
+
+    /// <summary>Whether the caller asked for a tier-D peek. Distinct from "any entry HAS a peek": a filter can match
+    /// only configs, or only BSA-only DLLs, and then the flag was honored with nothing to show — which the renderer
+    /// must SAY rather than silently drop (Q3).</summary>
+    public bool PeekRequested { get; init; } = PeekRequested;
 }
 
 /// <summary>The load-order verdict for one reference an SKSE config declares (housecarl_skse_config_audit, tier B).</summary>

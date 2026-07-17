@@ -284,22 +284,26 @@ public static class SksePluginReader
     /// Approximates the loader's search order for a DLL loaded from the game root: System32, then the PATH directories.
     /// (The debug CRT is never in the game root and never side-by-side for a mod DLL.) Conservative by construction — it
     /// answers "is this findable here", and a false NEGATIVE only downgrades a claim to the safer machine-specific one.</summary>
-    public static bool IsSystemDllResolvable(string dll)
+    public static bool IsSystemDllResolvable(string dll) => _resolvableMemo.GetOrAdd(dll, static d =>
     {
         try
         {
             string sys = Environment.GetFolderPath(Environment.SpecialFolder.System);
-            if (sys.Length > 0 && File.Exists(Path.Combine(sys, dll))) return true;
+            if (sys.Length > 0 && File.Exists(Path.Combine(sys, d))) return true;
             foreach (var dir in (Environment.GetEnvironmentVariable("PATH") ?? "").Split(Path.PathSeparator))
             {
                 if (dir.Length == 0) continue;
-                try { if (File.Exists(Path.Combine(dir.Trim(), dll))) return true; }
+                try { if (File.Exists(Path.Combine(dir.Trim(), d))) return true; }
                 catch { /* a malformed PATH entry is not an answer — keep looking */ }
             }
         }
         catch { /* environment unreadable → fall through to "not resolvable", the machine-specific (safer) claim */ }
         return false;
-    }
+    });
+
+    /// <summary>Memo for <see cref="IsSystemDllResolvable"/>: System32 + PATH are machine-static for the process's life,
+    /// so the stat walk is worth exactly one run per name. (Concurrent because tool calls are.)</summary>
+    static readonly System.Collections.Concurrent.ConcurrentDictionary<string, bool> _resolvableMemo = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Numeric dotted-version equality with zero-padding ("1.6.1170" == "1.6.1170.0"). A non-numeric
     /// segment ⇒ NOT equal (never guessed equal — a garbage compat entry must not accidentally PASS a lock, Q3).</summary>
@@ -377,10 +381,13 @@ public static class SksePluginReader
             {
                 var block = pe.GetSectionData(dirRva);
                 if (block.Length == 0) return false;                   // directory declared but maps to no section → corrupt
+                // Bound by what the HEADER declares, not merely by the section remainder: an unterminated table would
+                // otherwise read on into adjacent .rdata and invent descriptors out of unrelated bytes.
+                int limit = Math.Min(dirSize, block.Length);
                 var rd = block.GetReader();
                 for (int i = 0; i < MaxDescriptors; i++)
                 {
-                    if ((i + 1) * stride > block.Length) return false; // table runs past its section without terminating → corrupt
+                    if ((i + 1) * stride > limit) return false;        // table runs past its declared size without terminating → corrupt
                     rd.Offset = i * stride;
                     uint attributes = delay ? rd.ReadUInt32() : 0;     // delay-load: Attributes precedes the name RVA
                     rd.Offset = i * stride + nameOff;
@@ -389,7 +396,12 @@ public static class SksePluginReader
                     // VA-based (pre-VS2015); its "RVA" is an absolute address we must NOT resolve — skip, don't guess.
                     if (nameRva == 0) return true;
                     if (delay && (attributes & 1) == 0) continue;
-                    if (ReadAsciiAt(pe, nameRva) is { Length: > 0 } n && seen.Add(n)) names.Add(n);
+                    // An unresolvable name is CORRUPTION, and skipping it would hand back a short list that renders as a
+                    // complete "imports (N): …" — a silent partial answer, which is worse here than no answer: if the
+                    // entry we dropped were vcruntime140d.dll, the Debug-CRT check would report a clean bill of health.
+                    // Fail the whole walk (→ null → UNKNOWN), consistent with this method's directory-level posture.
+                    if (ReadAsciiAt(pe, nameRva) is not { Length: > 0 } n) return false;
+                    if (seen.Add(n)) names.Add(n);                     // a DUPLICATE name is normal dedup, not a failure
                 }
                 return false;                                          // never hit the terminator inside the bound → corrupt
             }

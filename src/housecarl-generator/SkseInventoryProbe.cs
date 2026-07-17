@@ -31,6 +31,16 @@ internal static class SkseInventoryProbe
         int peeked = data.Dlls.Count(e => e.Peek is not null);
         Console.WriteLine($"\n[timing] SkseInventory over {data.Dlls.Count} DLLs + {data.Configs.Count} configs" +
                           $"{(peek ? $" (peeked {peeked})" : "")} in {sw.ElapsedMilliseconds} ms");
+
+        // Tier-D import-walk accounting over the REAL layer. A DLL that opened as a PE but whose import walk came back
+        // UNKNOWN is either genuinely corrupt or a bug in the walk's corruption bounds — either way it silently
+        // suppresses the Debug-CRT check for that DLL, so the count is worth stating rather than discovering later.
+        var withInfo = data.Dlls.Where(e => e.Plugin is not null).ToList();
+        var unknown = withInfo.Where(e => e.Plugin!.Imports is null).ToList();
+        var empty = withInfo.Where(e => e.Plugin!.Imports is { Count: 0 }).ToList();
+        Console.WriteLine($"[imports] {withInfo.Count - unknown.Count}/{withInfo.Count} PE-read DLLs walked" +
+                          $" · {unknown.Count} UNKNOWN (walk failed) · {empty.Count} genuinely import-free");
+        foreach (var u in unknown) Console.WriteLine($"    UNKNOWN: {u.FileName} ({u.Plugin!.Kind})");
         return 0;
     }
 
