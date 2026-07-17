@@ -17,16 +17,20 @@ internal static class SkseInventoryProbe
     {
         string? mo2 = ArgVal(args, "--mo2");
         string? filter = ArgVal(args, "--filter");
+        bool peek = Array.IndexOf(args, "--peek") >= 0;             // tier D: peek the filter-matched DLLs (needs --filter)
         if (mo2 is null) { Console.WriteLine("skse-inventory-real needs --mo2 <MO2 instance folder>"); return 2; }
+        if (peek && filter is null) { Console.WriteLine("--peek needs --filter (a peek is per-DLL)"); return 2; }
 
         var store = new UserConfigStore(Path.Combine(Path.GetTempPath(), "hc-skse-real-" + Guid.NewGuid().ToString("N") + ".json"));
         using var svc = LoadOrderService.WithInstance(mo2, 0, store);
         var sw = Stopwatch.StartNew();
-        var data = svc.SkseInventory();
+        var data = svc.SkseInventory(peek ? filter : null);
         sw.Stop();
 
         Console.WriteLine(SkseInventoryWire.Render(data, filter, 80_000));
-        Console.WriteLine($"\n[timing] SkseInventory over {data.Dlls.Count} DLLs + {data.Configs.Count} configs in {sw.ElapsedMilliseconds} ms");
+        int peeked = data.Dlls.Count(e => e.Peek is not null);
+        Console.WriteLine($"\n[timing] SkseInventory over {data.Dlls.Count} DLLs + {data.Configs.Count} configs" +
+                          $"{(peek ? $" (peeked {peeked})" : "")} in {sw.ElapsedMilliseconds} ms");
         return 0;
     }
 
