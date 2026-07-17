@@ -515,7 +515,8 @@ public static class DialogueValidateGuardProbe
             all &= Pass("BRANCH-CKPARITY-GAP warns TNAM+DNAM", ok, $"kind={r.InputKind} issues={InputIssues(r)}");
         }
 
-        // ---------- BRANCH-CKPARITY-OK: a Category-set DLBR reports NO input issues — the no-false-positive lock ----------
+        // ---------- BRANCH-CKPARITY-OK: a CK-parity-complete DLBR (ApplyBranchDefaults-filled: TNAM + DNAM) reports
+        //            NO input issues — the no-false-positive lock ----------
         {
             var r = DialogueValidate.Run(resolver, assets, brOkFk);
             bool ok = r.InputKind == "branch" && r.Error is null && r.InputIssues.Count == 0;
