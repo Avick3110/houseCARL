@@ -189,11 +189,8 @@ static class SkseInventoryWire
             AppendCapped(sb, debugCrt, cap, x =>
             {
                 var crt = x.Plugin!.DebugCrtImports;
-                bool loadsHere = crt.All(SksePluginReader.IsSystemDllResolvable);
-                string verdict = loadsHere
-                    ? "  loads on THIS machine (you have the debug runtime) — but error 126 for anyone without Visual Studio"
-                    : "  ≠ this machine — will NOT load (error 126: the debug runtime isn't here)";
-                return $"  - {x.FileName} → needs {string.Join(", ", crt)}{verdict}{Provider(x)}";
+                return $"  - {x.FileName} → needs {string.Join(", ", crt)}" +
+                       $"{DebugCrtLayerVerdict(crt, SksePluginReader.IsSystemDllResolvable)}{Provider(x)}";
             });
         }
 
@@ -311,17 +308,10 @@ static class SkseInventoryWire
         }
 
         // peek= honored with NOTHING to show is still an unanswered question — say so. A bare peek=true already fails
-        // loud (PeekArgError); this is the other half: the filter was fine but matched no PEEKABLE DLL, and silently
-        // rendering the config matches would leave the user believing the peek came back empty (Q3).
-        if (d.PeekRequested && dllHits.All(e => e.Peek is null))
-        {
-            sb.Append("\n[!] peek=true matched no loose DLL — nothing was peeked");
-            sb.Append(dllHits.Count == 0
-                ? ": this filter matched no DLL at all"
-                : $": the {dllHits.Count} matching DLL(s) have no loose winner — SKSE loads loose DLLs only, so there is " +
-                  "no image the game would read");
-            sb.Append(". Pass filter= the name of a loose DLL to peek it.\n");
-        }
+        // loud (PeekArgError), and a matched-but-unpeekable DLL says so on its own entry (AppendPeek); this is the last
+        // case: the filter matched NO DLL at all, so there is no entry to carry the notice.
+        if (d.PeekRequested && dllHits.Count == 0)
+            sb.Append("\n[!] peek=true matched no DLL at all — nothing was peeked. Pass filter= the name of a loose DLL to peek it.\n");
 
         // Remaining matching configs (not already shown as a DLL's paired config), grouped by folder.
         var rest = cfgHits.Where(e => !shownCfg.Contains(e.RelPath))
@@ -356,7 +346,9 @@ static class SkseInventoryWire
         // Service-level note (subfolder-not-loader-scoped / no active provider / BSA-only) — shown for ANY kind, not just
         // Modern (fix: a bundled-dependency or unreadable DLL in a subfolder also deserves the loader-path flag).
         if (e.Note is { } enote) sb.Append("  [!] ").Append(enote).Append('\n');
-        if (p is null) { if (e.Note is null) sb.Append("  no static metadata\n"); return; }
+        // A null Plugin is the BSA-only / unprovided DLL — which is PRECISELY the entry a peek can't read, so the peek
+        // notice has to ride this branch too. (It didn't, and the notice was unreachable for its own motivating case.)
+        if (p is null) { if (e.Note is null) sb.Append("  no static metadata\n"); AppendPeek(sb, e, d); return; }
 
         switch (p.Kind)
         {
@@ -418,7 +410,15 @@ static class SkseInventoryWire
     /// the code DOES (tier E), and absence of a string proves NOTHING — plenty of DLLs build their references at runtime.</summary>
     static void AppendPeek(StringBuilder sb, SkseFileEntry e, SkseInventoryData d)
     {
-        if (e.Peek is not { } peek) return;
+        if (e.Peek is not { } peek)
+        {
+            // PER-ENTRY, so a MIXED match says it too: a filter hitting two loose DLLs and one BSA-only one used to
+            // render two peeks and nothing at all for the third. "peek was honored, this one had no image to read" is
+            // an answer the user asked for; leaving the entry silent makes them infer an empty peek (Q3).
+            if (d.PeekRequested)
+                sb.Append("  (not peeked: no loose winner — SKSE loads loose DLLs only, so there is no image the game would read)\n");
+            return;
+        }
         sb.Append("  ── peek (what the image contains) ──\n");
         if (peek.Failed) { sb.Append("  [!] ").Append(peek.Note).Append('\n'); return; }
 
@@ -514,6 +514,15 @@ static class SkseInventoryWire
     /// in one run. Without the seam CI (no Visual Studio) could only ever pin the "will NOT load" arm and a dev box only
     /// the other, leaving whichever half the current machine doesn't produce unpinned — which is precisely the half that
     /// would rot unnoticed.</summary>
+    /// <summary>The one-line Debug-CRT verdict for the whole-layer summary — the same machine-dependence as
+    /// <see cref="DebugCrtVerdict"/>, in the terse register the roster needs. Pure with the probe injected for the same
+    /// reason: an inline <c>IsSystemDllResolvable</c> call here would leave whichever wording the current machine can't
+    /// produce unpinned, which is exactly the half that rots.</summary>
+    internal static string DebugCrtLayerVerdict(IReadOnlyList<string> crt, Func<string, bool> resolvable) =>
+        crt.All(resolvable)
+            ? "  loads on THIS machine (you have the debug runtime) — but error 126 for anyone without Visual Studio"
+            : "  ≠ this machine — will NOT load (error 126: the debug runtime isn't here)";
+
     internal static string DebugCrtVerdict(IReadOnlyList<string> crt, Func<string, bool> resolvable)
     {
         var missing = crt.Where(c => !resolvable(c)).ToList();
