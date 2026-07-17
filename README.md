@@ -58,6 +58,13 @@ models — by construction, not a hand-maintained subset.
 - **See the SKSE-plugin layer** — inventory the DLLs and their config files under `Data\SKSE\Plugins`, each
   resolved to the mod that wins it (with the full conflict chain), and read each winning DLL's declared version
   metadata — name, author, target runtime, Address-Library flag — statically, without loading it.
+- **Audit that layer for what's actually broken** — cross-check the native Papyrus functions your scripts
+  declare against the DLLs that must implement them (catching a mod whose scripts are installed but whose DLL
+  is missing, 32-bit, built for the wrong game version, or a debug build that won't load — so its calls
+  silently no-op), and cross-check the form references your SKSE configs declare against your real load order
+  (a dangling FormID caught here, instead of by a silent in-game failure). Or peek inside a single DLL's
+  image — its imports and the config paths and plugin names it embeds — to see what an unfamiliar plugin
+  touches. Static and report-only.
 - **See through the SkyPatcher layer** — inventory every SkyPatcher INI in your load order at once (apply
   order, VFS shadows, INI-vs-INI conflicts, and dead / duplicate / no-op writes), or read one record's
   *true* state after the whole SkyPatcher layer has replayed over it — so a runtime INI edit is as visible
@@ -100,7 +107,7 @@ models — by construction, not a hand-maintained subset.
 
 ### Download — recommended (modders)
 
-1. Download **`houseCARL-1.8.0.zip`** from the [latest release](https://github.com/Avick3110/houseCARL/releases).
+1. Download **`houseCARL-1.9.0.zip`** from the [latest release](https://github.com/Avick3110/houseCARL/releases).
 2. Unzip it and run **`houseCARL-Setup.exe`**.
 3. Pick your host — **`[1] Claude Code`**, **`[2] Codex`**, or **`[3] Both`**. The installer wires
    everything up:
@@ -130,7 +137,7 @@ cd houseCARL
 
 The script regenerates the reflection rulebook, publishes the server framework-dependent (trimming **off**
 — houseCARL is reflection-driven, so trimming would strip types and silently lose coverage), bundles the
-skills, builds the setup utility, and packs `release/houseCARL-1.8.0.zip`. Install the output with
+skills, builds the setup utility, and packs `release/houseCARL-1.9.0.zip`. Install the output with
 `houseCARL-Setup.exe`, `claude --plugin-dir ./dist/housecarl`, or the bundled local-marketplace
 descriptor — see the script header for details.
 
