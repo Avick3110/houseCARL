@@ -242,6 +242,10 @@ if (args.Length > 0 && args[0] == "remap-wave2-nested-mech") return RemapWave2Ne
 // MO2 instance and print the render + timing (the CI skse-reader-guard pins the decode; this proves the full inventory).
 if (args.Length > 0 && args[0] == "skse-inventory-real") return SkseInventoryProbe.RunReal(args[1..]);
 
+// SKSE tier D (static peek, #199): the CI guard for the import walk / string extraction / Debug-CRT verdict / render.
+// The real-data side needs no harness of its own — skse-inventory-real --peek --filter <dll> drives the live peek.
+if (args.Length > 0 && args[0] == "skse-peek-guard") return SksePeekProbe.RunGuard(args[1..]);
+
 // SKSE config audit (tier B, #199) reference-extractor + verdict CI guard, and the manual real-data harness (the live gate:
 // runs the whole audit against a live MO2 instance and prints the audit + timing).
 if (args.Length > 0 && args[0] == "skse-config-audit-guard") return SkseConfigAuditProbe.RunGuard(args[1..]);

@@ -136,6 +136,12 @@ public static class CiAll
         // reverse-engineered offset map — supportEmail is 252, not 256 — + the flag/version/compat interpretation) and
         // the honest-degrade paths (real-PE Read → NotSkse; non-PE / missing → Unreadable, never a throw).
         ("skse-reader-guard", SkseReaderProbe.RunGuard),
+        // SKSE tier D (static peek): the string extraction (ASCII *and* UTF-16LE — an ASCII-only scan is a confident
+        // half-blind answer), the classification filter that keeps compiler noise out of a DLL's "config surface", the
+        // PE import walk + its empty-vs-unknown tri-state, the CURATED Debug-CRT list (a d-suffix is a convention, not a
+        // loader rule), and the render arms — load-order cross-check, the machine-checked "will not load" wording, the
+        // framing line, and the bare-peek loud error.
+        ("skse-peek-guard", SksePeekProbe.RunGuard),
         ("mo2instance-probe", Mo2InstanceProbe.RunProbe),
         // meta.ini Nexus-update-cache parse (Tier 0 PR review fold): the QSettings quirks + exact-key vs [installedFiles]
         // 1\modid, the fiddliest OFFLINE logic behind housecarl_update_status — locked with synthetic fixtures. Now also
