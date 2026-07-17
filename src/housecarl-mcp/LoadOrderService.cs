@@ -261,16 +261,35 @@ public sealed class LoadOrderService : IDisposable
     /// enumerate + resolve + PE reads run OUTSIDE the gate (the captured view is a handle-free immutable snapshot), so an
     /// inventory never serializes other tool calls behind its file I/O. Distributor INIs (SPID <c>*_DISTR</c>, KID
     /// <c>*_KID</c>) live in Data\ ROOT, not here, and are owned by their authoring skills — out of this scope by design.</summary>
-    public SkseInventoryData SkseInventory()
+    /// <param name="peekFilter">Tier D. When non-null, every DLL entry matching it (<see cref="SkseFileEntry.MatchesDll"/> —
+    /// the same predicate the renderer filters on) also gets its image string-scanned into <see cref="SkseFileEntry.Peek"/>.
+    /// Null = no scan. Per-DLL by design: the scan reads the WHOLE image, unlike the import walk, which rides the manifest
+    /// read every DLL already gets.</param>
+    public SkseInventoryData SkseInventory(string? peekFilter = null)
     {
         AssetResolver.AssetView view;
         IReadOnlyList<string> warnings;
-        string profileName;
+        string profileName, profileDir;
         lock (_gate)
         {
+            EnsurePathsDerived();
             view = Assets.Capture();                              // build/refresh the asset resolver under the gate, ONCE
             warnings = _assetWarnings;
             profileName = _profileName;
+            profileDir = _profileDir;
+        }
+        // Tier D only: the plugin names a peek's embedded-reference cross-check adjudicates against. A cheap three-file
+        // text parse (no index build), skipped entirely without peek= so a normal inventory pays nothing for it. The set
+        // is what the game actually LOADS: plugins.txt `*` entries PLUS the force-loaded base/CC masters, which load
+        // despite never appearing there — omitting the implicit ones would flag "Dawnguard.esm" ABSENT on an install
+        // that has it, exactly the false alarm this cross-check exists to prevent (Q3).
+        IReadOnlySet<string>? activePlugins = null;
+        if (peekFilter is { Length: > 0 })
+        {
+            var comp = Mo2LoadOrder.ReadComposition(profileDir);
+            var set = new HashSet<string>(comp.ActivePluginNames, StringComparer.OrdinalIgnoreCase);
+            set.UnionWith(comp.ImplicitPluginNames);
+            activePlugins = set;
         }
         // OUTSIDE the gate: the view is pinned + handle-free (AssetResolver.Dispose is a no-op; Resolve reads only the
         // captured snapshot + readonly roots), so enumerating + resolving + PE-reading here can't race a concurrent
@@ -304,12 +323,18 @@ public sealed class LoadOrderService : IDisposable
                 else note = "provided ONLY inside a BSA — the SKSE loader scans loose Data\\SKSE\\Plugins only, so this DLL will not load";
                 if (group.Length > 0 && note is null)
                     note = $"in subfolder '{group}' — NOT on SKSE's loader path (scans SKSE\\Plugins\\*.dll top-level only); a bundled/parent-loaded DLL, not a plugin SKSE loads";
-                dlls.Add(new SkseFileEntry(rel, Path.GetFileName(rel), group, providers, info, note));
+                var entry = new SkseFileEntry(rel, Path.GetFileName(rel), group, providers, info, note);
+                // Tier D string peek — ONLY for a filter-matched DLL with a loose winner (the copy SKSE would load; a
+                // BSA-only DLL never loads, so peeking it would describe an image the game never reads).
+                if (peekFilter is { Length: > 0 } && entry.MatchesDll(peekFilter)
+                    && winner is { Kind: AssetKind.Loose, LooseFilePath: { } peekPath })
+                    entry = entry with { Peek = SksePeek.Scan(peekPath) };
+                dlls.Add(entry);
             }
             else
                 configs.Add(new SkseFileEntry(rel, Path.GetFileName(rel), group, providers, null, null));
         }
-        return new SkseInventoryData(dlls, configs, otherFiles, InstalledGameRuntime(), view.BsaFailures, view.ReadIncomplete, warnings, profileName);
+        return new SkseInventoryData(dlls, configs, otherFiles, InstalledGameRuntime(), view.BsaFailures, view.ReadIncomplete, warnings, profileName, activePlugins);
     }
 
     /// <summary>The immediate subfolder under SKSE\Plugins a file sits in ("" = directly at top level) — the DERIVED,
@@ -5326,8 +5351,25 @@ public sealed record SkseFileEntry(
     string Group,
     IReadOnlyList<SkseProvider> Providers,
     SksePluginReader.SksePluginInfo? Plugin,
-    string? Note)
+    string? Note,
+    SksePeekResult? Peek = null)
 {
+    /// <summary>The tier-D string peek of this DLL's image (<c>peek=true</c>), or null when not requested / not a loose
+    /// DLL. Computed ONLY for entries the peek filter matched — the scan reads the whole image, so it is opt-in per-DLL
+    /// by design. The IMPORT half of tier D needs no flag and lives on <see cref="SksePluginReader.SksePluginInfo.Imports"/>.</summary>
+    public SksePeekResult? Peek { get; init; } = Peek;
+
+    /// <summary>Whether this DLL entry matches a user <c>filter=</c> — the ONE predicate, shared by the renderer's
+    /// filtered view and the service's peek gate. Shared on purpose: two hand-kept copies would drift, and a drift here
+    /// means peeking a different DLL than the one rendered (the exact class the pairing review caught in its per-DLL
+    /// line). Matches filename, winning provider, subfolder, or the declared plugin name/author, case-insensitively.</summary>
+    public bool MatchesDll(string filter)
+    {
+        bool In(string? s) => s is not null && s.Contains(filter, StringComparison.OrdinalIgnoreCase);
+        return In(FileName) || In(WinningProvider) || In(Group)
+            || (Plugin?.Version is { } v && (In(v.Name) || In(v.Author)));
+    }
+
     /// <summary>The VFS winner (first provider), or null if nothing active provides the file.</summary>
     public SkseProvider? Winner => Providers.Count > 0 ? Providers[0] : null;
     /// <summary>The winning provider's name (mod / overwrite / Data / BSA), or null.</summary>
@@ -5351,7 +5393,14 @@ public sealed record SkseInventoryData(
     IReadOnlyList<string> BsaFailures,
     bool ReadIncomplete,
     IReadOnlyList<string> Warnings,
-    string ProfileName);
+    string ProfileName,
+    IReadOnlySet<string>? ActivePlugins = null)
+{
+    /// <summary>The plugin filenames the game actually loads (active + force-loaded implicit) — resolved ONLY for a
+    /// tier-D peek, which cross-checks a DLL's embedded plugin names against it. <c>null</c> ⇒ not resolved, so a
+    /// renderer must NOT call any embedded name "absent from the load order" (Q3: an unasked question has no answer).</summary>
+    public IReadOnlySet<string>? ActivePlugins { get; init; } = ActivePlugins;
+}
 
 /// <summary>The load-order verdict for one reference an SKSE config declares (housecarl_skse_config_audit, tier B).</summary>
 public enum SkseRefVerdict

@@ -32,19 +32,30 @@ public static class SkseTools
          "readable), non-plugin DLLs (bundled dependencies), subfolder DLLs (not on SKSE's loader path), and any DLL contested " +
          "by more than one mod. Pass filter= a plugin/mod/DLL name, author, or config FOLDER (e.g. 'SkyPatcher', 'EngineFixes', " +
          "'po3', 'OStim') to expand that group or see a plugin in full (all flags, compatible runtimes, email, providers, " +
-         "configs). It does NOT read DLL behavior (that's the ceiling), and it does NOT cover distributor INIs (SPID *_DISTR, " +
-         "KID *_KID) — those live in Data\\ root and are owned by the spid-authoring / kid-authoring skills. Read-only.")]
+         "configs). Pass peek=true WITH filter= to additionally read what the matching DLL's IMAGE statically contains: the " +
+         "DLLs it imports (with derived flags — graphics/input hooks, network, and which sibling non-plugin DLL is bundled " +
+         "for it), the config paths it embeds (which folder it actually scans), and the plugin names it embeds, each " +
+         "cross-checked against your load order. Debug-build plugins are flagged WITHOUT peek — a DLL importing the debug C " +
+         "runtime fails with error 126 for anyone without Visual Studio. It does NOT read DLL behavior (that's the ceiling; " +
+         "an embedded string is what the image CONTAINS, never what the code DOES, and absence proves nothing), and it does " +
+         "NOT cover distributor INIs (SPID *_DISTR, KID *_KID) — those live in Data\\ root and are owned by the " +
+         "spid-authoring / kid-authoring skills. Read-only.")]
     public static string SkseInventory(
         LoadOrderService svc,
         [Description("Optional. A plugin name, author, DLL filename, providing-mod, or config-FOLDER substring (case-insensitive). " +
             "Expands the matching config folder to its individual files, and shows full per-plugin detail for a matching DLL. " +
             "Omit for the whole-layer overview.")]
             string? filter = null,
+        [Description("Optional. Static peek at the matching DLL's image — its imports, the config paths and plugin names it " +
+            "embeds. REQUIRES filter= (a peek is per-DLL: it reads whole images, and a whole-layer dump would be unreadable " +
+            "noise). Use it to answer 'what does this unfamiliar DLL touch'.")]
+            bool peek = false,
         [Description("Optional. Max characters before lists are cut with an explicit notice. 0 = the server default (~80k).")]
             int max_chars = 0) => Guard.Tool("housecarl_skse_inventory", () =>
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
-        var data = svc.SkseInventory();
+        if (SkseInventoryWire.PeekArgError(peek, filter) is { } err) return err;
+        var data = svc.SkseInventory(peek ? filter!.Trim() : null);
         return SkseInventoryWire.Render(data, filter, max_chars > 0 ? max_chars : 80_000);
     });
 
@@ -120,6 +131,16 @@ public static class SkseTools
 /// notice (Q3 — never silent truncation). filter= expands a group to its individual configs, or a plugin to full detail.</summary>
 static class SkseInventoryWire
 {
+    /// <summary>The <c>peek=</c> argument check, or null when the call is valid. A peek is per-DLL BY DESIGN (plan §3a):
+    /// peeking all ~290 DLLs would read every image and render a wall that invites misreading noise as signal — the tool's
+    /// central design risk. So a bare <c>peek=true</c> fails LOUD rather than silently ignoring the flag or quietly
+    /// peeking one arbitrary DLL (Q3). Pure + internal so the skse-peek-guard pins it without a live service.</summary>
+    internal static string? PeekArgError(bool peek, string? filter) =>
+        peek && string.IsNullOrWhiteSpace(filter)
+            ? "peek=true needs filter= — a peek is per-DLL, not a whole-layer dump (it reads each matching DLL's whole " +
+              "image). Pass filter='<DLL/plugin/mod name>' to name the DLL to peek, e.g. filter='SkyPatcher' peek=true."
+            : null;
+
     public static string Render(SkseInventoryData d, string? filter, int cap)
     {
         if (filter is { Length: > 0 }) return RenderFiltered(d, filter.Trim(), cap);
@@ -155,6 +176,27 @@ static class SkseInventoryWire
           .Append(locked.Count).Append(" version-LOCKED\n");
 
         // ── Diagnostic subsets, FIRST and in full (the point of the tool). ──
+
+        // Debug-CRT offenders lead: it is the sharpest static verdict in the layer (deterministic breakage, not a
+        // mismatch to verify). Surfaced WITHOUT peek= — plan §8.3, decided on the measured data §9 asked for: the import
+        // walk this needs rides the PE open every DLL's manifest read already pays for, which is noise beside the
+        // inventory's per-file VFS resolve. A user should not have to suspect this to be told about it.
+        var debugCrt = loaded.Where(x => x.Plugin is { Imports: not null } pl && pl.DebugCrtImports.Count > 0).ToList();
+        if (debugCrt.Count > 0)
+        {
+            sb.Append("\n[!] DEBUG-BUILD plugins (").Append(debugCrt.Count)
+              .Append(") — they import the debug C runtime, which ships only with Visual Studio and is NOT redistributable:\n");
+            AppendCapped(sb, debugCrt, cap, x =>
+            {
+                var crt = x.Plugin!.DebugCrtImports;
+                bool loadsHere = crt.All(SksePluginReader.IsSystemDllResolvable);
+                string verdict = loadsHere
+                    ? "  loads on THIS machine (you have the debug runtime) — but error 126 for anyone without Visual Studio"
+                    : "  ≠ this machine — will NOT load (error 126: the debug runtime isn't here)";
+                return $"  - {x.FileName} → needs {string.Join(", ", crt)}{verdict}{Provider(x)}";
+            });
+        }
+
         if (locked.Count > 0)
         {
             // With the installed runtime resolved this is PASS/FAIL per plugin; without it, the honest degrade is
@@ -243,11 +285,10 @@ static class SkseInventoryWire
     static string RenderFiltered(SkseInventoryData d, string filter, int cap)
     {
         bool In(string? s) => s is not null && s.Contains(filter, StringComparison.OrdinalIgnoreCase);
-        bool MatchDll(SkseFileEntry e) => In(e.FileName) || In(e.WinningProvider) || In(e.Group)
-            || (e.Plugin?.Version is { } v && (In(v.Name) || In(v.Author)));
         bool MatchCfg(SkseFileEntry e) => In(e.FileName) || In(e.WinningProvider) || In(e.Group);
 
-        var dllHits = d.Dlls.Where(MatchDll).OrderBy(e => e.FileName, StringComparer.OrdinalIgnoreCase).ToList();
+        // SkseFileEntry.MatchesDll is the ONE DLL predicate — the service peeks exactly the entries this view renders.
+        var dllHits = d.Dlls.Where(e => e.MatchesDll(filter)).OrderBy(e => e.FileName, StringComparer.OrdinalIgnoreCase).ToList();
         var cfgHits = d.Configs.Where(MatchCfg).ToList();
 
         var sb = new StringBuilder();
@@ -311,6 +352,9 @@ static class SkseInventoryWire
             case SksePluginReader.SksePluginKind.Unreadable:
                 sb.Append("  ").Append(p.Note).Append('\n');
                 if (p.Is64Bit == false) sb.Append("  [!] NOT an x64 image — a 32-bit DLL cannot load in Skyrim SE/AE.\n");
+                // Tier D rides EVERY kind: a bundled dependency or an unreadable-manifest DLL still has an import table,
+                // and a debug-CRT build is exactly the sort of thing that shows up as a DLL nobody can classify.
+                AppendPeek(sb, e, d);
                 return;   // Is64Bit == false is EXPLICITLY-determined non-x64; null (unknown) never triggers the claim (finding #1)
         }
 
@@ -352,6 +396,116 @@ static class SkseInventoryWire
                 (c.Group.Length > 0 ? c.Group + "\\" : "") + c.FileName + Provider(c)))).Append('\n');
             foreach (var c in cfgs) shownCfg.Add(c.RelPath);
         }
+        AppendPeek(sb, e, d);
+    }
+
+    /// <summary>The tier-D peek block for one DLL (<c>peek=true</c>): what the IMAGE statically contains — its imports
+    /// (with the derived flags), the config paths and plugin names it embeds, and the scan accounting. Renders nothing
+    /// unless a peek ran. Every line here is a fact about bytes in a file, and the framing line says so: this is not what
+    /// the code DOES (tier E), and absence of a string proves NOTHING — plenty of DLLs build their references at runtime.</summary>
+    static void AppendPeek(StringBuilder sb, SkseFileEntry e, SkseInventoryData d)
+    {
+        if (e.Peek is not { } peek) return;
+        sb.Append("  ── peek (what the image contains) ──\n");
+        if (peek.Failed) { sb.Append("  [!] ").Append(peek.Note).Append('\n'); return; }
+
+        // ── imports ──
+        var imports = e.Plugin?.Imports;
+        if (imports is null)
+            sb.Append("  imports: UNKNOWN — the import directory could not be walked (corrupt or absent optional header)\n");
+        else if (imports.Count == 0)
+            sb.Append("  imports: none (walked, genuinely empty)\n");
+        else
+        {
+            sb.Append("  imports (").Append(imports.Count).Append("): ").Append(string.Join(", ", imports)).Append('\n');
+            var hooks = imports.Where(i => HookImports.ContainsKey(i)).ToList();
+            foreach (var h in hooks) sb.Append("    → ").Append(h).Append(": ").Append(HookImports[h]).Append('\n');
+            // Bundled-dependency attribution: an import satisfied by a sibling NON-plugin DLL in the same layer (the
+            // msdia140.dll ← CrashLogger case) — names WHY that stray DLL is installed.
+            var siblings = d.Dlls.Where(x => x.Plugin is { Kind: SksePluginReader.SksePluginKind.NotSkse })
+                .Select(x => x.FileName).Where(f => imports.Contains(f, StringComparer.OrdinalIgnoreCase)).ToList();
+            if (siblings.Count > 0)
+                sb.Append("    → bundled with this plugin (a non-plugin DLL in this layer satisfies it): ")
+                  .Append(string.Join(", ", siblings)).Append('\n');
+        }
+        AppendDebugCrt(sb, e);
+
+        // ── config surface ──
+        if (peek.ConfigPaths.Count > 0)
+        {
+            sb.Append("  config paths embedded (").Append(peek.ConfigPaths.Count).Append("):\n");
+            foreach (var c in peek.ConfigPaths.Take(PeekListCap)) sb.Append("    - ").Append(c).Append('\n');
+            if (peek.ConfigPaths.Count > PeekListCap)
+                sb.Append("    ... [showing ").Append(PeekListCap).Append(" of ").Append(peek.ConfigPaths.Count).Append("]\n");
+        }
+
+        // ── plugin references, cross-checked ──
+        if (peek.PluginRefs.Count > 0)
+        {
+            sb.Append("  plugin names embedded (").Append(peek.PluginRefs.Count).Append("):\n");
+            foreach (var r in peek.PluginRefs.Take(PeekListCap))
+            {
+                string verdict = d.ActivePlugins is null ? ""
+                    : d.ActivePlugins.Contains(r) ? "  (in your load order)"
+                    : "  [!] NOT in your load order";
+                sb.Append("    - ").Append(r).Append(verdict).Append('\n');
+            }
+            if (peek.PluginRefs.Count > PeekListCap)
+                sb.Append("    ... [showing ").Append(PeekListCap).Append(" of ").Append(peek.PluginRefs.Count).Append("]\n");
+        }
+
+        sb.Append("  scanned ").Append(peek.RunsScanned).Append(" string run(s) over ")
+          .Append(peek.BytesScanned / 1024).Append(" KB → showed ")
+          .Append(peek.ConfigPaths.Count + peek.PluginRefs.Count)
+          .Append(" (the classes above are a FILTER over the image, not the whole haystack)\n");
+        if (peek.Note is { } note) sb.Append("  [!] ").Append(note).Append('\n');
+        sb.Append("  (imports/strings are what the image CONTAINS, never what the code DOES — behavior is unreadable by " +
+                  "design. Absence proves nothing: many DLLs build their references at runtime or read them from configs.)\n");
+    }
+
+    /// <summary>Max entries per peek list before an explicit cut — a peek is per-DLL and readability is the point (§6's
+    /// design risk: noise misread as signal). Never a silent truncation.</summary>
+    const int PeekListCap = 40;
+
+    /// <summary>Imports whose presence names a capability the DLL reaches for. FACTS about the import table with a plain
+    /// gloss — never a behavior claim (it hooks the API; what it does with it is tier E).</summary>
+    static readonly Dictionary<string, string> HookImports = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["d3d11.dll"] = "Direct3D 11 — touches graphics/rendering",
+        ["dxgi.dll"] = "DXGI — touches the swapchain/presentation layer",
+        ["d3dcompiler_47.dll"] = "D3D shader compiler — compiles shaders at runtime",
+        ["dinput8.dll"] = "DirectInput — touches input handling",
+        ["xinput1_3.dll"] = "XInput — touches controller input",
+        ["ws2_32.dll"] = "Winsock — opens network sockets",
+        ["winhttp.dll"] = "WinHTTP — makes HTTP requests",
+        ["wininet.dll"] = "WinINet — makes internet requests",
+    };
+
+    /// <summary>The Debug-CRT verdict — tier D's sharpest finding and the ONE peek line allowed "will not load" language,
+    /// because it is a static, deterministic loader fact (the version-LOCKED class). The debug CRT is NOT redistributable:
+    /// it ships with Visual Studio and is absent from a stock Windows, so a plugin importing it dies with error 126.
+    ///
+    /// But "will not load" is only unconditionally true where the runtime is ABSENT — and houseCARL runs on the modder's
+    /// own machine, where it can CHECK rather than assume. A plugin author with VS installed would otherwise be told a DLL
+    /// that loads fine for him "will NOT load": a confident wrong answer, which is worse than no answer (Q3). So the
+    /// verdict splits: absent here ⇒ it will not load, stated flatly; present here ⇒ it loads FOR YOU and is broken for
+    /// everyone else — which is the more useful finding if you are the one shipping it.</summary>
+    static void AppendDebugCrt(StringBuilder sb, SkseFileEntry e)
+    {
+        if (e.Plugin is not { } p || p.Imports is null) return;   // never walked ⇒ no claim either way
+        var crt = p.DebugCrtImports;
+        if (crt.Count == 0) return;
+
+        var missing = crt.Where(c => !SksePluginReader.IsSystemDllResolvable(c)).ToList();
+        sb.Append("  [!] DEBUG BUILD — imports the debug C runtime: ").Append(string.Join(", ", crt)).Append('\n');
+        if (missing.Count > 0)
+            sb.Append("      → will NOT load: ").Append(string.Join(", ", missing))
+              .Append(missing.Count == 1 ? " is" : " are").Append(" not present on this machine, so the loader fails with " +
+                      "error 126 (ERROR_MOD_NOT_FOUND). The debug CRT ships only with Visual Studio and is not redistributable — " +
+                      "this DLL was shipped as a Debug build by mistake. Ask its author for a Release build.\n");
+        else
+            sb.Append("      → it loads on THIS machine (you have the debug runtime installed — Visual Studio), but it will " +
+                      "fail with error 126 for anyone who doesn't. If you built this, ship a Release build.\n");
     }
 
     /// <summary>The compat one-word tag for the terse roster: "AddrLib", "SigScan", or "LOCKED→[runtimes]".</summary>
