@@ -4,6 +4,55 @@ All notable changes to houseCARL are documented here. Versioning is [semantic](h
 the `version` in `.claude-plugin/plugin.json` is bumped on each release, so installed users update only
 when it changes.
 
+## 1.9.0 — 2026-07-17
+
+houseCARL's view of the **SKSE-plugin layer** grows from *inventory* into *diagnosis*: two new audit tools
+that catch a broken native pairing or a dead config reference statically — before the game fails silently on
+it — completing the SKSE layer-visibility ladder (tiers A→D, #199). **Two new tools (→ 45), no new skills
+(still 13).**
+
+**SKSE layer diagnosis — two new audit tools**
+
+- **`housecarl_native_pairing_audit` — the native functions your scripts declare vs the DLLs that must
+  implement them.** A native Papyrus function is one thing declared in two files that ship and fail
+  independently: a `.pex` class flags the function, and an SKSE DLL registers the implementation at runtime.
+  When the halves don't meet, the engine logs a cryptic "unable to bind" and the calls silently no-op. This
+  scans the winning copy of every compiled script (loose + BSA) and pairs each native-declaring class to the
+  DLLs its mod ships under `SKSE\Plugins`, leading with the findings: **PAIRED-BUT-DEAD** — scripts installed,
+  but every candidate DLL statically will not load (wrong game runtime for a version-locked plugin, BSA-only,
+  shipped in a subfolder, 32-bit, unreadable, or built against the debug CRT) — and **UNPAIRED** — no DLL in
+  sight, a VERIFY flag, typically a declaration copy of a framework you don't have. It keeps the engine
+  baseline honest by construction (a class carried by an official archive is the engine's, even when an SKSE
+  loose override wins the file), and answers "is the pairing plausible and healthy", never "does the DLL
+  register exactly these functions" — runtime behaviour, the honest tier-E ceiling it never crosses.
+- **`housecarl_skse_config_audit` — the form references your SKSE configs declare vs your real load order.**
+  Reads the winning copy of every `.ini` / `.toml` / `.json` / `.yaml` config across the full depth of
+  `Data\SKSE\Plugins`, extracts every form-shaped reference (a hex FormID paired with a plugin name in either
+  order — the DSD/po3, SkyPatcher, and tilde forms — plus plugin-named folder gates), and resolves each to a
+  verdict: **OK**, **PLUGIN MISSING**, **DANGLING** (plugin present but no such record), or **UNPARSEABLE**.
+  The summary separates **BROKEN** (dangling / unparseable — actionable) from **INERT** (a plugin you don't
+  have installed — usually optional support), so a genuinely broken patch is caught by houseCARL instead of by
+  a silent in-game failure. Framework-agnostic: it checks reference *validity*, never what a reference is
+  *for* (that's per-framework skill territory) or what the DLL *does* with it (the honest ceiling).
+
+**Enhancement**
+
+- **`housecarl_skse_inventory` gains `peek=` — a static peek inside a specific DLL's image.** With `filter=`
+  naming a DLL, `peek=true` reports the DLL's imports and the config paths and plugin names it embeds —
+  answering "what does this unfamiliar DLL touch" without loading it. Per-DLL by design (a whole-layer peek
+  would read every image and drown signal in noise), so a bare `peek=true` fails loud asking for a filter.
+
+**Fixes**
+
+- **`check_errors` no longer false-flags a faction owner's required rank as a dangling reference.** A record
+  owned by a faction at a required rank was misread as carrying a broken link; the rank is a valid part of the
+  ownership structure, not a form reference, and is now recognized. (#207)
+- **`bulk_create` / `create_record` now fill a dialogue branch's `Flags` (DNAM).** Mutagen omits a null
+  optional subrecord, and the engine reads an absent DNAM as **top-level** — so a `DialogBranch` you never
+  marked top-level was silently published to the player's dialogue menu: byte-valid, passing every check, wrong
+  only once the game loaded it. The CK-parity auto-fill now seeds `Flags` (matching how it already handles
+  `Category`), surfaced as an explicit op, and `validate_dialogue` warns when a branch carries no DNAM. (#212)
+
 ## 1.8.1 — 2026-07-16
 
 A small read/query-surface patch: two refinements that let a whole-plugin audit and a record read land the
