@@ -8,8 +8,10 @@ namespace HousecarlCore;
 /// reference — the target of HasSpell / actor-value player-state gates and countless script, package, and condition
 /// links) and the Player base NPC_ (a GetIsID Player form param). Any tool that flags "target not in the active load
 /// order" must exempt them or it false-warns on the standard player-state pattern — so the SINGLE source of truth lives
-/// here, shared by BOTH the dialogue condition lints (<see cref="DialogueValidate"/>) and the integrity sweep
-/// (<see cref="ErrorCheck"/>), keeping their exemptions in lockstep.
+/// here, shared by the dialogue condition lints (<see cref="DialogueValidate"/>), the integrity sweep
+/// (<see cref="ErrorCheck"/>), AND the identity resolver behind housecarl_resolve / resolve_names (issue #230 — the
+/// same false positive resurfaced there as "unresolved: target not in the active order"), keeping every exemption in
+/// lockstep. Public because that resolver lives in the MCP server assembly, not this core.
 ///
 /// Evidence: Junti 2026-07-03 — xEdit resolves 000014 as PlayerRef and the gates are proven working in game (the
 /// validate_dialogue manifestation, fixed in PR #139); the identical class then surfaced in check_errors, which
@@ -19,18 +21,29 @@ namespace HousecarlCore;
 /// Scoped to the two the reports prove — a PRECISE set, NOT the whole reserved sub-0x800 range, so a genuinely-typo'd
 /// low FormID still surfaces as a real error. Skyrim.esm is the SSE base master (houseCARL is SSE-only). Extend the set
 /// here if more engine-implicit forms surface — one edit updates every tool.</summary>
-internal static class EngineImplicit
+public static class EngineImplicit
 {
     static readonly ModKey SkyrimBaseMaster = new("Skyrim", ModType.Master);
 
-    /// <summary>The precise engine-implicit reference set (see the type doc). Add a form here — never widen to a range.</summary>
-    static readonly HashSet<FormKey> Forms = new()
+    /// <summary>The precise engine-implicit reference set, each with its known engine identity (Mutagen-style type
+    /// name + the EditorID xEdit reports) so the resolver can answer WHAT the form is, not just that it's exempt
+    /// (see the type doc). Add a form here — never widen to a range.</summary>
+    static readonly Dictionary<FormKey, (string Type, string EditorId)> Forms = new()
     {
-        new FormKey(SkyrimBaseMaster, 0x14),   // PlayerRef — the player's placed reference (a Run On Reference / FormLink target)
-        new FormKey(SkyrimBaseMaster, 0x07),   // Player    — the player base NPC_ (a GetIsID / form-param target)
+        [new FormKey(SkyrimBaseMaster, 0x14)] = ("PlacedNpc", "PlayerRef"),   // PlayerRef — the player's placed reference (a Run On Reference / FormLink target)
+        [new FormKey(SkyrimBaseMaster, 0x07)] = ("Npc", "Player"),            // Player    — the player base NPC_ (a GetIsID / form-param target)
     };
 
     /// <summary>True when <paramref name="fk"/> is one of the engine-implicit <see cref="Forms"/> — a hardcoded engine
     /// reference the index can't resolve, so a reference-resolution check must not mistake it for a dangling reference.</summary>
-    internal static bool IsImplicit(FormKey fk) => Forms.Contains(fk);
+    public static bool IsImplicit(FormKey fk) => Forms.ContainsKey(fk);
+
+    /// <summary>The engine-implicit form's known identity (type + EditorID from <see cref="Forms"/>), for a resolver
+    /// that must report WHAT the hardcoded form is rather than merely skip it. False for every other form — callers
+    /// keep their normal dangling-target path.</summary>
+    public static bool TryDescribe(FormKey fk, out string type, out string editorId)
+    {
+        if (Forms.TryGetValue(fk, out var d)) { (type, editorId) = d; return true; }
+        type = editorId = ""; return false;
+    }
 }

@@ -8,6 +8,15 @@ when it changes.
 
 *Accumulating notes for the next cut — not yet released; `plugin.json` still reads the last shipped version.*
 
+**`resolve_names` / `housecarl_resolve` no longer call PlayerRef "unresolved" (#230).** The engine-implicit forms —
+PlayerRef (`000014:Skyrim.esm`) and the Player base NPC (`000007:Skyrim.esm`) — are hardcoded engine references no
+plugin defines, so the identity resolver flagged every condition or link pointing at them as
+`unresolved: target not in the active order` (67 false suspects in one 67-record audit), while `check_errors`
+correctly called the same links clean. The resolver now applies the same precise two-form exemption the integrity
+sweep and dialogue lints already share: those links annotate `→ PlayerRef` / `→ Player` (winner `<engine>` in a
+`housecarl_resolve` row), and any OTHER sub-0x800 form still reports unresolved — the exemption is the two known
+forms, never the whole reserved range.
+
 **`housecarl_bulk_apply` learns manifest files — `from_file=` (#224).** A big write job used to mean pasting the
 whole ops array inline (the 745-record stress test generated 20 local `ops_*.json` chunk files and fed them through
 piecewise). Now `from_file=<absolute path>` reads the SAME operations array as a JSON manifest on disk: generate
