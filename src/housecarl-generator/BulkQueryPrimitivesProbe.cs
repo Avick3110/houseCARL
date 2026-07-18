@@ -280,6 +280,51 @@ public static class BulkQueryPrimitivesProbe
             Check($"dense detail is materially smaller than json for the same query ({sDenseF.Length} vs {sJsonF.Length} chars)",
                   sDenseF.Length < sJsonF.Length);
 
+            // Tiling on the OTHER two collect paths (PR #239 review: type= never fires the de-dup, and conflicts_only
+            // collects in its own branch — a branch-confined offset regression must not pass the guard).
+            var fullP = svc.CrossQuery(null, null, null, false, new[] { masterName, replName }, null, 5000);   // 7 records, de-dup ACTIVE
+            var pagedP = new List<FormKey>();
+            for (int off = 0; off < fullP.Total; off += 3)
+            {
+                var win = svc.CrossQuery(null, null, null, false, new[] { masterName, replName }, null, 3, offset: off);
+                Check($"plugins-scope window offset={off} limit=3: sources stay parallel to keys",
+                      win.Sources is not null && win.Sources.Count == win.Keys.Count);
+                pagedP.AddRange(win.Keys);
+            }
+            Check($"plugins=[master,Repl] windows tile the de-dup'd enumeration EXACTLY ({fullP.Total} records)",
+                  pagedP.SequenceEqual(fullP.Keys));
+            var fullC = svc.CrossQuery(null, null, null, true, null, null, 500);                                // conflicts_only branch
+            var winC0 = svc.CrossQuery(null, null, null, true, null, null, 500, offset: 0);
+            var winC1 = svc.CrossQuery(null, null, null, true, null, null, 500, offset: 1);
+            Check("conflicts_only offset: window 0 = the 1 contested record; offset=1 = honest empty window, not capped",
+                  fullC.Total == 1 && winC0.Keys.SequenceEqual(fullC.Keys) && winC1.Keys.Count == 0 && winC1.Total == 1 && !winC1.Capped);
+
+            // total==0 with offset>0: the header must blame the FILTER, not the paging (PR #239 review).
+            var sNoMatch = ReadTools.CrossPluginQuery(svc, type: "Weapon", references: null, editorid_contains: "zzz-no-such-record",
+                conflicts_only: false, plugins: null, defined_in: false, where: null, group_by: null,
+                fields: null, conflict_tree: false, limit: 500, offset: 5, max_chars: 0);
+            Check("text render: total==0 + offset>0 says 'NO records match at any offset' (not 'lower offset=')",
+                  sNoMatch.Contains("NO records match at any offset") && !sNoMatch.Contains("lower offset="));
+
+            // Dense under a plugins= scope carries the per-row SOURCE provenance (PR #239 review, MEDIUM): the row's
+            // values are the scoped plugin's OWN body — W1 reads master's damage 10 (not the winner's 15), and the
+            // source cell names master so that value can never read as live truth unattributed.
+            var sDenseScoped = ReadTools.CrossPluginQuery(svc, type: null, references: null, editorid_contains: null,
+                conflicts_only: false, plugins: new[] { masterName, replName }, defined_in: false, where: null, group_by: null,
+                fields: new[] { "BasicStats.Damage" }, conflict_tree: false, limit: 500, max_chars: 0, format: "dense");
+            using (var doc = JsonDocument.Parse(sDenseScoped))
+            {
+                var root = doc.RootElement;
+                var cols = root.GetProperty("columns").EnumerateArray().Select(c => c.GetString()).ToArray();
+                Check("dense scoped detail: columns gain 'source' = [formid,editorid,BasicStats.Damage,source]",
+                      cols.SequenceEqual(new[] { "formid", "editorid", "BasicStats.Damage", "source" }));
+                var w1row = root.GetProperty("rows").EnumerateArray().FirstOrDefault(r => r[0].GetString() == w1Fk.ToString());
+                Check("dense scoped detail: W1's row = master's OWN damage 10 WITH source=master (provenance in-row)",
+                      w1row.ValueKind == JsonValueKind.Array && w1row[2].GetString() == "10" && w1row[3].GetString() == masterName);
+                Check("dense scoped detail: the P5 scoped-vs-winner note still rides in-band",
+                      root.TryGetProperty("notes", out var notes) && notes.EnumerateArray().Any(n => (n.GetString() ?? "").Contains("winner_fields=true")));
+            }
+
             // dense + offset compose: the in-band offset field + the windowed rows.
             var sDenseOff = ReadTools.CrossPluginQuery(svc, type: "Weapon", references: null, editorid_contains: null,
                 conflicts_only: false, plugins: null, defined_in: false, where: null, group_by: null,

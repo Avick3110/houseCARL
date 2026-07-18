@@ -57,7 +57,8 @@ whole-mod enumeration used to be the context-budget drain: `format="json"` repea
 offset, paging meant slicing by `editorid_contains`. Now:
 
 - **`format="dense"`** renders one columnar document — a `columns` array once, then one positional row per match
-  (`[formid, editorid, field values…]`; summary rows are `[formid, type, editorid, winner, override_depth]`). Same
+  (`[formid, editorid, field values…]`; summary rows are `[formid, type, editorid, winner, override_depth]`; under
+  a `plugins=` scope, detail rows gain a `source` column naming the body each row's values came from). Same
   read path and accounting as the other formats; a no-value field shows its note (`"(absent)"`) in-cell, a failed
   row lands in a separate `errors` array, and `resolve_names` annotations still work. In the probe's own
   measurement the same one-field query renders **2.6× smaller** than `format="json"` — and the gap widens with
