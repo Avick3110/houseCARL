@@ -51,6 +51,23 @@ absolute-path file of FormIDs, comma- or newline-separated). `formid in` is the 
 AND with the existing value predicates. The list is fully validated before any scan — a malformed FormID, an
 unreadable or relative file path, or an empty list refuses the call by name, never a silent wrong result.
 
+**`cross_plugin_query` learns bulk-enumeration economy — `format="dense"` + `offset=` pagination (#223).** A
+whole-mod enumeration used to be the context-budget drain: `format="json"` repeated the identity envelope and a
+`{path, value}` object per field on every match (~80 records per 40k chars at two fields), and with `limit` but no
+offset, paging meant slicing by `editorid_contains`. Now:
+
+- **`format="dense"`** renders one columnar document — a `columns` array once, then one positional row per match
+  (`[formid, editorid, field values…]`; summary rows are `[formid, type, editorid, winner, override_depth]`). Same
+  read path and accounting as the other formats; a no-value field shows its note (`"(absent)"`) in-cell, a failed
+  row lands in a separate `errors` array, and `resolve_names` annotations still work. In the probe's own
+  measurement the same one-field query renders **2.6× smaller** than `format="json"` — and the gap widens with
+  more fields.
+- **`offset=`** skips the first N matches, so `offset=0/500/1000…` + `limit=` pages an enumeration in windows that
+  tile exactly (scan order is deterministic while the load order is unchanged). The true total always counts all
+  matches; the text header names the window and the next offset (`showing matches 501–1000; continue with
+  offset=1000`), and json/dense carry `offset` in-band. Negative offsets and `offset=` under `group_by=` (a count
+  table has no window) are refused by name.
+
 ## 1.9.0 — 2026-07-17
 
 houseCARL's view of the **SKSE-plugin layer** grows from *inventory* into *diagnosis*: two new audit tools
