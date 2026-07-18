@@ -142,12 +142,24 @@ public static class BindingShimProbe
             failures += Check("F coerce: quoted bool conflicts_only binds and runs the tool body",
                 !f.text.Contains(GenericError) && f.text.Contains(ConfigPrompt), f.Describe());
 
-            // -- G: an UNCOERCIBLE shape (an object where a number is declared) must still fail — but
-            //    NAMED, telling the caller it's an argument-shape problem, never the bare generic text.
+            // -- G: an UNCOERCIBLE wrong-TYPE shape (an object where a number is declared) must still fail — but
+            //    NAMED, and (#222) naming the OFFENDING PARAMETER (limit) + its received kind, caught BEFORE
+            //    binding, not a bare byte-offset error over the whole received list.
             var g = Call(stdin, stdout, 8, "housecarl_cross_plugin_query",
                 """{"type":"CELL","plugins":["Synthetic.esp"],"limit":{"oops":1}}""");
-            failures += Check("G rewrite: an uncoercible argument fails NAMED, not generic",
-                !g.text.Contains(GenericError) && g.text.Contains("could not be bound"), g.Describe());
+            failures += Check("G type-mismatch: an uncoercible wrong-type arg fails NAMED, naming the parameter",
+                !g.text.Contains(GenericError) && g.text.Contains("could not be bound")
+                && g.text.Contains("limit") && g.text.Contains("object"), g.Describe());
+
+            // -- G2: #222 — a wrong-TYPE value for a declared BOOLEAN parameter (the report's exact class: a bad
+            //    conflicts_only threw "could not be converted to System.Boolean" with a byte offset but NO
+            //    parameter name). Must now be refused NAMED, identifying the parameter AND its expected type,
+            //    before binding — never the generic error and never a silent run (no ConfigPrompt = body ran).
+            var g2 = Call(stdin, stdout, 32, "housecarl_cross_plugin_query",
+                """{"type":"CELL","conflicts_only":"CELL"}""");
+            failures += Check("G2 type-mismatch: a wrong-type boolean arg is named with its parameter and expected type",
+                !g2.text.Contains(GenericError) && !g2.text.Contains(ConfigPrompt)
+                && g2.text.Contains("conflicts_only") && g2.text.Contains("boolean"), g2.Describe());
 
             // -- H: an EXPLICIT JSON null for a REQUIRED parameter (2026-06-12 hunt, proven over stdio on
             //    nexus_mod): ContainsKey saw it as supplied, the SDK bound null, and the tool body

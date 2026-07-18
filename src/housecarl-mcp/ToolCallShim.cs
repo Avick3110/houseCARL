@@ -20,6 +20,10 @@ namespace HousecarlMcp;
 /// number where a string is declared becomes its text. Anything else is left for binding to judge.</item>
 /// <item><b>Refuse missing REQUIRED parameters by name</b> — the audit's <c>{}</c> call gets
 /// "required parameter missing: formids", not the generic text.</item>
+/// <item><b>Name a mistyped parameter</b> — an argument whose JSON kind can't bind to its declared schema type
+/// (e.g. an object where a number is declared) is refused BEFORE binding, naming the offender, its expected
+/// type, and the kind received (#222) — so the caller never has to bisect a byte-offset binding error across
+/// the whole argument list.</item>
 /// <item><b>Name what still fails</b> — if binding still throws (an uncoercible shape), the exception passes
 /// through this filter on its way to the SDK's catch (which sits ABOVE the filter pipeline and would genericize
 /// it — measured: AIFunctionMcpServerTool.InvokeAsync doesn't catch; McpServerImpl's outermost wrapper does).
@@ -50,6 +54,7 @@ internal static class ToolCallShim
                 CoerceObviousShapes(p, schema);
                 if (MissingRequired(p, schema) is { } refusal) return refusal;
                 if (UnknownParameters(p, schema) is { } unknownRefusal) return unknownRefusal;
+                if (TypeMismatches(p, schema) is { } typeRefusal) return typeRefusal;
             }
             return await next(request, cancellationToken);
         }
@@ -218,6 +223,59 @@ internal static class ToolCallShim
             $"{string.Join(", ", supported)}. An unrecognized argument is IGNORED (it does not change behavior), so " +
             $"the call would otherwise run with that intent silently dropped — fix the name{knobHint} and retry.");
     }
+
+    /// <summary>Declared arguments whose JSON kind cannot bind to their declared schema type → a named refusal
+    /// listing each offender with its expected type(s) and the kind received, or null to proceed. THE fix for
+    /// #222: a wrong-TYPE argument (e.g. an object where a number is declared, or a string where a boolean is)
+    /// otherwise threw inside the SDK binder as a bare <c>JsonException … Path: $ | BytePositionInLine: 34</c> —
+    /// a byte offset with NO parameter name, which the catch below could only pass through with the full received
+    /// list, forcing the caller to bisect which argument was wrong. This catches the common kind-mismatch class
+    /// BEFORE binding and names it in the same style as <see cref="MissingRequired"/> / <see cref="UnknownParameters"/>.
+    /// Runs AFTER <see cref="CoerceObviousShapes"/> (so an obvious-intent shape — a bare string for an array, a
+    /// quoted number/bool — is fixed, never flagged) and judges ONLY keys the schema declares with a concrete
+    /// type: an untyped/polymorphic property (empty <see cref="DeclaredTypes"/>) is left for binding, an unknown
+    /// key is <see cref="UnknownParameters"/>' to report, and an explicit JSON null is left alone (optional-unset
+    /// for a non-required parameter; the required-null case is <see cref="MissingRequired"/>'s). So a well-formed
+    /// call is byte-identical to before, and anything this can't foresee (e.g. a non-integral number for an
+    /// integer parameter) still falls to the named catch.</summary>
+    static CallToolResult? TypeMismatches(CallToolRequestParams p, JsonElement schema)
+    {
+        if (p.Arguments is not { Count: > 0 } args) return null;
+        if (schema.ValueKind != JsonValueKind.Object ||
+            !schema.TryGetProperty("properties", out var props) || props.ValueKind != JsonValueKind.Object) return null;
+
+        List<string>? bad = null;
+        foreach (var kv in args)
+        {
+            if (kv.Value.ValueKind == JsonValueKind.Null) continue;          // null = optional-unset; the required-null case is MissingRequired's
+            if (!props.TryGetProperty(kv.Key, out var propSchema)) continue; // an unknown key is UnknownParameters' to report
+            var declared = DeclaredTypes(propSchema);
+            if (declared.Count == 0) continue;                              // untyped/polymorphic — leave for binding to judge
+            if (KindSatisfies(kv.Value.ValueKind, declared)) continue;
+            (bad ??= new()).Add(
+                $"{kv.Key} (expects {string.Join(" or ", declared.Where(t => t != "null"))}, received {KindName(kv.Value.ValueKind)})");
+        }
+        if (bad is null) return null;
+
+        string plural = bad.Count == 1 ? "" : "s";
+        return NamedError(
+            $"error: {p.Name}: parameter{plural} whose type could not be bound: {string.Join("; ", bad)}. " +
+            "Fix the argument's TYPE to match the schema (array parameters take JSON arrays — a single bare string " +
+            "is auto-wrapped; numbers take numbers; booleans take true/false) and retry.");
+    }
+
+    /// <summary>Whether a JSON kind can bind to at least one of a property's declared schema types. A JSON number
+    /// satisfies both "number" and "integer" (an integral check is the binder's, not ours); every other kind maps
+    /// to its one schema type. Null never reaches here (filtered by the caller).</summary>
+    static bool KindSatisfies(JsonValueKind kind, HashSet<string> declared) => kind switch
+    {
+        JsonValueKind.String => declared.Contains("string"),
+        JsonValueKind.Number => declared.Contains("number") || declared.Contains("integer"),
+        JsonValueKind.True or JsonValueKind.False => declared.Contains("boolean"),
+        JsonValueKind.Array => declared.Contains("array"),
+        JsonValueKind.Object => declared.Contains("object"),
+        _ => true,   // an unexpected kind — don't presume a mismatch; let binding judge
+    };
 
     static CallToolResult NamedError(string text) => new()
     {
