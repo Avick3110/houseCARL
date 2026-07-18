@@ -168,9 +168,10 @@ public static class ReadEngine
     /// <summary>The depth-1 container hint (HCBR-2026-07-12): appended to an unexpanded container/substruct summary so
     /// an agent turns the depth= knob instead of inventing a param or hand-rolling a parser. It names <c>depth=2</c>,
     /// which is only honest on a surface that HAS a depth= parameter (read_record / batch_record_detail /
-    /// read_plugin_file / the CLI) — a caller whose surface has no depth= passes its own redirect via
-    /// <c>containerHint</c> (cross_plugin_query names the batch-read hop) or null to suppress (write read-backs,
-    /// where the count IS the confirmation and there is no knob to turn).</summary>
+    /// read_plugin_file / cross_plugin_query text+json (#231) / the CLI) — a caller whose surface refuses depth
+    /// passes its own redirect via <c>containerHint</c> (cross_plugin_query's DENSE render names the text/json
+    /// format hop — its positional cells refuse depth&gt;1) or null to suppress (write read-backs, where the count
+    /// IS the confirmation and there is no knob to turn).</summary>
     public const string DepthExpandHint = " — pass depth=2 to expand";
 
     /// <summary>Read a located record's fields as round-trippable tokens — the public, structured entry the MCP
