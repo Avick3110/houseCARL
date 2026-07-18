@@ -23,6 +23,15 @@ own unpack (uncompressed *and* compressed). Consequences:
 - A per-entry size ceiling and a header-vs-reader file-count cross-check keep a corrupt or hostile archive to a
   **loud, named failure** rather than an out-of-memory or a silent empty extract.
 
+**Wrong-type arguments are now named (#222).** Passing an argument of the wrong type — an object where a number
+is expected, a string where a boolean is — used to surface as a raw `JsonException … BytePositionInLine: 34`: a
+byte offset with no parameter name, forcing you to bisect which argument was at fault. The argument-binding shim
+now catches the type mismatch *before* binding and names the offender, its expected type, and the kind received
+(e.g. `parameter whose type could not be bound: conflicts_only (expects boolean, received string)`) — the same
+named-and-actionable style the missing-parameter and unknown-parameter paths already use. Obvious-intent shapes
+(a bare string for an array, a quoted number or boolean) are still auto-coerced, so well-formed calls are
+unaffected.
+
 ## 1.9.0 — 2026-07-17
 
 houseCARL's view of the **SKSE-plugin layer** grows from *inventory* into *diagnosis*: two new audit tools
