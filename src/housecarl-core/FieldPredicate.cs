@@ -33,7 +33,9 @@ namespace HousecarlCore;
 /// so a value predicate on a list path is surfaced by the Q3 accounting, never silently matched — list→FormID
 /// membership is <c>references=</c>'s job. The PRESENCE operators (<c>exists</c>/<c>missing</c>) are the exception:
 /// they DO match a carried substruct/list leaf (present and non-empty), the "which records carry a VMAD/Effects"
-/// query (#197). A wildcard over a list (<c>Effects[*].Magnitude &gt; 50</c>) is a deliberate future extension.</para>
+/// query (#197). The MEMBERSHIP operators (<c>formid in</c>/<c>formid not in</c> a supplied list — #226) are the
+/// other non-leaf case: they test the record's IDENTITY against a pre-parsed FormKey set, no read walk at all.
+/// A wildcard over a list (<c>Effects[*].Magnitude &gt; 50</c>) is a deliberate future extension.</para>
 /// </summary>
 public sealed class FieldPredicateSet
 {
@@ -47,13 +49,22 @@ public sealed class FieldPredicateSet
     /// <see cref="Exists"/>/<see cref="Missing"/> are PRESENCE tests that take NO operand — true iff the path
     /// resolves to a present, NON-EMPTY value (a scalar OR a carried substruct/list) / its complement. They are the
     /// only operators that MATCH a no-value container leaf: the "which records CARRY a VirtualMachineAdapter /
-    /// Effects / Conditions" query (#197), which the value operators (needing a scalar leaf) cannot express.</summary>
-    enum Op { Eq, Ne, Gt, Ge, Lt, Le, Contains, Has, Exists, Missing }
+    /// Effects / Conditions" query (#197), which the value operators (needing a scalar leaf) cannot express.
+    /// <see cref="In"/>/<see cref="NotIn"/> are IDENTITY-membership tests against a supplied FormID list — the
+    /// reconciliation subtraction "every record except these already-claimed ones" (#226). They take the pseudo-path
+    /// <c>formid</c> (the record's own identity, not a body leaf — deliberately outside the read walk, matching the
+    /// read cleave where identity sits beside Fields) and a list operand: inline comma-separated FormIDs, or
+    /// <c>@&lt;absolute path&gt;</c> naming a file of them. Restricted to <c>formid</c> at parse (a named refusal on any
+    /// other path) so a future generalization to leaf-value membership is an extension, not a behavior change.</summary>
+    enum Op { Eq, Ne, Gt, Ge, Lt, Le, Contains, Has, Exists, Missing, In, NotIn }
 
     /// <summary>One parsed predicate: the split path segments (fed straight to <see cref="ReadEngine.ReadLeaf"/>),
     /// the operator, the raw operand, and — for a numeric operator — the operand pre-parsed to a double (validated
-    /// at parse, so a non-numeric operand under <c>&gt;</c>/<c>&lt;</c> fails the whole call before any scan).</summary>
-    sealed record Predicate(string Text, string[] PathSegments, string PathDisplay, Op Op, string Operand, double NumericOperand);
+    /// at parse, so a non-numeric operand under <c>&gt;</c>/<c>&lt;</c> fails the whole call before any scan).
+    /// <paramref name="FormIds"/> is the pre-parsed membership set for <see cref="Op.In"/>/<see cref="Op.NotIn"/>
+    /// (file already read + every token validated at parse — the scan never does IO), null for every other op.</summary>
+    sealed record Predicate(string Text, string[] PathSegments, string PathDisplay, Op Op, string Operand, double NumericOperand,
+                            HashSet<FormKey>? FormIds = null);
 
     readonly IReadOnlyList<Predicate> _predicates;
     readonly long[] _valueRead;   // per-predicate: candidates whose path read SOME value
@@ -120,7 +131,7 @@ public sealed class FieldPredicateSet
         // 2. skip whitespace to the operator.
         while (i < text.Length && char.IsWhiteSpace(text[i])) i++;
         if (i >= text.Length)
-            return (null, $"predicate '{raw}': no operator. Use one of = != > >= < <= contains has exists missing, e.g. \"{path} = <value>\" or \"{path} exists\".");
+            return (null, $"predicate '{raw}': no operator. Use one of = != > >= < <= contains has exists missing in 'not in', e.g. \"{path} = <value>\" or \"{path} exists\".");
 
         // 3. operator — symbolic (longest match) or the 'contains' word.
         Op op;
@@ -133,7 +144,7 @@ public sealed class FieldPredicateSet
             else if (text[i] == '=') { op = Op.Eq; after = i + 1; }
             else if (text[i] == '>') { op = Op.Gt; after = i + 1; }
             else if (text[i] == '<') { op = Op.Lt; after = i + 1; }
-            else return (null, $"predicate '{raw}': unrecognized operator at '{text.Substring(i)}'. Use = != > >= < <= contains has exists missing.");
+            else return (null, $"predicate '{raw}': unrecognized operator at '{text.Substring(i)}'. Use = != > >= < <= contains has exists missing in 'not in'.");
         }
         else
         {
@@ -144,8 +155,19 @@ public sealed class FieldPredicateSet
             else if (word.Equals("has", StringComparison.OrdinalIgnoreCase)) op = Op.Has;
             else if (word.Equals("exists", StringComparison.OrdinalIgnoreCase)) op = Op.Exists;
             else if (word.Equals("missing", StringComparison.OrdinalIgnoreCase)) op = Op.Missing;
+            else if (word.Equals("in", StringComparison.OrdinalIgnoreCase)) op = Op.In;
+            else if (word.Equals("not", StringComparison.OrdinalIgnoreCase))
+            {
+                // 'not' is only the first half of 'not in' — consume the second word or refuse loud.
+                while (w < text.Length && char.IsWhiteSpace(text[w])) w++;
+                int w2 = w;
+                while (w2 < text.Length && !char.IsWhiteSpace(text[w2])) w2++;
+                if (!text.AsSpan(w, w2 - w).Equals("in", StringComparison.OrdinalIgnoreCase))
+                    return (null, $"predicate '{raw}': 'not' must be followed by 'in' (the membership complement) — write \"{path} not in <formid list>\".");
+                op = Op.NotIn; w = w2;
+            }
             else
-                return (null, $"predicate '{raw}': unrecognized operator '{word}'. Use = != > >= < <= contains has exists or missing.");
+                return (null, $"predicate '{raw}': unrecognized operator '{word}'. Use = != > >= < <= contains has exists missing in or 'not in'.");
             after = w;
         }
 
@@ -169,6 +191,22 @@ public sealed class FieldPredicateSet
         if (operand.Length == 0)
             return (null, $"predicate '{raw}': no value after '{OpStr(op)}'.");
 
+        // The membership ops (in / not in) test the record's IDENTITY, not a body leaf, so their path is the fixed
+        // pseudo-path 'formid' — any other path is refused NAMED (never silently read as a leaf), which keeps a
+        // future leaf-value generalization an extension rather than a behavior change. The operand (inline list or
+        // @file) is fully parsed + validated HERE, so a bad token, an unreadable file, or an empty list refuses the
+        // whole call before any scan (Q3) and the per-record test is a pure set lookup (no IO in the scan).
+        if (op is Op.In or Op.NotIn)
+        {
+            if (!path.Equals("formid", StringComparison.OrdinalIgnoreCase))
+                return (null, $"predicate '{raw}': '{OpStr(op)}' tests the record's IDENTITY and takes the path 'formid' only " +
+                              $"(got '{path}') — write \"formid {OpStr(op)} <list>\". Membership over a field's VALUE is not supported (yet); " +
+                              $"use '=' per value, or references= for list→FormID membership.");
+            var (set, lerr) = ParseFormIdList(raw, operand);
+            if (lerr is not null) return (null, lerr);
+            return (new Predicate(text, segs, path, op, operand, 0, set), null);
+        }
+
         // 5. a numeric operator demands a numeric operand — fail fast at parse (before any scan).
         double num = 0;
         if (IsNumericOp(op) && !TryNum(operand, out num))
@@ -176,6 +214,50 @@ public sealed class FieldPredicateSet
 
         return (new Predicate(text, segs, path, op, operand, num), null);
     }
+
+    /// <summary>Parse an <c>in</c>/<c>not in</c> operand into its FormKey set. Two forms: <c>@&lt;path&gt;</c> reads a
+    /// list FILE (absolute path required — the server's working directory is not the caller's, so a relative path
+    /// would resolve somewhere the caller can't predict); anything else is the INLINE list. Both use the same token
+    /// grammar: FormIDs separated by commas and/or newlines — NEVER bare spaces, because a plugin filename can
+    /// contain them (<c>123456:My Mod.esp</c>) — with optional surrounding brackets and quotes stripped per token,
+    /// so a pasted JSON array (<c>["123456:A.esp", "234567:B.esp"]</c>) parses as-is. Every token must be a valid
+    /// FormID and the set must be non-empty; any violation names itself and refuses the call (Q3).</summary>
+    static (HashSet<FormKey>?, string?) ParseFormIdList(string raw, string operand)
+    {
+        string content;
+        bool fromFile = operand[0] == '@';
+        if (fromFile)
+        {
+            var path = operand.Substring(1).Trim().Trim('"');
+            if (path.Length == 0)
+                return (null, $"predicate '{raw}': '@' names a formid-list file but no path follows it.");
+            if (!Path.IsPathRooted(path))
+                return (null, $"predicate '{raw}': formid-list file '{path}' must be an ABSOLUTE path — the server resolves relative paths against its OWN working directory, not yours.");
+            try { content = File.ReadAllText(path); }
+            catch (Exception ex) { return (null, $"predicate '{raw}': could not read formid-list file '{path}' — {ex.GetType().Name}: {ex.Message}"); }
+        }
+        else content = operand;
+
+        var set = new HashSet<FormKey>();
+        foreach (var t in content.Split(ListSeparators, StringSplitOptions.RemoveEmptyEntries))
+        {
+            var tok = t.Trim().Trim('[', ']', '"', '\'').Trim();
+            if (tok.Length == 0) continue;
+            try { set.Add(FormKey.Factory(tok)); }
+            catch (Exception ex)
+            {
+                return (null, $"predicate '{raw}': list entry '{tok}'{(fromFile ? $" (in the @file)" : "")} is not a FormID ({ex.Message}). " +
+                              "Expected 'XXXXXX:Plugin.esp' entries separated by commas or newlines.");
+            }
+        }
+        if (set.Count == 0)
+            return (null, $"predicate '{raw}': the formid list{(fromFile ? " file" : "")} is empty — give at least one 'XXXXXX:Plugin.esp'.");
+        return (set, null);
+    }
+
+    /// <summary>Commas and newlines ONLY — a bare space is a legal character inside a plugin filename
+    /// (<c>123456:My Mod.esp</c>), so it can never be a list separator.</summary>
+    static readonly char[] ListSeparators = { ',', '\r', '\n' };
 
     static bool IsOpChar(char c) => c is '=' or '!' or '<' or '>';
     static bool IsNumericOp(Op op) => op is Op.Gt or Op.Ge or Op.Lt or Op.Le;
@@ -200,6 +282,18 @@ public sealed class FieldPredicateSet
         for (int k = 0; k < _predicates.Count; k++)
         {
             var p = _predicates[k];
+
+            // Identity-membership ops (in / not in): a pure FormKey set test — no body leaf is read (the 'formid'
+            // pseudo-path is identity, which the read cleave keeps BESIDE the fields). Identity is always present,
+            // so the predicate counts as value-read and the Q3 no-value accounting can never false-alarm on it.
+            if (p.Op is Op.In or Op.NotIn)
+            {
+                _valueRead[k]++;
+                bool member = p.FormIds!.Contains(body.FormKey);
+                if (p.Op == Op.In ? !member : member) all = false;
+                continue;
+            }
+
             var leaf = ReadEngine.ReadLeaf(body, p.PathSegments);   // internal, same assembly — the by-construction read walk
 
             // Presence ops (exists/missing) are the ONE case where a no-value CONTAINER leaf is a MATCH, not a miss:
@@ -431,7 +525,8 @@ public sealed class FieldPredicateSet
     static string OpStr(Op op) => op switch
     {
         Op.Eq => "=", Op.Ne => "!=", Op.Gt => ">", Op.Ge => ">=", Op.Lt => "<", Op.Le => "<=",
-        Op.Contains => "contains", Op.Has => "has", Op.Exists => "exists", Op.Missing => "missing", _ => "?",
+        Op.Contains => "contains", Op.Has => "has", Op.Exists => "exists", Op.Missing => "missing",
+        Op.In => "in", Op.NotIn => "not in", _ => "?",
     };
 
     static string Trunc(string s) => s.Length > 60 ? s.Substring(0, 60) + "…" : s;

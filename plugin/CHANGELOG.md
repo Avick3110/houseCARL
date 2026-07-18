@@ -42,6 +42,15 @@ unknown-parameter error, a declared parameter is never treated as an alias (a to
 and an explicit canonical value is never overwritten. The published schema still advertises only the canonical
 name.
 
+**`cross_plugin_query` learns identity membership — `formid in` / `formid not in` a supplied list (#226).** The
+reconciliation subtraction — "every record of these types in plugin X, *minus* these ~1,200 already-claimed
+FormIDs" — used to run client-side over verbose enumerations because `where=` had no exclusion predicate. It now
+does: `where=["formid not in [XXXXXX:A.esp, YYYYYY:B.esp]"]` (inline, comma-separated — spaces in plugin
+filenames are safe, and a pasted JSON array works as-is) or `where=["formid not in @C:\\work\\claimed.txt"]` (an
+absolute-path file of FormIDs, comma- or newline-separated). `formid in` is the symmetric keep-only form, and both
+AND with the existing value predicates. The list is fully validated before any scan — a malformed FormID, an
+unreadable or relative file path, or an empty list refuses the call by name, never a silent wrong result.
+
 ## 1.9.0 — 2026-07-17
 
 houseCARL's view of the **SKSE-plugin layer** grows from *inventory* into *diagnosis*: two new audit tools
