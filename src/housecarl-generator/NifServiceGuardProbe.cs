@@ -213,13 +213,14 @@ internal static class NifServiceGuardProbe
             shapes, new List<NifNode> { new(0, "Root", 0xE, "NiNode", 0xE, "NiNode") }, new List<string> { "Root", "Shape0" });
     }
 
-    /// <summary>Wrap an inspect model (or an error) in the service-layer <see cref="NifInspectData"/> with a two-provider
-    /// winner→loser chain — the input to <see cref="NifWire.Render"/>.</summary>
-    static NifInspectData FakeData(NifInspect? inspect, string? error, bool ambiguous = false, IReadOnlyList<string>? bsaFailures = null)
+    /// <summary>Wrap an inspect model (or an error) in the service-layer batch (a batch of ONE — #229 made the wire
+    /// batch-shaped) with a two-provider winner→loser chain — the input to <see cref="NifWire.Render"/>. The batch
+    /// contracts themselves (order, per-path isolation, one-shot alarms, omitted-mesh cut) are NifInspectBatchGuardProbe's.</summary>
+    static NifInspectBatchData FakeData(NifInspect? inspect, string? error, bool ambiguous = false, IReadOnlyList<string>? bsaFailures = null)
     {
         var provs = new List<NifProvider> { new("ModA", "loose"), new("Base.bsa", "BSA") };
-        return new NifInspectData("meshes\\test.nif", inspect is null ? null : provs[0], provs, ambiguous,
-            bsaFailures ?? Array.Empty<string>(), false, Array.Empty<string>(), "Default", inspect, error);
+        var one = new NifInspectData("meshes\\test.nif", inspect is null ? null : provs[0], provs, ambiguous, false, inspect, error);
+        return new NifInspectBatchData(new[] { one }, bsaFailures ?? Array.Empty<string>(), Array.Empty<string>(), "Default");
     }
 
     /// <summary>Author a minimal but genuine Skyrim SE mesh in-memory (the spike's CreateAndSave_SE recipe): an SE

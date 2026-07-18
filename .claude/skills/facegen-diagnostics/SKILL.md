@@ -215,10 +215,11 @@ bulk_place**:
 4. `housecarl_asset_status` each path. Three batch signatures: (i) *every* path resolves to nothing/vanilla
    → ESLify/merge FormID desync (Cause F/G, the "universal" case); (ii) record winner ≠ file winner
    consistently → record-vs-asset desync; (iii) only a subset dark → per-NPC missing/incompatible facegen.
-   For (iii)'s *incompatible* half — a file wins but the face is still wrong — `housecarl_nif_inspect` on a
-   sample of the subset separates "wrong content baked in" (shape names / tint path ≠ record → mode ii) from
-   "genuinely absent" (asset_status already said so), so you don't `bulk_place` a copy that was never the
-   problem.
+   For (iii)'s *incompatible* half — a file wins but the face is still wrong — `housecarl_nif_inspect` with
+   `mesh_paths` = **the whole flagged subset in one call** (it batches like `asset_status`: results in input
+   order, a per-path failure never aborts the rest — no sampling needed) separates "wrong content baked in"
+   (shape names / tint path ≠ record → mode ii) from "genuinely absent" (asset_status already said so), so
+   you don't `bulk_place` a copy that was never the problem.
 5. `housecarl_bulk_place_asset` the correct copies into one fresh reviewable mod.
 
 **Boundary:** houseCARL can batch-detect and batch-relocate/rename existing correct facegen (covers Cause

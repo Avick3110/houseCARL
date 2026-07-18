@@ -174,6 +174,10 @@ public static class CiAll
         // RED-prove they catch a collateral/no-op write, and every can't-do is a named refusal. Self-contained; the
         // set_path success arm is corpus-gated (nifly's read-only TextureSetRef blocks synthesizing a texture set).
         ("nif-set-guard", NifSetGuardProbe.RunGuard),
+        // nif_inspect batch wire (#229 — mesh_paths array, asset_status parity): input order, per-path error
+        // isolation (one bad path never aborts the batch), batch-level alarms once + first, explicit omitted-mesh
+        // cut notice. Self-contained (constructed results through the real NifWire renderer).
+        ("nif-inspect-batch-guard", NifInspectBatchGuardProbe.RunGuard),
         ("strings-decision-guard", StringsDecisionProbe.RunGuard),
         ("assetlink-write-guard", AssetLinkWriteProbe.RunGuard),
         // The two coercion COMPLETENESS proofs, now CI guards (were manual-only — the coerce-audit blind spot that

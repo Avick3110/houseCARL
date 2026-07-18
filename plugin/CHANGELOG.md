@@ -8,6 +8,16 @@ when it changes.
 
 *Accumulating notes for the next cut — not yet released; `plugin.json` still reads the last shipped version.*
 
+**`housecarl_nif_inspect` goes batch — `mesh_paths` takes one or many (#229).** The last per-file loop in a
+load-order-wide dark-face scan is gone: `mesh_path` is now `mesh_paths`, an `asset_status`-style array (a single
+path is simply a batch of one). One call resolves the whole flagged subset — **one load-order resolution for the
+entire batch** instead of one per mesh — with results in input order, `sections=` / `mod=` / `max_chars` applying
+batch-wide, and every per-path failure (ABSENT, bad path, a `mod=` that doesn't provide it, unreadable bytes, a
+parse refusal) reported LOUD on **that** path without aborting the rest (Q3). The batch-level caveats (unreadable
+archives, discovery warnings) render once, first, so a long batch can't truncate them away; an over-cap output is
+cut with the omitted-mesh count named, never silently. The `facegen-diagnostics` batch flow no longer needs to
+sample the flagged subset — inspect all of it in one call.
+
 **`resolve_names` / `housecarl_resolve` no longer call PlayerRef "unresolved" (#230).** The engine-implicit forms —
 PlayerRef (`000014:Skyrim.esm`) and the Player base NPC (`000007:Skyrim.esm`) — are hardcoded engine references no
 plugin defines, so the identity resolver flagged every condition or link pointing at them as
