@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Text;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 using ModelContextProtocol.Server;
 using HousecarlCore;
@@ -97,11 +98,16 @@ public static class WriteTools
          "didn't make), not a patch — pass target=<plugin filename> + in_place=true (opt-in; the default lane leaves originals " +
          "untouched). dry_run=true validates the WHOLE batch through the real pipeline and reports what WOULD change " +
          "without writing anything — the way to catch a bad field path before the first write of a big batch, not after " +
-         "the last. Returns the patch path, masters, and per-op read-back.")]
+         "the last. The ops can come from a FILE instead of inline: from_file=<absolute path> reads the SAME operations " +
+         "array as a JSON manifest on disk — write a big job's ops once, dry-run the file, then apply it, and re-run the " +
+         "same manifest to recover an interrupted write (overrides are idempotent). Returns the patch path, masters, and " +
+         "per-op read-back.")]
     public static string BulkApply(
         LoadOrderService svc,
-        [Description("The edits to apply, all into one patch. Each: {formid, field_path, verb, value?, key?, values?, entries?, compose?}.")]
-            BulkOp[] operations,
+        [Description("The edits to apply, all into one patch. Each: {formid, field_path, verb, value?, key?, values?, entries?, compose?}. Pass this INLINE array or from_file= — exactly one of the two.")]
+            BulkOp[]? operations = null,
+        [Description("Optional. ABSOLUTE path to a JSON manifest FILE holding the operations array — the SAME shape as operations=, just read from disk: [{formid, field_path, verb, ...}, ...]. The big-batch lane: generate the manifest once, validate the WHOLE file with dry_run=true before the first write, then apply it in one call (and re-run the SAME file to recover an interrupted write). Mutually exclusive with operations= (pass exactly one). The path must be ABSOLUTE (the server resolves relative paths against its OWN working directory, not yours). Refused NAMED with nothing written (Q3) if the file is unreadable, not valid JSON (the refusal carries line+column), not a top-level array, an empty array, or any op carries a member the shape doesn't declare (a misspelled 'field_path' is named at its element, never silently dropped).")]
+            string? from_file = null,
         [Description("Optional. Base filename for the new patch (default 'Patch'); auto-suffixed if taken. Ignored if into= is given.")]
             string patch_name = "Patch",
         [Description("Optional. Filename of an existing patch to EXTEND with these edits instead of writing a fresh one (accumulate across calls/sessions). Found by the plugin's filename even if you've renamed its MO2 mod folder; for two patches sharing a filename, pass the mod-folder name here instead (folder & plugin names need not match).")]
@@ -120,10 +126,76 @@ public static class WriteTools
             bool dry_run = false) => Guard.Tool("housecarl_bulk_apply", () =>
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
-        if (operations is null || operations.Length == 0)
+        bool hasInline = operations is not null;
+        bool hasFile = !string.IsNullOrWhiteSpace(from_file);
+        if (hasInline && hasFile)
+            return "error: operations and from_file are mutually exclusive — pass the ops INLINE or name a manifest FILE, not both.";
+        if (!hasInline && !hasFile)
+            return "error: no operations given. Pass operations=[{formid, field_path, verb, ...}, ...] inline, or from_file='<absolute path>' naming a JSON manifest file holding that same array.";
+        if (hasFile)
+        {
+            var (fileOps, err) = ReadOpsManifest(from_file!);
+            if (err is not null) return "error: " + err;
+            operations = fileOps;
+        }
+        else if (operations!.Length == 0)
             return "error: operations is empty. Pass one or more {formid, field_path, verb, ...} edits.";
-        return Render(svc.ApplyEdits(operations, patch_name, into, full_readback, target, in_place, acknowledge, dry_run), max_chars, full_readback);
+        return Render(svc.ApplyEdits(operations!, patch_name, into, full_readback, target, in_place, acknowledge, dry_run), max_chars, full_readback);
     });
+
+    /// <summary>Read + parse a <c>from_file=</c> ops manifest (#224): an ABSOLUTE path to a JSON array of the SAME
+    /// <see cref="BulkOp"/> wire shape as inline <c>operations=</c> — the parsed ops then ride the identical
+    /// <see cref="LoadOrderService.ApplyEdits"/> call, so every lane (fresh patch / into= / in_place) and
+    /// <c>dry_run=</c> compose with a manifest by construction. The file contract mirrors #226's <c>@file</c>
+    /// formid list (FieldPredicate.ParseFormIdList): absolute path required (the server's working directory is not
+    /// the caller's), and every failure names itself (Q3) — unreadable, invalid JSON (with line+column), a
+    /// non-array root, an empty array, a null element, or an op member the wire shape does not declare. That last
+    /// one is DELIBERATELY stricter than inline binding (the SDK binder silently DROPS an unknown member): in a
+    /// hand-generated 700-op manifest a misspelled <c>field_path</c> would otherwise become a null-field op whose
+    /// downstream refusal points away from the typo — the file lane refuses it BY NAME at its element instead.</summary>
+    static (BulkOp[]?, string?) ReadOpsManifest(string fromFile)
+    {
+        var path = fromFile.Trim().Trim('"', '\'');
+        if (path.Length == 0)
+            return (null, "from_file is empty — give the ops manifest's absolute path.");
+        if (!Path.IsPathRooted(path))
+            return (null, $"from_file '{path}' must be an ABSOLUTE path — the server resolves relative paths against its OWN working directory, not yours.");
+        string text;
+        try { text = File.ReadAllText(path); }
+        catch (Exception ex) { return (null, $"could not read ops manifest '{path}' — {ex.GetType().Name}: {ex.Message}"); }
+        if (string.IsNullOrWhiteSpace(text))
+            return (null, $"ops manifest '{path}' is empty. Expected a JSON array of operations, each the same shape as an inline operations= element ({{formid, field_path, verb, ...}}).");
+
+        BulkOp[]? ops;
+        try { ops = JsonSerializer.Deserialize<BulkOp[]>(text, ManifestJson); }
+        catch (JsonException ex)
+        {
+            string at = ex.LineNumber is { } ln ? $" at line {ln + 1}, column {(ex.BytePositionInLine ?? 0) + 1}" : "";
+            string element = ex.Path is { Length: > 2 } p ? $" (element {p})" : "";   // "$[12].foo" — pins the offending op
+            return (null, $"ops manifest '{path}' could not be parsed{at}{element}: {Guard.Flatten(ex.Message)} " +
+                          "Expected a top-level JSON ARRAY of operations, each the same shape as an inline operations= element " +
+                          "({formid, field_path, verb, value?, key?, values?, entries?, compose?, composes?, from_plugin?}).");
+        }
+        if (ops is null)
+            return (null, $"ops manifest '{path}' parsed to JSON null — expected a JSON array of operations.");
+        if (ops.Length == 0)
+            return (null, $"ops manifest '{path}' is an empty array — give at least one {{formid, field_path, verb, ...}} edit.");
+        for (int i = 0; i < ops.Length; i++)
+            if (ops[i] is null)
+                return (null, $"ops manifest '{path}': element [{i}] is null — every element must be an operation object.");
+        return (ops, null);
+    }
+
+    /// <summary>Manifest parse options: property names case-insensitive like the SDK's inline binder (Web defaults),
+    /// comments + trailing commas tolerated (hand-generated files), and an unknown member REFUSED by name — the
+    /// deliberate strictness documented on <see cref="ReadOpsManifest"/>.</summary>
+    static readonly JsonSerializerOptions ManifestJson = new()
+    {
+        PropertyNameCaseInsensitive = true,
+        ReadCommentHandling = JsonCommentHandling.Skip,
+        AllowTrailingCommas = true,
+        UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
+    };
 
     [McpServerTool(Name = "housecarl_remove_record", Title = "Remove a whole record from a patch (or a plugin in place)"),
      Description(

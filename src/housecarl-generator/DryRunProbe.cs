@@ -35,6 +35,12 @@ namespace HousecarlGenerator;
 ///                         never the opaque bare NRE; the real call refuses too (arm I). RED if either lies.
 ///   FORWARD IN-PLACE    — the consent-bypass logic is DUPLICATED in ForwardRecordsInPlace; arm K guards that copy
 ///                         (arm F guards the ApplyEdits copy), so an edit to either alone goes RED.
+///   FROM_FILE PARITY    — a bulk_apply ops manifest (#224 from_file=) parses to the SAME BulkOp[] and rides the
+///                         SAME ApplyEdits call as inline ops: manifest + dry_run renders IDENTICALLY to the same
+///                         ops inline (the issue's stated pairing needs zero extra code — arm L proves it), a real
+///                         manifest write lands, and the file contract (operations XOR from_file, absolute path,
+///                         readable, valid JSON with line+column on failure, array root, non-empty, no unknown op
+///                         members) refuses NAMED with nothing written. RED on any divergence or silent drop.
 ///
 /// Self-contained: synthesizes a master + a user override in a synthetic MO2 instance in TEMP (the WriteMutexProbe
 /// pattern — the full SERVICE path runs: ResolveOutputPath, the write gate, the in-place consent store) and generates
@@ -264,6 +270,65 @@ internal static class DryRunProbe
                     target: "HcDryUser.esp", inPlace: true);
                 Check(real.NeedsAcknowledge,
                     "a REAL in-place forward afterwards still shows the first-touch prompt (no dry run recorded consent)");
+            }
+
+            // ---- L: #224 from_file ops manifest — the SAME pipeline as inline ops, file contract refuses named ----
+            Console.WriteLine("--- L: bulk_apply from_file manifest (#224) ---");
+            {
+                string ManifestFile(string name, string content)
+                {
+                    var p = Path.Combine(root, name);
+                    File.WriteAllText(p, content);
+                    return p;
+                }
+                string manifest = ManifestFile("ops-manifest.json",
+                    $"[{{\"formid\": \"{fid}\", \"field_path\": \"BasicStats.Damage\", \"verb\": \"Set\", \"value\": \"73\"}}]");
+
+                // parity — the issue's stated pairing: manifest + dry_run reports IDENTICALLY to the same ops inline
+                var before = ModFolders();
+                var dryFile = WriteTools.BulkApply(svc, from_file: manifest, patch_name: "DryL", dry_run: true);
+                var dryInline = WriteTools.BulkApply(svc, operations: new[] { DamageOp(fid, 73) }, patch_name: "DryL", dry_run: true);
+                Check(dryFile == dryInline, "manifest + dry_run renders IDENTICALLY to the same ops inline (same ApplyEdits by construction)");
+                Check(dryFile.Contains("DRY RUN") && before.SequenceEqual(ModFolders()), "the manifest dry run wrote nothing");
+
+                // contract refusals — each named, nothing written
+                var both = WriteTools.BulkApply(svc, operations: new[] { DamageOp(fid, 1) }, from_file: manifest);
+                var neither = WriteTools.BulkApply(svc);
+                Check(both.StartsWith("error:") && both.Contains("mutually exclusive")
+                   && neither.StartsWith("error:") && neither.Contains("operations") && neither.Contains("from_file"),
+                    $"operations XOR from_file (both and neither refuse named)  [{Snip(neither)}]");
+                var emptyInline = WriteTools.BulkApply(svc, operations: Array.Empty<BulkOp>());
+                Check(emptyInline.StartsWith("error:") && emptyInline.Contains("operations is empty"),
+                    "an explicit empty INLINE array keeps its existing refusal");
+                var rel = WriteTools.BulkApply(svc, from_file: "ops.json");
+                Check(rel.StartsWith("error:") && rel.Contains("ABSOLUTE"), $"a relative path refuses  [{Snip(rel)}]");
+                var unreadable = WriteTools.BulkApply(svc, from_file: Path.Combine(root, "no-such-manifest.json"));
+                Check(unreadable.StartsWith("error:") && unreadable.Contains("could not read") && unreadable.Contains("no-such-manifest.json"),
+                    "an unreadable file refuses naming the path");
+                var badJson = WriteTools.BulkApply(svc, from_file: ManifestFile("bad.json", "[{\"formid\": }]"));
+                Check(badJson.StartsWith("error:") && badJson.Contains("bad.json") && badJson.Contains("line "),
+                    $"invalid JSON refuses naming the file + position  [{Snip(badJson)}]");
+                var objRoot = WriteTools.BulkApply(svc, from_file: ManifestFile("obj.json", "{\"operations\": []}"));
+                Check(objRoot.StartsWith("error:") && objRoot.Contains("JSON ARRAY"),
+                    $"a non-array root refuses naming the expected shape  [{Snip(objRoot)}]");
+                var emptyArr = WriteTools.BulkApply(svc, from_file: ManifestFile("empty.json", "[]"));
+                Check(emptyArr.StartsWith("error:") && emptyArr.Contains("empty array") && emptyArr.Contains("empty.json"),
+                    "an empty manifest array refuses like empty operations, naming the file");
+                var nullEl = WriteTools.BulkApply(svc, from_file: ManifestFile("nullel.json",
+                    $"[null, {{\"formid\": \"{fid}\", \"field_path\": \"BasicStats.Damage\", \"value\": \"1\"}}]"));
+                Check(nullEl.StartsWith("error:") && nullEl.Contains("[0]"),
+                    $"a null element refuses naming its index  [{Snip(nullEl)}]");
+                var typo = WriteTools.BulkApply(svc, from_file: ManifestFile("typo.json",
+                    $"[{{\"formid\": \"{fid}\", \"feild_path\": \"BasicStats.Damage\", \"value\": \"5\"}}]"));
+                Check(typo.StartsWith("error:") && typo.Contains("feild_path"),
+                    $"a misspelled op member refuses BY NAME (never the inline binder's silent drop)  [{Snip(typo)}]");
+                Check(before.SequenceEqual(ModFolders()), "none of the refusals left anything behind");
+
+                // the real write from the manifest lands
+                var real = WriteTools.BulkApply(svc, from_file: manifest, patch_name: "DryL");
+                Check(!real.StartsWith("error:") && real.Contains("wrote DryL.esp")
+                   && ModFolders().Except(before).Any(f => f.Contains("DryL")),
+                    $"a real manifest write lands (a new DryL mod folder + the wrote confirmation)  [{Snip(real)}]");
             }
 
             Console.WriteLine();

@@ -8,6 +8,18 @@ when it changes.
 
 *Accumulating notes for the next cut — not yet released; `plugin.json` still reads the last shipped version.*
 
+**`housecarl_bulk_apply` learns manifest files — `from_file=` (#224).** A big write job used to mean pasting the
+whole ops array inline (the 745-record stress test generated 20 local `ops_*.json` chunk files and fed them through
+piecewise). Now `from_file=<absolute path>` reads the SAME operations array as a JSON manifest on disk: generate
+the manifest once, validate the **whole file** with `dry_run=true` before the first write, apply it in one call —
+and re-run the same manifest to recover an interrupted write (overrides are idempotent). The parsed ops ride the
+identical pipeline as inline ones (every lane and `dry_run` compose by construction; the dry-run report is
+string-identical to the same ops inline). The file contract is all named refusals (Q3): `operations` XOR
+`from_file`, absolute path required, invalid JSON named with line+column, a non-array root, an empty array, and —
+stricter than inline binding, which silently drops unknown members — a misspelled op member (`feild_path`) is
+refused **by name at its element** instead of becoming a null-field op whose downstream error points away from the
+typo.
+
 **Dry-run mode for the write tools (#225).** `housecarl_set_field`, `housecarl_bulk_apply`, and
 `housecarl_forward_record` gain `dry_run=true`: the **full real write pipeline** runs — winner resolve, schema
 pre-flight, every op applied to the in-memory would-be plugin, a reference-resolution check that pre-empts the
