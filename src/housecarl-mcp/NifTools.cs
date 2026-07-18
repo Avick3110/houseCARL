@@ -64,6 +64,8 @@ public static class NifTools
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
         if (mesh_paths is null || mesh_paths.Length == 0)
             return "error: mesh_paths is empty. Pass one or more Data-relative mesh paths (e.g. 'meshes\\armor\\iron\\cuirass_1.nif').";
+        if (mesh_paths.All(string.IsNullOrWhiteSpace))
+            return "error: mesh_paths contains only empty/blank entries. Pass Data-relative mesh paths (e.g. 'meshes\\armor\\iron\\cuirass_1.nif').";
 
         var (want, unknownTokens) = ParseSections(sections);
         var data = svc.NifInspect(mesh_paths, string.IsNullOrWhiteSpace(mod) ? null : mod);
@@ -215,24 +217,31 @@ static class NifWire
             sb.Append("\n[!] unrecognized section(s) ignored: ").Append(string.Join(", ", unknownSections))
               .Append("  (known: ").Append(string.Join(", ", new[] { "shapes", "partitions", "alpha", "paths", "strings", "nodes", "bones", "all" })).Append(")\n");
 
+        bool readIncomplete = d.BsaFailures.Count > 0, discoveryIncomplete = d.Warnings.Count > 0;
         int shown = 0;
         foreach (var r in d.Results)
         {
-            if (sb.Length >= cap)
+            // shown > 0: the FIRST mesh always renders its core answer (resolution/error/summary) even when the
+            // alarms alone exhausted the cap — max_chars bounds the batch tail and detail lists, it never starves a
+            // single-path call of the very answer it asked for (PR #243 review).
+            if (shown > 0 && sb.Length >= cap)
             {
                 sb.Append("\n… [").Append(d.Results.Count - shown)
                   .Append(" more mesh(es) omitted at max_chars=").Append(cap).Append("; raise max_chars to see all]\n");
                 break;
             }
-            AppendMesh(sb, r, want, cap);
+            AppendMesh(sb, r, want, cap, readIncomplete, discoveryIncomplete);
             shown++;
         }
         return sb.ToString().TrimEnd('\n');
     }
 
     /// <summary>One mesh's block: the path line, then either its named error (+ provider chain when we have one) or the
-    /// resolution + summary + requested detail sections.</summary>
-    static void AppendMesh(StringBuilder sb, NifInspectData d, HashSet<string> want, int cap)
+    /// resolution + summary + requested detail sections. An ABSENT is hedged at POINT OF USE on both batch-level scan
+    /// caveats (an archive that failed to READ; archives never DISCOVERED) — the top-of-output alarm alone scrolls away
+    /// in a long batch, and "absent → the mesh is fine/missing" is exactly the over-trust the hedge exists to stop (Q3,
+    /// asset_status parity).</summary>
+    static void AppendMesh(StringBuilder sb, NifInspectData d, HashSet<string> want, int cap, bool readIncomplete, bool discoveryIncomplete)
     {
         sb.Append('\n').Append(d.RelPath.Length > 0 ? d.RelPath : "(empty path)").Append('\n');
 
@@ -240,6 +249,15 @@ static class NifWire
         if (d.Inspect is null)
         {
             sb.Append("  ").Append(d.Error ?? "unknown error").Append('\n');
+            if (d.Absent)
+            {
+                if (readIncomplete)
+                    sb.Append("  [!] but an archive failed to read this build (see the read-failure note above), so " +
+                              "\"ABSENT\" may be incomplete — the mesh could live in the unreadable archive.\n");
+                if (discoveryIncomplete)
+                    sb.Append("  [!] some archives were not scanned this build (see the discovery note above), so " +
+                              "\"ABSENT\" may be incomplete — base-game meshes live in BSAs that weren't enumerated.\n");
+            }
             if (d.Providers.Count > 0) AppendProviders(sb, d.Providers);
             return;
         }
@@ -298,9 +316,10 @@ static class NifWire
     static void RenderShapesDetail(StringBuilder sb, NifInspect nif, int cap)
     {
         sb.Append("\n--- shapes (").Append(nif.Shapes.Count).Append(") ---\n");
+        int shown = 0;   // the cut notice counts the REMAINDER, not the total (PR #243 review — the RenderPerShape rule)
         foreach (var s in nif.Shapes)
         {
-            if (Cut(sb, cap, nif.Shapes.Count)) return;
+            if (Cut(sb, cap, nif.Shapes.Count - shown)) return;
             sb.Append("  '").Append(s.Name).Append("'  flags ").Append(DescribeFlags(s.Flags, s.FlagsDefault, s.FlagsDefaultType, s.BlockType))
               .Append("  scale ").Append(Fmt(s.Scale)).Append('\n');
             if (s.Partitions.Count > 0)
@@ -311,6 +330,7 @@ static class NifWire
                 sb.Append("    tex[").Append(t.Slot).Append("]: ").Append(t.Path).Append('\n');
             if (s.Bones.Count > 0)
                 sb.Append("    bones: ").Append(string.Join(", ", s.Bones)).Append('\n');
+            shown++;
         }
     }
 
