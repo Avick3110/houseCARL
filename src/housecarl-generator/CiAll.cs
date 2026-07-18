@@ -73,6 +73,10 @@ public static class CiAll
         // equality across field kinds + named non-transplantable refusals, and the two-pole diff incl. an off-order side.
         ("bulk-primitives-wave3-guard", BulkPrimitivesWave3Probe.RunGuard),
         ("writelock-guard", WriteLockProbe.RunGuard),
+        // #225 dry_run= on the write tools — the real pipeline HALTED before serialize, nothing written: refusal
+        // parity with the real call, prediction parity (path/After/masters), the pre-empted missing-master failure,
+        // the read-only in-place consent axis, and the DRY RUN render honesty.
+        ("dry-run-guard", DryRunProbe.RunGuard),
         ("inplace-guard", InPlaceProbe.RunGuard),
         ("subclass-remove-guard", SubclassRemoveGuardProbe.RunGuard),
         ("perk-refs-guard", PerkRefsProbe.RunGuard),

@@ -91,6 +91,14 @@ public static class WritePatchBuilder
         /// marker couldn't be written). Null when there's nothing to add.</summary>
         public string? Note { get; init; }
 
+        /// <summary>True ⇒ this Success came from a DRY RUN (#225): the REAL pipeline ran — winner resolve, pre-flight,
+        /// every verb applied to the in-memory mod, the reference-resolution check — and STOPPED at the point of no
+        /// return (the Phase-4 serialize), so NOTHING was written (no file, no folder). <see cref="Ops"/> carries what
+        /// WOULD change; <see cref="Masters"/> is the EXPECTED master set (link-derived preview — the real write derives
+        /// its own lean header); <see cref="Bytes"/> is 0; <see cref="ReadBack"/> (if requested) is read from the
+        /// in-memory mod, not a file. Drives the distinct "DRY RUN — nothing written" confirmation.</summary>
+        public bool DryRun { get; init; }
+
         public static PatchOutcome Fail(string error) =>
             new(false, error, "", false, Array.Empty<string>(), Array.Empty<OpResult>(), 0);
 
@@ -269,11 +277,14 @@ public static class WritePatchBuilder
     /// patch at <paramref name="outPath"/> mutably and adds to it (the <c>into=</c> path). All-or-nothing: any
     /// resolve/pre-flight rejection refuses the whole call with no file written (Q3). <paramref name="fullReadback"/>
     /// additionally reads every touched record back IN FULL off the re-opened written file (the pre-enable verify
-    /// loop — see <see cref="FullReadback"/>).</summary>
+    /// loop — see <see cref="FullReadback"/>). <paramref name="dryRun"/> (#225) runs this SAME pipeline — winner
+    /// resolve, pre-flight, every verb applied to the in-memory mod — and stops at the point of no return (the
+    /// Phase-4 serialize), returning what WOULD change with NOTHING written; it is the real path halted, never a
+    /// parallel validate-lite that could drift from the write it predicts.</summary>
     public static PatchOutcome Apply(
         LoadOrderResolver resolver, CorpusRulebook rulebook,
         IReadOnlyList<PatchEdit> edits, string outPath, bool extend, bool fullReadback = false,
-        IReadOnlyDictionary<PatchEdit, IMajorRecordGetter>? copyFromSources = null)
+        IReadOnlyDictionary<PatchEdit, IMajorRecordGetter>? copyFromSources = null, bool dryRun = false)
     {
         if (edits.Count == 0) return PatchOutcome.Fail("no edits supplied.");
 
@@ -451,6 +462,20 @@ public static class WritePatchBuilder
         if (SyncEditedTopicMarkers(patchMod, edits, ops) is { } syncErr)
             return PatchOutcome.Fail($"refused — {syncErr} (no patch written).");
 
+        // --- #225 DRY RUN: stop AT the point of no return. Everything above ran for real — the same resolve,
+        //     pre-flight, and in-memory apply the write uses — so the report below can't drift from what a real call
+        //     would do. The one Phase-4 hazard the halt skips (a reference to a plugin not in the serialize's
+        //     resolution context → MissingModException) is re-checked here by the same membership test, so a dry run
+        //     that says "would apply" doesn't hide a write that would fail at serialize (Q3). ---
+        if (dryRun)
+        {
+            if (DryRunMastersPreview(patchMod, resolver, patchLane: true, out var wouldMasters) is { } dryErr)
+                return PatchOutcome.Fail(dryErr);
+            IReadOnlyList<FullReadback>? dryBack = fullReadback
+                ? ReadBackInFull(patchMod, resolved.Select(r => r.edit.Target), inMemory: true) : null;
+            return new PatchOutcome(true, null, outPath, extend, wouldMasters, ops, 0) { DryRun = true, ReadBack = dryBack };
+        }
+
         // --- Phase 4: serialize ONCE with the FULL known-master set (multi-master). Mutagen keeps the header lean
         //     (only-referenced); a referenced master genuinely absent from the order still fails loud (Q3). ---
         // Two-part active-patch self-lock guard (Heisen 2026-06-08 + PR #24 review): no mapped handle on the file we're
@@ -547,7 +572,8 @@ public static class WritePatchBuilder
     /// </summary>
     public static PatchOutcome ApplyInPlace(
         LoadOrderResolver resolver, CorpusRulebook rulebook,
-        IReadOnlyList<PatchEdit> edits, string targetPath, string targetName, bool fullReadback = true)
+        IReadOnlyList<PatchEdit> edits, string targetPath, string targetName, bool fullReadback = true,
+        bool dryRun = false)
     {
         if (edits.Count == 0) return PatchOutcome.Fail("no edits supplied.");
 
@@ -648,6 +674,25 @@ public static class WritePatchBuilder
         if (SyncEditedTopicMarkers(targetMod, edits, ops) is { } syncErr)
             return PatchOutcome.Fail($"refused — {syncErr} ('{fileName}' is UNTOUCHED).");
 
+        // --- #225 DRY RUN: stop AT the point of no return (see Apply's twin block). patchLane:false — in-place
+        //     serializes via WriteInPlace (no Skyrim.esm/Update.esm baseline force-include), so the master preview
+        //     must not add one. The would-grow re-sort note is phrased predictively (nothing was added yet). ---
+        if (dryRun)
+        {
+            if (DryRunMastersPreview(targetMod, resolver, patchLane: false, out var wouldMasters) is { } dryErr)
+                return PatchOutcome.Fail(dryErr);
+            var wouldGrow = wouldMasters.Where(m => !mastersBefore.Contains(m)).ToList();
+            IReadOnlyList<FullReadback>? dryBack = fullReadback
+                ? ReadBackInFull(targetMod, resolved.Select(r => r.edit.Target), inMemory: true) : null;
+            return new PatchOutcome(true, null, targetPath, false, wouldMasters, ops, 0)
+            {
+                DryRun = true, InPlace = true, ReadBack = dryBack,
+                Note = wouldGrow.Count == 0 ? null :
+                    $"the real write would ADD {string.Join(", ", wouldGrow)} as master(s) of '{fileName}' — a plugin " +
+                    "loads only if its masters load BEFORE it, so re-sort your load order (LOOT / MO2) after the real write.",
+            };
+        }
+
         // --- Phase 4: re-serialize the WHOLE target back over itself (model C — the probe's incantation via WriteInPlace,
         //     NOT WritePatch). Release the target overlay first (the winner-IS-the-target common case made common — the
         //     two-part self-lock guard, here on a FOREIGN target: ReleaseOverlay disposes every session overlay on the
@@ -703,6 +748,56 @@ public static class WritePatchBuilder
         if (grown.Count == 0) return null;
         return $"{string.Join(", ", grown)} {(grown.Count == 1 ? "was" : "were")} added as a master of '{fileName}' — " +
                "a plugin loads only if its masters load BEFORE it, so re-sort your load order (LOOT / MO2) before playing.";
+    }
+
+    /// <summary>#225 dry run — the pre-serialize reference-resolution check + expected-master preview, run INSTEAD of
+    /// Phase 4. Walks every record the in-memory mod holds and collects each referenced ModKey (a contained record's
+    /// ORIGIN plugin + every FormLink's plugin, minus the mod itself — the same link surface Mutagen lean-derives the
+    /// real header from). A referenced plugin NOT in the active order is the EXACT condition the real serialize fails
+    /// on (its WithLoadOrder resolution context is the active order minus the output — MissingModException), so it is
+    /// a Q3 refusal here too: a dry run must never say "would apply" about a write that would fail. On success,
+    /// <paramref name="masters"/> is the expected master set in load order — link-derived, PLUS the Skyrim.esm/Update.esm
+    /// baseline the patch lane's <c>WritePatch</c> force-includes (<paramref name="patchLane"/>; the in-place lane's
+    /// <c>WriteInPlace</c> deliberately adds none) — a labeled PREVIEW: the real write derives its own lean header.</summary>
+    static string? DryRunMastersPreview(SkyrimMod mod, LoadOrderResolver resolver, bool patchLane, out IReadOnlyList<string> masters)
+    {
+        masters = Array.Empty<string>();
+        var priority = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        for (int i = 0; i < resolver.PluginNames.Count; i++) priority[resolver.PluginNames[i]] = i;
+
+        var referenced = new Dictionary<ModKey, FormKey>();   // referenced plugin -> first record referencing it (for the refusal)
+        foreach (var rec in mod.EnumerateMajorRecords())
+        {
+            if (rec.FormKey.ModKey != mod.ModKey) referenced.TryAdd(rec.FormKey.ModKey, rec.FormKey);
+            try
+            {
+                foreach (var link in rec.EnumerateFormLinks())
+                    if (!link.FormKey.IsNull && link.FormKey.ModKey != mod.ModKey)
+                        referenced.TryAdd(link.FormKey.ModKey, rec.FormKey);
+            }
+            catch (Exception ex)
+            {
+                // The link walk parses subrecord content lazily — a throw means the would-be content itself is
+                // malformed, which the real serialize would also hit. Named, never a silent partial preview (Q3).
+                return $"dry run: enumerating {rec.FormKey}'s references threw ({ex.GetType().Name}: {ex.Message}) — " +
+                       "the would-be content could not be fully checked; the real write would hit the same data. Nothing was written.";
+            }
+        }
+
+        var missing = referenced.Where(kv => !priority.ContainsKey(kv.Key.FileName.String))
+                                .Select(kv => $"{kv.Key.FileName} (referenced by {kv.Value})").ToList();
+        if (missing.Count > 0)
+            return $"dry run caught what the real write would fail on: the would-be content references " +
+                   $"{missing.Count} plugin(s) NOT active in the load order — a reference into an inactive plugin " +
+                   $"can't resolve in game, and the real serialize refuses it (MissingModException): " +
+                   $"{string.Join("; ", missing)}. Enable the plugin(s) in MO2 (or reference active ones). Nothing was written.";
+
+        var set = new HashSet<string>(referenced.Keys.Select(mk => mk.FileName.String), StringComparer.OrdinalIgnoreCase);
+        if (patchLane)
+            foreach (var bm in WriteEngine.BaselineMasters)
+                if (priority.ContainsKey(bm.FileName.String)) set.Add(bm.FileName.String);
+        masters = set.OrderBy(n => priority[n]).ToList();
+        return null;
     }
 
     /// <summary>Resolve the target's OWN declared masters to on-disk overlays in declared order — the load order
@@ -1071,7 +1166,7 @@ public static class WritePatchBuilder
     /// </summary>
     public static ForwardOutcome ForwardRecordsInPlace(
         LoadOrderResolver resolver, IReadOnlyList<ForwardSpec> specs, string targetPath, string targetName,
-        bool fullReadback = true)
+        bool fullReadback = true, bool dryRun = false)
     {
         if (specs.Count == 0) return ForwardOutcome.Fail("no records to forward supplied.");
 
@@ -1140,6 +1235,24 @@ public static class WritePatchBuilder
                     $"engine error forwarding {spec.Target} from '{spec.FromPlugin}': the source resolved but the " +
                     $"override-copy threw — a real inconsistency, surfaced not swallowed (Q3): {ex.GetType().Name}: {ex.Message}. Your original is UNTOUCHED.");
             }
+        }
+
+        // --- #225 DRY RUN: stop AT the point of no return (see Apply's twin block). patchLane:false — WriteInPlace
+        //     adds no baseline masters. The would-grow re-sort note is phrased predictively. ---
+        if (dryRun)
+        {
+            if (DryRunMastersPreview(targetMod, resolver, patchLane: false, out var wouldMasters) is { } dryErr)
+                return ForwardOutcome.Fail(dryErr);
+            var wouldGrow = wouldMasters.Where(m => !mastersBefore.Contains(m)).ToList();
+            IReadOnlyList<FullReadback>? dryBack = fullReadback
+                ? ReadBackInFull(targetMod, resolved.Select(r => r.spec.Target), inMemory: true) : null;
+            return new ForwardOutcome(true, null, targetPath, false, forwarded, wouldMasters, 0)
+            {
+                DryRun = true, InPlace = true, ReadBack = dryBack,
+                Note = wouldGrow.Count == 0 ? null :
+                    $"the real write would ADD {string.Join(", ", wouldGrow)} as master(s) of '{fileName}' — a plugin " +
+                    "loads only if its masters load BEFORE it, so re-sort your load order (LOOT / MO2) after the real write.",
+            };
         }
 
         // --- Phase 4: model-C re-serialize over the original (WriteInPlace, whole known-master set — the copied
@@ -1221,6 +1334,12 @@ public static class WritePatchBuilder
         /// <summary>An optional Q3 honesty note appended to a SUCCESSFUL outcome — a side effect that didn't land cleanly
         /// even though the write did. Null when there's nothing to add. Mirrors <see cref="PatchOutcome.Note"/>.</summary>
         public string? Note { get; init; }
+
+        /// <summary>True ⇒ this Success came from a DRY RUN (#225): the real forward pipeline ran (source resolve,
+        /// replace-or-copy into the in-memory mod, the reference-resolution check) and STOPPED before the serialize —
+        /// NOTHING was written. <see cref="Forwarded"/> is what WOULD be copied; <see cref="Masters"/> is the expected
+        /// (link-derived, preview) master set; <see cref="Bytes"/> is 0. Mirrors <see cref="PatchOutcome.DryRun"/>.</summary>
+        public bool DryRun { get; init; }
 
         public static ForwardOutcome Fail(string error) =>
             new(false, error, "", false, Array.Empty<ForwardedRecord>(), Array.Empty<string>(), 0);
@@ -1337,7 +1456,8 @@ public static class WritePatchBuilder
     /// verify loop — see <see cref="FullReadback"/>).</para>
     /// </summary>
     public static ForwardOutcome ForwardRecords(
-        LoadOrderResolver resolver, IReadOnlyList<ForwardSpec> specs, string outPath, bool extend, bool fullReadback = false)
+        LoadOrderResolver resolver, IReadOnlyList<ForwardSpec> specs, string outPath, bool extend, bool fullReadback = false,
+        bool dryRun = false)
     {
         if (specs.Count == 0) return ForwardOutcome.Fail("no records to forward supplied.");
 
@@ -1418,6 +1538,17 @@ public static class WritePatchBuilder
                     $"engine error forwarding {spec.Target} from '{spec.FromPlugin}': the source resolved but the " +
                     $"override-copy threw — a real inconsistency, surfaced not swallowed (Q3): {ex.GetType().Name}: {ex.Message}");
             }
+        }
+
+        // --- #225 DRY RUN: stop AT the point of no return (see Apply's twin block) — the copies above landed in the
+        //     in-memory mod only; report what WOULD be forwarded + the expected masters, write nothing. ---
+        if (dryRun)
+        {
+            if (DryRunMastersPreview(patchMod, resolver, patchLane: true, out var wouldMasters) is { } dryErr)
+                return ForwardOutcome.Fail(dryErr);
+            IReadOnlyList<FullReadback>? dryBack = fullReadback
+                ? ReadBackInFull(patchMod, resolved.Select(r => r.spec.Target), inMemory: true) : null;
+            return new ForwardOutcome(true, null, outPath, extend, forwarded, wouldMasters, 0) { DryRun = true, ReadBack = dryBack };
         }
 
         // --- Phase 4: serialize ONCE with the FULL known-master set (identical to Apply Phase 4 — release any overlay
@@ -2196,7 +2327,7 @@ public static class WritePatchBuilder
     /// runs (serialize done, masters confirmed), so a read-back failure must not convert the outcome to Fail —
     /// that would read as "my write was lost" and invite re-issuing the ops (the duplicate-Add trap this read-back
     /// exists to close). Every degraded path is named per-record on <see cref="FullReadback.Error"/> (Q3).</summary>
-    static IReadOnlyList<FullReadback> ReadBackInFull(ISkyrimModGetter back, IEnumerable<FormKey> targets)
+    static IReadOnlyList<FullReadback> ReadBackInFull(ISkyrimModGetter back, IEnumerable<FormKey> targets, bool inMemory = false)
     {
         var order = new List<FormKey>();                                   // caller order, de-duped (several ops may hit one record)
         var want = new HashSet<FormKey>();
@@ -2217,8 +2348,12 @@ public static class WritePatchBuilder
             result.Add(found.TryGetValue(fk, out var rf)
                 ? new FullReadback(fk, rf, null)
                 : new FullReadback(fk, null, walkError is not null
-                    ? $"{walkError} — the WRITE ITSELF SUCCEEDED (the patch was serialized and re-opened); inspect the patch in xEdit; do not re-issue the ops."
-                    : $"the written file did not yield {fk} on re-open — a real inconsistency, surfaced not swallowed (Q3); inspect the patch in xEdit."));
+                    ? (inMemory
+                        ? $"{walkError} — this was a DRY RUN read of the in-memory would-be content; nothing was written."
+                        : $"{walkError} — the WRITE ITSELF SUCCEEDED (the patch was serialized and re-opened); inspect the patch in xEdit; do not re-issue the ops.")
+                    : (inMemory
+                        ? $"the in-memory would-be content did not yield {fk} — a real inconsistency, surfaced not swallowed (Q3); nothing was written."
+                        : $"the written file did not yield {fk} on re-open — a real inconsistency, surfaced not swallowed (Q3); inspect the patch in xEdit.")));
         return result;
     }
 

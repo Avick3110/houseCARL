@@ -57,14 +57,16 @@ public static class WriteTools
         [Description("When true, the read-back is the FULL deep field-by-field dump of the touched record (every field, not just the edited leaf) — confirm the write landed and nothing else was disturbed, WITHOUT enabling the patch in MO2. For an IN-PLACE edit the touched-record verify ALWAYS runs and is shown COMPACTLY by default (re-read-clean + what landed, every record); true expands it to the deep dump. (The read-back is the written file's content, NOT load-order truth — the patch/edit wins nothing until enabled + sorted in MO2.)")]
             bool full_readback = false,
         [Description("Optional. Max characters for the whole response; past it the read-back is cut with an explicit notice (never silent). 0 = a safe default kept under the host's per-response token limit; raise it to widen a full_readback=true dump.")]
-            int max_chars = 0) => Guard.Tool("housecarl_set_field", () =>
+            int max_chars = 0,
+        [Description("Optional, default false. DRY RUN: run the FULL write pipeline — winner resolve, schema pre-flight, the edit applied in memory, the reference-resolution check — and STOP before anything touches disk (no patch file, no mod folder, no in-place rewrite). Returns what WOULD change (the would-be value, the expected masters), or EXACTLY the refusal the real call would give. Works on every lane (fresh patch / into= / in_place; an in-place dry run needs no acknowledge and never records consent). Not a disk guarantee: a serialize/commit fault still surfaces only on the real write.")]
+            bool dry_run = false) => Guard.Tool("housecarl_set_field", () =>
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
         var op = new BulkOp
         {
             Formid = formid, FieldPath = field_path, Verb = verb, Value = value, Key = key, Values = values,
         };
-        return Render(svc.ApplyEdits(new[] { op }, patch_name, into, full_readback, target, in_place, acknowledge), max_chars, full_readback);
+        return Render(svc.ApplyEdits(new[] { op }, patch_name, into, full_readback, target, in_place, acknowledge, dry_run), max_chars, full_readback);
     });
 
     [McpServerTool(Name = "housecarl_bulk_apply", Title = "Apply many edits in one patch"),
@@ -93,7 +95,9 @@ public static class WriteTools
          "bulk_apply into= is THE recipe to build on a specific plugin's version while a stale winner sits above it. " +
          "To edit an EXISTING plugin IN PLACE instead — rewriting your ORIGINAL file (incl. a mod houseCARL " +
          "didn't make), not a patch — pass target=<plugin filename> + in_place=true (opt-in; the default lane leaves originals " +
-         "untouched). Returns the patch path, masters, and per-op read-back.")]
+         "untouched). dry_run=true validates the WHOLE batch through the real pipeline and reports what WOULD change " +
+         "without writing anything — the way to catch a bad field path before the first write of a big batch, not after " +
+         "the last. Returns the patch path, masters, and per-op read-back.")]
     public static string BulkApply(
         LoadOrderService svc,
         [Description("The edits to apply, all into one patch. Each: {formid, field_path, verb, value?, key?, values?, entries?, compose?}.")]
@@ -111,12 +115,14 @@ public static class WriteTools
         [Description("When true, the read-back is the FULL deep field-by-field dump of every record this call touched (not just the edited leaves) — confirm composed structures (conditions, container entries) landed and nothing else was disturbed, WITHOUT enabling the patch in MO2. For an IN-PLACE edit the touched-record verify ALWAYS runs and is shown COMPACTLY by default (per record: re-read-clean + what landed, covering ALL of them); true expands it to the deep dump. (The read-back is the written file's content, NOT load-order truth — the patch/edit wins nothing until enabled + sorted in MO2.)")]
             bool full_readback = false,
         [Description("Optional. Max characters for the whole response; past it the read-back is cut with an explicit notice (never silent). 0 = a safe default kept under the host's per-response token limit; raise it to widen a full_readback=true dump.")]
-            int max_chars = 0) => Guard.Tool("housecarl_bulk_apply", () =>
+            int max_chars = 0,
+        [Description("Optional, default false. DRY RUN: run the FULL write pipeline over the WHOLE batch — winner resolve, schema pre-flight, every op applied in memory, the reference-resolution check — and STOP before anything touches disk (no patch file, no mod folder, no in-place rewrite). Returns per-op what WOULD change + the expected masters, or EXACTLY the all-or-nothing refusal the real call would give (every bad op named) — validate a big batch's field paths and values BEFORE the first write, not after the last. Works on every lane (fresh patch / into= / in_place; an in-place dry run needs no acknowledge and never records consent). Not a disk guarantee: a serialize/commit fault still surfaces only on the real write.")]
+            bool dry_run = false) => Guard.Tool("housecarl_bulk_apply", () =>
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
         if (operations is null || operations.Length == 0)
             return "error: operations is empty. Pass one or more {formid, field_path, verb, ...} edits.";
-        return Render(svc.ApplyEdits(operations, patch_name, into, full_readback, target, in_place, acknowledge), max_chars, full_readback);
+        return Render(svc.ApplyEdits(operations, patch_name, into, full_readback, target, in_place, acknowledge, dry_run), max_chars, full_readback);
     });
 
     [McpServerTool(Name = "housecarl_remove_record", Title = "Remove a whole record from a patch (or a plugin in place)"),
@@ -306,14 +312,16 @@ public static class WriteTools
         [Description("Optional, default false. Confirms the one-time in-place trade-off for target (see in_place) — needed only on the FIRST in-place write to a given plugin (edit, create, remove, OR forward), never again for it. Waives the consent to touch your original ONLY; it NEVER skips the record verify.")]
             bool acknowledge = false,
         [Description("Optional. Max characters for the whole response; past it the read-back is cut with an explicit notice (never silent). 0 = a safe default kept under the host's per-response token limit; raise it to widen a full_readback=true dump.")]
-            int max_chars = 0) => Guard.Tool("housecarl_forward_record", () =>
+            int max_chars = 0,
+        [Description("Optional, default false. DRY RUN: resolve every record from from_plugin, copy each into the in-memory would-be patch, and STOP before anything touches disk (no patch file, no mod folder, no in-place rewrite). Returns what WOULD be forwarded (per record: source, the winner it would out-rank, replace/redundant flags) + the expected masters, or EXACTLY the refusal the real call would give. Works on every lane (fresh patch / into= / in_place; an in-place dry run needs no acknowledge and never records consent). Not a disk guarantee: a serialize/commit fault still surfaces only on the real write.")]
+            bool dry_run = false) => Guard.Tool("housecarl_forward_record", () =>
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
         if (formids is null || formids.Length == 0)
             return "error: formids is empty. Pass one or more 'XXXXXX:Plugin.esp' FormIDs to forward from from_plugin.";
         if (string.IsNullOrWhiteSpace(from_plugin))
             return "error: from_plugin is empty. Name the plugin whose version of the record(s) to forward.";
-        return RenderForward(svc.ForwardRecords(formids, from_plugin, patch_name, into, full_readback, target, in_place, acknowledge), max_chars);
+        return RenderForward(svc.ForwardRecords(formids, from_plugin, patch_name, into, full_readback, target, in_place, acknowledge, dry_run), max_chars);
     });
 
     [McpServerTool(Name = "housecarl_create_plugin", Title = "Create an empty header-only (trigger) plugin"),
@@ -435,6 +443,7 @@ public static class WriteTools
     {
         if (o.NeedsAcknowledge) return o.Error!;            // the first-touch in-place CONSENT prompt — a required confirmation, NOT an error (Q3)
         if (!o.Success) return "error: " + o.Error;
+        if (o.DryRun) return RenderDryRun(o, maxChars, fullDump);
         var file = Path.GetFileName(o.OutputPath);
         var modFolder = Path.GetFileName(Path.GetDirectoryName(o.OutputPath) ?? "");
         var sb = new StringBuilder();
@@ -479,24 +488,58 @@ public static class WriteTools
         return sb.ToString();
     }
 
+    /// <summary>#225 — the dry_run=true confirmation: the SAME pipeline ran (winner resolve, pre-flight, every verb
+    /// applied in memory, the reference-resolution check) and stopped AT the point of no return, so this reports what
+    /// WOULD change with NOTHING on disk. The header says so first (Q3 — a dry run must never read like a write);
+    /// masters are the labeled link-derived PREVIEW; per-op lines carry the would-be values; the optional deep dump is
+    /// the in-memory would-be content. A refusal never reaches here — a dry run refuses EXACTLY like the real call.</summary>
+    static string RenderDryRun(WritePatchBuilder.PatchOutcome o, int maxChars, bool fullDump)
+    {
+        var file = Path.GetFileName(o.OutputPath);
+        var sb = new StringBuilder();
+        sb.Append("DRY RUN — validated only; NOTHING was written (no patch file, no mod folder, originals untouched).\n");
+        if (o.InPlace)
+            sb.Append("the real call would edit ").Append(file).Append(" IN PLACE — your ORIGINAL file rewritten; no houseCARL backup or undo.\n");
+        else if (o.Extended)
+            sb.Append("the real call would EXTEND the existing patch ").Append(file).Append(".\n");
+        else
+            sb.Append("the real call would write a NEW patch ").Append(file)
+              .Append(" (name preview — the real write re-picks a free name, so the auto-suffix can shift if another patch lands first).\n");
+        sb.Append("expected masters: ").Append(o.Masters.Count == 0 ? "(none)" : string.Join(", ", o.Masters))
+          .Append("  [derived from the would-be content; the real write derives its own lean header]\n");
+        sb.Append(o.Ops.Count).Append(o.Ops.Count == 1 ? " edit would apply:\n" : " edits would apply:\n");
+        foreach (var op in o.Ops)
+            sb.Append("  ").Append(op.RecordType).Append(' ').Append(op.Target).Append("  ").Append(op.Label)
+              .Append(op.After is not null ? "  -> would become " + op.After : "  -> would apply").Append('\n');
+        if (fullDump && o.ReadBack is { } rb) AppendFullReadback(sb, rb, maxChars, dryRun: true);
+        if (o.Note is { } note) sb.Append("note: ").Append(note).Append('\n');
+        sb.Append("every op passed resolve + pre-flight; to apply for real, repeat the call without dry_run. ")
+          .Append("(A real write can still fail at serialize/commit — disk faults and data Mutagen refuses to serialize surface only there.)");
+        return sb.ToString();
+    }
+
     /// <summary>The full_readback=true read-back section (HCBR-2026-06-11-02 wave (b)): each touched/created record IN FULL,
     /// re-read from the written file on disk. Labeled as exactly that — the written file's content, NOT load-order
     /// truth (the patch wins nothing until enabled in MO2) — so the caller can't mistake it for a winner read.
     /// Char-budget-bounded with an explicit notice (Q3), same convention as the read tools — now at the LOWER
     /// <see cref="Wire.ReadbackMaxChars"/> default so the cut-off output stays under the host token ceiling and the
     /// truncation note actually reaches the caller (HCBR-2026-06-28-01).</summary>
-    static void AppendFullReadback(StringBuilder sb, IReadOnlyList<WritePatchBuilder.FullReadback> rb, int maxChars)
+    static void AppendFullReadback(StringBuilder sb, IReadOnlyList<WritePatchBuilder.FullReadback> rb, int maxChars,
+        bool dryRun = false)
     {
         int cap = maxChars > 0 ? maxChars : Wire.ReadbackMaxChars;
-        sb.Append("full read-back — the ENTIRE record(s) as written, re-read from the patch file on disk ")
-          .Append("(the written file's content, NOT load-order truth; the patch wins nothing until enabled + sorted in MO2):\n");
+        // #225: a dry run's records are read from the IN-MEMORY would-be content — say so, never imply a file exists.
+        sb.Append(dryRun
+            ? "full preview — the ENTIRE record(s) as they WOULD be written, read from the in-memory would-be content (nothing is on disk):\n"
+            : "full read-back — the ENTIRE record(s) as written, re-read from the patch file on disk " +
+              "(the written file's content, NOT load-order truth; the patch wins nothing until enabled + sorted in MO2):\n");
+        string hint = dryRun ? "; raise max_chars" : "; raise max_chars, or enable the patch in MO2 and use housecarl_read_record";
         for (int i = 0; i < rb.Count; i++)
         {
             if (sb.Length >= cap)
             {
                 sb.Append("  ... [truncated: full read-back rendered ").Append(i).Append(" of ").Append(rb.Count)
-                  .Append(" record(s) at max_chars=").Append(cap)
-                  .Append("; raise max_chars, or enable the patch in MO2 and use housecarl_read_record]\n");
+                  .Append(" record(s) at max_chars=").Append(cap).Append(hint).Append("]\n");
                 return;
             }
             var r = rb[i];
@@ -509,7 +552,7 @@ public static class WriteTools
                 {
                     sb.Append("    ... [truncated: this record's field lines hit max_chars=").Append(cap)
                       .Append("; ").Append(rb.Count - i - 1).Append(" further record(s) not rendered")
-                      .Append("; raise max_chars, or enable the patch in MO2 and use housecarl_read_record]\n");
+                      .Append(hint).Append("]\n");
                     return;
                 }
                 sb.Append("    ").Append(f.Path).Append(" = ").Append(f.HasValue ? f.Token : f.Note).Append('\n');
@@ -594,14 +637,28 @@ public static class WriteTools
     /// source it was copied FROM, and the current winner it out-ranks once enabled — with a redundant-forward NOTE when
     /// the copied version was already winning (Q3 — never silently a no-op). On refusal, the named reason so the caller
     /// can fix and retry. Optional full read-back rides along (the pre-enable verify that the copy is the source's).</summary>
-    static string RenderForward(WritePatchBuilder.ForwardOutcome o, int maxChars = 0)
+    internal static string RenderForward(WritePatchBuilder.ForwardOutcome o, int maxChars = 0)   // internal: the dry-run guard asserts the would-be phrasing
     {
         if (o.NeedsAcknowledge) return o.Error!;            // the first-touch in-place CONSENT prompt — a required confirmation, NOT an error (Q3)
         if (!o.Success) return "error: " + o.Error;
         var file = Path.GetFileName(o.OutputPath);
         var modFolder = Path.GetFileName(Path.GetDirectoryName(o.OutputPath) ?? "");
         var sb = new StringBuilder();
-        if (o.InPlace)
+        if (o.DryRun)
+        {
+            // #225 — mirrors RenderDryRun: say NOTHING was written first, then what the real call would do.
+            sb.Append("DRY RUN — validated only; NOTHING was written (no patch file, no mod folder, originals untouched).\n");
+            if (o.InPlace)
+                sb.Append("the real call would forward into ").Append(file).Append(" IN PLACE — your ORIGINAL file rewritten; no houseCARL backup or undo.\n");
+            else if (o.Extended)
+                sb.Append("the real call would EXTEND the existing patch ").Append(file).Append(".\n");
+            else
+                sb.Append("the real call would write a NEW patch ").Append(file)
+                  .Append(" (name preview — the real write re-picks a free name, so the auto-suffix can shift if another patch lands first).\n");
+            sb.Append("expected masters: ").Append(o.Masters.Count == 0 ? "(none)" : string.Join(", ", o.Masters))
+              .Append("  [derived from the would-be content; the real write derives its own lean header]\n");
+        }
+        else if (o.InPlace)
             sb.Append("forwarded into ").Append(file).Append(" IN PLACE (").Append(o.Bytes)
               .Append(" bytes — your ORIGINAL file was rewritten; no houseCARL backup or undo)\n")
               .Append("mod folder: ").Append(modFolder).Append("  — already active in your load order; re-sort only if a winner changed\n");
@@ -612,25 +669,32 @@ public static class WriteTools
             sb.Append("mod folder: ").Append(modFolder)
               .Append(o.Extended ? "\n" : "  — enable + sort it in MO2 to use the patch\n");
         }
-        sb.Append("masters: ").Append(o.Masters.Count == 0 ? "(none)" : string.Join(", ", o.Masters)).Append('\n');
-        sb.Append("forwarded ").Append(o.Forwarded.Count).Append(o.Forwarded.Count == 1 ? " record:\n" : " records:\n");
+        if (!o.DryRun)
+            sb.Append("masters: ").Append(o.Masters.Count == 0 ? "(none)" : string.Join(", ", o.Masters)).Append('\n');
+        sb.Append(o.DryRun ? "would forward " : "forwarded ").Append(o.Forwarded.Count)
+          .Append(o.Forwarded.Count == 1 ? " record:\n" : " records:\n");
         foreach (var f in o.Forwarded)
         {
             sb.Append("  ").Append(f.RecordType).Append(' ').Append(f.Target).Append("  ").Append(f.EditorId ?? "<no editorid>")
-              .Append("  — copied from ").Append(f.FromPlugin);
+              .Append(o.DryRun ? "  — would be copied from " : "  — copied from ").Append(f.FromPlugin);
             if (f.ReplacedExisting)
-                sb.Append("  [REPLACED the patch's own existing override of this record — the old body is gone (xEdit's copy-as-override-into overwrite)]");
+                sb.Append(o.DryRun
+                    ? "  [would REPLACE the patch's own existing override of this record — the old body would be gone (xEdit's copy-as-override-into overwrite)]"
+                    : "  [REPLACED the patch's own existing override of this record — the old body is gone (xEdit's copy-as-override-into overwrite)]");
             if (f.WasAlreadyWinner)
                 sb.Append("  [NOTE: this source IS already the load-order winner — the override just re-asserts the content that already wins (a no-op in effect)]");
             else
                 sb.Append("  (out-ranks the current winner ").Append(f.PriorWinner).Append(" once this patch is enabled + sorted above it)");
             sb.Append('\n');
         }
-        if (o.ReadBack is { } rb) AppendFullReadback(sb, rb, maxChars);
+        if (o.ReadBack is { } rb) AppendFullReadback(sb, rb, maxChars, dryRun: o.DryRun);
         if (o.Note is { } note) sb.Append("note: ").Append(note).Append('\n');
-        sb.Append(o.InPlace
-            ? $"to forward more into this plugin, pass target=\"{file}\" in_place=true (no further confirmation needed for it)."
-            : $"to forward more into THIS patch (incl. from a different source plugin), pass into=\"{file}\".");
+        sb.Append(o.DryRun
+            ? "every record resolved from its source; to forward for real, repeat the call without dry_run. " +
+              "(A real write can still fail at serialize/commit — disk faults surface only there.)"
+            : o.InPlace
+                ? $"to forward more into this plugin, pass target=\"{file}\" in_place=true (no further confirmation needed for it)."
+                : $"to forward more into THIS patch (incl. from a different source plugin), pass into=\"{file}\".");
         return sb.ToString();
     }
 

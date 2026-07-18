@@ -2573,7 +2573,8 @@ public sealed class LoadOrderService : IDisposable
     /// <paramref name="fullReadback"/> additionally reads every touched record back IN FULL off the written file
     /// (the pre-enable verify loop — wishlist #3 re-scoped / HCBR-2026-06-11-02 wave (b)).</summary>
     public WritePatchBuilder.PatchOutcome ApplyEdits(IReadOnlyList<BulkOp> ops, string? patchName, string? into,
-        bool fullReadback = false, string? target = null, bool inPlace = false, bool acknowledge = false)
+        bool fullReadback = false, string? target = null, bool inPlace = false, bool acknowledge = false,
+        bool dryRun = false)
     {
         if (ops.Count == 0)
             return WritePatchBuilder.PatchOutcome.Fail("no operations supplied.");
@@ -2611,10 +2612,13 @@ public sealed class LoadOrderService : IDisposable
             var rulebook = Rulebook;
 
             if (inPlace)
-                return ApplyEditsInPlace(resolver, rulebook, edits, target!.Trim(), acknowledge);
+                return ApplyEditsInPlace(resolver, rulebook, edits, target!.Trim(), acknowledge, dryRun);
 
+            // #225: a dry run resolves the would-be output path WITHOUT creating the mod folder (create:false) — the
+            // one disk side effect the pre-serialize pipeline otherwise has. The fresh-lane name is a preview: the
+            // real write re-picks a free stem, so a concurrent write can shift the auto-suffix.
             string outPath; bool extend, created;
-            try { outPath = ResolveOutputPath(patchName, into, out extend, out created); }
+            try { outPath = ResolveOutputPath(patchName, into, out extend, out created, create: !dryRun); }
             catch (Exception ex) { return WritePatchBuilder.PatchOutcome.Fail(ex.Message); }
 
             // P8b: pre-resolve any CopyFrom source that is OFF-ORDER (from_plugin on disk but NOT in the active order —
@@ -2632,7 +2636,7 @@ public sealed class LoadOrderService : IDisposable
             }
             try
             {
-                var outcome = WritePatchBuilder.Apply(resolver, rulebook, edits, outPath, extend, fullReadback, copyFromSources);
+                var outcome = WritePatchBuilder.Apply(resolver, rulebook, edits, outPath, extend, fullReadback, copyFromSources, dryRun);
                 if (!outcome.Success && created) RemoveFolderCreatedThisCall(outPath);   // hunt F4: a refused write leaves no orphan
                 return outcome;
             }
@@ -2694,7 +2698,7 @@ public sealed class LoadOrderService : IDisposable
     /// the CONSENT axis ONLY — the verify is a corruption-axis fact no acknowledgement overrides.</summary>
     WritePatchBuilder.PatchOutcome ApplyEditsInPlace(
         LoadOrderResolver resolver, CorpusRulebook rulebook, IReadOnlyList<WritePatchBuilder.PatchEdit> edits,
-        string target, bool acknowledge)
+        string target, bool acknowledge, bool dryRun = false)
     {
         // (1) Resolve target -> real on-disk path via the load order (by plugin FILENAME — unique in an order). Refuse
         //     loud if it isn't a real active plugin (closes the coincidental-folder collision the into= lane can hit).
@@ -2708,24 +2712,42 @@ public sealed class LoadOrderService : IDisposable
         // (2) CONSENT axis — the persistent, server-enforced first-touch handshake, keyed off the resolved path. NOT a
         //     sticky mode: each in-place write still names its own target=, so this only stops re-explaining the
         //     trade-off; it never makes an ambiguous request route to in-place.
+        //     #225: a DRY RUN bypasses the handshake and NEVER persists an acknowledgement — consent gates touching
+        //     your original, and a dry run touches nothing; the pending consent is surfaced as a note instead, so the
+        //     report still says the REAL write will prompt.
         bool already = _store.IsInPlaceAcknowledged(targetPath);
-        if (!already && !acknowledge)
-            return WritePatchBuilder.PatchOutcome.NeedsAck(InPlaceHandshakeText(targetName, targetPath));
         string? ackNote = null;
-        if (!already && acknowledge)
+        if (dryRun)
         {
-            var (ok, err) = _store.RecordInPlaceAcknowledged(targetPath);
-            if (!ok) ackNote = $"the in-place acknowledgement could not be saved ({err}) — the edit proceeded, but a future session will re-prompt for this plugin.";
+            if (!already)
+                ackNote = $"in-place consent is still PENDING for '{targetName}' — the REAL write's first touch of this " +
+                          "plugin will show the one-time confirmation (re-call with acknowledge=true); a dry run neither needs nor records it.";
+        }
+        else
+        {
+            if (!already && !acknowledge)
+                return WritePatchBuilder.PatchOutcome.NeedsAck(InPlaceHandshakeText(targetName, targetPath));
+            if (!already && acknowledge)
+            {
+                var (ok, err) = _store.RecordInPlaceAcknowledged(targetPath);
+                if (!ok) ackNote = $"the in-place acknowledgement could not be saved ({err}) — the edit proceeded, but a future session will re-prompt for this plugin.";
+            }
         }
 
         // (3) Writable, same-volume parent pre-flight — refuse rather than degrade (the swap stages a sibling temp in
         //     this dir; AtomicFile.Commit already refuses cross-volume loud, this catches a read-only/locked parent up
-        //     front with a clear message before any work).
+        //     front with a clear message before any work). Kept in the dry run too: an unwritable parent is exactly
+        //     what the real write would refuse on, and predicting that refusal is the dry run's job.
         if (InPlaceParentUnwritable(targetPath, out var why))
             return WritePatchBuilder.PatchOutcome.Fail(why);
 
         // (4) The write — touched-record verify forced ON (the model-C substitute for the dropped whole-plugin floor).
-        var outcome = WritePatchBuilder.ApplyInPlace(resolver, rulebook, edits, targetPath, targetName, fullReadback: true);
+        var outcome = WritePatchBuilder.ApplyInPlace(resolver, rulebook, edits, targetPath, targetName, fullReadback: true, dryRun);
+
+        // (5-dry) #225: a successful dry run stamps NOTHING (no editedInPlace marker, no .seq note — those describe a
+        //     write that happened); only the core's would-grow note + the pending-consent note ride along.
+        if (dryRun)
+            return JoinNotes(outcome.Note, ackNote) is { } dn ? outcome with { Note = dn } : outcome;
 
         // (5) On success, stamp the distinct audit marker + auto-flag a now-stale .seq (both best-effort; neither miss
         //     fails the done edit, Q3-noted). SEQ flag (Track C): an in-place edit can prune a master and shift the own
@@ -3043,7 +3065,8 @@ public sealed class LoadOrderService : IDisposable
     /// write lane; HCBR-2026-07-08-01 F4) — forward INTO an existing plugin's own file, consent-gated like the sibling
     /// write tools — see <see cref="ForwardRecordsInPlace"/>.</summary>
     public WritePatchBuilder.ForwardOutcome ForwardRecords(IReadOnlyList<string> formids, string fromPlugin, string? patchName, string? into,
-        bool fullReadback = false, string? target = null, bool inPlace = false, bool acknowledge = false)
+        bool fullReadback = false, string? target = null, bool inPlace = false, bool acknowledge = false,
+        bool dryRun = false)
     {
         if (string.IsNullOrWhiteSpace(fromPlugin))
             return WritePatchBuilder.ForwardOutcome.Fail(
@@ -3084,13 +3107,14 @@ public sealed class LoadOrderService : IDisposable
             var resolver = Resolver;                                      // builds/refreshes the index (Overlays for the source fetch + serialize)
 
             if (inPlace)
-                return ForwardRecordsInPlace(resolver, specs, target!.Trim(), acknowledge);
+                return ForwardRecordsInPlace(resolver, specs, target!.Trim(), acknowledge, dryRun);
 
+            // #225: a dry run resolves the would-be output path WITHOUT creating the mod folder (see ApplyEdits).
             string outPath; bool extend, created;
-            try { outPath = ResolveOutputPath(patchName, into, out extend, out created); }
+            try { outPath = ResolveOutputPath(patchName, into, out extend, out created, create: !dryRun); }
             catch (Exception ex) { return WritePatchBuilder.ForwardOutcome.Fail(ex.Message); }
 
-            var outcome = WritePatchBuilder.ForwardRecords(resolver, specs, outPath, extend, fullReadback);
+            var outcome = WritePatchBuilder.ForwardRecords(resolver, specs, outPath, extend, fullReadback, dryRun);
             if (!outcome.Success && created) RemoveFolderCreatedThisCall(outPath);   // hunt F4: a refused forward leaves no orphan
             return outcome;
         }
@@ -3106,7 +3130,8 @@ public sealed class LoadOrderService : IDisposable
     /// verify forced ON). <paramref name="acknowledge"/> waives the CONSENT axis ONLY — the verify is a corruption-axis
     /// fact no acknowledgement overrides.</summary>
     WritePatchBuilder.ForwardOutcome ForwardRecordsInPlace(
-        LoadOrderResolver resolver, IReadOnlyList<WritePatchBuilder.ForwardSpec> specs, string target, bool acknowledge)
+        LoadOrderResolver resolver, IReadOnlyList<WritePatchBuilder.ForwardSpec> specs, string target, bool acknowledge,
+        bool dryRun = false)
     {
         // (1) Resolve target -> real on-disk path via the load order (by plugin FILENAME). Refuse loud if it isn't a
         //     real active plugin. Same resolver as the edit + create + remove lanes.
@@ -3119,22 +3144,38 @@ public sealed class LoadOrderService : IDisposable
 
         // (2) CONSENT axis — the persistent, server-enforced first-touch handshake, keyed off the resolved path (shared
         //     with the edit/create/remove lanes: it's the same "touch your original" trade-off).
+        //     #225: a DRY RUN bypasses the handshake and NEVER persists an acknowledgement (see ApplyEditsInPlace) —
+        //     the pending consent is surfaced as a note instead.
         bool already = _store.IsInPlaceAcknowledged(targetPath);
-        if (!already && !acknowledge)
-            return WritePatchBuilder.ForwardOutcome.NeedsAck(InPlaceHandshakeText(targetName, targetPath));
         string? ackNote = null;
-        if (!already && acknowledge)
+        if (dryRun)
         {
-            var (ok, err) = _store.RecordInPlaceAcknowledged(targetPath);
-            if (!ok) ackNote = $"the in-place acknowledgement could not be saved ({err}) — the forward proceeded, but a future session will re-prompt for this plugin.";
+            if (!already)
+                ackNote = $"in-place consent is still PENDING for '{targetName}' — the REAL write's first touch of this " +
+                          "plugin will show the one-time confirmation (re-call with acknowledge=true); a dry run neither needs nor records it.";
+        }
+        else
+        {
+            if (!already && !acknowledge)
+                return WritePatchBuilder.ForwardOutcome.NeedsAck(InPlaceHandshakeText(targetName, targetPath));
+            if (!already && acknowledge)
+            {
+                var (ok, err) = _store.RecordInPlaceAcknowledged(targetPath);
+                if (!ok) ackNote = $"the in-place acknowledgement could not be saved ({err}) — the forward proceeded, but a future session will re-prompt for this plugin.";
+            }
         }
 
-        // (3) Writable, same-volume parent pre-flight — refuse rather than degrade.
+        // (3) Writable, same-volume parent pre-flight — refuse rather than degrade. Kept in the dry run (it predicts
+        //     exactly what the real write would refuse on).
         if (InPlaceParentUnwritable(targetPath, out var why))
             return WritePatchBuilder.ForwardOutcome.Fail(why);
 
         // (4) The write — touched-record verify forced ON (the model-C substitute for the dropped whole-plugin floor).
-        var outcome = WritePatchBuilder.ForwardRecordsInPlace(resolver, specs, targetPath, targetName, fullReadback: true);
+        var outcome = WritePatchBuilder.ForwardRecordsInPlace(resolver, specs, targetPath, targetName, fullReadback: true, dryRun);
+
+        // (5-dry) #225: a successful dry run stamps NOTHING (no editedInPlace marker, no .seq note).
+        if (dryRun)
+            return JoinNotes(outcome.Note, ackNote) is { } dn ? outcome with { Note = dn } : outcome;
 
         // (5) On success, stamp the distinct audit marker + auto-flag a now-stale .seq (both best-effort; neither miss
         //     fails the done forward, Q3-noted).
@@ -4389,7 +4430,7 @@ public sealed class LoadOrderService : IDisposable
     /// check-then-create is only race-free when every folder allocation is serialized on the one gate.
     /// <paramref name="createdFolder"/> reports whether THIS call created the fresh folder, so a refused write can
     /// remove it again (hunt F4 — "NO patch written" must not leave an orphan folder accreting _001/_002 on retry).</summary>
-    string ResolveOutputPath(string? patchName, string? into, out bool extend, out bool createdFolder)
+    string ResolveOutputPath(string? patchName, string? into, out bool extend, out bool createdFolder, bool create = true)
     {
         lock (_gate)
         {
@@ -4417,10 +4458,15 @@ public sealed class LoadOrderService : IDisposable
             var baseStem = PatchStem(string.IsNullOrWhiteSpace(patchName) ? "Patch" : patchName!);
             var freeStem = UniqueStem(baseStem);
             var newFolder = Path.Combine(_modsDir, ModFolderName(freeStem));
-            Directory.CreateDirectory(newFolder);
-            createdFolder = true;
             var plugin = freeStem + ".esp";
-            WriteOwnerMeta(newFolder, plugin);
+            // #225 dry run (create:false): resolve the WOULD-BE path only — no folder, no meta.ini; the disk stays
+            // exactly as it was. The real write re-resolves and creates as before.
+            if (create)
+            {
+                Directory.CreateDirectory(newFolder);
+                createdFolder = true;
+                WriteOwnerMeta(newFolder, plugin);
+            }
             return Path.Combine(newFolder, plugin);
         }
     }
