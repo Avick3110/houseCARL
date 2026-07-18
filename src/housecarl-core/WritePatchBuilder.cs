@@ -777,8 +777,20 @@ public static class WritePatchBuilder
             }
             catch (Exception ex)
             {
-                // The link walk parses subrecord content lazily — a throw means the would-be content itself is
-                // malformed, which the real serialize would also hit. Named, never a silent partial preview (Q3).
+                // A throw here derefs the IN-MEMORY would-be content (already materialized — nothing lazy about a
+                // mutable SkyrimMod). The dominant cause is the SAME class the real serialize re-stamps loud
+                // (HCBR-2026-06-15-01): a COMPOSED record whose REQUIRED polymorphic sub-field was left null (a
+                // Condition without its Data arm) — the walk hits the null exactly as Mutagen's writer would. Detect
+                // it via the SHARED WriteEngine.RootNullArm (so the two paths can't drift) and refuse with the same
+                // named framing, not the opaque bare NRE (PR #240 review). Anything else is named raw (Q3). NOTE the
+                // honest boundary: a required-null sub-field containing NO FormLinks doesn't cross this walk — that
+                // class still surfaces only at the real serialize, which the dry-run footer discloses.
+                if (WriteEngine.RootNullArm(ex) is not null)
+                    return $"dry run caught what the real write would fail on: {rec.FormKey} carries a required modeled " +
+                           "sub-field left null (the same null-dereference Mutagen's writer refuses at serialize). The " +
+                           "cause is a COMPOSED record that left a required polymorphic sub-field unset — e.g. a Condition " +
+                           "composed without its Data arm, or a leveled-list / effect element missing a required part. " +
+                           "Compose that sub-field too (select the arm via compose). Nothing was written.";
                 return $"dry run: enumerating {rec.FormKey}'s references threw ({ex.GetType().Name}: {ex.Message}) — " +
                        "the would-be content could not be fully checked; the real write would hit the same data. Nothing was written.";
             }

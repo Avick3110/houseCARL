@@ -28,7 +28,13 @@ namespace HousecarlGenerator;
 ///                         consent. RED if it prompts, records, or stays silent.
 ///   CONTRACT UNCHANGED  — the in_place/target/into mutual-exclusion refusals fire identically under dry_run.
 ///   RENDER HONESTY      — the rendered confirmation for a dry outcome leads with DRY RUN/nothing-written and never
-///                         reads like a write ("wrote ..."), incl. the forward renderer's would-be phrasing.
+///                         reads like a write ("wrote ..."), incl. the forward renderer's would-be phrasing and the
+///                         full_readback deep dump labeled as the IN-MEMORY preview (arm J).
+///   NULL-ARM PARITY     — a composed record missing a required polymorphic arm (a Condition without its Data arm)
+///                         refuses through dry_run with the NAMED null-arm framing the real serialize re-stamp gives,
+///                         never the opaque bare NRE; the real call refuses too (arm I). RED if either lies.
+///   FORWARD IN-PLACE    — the consent-bypass logic is DUPLICATED in ForwardRecordsInPlace; arm K guards that copy
+///                         (arm F guards the ApplyEdits copy), so an edit to either alone goes RED.
 ///
 /// Self-contained: synthesizes a master + a user override in a synthetic MO2 instance in TEMP (the WriteMutexProbe
 /// pattern — the full SERVICE path runs: ResolveOutputPath, the write gate, the in-place consent store) and generates
@@ -63,12 +69,13 @@ internal static class DryRunProbe
             var masterDir = Path.Combine(mods, "MasterMod");
             var userDir = Path.Combine(mods, "UserMod");
             Directory.CreateDirectory(masterDir); Directory.CreateDirectory(userDir);
-            FormKey weapFk, weap2Fk;
+            FormKey weapFk, weap2Fk, mgefFk;
             {
                 var m = new SkyrimMod(mKey, SkyrimRelease.SkyrimSE);
                 var w = m.Weapons.AddNew(); w.EditorID = "HcDryWeap"; w.BasicStats = new WeaponBasicStats { Damage = 10, Weight = 1 };
                 var w2 = m.Weapons.AddNew(); w2.EditorID = "HcDryWeap2"; w2.BasicStats = new WeaponBasicStats { Damage = 5 };
-                weapFk = w.FormKey; weap2Fk = w2.FormKey;
+                var mg = m.MagicEffects.AddNew(); mg.EditorID = "HcDryMgef";   // hosts a Conditions list (the null-arm compose arm I)
+                weapFk = w.FormKey; weap2Fk = w2.FormKey; mgefFk = mg.FormKey;
                 m.BeginWrite.ToPath(Path.Combine(masterDir, mKey.FileName.String)).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
             }
             string userPath = Path.Combine(userDir, "HcDryUser.esp");
@@ -89,6 +96,7 @@ internal static class DryRunProbe
 
             string fid = $"{weapFk.ID:X6}:{mKey.FileName}";
             string fid2 = $"{weap2Fk.ID:X6}:{mKey.FileName}";
+            string fidMg = $"{mgefFk.ID:X6}:{mKey.FileName}";
             var store = new UserConfigStore(Path.Combine(root, "houseCARL.user.json"));
             using var svc = LoadOrderService.WithInstance(instance, 0, store);
             svc.Stats();                                                       // warm the lazy index once, off the clock
@@ -162,7 +170,8 @@ internal static class DryRunProbe
                 Check(!dry.Success && (dry.Error?.Contains("Ghost.esp") ?? false) && (dry.Error?.Contains("NOT active") ?? false),
                     $"dry run refuses, naming the missing plugin  [{Snip(dry.Error)}]");
                 var real = svc.ApplyEdits(ghost, "DryE", null);
-                Check(!real.Success, $"the real write does fail (at serialize) — the dry refusal predicts a real failure  [{Snip(real.Error)}]");
+                Check(!real.Success && (real.Error?.Contains("MissingModException") ?? false),
+                    $"the real write fails AT the serialize boundary (MissingModException) — the exact condition the dry refusal pre-empts  [{Snip(real.Error)}]");
                 Check(!Directory.Exists(Path.Combine(mods, "DryE")), "neither attempt left a folder behind");
             }
 
@@ -212,6 +221,49 @@ internal static class DryRunProbe
                 var realMiss = svc.ForwardRecords(new[] { fid2 }, "HcDryUser.esp", "DryH2", null);
                 Check(!dryMiss.Success && dryMiss.Error == realMiss.Error,
                     $"a source that doesn't define the record refuses identically  [{Snip(dryMiss.Error)}]");
+            }
+
+            // ---- I: composed null-arm (a Condition without its Data arm) — the serialize-only refusal class the
+            //      dry run's link walk catches; both must refuse, and the dry refusal must carry the NAMED null-arm
+            //      framing, not the opaque bare NRE (PR #240 review MEDIUM 1) ----
+            Console.WriteLine("--- I: compose missing a required arm — dry refuses NAMED; real refuses at serialize ---");
+            {
+                var op = new[] { new BulkOp { Formid = fidMg, FieldPath = "Conditions", Verb = "Add",
+                    Compose = new StructInput { Type = "ConditionFloat", Fields = new() { ["ComparisonValue"] = "1" } } } };
+                var dry = svc.ApplyEdits(op, "DryI", null, dryRun: true);
+                Check(!dry.Success && (dry.Error?.Contains("Data arm") ?? false) && (dry.Error?.Contains("required") ?? false),
+                    $"dry run refuses with the named null-arm framing  [{Snip(dry.Error)}]");
+                var real = svc.ApplyEdits(op, "DryI", null);
+                Check(!real.Success, $"the real write refuses too (the serialize null-arm re-stamp) — the dry refusal predicts a real failure  [{Snip(real.Error)}]");
+                Check(!Directory.Exists(Path.Combine(mods, "DryI")), "neither attempt left a folder behind");
+            }
+
+            // ---- J: full_readback + dry_run — the in-memory preview path, rendered honestly ----
+            Console.WriteLine("--- J: full_readback dry run reads the in-memory would-be record ---");
+            {
+                var o = svc.ApplyEdits(new[] { DamageOp(fid, 91) }, "DryJ", null, fullReadback: true, dryRun: true);
+                Check(o.Success && o.DryRun && o.ReadBack is { Count: 1 } && o.ReadBack[0].Record is not null,
+                    $"in-memory read-back present and clean  [{o.Error ?? o.ReadBack?[0].Error ?? "ok"}]");
+                var text = WriteTools.Render(o, 0, fullDump: true);
+                Check(text.Contains("full preview") && text.Contains("nothing is on disk") && text.Contains("91"),
+                    "render labels the deep dump as the in-memory preview (never implying a file exists) and carries the would-be value");
+                Check(!Directory.Exists(Path.Combine(mods, "DryJ")), "no folder appeared despite the deep read-back");
+            }
+
+            // ---- K: forward IN-PLACE dry run — the DUPLICATED consent-bypass copy in ForwardRecordsInPlace
+            //      (PR #240 review MEDIUM 2: arm F guards only the ApplyEdits copy) ----
+            Console.WriteLine("--- K: forward in-place dry run (no prompt, no consent recorded, file untouched) ---");
+            {
+                var fileBefore = File.ReadAllBytes(userPath);
+                var dry = svc.ForwardRecords(new[] { fid }, mKey.FileName.String, null, null,
+                    target: "HcDryUser.esp", inPlace: true, dryRun: true);
+                Check(dry.Success && dry.DryRun && dry.InPlace && !dry.NeedsAcknowledge && (dry.Note?.Contains("PENDING") ?? false),
+                    $"dry forward succeeds without the prompt AND notes the pending consent  [{dry.Error ?? Snip(dry.Note)}]");
+                Check(File.ReadAllBytes(userPath).AsSpan().SequenceEqual(fileBefore), "the target file is byte-identical");
+                var real = svc.ForwardRecords(new[] { fid }, mKey.FileName.String, null, null,
+                    target: "HcDryUser.esp", inPlace: true);
+                Check(real.NeedsAcknowledge,
+                    "a REAL in-place forward afterwards still shows the first-touch prompt (no dry run recorded consent)");
             }
 
             Console.WriteLine();
