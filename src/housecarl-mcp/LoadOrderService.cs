@@ -2103,8 +2103,11 @@ public sealed class LoadOrderService : IDisposable
 
     /// <summary>Resolve ONE FormKey to its load-order identity (type/editorid/name/winner) off a captured view + open
     /// session, memoised so a target that recurs across a batch (the SAME keyword on 500 items) resolves once. A
-    /// FormKey not in the order is a NAMED unresolved result (Resolved=false), never dropped or guessed (Q3). Shared
-    /// by housecarl_resolve (P3) and the resolve_names field annotation (P7).</summary>
+    /// FormKey not in the order is a NAMED unresolved result (Resolved=false), never dropped or guessed (Q3) — except
+    /// the engine-implicit forms (PlayerRef 000014 / Player 000007), which the index can't resolve but are real: those
+    /// answer with their hardcoded identity and winner "&lt;engine&gt;", the same precise <see cref="EngineImplicit"/>
+    /// exemption check_errors and the dialogue lints apply (#230). Shared by housecarl_resolve (P3) and the
+    /// resolve_names field annotation (P7).</summary>
     static ResolvedRef ResolveRefOne(LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session,
                                      FormKey fk, Dictionary<FormKey, ResolvedRef> memo)
     {
@@ -2112,7 +2115,9 @@ public sealed class LoadOrderService : IDisposable
         ResolvedRef result;
         var w = view.ResolveWinner(fk);
         if (w is null)
-            result = new ResolvedRef(fk.ToString(), Resolved: false);   // valid FormKey, but no active plugin defines it (a dangling target)
+            result = EngineImplicit.TryDescribe(fk, out var eiType, out var eiEditorId)
+                ? new ResolvedRef(fk.ToString(), Resolved: true, Type: eiType, EditorId: eiEditorId, Winner: "<engine>")   // engine-implicit: hardcoded, real, defined by no plugin
+                : new ResolvedRef(fk.ToString(), Resolved: false);   // valid FormKey, but no active plugin defines it (a dangling target)
         else
         {
             var body = view.GetRecord(session, w.Value.WinnerPlugin, fk);

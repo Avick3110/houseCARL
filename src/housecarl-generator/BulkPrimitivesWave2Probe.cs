@@ -20,6 +20,9 @@ namespace HousecarlGenerator;
 ///     display-only (never replaces the round-trip token).
 ///   • HCBR-2026-07-15 <c>batch_record_detail plugin=</c> — bulk-read a NAMED plugin's version (an override, not
 ///     the winner), the batch twin of read_record's plugin=, with a per-item error for a record it doesn't touch.
+///   • #230 — the engine-implicit forms (PlayerRef 000014 / Player 000007) resolve to their hardcoded identity
+///     (winner <c>&lt;engine&gt;</c>), never "unresolved", in BOTH housecarl_resolve rows and resolve_names
+///     annotations; the very next sub-0x800 form (000015) still dangles, proving the exemption stays precise.
 ///
 /// Synthesizes a small on-disk order (a master + a replacer that overrides one NAMED weapon and defines others, with
 /// keyword links) and drives the REAL service layer (<see cref="LoadOrderService"/> via the ForGuard seam) + the
@@ -108,6 +111,19 @@ public static class BulkPrimitivesWave2Probe
             Check("a target repeated in one batch resolves identically (memoised)",
                   dup.Count == 2 && dup[0].EditorId == dup[1].EditorId && dup[0].EditorId == "hcw2KwA");
 
+            // Engine-implicit forms (#230): PlayerRef 000014 / Player 000007 are hardcoded engine references no
+            // plugin defines — the resolver must answer their identity (the same EngineImplicit exemption
+            // check_errors and the dialogue lints apply), while the NEXT sub-0x800 form still dangles (precision).
+            Console.WriteLine();
+            Console.WriteLine("── P3 #230: engine-implicit forms resolve to their hardcoded identity; the exemption stays precise ──");
+            var ei = svc.ResolveRefs(new[] { "000014:Skyrim.esm", "000007:Skyrim.esm", "000015:Skyrim.esm" });
+            Check("PlayerRef (000014:Skyrim.esm) → Resolved, PlacedNpc/PlayerRef, winner <engine> (#230 — was 'unresolved')",
+                  ei[0] is { Resolved: true, Type: "PlacedNpc", EditorId: "PlayerRef", Winner: "<engine>" });
+            Check("Player (000007:Skyrim.esm) → Resolved, Npc/Player, winner <engine>",
+                  ei[1] is { Resolved: true, Type: "Npc", EditorId: "Player", Winner: "<engine>" });
+            Check("a NON-implicit sub-0x800 form (000015:Skyrim.esm) is STILL unresolved — the exemption is the 2-form set, not the reserved range",
+                  ei[2] is { Resolved: false, Error: null });
+
             // ---- tool layer: text render ----
             Console.WriteLine();
             Console.WriteLine("── P3 tool layer: text + json render, bad-format refusal ──");
@@ -176,6 +192,38 @@ public static class BulkPrimitivesWave2Probe
             var tBatch = ReadTools.BatchRecordDetail(svc, new[] { w1Fk.ToString() }, fields: new[] { "Keywords" }, depth: 2,
                 conflict_tree: false, resolve_names: true, max_chars: 0);
             Check("batch_record_detail resolve_names annotates too (shared batch memo)", tBatch.Contains("→ hcw2KwA"));
+
+            // ---- #230 end-to-end: a record LINKING to PlayerRef annotates '→ PlayerRef', not 'unresolved'. ----
+            // Own mini-order, the CheckErrorsProbe PLAYERREF pattern: a stub Skyrim.esm written for the master table
+            // but NOT loaded — so 000014/000015 both fail ResolveWinner and only the EngineImplicit carve-out differs.
+            Console.WriteLine();
+            Console.WriteLine("── P7 #230: resolve_names annotates a PlayerRef link with its identity (the issue's manifestation) ──");
+            {
+                var stubSkyrimPath = Path.Combine(dir, "Skyrim.esm");
+                var eiPluginPath = Path.Combine(dir, "hcw2Player.esp");
+                var stubSkyrim = new SkyrimMod(new ModKey("Skyrim", ModType.Master), SkyrimRelease.SkyrimSE);
+                stubSkyrim.Races.AddNew();   // one throwaway record so the stub is a valid, non-empty master
+                stubSkyrim.BeginWrite.ToPath(stubSkyrimPath).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
+
+                var eiMod = new SkyrimMod(ModKey.FromNameAndExtension("hcw2Player.esp"), SkyrimRelease.SkyrimSE);
+                var eiW = eiMod.Weapons.AddNew(); eiW.EditorID = "hcw2EiSword";
+                eiW.Keywords = new Noggog.ExtendedList<IFormLinkGetter<IKeywordGetter>>
+                {
+                    new FormLink<IKeywordGetter>(FormKey.Factory("000014:Skyrim.esm")),   // PlayerRef — engine-implicit, must annotate '→ PlayerRef'
+                    new FormLink<IKeywordGetter>(FormKey.Factory("000015:Skyrim.esm")),   // control — must still annotate 'unresolved'
+                };
+                var eiWFk = eiW.FormKey;
+                eiMod.BeginWrite.ToPath(eiPluginPath).WithLoadOrder(new ISkyrimModGetter[] { stubSkyrim }).Write();
+
+                using var eiResolver = LoadOrderResolver.Build(new[] { eiPluginPath });   // Skyrim.esm on disk, NOT loaded
+                var eiSvc = LoadOrderService.ForGuard(eiResolver, new UserConfigStore(Path.Combine(dir, "houseCARL.ei.user.json")));
+                var eiText = ReadTools.ReadRecord(eiSvc, eiWFk.ToString(), plugin: null, fields: new[] { "Keywords" }, depth: 2,
+                    conflict_tree: false, resolve_names: true, max_chars: 0);
+                Check("the PlayerRef link annotates '→ PlayerRef' (#230 — was 'unresolved: target not in the active order')",
+                      eiText.Contains("000014:Skyrim.esm") && eiText.Contains("→ PlayerRef"));
+                Check("the control link (000015) STILL annotates 'unresolved' — the annotation exemption is precise too",
+                      eiText.Contains("000015:Skyrim.esm") && eiText.Contains("unresolved: target not in the active order"));
+            }
 
             // ================= P6 — format="json" (same data as text, valid JSON, accounting in-band) =================
             Console.WriteLine();
