@@ -32,6 +32,16 @@ named-and-actionable style the missing-parameter and unknown-parameter paths alr
 (a bare string for an array, a quoted number or boolean) are still auto-coerced, so well-formed calls are
 unaffected.
 
+**Obvious parameter aliases now bind (#221).** Tool parameters aren't uniformly named — one tool takes `plugins`,
+another `plugin`, another `plugin_name` — so a first-guess miss (`form_id` for `formid`, `plugin` for a tool's
+`plugins`) cost a round-trip. The argument-binding shim now recognizes an obvious synonym of a declared parameter
+and renames it to the canonical one, so the call binds instead of erroring. It's deliberately conservative: it
+resolves an underscore/case variant (`form_id` ≡ `formid`) or a known singular/plural synonym, and **only** when
+exactly one declared, not-already-supplied parameter matches — an ambiguous or unmatched name still gets the named
+unknown-parameter error, a declared parameter is never treated as an alias (a tool's real `plugin=` is untouched),
+and an explicit canonical value is never overwritten. The published schema still advertises only the canonical
+name.
+
 ## 1.9.0 — 2026-07-17
 
 houseCARL's view of the **SKSE-plugin layer** grows from *inventory* into *diagnosis*: two new audit tools

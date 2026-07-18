@@ -12,9 +12,16 @@ namespace HousecarlMcp;
 /// genericizes to "An error occurred invoking '&lt;tool&gt;'." — an opaque dead end the live audit agent could not
 /// self-correct from (it abandoned the documented query path; see the bug report's transcripts).
 ///
-/// Three moves, all schema-driven off the tool's own published InputSchema (so every current and future tool
+/// Its moves, all schema-driven off the tool's own published InputSchema (so every current and future tool
 /// parameter is covered by construction — no per-tool wiring):
 /// <list type="number">
+/// <item><b>Resolve obvious aliases</b> — a parameter named by an obvious synonym of a declared one
+/// (<c>form_id</c> for <c>formid</c>; <c>plugin</c>/<c>plugin_name</c> for a tool's <c>plugins</c>; any
+/// underscore/case variant) is renamed to the canonical parameter when the mapping is unambiguous — exactly one
+/// declared, not-already-supplied synonym target — so a first-guess miss BINDS instead of costing a round-trip
+/// (#221). A synonym that resolves to nothing (or to more than one target) is left for the unknown-parameter
+/// path. The published schema still advertises only the canonical name, and a declared parameter is never
+/// treated as an alias (so a tool's real <c>plugin=</c> is untouched).</item>
 /// <item><b>Coerce obvious intent</b> — a bare string where an array is declared becomes a one-element array
 /// (the live failing shape: <c>plugins="A.esp"</c>); quoted numbers/booleans become numbers/booleans; a bare
 /// number where a string is declared becomes its text. Anything else is left for binding to judge.</item>
@@ -51,6 +58,7 @@ internal static class ToolCallShim
             if (p is not null && request.MatchedPrimitive is McpServerTool tool)
             {
                 var schema = tool.ProtocolTool.InputSchema;
+                ResolveAliases(p, schema);
                 CoerceObviousShapes(p, schema);
                 if (MissingRequired(p, schema) is { } refusal) return refusal;
                 if (UnknownParameters(p, schema) is { } unknownRefusal) return unknownRefusal;
@@ -75,6 +83,74 @@ internal static class ToolCallShim
                 "argument and retry.");
         }
     };
+
+    /// <summary>Sets of interchangeable parameter names (normalized: lowercased, underscores stripped) — the
+    /// synonyms that differ by more than an underscore/case variant, so <see cref="Normalize"/> alone can't
+    /// bridge them: singular↔plural and the <c>plugin_name</c> spelling. Underscore/case variants
+    /// (<c>form_id</c>≡<c>formid</c>) need no entry here — <see cref="Normalize"/> equality catches those.</summary>
+    static readonly string[][] SynonymGroups =
+    {
+        new[] { "plugin", "plugins", "pluginname", "pluginnames" },
+        new[] { "formid", "formids" },
+    };
+
+    /// <summary>Rename an argument keyed by an obvious synonym of a declared parameter to that canonical parameter,
+    /// so a first-guess miss (<c>form_id</c> for <c>formid</c>, <c>plugin</c> for a tool's <c>plugins</c>) binds
+    /// instead of costing a round-trip (#221). Conservative by construction: only a key the schema does NOT declare
+    /// is considered, it is renamed ONLY when EXACTLY ONE declared, not-already-supplied parameter is its synonym
+    /// (zero or ambiguous → left for <see cref="UnknownParameters"/> to name), and a declared parameter is never
+    /// touched — so a tool's real <c>plugin=</c> stays its own, an explicit canonical value is never clobbered, and
+    /// a well-formed call is byte-identical. Runs BEFORE <see cref="CoerceObviousShapes"/> so the renamed value is
+    /// then shape-coerced (a bare-string <c>plugin</c> → <c>plugins</c> → a one-element array) as usual.</summary>
+    static void ResolveAliases(CallToolRequestParams p, JsonElement schema)
+    {
+        if (p.Arguments is not { Count: > 0 } args) return;
+        if (schema.ValueKind != JsonValueKind.Object) return;
+        // Respect an explicit opt-in to extra properties (mirrors UnknownParameters): if a tool accepts free-form
+        // args, an undeclared key may be intentional data — never rewrite it. None of houseCARL's tools do today.
+        if (schema.TryGetProperty("additionalProperties", out var ap) && ap.ValueKind != JsonValueKind.False) return;
+        if (!schema.TryGetProperty("properties", out var props) || props.ValueKind != JsonValueKind.Object) return;
+
+        Dictionary<string, JsonElement>? rewritten = null;
+        foreach (var kv in args)
+        {
+            var key = kv.Key;
+            if (key.Length > 0 && key[0] == '_') continue;            // MCP/JSON-RPC metadata — never an alias
+            if (props.TryGetProperty(key, out _)) continue;           // already a real parameter of this tool
+
+            string? target = null; bool ambiguous = false;
+            foreach (var prop in props.EnumerateObject())
+            {
+                var declaredName = prop.Name;
+                if (args.ContainsKey(declaredName)) continue;                                 // caller already supplied the canonical — don't clobber
+                if (rewritten is not null && rewritten.ContainsKey(declaredName)) continue;   // an earlier rename already produced it
+                if (!AreSynonyms(key, declaredName)) continue;
+                if (target is null) target = declaredName; else { ambiguous = true; break; }
+            }
+            if (ambiguous || target is null) continue;                // nothing unambiguous — leave for UnknownParameters
+
+            rewritten ??= new Dictionary<string, JsonElement>(args);
+            rewritten.Remove(key);
+            rewritten[target] = kv.Value;
+        }
+        if (rewritten is not null) p.Arguments = rewritten;
+    }
+
+    /// <summary>Whether two parameter names denote the same concept: equal once normalized (an underscore/case
+    /// variant, <c>form_id</c>≡<c>formid</c>) or listed together in a <see cref="SynonymGroups"/> entry
+    /// (singular↔plural, <c>plugin_name</c>↔<c>plugins</c>).</summary>
+    static bool AreSynonyms(string a, string b)
+    {
+        var na = Normalize(a);
+        var nb = Normalize(b);
+        if (na == nb) return true;
+        foreach (var g in SynonymGroups)
+            if (Array.IndexOf(g, na) >= 0 && Array.IndexOf(g, nb) >= 0) return true;
+        return false;
+    }
+
+    /// <summary>A parameter name reduced to its comparison form: lowercased with underscores removed.</summary>
+    static string Normalize(string s) => s.Replace("_", "").ToLowerInvariant();
 
     /// <summary>Rewrite arguments whose JSON kind mismatches the declared schema type but whose intent is
     /// unambiguous. Only ever REPLACES values for keys the schema declares — unknown keys and already-correct
