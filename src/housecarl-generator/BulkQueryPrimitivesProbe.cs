@@ -19,6 +19,9 @@ namespace HousecarlGenerator;
 ///   • #223 <c>offset=</c> pagination (windows tile the enumeration exactly; refusals for negative / group_by) and
 ///     <c>format=dense</c> (the columnar render: columns once + positional rows, cross-checked against the plain
 ///     summaries and the known winner field values, and materially smaller than format=json for the same query).
+///   • #231 <c>depth=</c> — expand list/dict contents of fields= paths per match (read_record's semantics, applied
+///     to the scan; text+json, resolve_names composes); refused loud without fields= and under format=dense
+///     (positional cells), whose container cells hint the text/json hop instead of a blind knob.
 ///
 /// Synthesizes a 2-plugin order ON DISK (a master + a replacer that OVERRIDES one weapon and DEFINES new ones, with
 /// keyword links so references= has something to reverse) and drives the REAL service-layer scan
@@ -353,6 +356,66 @@ public static class BulkQueryPrimitivesProbe
                 fields: null, conflict_tree: false, limit: 500, max_chars: 0, format: "csv");
             Check("format=csv is REFUSED naming text/json/dense",
                   sBadFmt.StartsWith("error:", StringComparison.OrdinalIgnoreCase) && sBadFmt.Contains("dense", StringComparison.OrdinalIgnoreCase));
+
+            // ================= #231 — depth= expands fields= containers per match =================
+            Console.WriteLine();
+            Console.WriteLine("── #231: depth= expands list/dict contents in the scan; refusals keep summary/dense honest ──");
+
+            // Default depth=1: a container renders the count + the GENERIC 'pass depth=2' hint — the old
+            // "cross_plugin_query has no depth=; expand via batch_record_detail" redirect must be GONE.
+            var sD1 = ReadTools.CrossPluginQuery(svc, type: "Weapon", references: null, editorid_contains: null,
+                conflicts_only: false, plugins: null, defined_in: false, where: null, group_by: null,
+                fields: new[] { "Keywords" }, conflict_tree: false, limit: 500, max_chars: 0);
+            Check("depth default (1): Keywords renders as a count with the generic 'pass depth=2 to expand' hint",
+                  sD1.Contains("pass depth=2 to expand") && !sD1.Contains("has no depth="));
+
+            // depth=2 (text): elements expand across ALL matches — W1 (1 keyword) and W3 (2 keywords) each show
+            // exactly their OWN indices, with none of the out-of-bounds noise the hand-written bracket paths caused.
+            var sD2 = ReadTools.CrossPluginQuery(svc, type: "Weapon", references: null, editorid_contains: null,
+                conflicts_only: false, plugins: null, defined_in: false, where: null, group_by: null,
+                fields: new[] { "Keywords" }, depth: 2, conflict_tree: false, limit: 500, max_chars: 0);
+            Check("depth=2 text: expanded elements appear (Keywords[0] everywhere, Keywords[1] on W3) with NO out-of-bounds noise",
+                  sD2.Contains("Keywords[0]") && sD2.Contains("Keywords[1]") && !sD2.Contains("out of bounds", StringComparison.OrdinalIgnoreCase));
+            Check("depth=2 text: the expanded leaf carries its round-trip FormKey token", sD2.Contains(kaFk.ToString()));
+
+            // resolve_names composes with the expansion — the #231 use case ('Effects with identities in one scan').
+            var sD2n = ReadTools.CrossPluginQuery(svc, type: "Weapon", references: null, editorid_contains: null,
+                conflicts_only: false, plugins: null, defined_in: false, where: null, group_by: null,
+                fields: new[] { "Keywords" }, depth: 2, conflict_tree: false, resolve_names: true, limit: 500, max_chars: 0);
+            Check("depth=2 + resolve_names: expanded elements annotate → their target's editorid", sD2n.Contains("→ hcbpKwA"));
+
+            // json parity: depth=2 emits the SAME expanded paths in the json document's field objects.
+            var sD2j = ReadTools.CrossPluginQuery(svc, type: "Weapon", references: null, editorid_contains: null,
+                conflicts_only: false, plugins: null, defined_in: false, where: null, group_by: null,
+                fields: new[] { "Keywords" }, depth: 2, conflict_tree: false, limit: 500, max_chars: 0, format: "json");
+            using (var doc = JsonDocument.Parse(sD2j))
+            {
+                bool found = doc.RootElement.GetProperty("matches").EnumerateArray().Any(m =>
+                    m.TryGetProperty("fields", out var fs) && fs.EnumerateArray().Any(f => f.GetProperty("path").GetString() == "Keywords[0]"));
+                Check("depth=2 json: matches carry the expanded field paths (Keywords[0])", found);
+            }
+
+            // refusals (Q3): depth>1 without fields= (summary lines have nothing to expand); depth>1 under
+            // format=dense (positional cells align 1:1 with the requested paths).
+            var sDNoF = ReadTools.CrossPluginQuery(svc, type: "Weapon", references: null, editorid_contains: null,
+                conflicts_only: false, plugins: null, defined_in: false, where: null, group_by: null,
+                fields: null, depth: 2, conflict_tree: false, limit: 500, max_chars: 0);
+            Check("depth=2 WITHOUT fields= is REFUSED loud (never silently ignored)",
+                  sDNoF.StartsWith("error:", StringComparison.OrdinalIgnoreCase) && sDNoF.Contains("fields=", StringComparison.OrdinalIgnoreCase));
+            var sDDense = ReadTools.CrossPluginQuery(svc, type: "Weapon", references: null, editorid_contains: null,
+                conflicts_only: false, plugins: null, defined_in: false, where: null, group_by: null,
+                fields: new[] { "Keywords" }, depth: 2, conflict_tree: false, limit: 500, max_chars: 0, format: "dense");
+            Check("depth=2 + format=dense is REFUSED loud, naming the text/json hop",
+                  sDDense.StartsWith("error:", StringComparison.OrdinalIgnoreCase) && sDDense.Contains("dense", StringComparison.OrdinalIgnoreCase)
+                  && sDDense.Contains("json", StringComparison.OrdinalIgnoreCase));
+
+            // dense at depth=1 still renders — its container cells hint the FORMAT hop with the knob, so the
+            // "pass depth=2" advice never sends a dense caller into a blind refusal.
+            var sDenseKw = ReadTools.CrossPluginQuery(svc, type: "Weapon", references: null, editorid_contains: null,
+                conflicts_only: false, plugins: null, defined_in: false, where: null, group_by: null,
+                fields: new[] { "Keywords" }, conflict_tree: false, limit: 500, max_chars: 0, format: "dense");
+            Check("dense (depth=1) container cells carry the format-hop hint ('pass depth=2 with format=text/json')",
+                  sDenseKw.Contains("pass depth=2 with format=text/json"));
 
             Console.WriteLine();
             Console.WriteLine($"=== bulk-query-primitives-guard: {_pass} passed, {_fail} failed -> {(_fail == 0 ? "PASS" : "FAIL")} ===");

@@ -251,7 +251,7 @@ static class JsonWire
     /// (<c>{formid,type,editorid,winner,override_depth}</c>). Q3 accounting (total/capped/notes/truncated) rides
     /// in-band. The detail path threads resolve_names through the SAME ResolveRead the text render uses, so the two
     /// modes read one path.</summary>
-    public static string RenderCrossQuery(LoadOrderService svc, CrossQueryOutcome q, IReadOnlyList<string>? fields, int maxChars, bool resolveNames, bool winnerFields)
+    public static string RenderCrossQuery(LoadOrderService svc, CrossQueryOutcome q, IReadOnlyList<string>? fields, int maxChars, bool resolveNames, bool winnerFields, int depth = 1)
     {
         int cap = Cap(maxChars);
         using var ms = new MemoryStream();
@@ -301,8 +301,7 @@ static class JsonWire
                     {
                         // winner_fields=: read the WINNER's body (source=null) regardless of scan scope; the record's
                         // "source" field still names the body read, so the json carries the same source/winner truth.
-                        var o = svc.ResolveRead(fk, winnerFields ? null : (q.Sources is { } src ? src[i] : null), fields, false, resolveNames: resolveNames, linkMemo: linkMemo,
-                                                containerHint: Wire.CrossQueryContainerHint);   // no depth= on this tool — same redirect as the text render
+                        var o = svc.ResolveRead(fk, winnerFields ? null : (q.Sources is { } src ? src[i] : null), fields, false, depth, resolveNames: resolveNames, linkMemo: linkMemo);
                         if (o.Error is not null) { w.WriteStartObject(); w.WriteString("formid", fk.ToString()); w.WriteString("error", o.Error); if (matches is not null) w.WriteString("matches", matches); w.WriteEndObject(); }
                         else WriteReadRecord(w, o, ms, cap, matches);
                     }
@@ -389,7 +388,7 @@ static class JsonWire
                     if (detail)
                     {
                         var o = svc.ResolveRead(fk, winnerFields ? null : (q.Sources is { } src ? src[i] : null), fields, false,
-                                                resolveNames: resolveNames, linkMemo: linkMemo, containerHint: Wire.CrossQueryContainerHint);
+                                                resolveNames: resolveNames, linkMemo: linkMemo, containerHint: Wire.DenseContainerHint);   // dense refuses depth>1 — hint the format hop with the knob (#231)
                         if (o.Error is not null) { (errors ??= new()).Add((fk.ToString(), o.Error)); rendered++; continue; }
                         var r = o.Record!;
                         w.WriteStartArray();

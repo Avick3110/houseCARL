@@ -8,6 +8,17 @@ when it changes.
 
 *Accumulating notes for the next cut — not yet released; `plugin.json` still reads the last shipped version.*
 
+**`housecarl_cross_plugin_query` learns `depth=` (#231).** Nested list contents were unreachable in a scan:
+`fields=["Effects"]` rendered only `[list: N item(s)]`, and the workaround — hand-written bracket paths like
+`Effects[2].Data.Magnitude` — meant guessing the longest list up front and eating an out-of-bounds error triple
+for every shorter record (66 spells → hundreds of wasted lines, twice past the token cap). Now `depth=` rides the
+scan with the same semantics as `housecarl_read_record` / `batch_record_detail`: `fields=["Effects"], depth=4`
+expands every match's per-effect Data in one call — each record shows exactly its OWN elements, no index guessing,
+no out-of-bounds noise — and `resolve_names=` composes with the expansion. Works in `format=text` and `json`;
+`dense` refuses `depth>1` loud (its columnar cells align 1:1 with the requested paths — the container cells name
+the text/json hop), and `depth=` without `fields=` is refused loud too. The old container hint ("cross_plugin_query
+has no depth=; expand via batch_record_detail") is retired with the gap it described.
+
 **`housecarl_nif_inspect` goes batch — `mesh_paths` takes one or many (#229).** The last per-file loop in a
 load-order-wide dark-face scan is gone: `mesh_path` is now `mesh_paths`, an `asset_status`-style array (a single
 path is simply a batch of one). One call resolves the whole flagged subset — **one load-order resolution for the
