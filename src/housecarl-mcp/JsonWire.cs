@@ -330,7 +330,9 @@ static class JsonWire
 
     // ---- housecarl_cross_plugin_query format=dense (#223) -------------------------------------------
     /// <summary>The COLUMNAR render: a <c>columns</c> array once, then ONE positional row array per match —
-    /// <c>[formid, editorid, field values…]</c> under fields=, <c>[formid, type, editorid, winner, override_depth]</c>
+    /// <c>[formid, editorid, field values…]</c> under fields= (plus a <c>source</c> column under a plugins= scope,
+    /// naming the body each row's values were read from — the per-row P5 provenance text and json carry),
+    /// <c>[formid, type, editorid, winner, override_depth]</c>
     /// for summaries — killing the per-field {path,value} envelopes and repeated identity keys that made format=json
     /// the context-budget drain in bulk enumerations (#223: ~80 records per 40k chars at two fields). Reads the SAME
     /// path as the other renders (ResolveRead / Prefilled — D2), and cells use the SAME display vocabulary as the
@@ -362,6 +364,12 @@ static class JsonWire
                 {
                     w.WriteStringValue("formid"); w.WriteStringValue("editorid");
                     foreach (var f in fields!) w.WriteStringValue(f);         // cells align positionally: ReadFields returns exactly one value per requested path, in order
+                    // Under a plugins= scope each row's values are SOME scoped plugin's own body — with 2+ scoped
+                    // plugins the caller can't reconstruct WHICH from the row alone, and that's the P5 silent-wrong
+                    // trap (a defining esp's stale value read as live truth). Carry the provenance per row, exactly
+                    // like text ("fields (from X):") and json ("source") do — D2, renders must not drift. (PR #239
+                    // review, MEDIUM.)
+                    if (anyScoped) w.WriteStringValue("source");
                 }
                 else
                     foreach (var c in new[] { "formid", "type", "editorid", "winner", "override_depth" }) w.WriteStringValue(c);
@@ -388,6 +396,7 @@ static class JsonWire
                         w.WriteStringValue(r.FormKey);
                         WriteCell(w, r.EditorId);
                         foreach (var f in r.Fields) WriteCell(w, DenseCell(f));
+                        if (anyScoped) WriteCell(w, o.SourcePlugin);          // the body this row's values were read from (winner_fields=true → the winner)
                         if (hasMatches) WriteCell(w, matches);
                         w.WriteEndArray();
                     }

@@ -173,7 +173,7 @@ public static class ReadTools
             bool resolve_names = false,
         [Description("When true (with fields= under a plugins= scope), expand each match's fields from the load-order WINNER's body instead of the scoped plugin's OWN version. WITHOUT this, plugins=-scoped fields are that plugin's values (e.g. a defining esp's AR 38), NOT the live winner (AR 200) — a note names the source either way. No effect under type= scope (already the winner).")]
             bool winner_fields = false,
-        [Description("Optional. 'text' (default), 'json' (a machine-readable document — group_by count table, detail record objects with fields, or summary rows), or 'dense' (#223 — COLUMNAR json: a columns array once, then ONE positional row array per match [formid, editorid, field values…], no per-field envelopes or repeated keys — the compact form for bulk enumeration; ~same data at a fraction of the characters; under group_by it renders the same count table as 'json'). All formats carry total/capped/notes/truncated accounting in-band. conflict_tree is a text-only diff view.")]
+        [Description("Optional. 'text' (default), 'json' (a machine-readable document — group_by count table, detail record objects with fields, or summary rows), or 'dense' (#223 — COLUMNAR json: a columns array once, then ONE positional row array per match [formid, editorid, field values…] — plus a source column under a plugins= scope naming the body each row read — no per-field envelopes or repeated keys — the compact form for bulk enumeration; ~same data at a fraction of the characters; under group_by it renders the same count table as 'json'). All formats carry total/capped/notes/truncated accounting in-band. conflict_tree is a text-only diff view.")]
             string? format = null,
         [Description("Optional. Max matches to return (default 500). The TRUE total is always reported; over the cap it says 'showing first N'. Page with offset=.")]
             int limit = 500,
@@ -559,7 +559,8 @@ static class Wire
         if (q.ScopeLabel is not null) sb.Append(" DEFINED IN ").Append(q.ScopeLabel);   // P1: explicit scope — NOT the 'touches' default
         if (q.Offset > 0)                                                              // #223 pagination — name the window, and the next offset while paging
         {
-            if (q.Keys.Count == 0) sb.Append(" (offset=").Append(q.Offset).Append(" skipped past the last match — nothing to show; lower offset=)");
+            if (q.Total == 0) sb.Append(" (offset=").Append(q.Offset).Append(" had nothing to skip — NO records match at any offset; check the filter, not the paging)");
+            else if (q.Keys.Count == 0) sb.Append(" (offset=").Append(q.Offset).Append(" skipped past the last match — nothing to show; lower offset=)");
             else
             {
                 sb.Append(" (showing matches ").Append(q.Offset + 1).Append('–').Append(q.Offset + q.Keys.Count);
