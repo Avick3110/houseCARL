@@ -4,6 +4,25 @@ All notable changes to houseCARL are documented here. Versioning is [semantic](h
 the `version` in `.claude-plugin/plugin.json` is bumped on each release, so installed users update only
 when it changes.
 
+## Unreleased
+
+*Accumulating notes for the next cut — not yet released; `plugin.json` still reads the last shipped version.*
+
+**BSA reads move in-process — `housecarl_bsa_list` / `housecarl_bsa_extract` (#217).** Listing and extracting a
+`.bsa` no longer shell out to BSArch; they read through Mutagen's own in-process BSA reader. This fixes an archive
+class BSArch's *unpacker* rejected: an archive written by a non-BSArch tool could list and load in-game yet extract
+to **zero files**. It also now handles **compressed** archives, and was verified byte-for-byte identical to BSArch's
+own unpack (uncompressed *and* compressed). Consequences:
+
+- **No external tool is needed to list or extract** — only `housecarl_bsa_repack` still calls BSArch, because Mutagen
+  ships a BSA reader but no writer (confirmed by exhaustive reflection over its archive surface). Repack is now the
+  one BSA operation that still prompts for the BSArch path.
+- Extraction gains two safety properties the BSArch path never had: it is **path-traversal-guarded** (an entry
+  resolving outside the destination is refused) and **content-aware/idempotent** (a byte-identical file already
+  present is skipped).
+- A per-entry size ceiling and a header-vs-reader file-count cross-check keep a corrupt or hostile archive to a
+  **loud, named failure** rather than an out-of-memory or a silent empty extract.
+
 ## 1.9.0 — 2026-07-17
 
 houseCARL's view of the **SKSE-plugin layer** grows from *inventory* into *diagnosis*: two new audit tools
