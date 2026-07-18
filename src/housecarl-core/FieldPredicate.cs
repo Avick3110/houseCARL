@@ -228,7 +228,7 @@ public sealed class FieldPredicateSet
         bool fromFile = operand[0] == '@';
         if (fromFile)
         {
-            var path = operand.Substring(1).Trim().Trim('"');
+            var path = operand.Substring(1).Trim().Trim('"', '\'');   // both quote kinds, matching the inline token trim
             if (path.Length == 0)
                 return (null, $"predicate '{raw}': '@' names a formid-list file but no path follows it.");
             if (!Path.IsPathRooted(path))
@@ -241,13 +241,22 @@ public sealed class FieldPredicateSet
         var set = new HashSet<FormKey>();
         foreach (var t in content.Split(ListSeparators, StringSplitOptions.RemoveEmptyEntries))
         {
-            var tok = t.Trim().Trim('[', ']', '"', '\'').Trim();
+            // ONE trim with whitespace IN the set, so interleaved wrapping ('[ "…" ]' — the spaced JSON-array
+            // style) strips clean; a chained Trim().Trim('[',…) stops at the inner space and leaves a quote behind.
+            var tok = t.Trim('[', ']', '"', '\'', ' ', '\t');
             if (tok.Length == 0) continue;
             try { set.Add(FormKey.Factory(tok)); }
             catch (Exception ex)
             {
+                // A plugin filename can legally CONTAIN a comma ('Foo, Bar.esp') — unrepresentable in this grammar
+                // (commas always separate entries), and the shear leaves a token with a ':' but no plugin extension.
+                // Name that cause on exactly that shape, so the refusal points at the comma, not a mystery token.
+                bool shearShape = tok.Contains(':') && !tok.EndsWith(".esp", StringComparison.OrdinalIgnoreCase)
+                                                    && !tok.EndsWith(".esm", StringComparison.OrdinalIgnoreCase)
+                                                    && !tok.EndsWith(".esl", StringComparison.OrdinalIgnoreCase);
                 return (null, $"predicate '{raw}': list entry '{tok}'{(fromFile ? $" (in the @file)" : "")} is not a FormID ({ex.Message}). " +
-                              "Expected 'XXXXXX:Plugin.esp' entries separated by commas or newlines.");
+                              "Expected 'XXXXXX:Plugin.esp' entries separated by commas or newlines." +
+                              (shearShape ? " If the plugin's filename itself contains a comma, it cannot be written in this list — commas always separate entries; rename the plugin or filter another way." : ""));
             }
         }
         if (set.Count == 0)

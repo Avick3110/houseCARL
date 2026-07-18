@@ -281,9 +281,13 @@ public static class ValuePredicateProbe
                 Run(new[] { $"formid not in [{mgefs[0].Fk}, {mgefs[2].Fk}]" }, mgefBodies),
                 Expect(mgefs, m => !claimed.Contains(m.Fk)));
 
-            // a pasted JSON array (quotes + brackets) parses as-is.
+            // a pasted JSON array (quotes + brackets) parses as-is — compact AND the spaced style (space between
+            // bracket/quote and token; review finding on PR #235: the chained trim left a quote behind).
             CheckSet("formid in [\"…\", \"…\"]  (JSON-array paste form)",
                 Run(new[] { $"formid in [\"{mgefs[0].Fk}\", \"{mgefs[2].Fk}\"]" }, mgefBodies),
+                Expect(mgefs, m => claimed.Contains(m.Fk)));
+            CheckSet("formid in [ \"…\", \"…\" ]  (SPACED JSON-array style)",
+                Run(new[] { $"formid in [ \"{mgefs[0].Fk}\", \"{mgefs[2].Fk}\" ]" }, mgefBodies),
                 Expect(mgefs, m => claimed.Contains(m.Fk)));
 
             // ANDs with a value predicate — membership composes with the leaf ops.
@@ -318,6 +322,11 @@ public static class ValuePredicateProbe
                 CheckSet("formid not in @file  (newline-separated list file)",
                     Run(new[] { $"formid not in @{listFile}" }, mgefBodies),
                     Expect(mgefs, m => !claimed.Contains(m.Fk)));
+                // a QUOTED @path — both quote kinds strip, matching the inline token trim (PR #235 review NIT:
+                // a single-quoted absolute path used to refuse with the wrong "must be ABSOLUTE" message).
+                CheckSet("formid not in @'<quoted path>'  (single-quoted @file path)",
+                    Run(new[] { $"formid not in @'{listFile}'" }, mgefBodies),
+                    Expect(mgefs, m => !claimed.Contains(m.Fk)));
             }
             finally { try { File.Delete(listFile); } catch { } }
         }
@@ -331,6 +340,13 @@ public static class ValuePredicateProbe
             FieldPredicateSet.Parse(new[] { "formid in []" }).Error is not null);
         Check("parse: non-FormID list entry refused",
             FieldPredicateSet.Parse(new[] { "formid in [not-a-formid]" }).Error is not null);
+        {
+            // a plugin filename CONTAINING a comma is unrepresentable (commas always separate) — the shear leaves
+            // '123456:Foo' and the refusal must point at the comma cause, not just a mystery token (PR #235 review).
+            var err = FieldPredicateSet.Parse(new[] { "formid in [123456:Foo, Bar.esp]" }).Error;
+            Check("parse: comma-in-filename shear refused WITH the comma-cause hint",
+                err is not null && err.Contains("contains a comma", StringComparison.Ordinal));
+        }
         Check("parse: missing @file refused (named, not thrown)",
             FieldPredicateSet.Parse(new[] { @"formid in @C:\hcvalguard-no-such-file-ever.txt" }).Error is not null);
         Check("parse: RELATIVE @file path refused (server CWD is not the caller's)",
