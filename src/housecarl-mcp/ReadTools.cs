@@ -167,7 +167,7 @@ public static class ReadTools
             string? group_by = null,
         [Description("Optional. Dotted field paths to show for each match (e.g. 'BasicStats.Damage'). Omit for a one-line summary per match. Pair with depth= to expand list/dict contents (fields=['Effects'], depth=4 shows every effect's Data in the scan — no hand-written 'Effects[0].Data.Magnitude' index guessing).")]
             string[]? fields = null,
-        [Description("Optional. With fields=: expansion depth for list/dict/substruct CONTENTS (#231; default 1 = a container shown as just a count like '[list: 3 item(s)]'), same semantics as housecarl_read_record / housecarl_batch_record_detail — depth=2 enumerates each element with index + identity, higher opens deeper (fields=['Effects'], depth=4 reaches every effect's Magnitude/Area/Duration). Applies to EVERY match in the scan. Requires fields= (refused loud without it — summary lines have nothing to expand). Not carried in format='dense' (columnar cells align 1:1 with the requested paths) — use format=text/json for depth expansion.")]
+        [Description("Optional. With fields= (or conflict_tree=true's whole-record dump): expansion depth for list/dict/substruct CONTENTS (#231; default 1 = a container shown as just a count like '[list: 3 item(s)]'), same semantics as housecarl_read_record / housecarl_batch_record_detail — depth=2 enumerates each element with index + identity, higher opens deeper (fields=['Effects'], depth=4 reaches every effect's Magnitude/Area/Duration). Applies to EVERY match in the scan. Refused loud on a surface with nothing to expand: bare summary lines (no fields=/conflict_tree) and group_by= (a count table has no field values). Not carried in format='dense' (columnar cells align 1:1 with the requested paths) — use format=text/json for depth expansion.")]
             int depth = 1,
         [Description("When true, include each match's touching-plugin list (winner last) + winner-relative field diff.")]
             bool conflict_tree = false,
@@ -191,8 +191,10 @@ public static class ReadTools
         if (group_by is not null && ((fields is { Length: > 0 }) || conflict_tree))
             return "error: group_by aggregates matches into a count table and cannot be combined with fields= or conflict_tree=true (those expand each match to full detail — pick one). Drop fields=/conflict_tree, or drop group_by.";
         if (depth <= 0) depth = 1;
-        if (depth > 1 && fields is not { Length: > 0 })
-            return "error: depth= expands the list/dict contents of fields= paths, and no fields= was passed — summary lines have nothing to expand. Pass fields= (e.g. fields=['Effects'], depth=4), or drop depth=.";
+        if (depth > 1 && group_by is not null)
+            return "error: depth= expands per-match field contents, and group_by= renders a count table with no field values — depth= never applies there. Drop depth= (or drop group_by= and pass fields= for per-match detail).";
+        if (depth > 1 && fields is not { Length: > 0 } && !conflict_tree)
+            return "error: depth= expands the list/dict contents of fields= paths, and no fields= was passed — summary lines have nothing to expand. Pass fields= (e.g. fields=['Effects'], depth=4) or conflict_tree=true (the whole-record dump), or drop depth=.";
         if (depth > 1 && fmt is Wire.QueryFormat.Dense)
             return "error: depth>1 is not carried in format='dense' — dense rows are positional (one cell per requested fields= path), and depth expansion emits extra sub-paths that would break the column alignment. Use format=text or format=json for depth expansion, or drop depth= for the dense summary cells.";
         IReadOnlyList<FormKey>? refFks = null;

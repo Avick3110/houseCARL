@@ -90,11 +90,12 @@ run before the primitive existed:
        fields=["Name", "ArmorRating"], winner_fields=true, format="json")
    ```
 
-3. **Expand list-bearing rows in a second, batched pass.** `housecarl_cross_plugin_query` has no
-   `depth=` — a list field renders as a count note (`[list: 5 item(s)]`). Feed the enumerated
-   FormIDs to `housecarl_batch_record_detail` with `depth=2`, `resolve_names=true`,
-   `format="json"`: each list element comes back indexed (`Keywords[0]`…) with a structured
-   `link` sibling (`{resolved, type, editorid, name}`) beside the raw token.
+3. **Expand list-bearing rows in the same scan.** Pass `depth=` with `fields=` —
+   `fields=["Keywords"], depth=2` returns each element indexed (`Keywords[0]`…) across every
+   match, and `resolve_names=true` adds the structured `link` sibling
+   (`{resolved, type, editorid, name}`) beside the raw token. `format="dense"` stays depth-1
+   (its columnar cells are positional) — use `format="json"` for expanded scans, or hop the
+   flagged subset to `housecarl_batch_record_detail` when only a few matches need expanding.
 4. **Respect the accounting.** Every JSON document carries `total` / `rendered` / `capped` /
    `truncated` / `notes` in-band. `capped=true` means raise `limit=` or page by narrowing scope —
    never ship a deliverable whose `total` exceeds its row count without saying so.
@@ -283,9 +284,10 @@ For crafting-graph jobs specifically, the blessed per-recipe entry:
 
 ## Notes
 
-- `housecarl_cross_plugin_query` has no `depth=` — list expansion always goes through
-  `housecarl_batch_record_detail` (or `housecarl_read_record` for one record). Budget the second
-  call into any list-bearing catalogue plan.
+- `housecarl_cross_plugin_query` takes `depth=` (with `fields=`; text/json formats) — list
+  expansion rides the scan itself, no second call. `housecarl_batch_record_detail` remains the
+  lever when only a subset of matches needs expanding, and under `format="dense"` (depth-1 by
+  design — positional cells).
 - `where=` accepts FormLink equality against a wire token (e.g.
   `"WorkbenchKeyword = 088108:Skyrim.esm"`) — a station filter is one predicate, no post-filtering.
 - Off-order (disabled, on-disk) plugins are first-class poles for `housecarl_diff_record`,

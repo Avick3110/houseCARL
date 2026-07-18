@@ -402,6 +402,23 @@ public static class BulkQueryPrimitivesProbe
                 fields: null, depth: 2, conflict_tree: false, limit: 500, max_chars: 0);
             Check("depth=2 WITHOUT fields= is REFUSED loud (never silently ignored)",
                   sDNoF.StartsWith("error:", StringComparison.OrdinalIgnoreCase) && sDNoF.Contains("fields=", StringComparison.OrdinalIgnoreCase));
+
+            // conflict_tree=true without fields= is a WHOLE-RECORD dump (PR #244 review, MEDIUM): its containers
+            // hint 'pass depth=2', so that exact call must WORK — read_record's no-fields depth semantics.
+            var sDTree = ReadTools.CrossPluginQuery(svc, type: "Weapon", references: null, editorid_contains: null,
+                conflicts_only: false, plugins: null, defined_in: false, where: null, group_by: null,
+                fields: null, depth: 2, conflict_tree: true, limit: 500, max_chars: 0);
+            Check("depth=2 + conflict_tree (no fields=) WORKS — the whole-record dump expands (its own hint led here)",
+                  !sDTree.StartsWith("error:", StringComparison.OrdinalIgnoreCase) && sDTree.Contains("Keywords[0]"));
+
+            // depth under group_by gets its OWN refusal (PR #244 review, LOW): the old fields-refusal advised
+            // 'pass fields=' — a dead end group_by itself refuses. The message must name group_by, not that trap.
+            var sDGroup = ReadTools.CrossPluginQuery(svc, type: "Weapon", references: null, editorid_contains: null,
+                conflicts_only: false, plugins: null, defined_in: false, where: null, group_by: "winner",
+                fields: null, depth: 2, conflict_tree: false, limit: 500, max_chars: 0);
+            Check("depth=2 + group_by is REFUSED naming group_by's count table (never the 'pass fields=' dead end)",
+                  sDGroup.StartsWith("error:", StringComparison.OrdinalIgnoreCase) && sDGroup.Contains("group_by", StringComparison.OrdinalIgnoreCase)
+                  && sDGroup.Contains("count table", StringComparison.OrdinalIgnoreCase));
             var sDDense = ReadTools.CrossPluginQuery(svc, type: "Weapon", references: null, editorid_contains: null,
                 conflicts_only: false, plugins: null, defined_in: false, where: null, group_by: null,
                 fields: new[] { "Keywords" }, depth: 2, conflict_tree: false, limit: 500, max_chars: 0, format: "dense");
