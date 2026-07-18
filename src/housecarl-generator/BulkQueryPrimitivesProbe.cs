@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Mutagen.Bethesda;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Plugins.Records;
@@ -15,6 +16,9 @@ namespace HousecarlGenerator;
 ///   • P2 list-valued <c>references=</c> — OR over many targets in ONE scan (was one scan per target), each match
 ///     recording WHICH target(s) it hit (matches=…) so a multi-target reverse lookup can be un-merged.
 ///   • P4 <c>group_by=</c> winner|type|defined_in — a count table over ALL matches (not limit-capped) instead of lines.
+///   • #223 <c>offset=</c> pagination (windows tile the enumeration exactly; refusals for negative / group_by) and
+///     <c>format=dense</c> (the columnar render: columns once + positional rows, cross-checked against the plain
+///     summaries and the known winner field values, and materially smaller than format=json for the same query).
 ///
 /// Synthesizes a 2-plugin order ON DISK (a master + a replacer that OVERRIDES one weapon and DEFINES new ones, with
 /// keyword links so references= has something to reverse) and drives the REAL service-layer scan
@@ -198,6 +202,112 @@ public static class BulkQueryPrimitivesProbe
                 group_by: null, fields: new[] { "BasicStats.Damage" }, conflict_tree: false, limit: 500, max_chars: 0);
             Check("detail-mode (fields=) multi-target references= renders the matches= line (W3 → both targets)",
                   sDetail.Contains("matches=") && sDetail.Contains($"matches={kaFk}, {kbFk}"));
+
+            // ================= #223 — offset= pagination + format=dense =================
+            Console.WriteLine();
+            Console.WriteLine("── #223: offset= pages exact windows; format=dense renders columnar rows ──");
+
+            // Service-level paging: limit=1 windows at offset 0/1/2 tile the FULL Weapon enumeration exactly.
+            var full = svc.CrossQuery("Weapon", null, null, false, null, null, 500);
+            var paged = new List<FormKey>();
+            for (int off = 0; off < 3; off++)
+            {
+                var win = svc.CrossQuery("Weapon", null, null, false, null, null, 1, offset: off);
+                Check($"window offset={off} limit=1: 1 row, total still {full.Total}, offset in the outcome",
+                      win.Keys.Count == 1 && win.Total == full.Total && win.Offset == off);
+                Check($"  ... capped={(off < 2).ToString().ToLowerInvariant()} (matches beyond the WINDOW {(off < 2 ? "exist" : "don't")} — skipped-before-offset never reads as capped)",
+                      win.Capped == (off < 2));
+                paged.AddRange(win.Keys);
+            }
+            Check("the 3 windows tile the full enumeration EXACTLY (no gap, no overlap, same order)", paged.SequenceEqual(full.Keys));
+
+            // offset past the end: an honest empty window — exact total, not capped (nothing beyond the window).
+            var past = svc.CrossQuery("Weapon", null, null, false, null, null, 500, offset: 10);
+            Check("offset past the last match: 0 rows, exact total, not capped", past.Keys.Count == 0 && past.Total == full.Total && !past.Capped);
+
+            // refusals (Q3): negative offset; offset under group_by (a count table has no window to page).
+            var neg = svc.CrossQuery("Weapon", null, null, false, null, null, 500, offset: -1);
+            Check("offset=-1 is REFUSED loud", neg.Error is not null && neg.Error.Contains("offset", StringComparison.OrdinalIgnoreCase));
+            var offGroup = svc.CrossQuery("Weapon", null, null, false, null, null, 500, groupBy: "winner", offset: 5);
+            Check("offset + group_by is REFUSED loud (never silently ignored)",
+                  offGroup.Error is not null && offGroup.Error.Contains("group_by", StringComparison.OrdinalIgnoreCase));
+
+            // Text render names the window and the NEXT offset while paging.
+            var sPage = ReadTools.CrossPluginQuery(svc, type: "Weapon", references: null, editorid_contains: null,
+                conflicts_only: false, plugins: null, defined_in: false, where: null, group_by: null,
+                fields: null, conflict_tree: false, limit: 1, offset: 1, max_chars: 0);
+            Check("text render: 'showing matches 2–2' + 'continue with offset=2'",
+                  sPage.Contains("showing matches 2–2") && sPage.Contains("continue with offset=2"));
+
+            // format=dense summary rows: columnar shape, values cross-checked against the known records.
+            var sDense = ReadTools.CrossPluginQuery(svc, type: "Weapon", references: null, editorid_contains: null,
+                conflicts_only: false, plugins: null, defined_in: false, where: null, group_by: null,
+                fields: null, conflict_tree: false, limit: 500, max_chars: 0, format: "dense");
+            using (var doc = JsonDocument.Parse(sDense))
+            {
+                var root = doc.RootElement;
+                var cols = root.GetProperty("columns").EnumerateArray().Select(c => c.GetString()).ToArray();
+                Check("dense summary: columns = [formid,type,editorid,winner,override_depth]",
+                      cols.SequenceEqual(new[] { "formid", "type", "editorid", "winner", "override_depth" }));
+                var rows = root.GetProperty("rows").EnumerateArray().ToList();
+                Check("dense summary: 3 positional rows of 5 cells, rendered=3, not truncated",
+                      rows.Count == 3 && rows.All(r => r.ValueKind == JsonValueKind.Array && r.GetArrayLength() == 5)
+                      && root.GetProperty("rendered").GetInt32() == 3 && !root.GetProperty("truncated").GetBoolean());
+                var w1row = rows.FirstOrDefault(r => r[0].GetString() == w1Fk.ToString());
+                Check("dense summary: W1's row shows type=Weapon, winner=Repl (the override wins)",
+                      w1row.ValueKind == JsonValueKind.Array && w1row[1].GetString() == "Weapon" && w1row[3].GetString() == replName);
+            }
+
+            // format=dense detail rows (fields=): [formid, editorid, value…]; winner values under type= scope; and
+            // the whole point — materially smaller than format=json for the SAME query.
+            var sDenseF = ReadTools.CrossPluginQuery(svc, type: "Weapon", references: null, editorid_contains: null,
+                conflicts_only: false, plugins: null, defined_in: false, where: null, group_by: null,
+                fields: new[] { "BasicStats.Damage" }, conflict_tree: false, limit: 500, max_chars: 0, format: "dense");
+            var sJsonF = ReadTools.CrossPluginQuery(svc, type: "Weapon", references: null, editorid_contains: null,
+                conflicts_only: false, plugins: null, defined_in: false, where: null, group_by: null,
+                fields: new[] { "BasicStats.Damage" }, conflict_tree: false, limit: 500, max_chars: 0, format: "json");
+            using (var doc = JsonDocument.Parse(sDenseF))
+            {
+                var root = doc.RootElement;
+                var cols = root.GetProperty("columns").EnumerateArray().Select(c => c.GetString()).ToArray();
+                Check("dense detail: columns = [formid,editorid,BasicStats.Damage]",
+                      cols.SequenceEqual(new[] { "formid", "editorid", "BasicStats.Damage" }));
+                var vals = root.GetProperty("rows").EnumerateArray().ToDictionary(r => r[0].GetString()!, r => r[2].GetString());
+                Check("dense detail: damage cells carry the WINNER values (W1=15 override, W2=20, W3=30)",
+                      vals.GetValueOrDefault(w1Fk.ToString()) == "15" && vals.GetValueOrDefault(w2Fk.ToString()) == "20"
+                      && vals.GetValueOrDefault(w3Fk.ToString()) == "30");
+            }
+            Check($"dense detail is materially smaller than json for the same query ({sDenseF.Length} vs {sJsonF.Length} chars)",
+                  sDenseF.Length < sJsonF.Length);
+
+            // dense + offset compose: the in-band offset field + the windowed rows.
+            var sDenseOff = ReadTools.CrossPluginQuery(svc, type: "Weapon", references: null, editorid_contains: null,
+                conflicts_only: false, plugins: null, defined_in: false, where: null, group_by: null,
+                fields: null, conflict_tree: false, limit: 1, offset: 1, max_chars: 0, format: "dense");
+            using (var doc = JsonDocument.Parse(sDenseOff))
+                Check("dense + offset=1 limit=1: offset in-band, 1 row, capped=true",
+                      doc.RootElement.GetProperty("offset").GetInt32() == 1
+                      && doc.RootElement.GetProperty("rows").GetArrayLength() == 1
+                      && doc.RootElement.GetProperty("capped").GetBoolean());
+
+            // dense + group_by renders the SAME count table as json (documented on format= — not a refusal).
+            var sDenseGroup = ReadTools.CrossPluginQuery(svc, type: "Weapon", references: null, editorid_contains: null,
+                conflicts_only: false, plugins: null, defined_in: false, where: null, group_by: "winner",
+                fields: null, conflict_tree: false, limit: 500, max_chars: 0, format: "dense");
+            Check("dense + group_by renders the json count table (groups in-band, no refusal)",
+                  !sDenseGroup.StartsWith("error", StringComparison.OrdinalIgnoreCase) && sDenseGroup.Contains("\"groups\""));
+
+            // dense + conflict_tree refused (text-only view); an unknown format names all three (Q3).
+            var sDenseTree = ReadTools.CrossPluginQuery(svc, type: "Weapon", references: null, editorid_contains: null,
+                conflicts_only: false, plugins: null, defined_in: false, where: null, group_by: null,
+                fields: null, conflict_tree: true, limit: 500, max_chars: 0, format: "dense");
+            Check("dense + conflict_tree=true is REFUSED loud",
+                  sDenseTree.StartsWith("error:", StringComparison.OrdinalIgnoreCase) && sDenseTree.Contains("dense", StringComparison.OrdinalIgnoreCase));
+            var sBadFmt = ReadTools.CrossPluginQuery(svc, type: "Weapon", references: null, editorid_contains: null,
+                conflicts_only: false, plugins: null, defined_in: false, where: null, group_by: null,
+                fields: null, conflict_tree: false, limit: 500, max_chars: 0, format: "csv");
+            Check("format=csv is REFUSED naming text/json/dense",
+                  sBadFmt.StartsWith("error:", StringComparison.OrdinalIgnoreCase) && sBadFmt.Contains("dense", StringComparison.OrdinalIgnoreCase));
 
             Console.WriteLine();
             Console.WriteLine($"=== bulk-query-primitives-guard: {_pass} passed, {_fail} failed -> {(_fail == 0 ? "PASS" : "FAIL")} ===");

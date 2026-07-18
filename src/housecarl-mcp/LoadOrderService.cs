@@ -2273,11 +2273,13 @@ public sealed class LoadOrderService : IDisposable
     /// un-merge). <paramref name="definedIn"/> keeps only matches whose FormKey ORIGINATES in a scoped plugin
     /// (definitions, not overrides) — requires plugins=, refused loud otherwise. <paramref name="groupBy"/>
     /// ("winner"|"type"|"defined_in") replaces per-match lines with a count table over ALL matches (not capped by
-    /// limit=). Returns pre-built match summaries (capped at <paramref name="limit"/>, with the true total), a group
-    /// table, or a recoverable Q3 error. Holds nothing.</summary>
+    /// limit=). <paramref name="offset"/> skips the first N post-filter matches before collecting (#223 pagination —
+    /// scan order is deterministic for an unchanged load order, so offset=/limit= windows tile without gaps or
+    /// overlap; the true total still counts ALL matches). Returns pre-built match summaries (capped at
+    /// <paramref name="limit"/>, with the true total), a group table, or a recoverable Q3 error. Holds nothing.</summary>
     public CrossQueryOutcome CrossQuery(string? type, IReadOnlyList<FormKey>? references, string? editoridContains,
                                         bool conflictsOnly, IReadOnlyList<string>? plugins, IReadOnlyList<string>? where, int limit,
-                                        bool definedIn = false, string? groupBy = null)
+                                        bool definedIn = false, string? groupBy = null, int offset = 0)
     {
         var resolver = Resolver;
         var view = resolver.Capture();          // ONE build for the SCAN and every per-match fill it makes (HCBR-2026-06-11-02)
@@ -2305,6 +2307,14 @@ public sealed class LoadOrderService : IDisposable
                 try { scopedModKeys.Add(ModKey.FromFileName(p.Trim())); }
                 catch (Exception ex) { return CrossQueryOutcome.Fail($"defined_in: '{p}' is not a valid plugin filename: {ex.Message}"); }
         }
+
+        // offset= pages the match window (#223). Validated up front (Q3): negative is meaningless, and under
+        // group_by= there is no match window to page (the aggregation counts ALL matches, never limit-capped) —
+        // silently ignoring it would misrepresent what the caller asked for.
+        if (offset < 0)
+            return CrossQueryOutcome.Fail($"offset={offset} — offset must be >= 0 (it skips that many matches before returning rows).");
+        if (offset > 0 && groupBy is not null)
+            return CrossQueryOutcome.Fail("group_by= aggregates ALL matches into a count table (never capped by limit=), so offset= has nothing to page — drop offset=, or drop group_by= for per-match rows.");
 
         // group_by= aggregates matches into a count table. Validated up front (an unknown key refuses BEFORE any scan,
         // Q3). group_by=type needs the matched body to name the type, so it requires a body-bearing scope (type= or
@@ -2401,7 +2411,7 @@ public sealed class LoadOrderService : IDisposable
                                    : view.ResolveWinner(fk)?.WinnerPlugin ?? "?";  // "winner"
                             groups[gk] = groups.GetValueOrDefault(gk) + 1;
                         }
-                        else if (keys.Count < limit)                              // in-hand body → fill the summary for free
+                        else if (total > offset && keys.Count < limit)            // in-hand body → fill the summary for free (offset= skips the first N matches — total already counts this one)
                         {
                             keys.Add(fk);
                             sources.Add(source);                                  // the body we filtered IS the body we'll display (null ⇒ winner)
@@ -2442,7 +2452,7 @@ public sealed class LoadOrderService : IDisposable
                     var gk = groupBy == "defined_in" ? fk.ModKey.FileName.ToString() : view.ResolveWinner(fk)?.WinnerPlugin ?? "?";
                     groups[gk] = groups.GetValueOrDefault(gk) + 1;
                 }
-                else if (keys.Count < limit) { keys.Add(fk); sources.Add(null); }   // no scoped plugin → display the winner
+                else if (total > offset && keys.Count < limit) { keys.Add(fk); sources.Add(null); }   // no scoped plugin → display the winner; offset= skips the first N
             }
         }
         // Unscannable accounting (Q3): name the count, the first few offenders with Mutagen's reason, and what
@@ -2457,9 +2467,11 @@ public sealed class LoadOrderService : IDisposable
         // group_by= aggregation isn't limit-capped (cheap), so Capped is a match-line concern only.
         var groupRows = groups?.Select(kv => new GroupCount(kv.Key, kv.Value))
                               .OrderByDescending(g => g.Count).ThenBy(g => g.Key, StringComparer.Ordinal).ToList();
-        return new CrossQueryOutcome(keys, prefilled, total, groups is null && total > keys.Count, null,
+        // Capped = matches exist BEYOND the returned window (total > offset + rows) — the matches offset= skipped
+        // were asked to be skipped, so they don't make a full window read as capped.
+        return new CrossQueryOutcome(keys, prefilled, total, groups is null && total > offset + keys.Count, null,
                                      predicate?.AccountingNote(), sources, scanNote,
-                                     matched, groupRows, groupBy, definedIn ? string.Join(", ", plugins!) : null);
+                                     matched, groupRows, groupBy, definedIn ? string.Join(", ", plugins!) : null, offset);
     }
 
     // ---- effect-chain resolver (housecarl_effect_chain — gap 2026-06-08) --------------------------------
@@ -5245,7 +5257,7 @@ public sealed record CrossQueryOutcome(
     IReadOnlyList<FormKey> Keys, IReadOnlyList<RecordSummary>? Prefilled, int Total, bool Capped, string? Error,
     string? PredicateNote = null, IReadOnlyList<string?>? Sources = null, string? ScanNote = null,
     IReadOnlyList<string?>? MatchedTargets = null, IReadOnlyList<GroupCount>? Groups = null,
-    string? GroupBy = null, string? ScopeLabel = null)
+    string? GroupBy = null, string? ScopeLabel = null, int Offset = 0)
 {
     public static CrossQueryOutcome Fail(string error) => new(Array.Empty<FormKey>(), null, 0, false, error);
 }

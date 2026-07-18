@@ -282,12 +282,10 @@ static class JsonWire
             {
                 bool detail = fields is { Count: > 0 };
                 bool anyScoped = detail && q.Sources is { } ss && ss.Take(q.Keys.Count).Any(s => s is not null);   // P5
-                string? p5 = anyScoped
-                    ? (winnerFields ? "field values are the load-order WINNER's (winner_fields=true); each match was SELECTED on its scoped plugin's body."
-                                    : "field values are each match's SCOPED plugin's OWN version, NOT the live load-order winner — pass winner_fields=true for load-order truth.")
-                    : null;
+                string? p5 = anyScoped ? ScopedFieldsNote(winnerFields) : null;
                 w.WriteNumber("total", q.Total);
                 w.WriteBoolean("capped", q.Capped);
+                if (q.Offset > 0) w.WriteNumber("offset", q.Offset);        // #223 pagination — the window's start, in-band
                 if (q.ScopeLabel is not null) w.WriteString("scope", q.ScopeLabel);
                 WriteNotes(w, q, p5);
                 var linkMemo = resolveNames && detail ? new Dictionary<FormKey, ResolvedRef>() : null;
@@ -322,6 +320,122 @@ static class JsonWire
             w.WriteEndObject();
         }
         return Finish(ms);
+    }
+
+    /// <summary>The P5 scoped-vs-winner fields note, shared verbatim by the json and dense renders (D2 — one wording,
+    /// two renders that can't drift).</summary>
+    static string ScopedFieldsNote(bool winnerFields) => winnerFields
+        ? "field values are the load-order WINNER's (winner_fields=true); each match was SELECTED on its scoped plugin's body."
+        : "field values are each match's SCOPED plugin's OWN version, NOT the live load-order winner — pass winner_fields=true for load-order truth.";
+
+    // ---- housecarl_cross_plugin_query format=dense (#223) -------------------------------------------
+    /// <summary>The COLUMNAR render: a <c>columns</c> array once, then ONE positional row array per match —
+    /// <c>[formid, editorid, field values…]</c> under fields=, <c>[formid, type, editorid, winner, override_depth]</c>
+    /// for summaries — killing the per-field {path,value} envelopes and repeated identity keys that made format=json
+    /// the context-budget drain in bulk enumerations (#223: ~80 records per 40k chars at two fields). Reads the SAME
+    /// path as the other renders (ResolveRead / Prefilled — D2), and cells use the SAME display vocabulary as the
+    /// text render: the round-trip token, else the parenthetical note (an absent field is "(absent)", never a silent
+    /// hole), with Display/resolve_names annotations appended. Q3 accounting (total/capped/offset/notes/truncated)
+    /// rides in-band; a row whose read FAILS lands in a separate <c>errors</c> array — never a silently missing row.
+    /// group_by= never reaches here (the tool renders its count table via <see cref="RenderCrossQuery"/>).</summary>
+    public static string RenderCrossQueryDense(LoadOrderService svc, CrossQueryOutcome q, IReadOnlyList<string>? fields, int maxChars, bool resolveNames, bool winnerFields)
+    {
+        int cap = Cap(maxChars);
+        using var ms = new MemoryStream();
+        using (var w = new Utf8JsonWriter(ms, Opts))
+        {
+            w.WriteStartObject();
+            if (q.Error is not null) w.WriteString("error", q.Error);
+            else
+            {
+                bool detail = fields is { Count: > 0 };
+                bool anyScoped = detail && q.Sources is { } ss && ss.Take(q.Keys.Count).Any(s => s is not null);   // P5
+                w.WriteNumber("total", q.Total);
+                w.WriteBoolean("capped", q.Capped);
+                if (q.Offset > 0) w.WriteNumber("offset", q.Offset);
+                if (q.ScopeLabel is not null) w.WriteString("scope", q.ScopeLabel);
+                WriteNotes(w, q, anyScoped ? ScopedFieldsNote(winnerFields) : null);
+
+                bool hasMatches = q.MatchedTargets is not null;               // multi-target references= → one extra column
+                w.WriteStartArray("columns");
+                if (detail)
+                {
+                    w.WriteStringValue("formid"); w.WriteStringValue("editorid");
+                    foreach (var f in fields!) w.WriteStringValue(f);         // cells align positionally: ReadFields returns exactly one value per requested path, in order
+                }
+                else
+                    foreach (var c in new[] { "formid", "type", "editorid", "winner", "override_depth" }) w.WriteStringValue(c);
+                if (hasMatches) w.WriteStringValue("matches");
+                w.WriteEndArray();
+
+                var linkMemo = resolveNames && detail ? new Dictionary<FormKey, ResolvedRef>() : null;
+                List<(string Formid, string Error)>? errors = null;
+                int rendered = 0; bool truncated = false;
+                w.WriteStartArray("rows");
+                for (int i = 0; i < q.Keys.Count; i++)
+                {
+                    w.Flush();
+                    if (ms.Length >= cap) { truncated = true; break; }
+                    var fk = q.Keys[i];
+                    string? matches = q.MatchedTargets is { } mt && i < mt.Count ? mt[i] : null;
+                    if (detail)
+                    {
+                        var o = svc.ResolveRead(fk, winnerFields ? null : (q.Sources is { } src ? src[i] : null), fields, false,
+                                                resolveNames: resolveNames, linkMemo: linkMemo, containerHint: Wire.CrossQueryContainerHint);
+                        if (o.Error is not null) { (errors ??= new()).Add((fk.ToString(), o.Error)); rendered++; continue; }
+                        var r = o.Record!;
+                        w.WriteStartArray();
+                        w.WriteStringValue(r.FormKey);
+                        WriteCell(w, r.EditorId);
+                        foreach (var f in r.Fields) WriteCell(w, DenseCell(f));
+                        if (hasMatches) WriteCell(w, matches);
+                        w.WriteEndArray();
+                    }
+                    else
+                    {
+                        var m = q.Prefilled is not null ? q.Prefilled[i] : svc.ResolveSummary(fk);
+                        if (m.Error is not null) { (errors ??= new()).Add((m.FormKey.ToString(), m.Error)); rendered++; continue; }
+                        w.WriteStartArray();
+                        w.WriteStringValue(m.FormKey.ToString());
+                        w.WriteStringValue(m.Type);
+                        WriteCell(w, m.EditorId);
+                        w.WriteStringValue(m.Winner);
+                        w.WriteNumberValue(m.OverrideDepth);
+                        if (hasMatches) WriteCell(w, matches);
+                        w.WriteEndArray();
+                    }
+                    rendered++;
+                }
+                w.WriteEndArray();
+                if (errors is not null)
+                {
+                    w.WriteStartArray("errors");
+                    foreach (var (efk, err) in errors)
+                    { w.WriteStartObject(); w.WriteString("formid", efk); w.WriteString("error", err); w.WriteEndObject(); }
+                    w.WriteEndArray();
+                }
+                w.WriteNumber("rendered", rendered);
+                w.WriteBoolean("truncated", truncated);
+            }
+            w.WriteEndObject();
+        }
+        return Finish(ms);
+    }
+
+    /// <summary>One dense cell: the round-trip token, else the leaf's parenthetical note ("(absent)", "(no field …)")
+    /// so a no-value field is VISIBLE in its cell, never a silent hole (Q3) — with the Display and resolve_names
+    /// annotations appended in the text render's exact vocabulary.</summary>
+    static string? DenseCell(HousecarlCore.FieldValue f)
+    {
+        var s = f.HasValue ? f.Token : f.Note;
+        if (f.Display is not null) s = $"{s}   ({f.Display})";
+        if (f.Link is not null) s = $"{s}   ({Wire.LinkText(f.Link)})";
+        return s;
+    }
+
+    static void WriteCell(Utf8JsonWriter w, string? v)
+    {
+        if (v is null) w.WriteNullValue(); else w.WriteStringValue(v);
     }
 
     static void WriteSummaryRow(Utf8JsonWriter w, RecordSummary m, string? matches)

@@ -144,7 +144,9 @@ public static class ReadTools
          "enough). Pass fields= " +
          "or conflict_tree=true to expand each match from a summary line to full detail; or group_by= " +
          "(winner|type|defined_in) for a count table over ALL matches instead of per-match lines. Results cap at " +
-         "limit= matches and max_chars; both overruns are reported explicitly (never silent). Does NOT modify anything.")]
+         "limit= matches and max_chars; both overruns are reported explicitly (never silent), and offset= pages a big " +
+         "enumeration in exact windows (offset=0/500/1000… with format='dense' for the compact columnar rows). " +
+         "Does NOT modify anything.")]
     public static string CrossPluginQuery(
         LoadOrderService svc,
         [Description("Optional. A record signature ('WEAP', 'NPC_') or catalog name ('Weapon', 'Npc'). Cheap — uses typed group enumeration.")]
@@ -171,17 +173,19 @@ public static class ReadTools
             bool resolve_names = false,
         [Description("When true (with fields= under a plugins= scope), expand each match's fields from the load-order WINNER's body instead of the scoped plugin's OWN version. WITHOUT this, plugins=-scoped fields are that plugin's values (e.g. a defining esp's AR 38), NOT the live winner (AR 200) — a note names the source either way. No effect under type= scope (already the winner).")]
             bool winner_fields = false,
-        [Description("Optional. 'text' (default) or 'json' — a machine-readable document (group_by count table, detail record objects with fields, or summary rows), with total/capped/notes/truncated accounting in-band. conflict_tree is a text-only diff view.")]
+        [Description("Optional. 'text' (default), 'json' (a machine-readable document — group_by count table, detail record objects with fields, or summary rows), or 'dense' (#223 — COLUMNAR json: a columns array once, then ONE positional row array per match [formid, editorid, field values…], no per-field envelopes or repeated keys — the compact form for bulk enumeration; ~same data at a fraction of the characters; under group_by it renders the same count table as 'json'). All formats carry total/capped/notes/truncated accounting in-band. conflict_tree is a text-only diff view.")]
             string? format = null,
-        [Description("Optional. Max matches to return (default 500). The TRUE total is always reported; over the cap it says 'showing first N'.")]
+        [Description("Optional. Max matches to return (default 500). The TRUE total is always reported; over the cap it says 'showing first N'. Page with offset=.")]
             int limit = 500,
+        [Description("Optional. Skip the first N post-filter matches before returning rows (#223 pagination) — combine with limit= to page a big enumeration in windows (offset=0/500/1000…). Scan order is deterministic while the load order is unchanged, so windows tile exactly. The true total always counts ALL matches. Not valid with group_by= (a count table has no window).")]
+            int offset = 0,
         [Description("Optional. Max characters before the response stops with an explicit notice. 0 = the server default (~80k).")]
             int max_chars = 0) => Guard.Tool("housecarl_cross_plugin_query", () =>
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
-        bool json = Wire.WantsJson(format, out var ferr);
+        var fmt = Wire.CrossQueryFormat(format, out var ferr);
         if (ferr is not null) return ferr;
-        if (json && conflict_tree) return "error: conflict_tree=true is a text-only diff view and is not carried in json mode — use format=text for the conflict tree, or drop conflict_tree for the json field data.";
+        if (fmt is not Wire.QueryFormat.Text && conflict_tree) return $"error: conflict_tree=true is a text-only diff view and is not carried in {(fmt is Wire.QueryFormat.Json ? "json" : "dense")} mode — use format=text for the conflict tree, or drop conflict_tree for the field data.";
         if (group_by is not null && ((fields is { Length: > 0 }) || conflict_tree))
             return "error: group_by aggregates matches into a count table and cannot be combined with fields= or conflict_tree=true (those expand each match to full detail — pick one). Drop fields=/conflict_tree, or drop group_by.";
         IReadOnlyList<FormKey>? refFks = null;
@@ -196,9 +200,15 @@ public static class ReadTools
             }
             if (list.Count > 0) refFks = list.Distinct().ToList();   // preserve input order, drop dupes
         }
-        var outcome = svc.CrossQuery(type, refFks, editorid_contains, conflicts_only, plugins, where, limit <= 0 ? 500 : limit, defined_in, group_by);
-        return json ? JsonWire.RenderCrossQuery(svc, outcome, fields, max_chars, resolve_names, winner_fields)
-                    : Wire.RenderCrossQuery(svc, outcome, fields, conflict_tree, max_chars, resolve_names, winner_fields);
+        var outcome = svc.CrossQuery(type, refFks, editorid_contains, conflicts_only, plugins, where, limit <= 0 ? 500 : limit, defined_in, group_by, offset);
+        // dense + group_by: the count table is already columnar — render it exactly as json (documented on format=),
+        // so dense is never a refusal there and the two renders can't drift.
+        return fmt switch
+        {
+            Wire.QueryFormat.Dense when group_by is null => JsonWire.RenderCrossQueryDense(svc, outcome, fields, max_chars, resolve_names, winner_fields),
+            Wire.QueryFormat.Dense or Wire.QueryFormat.Json => JsonWire.RenderCrossQuery(svc, outcome, fields, max_chars, resolve_names, winner_fields),
+            _ => Wire.RenderCrossQuery(svc, outcome, fields, conflict_tree, max_chars, resolve_names, winner_fields),
+        };
     });
 
     [McpServerTool(Name = "housecarl_resolve", ReadOnly = true, Title = "Resolve FormIDs to their identity"),
@@ -396,6 +406,23 @@ static class Wire
         return false;
     }
 
+    /// <summary>The cross_plugin_query format vocabulary — the one tool with a third format (<c>dense</c>, the #223
+    /// columnar render). Every other tool stays on the two-value <see cref="WantsJson"/>.</summary>
+    internal enum QueryFormat { Text, Json, Dense }
+
+    /// <summary>Parse cross_plugin_query's <c>format=</c>: text (default) / json / dense; anything else is a named
+    /// refusal (Q3) listing all three.</summary>
+    internal static QueryFormat CrossQueryFormat(string? format, out string? error)
+    {
+        error = null;
+        var f = format?.Trim();
+        if (string.IsNullOrEmpty(f) || f.Equals("text", StringComparison.OrdinalIgnoreCase)) return QueryFormat.Text;
+        if (f.Equals("json", StringComparison.OrdinalIgnoreCase)) return QueryFormat.Json;
+        if (f.Equals("dense", StringComparison.OrdinalIgnoreCase)) return QueryFormat.Dense;
+        error = $"error: format='{format}' is not recognized — use 'text' (the default), 'json', or 'dense'.";
+        return QueryFormat.Text;
+    }
+
     // ---- housecarl_diff_record (P8c) ----------------------------------------------------------------
     /// <summary>Render a pairwise record diff (housecarl_diff_record — P8c): a header naming both poles (plugin + where
     /// found + record identity), then one line per delta (plugin_a's value, reference = plugin_b), budget-bounded with an
@@ -530,7 +557,17 @@ static class Wire
         var sb = new StringBuilder();
         sb.Append("cross_plugin_query: ").Append(q.Total).Append(q.Total == 1 ? " match" : " matches");
         if (q.ScopeLabel is not null) sb.Append(" DEFINED IN ").Append(q.ScopeLabel);   // P1: explicit scope — NOT the 'touches' default
-        if (q.Capped) sb.Append(" (showing first ").Append(q.Keys.Count).Append("; raise limit= or narrow to see more)");
+        if (q.Offset > 0)                                                              // #223 pagination — name the window, and the next offset while paging
+        {
+            if (q.Keys.Count == 0) sb.Append(" (offset=").Append(q.Offset).Append(" skipped past the last match — nothing to show; lower offset=)");
+            else
+            {
+                sb.Append(" (showing matches ").Append(q.Offset + 1).Append('–').Append(q.Offset + q.Keys.Count);
+                if (q.Capped) sb.Append("; continue with offset=").Append(q.Offset + q.Keys.Count);
+                sb.Append(')');
+            }
+        }
+        else if (q.Capped) sb.Append(" (showing first ").Append(q.Keys.Count).Append("; raise limit=, page with offset=, or narrow to see more)");
         sb.Append('\n');
         if (q.PredicateNote is not null) sb.Append(q.PredicateNote).Append('\n');   // where= Q3 accounting (wrong-path/no-value surface)
         if (q.ScanNote is not null) sb.Append(q.ScanNote).Append('\n');             // unscannable-record Q3 accounting (Mutagen-unparseable content)
@@ -843,8 +880,9 @@ static class Wire
 
     /// <summary>The resolve_names parenthetical (P7): a FormLink token's target identity as "→ editorid "Name"", or
     /// "unresolved: not in the active order" for a dangling target (named, never dropped — Q3). DISPLAY-ONLY: this
-    /// is appended AFTER the round-trip token, never in place of it.</summary>
-    static string LinkText(ResolvedRef r) =>
+    /// is appended AFTER the round-trip token, never in place of it. Internal: the dense render's cells reuse the
+    /// SAME display vocabulary (D2 — renders must not drift).</summary>
+    internal static string LinkText(ResolvedRef r) =>
         !r.Resolved ? "unresolved: target not in the active order"
         : string.IsNullOrEmpty(r.Name) ? $"→ {r.EditorId ?? "<no editorid>"}"
         : $"→ {r.EditorId ?? "<no editorid>"} \"{r.Name}\"";
