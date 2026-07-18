@@ -18,7 +18,9 @@ namespace HousecarlGenerator;
 /// It locks in the load-bearing Q3 teeth: a wrong path reads no value EVERYWHERE and is surfaced LOUD (never a
 /// silent "0 matches"); a numeric operator on a non-numeric field is a fast typed error; <c>=</c> on a float
 /// matches across <c>0.5</c>/<c>0.50</c>; a FormLink compares as a FormKey; <c>!=</c> negates; an AND-list
-/// intersects; and malformed predicates are refused at parse. RED if any of those is absent.
+/// intersects; identity membership (<c>formid in</c>/<c>not in</c> — #226) keeps/drops exactly the listed set,
+/// survives spaces in plugin filenames, and reads an <c>@file</c> list; and malformed predicates are refused at
+/// parse. RED if any of those is absent.
 ///
 /// Run: <c>dotnet run --project src/housecarl-generator value-predicate-guard</c>
 /// </summary>
@@ -263,6 +265,76 @@ public static class ValuePredicateProbe
         Check("parse: `missing` accepted", FieldPredicateSet.Parse(new[] { "VirtualMachineAdapter missing" }).Error is null);
         Check("parse: `exists <value>` refused (presence takes no operand)", FieldPredicateSet.Parse(new[] { "Archetype exists foo" }).Error is not null);
         Check("parse: `missing <value>` refused", FieldPredicateSet.Parse(new[] { "Archetype missing foo" }).Error is not null);
+
+        // ============== IDENTITY membership: formid in / not in a supplied list (#226) ==============
+        Console.WriteLine();
+        Console.WriteLine("-- identity membership: formid in / not in --");
+
+        // inline list — in keeps exactly the listed set; not in is its complement (the reconciliation subtraction
+        // "every record minus these already-claimed"). Brute force: plain membership over the KNOWN FormKeys.
+        {
+            var claimed = new HashSet<FormKey> { mgefs[0].Fk, mgefs[2].Fk };
+            CheckSet("formid in [inline]  (keeps exactly the listed)",
+                Run(new[] { $"formid in [{mgefs[0].Fk}, {mgefs[2].Fk}]" }, mgefBodies),
+                Expect(mgefs, m => claimed.Contains(m.Fk)));
+            CheckSet("formid not in [inline]  (the complement — the #226 subtraction)",
+                Run(new[] { $"formid not in [{mgefs[0].Fk}, {mgefs[2].Fk}]" }, mgefBodies),
+                Expect(mgefs, m => !claimed.Contains(m.Fk)));
+
+            // a pasted JSON array (quotes + brackets) parses as-is.
+            CheckSet("formid in [\"…\", \"…\"]  (JSON-array paste form)",
+                Run(new[] { $"formid in [\"{mgefs[0].Fk}\", \"{mgefs[2].Fk}\"]" }, mgefBodies),
+                Expect(mgefs, m => claimed.Contains(m.Fk)));
+
+            // ANDs with a value predicate — membership composes with the leaf ops.
+            CheckSet("[formid not in …] AND [MagicSkill = Destruction]",
+                Run(new[] { $"formid not in [{mgefs[0].Fk}]", "MagicSkill = Destruction" }, mgefBodies),
+                Expect(mgefs, m => m.Fk != mgefs[0].Fk && m.MagicSkill == ActorValue.Destruction));
+
+            // identity is always readable — a membership scan can never false-alarm the Q3 accounting.
+            var (_, setM) = RunWithSet(new[] { $"formid not in [{mgefs[0].Fk}]" }, mgefBodies);
+            Check("membership scan: no spurious accounting note", setM.AccountingNote() is null);
+        }
+
+        // a plugin filename WITH SPACES — commas separate the list, so '123456:My Mod.esp' stays one token (the
+        // reason bare spaces are NOT a separator).
+        {
+            var spaced = new SkyrimMod(new ModKey("hc spaced guard", ModType.Plugin), SkyrimRelease.SkyrimSE);
+            var s1 = spaced.MagicEffects.AddNew();
+            var s2 = spaced.MagicEffects.AddNew();
+            var cohort = new List<IMajorRecordGetter> { s1, s2 };
+            CheckSet("formid in — plugin filename WITH SPACES stays one token",
+                Run(new[] { $"formid in [{s1.FormKey}]" }, cohort),
+                new HashSet<FormKey> { s1.FormKey });
+        }
+
+        // @file form — newline-separated FormIDs in a temp file; matches identically to the inline form.
+        {
+            var listFile = Path.Combine(Path.GetTempPath(), $"hcvalguard-formids-{Environment.ProcessId}.txt");
+            try
+            {
+                File.WriteAllText(listFile, $"{mgefs[0].Fk}\r\n{mgefs[2].Fk}\n");
+                var claimed = new HashSet<FormKey> { mgefs[0].Fk, mgefs[2].Fk };
+                CheckSet("formid not in @file  (newline-separated list file)",
+                    Run(new[] { $"formid not in @{listFile}" }, mgefBodies),
+                    Expect(mgefs, m => !claimed.Contains(m.Fk)));
+            }
+            finally { try { File.Delete(listFile); } catch { } }
+        }
+
+        // parse refusals — each names itself and refuses the whole call BEFORE any scan (Q3).
+        Check("parse: `in` on a non-formid path refused (identity-only)",
+            FieldPredicateSet.Parse(new[] { $"MagicSkill in [{mgefs[0].Fk}]" }).Error is not null);
+        Check("parse: `not` without `in` refused",
+            FieldPredicateSet.Parse(new[] { "formid not [123456:X.esp]" }).Error is not null);
+        Check("parse: empty list refused (`formid in []`)",
+            FieldPredicateSet.Parse(new[] { "formid in []" }).Error is not null);
+        Check("parse: non-FormID list entry refused",
+            FieldPredicateSet.Parse(new[] { "formid in [not-a-formid]" }).Error is not null);
+        Check("parse: missing @file refused (named, not thrown)",
+            FieldPredicateSet.Parse(new[] { @"formid in @C:\hcvalguard-no-such-file-ever.txt" }).Error is not null);
+        Check("parse: RELATIVE @file path refused (server CWD is not the caller's)",
+            FieldPredicateSet.Parse(new[] { "formid in @relative-list.txt" }).Error is not null);
 
         // ============================ Q3 TEETH (no silent wrong answer) ============================
         Console.WriteLine();
