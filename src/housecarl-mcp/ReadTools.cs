@@ -165,8 +165,10 @@ public static class ReadTools
             string[]? where = null,
         [Description("Optional. Aggregate matches into a count table (sorted desc) instead of listing them: 'winner' (by load-order-winning plugin), 'type' (by record type — needs type= or plugins=), or 'defined_in' (by defining plugin). Counts ALL matches (not capped by limit=). Cannot combine with fields= or conflict_tree=.")]
             string? group_by = null,
-        [Description("Optional. Dotted field paths to show for each match (e.g. 'BasicStats.Damage'). Omit for a one-line summary per match.")]
+        [Description("Optional. Dotted field paths to show for each match (e.g. 'BasicStats.Damage'). Omit for a one-line summary per match. Pair with depth= to expand list/dict contents (fields=['Effects'], depth=4 shows every effect's Data in the scan — no hand-written 'Effects[0].Data.Magnitude' index guessing).")]
             string[]? fields = null,
+        [Description("Optional. With fields=: expansion depth for list/dict/substruct CONTENTS (#231; default 1 = a container shown as just a count like '[list: 3 item(s)]'), same semantics as housecarl_read_record / housecarl_batch_record_detail — depth=2 enumerates each element with index + identity, higher opens deeper (fields=['Effects'], depth=4 reaches every effect's Magnitude/Area/Duration). Applies to EVERY match in the scan. Requires fields= (refused loud without it — summary lines have nothing to expand). Not carried in format='dense' (columnar cells align 1:1 with the requested paths) — use format=text/json for depth expansion.")]
+            int depth = 1,
         [Description("When true, include each match's touching-plugin list (winner last) + winner-relative field diff.")]
             bool conflict_tree = false,
         [Description("When true (with fields=), annotate every FormLink field value with its target's identity (→ editorid \"Name\"), resolved against the load order and cached across all matches. Display-only; the token is unchanged. No effect on summary lines or group_by (there are no field tokens to annotate).")]
@@ -188,6 +190,11 @@ public static class ReadTools
         if (fmt is not Wire.QueryFormat.Text && conflict_tree) return $"error: conflict_tree=true is a text-only diff view and is not carried in {(fmt is Wire.QueryFormat.Json ? "json" : "dense")} mode — use format=text for the conflict tree, or drop conflict_tree for the field data.";
         if (group_by is not null && ((fields is { Length: > 0 }) || conflict_tree))
             return "error: group_by aggregates matches into a count table and cannot be combined with fields= or conflict_tree=true (those expand each match to full detail — pick one). Drop fields=/conflict_tree, or drop group_by.";
+        if (depth <= 0) depth = 1;
+        if (depth > 1 && fields is not { Length: > 0 })
+            return "error: depth= expands the list/dict contents of fields= paths, and no fields= was passed — summary lines have nothing to expand. Pass fields= (e.g. fields=['Effects'], depth=4), or drop depth=.";
+        if (depth > 1 && fmt is Wire.QueryFormat.Dense)
+            return "error: depth>1 is not carried in format='dense' — dense rows are positional (one cell per requested fields= path), and depth expansion emits extra sub-paths that would break the column alignment. Use format=text or format=json for depth expansion, or drop depth= for the dense summary cells.";
         IReadOnlyList<FormKey>? refFks = null;
         if (references is { Length: > 0 })
         {
@@ -206,8 +213,8 @@ public static class ReadTools
         return fmt switch
         {
             Wire.QueryFormat.Dense when group_by is null => JsonWire.RenderCrossQueryDense(svc, outcome, fields, max_chars, resolve_names, winner_fields),
-            Wire.QueryFormat.Dense or Wire.QueryFormat.Json => JsonWire.RenderCrossQuery(svc, outcome, fields, max_chars, resolve_names, winner_fields),
-            _ => Wire.RenderCrossQuery(svc, outcome, fields, conflict_tree, max_chars, resolve_names, winner_fields),
+            Wire.QueryFormat.Dense or Wire.QueryFormat.Json => JsonWire.RenderCrossQuery(svc, outcome, fields, max_chars, resolve_names, winner_fields, depth),
+            _ => Wire.RenderCrossQuery(svc, outcome, fields, conflict_tree, max_chars, resolve_names, winner_fields, depth),
         };
     });
 
@@ -542,13 +549,15 @@ static class Wire
 
     // ---- housecarl_cross_plugin_query ---------------------------------------------------------------
 
-    /// <summary>The container hint for cross_plugin_query field expansions: this tool has NO depth= parameter, so the
-    /// generic " — pass depth=2 to expand" would name a knob the tool refuses (the unknown-param guard rejects depth=)
-    /// — the honest redirect is the batch-read hop. Shared by the text render (here) and <see cref="JsonWire"/>.</summary>
-    internal const string CrossQueryContainerHint = " — cross_plugin_query has no depth=; expand these via housecarl_batch_record_detail depth=2";
+    /// <summary>The container hint for the DENSE render's field cells: dense refuses depth&gt;1 (positional cells align
+    /// 1:1 with the requested paths — #231), so the generic " — pass depth=2 to expand" alone would send the caller
+    /// into that refusal blind. Name the format hop with the knob. Used only by
+    /// <see cref="JsonWire.RenderCrossQueryDense"/>; the text/json renders take depth= directly and use the generic
+    /// <see cref="HousecarlCore.ReadEngine.DepthExpandHint"/>.</summary>
+    internal const string DenseContainerHint = " — pass depth=2 with format=text/json to expand (dense cells are positional)";
 
     public static string RenderCrossQuery(LoadOrderService svc, CrossQueryOutcome q, IReadOnlyList<string>? fields, bool conflictTree, int maxChars,
-                                          bool resolveNames = false, bool winnerFields = false)
+                                          bool resolveNames = false, bool winnerFields = false, int depth = 1)
     {
         if (q.Error is not null) return "error: " + q.Error;
         int cap = Cap(maxChars);
@@ -596,8 +605,7 @@ static class Wire
             {
                 // winner_fields=: read the load-order WINNER's body (source=null) regardless of scan scope; else the
                 // body the scan filtered (scoped plugin under plugins=, else winner) — so display never contradicts filter.
-                var o = svc.ResolveRead(fk, winnerFields ? null : (q.Sources is { } src ? src[i] : null), fields, conflictTree, resolveNames: resolveNames, linkMemo: linkMemo,
-                                        containerHint: CrossQueryContainerHint);   // this tool has no depth= — don't hint a knob it refuses
+                var o = svc.ResolveRead(fk, winnerFields ? null : (q.Sources is { } src ? src[i] : null), fields, conflictTree, depth, resolveNames: resolveNames, linkMemo: linkMemo);
                 sb.Append('\n');
                 if (matches is not null) sb.Append("  ").Append(fk).Append("  matches=").Append(matches).Append('\n');
                 if (o.Error is not null) sb.Append(fk).Append(": error: ").Append(o.Error).Append('\n');

@@ -439,27 +439,29 @@ public static class BulkPrimitivesWave2Probe
             }
 
             // ================= container hint — the depth= knob is hinted only where it EXISTS =================
-            // The depth-1 container note self-documents the expansion lever (HCBR-2026-07-12). cross_plugin_query
-            // has NO depth= (its unknown-param guard refuses it), so its note must redirect to the batch-read hop
-            // instead of naming a knob the tool refuses — while read_record (which HAS depth=) keeps the classic
-            // hint, and a write read-back (no knob at all) carries a bare count.
+            // The depth-1 container note self-documents the expansion lever (HCBR-2026-07-12). Since #231
+            // cross_plugin_query HAS depth= (text/json), so its containers carry the SAME generic hint as
+            // read_record — the old "no depth=; expand via batch_record_detail" redirect must be GONE (it named a
+            // gap that no longer exists). The dense render still refuses depth>1 (positional cells), so ITS hint
+            // names the format hop — that arm lives in bulk-query-primitives-guard. A write read-back (no knob at
+            // all) keeps the bare count.
             Console.WriteLine();
-            Console.WriteLine("── container hint: cross_plugin_query names the batch hop (no depth= here); read tools keep depth=2; write read-backs stay bare ──");
+            Console.WriteLine("── container hint: cross_plugin_query text/json now hint depth=2 directly (#231); write read-backs stay bare ──");
             var cqList = ReadTools.CrossPluginQuery(svc, type: "Weapon", references: null, editorid_contains: null,
                 conflicts_only: false, plugins: null, defined_in: false, where: null, group_by: null,
                 resolve_names: false, winner_fields: false, fields: new[] { "Keywords" }, conflict_tree: false,
                 format: "text", limit: 500, max_chars: 0);
-            Check("cross_plugin_query container note redirects to housecarl_batch_record_detail depth=2",
-                  cqList.Contains("housecarl_batch_record_detail depth=2"));
-            Check("... and does NOT hint 'pass depth=2 to expand' — a knob this tool refuses",
-                  !cqList.Contains("pass depth=2 to expand"));
+            Check("cross_plugin_query container note hints the tool's OWN depth= (' — pass depth=2 to expand', #231)",
+                  cqList.Contains("pass depth=2 to expand"));
+            Check("... and the retired batch_record_detail redirect is GONE (it described the closed gap)",
+                  !cqList.Contains("housecarl_batch_record_detail depth=2"));
 
             var cqListJson = ReadTools.CrossPluginQuery(svc, type: "Weapon", references: null, editorid_contains: null,
                 conflicts_only: false, plugins: null, defined_in: false, where: null, group_by: null,
                 resolve_names: false, winner_fields: false, fields: new[] { "Keywords" }, conflict_tree: false,
                 format: "json", limit: 500, max_chars: 0);
-            Check("json parity: the redirect note rides the json render too, never the depth= hint",
-                  cqListJson.Contains("housecarl_batch_record_detail depth=2") && !cqListJson.Contains("pass depth=2 to expand"));
+            Check("json parity: the depth= hint rides the json render too, never the retired redirect",
+                  cqListJson.Contains("pass depth=2 to expand") && !cqListJson.Contains("housecarl_batch_record_detail depth=2"));
 
             var rrHint = svc.ResolveRead(w1Fk, null, new[] { "Keywords" }, false);
             var rrNote = rrHint.Record?.Fields.FirstOrDefault(f => f.Path == "Keywords")?.Note;
