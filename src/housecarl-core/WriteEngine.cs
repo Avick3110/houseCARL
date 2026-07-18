@@ -1657,7 +1657,7 @@ public static class WriteEngine
     /// <see cref="WritePatch(SkyrimMod, IReadOnlyList{ISkyrimModGetter},string)"/> via WithExtraIncludedMasters so even a
     /// self-contained created record yields a valid, conventionally-mastered plugin. Both ship with SE → always present in
     /// the order, so this never fails; the load order sorts them (Skyrim.esm before Update.esm). Proven by master-probe.</summary>
-    static readonly ModKey[] BaselineMasters = { new("Skyrim", ModType.Master), new("Update", ModType.Master) };
+    internal static readonly ModKey[] BaselineMasters = { new("Skyrim", ModType.Master), new("Update", ModType.Master) };   // internal: the dry-run master preview mirrors the force-include (#225)
 
     // ======================================================================
     //  PATH NAVIGATION + VERBS  (plan §4.2 / §3 P-VERBS; the highest-risk delta)

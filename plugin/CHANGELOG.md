@@ -8,6 +8,17 @@ when it changes.
 
 *Accumulating notes for the next cut — not yet released; `plugin.json` still reads the last shipped version.*
 
+**Dry-run mode for the write tools (#225).** `housecarl_set_field`, `housecarl_bulk_apply`, and
+`housecarl_forward_record` gain `dry_run=true`: the **full real write pipeline** runs — winner resolve, schema
+pre-flight, every op applied to the in-memory would-be plugin, a reference-resolution check that pre-empts the
+serialize's missing-master failure — and stops at the point of no return, so **nothing touches disk** (no patch
+file, no mod folder, no in-place rewrite). The report says what *would* change (per-op would-be values, the
+expected master set, `full_readback=true` for the full in-memory record preview), and a bad batch gets **exactly
+the all-or-nothing refusal the real call would give** — so a wrong field path in a 700-op batch is caught before
+the first write, not diagnosed after the last. Works on every lane: fresh patch, `into=`, and `in_place` (an
+in-place dry run needs no `acknowledge` and never records consent — it's read-only; the pending consent is noted
+so the real write's one-time prompt isn't a surprise).
+
 **BSA reads move in-process — `housecarl_bsa_list` / `housecarl_bsa_extract` (#217).** Listing and extracting a
 `.bsa` no longer shell out to BSArch; they read through Mutagen's own in-process BSA reader. This fixes an archive
 class BSArch's *unpacker* rejected: an archive written by a non-BSArch tool could list and load in-game yet extract

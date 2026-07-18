@@ -1,0 +1,228 @@
+using Mutagen.Bethesda;
+using Mutagen.Bethesda.Plugins;
+using Mutagen.Bethesda.Skyrim;
+using HousecarlCore;
+using HousecarlMcp;
+
+namespace HousecarlGenerator;
+
+/// <summary>
+/// SELF-CONTAINED CI REGRESSION GUARD for the write tools' DRY-RUN mode (#225: set_field / bulk_apply /
+/// forward_record with dry_run=true). The design claim under guard: a dry run is the REAL write pipeline HALTED at
+/// the point of no return (the Phase-4 serialize) — never a parallel validate-lite that could drift from the write
+/// it predicts. Each property is RED-provable:
+///
+///   NOTHING WRITTEN     — a successful fresh-lane dry run leaves the mods dir WITHOUT a new folder (ResolveOutputPath
+///                         create:false), an into= dry run leaves the extended patch byte-identical, an in-place dry
+///                         run leaves the target byte-identical. RED if any file/folder appears or changes.
+///   SAME REFUSAL        — a malformed op refuses through dry_run with the EXACT string the real call gives (same
+///                         resolve + pre-flight code path, by construction). RED if the texts diverge.
+///   PREDICTION HOLDS    — a dry run's would-be output path, per-op After value, and expected-master preview all
+///                         match what the subsequent REAL write of the same op produces. RED on any mismatch.
+///   SERIALIZE PRE-EMPT  — an op composing a FormLink into a plugin NOT in the load order: the real write fails only
+///                         AT the serialize (MissingModException); the dry run must refuse the same call with the
+///                         missing plugin NAMED (the membership test is the serialize's own condition). RED if the
+///                         dry run says "would apply" about a write that then fails.
+///   CONSENT READ-ONLY   — an in-place dry run needs NO acknowledge (nothing is touched), NEVER records consent
+///                         (a real write afterwards still shows the first-touch prompt), and NOTES the pending
+///                         consent. RED if it prompts, records, or stays silent.
+///   CONTRACT UNCHANGED  — the in_place/target/into mutual-exclusion refusals fire identically under dry_run.
+///   RENDER HONESTY      — the rendered confirmation for a dry outcome leads with DRY RUN/nothing-written and never
+///                         reads like a write ("wrote ..."), incl. the forward renderer's would-be phrasing.
+///
+/// Self-contained: synthesizes a master + a user override in a synthetic MO2 instance in TEMP (the WriteMutexProbe
+/// pattern — the full SERVICE path runs: ResolveOutputPath, the write gate, the in-place consent store) and generates
+/// the validator corpus BY CONSTRUCTION in-process.
+/// Run: dotnet run --project src/housecarl-generator dry-run-guard
+/// </summary>
+internal static class DryRunProbe
+{
+    public static int RunGuard(string[] args)
+    {
+        Console.WriteLine("================================================================");
+        Console.WriteLine(" dry-run guard — the real pipeline halted, nothing written (#225)");
+        Console.WriteLine("================================================================");
+        Console.WriteLine();
+        int fail = 0;
+        void Check(bool c, string label) { Console.WriteLine((c ? "  PASS  " : "  FAIL  ") + label); if (!c) fail++; }
+
+        var root = Path.Combine(Path.GetTempPath(), "hc-dry-run-guard-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            // ---- synthetic MO2 instance (the established synth-instance pattern): one master + one user override ----
+            string instance = Path.Combine(root, "instance");
+            string profiles = Path.Combine(instance, "profiles", "Default");
+            string mods = Path.Combine(instance, "mods");
+            Directory.CreateDirectory(profiles); Directory.CreateDirectory(mods);
+            Directory.CreateDirectory(Path.Combine(root, "game", "Data"));
+            File.WriteAllText(Path.Combine(instance, "ModOrganizer.ini"),
+                "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(Default)\r\ngamePath=@ByteArray("
+                + Path.Combine(root, "game").Replace(@"\", @"\\") + ")\r\n");
+
+            var mKey = new ModKey("HcDryMaster", ModType.Master);
+            var masterDir = Path.Combine(mods, "MasterMod");
+            var userDir = Path.Combine(mods, "UserMod");
+            Directory.CreateDirectory(masterDir); Directory.CreateDirectory(userDir);
+            FormKey weapFk, weap2Fk;
+            {
+                var m = new SkyrimMod(mKey, SkyrimRelease.SkyrimSE);
+                var w = m.Weapons.AddNew(); w.EditorID = "HcDryWeap"; w.BasicStats = new WeaponBasicStats { Damage = 10, Weight = 1 };
+                var w2 = m.Weapons.AddNew(); w2.EditorID = "HcDryWeap2"; w2.BasicStats = new WeaponBasicStats { Damage = 5 };
+                weapFk = w.FormKey; weap2Fk = w2.FormKey;
+                m.BeginWrite.ToPath(Path.Combine(masterDir, mKey.FileName.String)).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
+            }
+            string userPath = Path.Combine(userDir, "HcDryUser.esp");
+            using (var mOv = SkyrimMod.CreateFromBinaryOverlay(Path.Combine(masterDir, mKey.FileName.String), SkyrimRelease.SkyrimSE))
+            {
+                var u = new SkyrimMod(new ModKey("HcDryUser", ModType.Plugin), SkyrimRelease.SkyrimSE);
+                var uw = u.Weapons.GetOrAddAsOverride(mOv.Weapons.First(x => x.FormKey == weapFk));
+                uw.BasicStats!.Damage = 20;
+                u.BeginWrite.ToPath(userPath).WithLoadOrder(new ISkyrimModGetter[] { mOv }).Write();
+            }
+            File.WriteAllText(Path.Combine(profiles, "loadorder.txt"), "# header\r\n" + mKey.FileName + "\r\nHcDryUser.esp\r\n");
+            File.WriteAllText(Path.Combine(profiles, "plugins.txt"), "*" + mKey.FileName + "\r\n*HcDryUser.esp\r\n");
+            File.WriteAllText(Path.Combine(profiles, "modlist.txt"), "# header\r\n+UserMod\r\n+MasterMod\r\n");
+
+            var genDir = Path.Combine(root, "corpus-gen");
+            CorpusGenerator.GenerateAll(genDir, Path.Combine(root, "corpus-ref"));
+            CorpusRulebook.CorpusPath = Path.Combine(genDir, "corpus.json");
+
+            string fid = $"{weapFk.ID:X6}:{mKey.FileName}";
+            string fid2 = $"{weap2Fk.ID:X6}:{mKey.FileName}";
+            var store = new UserConfigStore(Path.Combine(root, "houseCARL.user.json"));
+            using var svc = LoadOrderService.WithInstance(instance, 0, store);
+            svc.Stats();                                                       // warm the lazy index once, off the clock
+
+            static BulkOp DamageOp(string fid, int dmg) =>
+                new() { Formid = fid, FieldPath = "BasicStats.Damage", Verb = "Set", Value = dmg.ToString() };
+            string[] ModFolders() => Directory.GetDirectories(mods).Select(p => Path.GetFileName(p)!).OrderBy(x => x).ToArray();
+
+            // ---- A: fresh-lane dry run — success report, NOTHING on disk, honest preview ----
+            Console.WriteLine("--- A: fresh-patch dry run writes nothing ---");
+            {
+                var before = ModFolders();
+                var o = svc.ApplyEdits(new[] { DamageOp(fid, 77) }, "DryA", null, dryRun: true);
+                var after = ModFolders();
+                Check(o.Success && o.DryRun && !o.InPlace, $"dry run succeeds with DryRun flagged  [{o.Error ?? "ok"}]");
+                Check(before.SequenceEqual(after), $"no mod folder appeared (mods dir: {before.Length} -> {after.Length} entries)");
+                Check(o.Bytes == 0, $"bytes=0 (nothing serialized), got {o.Bytes}");
+                Check(o.Ops.Count == 1 && (o.Ops[0].After?.Contains("77") ?? false),
+                    $"per-op After carries the would-be value  [{o.Ops[0].After ?? "<null>"}]");
+                Check(o.Masters.Count == 1 && o.Masters[0].Equals(mKey.FileName.String, StringComparison.OrdinalIgnoreCase),
+                    $"expected-master preview = [{string.Join(",", o.Masters)}] (want only {mKey.FileName})");
+                var text = WriteTools.Render(o);
+                Check(text.Contains("DRY RUN") && text.Contains("NOTHING was written") && !text.Contains("wrote "),
+                    "render leads with DRY RUN / nothing-written and never reads like a write");
+            }
+
+            // ---- B: a malformed op refuses with the EXACT string the real call gives ----
+            Console.WriteLine("--- B: dry refusal == real refusal (same pipeline by construction) ---");
+            {
+                var bad = new[] { new BulkOp { Formid = fid, FieldPath = "BasicStats.Nope", Verb = "Set", Value = "1" } };
+                var dry = svc.ApplyEdits(bad, "DryB", null, dryRun: true);
+                var real = svc.ApplyEdits(bad, "DryB", null);
+                Check(!dry.Success && !real.Success && dry.Error == real.Error,
+                    $"identical refusal text  [dry: {Snip(dry.Error)}]");
+                Check(!Directory.Exists(Path.Combine(mods, "DryB")), "neither attempt left a folder behind");
+            }
+
+            // ---- C: the dry run's predictions hold against the subsequent REAL write ----
+            Console.WriteLine("--- C: prediction parity (path, After value, masters) ---");
+            {
+                var op = new[] { DamageOp(fid, 88) };
+                var dry = svc.ApplyEdits(op, "DryC", null, dryRun: true);
+                var real = svc.ApplyEdits(op, "DryC", null);
+                Check(dry.Success && real.Success, $"both succeed  [dry: {dry.Error ?? "ok"} | real: {real.Error ?? "ok"}]");
+                Check(dry.OutputPath == real.OutputPath,
+                    $"would-be path == real path  [{Path.GetFileName(dry.OutputPath)} vs {Path.GetFileName(real.OutputPath)}]");
+                Check(dry.Ops[0].After == real.Ops[0].After,
+                    $"would-be After == real After  [{dry.Ops[0].After} vs {real.Ops[0].After}]");
+                Check(dry.Masters.SequenceEqual(real.Masters, StringComparer.OrdinalIgnoreCase),
+                    $"expected masters == real lean header  [{string.Join(",", dry.Masters)} vs {string.Join(",", real.Masters)}]");
+            }
+
+            // ---- D: into= extend dry run — the on-disk patch stays byte-identical ----
+            Console.WriteLine("--- D: into= dry run leaves the extended patch untouched ---");
+            {
+                var seed = svc.ApplyEdits(new[] { DamageOp(fid, 50) }, "DryD", null);
+                Check(seed.Success, $"seed patch written  [{seed.Error ?? "ok"}]");
+                var bytesBefore = File.ReadAllBytes(seed.OutputPath);
+                var o = svc.ApplyEdits(new[] { new BulkOp { Formid = fid, FieldPath = "BasicStats.Weight", Verb = "Set", Value = "9" } },
+                    null, "DryD", dryRun: true);
+                Check(o.Success && o.DryRun && o.Extended, $"extend dry run succeeds with Extended flagged  [{o.Error ?? "ok"}]");
+                Check(File.ReadAllBytes(seed.OutputPath).AsSpan().SequenceEqual(bytesBefore),
+                    "the extended patch's on-disk bytes are unchanged");
+            }
+
+            // ---- E: the serialize's missing-master failure is PRE-EMPTED, named, by the dry run ----
+            Console.WriteLine("--- E: unresolvable FormLink — dry refuses named; real fails only at serialize ---");
+            {
+                var ghost = new[] { new BulkOp { Formid = fid, FieldPath = "Keywords", Verb = "Add", Value = "000ABC:Ghost.esp" } };
+                var dry = svc.ApplyEdits(ghost, "DryE", null, dryRun: true);
+                Check(!dry.Success && (dry.Error?.Contains("Ghost.esp") ?? false) && (dry.Error?.Contains("NOT active") ?? false),
+                    $"dry run refuses, naming the missing plugin  [{Snip(dry.Error)}]");
+                var real = svc.ApplyEdits(ghost, "DryE", null);
+                Check(!real.Success, $"the real write does fail (at serialize) — the dry refusal predicts a real failure  [{Snip(real.Error)}]");
+                Check(!Directory.Exists(Path.Combine(mods, "DryE")), "neither attempt left a folder behind");
+            }
+
+            // ---- F: in-place dry run — read-only on the consent axis AND the file ----
+            Console.WriteLine("--- F: in-place dry run (no prompt, no consent recorded, file untouched) ---");
+            {
+                var fileBefore = File.ReadAllBytes(userPath);
+                var dryAck = svc.ApplyEdits(new[] { DamageOp(fid, 61) }, null, null,
+                    target: "HcDryUser.esp", inPlace: true, acknowledge: true, dryRun: true);
+                Check(dryAck.Success && dryAck.DryRun && dryAck.InPlace && !dryAck.NeedsAcknowledge,
+                    $"dry run + acknowledge=true succeeds without the prompt  [{dryAck.Error ?? "ok"}]");
+                var dry = svc.ApplyEdits(new[] { DamageOp(fid, 62) }, null, null,
+                    target: "HcDryUser.esp", inPlace: true, dryRun: true);
+                Check(dry.Success && !dry.NeedsAcknowledge && (dry.Note?.Contains("PENDING") ?? false),
+                    $"dry run without acknowledge succeeds AND notes the pending consent  [{Snip(dry.Note)}]");
+                Check(File.ReadAllBytes(userPath).AsSpan().SequenceEqual(fileBefore), "the target file is byte-identical");
+                var real = svc.ApplyEdits(new[] { DamageOp(fid, 63) }, null, null, target: "HcDryUser.esp", inPlace: true);
+                Check(real.NeedsAcknowledge,
+                    "a REAL in-place write afterwards still shows the first-touch prompt (no dry run recorded consent)");
+            }
+
+            // ---- G: the lane contract refuses identically under dry_run ----
+            Console.WriteLine("--- G: contract refusals unchanged under dry_run ---");
+            {
+                var op = new[] { DamageOp(fid, 1) };
+                var noTarget = svc.ApplyEdits(op, null, null, inPlace: true, dryRun: true);
+                var withInto = svc.ApplyEdits(op, null, "DryD", target: "HcDryUser.esp", inPlace: true, dryRun: true);
+                Check(!noTarget.Success && (noTarget.Error?.Contains("requires target=") ?? false)
+                   && !withInto.Success && (withInto.Error?.Contains("mutually exclusive") ?? false),
+                    "in_place⇔target and in_place⊥into= refusals fire as on the real path");
+            }
+
+            // ---- H: forward_record dry run — would-copy report, nothing on disk, same refusal as real ----
+            Console.WriteLine("--- H: forward dry run ---");
+            {
+                var before = ModFolders();
+                var o = svc.ForwardRecords(new[] { fid }, mKey.FileName.String, "DryH", null, dryRun: true);
+                Check(o.Success && o.DryRun && o.Forwarded.Count == 1
+                   && o.Forwarded[0].FromPlugin.Equals(mKey.FileName.String, StringComparison.OrdinalIgnoreCase)
+                   && !o.Forwarded[0].WasAlreadyWinner,
+                    $"dry forward reports the would-be copy (source={o.Forwarded.FirstOrDefault()?.FromPlugin}, priorWinner={o.Forwarded.FirstOrDefault()?.PriorWinner})  [{o.Error ?? "ok"}]");
+                Check(before.SequenceEqual(ModFolders()), "no mod folder appeared");
+                var text = WriteTools.RenderForward(o);
+                Check(text.Contains("DRY RUN") && text.Contains("would be copied from") && !text.Contains("\nmasters:"),
+                    "forward render uses the would-be phrasing (+ the expected-masters preview, not a real header)");
+                var dryMiss = svc.ForwardRecords(new[] { fid2 }, "HcDryUser.esp", "DryH2", null, dryRun: true);
+                var realMiss = svc.ForwardRecords(new[] { fid2 }, "HcDryUser.esp", "DryH2", null);
+                Check(!dryMiss.Success && dryMiss.Error == realMiss.Error,
+                    $"a source that doesn't define the record refuses identically  [{Snip(dryMiss.Error)}]");
+            }
+
+            Console.WriteLine();
+            Console.WriteLine(fail == 0 ? "ALL PASS" : $"{fail} FAILURE(S)");
+            return fail == 0 ? 0 : 1;
+        }
+        finally
+        {
+            try { Directory.Delete(root, recursive: true); } catch { /* best-effort temp cleanup */ }
+        }
+    }
+
+    static string Snip(string? s) => s is null ? "<null>" : s.Length <= 140 ? s.Replace('\n', ' ') : s[..140].Replace('\n', ' ') + "…";
+}
