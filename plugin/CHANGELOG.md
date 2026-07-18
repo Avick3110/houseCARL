@@ -14,8 +14,11 @@ path is simply a batch of one). One call resolves the whole flagged subset — *
 entire batch** instead of one per mesh — with results in input order, `sections=` / `mod=` / `max_chars` applying
 batch-wide, and every per-path failure (ABSENT, bad path, a `mod=` that doesn't provide it, unreadable bytes, a
 parse refusal) reported LOUD on **that** path without aborting the rest (Q3). The batch-level caveats (unreadable
-archives, discovery warnings) render once, first, so a long batch can't truncate them away; an over-cap output is
-cut with the omitted-mesh count named, never silently. The `facegen-diagnostics` batch flow no longer needs to
+archives, discovery warnings) render once, first, so a long batch can't truncate them away — and every ABSENT is
+additionally **hedged at point of use** when the scan behind it was incomplete (`asset_status` parity: a bare
+"absent" is never over-trusted just because the top-of-output alarm scrolled away). An over-cap output is cut with
+the omitted-mesh count named, never silently — and `max_chars` can never starve a single-path call of its core
+answer (the first mesh's resolution/error always renders). The `facegen-diagnostics` batch flow no longer needs to
 sample the flagged subset — inspect all of it in one call.
 
 **`resolve_names` / `housecarl_resolve` no longer call PlayerRef "unresolved" (#230).** The engine-implicit forms —

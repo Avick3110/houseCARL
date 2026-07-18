@@ -134,6 +134,13 @@ internal static class NifServiceGuardProbe
         Check(cut.Contains("more omitted") && !cut.Contains("3 more omitted") && !cut.Contains("4 more omitted"),
               $"a filtered-section cut counts the FILTERED remainder, not the total shape count — {(cut.Contains("more omitted") ? "cut fired, remainder bounded" : "NO CUT (retune)")}");
 
+        // PR #243 review: RenderShapesDetail obeys the same rule — a mid-list cut counts the REMAINING shapes, never
+        // the total. 6 shapes at cap 600: the cut fires after ≥1 shape rendered, so "6 more omitted" is the bug.
+        var wantShapesCut = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "shapes" };
+        var cutShapes = NifWire.Render(FakeData(FakeInspect(6, 0, false, Array.Empty<string>()), null), wantShapesCut, Array.Empty<string>(), 600);
+        Check(cutShapes.Contains("more omitted") && !cutShapes.Contains("6 more omitted"),
+              $"a shapes-detail cut counts the REMAINDER, not the total shape count — {(cutShapes.Contains("more omitted") ? "cut fired, remainder bounded" : "NO CUT (retune)")}");
+
         // finding #3: HasUnknownBlocks true but no named types → 'present', never a bare '0 type(s) —'.
         var ue = NifWire.Render(FakeData(FakeInspect(1, 0, true, Array.Empty<string>()), null), summaryOnly, Array.Empty<string>(), 80_000);
         Check(ue.Contains("unknown blocks: present") && !ue.Contains("0 type(s)"), "HasUnknownBlocks with no named types renders 'present', not '0 type(s)'");
@@ -195,8 +202,10 @@ internal static class NifServiceGuardProbe
     static bool CensusHas(NifInspect nif, string type, int count) => nif.BlockTypes.Any(t => t.Type == type && t.Count == count);
 
     /// <summary>A synthetic inspect model for the render-layer arms (no file needed): <paramref name="totalShapes"/>
-    /// shapes, the first <paramref name="withPartitions"/> of them carrying <paramref name="partsPerShape"/> partitions.</summary>
-    static NifInspect FakeInspect(int totalShapes, int withPartitions, bool hasUnknown, IReadOnlyList<string> unknownTypes, int partsPerShape = 2)
+    /// shapes named <paramref name="namePrefix"/>0.., the first <paramref name="withPartitions"/> of them carrying
+    /// <paramref name="partsPerShape"/> partitions. Internal: NifInspectBatchGuardProbe reuses this builder (one
+    /// synthetic-model shape for both render guards, PR #243 review) rather than growing a divergent copy.</summary>
+    internal static NifInspect FakeInspect(int totalShapes, int withPartitions, bool hasUnknown, IReadOnlyList<string> unknownTypes, int partsPerShape = 2, string namePrefix = "Shape")
     {
         var shapes = new List<NifShape>();
         for (int i = 0; i < totalShapes; i++)
@@ -205,7 +214,7 @@ internal static class NifServiceGuardProbe
             if (i < withPartitions)
                 for (int p = 0; p < partsPerShape; p++)
                     parts.Add(new NifPartition(30 + p, "SBP_" + (30 + p) + "_PART", 257));
-            shapes.Add(new NifShape("Shape" + i, 0x400000E, 1f, "BSTriShape", 0x8000E, "BSTriShape", parts, null, new List<NifTexture>(), new List<string>()));
+            shapes.Add(new NifShape(namePrefix + i, 0x400000E, 1f, "BSTriShape", 0x8000E, "BSTriShape", parts, null, new List<NifTexture>(), new List<string>()));
         }
         return new NifInspect("20.2.0.7", 12, 100, true, totalShapes + 1,
             new List<NifBlockTypeCount> { new("BSTriShape", totalShapes), new("NiNode", 1) },

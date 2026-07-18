@@ -1141,7 +1141,13 @@ public sealed class LoadOrderService : IDisposable
         // concurrent refresh into wrongness and doesn't block other tools behind our file reads.
         var results = new List<NifInspectData>(relPaths.Count);
         foreach (var raw in relPaths)
-            results.Add(NifInspectOne(view, (raw ?? "").Trim(), mod));
+        {
+            var rel = (raw ?? "").Trim();
+            // The isolation contract holds by CONSTRUCTION, not by callee audit (PR #243 review): anything unexpected
+            // from ONE path's resolve/read/parse becomes THAT path's named error, never the whole batch's (Q3).
+            try { results.Add(NifInspectOne(view, rel, mod)); }
+            catch (Exception ex) { results.Add(NifInspectData.Fail(rel, $"unexpected error inspecting this path — {ex.GetType().Name}: {ex.Message}")); }
+        }
         return new NifInspectBatchData(results, view.BsaFailures, warnings, profileName);
     }
 
@@ -1157,12 +1163,12 @@ public sealed class LoadOrderService : IDisposable
         catch (ArgumentException ex) { return NifInspectData.Fail(rel, $"invalid path — {ex.Message}"); }
 
         var providers = place.Sources.Select(s => new NifProvider(s.ProviderName, KindLabel(s.Kind))).ToList();
-        bool readIncomplete = place.ReadIncomplete || view.ReadIncomplete;
 
         if (place.Sources.Count == 0)
-            return new NifInspectData(rel, null, providers, place.Ambiguous, readIncomplete, null,
-                "ABSENT — no active mod or BSA provides this mesh path" +
-                (readIncomplete ? " (and an archive failed to read this build, so this may be incomplete — see the read-failure note)." : "."));
+            // Absent=true lets the renderer hedge this at POINT OF USE on the batch-level caveats (read failures /
+            // discovery warnings) — asset_status parity; the top-of-output alarm alone scrolls away in a long batch.
+            return new NifInspectData(rel, null, providers, place.Ambiguous, Absent: true, null,
+                "ABSENT — no active mod or BSA provides this mesh path.");
 
         // Pick the copy to read: the VFS winner by default, or a specific provider when mod= names one.
         PlacementSource chosen;
@@ -1170,7 +1176,7 @@ public sealed class LoadOrderService : IDisposable
         {
             var pick = place.Sources.FirstOrDefault(s => s.ProviderName.Equals(mod!.Trim(), StringComparison.OrdinalIgnoreCase));
             if (pick is null)
-                return new NifInspectData(rel, null, providers, place.Ambiguous, readIncomplete, null,
+                return new NifInspectData(rel, null, providers, place.Ambiguous, false, null,
                     $"mod '{mod!.Trim()}' does not provide this path. Providers (winner first): {string.Join(", ", providers.Select(p => p.Name + " (" + p.Kind + ")"))}.");
             chosen = pick;
         }
@@ -1179,11 +1185,11 @@ public sealed class LoadOrderService : IDisposable
         var (bytes, readErr) = AssetResolver.ReadPlacementSource(chosen);
         if (bytes is null)
             return new NifInspectData(rel, new NifProvider(chosen.ProviderName, KindLabel(chosen.Kind)), providers, place.Ambiguous,
-                readIncomplete, null, readErr ?? "could not read the resolved mesh bytes.");
+                false, null, readErr ?? "could not read the resolved mesh bytes.");
 
         var outcome = NifService.Inspect(bytes);
         return new NifInspectData(rel, new NifProvider(chosen.ProviderName, KindLabel(chosen.Kind)), providers, place.Ambiguous,
-            readIncomplete, outcome.Inspect, outcome.Error);
+            false, outcome.Inspect, outcome.Error);
     }
 
     /// <summary>Render an <see cref="AssetKind"/> as the tool-facing label ("loose" / "BSA"). An explicit switch (not a
@@ -5716,17 +5722,18 @@ public sealed record NifProvider(string Name, string Kind);
 /// <summary>The per-path data behind housecarl_nif_inspect: the VFS resolution of ONE mesh path joined to the
 /// format-level <see cref="HousecarlCore.NifInspect"/> of the copy that was read. <see cref="Inspected"/> is the
 /// provider whose bytes were parsed (the winner, or the <c>mod=</c>-named copy); <see cref="Providers"/> is the FULL
-/// winner→loser chain (asset-tool parity), <see cref="Ambiguous"/> flags file-layer contention, and
-/// <see cref="ReadIncomplete"/> hedges an ABSENT when the scan behind it was incomplete. Exactly one of
-/// <see cref="Inspect"/> (the mesh model) and <see cref="Error"/> (ABSENT / bad path / unreadable / parse-refused —
-/// all named, Q3) is set on any given result. The batch-level Q3 caveats (BSA failures, discovery warnings, profile)
-/// live on <see cref="NifInspectBatchData"/> — captured once for the whole batch.</summary>
+/// winner→loser chain (asset-tool parity), <see cref="Ambiguous"/> flags file-layer contention. <see cref="Absent"/>
+/// marks the no-provider outcome specifically, so the renderer can hedge THAT error at point of use on the
+/// batch-level scan caveats (an ABSENT is only authoritative when the scan was complete — asset_status parity).
+/// Exactly one of <see cref="Inspect"/> (the mesh model) and <see cref="Error"/> (ABSENT / bad path / unreadable /
+/// parse-refused — all named, Q3) is set on any given result. The batch-level Q3 caveats (BSA failures, discovery
+/// warnings, profile) live on <see cref="NifInspectBatchData"/> — captured once for the whole batch.</summary>
 public sealed record NifInspectData(
     string RelPath,
     NifProvider? Inspected,
     IReadOnlyList<NifProvider> Providers,
     bool Ambiguous,
-    bool ReadIncomplete,
+    bool Absent,
     HousecarlCore.NifInspect? Inspect,
     string? Error)
 {
