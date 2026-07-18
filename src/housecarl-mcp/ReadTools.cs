@@ -36,7 +36,7 @@ public static class ReadTools
             int depth = 1,
         [Description("When true, also return the ordered list of every plugin that touches this record (winner last) and the winner-relative field diff for each.")]
             bool conflict_tree = false,
-        [Description("When true, annotate every FormLink field value with its target's identity (→ editorid \"Name\"), resolved against the load order — so a Keywords/Template/DeathItem token reads as what it points AT, not just a FormID. Display-only: the token itself is unchanged (a write can still reuse it). A target no active plugin defines is marked 'unresolved'.")]
+        [Description("When true, annotate every FormLink field value with its target's identity (→ editorid \"Name\"), resolved against the load order — so a Keywords/Template/DeathItem token reads as what it points AT, not just a FormID. Display-only: the token itself is unchanged (a write can still reuse it). A target no active plugin defines is marked 'unresolved' — except the engine-implicit forms (PlayerRef 000014 / Player 000007), which annotate their hardcoded identity.")]
             bool resolve_names = false,
         [Description("Optional. 'text' (default) or 'json' — a machine-readable {formid,type,editorid,winner,override_depth,source,fields[]} document (field values are the SAME tokens as text). conflict_tree is a text-only diff view.")]
             string? format = null,
@@ -218,7 +218,9 @@ public static class ReadTools
          "every record (fields, override depth, per-record header), this returns one compact identity line (or JSON " +
          "row) per FormID and nothing else — the cheap way to label a list of material/perk/keyword FormIDs. Resolved " +
          "in order; a bad or absent FormID yields a per-item error without failing the batch (never a silent drop — " +
-         "Q3). Winners only (the load-order-effective identity of each target). Deliberately minimal: no fields=, no " +
+         "Q3). Winners only (the load-order-effective identity of each target). The engine-implicit forms (PlayerRef " +
+         "000014:Skyrim.esm / Player 000007:Skyrim.esm) resolve to their hardcoded identity with winner '<engine>' — " +
+         "no plugin defines them, but they are real, never dangling. Deliberately minimal: no fields=, no " +
          "depth, no conflict_tree — for those use housecarl_batch_record_detail. Does NOT modify anything.")]
     public static string Resolve(
         LoadOrderService svc,
@@ -359,7 +361,7 @@ public static class ReadTools
             string? editorid_contains = null,
         [Description("Optional. With type=: max rows to return (default 500). The TRUE total is always reported; over the cap it says 'showing first N'.")]
             int limit = 500,
-        [Description("Optional. With formid=: annotate every FormLink field value with its target's identity (→ editorid \"Name\"), resolved against the ACTIVE load order (the only identity frame — this file may itself be inactive). Display-only; the token is unchanged. A target the active order doesn't define is marked 'unresolved'. Forces the load-order build (opt-in), unlike the default cheap raw read.")]
+        [Description("Optional. With formid=: annotate every FormLink field value with its target's identity (→ editorid \"Name\"), resolved against the ACTIVE load order (the only identity frame — this file may itself be inactive). Display-only; the token is unchanged. A target the active order doesn't define is marked 'unresolved' — except the engine-implicit forms (PlayerRef 000014 / Player 000007), which annotate their hardcoded identity. Forces the load-order build (opt-in), unlike the default cheap raw read.")]
             bool resolve_names = false,
         [Description("Optional. 'text' (default) or 'json' — a machine-readable document (always stamped out_of_load_order:true; the file's masters context, then the record/records/type_counts payload). Field values are the SAME tokens as text.")]
             string? format = null,

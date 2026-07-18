@@ -2035,7 +2035,8 @@ public sealed class LoadOrderService : IDisposable
     /// reference (FormLinks and condition-target FLOIs both emit a bare FormKey token; scalars never do), so this
     /// inherits coverage from the read surface with no per-type wiring. Resolution rides the SAME captured view +
     /// open session the read used, memoised so a keyword that recurs across a whole record (or batch) resolves once.
-    /// An unresolvable target is a NAMED unresolved <see cref="ResolvedRef"/> (Resolved=false), never dropped (Q3).
+    /// An unresolvable target is a NAMED unresolved <see cref="ResolvedRef"/> (Resolved=false), never dropped (Q3) —
+    /// bar the engine-implicit forms, which <see cref="ResolveRefOne"/> answers with their hardcoded identity (#230).
     /// Copy-on-first-write: a record with no form-reference leaves returns the SAME instance.</summary>
     static RecordFields AnnotateLinks(RecordFields rf, LoadOrderResolver.IndexView view,
                                       LoadOrderResolver.OverlaySession session, Dictionary<FormKey, ResolvedRef> memo)
