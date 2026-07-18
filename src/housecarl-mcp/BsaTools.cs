@@ -32,6 +32,7 @@ public static class BsaTools
 
         var r = HousecarlCore.BsaArchive.List(archive);
         if (!r.Ran) return "error: " + r.RunError;
+        if (!r.Success) return "error: " + r.Raw;   // header-vs-reader file-count mismatch (possible corruption)
 
         int cap = max_chars > 0 ? max_chars : 80_000;
         var sb = new StringBuilder();
