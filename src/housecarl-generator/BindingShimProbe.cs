@@ -130,6 +130,17 @@ public static class BindingShimProbe
                 !d.text.Contains(GenericError) && d.text.Contains("required parameter") && d.text.Contains("formids"),
                 d.Describe());
 
+            // -- D2: #224 — bulk_apply's 'operations' moved OFF the schema's required list (operations XOR
+            //    from_file is judged in the tool BODY; dry-run-guard arm L proves that refusal named). Through the
+            //    full binding/shim stack an empty {} must still BIND cleanly — no required check fires, no binder
+            //    throw on the absent complex array — and reach the tool body (the config prompt here, since this
+            //    server is unconfigured and the body's config check runs first), never the generic error. RED if
+            //    optionalizing the parameter ever breaks {} binding (PR #241 review NOTE 4).
+            var d2 = Call(stdin, stdout, 38, "housecarl_bulk_apply", "{}");
+            failures += Check("D2 #224: bulk_apply {} binds with no required refusal and reaches the tool body",
+                !d2.text.Contains(GenericError) && !d2.text.Contains("required parameter") && d2.text.Contains(ConfigPrompt),
+                d2.Describe());
+
             // -- E: quoted number — same obvious-intent class as B. Must bind and run.
             var e = Call(stdin, stdout, 6, "housecarl_cross_plugin_query",
                 """{"type":"CELL","plugins":["Synthetic.esp"],"limit":"100"}""");
