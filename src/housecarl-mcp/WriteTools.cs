@@ -106,7 +106,7 @@ public static class WriteTools
         LoadOrderService svc,
         [Description("The edits to apply, all into one patch. Each: {formid, field_path, verb, value?, key?, values?, entries?, compose?}. Pass this INLINE array or from_file= — exactly one of the two.")]
             BulkOp[]? operations = null,
-        [Description("Optional. ABSOLUTE path to a JSON manifest FILE holding the operations array — the SAME shape as operations=, just read from disk: [{formid, field_path, verb, ...}, ...]. The big-batch lane: generate the manifest once, validate the WHOLE file with dry_run=true before the first write, then apply it in one call (and re-run the SAME file to recover an interrupted write). Mutually exclusive with operations= (pass exactly one). The path must be ABSOLUTE (the server resolves relative paths against its OWN working directory, not yours). Refused NAMED with nothing written (Q3) if the file is unreadable, not valid JSON (the refusal carries line+column), not a top-level array, an empty array, or any op carries a member the shape doesn't declare (a misspelled 'field_path' is named at its element, never silently dropped).")]
+        [Description("Optional. ABSOLUTE path to a JSON manifest FILE holding the operations array — the SAME shape as operations=, just read from disk: [{formid, field_path, verb, ...}, ...]. The big-batch lane: generate the manifest once, validate the WHOLE file with dry_run=true before the first write, then apply it in one call (and re-run the SAME file to recover an interrupted write). Mutually exclusive with operations= (pass exactly one). The path must be ABSOLUTE (the server resolves relative paths against its OWN working directory, not yours). The file is read at CALL time — a dry run validates the manifest as it is NOW, so if you edit the file afterwards, dry-run it again before the real write. Refused NAMED with nothing written (Q3) if the file is unreadable, not valid JSON (the refusal carries the line + position), not a top-level array, an empty array, or any op carries a member the shape doesn't declare (a misspelled 'field_path' is named at its element, never silently dropped).")]
             string? from_file = null,
         [Description("Optional. Base filename for the new patch (default 'Patch'); auto-suffixed if taken. Ignored if into= is given.")]
             string patch_name = "Patch",
@@ -127,7 +127,10 @@ public static class WriteTools
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
         bool hasInline = operations is not null;
-        bool hasFile = !string.IsNullOrWhiteSpace(from_file);
+        // Presence, not content: an explicit blank from_file must reach ReadOpsManifest's named "from_file is
+        // empty" refusal, never be silently reinterpreted as absent (PR #241 review LOW 2 — a silently-dropped
+        // argument is the Q3 class the binding shim's UnknownParameters exists to name).
+        bool hasFile = from_file is not null;
         if (hasInline && hasFile)
             return "error: operations and from_file are mutually exclusive — pass the ops INLINE or name a manifest FILE, not both.";
         if (!hasInline && !hasFile)
@@ -170,9 +173,11 @@ public static class WriteTools
         try { ops = JsonSerializer.Deserialize<BulkOp[]>(text, ManifestJson); }
         catch (JsonException ex)
         {
-            string at = ex.LineNumber is { } ln ? $" at line {ln + 1}, column {(ex.BytePositionInLine ?? 0) + 1}" : "";
+            // "byte N in the line", not "column": BytePositionInLine is a UTF-8 byte offset, which skews from the
+            // visual column on a non-ASCII line (a plugin filename with é) — name what it really is (review LOW 1).
+            string at = ex.LineNumber is { } ln ? $" at line {ln + 1}, byte {(ex.BytePositionInLine ?? 0) + 1} in the line" : "";
             string element = ex.Path is { Length: > 2 } p ? $" (element {p})" : "";   // "$[12].foo" — pins the offending op
-            return (null, $"ops manifest '{path}' could not be parsed{at}{element}: {Guard.Flatten(ex.Message)} " +
+            return (null, $"ops manifest '{path}' could not be parsed{at}{element}: {ShearStjPosition(Guard.Flatten(ex.Message))} " +
                           "Expected a top-level JSON ARRAY of operations, each the same shape as an inline operations= element " +
                           "({formid, field_path, verb, value?, key?, values?, entries?, compose?, composes?, from_plugin?}).");
         }
@@ -184,6 +189,15 @@ public static class WriteTools
             if (ops[i] is null)
                 return (null, $"ops manifest '{path}': element [{i}] is null — every element must be an operation object.");
         return (ops, null);
+    }
+
+    /// <summary>STJ appends its own position block (" Path: $[0].x | LineNumber: 0 | BytePositionInLine: 89.") to a
+    /// JsonException message — 0-based, so it CONTRADICTS the 1-based position the refusal already leads with (PR
+    /// #241 review LOW 1). Shear it; the element path it carried is surfaced separately via <c>ex.Path</c>.</summary>
+    static string ShearStjPosition(string msg)
+    {
+        int i = msg.IndexOf(" Path: ", StringComparison.Ordinal);
+        return i < 0 ? msg : msg[..i].TrimEnd();
     }
 
     /// <summary>Manifest parse options: property names case-insensitive like the SDK's inline binder (Web defaults),

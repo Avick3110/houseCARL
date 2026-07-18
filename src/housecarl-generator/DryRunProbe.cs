@@ -300,6 +300,9 @@ internal static class DryRunProbe
                 var emptyInline = WriteTools.BulkApply(svc, operations: Array.Empty<BulkOp>());
                 Check(emptyInline.StartsWith("error:") && emptyInline.Contains("operations is empty"),
                     "an explicit empty INLINE array keeps its existing refusal");
+                var blank = WriteTools.BulkApply(svc, from_file: "   ");
+                Check(blank.StartsWith("error:") && blank.Contains("from_file is empty"),
+                    $"an explicit blank from_file refuses NAMED, never silently reinterpreted as absent  [{Snip(blank)}]");
                 var rel = WriteTools.BulkApply(svc, from_file: "ops.json");
                 Check(rel.StartsWith("error:") && rel.Contains("ABSOLUTE"), $"a relative path refuses  [{Snip(rel)}]");
                 var unreadable = WriteTools.BulkApply(svc, from_file: Path.Combine(root, "no-such-manifest.json"));
