@@ -66,8 +66,16 @@ internal static class BsaExtractProbe
             });
             var evilDest = Path.Combine(work, "evil-dest");
             var er = BsaArchive.Unpack(Write(work, "evil.bsa", evil), evilDest);
-            Check(!er.Success, $"'..' entry -> extract refuses ({(er.Ran ? er.Raw : er.RunError)})");
+            Check(er.Ran && !er.Success && er.Raw.Contains("path traversal", StringComparison.OrdinalIgnoreCase),
+                  $"'..' entry -> the IsUnder guard refuses (not an upstream reject) ({(er.Ran ? er.Raw : er.RunError)})");
             Check(!File.Exists(Path.Combine(work, "escape.txt")), "nothing written outside the destination");
+
+            // ---- 3b) header/reader file-count mismatch -> loud (the #217 silent-empty/short-extract guard) ----
+            var good = BuildBsa(105, FHasFolderNames | FHasFileNames, folders);   // 3 real files
+            var lie = (byte[])good.Clone();
+            BitConverter.GetBytes(1u).CopyTo(lie, 20);                            // header @20 now lies: "1 file"
+            var lr = BsaArchive.Unpack(Write(work, "count-lie.bsa", lie), Path.Combine(work, "count-out"));
+            Check(!lr.Success, $"lying header count -> no silent success ({(lr.Ran ? lr.Raw : lr.RunError)})");
 
             // ---- 4) loud failure on a non-archive ----
             Console.WriteLine();

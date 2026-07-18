@@ -6,7 +6,7 @@ namespace HousecarlGenerator;
 /// <summary>
 /// BSA read/write round-trip proof on a REAL archive: list → unpack (both via Mutagen's in-process reader) → pack (via
 /// BSArch) → re-list, plus the load-bearing gate — Mutagen's unpack is BYTE-FOR-BYTE identical to BSArch's own unpack of
-/// the same archive (the independent-implementation check that the self-contained bsa-mutagen-extract-guard can't give).
+/// the same archive (the independent-implementation check that the self-contained bsa-extract-guard can't give).
 /// Skipped (not failed) if BSArch or the test archive isn't present; provide both via args or the HOUSECARL_BSARCH /
 /// HOUSECARL_TEST_BSA env vars. BSArch is needed only for the pack step + the parity oracle — reads no longer use it.
 ///
@@ -45,7 +45,7 @@ internal static class BsaProbe
             var orig = BsaArchive.List(bsa);
             Check(orig.Ran && orig.Success, "list (Mutagen): ran + Success");
             Check(orig.DeclaredCount > 0 && orig.Files.Count == orig.DeclaredCount,
-                  $"list: file count self-consistent ({orig.Files.Count})");
+                  $"list: reader count == header-declared count ({orig.Files.Count} == {orig.DeclaredCount})");
             Check(orig.Format is not null && orig.Format.Contains("BSA v", StringComparison.OrdinalIgnoreCase),
                   $"list: version label read ('{orig.Format}')");
             if (orig.Files.Count > 0) Console.WriteLine("         e.g. " + orig.Files[0]);
@@ -62,6 +62,8 @@ internal static class BsaProbe
             Directory.CreateDirectory(bsarchDir);
             bool bsarchOk = BsarchUnpack(bsarch, bsa, bsarchDir);
             Check(bsarchOk, "oracle: BSArch unpacked the same archive");
+            Check(bsarchOk && CountFiles(bsarchDir) == orig.DeclaredCount,
+                  $"oracle: BSArch extracted the header-declared count ({CountFiles(bsarchDir)}/{orig.DeclaredCount})");
             Check(bsarchOk && TreesByteIdentical(unpacked, bsarchDir), "Mutagen unpack == BSArch unpack (BYTE-FOR-BYTE)");
 
             // 3) PACK back via BSArch (Skyrim SE, uncompressed)
@@ -99,8 +101,12 @@ internal static class BsaProbe
             var psi = new ProcessStartInfo { FileName = bsarch, RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = Path.GetDirectoryName(bsarch) };
             foreach (var a in new[] { "unpack", archive, dest, "-mt" }) psi.ArgumentList.Add(a);
             var p = Process.Start(psi)!;
-            p.StandardOutput.ReadToEnd(); p.StandardError.ReadToEnd();
+            // Drain both pipes concurrently — a sequential ReadToEnd on one can deadlock if the child fills the other
+            // pipe's buffer while we're blocked (the same reason BsaArchive.Run reads async).
+            var o = p.StandardOutput.ReadToEndAsync();
+            var e = p.StandardError.ReadToEndAsync();
             p.WaitForExit(120_000);
+            Task.WaitAll(new Task[] { o, e }, 5_000);
             return CountFiles(dest) > 0;
         }
         catch { return false; }

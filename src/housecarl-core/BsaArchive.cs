@@ -44,17 +44,29 @@ public static class BsaArchive
     // houseCARL is Skyrim SE; the reader keys off the header version, so this also reads v103/v104 archives.
     static readonly IFileSystem Fs = new FileSystem();
 
-    /// <summary>List an archive's contents via Mutagen. On an unreadable/corrupt/non-archive file the failure is
-    /// surfaced in <see cref="BsaListResult.RunError"/> (Ran=false), never a silent empty list.</summary>
+    // A single archived entry is read into memory in-process (f.GetBytes). Bound that allocation: a corrupt/hostile
+    // header declaring a multi-GB entry must fail LOUD, not OOM the whole single-process server (the out-of-process
+    // BSArch path used to be killed on a timeout; this is the in-process equivalent). No real Skyrim asset approaches
+    // this, and it sits at the ~2GB .NET single-array ceiling GetBytes would throw at anyway.
+    const long MaxEntryBytes = 2L * 1024 * 1024 * 1024;
+
+    /// <summary>List an archive's contents via Mutagen, cross-checked against the header's OWN declared file count so a
+    /// reader mis-parse can't render a quietly-short list (Q3). On an unreadable/corrupt/non-archive file the failure is
+    /// surfaced in <see cref="BsaListResult.RunError"/> (Ran=false); a count mismatch surfaces as Ran-but-not-Success
+    /// with the discrepancy in <see cref="BsaListResult.Raw"/> — never a silent empty list.</summary>
     public static BsaListResult List(string archive)
     {
+        var hdr = ReadBsaHeader(archive);   // independent of Mutagen — the public IArchiveReader doesn't expose the count
         IArchiveReader reader;
         try { reader = Archive.CreateReader(GameRelease.SkyrimSE, archive, Fs); }
         catch (Exception ex) { return new BsaListResult(false, null, 0, Array.Empty<string>(), "", OpenError(archive, ex)); }
         try
         {
             var files = reader.Files.Select(f => f.Path).ToList();
-            return new BsaListResult(true, VersionLabel(archive), files.Count, files, "", null);
+            if (hdr is { fileCount: var declared } && declared != (uint)files.Count)
+                return new BsaListResult(false, VersionLabel(hdr), (int)declared, files,
+                    $"'{Path.GetFileName(archive)}': header declares {declared} file(s) but the reader enumerated {files.Count} — the archive may be corrupt or unsupported.", null);
+            return new BsaListResult(true, VersionLabel(hdr), hdr is { fileCount: var c } ? (int)c : files.Count, files, "", null);
         }
         catch (Exception ex)
         {
@@ -74,6 +86,7 @@ public static class BsaArchive
     public static BsaResult Unpack(string archive, string destFolder)
     {
         Directory.CreateDirectory(destFolder);
+        var hdr = ReadBsaHeader(archive);
         IArchiveReader reader;
         try { reader = Archive.CreateReader(GameRelease.SkyrimSE, archive, Fs); }
         catch (Exception ex) { return new BsaResult(false, "", OpenError(archive, ex)); }
@@ -84,6 +97,9 @@ public static class BsaArchive
         {
             foreach (var f in reader.Files)
             {
+                if (f.Size > MaxEntryBytes)   // corrupt/hostile header — refuse loud rather than OOM the server (Q3)
+                    return new BsaResult(false,
+                        $"archive entry '{f.Path}' declares {f.Size:N0} bytes, over the {MaxEntryBytes:N0}-byte safety ceiling — refusing to read it in-process (the archive header may be corrupt).", null);
                 string outPath = Path.GetFullPath(Path.Combine(destFull, f.Path));
                 if (!IsUnder(destFull, outPath))
                     return new BsaResult(false,
@@ -102,6 +118,14 @@ public static class BsaArchive
         }
         finally { (reader as IDisposable)?.Dispose(); }
 
+        int total = written + already;
+        // Cross-check against the header's own count. If the reader enumerated FEWER files than the archive declares
+        // (a mis-parse down to zero being the worst case), the old BSArch provenance would have caught it — fail loud
+        // here rather than report a partial/empty extract as success (Q3, #217's silent-wrong-output class).
+        if (hdr is { fileCount: var declared } && declared != (uint)total)
+            return new BsaResult(false,
+                $"extracted {total} file(s) from '{Path.GetFileName(archive)}' but its header declares {declared} — the archive may be corrupt or unsupported; refusing to report it as success.", null);
+
         string note = written > 0
             ? $"extracted {written} file(s)" + (already > 0 ? $" ({already} already present byte-identical)" : "") + "."
             : already > 0 ? $"all {already} file(s) were already present byte-identical — nothing to extract."
@@ -113,27 +137,32 @@ public static class BsaArchive
         $"could not open '{Path.GetFileName(archive)}' as a Bethesda archive ({ex.GetType().Name}: {ex.Message}). " +
         "Is it a real .bsa (not a .ba2 / renamed file), and not truncated?";
 
-    /// <summary>A cheap, best-effort format label read straight from the 8-byte header (magic + version) — cosmetic,
-    /// for the list output. Null if it can't be read.</summary>
-    static string? VersionLabel(string archive)
+    /// <summary>Read the version + folder/file counts straight from the 24-byte BSA header — an oracle INDEPENDENT of
+    /// Mutagen's reader (whose public IArchiveReader exposes neither), used to cross-check the enumerated file count and
+    /// to label the format. Null if the file can't be read or isn't a "BSA\0" archive.</summary>
+    static (uint version, uint folderCount, uint fileCount)? ReadBsaHeader(string archive)
     {
         try
         {
             using var fs = new FileStream(archive, FileMode.Open, FileAccess.Read, FileShare.Read);
-            Span<byte> h = stackalloc byte[8];
-            if (fs.Read(h) < 8) return null;
+            var h = new byte[24];
+            if (fs.Read(h, 0, 24) < 24) return null;
             if (h[0] != 0x42 || h[1] != 0x53 || h[2] != 0x41 || h[3] != 0x00) return null;   // not "BSA\0"
-            uint v = (uint)(h[4] | (h[5] << 8) | (h[6] << 16) | (h[7] << 24));
-            return v switch
-            {
-                103 => "BSA v103 (Oblivion)",
-                104 => "BSA v104 (Skyrim LE / Fallout 3 / NV)",
-                105 => "BSA v105 (Skyrim SE/AE)",
-                _ => $"BSA v{v}",
-            };
+            static uint U(byte[] b, int o) => (uint)(b[o] | (b[o + 1] << 8) | (b[o + 2] << 16) | (b[o + 3] << 24));
+            return (U(h, 4), U(h, 16), U(h, 20));   // version @4, folderCount @16, fileCount @20
         }
         catch { return null; }
     }
+
+    /// <summary>A cosmetic format label for the list output, derived from the already-read header. Null if unread.</summary>
+    static string? VersionLabel((uint version, uint folderCount, uint fileCount)? hdr) => hdr?.version switch
+    {
+        null => null,
+        103 => "BSA v103 (Oblivion)",
+        104 => "BSA v104 (Skyrim LE / Fallout 3 / NV)",
+        105 => "BSA v105 (Skyrim SE/AE)",
+        var v => $"BSA v{v}",
+    };
 
     /// <summary>Is <paramref name="candidate"/> strictly inside <paramref name="root"/>? Both are already full paths.
     /// Because <c>Path.GetFullPath</c> resolves any <c>..</c> before this check, it catches both relative traversal and
