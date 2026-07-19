@@ -177,6 +177,57 @@ public static class BulkQueryPrimitivesProbe
             var badKey = svc.CrossQuery("Weapon", null, null, false, null, null, 500, groupBy: "bogus");
             Check("group_by=<unknown key> is REFUSED loud", badKey.Error is not null && badKey.Error.Contains("group_by", StringComparison.OrdinalIgnoreCase));
 
+            // ================= #248 — group_by keys are CASE-FOLDED (case-variant plugin spellings merge) =================
+            // A load-order-wide group_by=defined_in split case-variant spellings of the SAME master into two rows
+            // (ccBGSSSE025-AdvDSGS.esm=40 AND ccbgssse025-advdsgs.esm=35) because the group dictionary keyed Ordinal —
+            // any consumer summing per-plugin counts silently double-groups. Plugin filenames are case-insensitive
+            // identifiers everywhere else in houseCARL (and in the game), so the counts must merge (#248).
+            // Reproduced FAITHFULLY: two overrider plugins whose OWN masters lists spell the shared master with
+            // different casing. The scan reads each plugin's own body (LoadOrderService.RecordsIn), so the origin
+            // ModKey it reports for a record carries THAT plugin's master spelling — the exact real-world source of
+            // the split. A(mixed) overrides one master weapon, B(lower) overrides a different one → 2 distinct FKs,
+            // same master, variant casing. Ordinal → two groups of 1; OrdinalIgnoreCase → one group of 2.
+            Console.WriteLine();
+            Console.WriteLine("── #248: group_by keys are case-folded (case-variant plugin names merge into one group) ──");
+            const string cfMasterName = "hcbpcfMaster.esp", cfAName = "hcbpcfA.esp", cfBName = "hcbpcfB.esp";
+            var cfMasterPath = Path.Combine(dir, cfMasterName);
+            var cfAPath = Path.Combine(dir, cfAName);
+            var cfBPath = Path.Combine(dir, cfBName);
+
+            var cfMaster = new SkyrimMod(ModKey.FromNameAndExtension(cfMasterName), SkyrimRelease.SkyrimSE);
+            var cw1 = cfMaster.Weapons.AddNew(); cw1.EditorID = "hcbpcfSword1"; cw1.BasicStats = new WeaponBasicStats { Damage = 10 };
+            var cw2 = cfMaster.Weapons.AddNew(); cw2.EditorID = "hcbpcfSword2"; cw2.BasicStats = new WeaponBasicStats { Damage = 20 };
+            cfMaster.BeginWrite.ToPath(cfMasterPath).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
+
+            // A overrides cw1, listing the master with its ON-DISK (mixed) casing.
+            var cfA = new SkyrimMod(ModKey.FromNameAndExtension(cfAName), SkyrimRelease.SkyrimSE);
+            _ = WriteEngine.GenericGetOrAddAsOverride(cfA, cw1);
+            cfA.BeginWrite.ToPath(cfAPath).WithLoadOrder(new ISkyrimModGetter[] { cfMaster }).Write();
+
+            // B overrides cw2 through a LOWERCASE-cased handle of the same master (ModKey equality is case-insensitive,
+            // so it still resolves to the on-disk file) — so B's masters entry, and the origin ModKey the scan reports
+            // for B's records, is lowercase.
+            var cfMasterLc = new SkyrimMod(ModKey.FromNameAndExtension(cfMasterName.ToLowerInvariant()), SkyrimRelease.SkyrimSE);
+            var cw2Lc = new Weapon(new FormKey(cfMasterLc.ModKey, cw2.FormKey.ID), SkyrimRelease.SkyrimSE) { EditorID = "hcbpcfSword2" };
+            var cfB = new SkyrimMod(ModKey.FromNameAndExtension(cfBName), SkyrimRelease.SkyrimSE);
+            _ = WriteEngine.GenericGetOrAddAsOverride(cfB, cw2Lc);
+            cfB.BeginWrite.ToPath(cfBPath).WithLoadOrder(new ISkyrimModGetter[] { cfMasterLc }).Write();
+
+            using (var cfResolver = LoadOrderResolver.Build(new[] { cfMasterPath, cfAPath, cfBPath }))
+            {
+                var cfSvc = LoadOrderService.ForGuard(cfResolver, new UserConfigStore(Path.Combine(dir, "houseCARL.cf.user.json")));
+                var byDef248 = cfSvc.CrossQuery(null, null, null, false, new[] { cfAName, cfBName }, null, 500, groupBy: "defined_in");
+                // Setup sanity: the two overrides ARE seen (2 touched records) — the variance test has something to fold.
+                Check($"#248 setup: plugins=[A,B] group_by=defined_in sees 2 touched records — got total {byDef248.Total}",
+                      byDef248.Total == 2);
+                // The fix: ONE merged group of count 2, not two case-variant rows of 1 each (the Ordinal-comparer bug).
+                Check($"#248: case-variant master spellings MERGE into one group of count 2 — got {byDef248.Groups?.Count ?? 0} group(s)",
+                      byDef248.Groups is { Count: 1 } && byDef248.Groups[0].Count == 2);
+                // And the merged display key is a REAL spelling of the master (first-seen), never blank or mangled.
+                Check("#248: the merged group key is a real (case-folded) master spelling",
+                      byDef248.Groups is { Count: 1 } && string.Equals(byDef248.Groups[0].Key, cfMasterName, StringComparison.OrdinalIgnoreCase));
+            }
+
             // ================= tool-layer refusal — group_by cannot combine with fields=/conflict_tree= =================
             Console.WriteLine();
             Console.WriteLine("── tool-layer guard: group_by= vs fields=/conflict_tree= ──");
