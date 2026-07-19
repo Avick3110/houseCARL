@@ -282,7 +282,7 @@ static class JsonWire
             {
                 bool detail = fields is { Count: > 0 };
                 bool anyScoped = detail && q.Sources is { } ss && ss.Take(q.Keys.Count).Any(s => s is not null);   // P5
-                string? p5 = anyScoped ? ScopedFieldsNote(winnerFields) : null;
+                string? p5 = anyScoped ? ScopedFieldsNote(winnerFields, q.WhereWinner) : null;
                 w.WriteNumber("total", q.Total);
                 w.WriteBoolean("capped", q.Capped);
                 if (q.Offset > 0) w.WriteNumber("offset", q.Offset);        // #223 pagination — the window's start, in-band
@@ -323,9 +323,20 @@ static class JsonWire
 
     /// <summary>The P5 scoped-vs-winner fields note, shared verbatim by the json and dense renders (D2 — one wording,
     /// two renders that can't drift).</summary>
-    static string ScopedFieldsNote(bool winnerFields) => winnerFields
-        ? "field values are the load-order WINNER's (winner_fields=true); each match was SELECTED on its scoped plugin's body."
-        : "field values are each match's SCOPED plugin's OWN version, NOT the live load-order winner — pass winner_fields=true for load-order truth.";
+    /// <summary>The P5 scoped-vs-winner field-source note, as one of a 4-way matrix over (winner_fields=, where_source=).
+    /// <paramref name="whereWinner"/> (#233) is true when the MATCH decided on the live winner (where_source=winner) —
+    /// then the note must NOT claim the match was selected on the scoped body (the D2 no-drift rule). Shared by the
+    /// text, json, and dense renders so the note can never drift across the three.</summary>
+    internal static string ScopedFieldsNote(bool winnerFields, bool whereWinner)
+    {
+        if (whereWinner)
+            return winnerFields
+                ? "the MATCH and the field values are both the load-order WINNER's (where_source=winner, winner_fields=true)."
+                : "the MATCH was selected on the load-order WINNER (where_source=winner), but the field values shown are each match's SCOPED plugin's OWN version — pass winner_fields=true to display the winner too.";
+        return winnerFields
+            ? "field values are the load-order WINNER's (winner_fields=true); each match was SELECTED on its scoped plugin's body."
+            : "field values are each match's SCOPED plugin's OWN version, NOT the live load-order winner — pass winner_fields=true for load-order truth.";
+    }
 
     // ---- housecarl_cross_plugin_query format=dense (#223) -------------------------------------------
     /// <summary>The COLUMNAR render: a <c>columns</c> array once, then ONE positional row array per match —
@@ -355,7 +366,7 @@ static class JsonWire
                 w.WriteBoolean("capped", q.Capped);
                 if (q.Offset > 0) w.WriteNumber("offset", q.Offset);
                 if (q.ScopeLabel is not null) w.WriteString("scope", q.ScopeLabel);
-                WriteNotes(w, q, anyScoped ? ScopedFieldsNote(winnerFields) : null);
+                WriteNotes(w, q, anyScoped ? ScopedFieldsNote(winnerFields, q.WhereWinner) : null);
 
                 bool hasMatches = q.MatchedTargets is not null;               // multi-target references= → one extra column
                 w.WriteStartArray("columns");
@@ -466,10 +477,11 @@ static class JsonWire
     /// so json is never a silently degraded mode vs text. Omitted when there are none.</summary>
     static void WriteNotes(Utf8JsonWriter w, CrossQueryOutcome q, string? extra = null)
     {
-        if (q.PredicateNote is null && q.ScanNote is null && extra is null) return;
+        if (q.PredicateNote is null && q.ScanNote is null && q.WhereSourceNote is null && extra is null) return;
         w.WriteStartArray("notes");
         if (q.PredicateNote is not null) w.WriteStringValue(q.PredicateNote);
         if (q.ScanNote is not null) w.WriteStringValue(q.ScanNote);
+        if (q.WhereSourceNote is not null) w.WriteStringValue(q.WhereSourceNote);   // #233: where_source=winner redundancy under a type=-only scope
         if (extra is not null) w.WriteStringValue(extra);   // P5 scoped-vs-winner fields note
         w.WriteEndArray();
     }

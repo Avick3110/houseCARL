@@ -8,6 +8,19 @@ when it changes.
 
 *Accumulating notes for the next cut — not yet released; `plugin.json` still reads the last shipped version.*
 
+**`housecarl_cross_plugin_query` gains `where_source=winner` — filter on the live winner, not the scoped body (#233).**
+Under a `plugins=` scope the body filters (`where=`, `references=`, `editorid_contains=`) decided the match against
+each match's *scoped* plugin body, even with `winner_fields=true` — so a post-patch audit like "Bruma-defined NPCs
+whose live winner still uses a PC-level multiplier" returned every record that *ever* had one (259), not the 82 whose
+winner *still* does. `winner_fields=` only changed what was *displayed*, never what *matched*. Now `where_source=winner`
+retargets the whole match onto the live load-order winner: `plugins=[…] defined_in=true where=["Configuration.Level.LevelMult >= 0"]
+where_source=winner` returns exactly the winners still on the multiplier, server-side, in one call — cheaper than the
+client-side workaround (scan the scoped candidates + resolve their winners, not the whole order's). It stays decoupled
+from `winner_fields=` (DISPLAY), so `where_source=winner winner_fields=false` matches on the winner while showing the
+scoped origin body — a real audit. Loud refusals (Q3): an unknown value names `scoped`/`winner`; `where_source=winner`
+with no body filter to retarget is refused; and under a `type=`-only scope (already the winner) it's accepted with a
+"redundant" note, never a silent no-op. Default (`scoped`) is unchanged.
+
 **`housecarl_cross_plugin_query` learns `depth=` (#231).** Nested list contents were unreachable in a scan:
 `fields=["Effects"]` rendered only `[list: N item(s)]`, and the workaround — hand-written bracket paths like
 `Effects[2].Data.Magnitude` — meant guessing the longest list up front and eating an out-of-bounds error triple
