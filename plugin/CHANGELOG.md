@@ -8,6 +8,14 @@ when it changes.
 
 *Accumulating notes for the next cut — not yet released; `plugin.json` still reads the last shipped version.*
 
+**`housecarl_cross_plugin_query` `group_by=` now case-folds plugin keys — case-variant spellings of one plugin no
+longer split into separate groups (#248).** A load-order-wide `group_by=defined_in` (or `=winner`) counted the same
+plugin twice when different plugins spelled a shared master with different casing — e.g. `ccBGSSSE025-AdvDSGS.esm = 40`
+*and* `ccbgssse025-advdsgs.esm = 35` as two rows — so any consumer summing per-plugin counts silently double-grouped.
+Plugin filenames are case-insensitive identifiers everywhere else in houseCARL (and in the game); group keys now match,
+merging the counts (first-seen casing is displayed). `group_by=type` is unaffected (record-type names never differ only
+by case).
+
 **`housecarl_cross_plugin_query` gains `where_source=winner` — filter on the live winner, not the scoped body (#233).**
 Under a `plugins=` scope the body filters (`where=`, `references=`, `editorid_contains=`) decided the match against
 each match's *scoped* plugin body, even with `winner_fields=true` — so a post-patch audit like "Bruma-defined NPCs

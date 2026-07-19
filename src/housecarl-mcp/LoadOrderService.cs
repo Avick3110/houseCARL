@@ -2395,7 +2395,12 @@ public sealed class LoadOrderService : IDisposable
         var sources = new List<string?>();                                    // parallel to keys: the plugin whose body matched (null ⇒ winner), so the render displays the SAME body it filtered
         List<string?>? matched = multiTarget ? new() : null;                  // parallel to keys: which target(s) each hit referenced (multi-target references= un-merge); null when 0/1 target
         List<RecordSummary>? prefilled = (hasType || hasPlugins) ? new() : null;   // parallel to keys; null = renderer fills lazily
-        Dictionary<string, int>? groups = groupBy is not null ? new(StringComparer.Ordinal) : null;   // group_by= aggregation (bumped per match, over ALL matches — not limit-capped)
+        // OrdinalIgnoreCase so case-variant spellings of the SAME plugin — a master listed as `ccBGSSSE025-AdvDSGS.esm`
+        // in one plugin's masters and `ccbgssse025-advdsgs.esm` in another's — merge into ONE group instead of splitting
+        // the count (#248). Plugin filenames are case-insensitive identifiers everywhere else in houseCARL (and in the
+        // game); first-seen casing becomes the display key. Harmless for group_by=type (record type names never differ
+        // only by case), so this one comparer correctly covers all three keys (winner / type / defined_in).
+        Dictionary<string, int>? groups = groupBy is not null ? new(StringComparer.OrdinalIgnoreCase) : null;   // group_by= aggregation (bumped per match, over ALL matches — not limit-capped)
         int total = 0;
         int unscannable = 0;                                                  // records whose body tests THREW (Mutagen-unparseable content) — excluded + accounted, never silent (Q3)
         var unscannableSamples = new List<string>();
