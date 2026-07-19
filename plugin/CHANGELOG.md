@@ -14,8 +14,10 @@ each match's *scoped* plugin body, even with `winner_fields=true` — so a post-
 whose live winner still uses a PC-level multiplier" returned every record that *ever* had one (259), not the 82 whose
 winner *still* does. `winner_fields=` only changed what was *displayed*, never what *matched*. Now `where_source=winner`
 retargets the whole match onto the live load-order winner: `plugins=[…] defined_in=true where=["Configuration.Level.LevelMult >= 0"]
-where_source=winner` returns exactly the winners still on the multiplier, server-side, in one call — cheaper than the
-client-side workaround (scan the scoped candidates + resolve their winners, not the whole order's). It stays decoupled
+where_source=winner` returns exactly the winners still on the multiplier, server-side, in one call — no more scanning every
+winner in the order and filtering FormKeys by hand. (It re-fetches each candidate's winner body, so a very *broad*
+winner-source scan is not yet as fast as it can be — an O(order) fetch is tracked in #251; correctness is unaffected.)
+It stays decoupled
 from `winner_fields=` (DISPLAY), so `where_source=winner winner_fields=false` matches on the winner while showing the
 scoped origin body — a real audit. Loud refusals (Q3): an unknown value names `scoped`/`winner`; `where_source=winner`
 with no body filter to retarget is refused; and under a `type=`-only scope (already the winner) it's accepted with a
