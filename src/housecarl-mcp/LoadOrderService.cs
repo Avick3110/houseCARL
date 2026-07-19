@@ -2531,12 +2531,15 @@ public sealed class LoadOrderService : IDisposable
                 else if (total > offset && keys.Count < limit) { keys.Add(fk); sources.Add(null); }   // no scoped plugin → display the winner; offset= skips the first N
             }
         }
-        // Unscannable accounting (Q3): name the count, the first few offenders with Mutagen's reason, and what
-        // a caller can still do — these records are invisible to the body filters, not "0 matches" silence.
-        // "instance(s) … where they threw" because under plugins= a FormKey is tested once per scoped plugin:
-        // a copy that throws is skipped while another plugin's copy of the same FK can still match (PR #27 review).
+        // Unscannable accounting (Q3): name the count, the first few offenders with the reason, and what a caller can
+        // still do — these records are invisible to the body filters, not "0 matches" silence. Two causes flow here:
+        // Mutagen could not parse a body, OR (under where_source=winner) a winner body the index named did not
+        // re-resolve on fetch — the note must not mislabel the second as a parse failure. "instance(s)" and the
+        // per-copy skip because under plugins= a FormKey is tested once per scoped plugin: a failing copy is skipped
+        // where it occurs while another plugin's copy of the same FK can still match (PR #27 review).
         string? scanNote = unscannable == 0 ? null
-            : $"note: {unscannable} record instance(s) could not be scanned (Mutagen could not parse their content) and were skipped where they threw: "
+            : $"note: {unscannable} record instance(s) could not be scanned and were skipped where the failure occurred "
+              + "(Mutagen could not parse their content, or — under where_source=winner — a winner body the index named did not re-resolve on fetch; another plugin's copy of the same FormKey can still match): "
               + string.Join("; ", unscannableSamples)
               + (unscannable > unscannableSamples.Count ? $"; and {unscannable - unscannableSamples.Count} more" : "")
               + ". Inspect one with read_record (per-field fault isolation applies).";
