@@ -22,6 +22,10 @@ namespace HousecarlGenerator;
 ///   • #231 <c>depth=</c> — expand list/dict contents of fields= paths per match (read_record's semantics, applied
 ///     to the scan; text+json, resolve_names composes); refused loud without fields= and under format=dense
 ///     (positional cells), whose container cells hint the text/json hop instead of a blind knob.
+///   • #233 <c>where_source=winner</c> — the body filters (where=/references=/editorid_contains=) decide the MATCH on
+///     the live load-order WINNER, not the scoped body (the 259-vs-82 post-patch-audit split); de-dups per FK, composes
+///     with defined_in=, decoupled from winner_fields= (DISPLAY); refused loud on an unknown value / no body filter,
+///     redundant-but-noted under a type=-only scope.
 ///
 /// Synthesizes a 2-plugin order ON DISK (a master + a replacer that OVERRIDES one weapon and DEFINES new ones, with
 /// keyword links so references= has something to reverse) and drives the REAL service-layer scan
@@ -327,6 +331,82 @@ public static class BulkQueryPrimitivesProbe
                 Check("dense scoped detail: the P5 scoped-vs-winner note still rides in-band",
                       root.TryGetProperty("notes", out var notes) && notes.EnumerateArray().Any(n => (n.GetString() ?? "").Contains("winner_fields=true")));
             }
+
+            // ================= #233 — where_source=winner (predicate decides on the LIVE winner, not the scoped body) =================
+            // The bug in miniature: W1 is DEFINED in master (Damage 10) and OVERRIDDEN by repl (Damage 15). A plugins=
+            // scope streams master's OWN body (10); the reporter's 259-vs-82 split is exactly this — where= on the scoped
+            // body counts records that ONCE matched, where_source=winner counts those whose LIVE winner still does.
+            Console.WriteLine("── #233: where_source=winner retargets the where= predicate onto the live load-order winner ──");
+            var wsScoped10 = svc.CrossQuery("Weapon", null, null, false, new[] { masterName }, new[] { "BasicStats.Damage = 10" }, 500);
+            Check($"where=[Damage=10] default (scoped) → W1 matches on master's OWN body 10 (Total {wsScoped10.Total})",
+                  wsScoped10.Total == 1 && wsScoped10.Keys.Count == 1 && wsScoped10.Keys[0] == w1Fk && !wsScoped10.WhereWinner);
+            var wsWinner10 = svc.CrossQuery("Weapon", null, null, false, new[] { masterName }, new[] { "BasicStats.Damage = 10" }, 500, whereSource: "winner");
+            Check($"THE FIX: where=[Damage=10] where_source=winner → 0 (W1's live winner is repl's 15, not 10) — the scoped-vs-winner split (Total {wsWinner10.Total})",
+                  wsWinner10.Total == 0 && wsWinner10.WhereWinner && wsWinner10.Error is null);
+            var wsWinner15 = svc.CrossQuery("Weapon", null, null, false, new[] { masterName }, new[] { "BasicStats.Damage = 15" }, 500, whereSource: "winner");
+            Check($"where=[Damage=15] where_source=winner → W1 matches on the WINNER's body 15 (scoped master is 10) (Total {wsWinner15.Total})",
+                  wsWinner15.Total == 1 && wsWinner15.Keys.Count == 1 && wsWinner15.Keys[0] == w1Fk && wsWinner15.WhereWinner);
+
+            // defined_in= composes — the issue's exact call shape (defining-plugin scope + a condition on the final winner).
+            var wsDefWinner = svc.CrossQuery("Weapon", null, null, false, new[] { masterName }, new[] { "BasicStats.Damage = 15" }, 500, definedIn: true, whereSource: "winner");
+            Check($"defined_in=true + where_source=winner → W1 (DEFINED in master, winner 15); W3 (defined in repl) excluded (Total {wsDefWinner.Total})",
+                  wsDefWinner.Total == 1 && wsDefWinner.Keys.Count == 1 && wsDefWinner.Keys[0] == w1Fk);
+
+            // Multi-scoped de-dup under winner-source: W1 is touched by BOTH scoped plugins, but the winner verdict is
+            // FK-intrinsic — it de-dups up front and resolves the winner ONCE, so W1 counts exactly one match (not two).
+            var wsBoth = svc.CrossQuery("Weapon", null, null, false, new[] { masterName, replName }, new[] { "BasicStats.Damage = 15" }, 500, whereSource: "winner");
+            Check($"plugins=[master,repl] where_source=winner → W1 counted ONCE despite living in both scoped plugins (Total {wsBoth.Total}, Keys {wsBoth.Keys.Count})",
+                  wsBoth.Total == 1 && wsBoth.Keys.Count == 1 && wsBoth.Keys[0] == w1Fk);
+
+            // type=-only scope: the scan already streams the winner, so where_source=winner is REDUNDANT — accepted with
+            // a note (never a silent no-op, never a hostile refusal), and identical to the plain call.
+            var wsTypeOnly = svc.CrossQuery("Weapon", null, null, false, null, new[] { "BasicStats.Damage = 15" }, 500, whereSource: "winner");
+            var wsTypePlain = svc.CrossQuery("Weapon", null, null, false, null, new[] { "BasicStats.Damage = 15" }, 500);
+            Check($"type=-only where_source=winner → matches W1 (winner 15), carries the REDUNDANT note, same result as plain (Total {wsTypeOnly.Total} vs {wsTypePlain.Total})",
+                  wsTypeOnly.Total == 1 && wsTypeOnly.Keys[0] == w1Fk && wsTypeOnly.WhereWinner
+                  && wsTypeOnly.WhereSourceNote is not null && wsTypeOnly.WhereSourceNote.Contains("redundant")
+                  && wsTypeOnly.Total == wsTypePlain.Total);
+
+            // Loud refusals (Q3, up front): unknown value names scoped/winner; winner without a body filter to retarget.
+            var wsBad = svc.CrossQuery("Weapon", null, null, false, new[] { masterName }, new[] { "BasicStats.Damage = 15" }, 500, whereSource: "bogus");
+            Check("where_source='bogus' REFUSED naming 'scoped' and 'winner'",
+                  wsBad.Error is not null && wsBad.Error.Contains("scoped") && wsBad.Error.Contains("winner"));
+            var wsNoFilter = svc.CrossQuery("Weapon", null, null, false, new[] { masterName }, null, 500, whereSource: "winner");
+            Check("where_source=winner WITHOUT a body filter REFUSED (nothing to retarget)",
+                  wsNoFilter.Error is not null && wsNoFilter.Error.Contains("body filter"));
+
+            // DISPLAY decoupling (the reason where_source is its own param, not an overload of winner_fields): match on the
+            // winner, but SHOW the scoped origin. W1 matches on winner=15 yet the rendered cell is master's OWN 10.
+            var wsDecouple = ReadTools.CrossPluginQuery(svc, type: "Weapon", references: null, editorid_contains: null,
+                conflicts_only: false, plugins: new[] { masterName }, defined_in: false, where: new[] { "BasicStats.Damage = 15" },
+                group_by: null, fields: new[] { "BasicStats.Damage" }, conflict_tree: false, winner_fields: false,
+                where_source: "winner", limit: 500, max_chars: 0, format: "dense");
+            using (var doc = JsonDocument.Parse(wsDecouple))
+            {
+                var root = doc.RootElement;
+                var rows = root.GetProperty("rows");
+                var w1row = rows.EnumerateArray().FirstOrDefault(r => r[0].GetString() == w1Fk.ToString());
+                Check("#233 decouple: matched W1 on winner=15 but DISPLAYS the scoped master body (damage 10, source=master)",
+                      rows.GetArrayLength() == 1 && w1row.ValueKind == JsonValueKind.Array
+                      && w1row[2].GetString() == "10" && w1row[3].GetString() == masterName);
+                Check("#233 decouple: the note says the MATCH was on the WINNER while values are the SCOPED body (no D2 drift)",
+                      root.TryGetProperty("notes", out var notes) && notes.EnumerateArray().Any(n => { var s = n.GetString() ?? ""; return s.Contains("where_source=winner") && s.Contains("SCOPED"); }));
+            }
+            // ...and winner_fields=true shows the winner on both axes.
+            var wsBothWinner = ReadTools.CrossPluginQuery(svc, type: "Weapon", references: null, editorid_contains: null,
+                conflicts_only: false, plugins: new[] { masterName }, defined_in: false, where: new[] { "BasicStats.Damage = 15" },
+                group_by: null, fields: new[] { "BasicStats.Damage" }, conflict_tree: false, winner_fields: true,
+                where_source: "winner", limit: 500, max_chars: 0, format: "dense");
+            using (var doc = JsonDocument.Parse(wsBothWinner))
+            {
+                var root = doc.RootElement;
+                var w1row = root.GetProperty("rows").EnumerateArray().FirstOrDefault(r => r[0].GetString() == w1Fk.ToString());
+                Check("#233 winner_fields=true: match AND display are both the winner — W1 shows damage 15",
+                      w1row.ValueKind == JsonValueKind.Array && w1row[2].GetString() == "15");
+                Check("#233 winner_fields=true: the note says match AND values are the winner",
+                      root.TryGetProperty("notes", out var notes) && notes.EnumerateArray().Any(n => { var s = n.GetString() ?? ""; return s.Contains("where_source=winner") && s.Contains("winner_fields=true"); }));
+            }
+            Console.WriteLine();
 
             // dense + offset compose: the in-band offset field + the windowed rows.
             var sDenseOff = ReadTools.CrossPluginQuery(svc, type: "Weapon", references: null, editorid_contains: null,
