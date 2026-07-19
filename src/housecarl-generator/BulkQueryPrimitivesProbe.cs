@@ -84,7 +84,9 @@ public static class BulkQueryPrimitivesProbe
             // ---- 2. REPLACER (masters [master]): OVERRIDE W1 (so it's a record Repl TOUCHES but does NOT define),
             //         plus DEFINE a new weapon W3 (keywords KA+KB — references BOTH targets) and a new armor A2. ----
             var repl = new SkyrimMod(ModKey.FromNameAndExtension(replName), SkyrimRelease.SkyrimSE);
-            ((IWeapon)WriteEngine.GenericGetOrAddAsOverride(repl, w1)).BasicStats = new WeaponBasicStats { Damage = 15 }; // W1 override wins
+            var w1ov = (IWeapon)WriteEngine.GenericGetOrAddAsOverride(repl, w1);
+            w1ov.BasicStats = new WeaponBasicStats { Damage = 15 };   // W1 override wins on damage (10 -> 15)
+            w1ov.EditorID = "hcbpSword1Winner";                       // ...and on EditorID (scoped 'hcbpSword1' vs winner 'hcbpSword1Winner') — lets editorid_contains prove the widened retarget under where_source=winner (keywords stay [KA] so the whole-order references= tests are untouched)
             var w3 = repl.Weapons.AddNew(); w3.EditorID = "hcbpSword3"; w3.BasicStats = new WeaponBasicStats { Damage = 30 };
             w3.Keywords = new Noggog.ExtendedList<IFormLinkGetter<IKeywordGetter>>
                 { new FormLink<IKeywordGetter>(kaFk), new FormLink<IKeywordGetter>(kbFk) };
@@ -406,6 +408,17 @@ public static class BulkQueryPrimitivesProbe
                 Check("#233 winner_fields=true: the note says match AND values are the winner",
                       root.TryGetProperty("notes", out var notes) && notes.EnumerateArray().Any(n => { var s = n.GetString() ?? ""; return s.Contains("where_source=winner") && s.Contains("winner_fields=true"); }));
             }
+
+            // where_source=winner retargets ALL body filters, not just where= (the widened scope): editorid_contains=
+            // rides the SAME filterBody as where=/references=. W1's WINNER editorid ('hcbpSword1Winner') differs from
+            // its scoped master body ('hcbpSword1'), so 'Winner' matches ONLY under where_source=winner — proving the
+            // retarget end-to-end for a non-where filter (references= shares the identical filterBody line in core).
+            var ecScoped = svc.CrossQuery("Weapon", null, "Winner", false, new[] { masterName }, null, 500);
+            Check($"editorid_contains='Winner' default (scoped) → 0 (master's W1 editorid is 'hcbpSword1', no 'Winner') (Total {ecScoped.Total})",
+                  ecScoped.Total == 0 && !ecScoped.WhereWinner);
+            var ecWinner = svc.CrossQuery("Weapon", null, "Winner", false, new[] { masterName }, null, 500, whereSource: "winner");
+            Check($"editorid_contains='Winner' where_source=winner → W1 (its WINNER editorid 'hcbpSword1Winner' contains 'Winner') — the body-filter widening beyond where= (Total {ecWinner.Total})",
+                  ecWinner.Total == 1 && ecWinner.Keys.Count == 1 && ecWinner.Keys[0] == w1Fk && ecWinner.WhereWinner);
             Console.WriteLine();
 
             // dense + offset compose: the in-band offset field + the windowed rows.
