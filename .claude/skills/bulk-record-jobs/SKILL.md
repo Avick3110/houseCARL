@@ -85,8 +85,10 @@ complete and self-accounting. This is also the only lane for tools without `offs
 `housecarl_batch_record_detail` — its only paging is to split its input `formids=` list; a size-cap
 stop there has no continuation, #254).
 
-**Guardrail — verify, never assume.** A persisted document is trustworthy only once you've checked
-`truncated == false` **and** `rendered == total` *in the file itself*. A file that quietly hit even a
+**Guardrail — verify, never assume.** A persisted document is trustworthy only once you've checked,
+*in the file itself*, that it did not truncate (`truncated == false`) and that its own accounting says
+it is whole — `rendered == total` on `cross_plugin_query`, or the `count` covering every input on the
+batch tools (`housecarl_batch_record_detail` / `housecarl_resolve`). A file that quietly hit even a
 raised cap is a silent short-ship — the exact failure this lane exists to prevent. `format="json"`
 keeps the accounting in-band for a one-line check.
 
