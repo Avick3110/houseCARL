@@ -38,10 +38,19 @@ public static class CiAll
         ("pkcu-regression", PkcuProbe.RunRegression),
         ("depth-leak-guard", DepthLeakProbe.RunGuard),
         ("vmad-property-read-guard", VmadPropertyReadProbe.RunGuard),
+        // Conditions[].Data arm expansion (#258): the depth-floor "open one bounded level" exception — VMAD-property-
+        // only until now (vmad-property-read-guard's sibling) — also opens a polymorphic ConditionData arm's params,
+        // so a `Conditions` list dump at depth=3 reaches Data.ActorValue/Faction/… instead of stopping at the bare
+        // arm type. Bounded (one level), depth-not-lowered (depth=2 still suppresses), non-arm substructs still stop.
+        ("condition-arm-expand-guard", ConditionArmExpandProbe.RunGuard),
         // depth-2 element identity (#198): a struct with no Name/EditorID/Title but EXACTLY ONE FormLink surfaces
         // that link as its identity ([PerkPlacement] Perk=…) instead of a bare opaque [PerkPlacement]; name-identity
         // still wins over the lone link (fallback fires only when no name-like identity exists). Self-contained.
         ("element-identity-guard", ElementIdentityProbe.RunGuard),
+        // depth-2 element identity for an OWNED RECORD (#252): a list element that is itself an IMajorRecordGetter
+        // (DIAL Responses → DialogResponses/INFO) surfaces its OWN FormKey (+ EditorID when present) instead of a
+        // bare [DialogResponses] — the #198 family carried to records (FormKey is the identity, not a lone link).
+        ("owned-record-identity-guard", OwnedRecordIdentityProbe.RunGuard),
         ("floi-read-guard", FloiReadProbe.RunGuard),
         ("floi-fields-guard", FloiFieldsProbe.RunGuard),
         ("forward-from-plugin-guard", ForwardFromPluginProbe.RunGuard),
