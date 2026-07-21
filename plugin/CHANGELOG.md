@@ -8,6 +8,16 @@ when it changes.
 
 *Accumulating notes for the next cut — not yet released; `plugin.json` still reads the last shipped version.*
 
+**The `bulk-record-jobs` skill now teaches how to get a big enumeration out — paging vs. persist-to-file (#249).**
+A new section distinguishes the two independent caps a bulk read hits — the row cap (`limit=` → `capped`) and the
+per-call output cap (`max_chars` → `truncated`) — and names the two lanes for clearing them: `offset=` paging on
+`cross_plugin_query` (deterministic tiling windows; the primary lane, previously undocumented in the skill) and, as the
+complement, raising `max_chars` so an oversized result **persists to a file** to post-process with scripts instead of
+reading it into context (the move that made a 7,479-NPC facegen sweep single-session — one call per plugin, a 5,118-row
+JSON document). Both come with the mandatory guardrail (verify `truncated == false` and `rendered == total` in the
+persisted file) and a caution that huge tool *inputs* are their own stall risk (batch to a few hundred per call).
+Skill documentation only; no tool behavior changed.
+
 **The 13 bundled skills' descriptions were trimmed to cut always-loaded startup context (#256).**
 A skill's `name` + `description` frontmatter load into every session's context — they are not Tool-Search-deferrable —
 and the 13 descriptions totalled ~3,650 tokens. Each carried, past its trigger surface, a trailing
