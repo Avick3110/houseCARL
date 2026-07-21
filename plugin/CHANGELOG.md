@@ -8,6 +8,16 @@ when it changes.
 
 *Accumulating notes for the next cut — not yet released; `plugin.json` still reads the last shipped version.*
 
+**The 13 bundled skills' descriptions were trimmed to cut always-loaded startup context (#256).**
+A skill's `name` + `description` frontmatter load into every session's context — they are not Tool-Search-deferrable —
+and the 13 descriptions totalled ~3,650 tokens. Each carried, past its trigger surface, a trailing
+"Load this before X — <counter-intuitive mechanics>" rationale and grammar detail that is already spelled out in full
+in the skill body (lazy-loaded, free at rest). Those tails and the "using the bundled reference rather than invented
+syntax" boilerplate were trimmed while **every "Use when…" trigger cue and every not-this-other-skill disambiguation
+line was kept**, so trigger accuracy is unchanged and ~590 tokens (16%) come off the always-resident cost. Descriptions
+only — no skill body, reference, or behavior changed; every trimmed frontmatter still parses (the `plugin-validate`
+CI guard, which exists because a colon-space once silently dropped a whole skill, stays green).
+
 **houseCARL's MCP server instructions now orient tool discovery across the whole surface, not just Nexus (#257).**
 The server's `initialize` `instructions` blurb — always resident in the agent's context — was ~90% a Nexus how-to that
 duplicated each Nexus tool's own description and named none of houseCARL's core capabilities, so an agent relying on
