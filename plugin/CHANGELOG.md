@@ -8,6 +8,14 @@ when it changes.
 
 *Accumulating notes for the next cut — not yet released; `plugin.json` still reads the last shipped version.*
 
+**`housecarl_bulk_apply` read-back now reports the true count for a `composes=` Add of N — no more misleading `(+1)` (#259).**
+Appending N elements to a list field in one op via `composes=` rendered a verify line that reported only the last element,
+as if a single element was added — `✓ … Add Conditions: now 37 (+1), new [36] = [ConditionFloat]` for a six-element
+compose — because the Add read-back hardcoded a `+1` delta and the single last index. The data on disk was correct (the
+list total was the only clue all six landed), but the summary contradicted the op and cost real mid-session doubt. The
+read-back now carries the op's appended count and reports the whole run: `now 37 (+6), new [31..36]`. A single-element
+Add is unchanged (`now 29 (+1), new [28] = …`).
+
 **A `[Flags]` enum field with unknown bits now decodes the known bits instead of collapsing to a bare decimal (#255).**
 When a flags field carries a bit the record catalog doesn't name (a modded slot, or a game-version bit houseCARL's
 Mutagen build predates), `.NET`'s `[Flags].ToString()` abandons the name list and renders the whole value as one

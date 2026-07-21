@@ -488,14 +488,16 @@ public static class ReadEngine
     }
 
     /// <summary>Best-effort COMPACT identity of the element a list/dict verb just acted on — the write-verify's
-    /// "what landed" line (HCBR-2026-06-28-01, the compact in-place readback). For a list <c>Add</c>, the new last
-    /// element + the new count (<c>now 29 (+1), new [28] = …</c>); for a keyed <c>SetAtIndex</c>/<c>Remove</c>, the
-    /// touched key + new count; else the new count. Names the element as specifically as the model allows — a
+    /// "what landed" line (HCBR-2026-06-28-01, the compact in-place readback). For a single list <c>Add</c>, the new
+    /// last element + the new count (<c>now 29 (+1), new [28] = …</c>); for a batch <c>composes=</c> Add of N, the
+    /// whole appended run (<c>now 34 (+6), new [28..33]</c> — <paramref name="added"/> carries how many the op
+    /// appended, #259); for a keyed <c>SetAtIndex</c>/<c>Remove</c>, the touched key + new count; else the new count.
+    /// Names the element as specifically as the model allows — a
     /// formlink element renders its FormKey, an identity-bearing struct its Name/EditorID, an anonymous struct (a
     /// condition) its <c>[Type]</c>. Read-only; NEVER throws (null on any difficulty) — a display nicety on an
     /// ALREADY-succeeded write, never load-bearing. <paramref name="leafPath"/> is the verb's path to the collection
     /// (the engine's <see cref="WriteRequest.Path"/>); <paramref name="key"/> its list index / dict key, if any.</summary>
-    internal static string? TouchedElement(object record, string[] leafPath, string verb, string? key)
+    internal static string? TouchedElement(object record, string[] leafPath, string verb, string? key, int added = 1)
     {
         try
         {
@@ -505,7 +507,7 @@ public static class ReadEngine
             foreach (var e in en) { count++; last = e; }
             return verb switch
             {
-                "Add"        => last is null ? $"now {count} item(s)" : $"now {count} (+1), new [{count - 1}] = {ElementId(last, record)}",
+                "Add"        => AddLanded(record, count, last, added),
                 "ReplaceAll" => $"now {count} item(s) (replaced)",
                 "SetAtIndex" => key is not null ? $"now {count} item(s), set [{key}]" : $"now {count} item(s)",
                 "Remove"     => key is not null ? $"now {count} item(s), removed [{key}]" : $"now {count} item(s) (-1)",
@@ -513,6 +515,21 @@ public static class ReadEngine
             };
         }
         catch { return null; }
+    }
+
+    /// <summary>The list-<c>Add</c> "what landed" line, honest about the appended count. A SINGLE append names the
+    /// new element (<c>now 29 (+1), new [28] = …</c>); a BATCH <c>composes=</c> Add of N names the whole appended run
+    /// of indices (<c>now 34 (+6), new [28..33]</c>) instead of reporting only the last element as a "(+1)" — the
+    /// #259 misleading-output bug, where a 6-element compose read as "(+1), new [36]" and cost real mid-session doubt
+    /// that all six landed. <paramref name="added"/> is the op's appended count (composes.Count, else 1), clamped to
+    /// the live count so a display nicety on an already-succeeded write can never throw or under-run the range.</summary>
+    static string AddLanded(object record, int count, object? last, int added)
+    {
+        if (last is null) return $"now {count} item(s)";
+        int n = Math.Clamp(added, 1, count);
+        return n <= 1
+            ? $"now {count} (+1), new [{count - 1}] = {ElementId(last, record)}"
+            : $"now {count} (+{n}), new [{count - n}..{count - 1}]";
     }
 
     /// <summary>The compact identity of ONE element for <see cref="TouchedElement"/>: a value/formlink element via its
