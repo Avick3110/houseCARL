@@ -191,6 +191,11 @@ public static class CiAll
         // isolation (one bad path never aborts the batch), batch-level alarms once + first, explicit omitted-mesh
         // cut notice. Self-contained (constructed results through the real NifWire renderer).
         ("nif-inspect-batch-guard", NifInspectBatchGuardProbe.RunGuard),
+        // nif_inspect sections= parsing (#247): the JSON-array-as-string form (["shapes","paths"]) now parses (bracket
+        // + quote are delimiters too) instead of tokenizing to garbage and QUIETLY rendering the default summary; an
+        // all-unrecognized sections= is a LOUD error, not a silent fallback; the known-sections hint points texture-set
+        // slot paths at where they live ('shapes'/'paths'). Drives NifTools.ParseSections/SectionsError/hint directly.
+        ("nif-sections-guard", NifSectionsProbe.RunGuard),
         ("strings-decision-guard", StringsDecisionProbe.RunGuard),
         ("assetlink-write-guard", AssetLinkWriteProbe.RunGuard),
         // The two coercion COMPLETENESS proofs, now CI guards (were manual-only — the coerce-audit blind spot that

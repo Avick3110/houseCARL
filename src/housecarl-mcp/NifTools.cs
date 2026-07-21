@@ -21,6 +21,14 @@ public static class NifTools
 {
     static readonly string[] KnownSections = { "shapes", "partitions", "alpha", "paths", "strings", "nodes", "bones" };
 
+    /// <summary>The "(known: …)" hint shared by the unrecognized-section warning and the all-unrecognized loud error
+    /// (#247): the legal tokens PLUS the pointer that there is NO 'textures' section — a mesh's embedded texture-set
+    /// slot paths live under 'shapes' (per-shape detail) and 'paths', the two places a caller reaching for "textures"
+    /// actually wants.</summary>
+    internal const string KnownSectionsHint =
+        "known: shapes, partitions, alpha, paths, strings, nodes, bones, all — no 'textures' section; " +
+        "embedded texture-set slot paths are under 'shapes' (detail) and 'paths'";
+
     [McpServerTool(Name = "housecarl_nif_inspect", ReadOnly = true, Title = "Inspect the data values inside one or many Skyrim meshes (.nif)"),
      Description(
          "Read the DATA VALUES inside one or many Skyrim meshes (.nif) at the data layer, beneath NifSkope. Resolve each " +
@@ -51,8 +59,11 @@ public static class NifTools
                      "order. Relative to the game's Data folder (forward or back slashes both fine).")]
             string[] mesh_paths,
         [Description("Optional. Which detail sections to show beyond the summary — any of 'shapes', 'partitions', 'alpha', " +
-                     "'paths', 'strings', 'nodes', 'bones', or 'all'. Comma- or space-separated. Applies to every mesh in " +
-                     "the batch. Empty = summary only (header + block census + shape names).")]
+                     "'paths', 'strings', 'nodes', 'bones', or 'all'. Comma-, space-, or JSON-array-separated (e.g. " +
+                     "[\"shapes\",\"paths\"]). There is NO 'textures' section — a mesh's embedded texture-set slot paths " +
+                     "appear under 'shapes' (per-shape detail) and 'paths'. Applies to every mesh in the batch; " +
+                     "unrecognized tokens are reported loud, and an all-unrecognized sections= is an error (never a " +
+                     "silent fallback to the summary). Empty = summary only (header + block census + shape names).")]
             string sections = "",
         [Description("Optional. Inspect a specific provider's copy instead of the VFS winner — the mod folder " +
                      "name, 'overwrite', 'Data', or a BSA filename as listed in the providers chain. Applies to every mesh " +
@@ -68,17 +79,25 @@ public static class NifTools
             return "error: mesh_paths contains only empty/blank entries. Pass Data-relative mesh paths (e.g. 'meshes\\armor\\iron\\cuirass_1.nif').";
 
         var (want, unknownTokens) = ParseSections(sections);
+        // Q3 (#247): sections were requested but NONE resolved — do NOT run the inspect and silently render the summary
+        // as if that were the answer (the reported quiet-fallback-to-defaults). Fail loud. (A PARTIAL request proceeds
+        // — it renders the valid sections + a loud warning.)
+        if (SectionsError(want, unknownTokens) is { } sectionsErr) return sectionsErr;
+
         var data = svc.NifInspect(mesh_paths, string.IsNullOrWhiteSpace(mod) ? null : mod);
         return NifWire.Render(data, want, unknownTokens, max_chars > 0 ? max_chars : 80_000);
     });
 
     /// <summary>Parse the sections argument into the recognized set + a list of any UNRECOGNIZED tokens (surfaced, never
-    /// silently ignored — Q3). 'all' expands to every known section.</summary>
-    static (HashSet<string> Want, IReadOnlyList<string> Unknown) ParseSections(string sections)
+    /// silently ignored — Q3). 'all' expands to every known section. Tolerates the JSON-array-as-string form an MCP
+    /// client naturally sends for a list: <c>sections=["shapes","paths"]</c> arrives here as the literal string
+    /// <c>["shapes","paths"]</c>, so the bracket and quote characters are split delimiters too — otherwise they glue
+    /// onto the first/last token (<c>["shapes</c>) and the whole array reads as unrecognized, the #247 quiet-fallback.</summary>
+    internal static (HashSet<string> Want, IReadOnlyList<string> Unknown) ParseSections(string sections)
     {
         var want = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var unknown = new List<string>();
-        foreach (var raw in (sections ?? "").Split(new[] { ',', ' ', ';', '\t' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        foreach (var raw in (sections ?? "").Split(new[] { ',', ' ', ';', '\t', '[', ']', '"', '\'' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
         {
             if (raw.Equals("all", StringComparison.OrdinalIgnoreCase)) { foreach (var s in KnownSections) want.Add(s); }
             else if (Array.Exists(KnownSections, s => s.Equals(raw, StringComparison.OrdinalIgnoreCase))) want.Add(raw.ToLowerInvariant());
@@ -86,6 +105,16 @@ public static class NifTools
         }
         return (want, unknown);
     }
+
+    /// <summary>The #247 all-unrecognized guard as a testable seam: sections were REQUESTED but NONE resolved (a typo,
+    /// or the non-existent 'textures') → the loud error string that replaces the silent fallback to the summary. Null
+    /// when the request is fine — nothing requested (summary is the intended answer), or at least one section resolved
+    /// (a partial request renders the valid ones + a warning, never an error).</summary>
+    internal static string? SectionsError(HashSet<string> want, IReadOnlyList<string> unknown)
+        => want.Count == 0 && unknown.Count > 0
+            ? $"error: no recognized section(s) in sections — unrecognized: {string.Join(", ", unknown)}  " +
+              $"({KnownSectionsHint}). Pass one or more known sections, or omit sections= for the summary only."
+            : null;
 
     [McpServerTool(Name = "housecarl_nif_set", Title = "Write a whitelisted data value into a Skyrim mesh (.nif)"),
      Description(
@@ -215,7 +244,7 @@ static class NifWire
         AppendDiscoveryWarnings(sb, d.Warnings, cap);
         if (unknownSections.Count > 0)
             sb.Append("\n[!] unrecognized section(s) ignored: ").Append(string.Join(", ", unknownSections))
-              .Append("  (known: ").Append(string.Join(", ", new[] { "shapes", "partitions", "alpha", "paths", "strings", "nodes", "bones", "all" })).Append(")\n");
+              .Append("  (").Append(NifTools.KnownSectionsHint).Append(")\n");
 
         bool readIncomplete = d.BsaFailures.Count > 0, discoveryIncomplete = d.Warnings.Count > 0;
         int shown = 0;
