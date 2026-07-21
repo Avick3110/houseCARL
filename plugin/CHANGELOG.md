@@ -10,11 +10,12 @@ when it changes.
 
 **`housecarl_read_record` / `housecarl_batch_record_detail` `depth=2` now surfaces an owned-record list element's own FormID (#252).**
 A list whose elements are themselves owned records — most commonly a DIAL topic's `Responses` (each element an INFO record) —
-rendered each element as a bare `[DialogResponses]` at `depth=2`, with no FormID or EditorID, so mapping topics to their child
-INFOs meant a second call with explicit `[i].FormKey` paths (and you couldn't enumerate those paths without first reading the
-element count). The `depth=2` "index + identity" contract now holds for owned-record elements the way it already did for
-lone-FormLink structs (#198): each renders `[DialogResponses 000ABC:Plugin.esp editorid=…]` — its own FormKey, plus EditorID
-when present. Applies wherever `depth=` expands (text and `format=json`).
+surfaced no FormID at `depth=2`: an element rendered a bare `[DialogResponses]` (or `[DialogResponses] EditorID=…` when the INFO
+carried an EditorID), never the FormKey that is an owned record's canonical identity. Mapping topics to their child INFOs meant a
+second call with explicit `[i].FormKey` paths (and you couldn't enumerate those paths without first reading the element count).
+The `depth=2` "index + identity" contract now holds for owned-record elements the way it already did for lone-FormLink structs
+(#198): each leads with `[DialogResponses 000ABC:Plugin.esp editorid=…]` — its own FormKey, plus EditorID when present. Applies
+wherever `depth=` expands (text and `format=json`).
 
 **`Conditions[].Data` arm parameters now expand in a `Conditions` list dump (#258).** A polymorphic condition-data arm reached by
 expanding a `Conditions` list stopped at its bare `[GetFactionRankConditionData]` type — its parameter fields (`Faction`, `Global`,

@@ -538,8 +538,8 @@ public static class ReadEngine
         // way a top-level read does — #252, the #198 family carried to records. Checked BEFORE the Name/EditorID/
         // Title scan: for an owned record the FormKey IS the canonical identity (an INFO has no Name and usually no
         // EditorID — the exact case #198's lone-FormLink path can't reach), and EditorID rides along when present,
-        // so a depth=2 owned-record list reads "[DialogResponses 04D9A74:Plugin.esp editorid=…]" — its own id — not
-        // a bare opaque [Type] one level longer than the depth "index + identity" contract implies.
+        // so a depth=2 owned-record list reads "[DialogResponses 4D9A74:Plugin.esp editorid=…]" — its own id — not
+        // a bare opaque [Type] (or an EditorID-only line) one level longer than the depth "index + identity" implies.
         if (val is IMajorRecordGetter mr)
             return $"[{typeName} {mr.FormKey}{(string.IsNullOrEmpty(mr.EditorID) ? "" : $" editorid={mr.EditorID}")}]";
         foreach (var idName in IdentityFieldNames)
