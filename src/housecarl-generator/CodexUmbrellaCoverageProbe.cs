@@ -13,8 +13,8 @@ namespace HousecarlGenerator;
 /// silently drifted from full coverage to 9 of ~45 tools over ~2 months because adding a tool never touched it.
 ///
 /// This guard makes that drift impossible by construction. It reflects the REAL [McpServerTool] names off the
-/// housecarl-mcp assembly (immune to the source line-wrapping that hides a tool from a grep) and reads the REAL
-/// .claude/skills/* folders, then asserts EVERY one is referenced in the umbrella — or explicitly allow-listed as
+/// housecarl-mcp assembly — the authoritative registered set, not a source-text pattern a brittle grep can miss —
+/// and reads the REAL .claude/skills/* folders, then asserts EVERY one is referenced in the umbrella — or allow-listed as
 /// a deliberate omission. A session that adds housecarl_foo or a new skill and forgets the Codex router now gets
 /// a RED CI arm naming exactly what to add. Same "green only if the checker has teeth" shape as the other guards:
 /// RED arms feed a synthetic omission and assert it fires; the allow-list is proven to actually suppress.
@@ -58,6 +58,17 @@ public static class CodexUmbrellaCoverageProbe
             var skills = SkillSlugs();
             Check($"GREEN found bundled skill folders ({skills.Count})", skills.Count > 0,
                 new() { "no folders under .claude/skills — wrong CWD or empty tree" });
+
+            // The Contains() coverage check below is only sound if no required name is a substring of ANOTHER
+            // required name — else referencing the longer one would falsely satisfy the shorter one being missing.
+            // Assert that invariant instead of trusting it: a future prefix-named tool (housecarl_read ⊂
+            // housecarl_read_record) trips THIS arm rather than silently passing unrouted.
+            var required = tools.Concat(skills).ToList();
+            var subsumed = required
+                .Where(a => required.Any(b => b != a && b.Contains(a, StringComparison.Ordinal)))
+                .OrderBy(a => a, StringComparer.Ordinal).ToList();
+            Check("GUARD-SELF no required name is a substring of another (Contains match is unambiguous)", subsumed.Count == 0,
+                subsumed.Select(a => $"'{a}' is a substring of another required name — the Contains coverage check could false-pass it; use a boundary match or rename").ToList());
 
             // INV1 — every tool referenced.
             var missTools = MissingRefs(umbrella, tools, Allow);
