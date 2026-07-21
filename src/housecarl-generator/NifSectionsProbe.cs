@@ -38,6 +38,11 @@ public static class NifSectionsProbe
         Check("ARRAY-FORM: [\"shapes\",\"paths\"] → {shapes, paths}, no unknown tokens",
               arr.SetEquals(new[] { "shapes", "paths" }) && arrUnknown.Count == 0);
 
+        // ARRAY-FORM with a space after the comma (how a client's JSON serializer usually renders it).
+        var (arrSp, arrSpUnknown) = NifTools.ParseSections("[\"shapes\", \"paths\"]");
+        Check("ARRAY-FORM(spaced): [\"shapes\", \"paths\"] → {shapes, paths}, no unknown tokens",
+              arrSp.SetEquals(new[] { "shapes", "paths" }) && arrSpUnknown.Count == 0);
+
         // PLAIN: the comma/space form is unchanged.
         var (plain, plainUnknown) = NifTools.ParseSections("shapes, paths");
         Check("PLAIN: 'shapes, paths' → {shapes, paths}, no unknown",

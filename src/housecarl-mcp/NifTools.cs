@@ -25,8 +25,8 @@ public static class NifTools
     /// (#247): the legal tokens PLUS the pointer that there is NO 'textures' section — a mesh's embedded texture-set
     /// slot paths live under 'shapes' (per-shape detail) and 'paths', the two places a caller reaching for "textures"
     /// actually wants.</summary>
-    internal const string KnownSectionsHint =
-        "known: shapes, partitions, alpha, paths, strings, nodes, bones, all — no 'textures' section; " +
+    internal static readonly string KnownSectionsHint =
+        "known: " + string.Join(", ", KnownSections) + ", all — no 'textures' section; " +
         "embedded texture-set slot paths are under 'shapes' (detail) and 'paths'";
 
     [McpServerTool(Name = "housecarl_nif_inspect", ReadOnly = true, Title = "Inspect the data values inside one or many Skyrim meshes (.nif)"),
