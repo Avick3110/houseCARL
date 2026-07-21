@@ -2501,8 +2501,11 @@ public static class WritePatchBuilder
             var f = read.Fields.FirstOrDefault(x => x.Path == leaf) ?? read.Fields.FirstOrDefault();
             if (f is null) return (null, null);
             var after = f.HasValue ? f.Token : f.Note;
-            // Scalar: Landed reuses the token just read. List/dict: name the touched element (+ new count); else the summary.
-            var landed = f.HasValue ? f.Token : (ReadEngine.TouchedElement(ov, req.Path, req.Verb, req.Key) ?? f.Note);
+            // Scalar: Landed reuses the token just read. List/dict: name the touched element (+ new count); else the
+            // summary. An Add carries how many elements it appended (composes= → Structs.Count, else 1) so a batch
+            // compose reports the whole appended run, never "(+1)" for N (#259).
+            int added = req.Verb == "Add" ? (req.Structs?.Count ?? 1) : 1;
+            var landed = f.HasValue ? f.Token : (ReadEngine.TouchedElement(ov, req.Path, req.Verb, req.Key, added) ?? f.Note);
             return (after, landed);
         }
         catch { return (null, null); }

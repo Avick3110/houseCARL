@@ -240,6 +240,11 @@ public static class CiAll
         // whole-record dump that overflowed the host token cap and spilled to a file (reading as "only some ops applied").
         // full_readback=true still gives the deep dump, now bounded under the host limit with an explicit truncation note.
         ("compact-readback-guard", CompactReadbackProbe.RunGuard),
+        // bulk_apply composes= Add read-back count (#259): appending N elements in ONE composes= op reported the
+        // verify line as "(+1), new [last]" (the Add renderer hardcoded a +1 delta); it now carries the op's
+        // appended count and reports the whole run "(+N), new [a..b]". Drives the real in-place write; a 1-element
+        // compose still reads (+1), new [0] = <element> (count wired from Structs.Count, not a constant).
+        ("readback-count-guard", ReadbackCountProbe.RunGuard),
         // STANDALONE-COPY CHAIN Stage 1 — housecarl_read_plugin_file: a RAW, out-of-load-order read of ONE plugin file
         // straight off disk (INCLUDING one DISABLED in MO2), the enabler for forking a donor you're removing from the
         // order. Pins: locate+read a disabled plugin by filename, enumerate a type, whole-file summary, direct-path
