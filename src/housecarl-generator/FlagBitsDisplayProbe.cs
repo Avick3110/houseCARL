@@ -26,6 +26,10 @@ namespace HousecarlGenerator;
 ///     recover), so the annotation fires exactly when it adds information.
 ///   * BIPED-ROUTED — a <c>BodyTemplate.FirstPersonFlags</c> leaf still gets the SLOT decode ("slot 32"), NOT the
 ///     unknown-bits decode — the dispatcher routes biped flags to their own annotation, unchanged.
+///   * COMBO-ALONE / COMBO-MIXED (PR #261 review) — a bit that lives ONLY inside a multi-bit COMBO member
+///     (Package.Flag.WearSleepOutfit) is NOT nameable on its own: alone it decodes to "unknown bits 0x100" (never a
+///     dropped display or a bare decimal), and mixed with a genuinely-unnamed bit it stays all-remainder
+///     ("unknown bits 0x102") — never "256 (+unknown bits 0x2)" with a decimal masquerading as the name slot.
 ///
 /// Run: dotnet run --project src/housecarl-generator -- flag-bits-display-guard
 /// </summary>
@@ -79,10 +83,44 @@ public static class FlagBitsDisplayProbe
         armo.BodyTemplate = new BodyTemplate { FirstPersonFlags = BipedObjectFlag.Body };
         var biped = Leaf(ReadEngine.ReadFields(armo, new[] { "BodyTemplate.FirstPersonFlags" }), "BodyTemplate.FirstPersonFlags");
 
+        // --- COMBO-MEMBER (PR #261 review): a [Flags] enum with a multi-bit COMBO member whose constituent bits have
+        //     no single-bit member of their own (Package.Flag.WearSleepOutfit). A naive "OR every member's bits into a
+        //     known mask" wrongly treats a combo-only bit as nameable — so ToString of that lone bit yields a DECIMAL in
+        //     the name slot ("256 (+unknown bits 0x2)"), or drops the decode entirely. The correct decode peels only
+        //     FULLY-contained members, so a combo-only bit falls into the unknown remainder. Reflect Package.Flags,
+        //     isolate one combo-only bit + one genuinely-unnamed bit, and verify the honest rendering. ---
+        var pack = mod.Packages.AddNew();
+        var packFlagsProp = pack.GetType().GetProperty("Flags");
+        ulong comboOnlyBit = 0, packUnnamedBit = 0;
+        FieldValue? comboAlone = null, comboMixed = null;
+        if (packFlagsProp is not null)
+        {
+            var packEnum = packFlagsProp.PropertyType;
+            ulong packSingleMask = 0, packAllMask = 0;
+            foreach (var m in Enum.GetValues(packEnum))
+            {
+                var b = Bits(m, packEnum);
+                packAllMask |= b;
+                if (b != 0 && (b & (b - 1)) == 0) packSingleMask |= b;   // single-bit members only
+            }
+            ulong comboOnly = packAllMask & ~packSingleMask;             // bits that appear ONLY inside multi-bit combos
+            comboOnlyBit = comboOnly & (0UL - comboOnly);                // lowest such bit
+            int packWidth = Marshal.SizeOf(Enum.GetUnderlyingType(packEnum)) * 8;
+            for (int i = 0; i < packWidth; i++) if ((packAllMask & (1UL << i)) == 0) { packUnnamedBit = 1UL << i; break; }
+            if (comboOnlyBit != 0 && packUnnamedBit != 0)
+            {
+                packFlagsProp.SetValue(pack, Enum.ToObject(packEnum, comboOnlyBit));
+                comboAlone = Leaf(ReadEngine.ReadFields(pack, new[] { "Flags" }), "Flags");
+                packFlagsProp.SetValue(pack, Enum.ToObject(packEnum, comboOnlyBit | packUnnamedBit));
+                comboMixed = Leaf(ReadEngine.ReadFields(pack, new[] { "Flags" }), "Flags");
+            }
+        }
+
         Console.WriteLine($"   fixture: {enumType.Name}  named={namedName}(0x{namedBit:X})  unknown=0x{unknownBit:X}");
         Console.WriteLine($"   mixed  : token={Tok(mixed)}  display={Disp(mixed)}");
         Console.WriteLine($"   named  : token={Tok(named)}  display={Disp(named)}");
         Console.WriteLine($"   biped  : token={Tok(biped)}  display={Disp(biped)}");
+        Console.WriteLine($"   combo  : only=0x{comboOnlyBit:X} unnamed=0x{packUnnamedBit:X}  alone={Disp(comboAlone)}  mixed={Disp(comboMixed)}");
         Console.WriteLine();
 
         var mixedDisp = mixed?.Display ?? "";
@@ -100,12 +138,27 @@ public static class FlagBitsDisplayProbe
                    && (biped.Display ?? "").Contains("slot", StringComparison.Ordinal)
                    && !(biped.Display ?? "").Contains("unknown bits", StringComparison.Ordinal);
 
-        bool pass = decode && tokenIntact && allNamedNull && bipedRouted;
+        // COMBO arms (Mutagen is version-pinned, so Package.Flag's combo member is stable; a loud fail here on a bump
+        // signals the fixture must move to another combo enum, never a silent coverage drop).
+        bool comboAvailable = comboOnlyBit != 0 && packUnnamedBit != 0 && comboAlone is not null && comboMixed is not null;
+        // A combo-only bit ALONE: not individually nameable → the honest decode is "unknown bits 0x<bit>", NOT a
+        // dropped display (the old miss) and NOT a decimal masquerading as a name.
+        bool comboAloneOk = comboAlone is { HasValue: true } && (comboAlone.Display ?? "") == $"unknown bits 0x{comboOnlyBit:X}";
+        // A combo-only bit | a genuinely-unnamed bit: both unnameable, so the whole thing is the unknown remainder —
+        // NEVER "256 (+unknown bits 0x2)" with a bare decimal in the name slot (the review's case 2).
+        bool comboMixedOk = comboMixed is { HasValue: true }
+                   && (comboMixed.Display ?? "") == $"unknown bits 0x{(comboOnlyBit | packUnnamedBit):X}"
+                   && !(comboMixed.Display ?? "").Contains("(+", StringComparison.Ordinal);
+
+        bool pass = decode && tokenIntact && allNamedNull && bipedRouted && comboAvailable && comboAloneOk && comboMixedOk;
 
         Console.WriteLine($"   DECODE        (known name + unnamed hex remainder)   : {(decode ? "PASS" : "FAIL")}");
         Console.WriteLine($"   TOKEN-INTACT  (round-trip token = bare decimal)      : {(tokenIntact ? "PASS" : "FAIL")}");
         Console.WriteLine($"   ALL-NAMED-NULL(no decode when every bit is named)    : {(allNamedNull ? "PASS" : "FAIL")}");
         Console.WriteLine($"   BIPED-ROUTED  (biped leaf keeps its slot decode)     : {(bipedRouted ? "PASS" : "FAIL")}");
+        Console.WriteLine($"   COMBO-FIXTURE (Package.Flag combo-only + free bit)   : {(comboAvailable ? "PASS" : "FAIL")}");
+        Console.WriteLine($"   COMBO-ALONE   (combo-only bit → 'unknown bits …')    : {(comboAloneOk ? "PASS" : "FAIL")}");
+        Console.WriteLine($"   COMBO-MIXED   (combo-only+unnamed → no decimal name) : {(comboMixedOk ? "PASS" : "FAIL")}");
         Console.WriteLine();
         Console.WriteLine($"=== flag-bits-display-guard: {(pass ? "PASS" : "FAIL")} ===");
         return pass ? 0 : 1;
