@@ -8,6 +8,22 @@ when it changes.
 
 *Accumulating notes for the next cut — not yet released; `plugin.json` still reads the last shipped version.*
 
+**`housecarl_read_record` / `housecarl_batch_record_detail` `depth=2` now surfaces an owned-record list element's own FormID (#252).**
+A list whose elements are themselves owned records — most commonly a DIAL topic's `Responses` (each element an INFO record) —
+rendered each element as a bare `[DialogResponses]` at `depth=2`, with no FormID or EditorID, so mapping topics to their child
+INFOs meant a second call with explicit `[i].FormKey` paths (and you couldn't enumerate those paths without first reading the
+element count). The `depth=2` "index + identity" contract now holds for owned-record elements the way it already did for
+lone-FormLink structs (#198): each renders `[DialogResponses 000ABC:Plugin.esp editorid=…]` — its own FormKey, plus EditorID
+when present. Applies wherever `depth=` expands (text and `format=json`).
+
+**`Conditions[].Data` arm parameters now expand in a `Conditions` list dump (#258).** A polymorphic condition-data arm reached by
+expanding a `Conditions` list stopped at its bare `[GetFactionRankConditionData]` type — its parameter fields (`Faction`, `Global`,
+`Reference`, `RunOnType`, …) surfaced only when `Data` was addressed directly (`fields=["Conditions[2].Data"]`) or at an extra depth
+level, so a `fields=["Conditions"] depth=3` dump silently stopped one level short of the params. The depth-floor "open one bounded
+level" exception — previously VMAD-script-property-only — now also opens a condition arm's parameters, so a whole condition stack
+(function + params) reads in one call at the natural depth. Bounded to one level (an arm's members are leaves/links) and
+type-targeted (every other substruct still stops at the floor, unchanged).
+
 **`housecarl_cross_plugin_query` `group_by=` now case-folds plugin keys — case-variant spellings of one plugin no
 longer split into separate groups (#248).** A load-order-wide `group_by=defined_in` counted the same plugin twice when
 different plugins spelled a shared master with different casing — e.g. `ccBGSSSE025-AdvDSGS.esm = 40` *and*

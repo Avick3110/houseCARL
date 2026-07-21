@@ -358,17 +358,24 @@ public static class ReadEngine
         // a container or substruct — summarise (with an element identity where we can), then maybe open it.
         if (!Emit(sink, ref budget, new FieldValue(path, false, null, ElementSummary(val, isDict)))) return;
 
-        // A VMAD script property normally stops here at its identity summary (e.g. "[ScriptObjectProperty]
-        // Name=DAK_HorseBuyPerk"), hiding its VALUE. Surface that value ONE bounded level deeper even at the
-        // depth floor — the Object FormLink (incl. a declared-but-null link, the signal the quest-fragment
-        // linter keys on), the Data scalar, the Alias — so a read reaches parity with the write surface. A
-        // property's direct members are leaves (a *ListProperty arm shows as a count at the floor; raise
-        // depth= to enumerate it), so this opens exactly one level and never unbounded-descends a fat VMAD
-        // (1.3.1 item 2). EVERY OTHER substruct still stops at the floor, byte-for-byte unchanged.
+        // Two POLYMORPHIC-ARM families normally stop here at their identity summary, hiding their VALUE, and both
+        // surface it ONE bounded level deeper even at the depth floor so a read reaches parity with the write
+        // surface and with a direct per-arm path:
+        //   * a VMAD script property (e.g. "[ScriptObjectProperty] Name=DAK_HorseBuyPerk") — its Object FormLink
+        //     (incl. a declared-but-null link, the signal the quest-fragment linter keys on), Data scalar, Alias
+        //     (1.3.1 item 2);
+        //   * a Conditions[].Data arm (e.g. "[GetFactionRankConditionData]") — its parameter fields (Faction,
+        //     Global, Reference, RunOnType…), which otherwise appear ONLY when Data is addressed directly, never
+        //     via a Conditions-list dump (#258 — the arm consumed a "summary-only" level, so depth=3 stopped at the
+        //     bare arm type and you needed depth=4 or a per-row path).
+        // Each family's direct members are leaves/links (a VMAD *ListProperty arm shows as a count at the floor;
+        // raise depth= to enumerate it), so this opens exactly one level and never unbounded-descends. EVERY OTHER
+        // substruct still stops at the floor, byte-for-byte unchanged — the exception is these two arm families
+        // only, matched by their shared getter interface (no per-arm list).
         int childDepth = depth - 1;
         if (depth <= 1)
         {
-            if (!IsScriptProperty(val.GetType())) return;
+            if (!IsScriptProperty(val.GetType()) && !IsConditionData(val.GetType())) return;
             childDepth = 1;
         }
 
@@ -526,6 +533,15 @@ public static class ReadEngine
         if (val is System.Collections.IEnumerable && val is not string) return SummariseContainer(val, isDict);
         var t = val.GetType();
         var typeName = RecordNaming.StripGetterInterface(RecordNaming.StripOverlay(t.Name));
+        // An owned child RECORD element (an IMajorRecordGetter — a DIAL's Responses hold DialogResponses/INFO
+        // records, a CELL's references hold placed records; each owns its own FormKey) leads with its FormKey the
+        // way a top-level read does — #252, the #198 family carried to records. Checked BEFORE the Name/EditorID/
+        // Title scan: for an owned record the FormKey IS the canonical identity (an INFO has no Name and usually no
+        // EditorID — the exact case #198's lone-FormLink path can't reach), and EditorID rides along when present,
+        // so a depth=2 owned-record list reads "[DialogResponses 04D9A74:Plugin.esp editorid=…]" — its own id — not
+        // a bare opaque [Type] one level longer than the depth "index + identity" contract implies.
+        if (val is IMajorRecordGetter mr)
+            return $"[{typeName} {mr.FormKey}{(string.IsNullOrEmpty(mr.EditorID) ? "" : $" editorid={mr.EditorID}")}]";
         foreach (var idName in IdentityFieldNames)
         {
             var p = t.GetProperty(idName, BindingFlags.Public | BindingFlags.Instance);
@@ -907,9 +923,19 @@ public static class ReadEngine
     /// ScriptInt/Float/Bool/StringProperty arms, and the *ListProperty arms) — recognised by the shared getter
     /// interface, so every arm matches by construction with no per-arm list, on the overlay getter or the
     /// mutable type alike. The depth walker opens such a property's direct value members one bounded level past
-    /// the depth floor (1.3.1 item 2 — read parity with the write surface); every other substruct stops at the
-    /// floor, so this is the one type-targeted exception to the depth gate.</summary>
+    /// the depth floor (1.3.1 item 2 — read parity with the write surface). One of TWO type-targeted exceptions
+    /// to the depth gate (the other is <see cref="IsConditionData"/>); every other substruct stops at the floor.</summary>
     static bool IsScriptProperty(Type t) => typeof(IScriptPropertyGetter).IsAssignableFrom(t);
+
+    /// <summary>True if <paramref name="t"/> is a polymorphic CONDITION-DATA arm (GetActorValueConditionData,
+    /// GetFactionRankConditionData — every <c>ConditionData</c> subtype) — recognised by the shared
+    /// <c>IConditionDataGetter</c> interface, so every arm matches by construction with no per-arm list, on the
+    /// overlay getter or the mutable type alike. Like <see cref="IsScriptProperty"/> the depth walker opens such an
+    /// arm's parameter fields one bounded level past the depth floor so a <c>Conditions</c>-list dump reaches the
+    /// arm's params (Faction/Global/Reference/RunOnType…) without an extra depth level or a per-row <c>Data</c> path
+    /// (#258 — the params surfaced ONLY via a direct arm path before). An arm's direct members are leaves/links, so
+    /// this opens exactly one level and never unbounded-descends; every non-arm substruct still stops at the floor.</summary>
+    static bool IsConditionData(Type t) => typeof(IConditionDataGetter).IsAssignableFrom(t);
 
     static byte[] MemorySliceBytes(object slice)
     {
