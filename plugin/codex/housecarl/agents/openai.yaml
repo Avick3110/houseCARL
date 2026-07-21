@@ -1,4 +1,6 @@
-# Codex skill metadata for the houseCARL umbrella skill (schema reviewed by Codex, 2026-06-04).
+# Codex skill metadata for the houseCARL umbrella skill. Schema first reviewed 2026-06-04; re-verified
+# 2026-07-21 against Codex's Build-skills docs (interface/policy/dependencies fields, ~/.agents/skills
+# discovery, MCP-via-config.toml) — still current.
 interface:
   display_name: "houseCARL"
   short_description: "Skyrim SE / MO2 data-layer modding."

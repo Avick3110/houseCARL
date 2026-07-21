@@ -8,6 +8,16 @@ when it changes.
 
 *Accumulating notes for the next cut — not yet released; `plugin.json` still reads the last shipped version.*
 
+**The Codex umbrella router now covers the whole tool surface, and a CI guard keeps it that way (Codex parity).**
+The Codex packaging ships one umbrella routing skill (`plugin/codex/housecarl/SKILL.md`); it had drifted to naming
+only 9 of the ~45 MCP tools and 5 of the 13 helper skills, so a Codex user asking about facegen, Nexus, BSA
+archives, dialogue, SKSE audits, or plugin compaction got no routing from it. It now carries a capability-grouped
+map of **all 45 tools** and routes to **all 13 helper skills** (the discrete skills themselves already install to
+Codex under `~/.agents/skills/`, so this restores the router, not the skills). A new `codex-umbrella-coverage`
+CI guard reflects the real `[McpServerTool]` names and the `.claude/skills/*` folders and fails if any is unrouted
+by the umbrella (or explicitly allow-listed) — so the drift cannot silently recur: adding a tool or skill without
+updating the Codex router turns CI red. Codex packaging + CI only; no change to Claude Code behavior.
+
 **The `bulk-record-jobs` skill now teaches how to get a big enumeration out — paging vs. persist-to-file (#249).**
 A new section distinguishes the two independent caps a bulk read hits — the row cap (`limit=` → `capped`) and the
 per-call output cap (`max_chars` → `truncated`) — and names the two lanes for clearing them: `offset=` paging on

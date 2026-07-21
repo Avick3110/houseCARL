@@ -115,6 +115,10 @@ public static class CiAll
         ("sameshape-agree-guard", SameShapeAgreeProbe.RunGuard),
         ("corpus-hygiene-guard", CorpusHygieneProbe.RunGuard),
         ("plugin-validate-guard", PluginValidateProbe.RunGuard),
+        // Codex umbrella coverage: the single hand-maintained Codex router (plugin/codex/housecarl/SKILL.md) must
+        // reference every current MCP tool (reflected off [McpServerTool]) and every .claude/skills/* folder, or
+        // allow-list the omission — turns the silent 45→9 drift into a RED arm naming exactly what's unrouted.
+        ("codex-umbrella-coverage-guard", CodexUmbrellaCoverageProbe.RunGuard),
         ("nullarm-guard", NullArmGuardProbe.RunGuard),
         ("formlink-null-guard", FormLinkNullProbe.RunGuard),
         ("formlink-remove-guard", FormLinkRemoveProbe.RunGuard),
