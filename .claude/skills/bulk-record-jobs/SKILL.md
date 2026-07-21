@@ -59,6 +59,41 @@ corrupt the deliverable.
   deliverable claiming live stats, pass `winner_fields=true`; the scoped-values default exists for
   the other question ("what did THIS plugin set").
 
+## Getting a big enumeration out — page it, or persist it
+
+A bulk read stops for one of two independent reasons. They carry different accounting and different
+fixes; conflating them is how a "complete" catalogue silently ships short.
+
+- **Row cap — `limit=` → `capped=true`.** `limit=` bounds how many rows *render* (default 500).
+  `group_by=` counts are never capped by it — size with those.
+- **Output cap — `max_chars` → `truncated=true`.** The document renders until it hits the per-call
+  output budget, then stops mid-stream. On a whole-load-order sweep this is the cap that actually bites.
+
+**Primary lane — page with `offset=` (`housecarl_cross_plugin_query`).** `offset=` skips the first N
+post-filter matches, so `offset=0/500/1000…` walks a big enumeration in exact windows; scan order is
+deterministic while the load order is unchanged, so windows tile with no gaps or overlaps, and the
+render prints the next offset to continue with. `total` always counts every match, so you know when
+you've walked them all. (Not valid with `group_by=` — a count table has no window.)
+
+**Complementary lane — raise `max_chars`, let the result persist to a file.** When you want the
+*entire* result as one document to post-process with scripts — rather than walking windows into
+context — raise `max_chars` far past its default so it all renders in one call, let that oversized
+document persist to a file, and run scripts against the file. Never read a multi-MB document into
+context. One real run: a 7,479-NPC / ~15,000-path facegen scan that rendered ~117 rows/call at the
+default became **one call per plugin at `max_chars=4000000`** — a ~3.6 MB, 5,118-row JSON document,
+complete and self-accounting. This is also the only lane for tools without `offset=` (e.g.
+`housecarl_batch_record_detail` — its only paging is to split its input `formids=` list; a size-cap
+stop there has no continuation, #254).
+
+**Guardrail — verify, never assume.** A persisted document is trustworthy only once you've checked
+`truncated == false` **and** `rendered == total` *in the file itself*. A file that quietly hit even a
+raised cap is a silent short-ship — the exact failure this lane exists to prevent. `format="json"`
+keeps the accounting in-band for a one-line check.
+
+**Inputs cap too.** A huge *input* array — multi-thousand FormIDs into `references=` /
+`housecarl_resolve` / `housecarl_batch_record_detail` — is its own failure mode: it must transit model
+context, and an oversized emission can stall the call. Batch inputs to a few hundred elements per call.
+
 ## The loop-killer map
 
 Reach for the primitive, never the loop. Each row below was a real improvisation in a real fleet
@@ -97,8 +132,9 @@ run before the primitive existed:
    (its columnar cells are positional) — use `format="json"` for expanded scans, or hop the
    flagged subset to `housecarl_batch_record_detail` when only a few matches need expanding.
 4. **Respect the accounting.** Every JSON document carries `total` / `rendered` / `capped` /
-   `truncated` / `notes` in-band. `capped=true` means raise `limit=` or page by narrowing scope —
-   never ship a deliverable whose `total` exceeds its row count without saying so.
+   `truncated` / `notes` in-band. `capped=true` means page with `offset=` or narrow the scope;
+   `truncated=true` means raise `max_chars` (see "Getting a big enumeration out" above) — never ship
+   a deliverable whose `total` exceeds its row count without saying so.
 
 ## Recipe: the link graph
 
