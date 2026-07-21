@@ -8,6 +8,16 @@ when it changes.
 
 *Accumulating notes for the next cut — not yet released; `plugin.json` still reads the last shipped version.*
 
+**`housecarl_nif_inspect` `sections=` now accepts the JSON-array form and fails loud on an all-unrecognized value (#247).**
+Passing `sections` as a JSON array — the natural MCP way to send a list — arrived as the literal string
+`["shapes","paths"]`, and, split only on comma/space, tokenized to `["shapes` / `"paths"]` (brackets and quotes glued
+on), read as unrecognized, and the tool **quietly fell back to rendering the default summary** — so a batch could run
+with the wrong sections while the warning scrolled off the top of a large persisted file. The tokenizer now treats
+bracket and quote as delimiters too, so `["shapes","paths"]` parses; and a `sections=` in which **nothing** is
+recognized is now a loud error naming the tokens, never a silent summary (a partial request still renders the valid
+sections plus a warning). The unrecognized-section message — and the tool description — now also point out there is no
+`textures` section: a mesh's embedded texture-set slot paths appear under `shapes` (per-shape detail) and `paths`.
+
 **`housecarl_bulk_apply` read-back now reports the true count for a `composes=` Add of N — no more misleading `(+1)` (#259).**
 Appending N elements to a list field in one op via `composes=` rendered a verify line that reported only the last element,
 as if a single element was added — `✓ … Add Conditions: now 37 (+1), new [36] = [ConditionFloat]` for a six-element
