@@ -52,6 +52,7 @@ public static class ReadbackCountProbe
             FormKey weapFk = w.FormKey;
             var llBatch = mod.LeveledItems.AddNew(); llBatch.EditorID = "hcRbBatchLL"; FormKey batchFk = llBatch.FormKey;
             var llSingle = mod.LeveledItems.AddNew(); llSingle.EditorID = "hcRbSingleLL"; FormKey singleFk = llSingle.FormKey;
+            var llNew = mod.LeveledItems.AddNew(); llNew.EditorID = "hcRbNewLaneLL"; FormKey newFk = llNew.FormKey;
             mod.BeginWrite.ToPath(pluginPath).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
 
             using var resolver = LoadOrderResolver.Build(new[] { pluginPath });
@@ -71,6 +72,27 @@ public static class ReadbackCountProbe
                     new() { RecordType = "LeveledItemEntry", Path = new[] { "Data", "Reference" }, Verb = "Set", Value = weapFid },
                 },
             };
+
+            // NEW-PLUGIN LANE (the lane #259 was reported on) — the SAME composes= Add of Batch onto an empty LL, but
+            // producing a NEW override patch instead of editing in place. Both lanes route the read-back through the
+            // same DescribeApplied, so the count fix must hold here too. Run BEFORE the in-place edit (which mutates the
+            // source file) so this reads llNew's Entries still empty.
+            var patchPath = Path.Combine(dir, "hcReadbackPatch.esp");
+            var newLane = WritePatchBuilder.Apply(resolver, rulebook, new[]
+            {
+                new WritePatchBuilder.PatchEdit
+                {
+                    Target = newFk, Path = new[] { "Entries" }, Verb = "Add",
+                    Structs = Enumerable.Range(1, Batch).Select(Entry).ToArray(),
+                },
+            }, patchPath, extend: false);
+            var newLaneLanded = newLane.Ops.FirstOrDefault(o => o.Target == newFk)?.Landed ?? "";
+            Check($"NEW-PLUGIN LANE: composes= Add of {Batch} into a new patch also reports (+{Batch}), new [0..{Batch - 1}]  [{newLane.Error ?? "ok"}]",
+                  newLane.Success
+                  && newLaneLanded.Contains($"(+{Batch})", StringComparison.Ordinal)
+                  && newLaneLanded.Contains($"new [0..{Batch - 1}]", StringComparison.Ordinal));
+            Console.WriteLine($"   NEW-PLUGIN landed: {newLaneLanded}");
+            Console.WriteLine();
 
             // ONE in-place call, two edits: a composes= Add of 6, and a composes= Add of 1.
             var edits = new[]
@@ -105,7 +127,9 @@ public static class ReadbackCountProbe
             Check($"BATCH: reports the appended index RANGE [0..{Batch - 1}]",
                   batchLanded.Contains($"new [0..{Batch - 1}]", StringComparison.Ordinal));
 
-            // SINGLE: the single-append form is unchanged, and a 1-element compose is (+1) (count wired, not hardcoded).
+            // SINGLE: the single-append form is unchanged — (+1), new [0] = <element>. (It's the BATCH arm that proves
+            // the count is WIRED from Structs.Count rather than a constant; this arm pins that a 1-element compose keeps
+            // the element-naming single form, not the range form.)
             Check("SINGLE: a 1-element compose still reports (+1), new [0] = <element>",
                   singleLanded.Contains("(+1)", StringComparison.Ordinal)
                   && singleLanded.Contains("new [0] = ", StringComparison.Ordinal)
