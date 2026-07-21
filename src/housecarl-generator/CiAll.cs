@@ -51,6 +51,10 @@ public static class CiAll
         // (DIAL Responses → DialogResponses/INFO) surfaces its OWN FormKey (+ EditorID when present) instead of a
         // bare [DialogResponses] — the #198 family carried to records (FormKey is the identity, not a lone link).
         ("owned-record-identity-guard", OwnedRecordIdentityProbe.RunGuard),
+        // unknown-bits flag decode (#255): a [Flags] enum leaf carrying unnamed bits (ToString falls back to a bare
+        // decimal, losing the known bits) now hangs a DISPLAY-ONLY "<names> (+unknown bits 0x…)" decode — the token
+        // (bare decimal, Enum.Parse-round-trippable) is untouched; biped-slot flags keep their own slot decode.
+        ("flag-bits-display-guard", FlagBitsDisplayProbe.RunGuard),
         ("floi-read-guard", FloiReadProbe.RunGuard),
         ("floi-fields-guard", FloiFieldsProbe.RunGuard),
         ("forward-from-plugin-guard", ForwardFromPluginProbe.RunGuard),

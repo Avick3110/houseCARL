@@ -204,7 +204,7 @@ public static class ReadEngine
                 // FieldsDiff runs never sees the hint (it reads at expansion depth, a different summary path).
                 // The hint text is the caller's (containerHint): depth=2 is only a real knob on some surfaces.
                 if (note is { Length: > 0 } && note[0] == '[' && !string.IsNullOrEmpty(containerHint)) note += containerHint;
-                fields.Add(new FieldValue(p, r.HasValue, r.HasValue ? r.Token : null, note, FlagSlotDisplay(r)));
+                fields.Add(new FieldValue(p, r.HasValue, r.HasValue ? r.Token : null, note, FlagDisplay(r)));
             }
         }
         else
@@ -339,7 +339,7 @@ public static class ReadEngine
     {
         if (budget < 0) return;
         var leaf = EmitToken(val, declaredType, parent);
-        if (leaf.HasValue) { Emit(sink, ref budget, new FieldValue(path, true, leaf.Token, null, FlagSlotDisplay(leaf))); return; }
+        if (leaf.HasValue) { Emit(sink, ref budget, new FieldValue(path, true, leaf.Token, null, FlagDisplay(leaf))); return; }
         if (val is null) { Emit(sink, ref budget, new FieldValue(path, false, null, leaf.Note)); return; }
         // a link (incl. a null FormKey, or an FLOI) is a note, not an openable container/substruct.
         if (val is IFormLinkGetter || WriteEngine.IsFormLinkOrIndex(Nullable.GetUnderlyingType(declaredType) ?? declaredType))
@@ -747,6 +747,43 @@ public static class ReadEngine
         for (int i = 0; i < 32; i++) if ((fb.Bits & (1UL << i)) != 0) slots.Add(30 + i);
         if (slots.Count == 0) return null;
         return (slots.Count == 1 ? "slot " : "slots ") + string.Join(", ", slots);
+    }
+
+    /// <summary>The DISPLAY-ONLY annotation for a <c>[Flags]</c> enum leaf — the human-readable decode that rides
+    /// <see cref="FieldValue.Display"/> without touching the round-trip <see cref="LeafRead.Token"/>. A biped-slot
+    /// flags leaf gets the slot-number decode (<see cref="FlagSlotDisplay"/>); every OTHER flags enum gets the
+    /// unknown-bits decode (<see cref="FlagBitsDisplay"/>), which fires only when unnamed bits are present. The two
+    /// are mutually exclusive by construction — a biped leaf with any bit set already yields a slot decode, and one
+    /// with no bit set has no unknown bits either — so the <c>??</c> never double-annotates. Null when neither
+    /// applies (a non-flags leaf, or a flags leaf whose every set bit is already named).</summary>
+    internal static string? FlagDisplay(LeafRead leaf) => FlagSlotDisplay(leaf) ?? FlagBitsDisplay(leaf);
+
+    /// <summary>The DISPLAY-ONLY decode for a <c>[Flags]</c> enum leaf carrying bits the catalog does NOT name — the
+    /// case where <c>[Flags].ToString()</c> abandons the name list and renders a bare decimal (e.g.
+    /// <c>Configuration.Flags = 2490402</c> on a Dawnguard vampire NPC), silently losing even the KNOWN bits a
+    /// consumer needs (Female / Unique / IsGhost — #255). This surfaces the known bits by NAME plus the unnamed
+    /// remainder as an explicit hex mask — <c>Female, Unique, BleedoutOverride (+unknown bits 0x260000)</c> — so the
+    /// common bits stay directly consumable and the presence of unknown bits is STATED, not hidden. Rides
+    /// <see cref="FieldValue.Display"/>, so the round-trip <see cref="LeafRead.Token"/> (the bare decimal, which
+    /// <c>Enum.Parse</c> re-accepts) is untouched — write / read-proof / diff never see it, exactly like the
+    /// biped-slot decode. Null when the leaf is not a flags enum OR every set bit is already named (ToString gave
+    /// the full name list — nothing to recover).</summary>
+    internal static string? FlagBitsDisplay(LeafRead leaf)
+    {
+        if (!leaf.HasValue || leaf.Flags is not { } fb) return null;
+        // The union of every defined member's bits = the NAMED mask; anything set outside it is an unnamed bit.
+        ulong known = 0;
+        foreach (var member in Enum.GetValues(fb.EnumType))
+            if (TryEnumBits(member, fb.EnumType, out var mb)) known |= mb;
+        ulong unknown = fb.Bits & ~known;
+        if (unknown == 0) return null;   // every set bit is named — ToString already rendered the full name list
+        // Render the KNOWN portion through the enum's own ToString (fully named → a clean comma list, never a
+        // decimal), then state the unnamed remainder as an explicit hex mask so nothing is silently dropped.
+        ulong knownSet = fb.Bits & known;
+        var names = knownSet == 0 ? null : Enum.ToObject(fb.EnumType, knownSet).ToString();
+        return string.IsNullOrEmpty(names) || names == "0"
+            ? $"unknown bits 0x{unknown:X}"
+            : $"{names} (+unknown bits 0x{unknown:X})";
     }
 
     // -- primitive family (mirror TryPrimitive) --------------------------------
