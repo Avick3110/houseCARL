@@ -759,11 +759,11 @@ public static class ReadEngine
     internal static string? FlagDisplay(LeafRead leaf) => FlagSlotDisplay(leaf) ?? FlagBitsDisplay(leaf);
 
     /// <summary>The DISPLAY-ONLY decode for a <c>[Flags]</c> enum leaf carrying bits the catalog does NOT name — the
-    /// case where <c>[Flags].ToString()</c> abandons the name list and renders a bare decimal (e.g.
-    /// <c>Configuration.Flags = 2490402</c> on a Dawnguard vampire NPC), silently losing even the KNOWN bits a
-    /// consumer needs (Female / Unique / IsGhost — #255). This surfaces the known bits by NAME plus the unnamed
-    /// remainder as an explicit hex mask — <c>Female, Unique, BleedoutOverride (+unknown bits 0x260000)</c> — so the
-    /// common bits stay directly consumable and the presence of unknown bits is STATED, not hidden. Rides
+    /// case where <c>[Flags].ToString()</c> abandons the name list and renders a bare decimal (e.g. an NPC
+    /// <c>Configuration.Flags</c> whose value includes an unnamed modder/game-version bit), silently losing even the
+    /// KNOWN bits a consumer needs (gender / uniqueness / ghost state — #255). This surfaces the known bits by NAME
+    /// plus the unnamed remainder as an explicit hex mask — <c>&lt;known flag names&gt; (+unknown bits 0x…)</c> — so
+    /// the common bits stay directly consumable and the presence of unknown bits is STATED, not hidden. Rides
     /// <see cref="FieldValue.Display"/>, so the round-trip <see cref="LeafRead.Token"/> (the bare decimal, which
     /// <c>Enum.Parse</c> re-accepts) is untouched — write / read-proof / diff never see it, exactly like the
     /// biped-slot decode. Null when the leaf is not a flags enum OR every set bit is already named (ToString gave
@@ -771,19 +771,26 @@ public static class ReadEngine
     internal static string? FlagBitsDisplay(LeafRead leaf)
     {
         if (!leaf.HasValue || leaf.Flags is not { } fb) return null;
-        // The union of every defined member's bits = the NAMED mask; anything set outside it is an unnamed bit.
-        ulong known = 0;
+        // Peel the NAMEABLE bits exactly the way .NET's [Flags].ToString() does: greedily apply each named member that
+        // is FULLY contained (largest value first, so a multi-bit COMBO member wins over its constituent bits), and
+        // whatever bits no member can cover are the unknown remainder. Do NOT just OR every member's bits into one
+        // "known" mask: a bit that exists ONLY inside a multi-bit combo member (e.g. Package.Flag.WearSleepOutfit)
+        // would count as "known" yet ToString can't name it on its own, so the "known names" slot would itself render
+        // a bare decimal — the very thing this decode exists to avoid (PR #261 review).
+        var members = new List<ulong>();
         foreach (var member in Enum.GetValues(fb.EnumType))
-            if (TryEnumBits(member, fb.EnumType, out var mb)) known |= mb;
-        ulong unknown = fb.Bits & ~known;
-        if (unknown == 0) return null;   // every set bit is named — ToString already rendered the full name list
-        // Render the KNOWN portion through the enum's own ToString (fully named → a clean comma list, never a
-        // decimal), then state the unnamed remainder as an explicit hex mask so nothing is silently dropped.
-        ulong knownSet = fb.Bits & known;
-        var names = knownSet == 0 ? null : Enum.ToObject(fb.EnumType, knownSet).ToString();
+            if (TryEnumBits(member, fb.EnumType, out var mb) && mb != 0) members.Add(mb);
+        members.Sort((a, b) => b.CompareTo(a));   // descending (unsigned) — a combo before its constituent bits
+        ulong remainder = fb.Bits;
+        foreach (var mb in members) if ((remainder & mb) == mb) remainder &= ~mb;
+        if (remainder == 0) return null;   // every set bit is nameable — ToString already gave the full name list
+        // The nameable bits are exactly a union of whole members, so ToString renders them as clean names (never a
+        // decimal); state the remainder as an explicit hex mask so nothing is silently dropped.
+        ulong nameable = fb.Bits & ~remainder;
+        var names = nameable == 0 ? null : Enum.ToObject(fb.EnumType, nameable).ToString();
         return string.IsNullOrEmpty(names) || names == "0"
-            ? $"unknown bits 0x{unknown:X}"
-            : $"{names} (+unknown bits 0x{unknown:X})";
+            ? $"unknown bits 0x{remainder:X}"
+            : $"{names} (+unknown bits 0x{remainder:X})";
     }
 
     // -- primitive family (mirror TryPrimitive) --------------------------------

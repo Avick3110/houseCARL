@@ -9,14 +9,16 @@ when it changes.
 *Accumulating notes for the next cut — not yet released; `plugin.json` still reads the last shipped version.*
 
 **A `[Flags]` enum field with unknown bits now decodes the known bits instead of collapsing to a bare decimal (#255).**
-When a flags field carries a bit the record catalog doesn't name (a modded slot, a game-version bit houseCARL's Mutagen
-build predates), `.NET`'s `[Flags].ToString()` abandons the name list and renders the whole value as one decimal — e.g.
-`Configuration.Flags = 2490402` on Dawnguard vampire NPCs — silently losing even the *known* bits (Female, Unique,
-IsGhost) a consumer needs. A read now appends a display-only decode: `2490402   (Female, Unique, BleedoutOverride
-(+unknown bits 0x260000))` — the known bits by name, the unnamed remainder as an explicit hex mask, so the common bits
-stay directly consumable and the presence of unknown bits is stated rather than hidden. The round-trip token is
-unchanged (the bare decimal still round-trips through `Enum.Parse`, so write / read-proof / diff are untouched) — the
-decode rides the same display channel as the existing biped-slot annotation, which keeps its slot-number decode.
+When a flags field carries a bit the record catalog doesn't name (a modded slot, or a game-version bit houseCARL's
+Mutagen build predates), `.NET`'s `[Flags].ToString()` abandons the name list and renders the whole value as one
+decimal — e.g. `Configuration.Flags = 2490402` on Dawnguard vampire NPCs — silently losing even the *known* bits
+(gender, uniqueness, ghost state) a consumer needs. A read now appends a display-only decode of the form
+`2490402   (<known flag names> (+unknown bits 0x…))` — the known bits by name, the unnamed remainder as an explicit hex
+mask, so the common bits stay directly consumable and the presence of unknown bits is stated rather than hidden. The
+known bits are peeled the way `[Flags].ToString()` itself names them (fully-contained members, combos before their
+constituent bits), so the name slot is never itself a bare decimal. The round-trip token is unchanged (the bare decimal
+still round-trips through `Enum.Parse`, so write / read-proof / diff are untouched) — the decode rides the same display
+channel as the existing biped-slot annotation, which keeps its slot-number decode.
 
 **`housecarl_read_record` / `housecarl_batch_record_detail` `depth=2` now surfaces an owned-record list element's own FormID (#252).**
 A list whose elements are themselves owned records — most commonly a DIAL topic's `Responses` (each element an INFO record) —
