@@ -8,6 +8,16 @@ when it changes.
 
 *Accumulating notes for the next cut — not yet released; `plugin.json` still reads the last shipped version.*
 
+**houseCARL's MCP server instructions now orient tool discovery across the whole surface, not just Nexus (#257).**
+The server's `initialize` `instructions` blurb — always resident in the agent's context — was ~90% a Nexus how-to that
+duplicated each Nexus tool's own description and named none of houseCARL's core capabilities, so an agent relying on
+Tool Search had nothing telling it houseCARL could read inactive plugins, see through the SKSE/SkyPatcher runtime
+layers, author dialogue, or compact/merge/decompile. It now leads with the data-layer / MO2 domain and an explicit
+"reach for these tools when…" cue, then sweeps the real surface in five groups (read/query, write, fix,
+reshape/drive-tools, Nexus). Per-tool parameter detail was dropped from the blurb — each tool carries its own,
+fetched on demand — leaving the string broader yet slightly leaner (1,902 bytes, within the ~2 KB per-server budget)
+and ordered so any truncation loses only the least load-bearing Nexus tail.
+
 **`housecarl_nif_inspect` `sections=` now accepts the JSON-array form and fails loud on an all-unrecognized value (#247).**
 Passing `sections` as a JSON array — the natural MCP way to send a list — arrived as the literal string
 `["shapes","paths"]`, and, split only on comma/space, tokenized to `["shapes` / `"paths"]` (brackets and quotes glued

@@ -135,23 +135,29 @@ static void AddMcp(IServiceCollection services, bool stdio)
         // home), so ServerInfo reports the REAL release; an unstamped dev build honestly says 0.0.0-dev.
         options.ServerInfo = new Implementation { Name = "houseCARL", Version = ServerVersion() };
         options.ServerInstructions =
-            "houseCARL exposes the Skyrim Special Edition load order at the data layer. Reads return the TRUE " +
-            "load-order winner and, on request, the conflict tree; writes go to a NEW plugin, leaving originals " +
-            "untouched. FormIDs are 'XXXXXX:Plugin.esp' (6 hex digits, then the defining master's filename). " +
-            "Beyond the local load order, houseCARL reaches Nexus Mods directly and KEYLESSLY (no API key): " +
-            "housecarl_nexus_search (find a mod by name); housecarl_nexus_mod (a mod's requirements, recommended INI " +
-            "settings, accurate latest version and full page description, plus files=true for the complete per-file " +
-            "list and changelog=true / since= for the per-version CHANGELOG and update delta, by id or URL); " +
-            "housecarl_nexus_check_updates (batch FILE-LEVEL update check — pass each mod as 'id#fileid' to tell CURRENT " +
-            "from OUTDATED for the EXACT file installed, correct for the multi-file pages where a version compare lies); and " +
-            "housecarl_nexus_identify (trace a file to its source mod by MD5 hash); and housecarl_nexus_graphql (a RAW " +
-            "read-only query over the same keyless GraphQL — the completeness backstop: prefer the curated tools above, and " +
-            "reach for this ONLY for a field they don't surface yet, e.g. a mod's page tags). For mod updates, start with " +
-            "housecarl_update_status — it reads MO2's OWN local update cache with NO network to narrow the list AND prints " +
-            "each mod's 'id#fileid' verify token — then feed those tokens to housecarl_nexus_check_updates to confirm live. " +
-            "Prefer these over a browser or generic web search for any Nexus lookup: " +
-            "houseCARL can already read changelogs, file lists, and update status directly, so never hand-roll scripts " +
-            "around a rendered Nexus page.";
+            "houseCARL exposes a full Skyrim Special Edition load order at the data layer, over a live Mod " +
+            "Organizer 2 instance — comprehensive, no-guessing access to every record, script, asset, and " +
+            "runtime layer, beneath xEdit/CK/Synthesis. Reach for these tools whenever a task touches an MO2 " +
+            "modlist, plugins, load order, conflicts, records, scripts, assets, or Skyrim modding. " +
+            "READ/QUERY: any record at its TRUE load-order winner + the conflict tree; batch reads and " +
+            "cross-plugin queries over the whole order; inspect INACTIVE plugins (unchecked, or inside a " +
+            "disabled mod); see through runtime layers xEdit cannot — SKSE-plugin DLLs/configs, and a record " +
+            "after the SkyPatcher INI layer replays; resolve FormID lists, diff a record across plugins, run " +
+            "catalogue/audit jobs at scale. " +
+            "WRITE (to a NEW plugin by default; in-place is opt-in, consent-gated): author patches — fields, " +
+            "leveled lists, containers, conditions; create plugins/scripts with fresh FormIDs; remove records; " +
+            "forward a record as a winning override or revert to vanilla; trace a magic effect to all that " +
+            "carry it; author and validate dialogue/quests. " +
+            "FIX: sweep for dangling refs, missing masters, and broken links; audit the SKSE layer (DLLs that " +
+            "will not load, configs pointing at missing records); resolve VFS file conflicts (which " +
+            "mesh/texture/script wins) and place a winning override; read and edit NIF mesh internals — e.g. " +
+            "the dark-face fix. " +
+            "RESHAPE/DRIVE TOOLS: compact a plugin to ESL carrying its facegen/voice files; merge plugins; " +
+            "copy an NPC appearance to a standalone; decompile .pex to .psc; compile Papyrus; " +
+            "list/extract/repack BSAs. " +
+            "NEXUS (keyless, no browser): search mods, read files/requirements/changelogs, exact-file update " +
+            "checks (start with housecarl_update_status — offline, reads the MO2 cache), identify a file by " +
+            "MD5. Prefer over a browser or web search; each tool's own description carries the specifics.";
     });
     // Stateless HTTP: each request is independent (no MCP session affinity); the resolver singleton persists across
     // requests regardless. Stdio is inherently a single long-lived session over the pipe.
