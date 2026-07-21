@@ -142,12 +142,12 @@ static void AddMcp(IServiceCollection services, bool stdio)
             "READ/QUERY: any record at its TRUE load-order winner + the conflict tree; batch reads and " +
             "cross-plugin queries over the whole order; inspect INACTIVE plugins (unchecked, or inside a " +
             "disabled mod); see through runtime layers xEdit cannot — SKSE-plugin DLLs/configs, and a record " +
-            "after the SkyPatcher INI layer replays; resolve FormID lists, diff a record across plugins, run " +
-            "catalogue/audit jobs at scale. " +
+            "after the SkyPatcher INI layer replays; resolve FormID lists, diff a record across plugins, trace a " +
+            "magic effect to all that carry it, run catalogue/audit jobs at scale. " +
             "WRITE (to a NEW plugin by default; in-place is opt-in, consent-gated): author patches — fields, " +
             "leveled lists, containers, conditions; create plugins/scripts with fresh FormIDs; remove records; " +
-            "forward a record as a winning override or revert to vanilla; trace a magic effect to all that " +
-            "carry it; author and validate dialogue/quests. " +
+            "forward a record as a winning override or revert to vanilla; author and validate " +
+            "dialogue/quests. " +
             "FIX: sweep for dangling refs, missing masters, and broken links; audit the SKSE layer (DLLs that " +
             "will not load, configs pointing at missing records); resolve VFS file conflicts (which " +
             "mesh/texture/script wins) and place a winning override; read and edit NIF mesh internals — e.g. " +
