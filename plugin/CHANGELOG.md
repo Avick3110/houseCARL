@@ -15,14 +15,24 @@ live file wasn't live, which is exactly the claim a diff is consulted for. Two c
 locate asserted "not enabled" for every direct path instead of computing it, and `diff_record` routed poles by plugin
 NAME only, so a path could never match the active order. Enabled-ness now comes from the same enumerator the filename
 lane uses (so the two can't disagree about one file), and a path that IS the copy the order loads resolves back to its
-plugin name and diffs as `active order`. The flag answers "is this file the copy the install provides", judged against
-the same priority-ordered winner the filename lane uses — so a full-path compare, never a filename one: an archived
-backup that shares a name with the live plugin stays `OUT-OF-LOAD-ORDER` (the old-version-vs-live diff is unchanged),
-and a shadowed copy in a lower-priority enabled mod is not reported as active merely because its mod is enabled.
-`read_plugin_file` inherits the honest flag, so it no longer adds `NOT active` to an enabled plugin's own file. Its
-`OUT-OF-LOAD-ORDER` banner is unchanged and still stamps every read — note that the banner's "the game does not load
-this file" wording is inaccurate when the file you passed IS the live plugin; the wording is tracked in #271 with the
-rest of this flag's semantics. Reported by a houseCARL user.
+plugin name and diffs as `active order`.
+
+The flag a located plugin carries — what `read_plugin_file` renders as `NOT active` and `diff_record` as `disabled` —
+now means one thing in every lane: **the game loads this file**. That needs both halves, and each was wrong before:
+
+- **The right copy.** Judged by full path against the copy the install actually serves (the first hit from an enabled
+  layer — the same rule that builds the real load order). An archived backup sharing a filename stays
+  `OUT-OF-LOAD-ORDER`, so the old-version-vs-live diff is unchanged; a copy shadowed by a higher-priority mod is not
+  called active merely because its own mod is enabled; and a plugin served from game `Data` is not called inactive
+  merely because some disabled mod holds the same filename.
+- **Ticked.** A plugin sitting in an *enabled mod* but *unchecked in MO2's right pane* is no longer reported as
+  active — the game does not load it. Implicit base/CC masters, which are force-loaded and never listed in
+  `plugins.txt`, still count as active. This half applies to the filename and `mod=` lanes too, so all three now
+  state the same fact.
+
+`read_plugin_file`'s `OUT-OF-LOAD-ORDER` banner is unchanged and still stamps every read — note its "the game does not
+load this file" wording is inaccurate when the file you passed IS the live plugin; that wording, and whether this flag
+should split into two, are tracked in #271. Reported by a houseCARL user.
 
 **The Codex umbrella router now covers the whole tool surface, and a CI guard keeps it that way (Codex parity).**
 The Codex packaging ships one umbrella routing skill (`plugin/codex/housecarl/SKILL.md`); it had drifted to naming

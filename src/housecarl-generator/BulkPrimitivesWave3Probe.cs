@@ -488,6 +488,17 @@ public static class BulkPrimitivesWave3Probe
         Directory.CreateDirectory(Path.GetDirectoryName(decoyPath)!);
         File.Copy(dataServedPath, decoyPath, overwrite: true);
 
+        // UNTICKED plugin: sole copy, in an ENABLED mod folder, but listed in plugins.txt WITHOUT the `*`. MO2's left
+        // pane says yes, its right pane says no, and the game does not load it — the exact state a mod-folder-only
+        // flag reports backwards.
+        var unKey = new ModKey("HcW3Unticked", ModType.Plugin);
+        var untickedPath = Path.Combine(mods, "DiffUnticked", unKey.FileName.String);
+        Directory.CreateDirectory(Path.GetDirectoryName(untickedPath)!);
+        var unMod = new SkyrimMod(unKey, SkyrimRelease.SkyrimSE);
+        var uw = unMod.Weapons.AddNew(); uw.EditorID = "UntickedW"; uw.BasicStats = new WeaponBasicStats { Damage = 22 };
+        var uwFk = uw.FormKey;
+        unMod.BeginWrite.ToPath(untickedPath).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
+
         // ARCHIVE backup: the SAME filename as the active replacer (55), parked OUTSIDE every MO2/game root — the
         // old-version-vs-live diff (#269's reporter's actual job). Same name, different file: it must stay off-order.
         var archivePath = Path.Combine(dir, "archive", rKey.FileName.String);
@@ -496,9 +507,15 @@ public static class BulkPrimitivesWave3Probe
         ((IWeapon)WriteEngine.GenericGetOrAddAsOverride(amod, w)).BasicStats = new WeaponBasicStats { Damage = 55 };
         amod.BeginWrite.ToPath(archivePath).WithLoadOrder(new ISkyrimModGetter[] { m }).Write();
 
-        File.WriteAllText(Path.Combine(profiles, "loadorder.txt"), "# header\r\n" + mKey.FileName + "\r\n" + rKey.FileName + "\r\n");
-        File.WriteAllText(Path.Combine(profiles, "plugins.txt"), "*" + mKey.FileName + "\r\n*" + rKey.FileName + "\r\n");
-        File.WriteAllText(Path.Combine(profiles, "modlist.txt"), "# header\r\n+DiffRepl\r\n+DiffReplShadow\r\n+DiffMaster\r\n-DiffDonor\r\n-DataServedDecoy\r\n");
+        // The Data-served plugin is CHECKED and in the order: its arm isolates WHICH COPY is served, so its tick state
+        // must not be the thing that decides it (leave it unticked and the tick gate answers first, and the
+        // served-copy rule goes untested).
+        File.WriteAllText(Path.Combine(profiles, "loadorder.txt"),
+            "# header\r\n" + mKey.FileName + "\r\n" + dsKey.FileName + "\r\n" + rKey.FileName + "\r\n");
+        // plugins.txt: master + Data-served + replacer CHECKED; HcW3Unticked listed WITHOUT the `*` (present but unchecked).
+        File.WriteAllText(Path.Combine(profiles, "plugins.txt"),
+            "*" + mKey.FileName + "\r\n*" + dsKey.FileName + "\r\n*" + rKey.FileName + "\r\n" + unKey.FileName + "\r\n");
+        File.WriteAllText(Path.Combine(profiles, "modlist.txt"), "# header\r\n+DiffRepl\r\n+DiffReplShadow\r\n+DiffMaster\r\n+DiffUnticked\r\n-DiffDonor\r\n-DataServedDecoy\r\n");
 
         var genDir = Path.Combine(dir, "corpus-gen");
         try { _ = CorpusRulebook.LoadCorpus(); }
@@ -580,6 +597,15 @@ public static class BulkPrimitivesWave3Probe
         var rpfDecoy = svc.ReadPluginFile(decoyPath, dswFid, null, null, new[] { "BasicStats.Damage" }, 1, null, 10);
         Check("read_plugin_file: that disabled copy itself reports enabled=false",
               rpfDecoy.Error is null && rpfDecoy.Where == "direct path" && !rpfDecoy.Enabled);
+        string uwFid = $"{uwFk.ID:X6}:{uwFk.ModKey.FileName}";
+        // UNTICKED: the served copy, in an ENABLED mod, but unchecked in plugins.txt — the game does not load it.
+        // The mod's switch and the plugin's tick are separate facts and the flag has to carry both (#271).
+        var rpfUnticked = svc.ReadPluginFile(untickedPath, uwFid, null, null, new[] { "BasicStats.Damage" }, 1, null, 10);
+        Check("read_plugin_file: a plugin in an ENABLED mod but UNTICKED in plugins.txt reports enabled=false",
+              rpfUnticked.Error is null && rpfUnticked.Where == "direct path" && !rpfUnticked.Enabled);
+        var rpfUntickedByName = svc.ReadPluginFile(Path.GetFileName(untickedPath), uwFid, null, null, null, 1, null, 10);
+        Check("read_plugin_file: the same plugin BY FILENAME agrees — the lanes state one fact, not two",
+              rpfUntickedByName.Error is null && !rpfUntickedByName.Enabled);
 
         // IDENTICAL — same plugin on both sides
         var dSame = svc.DiffRecord(wFid, replName, replName, null);

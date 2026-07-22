@@ -5293,6 +5293,16 @@ public sealed class LoadOrderService : IDisposable
     internal static PluginLocateResult LocatePluginFileOnDisk(
         Mo2Composition comp, string modsDir, string dataDir, string overwriteDir, string plugin, string? mod)
     {
+        // A plugin's TICK state is a DIFFERENT fact from its mod folder's switch: a plugin can sit in an enabled mod
+        // and be unchecked in MO2's right pane, and the game then does not load it. Every lane below returns a flag
+        // the renderers state as "active" / "NOT active", so the flag has to mean "the game loads THIS file" — which
+        // needs both halves: the file is the copy the install serves, AND the plugin is ticked. Implicit base/CC
+        // masters are force-loaded and never listed in plugins.txt, so they count as ticked. This is the same test
+        // read_plugin_file already applies to a file's declared MASTERS, now applied to the file itself (#271).
+        bool Ticked(string fileName) =>
+            comp.ActivePluginNames.Contains(fileName)
+            || comp.ImplicitPluginNames.Any(x => x.Equals(fileName, StringComparison.OrdinalIgnoreCase));
+
         if (LooksLikePath(plugin))
         {
             if (!File.Exists(plugin)) return new(null, "", false, null, $"no file at path '{plugin}'.");
@@ -5317,21 +5327,23 @@ public sealed class LoadOrderService : IDisposable
                 ? Mo2LoadOrder.LocatePlugin(comp, modsDir, dataDir, overwriteDir, Path.GetFileName(full))
                 : Array.Empty<PluginFileHit>();
             var served = located.FirstOrDefault(h => h.Enabled);
-            return new(full, "direct path", served is not null && SamePluginFile(served.Path, full), null, null);
+            bool isServedCopy = served is not null && SamePluginFile(served.Path, full);
+            return new(full, "direct path", isServedCopy && Ticked(Path.GetFileName(full)), null, null);
         }
         if (!string.IsNullOrWhiteSpace(mod))
         {
             var fn = Path.GetFileName(plugin);
             var cand = Path.Combine(modsDir, mod.Trim(), fn);
             if (!File.Exists(cand)) return new(null, "", false, null, $"mod folder '{mod.Trim()}' under ModsDir does not provide '{fn}'.");
-            return new(cand, $"mod '{mod.Trim()}'", comp.EnabledMods.Contains(mod.Trim(), StringComparer.OrdinalIgnoreCase), null, null);
+            return new(cand, $"mod '{mod.Trim()}'",
+                       comp.EnabledMods.Contains(mod.Trim(), StringComparer.OrdinalIgnoreCase) && Ticked(fn), null, null);
         }
         var hits = Mo2LoadOrder.LocatePlugin(comp, modsDir, dataDir, overwriteDir, plugin);
         if (hits.Count == 0)
             return new(null, "", false, null,
                 $"'{Path.GetFileName(plugin)}' is in no mod folder (enabled, disabled, or not-yet-listed in MO2), the overwrite folder, or the game Data folder. Check the filename, pass an absolute path, or (if it's an MO2 mod) the exact folder via mod=.");
         if (hits.Count > 1) return new(null, "", false, hits, null);
-        return new(hits[0].Path, hits[0].Where, hits[0].Enabled, null, null);
+        return new(hits[0].Path, hits[0].Where, hits[0].Enabled && Ticked(Path.GetFileName(plugin)), null, null);
     }
 
     /// <summary>Does the user's `plugin` argument denote a PATH (use verbatim — the "inspect any file" case) rather
