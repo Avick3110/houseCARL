@@ -669,6 +669,25 @@ public static class BulkPrimitivesWave3Probe
               && renderUnticked.Contains("the game does NOT load this file")
               && renderUnticked.Contains("UNTICKED in plugins.txt"));
 
+        // ---- #271 item 2: the REFUSAL sweep. A tool that reads THROUGH the load order still refuses on an unticked
+        //      plugin (correctly — Q3: a plugin the game does not load must never masquerade as load-order truth), but
+        //      the refusal has to say WHY. This is a second mechanism from the flag above: these paths never call the
+        //      locate contract at all, they just miss the index's name table. ----
+        var readUnticked = svc.ResolveRead(uwFk, unKey.FileName.String, null, false);
+        Check("#271 refusal: read_record on an UNTICKED plugin explains it is installed-but-unticked, not 'not found'",
+              readUnticked.Error is { } eU && eU.Contains("not in the load order") && eU.Contains("UNTICKED")
+              && eU.Contains("plugins.txt"));
+        Check("#271 refusal: and points at the raw-read escape hatch rather than leaving a dead end",
+              readUnticked.Error is { } eU2 && eU2.Contains("housecarl_read_plugin_file"));
+        var readDisabledMod = svc.ResolveRead(wFk, dKey.FileName.String, null, false);
+        Check("#271 refusal: a plugin whose MOD is switched off says so — a different cause, a different remedy",
+              readDisabledMod.Error is { } eD && eD.Contains("DiffDonor") && eD.Contains("not active"));
+        // The fallback must survive: a name that explains nothing still gets the did-you-mean it always got. The
+        // explainer REPLACES the suggester only when it has something real to say.
+        var readTypo = svc.ResolveRead(wFk, "HcW3DiffRep.esp", null, false);   // a real near-miss: one character dropped
+        Check("#271 refusal: a genuine typo still gets the did-you-mean (the explainer adds, never removes)",
+              readTypo.Error is { } eT && eT.Contains("Did you mean") && eT.Contains(replName));
+
         // IDENTICAL — same plugin on both sides
         var dSame = svc.DiffRecord(wFid, replName, replName, null);
         Check("diff same plugin both sides → identical (0 deltas, complete)", dSame.Error is null && dSame.Diff!.Deltas.Count == 0 && dSame.Diff.Complete);

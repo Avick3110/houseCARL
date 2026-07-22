@@ -379,7 +379,7 @@ public static class WritePatchBuilder
                 else if (string.Equals(e.FromPlugin, fileName, StringComparison.OrdinalIgnoreCase))
                 { problems.Add($"{e.Target}: CopyFrom from_plugin '{e.FromPlugin}' is the output patch itself — name the OTHER plugin whose version to copy from."); continue; }
                 else if (!view.ContainsPlugin(e.FromPlugin))
-                { problems.Add($"{e.Target}: CopyFrom source '{e.FromPlugin}' is not in the load order (and no plugin file by that name was located on disk) — name an active plugin, or a plugin file present on disk."); continue; }
+                { problems.Add($"{e.Target}: CopyFrom source '{e.FromPlugin}' is not in the load order (and no plugin file by that name was located on disk) — name an active plugin, or a plugin file present on disk.{view.AbsenceClause(e.FromPlugin)}"); continue; }
                 else if (view.ExcludedPlugins.TryGetValue(e.FromPlugin, out var why))
                 { problems.Add($"{e.Target}: CopyFrom source '{e.FromPlugin}' was excluded from this session ({why}) — its records aren't resolvable."); continue; }
                 else
@@ -586,7 +586,7 @@ public static class WritePatchBuilder
         //     content-source guard. ONE captured view answers every edit (the hunt-F5 one-view discipline). ---
         var view = resolver.Capture();
         if (!view.ContainsPlugin(targetName))
-            return PatchOutcome.Fail($"in-place target '{targetName}' is not an active plugin in the load order.");
+            return PatchOutcome.Fail($"in-place target '{targetName}' is not an active plugin in the load order.{view.AbsenceClause(targetName)}");
         if (view.ExcludedPlugins.TryGetValue(targetName, out var excluded))
             return PatchOutcome.Fail(
                 $"cannot edit '{targetName}' in place: it was EXCLUDED from this session ({excluded}) — houseCARL won't " +
@@ -1009,7 +1009,7 @@ public static class WritePatchBuilder
         //     plugin Mutagen excluded, which would risk dropping the record it couldn't read on the rewrite, Q3). ---
         var view = resolver.Capture();
         if (!view.ContainsPlugin(targetName))
-            return RemovalOutcome.Fail($"in-place target '{targetName}' is not an active plugin in the load order.");
+            return RemovalOutcome.Fail($"in-place target '{targetName}' is not an active plugin in the load order.{view.AbsenceClause(targetName)}");
         if (view.ExcludedPlugins.TryGetValue(targetName, out var excluded))
             return RemovalOutcome.Fail(
                 $"cannot remove from '{targetName}' in place: it was EXCLUDED from this session ({excluded}) — houseCARL won't " +
@@ -1143,7 +1143,7 @@ public static class WritePatchBuilder
                 continue;
             }
             if (!view.ContainsPlugin(s.FromPlugin))
-            { problems.Add($"{s.Target}: source plugin '{s.FromPlugin}' is not in the load order — name an active plugin that defines or overrides this record."); continue; }
+            { problems.Add($"{s.Target}: source plugin '{s.FromPlugin}' is not in the load order — name an active plugin that defines or overrides this record.{view.AbsenceClause(s.FromPlugin)}"); continue; }
             if (view.ExcludedPlugins.TryGetValue(s.FromPlugin, out var why))
             { problems.Add($"{s.Target}: source plugin '{s.FromPlugin}' was excluded from this session ({why}) — its records aren't resolvable."); continue; }
             var body = view.GetRecord(session, s.FromPlugin, s.Target);
@@ -1190,7 +1190,7 @@ public static class WritePatchBuilder
         //     parse) + source resolution off ONE captured view. ---
         var view = resolver.Capture();
         if (!view.ContainsPlugin(targetName))
-            return ForwardOutcome.Fail($"in-place target '{targetName}' is not an active plugin in the load order.");
+            return ForwardOutcome.Fail($"in-place target '{targetName}' is not an active plugin in the load order.{view.AbsenceClause(targetName)}");
         if (view.ExcludedPlugins.TryGetValue(targetName, out var excluded))
             return ForwardOutcome.Fail(
                 $"cannot forward into '{targetName}' in place: it was EXCLUDED from this session ({excluded}) — houseCARL won't " +
@@ -1953,7 +1953,7 @@ public static class WritePatchBuilder
             // The target must be an active, fully-parseable plugin (the excluded-plugin guard, same as ApplyInPlace):
             // houseCARL won't re-serialize a plugin it can't fully parse — that would risk DROPPING a record it couldn't read (Q3).
             if (!view.ContainsPlugin(inPlaceTarget!))
-                return CreateOutcome.Fail($"in-place target '{inPlaceTarget}' is not an active plugin in the load order.");
+                return CreateOutcome.Fail($"in-place target '{inPlaceTarget}' is not an active plugin in the load order.{view.AbsenceClause(inPlaceTarget!)}");
             if (view.ExcludedPlugins.TryGetValue(inPlaceTarget!, out var excluded))
                 return CreateOutcome.Fail(
                     $"cannot create into '{inPlaceTarget}' in place: it was EXCLUDED from this session ({excluded}) — houseCARL won't " +

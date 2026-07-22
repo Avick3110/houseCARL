@@ -137,7 +137,7 @@ public sealed class LoadOrderService : IDisposable
                             $"No active plugins resolved from the MO2 profile. ProfileDir='{_profileDir}', " +
                             $"ModsDir='{_modsDir}', DataDir='{_dataDir}'. {order.Warnings.Count} warning(s). Check " +
                             "HouseCarl config and that MO2 has written loadorder.txt/modlist.txt (a refresh/re-sort in MO2).");
-                    _resolver = LoadOrderResolver.Build(paths);
+                    _resolver = LoadOrderResolver.Build(paths, PluginAbsenceExplainer(_profileDir, _modsDir, _dataDir, _overwriteDir));
                     _resolvedPaths = paths;
                     _profileMtimes = profileMtimes;
                 }
@@ -207,6 +207,59 @@ public sealed class LoadOrderService : IDisposable
     /// archives, VFS-resolved + ranked — <see cref="ArchiveDiscovery"/>) and read the enabled-mod priority list, both
     /// from the same cheap static profile read the record path uses. The gamePath (for the game-dir Skyrim.ini fallback)
     /// is DataDir's parent (DataDir = gamePath\Data). Caller holds <see cref="_gate"/>.</summary>
+    /// <summary>The injected answer to "why is this plugin filename NOT in the active order?" — handed to every
+    /// <see cref="LoadOrderResolver"/> this service builds, so a refusal names the cause and its remedy instead of a
+    /// flat not-found the reader has to go re-derive (#271). Returns null when nothing can be said, and the refusal
+    /// then reads exactly as it did before (a did-you-mean).
+    /// <para>Reads the profile FRESH on each call rather than closing over a parsed composition: the composition is a
+    /// cheap three-file text parse, this runs only on a REFUSAL (never on a hot path), and a stale answer here would be
+    /// the precise failure this whole issue is about — telling someone a plugin is unticked after they ticked it. The
+    /// roots are captured by value at build time; they cannot change without the service rebuilding anyway.</para>
+    /// <para>Vocabulary is deliberate throughout: a MOD is enabled/disabled (MO2's left pane), a PLUGIN is
+    /// active/inactive (its right pane). Conflating the two is what made the old output unreadable.</para></summary>
+    static Func<string, string?> PluginAbsenceExplainer(string profileDir, string modsDir, string dataDir, string overwriteDir)
+        => name =>
+        {
+            if (string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(profileDir)) return null;
+            var fn = Path.GetFileName(name.Trim());
+            if (fn.Length == 0) return null;
+            Mo2Composition comp;
+            try { comp = Mo2LoadOrder.ReadComposition(profileDir); }
+            catch { return null; }                       // unreadable profile → say nothing rather than guess (Q3)
+
+            bool ticked = comp.ActivePluginNames.Contains(fn);
+            bool unticked = comp.InactivePluginNames.Any(x => x.Equals(fn, StringComparison.OrdinalIgnoreCase));
+
+            // The headline case, and the reason this explainer exists: MO2's left pane says yes, its right pane says no.
+            // The file is sitting right there, so a bare "not in the load order" reads as "missing" and sends the reader
+            // hunting for something that is installed and one click from working.
+            if (unticked)
+                return $"'{fn}' IS installed, but it is UNTICKED in plugins.txt (MO2's right pane), so the game does not " +
+                       "load it and houseCARL does not read it. Tick it in MO2 and re-sort — or, to read the file as-is " +
+                       "without loading it, use housecarl_read_plugin_file (a raw, out-of-load-order read).";
+
+            // Ticked but absent from the index: the file itself couldn't be resolved. Locate it to say which.
+            PluginFileHit[] hits;
+            try { hits = Mo2LoadOrder.LocatePlugin(comp, modsDir, dataDir, overwriteDir, fn).ToArray(); }
+            catch { hits = Array.Empty<PluginFileHit>(); }
+
+            if (ticked)
+                // Ticked AND provided by an enabled layer, yet not indexed — nothing honest left to say (the plugin cap
+                // in probe mode reaches here). Saying "no folder provides it" would be flatly false, so say nothing.
+                return hits.Any(h => h.Enabled)
+                    ? null
+                    : $"'{fn}' is ticked in plugins.txt, but no enabled mod, the overwrite folder, or the game Data folder " +
+                      "provides the file — the profile is stale (trigger an MO2 refresh / re-sort so it rewrites the profile files).";
+
+            if (hits.Length == 0) return null;           // nothing on disk by that name → a typo; let the suggester answer
+
+            // On disk but the profile never mentions it: the mod is switched off, or MO2 hasn't registered it. Its
+            // layer label already carries which (and, for an unlisted folder, the refresh remedy).
+            var pick = hits.FirstOrDefault(h => !h.Enabled) ?? hits[0];
+            return $"'{fn}' is on disk in {pick.Where}, but MO2's load order does not list it, so it is not active. " +
+                   "Switch the mod on (or refresh MO2) and re-sort — or read the file as-is with housecarl_read_plugin_file.";
+        };
+
     AssetResolver BuildAssetResolverLocked()
     {
         var comp = Mo2LoadOrder.ReadComposition(_profileDir);                       // EnabledMods (priority) — cheap text parse
@@ -1747,7 +1800,10 @@ public sealed class LoadOrderService : IDisposable
             InvalidateAssetResolver();   // the active-mod/archive set changed → the asset resolver rebuilds lazily
             if (_resolver is not null)
             {
-                var rebuilt = LoadOrderResolver.Build(paths);
+                // The rebuild must carry the explainer too, or a profile change (the very act that creates an unticked
+                // plugin) would silently drop every refusal back to the flat not-found — the exact "armed the reported
+                // lane, missed its twin" mistake #270 kept making.
+                var rebuilt = LoadOrderResolver.Build(paths, PluginAbsenceExplainer(_profileDir, _modsDir, _dataDir, _overwriteDir));
                 _resolver.Dispose();
                 _resolver = rebuilt;
             }
@@ -2016,7 +2072,10 @@ public sealed class LoadOrderService : IDisposable
         if (plugin is not null && !view.ContainsPlugin(plugin))
             return ReadOutcome.Fail(fk,
                 $"Plugin '{plugin}' is not in the load order ({view.PluginCount} plugins; names match the plugin FILENAME " +
-                "incl. .esp/.esm, case-insensitively)." + HousecarlCore.PluginNameSuggest.DidYouMean(plugin, resolver.PluginNames) +
+                // AbsenceClause subsumes the did-you-mean: it states the CAUSE when there is one (the plugin is
+                // installed but unticked / its mod is off) and falls back to the suggester when there isn't, so a real
+                // installed plugin is never answered with a spelling guess (#271).
+                "incl. .esp/.esm, case-insensitively)." + view.AbsenceClause(plugin) +
                 " houseCARL reads load-order truth only and does not open disabled " +
                 "plugins off disk. If this is a freshly written houseCARL patch, it isn't enabled yet: enable + sort it in " +
                 "MO2, then re-read. To verify a write BEFORE enabling, use the write call's own read-back " +
@@ -3691,7 +3750,7 @@ public sealed class LoadOrderService : IDisposable
             {
                 if (!view.ContainsPlugin(d))
                     return WritePatchBuilder.MergeOutcome.Fail(
-                        $"donor '{d}' is not an active plugin in your load order — merge reads each donor's records and conflict" +
+                        $"donor '{d}' is not an active plugin in your load order.{view.AbsenceClause(d)} Merge reads each donor's records and conflict" +
                         "position from the ACTIVE order. Enable it in MO2 first (pass the exact filename, e.g. 'CoolMod.esp').");
                 if (view.ExcludedPlugins.TryGetValue(d, out var excluded))
                     return WritePatchBuilder.MergeOutcome.Fail(
