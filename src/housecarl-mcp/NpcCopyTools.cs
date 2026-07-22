@@ -64,7 +64,11 @@ public static class NpcCopyTools
         sb.AppendLine(o.Mode == "clone"
             ? $"CLONED {o.DonorKey} → new NPC {o.NewNpcKey} in {Path.GetFileName(o.OutPath!)}{(o.Extended ? " (extended)" : " (new patch)")}."
             : $"APPLIED {o.DonorKey}'s appearance onto {o.NewNpcKey} in {Path.GetFileName(o.OutPath!)}{(o.Extended ? " (extended)" : " (new patch)")}.");
-        sb.AppendLine($"donor read from: {o.DonorReadFrom}{(o.DonorOutOfLoadOrder ? "  [OUT-OF-LOAD-ORDER — the game does not load this file; the copy is what makes it live]" : "")}");
+        // The stamp is about THIS READ (the file lane bypasses load-order resolution), which is why it is set for the
+        // whole lane. It used to add "the game does not load this file" — false whenever the donor named IS the live
+        // plugin, and unconditional here, so it asserted it for every file-lane copy (#271). Whether the game loads the
+        // donor is a per-file fact and DonorReadFrom already carries it, with its cause.
+        sb.AppendLine($"donor read from: {o.DonorReadFrom}{(o.DonorOutOfLoadOrder ? "  [OUT-OF-LOAD-ORDER — not resolved through the load order; the copy is what makes the appearance live]" : "")}");
         sb.AppendLine($"plugin: {o.OutPath} ({o.Bytes:N0} bytes)");
         // When the post-write read-back failed, the masters/standalone facts are UNVERIFIED — asserting them from
         // default-empty values would report a donor-mastered patch as standalone on exactly the path where

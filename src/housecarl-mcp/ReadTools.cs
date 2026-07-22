@@ -348,7 +348,8 @@ public static class ReadTools
          "reaches an inactive/arbitrary plugin: give it a filename (located even inside a DISABLED mod folder) or an " +
          "absolute path. Modes: formid= reads one record's fields (compact `path = token`, same format as read_record); " +
          "type= enumerates the records of that type the file defines/overrides; neither returns a record-type summary " +
-         "(what's in the file). EVERY result is labeled OUT-OF-LOAD-ORDER — the game does not load this file. It emits " +
+         "(what's in the file). EVERY result is labeled OUT-OF-LOAD-ORDER — the read did not go through load-order " +
+         "resolution; whether the game loads the file is reported separately, per file, with its reason. It emits " +
          "FormLinks as FormKey tokens (does NOT follow links), so it needs no masters present; a declared master that " +
          "is not installed is flagged. Read-only — writes nothing: read an inactive donor here, then author into a NEW " +
          "active patch with the write tools. Primary use: fork/borrow an existing NPC's appearance records (the " +

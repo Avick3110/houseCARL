@@ -137,7 +137,7 @@ public sealed class LoadOrderService : IDisposable
                             $"No active plugins resolved from the MO2 profile. ProfileDir='{_profileDir}', " +
                             $"ModsDir='{_modsDir}', DataDir='{_dataDir}'. {order.Warnings.Count} warning(s). Check " +
                             "HouseCarl config and that MO2 has written loadorder.txt/modlist.txt (a refresh/re-sort in MO2).");
-                    _resolver = LoadOrderResolver.Build(paths, PluginAbsenceExplainer(_profileDir, _modsDir, _dataDir, _overwriteDir));
+                    _resolver = LoadOrderResolver.Build(paths, ExplainPluginAbsence);
                     _resolvedPaths = paths;
                     _profileMtimes = profileMtimes;
                 }
@@ -213,13 +213,19 @@ public sealed class LoadOrderService : IDisposable
     /// then reads exactly as it did before (a did-you-mean).
     /// <para>Reads the profile FRESH on each call rather than closing over a parsed composition: the composition is a
     /// cheap three-file text parse, this runs only on a REFUSAL (never on a hot path), and a stale answer here would be
-    /// the precise failure this whole issue is about — telling someone a plugin is unticked after they ticked it. The
-    /// roots are captured by value at build time; they cannot change without the service rebuilding anyway.</para>
+    /// the precise failure this whole issue is about — telling someone a plugin is unticked after they ticked it.</para>
+    /// <para>The ROOTS are read live from the service's own fields for the same reason, NOT captured when the resolver
+    /// was built: a profile switch reassigns them (RederiveIfIniChanged) but only rebuilds the resolver when the
+    /// resolved PATH LIST changed, so two profiles with identical active sets and different UNTICKED lists would leave
+    /// a captured closure reading the old profile's plugins.txt — answering "not registered" for a plugin that is
+    /// merely unticked, which is precisely the confusion this explainer exists to end (review of PR #274).</para>
     /// <para>Vocabulary is deliberate throughout: a MOD is enabled/disabled (MO2's left pane), a PLUGIN is
     /// active/inactive (its right pane). Conflating the two is what made the old output unreadable.</para></summary>
-    static Func<string, string?> PluginAbsenceExplainer(string profileDir, string modsDir, string dataDir, string overwriteDir)
-        => name =>
+    string? ExplainPluginAbsence(string name)
         {
+            // Snapshot the roots together under the gate so the four cannot be read across a mid-switch reassignment.
+            string profileDir, modsDir, dataDir, overwriteDir;
+            lock (_gate) { profileDir = _profileDir; modsDir = _modsDir; dataDir = _dataDir; overwriteDir = _overwriteDir; }
             if (string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(profileDir)) return null;
             var fn = Path.GetFileName(name.Trim());
             if (fn.Length == 0) return null;
@@ -254,11 +260,16 @@ public sealed class LoadOrderService : IDisposable
             if (hits.Length == 0) return null;           // nothing on disk by that name → a typo; let the suggester answer
 
             // On disk but the profile never mentions it: the mod is switched off, or MO2 hasn't registered it. Its
-            // layer label already carries which (and, for an unlisted folder, the refresh remedy).
+            // layer label already carries which (and, for an unlisted folder, the refresh remedy). The remedy is
+            // branched on that layer's own state — telling someone to switch on a mod that is ALREADY on (every hit
+            // enabled, so the plugin is merely unregistered) sends them to do the one thing that cannot help.
             var pick = hits.FirstOrDefault(h => !h.Enabled) ?? hits[0];
+            var remedy = pick.Enabled
+                ? "Refresh MO2 so it registers the plugin, then re-sort"
+                : "Switch the mod on in MO2 (or refresh MO2 if it is not registered yet) and re-sort";
             return $"'{fn}' is on disk in {pick.Where}, but MO2's load order does not list it, so it is not active. " +
-                   "Switch the mod on (or refresh MO2) and re-sort — or read the file as-is with housecarl_read_plugin_file.";
-        };
+                   $"{remedy} — or read the file as-is with housecarl_read_plugin_file.";
+        }
 
     AssetResolver BuildAssetResolverLocked()
     {
@@ -1803,7 +1814,7 @@ public sealed class LoadOrderService : IDisposable
                 // The rebuild must carry the explainer too, or a profile change (the very act that creates an unticked
                 // plugin) would silently drop every refusal back to the flat not-found — the exact "armed the reported
                 // lane, missed its twin" mistake #270 kept making.
-                var rebuilt = LoadOrderResolver.Build(paths, PluginAbsenceExplainer(_profileDir, _modsDir, _dataDir, _overwriteDir));
+                var rebuilt = LoadOrderResolver.Build(paths, ExplainPluginAbsence);
                 _resolver.Dispose();
                 _resolver = rebuilt;
             }
@@ -2070,17 +2081,31 @@ public sealed class LoadOrderService : IDisposable
         // patch). Name the true condition + the working verify paths instead. Aaron-decided Option A: houseCARL does
         // NOT read disabled plugins off disk (non-winner content masquerading as load-order truth is the Q3 hazard).
         if (plugin is not null && !view.ContainsPlugin(plugin))
+        {
+            // AbsenceClause subsumes the did-you-mean: it states the CAUSE when there is one (the plugin is installed
+            // but unticked / its mod is off) and falls back to the suggester when there isn't, so a real installed
+            // plugin is never answered with a spelling guess (#271).
+            // ExplainAbsence, NOT AbsenceClause: the latter returns a non-empty string for a typo too (the did-you-mean),
+            // so its length cannot tell "a cause was stated" from "a spelling was guessed" — and only the first should
+            // change the tail below.
+            var cause = view.ExplainAbsence(plugin);
+            var why = cause is not null ? " " + cause : view.NameSuggestion(plugin);
+            // The legacy tail explains the general POSTURE ("load-order truth only, does not open disabled plugins off
+            // disk") and pointed at the freshly-written-patch case as the likely reason. Once a specific cause has been
+            // stated — including the raw-read escape hatch — that generality reads as a contradiction of the sentence
+            // before it, so it is dropped in favour of the concrete answer (review of PR #274).
+            var tail = cause is not null
+                ? " If a prior write into this patch reported success, the edits DID land — do not re-issue them " +
+                  "(re-running list Adds would duplicate entries)."
+                : " houseCARL reads load-order truth only and does not open disabled " +
+                  "plugins off disk. If this is a freshly written houseCARL patch, it isn't enabled yet: enable + sort it in " +
+                  "MO2, then re-read. To verify a write BEFORE enabling, use the write call's own read-back " +
+                  "(full_readback=true returns the whole written record). If a prior write into this patch reported success, " +
+                  "the edits DID land — do not re-issue them (re-running list Adds would duplicate entries).";
             return ReadOutcome.Fail(fk,
                 $"Plugin '{plugin}' is not in the load order ({view.PluginCount} plugins; names match the plugin FILENAME " +
-                // AbsenceClause subsumes the did-you-mean: it states the CAUSE when there is one (the plugin is
-                // installed but unticked / its mod is off) and falls back to the suggester when there isn't, so a real
-                // installed plugin is never answered with a spelling guess (#271).
-                "incl. .esp/.esm, case-insensitively)." + view.AbsenceClause(plugin) +
-                " houseCARL reads load-order truth only and does not open disabled " +
-                "plugins off disk. If this is a freshly written houseCARL patch, it isn't enabled yet: enable + sort it in " +
-                "MO2, then re-read. To verify a write BEFORE enabling, use the write call's own read-back " +
-                "(full_readback=true returns the whole written record). If a prior write into this patch reported success, " +
-                "the edits DID land — do not re-issue them (re-running list Adds would duplicate entries).");
+                "incl. .esp/.esm, case-insensitively)." + why + tail);
+        }
 
         var winner = view.ResolveWinner(fk);
         if (winner is null)
@@ -3750,7 +3775,7 @@ public sealed class LoadOrderService : IDisposable
             {
                 if (!view.ContainsPlugin(d))
                     return WritePatchBuilder.MergeOutcome.Fail(
-                        $"donor '{d}' is not an active plugin in your load order.{view.AbsenceClause(d)} Merge reads each donor's records and conflict" +
+                        $"donor '{d}' is not an active plugin in your load order.{view.AbsenceClause(d)} Merge reads each donor's records and conflict " +
                         "position from the ACTIVE order. Enable it in MO2 first (pass the exact filename, e.g. 'CoolMod.esp').");
                 if (view.ExcludedPlugins.TryGetValue(d, out var excluded))
                     return WritePatchBuilder.MergeOutcome.Fail(
@@ -5394,7 +5419,8 @@ public sealed class LoadOrderService : IDisposable
         /// was addressed.</summary>
         public bool Enabled => Served == ServedStanding.Serves && Tick is TickStanding.Ticked or TickStanding.Implicit;
 
-        /// <summary>WHY the game does not load this file — null exactly when <see cref="Enabled"/>. Composed HERE, once,
+        /// <summary>WHY the game does not load this file — null when <see cref="Enabled"/>, and also when no file was
+        /// located at all (the error and ambiguous results, which no renderer of this state reaches). Composed HERE, once,
         /// so the three renderers that state this (read_plugin_file's header, diff_record's off-order pole,
         /// copy_npc_appearance's donor line) cannot drift apart on the wording; the shared locate contract exists
         /// because an inline copy had already diverged on this very flag. Both clauses are emitted when both apply —
@@ -5411,12 +5437,19 @@ public sealed class LoadOrderService : IDisposable
                 switch (Served)
                 {
                     case ServedStanding.Shadowed:
-                        parts.Add(CauseDetail is null
-                            ? "this is not the copy the install serves for this filename"
-                            : $"this copy is SHADOWED — {CauseDetail} provides the copy the game loads");
+                        // CauseDetail is always set here: JudgeServed returns Shadowed only when this copy's OWN layer
+                        // is enabled, which means a served hit exists to name.
+                        parts.Add($"this copy is SHADOWED — {CauseDetail} provides the copy the game loads");
                         break;
                     case ServedStanding.LayerOff:
-                        parts.Add($"it is provided by {CauseDetail}, which the game does not load");
+                        // Don't restate the layer when Where ALREADY named it: the filename lane's Where is the hit's
+                        // own label, so "mod 'X' (DISABLED) — ... it is provided by mod 'X' (DISABLED)" said the same
+                        // thing twice in one sentence, which is worse than the bare "NOT active" it replaced. The path
+                        // lane's Where is the constant "direct path" and genuinely needs the layer named — an exact
+                        // comparison tells the two apart without parsing either label.
+                        parts.Add(string.Equals(Where, CauseDetail, StringComparison.Ordinal)
+                            ? "that layer is not one the game loads"
+                            : $"it is provided by {CauseDetail}, which the game does not load");
                         break;
                     case ServedStanding.NotAnInstallCopy:
                         parts.Add("this file is not a copy the MO2 install provides");
@@ -5690,9 +5723,10 @@ public sealed record PluginFileOutcome
     public string? FilePath { get; init; }
     public string? Where { get; init; }
     public bool Enabled { get; init; }
-    /// <summary>WHY the game does not load this file — null exactly when <see cref="Enabled"/>. Composed once by the
-    /// shared locate contract (<see cref="LoadOrderService.PluginLocateResult.WhyNotActive"/>) so every renderer of this
-    /// state says the same thing; naming the CAUSE is what lets a reader act without re-deriving it (#271).</summary>
+    /// <summary>WHY the game does not load this file — null when <see cref="Enabled"/> (and on the error/ambiguous
+    /// outcomes, which carry no file). Composed once by the shared locate contract
+    /// (<see cref="LoadOrderService.PluginLocateResult.WhyNotActive"/>) so every renderer of this state says the same
+    /// thing; naming the CAUSE is what lets a reader act without re-deriving it (#271).</summary>
     public string? WhyNotActive { get; init; }
     public IReadOnlyList<string> Masters { get; init; } = Array.Empty<string>();
     public IReadOnlyList<string> MissingMasters { get; init; } = Array.Empty<string>();     // declared but installed NOWHERE
