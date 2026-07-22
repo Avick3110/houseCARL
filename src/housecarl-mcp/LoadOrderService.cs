@@ -5335,8 +5335,14 @@ public sealed class LoadOrderService : IDisposable
             var fn = Path.GetFileName(plugin);
             var cand = Path.Combine(modsDir, mod.Trim(), fn);
             if (!File.Exists(cand)) return new(null, "", false, null, $"mod folder '{mod.Trim()}' under ModsDir does not provide '{fn}'.");
-            return new(cand, $"mod '{mod.Trim()}'",
-                       comp.EnabledMods.Contains(mod.Trim(), StringComparer.OrdinalIgnoreCase) && Ticked(fn), null, null);
+            // Both halves here too, or the same physical file answers differently depending on how it was addressed.
+            // "The named mod is enabled" is NOT enough: a lower-priority enabled mod's copy is shadowed, and the game
+            // loads the serving copy instead. Being the served hit subsumes the enabled-folder test — the served hit
+            // is by definition drawn from an enabled layer.
+            var servedForName = Mo2LoadOrder.LocatePlugin(comp, modsDir, dataDir, overwriteDir, fn)
+                                            .FirstOrDefault(h => h.Enabled);
+            bool candIsLive = servedForName is not null && SamePluginFile(servedForName.Path, cand) && Ticked(fn);
+            return new(cand, $"mod '{mod.Trim()}'", candIsLive, null, null);
         }
         var hits = Mo2LoadOrder.LocatePlugin(comp, modsDir, dataDir, overwriteDir, plugin);
         if (hits.Count == 0)

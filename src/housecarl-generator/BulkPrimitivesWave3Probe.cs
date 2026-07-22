@@ -606,6 +606,17 @@ public static class BulkPrimitivesWave3Probe
         var rpfUntickedByName = svc.ReadPluginFile(Path.GetFileName(untickedPath), uwFid, null, null, null, 1, null, 10);
         Check("read_plugin_file: the same plugin BY FILENAME agrees — the lanes state one fact, not two",
               rpfUntickedByName.Error is null && !rpfUntickedByName.Enabled);
+        // The mod= lane is the third address form for one file, and it must answer identically. The shadow mod is
+        // ENABLED, so a lane testing only "is this mod switched on" would call its shadowed copy live.
+        var rpfModShadow = svc.ReadPluginFile(rKey.FileName.String, wFid, null, "DiffReplShadow", new[] { "BasicStats.Damage" }, 1, null, 10);
+        Check("read_plugin_file mod=: a shadowed copy in an ENABLED mod reports enabled=false, as the path lane does",
+              rpfModShadow.Error is null && !rpfModShadow.Enabled);
+        var rpfModServing = svc.ReadPluginFile(rKey.FileName.String, wFid, null, "DiffRepl", new[] { "BasicStats.Damage" }, 1, null, 10);
+        Check("read_plugin_file mod=: the SERVING mod's copy of the same name reports enabled=true",
+              rpfModServing.Error is null && rpfModServing.Enabled);
+        var rpfModUnticked = svc.ReadPluginFile(unKey.FileName.String, uwFid, null, "DiffUnticked", null, 1, null, 10);
+        Check("read_plugin_file mod=: the serving mod's copy of an UNTICKED plugin still reports enabled=false",
+              rpfModUnticked.Error is null && !rpfModUnticked.Enabled);
 
         // IDENTICAL — same plugin on both sides
         var dSame = svc.DiffRecord(wFid, replName, replName, null);
