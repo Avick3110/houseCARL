@@ -55,7 +55,8 @@ every time. Two things changed:
 **The `read_plugin_file` banner no longer overclaims.** It read `OUT-OF-LOAD-ORDER (raw file read; the game does not
 load this file)` — true of the read, false about the file whenever the one you passed IS the live plugin. It now reads
 `(raw file read — not resolved through the load order)`, which holds in every case; what the game does with the file
-is stated separately, per file, with its reason.
+is stated separately, per file, with its reason. The same sentence is gone from `read_plugin_file`'s own tool
+description and from `copy_npc_appearance`'s donor line, where it was asserted even for a donor the game does load.
 
 **The Codex umbrella router now covers the whole tool surface, and a CI guard keeps it that way (Codex parity).**
 The Codex packaging ships one umbrella routing skill (`plugin/codex/housecarl/SKILL.md`); it had drifted to naming
