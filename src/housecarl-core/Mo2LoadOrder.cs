@@ -272,7 +272,12 @@ public static class Mo2LoadOrder
         foreach (var mod in comp.EnabledMods) TryDir(Path.Combine(modsDir, mod), $"mod '{mod}' (enabled)", enabled: true);
         foreach (var mod in comp.DisabledMods) TryDir(Path.Combine(modsDir, mod), $"mod '{mod}' (DISABLED)", enabled: false);
         foreach (var dir in UnlistedModFolders(comp, modsDir))        // on disk but not in modlist.txt (a fresh houseCARL patch pre-refresh)
-            TryDir(dir, $"mod '{Path.GetFileName(dir)}' (UNLISTED — not in modlist.txt yet; refresh MO2 to register it)", enabled: false);
+            // The label IDENTIFIES the layer and its state; it does NOT carry a remedy. It used to end "— not in
+            // modlist.txt yet; refresh MO2 to register it", which read fine alone but printed the same instruction
+            // twice once the caller's own cause line began stating remedies ("refresh MO2, then tick the plugin and
+            // sort") — a milder form of the duplication that #271 exists to remove, and one only a live run surfaced.
+            // Labels identify, causes explain: the remedy belongs to whoever is explaining, not to the identifier.
+            TryDir(dir, $"mod '{Path.GetFileName(dir)}' (UNLISTED)", enabled: false);
         TryDir(dataDir, "game Data", enabled: true);                  // vanilla / base — lowest priority
         return hits;
     }
