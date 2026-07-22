@@ -73,7 +73,7 @@ public static class ScriptPropertyCheck
             foreach (var name in scope)
             {
                 if (!view.ContainsPlugin(name))
-                    return ScriptCheckResult.Fail($"plugin not in the load order: {name}");
+                    return ScriptCheckResult.Fail($"plugin not in the load order: {name}.{view.AbsenceClause(name)}");
                 if (view.ExcludedPlugins.TryGetValue(name, out var why))
                     return ScriptCheckResult.Fail(
                         $"plugin '{name}' was excluded from this session because it could not be parsed ({why}) — fix or remove it upstream; it cannot be checked.");

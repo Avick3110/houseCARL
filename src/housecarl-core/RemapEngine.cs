@@ -853,7 +853,7 @@ public static class RemapEngine
         if (dict.Count == 0) return RepointResult.Fail("no remap entries supplied — nothing to repoint.");
         var view = resolver.Capture();
         if (!view.ContainsPlugin(pluginName))
-            return RepointResult.Fail($"repoint target '{pluginName}' is not an active plugin in the load order.");
+            return RepointResult.Fail($"repoint target '{pluginName}' is not an active plugin in the load order.{view.AbsenceClause(pluginName)}");
         if (view.ExcludedPlugins.TryGetValue(pluginName, out var excluded))
             return RepointResult.Fail(
                 $"cannot repoint '{pluginName}' in place: it was EXCLUDED from this session ({excluded}) — houseCARL won't " +
