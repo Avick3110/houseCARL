@@ -10,7 +10,7 @@ For what houseCARL *is* and how to build it, see **[`README.md`](README.md)**.
 > will not resolve in a clone. The code, standards, and skills are all here; the working notes
 > are not.
 
-## The cornerstone — read before touching coverage
+## The cornerstones — read before touching coverage or the bulk surface
 
 houseCARL's load-bearing claim is **comprehensive, data-layer access** to the Skyrim load
 order. For records that means: **every record type Mutagen models is readable and writable — by
@@ -24,6 +24,16 @@ finished; this rebuild exists to end that. So:
 - **Never** ship "just the common record types" — full coverage is not a scope choice.
 - A record type that's **absent** is a real upstream gap (Mutagen's delta vs xEdit) to
   **surface loudly**, never to guess around or silently skip.
+
+The same principle governs *operations* (**composition by construction**, elevated
+2026-07-22): bulk capability is the closure of a small, bounded, individually-guarded set of
+composition primitives — never a verb per job. So:
+
+- **Never** ship a job-shaped bulk verb ("audit X", "copy the Y frame") — a bespoke verb is a
+  bug report against the primitive set; add the missing primitive or file the gap.
+- Domain knowledge (field bundles, forbidden prefixes) lives in **skills as data**, never in
+  tool code — the one exception is a thin, typed, probe-pinned interpreter of *engine*
+  semantics (the `effect_chain` posture).
 
 If a change pressures any of the above, stop and raise it via the PRFAQ revalidation protocol
 (`CLAUDE.md §4`) — don't work around it.
@@ -55,8 +65,10 @@ If a change pressures any of the above, stop and raise it via the PRFAQ revalida
 
 Reviewing a change to houseCARL — human's or agent's — check, in priority order:
 
-1. **Cornerstone intact** — no hand-wired coverage, no per-record-type write map, no "subset for
-   now." Coverage stays reflection-driven and complete by construction.
+1. **Cornerstones intact** — no hand-wired coverage, no per-record-type write map, no "subset for
+   now"; coverage stays reflection-driven and complete by construction. And no job-shaped bulk
+   verb — bulk capability composes from the guarded primitive set, with domain knowledge in
+   skills as data, never a new one-off verb in tool code.
 2. **No silent failure (Q3)** — no silently wrong answer, no silently degraded mode. A tool that
    can't do the thing says so plainly. A swallowed error or quiet fallback is a defect.
 3. **No silent workarounds** — a stumbling block should have been *surfaced* (`CLAUDE.md §4`),
