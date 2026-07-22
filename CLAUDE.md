@@ -40,17 +40,19 @@ A session picking up work reads:
 
 **Sub-project sessions.** Some work runs as a self-contained sub-project under `dev/projects/<name>/` (its own tracking, walled off from the main gap/bug/release lane — see `dev/projects/README.md`). If a session is for one, the user will name it ("the follower skill", "the `<name>` project"); then read `dev/projects/<name>/STATUS.md` **instead of** the latest `dev/session-handoffs/` handoff (item 2), and stay in that lane. Absent that, boot normally — the default is unchanged.
 
-The cornerstone (§3) and revalidation protocol (§4) are restated in this file, so you operate correctly from CLAUDE.md alone — the corpus is the authority you re-read when the protocol sends you there, not a tax every session pays.
+The cornerstones (§3) and revalidation protocol (§4) are restated in this file, so you operate correctly from CLAUDE.md alone — the corpus is the authority you re-read when the protocol sends you there, not a tax every session pays.
 
 ---
 
-## 3. Cornerstone — full Mutagen coverage, by construction
+## 3. Cornerstones — coverage and composition, by construction
 
 The PRFAQ's load-bearing claim is **comprehensive access** (§1). For records, that means **every record type Mutagen models is readable and writable — by construction, not by hand.**
 
 This is the reason for the rebuild. Both prior builds hand-wired coverage: a schema per record type, a write-translation per record type (134 schemas; 202 write-mappings, 60 of them still placeholders). That wiring gap meant "comprehensive write access" was always one more hand-port from done. The reflection-driven generator closes it structurally — coverage *is* Mutagen's coverage, and Mutagen's delta vs xEdit is a known upstream surface we fail loud about, never silently around.
 
 **Full coverage is not a scope choice.** If a stumbling block ever frames it as "smaller scope for v1" or "just the common record types," that's a cornerstone violation, not a pragmatic trim — invoke the protocol (§4). Per-record-type hand-mapping does **not** come back.
+
+**Second cornerstone — composition by construction** (elevated 2026-07-22). For *operations*, the same principle: bulk capability is the **closure** of a small, bounded, individually-guarded set of composition primitives — never a verb per job. A proposed bespoke verb is a **bug report against the primitive set**: when a bulk gap appears, add the missing primitive (or file the gap), not the verb. Domain knowledge — field bundles, forbidden prefixes, analogue mappings — lives in **skills as data**; the tool surface stays generic (the one exception: thin, typed, probe-pinned interpreters of *engine* semantics, the `effect_chain` posture). If a stumbling block frames a one-off verb as "quicker for v1," that's a cornerstone violation — invoke §4. Doctrine: `dev/PRFAQ/PRFAQ_COMPOSITION_LAYER_2026-07-22.md`; primitive set + closure proof: `dev/plans/LAYER3_COMPOSITION_PRIMITIVES_BUILD_PLAN_2026-07-22.md`.
 
 ---
 
@@ -117,6 +119,7 @@ Tool-surface skills (`esp-patching`, `mod-dissection`, `bsa-archives`, `crash-di
 - **Don't reconstruct context from prior sessions.** Assume nothing; read the docs (§2). Memory supplements, it doesn't substitute.
 - **Don't work on `main`.** Every change that will commit starts in a worktree (`.claude/worktrees/<name>/`); the main repo folder is read-only except for landing reviewed branches (§5 #10). Check your branch at the start — booting onto `main` and editing there is the recurring drift this rule exists to stop.
 - **Don't treat coverage as a subset.** §3. Tempted to ship "the common record types"? Stop and read §4.
+- **Don't ship a bespoke bulk verb.** §3, second cornerstone. A job-shaped verb ("audit X", "copy the Y frame") is a bug report against the composition-primitive set — add the primitive or file the gap. Tempted because it's quicker? Stop and read §4.
 - **Don't silently work around a block.** §4. Surfacing costs minutes; the alternative is why we rebuilt.
 - **Don't edit the foundation corpus (`dev/PRFAQ/`) or other ARCHIVE docs.** Immutable record of why decisions were made. New docs supersede; old ones stay as written (typo-fix excepted). Doc classes (LIVING vs ARCHIVE) are defined in `standards/HOUSECARL_DOC_HYGIENE.md`.
 - **Don't re-import the legacy lock-down.** The old repo's heavy guardrails are part of what we left behind. New guardrails earn their place from real need.
