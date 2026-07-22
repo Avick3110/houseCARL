@@ -563,9 +563,14 @@ public static class BulkPrimitivesWave3Probe
         // (c) a DISABLED mod's copy, addressed by path: INSIDE an install root, but its mod is off. The flag has to
         //     come from the located copy — "is it under a root at all" would call this one enabled.
         var dPathDisabled = svc.DiffRecord(wFid, donorPath, replName, new[] { "BasicStats.Damage" });
-        Check("diff: a DISABLED mod's plugin addressed BY PATH stays OUT-OF-LOAD-ORDER and disabled",
+        Check("diff: a DISABLED mod's plugin addressed BY PATH stays OUT-OF-LOAD-ORDER and NOT active",
               dPathDisabled.Error is null && !dPathDisabled.A!.InOrder
-              && dPathDisabled.A.Where.Contains("OUT-OF-LOAD-ORDER") && dPathDisabled.A.Where.Contains("disabled"));
+              && dPathDisabled.A.Where.Contains("OUT-OF-LOAD-ORDER") && dPathDisabled.A.Where.Contains("NOT active"));
+        // #271: the pole must state the CAUSE, not just the state. "disabled" was one word for four situations with
+        // four different remedies — and the wrong word for a plugin (a MOD is disabled; a PLUGIN is inactive).
+        Check("diff: the off-order pole NAMES the cause — the DISABLED mod folder that provides the copy",
+              dPathDisabled.Error is null && dPathDisabled.A!.Where.Contains("DiffDonor")
+              && dPathDisabled.A.Where.Contains("DISABLED"));
 
         var dPathArchive = svc.DiffRecord(wFid, archivePath, replPath, new[] { "BasicStats.Damage" });
         Check("diff: a same-named backup OUTSIDE the install stays OUT-OF-LOAD-ORDER (55 vs 99) — name never decides",
@@ -617,6 +622,52 @@ public static class BulkPrimitivesWave3Probe
         var rpfModUnticked = svc.ReadPluginFile(unKey.FileName.String, uwFid, null, "DiffUnticked", null, 1, null, 10);
         Check("read_plugin_file mod=: the serving mod's copy of an UNTICKED plugin still reports enabled=false",
               rpfModUnticked.Error is null && !rpfModUnticked.Enabled);
+
+        // ---- #271: the flag now EXPLAINS. Every not-active lane above must name its own cause, and the three causes
+        //      must be distinguishable — an agent that reads "NOT active" and cannot tell unticked from shadowed from
+        //      switched-off burns a search rediscovering what the tool already computed. Armed on EVERY address form,
+        //      because "armed the reported lane, missed its twin" is the mistake that cost #270 four review rounds. ----
+        Check("#271 why: an UNTICKED plugin by PATH says UNTICKED and names plugins.txt (not its mod's switch)",
+              rpfUnticked.WhyNotActive is { } wU && wU.Contains("UNTICKED") && wU.Contains("plugins.txt")
+              && wU.Contains(unKey.FileName.String));
+        Check("#271 why: the same plugin BY FILENAME gives the SAME cause — one fact, however addressed",
+              rpfUntickedByName.WhyNotActive == rpfUnticked.WhyNotActive);
+        Check("#271 why: and via mod= too — all three address lanes agree on the cause, not just on the boolean",
+              rpfModUnticked.WhyNotActive == rpfUnticked.WhyNotActive);
+        // A shadowed copy's remedy is the OPPOSITE of an unticked one's, so the two must never render alike: this mod
+        // is enabled and this plugin is ticked — what's wrong is WHICH copy, and the useful pointer is the winner.
+        Check("#271 why: a SHADOWED copy says SHADOWED and points at the mod that serves the winning copy",
+              rpfShadow.WhyNotActive is { } wS && wS.Contains("SHADOWED") && wS.Contains("DiffRepl")
+              && !wS.Contains("UNTICKED"));
+        Check("#271 why: mod= reaches the same shadowed copy and states the same cause",
+              rpfModShadow.WhyNotActive is { } wMS && wMS.Contains("SHADOWED"));
+        // A copy in a switched-off mod: the remedy is the LEFT pane, and the label must say so rather than blame the
+        // plugin's tick (the decoy is not listed in plugins.txt at all, so a naive renderer would say "unticked").
+        Check("#271 why: a copy in a DISABLED mod blames the MOD FOLDER, and never claims the plugin is unticked",
+              rpfDecoy.WhyNotActive is { } wD && wD.Contains("DataServedDecoy") && wD.Contains("DISABLED")
+              && !wD.Contains("UNTICKED"));
+        Check("#271 why: a same-named backup OUTSIDE the install says it is not an install copy — not 'disabled'",
+              rpfArchive.WhyNotActive is { } wA && wA.Contains("not a copy the MO2 install provides"));
+        // The other direction, and the one #269 was actually about: when the game DOES load the file, there must be
+        // no cause at all — a leftover explanation would re-assert the very falsehood this issue set out to remove.
+        Check("#271 why: the three ACTIVE lanes carry NO cause (null), so nothing contradicts the live file",
+              rpfPath.WhyNotActive is null && rpfData.WhyNotActive is null && rpfModServing.WhyNotActive is null);
+
+        // The RENDERED header, end to end — the banner's old parenthetical ("the game does not load this file") was
+        // false for exactly this call, where the file passed IS the live plugin (#269/#271 item 3), and the
+        // "[mod 'X' (enabled); NOT active]" pairing named a folder and a file in one breath without saying which was
+        // which (item 4). Assert on the rendered string, since the wording IS the deliverable here.
+        var renderLive = Wire.RenderPluginFile(rpfPath, 8000);
+        Check("#271 banner: the stamp describes the READ, never claiming the game does not load the file",
+              renderLive.Contains("OUT-OF-LOAD-ORDER") && renderLive.Contains("not resolved through the load order")
+              && !renderLive.Contains("the game does not load this file"));
+        Check("#271 render: a live file addressed by path says so positively — #269's symptom, inverted",
+              renderLive.Contains("the game loads this file"));
+        var renderUnticked = Wire.RenderPluginFile(rpfUntickedByName, 8000);
+        Check("#271 render: the mod-vs-plugin pairing is disambiguated in words, and carries the cause",
+              renderUnticked.Contains("mod 'DiffUnticked' (enabled)")
+              && renderUnticked.Contains("the game does NOT load this file")
+              && renderUnticked.Contains("UNTICKED in plugins.txt"));
 
         // IDENTICAL — same plugin on both sides
         var dSame = svc.DiffRecord(wFid, replName, replName, null);

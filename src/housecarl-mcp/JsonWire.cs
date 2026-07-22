@@ -512,6 +512,10 @@ static class JsonWire
                 WriteNullable(w, "file", o.FilePath);
                 WriteNullable(w, "where", o.Where);
                 w.WriteBoolean("enabled", o.Enabled);
+                // The JSON lane surfaces this state too, so it gets the cause as well (#271) — a consumer reading
+                // enabled=false here would otherwise have to go re-derive WHY, which is the whole cost this fixes.
+                // Emitted only when there IS one, so `why_not_active` absent == the game loads this file.
+                WriteNullable(w, "why_not_active", o.WhyNotActive);
                 WriteStringArray(w, "masters", o.Masters);
                 WriteStringArray(w, "missing_masters", o.MissingMasters);
                 WriteStringArray(w, "inactive_masters", o.InactiveMasters);

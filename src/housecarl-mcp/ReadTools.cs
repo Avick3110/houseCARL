@@ -1016,10 +1016,21 @@ static class Wire
             return sb.ToString().TrimEnd('\n');
         }
 
-        // The banner — OUT-OF-LOAD-ORDER first, always (the single load-bearing requirement).
-        sb.Append("read_plugin_file — OUT-OF-LOAD-ORDER (raw file read; the game does not load this file)\n");
+        // The banner — OUT-OF-LOAD-ORDER first, always (the single load-bearing requirement). The stamp describes THIS
+        // READ (it bypassed load-order resolution), which is true of every call; the old parenthetical went further and
+        // asserted "the game does not load this file", which is FALSE whenever the file passed is the live, winning
+        // plugin — exactly #269's case. The wording below says only what the stamp actually knows (#271); what the game
+        // does with the file is the separate, per-file question the bracket on the next line answers.
+        sb.Append("read_plugin_file — OUT-OF-LOAD-ORDER (raw file read — not resolved through the load order)\n");
         sb.Append("file: ").Append(o.FilePath);
-        if (!string.IsNullOrEmpty(o.Where)) sb.Append("  [").Append(o.Where).Append(o.Enabled ? "" : "; NOT active").Append(']');
+        // Where reports the LAYER the file was found in (a mod folder's switch); the standing reports the FILE. Read
+        // together, "mod 'X' (enabled)" beside a bare "NOT active" looked self-contradictory, so the two subjects are
+        // now named explicitly and the not-loaded case carries its CAUSE — the reader should never have to infer which
+        // of the two facts changed, nor go searching for a remedy the tool already knows (#271).
+        if (!string.IsNullOrEmpty(o.Where))
+            sb.Append("  [").Append(o.Where)
+              .Append(o.WhyNotActive is { } why ? $" — but the game does NOT load this file: {why}" : " — the game loads this file")
+              .Append(']');
         sb.Append('\n');
         sb.Append("masters: ").Append(o.Masters.Count == 0 ? "none" : string.Join(", ", o.Masters)).Append('\n');
         if (o.MissingMasters.Count > 0)
