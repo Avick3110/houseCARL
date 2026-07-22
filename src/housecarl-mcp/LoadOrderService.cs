@@ -2200,7 +2200,10 @@ public sealed class LoadOrderService : IDisposable
         var b = ResolveDiffPole(view, session, fk, pluginB.Trim(), modB, fields);
         if (b.Error is not null) return DiffRecordOutcome.Fail(fidLabel, $"plugin_b: {b.Error}");
 
-        var diff = FieldsDiff.Compare(a.Fields!, b.Fields!, referenceLabel: pluginB.Trim());
+        // Label the reference side with what the pole RESOLVED to, not the raw argument — a pole addressed by path
+        // renders its plugin name in the header, and delta lines quoting the path back would read as a second,
+        // different plugin.
+        var diff = FieldsDiff.Compare(a.Fields!, b.Fields!, referenceLabel: b.Pole!.Plugin);
         return new DiffRecordOutcome(fidLabel, a.Pole!, b.Pole!, diff, null);
     }
 
@@ -2265,6 +2268,11 @@ public sealed class LoadOrderService : IDisposable
         try { full = Path.GetFullPath(path.Trim()); } catch { return null; }
         var name = Path.GetFileName(full);
         if (name.Length == 0 || !view.ContainsPlugin(name)) return null;
+        // An EXCLUDED plugin is still in the name table (exclusion is a separate set), and the active lane can only
+        // refuse it. Reading its file DIRECTLY is the escape hatch for exactly that case — records ahead of the
+        // unparseable one still come back — so a path to one must keep taking the off-order lane, not get routed
+        // into a refusal it was addressed by path to avoid.
+        if (view.ExcludedPlugins.ContainsKey(name)) return null;
         var active = view.PluginPath(name);
         return !string.IsNullOrEmpty(active) && SamePluginFile(active, full) ? name : null;
     }
@@ -5292,7 +5300,11 @@ public sealed class LoadOrderService : IDisposable
             // and a hardcoded `false` here stamped that copy "disabled" (#269). The answer comes from the SAME
             // enumerator the filename lane below uses, so the two lanes can never disagree about one file: if a
             // located copy of this filename IS this exact file, that hit's enabled-ness is this file's. Compared by
-            // FULL PATH — an archived backup and the live copy share a filename and are different files.
+            // FULL PATH — an archived backup and the live copy share a filename and are different files. Two costs
+            // accepted: this pays the same folder sweep the filename lane does (one stat per candidate folder), which
+            // is why a path no install root contains skips it outright; and a path reaching the install through a
+            // junction/symlink won't string-match, so it stays flagged not-enabled — the pre-fix answer, conservative
+            // in the same direction rather than newly wrong in the other.
             var self = IsUnderAnyInstallRoot(full, modsDir, dataDir, overwriteDir)   // outside every root ⇒ can't be the install's copy; skip the scan
                 ? Mo2LoadOrder.LocatePlugin(comp, modsDir, dataDir, overwriteDir, Path.GetFileName(full))
                               .FirstOrDefault(h => SamePluginFile(h.Path, full))

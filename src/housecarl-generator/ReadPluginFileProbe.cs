@@ -19,6 +19,9 @@ namespace HousecarlGenerator;
 ///   4  a DIRECT PATH read ("inspect any file")
 ///   5  the render stamps OUT-OF-LOAD-ORDER (the single load-bearing requirement) + read_record's `path = token` format
 ///   6  the declared-master-not-installed advisory (Q3)
+///      (the ENABLED-flag arms for a DIRECT PATH — an enabled plugin's own file must not read as inactive, a
+///       same-named backup outside the install must — live in bulk-primitives-wave3-guard's diff arm, which is
+///       where the fixture with a real active order + an out-of-install backup already exists; #269)
 ///   7  Q3 refusals: missing filename, bad FormID, a FormID the file doesn't define, formid=+type= together, and an
 ///      AMBIGUOUS filename (surfaced + mod= disambiguates, never guessed)
 ///

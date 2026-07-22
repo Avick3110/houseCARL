@@ -502,6 +502,12 @@ public static class BulkPrimitivesWave3Probe
               && dOff.Diff!.Deltas.Any(x => x.Contains("77") && x.Contains("99")));
 
         // BY PATH (#269) — provenance is COMPUTED from the file, not assumed from how it was addressed.
+        // COVERAGE NOTE (Q3 — name the gap rather than imply completeness): the path-to-active routing also has to
+        // NOT capture a plugin EXCLUDED from the index (Mutagen can't parse it) — reading its file directly is the
+        // escape hatch, so it must stay on the off-order lane. That branch is uncovered here for the same reason
+        // forward-from-plugin-guard leaves it uncovered: synthesizing an unparseable plugin duplicates
+        // pkcu-regression's malformed-record machinery for one reject path. It is a plain ExcludedPlugins lookup on
+        // the same OrdinalIgnoreCase table the armed checks use; if it earns a test, model it on pkcu-regression.
         // (a) the ACTIVE plugin's own file, passed as a path: it IS what the order loads → active pole, never
         //     "OUT-OF-LOAD-ORDER … disabled". (b) the same-named archive backup: a different file → still off-order.
         var dPathActive = svc.DiffRecord(wFid, "DiffDonor.esp", replPath, new[] { "BasicStats.Damage" });
@@ -511,6 +517,13 @@ public static class BulkPrimitivesWave3Probe
         Check("diff: an active-by-path pole resolves back to its PLUGIN NAME, and still diffs (77 vs 99)",
               dPathActive.Error is null && dPathActive.B!.Plugin == replName
               && dPathActive.Diff!.Deltas.Any(x => x.Contains("77") && x.Contains("99")));
+
+        // (c) a DISABLED mod's copy, addressed by path: INSIDE an install root, but its mod is off. The flag has to
+        //     come from the located copy — "is it under a root at all" would call this one enabled.
+        var dPathDisabled = svc.DiffRecord(wFid, donorPath, replName, new[] { "BasicStats.Damage" });
+        Check("diff: a DISABLED mod's plugin addressed BY PATH stays OUT-OF-LOAD-ORDER and disabled",
+              dPathDisabled.Error is null && !dPathDisabled.A!.InOrder
+              && dPathDisabled.A.Where.Contains("OUT-OF-LOAD-ORDER") && dPathDisabled.A.Where.Contains("disabled"));
 
         var dPathArchive = svc.DiffRecord(wFid, archivePath, replPath, new[] { "BasicStats.Damage" });
         Check("diff: a same-named backup OUTSIDE the install stays OUT-OF-LOAD-ORDER (55 vs 99) — name never decides",
