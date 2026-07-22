@@ -5300,10 +5300,14 @@ public sealed class LoadOrderService : IDisposable
             // Enabled is COMPUTED for a direct path, never assumed. Addressing a file BY PATH says nothing about
             // whether the install provides it — a path can perfectly well name the live copy of an enabled plugin,
             // and a hardcoded `false` here stamped that copy "disabled" (#269). The question the flag answers is
-            // "is THIS file the copy the install provides for this filename?", so it is judged against the SAME
-            // priority-ordered winner (hits[0]) the filename lane below returns — the two lanes then agree about one
-            // file by construction. Matching ANY hit would not do: a copy sitting in a lower-priority enabled mod is
-            // shadowed, so its folder being enabled says nothing about whether the game loads THAT file. Compared by
+            // "is THIS file the copy the install SERVES for this filename?", so it is judged against the first hit
+            // from an ENABLED layer — precisely the rule Mo2LoadOrder.BuildFilenameMap uses to build the real order
+            // (overwrite → enabled mods by priority → game Data). NOT merely the first hit: LocatePlugin also walks
+            // disabled and unlisted folders, which the order never consults, so a vanilla plugin served from Data
+            // while some DISABLED mod happens to hold the same filename would judge itself against that disabled
+            // copy and stamp the LIVE plugin inactive — #269's own symptom, reintroduced. Nor any matching hit: a
+            // copy in a LOWER-priority enabled mod is shadowed, and its folder being enabled says nothing about
+            // whether the game loads THAT file. Compared by
             // FULL PATH — an archived backup and the live copy share a filename and are different files. Two costs
             // accepted: this pays the same folder sweep the filename lane does (one stat per candidate folder), which
             // is why a path no install root contains skips it outright; and a path reaching the install through a
@@ -5312,8 +5316,8 @@ public sealed class LoadOrderService : IDisposable
             var located = IsUnderAnyInstallRoot(full, modsDir, dataDir, overwriteDir)   // outside every root ⇒ can't be the install's copy; skip the scan
                 ? Mo2LoadOrder.LocatePlugin(comp, modsDir, dataDir, overwriteDir, Path.GetFileName(full))
                 : Array.Empty<PluginFileHit>();
-            bool providesThisFile = located.Count > 0 && SamePluginFile(located[0].Path, full);
-            return new(full, "direct path", providesThisFile && located[0].Enabled, null, null);
+            var served = located.FirstOrDefault(h => h.Enabled);
+            return new(full, "direct path", served is not null && SamePluginFile(served.Path, full), null, null);
         }
         if (!string.IsNullOrWhiteSpace(mod))
         {

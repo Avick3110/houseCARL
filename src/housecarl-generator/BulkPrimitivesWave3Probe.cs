@@ -473,6 +473,21 @@ public static class BulkPrimitivesWave3Probe
         ((IWeapon)WriteEngine.GenericGetOrAddAsOverride(smod, w)).BasicStats = new WeaponBasicStats { Damage = 66 };
         smod.BeginWrite.ToPath(shadowPath).WithLoadOrder(new ISkyrimModGetter[] { m }).Write();
 
+        // DATA-SERVED plugin, with a DISABLED mod folder holding the same filename. The real order
+        // (Mo2LoadOrder.BuildFilenameMap) walks overwrite → enabled mods → game Data and never looks at disabled
+        // folders, so Data serves this file — but LocatePlugin DOES walk disabled folders and lists that copy FIRST.
+        // Judging against the first hit rather than the first ENABLED hit stamps this LIVE plugin inactive: #269's
+        // symptom again, reached from the other side. Deliberately in NO enabled mod, or Data would never serve it.
+        var dsKey = new ModKey("HcW3DataServed", ModType.Master);
+        var dataServedPath = Path.Combine(dir, "game", "Data", dsKey.FileName.String);
+        var dsMod = new SkyrimMod(dsKey, SkyrimRelease.SkyrimSE);
+        var dsw = dsMod.Weapons.AddNew(); dsw.EditorID = "DataServedW"; dsw.BasicStats = new WeaponBasicStats { Damage = 11 };
+        var dswFk = dsw.FormKey;
+        dsMod.BeginWrite.ToPath(dataServedPath).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
+        var decoyPath = Path.Combine(mods, "DataServedDecoy", dsKey.FileName.String);
+        Directory.CreateDirectory(Path.GetDirectoryName(decoyPath)!);
+        File.Copy(dataServedPath, decoyPath, overwrite: true);
+
         // ARCHIVE backup: the SAME filename as the active replacer (55), parked OUTSIDE every MO2/game root — the
         // old-version-vs-live diff (#269's reporter's actual job). Same name, different file: it must stay off-order.
         var archivePath = Path.Combine(dir, "archive", rKey.FileName.String);
@@ -483,7 +498,7 @@ public static class BulkPrimitivesWave3Probe
 
         File.WriteAllText(Path.Combine(profiles, "loadorder.txt"), "# header\r\n" + mKey.FileName + "\r\n" + rKey.FileName + "\r\n");
         File.WriteAllText(Path.Combine(profiles, "plugins.txt"), "*" + mKey.FileName + "\r\n*" + rKey.FileName + "\r\n");
-        File.WriteAllText(Path.Combine(profiles, "modlist.txt"), "# header\r\n+DiffRepl\r\n+DiffReplShadow\r\n+DiffMaster\r\n-DiffDonor\r\n");
+        File.WriteAllText(Path.Combine(profiles, "modlist.txt"), "# header\r\n+DiffRepl\r\n+DiffReplShadow\r\n+DiffMaster\r\n-DiffDonor\r\n-DataServedDecoy\r\n");
 
         var genDir = Path.Combine(dir, "corpus-gen");
         try { _ = CorpusRulebook.LoadCorpus(); }
@@ -556,6 +571,15 @@ public static class BulkPrimitivesWave3Probe
               rpfShadow.Error is null && rpfShadow.Where == "direct path" && !rpfShadow.Enabled);
         Check("read_plugin_file: the shadowed copy still READS (66) — it is unreachable to the game, not to the tool",
               rpfShadow.Error is null && rpfShadow.Record is not null);
+        // The served copy is the first ENABLED-layer hit, not the first hit: a DISABLED folder holding the same
+        // filename is listed ahead of game Data, and must not decide the live plugin's provenance.
+        string dswFid = $"{dswFk.ID:X6}:{dswFk.ModKey.FileName}";
+        var rpfData = svc.ReadPluginFile(dataServedPath, dswFid, null, null, new[] { "BasicStats.Damage" }, 1, null, 10);
+        Check("read_plugin_file: a game-Data-served plugin listed BEHIND a disabled copy still reports enabled=true",
+              rpfData.Error is null && rpfData.Where == "direct path" && rpfData.Enabled);
+        var rpfDecoy = svc.ReadPluginFile(decoyPath, dswFid, null, null, new[] { "BasicStats.Damage" }, 1, null, 10);
+        Check("read_plugin_file: that disabled copy itself reports enabled=false",
+              rpfDecoy.Error is null && rpfDecoy.Where == "direct path" && !rpfDecoy.Enabled);
 
         // IDENTICAL — same plugin on both sides
         var dSame = svc.DiffRecord(wFid, replName, replName, null);
