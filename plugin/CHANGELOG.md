@@ -48,9 +48,11 @@ every time. Two things changed:
 - **Refusals explain themselves.** A tool that reads *through* the load order still refuses on a plugin the game does
   not load — that guard is the point — but instead of a flat "not in the load order", it now says the plugin is
   installed and unticked (or that its mod is off), and points at `read_plugin_file` for a raw read. This covers
-  `read_record`, `check_errors`, `validate_scripts`, `merge_plugins`, every in-place write target, and the
-  `CopyFrom`/forward source checks. A genuine typo still gets its "did you mean" — the explanation replaces the
-  spelling guess only when there is a real cause to state.
+  `read_record`, `check_errors`, `validate_scripts`, `merge_plugins`, every in-place write target, and the forward
+  source check. A genuine typo still gets its "did you mean" — the explanation replaces the spelling guess only when
+  there is a real cause to state. The four not-loaded causes each carry their own remedy, and the two that look
+  alike from outside — a mod switched **off** versus a folder MO2 has **never registered** (where there is nothing
+  to switch on) — are told apart from MO2's own mod list rather than guessed.
 
 **The `read_plugin_file` banner no longer overclaims.** It read `OUT-OF-LOAD-ORDER (raw file read; the game does not
 load this file)` — true of the read, false about the file whenever the one you passed IS the live plugin. It now reads

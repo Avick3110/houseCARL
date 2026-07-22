@@ -83,7 +83,10 @@ public sealed class LoadOrderResolver : IDisposable
     /// sits unticked in MO2's right pane, and a flat not-found sends an agent searching for a file that is right there
     /// (#271). The resolver cannot answer that itself and must not learn how: it is built from a bare ordered path list
     /// and knows nothing of MO2 — explicit-paths mode has no profile at all. So the ANSWER is injected by whoever does
-    /// know (the MCP service, from the MO2 profile), and null here simply restores the previous wording.</summary>
+    /// know (the MCP service, from the MO2 profile), and null here simply restores the previous wording. Null is what
+    /// the direct <c>Build(paths)</c> callers get — the guard seam and the probes; BOTH service modes (MO2-instance and
+    /// explicit-paths) supply an explainer, since explicit-paths mode is given a profile directory too and it is the
+    /// explainer's own missing-profile guard, not the wiring, that handles a profile it cannot read.</summary>
     readonly Func<string, string?>? _explainAbsence;
 
     /// <summary>One index build's ENTIRE output, swapped in as a SINGLE reference write. The service refreshes the
