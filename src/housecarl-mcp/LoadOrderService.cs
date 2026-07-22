@@ -203,10 +203,6 @@ public sealed class LoadOrderService : IDisposable
         }
     }
 
-    /// <summary>Build the asset resolver from the current roots: discover the active BSAs (co-name + Skyrim.ini base
-    /// archives, VFS-resolved + ranked — <see cref="ArchiveDiscovery"/>) and read the enabled-mod priority list, both
-    /// from the same cheap static profile read the record path uses. The gamePath (for the game-dir Skyrim.ini fallback)
-    /// is DataDir's parent (DataDir = gamePath\Data). Caller holds <see cref="_gate"/>.</summary>
     /// <summary>The injected answer to "why is this plugin filename NOT in the active order?" — handed to every
     /// <see cref="LoadOrderResolver"/> this service builds, so a refusal names the cause and its remedy instead of a
     /// flat not-found the reader has to go re-derive (#271). Returns null when nothing can be said, and the refusal
@@ -222,55 +218,63 @@ public sealed class LoadOrderService : IDisposable
     /// <para>Vocabulary is deliberate throughout: a MOD is enabled/disabled (MO2's left pane), a PLUGIN is
     /// active/inactive (its right pane). Conflating the two is what made the old output unreadable.</para></summary>
     string? ExplainPluginAbsence(string name)
-        {
-            // Snapshot the roots together under the gate so the four cannot be read across a mid-switch reassignment.
-            string profileDir, modsDir, dataDir, overwriteDir;
-            lock (_gate) { profileDir = _profileDir; modsDir = _modsDir; dataDir = _dataDir; overwriteDir = _overwriteDir; }
-            if (string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(profileDir)) return null;
-            var fn = Path.GetFileName(name.Trim());
-            if (fn.Length == 0) return null;
-            Mo2Composition comp;
-            try { comp = Mo2LoadOrder.ReadComposition(profileDir); }
-            catch { return null; }                       // unreadable profile → say nothing rather than guess (Q3)
+    {
+        // Snapshot the roots together under the gate so the four cannot be read across a mid-switch reassignment.
+        string profileDir, modsDir, dataDir, overwriteDir;
+        lock (_gate) { profileDir = _profileDir; modsDir = _modsDir; dataDir = _dataDir; overwriteDir = _overwriteDir; }
+        if (string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(profileDir)) return null;
+        var fn = Path.GetFileName(name.Trim());
+        if (fn.Length == 0) return null;
+        Mo2Composition comp;
+        try { comp = Mo2LoadOrder.ReadComposition(profileDir); }
+        catch { return null; }                       // unreadable profile → say nothing rather than guess (Q3)
 
-            bool ticked = comp.ActivePluginNames.Contains(fn);
-            bool unticked = comp.InactivePluginNames.Any(x => x.Equals(fn, StringComparison.OrdinalIgnoreCase));
+        bool ticked = comp.ActivePluginNames.Contains(fn);
+        bool unticked = comp.InactivePluginNames.Any(x => x.Equals(fn, StringComparison.OrdinalIgnoreCase));
 
-            // The headline case, and the reason this explainer exists: MO2's left pane says yes, its right pane says no.
-            // The file is sitting right there, so a bare "not in the load order" reads as "missing" and sends the reader
-            // hunting for something that is installed and one click from working.
-            if (unticked)
-                return $"'{fn}' IS installed, but it is UNTICKED in plugins.txt (MO2's right pane), so the game does not " +
-                       "load it and houseCARL does not read it. Tick it in MO2 and re-sort — or, to read the file as-is " +
-                       "without loading it, use housecarl_read_plugin_file (a raw, out-of-load-order read).";
+        // The headline case, and the reason this explainer exists: MO2's left pane says yes, its right pane says no.
+        // The file is sitting right there, so a bare "not in the load order" reads as "missing" and sends the reader
+        // hunting for something that is installed and one click from working.
+        if (unticked)
+            return $"'{fn}' IS installed, but it is UNTICKED in plugins.txt (MO2's right pane), so the game does not " +
+                   "load it and houseCARL does not read it. Tick it in MO2 and re-sort — or, to read the file as-is " +
+                   "without loading it, use housecarl_read_plugin_file (a raw, out-of-load-order read).";
 
-            // Ticked but absent from the index: the file itself couldn't be resolved. Locate it to say which.
-            PluginFileHit[] hits;
-            try { hits = Mo2LoadOrder.LocatePlugin(comp, modsDir, dataDir, overwriteDir, fn).ToArray(); }
-            catch { hits = Array.Empty<PluginFileHit>(); }
+        // Ticked but absent from the index: the file itself couldn't be resolved. Locate it to say which.
+        PluginFileHit[] hits;
+        try { hits = Mo2LoadOrder.LocatePlugin(comp, modsDir, dataDir, overwriteDir, fn).ToArray(); }
+        catch { hits = Array.Empty<PluginFileHit>(); }
 
-            if (ticked)
-                // Ticked AND provided by an enabled layer, yet not indexed — nothing honest left to say (the plugin cap
-                // in probe mode reaches here). Saying "no folder provides it" would be flatly false, so say nothing.
-                return hits.Any(h => h.Enabled)
-                    ? null
-                    : $"'{fn}' is ticked in plugins.txt, but no enabled mod, the overwrite folder, or the game Data folder " +
-                      "provides the file — the profile is stale (trigger an MO2 refresh / re-sort so it rewrites the profile files).";
+        if (ticked)
+            // Ticked AND provided by an enabled layer, yet not indexed — nothing honest left to say (the plugin cap
+            // in probe mode reaches here). Saying "no folder provides it" would be flatly false, so say nothing.
+            return hits.Any(h => h.Enabled)
+                ? null
+                : $"'{fn}' is ticked in plugins.txt, but no enabled mod, the overwrite folder, or the game Data folder " +
+                  "provides the file — the profile is stale (trigger an MO2 refresh / re-sort so it rewrites the profile files).";
 
-            if (hits.Length == 0) return null;           // nothing on disk by that name → a typo; let the suggester answer
+        if (hits.Length == 0) return null;           // nothing on disk by that name → a typo; let the suggester answer
 
-            // On disk but the profile never mentions it: the mod is switched off, or MO2 hasn't registered it. Its
-            // layer label already carries which (and, for an unlisted folder, the refresh remedy). The remedy is
-            // branched on that layer's own state — telling someone to switch on a mod that is ALREADY on (every hit
-            // enabled, so the plugin is merely unregistered) sends them to do the one thing that cannot help.
-            var pick = hits.FirstOrDefault(h => !h.Enabled) ?? hits[0];
-            var remedy = pick.Enabled
-                ? "Refresh MO2 so it registers the plugin, then re-sort"
-                : "Switch the mod on in MO2 (or refresh MO2 if it is not registered yet) and re-sort";
-            return $"'{fn}' is on disk in {pick.Where}, but MO2's load order does not list it, so it is not active. " +
-                   $"{remedy} — or read the file as-is with housecarl_read_plugin_file.";
-        }
+        // On disk but the profile never mentions it. The remedy turns on WHICH layer holds it, read from the mod
+        // list rather than guessed from the hit's Enabled flag: an UNLISTED folder is flagged not-enabled exactly
+        // like a disabled one, but there is nothing in MO2 to switch on — and houseCARL's own just-written patches
+        // live in an unlisted folder, so "switch the mod on" was the wrong first instruction for the single most
+        // common way to reach this message (review of PR #274, round 2).
+        var pick = hits.FirstOrDefault(h => !h.Enabled) ?? hits[0];
+        var folder = Path.GetFileName(Path.GetDirectoryName(pick.Path) ?? "") ?? "";
+        var remedy =
+            pick.Enabled                                                              ? "Refresh MO2 so it registers the plugin, then tick it and sort"
+            : comp.DisabledMods.Any(m => m.Equals(folder, StringComparison.OrdinalIgnoreCase))
+                                                                                      ? "Switch that mod on in MO2, then tick the plugin and sort"
+                                                                                      : "MO2 has not registered that folder yet — refresh MO2, then tick the plugin and sort";
+        return $"'{fn}' is on disk in {pick.Where}, but MO2's load order does not list it, so it is not active. " +
+               $"{remedy} — or read the file as-is with housecarl_read_plugin_file.";
+    }
 
+    /// <summary>Build the asset resolver from the current roots: discover the active BSAs (co-name + Skyrim.ini base
+    /// archives, VFS-resolved + ranked — <see cref="ArchiveDiscovery"/>) and read the enabled-mod priority list, both
+    /// from the same cheap static profile read the record path uses. The gamePath (for the game-dir Skyrim.ini fallback)
+    /// is DataDir's parent (DataDir = gamePath\Data). Caller holds <see cref="_gate"/>.</summary>
     AssetResolver BuildAssetResolverLocked()
     {
         var comp = Mo2LoadOrder.ReadComposition(_profileDir);                       // EnabledMods (priority) — cheap text parse
@@ -2090,18 +2094,21 @@ public sealed class LoadOrderService : IDisposable
             // change the tail below.
             var cause = view.ExplainAbsence(plugin);
             var why = cause is not null ? " " + cause : view.NameSuggestion(plugin);
-            // The legacy tail explains the general POSTURE ("load-order truth only, does not open disabled plugins off
-            // disk") and pointed at the freshly-written-patch case as the likely reason. Once a specific cause has been
-            // stated — including the raw-read escape hatch — that generality reads as a contradiction of the sentence
-            // before it, so it is dropped in favour of the concrete answer (review of PR #274).
-            var tail = cause is not null
-                ? " If a prior write into this patch reported success, the edits DID land — do not re-issue them " +
-                  "(re-running list Adds would duplicate entries)."
+            // Only ONE sentence of the legacy tail actually contradicts a stated cause: the posture line ("does not open
+            // disabled plugins off disk"), which fights the explainer's raw-read pointer. Round 1 dropped the whole
+            // paragraph with it — and houseCARL writes its own patches into an UNLISTED mod folder, which the explainer
+            // now explains, so the freshly-written-patch case (the commonest reason to hit this refusal at all) lost the
+            // full_readback verify path that is the only way to check a write without touching MO2. The write-verify
+            // guidance is a fact about the tool, not a guess about the cause, so it is now unconditional; only the
+            // contradicting posture line and the cause-guessing sentence are conditional (review of PR #274, round 2).
+            var verify = $" To verify a write BEFORE enabling, use the write call's own read-back (full_readback=true " +
+                         $"returns the whole written record). If a prior write into '{plugin}' reported success, the edits " +
+                         "DID land — do not re-issue them (re-running list Adds would duplicate entries).";
+            var tail = (cause is not null
+                ? ""
                 : " houseCARL reads load-order truth only and does not open disabled " +
                   "plugins off disk. If this is a freshly written houseCARL patch, it isn't enabled yet: enable + sort it in " +
-                  "MO2, then re-read. To verify a write BEFORE enabling, use the write call's own read-back " +
-                  "(full_readback=true returns the whole written record). If a prior write into this patch reported success, " +
-                  "the edits DID land — do not re-issue them (re-running list Adds would duplicate entries).";
+                  "MO2, then re-read.") + verify;
             return ReadOutcome.Fail(fk,
                 $"Plugin '{plugin}' is not in the load order ({view.PluginCount} plugins; names match the plugin FILENAME " +
                 "incl. .esp/.esm, case-insensitively)." + why + tail);
@@ -3774,9 +3781,18 @@ public sealed class LoadOrderService : IDisposable
             foreach (var d in donorsRaw)
             {
                 if (!view.ContainsPlugin(d))
+                {
+                    // Same trim as read_record's: once a cause is stated it carries its own remedy, and the legacy
+                    // "Enable it in MO2 first (pass the exact filename)" both conflates the vocabulary this change is
+                    // fixing (a MOD is enabled; a PLUGIN is activated) and asks for a filename that has already
+                    // resolved to a real installed plugin (review of PR #274, round 2).
+                    var dWhy = view.ExplainAbsence(d);
                     return WritePatchBuilder.MergeOutcome.Fail(
-                        $"donor '{d}' is not an active plugin in your load order.{view.AbsenceClause(d)} Merge reads each donor's records and conflict " +
-                        "position from the ACTIVE order. Enable it in MO2 first (pass the exact filename, e.g. 'CoolMod.esp').");
+                        $"donor '{d}' is not an active plugin in your load order." +
+                        (dWhy is not null ? " " + dWhy : view.NameSuggestion(d)) +
+                        " Merge reads each donor's records and conflict position from the ACTIVE order." +
+                        (dWhy is not null ? "" : " Activate it in MO2 first (pass the exact plugin filename, e.g. 'CoolMod.esp')."));
+                }
                 if (view.ExcludedPlugins.TryGetValue(d, out var excluded))
                     return WritePatchBuilder.MergeOutcome.Fail(
                         $"cannot merge '{d}': it was EXCLUDED from this session ({excluded}) — houseCARL won't merge a plugin it " +
@@ -5383,9 +5399,13 @@ public sealed class LoadOrderService : IDisposable
         /// <summary>This copy's own layer is enabled, but a HIGHER-priority layer provides the same filename, so the
         /// game loads that one instead. Remedy: raise this mod's priority, or address the copy that wins.</summary>
         Shadowed,
-        /// <summary>This copy sits in a layer the real order never consults — a DISABLED mod folder, or one MO2 has not
-        /// registered yet. Remedy: switch the mod on, or refresh MO2.</summary>
-        LayerOff,
+        /// <summary>This copy sits in a mod folder MO2 knows about and has switched OFF. Remedy: switch it on, re-sort.</summary>
+        ModDisabled,
+        /// <summary>This copy sits in a folder modlist.txt does not mention at all — MO2 has not registered it (the state
+        /// of a patch houseCARL just wrote, before the refresh). Remedy: refresh MO2. DISTINCT from
+        /// <see cref="ModDisabled"/> because "switch the mod on" is not an available action here — there is nothing in
+        /// MO2's list to switch (review of PR #274, round 2).</summary>
+        ModUnregisteredLayer,
     }
 
     /// <summary>Is a plugin FILENAME ticked to load — the other half of "does the game load this file". A plugin's tick
@@ -5410,8 +5430,19 @@ public sealed class LoadOrderService : IDisposable
     /// EXPLAIN rather than merely classify (#271): "NOT active" names the state but not the cause, and the causes —
     /// unticked, mod switched off, shadowed, unregistered — have different remedies. <see cref="Enabled"/> keeps the
     /// single "the game loads this file" boolean every existing consumer reads, now derived rather than stored.</para></summary>
+    /// <param name="CauseDetail">For <see cref="ServedStanding.Shadowed"/>, the WHERE-label of the copy that IS served
+    /// (a different copy, so it never collides with <paramref name="Where"/>). For the two layer-off standings, the mod
+    /// FOLDER NAME alone — never the full hit label, whose text varies per lane and carries its own remedy, which is
+    /// what made the composed sentence say the same thing twice (review of PR #274).</param>
+    /// <param name="WhereNamesLayer">Does <paramref name="Where"/> already identify WHICH layer holds this copy? Set by
+    /// each lane from what it knows — the filename lane's Where IS the hit's label and the mod= lane's names the mod,
+    /// while the direct-path lane's is the constant "direct path" and identifies nothing. Carried as a fact rather than
+    /// re-derived by string-comparing the two labels: that comparison held for the filename lane and silently failed for
+    /// mod= (whose label omits the state qualifier), so the duplication it was meant to stop survived in a lane nobody
+    /// had armed. A flag the lane sets cannot drift the way a heuristic over two hand-built strings does.</param>
     internal readonly record struct PluginLocateResult(
         string? Path, string Where, ServedStanding Served, TickStanding Tick, string? CauseDetail,
+        bool WhereNamesLayer,
         IReadOnlyList<PluginFileHit>? Ambiguous, string? Error)
     {
         /// <summary>The game loads THIS file: it is the served copy AND its plugin is ticked (implicit masters count —
@@ -5438,21 +5469,30 @@ public sealed class LoadOrderService : IDisposable
                 {
                     case ServedStanding.Shadowed:
                         // CauseDetail is always set here: JudgeServed returns Shadowed only when this copy's OWN layer
-                        // is enabled, which means a served hit exists to name.
+                        // is enabled, which means a served hit exists to name. That hit is a DIFFERENT copy, so naming
+                        // it never duplicates Where whichever lane asked.
                         parts.Add($"this copy is SHADOWED — {CauseDetail} provides the copy the game loads");
                         break;
-                    case ServedStanding.LayerOff:
-                        // Don't restate the layer when Where ALREADY named it: the filename lane's Where is the hit's
-                        // own label, so "mod 'X' (DISABLED) — ... it is provided by mod 'X' (DISABLED)" said the same
-                        // thing twice in one sentence, which is worse than the bare "NOT active" it replaced. The path
-                        // lane's Where is the constant "direct path" and genuinely needs the layer named — an exact
-                        // comparison tells the two apart without parsing either label.
-                        parts.Add(string.Equals(Where, CauseDetail, StringComparison.Ordinal)
-                            ? "that layer is not one the game loads"
-                            : $"it is provided by {CauseDetail}, which the game does not load");
+                    // The two layer-off standings name the folder ONLY when Where does not (WhereNamesLayer), and state
+                    // the layer's condition + remedy in words rather than echoing a label — the label is what got
+                    // printed twice. Their remedies are genuinely different, which is why they are separate standings:
+                    // an unregistered folder has nothing in MO2's list to switch on.
+                    case ServedStanding.ModDisabled:
+                        parts.Add(WhereNamesLayer
+                            ? "that mod folder is switched OFF in MO2 — switch it on, then re-sort"
+                            : $"it is provided by mod '{CauseDetail}', which is switched OFF in MO2 — switch it on, then re-sort");
+                        break;
+                    case ServedStanding.ModUnregisteredLayer:
+                        parts.Add(WhereNamesLayer
+                            ? "MO2 has not registered that mod folder — refresh MO2, then tick the plugin and sort"
+                            : $"it is provided by mod '{CauseDetail}', which MO2 has not registered — refresh MO2, then tick the plugin and sort");
                         break;
                     case ServedStanding.NotAnInstallCopy:
-                        parts.Add("this file is not a copy the MO2 install provides");
+                        // States what was CHECKED, not a verdict on the file. This arm is also reached when the path
+                        // string-compares miss (a junction, a subst drive, a UNC route to the same install), where "not
+                        // a copy the install provides" would be a confident sentence that is simply false — the class
+                        // of overclaim this whole change exists to delete (review of PR #274, round 2).
+                        parts.Add("no MO2 layer was found providing this exact path");
                         break;
                 }
                 if (Tick == TickStanding.Unticked)
@@ -5470,15 +5510,22 @@ public sealed class LoadOrderService : IDisposable
     /// order. NOT merely the first hit: <see cref="Mo2LoadOrder.LocatePlugin"/> also walks disabled and unlisted folders
     /// that the order never consults. Compared by FULL PATH — a backup and the live copy share a filename and are
     /// different files.</summary>
-    static (ServedStanding Served, string? Detail) JudgeServed(IReadOnlyList<PluginFileHit> located, string fullPath)
+    static (ServedStanding Served, string? Detail) JudgeServed(
+        Mo2Composition comp, IReadOnlyList<PluginFileHit> located, string fullPath)
     {
         var served = located.FirstOrDefault(h => h.Enabled);
         if (served is not null && SamePluginFile(served.Path, fullPath)) return (ServedStanding.Serves, null);
         var own = located.FirstOrDefault(h => SamePluginFile(h.Path, fullPath));
         if (own is null) return (ServedStanding.NotAnInstallCopy, null);          // outside the install, or unreachable by string compare
-        // Its own layer is off (disabled / unlisted) ⇒ name THAT layer — the remedy is about this copy. Its own layer is
-        // on but something else serves the name ⇒ shadowed, and the useful pointer is the copy that WINS, not this one.
-        return own.Enabled ? (ServedStanding.Shadowed, served?.Where) : (ServedStanding.LayerOff, own.Where);
+        // Its own layer is ON but something else serves the name ⇒ shadowed, and the useful pointer is the copy that
+        // WINS, not this one.
+        if (own.Enabled) return (ServedStanding.Shadowed, served?.Where);
+        // Its own layer is off. WHICH kind decides the remedy, and it is read from the profile's own mod list rather
+        // than by pattern-matching the hit's label text — the label is display prose that can be reworded, while
+        // modlist.txt membership is the actual fact ("switched off" vs "never registered").
+        var folder = Path.GetFileName(Path.GetDirectoryName(own.Path) ?? "") ?? "";
+        bool listedOff = comp.DisabledMods.Any(m => m.Equals(folder, StringComparison.OrdinalIgnoreCase));
+        return (listedOff ? ServedStanding.ModDisabled : ServedStanding.ModUnregisteredLayer, folder);
     }
 
     /// <summary>Judge the TICK half for one plugin filename, from the profile text files. Kept beside
@@ -5513,7 +5560,7 @@ public sealed class LoadOrderService : IDisposable
         if (LooksLikePath(plugin))
         {
             if (!File.Exists(plugin))
-                return new(null, "", ServedStanding.NotAnInstallCopy, TickStanding.Unregistered, null, null, $"no file at path '{plugin}'.");
+                return new(null, "", ServedStanding.NotAnInstallCopy, TickStanding.Unregistered, null, false, null, $"no file at path '{plugin}'.");
             var full = Path.GetFullPath(plugin);
             // The standing is COMPUTED for a direct path, never assumed. Addressing a file BY PATH says nothing about
             // whether the install provides it — a path can perfectly well name the live copy of an enabled plugin,
@@ -5528,30 +5575,34 @@ public sealed class LoadOrderService : IDisposable
             var located = IsUnderAnyInstallRoot(full, modsDir, dataDir, overwriteDir)   // outside every root ⇒ can't be the install's copy; skip the scan
                 ? Mo2LoadOrder.LocatePlugin(comp, modsDir, dataDir, overwriteDir, fnPath)
                 : Array.Empty<PluginFileHit>();
-            var (servedStanding, detail) = JudgeServed(located, full);
-            return new(full, "direct path", servedStanding, JudgeTick(comp, fnPath), detail, null, null);
+            var (servedStanding, detail) = JudgeServed(comp, located, full);
+            // WhereNamesLayer: FALSE — "direct path" identifies no layer, so a layer-off cause must name the folder.
+            return new(full, "direct path", servedStanding, JudgeTick(comp, fnPath), detail, false, null, null);
         }
         if (!string.IsNullOrWhiteSpace(mod))
         {
             var fn = Path.GetFileName(plugin);
             var cand = Path.Combine(modsDir, mod.Trim(), fn);
             if (!File.Exists(cand))
-                return new(null, "", ServedStanding.NotAnInstallCopy, TickStanding.Unregistered, null, null,
+                return new(null, "", ServedStanding.NotAnInstallCopy, TickStanding.Unregistered, null, false, null,
                            $"mod folder '{mod.Trim()}' under ModsDir does not provide '{fn}'.");
             // Both halves here too, or the same physical file answers differently depending on how it was addressed.
             // "The named mod is enabled" is NOT enough: a lower-priority enabled mod's copy is shadowed, and the game
             // loads the serving copy instead.
             var (modServed, modDetail) = JudgeServed(
-                Mo2LoadOrder.LocatePlugin(comp, modsDir, dataDir, overwriteDir, fn), cand);
-            return new(cand, $"mod '{mod.Trim()}'", modServed, JudgeTick(comp, fn), modDetail, null, null);
+                comp, Mo2LoadOrder.LocatePlugin(comp, modsDir, dataDir, overwriteDir, fn), cand);
+            // WhereNamesLayer: TRUE — "mod 'X'" names the folder (it carries no STATE qualifier, which is exactly why
+            // the old label-equality test failed here and let the duplication through).
+            return new(cand, $"mod '{mod.Trim()}'", modServed, JudgeTick(comp, fn), modDetail, true, null, null);
         }
         var hits = Mo2LoadOrder.LocatePlugin(comp, modsDir, dataDir, overwriteDir, plugin);
         if (hits.Count == 0)
-            return new(null, "", ServedStanding.NotAnInstallCopy, TickStanding.Unregistered, null, null,
+            return new(null, "", ServedStanding.NotAnInstallCopy, TickStanding.Unregistered, null, false, null,
                 $"'{Path.GetFileName(plugin)}' is in no mod folder (enabled, disabled, or not-yet-listed in MO2), the overwrite folder, or the game Data folder. Check the filename, pass an absolute path, or (if it's an MO2 mod) the exact folder via mod=.");
-        if (hits.Count > 1) return new(null, "", ServedStanding.NotAnInstallCopy, TickStanding.Unregistered, null, hits, null);
-        var (oneServed, oneDetail) = JudgeServed(hits, hits[0].Path);
-        return new(hits[0].Path, hits[0].Where, oneServed, JudgeTick(comp, Path.GetFileName(plugin)), oneDetail, null, null);
+        if (hits.Count > 1) return new(null, "", ServedStanding.NotAnInstallCopy, TickStanding.Unregistered, null, false, hits, null);
+        var (oneServed, oneDetail) = JudgeServed(comp, hits, hits[0].Path);
+        // WhereNamesLayer: TRUE — Where IS the located hit's own label, folder and state both.
+        return new(hits[0].Path, hits[0].Where, oneServed, JudgeTick(comp, Path.GetFileName(plugin)), oneDetail, true, null, null);
     }
 
     /// <summary>Does the user's `plugin` argument denote a PATH (use verbatim — the "inspect any file" case) rather

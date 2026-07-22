@@ -514,7 +514,8 @@ static class JsonWire
                 w.WriteBoolean("enabled", o.Enabled);
                 // The JSON lane surfaces this state too, so it gets the cause as well (#271) — a consumer reading
                 // enabled=false here would otherwise have to go re-derive WHY, which is the whole cost this fixes.
-                // Emitted only when there IS one, so `why_not_active` absent == the game loads this file.
+                // Always PRESENT, explicitly null when the game loads the file (the WriteNullable house style), so a
+                // consumer can tell "no cause" from "field not emitted by an older build".
                 WriteNullable(w, "why_not_active", o.WhyNotActive);
                 WriteStringArray(w, "masters", o.Masters);
                 WriteStringArray(w, "missing_masters", o.MissingMasters);

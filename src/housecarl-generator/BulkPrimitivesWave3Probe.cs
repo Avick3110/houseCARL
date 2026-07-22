@@ -519,6 +519,18 @@ public static class BulkPrimitivesWave3Probe
         var urwFk = urw.FormKey;
         unregMod.BeginWrite.ToPath(unregPath).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
 
+        // UNLISTED folder: on disk under ModsDir but mentioned NOWHERE in modlist.txt. This is the state of a patch
+        // houseCARL has just written, before the MO2 refresh — by far the most common way a real session reaches a
+        // "not in the load order" refusal, and the one the fixtures never modelled (review of PR #274, round 2).
+        // Its remedy is a refresh; "switch the mod on" names an action MO2 cannot offer for it.
+        var unlKey = new ModKey("HcW3Unlisted", ModType.Plugin);
+        var unlistedPath = Path.Combine(mods, "DiffUnlistedFresh", unlKey.FileName.String);
+        Directory.CreateDirectory(Path.GetDirectoryName(unlistedPath)!);
+        var unlMod = new SkyrimMod(unlKey, SkyrimRelease.SkyrimSE);
+        var ulw = unlMod.Weapons.AddNew(); ulw.EditorID = "UnlistedW"; ulw.BasicStats = new WeaponBasicStats { Damage = 44 };
+        var ulwFk = ulw.FormKey;
+        unlMod.BeginWrite.ToPath(unlistedPath).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
+
         // ARCHIVE backup: the SAME filename as the active replacer (55), parked OUTSIDE every MO2/game root — the
         // old-version-vs-live diff (#269's reporter's actual job). Same name, different file: it must stay off-order.
         var archivePath = Path.Combine(dir, "archive", rKey.FileName.String);
@@ -594,7 +606,7 @@ public static class BulkPrimitivesWave3Probe
         // four different remedies — and the wrong word for a plugin (a MOD is disabled; a PLUGIN is inactive).
         Check("diff: the off-order pole NAMES the cause — the DISABLED mod folder that provides the copy",
               dPathDisabled.Error is null && dPathDisabled.A!.Where.Contains("DiffDonor")
-              && dPathDisabled.A.Where.Contains("DISABLED"));
+              && dPathDisabled.A.Where.Contains("switched OFF"));
 
         var dPathArchive = svc.DiffRecord(wFid, archivePath, replPath, new[] { "BasicStats.Damage" });
         Check("diff: a same-named backup OUTSIDE the install stays OUT-OF-LOAD-ORDER (55 vs 99) — name never decides",
@@ -668,10 +680,10 @@ public static class BulkPrimitivesWave3Probe
         // A copy in a switched-off mod: the remedy is the LEFT pane, and the label must say so rather than blame the
         // plugin's tick (the decoy is not listed in plugins.txt at all, so a naive renderer would say "unticked").
         Check("#271 why: a copy in a DISABLED mod blames the MOD FOLDER, and never claims the plugin is unticked",
-              rpfDecoy.WhyNotActive is { } wD && wD.Contains("DataServedDecoy") && wD.Contains("DISABLED")
+              rpfDecoy.WhyNotActive is { } wD && wD.Contains("DataServedDecoy") && wD.Contains("switched OFF")
               && !wD.Contains("UNTICKED"));
         Check("#271 why: a same-named backup OUTSIDE the install says it is not an install copy — not 'disabled'",
-              rpfArchive.WhyNotActive is { } wA && wA.Contains("not a copy the MO2 install provides"));
+              rpfArchive.WhyNotActive is { } wA && wA.Contains("no MO2 layer was found providing this exact path"));
         // The other direction, and the one #269 was actually about: when the game DOES load the file, there must be
         // no cause at all — a leftover explanation would re-assert the very falsehood this issue set out to remove.
         Check("#271 why: the three ACTIVE lanes carry NO cause (null), so nothing contradicts the live file",
@@ -696,16 +708,44 @@ public static class BulkPrimitivesWave3Probe
         // the same thing twice in one sentence — output strictly worse than the "NOT active" it replaced. The path-lane
         // arms above cannot catch it: their Where is the constant "direct path", where the restatement is the only way
         // the layer gets named at all. Armed on the lane where the bug can actually appear (review of PR #274).
+        Console.WriteLine("DBG byname=[" + (svc.ReadPluginFile(dKey.FileName.String, wFid, null, null, null, 1, null, 10).WhyNotActive ?? "<null>") + "]");
+        Console.WriteLine("DBG bymod=[" + (svc.ReadPluginFile(dKey.FileName.String, wFid, null, "DiffDonor", null, 1, null, 10).WhyNotActive ?? "<null>") + "]");
+        Console.WriteLine("DBG bypath=[" + (rpfDecoy.WhyNotActive ?? "<null>") + "]");
+        Console.WriteLine("DBG archive=[" + (rpfArchive.WhyNotActive ?? "<null>") + "]");
+        Console.WriteLine("DBG json=[" + JsonWire.RenderPluginFile(rpfUntickedByName, 8000) + "]");
+        // ALL THREE address forms, not the one that was reported. Round 1 flagged this duplication, the fix was tested
+        // by comparing the two labels for equality, and that test silently failed in the mod= lane — whose Where names
+        // the mod but omits its state — so the identical defect survived a round of review in an unarmed lane. Each
+        // lane is now armed for the SAME cause: the mod name must appear exactly once in every rendered form.
         var rpfDisabledByName = svc.ReadPluginFile(dKey.FileName.String, wFid, null, null, null, 1, null, 10);
+        var rpfDisabledByMod = svc.ReadPluginFile(dKey.FileName.String, wFid, null, "DiffDonor", null, 1, null, 10);
         var renderDisabledByName = Wire.RenderPluginFile(rpfDisabledByName, 8000);
-        Check("#271 render: a disabled-mod copy BY FILENAME names its layer exactly once, not twice",
-              rpfDisabledByName.Error is null
-              && CountOf(renderDisabledByName, "mod 'DiffDonor' (DISABLED)") == 1
+        var renderDisabledByMod = Wire.RenderPluginFile(rpfDisabledByMod, 8000);
+        Check("#271 render: a disabled-mod copy BY FILENAME names its mod exactly once",
+              rpfDisabledByName.Error is null && CountOf(renderDisabledByName, "mod 'DiffDonor'") == 1
               && renderDisabledByName.Contains("the game does NOT load this file"));
-        // ...while the PATH lane, whose Where is "direct path", must STILL name the layer — dropping the restatement
-        // outright would lose the only mention of which mod provides the file.
-        Check("#271 render: the same copy BY PATH still names the layer, since its Where cannot",
+        Check("#271 render: BY MOD= too — the lane whose label omits the state, where the equality test failed",
+              rpfDisabledByMod.Error is null && CountOf(renderDisabledByMod, "mod 'DiffDonor'") == 1
+              && renderDisabledByMod.Contains("the game does NOT load this file"));
+        // ...while the PATH lane, whose Where identifies nothing, must STILL name the mod — suppressing it everywhere
+        // would lose the only mention of which mod provides the file.
+        Check("#271 render: the same copy BY PATH still names the mod, since its Where cannot",
               rpfDecoy.WhyNotActive is { } wD2 && wD2.Contains("DataServedDecoy"));
+        // The two layer-off causes carry DIFFERENT remedies and must never render alike: an UNLISTED folder has nothing
+        // in MO2's list to switch on. Both are flagged not-enabled by the locate, so a fix reading that flag alone
+        // cannot tell them apart — the standing is decided from modlist.txt membership instead.
+        string ulwFid = $"{ulwFk.ID:X6}:{ulwFk.ModKey.FileName}";
+        var rpfUnlisted = svc.ReadPluginFile(unlKey.FileName.String, ulwFid, null, null, null, 1, null, 10);
+        Check("#271 why: a DISABLED mod says switch it on; an UNLISTED folder says refresh — never swapped",
+              rpfDisabledByName.WhyNotActive is { } wDis && wDis.Contains("switched OFF") && wDis.Contains("switch it on")
+              && rpfUnlisted.Error is null && rpfUnlisted.WhyNotActive is { } wUn
+              && wUn.Contains("not registered") && !wUn.Contains("switch it on"));
+        // The JSON lane carries the cause too — advertised in the changelog, previously unarmed.
+        var jsonUnticked = JsonWire.RenderPluginFile(rpfUntickedByName, 8000);
+        var jsonLive = JsonWire.RenderPluginFile(rpfPath, 8000);
+        Check("#271 json: why_not_active rides beside enabled, and is explicitly null when the game loads the file",
+              jsonUnticked.Contains("\"why_not_active\"") && jsonUnticked.Contains("UNTICKED")
+              && jsonLive.Contains("\"why_not_active\": null"));
 
         // ---- #271 item 2: the REFUSAL sweep. A tool that reads THROUGH the load order still refuses on an unticked
         //      plugin (correctly — Q3: a plugin the game does not load must never masquerade as load-order truth), but
@@ -752,20 +792,34 @@ public static class BulkPrimitivesWave3Probe
         // found by review. That is the "fixed the reported site, missed the rule's other lanes" shape #270 kept
         // repeating, so this arm sweeps the WHOLE shipped surface by reflection rather than the two sites that were
         // reported. A tool description added tomorrow with the same sentence turns CI red.
+        // Case-SENSITIVE, deliberately: the shipped banner legitimately writes "the game does NOT load this file: <why>"
+        // as a per-file report, and an ordinal-ignore-case match would read that correct sentence as the defect. What is
+        // banned is the flat lower-case assertion (review of PR #274, round 2).
         const string overclaim = "the game does not load this file";
-        var descs = typeof(HousecarlMcp.ReadTools).Assembly.GetTypes()
-            .SelectMany(t => t.GetMethods(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic
-                                          | System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.Instance
-                                          | System.Reflection.BindingFlags.DeclaredOnly))
-            .SelectMany(m => m.GetCustomAttributes(typeof(System.ComponentModel.DescriptionAttribute), false)
-                              .Cast<System.ComponentModel.DescriptionAttribute>()
-                              .Concat(m.GetParameters().SelectMany(p =>
-                                  p.GetCustomAttributes(typeof(System.ComponentModel.DescriptionAttribute), false)
-                                   .Cast<System.ComponentModel.DescriptionAttribute>())))
-            .Select(d => d.Description ?? "")
+        var mcpTypes = typeof(HousecarlMcp.ReadTools).Assembly.GetTypes();
+        const System.Reflection.BindingFlags AllDeclared =
+            System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic
+            | System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.Instance
+            | System.Reflection.BindingFlags.DeclaredOnly;
+        static IEnumerable<string> DescsOf(System.Reflection.ICustomAttributeProvider p) =>
+            p.GetCustomAttributes(typeof(System.ComponentModel.DescriptionAttribute), false)
+             .Cast<System.ComponentModel.DescriptionAttribute>().Select(d => d.Description ?? "");
+        var descs = mcpTypes.SelectMany(t => DescsOf(t)                                   // type-level too, not just methods
+                .Concat(t.GetMethods(AllDeclared).SelectMany(m => DescsOf(m)
+                    .Concat(m.GetParameters().SelectMany(pp => DescsOf(pp))))))
             .ToList();
-        Check($"#271 sweep: no MCP tool/parameter description asserts the overclaim ({descs.Count} descriptions swept)",
-              descs.Count > 50 && !descs.Any(d => d.Contains(overclaim, StringComparison.OrdinalIgnoreCase)));
+        Check($"#271 sweep: no MCP type/tool/parameter description asserts the overclaim ({descs.Count} descriptions swept)",
+              descs.Count > 50 && !descs.Any(d => d.Contains(overclaim, StringComparison.Ordinal)));
+        // The shipped prose that describes this banner lives outside the assembly; sweep it in the same breath so a doc
+        // re-asserting what the code stopped claiming cannot drift back in unnoticed.
+        foreach (var doc in new[] { Path.Combine("plugin", "README.md"), Path.Combine("plugin", "codex", "housecarl", "SKILL.md") })
+        {
+            // Repo-relative from the run CWD, the same convention codex-umbrella-coverage-guard uses. A MISSING file
+            // fails rather than silently passing — a sweep that quietly checks nothing is worse than no sweep (Q3).
+            if (!File.Exists(doc)) { Check($"#271 sweep: shipped doc present to sweep ({doc})", false); continue; }
+            Check($"#271 sweep: {doc} does not assert the overclaim either",
+                  !File.ReadAllText(doc).Contains(overclaim, StringComparison.Ordinal));
+        }
 
         // The third renderer named by the issue. Its bracket is gated on a flag the file lane sets UNCONDITIONALLY, so
         // it asserted the overclaim even for a donor the game does load — armed here through the real render.
@@ -777,6 +831,22 @@ public static class BulkPrimitivesWave3Probe
         Check("#271 sweep: copy_npc_appearance's donor bracket states the READ, not a claim about the file",
               !npcRender.Contains(overclaim, StringComparison.OrdinalIgnoreCase)
               && npcRender.Contains("OUT-OF-LOAD-ORDER"));
+
+        // FINDING 1: the fresh-patch refusal. houseCARL writes patches into an unlisted folder, so this is the refusal
+        // a real session hits most, and the explainer now answers it — which is exactly why the "cause stated ⇒ drop
+        // the legacy tail" rule silently took the full_readback verify path away from it. That guidance is a fact about
+        // the tool, not a guess about the cause, so it must survive whether or not a cause was stated.
+        var readFreshPatch = svc.ResolveRead(ulwFk, unlKey.FileName.String, null, false);
+        Check("#271 refusal: a just-written (unlisted) patch keeps the full_readback verify path",
+              readFreshPatch.Error is { } eF && eF.Contains("full_readback=true"));
+        Check("#271 refusal: ...and is told to REFRESH MO2, not to switch on a mod MO2 has never listed",
+              readFreshPatch.Error is { } eF2 && eF2.Contains("refresh MO2", StringComparison.OrdinalIgnoreCase)
+              && !eF2.Contains("Switch that mod on"));
+        Check("#271 refusal: the retained verify sentence names the plugin, so it has a subject standing alone",
+              readFreshPatch.Error is { } eF3 && eF3.Contains($"prior write into '{unlKey.FileName}'"));
+        // ...and the unexplained case keeps BOTH halves, so nothing was lost for it either.
+        Check("#271 refusal: an unexplained name keeps the posture line AND the verify path",
+              readTypo.Error is { } eT3 && eT3.Contains("does not open disabled") && eT3.Contains("full_readback=true"));
 
         // A SECOND refusal lane. All the arms above ride ResolveRead, and every other site got the same clause with no
         // coverage — which is why a dropped space in merge_plugins' refusal shipped unnoticed (review of PR #274).
