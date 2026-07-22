@@ -736,6 +736,11 @@ public static class BulkPrimitivesWave3Probe
         // cannot tell them apart — the standing is decided from modlist.txt membership instead.
         string ulwFid = $"{ulwFk.ID:X6}:{ulwFk.ModKey.FileName}";
         var rpfUnlisted = svc.ReadPluginFile(unlKey.FileName.String, ulwFid, null, null, null, 1, null, 10);
+        // The layer LABEL must not carry a remedy of its own, or the rendered line instructs twice — the same
+        // duplication class, one step milder. Only the cause line explains (live-check finding, #274).
+        Check("#271 render: an UNLISTED layer's label identifies only; the remedy is stated exactly once",
+              rpfUnlisted.Error is null && Wire.RenderPluginFile(rpfUnlisted, 4000) is { } rUnl
+              && CountOf(rUnl, "refresh MO2") == 1 && rUnl.Contains("(UNLISTED)"));
         Check("#271 why: a DISABLED mod says switch it on; an UNLISTED folder says refresh — never swapped",
               rpfDisabledByName.WhyNotActive is { } wDis && wDis.Contains("switched OFF") && wDis.Contains("switch it on")
               && rpfUnlisted.Error is null && rpfUnlisted.WhyNotActive is { } wUn
