@@ -30,9 +30,32 @@ now means one thing in every lane: **the game loads this file**. That needs both
   `plugins.txt`, still count as active. This half applies to the filename and `mod=` lanes too, so all three now
   state the same fact.
 
-`read_plugin_file`'s `OUT-OF-LOAD-ORDER` banner is unchanged and still stamps every read — note its "the game does not
-load this file" wording is inaccurate when the file you passed IS the live plugin; that wording, and whether this flag
-should split into two, are tracked in #271. Reported by a houseCARL user.
+Reported by a houseCARL user. (The banner wording and the one-flag-many-causes question this left open are resolved by
+the next entry.)
+
+**Every "not active" now says WHY, and so does every refusal that turns one away (#271).**
+`NOT active` / `disabled` named the state but never the cause — and the causes have different fixes: the plugin is
+unticked in `plugins.txt`, its mod is switched off, a higher-priority mod shadows this copy, or MO2 has not registered
+it. Reading `[mod 'X' (enabled); NOT active]`, you could not tell which, so the answer had to be rediscovered by hand
+every time. Two things changed:
+
+- **The located-plugin flag became two facts** — *is this the copy the install serves* and *is this plugin ticked* —
+  carried separately so each renderer can explain rather than classify. `read_plugin_file`, `diff_record`'s off-order
+  pole, and `copy_npc_appearance`'s donor line now state the cause, from one shared composer so they cannot drift
+  apart; the JSON lane gains a `why_not_active` field beside `enabled`. A file the game *does* load now says so
+  positively instead of saying nothing. Vocabulary is consistent throughout: a **mod** is enabled/disabled, a
+  **plugin** is active/inactive — `diff_record` no longer calls an unticked plugin "disabled".
+- **Refusals explain themselves.** A tool that reads *through* the load order still refuses on a plugin the game does
+  not load — that guard is the point — but instead of a flat "not in the load order", it now says the plugin is
+  installed and unticked (or that its mod is off), and points at `read_plugin_file` for a raw read. This covers
+  `read_record`, `check_errors`, `validate_scripts`, `merge_plugins`, every in-place write target, and the
+  `CopyFrom`/forward source checks. A genuine typo still gets its "did you mean" — the explanation replaces the
+  spelling guess only when there is a real cause to state.
+
+**The `read_plugin_file` banner no longer overclaims.** It read `OUT-OF-LOAD-ORDER (raw file read; the game does not
+load this file)` — true of the read, false about the file whenever the one you passed IS the live plugin. It now reads
+`(raw file read — not resolved through the load order)`, which holds in every case; what the game does with the file
+is stated separately, per file, with its reason.
 
 **The Codex umbrella router now covers the whole tool surface, and a CI guard keeps it that way (Codex parity).**
 The Codex packaging ships one umbrella routing skill (`plugin/codex/housecarl/SKILL.md`); it had drifted to naming
