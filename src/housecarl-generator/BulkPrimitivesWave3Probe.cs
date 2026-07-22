@@ -31,6 +31,15 @@ public static class BulkPrimitivesWave3Probe
         if (ok) _pass++; else _fail++;
     }
 
+    /// <summary>Non-overlapping occurrences of <paramref name="needle"/> — a rendered label appearing TWICE is a real
+    /// output defect that a Contains() check reads as a pass.</summary>
+    static int CountOf(string haystack, string needle)
+    {
+        int n = 0, i = 0;
+        while ((i = haystack.IndexOf(needle, i, StringComparison.Ordinal)) >= 0) { n++; i += needle.Length; }
+        return n;
+    }
+
     public static int RunGuard(string[] args)
     {
         _pass = _fail = 0;
@@ -499,6 +508,17 @@ public static class BulkPrimitivesWave3Probe
         var uwFk = uw.FormKey;
         unMod.BeginWrite.ToPath(untickedPath).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
 
+        // UNREGISTERED plugin: sole copy, in an ENABLED mod folder, and therefore the SERVED copy — but MO2 has not
+        // written it into loadorder.txt/plugins.txt at all (a mod installed, or a patch written, before the refresh).
+        // Serves + Unregistered is a distinct pair from Serves + Unticked: nothing to tick, the remedy is a refresh.
+        var unregKey = new ModKey("HcW3Unregistered", ModType.Plugin);
+        var unregPath = Path.Combine(mods, "DiffUnregistered", unregKey.FileName.String);
+        Directory.CreateDirectory(Path.GetDirectoryName(unregPath)!);
+        var unregMod = new SkyrimMod(unregKey, SkyrimRelease.SkyrimSE);
+        var urw = unregMod.Weapons.AddNew(); urw.EditorID = "UnregW"; urw.BasicStats = new WeaponBasicStats { Damage = 33 };
+        var urwFk = urw.FormKey;
+        unregMod.BeginWrite.ToPath(unregPath).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
+
         // ARCHIVE backup: the SAME filename as the active replacer (55), parked OUTSIDE every MO2/game root — the
         // old-version-vs-live diff (#269's reporter's actual job). Same name, different file: it must stay off-order.
         var archivePath = Path.Combine(dir, "archive", rKey.FileName.String);
@@ -510,12 +530,16 @@ public static class BulkPrimitivesWave3Probe
         // The Data-served plugin is CHECKED and in the order: its arm isolates WHICH COPY is served, so its tick state
         // must not be the thing that decides it (leave it unticked and the tick gate answers first, and the
         // served-copy rule goes untested).
+        // HcW3Ghost.esp is TICKED and in the order but exists in NO folder — the stale-profile state (MO2 rewrote the
+        // profile, then the mod was removed). It is the one case the explainer must NOT answer with "unticked".
+        const string ghostName = "HcW3Ghost.esp";
         File.WriteAllText(Path.Combine(profiles, "loadorder.txt"),
-            "# header\r\n" + mKey.FileName + "\r\n" + dsKey.FileName + "\r\n" + rKey.FileName + "\r\n");
-        // plugins.txt: master + Data-served + replacer CHECKED; HcW3Unticked listed WITHOUT the `*` (present but unchecked).
+            "# header\r\n" + mKey.FileName + "\r\n" + dsKey.FileName + "\r\n" + rKey.FileName + "\r\n" + ghostName + "\r\n");
+        // plugins.txt: master + Data-served + replacer + ghost CHECKED; HcW3Unticked listed WITHOUT the `*` (present but
+        // unchecked). HcW3Unregistered is in NEITHER file — its mod folder is enabled, but MO2 has never seen the plugin.
         File.WriteAllText(Path.Combine(profiles, "plugins.txt"),
-            "*" + mKey.FileName + "\r\n*" + dsKey.FileName + "\r\n*" + rKey.FileName + "\r\n" + unKey.FileName + "\r\n");
-        File.WriteAllText(Path.Combine(profiles, "modlist.txt"), "# header\r\n+DiffRepl\r\n+DiffReplShadow\r\n+DiffMaster\r\n+DiffUnticked\r\n-DiffDonor\r\n-DataServedDecoy\r\n");
+            "*" + mKey.FileName + "\r\n*" + dsKey.FileName + "\r\n*" + rKey.FileName + "\r\n" + unKey.FileName + "\r\n*" + ghostName + "\r\n");
+        File.WriteAllText(Path.Combine(profiles, "modlist.txt"), "# header\r\n+DiffRepl\r\n+DiffReplShadow\r\n+DiffMaster\r\n+DiffUnticked\r\n+DiffUnregistered\r\n-DiffDonor\r\n-DataServedDecoy\r\n");
 
         var genDir = Path.Combine(dir, "corpus-gen");
         try { _ = CorpusRulebook.LoadCorpus(); }
@@ -668,6 +692,20 @@ public static class BulkPrimitivesWave3Probe
               renderUnticked.Contains("mod 'DiffUnticked' (enabled)")
               && renderUnticked.Contains("the game does NOT load this file")
               && renderUnticked.Contains("UNTICKED in plugins.txt"));
+        // The FILENAME lane's Where is the located hit's OWN label, so a LayerOff cause that restates the layer says
+        // the same thing twice in one sentence — output strictly worse than the "NOT active" it replaced. The path-lane
+        // arms above cannot catch it: their Where is the constant "direct path", where the restatement is the only way
+        // the layer gets named at all. Armed on the lane where the bug can actually appear (review of PR #274).
+        var rpfDisabledByName = svc.ReadPluginFile(dKey.FileName.String, wFid, null, null, null, 1, null, 10);
+        var renderDisabledByName = Wire.RenderPluginFile(rpfDisabledByName, 8000);
+        Check("#271 render: a disabled-mod copy BY FILENAME names its layer exactly once, not twice",
+              rpfDisabledByName.Error is null
+              && CountOf(renderDisabledByName, "mod 'DiffDonor' (DISABLED)") == 1
+              && renderDisabledByName.Contains("the game does NOT load this file"));
+        // ...while the PATH lane, whose Where is "direct path", must STILL name the layer — dropping the restatement
+        // outright would lose the only mention of which mod provides the file.
+        Check("#271 render: the same copy BY PATH still names the layer, since its Where cannot",
+              rpfDecoy.WhyNotActive is { } wD2 && wD2.Contains("DataServedDecoy"));
 
         // ---- #271 item 2: the REFUSAL sweep. A tool that reads THROUGH the load order still refuses on an unticked
         //      plugin (correctly — Q3: a plugin the game does not load must never masquerade as load-order truth), but
@@ -687,6 +725,70 @@ public static class BulkPrimitivesWave3Probe
         var readTypo = svc.ResolveRead(wFk, "HcW3DiffRep.esp", null, false);   // a real near-miss: one character dropped
         Check("#271 refusal: a genuine typo still gets the did-you-mean (the explainer adds, never removes)",
               readTypo.Error is { } eT && eT.Contains("Did you mean") && eT.Contains(replName));
+        // Once a concrete cause IS stated, the legacy "houseCARL does not open disabled plugins off disk" tail
+        // contradicts the escape-hatch sentence right before it; it survives only where nothing could be explained.
+        Check("#271 refusal: the explained case drops the generic posture tail, the unexplained one keeps it",
+              readUnticked.Error is { } eU3 && !eU3.Contains("does not open disabled")
+              && readTypo.Error is { } eT2 && eT2.Contains("does not open disabled"));
+
+        // Serves + Unregistered: the served copy of a plugin MO2 has never written into its profile. Distinct from
+        // unticked (there is nothing to untick) and from a switched-off mod (the folder is on), so it must say neither.
+        string urwFid = $"{urwFk.ID:X6}:{urwFk.ModKey.FileName}";
+        var rpfUnreg = svc.ReadPluginFile(unregKey.FileName.String, urwFid, null, null, null, 1, null, 10);
+        Check("#271 why: the SERVED copy of an unregistered plugin says so, blaming neither the tick nor the mod",
+              rpfUnreg.Error is null && !rpfUnreg.Enabled && rpfUnreg.WhyNotActive is { } wR
+              && wR.Contains("not registered in MO2's load order") && !wR.Contains("UNTICKED")
+              && !wR.Contains("which the game does not load"));
+        // The explainer's stale-profile branch: TICKED, but no layer provides the file. "Unticked" would be a lie and
+        // "not on disk anywhere" is the actual remedy-bearing fact.
+        var readGhost = svc.ResolveRead(wFk, ghostName, null, false);
+        Check("#271 refusal: a ticked-but-missing plugin is called stale-profile, never unticked",
+              readGhost.Error is { } eG && eG.Contains("ticked in plugins.txt") && eG.Contains("stale")
+              && !eG.Contains("UNTICKED"));
+
+        // The overclaim SWEEP. "the game does not load this file" is an assertion about the FILE that had lodged in
+        // places describing the READ — and fixing the banner alone left it live in read_plugin_file's own tool
+        // DESCRIPTION (where the model meets it before any output) and in copy_npc_appearance's donor bracket, both
+        // found by review. That is the "fixed the reported site, missed the rule's other lanes" shape #270 kept
+        // repeating, so this arm sweeps the WHOLE shipped surface by reflection rather than the two sites that were
+        // reported. A tool description added tomorrow with the same sentence turns CI red.
+        const string overclaim = "the game does not load this file";
+        var descs = typeof(HousecarlMcp.ReadTools).Assembly.GetTypes()
+            .SelectMany(t => t.GetMethods(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic
+                                          | System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.Instance
+                                          | System.Reflection.BindingFlags.DeclaredOnly))
+            .SelectMany(m => m.GetCustomAttributes(typeof(System.ComponentModel.DescriptionAttribute), false)
+                              .Cast<System.ComponentModel.DescriptionAttribute>()
+                              .Concat(m.GetParameters().SelectMany(p =>
+                                  p.GetCustomAttributes(typeof(System.ComponentModel.DescriptionAttribute), false)
+                                   .Cast<System.ComponentModel.DescriptionAttribute>())))
+            .Select(d => d.Description ?? "")
+            .ToList();
+        Check($"#271 sweep: no MCP tool/parameter description asserts the overclaim ({descs.Count} descriptions swept)",
+              descs.Count > 50 && !descs.Any(d => d.Contains(overclaim, StringComparison.OrdinalIgnoreCase)));
+
+        // The third renderer named by the issue. Its bracket is gated on a flag the file lane sets UNCONDITIONALLY, so
+        // it asserted the overclaim even for a donor the game does load — armed here through the real render.
+        var npcRender = NpcCopyTools.Render(new NpcCopyOutcome(
+            true, null, "apply", wFk, "file 'X.esp' (mod 'M' (enabled))", /*DonorOutOfLoadOrder:*/ true, wFk,
+            "X.esp", false, Array.Empty<InternalizedRecord>(), Array.Empty<string>(), 0, Array.Empty<string>(),
+            Array.Empty<NpcAppearanceCopy.StripReport>(), Array.Empty<string>(), false, false,
+            Array.Empty<string>(), null, 0, null));
+        Check("#271 sweep: copy_npc_appearance's donor bracket states the READ, not a claim about the file",
+              !npcRender.Contains(overclaim, StringComparison.OrdinalIgnoreCase)
+              && npcRender.Contains("OUT-OF-LOAD-ORDER"));
+
+        // A SECOND refusal lane. All the arms above ride ResolveRead, and every other site got the same clause with no
+        // coverage — which is why a dropped space in merge_plugins' refusal shipped unnoticed (review of PR #274).
+        // Rendering the whole message, not just the clause, is the point: this arm exists to read the sentence.
+        // Two donors minimum; the unticked one is named first so its refusal is the one that fires.
+        var mergeUnticked = svc.MergePlugins(new[] { unKey.FileName.String, replName }, "HcW3MergeOut.esp");
+        Check("#271 refusal: merge_plugins explains an UNTICKED donor rather than a flat not-active",
+              !mergeUnticked.Success && mergeUnticked.Error is { } eM && eM.Contains("UNTICKED")
+              && eM.Contains("plugins.txt"));
+        Check("#271 refusal: and the merge refusal reads as whole words (no lost space at the splice)",
+              mergeUnticked.Error is { } eM2 && eM2.Contains("records and conflict position from the ACTIVE order")
+              && !eM2.Contains("conflictposition"));
 
         // IDENTICAL — same plugin on both sides
         var dSame = svc.DiffRecord(wFid, replName, replName, null);

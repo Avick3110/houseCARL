@@ -379,7 +379,13 @@ public static class WritePatchBuilder
                 else if (string.Equals(e.FromPlugin, fileName, StringComparison.OrdinalIgnoreCase))
                 { problems.Add($"{e.Target}: CopyFrom from_plugin '{e.FromPlugin}' is the output patch itself — name the OTHER plugin whose version to copy from."); continue; }
                 else if (!view.ContainsPlugin(e.FromPlugin))
-                { problems.Add($"{e.Target}: CopyFrom source '{e.FromPlugin}' is not in the load order (and no plugin file by that name was located on disk) — name an active plugin, or a plugin file present on disk.{view.AbsenceClause(e.FromPlugin)}"); continue; }
+                // Deliberately NO AbsenceClause here (review of PR #274): the service pre-resolves every off-order
+                // CopyFrom source before Apply — a source that is merely unticked / in a disabled mod / shadowed is
+                // LOCATED and supplied via copyFromSources above, and one that cannot be located aborts the whole call
+                // earlier. So the only name reaching this arm has no on-disk copy at all, which is exactly the case the
+                // explainer cannot explain — it would pay a profile parse plus a whole-install sweep, per edit, to
+                // return the did-you-mean the message would have got anyway. The sentence already says what is known.
+                { problems.Add($"{e.Target}: CopyFrom source '{e.FromPlugin}' is not in the load order (and no plugin file by that name was located on disk) — name an active plugin, or a plugin file present on disk."); continue; }
                 else if (view.ExcludedPlugins.TryGetValue(e.FromPlugin, out var why))
                 { problems.Add($"{e.Target}: CopyFrom source '{e.FromPlugin}' was excluded from this session ({why}) — its records aren't resolvable."); continue; }
                 else
@@ -1131,6 +1137,17 @@ public static class WritePatchBuilder
         var resolved = new List<(ForwardSpec spec, IMajorRecordGetter body, string priorWinner, bool wasWinner)>(specs.Count);
         var problems = new List<string>();
         var seen = new HashSet<FormKey>();
+        // AbsenceClause costs a profile parse plus (for anything not already unticked) a whole-install folder sweep, and
+        // `specs` is unbounded — a batch naming the same bad from_plugin 500 times would pay it 500 times for one
+        // answer. Memoized per CALL, not per resolver: the explainer reads the profile fresh by design, and a cache
+        // living longer than one refusal batch is exactly the staleness it refuses to have (review of PR #274).
+        var absenceMemo = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        string Absence(string plugin)
+        {
+            if (!absenceMemo.TryGetValue(plugin, out var clause)) absenceMemo[plugin] = clause = view.AbsenceClause(plugin);
+            return clause;
+        }
+
         foreach (var s in specs)
         {
             if (!seen.Add(s.Target))
@@ -1143,7 +1160,7 @@ public static class WritePatchBuilder
                 continue;
             }
             if (!view.ContainsPlugin(s.FromPlugin))
-            { problems.Add($"{s.Target}: source plugin '{s.FromPlugin}' is not in the load order — name an active plugin that defines or overrides this record.{view.AbsenceClause(s.FromPlugin)}"); continue; }
+            { problems.Add($"{s.Target}: source plugin '{s.FromPlugin}' is not in the load order — name an active plugin that defines or overrides this record.{Absence(s.FromPlugin)}"); continue; }
             if (view.ExcludedPlugins.TryGetValue(s.FromPlugin, out var why))
             { problems.Add($"{s.Target}: source plugin '{s.FromPlugin}' was excluded from this session ({why}) — its records aren't resolvable."); continue; }
             var body = view.GetRecord(session, s.FromPlugin, s.Target);

@@ -256,13 +256,23 @@ public sealed class LoadOrderResolver : IDisposable
     /// installed plugin should never be answered with a spelling guess, and a genuine typo has no cause to state.
     /// One home, so the refusal sites below cannot drift apart on the wording.</summary>
     internal string AbsenceClause(string pluginName)
+        => ExplainAbsence(pluginName) is { } why ? " " + why : NameSuggestion(pluginName);
+
+    /// <summary>ONLY the injected explanation, or null when there is none — the half a caller needs when the presence
+    /// of a real CAUSE changes more than one sentence (read_record drops its generic posture tail once a specific cause
+    /// has been stated, and the did-you-mean is not a cause). Kept separate from <see cref="AbsenceClause"/> because
+    /// that one deliberately returns a non-empty string in BOTH cases, so its length says nothing about which
+    /// happened.</summary>
+    internal string? ExplainAbsence(string pluginName)
     {
-        string? why = null;
-        try { why = _explainAbsence?.Invoke(pluginName); }
-        catch { /* an explainer that throws (an unreadable profile mid-call) must never turn a clean refusal into a
-                   crash — fall through to the suggester, which is exactly the pre-injection behaviour (Q3). */ }
-        return why is null ? PluginNameSuggest.DidYouMean(pluginName, _names) : " " + why;
+        try { return _explainAbsence?.Invoke(pluginName); }
+        catch { return null; }   /* an explainer that throws (an unreadable profile mid-call) must never turn a clean
+                                    refusal into a crash — fall through to the suggester, the pre-injection behaviour (Q3). */
     }
+
+    /// <summary>The did-you-mean for a name nothing can explain — the fallback half of <see cref="AbsenceClause"/>,
+    /// exposed so a caller that already asked for the explanation need not re-invoke the explainer to get it.</summary>
+    internal string NameSuggestion(string pluginName) => PluginNameSuggest.DidYouMean(pluginName, _names);
 
     /// <summary>The real game-Data directory — the folder holding the vanilla BSAs (<c>Skyrim - Interface.bsa</c> et al.,
     /// which carry the base AND DLC <c>.STRINGS</c>). Derived as the folder of the resolved <c>Skyrim.esm</c>: the base
@@ -486,6 +496,14 @@ public sealed class LoadOrderResolver : IDisposable
         /// did-you-mean. Always safe to append; returns "" when there is nothing to add. Every ContainsPlugin-false
         /// refusal should carry it — a bare not-found makes the reader re-derive a fact the tool already had (#271).</summary>
         public string AbsenceClause(string pluginName) => _r.AbsenceClause(pluginName);
+
+        /// <summary>Only the injected CAUSE (null when there is none) — see
+        /// <see cref="LoadOrderResolver.ExplainAbsence"/>; pair with <see cref="NameSuggestion"/> to rebuild the full
+        /// clause without invoking the explainer twice.</summary>
+        public string? ExplainAbsence(string pluginName) => _r.ExplainAbsence(pluginName);
+
+        /// <summary>The did-you-mean fallback — see <see cref="LoadOrderResolver.NameSuggestion"/>.</summary>
+        public string NameSuggestion(string pluginName) => _r.NameSuggestion(pluginName);
 
         /// <summary>The on-disk PATH of the active plugin named <paramref name="pluginName"/> (a filename like
         /// "MyMod.esp"), or null if no such plugin is in the order. The minimal name→path exposure the dialogue
