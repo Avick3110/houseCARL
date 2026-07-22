@@ -2213,6 +2213,12 @@ public sealed class LoadOrderService : IDisposable
         LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session, FormKey fk,
         string plugin, string? mod, IReadOnlyList<string>? fields)
     {
+        // A pole may be addressed by PATH. Routing on the name table alone can't recognise the active plugin that
+        // way — a path never matches a filename key, so the live, load-order-winning copy fell through to the
+        // off-order branch and got stamped OUT-OF-LOAD-ORDER (#269). Resolve a path that IS the file the order
+        // loads back to its plugin NAME first; everything else still takes the off-order lane below.
+        if (LooksLikePath(plugin) && ActiveNameForPath(view, plugin) is { } activeName) plugin = activeName;
+
         if (view.ContainsPlugin(plugin))
         {
             if (view.ExcludedPlugins.TryGetValue(plugin, out var why))
@@ -2247,6 +2253,20 @@ public sealed class LoadOrderService : IDisposable
                                  RecordNaming.StripOverlay(rec.GetType().Name), rec.EditorID), null);
         }
         finally { (ov as IDisposable)?.Dispose(); }
+    }
+
+    /// <summary>If <paramref name="path"/> is the EXACT file the active order loads for its filename, the plugin name
+    /// the order knows it by; else null. The full-path compare is the whole point: a backup that shares the filename
+    /// is a different file and must keep reading as off-order (that same-name/different-file pair is the ordinary
+    /// old-version-vs-live diff). Costs nothing — the index already carries each active plugin's path.</summary>
+    static string? ActiveNameForPath(LoadOrderResolver.IndexView view, string path)
+    {
+        string full;
+        try { full = Path.GetFullPath(path.Trim()); } catch { return null; }
+        var name = Path.GetFileName(full);
+        if (name.Length == 0 || !view.ContainsPlugin(name)) return null;
+        var active = view.PluginPath(name);
+        return !string.IsNullOrEmpty(active) && SamePluginFile(active, full) ? name : null;
     }
 
     /// <summary>One side of a housecarl_diff_record comparison: the plugin named, WHERE its version was found (active
@@ -5266,7 +5286,18 @@ public sealed class LoadOrderService : IDisposable
         if (LooksLikePath(plugin))
         {
             if (!File.Exists(plugin)) return new(null, "", false, null, $"no file at path '{plugin}'.");
-            return new(Path.GetFullPath(plugin), "direct path", false, null, null);
+            var full = Path.GetFullPath(plugin);
+            // Enabled is COMPUTED for a direct path, never assumed. Addressing a file BY PATH says nothing about
+            // whether the install provides it — a path can perfectly well name the live copy of an enabled plugin,
+            // and a hardcoded `false` here stamped that copy "disabled" (#269). The answer comes from the SAME
+            // enumerator the filename lane below uses, so the two lanes can never disagree about one file: if a
+            // located copy of this filename IS this exact file, that hit's enabled-ness is this file's. Compared by
+            // FULL PATH — an archived backup and the live copy share a filename and are different files.
+            var self = IsUnderAnyInstallRoot(full, modsDir, dataDir, overwriteDir)   // outside every root ⇒ can't be the install's copy; skip the scan
+                ? Mo2LoadOrder.LocatePlugin(comp, modsDir, dataDir, overwriteDir, Path.GetFileName(full))
+                              .FirstOrDefault(h => SamePluginFile(h.Path, full))
+                : null;
+            return new(full, "direct path", self?.Enabled ?? false, null, null);
         }
         if (!string.IsNullOrWhiteSpace(mod))
         {
@@ -5287,6 +5318,33 @@ public sealed class LoadOrderService : IDisposable
     /// than a bare filename (locate in the MO2 folders)? True if rooted or carrying a directory separator: 'C:\..\X.esp'
     /// or 'mods\M\X.esp' is a path; a bare 'X.esp' is a filename.</summary>
     static bool LooksLikePath(string s) => Path.IsPathRooted(s) || s.Contains('\\') || s.Contains('/');
+
+    /// <summary>Do two paths denote the SAME plugin file? A FULL-PATH compare (case-insensitive, as Windows paths
+    /// are) — never a filename compare: an archived backup and the live copy share a name and are different files,
+    /// which is exactly the distinction a provenance label gets wrong when it guesses.</summary>
+    static bool SamePluginFile(string a, string b)
+    {
+        try { return string.Equals(Path.GetFullPath(a), Path.GetFullPath(b), StringComparison.OrdinalIgnoreCase); }
+        catch { return false; }
+    }
+
+    /// <summary>Is <paramref name="fullPath"/> inside any MO2/game root? Used ONLY to skip work — a file outside
+    /// every root cannot be a copy the install provides — so the enabled/disabled CLASSIFICATION itself stays with
+    /// the one shared locate, never re-derived here.</summary>
+    static bool IsUnderAnyInstallRoot(string fullPath, params string[] roots)
+    {
+        foreach (var root in roots)
+        {
+            if (string.IsNullOrWhiteSpace(root)) continue;
+            try
+            {
+                var r = Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                if (fullPath.StartsWith(r + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) return true;
+            }
+            catch { /* an unparseable root simply isn't a match — never a false 'inside' (Q3) */ }
+        }
+        return false;
+    }
 
     // ---- corpus-backed type resolution (signature "WEAP" / catalog name "Weapon" → getter Type(s)) -------
 

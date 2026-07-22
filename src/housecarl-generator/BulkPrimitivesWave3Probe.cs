@@ -464,6 +464,14 @@ public static class BulkPrimitivesWave3Probe
         ((IWeapon)WriteEngine.GenericGetOrAddAsOverride(dmod, w)).BasicStats = new WeaponBasicStats { Damage = 77 };
         dmod.BeginWrite.ToPath(donorPath).WithLoadOrder(new ISkyrimModGetter[] { m }).Write();
 
+        // ARCHIVE backup: the SAME filename as the active replacer (55), parked OUTSIDE every MO2/game root — the
+        // old-version-vs-live diff (#269's reporter's actual job). Same name, different file: it must stay off-order.
+        var archivePath = Path.Combine(dir, "archive", rKey.FileName.String);
+        Directory.CreateDirectory(Path.GetDirectoryName(archivePath)!);
+        var amod = new SkyrimMod(rKey, SkyrimRelease.SkyrimSE);
+        ((IWeapon)WriteEngine.GenericGetOrAddAsOverride(amod, w)).BasicStats = new WeaponBasicStats { Damage = 55 };
+        amod.BeginWrite.ToPath(archivePath).WithLoadOrder(new ISkyrimModGetter[] { m }).Write();
+
         File.WriteAllText(Path.Combine(profiles, "loadorder.txt"), "# header\r\n" + mKey.FileName + "\r\n" + rKey.FileName + "\r\n");
         File.WriteAllText(Path.Combine(profiles, "plugins.txt"), "*" + mKey.FileName + "\r\n*" + rKey.FileName + "\r\n");
         File.WriteAllText(Path.Combine(profiles, "modlist.txt"), "# header\r\n+DiffRepl\r\n+DiffMaster\r\n-DiffDonor\r\n");
@@ -492,6 +500,31 @@ public static class BulkPrimitivesWave3Probe
         Check("diff OFF-ORDER (disabled DiffDonor) vs repl: 77 vs 99, pole a OUT-OF-LOAD-ORDER",
               dOff.Error is null && !dOff.A!.InOrder && dOff.A.Where.Contains("OUT-OF-LOAD-ORDER")
               && dOff.Diff!.Deltas.Any(x => x.Contains("77") && x.Contains("99")));
+
+        // BY PATH (#269) — provenance is COMPUTED from the file, not assumed from how it was addressed.
+        // (a) the ACTIVE plugin's own file, passed as a path: it IS what the order loads → active pole, never
+        //     "OUT-OF-LOAD-ORDER … disabled". (b) the same-named archive backup: a different file → still off-order.
+        var dPathActive = svc.DiffRecord(wFid, "DiffDonor.esp", replPath, new[] { "BasicStats.Damage" });
+        Check("diff: the ACTIVE plugin passed BY PATH reports the active order (not OUT-OF-LOAD-ORDER/disabled)",
+              dPathActive.Error is null && dPathActive.B!.InOrder && dPathActive.B.Where == "active order"
+              && !dPathActive.B.Where.Contains("disabled"));
+        Check("diff: an active-by-path pole resolves back to its PLUGIN NAME, and still diffs (77 vs 99)",
+              dPathActive.Error is null && dPathActive.B!.Plugin == replName
+              && dPathActive.Diff!.Deltas.Any(x => x.Contains("77") && x.Contains("99")));
+
+        var dPathArchive = svc.DiffRecord(wFid, archivePath, replPath, new[] { "BasicStats.Damage" });
+        Check("diff: a same-named backup OUTSIDE the install stays OUT-OF-LOAD-ORDER (55 vs 99) — name never decides",
+              dPathArchive.Error is null && !dPathArchive.A!.InOrder && dPathArchive.A.Where.Contains("OUT-OF-LOAD-ORDER")
+              && dPathArchive.Diff!.Deltas.Any(x => x.Contains("55") && x.Contains("99")));
+
+        // The same computed provenance through read_plugin_file: the enabled plugin's file, addressed by path, is
+        // NOT flagged inactive (the second consumer of the shared locate's enabled flag — #269).
+        var rpfPath = svc.ReadPluginFile(replPath, wFid, null, null, new[] { "BasicStats.Damage" }, 1, null, 10);
+        Check("read_plugin_file: an ENABLED plugin addressed by path reports enabled=true (still OUT-OF-LOAD-ORDER by contract)",
+              rpfPath.Error is null && rpfPath.Where == "direct path" && rpfPath.Enabled);
+        var rpfArchive = svc.ReadPluginFile(archivePath, wFid, null, null, new[] { "BasicStats.Damage" }, 1, null, 10);
+        Check("read_plugin_file: the same-named backup outside the install reports enabled=false",
+              rpfArchive.Error is null && rpfArchive.Where == "direct path" && !rpfArchive.Enabled);
 
         // IDENTICAL — same plugin on both sides
         var dSame = svc.DiffRecord(wFid, replName, replName, null);

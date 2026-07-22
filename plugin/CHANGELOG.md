@@ -8,6 +8,18 @@ when it changes.
 
 *Accumulating notes for the next cut — not yet released; `plugin.json` still reads the last shipped version.*
 
+**A plugin addressed by its file path is no longer mislabeled off-order and disabled (#269).**
+`diff_record` stamped `OUT-OF-LOAD-ORDER (direct path, disabled)` on a plugin that is enabled and winning whenever it
+was passed as an absolute path instead of a filename — the diff values were right, but the provenance line said the
+live file wasn't live, which is exactly the claim a diff is consulted for. Two causes, both fixed: the shared on-disk
+locate asserted "not enabled" for every direct path instead of computing it, and `diff_record` routed poles by plugin
+NAME only, so a path could never match the active order. Enabled-ness now comes from the same enumerator the filename
+lane uses (so the two can't disagree about one file), and a path that IS the copy the order loads resolves back to its
+plugin name and diffs as `active order`. The comparison is by full path, never by filename: an archived backup that
+shares a name with the live plugin stays `OUT-OF-LOAD-ORDER` — the old-version-vs-live diff is unchanged.
+`read_plugin_file` inherits the honest flag (it still stamps every read OUT-OF-LOAD-ORDER by contract, but no longer
+adds `NOT active` to an enabled plugin's own file). Reported by a houseCARL user.
+
 **The Codex umbrella router now covers the whole tool surface, and a CI guard keeps it that way (Codex parity).**
 The Codex packaging ships one umbrella routing skill (`plugin/codex/housecarl/SKILL.md`); it had drifted to naming
 only 9 of the ~45 MCP tools and 5 of the 13 helper skills, so a Codex user asking about facegen, Nexus, BSA
