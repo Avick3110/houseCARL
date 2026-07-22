@@ -15,10 +15,14 @@ live file wasn't live, which is exactly the claim a diff is consulted for. Two c
 locate asserted "not enabled" for every direct path instead of computing it, and `diff_record` routed poles by plugin
 NAME only, so a path could never match the active order. Enabled-ness now comes from the same enumerator the filename
 lane uses (so the two can't disagree about one file), and a path that IS the copy the order loads resolves back to its
-plugin name and diffs as `active order`. The comparison is by full path, never by filename: an archived backup that
-shares a name with the live plugin stays `OUT-OF-LOAD-ORDER` — the old-version-vs-live diff is unchanged.
-`read_plugin_file` inherits the honest flag (it still stamps every read OUT-OF-LOAD-ORDER by contract, but no longer
-adds `NOT active` to an enabled plugin's own file). Reported by a houseCARL user.
+plugin name and diffs as `active order`. The flag answers "is this file the copy the install provides", judged against
+the same priority-ordered winner the filename lane uses — so a full-path compare, never a filename one: an archived
+backup that shares a name with the live plugin stays `OUT-OF-LOAD-ORDER` (the old-version-vs-live diff is unchanged),
+and a shadowed copy in a lower-priority enabled mod is not reported as active merely because its mod is enabled.
+`read_plugin_file` inherits the honest flag, so it no longer adds `NOT active` to an enabled plugin's own file. Its
+`OUT-OF-LOAD-ORDER` banner is unchanged and still stamps every read — note that the banner's "the game does not load
+this file" wording is inaccurate when the file you passed IS the live plugin; the wording is tracked in #271 with the
+rest of this flag's semantics. Reported by a houseCARL user.
 
 **The Codex umbrella router now covers the whole tool surface, and a CI guard keeps it that way (Codex parity).**
 The Codex packaging ships one umbrella routing skill (`plugin/codex/housecarl/SKILL.md`); it had drifted to naming

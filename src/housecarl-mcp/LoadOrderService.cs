@@ -2261,7 +2261,9 @@ public sealed class LoadOrderService : IDisposable
     /// <summary>If <paramref name="path"/> is the EXACT file the active order loads for its filename, the plugin name
     /// the order knows it by; else null. The full-path compare is the whole point: a backup that shares the filename
     /// is a different file and must keep reading as off-order (that same-name/different-file pair is the ordinary
-    /// old-version-vs-live diff). Costs nothing — the index already carries each active plugin's path.</summary>
+    /// old-version-vs-live diff). Costs nothing — the index already carries each active plugin's path. Same junction
+    /// caveat as the on-disk locate: a path reaching the file through a junction won't string-match, so it keeps the
+    /// off-order lane — the pre-fix answer, never a wrong claim in the other direction.</summary>
     static string? ActiveNameForPath(LoadOrderResolver.IndexView view, string path)
     {
         string full;
@@ -5297,19 +5299,21 @@ public sealed class LoadOrderService : IDisposable
             var full = Path.GetFullPath(plugin);
             // Enabled is COMPUTED for a direct path, never assumed. Addressing a file BY PATH says nothing about
             // whether the install provides it — a path can perfectly well name the live copy of an enabled plugin,
-            // and a hardcoded `false` here stamped that copy "disabled" (#269). The answer comes from the SAME
-            // enumerator the filename lane below uses, so the two lanes can never disagree about one file: if a
-            // located copy of this filename IS this exact file, that hit's enabled-ness is this file's. Compared by
+            // and a hardcoded `false` here stamped that copy "disabled" (#269). The question the flag answers is
+            // "is THIS file the copy the install provides for this filename?", so it is judged against the SAME
+            // priority-ordered winner (hits[0]) the filename lane below returns — the two lanes then agree about one
+            // file by construction. Matching ANY hit would not do: a copy sitting in a lower-priority enabled mod is
+            // shadowed, so its folder being enabled says nothing about whether the game loads THAT file. Compared by
             // FULL PATH — an archived backup and the live copy share a filename and are different files. Two costs
             // accepted: this pays the same folder sweep the filename lane does (one stat per candidate folder), which
             // is why a path no install root contains skips it outright; and a path reaching the install through a
             // junction/symlink won't string-match, so it stays flagged not-enabled — the pre-fix answer, conservative
             // in the same direction rather than newly wrong in the other.
-            var self = IsUnderAnyInstallRoot(full, modsDir, dataDir, overwriteDir)   // outside every root ⇒ can't be the install's copy; skip the scan
+            var located = IsUnderAnyInstallRoot(full, modsDir, dataDir, overwriteDir)   // outside every root ⇒ can't be the install's copy; skip the scan
                 ? Mo2LoadOrder.LocatePlugin(comp, modsDir, dataDir, overwriteDir, Path.GetFileName(full))
-                              .FirstOrDefault(h => SamePluginFile(h.Path, full))
-                : null;
-            return new(full, "direct path", self?.Enabled ?? false, null, null);
+                : Array.Empty<PluginFileHit>();
+            bool providesThisFile = located.Count > 0 && SamePluginFile(located[0].Path, full);
+            return new(full, "direct path", providesThisFile && located[0].Enabled, null, null);
         }
         if (!string.IsNullOrWhiteSpace(mod))
         {

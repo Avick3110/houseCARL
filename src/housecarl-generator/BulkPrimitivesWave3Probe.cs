@@ -464,6 +464,15 @@ public static class BulkPrimitivesWave3Probe
         ((IWeapon)WriteEngine.GenericGetOrAddAsOverride(dmod, w)).BasicStats = new WeaponBasicStats { Damage = 77 };
         dmod.BeginWrite.ToPath(donorPath).WithLoadOrder(new ISkyrimModGetter[] { m }).Write();
 
+        // SHADOWED copy: the same filename in a LOWER-priority ENABLED mod (66). Its folder is enabled, but a
+        // higher-priority folder provides the name, so the game never loads THIS file — "the mod is enabled" and
+        // "this file is what loads" are different questions, and only the second one is honest to report.
+        var shadowPath = Path.Combine(mods, "DiffReplShadow", rKey.FileName.String);
+        Directory.CreateDirectory(Path.GetDirectoryName(shadowPath)!);
+        var smod = new SkyrimMod(rKey, SkyrimRelease.SkyrimSE);
+        ((IWeapon)WriteEngine.GenericGetOrAddAsOverride(smod, w)).BasicStats = new WeaponBasicStats { Damage = 66 };
+        smod.BeginWrite.ToPath(shadowPath).WithLoadOrder(new ISkyrimModGetter[] { m }).Write();
+
         // ARCHIVE backup: the SAME filename as the active replacer (55), parked OUTSIDE every MO2/game root — the
         // old-version-vs-live diff (#269's reporter's actual job). Same name, different file: it must stay off-order.
         var archivePath = Path.Combine(dir, "archive", rKey.FileName.String);
@@ -474,7 +483,7 @@ public static class BulkPrimitivesWave3Probe
 
         File.WriteAllText(Path.Combine(profiles, "loadorder.txt"), "# header\r\n" + mKey.FileName + "\r\n" + rKey.FileName + "\r\n");
         File.WriteAllText(Path.Combine(profiles, "plugins.txt"), "*" + mKey.FileName + "\r\n*" + rKey.FileName + "\r\n");
-        File.WriteAllText(Path.Combine(profiles, "modlist.txt"), "# header\r\n+DiffRepl\r\n+DiffMaster\r\n-DiffDonor\r\n");
+        File.WriteAllText(Path.Combine(profiles, "modlist.txt"), "# header\r\n+DiffRepl\r\n+DiffReplShadow\r\n+DiffMaster\r\n-DiffDonor\r\n");
 
         var genDir = Path.Combine(dir, "corpus-gen");
         try { _ = CorpusRulebook.LoadCorpus(); }
@@ -504,16 +513,17 @@ public static class BulkPrimitivesWave3Probe
         // BY PATH (#269) — provenance is COMPUTED from the file, not assumed from how it was addressed.
         // COVERAGE NOTE (Q3 — name the gap rather than imply completeness): the path-to-active routing also has to
         // NOT capture a plugin EXCLUDED from the index (Mutagen can't parse it) — reading its file directly is the
-        // escape hatch, so it must stay on the off-order lane. That branch is uncovered here for the same reason
-        // forward-from-plugin-guard leaves it uncovered: synthesizing an unparseable plugin duplicates
-        // pkcu-regression's malformed-record machinery for one reject path. It is a plain ExcludedPlugins lookup on
-        // the same OrdinalIgnoreCase table the armed checks use; if it earns a test, model it on pkcu-regression.
+        // escape hatch, so it must stay on the off-order lane. That branch is uncovered HERE — not because a
+        // malformed plugin is expensive to synthesize (it isn't), but because arming it means putting an
+        // index-excluded plugin into THIS fixture's active order, which perturbs every other arm above that reads
+        // through the same view. It is a plain ExcludedPlugins lookup on the same OrdinalIgnoreCase table the armed
+        // checks use; if it earns a test it wants its own fixture, modelled on pkcu-regression's malformed plugin
+        // (forward-from-plugin-guard leaves the same branch unarmed and records the same lookup rationale).
         // (a) the ACTIVE plugin's own file, passed as a path: it IS what the order loads → active pole, never
         //     "OUT-OF-LOAD-ORDER … disabled". (b) the same-named archive backup: a different file → still off-order.
         var dPathActive = svc.DiffRecord(wFid, "DiffDonor.esp", replPath, new[] { "BasicStats.Damage" });
         Check("diff: the ACTIVE plugin passed BY PATH reports the active order (not OUT-OF-LOAD-ORDER/disabled)",
-              dPathActive.Error is null && dPathActive.B!.InOrder && dPathActive.B.Where == "active order"
-              && !dPathActive.B.Where.Contains("disabled"));
+              dPathActive.Error is null && dPathActive.B!.InOrder && dPathActive.B.Where == "active order");
         Check("diff: an active-by-path pole resolves back to its PLUGIN NAME, and still diffs (77 vs 99)",
               dPathActive.Error is null && dPathActive.B!.Plugin == replName
               && dPathActive.Diff!.Deltas.Any(x => x.Contains("77") && x.Contains("99")));
@@ -538,6 +548,14 @@ public static class BulkPrimitivesWave3Probe
         var rpfArchive = svc.ReadPluginFile(archivePath, wFid, null, null, new[] { "BasicStats.Damage" }, 1, null, 10);
         Check("read_plugin_file: the same-named backup outside the install reports enabled=false",
               rpfArchive.Error is null && rpfArchive.Where == "direct path" && !rpfArchive.Enabled);
+        // The flag tracks WHICH COPY the install provides, not merely "is this folder enabled" — a shadowed copy in
+        // a lower-priority ENABLED mod is not what loads, and reporting it enabled would be worse than the pre-#269
+        // hardcoded false (which was accidentally right here).
+        var rpfShadow = svc.ReadPluginFile(shadowPath, wFid, null, null, new[] { "BasicStats.Damage" }, 1, null, 10);
+        Check("read_plugin_file: a SHADOWED copy in a lower-priority enabled mod reports enabled=false",
+              rpfShadow.Error is null && rpfShadow.Where == "direct path" && !rpfShadow.Enabled);
+        Check("read_plugin_file: the shadowed copy still READS (66) — it is unreachable to the game, not to the tool",
+              rpfShadow.Error is null && rpfShadow.Record is not null);
 
         // IDENTICAL — same plugin on both sides
         var dSame = svc.DiffRecord(wFid, replName, replName, null);
