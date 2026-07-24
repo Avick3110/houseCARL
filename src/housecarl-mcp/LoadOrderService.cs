@@ -2270,7 +2270,8 @@ public sealed class LoadOrderService : IDisposable
     /// disk not in the load order — the report's case diffs a DISABLED old patch against the mod that supersedes it, via
     /// the shared <see cref="LocatePluginFileOnDisk"/>). Both sides are deep-read (<see cref="ConflictDiffDepth"/>) with
     /// the SAME fields= so line sets correspond, then compared by <see cref="FieldsDiff.Compare"/> — the SAME
-    /// order-insensitive, truncation-honest engine the conflict tree uses, with plugin_b as the reference label. A bad
+    /// content-keyed (list reorders flagged), truncation-honest engine the conflict tree uses, with plugin_b as the
+    /// reference label. A bad
     /// FormID, an unresolvable pole, or a plugin that doesn't define the record is a NAMED refusal (Q3).</summary>
     public DiffRecordOutcome DiffRecord(string formid, string pluginA, string pluginB, IReadOnlyList<string>? fields,
                                         string? modA = null, string? modB = null)
