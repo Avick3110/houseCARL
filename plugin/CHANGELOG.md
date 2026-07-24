@@ -8,6 +8,16 @@ when it changes.
 
 *Accumulating notes for the next cut — not yet released; `plugin.json` still reads the last shipped version.*
 
+**`cross_plugin_query` no longer trips over deleted records and reports them as an unexplained skip (#276).**
+A `references=` (or `where=`) scan over a load order holding *deleted* records — the wild case was deleted `Package`
+records in a follower mod — ended with a raw `NullReferenceException … could not be scanned and were skipped` note.
+A deleted record carries no body by engine rule, but the scan still tried to read its form links, and an
+engine-authored deleted body can leave just enough behind to NullRef on that read. The skip was accounted (not
+silent), but its *cause* read as a parser hole — which means a genuine match hiding in a "skipped" record looks
+possible when it isn't (Q3). A deleted record is now excluded from the content filters up front: it links to nothing
+and has no field to test, so it is a clean non-match, not an unscannable skip. `editorid_contains=` is unaffected —
+EditorID is a header field, present and safe on a deleted record. Reported by DrHeisen.
+
 **A plugin addressed by its file path is no longer mislabeled off-order and disabled (#269).**
 `diff_record` stamped `OUT-OF-LOAD-ORDER (direct path, disabled)` on a plugin that is enabled and winning whenever it
 was passed as an absolute path instead of a filename — the diff values were right, but the provenance line said the
