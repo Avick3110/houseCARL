@@ -18,10 +18,10 @@ namespace HousecarlCore;
 ///     content (the report's case: USSEP and the winner store the same relations in different orders, so
 ///     an index-wise comparison would over-report; element identity is content-based). Elements present
 ///     on only one side are reported with identifying leaf values. When the multisets are EQUAL but the
-    ///     positional order differs, an ORDER-DIFFERS note is emitted (#275) — for record types where list
-    ///     order IS the semantics (a DIAL's INFO children decide which line plays), a pure reorder must not
-    ///     read as identical; contents-equal means no element deltas, so the note stands alone. Nested list
-    ///     reordering INSIDE an
+///     positional order differs, an ORDER-DIFFERS note is emitted (#275) — for record types where list
+///     order IS the semantics (a DIAL's INFO children decide which line plays), a pure reorder must not
+///     read as identical; contents-equal means no element deltas, so the note stands alone. Nested list
+///     reordering INSIDE an
 ///     element is not canonicalised (v1) — it can over-report as a content delta, never under-report;
 ///   • honesty (Q3) — if either side's deep read hit the expansion cap, <see cref="Result.Complete"/> is
 ///     false: list comparison and one-sided-presence deltas are SUPPRESSED (where the two caps fell would
