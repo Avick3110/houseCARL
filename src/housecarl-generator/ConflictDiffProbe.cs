@@ -16,7 +16,8 @@ namespace HousecarlGenerator;
 /// ForGuard seam) + <see cref="FieldsDiff.Compare"/> (the new content comparison) — and asserts:
 ///   A. equal-count, different-content Relations → a DELTA naming the element only in each side (RED before
 ///      the fix: depth-1 reads gave the comparator nothing but equal count tokens);
-///   B. same contents merely REORDERED → NO delta (content-keyed comparison; an index-wise diff over-reports);
+///   B. same contents merely REORDERED → an ORDER-DIFFERS note (#275), NOT element deltas (content-keyed, so
+///      the elements match; but silence would hide a reorder that IS the semantics for a DIAL's INFO children);
 ///   C. different counts → still a delta (the case the old diff did catch);
 ///   D. a scalar field delta → still reported (the old behavior, preserved at depth);
 ///   E. a read that hits the expansion cap → Complete=false (the render must NOT claim "identical"; Q3).
@@ -112,8 +113,13 @@ public static class ConflictDiffProbe
               dA.Deltas.Any(d => d.Contains(t[3].ToString())));
 
         var dB = DiffOf(svc, fB.FormKey);
-        Check("B: reordered-only list reports NO delta (content-keyed, order-insensitive)",
-              dB.Deltas.Count == 0 && dB.Complete);
+        // #275: a pure reorder is no longer folded into "no delta" — for an order-significant list (a DIAL's INFO
+        // children) that silence is a wrong answer. It surfaces as an ORDER-DIFFERS note and NOTHING else (the
+        // contents are equal, so no element-presence deltas). This assertion supersedes the pre-#275 "NO delta".
+        Check("B: a reordered-only list reports an ORDER-DIFFERS note (#275), not silence and not element deltas",
+              dB.Complete
+              && dB.Deltas.Count == 1
+              && dB.Deltas[0].StartsWith("Relations: same 3 item(s), ORDER DIFFERS", StringComparison.Ordinal));
 
         var dC = DiffOf(svc, fC.FormKey);
         Check("C: count delta still reported",
@@ -308,7 +314,7 @@ public static class ConflictDiffProbe
             {
                 var diff = FieldsDiff.Compare(tree.Nodes[n].Record, winner.Record);
                 var line = diff.Deltas.Count > 0 ? string.Join("; ", diff.Deltas)
-                         : diff.Complete ? "(identical to winner — full modeled content compared, list order ignored)"
+                         : diff.Complete ? "(identical to winner — full modeled content compared)"
                                          : "(comparison truncated — not a verified ITM)";
                 Console.WriteLine($"   {tree.Nodes[n].Plugin}: {line}");
             }

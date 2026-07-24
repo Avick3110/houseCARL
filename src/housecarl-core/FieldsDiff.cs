@@ -17,7 +17,11 @@ namespace HousecarlCore;
 ///   • positional LIST contents — order-INSENSITIVE multiset comparison of whole elements keyed on their
 ///     content (the report's case: USSEP and the winner store the same relations in different orders, so
 ///     an index-wise comparison would over-report; element identity is content-based). Elements present
-///     on only one side are reported with identifying leaf values. Nested list reordering INSIDE an
+///     on only one side are reported with identifying leaf values. When the multisets are EQUAL but the
+    ///     positional order differs, an ORDER-DIFFERS note is emitted (#275) — for record types where list
+    ///     order IS the semantics (a DIAL's INFO children decide which line plays), a pure reorder must not
+    ///     read as identical; contents-equal means no element deltas, so the note stands alone. Nested list
+    ///     reordering INSIDE an
 ///     element is not canonicalised (v1) — it can over-report as a content delta, never under-report;
 ///   • honesty (Q3) — if either side's deep read hit the expansion cap, <see cref="Result.Complete"/> is
 ///     false: list comparison and one-sided-presence deltas are SUPPRESSED (where the two caps fell would
@@ -154,7 +158,21 @@ public static class FieldsDiff
                 var tElems = ElementsOf(tLines, root);
                 var wElems = ElementsOf(wLines, root);
                 var (onlyT, onlyW) = MultisetDiff(tElems, wElems);
-                if (onlyT.Count == 0 && onlyW.Count == 0) continue;    // same contents (possibly reordered) — no delta
+                if (onlyT.Count == 0 && onlyW.Count == 0)
+                {
+                    // Equal multisets ⇒ same CONTENTS. For most list fields order is noise (the report that
+                    // motivated the multiset compare: USSEP stores the same relations in a different order), but
+                    // for some it IS the semantics — a DIAL's INFO children decide which line the game plays, so a
+                    // pure reorder is the whole delta (#275). Folding it into "no delta" makes such a record read
+                    // "identical to winner" — a silent wrong. Detect it generically: ElementsOf returns elements in
+                    // positional (index) order, so an ordered fingerprint-sequence mismatch IS a reorder. Surface it
+                    // as an ORDER-DIFFERS note — never element deltas, the contents ARE equal. Type-agnostic by
+                    // design: over-reporting a noise reorder is the safe direction; silently equating a semantic one
+                    // is not (the whole module's posture — over-report, never under-report).
+                    if (!tElems.Select(e => e.Fingerprint).SequenceEqual(wElems.Select(e => e.Fingerprint)))
+                        deltas.Add($"{root}: same {tElems.Count} item(s), ORDER DIFFERS from {referenceLabel}");
+                    continue;
+                }
                 deltas.Add(DescribeListDelta(root, tElems.Count, wElems.Count, onlyT, onlyW, referenceLabel));
             }
         }

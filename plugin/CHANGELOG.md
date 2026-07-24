@@ -20,6 +20,17 @@ that *does* parse and carries a link to the target is no longer returned by `ref
 as referencing nothing, the resolution the report itself proposed. `editorid_contains=` is unaffected (EditorID reads
 from the early EDID subrecord, before the body parse that throws). Reported by DrHeisen.
 
+**A pure list reorder no longer reads as "identical to winner" in a conflict diff (#275, partial).**
+The `conflict_tree` / `diff_record` content compare is order-insensitive by design — the same relations stored in a
+different order (the USSEP case that motivated it) shouldn't over-report. But for a list where order IS the
+semantics — a DIAL's INFO children decide which line the game plays — folding a reorder into "no delta" is a silent
+wrong answer: the record reads "identical to winner" when the very thing that changed is invisible. Now, when two
+lists hold the same contents in a different order, the diff emits an explicit `Field: same N item(s), ORDER DIFFERS
+from winner` note instead of silence — type-agnostic, so it fires for any reordered list (over-reporting a noise
+reorder is the safe direction; silently equating a semantic one is not). No-delta renders no longer claim "list
+order ignored," since order is now compared. Reported by DrHeisen. *(This closes the diff-honesty half of #275; the
+larger ask — an effective, merged INFO-order view for a topic, xEdit INOM/INOA parity — remains open.)*
+
 **A plugin addressed by its file path is no longer mislabeled off-order and disabled (#269).**
 `diff_record` stamped `OUT-OF-LOAD-ORDER (direct path, disabled)` on a plugin that is enabled and winning whenever it
 was passed as an absolute path instead of a filename — the diff values were right, but the provenance line said the
