@@ -2588,8 +2588,8 @@ public sealed class LoadOrderService : IDisposable
                         // body that NullRefs when EnumerateFormLinks (references=) / the where= predicate lazily
                         // parse it — which then lands in the unscannable bucket below as an untyped skip, reading
                         // as a parser hole, so a genuine match hiding in a "skipped" record looks possible when it
-                        // isn't (Q3). editorid_contains= stays live: EditorID is a header field, present and safe
-                        // on a deleted record.
+                        // isn't (Q3). editorid_contains= stays live: EditorID reads from the record's early EDID
+                        // subrecord, before the deep body parse that can throw — safe on a deleted record.
                         if (filterBody.IsDeleted && (refSet is not null || predicate is not null)) continue;
                         if (!string.IsNullOrEmpty(editoridContains)
                             && (filterBody.EditorID is null || filterBody.EditorID.IndexOf(editoridContains, StringComparison.OrdinalIgnoreCase) < 0))

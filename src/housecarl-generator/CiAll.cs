@@ -93,6 +93,7 @@ public static class CiAll
         ("inplace-guard", InPlaceProbe.RunGuard),
         ("subclass-remove-guard", SubclassRemoveGuardProbe.RunGuard),
         ("perk-refs-guard", PerkRefsProbe.RunGuard),
+        ("deleted-record-scan-guard", PerkRefsProbe.RunDeletedGuard),
         ("conflict-diff-guard", ConflictDiffProbe.RunGuard),
         ("formid-floor-guard", FormIdFloorProbe.RunGuard),
         ("esl-formid-guard", EslFormIdProbe.RunGuard),

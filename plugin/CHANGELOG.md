@@ -15,8 +15,10 @@ A deleted record carries no body by engine rule, but the scan still tried to rea
 engine-authored deleted body can leave just enough behind to NullRef on that read. The skip was accounted (not
 silent), but its *cause* read as a parser hole — which means a genuine match hiding in a "skipped" record looks
 possible when it isn't (Q3). A deleted record is now excluded from the content filters up front: it links to nothing
-and has no field to test, so it is a clean non-match, not an unscannable skip. `editorid_contains=` is unaffected —
-EditorID is a header field, present and safe on a deleted record. Reported by DrHeisen.
+live and has no field to test, so it is a clean non-match, not an unscannable skip. This also means a deleted record
+that *does* parse and carries a link to the target is no longer returned by `references=` — treating a deleted record
+as referencing nothing, the resolution the report itself proposed. `editorid_contains=` is unaffected (EditorID reads
+from the early EDID subrecord, before the body parse that throws). Reported by DrHeisen.
 
 **A plugin addressed by its file path is no longer mislabeled off-order and disabled (#269).**
 `diff_record` stamped `OUT-OF-LOAD-ORDER (direct path, disabled)` on a plugin that is enabled and winning whenever it
