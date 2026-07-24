@@ -96,7 +96,7 @@ public static class ReadTools
          "Field-level diff between TWO plugins' versions of ONE record — plugin_a vs plugin_b. Each plugin may be an " +
          "ACTIVE plugin OR a plugin FILE on disk that isn't in the load order (e.g. a DISABLED old patch): the classic " +
          "use is diffing a disabled OLD patch against the mod that supersedes it, to see exactly what changed. Both " +
-         "sides are deep-read and compared by the SAME order-insensitive, truncation-honest engine the conflict tree " +
+         "sides are deep-read and compared by the SAME content-keyed (list reorders flagged), truncation-honest engine the conflict tree " +
          "uses; each delta line shows plugin_a's value with plugin_b's (the reference) value labeled by plugin_b's " +
          "filename. A FormID is 'XXXXXX:Plugin.esp'. Read-only. Unlike housecarl_read_record conflict_tree (which diffs " +
          "every toucher against the load-order WINNER), this compares TWO explicit plugins with no winner pole — use it " +
@@ -933,12 +933,13 @@ static class Wire
         var winnerNode = tree.Winner;                                       // Nodes[^1] = highest priority = the winner
 
         // CONTENT diff (HCBR-2026-06-09-01): each node's DEEP read vs the winner's, compared by FieldsDiff —
-        // scalar leaves exact-path, list contents order-insensitively by whole element. The old depth-1 token
+        // scalar leaves exact-path, list contents order-insensitively by whole element (a reorder of equal
+        // contents surfaces as an explicit ORDER-DIFFERS note, #275). The old depth-1 token
         // comparison called equal-count lists with different contents "identical to winner" — an affirmative
         // false ITM that masked a real override regression. "Identical" is now only claimed when the FULL
         // modeled content compared clean; a truncated comparison says so instead (Q3).
         sb.Append("diff (field deltas vs winner ").Append(winnerNode.Plugin)
-          .Append("; identical fields omitted; list contents compared order-insensitively):\n");
+          .Append("; identical fields omitted; list contents compared by content, element reorders flagged):\n");
         for (int n = 0; n < tree.Nodes.Count - 1; n++)                      // every node except the winner
         {
             if (sb.Length >= cap)
@@ -981,15 +982,15 @@ static class Wire
     /// non-nullable subrecord bit the read can't prove).</summary>
     static string IdenticalWholeRecord(FieldsDiff.Result diff) =>
         diff.AgreedCount > 0
-            ? $"(no field deltas; {diff.AgreedCount} modeled field(s) read identical to the winner ({SampleOf(diff)}) — list order ignored)"
-            : "(identical to winner — full modeled content compared, list order ignored)";
+            ? $"(no field deltas; {diff.AgreedCount} modeled field(s) read identical to the winner ({SampleOf(diff)}))"
+            : "(identical to winner — full modeled content compared)";
 
     /// <summary>No-delta render for a fields=-narrowed compare — node-neutral, and the identity claim must not
     /// outrun the compared paths (PR #28 review #2).</summary>
     static string IdenticalAcrossFields(FieldsDiff.Result diff) =>
         diff.AgreedCount > 0
-            ? $"(no deltas across the requested fields; {diff.AgreedCount} of them read identical to the winner ({SampleOf(diff)}) — other fields NOT compared, list order ignored)"
-            : "(identical to winner across the requested fields, list order ignored — other fields NOT compared)";
+            ? $"(no deltas across the requested fields; {diff.AgreedCount} of them read identical to the winner ({SampleOf(diff)}) — other fields NOT compared)"
+            : "(identical to winner across the requested fields — other fields NOT compared)";
 
     static string SampleOf(FieldsDiff.Result diff)
     {
