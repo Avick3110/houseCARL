@@ -24,7 +24,7 @@ A model path read straight off a record — `Model.File` on an NPC, ARMA, STAT �
 every asset tool wants it Data-relative. So the *normal* way one arrives at a mesh produced a flat, hint-free
 `ABSENT — no active mod or BSA provides this mesh path`: a true answer for the string as given, but a dead end unless
 you already knew the convention. `nif_inspect`, `nif_set` and `asset_status` now retry the root-prefixed form and,
-when it hits, name it — `did you mean 'meshes\Actors\…\wolf.nif'?`. The suggestion is **verified, not guessed**: it
+when it hits, name it — ``did you mean `meshes\Actors\…\wolf.nif`?``. The suggestion is **verified, not guessed**: it
 comes from actually re-resolving the candidate through the same VFS, so a path it names is always one a mod or BSA
 really provides, and when nothing resolves nothing is suggested. `asset_status` tries both roots (it can't know a
 path's kind) and stays silent otherwise — `sound\`, `scripts\` and the rest get no lecture. The mesh tools, which

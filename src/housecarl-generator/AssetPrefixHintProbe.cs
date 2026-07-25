@@ -74,14 +74,14 @@ internal static class AssetPrefixHintProbe
             var rPrefixed = batch.Results[2];
             var rReal = batch.Results[3];
 
-            Check(rRecord.Absent && (rRecord.Error?.Contains("Did you mean '" + MeshRel + "'", StringComparison.OrdinalIgnoreCase) ?? false),
+            Check(rRecord.Absent && (rRecord.Error?.Contains("Did you mean `" + MeshRel + "`", StringComparison.OrdinalIgnoreCase) ?? false),
                   "FIRES — the record-relative path is ABSENT, and the answer names the meshes\\-prefixed path that IS provided",
                   rRecord.Error);
             // The teeth against a string heuristic: this path LOOKS exactly as record-relative as the one above.
             // Only a real re-resolve can tell them apart, so a "did you mean" here would be a wrong suggestion.
             Check(rNoHit.Absent
                   && !(rNoHit.Error?.Contains("Did you mean", StringComparison.OrdinalIgnoreCase) ?? true)
-                  && (rNoHit.Error?.Contains(@"'meshes\nowhere\ghost.nif'", StringComparison.OrdinalIgnoreCase) ?? false)
+                  && (rNoHit.Error?.Contains(@"`meshes\nowhere\ghost.nif`", StringComparison.OrdinalIgnoreCase) ?? false)
                   && (rNoHit.Error?.Contains("not provided", StringComparison.OrdinalIgnoreCase) ?? false),
                   "NOT-A-GUESS — a record-relative path whose prefixed form ALSO misses gets no 'did you mean', only the convention note (which claims no file)",
                   rNoHit.Error);
@@ -100,7 +100,7 @@ internal static class AssetPrefixHintProbe
             Console.WriteLine("--- nif_set ---");
             var set = svc.NifSet(RecordRel, new[] { new NifSetOp(NifSetOpKind.RenameShape, "Old", NewName: "New") },
                                  null, null, null, false, false);
-            Check(set.Error is not null && (set.Error?.Contains("Did you mean '" + MeshRel + "'", StringComparison.OrdinalIgnoreCase) ?? false),
+            Check(set.Error is not null && (set.Error?.Contains("Did you mean `" + MeshRel + "`", StringComparison.OrdinalIgnoreCase) ?? false),
                   "NIF-SET — the same verified suggestion rides the nif_set ABSENT refusal", set.Error);
 
             // ---------- asset_status (both roots; verified-only, no speculative note) ----------
