@@ -31,6 +31,16 @@ path's kind) and stays silent otherwise — `sound\`, `scripts\` and the rest ge
 only ever deal in meshes, add one weaker note when the prefixed form misses too: it names the convention and the
 form the path would take, and says plainly that form isn't provided either. Reported externally.
 
+**`place_asset` / `bulk_place_asset` carry that same missing-root suggestion (#283).**
+The fourth lane with the same dead end: asked to auto-place a path taken straight off a record, the refusal
+(`nothing in the active load order provides '…'`) named no way forward. It now retries both roots and, when a real
+mod or BSA provides the prefixed form, names it — the same **verified, never guessed** suggestion, so it always
+points at a copy that exists and stays silent when there is nothing honest to offer. It fires only on the
+auto-resolve arm: with `source=` named, a destination nothing currently provides is the normal case (you are placing
+a brand-new file), not a mistake to correct. A placement batch now also answers from one pinned asset build, so two
+assets in the same call can never describe two different states of the VFS. Surfaced by the independent review of
+the #273 fix.
+
 **`cross_plugin_query` no longer trips over deleted records and reports them as an unexplained skip (#276).**
 A `references=` (or `where=`) scan over a load order holding *deleted* records — the wild case was deleted `Package`
 records in a follower mod — ended with a raw `NullReferenceException … could not be scanned and were skipped` note.

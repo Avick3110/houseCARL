@@ -26,6 +26,10 @@ namespace HousecarlGenerator;
 ///   ASSET-QUIET  — asset_status stays silent for a genuinely-absent path AND for a non-asset-root path
 ///                  (sound\, scripts\ … legitimately live there; a meshes\ lecture would be noise), and prints
 ///                  nothing at all when the path resolves.
+///   PLACE / PLACE-TEX / PLACE-QUIET / PLACE-SOURCE (#283) — the fourth lane: place_asset's auto-resolve refusal
+///                  carries the same both-roots verified suggestion, stays silent when there's nothing honest to
+///                  say, and — the arm that pins the scope — leaves the explicit-source= lane alone, where an
+///                  unprovided destination is the NORMAL case (placing a brand-new file), not a mistake.
 ///
 /// Run: dotnet run --project src/housecarl-generator -- asset-prefix-hint-guard
 /// </summary>
@@ -127,6 +131,30 @@ internal static class AssetPrefixHintProbe
                   string.Join(",", sOther.PrefixSuggestions ?? Array.Empty<string>()));
             Check(sHit.Hit is { Exists: true } && (sHit.PrefixSuggestions?.Count ?? 0) == 0,
                   "ASSET-QUIET — a path that RESOLVES carries no suggestion");
+
+            // ---------- place_asset (the fourth lane, #283) ----------
+            Console.WriteLine();
+            Console.WriteLine("--- place_asset ---");
+            var pRecord = svc.PlaceAssets(new[] { new PlaceRequest(RecordRel, null) }, null, null).Results[0];
+            Check(!pRecord.Placed && (pRecord.Error?.Contains("Did you mean `" + MeshRel + "`", StringComparison.OrdinalIgnoreCase) ?? false),
+                  "PLACE — the auto-resolve refusal names the meshes\\-prefixed copy that IS provided", pRecord.Error);
+            var pTex = svc.PlaceAssets(new[] { new PlaceRequest(TexRecordRel, null) }, null, null).Results[0];
+            Check(!pTex.Placed && (pTex.Error?.Contains("Did you mean `" + TexRel + "`", StringComparison.OrdinalIgnoreCase) ?? false),
+                  "PLACE-TEX — both roots are tried here too (place_asset can't know the path's kind)", pTex.Error);
+            // Same teeth as NOT-A-GUESS above, and the quiet arms: verified-only means silence is the default.
+            var pMiss = svc.PlaceAssets(new[] { new PlaceRequest(@"nowhere\ghost.nif", null) }, null, null).Results[0];
+            Check(!pMiss.Placed && !(pMiss.Error?.Contains("Did you mean", StringComparison.OrdinalIgnoreCase) ?? true),
+                  "PLACE-QUIET — a path whose prefixed form ALSO misses gets no 'did you mean'", pMiss.Error);
+            var pOther = svc.PlaceAssets(new[] { new PlaceRequest(@"sound\fx\ghost.wav", null) }, null, null).Results[0];
+            Check(!pOther.Placed && !(pOther.Error?.Contains("Did you mean", StringComparison.OrdinalIgnoreCase) ?? true),
+                  "PLACE-QUIET — a non-asset-root path (sound\\) gets no meshes\\ lecture", pOther.Error);
+            // The hint rides the AUTO-RESOLVE arm only. With source= named, an unprovided destination is the NORMAL
+            // case (placing a brand-new file), so it must still place cleanly and say nothing about roots.
+            var newSrc = Path.Combine(root, "brand-new.nif");
+            File.WriteAllText(newSrc, "y");
+            var pNew = svc.PlaceAssets(new[] { new PlaceRequest(RecordRel, newSrc) }, null, null).Results[0];
+            Check(pNew.Placed && pNew.Error is null,
+                  "PLACE-SOURCE — an explicit source= still places at a path nothing provides (the hint never fires on that arm)", pNew.Error);
 
             // The rendered surface is what the user actually reads — a data-only fix would be invisible.
             var rendered = AssetWire.Render(st, 20000);
