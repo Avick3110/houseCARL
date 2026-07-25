@@ -95,8 +95,10 @@ static class AssetWire
             // #273 — a path taken straight off a record is missing its root folder (a model path is stored relative
             // to meshes\, a texture path to textures\). Every suggestion here was VERIFIED by re-resolving the
             // prefixed form, so it names a file that really is provided; when nothing resolved, nothing is printed.
+            // Backticks, not single quotes — an asset path carries the mod author's own apostrophes (PluginNameSuggest's
+            // lesson, commit 7c5dfe1: a wrapping ' collides with the quoted text and reads as a broken quote).
             if (r.PrefixSuggestions is { Count: > 0 } sug)
-                sb.Append("  did you mean ").Append(string.Join(" or ", sug.Select(s => "'" + s + "'")))
+                sb.Append("  did you mean ").Append(string.Join(" or ", sug.Select(s => "`" + s + "`")))
                   .Append("?  (a path read off a record is relative to its root folder, not to Data)\n");
             // Both "the scan was incomplete" conditions hedge an ABSENT at the POINT OF USE (Q3 — symmetric honesty),
             // not just at the top-of-output note: an archive that failed to READ, AND base archives that were never

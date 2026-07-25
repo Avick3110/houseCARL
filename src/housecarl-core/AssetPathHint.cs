@@ -65,10 +65,14 @@ public static class AssetPathHint
         if (norm.Length == 0) return null;
         if (norm.StartsWith(@"meshes\", StringComparison.OrdinalIgnoreCase)) return null;   // already Data-relative — the prefix isn't what's wrong
 
+        // BACKTICK-delimited, not single-quoted — the same reason PluginNameSuggest.DidYouMean moved to backticks
+        // (commit 7c5dfe1): the thing being quoted is author-controlled text that routinely carries an apostrophe
+        // (a mod's "Sanguine's Trade" folder, a "Dragon's Reach" mesh subtree), which collides with a wrapping '
+        // and reads as a broken quote. Backticks never collide with the path's own characters.
         var hits = VerifiedPrefixes(view, norm, MeshRoot);
         if (hits.Count > 0)
-            return $"Did you mean '{hits[0]}'? A record's Model.File is stored relative to meshes\\, so it needs the meshes\\ prefix to be Data-relative.";
+            return $"Did you mean `{hits[0]}`? A record's Model.File is stored relative to meshes\\, so it needs the meshes\\ prefix to be Data-relative.";
         return $"This path is not under meshes\\ — if it came from a record's Model.File, that field is stored relative to meshes\\, "
-             + $"so the Data-relative form would be 'meshes\\{norm}' (not provided by any active mod or BSA either).";
+             + $"so the Data-relative form would be `meshes\\{norm}` (not provided by any active mod or BSA either).";
     }
 }
