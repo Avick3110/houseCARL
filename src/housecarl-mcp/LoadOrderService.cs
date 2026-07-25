@@ -305,7 +305,18 @@ public sealed class LoadOrderService : IDisposable
             foreach (var raw in relPaths)
             {
                 var p = (raw ?? "").Trim();
-                try { results.Add(new AssetPathResult(p, view.Resolve(p), null)); }
+                try
+                {
+                    var hit = view.Resolve(p);
+                    // ABSENT only: a path taken off a record is stored relative to its ROOT folder (a model path to
+                    // meshes\, a texture path to textures\), so the flat ABSENT was a dead end for the normal way
+                    // one arrives at an asset (#273). Both roots are tried because this lane, unlike nif_inspect,
+                    // doesn't know the path's kind. VERIFIED only here — no speculative note: asset_status legitimately
+                    // answers for sound\, scripts\, interface\ and the rest, where a meshes\ lecture would be noise.
+                    var suggest = hit.Exists ? Array.Empty<string>()
+                                             : AssetPathHint.VerifiedPrefixes(view, p, AssetPathHint.AssetRoots);
+                    results.Add(new AssetPathResult(p, hit, null, suggest));
+                }
                 catch (ArgumentException ex) { results.Add(new AssetPathResult(p, null, ex.Message)); }   // bad path → per-path Q3 note
             }
             return new AssetStatusData(results, view.BsaFailures, view.ReadIncomplete, _assetWarnings, _profileName);
@@ -1233,10 +1244,17 @@ public sealed class LoadOrderService : IDisposable
         var providers = place.Sources.Select(s => new NifProvider(s.ProviderName, KindLabel(s.Kind))).ToList();
 
         if (place.Sources.Count == 0)
+        {
+            // A model path taken straight off a record is stored relative to meshes\, so the flat ABSENT was a dead
+            // end for the NORMAL way one arrives at a mesh (#273). The hint is RE-RESOLVED, never guessed — see
+            // AssetPathHint: a "did you mean" always names a file that exists, and the weaker fallback names only
+            // the convention, never a file.
+            var hint = AssetPathHint.MeshHint(view, rel);
             // Absent=true lets the renderer hedge this at POINT OF USE on the batch-level caveats (read failures /
             // discovery warnings) — asset_status parity; the top-of-output alarm alone scrolls away in a long batch.
             return new NifInspectData(rel, null, providers, place.Ambiguous, Absent: true, null,
-                "ABSENT — no active mod or BSA provides this mesh path.");
+                "ABSENT — no active mod or BSA provides this mesh path." + (hint is null ? "" : " " + hint));
+        }
 
         // Pick the copy to read: the VFS winner by default, or a specific provider when mod= names one.
         PlacementSource chosen;
@@ -1300,7 +1318,12 @@ public sealed class LoadOrderService : IDisposable
 
             var providers = place.Sources.Select(s => new NifProvider(s.ProviderName, KindLabel(s.Kind))).ToList();
             if (place.Sources.Count == 0)
-                return NifSetResult.Fail($"ABSENT — no active mod or BSA provides '{rel}', so there is no copy to edit.", providers, profileName);
+            {
+                var hint = AssetPathHint.MeshHint(view, rel);   // #273 — same verified re-resolve as nif_inspect's ABSENT
+                return NifSetResult.Fail(
+                    $"ABSENT — no active mod or BSA provides '{rel}', so there is no copy to edit." + (hint is null ? "" : " " + hint),
+                    providers, profileName);
+            }
 
             // pick the copy to read/edit: the VFS winner, or a specific provider when mod= names one.
             PlacementSource chosen;
@@ -5874,8 +5897,12 @@ public sealed record NamedProfileResult(
 /// <summary>One queried asset path's resolution behind housecarl_asset_status: the resolver's <see cref="AssetHit"/>
 /// (which sources have it + which wins + an ambiguity flag), or an <see cref="Error"/> when the path was rejected (a
 /// drive-rooted or '..'-escaping path — per-path Q3, never fails the batch). <see cref="Hit"/> is null iff
-/// <see cref="Error"/> is set.</summary>
-public sealed record AssetPathResult(string RelPath, AssetHit? Hit, string? Error);
+/// <see cref="Error"/> is set.
+/// <para><see cref="PrefixSuggestions"/> (#273) — on an ABSENT answer only, the root-prefixed forms of this path that
+/// a real active mod or BSA DOES provide (<see cref="AssetPathHint"/>), for the common case of a path taken straight
+/// off a record and therefore missing its <c>meshes\</c> / <c>textures\</c> root. Verified by re-resolution, so a
+/// suggestion always names a file that exists; empty when there is nothing honest to offer.</para></summary>
+public sealed record AssetPathResult(string RelPath, AssetHit? Hit, string? Error, IReadOnlyList<string>? PrefixSuggestions = null);
 
 /// <summary>The data behind housecarl_asset_status: one <see cref="AssetPathResult"/> per queried path, plus the
 /// build-level Q3 caveats — <see cref="BsaFailures"/> (archives that couldn't be read) and <see cref="ReadIncomplete"/>
