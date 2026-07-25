@@ -75,4 +75,19 @@ public static class AssetPathHint
         return $"This path is not under meshes\\ — if it came from a record's Model.File, that field is stored relative to meshes\\, "
              + $"so the Data-relative form would be `meshes\\{norm}` (not provided by any active mod or BSA either).";
     }
+
+    /// <summary>The sentence to append for the GENERIC asset lane — a tool that can't know the path's kind, so it tries
+    /// both roots. Null when there is nothing to add, which is the common case: VERIFIED-ONLY, with no weaker convention
+    /// note. That asymmetry with <see cref="MeshHint"/> is deliberate and matches asset_status — a mesh tool knows every
+    /// path it is handed is a mesh path, so naming the convention is always relevant; this lane legitimately answers for
+    /// <c>sound\</c>, <c>scripts\</c>, <c>interface\</c> and the rest, where a <c>meshes\</c> lecture would be noise.
+    /// Wording (backticks, the "or" join) matches the rendered asset_status line so the same mistake reads the same way
+    /// whichever door the caller came through.</summary>
+    public static string? AssetRootHint(AssetResolver.AssetView view, string rel)
+    {
+        var hits = VerifiedPrefixes(view, rel, AssetRoots);
+        if (hits.Count == 0) return null;
+        return $"Did you mean {string.Join(" or ", hits.Select(h => "`" + h + "`"))}? "
+             + "A path read off a record is relative to its root folder (meshes\\ / textures\\), not to Data.";
+    }
 }

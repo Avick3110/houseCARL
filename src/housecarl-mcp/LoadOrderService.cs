@@ -1454,8 +1454,11 @@ public sealed class LoadOrderService : IDisposable
             catch (InvalidOperationException ex) { return PlaceOutcome.Fail(ex.Message); }
 
             // ONE asset build for the whole batch (auto-resolve sources + the post-write winner report), reentrant on _gate.
-            AssetResolver resolver; IReadOnlyList<string> warnings;
-            try { lock (_gate) { resolver = Assets; warnings = _assetWarnings; } }
+            // CAPTURED, not the live resolver: every request in the batch — and the #283 missing-root suggestion's
+            // re-resolve — answers from the SAME snapshot, so a refresh landing mid-batch can't make two placements
+            // describe two builds (the AssetView discipline the other asset lanes already ride).
+            AssetResolver.AssetView view; IReadOnlyList<string> warnings;
+            try { lock (_gate) { view = Assets.Capture(); warnings = _assetWarnings; } }
             catch (Exception ex)
             {
                 var residue = RemoveOrNameRiderResidue(rf);              // nothing placed yet → a fresh folder is an orphan
@@ -1467,7 +1470,7 @@ public sealed class LoadOrderService : IDisposable
             int placed = 0;
             foreach (var req in requests)
             {
-                var r = PlaceOne(req, resolver, rf.OutputDir);
+                var r = PlaceOne(req, view, rf.OutputDir);
                 results.Add(r);
                 if (r.Placed) placed++;
             }
@@ -1484,13 +1487,13 @@ public sealed class LoadOrderService : IDisposable
     /// <paramref name="outDir"/>. Reports the CURRENT VFS winner so the caller knows what to sort the fresh mod above —
     /// the placed file does NOT win until the mod is enabled + sorted (the fresh folder isn't in the active profile yet).
     /// A per-asset failure is a recoverable named error, never a thrown batch abort.</summary>
-    PlaceResult PlaceOne(PlaceRequest req, AssetResolver resolver, string outDir)
+    PlaceResult PlaceOne(PlaceRequest req, AssetResolver.AssetView view, string outDir)
     {
         string rel;
         try { rel = AssetResolver.ValidateRelPath(req.AssetPath); }
         catch (ArgumentException ex) { return PlaceResult.Fail(req.AssetPath, ex.Message); }
 
-        var res = resolver.ResolveForPlacement(rel);                     // rel already validated — won't throw
+        var res = view.ResolveForPlacement(rel);                         // rel already validated — won't throw
         var winner = res.Sources.Count > 0 ? DescribeSource(res.Sources[0]) : null;
 
         // ---- source bytes: explicit source= wins; else auto-resolve the sole provider ----
@@ -1505,11 +1508,21 @@ public sealed class LoadOrderService : IDisposable
         else
         {
             if (res.Sources.Count == 0)
+            {
+                // #283 — the auto-resolve dead end is the same input mistake #273 fixed in the three sibling lanes: a
+                // path taken off a record is stored relative to its ROOT folder, so passing it verbatim is the normal
+                // way one arrives here. Both roots (this lane can't know the path's kind), VERIFIED by re-resolving —
+                // a suggestion always names a copy that really is provided, and silence is the honest default.
+                // NOT on the explicit-source= arm above: placing a NEW file at a path nothing provides is legitimate
+                // there, so an absent destination is not a mistake to correct.
+                var hint = AssetPathHint.AssetRootHint(view, rel);
                 return PlaceResult.Fail(rel,
                     $"nothing in the active load order provides '{rel}', so there is no copy to auto-place. Pass source= the correct copy "
                     + "(a loose file path, or '<archive.bsa>|<entry>', or a '.bsa' path)."
+                    + (hint is null ? "" : " " + hint)
                     + (res.ReadIncomplete ? " NOTE: a BSA failed to read this build, so a source may merely be unscanned (see the warnings)." : ""),
                     winner);
+            }
             if (res.Ambiguous)
                 return PlaceResult.Fail(rel,
                     $"{res.Sources.Count} sources provide '{rel}' — ambiguous, so place_asset will not guess which copy is correct (the skill decides). "
