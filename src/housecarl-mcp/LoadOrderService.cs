@@ -2581,17 +2581,13 @@ public sealed class LoadOrderService : IDisposable
                             }
                             filterBody = wb;
                         }
-                        // DELETED records carry no body to scan (#276): a Deleted major record's content is
-                        // empty by engine rule, so the CONTENT filters cannot match it — references= links to
-                        // nothing, where= has no field to test. So exclude it as a clean non-match here, before
-                        // the scan touches its body. This is also what stops the reported crash: engine-authored
-                        // deleted records (the wild repro was deleted PACKs) can leave a content-free-but-not-clean
-                        // body that NullRefs when EnumerateFormLinks (references=) / the where= predicate lazily
-                        // parse it — which then lands in the unscannable bucket below as an untyped skip, reading
-                        // as a parser hole, so a genuine match hiding in a "skipped" record looks possible when it
-                        // isn't (Q3). editorid_contains= stays live: EditorID reads from the record's early EDID
-                        // subrecord, before the deep body parse that can throw — safe on a deleted record.
-                        if (filterBody.IsDeleted && (refSet is not null || predicate is not null)) continue;
+                        // DELETED records carry no body to scan (#276; the rule + its full rationale now live in
+                        // DeletedRecordRule, shared with check_errors and the compact/merge scan — #279): the
+                        // CONTENT filters cannot match one, so exclude it as a clean non-match here, before the
+                        // scan touches its body — which is also what stops the reported crash on an engine-authored
+                        // deleted record's residual body. editorid_contains= stays live: EditorID reads from the
+                        // record's early EDID subrecord, before the deep body parse that can throw.
+                        if (DeletedRecordRule.HasNoLiveBody(filterBody) && (refSet is not null || predicate is not null)) continue;
                         if (!string.IsNullOrEmpty(editoridContains)
                             && (filterBody.EditorID is null || filterBody.EditorID.IndexOf(editoridContains, StringComparison.OrdinalIgnoreCase) < 0))
                             continue;
