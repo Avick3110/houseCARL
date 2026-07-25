@@ -166,6 +166,11 @@ public static class CiAll
         ("overwrite-resolve-guard", OverwriteResolveProbe.RunGuard),
         ("asset-resolver-guard", AssetResolverProbe.RunGuard),
         ("asset-status-guard", AssetStatusProbe.RunGuard),
+        // #273 — the missing-root suggestion on an ABSENT asset path (a record's Model.File is stored relative to
+        // meshes\, so passing it verbatim is the normal way one arrives at a mesh). Drives the real nif_inspect /
+        // nif_set / asset_status over a synthetic instance. Paired arms: the suggestion FIRES on a re-resolvable
+        // path, and is ABSENT for a look-alike that doesn't resolve — the teeth against a string heuristic.
+        ("asset-prefix-hint-guard", AssetPrefixHintProbe.RunGuard),
         // SKSE-plugin-layer visibility (gap 2026-06-08, tier C): pins the SKSEPlugin_Version decode contract (the
         // reverse-engineered offset map — supportEmail is 252, not 256 — + the flag/version/compat interpretation) and
         // the honest-degrade paths (real-PE Read → NotSkse; non-PE / missing → Unreadable, never a throw).

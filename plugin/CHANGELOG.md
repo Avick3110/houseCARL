@@ -19,6 +19,17 @@ exception cause — the same untyped skip #276 removed, in two more places. The 
 all three walkers, so they cannot drift apart on it again. Deliberately unchanged: the compact scan still warns about
 a deleted record that *overrides* something being renumbered — that test reads the record's own identity, not its
 body, and such an override is still a dependent worth naming. Surfaced by the independent review of the #276 fix.
+**An asset path that's missing its `meshes\` / `textures\` root now says so, instead of a bare ABSENT (#273).**
+A model path read straight off a record — `Model.File` on an NPC, ARMA, STAT — is stored relative to `meshes\`, but
+every asset tool wants it Data-relative. So the *normal* way one arrives at a mesh produced a flat, hint-free
+`ABSENT — no active mod or BSA provides this mesh path`: a true answer for the string as given, but a dead end unless
+you already knew the convention. `nif_inspect`, `nif_set` and `asset_status` now retry the root-prefixed form and,
+when it hits, name it — `did you mean 'meshes\Actors\…\wolf.nif'?`. The suggestion is **verified, not guessed**: it
+comes from actually re-resolving the candidate through the same VFS, so a path it names is always one a mod or BSA
+really provides, and when nothing resolves nothing is suggested. `asset_status` tries both roots (it can't know a
+path's kind) and stays silent otherwise — `sound\`, `scripts\` and the rest get no lecture. The mesh tools, which
+only ever deal in meshes, add one weaker note when the prefixed form misses too: it names the convention and the
+form the path would take, and says plainly that form isn't provided either. Reported externally.
 
 **`cross_plugin_query` no longer trips over deleted records and reports them as an unexplained skip (#276).**
 A `references=` (or `where=`) scan over a load order holding *deleted* records — the wild case was deleted `Package`
