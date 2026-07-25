@@ -64,7 +64,7 @@ public static class PerkRefsProbe
             good.NextPerk.SetTo(targetFk);
             mod.BeginWrite.ToPath(espPath).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
         }
-        int corrupted = CorruptEpftBytes(espPath);
+        int corrupted = ProbeBytes.CorruptEpftBytes(espPath);
         Console.WriteLine($"-- setup: wrote {modKey.FileName} (target + referencing + entry-point perks); corrupted {corrupted} EPFT flag byte(s) --");
         if (corrupted != 1) { Console.WriteLine($"=== perk-refs-guard: FAIL (expected exactly 1 EPFT subrecord to corrupt, found {corrupted}) ==="); return 1; }
 
@@ -157,8 +157,8 @@ public static class PerkRefsProbe
             good.NextPerk.SetTo(targetFk);
             mod.BeginWrite.ToPath(espPath).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
         }
-        int corrupted = CorruptEpftBytes(espPath);
-        int deleted = SetDeletedFlag(espPath, "PERK", badFk);
+        int corrupted = ProbeBytes.CorruptEpftBytes(espPath);
+        int deleted = ProbeBytes.SetDeletedFlag(espPath, "PERK", badFk.ID);   // master-less fixture ⇒ the on-disk FormID IS the object id
         Console.WriteLine($"-- setup: wrote {modKey.FileName}; corrupted {corrupted} EPFT byte(s); flagged {deleted} record Deleted on disk --");
         if (corrupted != 1 || deleted != 1)
         {
@@ -213,28 +213,6 @@ public static class PerkRefsProbe
         return pass ? 0 : 1;
     }
 
-    /// <summary>Set the record-header Deleted flag (0x20) on the record of signature <paramref name="sig"/> whose
-    /// on-disk FormID equals <paramref name="fk"/>'s object ID (own record ⇒ master index 0), by locating its
-    /// 24-byte header (sig at +0, flags word at +8, FormID at +12) and OR-ing the flags' low byte. The FormID match
-    /// skips the top-GRUP label of the same 4 chars. Returns how many headers matched (caller asserts exactly 1).</summary>
-    static int SetDeletedFlag(string espPath, string sig, FormKey fk)
-    {
-        var bytes = File.ReadAllBytes(espPath);
-        var s = System.Text.Encoding.ASCII.GetBytes(sig);
-        uint id = fk.ID;
-        int hits = 0;
-        for (int i = 0; i + 24 <= bytes.Length; i++)
-        {
-            if (bytes[i] != s[0] || bytes[i + 1] != s[1] || bytes[i + 2] != s[2] || bytes[i + 3] != s[3]) continue;
-            uint formId = (uint)(bytes[i + 12] | (bytes[i + 13] << 8) | (bytes[i + 14] << 16) | (bytes[i + 15] << 24));
-            if (formId != id) continue;
-            bytes[i + 8] |= 0x20;   // SkyrimMajorRecordFlag.Deleted, the flags word's low byte
-            hits++;
-        }
-        if (hits > 0) File.WriteAllBytes(espPath, bytes);
-        return hits;
-    }
-
     /// <summary>REAL-DATA proof (manual; needs an MO2 instance + a generated corpus.json): drive the SERVICE-layer
     /// scan with the report's exact failing call — <c>type=Perk references=01CEAD:Skyrim.esm</c> (KYWD
     /// MagicDamageFire) — over the live order. Before the fix the whole call threw; after, it must return with no
@@ -281,23 +259,6 @@ public static class PerkRefsProbe
         bool pass = q.Error is null;
         Console.WriteLine($"=== perk-refs-proof: {(pass ? "PASS" : "FAIL")} ===");
         return pass ? 0 : 1;
-    }
-
-    /// <summary>Corrupt every EPFT subrecord's parameter-type flag byte in the written plugin (sig + len(2) + 1-byte
-    /// payload → payload at +6), returning how many were hit. The guard writes exactly one entry-point effect, so
-    /// exactly one EPFT is expected — asserted by the caller.</summary>
-    static int CorruptEpftBytes(string espPath)
-    {
-        var bytes = File.ReadAllBytes(espPath);
-        int hits = 0;
-        for (int i = 0; i + 6 < bytes.Length; i++)
-        {
-            if (bytes[i] != (byte)'E' || bytes[i + 1] != (byte)'P' || bytes[i + 2] != (byte)'F' || bytes[i + 3] != (byte)'T') continue;
-            bytes[i + 6] = 0x63;   // not a legal parameter-type flag → ParseEffect throws on lazy Effects parse
-            hits++;
-        }
-        if (hits > 0) File.WriteAllBytes(espPath, bytes);
-        return hits;
     }
 
     public static int RunDiagnose(string[] args)

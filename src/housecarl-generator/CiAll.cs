@@ -94,6 +94,12 @@ public static class CiAll
         ("subclass-remove-guard", SubclassRemoveGuardProbe.RunGuard),
         ("perk-refs-guard", PerkRefsProbe.RunGuard),
         ("deleted-record-scan-guard", PerkRefsProbe.RunDeletedGuard),
+        // #279 — the SAME deleted-record rule in the two SIBLING link walkers (check_errors' dangling sweep and the
+        // compact/merge dependency scan), now all three routed through DeletedRecordRule. Two arms per walker: the
+        // SEMANTIC one (an intact deleted body's link is not a finding) and the CRASH-CLASS one (a throwing deleted
+        // body is not an untyped unscannable skip), plus a SCOPE arm pinning the guard behind remap's identity-only
+        // overrider test. Controls prove each fixture still exhibits the pre-fix hazard.
+        ("deleted-link-walk-guard", DeletedLinkWalkProbe.RunGuard),
         ("conflict-diff-guard", ConflictDiffProbe.RunGuard),
         ("formid-floor-guard", FormIdFloorProbe.RunGuard),
         ("esl-formid-guard", EslFormIdProbe.RunGuard),
