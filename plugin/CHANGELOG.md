@@ -8,6 +8,18 @@ when it changes.
 
 *Accumulating notes for the next cut — not yet released; `plugin.json` still reads the last shipped version.*
 
+**`check_errors` and the compact/merge dependency scan now treat a deleted record the same way (#279).**
+The #276 fix taught `cross_plugin_query` that a deleted record links to nothing; the two sibling walkers that ride the
+same form-link enumeration — `check_errors`' dangling-reference sweep and the external-dependency scan behind
+`compact_plugin` / `merge_plugins` — still walked them. Two consequences, both now fixed. A deleted record's links
+were reported as findings: `check_errors` flagged one as a *dangling reference*, and the compact scan counted one as
+an external *referencer*, which could refuse a compaction over a dependency that isn't live. And a deleted record with
+an engine-authored malformed body threw on the walk and landed in the "could not be scanned" bucket with a raw
+exception cause — the same untyped skip #276 removed, in two more places. The rule now lives in one place shared by
+all three walkers, so they cannot drift apart on it again. Deliberately unchanged: the compact scan still warns about
+a deleted record that *overrides* something being renumbered — that test reads the record's own identity, not its
+body, and such an override is still a dependent worth naming. Surfaced by the independent review of the #276 fix.
+
 **`cross_plugin_query` no longer trips over deleted records and reports them as an unexplained skip (#276).**
 A `references=` (or `where=`) scan over a load order holding *deleted* records — the wild case was deleted `Package`
 records in a follower mod — ended with a raw `NullReferenceException … could not be scanned and were skipped` note.

@@ -40,7 +40,9 @@ namespace HousecarlCore;
 /// clean result is never read as byte-for-byte xEdit parity. It also exempts an <see cref="IUntypedOwnerGetter"/>'s
 /// ambiguous "variable" word (#207 — see <see cref="UntypedOwnerVariableData"/>); the one thing that gives up is a
 /// genuinely-dangling Global on an NPC-OWNED item whose owner NPC lives in a master (vanishingly rare, and that owner
-/// NPC is still checked), which we trade for never false-flagging the far commoner faction-owner rank.
+/// NPC is still checked), which we trade for never false-flagging the far commoner faction-owner rank. DELETED records
+/// are excluded from the link walk entirely (#279 — see <see cref="DeletedRecordRule"/>): their content is not live,
+/// so a link one carries is not a dangling reference, and a malformed deleted body no longer reads as a parse hole.
 ///
 /// Composes existing primitives only — no new dependency (audit A1 "Verified 2026-06-25"): the per-plugin record stream
 /// (<c>RecordsIn</c>), the O(1) resolution test (<c>ResolveWinner</c>), presence (<c>ContainsPlugin</c>), the declared-
@@ -123,6 +125,11 @@ public static class ErrorCheck
                     // + accounted, never an opaque whole-call abort and never a silent skip (Q3).
                     try
                     {
+                        // A DELETED record links to nothing (#279 — the shared rule, see DeletedRecordRule): its
+                        // content is not live, so none of its FormLinks can be a dangling reference, and an
+                        // engine-authored deleted body can throw on the walk below and land here as an untyped
+                        // unscannable skip (Q3). Excluded before the walk, at all three walkers alike.
+                        if (DeletedRecordRule.HasNoLiveBody(body)) continue;
                         if (body is not IFormLinkContainerGetter flc) continue;
                         Dictionary<FormKey, int>? ownerVarExempt = null;   // #207: built lazily on this record's first otherwise-dangling link (see UntypedOwnerVariableData)
                         foreach (var link in flc.EnumerateFormLinks())
@@ -201,6 +208,7 @@ public static class ErrorCheck
                         {
                             try
                             {
+                                if (DeletedRecordRule.HasNoLiveBody(rec)) continue;   // #279 — same rule as the active pass above
                                 if (rec is not IFormLinkContainerGetter flc) continue;
                                 Dictionary<FormKey, int>? ownerVarExempt = null;   // #207 (see UntypedOwnerVariableData)
                                 foreach (var link in flc.EnumerateFormLinks())

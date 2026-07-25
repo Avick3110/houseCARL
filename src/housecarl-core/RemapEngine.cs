@@ -142,6 +142,13 @@ public static class RemapEngine
                             if (!pluginListedOverride) { externalOverriders.Add(plugin); pluginListedOverride = true; }
                         }
                         // REFERENCER: an outgoing link whose target is being remapped (after the transform it dangles).
+                        // A DELETED record links to nothing (#279 — the shared rule, see DeletedRecordRule): its
+                        // content is not live, so it is not a referencer to repoint, and an engine-authored deleted
+                        // body can throw on the walk below and land in the unscannable bucket as an untyped skip (Q3).
+                        // Deliberately AFTER the overrider test above: that one is identity-only (the record's own
+                        // FormKey, read from the header), and a deleted override of a record about to be renumbered is
+                        // still a dependent worth warning about — this guard scopes to the link walk, nothing else.
+                        if (DeletedRecordRule.HasNoLiveBody(body)) continue;
                         if (body is not IFormLinkContainerGetter flc) continue;
                         foreach (var link in flc.EnumerateFormLinks())
                         {
