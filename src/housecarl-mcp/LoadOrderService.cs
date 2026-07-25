@@ -2584,8 +2584,10 @@ public sealed class LoadOrderService : IDisposable
                         // DELETED records carry no body to scan (#276; the rule + its full rationale now live in
                         // DeletedRecordRule, shared with check_errors and the compact/merge scan — #279): the
                         // CONTENT filters cannot match one, so exclude it as a clean non-match here, before the
-                        // scan touches its body — which is also what stops the reported crash on an engine-authored
-                        // deleted record's residual body. editorid_contains= stays live: EditorID reads from the
+                        // scan touches its body — which, on the references= arm, is also what stops the reported
+                        // crash on an engine-authored deleted record's residual body (the where= arm's leaf read
+                        // isolates its own faults, so it is excluded on the semantic ground alone — see
+                        // DeletedRecordRule). editorid_contains= stays live: EditorID reads from the
                         // record's early EDID subrecord, before the deep body parse that can throw.
                         if (DeletedRecordRule.HasNoLiveBody(filterBody) && (refSet is not null || predicate is not null)) continue;
                         if (!string.IsNullOrEmpty(editoridContains)
