@@ -50,8 +50,8 @@ public static class NifSectionsProbe
 
         // ALL: expands to every known section.
         var (all, _) = NifTools.ParseSections("all");
-        Check("ALL: 'all' expands to the 7 known sections",
-              all.SetEquals(new[] { "shapes", "partitions", "alpha", "paths", "strings", "nodes", "bones" }));
+        Check("ALL: 'all' expands to the 8 known sections",
+              all.SetEquals(new[] { "shapes", "partitions", "alpha", "paths", "shader", "strings", "nodes", "bones" }));
 
         // PARTIAL: some valid, some not → NOT an error (renders the valid + a warning).
         var (partial, partialUnknown) = NifTools.ParseSections("[\"shapes\",\"textures\"]");

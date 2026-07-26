@@ -1,5 +1,6 @@
 using NiflySharp;
 using NiflySharp.Blocks;
+using NiflySharp.Helpers;   // ShaderHelper.ShaderGameType — which game's flag layout a shader block was read as (#272)
 
 namespace HousecarlCore;
 
@@ -168,16 +169,173 @@ public static class NifService
 
         var textures = new List<NifTexture>();
         var shader = nif.GetShader(shape);
+        var shaderInfo = shader is null ? null : BuildShader(shader);
         if (shader?.TextureSetRef is not null && nif.GetBlock(shader.TextureSetRef) is BSShaderTextureSet ts)
             for (int i = 0; i < ts.Textures.Count; i++)
             {
                 var c = ts.Textures[i]?.Content;
-                if (!string.IsNullOrEmpty(c)) textures.Add(new NifTexture(i, c));
+                if (!string.IsNullOrEmpty(c)) textures.Add(new NifTexture(i, c, SlotName(i, shader)));
             }
 
         var bones = nif.GetShapeBoneNames(shape) ?? new List<string>();
-        return new NifShape(name, flags, scale, shape.GetType().Name, defVal, defType, partitions, alpha, textures, bones);
+        return new NifShape(name, flags, scale, shape.GetType().Name, defVal, defType, partitions, alpha, textures, bones, shaderInfo);
     }
+
+    /// <summary>Read the shape's SHADER PROPERTY (#272) — the block every visual diagnosis actually asks about: which
+    /// shader is on this shape, and does it emit / scatter / env-map light. Read off <see cref="INiShader"/>, the
+    /// interface <c>NifFile.GetShader</c> already returns, so this covers BSLightingShaderProperty and
+    /// BSEffectShaderProperty (and anything else nifly models as a shader) with no per-block-type wiring.
+    ///
+    /// TWO Q3 calls live here. (1) <see cref="NifShader.ShaderType"/> is reported ONLY for a lighting shader: the
+    /// <c>ShaderType_SK_FO4</c> property sits on the shared base, but a BSEffectShaderProperty never serializes a
+    /// shader type, so reading it there yields a default 0 that renders as a confident "Default" — a wrong answer, not
+    /// a missing one. (2) The flag WORDS are chosen by the shader's own <c>Type</c> (which game's layout the block was
+    /// read as), never assumed to be Skyrim's — decoding an FO4 word against Skyrim names would mislabel every bit.</summary>
+    static NifShader BuildShader(INiShader shader)
+    {
+        var blockType = shader.GetType().Name;
+        var game = shader.Type;
+
+        // The flag pair that is REAL for this block's game layout. nifly models each game's word as its own named enum,
+        // so the decode below is reflection over that enum — the set of flag names IS the library's, by construction.
+        (NifShaderFlagWord? f1, NifShaderFlagWord? f2) = game switch
+        {
+            ShaderHelper.ShaderGameType.SK    => (DecodeFlagWord("SLSF1", shader.ShaderFlags_SSPF1), DecodeFlagWord("SLSF2", shader.ShaderFlags_SSPF2)),
+            ShaderHelper.ShaderGameType.FO4   => (DecodeFlagWord("F4SPF1", shader.ShaderFlags_F4SPF1), DecodeFlagWord("F4SPF2", shader.ShaderFlags_F4SPF2)),
+            ShaderHelper.ShaderGameType.FO3NV => (DecodeFlagWord("ShaderFlags", shader.ShaderFlags), DecodeFlagWord("ShaderFlags2", shader.ShaderFlags2)),
+            // FO76/SF (and None) carry no flag word this library exposes as a named enum — report the game type and no
+            // flags, rather than decoding some other game's word and labelling it as this one's (Q3).
+            _ => (null, null),
+        };
+
+        // Each lighting value is reported ONLY if this block really reads it (see ReallyReads) — otherwise null, and
+        // the renderer names it as unread. RGB, never RGBA: a lighting shader's emissive is a THREE-component colour
+        // on disk, and the interface widens it to Color4, so its 4th component is a synthetic 0 that would render as
+        // "fully transparent emissive" — a fabricated value, the one thing worse than a missing one (Q3).
+        var t = shader.GetType();
+        NifColor? Rgb3(string prop, Func<System.Numerics.Vector3> read)
+        {
+            if (!ReallyReads(t, prop)) return null;
+            var v = read();
+            return new NifColor(v.X, v.Y, v.Z);
+        }
+        float? Scalar(string prop, Func<float> read) => ReallyReads(t, prop) ? read() : null;
+
+        NifColor? emissive = null;
+        if (ReallyReads(t, nameof(INiShader.EmissiveColor)))
+        {
+            var e = shader.EmissiveColor;
+            emissive = new NifColor(e.R, e.G, e.B);
+        }
+        return new NifShader(
+            blockType, game.ToString(),
+            blockType == nameof(BSLightingShaderProperty) ? shader.ShaderType_SK_FO4.ToString() : null,
+            f1, f2,
+            emissive,
+            Scalar(nameof(INiShader.EmissiveMultiple), () => shader.EmissiveMultiple),
+            Scalar(nameof(INiShader.Glossiness), () => shader.Glossiness),
+            Scalar(nameof(INiShader.SpecularStrength), () => shader.SpecularStrength),
+            Rgb3(nameof(INiShader.SpecularColor), () => shader.SpecularColor),
+            Scalar(nameof(INiShader.Alpha), () => shader.Alpha));
+    }
+
+    // Which INiShader value accessors a concrete shader block ACTUALLY implements — cached per block type (a mesh has
+    // many shapes; the interface map is walked once each).
+    static readonly System.Collections.Concurrent.ConcurrentDictionary<Type, HashSet<string>> RealReads = new();
+
+    /// <summary>Whether <paramref name="blockType"/> REALLY reads <paramref name="property"/>, or merely inherits
+    /// <see cref="INiShader"/>'s DEFAULT INTERFACE IMPLEMENTATION for it.
+    ///
+    /// This is not defensive noise — it is a live upstream gap. In NiflySharp 1.0.0, <c>BSLightingShaderProperty</c>
+    /// overrides <c>EmissiveColor</c> but NOT <c>Glossiness</c>, <c>SpecularStrength</c>, <c>SpecularColor</c>,
+    /// <c>EmissiveMultiple</c> or <c>Alpha</c>; those fall through to the interface's stub, which returns a CONSTANT
+    /// (0, or 1 for Alpha) no matter what the mesh holds. The values are genuinely on disk — the block's private
+    /// fields round-trip a save/load intact — the library just doesn't surface them. Reporting the stub would be a
+    /// confident wrong number on every mesh: exactly the silent-wrong-answer the no-silent-failure rule forbids, and
+    /// the "fail loud about the library's delta, never silently around it" posture the coverage cornerstone names.
+    ///
+    /// Doing it BY CONSTRUCTION rather than by a hand-kept list of "the five nifly stubs" means the day upstream
+    /// implements one, houseCARL starts reporting it with no code change — and if upstream ever stubs another, that
+    /// one goes quiet on its own instead of turning into a wrong answer.</summary>
+    static bool ReallyReads(Type blockType, string property)
+    {
+        var real = RealReads.GetOrAdd(blockType, static t =>
+        {
+            var set = new HashSet<string>(StringComparer.Ordinal);
+            var map = t.GetInterfaceMap(typeof(INiShader));
+            for (int i = 0; i < map.InterfaceMethods.Length; i++)
+            {
+                var name = map.InterfaceMethods[i].Name;
+                if (name.StartsWith("get_", StringComparison.Ordinal) && map.TargetMethods[i].DeclaringType != typeof(INiShader))
+                    set.Add(name[4..]);
+            }
+            return set;
+        });
+        return real.Contains(property);
+    }
+
+    /// <summary>Decode one shader flag word into its NAMED bits plus the unnamed remainder. The names come from
+    /// <see cref="Enum.GetValues(Type)"/> over nifly's own enum, so coverage is the library's coverage — no hand-kept
+    /// bit table to drift. Members are peeled largest-first so a multi-bit combo member wins over its constituent bits
+    /// (the <c>ReadEngine.FlagBitsDisplay</c> algorithm, #255), and whatever no member covers is returned as
+    /// <see cref="NifShaderFlagWord.UnknownBits"/> — surfaced explicitly by the renderer, never silently dropped, which
+    /// is the whole point: an unnamed bit is a real thing the mesh carries.</summary>
+    internal static NifShaderFlagWord DecodeFlagWord(string label, Enum value)
+    {
+        uint raw = Convert.ToUInt32(value);
+        var members = new List<(uint Bits, string Name)>();
+        foreach (Enum m in Enum.GetValues(value.GetType()))
+        {
+            uint mb = Convert.ToUInt32(m);
+            if (mb != 0) members.Add((mb, m.ToString()));
+        }
+        members.Sort((a, b) => b.Bits.CompareTo(a.Bits));        // descending — a combo before its constituent bits
+
+        uint remainder = raw;
+        var hit = new List<(uint Bits, string Name)>();
+        foreach (var m in members)
+            if ((remainder & m.Bits) == m.Bits) { hit.Add(m); remainder &= ~m.Bits; }
+        hit.Sort((a, b) => a.Bits.CompareTo(b.Bits));            // report in bit order — how the word reads on disk
+        return new NifShaderFlagWord(label, raw, hit.Select(h => h.Name).ToList(), remainder);
+    }
+
+    /// <summary>The SEMANTIC name of a BSShaderTextureSet slot, or null when this shape's shader doesn't determine one.
+    ///
+    /// Slot 2 is glow OR skin-subsurface OR soft-lighting; slot 7 is backlight OR specular — the meaning comes from the
+    /// shader TYPE and FLAGS, not from the index. nifly models the slots as a bare path list (the semantics are a
+    /// Skyrim engine convention, not something nif.xml names), so unlike the flag decode above this cannot be
+    /// reflected out of the library — it is a small, explicit interpreter of engine semantics, each arm keyed to the
+    /// flag or type that decides it, in the same posture as <c>effect_chain</c>.
+    ///
+    /// Q3 — returns NULL rather than a best guess whenever the deciding flag/type isn't set. An unnamed slot renders
+    /// as bare <c>tex[N]</c>: "this shader doesn't tell us", never a confident wrong label. The conditions are read
+    /// through nifly's own <c>Has*</c>/<c>IsType*</c> helpers, which resolve against whichever game's flag word the
+    /// block actually carries — so this doesn't hard-code Skyrim's bit positions either.</summary>
+    internal static string? SlotName(int slot, INiShader shader) => slot switch
+    {
+        0 => "Diffuse",                                          // universal across every shader type
+        1 => "Normal",                                           // universal (model-space when the MSN flag is set — the flag list says which)
+        2 => shader.HasGlowmap ? "GlowMap"
+           : shader.HasSoftlight ? "SoftLighting"
+           : shader.IsTypeSkinTint || shader.IsTypeFaceTint ? "SubsurfaceTint"
+           : null,
+        3 => shader.Parallax || shader.IsTypeParallax || shader.IsTypeParallaxOcclusion ? "Height" : null,
+        4 => EnvMapped(shader) ? "Environment" : null,
+        5 => EnvMapped(shader) ? "EnvironmentMask" : null,
+        6 => shader.IsTypeMultiLayerParallax ? "InnerLayer"
+           : shader.IsTypeFaceTint || shader.IsTypeSkinTint || shader.IsTypeHairTint ? "TintMask"
+           : null,
+        7 => shader.HasBacklight ? "BacklightMask"
+           : shader.ModelSpace ? "Specular"                      // MSN meshes carry specular in 7 (the normal's alpha is used up)
+           : null,
+        _ => null,                                               // beyond the Skyrim slot set — say nothing
+    };
+
+    /// <summary>Whether this shader environment-maps at all — the condition slots 4 and 5 both hang on (a plain env
+    /// map, an eye env map, or the shader type that implies it).</summary>
+    static bool EnvMapped(INiShader shader)
+        => shader.HasEnvironmentMapping || shader.HasEyeEnvironmentMapping
+        || shader.IsTypeEnvironmentMap || shader.IsTypeEyeEnvironmentMap;
 
     /// <summary>Pre-order the NiNode hierarchy from the root(s), depth-annotated, each node with its NiAVObject flags.
     /// Only NiNode children are walked (shapes are covered by <see cref="NifInspect.Shapes"/>). A reference-identity
@@ -676,7 +834,8 @@ public sealed record NifBlockTypeCount(string Type, int Count);
 
 /// <summary>One shape and its N2-whitelist values. <see cref="Partitions"/> is empty unless the shape has a
 /// BSDismember skin instance; <see cref="Alpha"/> is null unless it carries an alpha property; <see cref="Textures"/>
-/// lists only non-empty texture-set slots. <see cref="FlagsDefault"/> is the nif.xml-documented SSE default for the
+/// lists only non-empty texture-set slots; <see cref="Shader"/> is null unless the shape carries a shader property.
+/// <see cref="FlagsDefault"/> is the nif.xml-documented SSE default for the
 /// block's type (via <see cref="FlagsDefaultType"/>, the ancestor it came from), or null when none is documented / the
 /// mesh isn't SE — the renderer decodes <see cref="Flags"/> by deviation from it (nif.xml doesn't name the bits).</summary>
 public sealed record NifShape(
@@ -689,7 +848,8 @@ public sealed record NifShape(
     IReadOnlyList<NifPartition> Partitions,
     NifAlpha? Alpha,
     IReadOnlyList<NifTexture> Textures,
-    IReadOnlyList<string> Bones);
+    IReadOnlyList<string> Bones,
+    NifShader? Shader = null);
 
 /// <summary>One BSDismember partition: the body-part id, its decoded enum name (e.g. SBP_30_HEAD), and the part flags.</summary>
 public sealed record NifPartition(int BodyPartId, string BodyPartName, int PartFlags);
@@ -705,8 +865,46 @@ public sealed record NifAlpha(
     string TestFunction,
     byte Threshold);
 
-/// <summary>One embedded texture path at its BSShaderTextureSet slot index (0 diffuse, 1 normal, … 6 tint/detail, …).</summary>
-public sealed record NifTexture(int Slot, string Path);
+/// <summary>One embedded texture path at its BSShaderTextureSet slot index (0 diffuse, 1 normal, … 6 tint/detail, …).
+/// <see cref="SlotName"/> is the slot's SEMANTIC name where the shape's shader determines it (#272) — slot 2 is glow
+/// vs skin-subsurface vs soft-lighting depending on type/flags, slot 7 backlight vs specular — and null when it
+/// doesn't. The index is always kept alongside, so an unnamed slot degrades to the old <c>tex[N]</c> form rather than
+/// to a confident wrong name (Q3). See <c>NifService.SlotName</c>.</summary>
+public sealed record NifTexture(int Slot, string Path, string? SlotName = null);
+
+/// <summary>One shape's SHADER PROPERTY (#272) — the block that answers "how is this shape shaded, and does it emit or
+/// scatter light". <see cref="BlockType"/> is the on-disk block name (BSLightingShaderProperty / BSEffectShaderProperty
+/// / …); <see cref="GameType"/> is which game's layout nifly read it as (SK / FO4 / FO3NV / …), which is what selects
+/// the flag words. <see cref="ShaderType"/> is the BSLightingShaderType enum name (Default, EnvironmentMap, SkinTint,
+/// FaceTint, HairTint, Parallax, MultiLayerParallax, …) and is null for any block that does not serialize one — an
+/// effect shader reports NO type rather than a default-valued wrong one. <see cref="Flags1"/> / <see cref="Flags2"/>
+/// are null when the game layout carries no flag word this library names.
+/// <para>Every LIGHTING VALUE below is nullable, and null means "this library version does not read it off this block"
+/// — NOT "the mesh doesn't have it" (see <c>NifService.ReallyReads</c>: NiflySharp 1.0.0 answers several of them from
+/// an interface stub that returns a constant). The renderer names the unread ones explicitly, so a caller is never
+/// handed a stub value as if it were the mesh's.</para></summary>
+public sealed record NifShader(
+    string BlockType,
+    string GameType,
+    string? ShaderType,
+    NifShaderFlagWord? Flags1,
+    NifShaderFlagWord? Flags2,
+    NifColor? EmissiveColor,
+    float? EmissiveMultiple,
+    float? Glossiness,
+    float? SpecularStrength,
+    NifColor? SpecularColor,
+    float? Alpha);
+
+/// <summary>One decoded shader flag word: its on-disk <see cref="Label"/> (SLSF1 / SLSF2 / F4SPF1 / …), the
+/// <see cref="Raw"/> value, the <see cref="Names"/> of every set bit the library's enum names (in bit order), and
+/// <see cref="UnknownBits"/> — the bits NO enum member covers, kept as an explicit mask so an unnamed bit is stated
+/// rather than dropped (#255's posture, carried to the shader words).</summary>
+public sealed record NifShaderFlagWord(string Label, uint Raw, IReadOnlyList<string> Names, uint UnknownBits);
+
+/// <summary>A shader colour — RGB, because that is what the format actually carries for both colours reported here
+/// (emissive and specular are each a Color3 on disk). Opacity is a separate scalar, <see cref="NifShader.Alpha"/>.</summary>
+public sealed record NifColor(float R, float G, float B);
 
 /// <summary>One node in the pre-order NiNode tree: its depth (0 = root), name, NiAVObject flags, block type, and the
 /// nif.xml-documented SSE flag default for that type (via <see cref="FlagsDefaultType"/>) — null when none is documented

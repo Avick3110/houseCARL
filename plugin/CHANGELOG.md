@@ -8,6 +8,25 @@ when it changes.
 
 *Accumulating notes for the next cut — not yet released; `plugin.json` still reads the last shipped version.*
 
+**`nif_inspect` can read a shape's SHADER — `sections=shader`, plus named texture slots (#272).**
+The one question every visual diagnosis actually asks — *how is this shape shaded, and does it emit or scatter light?*
+— was unanswerable. `nif_inspect` reached the shader block only to hop to its texture set, then threw it away, so you
+got slot paths and nothing about the shader itself. The new section reports, per shape: the shader block type
+(`BSLightingShaderProperty` / `BSEffectShaderProperty`), the shader **type** enum (`SkinTint`, `FaceTint`, `HairTint`,
+`EnvironmentMap`, `Parallax`, `MultiLayerParallax`, …), and the **SLSF1 / SLSF2 flags decoded to their names** —
+`Soft_Lighting`, `Glow_Map`, `Model_Space_Normals`, `Double_Sided` and the rest. The flag names come from the mesh
+library's own enums, so they are the library's coverage rather than a hand-kept bit table, and any bit no member names
+is stated as an explicit `(+unknown bits 0x…)` mask instead of vanishing.
+Texture slots now also carry their **semantic name** wherever the shader determines it — `tex[2] (SoftLighting)`,
+`tex[6] (TintMask)`, `tex[7] (Specular)` — in `sections=paths` and `sections=shapes` too, not just the new section.
+Slot 2 is glow *or* skin-subsurface *or* soft-lighting and slot 7 backlight *or* specular depending on type and flags,
+so the name is derived from those, never from the index; a slot the shader doesn't determine stays a bare `tex[N]`
+rather than getting a plausible wrong label, and the index is always kept (it is what `nif_set`'s `texture_slot=`
+takes). **Known limit, stated rather than papered over:** the underlying mesh library answers *glossiness, specular
+strength, specular colour, emissive multiple* and *alpha* from a stub that returns a constant, no matter what the mesh
+holds. Those values are in the file, but houseCARL will not print a number it cannot vouch for — the section names them
+as not read and points you at NifSkope. Emissive **colour** is read for real. Reported externally.
+
 **`check_errors` and the compact/merge dependency scan now treat a deleted record the same way (#279).**
 The #276 fix taught `cross_plugin_query` that a deleted record links to nothing; the two sibling walkers that ride the
 same form-link enumeration — `check_errors`' dangling-reference sweep and the external-dependency scan behind
