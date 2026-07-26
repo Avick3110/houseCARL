@@ -23,10 +23,14 @@ properties by NAME for `validate_scripts`, dangling refs by TARGET plugin for `c
 refs point *into*, i.e. the one absent dependency behind a wall of findings). It is the pass-to-pass comparison for a
 multi-pass edit: did this property's count drop, and did anything new appear.
 Narrowing narrows the **counts**, exactly as `plugins=` always did, and a narrowed response says so on its own line, so
-a scoped number can't be misread as a whole-plugin one. Two things are deliberately *not* filterable: unscannable
-records and unverifiable script attachments always report, under every filter — a suppressed "could not check" would
-read as a clean result, and an unreadable `.pex` may be the very one declaring the property you filtered for. An error
-class you excluded renders as `NOT CHECKED` (and `null` in JSON), never as `0`.
+a scoped number can't be misread as a whole-plugin one. The one exception is stated rather than glossed: `check_errors`'
+missing-master count comes off the plugin's master *table*, so a **record** scope cannot narrow it — under a record scope
+the response marks that number plugin-level explicitly instead of sweeping it into the blanket claim.
+Two things are deliberately *not* filterable: unscannable records and unverifiable script attachments always report,
+under every filter — a suppressed "could not check" would read as a clean result, and an unreadable `.pex` may be the
+very one declaring the property you filtered for. A finding class you excluded renders as `NOT CHECKED` (and `null` in
+JSON) on **both** tools, never as a `0`; `validate_scripts` also reports `unbound_object` / `unbound_scalar`
+separately, so a partial filter's count can't be mistaken for the whole unbound population.
 Also fixed: the truncation notice on both tools advised *"scope `plugins=`"* — the one scope the caller had already
 applied. It now names the knobs that exist.
 

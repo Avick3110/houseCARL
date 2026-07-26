@@ -66,6 +66,12 @@ namespace HousecarlGenerator;
 ///   COUNTS-ONLY     — counts_only=true keeps the totals exact, builds NO per-plugin body, and tallies dangling refs by TARGET plugin.
 ///   COUNTS-ONLY-NOT-COMPUTED — a normal sweep leaves Histogram null: "not computed" ≠ "nothing found".
 ///   JSON-PARITY     — format=json PARSES, agrees with the text totals, and emits null (not 0) for an unchecked class.
+///   COUNTS-ONLY-NO-WALK — findings=[missing_masters]+counts_only leaves Histogram NULL and says the walk was not run,
+///                     rather than rendering an empty histogram as "nothing to tally" (PR #288 review, finding 2).
+///   MASTER-COUNT-PLUGIN-LEVEL — under a record scope the note marks the missing-master count plugin-level and NOT
+///                     narrowed; the plain claim returns when there is no plugin-level number to caveat (finding 3).
+///   UNREAD-TRUNC-FLAG — a budget-cut counts_only json flags the shortened `unread` honesty list (finding 4).
+///   COUNTS-ONLY-EXCLUDED-NAMED — counts_only text NAMES the unparseable plugins, not just the header count (finding 5).
 ///
 /// OWNER FIXTURE (#207, its own order): HcCeMaster.esm also defines a Faction; HcCeOwner.esp masters [HcCeMaster, HcCeGhost]
 ///   and carries two owned containers — one owned by the PRESENT master's faction (rank -1 → must not dangle) and one owned by a
@@ -298,6 +304,63 @@ public static class CheckErrorsProbe
             && JsonHasHistogram(JsonWire.RenderCheckErrors(countsOnly, 0), "dangling_by_target_plugin"),
             "see the three json renders");
 
+        // #288 review finding 2: with 'dangling' excluded the link walk never runs, so there is nothing to tally. An
+        // empty-but-PRESENT histogram rendered "nothing to tally — no findings in the swept scope", i.e. invariant #4
+        // inverted: "not computed" reading as "nothing found", for the one combination COUNTS-ONLY did not exercise.
+        var countsNoWalk = ErrorCheck.Run(r, null, 1000, null, null, ErrorFindingClass.MissingMasters, countsOnly: true);
+        var noWalkText = Wire.RenderCheckErrors(countsNoWalk, 0);
+        var noWalkJson = JsonWire.RenderCheckErrors(countsNoWalk, 0);
+        Check("COUNTS-ONLY-NO-WALK: findings=[missing_masters]+counts_only leaves Histogram NULL, says the walk was not run, and never claims 'nothing to tally'",
+            countsNoWalk.Success && countsNoWalk.Histogram is null
+            && noWalkText.Contains("the link walk was not run", StringComparison.Ordinal)
+            && !noWalkText.Contains("nothing to tally", StringComparison.Ordinal)
+            && !noWalkJson.Contains("dangling_by_target_plugin", StringComparison.Ordinal),
+            $"histo={(countsNoWalk.Histogram is null ? "null" : countsNoWalk.Histogram.Count.ToString())}");
+
+        // #288 review finding 3: missing masters come off the plugin's master TABLE, so a RECORD scope cannot narrow
+        // that count — the blanket "every count below is for THIS narrowed scope" was a false claim about the number
+        // printed directly above it.
+        var scopedWithMasters = ErrorCheck.Run(r, new[] { "HcCeBad.esp" }, 1000, null,
+            new SweepScope(new HashSet<FormKey> { badGhostNpcFk }, null, null, null));
+        Check("MASTER-COUNT-PLUGIN-LEVEL: under a record scope the note marks the missing-master count PLUGIN-level and NOT narrowed, instead of claiming every count is scoped",
+            scopedWithMasters.FilterNote is not null
+            && scopedWithMasters.FilterNote.Contains("PLUGIN-level", StringComparison.Ordinal)
+            && scopedWithMasters.FilterNote.Contains("NOT narrowed", StringComparison.Ordinal)
+            && !scopedWithMasters.FilterNote.Contains("every count below is for THIS narrowed scope", StringComparison.Ordinal)
+            // …and with masters NOT in scope there is no plugin-level number to caveat, so the plain claim returns.
+            && ErrorCheck.Run(r, null, 1000, null, new SweepScope(null, null, new[] { typeof(INpcGetter) }, "NPC_"),
+                              ErrorFindingClass.Dangling).FilterNote is { } dOnlyNote
+            && dOnlyNote.Contains("every count below is for THIS narrowed scope", StringComparison.Ordinal),
+            $"note=[{scopedWithMasters.FilterNote}]");
+
+        // #288 review finding 4: the counts_only json `unread` honesty list dropped trailing rows at the budget with NO
+        // flag, while the TEXT render said "truncated" for the same result — a consumer iterating the array believed it
+        // had the complete set of what could not be checked.
+        var manyUnread = countsOnly with
+        {
+            Reports = Enumerable.Range(0, 40)
+                .Select(i => new PluginErrors($"HcCeUnread{i}.esp", Array.Empty<DanglingRef>(), Array.Empty<string>(),
+                                              3, new[] { "some record — could not parse" }, null))
+                .ToList(),
+        };
+        var unreadJson = JsonWire.RenderCheckErrors(manyUnread, 1500);
+        Check("UNREAD-TRUNC-FLAG: a budget-cut counts_only json flags the shortened 'unread' list (total/rendered/truncated), never hands back a silently short honesty set",
+            JsonUnreadTruncated(unreadJson, expectTotal: 40)
+            && JsonUnreadTruncated(JsonWire.RenderCheckErrors(manyUnread, 0), expectTotal: 40, expectTruncated: false),
+            $"json head=[{unreadJson.Split('\n').FirstOrDefault(l => l.Contains("truncated", StringComparison.Ordinal))}]");
+
+        // #288 review finding 5: counts_only text returned before the excluded-plugins block.
+        var countsExcluded = countsOnly with
+        {
+            ExcludedPlugins = new Dictionary<string, string> { ["HcCeBroken.esp"] = "header could not be parsed" },
+        };
+        Check("COUNTS-ONLY-EXCLUDED-NAMED: counts_only text still NAMES the unparseable plugins and their reasons, not just the header count",
+            Wire.RenderCheckErrors(countsExcluded, 0) is var cxt
+            && cxt.Contains("excluded plugins (could not be parsed", StringComparison.Ordinal)
+            && cxt.Contains("HcCeBroken.esp", StringComparison.Ordinal)
+            && cxt.Contains("header could not be parsed", StringComparison.Ordinal),
+            $"line=[{Wire.RenderCheckErrors(countsExcluded, 0).Split('\n').FirstOrDefault(l => l.Contains("HcCeBroken", StringComparison.Ordinal)) ?? "<absent>"}]");
+
         // ---- OFF-ORDER: a plugin FILE not in the order, swept via the offOrder lane (the pre-enable verify sweep of a
         //      patch houseCARL just wrote — HCBR-2026-07-14-02 gap 3). The fixture patch masters [Master, Ghost] and
         //      carries: a NEW race of its own; an NPC → that own race (self-link, must NOT dangle); an NPC → the dead id
@@ -435,6 +498,21 @@ public static class CheckErrorsProbe
         {
             return JsonDocument.Parse(json).RootElement.TryGetProperty(prop, out var v)
                 && v.ValueKind == JsonValueKind.Null;
+        }
+        catch { return false; }
+    }
+
+    /// <summary>The counts_only json's <c>unread</c> must be the wrapped, budget-flagged shape — total + rows + rendered
+    /// + truncated — not a bare array that can silently shorten (#288 review finding 4).</summary>
+    static bool JsonUnreadTruncated(string json, int expectTotal, bool expectTruncated = true)
+    {
+        try
+        {
+            var u = JsonDocument.Parse(json).RootElement.GetProperty("unread");
+            return u.GetProperty("total").GetInt32() == expectTotal
+                && u.GetProperty("truncated").GetBoolean() == expectTruncated
+                && u.GetProperty("rendered").GetInt32() == u.GetProperty("rows").GetArrayLength()
+                && (!expectTruncated || u.GetProperty("rendered").GetInt32() < expectTotal);
         }
         catch { return false; }
     }

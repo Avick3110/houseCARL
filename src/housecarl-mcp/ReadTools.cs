@@ -781,8 +781,10 @@ static class Wire
         if (r.CountsOnly)
         {
             AppendHistogram(sb, r.Histogram, histogramLimit, "dangling ref(s) by TARGET plugin (the plugin the broken refs point INTO)",
-                            "counts_only=true — totals above are exact; no per-plugin listing was built.");
+                            "counts_only=true — totals above are exact; no per-plugin listing was built.",
+                            notComputed: "no dangling histogram — the link walk was not run (findings= excluded 'dangling').");
             AppendScanErrorTail(sb, r.Reports, cap);
+            AppendExcludedPlugins(sb, r.ExcludedPlugins, cap);   // #288 review finding 5: the NAMES, not just the header count
             AppendCheckErrorsBoundary(sb);
             return sb.ToString().TrimEnd('\n');
         }
@@ -827,15 +829,7 @@ static class Wire
         if (r.Capped)
             sb.Append("\n[dangling list capped at limit; true total = ").Append(r.TotalDangling).Append(" — raise limit= to see all]\n");
 
-        if (!truncated && r.ExcludedPlugins.Count > 0)
-        {
-            sb.Append("\nexcluded plugins (could not be parsed — NOT checked):\n");
-            foreach (var kv in r.ExcludedPlugins)
-            {
-                if (sb.Length >= cap) break;
-                sb.Append("  ").Append(kv.Key).Append(": ").Append(kv.Value).Append('\n');
-            }
-        }
+        if (!truncated) AppendExcludedPlugins(sb, r.ExcludedPlugins, cap);
 
         AppendCheckErrorsBoundary(sb);
         return sb.ToString().TrimEnd('\n');
@@ -856,10 +850,11 @@ static class Wire
     /// <summary>Render a <c>counts_only=</c> histogram, capped at <paramref name="rowLimit"/> with the true distinct-key
     /// count always stated. A null histogram means the mode was not requested; an EMPTY one means the sweep genuinely
     /// found nothing, and the two read differently (Q3).</summary>
-    static void AppendHistogram(StringBuilder sb, IReadOnlyList<SweepCount>? rows, int rowLimit, string title, string note)
+    static void AppendHistogram(StringBuilder sb, IReadOnlyList<SweepCount>? rows, int rowLimit, string title, string note,
+                                string? notComputed = null)
     {
         sb.Append('\n').Append(note).Append('\n');
-        if (rows is null) return;
+        if (rows is null) { if (notComputed is not null) sb.Append(notComputed).Append('\n'); return; }
         if (rows.Count == 0) { sb.Append("\nnothing to tally — no findings in the swept scope.\n"); return; }
         sb.Append('\n').Append(title).Append(" (").Append(rows.Count).Append(" distinct):\n");
         int shown = 0;
@@ -871,6 +866,20 @@ static class Wire
         }
         if (shown < rows.Count)
             sb.Append("  ... [").Append(rows.Count - shown).Append(" more row(s) — raise limit= to see them]\n");
+    }
+
+    /// <summary>The named, reasoned list of plugins the index build could not parse. Shared by the listing and
+    /// <c>counts_only=</c> paths — counts_only used to return before it, leaving the header's bare count with no way to
+    /// learn WHICH plugin went unchecked without re-running (PR #288 review, finding 5).</summary>
+    static void AppendExcludedPlugins(StringBuilder sb, IReadOnlyDictionary<string, string> excluded, int cap)
+    {
+        if (excluded.Count == 0) return;
+        sb.Append("\nexcluded plugins (could not be parsed — NOT checked):\n");
+        foreach (var kv in excluded)
+        {
+            if (sb.Length >= cap) { sb.Append("  ... [truncated at max_chars]\n"); break; }
+            sb.Append("  ").Append(kv.Key).Append(": ").Append(kv.Value).Append('\n');
+        }
     }
 
     /// <summary>Under <c>counts_only=</c> the reports list carries the honesty layer only (records/plugins houseCARL
@@ -900,11 +909,25 @@ static class Wire
         int cap = Cap(maxChars);
         var sb = new StringBuilder();
 
+        bool didObject = r.Classes.HasFlag(ScriptFindingClass.UnboundObject);
+        bool didScalar = r.Classes.HasFlag(ScriptFindingClass.UnboundScalar);
+        bool didNull = r.Classes.HasFlag(ScriptFindingClass.BoundNull);
+
         sb.Append("validate_scripts — VMAD script-property binding sweep\n");
         sb.Append("scanned ").Append(r.PluginsScanned).Append(r.PluginsScanned == 1 ? " plugin · " : " plugins · ")
           .Append(r.RecordsWithScripts).Append(" record(s) with scripts · ")
-          .Append(r.TotalUnbound).Append(" unbound · ")
-          .Append(r.TotalNullObject).Append(" bound-but-null · ")
+          // A class the caller excluded reads as NOT CHECKED, never as a 0 — a 0 would say "looked, found none" about
+          // the HIGH silent-None class nobody looked for (PR #288 review, finding 1).
+          .Append(!didObject && !didScalar
+                      ? "unbound NOT CHECKED (findings= excluded both unbound classes)"
+                      : didObject && didScalar
+                          ? $"{r.TotalUnbound} unbound"
+                          : didObject
+                              ? $"{r.TotalUnboundObject} unbound (object only — unbound_scalar NOT CHECKED)"
+                              : $"{r.TotalUnboundScalar} unbound (scalar only — unbound_object NOT CHECKED)")
+          .Append(" · ")
+          .Append(didNull ? $"{r.TotalNullObject} bound-but-null" : "bound-but-null NOT CHECKED (findings= excluded 'bound_null')")
+          .Append(" · ")
           .Append(r.TotalUnverifiable).Append(" unverifiable");
         if (r.ExcludedPlugins.Count > 0)
             sb.Append(" · ").Append(r.ExcludedPlugins.Count).Append(" plugin(s) excluded (unparseable)");
@@ -922,6 +945,7 @@ static class Wire
                 if (sb.Length >= cap) { sb.Append("\n... [truncated at max_chars]\n"); break; }
                 if (rec.ScanError is not null) sb.Append("\n[SCAN ERROR] ").Append(rec.Plugin).Append(": ").Append(rec.ScanError).Append('\n');
             }
+            AppendExcludedPlugins(sb, r.ExcludedPlugins, cap);   // #288 review finding 5
             AppendScriptCheckBoundary(sb);
             return sb.ToString().TrimEnd('\n');
         }
@@ -973,15 +997,7 @@ static class Wire
             sb.Append("\n[finding list capped at limit; true totals = ").Append(r.TotalUnbound).Append(" unbound + ")
               .Append(r.TotalNullObject).Append(" bound-but-null — raise limit= to see all]\n");
 
-        if (!truncated && r.ExcludedPlugins.Count > 0)
-        {
-            sb.Append("\nexcluded plugins (could not be parsed — NOT checked):\n");
-            foreach (var kv in r.ExcludedPlugins)
-            {
-                if (sb.Length >= cap) break;
-                sb.Append("  ").Append(kv.Key).Append(": ").Append(kv.Value).Append('\n');
-            }
-        }
+        if (!truncated) AppendExcludedPlugins(sb, r.ExcludedPlugins, cap);
 
         AppendScriptCheckBoundary(sb);
         return sb.ToString().TrimEnd('\n');

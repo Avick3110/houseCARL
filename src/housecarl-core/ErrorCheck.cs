@@ -80,10 +80,20 @@ public static class ErrorCheck
         var view = resolver.Capture();
         bool wantDangling = classes.HasFlag(ErrorFindingClass.Dangling);
         bool wantMasters = classes.HasFlag(ErrorFindingClass.MissingMasters);
-        var filterNote = SweepFindings.FilterNote(recordScope?.Label, SweepFindings.Describe(classes));
+        // The missing-master count comes off the plugin's master TABLE, so a RECORD scope cannot narrow it. Saying
+        // "every count below is for this narrowed scope" directly under a plugin-level number is a false claim about the
+        // number printed above it, so the claim is qualified whenever both are in play (PR #288 review, finding 3).
+        var filterNote = SweepFindings.FilterNote(
+            recordScope is not null && wantMasters
+                ? "the dangling / unscannable counts below are for THIS narrowed scope; the missing-master count is "
+                  + "PLUGIN-level (read off the master table) and is NOT narrowed by it."
+                : null,
+            recordScope?.Label, SweepFindings.Describe(classes));
         // counts_only=: the dangling-by-target-plugin tally, over EVERY dangling ref in scope (never limit-capped).
-        // Built only in that mode — a null histogram means "not computed", never "empty".
-        var histogram = countsOnly ? new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) : null;
+        // Built only when the walk that fills it actually RUNS — with 'dangling' excluded there is nothing to tally, and
+        // an empty-but-present histogram would render as "nothing found" for a walk that never happened (PR #288 review,
+        // finding 2). A null histogram means "not computed", never "empty".
+        var histogram = countsOnly && wantDangling ? new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) : null;
 
         // --- resolve the plugin set to scan (Q3: a bad or excluded explicit scope name fails loud, never a silent skip). ---
         List<string> targets;
