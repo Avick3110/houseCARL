@@ -3,6 +3,7 @@ using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Skyrim;
 using Mutagen.Bethesda.Pex;
 using HousecarlCore;
+using HousecarlMcp;
 
 namespace HousecarlGenerator;
 
@@ -44,6 +45,21 @@ namespace HousecarlGenerator;
 ///   UNVERIFIABLE         — wNoPex names HcSpNoPex unverifiable ("not on disk"), never a silent clean (Q3).
 ///   RECORDS-COUNT        — exactly 4 records carry scripts (footgun, clean, noPex, aliasQuest — noVmad excluded).
 ///   SCOPE-Q3             — scope=[a name not in the order] fails LOUD ("not in the load order"), no reports.
+///   NARROW-FORMIDS       — formids=[wFootgun] sweeps that record alone; the roster holds only it (#282).
+///   NARROW-EDITORID      — editorid_contains= narrows case-insensitively to the QUST.
+///   NARROW-TYPE          — type=QUST keeps only the quest; the scripted WEAPs never have their .pex chain read.
+///   NARROW-NOTE          — a narrowed result carries a FilterNote saying the counts are scope-relative; an unnarrowed one doesn't.
+///   FILTER-PROPERTY      — property_contains='myspell' keeps MySpell, drops MyChance + InheritedThing.
+///   FILTER-CLASS         — findings=[unbound_object] keeps MySpell, drops the scalar AND the bound-but-null advisory.
+///   UNVERIFIABLE-SURVIVES-FILTER — under a filter matching NOTHING, wNoPex is STILL reported unverifiable. The
+///                          load-bearing Q3 arm: that unread .pex might declare the very property being filtered for,
+///                          so letting a filter hide it would turn "could not check" into a clean answer.
+///   FILTER-Q3            — an unrecognized findings= value fails LOUD, names the legal set, and says unverifiable is unfilterable.
+///   COUNTS-ONLY          — counts_only=true matches the full sweep's totals, builds NO roster, and tallies unbound by property NAME.
+///   COUNTS-ONLY-NOT-COMPUTED — a normal sweep leaves Histogram null: "not computed" ≠ "nothing found".
+///   JSON-PARITY          — format=json PARSES and agrees with the text totals in both modes (D2).
+///   TRUNCATION-HINT      — the max_chars cut names knobs that EXIST; it no longer advises "scope plugins=", the one
+///                          scope the caller had already applied (the misdirection half of #282).
 ///
 /// Run: dotnet run --project src/housecarl-generator -- script-property-check-guard
 /// </summary>
@@ -222,6 +238,105 @@ public static class ScriptPropertyCheckProbe
             !q3.Success && q3.Reports.Count == 0 && q3.Error is not null
             && q3.Error.Contains("not in the load order", StringComparison.Ordinal),
             $"success={q3.Success} reports={q3.Reports.Count} err=[{q3.Error}]");
+
+        // ---- #282: the record scope / property filter / class filter / counts_only knobs. limit= caps FINDINGS, not the
+        //      record ROSTER, so a script-heavy plugin printed one header line per record and overflowed the tool-result
+        //      cap no matter how low limit went — these are the narrower questions that had no call. ----
+        var byFormid = ScriptPropertyCheck.Run(resolver, assets, null, 1000,
+            new SweepScope(new HashSet<FormKey> { footgunFk }, null, null, null));
+        Check("NARROW-FORMIDS: formids=[wFootgun] sweeps that record ALONE — 1 record with scripts, and the roster holds only it",
+            byFormid.Success && byFormid.RecordsWithScripts == 1
+            && byFormid.Reports.Count == 1 && byFormid.Reports[0].Record == footgunFk,
+            $"success={byFormid.Success} withScripts={byFormid.RecordsWithScripts} reports={byFormid.Reports.Count}");
+
+        var byEditorId = ScriptPropertyCheck.Run(resolver, assets, null, 1000,
+            new SweepScope(null, "aliasquest", null, null));   // case-insensitive by contract
+        Check("NARROW-EDITORID: editorid_contains='aliasquest' (case-insensitive) narrows to the QUST alone",
+            byEditorId.Success && byEditorId.RecordsWithScripts == 1
+            && byEditorId.Reports.Count == 1 && byEditorId.Reports[0].Record == aliasQuestFk,
+            $"withScripts={byEditorId.RecordsWithScripts} reports={byEditorId.Reports.Count}");
+
+        var byType = ScriptPropertyCheck.Run(resolver, assets, null, 1000,
+            new SweepScope(null, null, new[] { typeof(IQuestGetter) }, "QUST"));
+        Check("NARROW-TYPE: type=QUST keeps only the quest — the 3 scripted WEAPs never have their .pex chain read at all",
+            byType.Success && byType.RecordsWithScripts == 1
+            && byType.Reports.Count == 1 && byType.Reports[0].Record == aliasQuestFk,
+            $"withScripts={byType.RecordsWithScripts} reports=[{string.Join(",", byType.Reports.Select(x => x.EditorId))}]");
+
+        Check("NARROW-NOTE: a narrowed sweep carries a FilterNote saying the counts are scope-relative; an unnarrowed one carries none (Q3)",
+            byFormid.FilterNote is not null && byFormid.FilterNote.Contains("NARROWED", StringComparison.Ordinal)
+            && res.FilterNote is null,
+            $"narrowed=[{byFormid.FilterNote}] unnarrowed=[{res.FilterNote}]");
+
+        // property_contains=: chase ONE property. MySpell survives; the scalar MyChance and the ancestor's InheritedThing drop.
+        var byProp = ScriptPropertyCheck.Run(resolver, assets, null, 1000, null, "myspell");
+        var propFoot = byProp.Reports.FirstOrDefault(x => x.Record == footgunFk);
+        Check("FILTER-PROPERTY: property_contains='myspell' keeps MySpell and drops MyChance + InheritedThing (case-insensitive)",
+            byProp.Success && propFoot is not null
+            && propFoot.Unbound.Any(u => u.PropertyName == "MySpell")
+            && !propFoot.Unbound.Any(u => u.PropertyName is "MyChance" or "InheritedThing"),
+            propFoot is null ? "<no report>" : string.Join(",", propFoot.Unbound.Select(u => u.PropertyName)));
+
+        // findings=: the roster-cutting filter. unbound_object drops the scalar AND the bound-but-null advisory.
+        var objectsOnly = ScriptPropertyCheck.Run(resolver, assets, null, 1000, null, null, ScriptFindingClass.UnboundObject);
+        var objFoot = objectsOnly.Reports.FirstOrDefault(x => x.Record == footgunFk);
+        Check("FILTER-CLASS: findings=[unbound_object] keeps MySpell (HIGH), drops the MyChance scalar and the MyNullSpell advisory",
+            objectsOnly.Success && objFoot is not null
+            && objFoot.Unbound.Any(u => u.PropertyName == "MySpell")
+            && !objFoot.Unbound.Any(u => u.PropertyName == "MyChance")
+            && objFoot.NullObjects.Count == 0 && objectsOnly.TotalNullObject == 0,
+            objFoot is null ? "<no report>" : $"unbound=[{string.Join(",", objFoot.Unbound.Select(u => u.PropertyName))}] null={objFoot.NullObjects.Count}");
+
+        // THE LOAD-BEARING Q3 ARM: a filter that matches NOTHING must still surface the record whose .pex could not be
+        // read — that script might be the very one declaring the property being filtered for, so hiding it would turn
+        // "could not check" into a clean answer.
+        var filteredToNothing = ScriptPropertyCheck.Run(resolver, assets, null, 1000, null, "ZZZnoSuchProperty",
+            ScriptFindingClass.UnboundObject);
+        var filteredNoPex = filteredToNothing.Reports.FirstOrDefault(x => x.Record == noPexFk);
+        Check("UNVERIFIABLE-SURVIVES-FILTER: under a filter matching NOTHING, wNoPex is STILL reported unverifiable — a filter must never manufacture a clean (Q3)",
+            filteredToNothing.Success && filteredToNothing.TotalUnbound == 0
+            && filteredToNothing.TotalUnverifiable == 1
+            && filteredNoPex is not null && filteredNoPex.Unverifiable.Any(u =>
+                string.Equals(u.Script, "HcSpNoPex", StringComparison.OrdinalIgnoreCase)),
+            $"unbound={filteredToNothing.TotalUnbound} unverifiable={filteredToNothing.TotalUnverifiable} noPexReport={(filteredNoPex is not null)}");
+
+        Check("FILTER-Q3: an unrecognized findings= value fails LOUD, names the legal set, and says the unverifiable class is unfilterable",
+            !SweepFindings.TryParseScriptClasses(new[] { "unbund_object" }, out _, out var spClassErr)
+            && spClassErr is not null && spClassErr.Contains("'unbound_object'", StringComparison.Ordinal)
+            && spClassErr.Contains("bound_null", StringComparison.Ordinal)
+            && spClassErr.Contains("cannot be filtered out", StringComparison.Ordinal),
+            $"err=[{spClassErr}]");
+
+        // counts_only=: exact totals + an unbound-by-property-NAME histogram, with NO per-record roster built at all —
+        // the reporter's shell pipeline (grep -oE '^  [!·] \w+' | sort | uniq -c) as one call.
+        var counts = ScriptPropertyCheck.Run(resolver, assets, null, 1000, null, null, ScriptFindingClass.All, countsOnly: true);
+        var histo = counts.Histogram;
+        Check("COUNTS-ONLY: totals match the full sweep, NO per-record roster is built, and the histogram tallies unbound by property NAME",
+            counts.Success && counts.CountsOnly && counts.TotalUnbound == res.TotalUnbound
+            && counts.Reports.Count == 0 && !counts.Capped
+            && histo is not null && histo.Sum(h => h.Count) == res.TotalUnbound
+            && histo.Any(h => h.Key == "MySpell") && histo.Any(h => h.Key == "InheritedThing")
+            && !histo.Any(h => h.Key == "MyDefaulted"),
+            $"unbound={counts.TotalUnbound} (full={res.TotalUnbound}) reports={counts.Reports.Count} histo=[{(histo is null ? "<null>" : string.Join(",", histo.Select(h => $"{h.Key}={h.Count}")))}]");
+
+        Check("COUNTS-ONLY-NOT-COMPUTED: a normal sweep leaves Histogram NULL — 'not computed' and 'nothing found' must not look alike (Q3)",
+            res.Histogram is null && !res.CountsOnly, $"histo={(res.Histogram is null ? "null" : res.Histogram.Count.ToString())}");
+
+        Check("JSON-PARITY: format=json parses and reports the same unbound total in both the listing and counts_only modes (D2 — one result, two renders)",
+            CheckErrorsProbe.JsonMatches(JsonWire.RenderScriptCheck(res, 0), "unbound", res.TotalUnbound)
+            && CheckErrorsProbe.JsonMatches(JsonWire.RenderScriptCheck(counts, 0), "unbound", res.TotalUnbound)
+            && CheckErrorsProbe.JsonHasHistogram(JsonWire.RenderScriptCheck(counts, 0), "unbound_by_property"),
+            "see the two json renders");
+
+        // The truncation notice used to advise "scope plugins=" — the one scope the caller had already applied. It must
+        // now name knobs that exist (#282), or the tool tells you to do the thing that did not work.
+        var tinyCap = Wire.RenderScriptCheck(res, 400);
+        Check("TRUNCATION-HINT: the max_chars cut names the narrowing knobs that EXIST, and no longer advises 'scope plugins='",
+            tinyCap.Contains("truncated at max_chars", StringComparison.Ordinal)
+            && tinyCap.Contains("formids=", StringComparison.Ordinal)
+            && tinyCap.Contains("counts_only=true", StringComparison.Ordinal)
+            && !tinyCap.Contains("scope plugins=", StringComparison.Ordinal),
+            $"tail=[{tinyCap.Split('\n').LastOrDefault(l => l.Contains("truncated", StringComparison.Ordinal))}]");
 
         Console.WriteLine();
         Console.WriteLine(failures == 0 ? "script-property-check-guard: ALL PASS" : $"script-property-check-guard: {failures} FAILURE(S)");

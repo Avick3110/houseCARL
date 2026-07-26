@@ -58,10 +58,31 @@ public static class ScriptPropertyCheck
     /// plugins) over the order <paramref name="resolver"/> holds, resolving each attached script's <c>.pex</c> through
     /// <paramref name="assets"/>. <paramref name="limit"/> caps the number of property FINDINGS collected across the
     /// sweep (the true totals are always counted). A bad/excluded scope name fails LOUD (Q3) with no partial result —
-    /// the <see cref="ErrorCheck"/> contract, verbatim.</summary>
+    /// the <see cref="ErrorCheck"/> contract, verbatim.
+    ///
+    /// <para>#282 — the narrowing knobs. <paramref name="recordScope"/> restricts WHICH records are swept
+    /// (<see cref="SweepScope"/>: type at the stream, formids / editorid_contains per record);
+    /// <paramref name="propertyContains"/> keeps only findings whose PROPERTY NAME contains that substring; and
+    /// <paramref name="classes"/> keeps only the named finding classes. All four narrow the reported TOTALS as well as
+    /// the listing — the result's <see cref="ScriptCheckResult.FilterNote"/> says so in words, so a narrowed count is
+    /// never read as a whole-plugin count (Q3). <paramref name="countsOnly"/> collects no per-record reports at all
+    /// (bar scan errors) and instead returns an unbound-by-property-name <see cref="ScriptCheckResult.Histogram"/> —
+    /// the before/after-a-fix comparison the whole-listing render could not fit in a tool result.</para>
+    ///
+    /// <para>UNVERIFIABLE attachments ride through every filter untouched. A script whose <c>.pex</c> could not be read
+    /// might be the very one declaring the property being filtered for, so dropping the note under a filter would turn
+    /// "could not check" into a clean answer — the exact Q3 break the sweep's unverifiable class exists to prevent.</para></summary>
     public static ScriptCheckResult Run(LoadOrderResolver resolver, AssetResolver assets,
-                                        IReadOnlyList<string>? scope, int limit)
+                                        IReadOnlyList<string>? scope, int limit,
+                                        SweepScope? recordScope = null, string? propertyContains = null,
+                                        ScriptFindingClass classes = ScriptFindingClass.All, bool countsOnly = false)
     {
+        var propFilter = string.IsNullOrWhiteSpace(propertyContains) ? null : propertyContains.Trim();
+        bool PropOk(string name) => propFilter is null || name.Contains(propFilter, StringComparison.OrdinalIgnoreCase);
+        var filterNote = SweepFindings.FilterNote(
+            recordScope?.Label,
+            SweepFindings.Describe(classes),
+            propFilter is null ? null : $"property_contains='{propFilter}'");
         var view = resolver.Capture();
         var av = assets.Capture();          // ONE asset build → every .pex lookup + ReadIncomplete describe the same build
 
@@ -95,18 +116,24 @@ public static class ScriptPropertyCheck
         int recordsWithScripts = 0, totalUnbound = 0, totalNull = 0, totalUnverifiable = 0;
         int findingBudget = limit;
         bool capped = false;
+        // counts_only=: the unbound-by-property-name tally, over EVERY unbound finding in scope (never limit-capped —
+        // the whole point is an exact before/after comparison). Built only in that mode, so the normal path's work is
+        // unchanged and a null histogram means "not computed", never "empty".
+        var histogram = countsOnly ? new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) : null;
 
         foreach (var plugin in targets)
         {
             string? scanError = null;
             try
             {
-                foreach (var (fk, _, body, _) in view.RecordsIn(new[] { plugin }, null))
+                foreach (var (fk, _, body, _) in view.RecordsIn(new[] { plugin }, recordScope?.Types))
                 {
                     // PER-RECORD FAULT ISOLATION (the ErrorCheck / cross_plugin_query idiom): a VMAD Mutagen can't parse
                     // is excluded + accounted per record, never an opaque whole-call abort and never a silent skip (Q3).
                     try
                     {
+                        // #282 record scope, tested BEFORE the VMAD/.pex work so a narrow scope is cheap as well as small.
+                        if (recordScope is not null && !recordScope.Matches(fk, body)) continue;
                         if (body is not IHaveVirtualMachineAdapterGetter have) continue;
                         if (have.VirtualMachineAdapter is not { } vmad) continue;
                         var scriptEntries = CollectScriptEntries(vmad);
@@ -131,9 +158,13 @@ public static class ScriptPropertyCheck
                             // it is NOT bound to a quest alias instead (Alias >= 0). A ScriptObjectProperty binds EITHER an
                             // Object FormLink OR a quest Alias index (Alias -1 = unset) — an alias-bound property has a null
                             // Object by design, so flagging it as bound-but-null is a false positive (PR #145 review finding 2).
-                            foreach (var p in entry.Properties)
-                                if (p is IScriptObjectPropertyGetter op && op.Object.FormKey.IsNull && op.Alias < 0 && !string.IsNullOrWhiteSpace(p.Name))
-                                    nulls.Add(new NullObjectProperty(scriptClass, p.Name!.Trim()));
+                            if (classes.HasFlag(ScriptFindingClass.BoundNull))
+                                foreach (var p in entry.Properties)
+                                    if (p is IScriptObjectPropertyGetter op && op.Object.FormKey.IsNull && op.Alias < 0 && !string.IsNullOrWhiteSpace(p.Name))
+                                    {
+                                        var pname = p.Name!.Trim();
+                                        if (PropOk(pname)) nulls.Add(new NullObjectProperty(scriptClass, pname));
+                                    }
 
                             var chain = ResolveChain(av, chainCache, scriptClass);
                             if (chain.OwnLoadError is not null)
@@ -152,6 +183,9 @@ public static class ScriptPropertyCheck
                                 // A scalar with a baked initializer has the author's intended default — leaving it
                                 // unbound is correct, so it is NOT a finding (keeps the scalar signal from crying wolf).
                                 if (!d.IsObjectType && d.HasInitializer) continue;
+                                // #282: the caller's class + property-name narrowing.
+                                if (!classes.HasFlag(d.IsObjectType ? ScriptFindingClass.UnboundObject : ScriptFindingClass.UnboundScalar)) continue;
+                                if (!PropOk(d.Name)) continue;
                                 unbound.Add(new UnboundProperty(scriptClass, d.DeclaringScript, d.Name, d.TypeName, d.IsObjectType));
                             }
 
@@ -166,6 +200,15 @@ public static class ScriptPropertyCheck
                         totalUnbound += unbound.Count;
                         totalNull += nulls.Count;
                         totalUnverifiable += unver.Count;
+
+                        // counts_only=: tally and move on — no per-record report is built at all, so the record ROSTER
+                        // that overflowed the token cap (#282: 183 header lines for 1 requested finding) never forms.
+                        if (histogram is not null)
+                        {
+                            foreach (var u in unbound)
+                                histogram[u.PropertyName] = histogram.TryGetValue(u.PropertyName, out var c) ? c + 1 : 1;
+                            continue;
+                        }
 
                         var keptUnbound = new List<UnboundProperty>();
                         var keptNull = new List<NullObjectProperty>();
@@ -196,7 +239,8 @@ public static class ScriptPropertyCheck
         }
 
         return new ScriptCheckResult(reports, targets.Count, recordsWithScripts, totalUnbound, totalNull,
-                                     totalUnverifiable, capped, av.ReadIncomplete, view.ExcludedPlugins, null);
+                                     totalUnverifiable, capped, av.ReadIncomplete, view.ExcludedPlugins, null,
+                                     filterNote, histogram is null ? null : SweepFindings.Histogram(histogram), countsOnly);
     }
 
     /// <summary>Every script attachment on the record: the adapter's own <see cref="IAVirtualMachineAdapterGetter.Scripts"/>
@@ -356,7 +400,12 @@ public sealed record RecordScriptFindings(
 /// <summary>The result of <see cref="ScriptPropertyCheck.Run"/>: the per-record findings (only records WITH findings;
 /// clean scripted records are counted in <paramref name="RecordsWithScripts"/> but omitted), the sweep totals, whether
 /// the finding list was capped, whether a BSA failed to read this build (so a "not on disk" may be unscanned), the
-/// plugins the index build excluded, and — on a Q3 scope error — a recoverable <see cref="Error"/> with no reports.</summary>
+/// plugins the index build excluded, and — on a Q3 scope error — a recoverable <see cref="Error"/> with no reports.
+/// <para><paramref name="FilterNote"/> (#282) names every narrowing the caller applied, and states that the totals above
+/// are for that narrowed scope; null when nothing was narrowed. <paramref name="Histogram"/> is the unbound-by-property
+/// tally, present ONLY under <paramref name="CountsOnly"/> (null = not computed, never "none found"). Under
+/// <paramref name="CountsOnly"/> <paramref name="Reports"/> carries scan-error entries ONLY — the totals are exact and
+/// <paramref name="Capped"/> is false, because nothing was listed to cap.</para></summary>
 public sealed record ScriptCheckResult(
     IReadOnlyList<RecordScriptFindings> Reports,
     int PluginsScanned,
@@ -367,7 +416,10 @@ public sealed record ScriptCheckResult(
     bool Capped,
     bool ReadIncomplete,
     IReadOnlyDictionary<string, string> ExcludedPlugins,
-    string? Error)
+    string? Error,
+    string? FilterNote = null,
+    IReadOnlyList<SweepCount>? Histogram = null,
+    bool CountsOnly = false)
 {
     public bool Success => Error is null;
     public static ScriptCheckResult Fail(string error) =>
