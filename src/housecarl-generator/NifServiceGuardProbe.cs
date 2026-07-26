@@ -20,6 +20,14 @@ namespace HousecarlGenerator;
 ///   • shape — name, NiAVObject flags (0x400000E), and scale (1.25) read exactly.
 ///   • partitions — BSDismember body parts decode to their SBP_* enum names with the right part flags (30 HEAD, 31 HAIR).
 ///   • alpha — the alpha property decodes: raw flags 0x12ED, blend + test on, threshold 128.
+///   • shader (#272) — the shader block, its game layout, the BSLightingShaderType enum, and the SLSF1/SLSF2 words
+///     decoded to the LIBRARY's own bit names (in bit order); the emissive colour round-trips as RGB.
+///   • slot names (#272) — texture slots carry the SEMANTIC name the shader's type+flags determine (Soft_Lighting
+///     ⇒ slot 2 is SoftLighting; model-space normals with no backlight ⇒ slot 7 is Specular) — AND the paired Q3
+///     arm: a slot nothing determines (slot 4, nothing env-maps) stays UNNAMED rather than getting a plausible
+///     wrong label. An index-only implementation passes the first and fails the second.
+///   • unnamed bits (#272/#255) — pinned on a synthetic gapped enum, since every flag word nifly names today covers
+///     all 32 bits: the residual is surfaced as a hex mask, and a multi-bit combo member peels before its parts.
 ///   • refusal — empty bytes and non-NIF garbage each return a NAMED error (Q3), never a throw or a half-model.
 ///
 /// Corpus smoke (existence-gated — a REAL facegen mesh, the spike §5 regression truths for the values the synthetic
@@ -54,9 +62,10 @@ internal static class NifServiceGuardProbe
                   $"header identity: SE stream, user 12 / stream 100 — got user {nif.UserVersion} / stream {nif.StreamVersion}, SE={nif.IsSkyrimSE}");
             Check(nif.VersionString.Contains("20.2.0.7"), $"version string is 20.2.0.7 — '{nif.VersionString}'");
             Check(!nif.HasUnknownBlocks && nif.UnknownBlockTypes.Count == 0, "no unknown blocks in an authored SE mesh");
-            Check(nif.BlockCount == 6, $"block count 6 — {nif.BlockCount}");
+            Check(nif.BlockCount == 8, $"block count 8 — {nif.BlockCount}");
             Check(CensusHas(nif, "NiNode", 3) && CensusHas(nif, "BSTriShape", 1)
-                  && CensusHas(nif, "BSDismemberSkinInstance", 1) && CensusHas(nif, "NiAlphaProperty", 1),
+                  && CensusHas(nif, "BSDismemberSkinInstance", 1) && CensusHas(nif, "NiAlphaProperty", 1)
+                  && CensusHas(nif, "BSLightingShaderProperty", 1) && CensusHas(nif, "BSShaderTextureSet", 1),
                   $"block census matches what was authored — {string.Join(", ", nif.BlockTypes.Select(t => t.Type + " x" + t.Count))}");
 
             // node tree — pre-order depth + names + flags
@@ -84,6 +93,50 @@ internal static class NifServiceGuardProbe
                       $"alpha property decodes (0x12ED, blend+test, thr 128) — {(shape.Alpha is null ? "NONE" : $"0x{shape.Alpha.Flags:X4} blend={shape.Alpha.Blend} test={shape.Alpha.Test} thr={shape.Alpha.Threshold}")}");
                 Check(shape.BlockType == "BSTriShape" && shape.FlagsDefault == 0x8000E && shape.FlagsDefaultType == "BSTriShape",
                       $"shape flag default resolved from nif.xml (BSTriShape → 0x8000E) — {shape.BlockType}/{(shape.FlagsDefault is { } fd ? "0x" + fd.ToString("X") : "none")}");
+
+                // ---- shader property (#272) ----
+                var sh = shape.Shader;
+                Check(sh is { BlockType: "BSLightingShaderProperty", GameType: "SK", ShaderType: "SkinTint" },
+                      $"shader block + game layout + TYPE enum read — {(sh is null ? "NO SHADER" : $"{sh.BlockType}/{sh.GameType}/{sh.ShaderType ?? "(none)"}")}");
+                if (sh is not null)
+                {
+                    // The flag names come from nifly's own enum, so this pins the DECODE, not a transcription:
+                    // 0x1|0x2|0x1000 = Specular|Skinned|Model_Space_Normals, reported in bit order.
+                    Check(sh.Flags1 is { Label: "SLSF1", Raw: 0x1003, UnknownBits: 0 }
+                          && sh.Flags1.Names.SequenceEqual(new[] { "Specular", "Skinned", "Model_Space_Normals" }),
+                          $"SLSF1 decodes to its named bits, in bit order — {(sh.Flags1 is null ? "NONE" : $"0x{sh.Flags1.Raw:X} [{string.Join(", ", sh.Flags1.Names)}]")}");
+                    Check(sh.Flags2 is { Label: "SLSF2", Raw: 0x2000011, UnknownBits: 0 }
+                          && sh.Flags2.Names.SequenceEqual(new[] { "ZBuffer_Write", "Double_Sided", "Soft_Lighting" }),
+                          $"SLSF2 decodes to its named bits — {(sh.Flags2 is null ? "NONE" : $"0x{sh.Flags2.Raw:X} [{string.Join(", ", sh.Flags2.Names)}]")}");
+                    // RGB, not RGBA — a lighting shader's emissive is a Color3 on disk, so there is no alpha to
+                    // round-trip and none is reported (the interface's synthetic 4th component is deliberately dropped).
+                    Check(Math.Abs(sh.EmissiveColor.R - 0.25f) < 1e-6f && Math.Abs(sh.EmissiveColor.G - 0.5f) < 1e-6f
+                          && Math.Abs(sh.EmissiveColor.B - 0.75f) < 1e-6f,
+                          $"emissive colour round-trips exactly — rgb({sh.EmissiveColor.R},{sh.EmissiveColor.G},{sh.EmissiveColor.B})");
+                    // THE UPSTREAM-GAP ARM. Each scalar was authored to a DISTINCT non-zero value and each one
+                    // round-trips in the block's private field (proven by the fixture writing them) — yet NiflySharp
+                    // 1.0.0 answers Glossiness / SpecularStrength / SpecularColor / EmissiveMultiple / Alpha from
+                    // INiShader's default-interface STUB, which returns a constant. So houseCARL must report NOTHING
+                    // for them. An implementation that trusted the accessor would report "glossiness 0, alpha 1" for
+                    // every mesh in the world and pass any arm that only checked the field was populated.
+                    Check(sh.Glossiness is null && sh.SpecularStrength is null && sh.SpecularColor is null
+                          && sh.EmissiveMultiple is null && sh.Alpha is null,
+                          $"a value this library only STUBS is reported as unread, never as its constant — "
+                          + $"glossiness={Fmt(sh.Glossiness)} specularStrength={Fmt(sh.SpecularStrength)} "
+                          + $"specularColor={(sh.SpecularColor is null ? "unread" : "REPORTED")} "
+                          + $"emissiveMultiple={Fmt(sh.EmissiveMultiple)} alpha={Fmt(sh.Alpha)}");
+                }
+
+                // Slot names are DERIVED from that type+flags, not from the index. Soft_Lighting (and NOT Glow_Map)
+                // makes slot 2 SoftLighting — the exact finding the reporter needed pynifly for; Model_Space_Normals
+                // with no backlight makes slot 7 Specular.
+                string? Slot(int n) => shape.Textures.FirstOrDefault(t => t.Slot == n)?.SlotName;
+                Check(Slot(0) == "Diffuse" && Slot(1) == "Normal" && Slot(2) == "SoftLighting" && Slot(7) == "Specular",
+                      $"texture slots carry their SEMANTIC names, derived from shader type + flags — [{string.Join(", ", shape.Textures.Select(t => $"tex[{t.Slot}]{(t.SlotName is null ? "" : " (" + t.SlotName + ")")}"))}]");
+                // The Q3 arm: nothing env-maps this shader, so slot 4 is genuinely undetermined. An implementation that
+                // named it from the index alone ("Environment") would pass every arm above and fail only this one.
+                Check(shape.Textures.Any(t => t.Slot == 4) && Slot(4) is null,
+                      $"an UNDETERMINED slot stays unnamed rather than getting a confident wrong label — tex[4] name = {Slot(4) ?? "(none)"}");
             }
             var childA = nif.Nodes.FirstOrDefault(n => n.Name == "GuardChildA");
             Check(childA is { BlockType: "NiNode", FlagsDefault: 0xE, FlagsDefaultType: "NiNode" },
@@ -148,6 +201,36 @@ internal static class NifServiceGuardProbe
         var unkSec = NifWire.Render(FakeData(FakeInspect(1, 0, false, Array.Empty<string>()), null), summaryOnly, new[] { "bogus" }, 80_000);
         Check(unkSec.Contains("unrecognized section"), "an unrecognized sections= token is surfaced, never silently ignored");
 
+        // ---- shader section + named slots reach the RENDER, not just the data model (#272) ----
+        var wantShader = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "shader", "paths" };
+        var shRender = NifWire.Render(FakeData(outcome.Inspect, null), wantShader, Array.Empty<string>(), 80_000);
+        Check(shRender.Contains("--- shader") && shRender.Contains("BSLightingShaderProperty")
+              && shRender.Contains("type SkinTint") && shRender.Contains("[SK layout]")
+              && shRender.Contains("SLSF2 0x02000011") && shRender.Contains("Soft_Lighting")
+              && shRender.Contains("emissive rgb(0.25,0.5,0.75)"),
+              "the shader section renders: block, TYPE, layout, decoded flag names, emissive values");
+        // The index is KEPT alongside the name (nif_set's texture_slot= takes the index), and an undetermined slot
+        // renders bare — the render half of the Q3 arm above.
+        // The unread values are NAMED in the render, so the gap is visible to the caller and not just absent.
+        Check(shRender.Contains("NOT READ by this NiflySharp version") && shRender.Contains("glossiness")
+              && shRender.Contains("alpha") && !shRender.Contains("glossiness 0") && !shRender.Contains("alpha 1"),
+              "the values this library only stubs are NAMED as unread, not printed as their constant");
+        Check(shRender.Contains("tex[2] (SoftLighting): ") && shRender.Contains("tex[7] (Specular): ")
+              && shRender.Contains("tex[4]: ") && !shRender.Contains("tex[4] ("),
+              "named slots render as 'tex[N] (Name)' and an undetermined slot stays bare 'tex[N]'");
+
+        // ---- the unnamed-bit path (#255's posture, carried to the shader words) ----
+        // Every flag word nifly names today (SLSF1/2, F4SPF1/2, BSShaderFlags1/2) covers all 32 bits, so a real mesh
+        // can never produce a residual — the decode is pinned here on a synthetic enum WITH gaps instead, so the
+        // behaviour is proven rather than assumed if an upstream enum ever loses a member. It also pins the
+        // combo-before-constituent peel: Combo (0x9) must win over Alpha (0x1), which is then left uncounted.
+        var gap = NifService.DecodeFlagWord("TEST", (GappedFlags)0x1D);
+        Check(gap.Raw == 0x1D && gap.UnknownBits == 0x10 && gap.Names.SequenceEqual(new[] { "Beta", "Combo" }),
+              $"an unnamed bit is surfaced as a residual mask, and a combo member peels before its constituent bits — 0x{gap.Raw:X} [{string.Join(", ", gap.Names)}] +0x{gap.UnknownBits:X}");
+        var gapRender = NifWire.Render(FakeData(FakeShaderInspect(gap), null), wantShader, Array.Empty<string>(), 80_000);
+        Check(gapRender.Contains("(+unknown bits 0x10)"),
+              "the residual reaches the rendered flag line — an unnamed bit is stated, never silently dropped");
+
         // flag decode: a shape at 0x400000E vs the BSTriShape default 0x8000E → 0x80000 clear (missing), +0x4000000 extra.
         var shapesSec = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "shapes" };
         var decoded = NifWire.Render(FakeData(FakeInspect(1, 0, false, Array.Empty<string>()), null), shapesSec, Array.Empty<string>(), 80_000);
@@ -181,6 +264,17 @@ internal static class NifServiceGuardProbe
                     Check(head.Textures.Any(t => t.Slot == 6 && t.Path.Contains(@"facetint\lucien.esp\00005900.dds", StringComparison.OrdinalIgnoreCase)),
                           "LucienHead texture slot 6 is the facetint path (the RaceMenu tint case)");
                     Check(head.Bones.Contains("NPC Head [Head]") && head.Bones.Contains("NPC Spine2 [Spn2]"), "LucienHead bone list reads (NPC Head / NPC Spine2)");
+                    // #272 end-to-end on REAL data: the synthetic fixture proves the decode, this proves it survives a
+                    // mesh nobody authored for the test. Asserts only what is true of ANY SE facegen head (a lighting
+                    // shader read as the SK layout, with both flag words present) and PRINTS the derived type + slot
+                    // names, so a wrong derivation is visible to a human even where it isn't assertable.
+                    Check(head.Shader is { BlockType: "BSLightingShaderProperty", GameType: "SK" }
+                          && head.Shader.Flags1 is not null && head.Shader.Flags2 is not null,
+                          "LucienHead's shader reads on real data — " + (head.Shader is null ? "NO SHADER"
+                              : $"{head.Shader.BlockType}/{head.Shader.GameType} type {head.Shader.ShaderType ?? "(none)"} "
+                                + $"SLSF1[{string.Join("|", head.Shader.Flags1?.Names ?? Array.Empty<string>())}] "
+                                + $"SLSF2[{string.Join("|", head.Shader.Flags2?.Names ?? Array.Empty<string>())}] "
+                                + $"slots: {string.Join(", ", head.Textures.Select(t => $"{t.Slot}{(t.SlotName is null ? "" : "=" + t.SlotName)}"))}"));
                 }
                 if (hair is not null) Check(hair.Alpha is { Flags: 0x12ED, Blend: true }, $"LucienHair alpha 0x12ED blend=true — {(hair.Alpha is null ? "NONE" : $"0x{hair.Alpha.Flags:X4} blend={hair.Alpha.Blend}")}");
                 if (hairline is not null) Check(hairline.Alpha is { Flags: 0x12EE, Blend: false, Test: true, Threshold: 180 },
@@ -199,7 +293,31 @@ internal static class NifServiceGuardProbe
         return fail == 0 ? 0 : 1;
     }
 
+    /// <summary>A nullable float for a probe DETAIL string — "unread" is the answer being asserted, so it has to be
+    /// visible in the output rather than rendering as an empty string that reads like a zero.</summary>
+    static string Fmt(float? f) => f is { } v ? v.ToString(System.Globalization.CultureInfo.InvariantCulture) : "unread";
+
     static bool CensusHas(NifInspect nif, string type, int count) => nif.BlockTypes.Any(t => t.Type == type && t.Count == count);
+
+    /// <summary>A flags enum with DELIBERATE GAPS (bits 0x2, 0x10 … are unnamed) and one multi-bit COMBO member — the
+    /// shape no real nifly shader word has, since every one of those names all 32 bits. Exists solely so the residual
+    /// and combo-peel behaviour of <see cref="NifService.DecodeFlagWord"/> is proven rather than assumed.</summary>
+    enum GappedFlags : uint { Alpha = 0x1, Beta = 0x4, Combo = 0x9 }
+
+    /// <summary>A one-shape inspect model carrying <paramref name="word"/> as its shader's first flag word — the
+    /// render-layer input for the unnamed-bit arm.</summary>
+    static NifInspect FakeShaderInspect(NifShaderFlagWord word)
+    {
+        var shader = new NifShader("BSLightingShaderProperty", "SK", "Default", word, null,
+                                   new NifColor(0f, 0f, 0f), 1f, 30f, 1f, new NifColor(1f, 1f, 1f), 1f);
+        var shape = new NifShape("GapShape", 0xE, 1f, "BSTriShape", 0x8000E, "BSTriShape",
+                                 new List<NifPartition>(), null, new List<NifTexture>(), new List<string>(), shader);
+        return new NifInspect("20.2.0.7", 12, 100, true, 2,
+            new List<NifBlockTypeCount> { new("BSTriShape", 1), new("NiNode", 1) },
+            false, Array.Empty<string>(),
+            new List<NifShape> { shape }, new List<NifNode> { new(0, "Root", 0xE, "NiNode", 0xE, "NiNode") },
+            new List<string> { "Root", "GapShape" });
+    }
 
     /// <summary>A synthetic inspect model for the render-layer arms (no file needed): <paramref name="totalShapes"/>
     /// shapes named <paramref name="namePrefix"/>0.., the first <paramref name="withPartitions"/> of them carrying
@@ -257,6 +375,46 @@ internal static class NifServiceGuardProbe
         alpha.Flags.Value = 0x12ED;
         shape.AlphaPropertyRef = new NiBlockRef<NiAlphaProperty>(f.AddBlock(alpha));
 
+        // A real shader property + texture set (#272). The values are chosen to exercise every SLOT-NAME arm at once:
+        // Soft_Lighting (not Glow_Map) makes slot 2 SoftLighting — the reporter's wolf finding; Model_Space_Normals
+        // (with no backlight) makes slot 7 Specular; nothing env-maps, so slot 4 must stay UNNAMED.
+        var shader = new BSLightingShaderProperty
+        {
+            // Mark the block as the SKYRIM layout up front: nifly's shader accessors DISPATCH on Type, and a
+            // block constructed in memory (rather than parsed) starts at None, where the SK-only scalars neither
+            // read nor serialize. Without this the fixture would author a shader full of zeros.
+            Type = NiflySharp.Helpers.ShaderHelper.ShaderGameType.SK,
+            ShaderType_SK_FO4 = NiflySharp.Enums.BSLightingShaderType.SkinTint,
+            ShaderFlags_SSPF1 = NiflySharp.Enums.SkyrimShaderPropertyFlags1.Specular
+                              | NiflySharp.Enums.SkyrimShaderPropertyFlags1.Skinned
+                              | NiflySharp.Enums.SkyrimShaderPropertyFlags1.Model_Space_Normals,
+            ShaderFlags_SSPF2 = NiflySharp.Enums.SkyrimShaderPropertyFlags2.ZBuffer_Write
+                              | NiflySharp.Enums.SkyrimShaderPropertyFlags2.Double_Sided
+                              | NiflySharp.Enums.SkyrimShaderPropertyFlags2.Soft_Lighting,
+            EmissiveColor = new NiflySharp.Structs.Color4 { R = 0.25f, G = 0.5f, B = 0.75f, A = 1f },
+        };
+        var texSet = new BSShaderTextureSet
+        {
+            Textures = new List<NiString4>
+            {
+                new(@"textures\guard\diffuse.dds", false), new(@"textures\guard\normal.dds", false),
+                new(@"textures\guard\soft.dds", false),    new("", false),
+                new(@"textures\guard\slot4.dds", false),   new("", false),
+                new("", false),                            new(@"textures\guard\slot7.dds", false),
+                new("", false),
+            },
+        };
+        texSet.NumTextures = (uint)texSet.Textures.Count;
+        SetPrivate(shader, "_textureSet", new NiBlockRef<BSShaderTextureSet>(f.AddBlock(texSet)));
+        // The lighting scalars are serialized fields with no public setter, so the fixture writes them the same way.
+        // Without this they'd all author as 0 and the value arms would be unfalsifiable — a guard that cannot fail.
+        SetPrivate(shader, "_emissiveMultiple", 2.5f);
+        SetPrivate(shader, "_glossiness", 30f);
+        SetPrivate(shader, "_specularStrength", 1.5f);
+        SetPrivate(shader, "_alpha", 0.5f);
+        SetPrivate(shader, "_specularColor", new NiflySharp.Structs.Color3 { R = 1f, G = 0.5f, B = 0.25f });
+        shape.ShaderPropertyRef = new NiBlockRef<BSShaderProperty>(f.AddBlock(shader));
+
         var skin = new BSDismemberSkinInstance
         {
             Partitions = new List<NiflySharp.Structs.BodyPartList>
@@ -271,5 +429,20 @@ internal static class NifServiceGuardProbe
         using var ms = new MemoryStream();
         if (f.Save(ms) != 0) throw new InvalidOperationException("nif-service-guard: authoring the synthetic SE mesh failed to save");
         return ms.ToArray();
+    }
+
+    /// <summary>Write one of NiflySharp's serialized-but-read-only shader fields, for the FIXTURE only. The texture-set
+    /// ref and every lighting scalar are populated on PARSE and exposed get-only (there is no NifFile helper to author
+    /// them), so a probe that needs a mesh carrying real shader values has to reach the backing field. Confined here —
+    /// product code only ever reads these — and it throws LOUD if a library update renames one, rather than quietly
+    /// authoring a shader full of zeros and leaving the value and slot-name arms passing vacuously (Q3: a guard that
+    /// cannot guard must say so, not go green).</summary>
+    static void SetPrivate(object block, string field, object value)
+    {
+        var f = block.GetType().GetField(field, System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException(
+                $"nif-service-guard: NiflySharp's {block.GetType().Name} no longer has a '{field}' field — the shader " +
+                "fixture needs updating before its arms mean anything (#272).");
+        f.SetValue(block, value);
     }
 }
