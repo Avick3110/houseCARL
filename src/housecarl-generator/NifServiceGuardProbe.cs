@@ -110,9 +110,13 @@ internal static class NifServiceGuardProbe
                           $"SLSF2 decodes to its named bits — {(sh.Flags2 is null ? "NONE" : $"0x{sh.Flags2.Raw:X} [{string.Join(", ", sh.Flags2.Names)}]")}");
                     // RGB, not RGBA — a lighting shader's emissive is a Color3 on disk, so there is no alpha to
                     // round-trip and none is reported (the interface's synthetic 4th component is deliberately dropped).
-                    Check(Math.Abs(sh.EmissiveColor.R - 0.25f) < 1e-6f && Math.Abs(sh.EmissiveColor.G - 0.5f) < 1e-6f
-                          && Math.Abs(sh.EmissiveColor.B - 0.75f) < 1e-6f,
-                          $"emissive colour round-trips exactly — rgb({sh.EmissiveColor.R},{sh.EmissiveColor.G},{sh.EmissiveColor.B})");
+                    // Matched through the NULLABLE, not dereferenced: if a library bump ever drops the EmissiveColor
+                    // override, ReallyReads correctly returns false and this must print a FAIL — not throw an NRE and
+                    // take the whole probe with it. Goes quiet, doesn't go wrong (review of PR #286).
+                    Check(sh.EmissiveColor is { } e
+                          && Math.Abs(e.R - 0.25f) < 1e-6f && Math.Abs(e.G - 0.5f) < 1e-6f && Math.Abs(e.B - 0.75f) < 1e-6f,
+                          "emissive colour round-trips exactly — "
+                          + (sh.EmissiveColor is { } ec ? $"rgb({ec.R},{ec.G},{ec.B})" : "UNREAD (the override is gone?)"));
                     // THE UPSTREAM-GAP ARM. Each scalar was authored to a DISTINCT non-zero value and each one
                     // round-trips in the block's private field (proven by the fixture writing them) — yet NiflySharp
                     // 1.0.0 answers Glossiness / SpecularStrength / SpecularColor / EmissiveMultiple / Alpha from
@@ -200,6 +204,23 @@ internal static class NifServiceGuardProbe
 
         var unkSec = NifWire.Render(FakeData(FakeInspect(1, 0, false, Array.Empty<string>()), null), summaryOnly, new[] { "bogus" }, 80_000);
         Check(unkSec.Contains("unrecognized section"), "an unrecognized sections= token is surfaced, never silently ignored");
+
+        // ---- NON-SKYRIM LAYOUT: the slot interpreter DECLINES rather than fabricating (review of PR #286) ----
+        // The same fixture at stream 130 parses as the FO4 layout. Its shader carries an all-zero F4SPF word, yet
+        // nifly's HasSoftlight / HasBacklight / Parallax helpers all answer TRUE there — they return true for a layout
+        // where the concept isn't modelled, not false. So an ungated interpreter labels slots 2/3/7 from nothing the
+        // mesh carries, and it rides sections=paths and sections=shapes too. This is the arm that catches that; every
+        // other slot arm in this probe is SK and stays green through the bug.
+        Console.WriteLine();
+        Console.WriteLine("--- non-Skyrim layout: slot naming declines (it models a SKYRIM convention) ---");
+        var fo4 = NifService.Inspect(BuildSyntheticSe(streamVersion: 130));
+        Check(fo4.Error is null && fo4.Inspect is not null, $"the FO4-layout mesh parses clean — {fo4.Error ?? "ok"}");
+        var fo4Shape = fo4.Inspect?.Shapes.FirstOrDefault(s => s.Name == "GuardShape");
+        Check(fo4Shape?.Shader is { GameType: "FO4" },
+              $"the fixture really is read as the FO4 layout — {fo4Shape?.Shader?.GameType ?? "(no shader)"}");
+        Check(fo4Shape is not null && fo4Shape.Textures.Count > 0 && fo4Shape.Textures.All(t => t.SlotName is null),
+              "NOT-SKYRIM — every slot is UNNAMED on a non-SK layout, including the ones nifly's helpers answer "
+              + $"'true' for — [{string.Join(", ", fo4Shape?.Textures.Select(t => $"tex[{t.Slot}]{(t.SlotName is null ? "" : " (" + t.SlotName + ")")}") ?? Array.Empty<string>())}]");
 
         // ---- shader section + named slots reach the RENDER, not just the data model (#272) ----
         var wantShader = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "shader", "paths" };
@@ -354,9 +375,9 @@ internal static class NifServiceGuardProbe
     /// header, a 3-level NiNode tree with names + flags, and one BSTriShape carrying a name/flags/scale, two BSDismember
     /// partitions, and an alpha property. Every block is REFERENCED (parented / ref'd) so NiflySharp's save-time
     /// unreferenced-block prune keeps them. Returns the saved bytes — the exact input shape housecarl_nif_inspect reads.</summary>
-    static byte[] BuildSyntheticSe()
+    static byte[] BuildSyntheticSe(uint streamVersion = 100)
     {
-        var ver = new NiVersion { FileVersion = NiVersion.ToFile("20.2.0.7"), UserVersion = 12, StreamVersion = 100 };
+        var ver = new NiVersion { FileVersion = NiVersion.ToFile("20.2.0.7"), UserVersion = 12, StreamVersion = streamVersion };
         var f = new NifFile();
         f.Create(ver, withRootNode: true);
         var root = f.GetRootNodes().First();
@@ -383,7 +404,8 @@ internal static class NifServiceGuardProbe
             // Mark the block as the SKYRIM layout up front: nifly's shader accessors DISPATCH on Type, and a
             // block constructed in memory (rather than parsed) starts at None, where the SK-only scalars neither
             // read nor serialize. Without this the fixture would author a shader full of zeros.
-            Type = NiflySharp.Helpers.ShaderHelper.ShaderGameType.SK,
+            Type = streamVersion == 100 ? NiflySharp.Helpers.ShaderHelper.ShaderGameType.SK
+                                        : NiflySharp.Helpers.ShaderHelper.ShaderGameType.FO4,
             ShaderType_SK_FO4 = NiflySharp.Enums.BSLightingShaderType.SkinTint,
             ShaderFlags_SSPF1 = NiflySharp.Enums.SkyrimShaderPropertyFlags1.Specular
                               | NiflySharp.Enums.SkyrimShaderPropertyFlags1.Skinned

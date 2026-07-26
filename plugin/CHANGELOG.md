@@ -22,7 +22,8 @@ Texture slots now also carry their **semantic name** wherever the shader determi
 Slot 2 is glow *or* skin-subsurface *or* soft-lighting and slot 7 backlight *or* specular depending on type and flags,
 so the name is derived from those, never from the index; a slot the shader doesn't determine stays a bare `tex[N]`
 rather than getting a plausible wrong label, and the index is always kept (it is what `nif_set`'s `texture_slot=`
-takes). **Known limit, stated rather than papered over:** the underlying mesh library answers *glossiness, specular
+takes). Slot naming is a **Skyrim** convention, so it declines entirely on a mesh read as another game's layout —
+an unconverted Fallout 4 mesh shipped inside a Skyrim mod gets bare indices rather than Skyrim labels. **Known limit, stated rather than papered over:** the underlying mesh library answers *glossiness, specular
 strength, specular colour, emissive multiple* and *alpha* from a stub that returns a constant, no matter what the mesh
 holds. Those values are in the file, but houseCARL will not print a number it cannot vouch for — the section names them
 as not read and points you at NifSkope. Emissive **colour** is read for real. Reported externally.

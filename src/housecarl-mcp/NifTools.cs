@@ -450,12 +450,19 @@ static class NifWire
 
     /// <summary>The shader's lighting values — only the ones this NiflySharp version genuinely reads off the block.
     /// The rest are NAMED as unread on their own line rather than printed as the constant the library's interface stub
-    /// would hand back (Q3: a caller must be able to tell "the mesh says 0" from "we can't see it"). The line also
-    /// says the values ARE on disk, so the answer points somewhere — this is a reader gap, not a missing field.</summary>
+    /// would hand back (Q3: a caller must be able to tell "the mesh says 0" from "we can't see it").
+    ///
+    /// EVERY value has both a read form and an unread form, with no shared condition between them, so a value can
+    /// never fall through both and vanish. The emissive multiple is the one that could: it reads most naturally as a
+    /// suffix of the emissive colour, but if upstream ever implements it WITHOUT the colour (it maps onto
+    /// BSEffectShaderProperty's <c>_baseColorScale</c>) a suffix-only form would print it nowhere and name it nowhere
+    /// — the one hole in the "implemented upstream ⇒ reported here, no code change" promise. It gets its own entry
+    /// when the colour is unread (review of PR #286).</summary>
     static void AppendShaderValues(StringBuilder sb, NifShader sh)
     {
         var have = new List<string>(5);
         if (sh.EmissiveColor is { } ec) have.Add("emissive " + ColorText(ec) + (sh.EmissiveMultiple is { } m ? " x" + Fmt(m) : ""));
+        else if (sh.EmissiveMultiple is { } m2) have.Add("emissive multiple x" + Fmt(m2));   // read, but no colour to hang it off
         if (sh.Glossiness is { } g) have.Add("glossiness " + Fmt(g));
         if (sh.SpecularStrength is { } ss) have.Add("specular " + Fmt(ss) + (sh.SpecularColor is { } sc ? " " + ColorText(sc) : ""));
         else if (sh.SpecularColor is { } sc2) have.Add("specular " + ColorText(sc2));
@@ -470,9 +477,14 @@ static class NifWire
         if (sh.SpecularColor is null) missing.Add("specular colour");
         if (sh.Alpha is null) missing.Add("alpha");
         if (missing.Count > 0)
-            sb.Append("    NOT READ by this NiflySharp version (the values ARE in the file — its accessor returns a ")
-              .Append("constant for them, so houseCARL reports nothing rather than a wrong number): ")
-              .Append(string.Join(", ", missing)).Append(". Read them in NifSkope.\n");
+            // "WHERE THIS BLOCK CARRIES THEM" is doing real work: for a lighting shader the values genuinely are on
+            // disk and NifSkope shows them, but a BSEffectShaderProperty has no glossiness / specular-strength /
+            // specular-colour field AT ALL, so an unconditional "the values ARE in the file" would send the reader
+            // hunting in NifSkope for fields that don't exist (review of PR #286).
+            sb.Append("    NOT READ by this NiflySharp version — its accessor returns a constant for these, so ")
+              .Append("houseCARL reports nothing rather than a wrong number: ")
+              .Append(string.Join(", ", missing))
+              .Append(". Where this block carries them, NifSkope shows the real values.\n");
     }
 
     static string ColorText(NifColor c) => $"rgb({Fmt(c.R)},{Fmt(c.G)},{Fmt(c.B)})";
