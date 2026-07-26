@@ -1516,10 +1516,18 @@ public sealed class LoadOrderService : IDisposable
                 // NOT on the explicit-source= arm above: placing a NEW file at a path nothing provides is legitimate
                 // there, so an absent destination is not a mistake to correct.
                 var hint = AssetPathHint.AssetRootHint(view, rel);
+                // ORDER IS LOAD-BEARING — the hint sits directly after the sentence about the PATH, before the
+                // "Pass source=" fallback (review of this PR). It names a destination, not a source; trailing the
+                // one imperative in the message — an imperative that names source= AND lists "a loose file path"
+                // as a legal form — invited the caller to retry as source=`meshes\...`, which routes through
+                // ReadExplicitSource -> Path.GetFullPath against the process CWD -> "source file not found" for the
+                // very copy this hint just verified as provided. Adjacency to the ABSENT clause is also the shape
+                // the three sibling lanes already have (NifInspect / NifSet append MeshHint to a purely descriptive
+                // sentence; asset_status renders it on its own line), so all four read the same way.
                 return PlaceResult.Fail(rel,
-                    $"nothing in the active load order provides '{rel}', so there is no copy to auto-place. Pass source= the correct copy "
-                    + "(a loose file path, or '<archive.bsa>|<entry>', or a '.bsa' path)."
+                    $"nothing in the active load order provides '{rel}', so there is no copy to auto-place."
                     + (hint is null ? "" : " " + hint)
+                    + " Pass source= the correct copy (a loose file path, or '<archive.bsa>|<entry>', or a '.bsa' path)."
                     + (res.ReadIncomplete ? " NOTE: a BSA failed to read this build, so a source may merely be unscanned (see the warnings)." : ""),
                     winner);
             }

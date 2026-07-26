@@ -30,6 +30,9 @@ namespace HousecarlGenerator;
 ///                  carries the same both-roots verified suggestion, stays silent when there's nothing honest to
 ///                  say, and — the arm that pins the scope — leaves the explicit-source= lane alone, where an
 ///                  unprovided destination is the NORMAL case (placing a brand-new file), not a mistake.
+///   PLACE-ORDER  — the hint PRECEDES the "Pass source=" fallback. Unlike the sibling lanes, this message carries
+///                  an imperative about a DIFFERENT argument, so a hint trailing it reads as a source= value and
+///                  sends the caller to "source file not found" for a copy just verified as provided.
 ///
 /// Run: dotnet run --project src/housecarl-generator -- asset-prefix-hint-guard
 /// </summary>
@@ -138,6 +141,14 @@ internal static class AssetPrefixHintProbe
             var pRecord = svc.PlaceAssets(new[] { new PlaceRequest(RecordRel, null) }, null, null).Results[0];
             Check(!pRecord.Placed && (pRecord.Error?.Contains("Did you mean `" + MeshRel + "`", StringComparison.OrdinalIgnoreCase) ?? false),
                   "PLACE — the auto-resolve refusal names the meshes\\-prefixed copy that IS provided", pRecord.Error);
+            // WHERE the hint sits is load-bearing, not cosmetic: it names a DESTINATION, and the only imperative in
+            // this message names source= and lists "a loose file path" as a legal form. Trailing that imperative
+            // invited a retry as source=`meshes\…`, which resolves against the process CWD and comes back "source
+            // file not found" — for the very copy the hint verified as provided (review of this PR).
+            int iHint = pRecord.Error?.IndexOf("Did you mean", StringComparison.OrdinalIgnoreCase) ?? -1;
+            int iSrc = pRecord.Error?.IndexOf("Pass source=", StringComparison.OrdinalIgnoreCase) ?? -1;
+            Check(iHint >= 0 && iSrc >= 0 && iHint < iSrc,
+                  "PLACE-ORDER — the hint precedes the 'Pass source=' fallback, so it can't be read as a source= value", pRecord.Error);
             var pTex = svc.PlaceAssets(new[] { new PlaceRequest(TexRecordRel, null) }, null, null).Results[0];
             Check(!pTex.Placed && (pTex.Error?.Contains("Did you mean `" + TexRel + "`", StringComparison.OrdinalIgnoreCase) ?? false),
                   "PLACE-TEX — both roots are tried here too (place_asset can't know the path's kind)", pTex.Error);
