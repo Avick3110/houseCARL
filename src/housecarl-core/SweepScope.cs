@@ -197,19 +197,28 @@ public static class SweepFindings
         if (c == ScriptFindingClass.None) yield return "none";
     }
 
-    /// <summary>Join the scope label and the finding-filter clauses into the ONE render line that states, in words, which
-    /// of the result's counts are scope-relative. Null when nothing was narrowed — then the counts are the plain
-    /// <c>plugins=</c> totals and need no caveat.
-    /// <para><paramref name="claimOverride"/> replaces the default blanket claim for a sweep where some count is NOT
-    /// scope-relative. check_errors needs it: its missing-master count is read off the plugin's master TABLE, so a
-    /// record scope cannot narrow it, and the blanket sentence would assert otherwise about the number printed directly
-    /// above it (PR #288 review, finding 3). Pass null for the default.</para></summary>
-    public static string? FilterNote(string? claimOverride, params string?[] clauses)
+    /// <summary>The default subset-claim sentence, shared so the two sweeps cannot word it differently.</summary>
+    public const string ScopedCountsClaim =
+        "every count below is for THIS narrowed scope, not the whole plugin(s).";
+
+    /// <summary>Join the applied-narrowing clauses into the ONE render line, optionally followed by
+    /// <paramref name="claim"/> — the sentence saying the counts above are a SUBSET of what their labels name. Null when
+    /// nothing was narrowed at all.
+    ///
+    /// <para>The claim is the caller's call, not automatic, because narrowing a sweep and narrowing its COUNTS are
+    /// different things (PR #288 re-review, finding 3). A <c>findings=</c> class filter narrows which findings are
+    /// counted but leaves every reported number COMPLETE for what it names — an excluded class already renders
+    /// "NOT CHECKED" — so <c>check_errors findings=["dangling"]</c> with no record scope reports the true whole-order
+    /// dangling total, and appending "not the whole plugin(s)" to it would be false. A record scope, or
+    /// <c>property_contains=</c>, genuinely does make each count a subset of its own label, and there the claim belongs.
+    /// Pass <see cref="ScopedCountsClaim"/> for the default wording, a bespoke string where some count is exempt
+    /// (check_errors' plugin-level master count — round-1 finding 3), or null for no claim.</para></summary>
+    public static string? FilterNote(string? claim, params string?[] clauses)
     {
         var kept = clauses.Where(c => !string.IsNullOrEmpty(c)).ToList();
-        return kept.Count == 0 ? null
-            : "NARROWED to " + string.Join(" · ", kept) + " — "
-              + (claimOverride ?? "every count below is for THIS narrowed scope, not the whole plugin(s).");
+        if (kept.Count == 0) return null;
+        var prefix = "NARROWED to " + string.Join(" · ", kept);
+        return claim is null ? prefix + "." : prefix + " — " + claim;
     }
 
     static string Normalize(string? s) => (s ?? "").Trim().Replace('-', '_').ToLowerInvariant();
