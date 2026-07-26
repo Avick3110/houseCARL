@@ -28,9 +28,15 @@
     <!-- The reflection target the extracted cores bind against. Pinned 0.53.1 (spike-proven), matching both consumers. -->
     <PackageReference Include="Mutagen.Bethesda.Skyrim" Version="0.53.1" />
     <!-- The NIF layer's asset-internal reader/writer. Pure C#, GPL-3.0 (compatible with our GPL-3.0-only), source-
-         generated from nifxml = coverage by construction. Pinned 1.0.0 (spike-proven over 87,937 workspace nifs —
-         SPIKE_NIF_LAYER_2026-07-08); bump deliberately. Notices: THIRD-PARTY-NOTICES.txt (GPL-3.0 block). -->
-    <PackageReference Include="Nifly" Version="1.0.0" />
+         generated from nifxml = coverage by construction. Pinned 1.1.0 (2026-07-26, issue #287): carries the shader
+         accessors 1.0.0 only stubbed, a settable TextureSetRef, and the upstream code-audit crash/corruption fixes.
+         RE-PROVEN on bump, not assumed to carry over — 1.0.0 and 1.1.0 scanned back to back over the same 72,739
+         loose + 18,862 vanilla meshes and diffed FILE BY FILE (spike-nif `scan` + diff_ab.py, ~35 min/leg): 12 loose
+         meshes 1.0.0 could not fully read now read, 1 refuses cleanly instead of throwing, vanilla verdict-identical,
+         zero regressions. A percentage matching is NOT the check — two runs can hit the same totals while disagreeing
+         about which files. Bump deliberately, and re-run that diff when you do.
+         Notices: THIRD-PARTY-NOTICES.txt (GPL-3.0 block). -->
+    <PackageReference Include="Nifly" Version="1.1.0" />
   </ItemGroup>
 
   <ItemGroup>

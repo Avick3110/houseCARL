@@ -8,6 +8,26 @@ when it changes.
 
 *Accumulating notes for the next cut — not yet released; `plugin.json` still reads the last shipped version.*
 
+**The bundled mesh library moves to NiflySharp 1.1.0 — `nif_inspect` gains five shader values, and mesh reads pick up
+upstream's crash/corruption fixes (#287).**
+The pinned 1.0.0 was published from a commit 52 changes behind upstream, and the gap was costing two different things.
+The visible one: `sections=shader` could not report *glossiness, specular strength, specular colour, emissive multiple*
+or *alpha* — 1.0.0's accessors returned a constant regardless of what the mesh held, so houseCARL named them as unread
+rather than print a wrong number. 1.1.0 implements all five, and they now report their real values on any lighting
+shader. The less visible one, and the reason the bump is worth taking on its own: upstream's most recent work is a code
+audit fixing *crashes, hangs, data corruption and leaks*, alongside a batch of community fixes (UV writes landing in
+the wrong buffer, a file-handle leak, block-array resizing). Every mesh read and write houseCARL does now runs on that
+code. Nothing in the tool surface changed shape — the shader section detects which values the library genuinely reads
+by inspecting the library, so the five started reporting with no change to the reporting logic, and an effect shader
+(where upstream still stubs them) correctly keeps saying so.
+Parse fidelity was **re-proven, not assumed to carry over** — both versions were run back to back over the same
+91,601 workspace meshes and compared file by file, not by headline percentage. **Nine meshes that houseCARL could not
+read at all now read**: 1.0.0 threw on a malformed boolean byte in them, taking Glorious Doors of Skyrim, Golden
+Dwemer Pipeworks and every door in Reimperialized Abandoned Prison with it. Three more that parsed but carried blocks
+1.0.0 did not recognise now parse fully. The single mesh still unreadable now *refuses* cleanly instead of throwing.
+**Nothing regressed**: no mesh that parsed stopped parsing, no mesh that round-tripped byte-identical stopped, and the
+18,862 vanilla Bethesda meshes came out verdict-for-verdict identical on both versions.
+
 **The two sweep tools can now be scoped, filtered, counted, and returned as JSON (#282).**
 `check_errors` and `validate_scripts` had exactly one scope knob between them — `plugins=` — and on a script-heavy
 plugin that was not enough to get an answer at all: ~183 scripted records render past the tool-result size cap, and
@@ -54,11 +74,12 @@ rather than getting a plausible wrong label, and the index is always kept (it is
 takes). Slot naming is a **Skyrim** convention, so it declines entirely on a mesh read as another game's layout —
 an unconverted Fallout 4 mesh shipped inside a Skyrim mod gets bare indices, and the output says so rather than
 leaving "unnamed" to read as "undetermined".
-**Known limit, stated rather than papered over:** the underlying mesh library answers *glossiness, specular strength,
-specular colour, emissive multiple* and *alpha* from a stub that returns a constant, no matter what the mesh holds.
-houseCARL will not print a number it cannot vouch for, so the section names them as not read — and, where the block
-carries them (a lighting shader does; an effect shader has no such fields at all), points you at NifSkope. Emissive
-**colour** is read for real. Reported externally.
+**Lighting values** — *emissive colour and multiple, glossiness, specular strength, specular colour, alpha* — are
+reported for a lighting shader (see the mesh-library bump below; they were unreadable when this section was first
+built, and never shipped that way). On an **effect** shader the library still answers them from a stub that returns a
+constant, so houseCARL prints nothing for them there and names them as not read, rather than a number it cannot vouch
+for. Which values are readable is detected from the library itself, not a hard-coded list, so this tracks the bundled
+version automatically in both directions.
 
 **`check_errors` and the compact/merge dependency scan now treat a deleted record the same way (#279).**
 The #276 fix taught `cross_plugin_query` that a deleted record links to nothing; the two sibling walkers that ride the

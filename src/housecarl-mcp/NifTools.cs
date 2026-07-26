@@ -39,8 +39,9 @@ public static class NifTools
          "documented default plus the 0x80000 bit) and scale, the BSDismember body-part " +
          "partitions (decoded to their SBP_* names), the alpha property (decoded blend / test / threshold), the SHADER " +
          "property (block type, the shader TYPE enum — SkinTint / FaceTint / HairTint / EnvironmentMap / Parallax / … — " +
-         "the SLSF1+SLSF2 flags decoded to their names, and the emissive colour; any lighting value the underlying mesh " +
-         "library only stubs is NAMED as unread rather than reported as a wrong constant), the embedded " +
+         "the SLSF1+SLSF2 flags decoded to their names, and the lighting values — emissive colour and multiple, " +
+         "glossiness, specular strength and colour, alpha; any one the underlying mesh library only stubs for that " +
+         "block type is NAMED as unread rather than reported as a wrong constant), the embedded " +
          "texture-set paths with their semantic slot names where the shader determines them, and the bone list; plus the node tree and the header string table. Use it to answer 'what " +
          "shapes / bones / textures / partitions / alpha does this mesh have', 'does this mesh glow / use soft lighting / " +
          "subsurface skin / env-mapping', to read a facegen mesh's baked shape names " +
