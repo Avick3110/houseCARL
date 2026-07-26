@@ -51,6 +51,9 @@ namespace HousecarlGenerator;
 ///   NARROW-NOTE          — a narrowed result carries a FilterNote saying the counts are scope-relative; an unnarrowed one doesn't.
 ///   FILTER-PROPERTY      — property_contains='myspell' keeps MySpell, drops MyChance + InheritedThing.
 ///   FILTER-CLASS         — findings=[unbound_object] keeps MySpell, drops the scalar AND the bound-but-null advisory.
+///   CLASS-NOT-CHECKED-PARTIAL / -TOTAL — an EXCLUDED class renders "NOT CHECKED" and nulls in json, never 0 (PR #288
+///                          review, finding 1: this guard previously asserted the 0 and so locked the bug in).
+///   COUNTS-ONLY-EXCLUDED-NAMED — counts_only text NAMES the unparseable plugins, not just the header count (finding 5).
 ///   UNVERIFIABLE-SURVIVES-FILTER — under a filter matching NOTHING, wNoPex is STILL reported unverifiable. The
 ///                          load-bearing Q3 arm: that unread .pex might declare the very property being filtered for,
 ///                          so letting a filter hide it would turn "could not check" into a clean answer.
@@ -284,8 +287,33 @@ public static class ScriptPropertyCheckProbe
             objectsOnly.Success && objFoot is not null
             && objFoot.Unbound.Any(u => u.PropertyName == "MySpell")
             && !objFoot.Unbound.Any(u => u.PropertyName == "MyChance")
-            && objFoot.NullObjects.Count == 0 && objectsOnly.TotalNullObject == 0,
+            && objFoot.NullObjects.Count == 0,
             objFoot is null ? "<no report>" : $"unbound=[{string.Join(",", objFoot.Unbound.Select(u => u.PropertyName))}] null={objFoot.NullObjects.Count}");
+
+        // #288 review finding 1: an EXCLUDED class must render as not-checked, never as a 0 that reads "looked, found
+        // none". This arm previously asserted `TotalNullObject == 0` and so LOCKED IN the bug — it now asserts the
+        // not-checked marker in both renders, in the partial case as well as the total one.
+        var objText = Wire.RenderScriptCheck(objectsOnly, 0);
+        var objJson = JsonWire.RenderScriptCheck(objectsOnly, 0);
+        Check("CLASS-NOT-CHECKED-PARTIAL: findings=[unbound_object] renders 'unbound_scalar NOT CHECKED' + 'bound-but-null NOT CHECKED', and nulls both in json (never 0)",
+            objText.Contains("object only — unbound_scalar NOT CHECKED", StringComparison.Ordinal)
+            && objText.Contains("bound-but-null NOT CHECKED", StringComparison.Ordinal)
+            && !objText.Contains("0 bound-but-null", StringComparison.Ordinal)
+            && CheckErrorsProbe.JsonNull(objJson, "unbound_scalar")
+            && CheckErrorsProbe.JsonNull(objJson, "bound_but_null")
+            && CheckErrorsProbe.JsonMatches(objJson, "unbound_object", objectsOnly.TotalUnboundObject),
+            $"header=[{objText.Split('\n').Skip(1).FirstOrDefault()}]");
+
+        var nullOnly = ScriptPropertyCheck.Run(resolver, assets, null, 1000, null, null, ScriptFindingClass.BoundNull);
+        var nullText = Wire.RenderScriptCheck(nullOnly, 0);
+        var nullJson = JsonWire.RenderScriptCheck(nullOnly, 0);
+        Check("CLASS-NOT-CHECKED-TOTAL: findings=[bound_null] renders 'unbound NOT CHECKED' and nulls unbound in json — the HIGH class nobody looked for never reads as 0",
+            nullText.Contains("unbound NOT CHECKED", StringComparison.Ordinal)
+            && !nullText.Contains("0 unbound", StringComparison.Ordinal)
+            && CheckErrorsProbe.JsonNull(nullJson, "unbound")
+            && CheckErrorsProbe.JsonNull(nullJson, "unbound_object")
+            && nullOnly.TotalNullObject == 1,
+            $"header=[{nullText.Split('\n').Skip(1).FirstOrDefault()}]");
 
         // THE LOAD-BEARING Q3 ARM: a filter that matches NOTHING must still surface the record whose .pex could not be
         // read — that script might be the very one declaring the property being filtered for, so hiding it would turn
@@ -327,6 +355,19 @@ public static class ScriptPropertyCheckProbe
             && CheckErrorsProbe.JsonMatches(JsonWire.RenderScriptCheck(counts, 0), "unbound", res.TotalUnbound)
             && CheckErrorsProbe.JsonHasHistogram(JsonWire.RenderScriptCheck(counts, 0), "unbound_by_property"),
             "see the two json renders");
+
+        // #288 review finding 5: counts_only used to return before the excluded-plugins block, so the header's bare
+        // count was all you got and you had to re-run without counts_only to learn WHICH plugin went unchecked.
+        var withExcluded = counts with
+        {
+            ExcludedPlugins = new Dictionary<string, string> { ["HcSpBroken.esp"] = "header could not be parsed" },
+        };
+        Check("COUNTS-ONLY-EXCLUDED-NAMED: counts_only text still NAMES the unparseable plugins and their reasons, not just the header count",
+            Wire.RenderScriptCheck(withExcluded, 0) is var xt
+            && xt.Contains("excluded plugins (could not be parsed", StringComparison.Ordinal)
+            && xt.Contains("HcSpBroken.esp", StringComparison.Ordinal)
+            && xt.Contains("header could not be parsed", StringComparison.Ordinal),
+            $"tail=[{Wire.RenderScriptCheck(withExcluded, 0).Split('\n').FirstOrDefault(l => l.Contains("HcSpBroken", StringComparison.Ordinal)) ?? "<absent>"}]");
 
         // The truncation notice used to advise "scope plugins=" — the one scope the caller had already applied. It must
         // now name knobs that exist (#282), or the tool tells you to do the thing that did not work.

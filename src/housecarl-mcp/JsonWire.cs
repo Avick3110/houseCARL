@@ -564,10 +564,14 @@ static class JsonWire
     }
 
     // ---- housecarl_validate_scripts (#282) ---------------------------------------------------------
-    /// <summary>The script-property sweep as JSON: <c>{scanned_plugins, records_with_scripts, unbound, bound_but_null,
-    /// unverifiable, filter_note, read_incomplete, excluded_plugins, records:[…], capped, rendered, truncated,
-    /// boundary}</c>, or the <c>counts_only</c> shape with <c>histogram</c> in place of <c>records</c>. Same data as the
-    /// text render off the same result object (D2 — the two can differ only in formatting).</summary>
+    /// <summary>The script-property sweep as JSON: <c>{scanned_plugins, records_with_scripts, unbound, unbound_object,
+    /// unbound_scalar, bound_but_null, unverifiable, classes_checked, filter_note, read_incomplete, excluded_plugins,
+    /// records:[…], capped, rendered, truncated, boundary}</c>, or the <c>counts_only</c> shape with
+    /// <c>unbound_by_property</c> in place of <c>records</c>. A finding CLASS the caller excluded is emitted as
+    /// <c>null</c>, NOT as 0 — the json counterpart of the text render's "NOT CHECKED", so a class nobody looked for
+    /// cannot be parsed as one that came back clean (PR #288 review, finding 1). <c>unverifiable</c> is never null: it
+    /// cannot be filtered out. Same data as the text render off the same result object (D2 — the two can differ only in
+    /// formatting).</summary>
     public static string RenderScriptCheck(ScriptCheckResult r, int maxChars, int histogramLimit = 1000)
     {
         int cap = Cap(maxChars);
@@ -577,11 +581,21 @@ static class JsonWire
             w.WriteStartObject();
             if (r.Error is not null) { w.WriteString("error", r.Error); w.WriteEndObject(); return Finish(ms); }
 
+            bool didObject = r.Classes.HasFlag(ScriptFindingClass.UnboundObject);
+            bool didScalar = r.Classes.HasFlag(ScriptFindingClass.UnboundScalar);
+            bool didNull = r.Classes.HasFlag(ScriptFindingClass.BoundNull);
+
             w.WriteNumber("scanned_plugins", r.PluginsScanned);
             w.WriteNumber("records_with_scripts", r.RecordsWithScripts);
-            w.WriteNumber("unbound", r.TotalUnbound);
-            w.WriteNumber("bound_but_null", r.TotalNullObject);
-            w.WriteNumber("unverifiable", r.TotalUnverifiable);
+            // null, NOT 0, for a class the caller excluded — a 0 here is parsed as "looked, found none" about a class
+            // nobody looked for (PR #288 review, finding 1). The per-class keys make each number's scope self-evident
+            // rather than something the consumer has to cross-reference against classes_checked.
+            if (didObject || didScalar) w.WriteNumber("unbound", r.TotalUnbound); else w.WriteNull("unbound");
+            if (didObject) w.WriteNumber("unbound_object", r.TotalUnboundObject); else w.WriteNull("unbound_object");
+            if (didScalar) w.WriteNumber("unbound_scalar", r.TotalUnboundScalar); else w.WriteNull("unbound_scalar");
+            if (didNull) w.WriteNumber("bound_but_null", r.TotalNullObject); else w.WriteNull("bound_but_null");
+            w.WriteNumber("unverifiable", r.TotalUnverifiable);   // never filterable — always a real count
+            WriteStringArray(w, "classes_checked", ScriptClassNames(r.Classes));
             WriteNullable(w, "filter_note", r.FilterNote);
             w.WriteBoolean("read_incomplete", r.ReadIncomplete);
             WriteExcluded(w, r.ExcludedPlugins);
@@ -590,11 +604,24 @@ static class JsonWire
             if (r.CountsOnly)
             {
                 WriteHistogram(w, "unbound_by_property", r.Histogram, histogramLimit);
-                w.WriteStartArray("scan_errors");
-                foreach (var rec in r.Reports)
-                    if (rec.ScanError is not null)
-                    { w.WriteStartObject(); w.WriteString("plugin", rec.Plugin); w.WriteString("scan_error", rec.ScanError); w.WriteEndObject(); }
+                // Wrapped + budget-flagged for the same reason check_errors' `unread` is (#288 review finding 4): a
+                // silently short honesty list reads as a complete one.
+                var scanErrors = r.Reports.Where(x => x.ScanError is not null).ToList();
+                w.WriteStartObject("scan_errors");
+                w.WriteNumber("total", scanErrors.Count);
+                w.WriteStartArray("rows");
+                int seRendered = 0; bool seTruncated = false;
+                foreach (var rec in scanErrors)
+                {
+                    w.Flush();
+                    if (ms.Length >= cap) { seTruncated = true; break; }
+                    w.WriteStartObject(); w.WriteString("plugin", rec.Plugin); w.WriteString("scan_error", rec.ScanError!); w.WriteEndObject();
+                    seRendered++;
+                }
                 w.WriteEndArray();
+                w.WriteNumber("rendered", seRendered);
+                w.WriteBoolean("truncated", seTruncated);
+                w.WriteEndObject();
             }
             else
             {
@@ -679,22 +706,32 @@ static class JsonWire
     }
 
     /// <summary>Under counts_only, check_errors' reports carry the honesty layer only — plugins whose records could not
-    /// be read. Emitted so a counts-only answer still names what it could not check (Q3).</summary>
+    /// be read. Emitted so a counts-only answer still names what it could not check (Q3).
+    /// <para>Wrapped in <c>{total, rows, rendered, truncated}</c> rather than a bare array: a budget cut used to drop
+    /// trailing rows with NO flag, so a consumer iterating the array believed it had the complete set of what went
+    /// unchecked — and the text render said "truncated" for the same result (PR #288 review, finding 4).</para></summary>
     static void WriteUnreadPlugins(Utf8JsonWriter w, IReadOnlyList<PluginErrors> reports, MemoryStream ms, int cap)
     {
-        w.WriteStartArray("unread");
+        w.WriteStartObject("unread");
+        w.WriteNumber("total", reports.Count);
+        w.WriteStartArray("rows");
+        int rendered = 0; bool truncated = false;
         foreach (var p in reports)
         {
             w.Flush();
-            if (ms.Length >= cap) break;
+            if (ms.Length >= cap) { truncated = true; break; }
             w.WriteStartObject();
             w.WriteString("plugin", p.Plugin);
             WriteNullable(w, "scan_error", p.ScanError);
             w.WriteNumber("unscannable_records", p.UnscannableRecords);
             WriteStringArray(w, "unscannable_samples", p.UnscannableSamples);
             w.WriteEndObject();
+            rendered++;
         }
         w.WriteEndArray();
+        w.WriteNumber("rendered", rendered);
+        w.WriteBoolean("truncated", truncated);
+        w.WriteEndObject();
     }
 
     static void WriteExcluded(Utf8JsonWriter w, IReadOnlyDictionary<string, string> excluded)
@@ -710,6 +747,15 @@ static class JsonWire
         var names = new List<string>(2);
         if (c.HasFlag(ErrorFindingClass.Dangling)) names.Add("dangling");
         if (c.HasFlag(ErrorFindingClass.MissingMasters)) names.Add("missing_masters");
+        return names;
+    }
+
+    static List<string> ScriptClassNames(ScriptFindingClass c)
+    {
+        var names = new List<string>(3);
+        if (c.HasFlag(ScriptFindingClass.UnboundObject)) names.Add("unbound_object");
+        if (c.HasFlag(ScriptFindingClass.UnboundScalar)) names.Add("unbound_scalar");
+        if (c.HasFlag(ScriptFindingClass.BoundNull)) names.Add("bound_null");
         return names;
     }
 

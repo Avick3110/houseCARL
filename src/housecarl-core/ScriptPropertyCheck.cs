@@ -79,7 +79,10 @@ public static class ScriptPropertyCheck
     {
         var propFilter = string.IsNullOrWhiteSpace(propertyContains) ? null : propertyContains.Trim();
         bool PropOk(string name) => propFilter is null || name.Contains(propFilter, StringComparison.OrdinalIgnoreCase);
+        // Every count this sweep reports (records-with-scripts, unbound, bound-but-null, unverifiable) is per-RECORD, so
+        // the blanket scope claim is accurate here — unlike check_errors, whose master count is plugin-level.
         var filterNote = SweepFindings.FilterNote(
+            null,
             recordScope?.Label,
             SweepFindings.Describe(classes),
             propFilter is null ? null : $"property_contains='{propFilter}'");
@@ -114,6 +117,9 @@ public static class ScriptPropertyCheck
 
         var reports = new List<RecordScriptFindings>();
         int recordsWithScripts = 0, totalUnbound = 0, totalNull = 0, totalUnverifiable = 0;
+        // Split by class so each number's SCOPE is self-evident in the render: a class the caller excluded is reported as
+        // not-checked rather than as a 0 that reads like "looked, found none" (PR #288 review, finding 1).
+        int totalUnboundObject = 0, totalUnboundScalar = 0;
         int findingBudget = limit;
         bool capped = false;
         // counts_only=: the unbound-by-property-name tally, over EVERY unbound finding in scope (never limit-capped —
@@ -198,6 +204,7 @@ public static class ScriptPropertyCheck
                         // Apply the shared finding budget (unbound + null are the capped population; unverifiable notes
                         // are few and always kept). The true totals are counted regardless of the cap.
                         totalUnbound += unbound.Count;
+                        foreach (var u in unbound) { if (u.IsObjectType) totalUnboundObject++; else totalUnboundScalar++; }
                         totalNull += nulls.Count;
                         totalUnverifiable += unver.Count;
 
@@ -240,7 +247,8 @@ public static class ScriptPropertyCheck
 
         return new ScriptCheckResult(reports, targets.Count, recordsWithScripts, totalUnbound, totalNull,
                                      totalUnverifiable, capped, av.ReadIncomplete, view.ExcludedPlugins, null,
-                                     filterNote, histogram is null ? null : SweepFindings.Histogram(histogram), countsOnly);
+                                     filterNote, histogram is null ? null : SweepFindings.Histogram(histogram), countsOnly,
+                                     classes, totalUnboundObject, totalUnboundScalar);
     }
 
     /// <summary>Every script attachment on the record: the adapter's own <see cref="IAVirtualMachineAdapterGetter.Scripts"/>
@@ -405,7 +413,13 @@ public sealed record RecordScriptFindings(
 /// are for that narrowed scope; null when nothing was narrowed. <paramref name="Histogram"/> is the unbound-by-property
 /// tally, present ONLY under <paramref name="CountsOnly"/> (null = not computed, never "none found"). Under
 /// <paramref name="CountsOnly"/> <paramref name="Reports"/> carries scan-error entries ONLY — the totals are exact and
-/// <paramref name="Capped"/> is false, because nothing was listed to cap.</para></summary>
+/// <paramref name="Capped"/> is false, because nothing was listed to cap.</para>
+/// <para><paramref name="Classes"/> is the finding-class filter that was in force, with
+/// <paramref name="TotalUnboundObject"/> / <paramref name="TotalUnboundScalar"/> splitting the unbound total by it. The
+/// renders read these to report an EXCLUDED class as not-checked rather than as a 0 — a class nobody looked for must not
+/// read as a class that came back clean, which is the same rule <see cref="ErrorCheckResult.Classes"/> serves for the
+/// integrity sweep (PR #288 review, finding 1). <paramref name="TotalUnbound"/> stays the sum of the classes that WERE
+/// checked.</para></summary>
 public sealed record ScriptCheckResult(
     IReadOnlyList<RecordScriptFindings> Reports,
     int PluginsScanned,
@@ -419,7 +433,10 @@ public sealed record ScriptCheckResult(
     string? Error,
     string? FilterNote = null,
     IReadOnlyList<SweepCount>? Histogram = null,
-    bool CountsOnly = false)
+    bool CountsOnly = false,
+    ScriptFindingClass Classes = ScriptFindingClass.All,
+    int TotalUnboundObject = 0,
+    int TotalUnboundScalar = 0)
 {
     public bool Success => Error is null;
     public static ScriptCheckResult Fail(string error) =>

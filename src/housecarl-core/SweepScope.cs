@@ -197,14 +197,19 @@ public static class SweepFindings
         if (c == ScriptFindingClass.None) yield return "none";
     }
 
-    /// <summary>Join the scope label and the finding-filter clauses into the ONE render line that states, in words, that
-    /// every count in the result is scope-relative. Null when nothing was narrowed — then the counts are the plain
-    /// <c>plugins=</c> totals and need no caveat.</summary>
-    public static string? FilterNote(params string?[] clauses)
+    /// <summary>Join the scope label and the finding-filter clauses into the ONE render line that states, in words, which
+    /// of the result's counts are scope-relative. Null when nothing was narrowed — then the counts are the plain
+    /// <c>plugins=</c> totals and need no caveat.
+    /// <para><paramref name="claimOverride"/> replaces the default blanket claim for a sweep where some count is NOT
+    /// scope-relative. check_errors needs it: its missing-master count is read off the plugin's master TABLE, so a
+    /// record scope cannot narrow it, and the blanket sentence would assert otherwise about the number printed directly
+    /// above it (PR #288 review, finding 3). Pass null for the default.</para></summary>
+    public static string? FilterNote(string? claimOverride, params string?[] clauses)
     {
         var kept = clauses.Where(c => !string.IsNullOrEmpty(c)).ToList();
         return kept.Count == 0 ? null
-            : "NARROWED to " + string.Join(" · ", kept) + " — every count below is for THIS narrowed scope, not the whole plugin(s).";
+            : "NARROWED to " + string.Join(" · ", kept) + " — "
+              + (claimOverride ?? "every count below is for THIS narrowed scope, not the whole plugin(s).");
     }
 
     static string Normalize(string? s) => (s ?? "").Trim().Replace('-', '_').ToLowerInvariant();
