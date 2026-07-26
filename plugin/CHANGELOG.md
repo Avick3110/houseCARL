@@ -23,10 +23,13 @@ Slot 2 is glow *or* skin-subsurface *or* soft-lighting and slot 7 backlight *or*
 so the name is derived from those, never from the index; a slot the shader doesn't determine stays a bare `tex[N]`
 rather than getting a plausible wrong label, and the index is always kept (it is what `nif_set`'s `texture_slot=`
 takes). Slot naming is a **Skyrim** convention, so it declines entirely on a mesh read as another game's layout —
-an unconverted Fallout 4 mesh shipped inside a Skyrim mod gets bare indices rather than Skyrim labels. **Known limit, stated rather than papered over:** the underlying mesh library answers *glossiness, specular
-strength, specular colour, emissive multiple* and *alpha* from a stub that returns a constant, no matter what the mesh
-holds. Those values are in the file, but houseCARL will not print a number it cannot vouch for — the section names them
-as not read and points you at NifSkope. Emissive **colour** is read for real. Reported externally.
+an unconverted Fallout 4 mesh shipped inside a Skyrim mod gets bare indices, and the output says so rather than
+leaving "unnamed" to read as "undetermined".
+**Known limit, stated rather than papered over:** the underlying mesh library answers *glossiness, specular strength,
+specular colour, emissive multiple* and *alpha* from a stub that returns a constant, no matter what the mesh holds.
+houseCARL will not print a number it cannot vouch for, so the section names them as not read — and, where the block
+carries them (a lighting shader does; an effect shader has no such fields at all), points you at NifSkope. Emissive
+**colour** is read for real. Reported externally.
 
 **`check_errors` and the compact/merge dependency scan now treat a deleted record the same way (#279).**
 The #276 fix taught `cross_plugin_query` that a deleted record links to nothing; the two sibling walkers that ride the

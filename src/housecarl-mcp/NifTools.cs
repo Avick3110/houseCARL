@@ -352,6 +352,7 @@ static class NifWire
     static void RenderShapesDetail(StringBuilder sb, NifInspect nif, int cap)
     {
         sb.Append("\n--- shapes (").Append(nif.Shapes.Count).Append(") ---\n");
+        if (SlotNamingCaveat(nif) is { } shapesCaveat) sb.Append(shapesCaveat);
         int shown = 0;   // the cut notice counts the REMAINDER, not the total (PR #243 review — the RenderPerShape rule)
         foreach (var s in nif.Shapes)
         {
@@ -386,6 +387,7 @@ static class NifWire
     static void RenderPaths(StringBuilder sb, NifInspect nif, int cap)
     {
         sb.Append("\n--- paths (embedded texture-set slots; material/.tri/physics-xml refs appear under sections=strings) ---\n");
+        if (SlotNamingCaveat(nif) is { } pathsCaveat) sb.Append(pathsCaveat);
         var textured = nif.Shapes.Where(s => s.Textures.Count > 0).ToList();   // omitted remainder counts the FILTERED subset, not total shapes
         int shown = 0;
         foreach (var s in textured)
@@ -425,6 +427,14 @@ static class NifWire
             // A block that doesn't serialize a shader type says so, rather than reporting a default-valued one (Q3).
             sb.Append(sh.ShaderType is null ? "  (no shader type on this block)" : "  type " + sh.ShaderType);
             sb.Append("  [").Append(sh.GameType).Append(" layout]\n");
+            // The DECLINE is stated, not just performed. Slot naming models a Skyrim convention, so on any other
+            // layout every slot prints bare — which is byte-identical to "this Skyrim shader doesn't determine that
+            // slot" and means something entirely different. Left unsaid, the caller reads "no glow map here" off a
+            // mesh houseCARL simply didn't interpret (review of PR #286).
+            if (!IsSkyrimLayout(sh))
+                sb.Append("    slot names: NOT DERIVED for this block — the slot semantics houseCARL models are a "
+                          + "Skyrim convention, and this reads as the ").Append(sh.GameType)
+                  .Append(" layout, so its slots print bare (unnamed here means unmodelled, not undetermined)\n");
             AppendFlagWord(sb, sh.Flags1);
             AppendFlagWord(sb, sh.Flags2);
             if (sh.Flags1 is null && sh.Flags2 is null)
@@ -488,6 +498,25 @@ static class NifWire
     }
 
     static string ColorText(NifColor c) => $"rgb({Fmt(c.R)},{Fmt(c.G)},{Fmt(c.B)})";
+
+    /// <summary>Whether this shader was read as the SKYRIM layout — the only one whose texture-slot semantics
+    /// houseCARL models, so the only one where a slot name can be derived at all.</summary>
+    static bool IsSkyrimLayout(NifShader sh) => sh.GameType == "SK";
+
+    /// <summary>The one-line caveat for a section that shows slot paths on a mesh whose shader(s) houseCARL does not
+    /// interpret — or null when every shader here is the Skyrim layout (the overwhelmingly common case, which stays
+    /// unannotated). Without it a bare <c>tex[2]:</c> is ambiguous between "this Skyrim shader doesn't determine slot
+    /// 2" and "we don't model this layout at all". The header's <c>[NOT an SE stream]</c> marker does NOT disambiguate
+    /// it: an LE mesh trips that marker but still parses as the SK layout and DOES get named slots (review of #286).</summary>
+    static string? SlotNamingCaveat(NifInspect nif)
+    {
+        var layouts = nif.Shapes.Select(s => s.Shader).OfType<NifShader>().Where(sh => !IsSkyrimLayout(sh))
+                         .Select(sh => sh.GameType).Distinct().OrderBy(g => g, StringComparer.Ordinal).ToList();
+        if (layouts.Count == 0) return null;
+        return "  [!] slot names are NOT DERIVED for shader(s) read as the " + string.Join(" / ", layouts)
+             + " layout — houseCARL models Skyrim's slot semantics only, so those slots print bare. Unnamed there "
+             + "means UNMODELLED, not undetermined; pass sections=shader for each shape's layout.\n";
+    }
 
     static void RenderNodes(StringBuilder sb, NifInspect nif, int cap)
     {
