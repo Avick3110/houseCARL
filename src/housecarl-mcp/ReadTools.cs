@@ -918,15 +918,9 @@ static class Wire
           .Append(r.RecordsWithScripts).Append(" record(s) with scripts · ")
           // A class the caller excluded reads as NOT CHECKED, never as a 0 — a 0 would say "looked, found none" about
           // the HIGH silent-None class nobody looked for (PR #288 review, finding 1).
-          .Append(!didObject && !didScalar
-                      ? "unbound NOT CHECKED (findings= excluded both unbound classes)"
-                      : didObject && didScalar
-                          ? $"{r.TotalUnbound} unbound"
-                          : didObject
-                              ? $"{r.TotalUnboundObject} unbound (object only — unbound_scalar NOT CHECKED)"
-                              : $"{r.TotalUnboundScalar} unbound (scalar only — unbound_object NOT CHECKED)")
+          .Append(UnboundTotalText(r, didObject, didScalar))
           .Append(" · ")
-          .Append(didNull ? $"{r.TotalNullObject} bound-but-null" : "bound-but-null NOT CHECKED (findings= excluded 'bound_null')")
+          .Append(NullTotalText(r, didNull))
           .Append(" · ")
           .Append(r.TotalUnverifiable).Append(" unverifiable");
         if (r.ExcludedPlugins.Count > 0)
@@ -939,7 +933,8 @@ static class Wire
         if (r.CountsOnly)
         {
             AppendHistogram(sb, r.Histogram, histogramLimit, "unbound properties by NAME",
-                            "counts_only=true — totals above are exact; no per-record listing was built.");
+                            "counts_only=true — totals above are exact; no per-record listing was built.",
+                            notComputed: "no unbound histogram — findings= excluded both unbound classes, so nothing was tallied.");
             foreach (var rec in r.Reports)   // the honesty layer: plugins whose record enumeration faulted
             {
                 if (sb.Length >= cap) { sb.Append("\n... [truncated at max_chars]\n"); break; }
@@ -993,15 +988,30 @@ static class Wire
             }
         }
 
+        // The capped tail restates the totals, so it needs the SAME class-awareness as the header — otherwise a small
+        // limit= reintroduces the literal "0 unbound" that the header no longer prints (re-review finding 2).
         if (r.Capped)
-            sb.Append("\n[finding list capped at limit; true totals = ").Append(r.TotalUnbound).Append(" unbound + ")
-              .Append(r.TotalNullObject).Append(" bound-but-null — raise limit= to see all]\n");
+            sb.Append("\n[finding list capped at limit; true totals = ").Append(UnboundTotalText(r, didObject, didScalar))
+              .Append(" + ").Append(NullTotalText(r, didNull)).Append(" — raise limit= to see all]\n");
 
         if (!truncated) AppendExcludedPlugins(sb, r.ExcludedPlugins, cap);
 
         AppendScriptCheckBoundary(sb);
         return sb.ToString().TrimEnd('\n');
     }
+
+    /// <summary>The unbound total, spelled so it can never claim a class nobody checked. ONE definition, used by both
+    /// the header and the capped tail — the tail restating the numbers in its own words is how "0 unbound" survived the
+    /// header fix (re-review finding 2).</summary>
+    static string UnboundTotalText(ScriptCheckResult r, bool didObject, bool didScalar)
+        => !didObject && !didScalar ? "unbound NOT CHECKED (findings= excluded both unbound classes)"
+         : didObject && didScalar   ? $"{r.TotalUnbound} unbound"
+         : didObject                ? $"{r.TotalUnboundObject} unbound (object only — unbound_scalar NOT CHECKED)"
+                                    : $"{r.TotalUnboundScalar} unbound (scalar only — unbound_object NOT CHECKED)";
+
+    /// <summary>The bound-but-null total, same contract as <see cref="UnboundTotalText"/>.</summary>
+    static string NullTotalText(ScriptCheckResult r, bool didNull)
+        => didNull ? $"{r.TotalNullObject} bound-but-null" : "bound-but-null NOT CHECKED (findings= excluded 'bound_null')";
 
     static void AppendScriptCheckBoundary(StringBuilder sb)
         => sb.Append("\nboundary: checks Auto (CK-editable) properties across the extends chain — not code-driven full ")

@@ -83,11 +83,15 @@ public static class ErrorCheck
         // The missing-master count comes off the plugin's master TABLE, so a RECORD scope cannot narrow it. Saying
         // "every count below is for this narrowed scope" directly under a plugin-level number is a false claim about the
         // number printed above it, so the claim is qualified whenever both are in play (PR #288 review, finding 3).
+        // The claim fires only under a RECORD scope — that is the one thing here that makes a reported count a subset of
+        // its own label. A findings= class filter leaves every number complete for what it names (an excluded class
+        // renders "NOT CHECKED"), so claiming otherwise over a true whole-order total would be false (re-review finding 3).
         var filterNote = SweepFindings.FilterNote(
-            recordScope is not null && wantMasters
-                ? "the dangling / unscannable counts below are for THIS narrowed scope; the missing-master count is "
-                  + "PLUGIN-level (read off the master table) and is NOT narrowed by it."
-                : null,
+            recordScope is null ? null
+                : wantMasters
+                    ? "the dangling / unscannable counts below are for THIS narrowed scope; the missing-master count is "
+                      + "PLUGIN-level (read off the master table) and is NOT narrowed by it."
+                    : SweepFindings.ScopedCountsClaim,
             recordScope?.Label, SweepFindings.Describe(classes));
         // counts_only=: the dangling-by-target-plugin tally, over EVERY dangling ref in scope (never limit-capped).
         // Built only when the walk that fills it actually RUNS — with 'dangling' excluded there is nothing to tally, and

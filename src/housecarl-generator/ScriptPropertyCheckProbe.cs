@@ -54,6 +54,13 @@ namespace HousecarlGenerator;
 ///   CLASS-NOT-CHECKED-PARTIAL / -TOTAL — an EXCLUDED class renders "NOT CHECKED" and nulls in json, never 0 (PR #288
 ///                          review, finding 1: this guard previously asserted the 0 and so locked the bug in).
 ///   COUNTS-ONLY-EXCLUDED-NAMED — counts_only text NAMES the unparseable plugins, not just the header count (finding 5).
+///   COUNTS-ONLY-NO-TALLY — counts_only + findings=[bound_null] leaves Histogram NULL and says nothing was tallied; the
+///                          roster contract still holds without a histogram (PR #288 RE-review, finding 1: the round-1
+///                          gate landed on check_errors and not on this twin).
+///   CAPPED-TAIL-CLASS-AWARE / -SYMMETRIC — the capped tail restates the totals, so it needs the header's class-awareness
+///                          or a small limit= reintroduces the "0 unbound" the header dropped (re-review, finding 2).
+///   CLAIM-ONLY-WHEN-SUBSET — findings= alone lists the filter WITHOUT the not-the-whole-plugin claim (the number under
+///                          it is complete); property_contains= alone keeps the claim (re-review, finding 3).
 ///   UNVERIFIABLE-SURVIVES-FILTER — under a filter matching NOTHING, wNoPex is STILL reported unverifiable. The
 ///                          load-bearing Q3 arm: that unread .pex might declare the very property being filtered for,
 ///                          so letting a filter hide it would turn "could not check" into a clean answer.
@@ -355,6 +362,54 @@ public static class ScriptPropertyCheckProbe
             && CheckErrorsProbe.JsonMatches(JsonWire.RenderScriptCheck(counts, 0), "unbound", res.TotalUnbound)
             && CheckErrorsProbe.JsonHasHistogram(JsonWire.RenderScriptCheck(counts, 0), "unbound_by_property"),
             "see the two json renders");
+
+        // #288 RE-REVIEW finding 1: the round-1 histogram gate landed on check_errors and not on its twin here. With
+        // both unbound classes excluded nothing can ever be tallied, so an empty-but-present histogram rendered
+        // "nothing to tally" — and json emitted a machine-readable zero-unbound-properties next to "unbound": null.
+        var countsNoTally = ScriptPropertyCheck.Run(resolver, assets, null, 1000, null, null,
+            ScriptFindingClass.BoundNull, countsOnly: true);
+        var noTallyText = Wire.RenderScriptCheck(countsNoTally, 0);
+        var noTallyJson = JsonWire.RenderScriptCheck(countsNoTally, 0);
+        Check("COUNTS-ONLY-NO-TALLY: counts_only + findings=[bound_null] leaves Histogram NULL, says nothing was tallied, and never claims 'nothing to tally'",
+            countsNoTally.Success && countsNoTally.Histogram is null
+            && countsNoTally.Reports.Count == 0                                   // the roster contract still holds without a histogram
+            && noTallyText.Contains("excluded both unbound classes, so nothing was tallied", StringComparison.Ordinal)
+            && !noTallyText.Contains("nothing to tally", StringComparison.Ordinal)
+            && !noTallyJson.Contains("unbound_by_property", StringComparison.Ordinal),
+            $"histo={(countsNoTally.Histogram is null ? "null" : countsNoTally.Histogram.Count.ToString())} reports={countsNoTally.Reports.Count}");
+
+        // #288 RE-REVIEW finding 2: the header gained class-awareness; the capped tail restated the totals in its own
+        // words and so reintroduced the literal "0 unbound" the header no longer prints. CLASS-NOT-CHECKED-TOTAL missed
+        // it only because it runs at limit=1000 and never trips Capped.
+        // Capped is forced rather than provoked: the fixture carries exactly ONE bound-but-null finding, so no limit=
+        // can trip the cap on this arm's class. The contract under test is the RENDER's wording, which this reaches
+        // directly. (CAPPED-TAIL-SYMMETRIC below trips the real cap, so the natural path is covered too.)
+        var cappedNullOnly = nullOnly with { Capped = true };
+        var cappedText = Wire.RenderScriptCheck(cappedNullOnly, 0);
+        Check("CAPPED-TAIL-CLASS-AWARE: the capped tail says 'unbound NOT CHECKED' too — a small limit must not reintroduce the 0 the header dropped",
+            cappedNullOnly.Capped
+            && cappedText.Contains("finding list capped at limit", StringComparison.Ordinal)
+            && cappedText.Contains("unbound NOT CHECKED", StringComparison.Ordinal)
+            && !cappedText.Contains("0 unbound", StringComparison.Ordinal),
+            $"tail=[{cappedText.Split('\n').FirstOrDefault(l => l.Contains("capped at limit", StringComparison.Ordinal))}]");
+
+        var cappedObjOnly = ScriptPropertyCheck.Run(resolver, assets, null, 1, null, null, ScriptFindingClass.UnboundObject);
+        var cappedObjText = Wire.RenderScriptCheck(cappedObjOnly, 0);
+        Check("CAPPED-TAIL-SYMMETRIC: the same holds the other way — findings=[unbound_object] under a small limit never prints '0 bound-but-null'",
+            cappedObjOnly.Capped
+            && cappedObjText.Contains("bound-but-null NOT CHECKED", StringComparison.Ordinal)
+            && !cappedObjText.Contains("0 bound-but-null", StringComparison.Ordinal),
+            $"tail=[{cappedObjText.Split('\n').FirstOrDefault(l => l.Contains("capped at limit", StringComparison.Ordinal))}]");
+
+        // #288 RE-REVIEW finding 3: a class filter narrows which findings are COUNTED, not which records were swept, so
+        // the "not the whole plugin(s)" claim must not fire on findings= alone — the number it sits under is complete.
+        // property_contains= DOES make a count a subset of its own label, so there the claim stays.
+        Check("CLAIM-ONLY-WHEN-SUBSET: findings= alone lists the filter WITHOUT the not-the-whole-plugin claim; property_contains= alone keeps it",
+            objectsOnly.FilterNote is { } cf && cf.Contains("NARROWED to findings=", StringComparison.Ordinal)
+            && !cf.Contains("not the whole plugin(s)", StringComparison.Ordinal)
+            && byProp.FilterNote is { } pf && pf.Contains("property_contains=", StringComparison.Ordinal)
+            && pf.Contains("not the whole plugin(s)", StringComparison.Ordinal),
+            $"class-only=[{objectsOnly.FilterNote}] prop-only=[{byProp.FilterNote}]");
 
         // #288 review finding 5: counts_only used to return before the excluded-plugins block, so the header's bare
         // count was all you got and you had to re-run without counts_only to learn WHICH plugin went unchecked.

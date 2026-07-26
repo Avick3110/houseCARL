@@ -72,6 +72,9 @@ namespace HousecarlGenerator;
 ///                     narrowed; the plain claim returns when there is no plugin-level number to caveat (finding 3).
 ///   UNREAD-TRUNC-FLAG — a budget-cut counts_only json flags the shortened `unread` honesty list (finding 4).
 ///   COUNTS-ONLY-EXCLUDED-NAMED — counts_only text NAMES the unparseable plugins, not just the header count (finding 5).
+///   CLAIM-ONLY-WHEN-SCOPED — findings= alone lists the filter WITHOUT the not-the-whole-plugin claim: that total IS the
+///                     complete whole-order figure, so the claim would be false about the number it sits under. A record
+///                     scope brings the claim back (PR #288 RE-review, finding 3).
 ///
 /// OWNER FIXTURE (#207, its own order): HcCeMaster.esm also defines a Faction; HcCeOwner.esp masters [HcCeMaster, HcCeGhost]
 ///   and carries two owned containers — one owned by the PRESENT master's faction (rank -1 → must not dangle) and one owned by a
@@ -348,6 +351,17 @@ public static class CheckErrorsProbe
             JsonUnreadTruncated(unreadJson, expectTotal: 40)
             && JsonUnreadTruncated(JsonWire.RenderCheckErrors(manyUnread, 0), expectTotal: 40, expectTruncated: false),
             $"json head=[{unreadJson.Split('\n').FirstOrDefault(l => l.Contains("truncated", StringComparison.Ordinal))}]");
+
+        // #288 RE-REVIEW finding 3: findings= alone narrows which findings are COUNTED, not which records were swept —
+        // the dangling total under findings=["dangling"] IS the complete whole-order figure, so the
+        // "not the whole plugin(s)" claim would be false about the very number it sits under.
+        Check("CLAIM-ONLY-WHEN-SCOPED: findings= alone lists the filter WITHOUT the not-the-whole-plugin claim; a record scope brings it back",
+            danglingOnly.FilterNote is { } dNote
+            && dNote.Contains("NARROWED to findings=[dangling]", StringComparison.Ordinal)
+            && !dNote.Contains("not the whole plugin(s)", StringComparison.Ordinal)
+            && !dNote.Contains("PLUGIN-level", StringComparison.Ordinal)
+            && byFormid.FilterNote is { } sNote && sNote.Contains("NOT narrowed", StringComparison.Ordinal),
+            $"class-only=[{danglingOnly.FilterNote}] scoped=[{byFormid.FilterNote}]");
 
         // #288 review finding 5: counts_only text returned before the excluded-plugins block.
         var countsExcluded = countsOnly with

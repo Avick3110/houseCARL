@@ -79,10 +79,12 @@ public static class ScriptPropertyCheck
     {
         var propFilter = string.IsNullOrWhiteSpace(propertyContains) ? null : propertyContains.Trim();
         bool PropOk(string name) => propFilter is null || name.Contains(propFilter, StringComparison.OrdinalIgnoreCase);
-        // Every count this sweep reports (records-with-scripts, unbound, bound-but-null, unverifiable) is per-RECORD, so
-        // the blanket scope claim is accurate here — unlike check_errors, whose master count is plugin-level.
+        // Every count this sweep reports is per-RECORD, so the blanket claim needs no exemption clause here (unlike
+        // check_errors' plugin-level master count). It fires when a record scope OR property_contains= is in force —
+        // both make a reported count a SUBSET of its own label. A findings= class filter alone does not: each remaining
+        // number is complete for what it names, and an excluded class already renders "NOT CHECKED" (re-review finding 3).
         var filterNote = SweepFindings.FilterNote(
-            null,
+            recordScope is not null || propFilter is not null ? SweepFindings.ScopedCountsClaim : null,
             recordScope?.Label,
             SweepFindings.Describe(classes),
             propFilter is null ? null : $"property_contains='{propFilter}'");
@@ -123,9 +125,12 @@ public static class ScriptPropertyCheck
         int findingBudget = limit;
         bool capped = false;
         // counts_only=: the unbound-by-property-name tally, over EVERY unbound finding in scope (never limit-capped —
-        // the whole point is an exact before/after comparison). Built only in that mode, so the normal path's work is
-        // unchanged and a null histogram means "not computed", never "empty".
-        var histogram = countsOnly ? new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) : null;
+        // the whole point is an exact before/after comparison). Built only when a class that FEEDS it is actually being
+        // collected: with both unbound classes excluded nothing can ever be tallied, and an empty-but-present histogram
+        // would render "nothing to tally" for a count that was never taken — "not computed" reading as "nothing found",
+        // the twin of the check_errors case (re-review finding 1). Null means "not computed", never "empty".
+        bool tallyable = classes.HasFlag(ScriptFindingClass.UnboundObject) || classes.HasFlag(ScriptFindingClass.UnboundScalar);
+        var histogram = countsOnly && tallyable ? new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) : null;
 
         foreach (var plugin in targets)
         {
@@ -210,10 +215,13 @@ public static class ScriptPropertyCheck
 
                         // counts_only=: tally and move on — no per-record report is built at all, so the record ROSTER
                         // that overflowed the token cap (#282: 183 header lines for 1 requested finding) never forms.
-                        if (histogram is not null)
+                        // Gated on countsOnly, NOT on the histogram: with both unbound classes excluded the histogram is
+                        // deliberately null (above) and the roster must still not be built.
+                        if (countsOnly)
                         {
-                            foreach (var u in unbound)
-                                histogram[u.PropertyName] = histogram.TryGetValue(u.PropertyName, out var c) ? c + 1 : 1;
+                            if (histogram is not null)
+                                foreach (var u in unbound)
+                                    histogram[u.PropertyName] = histogram.TryGetValue(u.PropertyName, out var c) ? c + 1 : 1;
                             continue;
                         }
 
