@@ -596,6 +596,10 @@ static class JsonWire
             if (didNull) w.WriteNumber("bound_but_null", r.TotalNullObject); else w.WriteNull("bound_but_null");
             w.WriteNumber("unverifiable", r.TotalUnverifiable);   // never filterable — always a real count
             WriteStringArray(w, "classes_checked", ScriptClassNames(r.Classes));
+            // The property filter rides as DATA, not just prose in filter_note: `unbound` / `bound_but_null` count only
+            // matching findings, while `records_with_scripts` and `unverifiable` are plugin-wide regardless of it — a
+            // consumer needs to be able to read that asymmetry off the document (round-3 review).
+            WriteNullable(w, "property_contains", r.PropertyContains);
             WriteNullable(w, "filter_note", r.FilterNote);
             w.WriteBoolean("read_incomplete", r.ReadIncomplete);
             WriteExcluded(w, r.ExcludedPlugins);

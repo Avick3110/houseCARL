@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Mutagen.Bethesda;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Skyrim;
@@ -59,8 +60,12 @@ namespace HousecarlGenerator;
 ///                          gate landed on check_errors and not on this twin).
 ///   CAPPED-TAIL-CLASS-AWARE / -SYMMETRIC — the capped tail restates the totals, so it needs the header's class-awareness
 ///                          or a small limit= reintroduces the "0 unbound" the header dropped (re-review, finding 2).
-///   CLAIM-ONLY-WHEN-SUBSET — findings= alone lists the filter WITHOUT the not-the-whole-plugin claim (the number under
-///                          it is complete); property_contains= alone keeps the claim (re-review, finding 3).
+///   CLAIM-ONLY-WHEN-SCOPED — ONE claim rule: only a RECORD SCOPE carries the not-the-whole-plugin claim. Neither
+///                          findings= nor property_contains= does, because neither narrows every reported number
+///                          (re-review finding 3, extended by the round-3 review).
+///   PROP-FILTER-SELF-LABELS / -IN-JSON — since the claim is gone, the two counts property_contains= DOES narrow label
+///                          themselves ("N unbound matching 'x'"), while records-with-scripts and unverifiable stay
+///                          unlabelled and plugin-wide — the asymmetry that made the blanket claim false (round-3 review).
 ///   UNVERIFIABLE-SURVIVES-FILTER — under a filter matching NOTHING, wNoPex is STILL reported unverifiable. The
 ///                          load-bearing Q3 arm: that unread .pex might declare the very property being filtered for,
 ///                          so letting a filter hide it would turn "could not check" into a clean answer.
@@ -404,12 +409,39 @@ public static class ScriptPropertyCheckProbe
         // #288 RE-REVIEW finding 3: a class filter narrows which findings are COUNTED, not which records were swept, so
         // the "not the whole plugin(s)" claim must not fire on findings= alone — the number it sits under is complete.
         // property_contains= DOES make a count a subset of its own label, so there the claim stays.
-        Check("CLAIM-ONLY-WHEN-SUBSET: findings= alone lists the filter WITHOUT the not-the-whole-plugin claim; property_contains= alone keeps it",
+        // ROUND-3 review: property_contains= narrows the unbound and bound-but-null counts but NOT
+        // records-with-scripts (incremented before any property filtering) or unverifiable (never property-gated, by
+        // design). The blanket claim over those two was round-1 finding 3 again, one layer in — this arm previously
+        // asserted the claim WAS present and so pinned it. ONE claim rule now: record scope only.
+        Check("CLAIM-ONLY-WHEN-SCOPED: neither findings= nor property_contains= carries the not-the-whole-plugin claim; a record scope does",
             objectsOnly.FilterNote is { } cf && cf.Contains("NARROWED to findings=", StringComparison.Ordinal)
             && !cf.Contains("not the whole plugin(s)", StringComparison.Ordinal)
             && byProp.FilterNote is { } pf && pf.Contains("property_contains=", StringComparison.Ordinal)
-            && pf.Contains("not the whole plugin(s)", StringComparison.Ordinal),
-            $"class-only=[{objectsOnly.FilterNote}] prop-only=[{byProp.FilterNote}]");
+            && !pf.Contains("not the whole plugin(s)", StringComparison.Ordinal)
+            && byFormid.FilterNote is { } sf && sf.Contains("not the whole plugin(s)", StringComparison.Ordinal),
+            $"class-only=[{objectsOnly.FilterNote}] prop-only=[{byProp.FilterNote}] scoped=[{byFormid.FilterNote}]");
+
+        // …and because the claim is gone, the two counts property_contains= DOES narrow must say so themselves — while
+        // the two it does not narrow must stay unlabelled, or the label would assert a narrowing that never happened.
+        var propText = Wire.RenderScriptCheck(byProp, 0);
+        var propHeader = propText.Split('\n').Skip(1).FirstOrDefault() ?? "";
+        Check("PROP-FILTER-SELF-LABELS: unbound + bound-but-null carry \"matching 'myspell'\"; records-with-scripts and unverifiable do NOT (they are plugin-wide)",
+            propHeader.Contains("unbound matching 'myspell'", StringComparison.OrdinalIgnoreCase)
+            && propHeader.Contains("bound-but-null matching 'myspell'", StringComparison.OrdinalIgnoreCase)
+            && !propHeader.Contains("record(s) with scripts matching", StringComparison.OrdinalIgnoreCase)
+            && !propHeader.Contains("unverifiable matching", StringComparison.OrdinalIgnoreCase)
+            // records-with-scripts stays the FULL count — the number the claim used to misrepresent
+            && byProp.RecordsWithScripts == res.RecordsWithScripts
+            && byProp.TotalUnverifiable == res.TotalUnverifiable
+            && CheckErrorsProbe.JsonMatches(JsonWire.RenderScriptCheck(byProp, 0), "records_with_scripts", res.RecordsWithScripts),
+            $"header=[{propHeader}]");
+
+        Check("PROP-FILTER-IN-JSON: the property filter rides as DATA (property_contains), so a consumer can read which counts it narrowed",
+            JsonDocument.Parse(JsonWire.RenderScriptCheck(byProp, 0)).RootElement
+                .GetProperty("property_contains").GetString() == "myspell"
+            && JsonDocument.Parse(JsonWire.RenderScriptCheck(res, 0)).RootElement
+                .GetProperty("property_contains").ValueKind == JsonValueKind.Null,
+            "see the two json renders");
 
         // #288 review finding 5: counts_only used to return before the excluded-plugins block, so the header's bare
         // count was all you got and you had to re-run without counts_only to learn WHICH plugin went unchecked.
