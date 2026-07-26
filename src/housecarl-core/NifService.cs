@@ -211,30 +211,20 @@ public static class NifService
         // Each lighting value is reported ONLY if this block really reads it (see ReallyReads) — otherwise null, and
         // the renderer names it as unread. RGB, never RGBA: a lighting shader's emissive is a THREE-component colour
         // on disk, and the interface widens it to Color4, so its 4th component is a synthetic 0 that would render as
-        // "fully transparent emissive" — a fabricated value, the one thing worse than a missing one (Q3).
+        // "fully transparent emissive" — a fabricated value, the one thing worse than a missing one (Q3). Specular is
+        // a Color3 both on disk and on the interface, so it needs no such narrowing — the same RGB shape either way.
         var t = shader.GetType();
-        NifColor? Rgb3(string prop, Func<System.Numerics.Vector3> read)
-        {
-            if (!ReallyReads(t, prop)) return null;
-            var v = read();
-            return new NifColor(v.X, v.Y, v.Z);
-        }
+        NifColor? Rgb3(string prop, Func<NifColor> read) => ReallyReads(t, prop) ? read() : null;
         float? Scalar(string prop, Func<float> read) => ReallyReads(t, prop) ? read() : null;
 
-        NifColor? emissive = null;
-        if (ReallyReads(t, nameof(INiShader.EmissiveColor)))
-        {
-            var e = shader.EmissiveColor;
-            emissive = new NifColor(e.R, e.G, e.B);
-        }
         return new NifShader(
             blockType, game.ToString(), ShaderTypeName(shader, blockType, game),
             f1, f2,
-            emissive,
+            Rgb3(nameof(INiShader.EmissiveColor), () => { var e = shader.EmissiveColor; return new NifColor(e.R, e.G, e.B); }),
             Scalar(nameof(INiShader.EmissiveMultiple), () => shader.EmissiveMultiple),
             Scalar(nameof(INiShader.Glossiness), () => shader.Glossiness),
             Scalar(nameof(INiShader.SpecularStrength), () => shader.SpecularStrength),
-            Rgb3(nameof(INiShader.SpecularColor), () => shader.SpecularColor),
+            Rgb3(nameof(INiShader.SpecularColor), () => { var s = shader.SpecularColor; return new NifColor(s.R, s.G, s.B); }),
             Scalar(nameof(INiShader.Alpha), () => shader.Alpha));
     }
 
@@ -267,17 +257,20 @@ public static class NifService
     /// <summary>Whether <paramref name="blockType"/> REALLY reads <paramref name="property"/>, or merely inherits
     /// <see cref="INiShader"/>'s DEFAULT INTERFACE IMPLEMENTATION for it.
     ///
-    /// This is not defensive noise — it is a live upstream gap. In NiflySharp 1.0.0, <c>BSLightingShaderProperty</c>
-    /// overrides <c>EmissiveColor</c> but NOT <c>Glossiness</c>, <c>SpecularStrength</c>, <c>SpecularColor</c>,
-    /// <c>EmissiveMultiple</c> or <c>Alpha</c>; those fall through to the interface's stub, which returns a CONSTANT
-    /// (0, or 1 for Alpha) no matter what the mesh holds. The values are genuinely on disk — the block's private
-    /// fields round-trip a save/load intact — the library just doesn't surface them. Reporting the stub would be a
-    /// confident wrong number on every mesh: exactly the silent-wrong-answer the no-silent-failure rule forbids, and
-    /// the "fail loud about the library's delta, never silently around it" posture the coverage cornerstone names.
+    /// This is not defensive noise — it is a live upstream gap, and it MOVES between releases. In NiflySharp 1.0.0,
+    /// <c>BSLightingShaderProperty</c> overrode <c>EmissiveColor</c> but NOT <c>Glossiness</c>,
+    /// <c>SpecularStrength</c>, <c>SpecularColor</c>, <c>EmissiveMultiple</c> or <c>Alpha</c>. 1.1.0 (issue #287)
+    /// implements all five there — while <c>BSEffectShaderProperty</c> still answers <c>EmissiveColor</c>,
+    /// <c>SpecularColor</c>, <c>Glossiness</c>, <c>SpecularStrength</c>, <c>EmissiveMultiple</c> and <c>Alpha</c>
+    /// from the interface's default-implementation stub, which returns a CONSTANT (0, or 1 for Alpha) no matter what
+    /// the mesh holds. The values are genuinely on disk — the block's private fields round-trip a save/load intact —
+    /// the library just doesn't surface them for that block. Reporting the stub would be a confident wrong number on
+    /// every mesh carrying one: exactly the silent-wrong-answer the no-silent-failure rule forbids, and the "fail
+    /// loud about the library's delta, never silently around it" posture the coverage cornerstone names.
     ///
-    /// Doing it BY CONSTRUCTION rather than by a hand-kept list of "the five nifly stubs" means the day upstream
-    /// implements one, houseCARL starts reporting it with no code change — and if upstream ever stubs another, that
-    /// one goes quiet on its own instead of turning into a wrong answer.</summary>
+    /// Doing it BY CONSTRUCTION rather than by a hand-kept list of "nifly's stubs" is what let the 1.0.0 → 1.1.0 bump
+    /// start reporting five values with no change to this method: the day upstream implements one, houseCARL reports
+    /// it; the day upstream stubs one, that one goes quiet on its own instead of turning into a wrong answer.</summary>
     static bool ReallyReads(Type blockType, string property)
     {
         var real = RealReads.GetOrAdd(blockType, static t =>
@@ -910,10 +903,11 @@ public sealed record NifTexture(int Slot, string Path, string? SlotName = null);
 /// FaceTint, HairTint, Parallax, MultiLayerParallax, …) and is null for any block that does not serialize one — an
 /// effect shader reports NO type rather than a default-valued wrong one. <see cref="Flags1"/> / <see cref="Flags2"/>
 /// are null when the game layout carries no flag word this library names.
-/// <para>Every LIGHTING VALUE below is nullable, and null means "this library version does not read it off this block"
-/// — NOT "the mesh doesn't have it" (see <c>NifService.ReallyReads</c>: NiflySharp 1.0.0 answers several of them from
-/// an interface stub that returns a constant). The renderer names the unread ones explicitly, so a caller is never
-/// handed a stub value as if it were the mesh's.</para></summary>
+/// <para>Every LIGHTING VALUE below is nullable, and null means "this library version does not read it off THIS BLOCK
+/// TYPE" — NOT "the mesh doesn't have it" (see <c>NifService.ReallyReads</c>: NiflySharp answers several of them from
+/// an interface stub that returns a constant, and which ones moves between releases — 1.1.0 reads all of them off a
+/// BSLightingShaderProperty and none off a BSEffectShaderProperty). The renderer names the unread ones explicitly, so
+/// a caller is never handed a stub value as if it were the mesh's.</para></summary>
 public sealed record NifShader(
     string BlockType,
     string GameType,

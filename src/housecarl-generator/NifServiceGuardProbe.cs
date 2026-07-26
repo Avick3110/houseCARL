@@ -117,17 +117,21 @@ internal static class NifServiceGuardProbe
                           && Math.Abs(e.R - 0.25f) < 1e-6f && Math.Abs(e.G - 0.5f) < 1e-6f && Math.Abs(e.B - 0.75f) < 1e-6f,
                           "emissive colour round-trips exactly — "
                           + (sh.EmissiveColor is { } ec ? $"rgb({ec.R},{ec.G},{ec.B})" : "UNREAD (the override is gone?)"));
-                    // THE UPSTREAM-GAP ARM. Each scalar was authored to a DISTINCT non-zero value and each one
-                    // round-trips in the block's private field (proven by the fixture writing them) — yet NiflySharp
-                    // 1.0.0 answers Glossiness / SpecularStrength / SpecularColor / EmissiveMultiple / Alpha from
-                    // INiShader's default-interface STUB, which returns a constant. So houseCARL must report NOTHING
-                    // for them. An implementation that trusted the accessor would report "glossiness 0, alpha 1" for
-                    // every mesh in the world and pass any arm that only checked the field was populated.
-                    Check(sh.Glossiness is null && sh.SpecularStrength is null && sh.SpecularColor is null
-                          && sh.EmissiveMultiple is null && sh.Alpha is null,
-                          $"a value this library only STUBS is reported as unread, never as its constant — "
+                    // THE FORMER UPSTREAM-GAP ARM, FLIPPED (#287). Through NiflySharp 1.0.0 these five fell through to
+                    // INiShader's default-interface STUB, which returns a constant, so the arm asserted houseCARL
+                    // reported NOTHING for them. 1.1.0 implements all five on BSLightingShaderProperty, so the arm now
+                    // asserts the REAL round-tripped values — and it is the same tripwire read the other way: each was
+                    // authored to a value DISTINCT from the stub constant it replaced (0, or 1 for Alpha), so a
+                    // regression to the stub fails here loudly instead of printing a confident wrong number.
+                    Check(sh.Glossiness is { } gl && Math.Abs(gl - 30f) < 1e-6f
+                          && sh.SpecularStrength is { } sst && Math.Abs(sst - 1.5f) < 1e-6f
+                          && sh.EmissiveMultiple is { } em && Math.Abs(em - 2.5f) < 1e-6f
+                          && sh.Alpha is { } al && Math.Abs(al - 0.5f) < 1e-6f
+                          && sh.SpecularColor is { } spc
+                          && Math.Abs(spc.R - 1f) < 1e-6f && Math.Abs(spc.G - 0.5f) < 1e-6f && Math.Abs(spc.B - 0.25f) < 1e-6f,
+                          $"every lighting value round-trips its authored value, none of them the old stub constant — "
                           + $"glossiness={Fmt(sh.Glossiness)} specularStrength={Fmt(sh.SpecularStrength)} "
-                          + $"specularColor={(sh.SpecularColor is null ? "unread" : "REPORTED")} "
+                          + $"specularColor={(sh.SpecularColor is { } c ? $"rgb({c.R},{c.G},{c.B})" : "UNREAD (the override is gone?)")} "
                           + $"emissiveMultiple={Fmt(sh.EmissiveMultiple)} alpha={Fmt(sh.Alpha)}");
                 }
 
@@ -245,13 +249,47 @@ internal static class NifServiceGuardProbe
               "the shader section renders: block, TYPE, layout, decoded flag names, emissive values");
         // The index is KEPT alongside the name (nif_set's texture_slot= takes the index), and an undetermined slot
         // renders bare — the render half of the Q3 arm above.
-        // The unread values are NAMED in the render, so the gap is visible to the caller and not just absent.
-        Check(shRender.Contains("NOT READ by this NiflySharp version") && shRender.Contains("glossiness")
-              && shRender.Contains("alpha") && !shRender.Contains("glossiness 0") && !shRender.Contains("alpha 1"),
-              "the values this library only stubs are NAMED as unread, not printed as their constant");
+        // The read half of #287: on 1.1.0 every lighting value reaches the WIRE with its authored number, and the
+        // unread-caveat line is ABSENT because there is nothing left unread on this block. Both halves are asserted —
+        // a render that printed the values AND kept claiming they were unread would be a Q3 failure of its own.
+        Check(shRender.Contains("glossiness 30") && shRender.Contains("specular 1.5 rgb(1,0.5,0.25)")
+              && shRender.Contains("alpha 0.5") && shRender.Contains("emissive rgb(0.25,0.5,0.75) x2.5")
+              && !shRender.Contains("NOT READ by this NiflySharp version"),
+              "every lighting value reaches the render with its real number, and no unread caveat is left over");
         Check(shRender.Contains("tex[2] (SoftLighting): ") && shRender.Contains("tex[7] (Specular): ")
               && shRender.Contains("tex[4]: ") && !shRender.Contains("tex[4] ("),
               "named slots render as 'tex[N] (Name)' and an undetermined slot stays bare 'tex[N]'");
+
+        // ---- THE DECLINE ARM (#287): a block this library STILL stubs reports nothing, and says so ----
+        // The arm above proves ReallyReads says YES where upstream implements. This proves it says NO where upstream
+        // does not — on 1.1.0 a BSEffectShaderProperty answers all six lighting values from the interface stub. Delete
+        // the check, or make it answer true unconditionally, and THIS is the arm that fails; every other one stays
+        // green while houseCARL starts printing "glossiness 0, alpha 1" on every effect-shader mesh in the load order.
+        Console.WriteLine();
+        Console.WriteLine("--- a value this library STILL stubs is reported as unread, never as its constant ---");
+        var eff = NifService.Inspect(BuildSyntheticEffectShader());
+        Check(eff.Error is null && eff.Inspect is not null, $"the effect-shader mesh parses clean — {eff.Error ?? "ok"}");
+        var effSh = eff.Inspect?.Shapes.FirstOrDefault(s => s.Name == "EffectShape")?.Shader;
+        Check(effSh is { BlockType: "BSEffectShaderProperty", GameType: "SK", ShaderType: null },
+              $"the fixture really is an SK-layout effect shader, and it reports NO shader type — "
+              + $"{(effSh is null ? "(no shader)" : $"{effSh.BlockType}/{effSh.GameType}/{effSh.ShaderType ?? "(none)"}")}");
+        if (effSh is not null)
+        {
+            Check(effSh.EmissiveColor is null && effSh.EmissiveMultiple is null && effSh.Glossiness is null
+                  && effSh.SpecularStrength is null && effSh.SpecularColor is null && effSh.Alpha is null,
+                  "every lighting value this block only STUBS is reported as unread — "
+                  + $"emissive={(effSh.EmissiveColor is null ? "unread" : "REPORTED")} "
+                  + $"emissiveMultiple={Fmt(effSh.EmissiveMultiple)} glossiness={Fmt(effSh.Glossiness)} "
+                  + $"specularStrength={Fmt(effSh.SpecularStrength)} "
+                  + $"specularColor={(effSh.SpecularColor is null ? "unread" : "REPORTED")} alpha={Fmt(effSh.Alpha)}");
+            // And the gap is STATED on the wire, not merely absent from it — the caller has to be able to tell
+            // "we can't see it" from "the mesh says 0". The negative half pins that no stub constant leaked through.
+            var effRender = NifWire.Render(FakeData(eff.Inspect, null), wantShader, Array.Empty<string>(), 80_000);
+            Check(effRender.Contains("NOT READ by this NiflySharp version")
+                  && effRender.Contains("glossiness") && effRender.Contains("alpha")
+                  && !effRender.Contains("glossiness 0") && !effRender.Contains("alpha 1"),
+                  "the unread values are NAMED on the wire, and none of them printed as its constant");
+        }
 
         // ---- the unnamed-bit path (#255's posture, carried to the shader words) ----
         // Every flag word nifly names today (SLSF1/2, F4SPF1/2, BSShaderFlags1/2) covers all 32 bits, so a real mesh
@@ -384,6 +422,46 @@ internal static class NifServiceGuardProbe
         return new NifInspectBatchData(new[] { one }, bsaFailures ?? Array.Empty<string>(), Array.Empty<string>(), "Default");
     }
 
+    /// <summary>Author a minimal SE mesh whose one shape carries a <c>BSEffectShaderProperty</c> — the block NiflySharp
+    /// 1.1.0 still answers EVERY lighting value on from <see cref="INiShader"/>'s default-interface STUB. It is the
+    /// subject of the DECLINE arm, and it exists as its own fixture rather than as a second shape on the main one so
+    /// the census / block-count arms there stay pinned to what they were written for.
+    ///
+    /// Why it must exist at all: #287 flipped the main fixture's arm from "these five are reported as unread" to "these
+    /// five carry their real values", because 1.1.0 implements them on BSLightingShaderProperty. That left every arm in
+    /// this probe exercising only <c>ReallyReads</c>'s YES branch — so a change that deleted the check, or made it
+    /// answer true unconditionally, would go green here while making an effect shader report "glossiness 0, alpha 1" on
+    /// every such mesh in the world. That is the exact silent-wrong-answer #272 was built to prevent, so the NO branch
+    /// gets its own subject rather than riding on whatever upstream happens not to have implemented this month.</summary>
+    static byte[] BuildSyntheticEffectShader()
+    {
+        var ver = new NiVersion { FileVersion = NiVersion.ToFile("20.2.0.7"), UserVersion = 12, StreamVersion = 100 };
+        var f = new NifFile();
+        f.Create(ver, withRootNode: true);
+        var root = f.GetRootNodes().First();
+        root.Name = new NiStringRef("EffectRoot");
+        root.Flags_ui = 0xE;
+
+        var shape = new BSTriShape { Name = new NiStringRef("EffectShape"), Flags_ui = 0xE, Scale = 1f };
+        root.Children.AddBlockRef(f.AddBlock(shape));
+
+        // Authored on the SK layout so the block is read the same way the main fixture's is — the difference under
+        // test is the BLOCK TYPE, not the layout (that decline is the NOT-SKYRIM arm's job, and conflating the two
+        // would let either one pass for the wrong reason).
+        var shader = new BSEffectShaderProperty
+        {
+            Type = NiflySharp.Helpers.ShaderHelper.ShaderGameType.SK,
+            ShaderFlags_SSPF1 = NiflySharp.Enums.SkyrimShaderPropertyFlags1.Specular,
+            ShaderFlags_SSPF2 = NiflySharp.Enums.SkyrimShaderPropertyFlags2.ZBuffer_Write,
+            SourceTexture = new NiString4(@"textures\guard\effect.dds", false),
+        };
+        shape.ShaderPropertyRef = new NiBlockRef<BSShaderProperty>(f.AddBlock(shader));
+
+        using var ms = new MemoryStream();
+        if (f.Save(ms) != 0) throw new InvalidOperationException("nif-service-guard: authoring the synthetic effect-shader mesh failed to save");
+        return ms.ToArray();
+    }
+
     /// <summary>Author a minimal but genuine Skyrim SE mesh in-memory (the spike's CreateAndSave_SE recipe): an SE
     /// header, a 3-level NiNode tree with names + flags, and one BSTriShape carrying a name/flags/scale, two BSDismember
     /// partitions, and an alpha property. Every block is REFERENCED (parented / ref'd) so NiflySharp's save-time
@@ -427,6 +505,14 @@ internal static class NifServiceGuardProbe
                               | NiflySharp.Enums.SkyrimShaderPropertyFlags2.Double_Sided
                               | NiflySharp.Enums.SkyrimShaderPropertyFlags2.Soft_Lighting,
             EmissiveColor = new NiflySharp.Structs.Color4 { R = 0.25f, G = 0.5f, B = 0.75f, A = 1f },
+            // Each lighting scalar gets a DISTINCT non-zero value, so no arm below can pass on a coincidence with the
+            // constant (0, or 1 for Alpha) the interface stub used to hand back. Settable as plain properties since
+            // NiflySharp 1.1.0 (#287); before that the fixture had to reach the private backing fields.
+            EmissiveMultiple = 2.5f,
+            Glossiness = 30f,
+            SpecularStrength = 1.5f,
+            Alpha = 0.5f,
+            SpecularColor = new NiflySharp.Structs.Color3 { R = 1f, G = 0.5f, B = 0.25f },
         };
         var texSet = new BSShaderTextureSet
         {
@@ -440,14 +526,7 @@ internal static class NifServiceGuardProbe
             },
         };
         texSet.NumTextures = (uint)texSet.Textures.Count;
-        SetPrivate(shader, "_textureSet", new NiBlockRef<BSShaderTextureSet>(f.AddBlock(texSet)));
-        // The lighting scalars are serialized fields with no public setter, so the fixture writes them the same way.
-        // Without this they'd all author as 0 and the value arms would be unfalsifiable — a guard that cannot fail.
-        SetPrivate(shader, "_emissiveMultiple", 2.5f);
-        SetPrivate(shader, "_glossiness", 30f);
-        SetPrivate(shader, "_specularStrength", 1.5f);
-        SetPrivate(shader, "_alpha", 0.5f);
-        SetPrivate(shader, "_specularColor", new NiflySharp.Structs.Color3 { R = 1f, G = 0.5f, B = 0.25f });
+        shader.TextureSetRef = new NiBlockRef<BSShaderTextureSet>(f.AddBlock(texSet));
         shape.ShaderPropertyRef = new NiBlockRef<BSShaderProperty>(f.AddBlock(shader));
 
         var skin = new BSDismemberSkinInstance
@@ -466,18 +545,4 @@ internal static class NifServiceGuardProbe
         return ms.ToArray();
     }
 
-    /// <summary>Write one of NiflySharp's serialized-but-read-only shader fields, for the FIXTURE only. The texture-set
-    /// ref and every lighting scalar are populated on PARSE and exposed get-only (there is no NifFile helper to author
-    /// them), so a probe that needs a mesh carrying real shader values has to reach the backing field. Confined here —
-    /// product code only ever reads these — and it throws LOUD if a library update renames one, rather than quietly
-    /// authoring a shader full of zeros and leaving the value and slot-name arms passing vacuously (Q3: a guard that
-    /// cannot guard must say so, not go green).</summary>
-    static void SetPrivate(object block, string field, object value)
-    {
-        var f = block.GetType().GetField(field, System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
-            ?? throw new InvalidOperationException(
-                $"nif-service-guard: NiflySharp's {block.GetType().Name} no longer has a '{field}' field — the shader " +
-                "fixture needs updating before its arms mean anything (#272).");
-        f.SetValue(block, value);
-    }
 }
