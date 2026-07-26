@@ -1,7 +1,9 @@
+using System.Text.Json;
 using Mutagen.Bethesda;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Skyrim;
 using HousecarlCore;
+using HousecarlMcp;
 
 namespace HousecarlGenerator;
 
@@ -53,6 +55,17 @@ namespace HousecarlGenerator;
 ///                     master (the exemption drops ONLY the ambiguous rank word, never the owner reference).
 ///   OWNER-RANK-TOTAL    — exactly 1 dangling across the owner order (both chests' rank words exempt; only the broken owner form) —
 ///                     without the fix the same order totals 3 (two FFFFFF rank artifacts + the ghost owner).
+///   NARROW-FORMIDS  — formids=[one dangling SOURCE] narrows the sweep AND its totals to that record (#282).
+///   NARROW-EDITORID — editorid_contains= narrows case-insensitively to the other one.
+///   NARROW-TYPE     — type=NPC_ keeps both findings, type=RACE keeps none (the scope rides the record STREAM).
+///   NARROW-NOTE     — a narrowed result carries a FilterNote saying the counts are scope-relative; an unnarrowed one doesn't.
+///   CLASS-MASTERS-ONLY — findings=[missing_masters] skips the link walk; the render says dangling "NOT CHECKED", NOT 0
+///                     (a skipped check that reads as a clean one is the Q3 break this tool exists to catch).
+///   CLASS-DANGLING-ONLY — findings=[dangling] skips the master read; the render says missing masters "NOT CHECKED".
+///   CLASS-Q3        — an unrecognized findings= value fails LOUD, names the legal set, and says the unread class is unfilterable.
+///   COUNTS-ONLY     — counts_only=true keeps the totals exact, builds NO per-plugin body, and tallies dangling refs by TARGET plugin.
+///   COUNTS-ONLY-NOT-COMPUTED — a normal sweep leaves Histogram null: "not computed" ≠ "nothing found".
+///   JSON-PARITY     — format=json PARSES, agrees with the text totals, and emits null (not 0) for an unchecked class.
 ///
 /// OWNER FIXTURE (#207, its own order): HcCeMaster.esm also defines a Faction; HcCeOwner.esp masters [HcCeMaster, HcCeGhost]
 ///   and carries two owned containers — one owned by the PRESENT master's faction (rank -1 → must not dangle) and one owned by a
@@ -103,6 +116,7 @@ public static class CheckErrorsProbe
         var sub800Fk     = FormKey.Factory("000015:Skyrim.esm");  // a DIFFERENT sub-0x800 form — NOT whitelisted (MUST dangle: proves precision)
         var ghostOwnerFactionFk = FormKey.Factory("000D0F:HcCeGhost.esm");  // #207: an owner-faction id in the ABSENT master (proves OwnerData is still swept)
         FormKey masterRaceFk, ghostRaceFk, ownerFactionFk;
+        FormKey badGhostNpcFk, badDeadNpcFk;   // #282: the two dangling SOURCES, for the formids= / editorid_contains= scope arms
         try
         {
             var master = new SkyrimMod(new ModKey("HcCeMaster", ModType.Master), SkyrimRelease.SkyrimSE);
@@ -124,6 +138,7 @@ public static class CheckErrorsProbe
             var bad = new SkyrimMod(new ModKey("HcCeBad", ModType.Plugin), SkyrimRelease.SkyrimSE);
             var bGhost = bad.Npcs.AddNew(); bGhost.EditorID = "HcCeBadGhostNpc"; bGhost.Race.SetTo(ghostRaceFk);
             var bDead  = bad.Npcs.AddNew(); bDead.EditorID  = "HcCeBadDeadNpc";  bDead.Race.SetTo(deadFk);
+            badGhostNpcFk = bGhost.FormKey; badDeadNpcFk = bDead.FormKey;
             bad.BeginWrite.ToPath(badPath).WithLoadOrder(new ISkyrimModGetter[] { master, ghost }).Write();
 
             // PlayerRef whitelist fixture (HCBR checkerrors-playerref-dangling-false-positive). A stub Skyrim.esm base
@@ -208,6 +223,80 @@ public static class CheckErrorsProbe
             capped.TotalDangling == 2 && capped.Capped
             && capped.Reports.Count == 1 && capped.Reports[0].Dangling.Count == 1,
             $"total={capped.TotalDangling} capped={capped.Capped} collected={(capped.Reports.Count > 0 ? capped.Reports[0].Dangling.Count : -1)}");
+
+        // ---- #282: the record scope / class filter / counts_only knobs. ONE plugin was the narrowest scope the tool
+        //      had, and its whole per-plugin body overflowed the tool-result cap with no way to ask a smaller question. ----
+        var byFormid = ErrorCheck.Run(r, new[] { "HcCeBad.esp" }, 1000, null,
+            new SweepScope(new HashSet<FormKey> { badGhostNpcFk }, null, null, null));
+        Check("NARROW-FORMIDS: formids=[the ghost-ref NPC] narrows the sweep to that record — 1 dangling, and it is the ghost ref",
+            byFormid.Success && byFormid.TotalDangling == 1
+            && byFormid.Reports.Count == 1 && byFormid.Reports[0].Dangling.Single().Target == ghostRaceFk,
+            $"success={byFormid.Success} total={byFormid.TotalDangling} targets=[{string.Join(",", byFormid.Reports.SelectMany(p => p.Dangling).Select(d => d.Target.ToString()))}]");
+
+        var byEditorId = ErrorCheck.Run(r, new[] { "HcCeBad.esp" }, 1000, null,
+            new SweepScope(null, "deadnpc", null, null));   // case-insensitive by contract
+        Check("NARROW-EDITORID: editorid_contains='deadnpc' (case-insensitive) narrows to the dead-ref NPC — 1 dangling, the dead id",
+            byEditorId.Success && byEditorId.TotalDangling == 1
+            && byEditorId.Reports.Count == 1 && byEditorId.Reports[0].Dangling.Single().Target == deadFk,
+            $"success={byEditorId.Success} total={byEditorId.TotalDangling} targets=[{string.Join(",", byEditorId.Reports.SelectMany(p => p.Dangling).Select(d => d.Target.ToString()))}]");
+
+        var byNpcType = ErrorCheck.Run(r, null, 1000, null, new SweepScope(null, null, new[] { typeof(INpcGetter) }, "NPC_"));
+        var byRaceType = ErrorCheck.Run(r, null, 1000, null, new SweepScope(null, null, new[] { typeof(IRaceGetter) }, "RACE"));
+        Check("NARROW-TYPE: type=NPC_ keeps both dangling refs (both sources are NPCs); type=RACE keeps NONE — the scope rides the record STREAM",
+            byNpcType.Success && byNpcType.TotalDangling == 2 && byRaceType.Success && byRaceType.TotalDangling == 0,
+            $"npc={byNpcType.TotalDangling} race={byRaceType.TotalDangling}");
+
+        Check("NARROW-NOTE: a narrowed sweep carries a FilterNote saying the counts are scope-relative; an unnarrowed one carries none (Q3)",
+            byFormid.FilterNote is not null && byFormid.FilterNote.Contains("NARROWED", StringComparison.Ordinal)
+            && all.FilterNote is null,
+            $"narrowed=[{byFormid.FilterNote}] unnarrowed=[{all.FilterNote}]");
+
+        // findings= excluding 'dangling' must SKIP the link walk, and the render must say NOT CHECKED — not 0. A skipped
+        // check that renders as a clean one is precisely the Q3 break this tool exists to catch in other people's data.
+        var mastersOnly = ErrorCheck.Run(r, null, 1000, null, null, ErrorFindingClass.MissingMasters);
+        var mastersText = Wire.RenderCheckErrors(mastersOnly, 0);
+        Check("CLASS-MASTERS-ONLY: findings=[missing_masters] still finds HcCeGhost.esm, reports 0 dangling, and RENDERS dangling as 'NOT CHECKED' (never as 0)",
+            mastersOnly.Success && mastersOnly.TotalMissingMasters == 1 && mastersOnly.TotalDangling == 0
+            && !mastersOnly.Classes.HasFlag(ErrorFindingClass.Dangling)
+            && mastersText.Contains("dangling refs NOT CHECKED", StringComparison.Ordinal)
+            && !mastersText.Contains("0 dangling ref(s)", StringComparison.Ordinal),
+            $"missing={mastersOnly.TotalMissingMasters} dangling={mastersOnly.TotalDangling} header=[{mastersText.Split('\n').Skip(1).FirstOrDefault()}]");
+
+        var danglingOnly = ErrorCheck.Run(r, null, 1000, null, null, ErrorFindingClass.Dangling);
+        var danglingText = Wire.RenderCheckErrors(danglingOnly, 0);
+        Check("CLASS-DANGLING-ONLY: findings=[dangling] skips the master read (0 missing) and RENDERS missing masters as 'NOT CHECKED'",
+            danglingOnly.Success && danglingOnly.TotalDangling == 2 && danglingOnly.TotalMissingMasters == 0
+            && danglingOnly.Reports.All(p => p.MissingMasters.Count == 0)
+            && danglingText.Contains("missing masters NOT CHECKED", StringComparison.Ordinal),
+            $"dangling={danglingOnly.TotalDangling} missing={danglingOnly.TotalMissingMasters}");
+
+        Check("CLASS-Q3: an unrecognized findings= value fails LOUD, names the legal set, and says the unread class can't be filtered out",
+            !SweepFindings.TryParseErrorClasses(new[] { "danglign" }, out _, out var ceClassErr)
+            && ceClassErr is not null && ceClassErr.Contains("'dangling'", StringComparison.Ordinal)
+            && ceClassErr.Contains("missing_masters", StringComparison.Ordinal)
+            && ceClassErr.Contains("cannot be filtered out", StringComparison.Ordinal),
+            $"err=[{ceClassErr}]");
+
+        // counts_only=: exact totals + a dangling-by-TARGET-plugin histogram, with NO per-plugin body built at all.
+        var countsOnly = ErrorCheck.Run(r, null, 1000, null, null, ErrorFindingClass.All, countsOnly: true);
+        var histo = countsOnly.Histogram;
+        Check("COUNTS-ONLY: totals stay exact (2 dangling), NO per-plugin listing is built, and the histogram keys the refs by TARGET plugin",
+            countsOnly.Success && countsOnly.TotalDangling == 2 && countsOnly.CountsOnly
+            && countsOnly.Reports.Count == 0 && !countsOnly.Capped
+            && histo is not null && histo.Sum(h => h.Count) == 2
+            && histo.Any(h => h.Key.Equals("HcCeGhost.esm", StringComparison.OrdinalIgnoreCase) && h.Count == 1)
+            && histo.Any(h => h.Key.Equals("HcCeMaster.esm", StringComparison.OrdinalIgnoreCase) && h.Count == 1),
+            $"total={countsOnly.TotalDangling} reports={countsOnly.Reports.Count} histo=[{(histo is null ? "<null>" : string.Join(",", histo.Select(h => $"{h.Key}={h.Count}")))}]");
+
+        Check("COUNTS-ONLY-NOT-COMPUTED: a normal sweep leaves Histogram NULL — 'not computed' and 'nothing found' must not look alike (Q3)",
+            all.Histogram is null && !all.CountsOnly, $"histo={(all.Histogram is null ? "null" : all.Histogram.Count.ToString())}");
+
+        // The json twin must carry the same data off the same result object (D2) and stay parseable in BOTH modes.
+        Check("JSON-PARITY: format=json parses, reports the same dangling total, and emits null (not 0) for a class that was NOT checked",
+            JsonMatches(JsonWire.RenderCheckErrors(all, 0), "dangling", 2)
+            && JsonNull(JsonWire.RenderCheckErrors(mastersOnly, 0), "dangling")
+            && JsonHasHistogram(JsonWire.RenderCheckErrors(countsOnly, 0), "dangling_by_target_plugin"),
+            "see the three json renders");
 
         // ---- OFF-ORDER: a plugin FILE not in the order, swept via the offOrder lane (the pre-enable verify sweep of a
         //      patch houseCARL just wrote — HCBR-2026-07-14-02 gap 3). The fixture patch masters [Master, Ghost] and
@@ -330,5 +419,33 @@ public static class CheckErrorsProbe
         Console.WriteLine();
         Console.WriteLine(failures == 0 ? "check-errors-guard: ALL PASS" : $"check-errors-guard: {failures} FAILURE(S)");
         return failures == 0 ? 0 : 1;
+    }
+
+    // ---- #282 json-parity helpers: parse the emitted document, so a malformed render fails the guard rather than
+    //      passing a substring match. Shared with script-property-check-guard.
+    internal static bool JsonMatches(string json, string prop, int expected)
+    {
+        try { return JsonDocument.Parse(json).RootElement.TryGetProperty(prop, out var v) && v.GetInt32() == expected; }
+        catch { return false; }
+    }
+
+    internal static bool JsonNull(string json, string prop)
+    {
+        try
+        {
+            return JsonDocument.Parse(json).RootElement.TryGetProperty(prop, out var v)
+                && v.ValueKind == JsonValueKind.Null;
+        }
+        catch { return false; }
+    }
+
+    internal static bool JsonHasHistogram(string json, string prop)
+    {
+        try
+        {
+            return JsonDocument.Parse(json).RootElement.TryGetProperty(prop, out var h)
+                && h.TryGetProperty("rows", out var rows) && rows.GetArrayLength() > 0;
+        }
+        catch { return false; }
     }
 }

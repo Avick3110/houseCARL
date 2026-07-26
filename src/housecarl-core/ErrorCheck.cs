@@ -60,11 +60,30 @@ public static class ErrorCheck
     /// not in plugins.txt until the MO2 refresh, yet its pre-ship dangling-ref sweep is exactly when check_errors is
     /// wanted). Each is opened as its OWN overlay; its links resolve against the active order PLUS the file's own
     /// records (a patch's link to its own new record is not dangling), and a declared master absent from the active
-    /// order is a MISSING MASTER finding — same classes, same rendering, plus an OFF-ORDER stamp in the result.</para></summary>
+    /// order is a MISSING MASTER finding — same classes, same rendering, plus an OFF-ORDER stamp in the result.</para>
+    ///
+    /// <para>#282 — the narrowing knobs. <paramref name="recordScope"/> restricts WHICH records the link walk visits
+    /// (<see cref="SweepScope"/>: type at the stream, formids / editorid_contains per record), and
+    /// <paramref name="classes"/> restricts which error classes are looked for at all — excluding
+    /// <see cref="ErrorFindingClass.Dangling"/> SKIPS the per-record walk entirely, which is what makes "is any master
+    /// missing anywhere in my order" a master-table read instead of a full sweep. Both narrow the reported TOTALS as
+    /// well as the listing; <see cref="ErrorCheckResult.FilterNote"/> says so in words, and the render prints an
+    /// excluded class as "not checked", never as a zero (Q3 — a skipped check must not read as a clean one).
+    /// <paramref name="countsOnly"/> collects no per-plugin reports (bar scan errors) and returns a
+    /// dangling-by-TARGET-plugin <see cref="ErrorCheckResult.Histogram"/> — which plugin the broken refs point INTO,
+    /// the answer the per-plugin grouping never gave.</para></summary>
     public static ErrorCheckResult Run(LoadOrderResolver resolver, IReadOnlyList<string>? scope, int limit,
-                                       IReadOnlyList<(string Name, string Path)>? offOrder = null)
+                                       IReadOnlyList<(string Name, string Path)>? offOrder = null,
+                                       SweepScope? recordScope = null,
+                                       ErrorFindingClass classes = ErrorFindingClass.All, bool countsOnly = false)
     {
         var view = resolver.Capture();
+        bool wantDangling = classes.HasFlag(ErrorFindingClass.Dangling);
+        bool wantMasters = classes.HasFlag(ErrorFindingClass.MissingMasters);
+        var filterNote = SweepFindings.FilterNote(recordScope?.Label, SweepFindings.Describe(classes));
+        // counts_only=: the dangling-by-target-plugin tally, over EVERY dangling ref in scope (never limit-capped).
+        // Built only in that mode — a null histogram means "not computed", never "empty".
+        var histogram = countsOnly ? new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) : null;
 
         // --- resolve the plugin set to scan (Q3: a bad or excluded explicit scope name fails loud, never a silent skip). ---
         List<string> targets;
@@ -104,27 +123,38 @@ public static class ErrorCheck
             // Missing masters: a declared master not present in the active order (the dependency is not installed /
             // enabled). Read independently of the record walk so a record-walk fault still reports the master state.
             var missingMasters = new List<string>();
-            try
+            if (wantMasters)
             {
-                foreach (var m in view.DeclaredMasters(plugin))
-                    if (!view.ContainsPlugin(m)) missingMasters.Add(m);
+                try
+                {
+                    foreach (var m in view.DeclaredMasters(plugin))
+                        if (!view.ContainsPlugin(m)) missingMasters.Add(m);
+                }
+                catch (Exception ex) { scanError = $"could not read the master list: {ex.GetType().Name}: {ex.Message}"; }
+                missingMasters.Sort(StringComparer.OrdinalIgnoreCase);
             }
-            catch (Exception ex) { scanError = $"could not read the master list: {ex.GetType().Name}: {ex.Message}"; }
-            missingMasters.Sort(StringComparer.OrdinalIgnoreCase);
 
             var dangling = new List<DanglingRef>();
             int unscannable = 0;
             var unscannableSamples = new List<string>();
 
+            // findings= excluded 'dangling' ⇒ the per-record link walk is skipped WHOLESALE (the sweep's entire cost).
+            // The render must then print the dangling AND unscannable lines as "not checked" rather than 0 — a skipped
+            // check that reads as a clean one is the Q3 break this whole tool exists to avoid.
             try
             {
-                foreach (var (fk, _, body, _) in view.RecordsIn(new[] { plugin }, null))
+                foreach (var (fk, _, body, _) in wantDangling
+                             ? view.RecordsIn(new[] { plugin }, recordScope?.Types)
+                             : Enumerable.Empty<(FormKey, int, IMajorRecordGetter, string)>())
                 {
                     // PER-RECORD FAULT ISOLATION (twin of the cross_plugin_query scan, HCBR-2026-06-09-03):
                     // EnumerateFormLinks lazily parses subrecord content, so ONE record Mutagen can't parse is excluded
                     // + accounted, never an opaque whole-call abort and never a silent skip (Q3).
                     try
                     {
+                        // #282 record scope, tested BEFORE the deleted-record rule and the link walk — the two things
+                        // this sweep actually spends its time on.
+                        if (recordScope is not null && !recordScope.Matches(fk, body)) continue;
                         // A DELETED record links to nothing (#279 — the shared rule, see DeletedRecordRule): its
                         // content is not live, so none of its FormLinks can be a dangling reference, and an
                         // engine-authored deleted body can throw on the walk below and land here as an untyped
@@ -141,6 +171,7 @@ public static class ErrorCheck
                             ownerVarExempt ??= UntypedOwnerVariableData(body);      // #207: an UntypedOwner's VariableData word is a RequiredRank int (esp. -1 → FFFFFFFF), not a reference
                             if (ownerVarExempt.TryGetValue(target, out int rank) && rank > 0) { ownerVarExempt[target] = rank - 1; continue; }
                             totalDangling++;
+                            if (histogram is not null) { BumpTarget(histogram, target); continue; }   // counts_only=: tally, list nothing
                             if (danglingBudget > 0)
                             {
                                 dangling.Add(new DanglingRef(fk, RecordNaming.StripOverlay(body.GetType().Name), body.EditorID, target));
@@ -167,7 +198,16 @@ public static class ErrorCheck
             totalMissing += missingMasters.Count;
             totalUnscannable += unscannable;
 
-            if (dangling.Count > 0 || missingMasters.Count > 0 || unscannable > 0 || scanError is not null)
+            // counts_only=: the reports list carries the HONESTY LAYER only — a plugin whose records could not be read.
+            // Findings themselves live in the totals + histogram, so the render has no per-plugin body to size (and no
+            // second place where the two modes could drift).
+            if (countsOnly)
+            {
+                if (unscannable > 0 || scanError is not null)
+                    reports.Add(new PluginErrors(plugin, Array.Empty<DanglingRef>(), Array.Empty<string>(),
+                                                 unscannable, unscannableSamples, scanError));
+            }
+            else if (dangling.Count > 0 || missingMasters.Count > 0 || unscannable > 0 || scanError is not null)
                 reports.Add(new PluginErrors(plugin, dangling, missingMasters, unscannable, unscannableSamples, scanError));
         }
 
@@ -190,24 +230,33 @@ public static class ErrorCheck
                 {
                     ov = SkyrimMod.CreateFromBinaryOverlay(path, SkyrimRelease.SkyrimSE);
 
-                    foreach (var m in ov.ModHeader.MasterReferences)
-                        if (!view.ContainsPlugin(m.Master.FileName)) missingMasters.Add(m.Master.FileName);
-                    missingMasters.Sort(StringComparer.OrdinalIgnoreCase);
+                    if (wantMasters)
+                    {
+                        foreach (var m in ov.ModHeader.MasterReferences)
+                            if (!view.ContainsPlugin(m.Master.FileName)) missingMasters.Add(m.Master.FileName);
+                        missingMasters.Sort(StringComparer.OrdinalIgnoreCase);
+                    }
 
                     // Pass 1 — the file's OWN FormKeys: a link into a record this same file defines is satisfied the
                     // moment the plugin is enabled, so it must not read as dangling (the patch-links-its-own-new-record
                     // case). An enumeration abort leaves a PARTIAL set — named below, and pass 2 aborts the same way.
+                    // Deliberately NOT record-scoped (#282): a link into a record the file defines is satisfied whether
+                    // or not that record is inside the caller's scope, so scoping this set would manufacture dangling refs.
                     var selfKeys = new HashSet<FormKey>();
-                    try { foreach (var r in ov.EnumerateMajorRecords()) selfKeys.Add(r.FormKey); }
-                    catch (Exception ex) { scanError = $"record enumeration aborted partway: {ex.GetType().Name}: {ex.Message}"; }
+                    if (wantDangling)
+                    {
+                        try { foreach (var r in ov.EnumerateMajorRecords()) selfKeys.Add(r.FormKey); }
+                        catch (Exception ex) { scanError = $"record enumeration aborted partway: {ex.GetType().Name}: {ex.Message}"; }
+                    }
 
                     // Pass 2 — the link walk, per-record fault isolation (the active loop's exact contract).
                     try
                     {
-                        foreach (var rec in ov.EnumerateMajorRecords())
+                        foreach (var rec in wantDangling ? OffOrderRecords(ov, recordScope) : Enumerable.Empty<IMajorRecordGetter>())
                         {
                             try
                             {
+                                if (recordScope is not null && !recordScope.Matches(rec.FormKey, rec)) continue;   // #282
                                 if (DeletedRecordRule.HasNoLiveBody(rec)) continue;   // #279 — same rule as the active pass above
                                 if (rec is not IFormLinkContainerGetter flc) continue;
                                 Dictionary<FormKey, int>? ownerVarExempt = null;   // #207 (see UntypedOwnerVariableData)
@@ -221,6 +270,7 @@ public static class ErrorCheck
                                     ownerVarExempt ??= UntypedOwnerVariableData(rec);   // #207: RequiredRank int mis-exposed as a FormLink
                                     if (ownerVarExempt.TryGetValue(target, out int rank) && rank > 0) { ownerVarExempt[target] = rank - 1; continue; }
                                     totalDangling++;
+                                    if (histogram is not null) { BumpTarget(histogram, target); continue; }   // counts_only=
                                     if (danglingBudget > 0)
                                     {
                                         dangling.Add(new DanglingRef(rec.FormKey, RecordNaming.StripOverlay(rec.GetType().Name), rec.EditorID, target));
@@ -251,13 +301,38 @@ public static class ErrorCheck
                 totalMissing += missingMasters.Count;
                 totalUnscannable += unscannable;
 
-                if (dangling.Count > 0 || missingMasters.Count > 0 || unscannable > 0 || scanError is not null)
+                if (countsOnly)                                   // the honesty layer only — see the active loop above
+                {
+                    if (unscannable > 0 || scanError is not null)
+                        reports.Add(new PluginErrors(name, Array.Empty<DanglingRef>(), Array.Empty<string>(),
+                                                     unscannable, unscannableSamples, scanError));
+                }
+                else if (dangling.Count > 0 || missingMasters.Count > 0 || unscannable > 0 || scanError is not null)
                     reports.Add(new PluginErrors(name, dangling, missingMasters, unscannable, unscannableSamples, scanError));
             }
         }
 
         return new ErrorCheckResult(reports, targets.Count + offOrderScanned.Count, totalDangling, totalMissing,
-                                    totalUnscannable, capped, view.ExcludedPlugins, null, offOrderScanned);
+                                    totalUnscannable, capped, view.ExcludedPlugins, null, offOrderScanned,
+                                    filterNote, classes, histogram is null ? null : SweepFindings.Histogram(histogram),
+                                    countsOnly);
+    }
+
+    /// <summary>The off-order file's record stream, type-scoped when the caller asked for one (#282) — the overlay
+    /// counterpart of <c>RecordsIn</c>'s getter-type filter, so a <c>type=</c> scope costs nothing per skipped record on
+    /// this lane either.</summary>
+    static IEnumerable<IMajorRecordGetter> OffOrderRecords(ISkyrimModGetter ov, SweepScope? scope)
+        => scope?.Types is { Count: > 0 } types
+            ? types.SelectMany(t => ov.EnumerateMajorRecords(t, throwIfUnknown: true)).Cast<IMajorRecordGetter>()
+            : ov.EnumerateMajorRecords();
+
+    /// <summary>Bump the <c>counts_only=</c> dangling histogram for one broken target: keyed by the PLUGIN the target
+    /// form lives in, which is the diagnostic the per-source-plugin grouping never gave — "480 of these point into
+    /// SomeMissingMod.esp" names the one absent dependency behind a wall of findings.</summary>
+    static void BumpTarget(Dictionary<string, int> acc, FormKey target)
+    {
+        var key = target.ModKey.FileName.String;
+        acc[key] = acc.TryGetValue(key, out var c) ? c + 1 : 1;
     }
 
     /// <summary>Every FormKey carried in an <see cref="IUntypedOwnerGetter.VariableData"/> slot in <paramref name="body"/>,
@@ -319,7 +394,13 @@ public sealed record PluginErrors(
 /// <summary>The result of <see cref="ErrorCheck.Run"/>: the per-plugin reports (only plugins WITH findings; clean
 /// plugins are counted in <paramref name="PluginsScanned"/> but omitted), the sweep totals, whether the dangling list
 /// was capped at the caller's limit, the plugins the index build excluded as unparseable, and — on a Q3 scope error —
-/// a recoverable <see cref="Error"/> with no reports.</summary>
+/// a recoverable <see cref="Error"/> with no reports.
+/// <para><paramref name="FilterNote"/> (#282) names every narrowing the caller applied and states that the totals above
+/// are for that narrowed scope; null when nothing was narrowed. <paramref name="Classes"/> is the finding-class filter
+/// that was in force — the render reads it to print an EXCLUDED class as "not checked" instead of as a zero (a class
+/// nobody looked for must not read as a class that came back clean). <paramref name="Histogram"/> is the
+/// dangling-by-target-plugin tally, present ONLY under <paramref name="CountsOnly"/> (null = not computed, never "none
+/// found"), under which <paramref name="Reports"/> carries only plugins whose records could not be read.</para></summary>
 public sealed record ErrorCheckResult(
     IReadOnlyList<PluginErrors> Reports,
     int PluginsScanned,
@@ -329,7 +410,11 @@ public sealed record ErrorCheckResult(
     bool Capped,
     IReadOnlyDictionary<string, string> ExcludedPlugins,
     string? Error,
-    IReadOnlyList<string>? OffOrderScanned = null)
+    IReadOnlyList<string>? OffOrderScanned = null,
+    string? FilterNote = null,
+    ErrorFindingClass Classes = ErrorFindingClass.All,
+    IReadOnlyList<SweepCount>? Histogram = null,
+    bool CountsOnly = false)
 {
     public bool Success => Error is null;
     public static ErrorCheckResult Fail(string error) =>

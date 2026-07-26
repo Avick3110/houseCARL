@@ -2780,9 +2780,20 @@ public sealed class LoadOrderService : IDisposable
     /// (<see cref="LocatePluginFileOnDisk"/> — enabled, disabled, AND unlisted mod folders) and swept OFF-ORDER: its
     /// own overlay, links resolved against the active order + the file's own records. This is the pre-enable verify
     /// lane (HCBR-2026-07-14-02 gap 3) — the pre-ship dangling-ref sweep of a patch houseCARL just wrote, BEFORE the
-    /// MO2 refresh puts it in plugins.txt. A name found nowhere, or in several folders, still fails loud (Q3).</para></summary>
-    public ErrorCheckResult CheckErrors(IReadOnlyList<string>? plugins, int limit)
+    /// MO2 refresh puts it in plugins.txt. A name found nowhere, or in several folders, still fails loud (Q3).</para>
+    /// <para>#282 — the record-scope / class-filter / counts-only knobs are parsed here (a bad FormID, an unknown record
+    /// type, or an unrecognized finding class refuses the call BEFORE any sweep runs) and handed to the core as typed
+    /// values, so the self-contained guard drives the same narrowing the tool does.</para></summary>
+    public ErrorCheckResult CheckErrors(IReadOnlyList<string>? plugins, int limit,
+                                        IReadOnlyList<string>? formids = null, string? editoridContains = null,
+                                        string? type = null, IReadOnlyList<string>? findings = null,
+                                        bool countsOnly = false)
     {
+        var (recordScope, scopeErr) = BuildSweepScope(formids, editoridContains, type);
+        if (scopeErr is not null) return ErrorCheckResult.Fail(scopeErr);
+        if (!SweepFindings.TryParseErrorClasses(findings, out var classes, out var classErr))
+            return ErrorCheckResult.Fail(classErr!);
+
         if (plugins is { Count: > 0 })
         {
             var view = Resolver.Capture();
@@ -2807,9 +2818,41 @@ public sealed class LoadOrderService : IDisposable
                         "Enable the one you mean in MO2, or remove the duplicates.");
                 offOrder.Add((n, loc.Path!));
             }
-            return ErrorCheck.Run(Resolver, active, limit, offOrder.Count > 0 ? offOrder : null);
+            return ErrorCheck.Run(Resolver, active, limit, offOrder.Count > 0 ? offOrder : null,
+                                  recordScope, classes, countsOnly);
         }
-        return ErrorCheck.Run(Resolver, plugins, limit);
+        return ErrorCheck.Run(Resolver, plugins, limit, null, recordScope, classes, countsOnly);
+    }
+
+    /// <summary>Parse the two sweep tools' shared record-scope params (#282) into a <see cref="SweepScope"/>: FormID
+    /// tokens, an EditorID substring, and a record type resolved through the SAME TypeLookup cross_plugin_query uses.
+    /// Every malformed input is a NAMED refusal returned BEFORE the sweep starts (Q3 — never a scope that silently
+    /// matched nothing). Returns (null, null) when nothing was narrowed, so the unscoped path stays untouched.</summary>
+    (SweepScope? Scope, string? Error) BuildSweepScope(IReadOnlyList<string>? formids, string? editoridContains, string? type)
+    {
+        HashSet<FormKey>? keys = null;
+        if (formids is { Count: > 0 })
+        {
+            keys = new HashSet<FormKey>();
+            foreach (var raw in formids)
+            {
+                var t = raw?.Trim() ?? "";
+                if (t.Length == 0) return (null, "a blank entry in formids= — pass FormID tokens (e.g. '0BCC84:Skyrim.esm').");
+                try { keys.Add(FormKey.Factory(t)); }
+                catch (Exception ex) { return (null, $"bad FormID '{raw}' in formids=: {ex.Message}. Expected 'XXXXXX:Plugin.esp', e.g. '0BCC84:Skyrim.esm'."); }
+            }
+        }
+
+        IReadOnlyList<Type>? types = null;
+        var typeLabel = type?.Trim();
+        if (!string.IsNullOrEmpty(typeLabel))
+        {
+            try { types = ResolveTypeFilter(typeLabel); }
+            catch (ArgumentException ex) { return (null, ex.Message); }
+        }
+
+        var scope = new SweepScope(keys, editoridContains, types, typeLabel);
+        return (scope.IsEmpty ? null : scope, null);
     }
 
     // ---- script-property sweep (housecarl_validate_scripts) --------------------------------------------
@@ -2819,9 +2862,20 @@ public sealed class LoadOrderService : IDisposable
     /// <c>None</c> (housecarl_validate_scripts). Thin wiring over the core <see cref="ScriptPropertyCheck.Run"/>, which
     /// holds all the cross-check logic + Q3 teeth so the self-contained guard drives this same path over synthetic
     /// records + a planted .pex. Passes the live <see cref="Assets"/> resolver (the same one the dialogue validator and
-    /// facegen use) so a script's .pex is found loose OR BSA-packed. Read-only; composes existing primitives.</summary>
-    public ScriptCheckResult ValidateScripts(IReadOnlyList<string>? plugins, int limit)
-        => ScriptPropertyCheck.Run(Resolver, Assets, plugins, limit);
+    /// facegen use) so a script's .pex is found loose OR BSA-packed. Read-only; composes existing primitives.
+    /// <para>#282 — the record-scope / property-name / class-filter / counts-only knobs are parsed here (a bad FormID,
+    /// unknown record type, or unrecognized finding class refuses the call before any sweep runs).</para></summary>
+    public ScriptCheckResult ValidateScripts(IReadOnlyList<string>? plugins, int limit,
+                                             IReadOnlyList<string>? formids = null, string? editoridContains = null,
+                                             string? type = null, string? propertyContains = null,
+                                             IReadOnlyList<string>? findings = null, bool countsOnly = false)
+    {
+        var (recordScope, scopeErr) = BuildSweepScope(formids, editoridContains, type);
+        if (scopeErr is not null) return ScriptCheckResult.Fail(scopeErr);
+        if (!SweepFindings.TryParseScriptClasses(findings, out var classes, out var classErr))
+            return ScriptCheckResult.Fail(classErr!);
+        return ScriptPropertyCheck.Run(Resolver, Assets, plugins, limit, recordScope, propertyContains, classes, countsOnly);
+    }
 
     // ---- writes (§8.4 Beat C: housecarl_set_field / housecarl_bulk_apply) -------------------------------
 

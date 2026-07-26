@@ -8,6 +8,28 @@ when it changes.
 
 *Accumulating notes for the next cut — not yet released; `plugin.json` still reads the last shipped version.*
 
+**The two sweep tools can now be scoped, filtered, counted, and returned as JSON (#282).**
+`check_errors` and `validate_scripts` had exactly one scope knob between them — `plugins=` — and on a script-heavy
+plugin that was not enough to get an answer at all: ~183 scripted records render past the tool-result size cap, and
+`limit=` does not help because it caps *findings*, not the record roster, so even `limit=1` still printed a header line
+for all 183. Both tools now take a record scope — `type=` (applied at the record stream, so skipped records cost
+nothing), `formids=`, `editorid_contains=` — plus a `findings=` class filter, `counts_only=true`, and
+`format="json"`. `validate_scripts` additionally takes `property_contains=` for chasing one property across a plugin.
+On `validate_scripts`, `findings=["unbound_object"]` narrows to the HIGH silent-`None` class; on `check_errors`,
+`findings=["missing_masters"]` **skips the per-record link walk entirely**, turning "is any master missing anywhere in
+my order" from a full sweep into a master-table read.
+`counts_only=true` returns the exact totals plus a histogram and builds no per-record listing at all — unbound
+properties by NAME for `validate_scripts`, dangling refs by TARGET plugin for `check_errors` (which plugin the broken
+refs point *into*, i.e. the one absent dependency behind a wall of findings). It is the pass-to-pass comparison for a
+multi-pass edit: did this property's count drop, and did anything new appear.
+Narrowing narrows the **counts**, exactly as `plugins=` always did, and a narrowed response says so on its own line, so
+a scoped number can't be misread as a whole-plugin one. Two things are deliberately *not* filterable: unscannable
+records and unverifiable script attachments always report, under every filter — a suppressed "could not check" would
+read as a clean result, and an unreadable `.pex` may be the very one declaring the property you filtered for. An error
+class you excluded renders as `NOT CHECKED` (and `null` in JSON), never as `0`.
+Also fixed: the truncation notice on both tools advised *"scope `plugins=`"* — the one scope the caller had already
+applied. It now names the knobs that exist.
+
 **`nif_inspect` can read a shape's SHADER — `sections=shader`, plus named texture slots (#272).**
 The one question every visual diagnosis actually asks — *how is this shape shaded, and does it emit or scatter light?*
 — was unanswerable. `nif_inspect` reached the shader block only to hop to its texture set, then threw it away, so you
