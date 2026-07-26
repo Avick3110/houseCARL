@@ -228,8 +228,7 @@ public static class NifService
             emissive = new NifColor(e.R, e.G, e.B);
         }
         return new NifShader(
-            blockType, game.ToString(),
-            blockType == nameof(BSLightingShaderProperty) ? shader.ShaderType_SK_FO4.ToString() : null,
+            blockType, game.ToString(), ShaderTypeName(shader, blockType, game),
             f1, f2,
             emissive,
             Scalar(nameof(INiShader.EmissiveMultiple), () => shader.EmissiveMultiple),
@@ -237,6 +236,28 @@ public static class NifService
             Scalar(nameof(INiShader.SpecularStrength), () => shader.SpecularStrength),
             Rgb3(nameof(INiShader.SpecularColor), () => shader.SpecularColor),
             Scalar(nameof(INiShader.Alpha), () => shader.Alpha));
+    }
+
+    /// <summary>The shader's TYPE enum name, or null when this block doesn't carry one we can read honestly.
+    ///
+    /// TWO independent ways to get this wrong, and both produce a confident DEFAULT rather than a blank:
+    ///   • WRONG BLOCK — a BSEffectShaderProperty never serializes a shader type at all, but the property sits on the
+    ///     shared base, so reading it there yields 0 → a confident "Default".
+    ///   • WRONG FIELD — the type property is LAYOUT-DISPATCHED, not shared. A block read as FO76/SF answers its real
+    ///     type on <c>ShaderType_FO76_SF</c> while <c>ShaderType_SK_FO4</c> reads 0 ("Default"); on an SK block the
+    ///     reverse holds and <c>ShaderType_FO76_SF</c> is garbage. So the field must be picked by the LAYOUT, which is
+    ///     what the block was actually parsed as — not by the block's type name (review of PR #286).
+    /// A layout with no type field of its own reports null, and the renderer says so plainly.</summary>
+    static string? ShaderTypeName(INiShader shader, string blockType, ShaderHelper.ShaderGameType game)
+    {
+        if (blockType == nameof(BSEffectShaderProperty)) return null;   // serializes no shader type on any layout
+        return game switch
+        {
+            ShaderHelper.ShaderGameType.SK or ShaderHelper.ShaderGameType.FO4 => shader.ShaderType_SK_FO4.ToString(),
+            ShaderHelper.ShaderGameType.FO76SF => shader.ShaderType_FO76_SF.ToString(),
+            ShaderHelper.ShaderGameType.FO3NV => shader.ShaderType_FO3_NV.ToString(),
+            _ => null,
+        };
     }
 
     // Which INiShader value accessors a concrete shader block ACTUALLY implements — cached per block type (a mesh has
@@ -308,10 +329,20 @@ public static class NifService
     /// flag or type that decides it, in the same posture as <c>effect_chain</c>.
     ///
     /// Q3 — returns NULL rather than a best guess whenever the deciding flag/type isn't set. An unnamed slot renders
-    /// as bare <c>tex[N]</c>: "this shader doesn't tell us", never a confident wrong label. The conditions are read
-    /// through nifly's own <c>Has*</c>/<c>IsType*</c> helpers, which resolve against whichever game's flag word the
-    /// block actually carries — so this doesn't hard-code Skyrim's bit positions either.</summary>
-    internal static string? SlotName(int slot, INiShader shader) => slot switch
+    /// as bare <c>tex[N]</c>: "this shader doesn't tell us", never a confident wrong label.
+    ///
+    /// SKYRIM LAYOUT ONLY, and that gate is load-bearing rather than tidiness. The conditions read nifly's
+    /// <c>Has*</c>/<c>IsType*</c> helpers, which DISPATCH on the block's game layout — and for a layout where nifly
+    /// doesn't model the concept they return <c>true</c> unconditionally, not false. On an FO4-layout block with an
+    /// all-zero flag word <c>HasSoftlight</c>, <c>HasBacklight</c> and <c>Parallax</c> are all true; on FO3NV every
+    /// one of the seven helpers is. Left ungated, slots 2/3/7 (and on FO3NV 4/5) would take a confident label derived
+    /// from nothing the mesh carries — precisely the plausible-wrong-label this interpreter exists to refuse, and it
+    /// would ride <c>sections=paths</c> and <c>sections=shapes</c> too. nif_inspect reads non-SE meshes on purpose
+    /// (an unconverted FO4 mesh shipped inside a Skyrim mod is a thing people bring here), so this is reachable, not
+    /// theoretical. These slot semantics are a SKYRIM engine convention; on any other layout the honest answer is
+    /// that we don't model it. (Review of PR #286.)</summary>
+    internal static string? SlotName(int slot, INiShader shader) =>
+        shader.Type != ShaderHelper.ShaderGameType.SK ? null : slot switch
     {
         0 => "Diffuse",                                          // universal across every shader type
         1 => "Normal",                                           // universal (model-space when the MSN flag is set — the flag list says which)

@@ -304,14 +304,20 @@ surfacing that limit IS the Q3-honest move.
 ## 6. Embedded `.nif` texture references — now READABLE *and* WRITABLE
 
 The head `.nif`'s `BSShaderTextureSet` carries TWO logically distinct texture references in ONE block.
-**`housecarl_nif_inspect` READS both** (as `tex[<slot>]: <path>` under `sections=paths` / `shapes`;
+**`housecarl_nif_inspect` READS both** (as `tex[<slot>] (<Name>): <path>` under `sections=paths` / `shapes`;
 the slot number it prints is the **binary** index), and **`housecarl_nif_set set_path` REWRITES either**
 (pass `texture_slot` + the new `path`; verified before it lands) — both the old "can read neither" and the
 "can read, can't write" boundaries are retired:
 
+> **The `(<Name>)` is derived, the number is addressable.** The name comes from the shape's SHADER — its type
+> plus its SLSF flags (`sections=shader`), not from the index, because slot 2 is glow *or* skin-subsurface *or*
+> soft-lighting and slot 7 backlight *or* specular depending on them. A slot the shader doesn't determine prints
+> bare (`tex[4]:`), and on a non-Skyrim layout no slot is named at all. Always pass `nif_set` the **number**.
+
 1. **The per-NPC FaceTint `.dds`** — **binary slot 6** (NifSkope slot 7, the subsurface/tint slot). This is
-   the FaceGenEslify target. `nif_inspect` prints it as `tex[6]: …\facetint\<DefiningMaster>\<00…ID>.dds` —
-   e.g. the real Lucien read: `tex[6]: textures\...\facetint\lucien.esp\00005900.dds` — and `nif_set
+   the FaceGenEslify target. `nif_inspect` prints it as `tex[6] (TintMask): …\facetint\<DefiningMaster>\<00…ID>.dds`
+   — e.g. the real Lucien read: `tex[6] (TintMask): textures\...\facetint\lucien.esp\00005900.dds` (the head's
+   shader type is `FaceTint`, which is what names the slot) — and `nif_set
    op=set_path target=<shape> texture_slot=6 path=<new>` rewrites it.
 2. **The base SKIN texture set** — race/body diffuse (`tex[0]`), normal (`tex[1]`), etc. This is the NPC
    Facegen Patcher target (it rewrites skin slots `fti-6, fti-5, fti-4, fti-3, fti+1` and deliberately
