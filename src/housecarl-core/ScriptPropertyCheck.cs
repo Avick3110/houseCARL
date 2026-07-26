@@ -79,12 +79,16 @@ public static class ScriptPropertyCheck
     {
         var propFilter = string.IsNullOrWhiteSpace(propertyContains) ? null : propertyContains.Trim();
         bool PropOk(string name) => propFilter is null || name.Contains(propFilter, StringComparison.OrdinalIgnoreCase);
-        // Every count this sweep reports is per-RECORD, so the blanket claim needs no exemption clause here (unlike
-        // check_errors' plugin-level master count). It fires when a record scope OR property_contains= is in force —
-        // both make a reported count a SUBSET of its own label. A findings= class filter alone does not: each remaining
-        // number is complete for what it names, and an excluded class already renders "NOT CHECKED" (re-review finding 3).
+        // ONE claim rule: the subset claim fires for a RECORD SCOPE and nothing else, because a record scope is the only
+        // narrowing here that touches every reported number. property_contains= does NOT qualify — it narrows the unbound
+        // and bound-but-null counts but leaves RecordsWithScripts (incremented before any property filtering) and
+        // TotalUnverifiable (deliberately never property-gated, so an unread .pex can't be filtered into a false clean)
+        // at their full plugin-wide values (round-3 review). Those two numbers under a blanket subset claim is the same
+        // defect as round-1 finding 3. Instead of a third bespoke claim clause, the two counts property_contains= DOES
+        // narrow now SELF-LABEL in the header — the same way an excluded findings= class self-labels "NOT CHECKED" — so
+        // every number states its own scope and one claim rule covers the sweep.
         var filterNote = SweepFindings.FilterNote(
-            recordScope is not null || propFilter is not null ? SweepFindings.ScopedCountsClaim : null,
+            recordScope is not null ? SweepFindings.ScopedCountsClaim : null,
             recordScope?.Label,
             SweepFindings.Describe(classes),
             propFilter is null ? null : $"property_contains='{propFilter}'");
@@ -256,7 +260,7 @@ public static class ScriptPropertyCheck
         return new ScriptCheckResult(reports, targets.Count, recordsWithScripts, totalUnbound, totalNull,
                                      totalUnverifiable, capped, av.ReadIncomplete, view.ExcludedPlugins, null,
                                      filterNote, histogram is null ? null : SweepFindings.Histogram(histogram), countsOnly,
-                                     classes, totalUnboundObject, totalUnboundScalar);
+                                     classes, totalUnboundObject, totalUnboundScalar, propFilter);
     }
 
     /// <summary>Every script attachment on the record: the adapter's own <see cref="IAVirtualMachineAdapterGetter.Scripts"/>
@@ -427,7 +431,11 @@ public sealed record RecordScriptFindings(
 /// renders read these to report an EXCLUDED class as not-checked rather than as a 0 — a class nobody looked for must not
 /// read as a class that came back clean, which is the same rule <see cref="ErrorCheckResult.Classes"/> serves for the
 /// integrity sweep (PR #288 review, finding 1). <paramref name="TotalUnbound"/> stays the sum of the classes that WERE
-/// checked.</para></summary>
+/// checked.</para>
+/// <para><paramref name="PropertyContains"/> is the property-name filter that was in force, carried so the renders can
+/// LABEL the two counts it narrows (unbound, bound-but-null) — <paramref name="RecordsWithScripts"/> and
+/// <paramref name="TotalUnverifiable"/> are NOT narrowed by it and stay plugin-wide, which is why they carry no label
+/// and why a blanket "everything below is narrowed" claim would be false (PR #288 round-3 review).</para></summary>
 public sealed record ScriptCheckResult(
     IReadOnlyList<RecordScriptFindings> Reports,
     int PluginsScanned,
@@ -444,7 +452,8 @@ public sealed record ScriptCheckResult(
     bool CountsOnly = false,
     ScriptFindingClass Classes = ScriptFindingClass.All,
     int TotalUnboundObject = 0,
-    int TotalUnboundScalar = 0)
+    int TotalUnboundScalar = 0,
+    string? PropertyContains = null)
 {
     public bool Success => Error is null;
     public static ScriptCheckResult Fail(string error) =>

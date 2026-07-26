@@ -22,12 +22,13 @@ my order" from a full sweep into a master-table read.
 properties by NAME for `validate_scripts`, dangling refs by TARGET plugin for `check_errors` (which plugin the broken
 refs point *into*, i.e. the one absent dependency behind a wall of findings). It is the pass-to-pass comparison for a
 multi-pass edit: did this property's count drop, and did anything new appear.
-A **record** scope narrows the **counts**, exactly as `plugins=` always did, and the response says so on its own line, so
-a scoped number can't be misread as a whole-plugin one. That claim is made precisely rather than blanket-fashion, in both
-directions: a `findings=` class filter does *not* trigger it, because each number it leaves standing is complete for what
-it names (`check_errors findings=["dangling"]` reports the true whole-order dangling total); and `check_errors`'
-missing-master count comes off the plugin's master *table*, so a record scope cannot narrow it — under a record scope the
-response marks that number plugin-level explicitly instead of sweeping it into the claim.
+**Every number states its own scope.** A **record** scope narrows all of a sweep's counts, exactly as `plugins=` always
+did, and the response says so on its own line. Nothing else carries that blanket claim, because nothing else narrows
+*every* number: a `findings=` class filter self-labels instead (an excluded class reads `NOT CHECKED`), and
+`property_contains=` labels the two counts it does narrow — `4 unbound matching 'MySpell'` — while records-with-scripts
+and unverifiable stay plugin-wide and unlabelled, because it does not narrow them. `check_errors`' missing-master count
+comes off the plugin's master *table*, so even a record scope cannot narrow it; there the response marks that one number
+plugin-level explicitly rather than sweeping it into the claim.
 Two things are deliberately *not* filterable: unscannable records and unverifiable script attachments always report,
 under every filter — a suppressed "could not check" would read as a clean result, and an unreadable `.pex` may be the
 very one declaring the property you filtered for. A finding class you excluded renders as `NOT CHECKED` (and `null` in

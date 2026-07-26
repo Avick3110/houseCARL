@@ -1002,16 +1002,24 @@ static class Wire
 
     /// <summary>The unbound total, spelled so it can never claim a class nobody checked. ONE definition, used by both
     /// the header and the capped tail — the tail restating the numbers in its own words is how "0 unbound" survived the
-    /// header fix (re-review finding 2).</summary>
+    /// header fix (re-review finding 2).
+    /// <para>It also carries the <c>property_contains=</c> label when one is in force, so this number states its own
+    /// scope rather than leaning on a blanket claim the sweep's other counts would not satisfy (round-3 review).</para></summary>
     static string UnboundTotalText(ScriptCheckResult r, bool didObject, bool didScalar)
         => !didObject && !didScalar ? "unbound NOT CHECKED (findings= excluded both unbound classes)"
-         : didObject && didScalar   ? $"{r.TotalUnbound} unbound"
-         : didObject                ? $"{r.TotalUnboundObject} unbound (object only — unbound_scalar NOT CHECKED)"
-                                    : $"{r.TotalUnboundScalar} unbound (scalar only — unbound_object NOT CHECKED)";
+         : didObject && didScalar   ? $"{r.TotalUnbound} unbound{PropLabel(r)}"
+         : didObject                ? $"{r.TotalUnboundObject} unbound{PropLabel(r)} (object only — unbound_scalar NOT CHECKED)"
+                                    : $"{r.TotalUnboundScalar} unbound{PropLabel(r)} (scalar only — unbound_object NOT CHECKED)";
 
     /// <summary>The bound-but-null total, same contract as <see cref="UnboundTotalText"/>.</summary>
     static string NullTotalText(ScriptCheckResult r, bool didNull)
-        => didNull ? $"{r.TotalNullObject} bound-but-null" : "bound-but-null NOT CHECKED (findings= excluded 'bound_null')";
+        => didNull ? $"{r.TotalNullObject} bound-but-null{PropLabel(r)}"
+                   : "bound-but-null NOT CHECKED (findings= excluded 'bound_null')";
+
+    /// <summary>The per-number <c>property_contains=</c> label, on exactly the two counts that filter narrows. Absent
+    /// from records-with-scripts and unverifiable, which it does not narrow — that asymmetry is the whole point.</summary>
+    static string PropLabel(ScriptCheckResult r)
+        => r.PropertyContains is null ? "" : $" matching '{r.PropertyContains}'";
 
     static void AppendScriptCheckBoundary(StringBuilder sb)
         => sb.Append("\nboundary: checks Auto (CK-editable) properties across the extends chain — not code-driven full ")
