@@ -222,6 +222,19 @@ internal static class NifServiceGuardProbe
               "NOT-SKYRIM — every slot is UNNAMED on a non-SK layout, including the ones nifly's helpers answer "
               + $"'true' for — [{string.Join(", ", fo4Shape?.Textures.Select(t => $"tex[{t.Slot}]{(t.SlotName is null ? "" : " (" + t.SlotName + ")")}") ?? Array.Empty<string>())}]");
 
+        // The decline must reach the WIRE, not just the data model: a bare tex[2] on an SK mesh means "this shader
+        // doesn't determine slot 2", and on an FO4 mesh it means "we don't model this layout" — byte-identical output,
+        // opposite meanings. The header's [NOT an SE stream] marker can't disambiguate them either, since an LE mesh
+        // trips it yet still parses as SK and DOES get named slots (re-review of PR #286).
+        var fo4Sections = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "shader", "paths", "shapes" };
+        var fo4Render = NifWire.Render(FakeData(fo4.Inspect, null), fo4Sections, Array.Empty<string>(), 80_000);
+        Check(fo4Render.Contains("NOT DERIVED for this block") && fo4Render.Contains("unmodelled, not undetermined")
+              && System.Text.RegularExpressions.Regex.Matches(fo4Render, "NOT DERIVED").Count >= 3,
+              "NOT-SKYRIM-RENDER — the decline is STATED in the shader section and caveated on both slot-listing sections");
+        var skRender = NifWire.Render(FakeData(outcome.Inspect, null), fo4Sections, Array.Empty<string>(), 80_000);
+        Check(!skRender.Contains("NOT DERIVED"),
+              "NOT-SKYRIM-RENDER — an ordinary Skyrim mesh carries none of that noise");
+
         // ---- shader section + named slots reach the RENDER, not just the data model (#272) ----
         var wantShader = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "shader", "paths" };
         var shRender = NifWire.Render(FakeData(outcome.Inspect, null), wantShader, Array.Empty<string>(), 80_000);
