@@ -20,7 +20,7 @@ the wrong buffer, a file-handle leak, block-array resizing). Every mesh read and
 code. Nothing in the tool surface changed shape — the shader section detects which values the library genuinely reads
 by inspecting the library, so the five started reporting with no change to the reporting logic, and an effect shader
 (where upstream still stubs them) correctly keeps saying so.
-**One value is withheld on purpose, and it is a scope decision rather than a library one.** On a mesh read as another
+**One group of values is withheld on purpose, and it is a scope decision rather than a library one.** On a mesh read as another
 game's layout — an unconverted Fallout 4 or Fallout 3 mesh shipped inside a Skyrim mod — houseCARL now declines *all*
 the lighting values and says so. The reason is that some of these accessors read a field the other layout's stream
 never carried, and answer a fixed constant rather than the mesh's own number (glossiness on a lighting shader is the
