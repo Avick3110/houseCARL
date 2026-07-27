@@ -148,6 +148,98 @@ internal static class NifSetGuardProbe
             Check(real is null, $"gate 2 PASSES when read-back matches the request — {real ?? "ok"}");
         }
 
+        // ---- set_shader_value (#291): the six lighting values, gated on the BLOCK's own setter ----
+        Console.WriteLine();
+        Console.WriteLine("--- set_shader_value: writes where the block really carries the value, refuses loud where it doesn't ---");
+        {
+            var shBytes = BuildShaderSe();
+
+            // The DETECTION FACT this whole op rests on, pinned first (#291). The read gate (ReallyReads) walks the
+            // INiShader interface map; that CANNOT answer writability, because the interface declares all six
+            // GET-ONLY — there is no set_ accessor to find, so an interface-map write gate would refuse everything.
+            // If upstream ever adds interface setters, this arm fires and the write gate should be revisited.
+            var noIfaceSetters = new[] { "EmissiveColor", "EmissiveMultiple", "Glossiness", "SpecularStrength", "SpecularColor", "Alpha" }
+                .All(n => typeof(INiShader).GetProperty(n) is { CanWrite: false });
+            Check(noIfaceSetters, "INiShader still declares all six lighting values GET-ONLY — the reason the write gate reflects the CONCRETE block, not the interface map");
+
+            // The gate itself, on both branches. These are the two facts the refusal messages assert.
+            Check(NifService.ReallyWrites(typeof(BSLightingShaderProperty), "Glossiness") == (true, 1)
+                  && NifService.ReallyWrites(typeof(BSLightingShaderProperty), "SpecularColor") == (true, 3),
+                  "ReallyWrites says YES on BSLightingShaderProperty, with the component count read off the property TYPE (scalar 1 / colour 3)");
+            Check(NifService.ReallyWrites(typeof(BSEffectShaderProperty), "Glossiness") == (false, 0)
+                  && NifService.ReallyWrites(typeof(BSEffectShaderProperty), "Alpha") == (false, 0),
+                  "ReallyWrites says NO on BSEffectShaderProperty — the block whose accessor is the interface stub (a write there would silently no-op)");
+
+            // YES branch — every one of the six writes, survives the save/reload, and reads back as the NEW value.
+            // Each expected value is distinct from BOTH the fixture's authored value and the block's constructor
+            // default, so neither a dropped write nor a stub constant can pass.
+            foreach (var (name, nums, read) in new (string, float[], Func<NifShader, string>)[]
+            {
+                ("glossiness",        new[] { 55f },              s => Fmt2(s.Glossiness)),
+                ("specular_strength", new[] { 3.25f },            s => Fmt2(s.SpecularStrength)),
+                ("emissive_multiple", new[] { 7.5f },             s => Fmt2(s.EmissiveMultiple)),
+                ("alpha",             new[] { 0.125f },           s => Fmt2(s.Alpha)),
+                ("emissive_color",    new[] { 0.1f, 0.2f, 0.3f }, s => Rgb2(s.EmissiveColor)),
+                ("specular_color",    new[] { 0.4f, 0.6f, 0.8f }, s => Rgb2(s.SpecularColor)),
+            })
+            {
+                var o = NifService.Set(shBytes, new[] { new NifSetOp(NifSetOpKind.SetShaderValue, "LitShape", ShaderValue: name, ShaderNumbers: nums) });
+                var sh = ShapeOf(o.WrittenBytes, "LitShape")?.Shader;
+                string want = nums.Length == 1 ? Fmt2(nums[0]) : $"rgb({Fmt2(nums[0])},{Fmt2(nums[1])},{Fmt2(nums[2])})";
+                Check(o.Error is null && sh is not null && read(sh) == want,
+                      $"set_shader_value {name} -> {want} lands and reads back — {(o.Error ?? (sh is null ? "(no shader)" : read(sh)))}");
+            }
+
+            // A write changes ONLY the value it names — the other five survive untouched.
+            {
+                var o = NifService.Set(shBytes, new[] { new NifSetOp(NifSetOpKind.SetShaderValue, "LitShape", ShaderValue: "glossiness", ShaderNumbers: new[] { 55f }) });
+                var sh = ShapeOf(o.WrittenBytes, "LitShape")?.Shader;
+                Check(sh is not null && Fmt2(sh.SpecularStrength) == "1.5" && Fmt2(sh.EmissiveMultiple) == "2.5" && Fmt2(sh.Alpha) == "0.5"
+                      && Rgb2(sh.EmissiveColor) == "rgb(0.25,0.5,0.75)" && Rgb2(sh.SpecularColor) == "rgb(1,0.5,0.25)",
+                      "a glossiness write preserved the other five lighting values");
+                Check(o.Report is { Ops.Count: 1, HeaderChanged: false, ChangedBlocks.Count: 1 },
+                      "the report says: 1 op, header untouched, exactly ONE block changed (the shader)");
+            }
+
+            // NO/TYPE branch — the Q3 case this op exists to not commit. All six refuse on the effect shader, and the
+            // refusal NAMES the block type rather than failing vaguely.
+            foreach (var name in new[] { "glossiness", "specular_strength", "emissive_multiple", "alpha", "emissive_color", "specular_color" })
+            {
+                var nums = name.EndsWith("_color") ? new[] { 0.1f, 0.2f, 0.3f } : new[] { 1f };
+                var o = NifService.Set(shBytes, new[] { new NifSetOp(NifSetOpKind.SetShaderValue, "EffShape", ShaderValue: name, ShaderNumbers: nums) });
+                // Pin the CLAIM, not merely the wording. Naming the block type alone is too weak to be falsifiable:
+                // the arity refusal names it too (a non-writable value reports 0 components), so an arm checking only
+                // for "BSEffectShaderProperty" still passes with this gate deleted — it would ratify the right answer
+                // arriving for the wrong reason. Requiring the settability sentence makes deleting the gate fail here.
+                Check(o.Error is { } e && e.Contains("BSEffectShaderProperty") && e.Contains("not settable on that block type") && o.WrittenBytes is null,
+                      $"set_shader_value {name} on a BSEffectShaderProperty → refused AS UNSETTABLE, block type NAMED, nothing written — {o.Error ?? "WROTE ANYWAY"}");
+            }
+
+            // ARITY comes from the library's property type, so a wrong count is a named refusal — never a truncated
+            // or zero-padded write.
+            Check(NifService.Set(shBytes, new[] { new NifSetOp(NifSetOpKind.SetShaderValue, "LitShape", ShaderValue: "glossiness", ShaderNumbers: new[] { 1f, 2f, 3f }) }).Error is { } ea1 && ea1.Contains("takes 1 number"),
+                  "a scalar given 3 numbers → named refusal");
+            Check(NifService.Set(shBytes, new[] { new NifSetOp(NifSetOpKind.SetShaderValue, "LitShape", ShaderValue: "specular_color", ShaderNumbers: new[] { 1f }) }).Error is { } ea2 && ea2.Contains("takes 3 numbers"),
+                  "a colour given 1 number → named refusal");
+
+            // Vocabulary: unknown names refuse WITH the list; the British spelling resolves (the renderer says
+            // "colour", the library says "Color" — a caller reading one and typing it at the other is not an error).
+            Check(NifService.Set(shBytes, new[] { new NifSetOp(NifSetOpKind.SetShaderValue, "LitShape", ShaderValue: "shininess", ShaderNumbers: new[] { 1f }) }).Error is { } ev && ev.Contains("glossiness"),
+                  "an unknown shader_value → named refusal listing the accepted names");
+            Check(NifService.ShaderValueProperty("specular_colour") == "SpecularColor" && NifService.ShaderValueProperty("Glossiness") == "Glossiness",
+                  "the British spelling and mixed case both resolve");
+            Check(NifService.Set(shBytes, new[] { new NifSetOp(NifSetOpKind.SetShaderValue, "NoShaderShape", ShaderValue: "glossiness", ShaderNumbers: new[] { 1f }) }).Error is { } ens && ens.Contains("no shader property"),
+                  "set_shader_value on a shape with NO shader → named refusal");
+
+            // THE LAYOUT GATE's premise. ApplyOp declines any non-Skyrim shader layout, the same scope claim the read
+            // path makes — but Set() refuses a non-SE stream before ApplyOp is reached, and an SE stream always parses
+            // as the SK layout, so that gate is a SECOND one rather than one catching a live case. It is guarded by
+            // pinning exactly that premise: if an SE-stream mesh ever parses as some other layout, this fires and the
+            // gate stops being redundant. (Type is a settable property — the coupling is nifly's, not a guarantee.)
+            Check(ShapeOf(shBytes, "LitShape")?.Shader is { GameType: "SK" } && NifService.Inspect(shBytes).Inspect is { IsSkyrimSE: true },
+                  "an SE-stream mesh still parses its shader as the SK layout — the premise that makes the layout gate redundant rather than dead");
+        }
+
         // ---- refusal arms (Q3) ----
         Console.WriteLine();
         Console.WriteLine("--- refusals: a can't-do is named, nothing written ---");
@@ -290,6 +382,12 @@ internal static class NifSetGuardProbe
     static NifShape? ShapeOf(byte[]? bytes, string name)
         => bytes is null ? null : NifService.Inspect(bytes).Inspect?.Shapes.FirstOrDefault(s => s.Name == name);
 
+    /// <summary>A nullable shader scalar as invariant text — "(unread)" when the reader withheld it, which is a
+    /// DIFFERENT outcome from any number and must never compare equal to one.</summary>
+    static string Fmt2(float? v) => v is { } f ? f.ToString(System.Globalization.CultureInfo.InvariantCulture) : "(unread)";
+
+    static string Rgb2(NifColor? c) => c is { } k ? $"rgb({Fmt2(k.R)},{Fmt2(k.G)},{Fmt2(k.B)})" : "(unread)";
+
     /// <summary>Author a synthetic SE mesh: root → GuardChildA node; a full GuardShape (flags/scale/alpha/2 partitions);
     /// and a BareShape carrying nothing (for the not-applicable refusal arms). The spike CreateAndSave_SE recipe.</summary>
     static byte[] BuildSyntheticSe()
@@ -323,6 +421,46 @@ internal static class NifSetGuardProbe
 
         using var ms = new MemoryStream();
         if (f.Save(ms) != 0) throw new InvalidOperationException("nif-set-guard: authoring the synthetic SE mesh failed to save");
+        return ms.ToArray();
+    }
+
+    /// <summary>A synthetic SE mesh carrying BOTH shader block types (#291): 'LitShape' with a
+    /// BSLightingShaderProperty — the one block NiflySharp 1.1.0 makes all six lighting values settable on — and
+    /// 'EffShape' with a BSEffectShaderProperty, which answers all six from <c>INiShader</c>'s get-only stub and can
+    /// write none of them. Separate from <see cref="BuildSyntheticSe"/> so the shader arms cannot perturb the block
+    /// indices the gate-1 arms above depend on.
+    ///
+    /// Every value is authored AWAY from its constructor default, so a write arm that read the default back would
+    /// fail rather than coincidentally match (the stub-constant trap, one axis over).</summary>
+    static byte[] BuildShaderSe()
+    {
+        var ver = new NiVersion { FileVersion = NiVersion.ToFile("20.2.0.7"), UserVersion = 12, StreamVersion = 100 };
+        var f = new NifFile();
+        f.Create(ver, withRootNode: true);
+        var root = f.GetRootNodes().First(); root.Name = new NiStringRef("ShaderRoot"); root.Flags_ui = 0xE;
+
+        var lit = new BSTriShape { Name = new NiStringRef("LitShape"), Flags_ui = 0x400000E, Scale = 1f };
+        root.Children.AddBlockRef(f.AddBlock(lit));
+        var lsp = new BSLightingShaderProperty
+        {
+            Glossiness = 30f,
+            SpecularStrength = 1.5f,
+            EmissiveMultiple = 2.5f,
+            Alpha = 0.5f,
+            EmissiveColor = new NiflySharp.Structs.Color4(0.25f, 0.5f, 0.75f, 0f),
+            SpecularColor = new NiflySharp.Structs.Color3(1f, 0.5f, 0.25f),
+        };
+        lit.ShaderPropertyRef = new NiBlockRef<BSShaderProperty>(f.AddBlock(lsp));
+
+        var eff = new BSTriShape { Name = new NiStringRef("EffShape"), Flags_ui = 0x400000E, Scale = 1f };
+        root.Children.AddBlockRef(f.AddBlock(eff));
+        eff.ShaderPropertyRef = new NiBlockRef<BSShaderProperty>(f.AddBlock(new BSEffectShaderProperty()));
+
+        var noShader = new BSTriShape { Name = new NiStringRef("NoShaderShape"), Flags_ui = 0x400000E, Scale = 1f };
+        root.Children.AddBlockRef(f.AddBlock(noShader));
+
+        using var ms = new MemoryStream();
+        if (f.Save(ms) != 0) throw new InvalidOperationException("nif-set-guard: authoring the shader mesh failed to save");
         return ms.ToArray();
     }
 

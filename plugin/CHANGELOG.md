@@ -8,6 +8,26 @@ when it changes.
 
 *Accumulating notes for the next cut — not yet released; `plugin.json` still reads the last shipped version.*
 
+**`nif_set` can now write a mesh's shader lighting values — the read/write asymmetry #287 opened is closed (#291).**
+A new `op=set_shader_value` sets any of the six values `nif_inspect sections=shader` reports: *glossiness, specular
+strength, specular colour, emissive colour, emissive multiple,* and *alpha*. Pass `shader_value=` and `value=` — one
+number for a scalar (`glossiness` `55`), three comma-separated 0–1 components for a colour (`specular_color`
+`1,0.5,0.25`). It rides the same lanes and the same two verification gates as every other op: by default the edited
+mesh lands in a new MO2 mod folder with the original untouched, and a write that did not actually persist is refused
+rather than reported as success. This is the fix for an armour that reads shiny and plastic because its specular
+strength came in wrong, a glow mesh whose emissive multiple is off by an order of magnitude, or a folder of BodySlide
+output sharing one bad glossiness — previously NifSkope, by hand, one mesh at a time. Note it is **not** `set_alpha`,
+which remains the separate `NiAlphaProperty` blend/test word; `set_shader_value alpha` is the shader's own opacity
+scalar.
+**It refuses rather than pretending on a block that cannot carry the value.** The library implements these six on a
+`BSLightingShaderProperty` and answers them from a do-nothing stub on other shader blocks — so writing to, say, a
+`BSEffectShaderProperty` would have accepted the value, reported success, and left the mesh unchanged. houseCARL
+checks whether the specific block genuinely accepts the write, and where it does not, refuses and names the block
+type. Which blocks those are is read out of the bundled library rather than kept as a list, so the answer tracks the
+library across future updates instead of going stale — the same by-construction approach the read side already uses,
+though it necessarily asks a different question, since the values are read-only on the shared interface and settable
+only on the concrete block.
+
 **The bundled mesh library moves to NiflySharp 1.1.0 — `nif_inspect` gains five shader values, and mesh reads pick up
 upstream's crash/corruption fixes (#287).**
 The pinned 1.0.0 was published from a commit 52 changes behind upstream, and the gap was costing two different things.

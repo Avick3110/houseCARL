@@ -320,6 +320,92 @@ public static class NifService
         return real.Contains(property);
     }
 
+    /// <summary>The six shader LIGHTING VALUES by their wire name, paired with the library property each addresses —
+    /// the vocabulary <c>set_shader_value</c> accepts, and exactly the six <see cref="NifShader"/> reports. The property
+    /// names come through <c>nameof</c>, so an upstream rename is a COMPILE error here rather than a runtime "unknown
+    /// value" a caller would read as "houseCARL can't do that yet".</summary>
+    internal static readonly IReadOnlyList<(string Wire, string Property)> ShaderValueNames = new[]
+    {
+        ("emissive_color",    nameof(INiShader.EmissiveColor)),
+        ("emissive_multiple", nameof(INiShader.EmissiveMultiple)),
+        ("glossiness",        nameof(INiShader.Glossiness)),
+        ("specular_strength", nameof(INiShader.SpecularStrength)),
+        ("specular_color",    nameof(INiShader.SpecularColor)),
+        ("alpha",             nameof(INiShader.Alpha)),
+    };
+
+    /// <summary>Resolve a caller's value name to its library property, or null. Accepts the British spelling too
+    /// (<c>specular_colour</c>) — the renderer says "colour" while the library says "Color", and a caller reading one
+    /// and typing it at the other should not get "unknown value".</summary>
+    public static string? ShaderValueProperty(string wire)
+    {
+        var w = (wire ?? "").Trim().Replace('-', '_').Replace("colour", "color").ToLowerInvariant();
+        foreach (var (n, p) in ShaderValueNames) if (n == w) return p;
+        return null;
+    }
+
+    /// <summary>Whether <paramref name="blockType"/> can really be WRITTEN at <paramref name="property"/> — and if so,
+    /// how many float components the value takes (1 for a scalar, 3 for a colour).
+    ///
+    /// THE READ GATE CANNOT ANSWER THIS, and that is the whole reason this method exists rather than reusing
+    /// <see cref="ReallyReads"/> (which #291 assumed it could). <see cref="INiShader"/> declares all six values
+    /// GET-ONLY, so there is no <c>set_</c> accessor on the interface map to detect: on the write side the interface
+    /// map is uniformly empty and would refuse everything. The setters live on the CONCRETE block class instead, so
+    /// that is what gets reflected — still by construction off the library, never a hand-kept list of "the block types
+    /// that work" (which moved once already between 1.0.0 and 1.1.0, and will move again).
+    ///
+    /// Getter-real and setter-present are INDEPENDENT FACTS that merely happen to agree today (verified across all 17
+    /// INiShader implementers on 1.1.0: BSLightingShaderProperty carries all six, BSShaderPPLightingProperty and
+    /// Lighting30ShaderProperty carry EmissiveColor, the other 14 carry none). Each path therefore checks its own —
+    /// asking the read gate about writability would be the same type-vs-layout style conflation PR #290's review
+    /// caught, one axis over.
+    ///
+    /// Without this gate the failure is a Q3 silent no-op: <c>BSEffectShaderProperty</c> answers all six from the
+    /// interface's default-implementation stub, so a write through the interface would discard the value, return
+    /// success, and leave the mesh unchanged.
+    ///
+    /// The COMPONENT COUNT is likewise read off the library's own property type rather than declared: a Single takes
+    /// one number, a Color3/Color4 takes three (detected by the R/G/B fields, so a future widening or narrowing of the
+    /// colour struct doesn't silently change the arity houseCARL enforces).</summary>
+    internal static (bool CanWrite, int Components) ReallyWrites(Type blockType, string property)
+    {
+        var p = blockType.GetProperty(property, System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
+        if (p is null || !p.CanWrite) return (false, 0);
+        if (p.PropertyType == typeof(float)) return (true, 1);
+        return HasRgbFields(p.PropertyType) ? (true, 3) : (false, 0);
+    }
+
+    static bool HasRgbFields(Type t)
+        => t.GetField("R") is not null && t.GetField("G") is not null && t.GetField("B") is not null;
+
+    /// <summary>The accepted shader_value names as one comma-separated list — built from the table, so a value added
+    /// there shows up in every refusal message with no second place to update.</summary>
+    public static string ShaderValueList => string.Join(", ", ShaderValueNames.Select(v => v.Wire));
+
+    /// <summary>The WIRE name for a library property — refusals and the before/after audit speak the caller's
+    /// vocabulary, not the library's.</summary>
+    static string WireName(string property)
+    {
+        foreach (var (w, p) in ShaderValueNames) if (p == property) return w;
+        return property;
+    }
+
+    /// <summary>A shader value rendered for the before/after audit: a scalar as itself, a colour as its rgb triple —
+    /// never any component past b, which the format does not carry (see the read-modify-write note in ApplyOp).</summary>
+    static string DescribeShaderValue(object? v, int components)
+    {
+        if (v is null) return "(null)";
+        if (components == 1) return Convert.ToSingle(v).ToString(System.Globalization.CultureInfo.InvariantCulture);
+        var t = v.GetType();
+        var (r, g, b) = ReadRgb(v, t);
+        return $"rgb({r.ToString(System.Globalization.CultureInfo.InvariantCulture)},"
+             + $"{g.ToString(System.Globalization.CultureInfo.InvariantCulture)},"
+             + $"{b.ToString(System.Globalization.CultureInfo.InvariantCulture)})";
+    }
+
+    static (float R, float G, float B) ReadRgb(object v, Type t)
+        => ((float)t.GetField("R")!.GetValue(v)!, (float)t.GetField("G")!.GetValue(v)!, (float)t.GetField("B")!.GetValue(v)!);
+
     /// <summary>Decode one shader flag word into its NAMED bits plus the unnamed remainder. The names come from
     /// <see cref="Enum.GetValues(Type)"/> over nifly's own enum, so coverage is the library's coverage — no hand-kept
     /// bit table to drift. Members are peeled largest-first so a multi-bit combo member wins over its constituent bits
@@ -617,6 +703,63 @@ public static class NifService
                 tex.Content = op.Path; ts.Textures[slot] = tex;
                 return (null, op.Target, $"tex[{slot}]={before}", $"tex[{slot}]={op.Path}", BlockIndexOf(nif, ts), false);
             }
+            case NifSetOpKind.SetShaderValue:
+            {
+                if (string.IsNullOrWhiteSpace(op.ShaderValue)) return ($"set_shader_value needs a shader_value name ({ShaderValueList}).", null, null, null, null, false);
+                if (ShaderValueProperty(op.ShaderValue) is not { } prop)
+                    return ($"unknown shader_value '{op.ShaderValue}'. Use one of: {ShaderValueList}.", null, null, null, null, false);
+                var nums = op.ShaderNumbers ?? Array.Empty<float>();
+                var (shape, err) = ResolveShape(nif, op.Target);
+                if (err is not null) return (err, null, null, null, null, false);
+                if (nif.GetShader(shape!) is not { } shader)
+                    return ($"shape '{op.Target}' has no shader property — no lighting value to set. Nothing was written.", null, null, null, null, false);
+
+                // GATE A — THE LAYOUT. Same scope claim the read path makes (BuildShader): houseCARL interprets a
+                // SKYRIM shader. Several of these accessors are layout-dispatched — Glossiness reads a field the FO4+
+                // stream never carries — so on a foreign layout the write would land in a field that is never
+                // serialized: value accepted, mesh unchanged. Today Set() already refuses any non-SE-stream file
+                // before reaching here and an SE stream always parses as SK, so this is a SECOND gate rather than one
+                // catching a live case — stated as such, because Type is a settable property and the header-to-layout
+                // coupling is nifly's internal, not a guarantee houseCARL is owed. It can only refuse, never fabricate.
+                if (shader.Type != ShaderHelper.ShaderGameType.SK)
+                    return ($"shape '{op.Target}' carries a {shader.Type} shader layout, not Skyrim's — houseCARL models the Skyrim "
+                          + $"shader layout only, and some of these values address a field a {shader.Type} stream never carries "
+                          + "(the write would be accepted and change nothing). Refusing. Nothing was written.", null, null, null, null, false);
+
+                // GATE B — THE BLOCK TYPE. See ReallyWrites: the setters are on the concrete class, NOT on INiShader
+                // (which is get-only throughout), so this reflects the block's own property. A block whose accessor
+                // the library only stubs is named in the refusal, exactly as sections=shader names its unread values.
+                var bt = shader.GetType();
+                var (canWrite, components) = ReallyWrites(bt, prop);
+                if (!canWrite)
+                    return ($"this NiflySharp version cannot write {WireName(prop)} on a {bt.Name} — the value is not settable on that "
+                          + "block type, so the write would be accepted and change nothing. Refusing (Q3). "
+                          + $"housecarl_nif_inspect sections=shader names what it can and cannot see on this block. Nothing was written.", null, null, null, null, false);
+                if (nums.Count != components)
+                    return ($"{WireName(prop)} on a {bt.Name} takes {components} number{(components == 1 ? "" : "s")}"
+                          + $"{(components == 3 ? " (r,g,b — each 0-1)" : "")}; got {nums.Count}. Nothing was written.", null, null, null, null, false);
+
+                var pi = bt.GetProperty(prop, System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance)!;
+                string before = DescribeShaderValue(pi.GetValue(shader), components);
+                object boxed;
+                if (components == 1) boxed = nums[0];
+                else
+                {
+                    // READ-MODIFY-WRITE on the colour struct, for the same reason set_alpha does it: the value is a
+                    // STRUCT, so it must be rebuilt and re-assigned. Any component BEYOND rgb is carried over from the
+                    // current value rather than invented — EmissiveColor is a Color4 on the interface but a Color3 on
+                    // disk, so its A never round-trips (empirically always 0 after a save/load); writing a made-up A
+                    // would be fabricating a component the format does not carry.
+                    boxed = pi.GetValue(shader)!;
+                    var t = boxed.GetType();
+                    t.GetField("R")!.SetValue(boxed, nums[0]);
+                    t.GetField("G")!.SetValue(boxed, nums[1]);
+                    t.GetField("B")!.SetValue(boxed, nums[2]);
+                }
+                pi.SetValue(shader, boxed);
+                return (null, op.Target, $"{WireName(prop)}={before}",
+                        $"{WireName(prop)}={DescribeShaderValue(pi.GetValue(shader), components)}", BlockIndexOf(nif, shader), false);
+            }
             default:
                 return ($"unsupported op '{op.Kind}'.", null, null, null, null, false);
         }
@@ -856,6 +999,35 @@ public static class NifService
                 if (ts is null || op.TextureSlot is not { } slot || slot < 0 || slot >= ts.Textures.Count) return (false, "(no texset/slot)");
                 return ((ts.Textures[slot]?.Content ?? "") == op.Path, $"tex[{slot}]={ts.Textures[slot]?.Content}");
             }
+            case NifSetOpKind.SetShaderValue:
+            {
+                // The gate that matters most for THIS op. ApplyOp refuses a block whose setter the library only stubs,
+                // but that check believes the library about its own reflection surface; this one re-reads the SAVED
+                // AND RELOADED mesh, so a value that was accepted in memory and never serialized is caught here even
+                // if the gate ever mis-answers. Reading it back off the CONCRETE property (not INiShader) is what makes
+                // that true — the interface would hand back a stub constant and could false-pass.
+                var s = nif.GetShapes().FirstOrDefault(x => (x.Name?.String ?? "") == op.Target);
+                var shader = s is not null ? nif.GetShader(s) : null;
+                if (shader is null) return (false, "(no shader)");
+                if (op.ShaderValue is null || ShaderValueProperty(op.ShaderValue) is not { } prop) return (false, "(no value name)");
+                var bt = shader.GetType();
+                var (canWrite, components) = ReallyWrites(bt, prop);
+                var pi = canWrite ? bt.GetProperty(prop, System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance) : null;
+                if (pi is null) return (false, $"(not readable back on {bt.Name})");
+                var actual = pi.GetValue(shader);
+                var want = op.ShaderNumbers ?? Array.Empty<float>();
+                if (want.Count != components) return (false, DescribeShaderValue(actual, components));
+                bool ok;
+                if (components == 1) ok = Math.Abs(Convert.ToSingle(actual) - want[0]) < 1e-6f;
+                else
+                {
+                    // RGB ONLY. A Color4's A is synthetic here — it is not on disk and reads back 0 whatever was
+                    // written — so comparing it would fail every colour write for a component the format never stored.
+                    var (r, g, b) = ReadRgb(actual!, actual!.GetType());
+                    ok = Math.Abs(r - want[0]) < 1e-6f && Math.Abs(g - want[1]) < 1e-6f && Math.Abs(b - want[2]) < 1e-6f;
+                }
+                return (ok, DescribeShaderValue(actual, components));
+            }
             default: return (false, "(unknown op)");
         }
     }
@@ -972,14 +1144,20 @@ public sealed record NifNode(int Depth, string Name, uint Flags, string BlockTyp
 //  NIF-layer WRITE model — the N2 whitelist op(s) and the verified outcome (Wave 2).
 // ======================================================================
 
-/// <summary>The six N2-whitelist write op kinds. Renames edit the header string table; the others edit one block.</summary>
-public enum NifSetOpKind { RenameShape, RenameNode, SetFlags, SetScale, SetPartition, SetAlpha, SetPath }
+/// <summary>The N2-whitelist write op kinds. Renames edit the header string table; the others edit one block.</summary>
+public enum NifSetOpKind { RenameShape, RenameNode, SetFlags, SetScale, SetPartition, SetAlpha, SetPath, SetShaderValue }
 
 /// <summary>One write op. <see cref="Target"/> is the shape/node name it addresses (the CURRENT name, for a rename).
 /// The value fields are read per <see cref="Kind"/> and are otherwise null: <see cref="NewName"/> (rename), <see
 /// cref="Flags"/> (set_flags), <see cref="Scale"/> (set_scale), <see cref="BodyPartId"/> + optional
 /// <see cref="PartitionIndex"/> (set_partition), <see cref="AlphaFlags"/> and/or <see cref="AlphaThreshold"/>
-/// (set_alpha), <see cref="TextureSlot"/> + <see cref="Path"/> (set_path — a BSShaderTextureSet slot).</summary>
+/// (set_alpha), <see cref="TextureSlot"/> + <see cref="Path"/> (set_path — a BSShaderTextureSet slot),
+/// <see cref="ShaderValue"/> + <see cref="ShaderNumbers"/> (set_shader_value — a shader lighting value; see
+/// <see cref="NifService.ShaderValueNames"/>).
+/// <para><see cref="ShaderNumbers"/> is deliberately an ARITY-FREE list rather than a scalar-or-colour pair: how many
+/// components a given value takes is a fact about the library's own property type (Single vs Color3 vs Color4), and
+/// keeping it there means one place decides it. A caller passing the wrong count gets a named refusal from
+/// <c>ApplyOp</c>, not a silently-truncated write.</para></summary>
 public sealed record NifSetOp(
     NifSetOpKind Kind,
     string Target,
@@ -991,7 +1169,9 @@ public sealed record NifSetOp(
     ushort? AlphaFlags = null,
     byte? AlphaThreshold = null,
     int? TextureSlot = null,
-    string? Path = null);
+    string? Path = null,
+    string? ShaderValue = null,
+    IReadOnlyList<float>? ShaderNumbers = null);
 
 /// <summary>The outcome of <see cref="NifService.Set"/>: exactly one of <see cref="WrittenBytes"/>+<see cref="Report"/>
 /// (success — the VERIFIED edited mesh bytes for the service layer to place) or <see cref="Error"/> (a named refusal,
