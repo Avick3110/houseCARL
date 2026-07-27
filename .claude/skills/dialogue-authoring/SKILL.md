@@ -1,6 +1,6 @@
 ---
 name: dialogue-authoring
-description: Author or interpret Skyrim dialogue at the data layer via houseCARL — create dialogue topics (DIAL) and lines (INFO) in a new plugin, wire them to a branch and quest, attach result (TIF) scripts, write the start-game-enabled-quest .seq, check voiced lines for their .fuz, and validate a topic's or quest's dialogue graph. Use when the user wants to add or write dialogue, add a line to a topic, create an NPC greeting or conversation, author a dialogue branch or quest dialogue, wire dialogue to a quest stage, attach a result script to a line, make a start-game-enabled quest's dialogue actually start, fix dialogue that never plays / never fires / went silent, or resolve a dropped-line dialogue conflict — or asks what a dialogue topic does, why a line won't fire, or to audit a mod's dialogue. This authors the dialogue RECORDS — distributing forms to NPCs is SPID, keywords to items is KID, editing a record's own fields is SkyPatcher. Load before composing or judging any DIAL/INFO — Skyrim plays nothing unless the Creation-Kit bookkeeping a byte-valid insert skips is done.
+description: Author or interpret Skyrim dialogue at the data layer via houseCARL — create dialogue topics (DIAL) and lines (INFO) in a new plugin, wire them to a branch and quest, attach result (TIF) scripts, write the start-game-enabled-quest .seq, check voiced lines for their .fuz, and validate a topic's or quest's dialogue graph. Use when the user wants to add or write dialogue, add a line to a topic, create an NPC greeting or conversation, author a dialogue branch or quest dialogue, wire dialogue to a quest stage, attach a result script to a line, make a start-game-enabled quest's dialogue actually start, fix dialogue that never plays / never fires / went silent, or resolve a dropped-line or reordered dialogue conflict — or asks what a dialogue topic does, why a line won't fire, or to audit a mod's dialogue. This authors the dialogue RECORDS — distributing forms to NPCs is SPID, keywords to items is KID, editing a record's own fields is SkyPatcher. Load before composing or judging any DIAL/INFO — Skyrim plays nothing unless the Creation-Kit bookkeeping a byte-valid insert skips is done.
 ---
 
 # Dialogue Authoring
@@ -47,8 +47,8 @@ tools.
 
 The Skyrim-specific knowledge lives in the `references/` files — read the one your task touches:
 - [`references/dialogue-flow-model.md`](references/dialogue-flow-model.md) — how DLVW/DLBR/DIAL/INFO connect
-  and what drives the flow (conditions, LinkTo, quest stage, PNAM, DIAL-wins-wholesale). **Read this before
-  authoring or auditing anything.**
+  and what drives the flow (conditions, LinkTo, quest stage, PNAM, and the cross-plugin line MERGE that
+  decides order). **Read this before authoring or auditing anything.**
 - [`references/condition-functions.md`](references/condition-functions.md) — how to **decode** a condition
   (CTDA): function + params + Run On (Subject vs Target), the operators and the `OR` flag, a curated table of
   the dialogue/quest condition functions, and CTDA-vs-Papyrus-only. Read before reading or composing any
@@ -71,14 +71,18 @@ checklist live in `references/_CORPUS_STATUS.md` (dev-side; not shipped in the p
 Before composing or judging a line, internalise four counter-intuitive facts from the flow model — getting
 any of them wrong produces dialogue that looks right and plays wrong:
 
-- **Conditions pick the line, not list order and not PNAM.** A line fires when its `Conditions` pass
-  (usually `GetStage` + a speaker check). Ordering is mostly the `Responses` list + conditions.
-- **`PreviousDialog` (PNAM) is ~unused.** It is empty across effectively all vanilla content. Set it ONLY
-  to force a deliberate intra-topic sequence; never "complete a chain", and never read a missing PNAM as a
-  bug. Only a SET-but-dangling PNAM is a defect.
+- **Conditions decide which lines are ELIGIBLE; ORDER decides which eligible line plays.** The game walks
+  the topic top to bottom and plays the FIRST line whose `Conditions` pass (usually `GetStage` + a speaker
+  check). So when two lines both pass, position — not specificity — settles it, and a line that moved can
+  be pre-empted by a broader one ahead of it.
+- **`PreviousDialog` (PNAM) is ~unused in vanilla — but it is the position anchor.** It is empty across
+  effectively all vanilla content, so never read a missing PNAM as a bug; only a SET-but-dangling PNAM is a
+  defect. It earns its keep when you RE-LIST an existing line: a re-listed line carrying no PNAM is appended
+  to the BOTTOM of the merged topic, and its PNAM is what puts it back after its predecessor.
 - **`LinkTo` is the real conversation chain** (topic → next topic), not PNAM.
-- **DIAL wins wholesale.** When you override an existing topic, the winning topic's `Responses` is the whole
-  in-game line set — any line you don't re-list is dropped. See the editing section below.
+- **Lines MERGE across plugins; a conflict changes ORDER, not membership.** The winning topic's `Responses`
+  is NOT the whole in-game line set — a line another plugin adds still plays even if your override doesn't
+  list it. Re-listing a line moves it to the bottom. See the editing section below.
 
 ## Player-topic semantics — where each piece of text goes
 
@@ -221,7 +225,7 @@ this skill's job.
    present, scripts bound, and every `<Global=X>` text-replacement tag backed by a global in the quest's
    `TextDisplayGlobals` (an unbacked tag renders as `[...]` in game — a silent failure it now warns on) — and
    **prints a standing-limits footer for what it cannot** (the CTDA conditions,
-   lip-sync, and the dropped-line caveat). Treat the footer as real: a clean pass is not "this will play."
+   lip-sync, the audit scope, and the line-order blind spot). Treat the footer as real: a clean pass is not "this will play."
    Read the new records back (`full_readback` on the create call) before telling the user to enable + sort
    the patch in MO2.
 
@@ -241,21 +245,30 @@ houseCARL's `@editorid` sibling links set a forced intra-topic sequence in one c
 *required*; reach for it only if you specifically want the editor's flowchart view, knowing houseCARL has
 already written the bytes.
 
-## Editing an existing topic — the dropped-line trap
+## Editing an existing topic — the reorder trap
 
-Because DIAL wins wholesale, overriding a vanilla or modded topic to add one line means your override
-becomes the authoritative line set — and any line the original topic had that you don't re-list is **dropped
-in game**. So when extending an existing topic, carry forward every line it should still have, not just your
-new one. `housecarl_validate_dialogue` validates the *winning* topic's `Responses` and warns about this,
-but a record-only glance won't show the loss. This is the classic "two mods touched one topic and lines
-vanished" conflict.
+Lines are **not dropped** by a dialogue conflict. Every plugin that touches a topic contributes its lines
+and the game merges them, so a line you don't re-list still plays. What a conflict changes is **order** —
+and order is what decides which line answers, since the game walks the topic top to bottom and plays the
+first line whose conditions pass. "Lines vanished" almost always means a line is still there but now sits
+behind a broader line that also passes, so it is never reached.
 
-**The in-place lane sidesteps this trap.** If the topic lives in a plugin you own (or are willing to edit
-directly), the write tools' in-place lane (`target=<plugin>`, `in_place=true`, `acknowledge=`) edits the
-original DIAL/INFO records instead of authoring an override — so there is no override line-set to keep
-complete and no line can be dropped. The override lane above (the default, originals untouched) is still the
-right choice for patching a *third-party* plugin you don't want to rewrite — there you must carry forward
-every line the topic should keep.
+The trap is the reverse of how it looks: **re-listing a line moves it to the bottom**, unless you also carry
+that line's `PreviousDialog` (PNAM). So "carry forward every line to be safe" — the advice this section used
+to give, and still common in the wild — reorders the whole topic into your override's order and *causes* the
+bug. Instead, **list only the lines you add or change.** If one of them has to sit at a particular spot, set
+its PNAM to the line it should follow.
+
+`housecarl_validate_dialogue` prints the topic's effective merged order and flags any line whose position
+moved, naming the plugin that moved it — that is the check for this.
+
+**The in-place lane sidesteps the trap entirely.** If the topic lives in a plugin you own (or are willing to
+edit directly), the write tools' in-place lane (`target=<plugin>`, `in_place=true`, `acknowledge=`) edits the
+original DIAL/INFO records instead of authoring an override — so nothing is re-listed and nothing moves. The
+override lane above (the default, originals untouched) is still the right choice for patching a *third-party*
+plugin you don't want to rewrite.
+
+> Corrected 2026-07-27 (#275) — this section previously taught the "DIAL wins wholesale" dropped-line model.
 
 ## Write-side recipes — clone a condition gate, write a CK-refused subtype
 
@@ -336,7 +349,9 @@ has no `Subtype` field. Copy the exact value from a known-good ForceGreet topic 
   is the player's menu button and `Responses` is the NPC's reply; `LinkTo` sets the *next player options*,
   not what the NPC says. Getting this backwards is byte-valid and plays absurdly — see the player-topic
   semantics section.
-- **Overriding a topic and dropping its other lines** (the DIAL-wins-wholesale trap above).
+- **Re-listing lines you didn't change**, to "keep the topic complete" — it appends each one to the bottom
+  and reorders the topic, which is the actual cause of the conflict it was meant to avoid (the reorder trap
+  above).
 - **Hand-synthesizing CTDA operator/comparison bytes** instead of cloning a verified `Conditions` array
   verbatim — computing the encoded operator once wrote 26 broken conditions. Read a good gate back with
   `housecarl_read_record` and replay its rows (the write-side recipe above).

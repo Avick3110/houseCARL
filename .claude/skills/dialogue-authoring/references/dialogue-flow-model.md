@@ -85,15 +85,32 @@ set it via a sibling `@editorid` FormLink). Consequences for authoring and audit
 - If you want lines to play in a fixed forced order, the levers are the `Responses` list order and the
   `Conditions` — reach for PNAM only for a genuine forced sequence, and expect to set it yourself.
 
-## Resolution model — "DIAL wins wholesale"
+## Resolution model — lines MERGE; what a conflict changes is ORDER
 
 Overriding an INFO **pulls its parent DIAL in automatically** (the DIAL must be present first; an INFO
-cannot stand alone), so an INFO and its DIAL always travel together. The consequence: **the winning DIAL's
-`Responses` is the authoritative in-game INFO set.** A line that another plugin adds, but that the winning
-topic override does not re-list, is **dropped in game** — this is exactly the classic "two mods touch one
-topic and lines disappear" dialogue conflict.
+cannot stand alone), so an INFO and its DIAL always travel together.
 
-For authoring this means: when you override an existing topic to add a line, the override must carry **every
-line the topic should still have**, not just your new one. `housecarl_validate_dialogue` validates the
-*winning* topic's `Responses` (what actually plays) and prints a standing warning about this drop, because
-a line silently missing from the winner is invisible to a record-only check.
+What that does **not** mean is that the winning DIAL's `Responses` replaces the topic's line set. It does
+not. Every plugin that touches a topic contributes its own child list and the game **merges** them: a line
+another plugin adds, and the winning override does not re-list, **still plays**. (Measured on a live load
+order: a topic whose winning record lists *one* line plays *eight*.)
+
+What actually changes is **order** — and order decides which line answers, because the game walks the topic
+top to bottom and plays the **first** line whose `Conditions` pass. The merge rule:
+
+- lines are placed per plugin, in load order;
+- **re-listing a line MOVES it** — it is evicted from where it was and **appended to the bottom**, unless
+  that plugin also carries the line's `PreviousDialog` (PNAM), which puts it back after its predecessor;
+- so **the last plugin to list a line owns that line's position.**
+
+For authoring this means the **opposite** of the advice this section used to give. Do **not** "carry forward
+every line" into your override: re-listing lines you didn't change appends them to the bottom in your order,
+which *is* the reordering bug. List only the lines you actually add or change, and if position matters for
+one of them, set its PNAM deliberately.
+
+`housecarl_validate_dialogue` prints the effective merged order for a topic and flags any line whose
+position moved, naming the plugin that moved it.
+
+> Corrected 2026-07-27 (#275). This section previously stated the "DIAL wins wholesale" model — that a line
+> the winning topic doesn't re-list is dropped in game. That is false, and the "carry forward every line"
+> advice that followed from it causes the very conflict it was meant to prevent.

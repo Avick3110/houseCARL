@@ -213,6 +213,7 @@ static class DialogueWire
               .Append(io.Order.Count == 1 ? " line, from a single plugin (" : " lines, from a single plugin (")
               .Append(io.ContributingPlugins[0])
               .Append(") — nothing merges here, so the effective order IS that plugin's own list.\n");
+            AppendOrderNote(sb, io, pad);          // a degraded merge is degraded whether or not anything contests it
             return true;
         }
 
@@ -248,10 +249,19 @@ static class DialogueWire
               .Append(". Re-listing a line appends it to the BOTTOM unless the plugin also carries that line's PNAM. Nothing is dropped — but a line the game now reaches later can be pre-empted by any earlier line whose conditions also pass, so the wrong line answers.\n");
         }
 
-        if (io.Note is { } note)
-            sb.Append(pad).Append("  [!] INFO order caveat — ").Append(note).Append(".\n");
-
+        AppendOrderNote(sb, io, pad);
         return true;
+    }
+
+    /// <summary>The per-topic DEGRADATION note (a malformed PNAM, a cycle, a truncated chain, skipped move
+    /// analysis) — data problems in the plugins, so they ride the topic they belong to. The STANDING PNAM-zero
+    /// fidelity limit is deliberately NOT here: it applies to every topic of 2+ lines whether contested or not, so
+    /// it lives in the standing-limits footer where it is stated once and cannot be missed by a topic that happened
+    /// to report no moves.</summary>
+    static void AppendOrderNote(StringBuilder sb, InfoOrderView io, string pad)
+    {
+        if (io.Note is { } note)
+            sb.Append(pad).Append("  [!] INFO order — ").Append(note).Append(".\n");
     }
 
     /// <summary>Voice: a SILENT line is the actionable one (named with its .fuz path), present lines are summarised as
@@ -368,6 +378,7 @@ static class DialogueWire
         sb.Append(".\n");
         sb.Append("  • voice presence is an on-disk file check only — lip-sync accuracy and the audio content itself are not verified (voice acting is out of scope).\n");
         sb.Append("  • the per-line checks above (voice, result script, CK parity) audit the WINNING topic's INFO list only. A line another plugin contributes but this winner does not re-list is NOT dropped from the game — it still plays, and it DOES appear in the effective INFO order above — but its voice/script/parity is not audited here.\n");
+        sb.Append("  • line ORDER has one blind spot: a line whose previous-line link (PNAM) was written as an explicit \"I am first\" marker reads here identically to a line carrying no link at all, so it is placed LAST where the game places it FIRST. Nothing in the data marks which line that is, so it can affect any topic of 2+ lines — if a line's position above looks wrong, confirm it against xEdit's INFO Order (INOA) row for the topic.\n");
         if (readIncomplete)
             sb.Append("  • a BSA failed to read this build, so an \"absent\" voice/.pex above may merely be unscanned — see housecarl_load_order_status.\n");
     }
