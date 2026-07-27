@@ -504,8 +504,8 @@ static class NifWire
             sb.Append("    lighting values: NOT INTERPRETED for this block — houseCARL models the Skyrim shader "
                       + "layout, and this reads as the ").Append(sh.GameType).Append(" layout. Some of these "
                       + "accessors read a field this layout's stream never carried, so they would answer a constant "
-                      + "rather than this mesh's value (on a lighting shader, glossiness is the live case). Rather "
-                      + "than interpret some and guess at the rest, all are declined: ")
+                      + "rather than this mesh's value (glossiness is the live case, on a block that carries it). "
+                      + "Rather than interpret some and guess at the rest, all are declined: ")
               .Append(string.Join(", ", missing)).Append(". NifSkope reads this mesh's own layout.\n");
             return;
         }
