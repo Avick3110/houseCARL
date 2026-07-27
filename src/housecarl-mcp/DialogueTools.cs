@@ -30,7 +30,12 @@ public static class DialogueTools
          "response text) are flagged as likely in-game mojibake (the CK/Papyrus surface is Windows-1252/ASCII); " +
          "and each line's CTDA conditions are statically checked for a meaningful subset of MALFORMED shapes (a " +
          "dangling form reference, a dead quest-alias index, an unset Run On reference, GetIsID pointed at a placed " +
-         "instance). It LOUDLY declares what it still cannot verify — it cannot EVALUATE whether a WELL-FORMED " +
+         "instance). Reports the EFFECTIVE, MERGED INFO ORDER — the sequence the game walks top to bottom, merged " +
+         "across EVERY plugin that touches the topic (xEdit INOM/INOA parity) — and flags any line whose position " +
+         "MOVED, naming the plugin that moved it. That is the answer to 'why does the wrong line play': the game " +
+         "plays the FIRST line whose conditions pass, re-listing a line appends it to the BOTTOM unless the plugin " +
+         "also carries its PNAM, and a pure reorder changes which line answers while leaving every field identical " +
+         "— so no field diff can show it. It LOUDLY declares what it still cannot verify — it cannot EVALUATE whether a WELL-FORMED " +
          "condition passes (only the running game can) nor check lip-sync/audio content — so 'checks " +
          "passed' never reads as 'this will play'. Resolves against the load-order WINNERS like every other read. " +
          "A FormID is 'XXXXXX:Plugin.esp'. Does NOT modify anything. To create dialogue lines use " +
@@ -182,8 +187,71 @@ static class DialogueWire
             if (!AppendIssues(sb, t.Issues, pad + "    ", cap)) return;
         }
 
+        if (!AppendInfoOrder(sb, t, pad, cap)) return;
+
         AppendVoice(sb, t, pad, cap);
         AppendScripts(sb, t, pad, cap);
+    }
+
+    /// <summary>How many order rows are listed in full before the render falls back to listing only the MOVED lines
+    /// — a big topic's whole order is rarely the question, and the moved set always is.</summary>
+    const int MaxOrderRows = 25;
+
+    /// <summary>The effective, merged INFO order (#275) — the sequence the game walks top-to-bottom, playing the
+    /// FIRST line whose conditions pass. Rendered only where it can differ from a single plugin's own list: with one
+    /// contributing plugin this says so in one line rather than printing a list that merges nothing. The MOVED
+    /// annotation is the diagnostic payload — a pure reorder changes which line answers while leaving every field
+    /// identical, so it is invisible to a field diff. Budget-aware like <see cref="AppendIssues"/>: returns false at
+    /// the cap so the caller stops (Q3 — an explicit notice, never a silent cut).</summary>
+    static bool AppendInfoOrder(StringBuilder sb, TopicValidation t, string pad, int cap)
+    {
+        if (t.InfoOrder is not { } io || io.Order.Count == 0) return true;
+
+        if (!io.Contested)
+        {
+            sb.Append(pad).Append("  INFO order: ").Append(io.Order.Count)
+              .Append(io.Order.Count == 1 ? " line, from a single plugin (" : " lines, from a single plugin (")
+              .Append(io.ContributingPlugins[0])
+              .Append(") — nothing merges here, so the effective order IS that plugin's own list.\n");
+            return true;
+        }
+
+        var moved = io.Moved;
+        bool listAll = io.Order.Count <= MaxOrderRows;
+
+        sb.Append(pad).Append("  effective INFO order — merged across ").Append(io.ContributingPlugins.Count)
+          .Append(" plugins that touch this topic; the game walks it top to bottom and plays the FIRST line whose conditions pass:\n");
+        if (!listAll)
+            sb.Append(pad).Append("    (").Append(io.Order.Count).Append(" lines total — listing only the ")
+              .Append(moved.Count).Append(" that moved; raise max_chars is not needed, the rest are in original order)\n");
+
+        foreach (var e in listAll ? io.Order : moved)
+        {
+            if (sb.Length >= cap) { sb.Append(pad).Append("    ... [truncated at max_chars]\n"); return false; }
+            sb.Append(pad).Append("    #").Append(e.Index + 1).Append("  ").Append(e.Info);
+            if (e.Deleted) sb.Append("  (deleted)");
+            if (e.Moved) sb.Append("  MOVED from #").Append(e.OriginIndex!.Value + 1);
+            else if (e.OriginIndex is null) sb.Append("  (added by a later plugin)");
+            sb.Append("  placed by ").Append(e.PlacedBy);
+            if (e.Placement == InfoPlacement.Head) sb.Append(" [PNAM names no reachable line — forced to the top]");
+            sb.Append('\n');
+        }
+
+        if (moved.Count > 0)
+        {
+            var w = moved[0];
+            sb.Append(pad).Append("  [!] ").Append(moved.Count)
+              .Append(moved.Count == 1 ? " line sits" : " lines sit")
+              .Append(" at a different position than this topic's defining plugin laid down — the biggest shift is ")
+              .Append(w.Info).Append(" #").Append(w.OriginIndex!.Value + 1).Append(" -> #").Append(w.Index + 1)
+              .Append(", moved there by ").Append(w.PlacedBy)
+              .Append(". Re-listing a line appends it to the BOTTOM unless the plugin also carries that line's PNAM. Nothing is dropped — but a line the game now reaches later can be pre-empted by any earlier line whose conditions also pass, so the wrong line answers.\n");
+        }
+
+        if (io.Note is { } note)
+            sb.Append(pad).Append("  [!] INFO order caveat — ").Append(note).Append(".\n");
+
+        return true;
     }
 
     /// <summary>Voice: a SILENT line is the actionable one (named with its .fuz path), present lines are summarised as
@@ -299,7 +367,7 @@ static class DialogueWire
         if (conditioned > 0) sb.Append(" — ").Append(conditioned).Append(" line(s) here carry conditions, checked for malformedness but not evaluated");
         sb.Append(".\n");
         sb.Append("  • voice presence is an on-disk file check only — lip-sync accuracy and the audio content itself are not verified (voice acting is out of scope).\n");
-        sb.Append("  • this validates the WINNING topic's INFO list (what the game plays); a line another plugin adds but this topic override does not re-list is dropped in game and is not seen here — resolve dialogue conflicts so the winning topic carries every line.\n");
+        sb.Append("  • the per-line checks above (voice, result script, CK parity) audit the WINNING topic's INFO list only. A line another plugin contributes but this winner does not re-list is NOT dropped from the game — it still plays, and it DOES appear in the effective INFO order above — but its voice/script/parity is not audited here.\n");
         if (readIncomplete)
             sb.Append("  • a BSA failed to read this build, so an \"absent\" voice/.pex above may merely be unscanned — see housecarl_load_order_status.\n");
     }

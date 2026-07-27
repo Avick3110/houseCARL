@@ -14,10 +14,14 @@ namespace HousecarlCore;
 //   what the game actually sees — and audits EVERY existing INFO in the topic, not just freshly-created ones.
 //   That closes unit B's deferred edit-path voice/script audit gap (the WriteTools edit-path note repoints here).
 //
-//  WHAT IT CHECKS (per topic, all on the RESOLVED WINNING DialogTopic record). The in-game INFO set IS the winning
-//  topic's Responses: an INFO cannot exist without its parent DIAL, and overriding an INFO pulls the DIAL in with it,
-//  so INFO+DIAL travel together and the winning DIAL's child list is authoritative (the "DIAL-wins-wholesale" model —
-//  exactly why two mods touching one topic cause the classic dropped-line conflict; Aaron-confirmed 2026-06-19):
+//  WHAT IT CHECKS (per topic, on the RESOLVED WINNING DialogTopic record plus — for the INFO ORDER — every touching
+//  plugin's child list). NOTE THE CORRECTED MODEL (#275, 2026-07-27): the in-game INFO set is NOT the winning topic's
+//  Responses. The "DIAL-wins-wholesale" model (winner's child list is authoritative, so a line no other plugin
+//  re-lists is DROPPED) was recorded Aaron-confirmed 2026-06-19 and is FALSE — measured live, a topic whose winner
+//  carries ONE INFO plays EIGHT, and the line that misfired was not in the winner's list at all. Every touching
+//  plugin's INFOs MERGE; non-relisting drops nothing, it REORDERS (DialogueInfoOrder carries the model + evidence).
+//  The per-INFO checks below still walk the WINNING topic's child list — that is the set whose bodies this validator
+//  audits — while the effective ORDER is the merge:
 //    • Quest wiring — DialogTopic.Quest set and resolving to a real QUST (an unowned topic may never present).
 //    • Branch wiring — if DialogTopic.Branch is set, it must resolve to a real DLBR (an unset Branch is normal).
 //    • INFO.LinkTo conversation chain — the REAL topic→next-topic hand-off; a set link to a missing DIAL is a broken chain.
@@ -32,9 +36,10 @@ namespace HousecarlCore;
 //      LIVE INFO (reused verbatim, so the create-path and the validator can never drift). DELETED INFOs (a removed line)
 //      are skipped, not validated.
 //
-//  BOUNDARY (Q3): an INFO another plugin contributes but the WINNING topic override does not re-list is dropped in game
-//  (the conflict above) and is likewise not seen here — a clean pass is over the winning topic's INFO set, which IS what
-//  plays. The standing-limits footer names this.
+//  BOUNDARY (Q3): the per-INFO body checks above walk the WINNING topic's child list, so an INFO another plugin
+//  contributes but this winner does not re-list is NOT body-checked here. It is NOT dropped from the game, though — it
+//  still plays, and it DOES appear in the effective-order view, which merges every touching plugin's list. So a clean
+//  pass means "every line this winner lists is sound", NOT "every line in this topic is". The footer names this scope.
 //
 //  WHAT IT DELIBERATELY CANNOT CHECK (grill-rev C2 — the validator is the ONLY non-advisory enforcement, so it
 //  must NAME the gaps, never let "checks passed" read as "this will play"): the CTDA conditions that gate when a
@@ -82,7 +87,14 @@ public sealed record TopicValidation(
     IReadOnlyList<DialogueIssue> Issues,
     IReadOnlyList<VoiceLine> VoiceLines,
     IReadOnlyList<VoiceUndetermined> VoiceUndetermined,
-    IReadOnlyList<ScriptBindingFinding> ScriptFindings);
+    IReadOnlyList<ScriptBindingFinding> ScriptFindings)
+{
+    /// <summary>The EFFECTIVE, merged INFO order for this topic — the sequence the game walks top-to-bottom,
+    /// merged across every touching plugin's child list (#275, xEdit INOA parity). Null only when the merge could
+    /// not be built (the topic resolved to no touching plugins). This is the one view that shows a pure REORDER,
+    /// which changes which line plays while leaving every field identical — see <see cref="DialogueInfoOrder"/>.</summary>
+    public InfoOrderView? InfoOrder { get; init; }
+}
 
 /// <summary>The SEQ staleness/coverage lint result for a QUEST-input validation (item 7); null for a non-SGE quest
 /// or a DIAL input. A Start-Game-Enabled quest needs a <c>.seq</c> that LISTS it (by its on-disk FormID) and is NEWER
@@ -182,6 +194,25 @@ public static class DialogueValidate
             // ValidateTopic.BadRef.
             bool InOrder(FormKey k) => !k.IsNull && view.ResolveWinner(k) is not null;
 
+            // ---- effective INFO order (#275) --------------------------------------------------------------
+            // The order the game walks is the MERGE of every touching plugin's child list, not the winner's list
+            // alone — so this is the one view here that reads bodies BEYOND the winner. A PNAM target is resolved
+            // to its winning body + the plugin it came from, so a recursively-placed line is credited correctly.
+            (IDialogResponsesGetter Body, string Plugin)? ResolveInfo(FormKey k)
+            {
+                if (k.IsNull || view.ResolveWinner(k) is not { } w) return null;
+                return Resolve(k) is IDialogResponsesGetter r ? (r, w.WinnerPlugin) : null;
+            }
+
+            InfoOrderView? OrderFor(FormKey topicFk)
+            {
+                if (view.TouchingPlugins(topicFk) is not { } touching) return null;
+                var groups = new List<(string, IDialogTopicGetter)>(touching.Count);
+                foreach (var p in touching)
+                    if (view.GetRecord(session, p, topicFk) is IDialogTopicGetter dt) groups.Add((p, dt));
+                return groups.Count == 0 ? null : DialogueInfoOrder.Compute(groups, ResolveInfo);
+            }
+
             var win = view.ResolveWinner(fk);
             if (win is null)
                 return DialogueValidationReport.ForError(fk,
@@ -194,7 +225,8 @@ public static class DialogueValidate
 
             if (body is IDialogTopicGetter topic)
             {
-                var tv = ValidateTopic(topic, win.Value.WinnerPlugin, InOrder, Resolve, av);
+                var tv = ValidateTopic(topic, win.Value.WinnerPlugin, InOrder, Resolve, av)
+                    with { InfoOrder = OrderFor(fk) };
                 return new DialogueValidationReport(fk, "topic", topic.EditorID ?? "", win.Value.WinnerPlugin, new[] { tv })
                     { ReadIncomplete = av.ReadIncomplete };
             }
@@ -218,6 +250,13 @@ public static class DialogueValidate
                     var wp = view.ResolveWinner(tfk)?.WinnerPlugin ?? win.Value.WinnerPlugin;
                     topics.Add(ValidateTopic(dt, wp, InOrder, Resolve, av));
                 }
+
+                // Effective INFO order per topic — built AFTER the winner scan closes, deliberately never inside it:
+                // the scan owns its overlay under the consume-before-advance contract, while OrderFor fetches OTHER
+                // plugins' bodies for the same FormKey. An InfoOrderView holds only FormKeys, names and indices (no
+                // overlay-backed body), so building it late is safe where reading a body late would not be.
+                for (int i = 0; i < topics.Count; i++)
+                    topics[i] = topics[i] with { InfoOrder = OrderFor(topics[i].Topic) };
 
                 // Quest-level CK-parity gaps (ANAM / objective FNAM) — checked ONCE on the winning quest record and
                 // surfaced as InputIssues, never per topic (a multi-topic quest would repeat the same quest gap N

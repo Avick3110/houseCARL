@@ -8,6 +8,28 @@ when it changes.
 
 *Accumulating notes for the next cut — not yet released; `plugin.json` still reads the last shipped version.*
 
+**`validate_dialogue` now reports a topic's EFFECTIVE line order — and which mod moved a line (#275).** A dialogue
+topic is a list of possible lines, and the game plays the **first** one whose conditions pass. That list is not held
+by any single record: every mod that touches the topic contributes its own list, and the real order is the merge of
+all of them. houseCARL could not see that order at all, so the delta that breaks dialogue was invisible — a pure
+reorder changes which line answers while leaving every field identical, so no field diff can show it. The report now
+prints the merged order the game actually walks, marks any line whose position **moved**, and names the mod that
+moved it. The rule it makes visible: **re-listing a line appends it to the bottom** unless that mod also carries the
+line's previous-line link. So a mod that touches one line of an eight-line topic can silently send it to the back,
+and a broader line answers in its place. That is the shape behind "I got hired for 79 gold when the prompt says
+5000" — the refusal was line #1 and two mods pushed it to #8 — and behind most "my dialogue mod stopped working"
+reports. The order is computed to match what xEdit's INFO Order (INOM/INOA) rows show.
+
+**Correction — houseCARL previously said lines get dropped by a dialogue conflict. They do not (#275).** The tool
+used to state that a line another mod adds but the winning topic does not re-list "is dropped in game", and advised
+resolving conflicts so the winning topic carries every line. That is wrong, and the advice was for a failure mode
+that does not exist. Measured on a real load order: a topic whose winning record lists **one** line plays **eight**,
+and the line that misbehaved was not in the winner's list at all. Nothing is dropped by a conflict — the lines merge,
+and what changes is their **order**. The footer now states the real scope: the per-line checks (voice, result script,
+CK parity) audit the winning topic's list, while every contributing mod's lines appear in the effective order above.
+If you previously restructured a patch to make one topic re-list every line, that was not necessary — and because
+re-listing appends, it may itself have reordered them.
+
 **`nif_set` can now write a mesh's shader lighting values — the read/write asymmetry #287 opened is closed (#291).**
 A new `op=set_shader_value` sets any of the six values `nif_inspect sections=shader` reports: *glossiness, specular
 strength, specular colour, emissive colour, emissive multiple,* and *alpha*. Pass `shader_value=` and `value=` — one
