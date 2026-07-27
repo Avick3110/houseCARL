@@ -261,8 +261,24 @@ public static class DialogueValidate
                     // MO2/xEdit mid-call now vanishes SILENTLY — and if the drop leaves one contributor the render
                     // would claim "single plugin, nothing merges here" for a genuinely contested topic, hiding the
                     // very reorder this exists to surface. Carry the absentees so the note states it (Q3).
-                    if (groups.Count > 0)
-                        built[tfk] = DialogueInfoOrder.Compute(groups, ResolveInfo, unread);
+                    // Built UNCONDITIONALLY — including when NOTHING read. Gating on groups.Count > 0 leaves
+                    // InfoOrder null on a total drop, and the render then returns before it can say anything,
+                    // which is the same silence one layer down. Safe: TouchingPlugins never yields an empty list,
+                    // so no groups implies unread is non-empty implies Complete is false, and the incomplete
+                    // render branch reads only counts — it never indexes ContributingPlugins.
+                    //
+                    // originIsDefiningPlugin — the move baseline is the first contributing group with a NON-EMPTY
+                    // list, so it is trustworthy only if no unread plugin sits BEFORE that plugin in load order.
+                    // Testing merely `touching[0] is unread` is too weak: a first plugin that read but carries an
+                    // empty child list contributes no baseline, so an unread SECOND plugin still shifts it.
+                    int firstWithLines = groups.FindIndex(g => g.Item2.Count > 0);
+                    string? baselinePlugin = firstWithLines >= 0 ? groups[firstWithLines].Item1 : null;
+                    bool baselineTrusted = unread.Count == 0
+                        || (baselinePlugin is not null
+                            && !touching.TakeWhile(p => !p.Equals(baselinePlugin, StringComparison.OrdinalIgnoreCase))
+                                        .Any(p => unread.Contains(p, StringComparer.OrdinalIgnoreCase)));
+
+                    built[tfk] = DialogueInfoOrder.Compute(groups, ResolveInfo, unread, baselineTrusted);
                 }
                 return built;
             }
