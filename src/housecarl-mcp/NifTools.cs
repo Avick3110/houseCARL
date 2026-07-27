@@ -40,8 +40,8 @@ public static class NifTools
          "partitions (decoded to their SBP_* names), the alpha property (decoded blend / test / threshold), the SHADER " +
          "property (block type, the shader TYPE enum — SkinTint / FaceTint / HairTint / EnvironmentMap / Parallax / … — " +
          "the SLSF1+SLSF2 flags decoded to their names, and the lighting values — emissive colour and multiple, " +
-         "glossiness, specular strength and colour, alpha; any one the underlying mesh library only stubs for that " +
-         "block type is NAMED as unread rather than reported as a wrong constant), the embedded " +
+         "glossiness, specular strength and colour, alpha; any one that would be a constant rather than this mesh's " +
+         "number is NAMED as unreported, with which reason, rather than printed), the embedded " +
          "texture-set paths with their semantic slot names where the shader determines them, and the bone list; plus the node tree and the header string table. Use it to answer 'what " +
          "shapes / bones / textures / partitions / alpha does this mesh have', 'does this mesh glow / use soft lighting / " +
          "subsurface skin / env-mapping', to read a facegen mesh's baked shape names " +
@@ -53,7 +53,7 @@ public static class NifTools
          "SUMMARY per mesh by default (header + census + shape names); pass sections to expand ('shapes','partitions','alpha'," +
          "'paths','shader','strings','nodes','bones', or 'all'). Pass mod= to inspect a specific provider instead of the winner; " +
          "sections, mod and max_chars apply to the whole batch. An " +
-         "unreadable archive, an absent path, or a mesh NiflySharp refuses (e.g. its strict non-0/1 boolean class) is " +
+         "unreadable archive, an absent path, or a mesh the underlying mesh library refuses is " +
          "reported LOUD by name — never a silent 'absent' or a half-answer. Read-only: resolves nothing to disk, writes " +
          "nothing, changes no load order. Scope: data values only; it does not read or edit geometry / visual content.")]
     public static string NifInspect(
@@ -487,15 +487,27 @@ static class NifWire
         if (sh.SpecularStrength is null) missing.Add("specular strength");
         if (sh.SpecularColor is null) missing.Add("specular colour");
         if (sh.Alpha is null) missing.Add("alpha");
-        if (missing.Count > 0)
-            // "WHERE THIS BLOCK CARRIES THEM" is doing real work: for a lighting shader the values genuinely are on
-            // disk and NifSkope shows them, but a BSEffectShaderProperty has no glossiness / specular-strength /
-            // specular-colour field AT ALL, so an unconditional "the values ARE in the file" would send the reader
-            // hunting in NifSkope for fields that don't exist (review of PR #286).
-            sb.Append("    NOT READ by this NiflySharp version — its accessor returns a constant for these, so ")
-              .Append("houseCARL reports nothing rather than a wrong number: ")
-              .Append(string.Join(", ", missing))
-              .Append(". Where this block carries them, NifSkope shows the real values.\n");
+        if (missing.Count == 0) return;
+        // TWO different reasons produce an unreported value, and saying the wrong one is its own wrong answer. On a
+        // non-Skyrim layout houseCARL declines them all as a matter of ITS OWN SCOPE — several read fine there, and
+        // blaming the library would be false — so that decline gets its own sentence (review of PR #290).
+        if (!IsSkyrimLayout(sh))
+        {
+            sb.Append("    lighting values: NOT INTERPRETED for this block — houseCARL models the Skyrim shader "
+                      + "layout, and this reads as the ").Append(sh.GameType).Append(" layout, where some of these "
+                      + "accessors answer a field the stream never carried (glossiness is a constant 80 there, not "
+                      + "the mesh's). Declined rather than guessed which: ")
+              .Append(string.Join(", ", missing)).Append(". NifSkope reads this mesh's own layout.\n");
+            return;
+        }
+        // "WHERE THIS BLOCK CARRIES THEM" is doing real work: for a lighting shader the values genuinely are on
+        // disk and NifSkope shows them, but a BSEffectShaderProperty has no glossiness / specular-strength /
+        // specular-colour field AT ALL, so an unconditional "the values ARE in the file" would send the reader
+        // hunting in NifSkope for fields that don't exist (review of PR #286).
+        sb.Append("    NOT READ by this NiflySharp version — its accessor returns a constant for these, so ")
+          .Append("houseCARL reports nothing rather than a wrong number: ")
+          .Append(string.Join(", ", missing))
+          .Append(". Where this block carries them, NifSkope shows the real values.\n");
     }
 
     static string ColorText(NifColor c) => $"rgb({Fmt(c.R)},{Fmt(c.G)},{Fmt(c.B)})";

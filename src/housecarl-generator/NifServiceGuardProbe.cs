@@ -225,6 +225,22 @@ internal static class NifServiceGuardProbe
         Check(fo4Shape is not null && fo4Shape.Textures.Count > 0 && fo4Shape.Textures.All(t => t.SlotName is null),
               "NOT-SKYRIM — every slot is UNNAMED on a non-SK layout, including the ones nifly's helpers answer "
               + $"'true' for — [{string.Join(", ", fo4Shape?.Textures.Select(t => $"tex[{t.Slot}]{(t.SlotName is null ? "" : " (" + t.SlotName + ")")}") ?? Array.Empty<string>())}]");
+        // THE LAYOUT GATE (review of PR #290). This fixture authors Glossiness=30 exactly as the SK one does, but on
+        // the FO4 layout that field is never serialized, so nifly's accessor answers its constructor default 80 — the
+        // same 80 whatever the mesh holds. ReallyReads keys on block TYPE and cannot see it: BSLightingShaderProperty
+        // really does implement Glossiness, just against a field this layout never carried. Before the gate this leg
+        // asserted slot naming only, so all 109 guards passed while `glossiness 80` shipped as a confident number.
+        // Pinned on the VALUE, not just on null-ness: 80 named here is what a regression would print.
+        var fo4Sh = fo4Shape?.Shader;
+        Check(fo4Sh is not null && fo4Sh.Glossiness is null && fo4Sh.SpecularStrength is null
+              && fo4Sh.SpecularColor is null && fo4Sh.EmissiveColor is null
+              && fo4Sh.EmissiveMultiple is null && fo4Sh.Alpha is null,
+              "NOT-SKYRIM — every lighting value is DECLINED on a non-SK layout, so the layout-dispatched constant "
+              + $"(glossiness 80, never the mesh's) cannot ship as a number — glossiness={Dec(fo4Sh?.Glossiness)} "
+              + $"specularStrength={Dec(fo4Sh?.SpecularStrength)} emissiveMultiple={Dec(fo4Sh?.EmissiveMultiple)} "
+              + $"alpha={Dec(fo4Sh?.Alpha)} "
+              + $"specularColor={(fo4Sh?.SpecularColor is null ? "declined" : "REPORTED")} "
+              + $"emissive={(fo4Sh?.EmissiveColor is null ? "declined" : "REPORTED")}");
 
         // The decline must reach the WIRE, not just the data model: a bare tex[2] on an SK mesh means "this shader
         // doesn't determine slot 2", and on an FO4 mesh it means "we don't model this layout" — byte-identical output,
@@ -235,6 +251,14 @@ internal static class NifServiceGuardProbe
         Check(fo4Render.Contains("NOT DERIVED for this block") && fo4Render.Contains("unmodelled, not undetermined")
               && System.Text.RegularExpressions.Regex.Matches(fo4Render, "NOT DERIVED").Count >= 3,
               "NOT-SKYRIM-RENDER — the decline is STATED in the shader section and caveated on both slot-listing sections");
+        // The lighting decline needs its OWN reason on the wire. Blaming the library here would be false — four of
+        // the six read correctly on FO4 — so the layout sentence must appear and the library sentence must not, and
+        // no lighting number may survive into the render (review of PR #290).
+        Check(fo4Render.Contains("lighting values: NOT INTERPRETED for this block")
+              && fo4Render.Contains("glossiness is a constant 80 there")
+              && !fo4Render.Contains("NOT READ by this NiflySharp version")
+              && !fo4Render.Contains("glossiness 80") && !fo4Render.Contains("glossiness 30"),
+              "NOT-SKYRIM-RENDER — the lighting decline states the LAYOUT as its reason, not the library, and prints no value");
         var skRender = NifWire.Render(FakeData(outcome.Inspect, null), fo4Sections, Array.Empty<string>(), 80_000);
         Check(!skRender.Contains("NOT DERIVED"),
               "NOT-SKYRIM-RENDER — an ordinary Skyrim mesh carries none of that noise");
@@ -368,6 +392,10 @@ internal static class NifServiceGuardProbe
     /// <summary>A nullable float for a probe DETAIL string — "unread" is the answer being asserted, so it has to be
     /// visible in the output rather than rendering as an empty string that reads like a zero.</summary>
     static string Fmt(float? f) => f is { } v ? v.ToString(System.Globalization.CultureInfo.InvariantCulture) : "unread";
+
+    /// <summary>As <see cref="Fmt"/>, but for the LAYOUT decline — where null means houseCARL declined to interpret,
+    /// not that the library stubs the accessor. Two different reasons, so two different words in the detail line.</summary>
+    static string Dec(float? f) => f is { } v ? v.ToString(System.Globalization.CultureInfo.InvariantCulture) : "declined";
 
     static bool CensusHas(NifInspect nif, string type, int count) => nif.BlockTypes.Any(t => t.Type == type && t.Count == count);
 

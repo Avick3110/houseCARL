@@ -12,16 +12,23 @@ namespace HousecarlCore;
 /// which mod won (that seam is <see cref="LoadOrderService"/>, which resolves the winning bytes and hands them here),
 /// so it is fully testable off a synthetic in-memory mesh with no live workspace (nif-service-guard).
 ///
-/// Reads ride NiflySharp 1.0.0 (NuGet <c>Nifly</c>) — pure C#, source-generated from nifxml, spike-proven over 87,937
-/// workspace nifs (SPIKE_NIF_LAYER_2026-07-08: 99.98% loose / 100.00% vanilla parse, zero unknown blocks in any SE
-/// mesh). Library quirks coded around per the spike: the alpha/shader/skin refs are read DIRECTLY
+/// Reads ride NiflySharp 1.1.0 (NuGet <c>Nifly</c>) — pure C#, source-generated from nifxml. Re-proven on the 1.0.0 →
+/// 1.1.0 bump rather than carried over (#287): both versions scanned back to back over the same 72,739 loose + 18,862
+/// vanilla workspace nifs and diffed FILE BY FILE — 100.00% parse on both corpora, zero unknown blocks in any SE mesh,
+/// zero regressions. (The superseded 1.0.0 baseline — 87,937 nifs, 99.98% loose — is SPIKE_NIF_LAYER_2026-07-08; those
+/// figures are a property of THAT library build and do not describe this one.) Library quirks coded around per the
+/// spike: the alpha/shader/skin refs are read DIRECTLY
 /// (<see cref="INiShape.AlphaPropertyRef"/> etc.) — NEVER via <c>NifFile.GetPropertyOfType&lt;T&gt;</c>, which NREs on
 /// SE-style shapes whose legacy <c>Properties</c> list is null.
 ///
 /// Fail-loud (Q3, PRFAQ N6): a parse failure is a NAMED, recoverable outcome (<see cref="NifInspectOutcome.Error"/>),
-/// not a throw or a half-model — including NiflySharp's one strict-boolean rejection class, which houseCARL surfaces
-/// with the NifSkope remedy rather than hand-patching around. Unknown blocks are REPORTED (count + their real on-disk
-/// type names) and left intact — the model tells the truth about what it could and could not model.
+/// not a throw or a half-model. Unknown blocks are REPORTED (count + their real on-disk type names) and left intact —
+/// the model tells the truth about what it could and could not model.
+///
+/// The strict-boolean rejection class this file used to describe as live behaviour is GONE as of 1.1.0: upstream
+/// stopped throwing on a non-0/1 boolean byte, the 9 workspace meshes that hit it now parse, and the message string
+/// is absent from the 1.1.0 assembly (present in 1.0.0's). <see cref="DescribeLoadException"/>'s arm for it is
+/// therefore believed unreachable and kept only as belt-and-braces — it is NOT an outcome to advertise to a caller.
 /// </summary>
 public static class NifService
 {
@@ -92,7 +99,12 @@ public static class NifService
         }
     }
 
-    /// <summary>Turn a load exception into a named, actionable error. NiflySharp's one strict-boolean rejection class
+    /// <summary>Turn a load exception into a named, actionable error. The strict-boolean arm below is BELIEVED DEAD as
+    /// of NiflySharp 1.1.0 (#287 / PR #290) — upstream stopped throwing on it, the workspace meshes that hit it now
+    /// parse, and the message string is gone from the assembly. It is kept because a wrong-but-specific message costs
+    /// nothing if it never fires and a missing one costs a diagnosis if the class ever returns; it is deliberately no
+    /// longer advertised in the tool description as an outcome to expect. Original note follows.
+    /// NiflySharp's one strict-boolean rejection class
     /// (the spike's 13 loud failures — "Byte value for boolean is > 2!", a nonstandard byte some exporters write) is
     /// called out by name with the NifSkope remedy, so the tool never reads as a silent "absent" and houseCARL never
     /// hand-patches around the strict read.</summary>
@@ -213,9 +225,29 @@ public static class NifService
         // on disk, and the interface widens it to Color4, so its 4th component is a synthetic 0 that would render as
         // "fully transparent emissive" — a fabricated value, the one thing worse than a missing one (Q3). Specular is
         // a Color3 both on disk and on the interface, so it needs no such narrowing — the same RGB shape either way.
+        //
+        // SECOND GATE — THE LAYOUT (review of PR #290). ReallyReads keys on the block TYPE, and that is one axis too
+        // narrow: some of these accessors are LAYOUT-dispatched, reading a field the stream only carries on some
+        // games. Glossiness is the live case — nifly documents it as "the material specular power, or glossiness
+        // (BEFORE FO4)", with a separate Smoothness "(starting with FO4)". So on an FO4 / FO76-SF layout the field is
+        // never deserialized and the accessor hands back its nif.xml constructor default: an authored 30 and an
+        // authored 55 both read back as 80. That is "returns a constant regardless of what the mesh holds" — exactly
+        // what ReallyReads exists to suppress — but at LAYOUT granularity, which a type-level interface-map check
+        // structurally cannot see (1.0.0 hid it by not overriding Glossiness at all; the 1.1.0 bump exposed it).
+        //
+        // The gate is by LAYOUT rather than by a declared list of "the layout-dispatched values" on purpose. A list is
+        // a hand-kept fact about the library's internals — the exact per-type hand-mapping the coverage cornerstone
+        // exists to keep out, unverifiable by a guard that can only mirror the same belief, and already wrong once for
+        // any layout nobody thought to probe. "houseCARL interprets a SKYRIM shader" is instead a claim about
+        // houseCARL's own scope, true whatever nifly does internally, and it is the posture this file already takes
+        // twice over: ShaderTypeName picks its field BY LAYOUT, and slot naming declines entirely off the SK layout.
+        // The cost is the four values that do read correctly elsewhere (specular strength/colour, emissive multiple,
+        // alpha) going unreported on a non-Skyrim mesh — and the renderer states that decline as its own distinct
+        // reason, never as "the library stubs these", because it isn't.
         var t = shader.GetType();
-        NifColor? Rgb3(string prop, Func<NifColor> read) => ReallyReads(t, prop) ? read() : null;
-        float? Scalar(string prop, Func<float> read) => ReallyReads(t, prop) ? read() : null;
+        var skyrimLayout = game == ShaderHelper.ShaderGameType.SK;
+        NifColor? Rgb3(string prop, Func<NifColor> read) => skyrimLayout && ReallyReads(t, prop) ? read() : null;
+        float? Scalar(string prop, Func<float> read) => skyrimLayout && ReallyReads(t, prop) ? read() : null;
 
         return new NifShader(
             blockType, game.ToString(), ShaderTypeName(shader, blockType, game),
