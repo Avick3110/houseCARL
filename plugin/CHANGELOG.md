@@ -75,7 +75,7 @@ takes). Slot naming is a **Skyrim** convention, so it declines entirely on a mes
 an unconverted Fallout 4 mesh shipped inside a Skyrim mod gets bare indices, and the output says so rather than
 leaving "unnamed" to read as "undetermined".
 **Lighting values** — *emissive colour and multiple, glossiness, specular strength, specular colour, alpha* — are
-reported for a lighting shader (see the mesh-library bump below; they were unreadable when this section was first
+reported for a lighting shader (see the mesh-library bump above; they were unreadable when this section was first
 built, and never shipped that way). On an **effect** shader the library still answers them from a stub that returns a
 constant, so houseCARL prints nothing for them there and names them as not read, rather than a number it cannot vouch
 for. Which values are readable is detected from the library itself, not a hard-coded list, so this tracks the bundled
