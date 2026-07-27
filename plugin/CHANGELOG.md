@@ -28,7 +28,9 @@ and the line that misbehaved was not in the winner's list at all. Nothing is dro
 and what changes is their **order**. The footer now states the real scope: the per-line checks (voice, result script,
 CK parity) audit the winning topic's list, while every contributing mod's lines appear in the effective order above.
 If you previously restructured a patch to make one topic re-list every line, that was not necessary — and because
-re-listing appends, it may itself have reordered them.
+re-listing appends, it may itself have reordered them. The `dialogue-authoring` skill taught the same wrong model and
+its "carry forward every line" advice; both are corrected, and the guidance is now the opposite — **list only the
+lines you add or change**, and set a line's previous-line link (PNAM) when its position matters.
 
 **`nif_set` can now write a mesh's shader lighting values — the read/write asymmetry #287 opened is closed (#291).**
 A new `op=set_shader_value` sets any of the six values `nif_inspect sections=shader` reports: *glossiness, specular

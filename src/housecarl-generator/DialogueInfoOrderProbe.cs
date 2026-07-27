@@ -30,6 +30,12 @@ namespace HousecarlGenerator;
 ///                      tail-appended — the arm that keeps an unresolvable link from reading as "no link".
 ///   PNAM-CYCLE       — two INFOs whose PNAMs point at each other TERMINATE and both appear (a cycle degrades to a
 ///                      placement, never a hang or a dropped line).
+///   PNAM-SELF        — an INFO whose PNAM names its OWN record degrades to a placement AND says so on the note.
+///                      RED before the PR #293 review fix: that shape drove a negative-length list insert, throwing
+///                      ArgumentOutOfRangeException out of a path whose contract is that it never throws.
+///   RENDER-ZERO-CAVEAT — the standing PNAM-zero fidelity limit reaches the reader on an UNCONTESTED topic too. The
+///                      limit applies to any topic of 2+ lines, so a conditional per-topic note (the first cut)
+///                      silently omitted it exactly where a clean-looking report needed it most.
 ///   DELETED-KEPT     — a deleted INFO still occupies its slot in the order (it is shown flagged, never silently
 ///                      dropped — the index of every line after it depends on it being counted).
 ///   PNAM-ZERO-AXIS   — THE FIDELITY PIN. "PNAM absent" and "PNAM present-but-zero" place at OPPOSITE ENDS (tail vs
@@ -95,6 +101,15 @@ public static class DialogueInfoOrderProbe
         var d2 = NewInfo("HcIoDel2");
         tDeleted.Responses.Add(d0); tDeleted.Responses.Add(d1); tDeleted.Responses.Add(d2);
         var deletedFk = d1.FormKey;
+
+        // ---- tSelf: an INFO whose PNAM names its OWN record. Malformed, and before the explicit guard it drove
+        //      Place() into a negative-length insert — an uncatchable-shaped crash out of a "never throws" path
+        //      (PR #293 review). It is the FIRST line so it is placed into an empty list, the exact trace. ----
+        var tSelf = master.DialogTopics.AddNew(); tSelf.EditorID = "HcIoSelf";
+        var s0 = NewInfo("HcIoSelf0");
+        s0.PreviousDialog.SetTo(s0.FormKey);
+        var s1 = NewInfo("HcIoSelf1");
+        tSelf.Responses.Add(s0); tSelf.Responses.Add(s1);
 
         // ---- tZero: line 2 carries an explicitly-ZEROED PNAM (the "I am first" marker) while line 1 carries
         //      none at all. If Mutagen preserves the distinction, the zeroed one is placed HEAD and leads. ----
@@ -207,7 +222,18 @@ public static class DialogueInfoOrderProbe
                 : $"measured distinguishable={measured} (placement={e.Placement}), product flag={DialogueInfoOrder.PnamZeroIsDistinguishable}");
         }
 
-        // ---------- RENDER-MODEL-PIN ----------
+        // ---------- PNAM-SELF: a self-referencing PNAM degrades, never throws ----------
+        {
+            InfoOrderView? io = null;
+            string detail;
+            try { io = Order(tSelf.FormKey); detail = io is null ? "no order view" : $"n={io.Order.Count} note={(io.Note is null ? "<none>" : "set")}"; }
+            catch (Exception ex) { detail = $"THREW {ex.GetType().Name} — the never-throws contract is broken"; }
+            bool ok = io is not null && io.Order.Count == 2 && io.Note is not null
+                      && io.Note.Contains("OWN record", StringComparison.Ordinal);
+            all &= Pass("PNAM-SELF", ok, detail);
+        }
+
+        // ---------- RENDER-MODEL-PIN + the standing PNAM-zero caveat ----------
         {
             string r = DialogueWire.Render(DialogueValidate.Run(resolver, assets, tOrder.FormKey), 0);
             bool statesModel = r.Contains("effective INFO order", StringComparison.Ordinal)
@@ -215,6 +241,15 @@ public static class DialogueInfoOrderProbe
             bool dropsFalseClaim = !r.Contains("dropped in game", StringComparison.Ordinal);
             all &= Pass("RENDER-MODEL-PIN", statesModel && dropsFalseClaim,
                 $"statesOrder={statesModel} falseClaimGone={dropsFalseClaim}");
+
+            // The PNAM-zero limit applies to EVERY topic, so it must ride the standing footer — not a conditional
+            // per-topic note that a clean-looking topic would omit (PR #293 review). Pinned on the UNCONTESTED
+            // topic precisely because that is the case the conditional rendering used to skip.
+            string rSolo = DialogueWire.Render(DialogueValidate.Run(resolver, assets, tSolo.FormKey), 0);
+            bool caveat = r.Contains("I am first", StringComparison.Ordinal)
+                          && rSolo.Contains("I am first", StringComparison.Ordinal);
+            all &= Pass("RENDER-ZERO-CAVEAT", caveat,
+                $"contested={r.Contains("I am first", StringComparison.Ordinal)} uncontested={rSolo.Contains("I am first", StringComparison.Ordinal)}");
         }
 
         Console.WriteLine();

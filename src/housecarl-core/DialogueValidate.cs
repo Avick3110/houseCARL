@@ -196,21 +196,53 @@ public static class DialogueValidate
 
             // ---- effective INFO order (#275) --------------------------------------------------------------
             // The order the game walks is the MERGE of every touching plugin's child list, not the winner's list
-            // alone — so this is the one view here that reads bodies BEYOND the winner. A PNAM target is resolved
-            // to its winning body + the plugin it came from, so a recursively-placed line is credited correctly.
-            (IDialogResponsesGetter Body, string Plugin)? ResolveInfo(FormKey k)
+            // alone — so this is the one view here that reads BEYOND the winner. The fallback resolver serves a PNAM
+            // target that appears in none of the topic's own lists (rare); targets within the topic are served from
+            // the loaded lines, so this per-record lookup is almost never reached.
+            (InfoLine Line, string Plugin)? ResolveInfo(FormKey k)
             {
                 if (k.IsNull || view.ResolveWinner(k) is not { } w) return null;
-                return Resolve(k) is IDialogResponsesGetter r ? (r, w.WinnerPlugin) : null;
+                return Resolve(k) is IDialogResponsesGetter r
+                    ? (new InfoLine(r.FormKey, r.PreviousDialog.FormKeyNullable, r.IsDeleted), w.WinnerPlugin)
+                    : null;
             }
 
-            InfoOrderView? OrderFor(FormKey topicFk)
+            // Load every needed topic's per-plugin child lists in ONE typed DIAL pass per contributing plugin.
+            // Deliberately NOT view.GetRecord per (topic, plugin): that is an UNINDEXED whole-overlay scan, so a
+            // quest fan-out would rescan a big master (Skyrim.esm, USSEP) once per topic — hundreds of full scans
+            // for one call. Typed enumeration walks the DIAL group only, and one pass serves every topic at once.
+            // Lines are PROJECTED inside the loop, while each body is still live (consume-before-advance), so the
+            // merge itself runs on plain data after the overlays are gone.
+            Dictionary<FormKey, InfoOrderView> OrdersFor(IReadOnlyCollection<FormKey> topicFks)
             {
-                if (view.TouchingPlugins(topicFk) is not { } touching) return null;
-                var groups = new List<(string, IDialogTopicGetter)>(touching.Count);
-                foreach (var p in touching)
-                    if (view.GetRecord(session, p, topicFk) is IDialogTopicGetter dt) groups.Add((p, dt));
-                return groups.Count == 0 ? null : DialogueInfoOrder.Compute(groups, ResolveInfo);
+                var touchingOf = new Dictionary<FormKey, IReadOnlyList<string>>();
+                var wantedIn = new Dictionary<string, HashSet<FormKey>>(StringComparer.OrdinalIgnoreCase);
+                foreach (var tfk in topicFks)
+                {
+                    if (view.TouchingPlugins(tfk) is not { } touching) continue;
+                    touchingOf[tfk] = touching;
+                    foreach (var p in touching)
+                    {
+                        if (!wantedIn.TryGetValue(p, out var set)) wantedIn[p] = set = new HashSet<FormKey>();
+                        set.Add(tfk);
+                    }
+                }
+
+                var lines = new Dictionary<(string Plugin, FormKey Topic), IReadOnlyList<InfoLine>>();
+                foreach (var (plugin, wanted) in wantedIn)
+                    foreach (var (rfk, _, body, _) in view.RecordsIn(new[] { plugin }, DialTypes))
+                        if (wanted.Contains(rfk) && body is IDialogTopicGetter dt)
+                            lines[(plugin, rfk)] = DialogueInfoOrder.LinesOf(dt);
+
+                var built = new Dictionary<FormKey, InfoOrderView>();
+                foreach (var (tfk, touching) in touchingOf)
+                {
+                    var groups = new List<(string, IReadOnlyList<InfoLine>)>(touching.Count);
+                    foreach (var p in touching)
+                        if (lines.TryGetValue((p, tfk), out var l)) groups.Add((p, l));
+                    if (groups.Count > 0) built[tfk] = DialogueInfoOrder.Compute(groups, ResolveInfo);
+                }
+                return built;
             }
 
             var win = view.ResolveWinner(fk);
@@ -226,7 +258,7 @@ public static class DialogueValidate
             if (body is IDialogTopicGetter topic)
             {
                 var tv = ValidateTopic(topic, win.Value.WinnerPlugin, InOrder, Resolve, av)
-                    with { InfoOrder = OrderFor(fk) };
+                    with { InfoOrder = OrdersFor(new[] { fk }).GetValueOrDefault(fk) };
                 return new DialogueValidationReport(fk, "topic", topic.EditorID ?? "", win.Value.WinnerPlugin, new[] { tv })
                     { ReadIncomplete = av.ReadIncomplete };
             }
@@ -251,12 +283,14 @@ public static class DialogueValidate
                     topics.Add(ValidateTopic(dt, wp, InOrder, Resolve, av));
                 }
 
-                // Effective INFO order per topic — built AFTER the winner scan closes, deliberately never inside it:
-                // the scan owns its overlay under the consume-before-advance contract, while OrderFor fetches OTHER
-                // plugins' bodies for the same FormKey. An InfoOrderView holds only FormKeys, names and indices (no
-                // overlay-backed body), so building it late is safe where reading a body late would not be.
+                // Effective INFO order for EVERY topic in one batch, built AFTER the winner scan closes — never
+                // inside it: that scan owns its overlay under the consume-before-advance contract, while this opens
+                // other plugins' overlays. An InfoOrderView holds only FormKeys, names and indices (no overlay-backed
+                // body), so building it late is safe where reading a body late would not be. Batched so the whole
+                // fan-out costs one typed pass per contributing plugin, not one per (topic, plugin).
+                var orders = OrdersFor(topics.Select(t => t.Topic).ToList());
                 for (int i = 0; i < topics.Count; i++)
-                    topics[i] = topics[i] with { InfoOrder = OrderFor(topics[i].Topic) };
+                    topics[i] = topics[i] with { InfoOrder = orders.GetValueOrDefault(topics[i].Topic) };
 
                 // Quest-level CK-parity gaps (ANAM / objective FNAM) — checked ONCE on the winning quest record and
                 // surfaced as InputIssues, never per topic (a multi-topic quest would repeat the same quest gap N
