@@ -119,8 +119,21 @@ which *is* the reordering bug. List only the lines you actually add or change.
 And mind the asymmetry between those two: **adding** a line moves nothing, but **changing** an existing line
 is itself a re-list (an override must sit in your plugin's copy of the topic), so it moves that line to the
 bottom unless you carry its PNAM. When you edit an existing line, set its `PreviousDialog` to the line that
-preceded it — vanilla carries none, so there is nothing to inherit. Omitting a line no longer removes it: to
-stop one playing, mark it deleted in your override or condition it out.
+precedes it **in the effective order `housecarl_validate_dialogue` prints** — not in the vanilla list. Those
+differ the moment another mod has already reordered the topic, and placement happens against the list as it
+stands, so anchoring to the vanilla predecessor lands the line somewhere you didn't intend.
+
+**Know PNAM's failure mode before reaching for it.** A PNAM that cannot be resolved — a mistyped FormID, a
+target in a plugin the user hasn't installed, a cycle — does not fall back to "no link". It places the line
+at the **HEAD** of the topic, i.e. first, where it pre-empts everything else. That is strictly worse than the
+bottom-append it was meant to prevent, and harder to notice, because the line *is* playing — always. So point
+a PNAM only at a line you know ships in the same load order, and check the result in the printed effective
+order. Note too that a PNAM naming a line in **another topic** pulls that foreign line into this topic's
+order.
+
+Omitting a line no longer removes it. To stop one playing, condition it out (the verifiable lever) or mark it
+deleted — see the removal note in `SKILL.md`; do **not** reach for `housecarl_remove_record`, which drops your
+own override and restores the original line.
 
 `housecarl_validate_dialogue` prints the effective merged order for a topic and flags any line whose
 position moved, naming the plugin that moved it.

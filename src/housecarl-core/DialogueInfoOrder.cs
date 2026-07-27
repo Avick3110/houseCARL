@@ -178,7 +178,8 @@ public static class DialogueInfoOrder
     public static InfoOrderView Compute(
         IReadOnlyList<(string Plugin, IReadOnlyList<InfoLine> Lines)> groups,
         Func<FormKey, (InfoLine Line, string Plugin)?> resolveInfo,
-        IReadOnlyList<string>? unreadContributors = null)
+        IReadOnlyList<string>? unreadContributors = null,
+        bool originIsDefiningPlugin = true)
     {
         var state = new MergeState { Fallback = resolveInfo };
         var contributing = new List<string>();
@@ -209,7 +210,11 @@ public static class DialogueInfoOrder
         var order = state.Order;
 
         // Which lines actually changed RELATIVE order (not merely index — see InfoOrderEntry.Moved).
-        var movedKeys = originIdx is null || order.Count > MaxMoveAnalysisLines
+        // Skipped when the baseline itself is untrustworthy: originIdx is the FIRST CONTRIBUTING group, so if the
+        // DEFINING plugin is one that could not be read, the baseline silently becomes a later plugin's list and
+        // every "moved" verdict is measured against the wrong thing. A spurious moved set is worse than none —
+        // the render states it as fact and names the defining plugin (Q3).
+        var movedKeys = originIdx is null || order.Count > MaxMoveAnalysisLines || !originIsDefiningPlugin
             ? new HashSet<FormKey>()
             : RelativeOrderChanges(order, originIdx);
 
@@ -228,7 +233,7 @@ public static class DialogueInfoOrder
 
         state.Cycles = CountPnamCycles(order, state.Placed);
         return new InfoOrderView(entries, contributing, moved,
-                                 BuildNote(state, order.Count, originIdx is not null, unreadContributors))
+                                 BuildNote(state, order.Count, originIdx is not null, unreadContributors, originIsDefiningPlugin))
             { UnreadContributors = unreadContributors ?? Array.Empty<string>() };
     }
 
@@ -236,9 +241,13 @@ public static class DialogueInfoOrder
     /// merge was fully determined. Each clause names a concrete malformation so the reader can act on it (Q3) —
     /// these are data problems in the plugins, not tool limits.</summary>
     static string? BuildNote(MergeState state, int lineCount, bool haveOrigin,
-                             IReadOnlyList<string>? unreadContributors)
+                             IReadOnlyList<string>? unreadContributors, bool originIsDefiningPlugin)
     {
         var parts = new List<string>();
+        if (haveOrigin && !originIsDefiningPlugin)
+            parts.Add("the plugin that DEFINES this topic is among those that could not be read, so the baseline " +
+                      "for \"which lines moved\" would be a later plugin's list — move analysis was SKIPPED rather " +
+                      "than measured against the wrong order");
         // A plugin the index says TOUCHES this topic whose child list could not be read. Q3: the merge below is
         // built from FEWER lists than the load order actually has, so the order — and any "single plugin, nothing
         // merges" reading of it — is NOT authoritative. Never silently absorbed into a clean-looking result.
@@ -256,8 +265,9 @@ public static class DialogueInfoOrder
                       (state.SelfReferencing.Count > 3 ? ", …" : "") +
                       ") — malformed, and placed as if the link were unresolvable");
         if (state.Cycles > 0)
-            parts.Add($"{state.Cycles} PNAM cycle(s) — the line closing each loop is placed as if its link were " +
-                      "unresolvable, since no order satisfies a cycle");
+            parts.Add($"{state.Cycles} PNAM cycle(s) — no order satisfies a cycle, so the loop is broken at " +
+                      "whichever of its lines was placed first and the positions of the lines INSIDE it are not " +
+                      "authoritative");
         if (state.DepthCapped)
             parts.Add($"a PNAM chain ran past the {MaxChainDepth}-hop ceiling and was truncated — the lines beyond " +
                       "it are placed as if unlinked, so their order is not authoritative");

@@ -1,36 +1,203 @@
 {
-  "skill": "dialogue-authoring",
-  "method": "HOUSECARL_SKILL_AUTHORING.md §6.5 manual/fan-out validation (run_loop.py uses select(), broken on Windows per §6.4). Empirical step = independent fan-out of 20 fresh-context agents, one per query, each shown a neutral menu of 11 skill descriptions (dialogue-authoring at D among realistic siblings, NOT flagged as under-test; siblings shown with abridged faithful descriptions matching deployment) + one query, asked which ONE skill to load (or NONE) + reasoning. Anonymized per feedback_skill_trigger_eval_fanout; agents told to judge ONLY the menu, use no tools, ignore environment skills. Verdicts adjudicated from each agent's REASONING + pick. Menu: A=SkyPatcher edit-record-fields, B=SPID distribute-to-NPCs, C=KID keywords-to-items, D=dialogue-authoring author-DIAL/INFO [under test], E=mutagen-reference record-schema, F=papyrus-reference function-signatures, G=papyrus-optimization script-perf, H=facegen-diagnostics dark-face, I=crash-diagnostics crash-logs, J=conflict-resolution which-plugin-wins, K=modding-basics install/newcomer. Run 2026-06-20 against the as-drafted description (worktree claude/unit-e-dialogue-skill, pre-PR).",
-  "gate": { "recall_threshold": 0.80, "specificity_threshold": 0.50 },
-  "result": {
-    "recall": "10/10 = 1.00",
-    "specificity": "10/10 = 1.00",
-    "passed": true,
-    "notes": "Clean sweep. All 10 should-trigger picked D, each citing D's DISTINCTIVE hooks (the .seq, voice .fuz, dropped-line/DIAL-wins, conditions-not-order, graph validation) rather than the bare word 'dialogue' — the description's specific scope is doing the routing. All 10 should-not routed elsewhere; the four hardest near-misses held with explicit boundary reasoning: q14 (names INFO/DialogResponses) -> E (schema vs authoring), q17 (npc + talking) -> H (dialogue fires fine, symptom is the face), q18 (voice type + npcs) -> B (distribution to NPCs, not authoring dialogue), q19 (dialogue topic + winner) -> J (wants the override winner, not to author). q15 routed to G (papyrus-optimization) instead of predicted F (papyrus-reference) — a papyrus-skill-internal wobble, NOT a dialogue-authoring false-trigger; specificity unaffected. Every manual_predicted_trigger matched the measured trigger/skip verdict.",
-    "peer_review": "Author prediction + 20 independent fresh-context agents (exceeds §6.5's 'one peer reviewer checks 3 random'). Aaron may spot-check any query.",
-    "carry_forward": "DA-V1X-1: re-run on the next release that ships a Windows-compatible eval runner (run_loop.py select() fix), per §6.4. Re-measure on ANY description change per feedback_skill_trigger_eval_fanout."
+ "skill": "dialogue-authoring",
+ "method": "HOUSECARL_SKILL_AUTHORING.md §6.5 manual/fan-out validation (run_loop.py uses select(), broken on Windows per §6.4). Empirical step = independent fan-out of 20 fresh-context agents, one per query, each shown a neutral menu of 11 skill descriptions (dialogue-authoring at D among realistic siblings, NOT flagged as under-test; siblings shown with abridged faithful descriptions matching deployment) + one query, asked which ONE skill to load (or NONE) + reasoning. Anonymized per feedback_skill_trigger_eval_fanout; agents told to judge ONLY the menu, use no tools, ignore environment skills. Verdicts adjudicated from each agent's REASONING + pick. Menu: A=SkyPatcher edit-record-fields, B=SPID distribute-to-NPCs, C=KID keywords-to-items, D=dialogue-authoring author-DIAL/INFO [under test], E=mutagen-reference record-schema, F=papyrus-reference function-signatures, G=papyrus-optimization script-perf, H=facegen-diagnostics dark-face, I=crash-diagnostics crash-logs, J=conflict-resolution which-plugin-wins, K=modding-basics install/newcomer. Run 2026-06-20 against the as-drafted description (worktree claude/unit-e-dialogue-skill, pre-PR).",
+ "gate": {
+  "recall_threshold": 0.8,
+  "specificity_threshold": 0.5
+ },
+ "result": {
+  "recall": "10/10 = 1.00",
+  "specificity": "10/10 = 1.00",
+  "passed": true,
+  "notes": "Clean sweep. All 10 should-trigger picked D, each citing D's DISTINCTIVE hooks (the .seq, voice .fuz, dropped-line/DIAL-wins, conditions-not-order, graph validation) rather than the bare word 'dialogue' — the description's specific scope is doing the routing. All 10 should-not routed elsewhere; the four hardest near-misses held with explicit boundary reasoning: q14 (names INFO/DialogResponses) -> E (schema vs authoring), q17 (npc + talking) -> H (dialogue fires fine, symptom is the face), q18 (voice type + npcs) -> B (distribution to NPCs, not authoring dialogue), q19 (dialogue topic + winner) -> J (wants the override winner, not to author). q15 routed to G (papyrus-optimization) instead of predicted F (papyrus-reference) — a papyrus-skill-internal wobble, NOT a dialogue-authoring false-trigger; specificity unaffected. Every manual_predicted_trigger matched the measured trigger/skip verdict.",
+  "peer_review": "Author prediction + 20 independent fresh-context agents (exceeds §6.5's 'one peer reviewer checks 3 random'). Aaron may spot-check any query.",
+  "carry_forward": "DA-V1X-1: re-run on the next release that ships a Windows-compatible eval runner (run_loop.py select() fix), per §6.4. Re-measure on ANY description change per feedback_skill_trigger_eval_fanout.",
+  "stale": "STALE as of 2026-07-27 (#275), NOT re-run. Two reasons this measurement no longer describes the shipped skill: (1) the description changed in d7835ff ('dropped-line' -> 'dropped-line or reordered'), and this file's own carry_forward plus HOUSECARL_SKILL_AUTHORING.md §6.5 step 6 require a re-measure on ANY description change; (2) the DOCTRINE several agents cited when picking D — the DIAL-wins-wholesale dropped-line model — was falsified by measurement in #275, so the reasoning recorded in the case notes is a historical observation, NOT guidance. Case notes are left VERBATIM as what the 2026-06-20 agents actually said; correcting doctrine inside an observation would attribute to that run a rationale it never gave and destroy its use as the baseline a re-run compares against. DEBT: re-run the fan-out against the current description."
+ },
+ "evals": [
+  {
+   "id": 1,
+   "query": "i want to add a new line of dialogue to the innkeeper's greeting in my mod",
+   "should_trigger": true,
+   "manual_predicted_trigger": true,
+   "verdict": "trigger",
+   "pick": "D"
   },
-  "evals": [
-    {"id": 1,  "query": "i want to add a new line of dialogue to the innkeeper's greeting in my mod", "should_trigger": true, "manual_predicted_trigger": true, "verdict": "trigger", "pick": "D"},
-    {"id": 2,  "query": "create a conversation where the player can ask my custom npc about the missing ring, with a couple of responses", "should_trigger": true, "manual_predicted_trigger": true, "verdict": "trigger", "pick": "D"},
-    {"id": 3,  "query": "my quest has the start game enabled flag ticked but the npc never says the opening line at game start, what am i missing", "should_trigger": true, "manual_predicted_trigger": true, "verdict": "trigger", "pick": "D", "note": "implicit — SEQ + dialogue-never-starts; agent cited the .seq path"},
-    {"id": 4,  "query": "how do i wire a new dialogue topic to a quest so the line only shows up after stage 20", "should_trigger": true, "manual_predicted_trigger": true, "verdict": "trigger", "pick": "D", "note": "topic<->quest wiring + condition"},
-    {"id": 5,  "query": "add a greeting to my follower mod and hook up a result script that advances a quest stage when they say it", "should_trigger": true, "manual_predicted_trigger": true, "verdict": "trigger", "pick": "D", "note": "topic + TIF result script; agent noted D is the only skill covering BOTH dialogue records AND the result-script wiring"},
-    {"id": 6,  "query": "why does my new dialogue line never play in game even though it looks totally fine in xedit", "should_trigger": true, "manual_predicted_trigger": true, "verdict": "trigger", "pick": "D", "note": "silent-dead dialogue; agent cited conditions/.seq/voice as the domain-specific silent causes"},
-    {"id": 7,  "query": "the voice for my new dialogue line is silent in game — where does the .fuz file actually need to go?", "should_trigger": true, "manual_predicted_trigger": true, "verdict": "trigger", "pick": "D", "note": "voice path; agent cited the voice-path derivation, rejected facegen as wrong asset class"},
-    {"id": 8,  "query": "i added a line to the generic guard goodbye topic and now a bunch of the other guard lines stopped playing", "should_trigger": true, "manual_predicted_trigger": true, "verdict": "trigger", "pick": "D", "note": "topic reorder (#275): re-listing a line appends it to the bottom, so the other lines are reached later and a broader passing line pre-empts them — they are NOT dropped; agent rejected generic conflict-resolution"},
-    {"id": 9,  "query": "audit the dialogue in this follower mod and tell me if any of the topics are broken or won't fire", "should_trigger": true, "manual_predicted_trigger": true, "verdict": "trigger", "pick": "D", "note": "read/audit side"},
-    {"id": 10, "query": "make my npc say one thing if a quest is finished and something else if it isn't — author the branching conversation", "should_trigger": true, "manual_predicted_trigger": true, "verdict": "trigger", "pick": "D", "note": "branching + conditions"},
-
-    {"id": 11, "query": "distribute a fire cloak spell to all bandits at runtime, no esp", "should_trigger": false, "manual_predicted_trigger": false, "verdict": "skip", "pick": "B", "routed_to": "SPID — spell to NPCs"},
-    {"id": 12, "query": "buff the iron sword's damage to 15 and add a keyword to it using skypatcher", "should_trigger": false, "manual_predicted_trigger": false, "verdict": "skip", "pick": "A", "routed_to": "SkyPatcher — edit record fields"},
-    {"id": 13, "query": "add the VendorItemWeapon keyword to all my iron swords at game load without a patch plugin", "should_trigger": false, "manual_predicted_trigger": false, "verdict": "skip", "pick": "C", "routed_to": "KID — keyword to items"},
-    {"id": 14, "query": "what fields does the DialogResponses (INFO) record have and which ones are writable?", "should_trigger": false, "manual_predicted_trigger": false, "verdict": "skip", "pick": "E", "routed_to": "mutagen-reference — schema", "note": "HARD near-miss held — names INFO/DialogResponses but the agent picked schema and explicitly distinguished D as 'authors dialogue rather than serving the canonical field/writability schema'"},
-    {"id": 15, "query": "write a papyrus script that runs when the player picks up a specific item", "should_trigger": false, "manual_predicted_trigger": false, "verdict": "skip", "pick": "G", "routed_to": "papyrus (G chosen over predicted F)", "note": "papyrus-skill-internal wobble; NOT a dialogue false-trigger — specificity unaffected"},
-    {"id": 16, "query": "optimize this OnUpdate loop in my quest script, it's spamming the papyrus log every frame", "should_trigger": false, "manual_predicted_trigger": false, "verdict": "skip", "pick": "G", "routed_to": "papyrus-optimization"},
-    {"id": 17, "query": "my npc's face goes dark the moment they start talking to me in game", "should_trigger": false, "manual_predicted_trigger": false, "verdict": "skip", "pick": "H", "routed_to": "facegen-diagnostics", "note": "HARD near-miss held — npc + talking, but agent ruled the dialogue fires fine and the symptom is the face"},
-    {"id": 18, "query": "distribute a custom voice type to all of my follower npcs", "should_trigger": false, "manual_predicted_trigger": false, "verdict": "skip", "pick": "B", "routed_to": "SPID — voice type to NPCs", "note": "HARD near-miss held — voice + dialogue-adjacent, but distribution to NPCs is SPID"},
-    {"id": 19, "query": "which plugin is winning the override on the DialogGenericHello topic in my lorerim load order?", "should_trigger": false, "manual_predicted_trigger": false, "verdict": "skip", "pick": "J", "routed_to": "conflict-resolution", "note": "HARD near-miss held — a dialogue topic, but the agent saw a winner/conflict-read query, not authoring"},
-    {"id": 20, "query": "how do i install this big dialogue expansion mod and its requirements in MO2?", "should_trigger": false, "manual_predicted_trigger": false, "verdict": "skip", "pick": "K", "routed_to": "modding-basics", "note": "near-miss held — names dialogue, but the agent called it a topical lure for an install task"}
-  ]
+  {
+   "id": 2,
+   "query": "create a conversation where the player can ask my custom npc about the missing ring, with a couple of responses",
+   "should_trigger": true,
+   "manual_predicted_trigger": true,
+   "verdict": "trigger",
+   "pick": "D"
+  },
+  {
+   "id": 3,
+   "query": "my quest has the start game enabled flag ticked but the npc never says the opening line at game start, what am i missing",
+   "should_trigger": true,
+   "manual_predicted_trigger": true,
+   "verdict": "trigger",
+   "pick": "D",
+   "note": "implicit — SEQ + dialogue-never-starts; agent cited the .seq path"
+  },
+  {
+   "id": 4,
+   "query": "how do i wire a new dialogue topic to a quest so the line only shows up after stage 20",
+   "should_trigger": true,
+   "manual_predicted_trigger": true,
+   "verdict": "trigger",
+   "pick": "D",
+   "note": "topic<->quest wiring + condition"
+  },
+  {
+   "id": 5,
+   "query": "add a greeting to my follower mod and hook up a result script that advances a quest stage when they say it",
+   "should_trigger": true,
+   "manual_predicted_trigger": true,
+   "verdict": "trigger",
+   "pick": "D",
+   "note": "topic + TIF result script; agent noted D is the only skill covering BOTH dialogue records AND the result-script wiring"
+  },
+  {
+   "id": 6,
+   "query": "why does my new dialogue line never play in game even though it looks totally fine in xedit",
+   "should_trigger": true,
+   "manual_predicted_trigger": true,
+   "verdict": "trigger",
+   "pick": "D",
+   "note": "silent-dead dialogue; agent cited conditions/.seq/voice as the domain-specific silent causes"
+  },
+  {
+   "id": 7,
+   "query": "the voice for my new dialogue line is silent in game — where does the .fuz file actually need to go?",
+   "should_trigger": true,
+   "manual_predicted_trigger": true,
+   "verdict": "trigger",
+   "pick": "D",
+   "note": "voice path; agent cited the voice-path derivation, rejected facegen as wrong asset class"
+  },
+  {
+   "id": 8,
+   "query": "i added a line to the generic guard goodbye topic and now a bunch of the other guard lines stopped playing",
+   "should_trigger": true,
+   "manual_predicted_trigger": true,
+   "verdict": "trigger",
+   "pick": "D",
+   "note": "DIAL-wins-wholesale dropped-line; agent named the dropped-line conflict and rejected generic conflict-resolution"
+  },
+  {
+   "id": 9,
+   "query": "audit the dialogue in this follower mod and tell me if any of the topics are broken or won't fire",
+   "should_trigger": true,
+   "manual_predicted_trigger": true,
+   "verdict": "trigger",
+   "pick": "D",
+   "note": "read/audit side"
+  },
+  {
+   "id": 10,
+   "query": "make my npc say one thing if a quest is finished and something else if it isn't — author the branching conversation",
+   "should_trigger": true,
+   "manual_predicted_trigger": true,
+   "verdict": "trigger",
+   "pick": "D",
+   "note": "branching + conditions"
+  },
+  {
+   "id": 11,
+   "query": "distribute a fire cloak spell to all bandits at runtime, no esp",
+   "should_trigger": false,
+   "manual_predicted_trigger": false,
+   "verdict": "skip",
+   "pick": "B",
+   "routed_to": "SPID — spell to NPCs"
+  },
+  {
+   "id": 12,
+   "query": "buff the iron sword's damage to 15 and add a keyword to it using skypatcher",
+   "should_trigger": false,
+   "manual_predicted_trigger": false,
+   "verdict": "skip",
+   "pick": "A",
+   "routed_to": "SkyPatcher — edit record fields"
+  },
+  {
+   "id": 13,
+   "query": "add the VendorItemWeapon keyword to all my iron swords at game load without a patch plugin",
+   "should_trigger": false,
+   "manual_predicted_trigger": false,
+   "verdict": "skip",
+   "pick": "C",
+   "routed_to": "KID — keyword to items"
+  },
+  {
+   "id": 14,
+   "query": "what fields does the DialogResponses (INFO) record have and which ones are writable?",
+   "should_trigger": false,
+   "manual_predicted_trigger": false,
+   "verdict": "skip",
+   "pick": "E",
+   "routed_to": "mutagen-reference — schema",
+   "note": "HARD near-miss held — names INFO/DialogResponses but the agent picked schema and explicitly distinguished D as 'authors dialogue rather than serving the canonical field/writability schema'"
+  },
+  {
+   "id": 15,
+   "query": "write a papyrus script that runs when the player picks up a specific item",
+   "should_trigger": false,
+   "manual_predicted_trigger": false,
+   "verdict": "skip",
+   "pick": "G",
+   "routed_to": "papyrus (G chosen over predicted F)",
+   "note": "papyrus-skill-internal wobble; NOT a dialogue false-trigger — specificity unaffected"
+  },
+  {
+   "id": 16,
+   "query": "optimize this OnUpdate loop in my quest script, it's spamming the papyrus log every frame",
+   "should_trigger": false,
+   "manual_predicted_trigger": false,
+   "verdict": "skip",
+   "pick": "G",
+   "routed_to": "papyrus-optimization"
+  },
+  {
+   "id": 17,
+   "query": "my npc's face goes dark the moment they start talking to me in game",
+   "should_trigger": false,
+   "manual_predicted_trigger": false,
+   "verdict": "skip",
+   "pick": "H",
+   "routed_to": "facegen-diagnostics",
+   "note": "HARD near-miss held — npc + talking, but agent ruled the dialogue fires fine and the symptom is the face"
+  },
+  {
+   "id": 18,
+   "query": "distribute a custom voice type to all of my follower npcs",
+   "should_trigger": false,
+   "manual_predicted_trigger": false,
+   "verdict": "skip",
+   "pick": "B",
+   "routed_to": "SPID — voice type to NPCs",
+   "note": "HARD near-miss held — voice + dialogue-adjacent, but distribution to NPCs is SPID"
+  },
+  {
+   "id": 19,
+   "query": "which plugin is winning the override on the DialogGenericHello topic in my lorerim load order?",
+   "should_trigger": false,
+   "manual_predicted_trigger": false,
+   "verdict": "skip",
+   "pick": "J",
+   "routed_to": "conflict-resolution",
+   "note": "HARD near-miss held — a dialogue topic, but the agent saw a winner/conflict-read query, not authoring"
+  },
+  {
+   "id": 20,
+   "query": "how do i install this big dialogue expansion mod and its requirements in MO2?",
+   "should_trigger": false,
+   "manual_predicted_trigger": false,
+   "verdict": "skip",
+   "pick": "K",
+   "routed_to": "modding-basics",
+   "note": "near-miss held — names dialogue, but the agent called it a topical lure for an install task"
+  }
+ ]
 }
