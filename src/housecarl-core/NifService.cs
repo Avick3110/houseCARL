@@ -324,23 +324,55 @@ public static class NifService
     /// the vocabulary <c>set_shader_value</c> accepts, and exactly the six <see cref="NifShader"/> reports. The property
     /// names come through <c>nameof</c>, so an upstream rename is a COMPILE error here rather than a runtime "unknown
     /// value" a caller would read as "houseCARL can't do that yet".</summary>
-    internal static readonly IReadOnlyList<(string Wire, string Property)> ShaderValueNames = new[]
+    /// <para><c>Normalized</c> marks the values Skyrim's shader treats as 0–1 — a CONVENTION, and deliberately not
+    /// enforced. Scanning 40,000 workspace meshes (190,298 SK lighting shaders) found the format carries whatever it is
+    /// given and real meshes exceed the convention: 261 shapes with <c>alpha</c> above 1 (max 100), 155 emissive-colour
+    /// components above 1 (and 10 NEGATIVE), 4 specular-colour components above 1. Refusing those would refuse edits to
+    /// meshes that exist. So an out-of-convention write WARNS on the report and proceeds — enough to catch the likely
+    /// mistake (NifSkope shows colours 0–255, so <c>255,255,255</c> is the natural wrong input) without houseCARL
+    /// asserting a bound the format does not have. The other three are legitimately unbounded: the same scan saw
+    /// glossiness to 900,000 and specular strength to 100.</para>
+    internal static readonly IReadOnlyList<(string Wire, string Property, bool Normalized)> ShaderValueNames = new[]
     {
-        ("emissive_color",    nameof(INiShader.EmissiveColor)),
-        ("emissive_multiple", nameof(INiShader.EmissiveMultiple)),
-        ("glossiness",        nameof(INiShader.Glossiness)),
-        ("specular_strength", nameof(INiShader.SpecularStrength)),
-        ("specular_color",    nameof(INiShader.SpecularColor)),
-        ("alpha",             nameof(INiShader.Alpha)),
+        ("emissive_color",    nameof(INiShader.EmissiveColor),    true),
+        ("emissive_multiple", nameof(INiShader.EmissiveMultiple), false),
+        ("glossiness",        nameof(INiShader.Glossiness),       false),
+        ("specular_strength", nameof(INiShader.SpecularStrength), false),
+        ("specular_color",    nameof(INiShader.SpecularColor),    true),
+        ("alpha",             nameof(INiShader.Alpha),            true),
     };
+
+    /// <summary>A WARN-and-proceed note when a write lands outside the 0–1 convention on a value that follows it, or
+    /// null. Never a refusal — see the note on <see cref="ShaderValueNames"/>: real meshes carry out-of-range values, so
+    /// blocking would refuse legitimate edits. It names the NifSkope 0–255 confusion because that is the mistake this
+    /// actually catches (review of PR #292 — the 0–1 range had been asserted in three places and enforced in none).</summary>
+    internal static string? ShaderRangeWarning(string wire, IReadOnlyList<float> nums)
+    {
+        var prop = ShaderValueProperty(wire);
+        if (prop is null) return null;
+        bool normalized = false;
+        foreach (var (_, p, n) in ShaderValueNames) if (p == prop) normalized = n;
+        if (!normalized) return null;
+        var bad = nums.Where(v => v < 0f || v > 1f).ToList();
+        if (bad.Count == 0) return null;
+        return $"{WireName(prop)} was set to {string.Join(", ", bad.Select(v => v.ToString(System.Globalization.CultureInfo.InvariantCulture)))} "
+             + "— outside the 0-1 range Skyrim's shader treats this value as. Written as asked (the format stores the "
+             + "float given, and real meshes do carry out-of-range values), but if this came from NifSkope's 0-255 "
+             + "colour picker, divide by 255.";
+    }
 
     /// <summary>Resolve a caller's value name to its library property, or null. Accepts the British spelling too
     /// (<c>specular_colour</c>) — the renderer says "colour" while the library says "Color", and a caller reading one
-    /// and typing it at the other should not get "unknown value".</summary>
+    /// and typing it at the other should not get "unknown value".
+    ///
+    /// ORDER MATTERS: the case fold runs BEFORE the colour→color rewrite. <c>string.Replace</c> is ordinal and
+    /// case-sensitive, so rewriting first would leave <c>Specular_Colour</c> untouched and then fail to match —
+    /// the alias would serve only callers who already typed it in lower case, i.e. fail exactly the two names it
+    /// exists for while every American spelling resolved at any case (review of PR #292).</summary>
     public static string? ShaderValueProperty(string wire)
     {
-        var w = (wire ?? "").Trim().Replace('-', '_').Replace("colour", "color").ToLowerInvariant();
-        foreach (var (n, p) in ShaderValueNames) if (n == w) return p;
+        var w = (wire ?? "").Trim().Replace('-', '_').ToLowerInvariant().Replace("colour", "color");
+        foreach (var (n, p, _) in ShaderValueNames) if (n == w) return p;
         return null;
     }
 
@@ -367,12 +399,19 @@ public static class NifService
     /// The COMPONENT COUNT is likewise read off the library's own property type rather than declared: a Single takes
     /// one number, a Color3/Color4 takes three (detected by the R/G/B fields, so a future widening or narrowing of the
     /// colour struct doesn't silently change the arity houseCARL enforces).</summary>
-    internal static (bool CanWrite, int Components) ReallyWrites(Type blockType, string property)
+    internal static NifShaderWritability ReallyWrites(Type blockType, string property)
     {
         var p = blockType.GetProperty(property, System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
-        if (p is null || !p.CanWrite) return (false, 0);
-        if (p.PropertyType == typeof(float)) return (true, 1);
-        return HasRgbFields(p.PropertyType) ? (true, 3) : (false, 0);
+        if (p is null || !p.CanWrite) return NifShaderWritability.NoSetter();
+        if (p.PropertyType == typeof(float)) return NifShaderWritability.Ok(1);
+        if (HasRgbFields(p.PropertyType)) return NifShaderWritability.Ok(3);
+        // SETTABLE, but of a shape houseCARL has no marshalling for. A DIFFERENT fact from "no setter", and it must
+        // not borrow that one's sentence: a future library that exposes the colour components as properties rather
+        // than public fields, or widens a scalar past Single, lands here with a perfectly writable property — and
+        // "not settable on that block type" would then be a confident false claim about the library, in the very
+        // message whose job is naming the real reason. The refusal is still right; only the reason differs
+        // (review of PR #292 — the same two-axes conflation #290's review caught, one layer down).
+        return NifShaderWritability.UnknownType(p.PropertyType.Name);
     }
 
     static bool HasRgbFields(Type t)
@@ -386,7 +425,7 @@ public static class NifService
     /// vocabulary, not the library's.</summary>
     static string WireName(string property)
     {
-        foreach (var (w, p) in ShaderValueNames) if (p == property) return w;
+        foreach (var (w, p, _) in ShaderValueNames) if (p == property) return w;
         return property;
     }
 
@@ -599,9 +638,19 @@ public static class NifService
         var g2 = VerifyReadBack(edited, pre, ops, out var warnings);
         if (g2 is not null) return NifSetOutcome.Fail(g2);
 
+        // WARN-and-proceed notes raised by the ops themselves (an out-of-convention shader value), ahead of the
+        // read-back's own. Gathered only now: a warning about a write that then failed verification would be noise
+        // about something that never happened.
+        var allWarnings = new List<string>();
+        foreach (var op in ops)
+            if (op.Kind == NifSetOpKind.SetShaderValue && op.ShaderValue is { } sv
+                && ShaderRangeWarning(sv, op.ShaderNumbers ?? Array.Empty<float>()) is { } rw)
+                allWarnings.Add(rw);
+        allWarnings.AddRange(warnings);
+
         var report = new NifSetReport(applied,
             expectedBlocks.OrderBy(i => i).ToList(), expectHeader,
-            edited.Length - bytes.Length, warnings);
+            edited.Length - bytes.Length, allWarnings);
         return new NifSetOutcome(edited, report, null);
     }
 
@@ -730,14 +779,20 @@ public static class NifService
                 // (which is get-only throughout), so this reflects the block's own property. A block whose accessor
                 // the library only stubs is named in the refusal, exactly as sections=shader names its unread values.
                 var bt = shader.GetType();
-                var (canWrite, components) = ReallyWrites(bt, prop);
-                if (!canWrite)
+                var w = ReallyWrites(bt, prop);
+                if (!w.Writable && w.UnknownTypeName is { } badType)
+                    return ($"this NiflySharp version exposes {WireName(prop)} on a {bt.Name} as a {badType}, which houseCARL has no "
+                          + "marshalling for — the value IS settable, but houseCARL will not write a shape it cannot convert "
+                          + "correctly. Refusing rather than guess (Q3). Please file this: it means the bundled library changed "
+                          + "the value's type. Nothing was written.", null, null, null, null, false);
+                if (!w.Writable)
                     return ($"this NiflySharp version cannot write {WireName(prop)} on a {bt.Name} — the value is not settable on that "
                           + "block type, so the write would be accepted and change nothing. Refusing (Q3). "
                           + $"housecarl_nif_inspect sections=shader names what it can and cannot see on this block. Nothing was written.", null, null, null, null, false);
+                var components = w.Components;
                 if (nums.Count != components)
                     return ($"{WireName(prop)} on a {bt.Name} takes {components} number{(components == 1 ? "" : "s")}"
-                          + $"{(components == 3 ? " (r,g,b — each 0-1)" : "")}; got {nums.Count}. Nothing was written.", null, null, null, null, false);
+                          + $"{(components == 3 ? " (r,g,b — conventionally 0-1)" : "")}; got {nums.Count}. Nothing was written.", null, null, null, null, false);
 
                 var pi = bt.GetProperty(prop, System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance)!;
                 string before = DescribeShaderValue(pi.GetValue(shader), components);
@@ -1011,8 +1066,9 @@ public static class NifService
                 if (shader is null) return (false, "(no shader)");
                 if (op.ShaderValue is null || ShaderValueProperty(op.ShaderValue) is not { } prop) return (false, "(no value name)");
                 var bt = shader.GetType();
-                var (canWrite, components) = ReallyWrites(bt, prop);
-                var pi = canWrite ? bt.GetProperty(prop, System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance) : null;
+                var w = ReallyWrites(bt, prop);
+                int components = w.Components;
+                var pi = w.Writable ? bt.GetProperty(prop, System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance) : null;
                 if (pi is null) return (false, $"(not readable back on {bt.Name})");
                 var actual = pi.GetValue(shader);
                 var want = op.ShaderNumbers ?? Array.Empty<float>();
@@ -1143,6 +1199,24 @@ public sealed record NifNode(int Depth, string Name, uint Flags, string BlockTyp
 // ======================================================================
 //  NIF-layer WRITE model — the N2 whitelist op(s) and the verified outcome (Wave 2).
 // ======================================================================
+
+/// <summary>Whether a shader lighting value can be WRITTEN on a given block, and if not, WHY — three states, because
+/// two different facts refuse the write and each needs its own sentence (review of PR #292).
+/// <list type="bullet">
+/// <item><see cref="Writable"/> with <see cref="Components"/> — the library really carries a setter, taking that many
+/// float components (read off the property's own type: 1 for a scalar, 3 for a colour).</item>
+/// <item>no setter — the block only inherits <c>INiShader</c>'s do-nothing stub; a write there would silently no-op.
+/// This is the live case (<c>BSEffectShaderProperty</c>).</item>
+/// <item><see cref="UnknownTypeName"/> — a setter EXISTS but its type is not one houseCARL marshals. Not reachable on
+/// NiflySharp 1.1.0; it exists so a future library change produces an honest refusal instead of the no-setter
+/// claim.</item>
+/// </list></summary>
+internal readonly record struct NifShaderWritability(bool Writable, int Components, string? UnknownTypeName)
+{
+    public static NifShaderWritability Ok(int components) => new(true, components, null);
+    public static NifShaderWritability NoSetter() => new(false, 0, null);
+    public static NifShaderWritability UnknownType(string typeName) => new(false, 0, typeName);
+}
 
 /// <summary>The N2-whitelist write op kinds. Renames edit the header string table; the others edit one block.</summary>
 public enum NifSetOpKind { RenameShape, RenameNode, SetFlags, SetScale, SetPartition, SetAlpha, SetPath, SetShaderValue }
