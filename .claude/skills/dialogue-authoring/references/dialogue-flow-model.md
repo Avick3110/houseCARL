@@ -119,21 +119,32 @@ which *is* the reordering bug. List only the lines you actually add or change.
 And mind the asymmetry between those two: **adding** a line moves nothing, but **changing** an existing line
 is itself a re-list (an override must sit in your plugin's copy of the topic), so it moves that line to the
 bottom unless you carry its PNAM. When you edit an existing line, set its `PreviousDialog` to the line that
-precedes it **in the effective order `housecarl_validate_dialogue` prints** — not in the vanilla list. Those
-differ the moment another mod has already reordered the topic, and placement happens against the list as it
-stands, so anchoring to the vanilla predecessor lands the line somewhere you didn't intend.
+precedes it **in the effective order** — not in the vanilla list. Those differ the moment another mod has
+already reordered the topic, and placement happens against the list as it stands, so anchoring to the vanilla
+predecessor lands the line somewhere you didn't intend. `housecarl_validate_dialogue` prints that order
+per-line for a **contested** topic; for an uncontested one it prints only a summary line, because there the
+effective order simply *is* the defining plugin's `Responses` list — read the predecessor from there.
 
-**Know PNAM's failure mode before reaching for it.** A PNAM that cannot be resolved — a mistyped FormID, a
-target in a plugin the user hasn't installed, a cycle — does not fall back to "no link". It places the line
-at the **HEAD** of the topic, i.e. first, where it pre-empts everything else. That is strictly worse than the
-bottom-append it was meant to prevent, and harder to notice, because the line *is* playing — always. So point
-a PNAM only at a line you know ships in the same load order, and check the result in the printed effective
-order. Note too that a PNAM naming a line in **another topic** pulls that foreign line into this topic's
-order.
+**Know PNAM's failure mode before reaching for it.** A PNAM that cannot be resolved — a mistyped FormID, or a
+target in a plugin the user hasn't installed — does not fall back to "no link". It places the line at the
+**HEAD** of the topic, i.e. first, where it pre-empts everything else: strictly worse than the bottom-append
+it was meant to prevent, and harder to notice, because the line *is* playing — always. So point a PNAM only
+at a line you know ships in the same load order, and check the result in the printed order. Note too that a
+PNAM naming a line in **another topic** pulls that foreign line into this topic's order.
+
+A **cycle** (two lines pointing at each other, directly or through a chain) behaves differently and is worth
+separating out: no order can satisfy it, so the loop is broken at whichever of its lines ends up first, and
+the positions of the lines inside it are not meaningful. Don't expect a cyclic line at the top — expect it
+somewhere arbitrary. `validate_dialogue` reports the cycle explicitly rather than leaving you to infer it.
+
+> **Evidence note.** The HEAD/tail/after-target placement rules are derived from xEdit's own INFO-ordering
+> implementation (`ProcessDIAL`) — the community's reference model of engine behaviour. The **tail-append**
+> arm is additionally confirmed against a live load order (2026-07-27, #275); the HEAD arm and the
+> foreign-target pull-in are model-derived and describe what houseCARL computes, not something measured in
+> game. Treat them as strong but not proven, in the same spirit as the `IsDeleted` note in `SKILL.md`.
 
 Omitting a line no longer removes it. To stop one playing, condition it out (the verifiable lever) or mark it
-deleted — see the removal note in `SKILL.md`; do **not** reach for `housecarl_remove_record`, which drops your
-own override and restores the original line.
+deleted — see the removal note in `SKILL.md`, including which tool to use and which not to.
 
 `housecarl_validate_dialogue` prints the effective merged order for a topic and flags any line whose
 position moved, naming the plugin that moved it.

@@ -54,6 +54,19 @@ namespace HousecarlGenerator;
 ///                      analysis is SKIPPED when the DEFINING plugin is the unread one, since the baseline would
 ///                      otherwise silently become a later plugin's list. UNREAD-BASELINE carries a control arm —
 ///                      asserting "no moves" on input where nothing moves anyway passed with the guard deleted.
+///   UNREAD-WIRED     — the same fix END TO END through DialogueValidate.Run, with a plugin made genuinely
+///                      unreadable by an exclusive lock (what MO2/xEdit holding a file does). The four arms above
+///                      call Compute directly, which is precisely why they all passed while the production wiring
+///                      was absent (PR #293 fourth pass): a guard that never drives the shipped path cannot catch
+///                      an unwired one. Drop the argument at the call site and THIS arm goes red.
+///   DEFINER-LOCK-LOUD / WINNER-LOCK-LOUD — the REACHABILITY facts the defensive branches rest on, measured
+///                      rather than assumed. A plugin can only override a record by declaring the definer as a
+///                      master, so an unreadable definer breaks opening its overrides too; and the winner body is
+///                      fetched through GetRecord, which throws. Both therefore surface as a named CheckError
+///                      BEFORE any order code runs — which is why the total-drop and shifted-baseline states are
+///                      defence in depth, not live silent paths, and why their logic is covered synthetically.
+///                      If a future change makes either fetch swallow its failure, the silent path opens and
+///                      these go red instead of the report going quiet.
 ///   CYCLE-PREPLACED  — a PNAM cycle whose members were BOTH already placed by an earlier plugin, so no recursion
 ///                      occurs. The shape post-hoc CountPnamCycles was written for, and the one the old
 ///                      placement-time signal could never see; without it CountPnamCycles could return 0 unnoticed.
@@ -402,6 +415,103 @@ public static class DialogueInfoOrderProbe
                               && shifted.Note is not null && shifted.Note.Contains("SKIPPED", StringComparison.Ordinal);
             all &= Pass("UNREAD-BASELINE", baselineOk,
                 $"control moved={control.Moved.Count}, suspect-baseline moved={shifted.Moved.Count}, note={(shifted.Note is null ? "<none>" : "says skipped")}");
+        }
+
+        // ---------- UNREAD-WIRED: the same fix, END TO END through the production path ----------
+        // Every UNREAD-* arm above calls Compute directly, which is exactly why they could all pass while the
+        // wiring in DialogueValidate was absent (PR #293 fourth pass — the fix existed in the callee and the
+        // renderer and was unreachable in the shipped path). This arm goes through DialogueValidate.Run and makes
+        // a plugin genuinely unreadable the way production does it: an exclusive lock, i.e. MO2 or xEdit holding
+        // the file — the scenario this project's no-handles-at-rest design explicitly invites.
+        // MID is the one locked, deliberately: tOrder's WINNER is `last`, and locking that would fail the winner
+        // fetch and surface as a CheckError instead of exercising the partial-drop path.
+        {
+            FileStream? hold = null;
+            try { hold = new FileStream(midPath, FileMode.Open, FileAccess.Read, FileShare.None); }
+            catch (Exception ex)
+            {
+                all &= Pass("UNREAD-WIRED", false, $"could not lock {midName} to simulate the drop: {ex.GetType().Name}");
+            }
+
+            if (hold is not null)
+            {
+                using (hold)
+                {
+                    var rep = DialogueValidate.Run(resolver, assets, tOrder.FormKey);
+                    var io = rep.Topics.Count == 1 ? rep.Topics[0].InfoOrder : null;
+                    string rendered = DialogueWire.Render(rep, 0);
+
+                    bool ok = io is not null && !io.Complete
+                              && io.UnreadContributors.Contains(midName, StringComparer.OrdinalIgnoreCase)
+                              && io.ContributingPlugins.Count == 2
+                              && rendered.Contains("INCOMPLETE", StringComparison.Ordinal)
+                              && rendered.Contains(midName, StringComparison.OrdinalIgnoreCase);
+                    all &= Pass("UNREAD-WIRED", ok, io is null
+                        ? $"no order view (checkError={rep.CheckError ?? "<none>"})"
+                        : $"complete={io.Complete} unread=[{string.Join(",", io.UnreadContributors)}] contributing={io.ContributingPlugins.Count} banner={rendered.Contains("INCOMPLETE", StringComparison.Ordinal)}");
+                }
+            }
+        }
+
+        // ---------- DEFINER-LOCK-LOUD: an unreadable DEFINER is loud too, for a structural reason ----------
+        // MEASURED, not assumed (PR #293 fourth pass). A plugin can only override a record by declaring the
+        // defining plugin as a master, so opening the override REQUIRES the definer — lock the definer and the
+        // winner fetch itself throws, surfacing a named CheckError before any order code runs. That is why the
+        // shifted-baseline state is defence in depth rather than a live silent path, and why its suppression
+        // logic is covered synthetically (UNREAD-BASELINE) rather than end-to-end: there is no end to drive it
+        // from. This arm pins the STRUCTURAL guarantee — if a future change makes the winner fetch swallow that
+        // failure, the silent path opens and this arm goes red instead of the report going quiet.
+        {
+            FileStream? hold = null;
+            try { hold = new FileStream(mPath, FileMode.Open, FileAccess.Read, FileShare.None); }
+            catch (Exception ex)
+            {
+                all &= Pass("DEFINER-LOCK-LOUD", false, $"could not lock {masterName}: {ex.GetType().Name}");
+            }
+
+            if (hold is not null)
+                using (hold)
+                {
+                    var rep = DialogueValidate.Run(resolver, assets, tOrder.FormKey);
+                    string rendered = DialogueWire.Render(rep, 0);
+                    bool loud = rep.CheckError is not null
+                                || (rep.Topics.Count == 1 && rep.Topics[0].InfoOrder is { Complete: false });
+                    bool saysSo = rendered.Contains("could NOT complete", StringComparison.Ordinal)
+                                  || rendered.Contains("INCOMPLETE", StringComparison.Ordinal);
+                    all &= Pass("DEFINER-LOCK-LOUD", loud && saysSo,
+                        $"checkError={(rep.CheckError is null ? "<none>" : "set")} rendersLoud={saysSo}");
+                }
+        }
+
+        // ---------- WINNER-LOCK-LOUD: the TOTAL-drop case is already loud, by a different mechanism ----------
+        // Establishes the reachability fact the unconditional view-build rests on, rather than asserting it.
+        // A total drop needs EVERY touching plugin unreadable — including the winner — and the winner body is
+        // fetched through GetRecord, which THROWS rather than swallowing. So that case surfaces as a named
+        // CheckError before the order code is reached. The unconditional build is defence in depth, not the fix
+        // for a live silent path; this arm pins the mechanism that actually covers it, so a future change that
+        // makes the winner fetch swallow errors fails HERE rather than going quiet.
+        {
+            FileStream? hold = null;
+            try { hold = new FileStream(lastPath, FileMode.Open, FileAccess.Read, FileShare.None); }
+            catch (Exception ex)
+            {
+                all &= Pass("WINNER-LOCK-LOUD", false, $"could not lock {lastName}: {ex.GetType().Name}");
+            }
+
+            if (hold is not null)
+                using (hold)
+                {
+                    var rep = DialogueValidate.Run(resolver, assets, tOrder.FormKey);
+                    string rendered = DialogueWire.Render(rep, 0);
+                    // Either a named CheckError, or an explicitly incomplete order — never a clean-looking pass.
+                    bool loud = rep.CheckError is not null || rep.Error is not null
+                                || (rep.Topics.Count == 1 && rep.Topics[0].InfoOrder is { Complete: false });
+                    bool saysSo = rendered.Contains("could NOT complete", StringComparison.Ordinal)
+                                  || rendered.Contains("INCOMPLETE", StringComparison.Ordinal)
+                                  || rendered.Contains("error:", StringComparison.Ordinal);
+                    all &= Pass("WINNER-LOCK-LOUD", loud && saysSo,
+                        $"checkError={(rep.CheckError is null ? "<none>" : "set")} topics={rep.Topics.Count} rendersLoud={saysSo}");
+                }
         }
 
         // ---------- CYCLE-PREPLACED: the shape post-hoc detection was added FOR ----------

@@ -249,7 +249,9 @@ static class DialogueWire
             sb.Append(pad).Append("    #").Append(e.Index + 1).Append("  ").Append(e.Info);
             if (e.Deleted) sb.Append("  (deleted)");
             if (e.Moved) sb.Append("  MOVED from #").Append(e.OriginIndex!.Value + 1);
-            else if (e.OriginIndex is null) sb.Append("  (added by a later plugin)");
+            // Gated on BaselineTrusted: with a shifted baseline the DEFINER's own lines have no OriginIndex,
+            // and this would call them late additions as flat fact under a banner saying the baseline is suspect.
+            else if (e.OriginIndex is null && io.BaselineTrusted) sb.Append("  (added by a later plugin)");
             sb.Append("  placed by ").Append(e.PlacedBy);
             if (e.Placement == InfoPlacement.Head) sb.Append(" [PNAM names no reachable line — forced to the top]");
             sb.Append('\n');

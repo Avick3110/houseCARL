@@ -270,10 +270,15 @@ The rule, in two halves, because they are **not** the same job:
   it. This is precisely what a well-behaved patch like USSEP does: it re-lists six lines of a topic and
   moves none of them, because each carries its PNAM.
 
-**Removing a line is not done by omitting it, and `housecarl_remove_record` is not the tool.** Omission is a
-no-op — the line still plays. And `remove_record` is a literal drop-from-plugin, *not* a flag-as-deleted: in
-the default lane it deletes the override **your own patch** carries, which reverts the line to the underlying
-winner, so it plays exactly as before. Reaching for the tool named "remove" undoes your patch.
+**Removing a line is not done by omitting it, and `housecarl_remove_record` usually isn't the tool.** Omission
+is a no-op — the line still plays. And `remove_record` is a literal drop-from-plugin, *not* a flag-as-deleted,
+so what it does depends on whose record you point it at:
+
+- **A third party's line, via an override in your patch (the default lane)** — it deletes the override *your
+  patch* carries, reverting the line to the underlying winner, so it plays exactly as before. Here the tool
+  named "remove" undoes your own work; use one of the levers below instead.
+- **A line your own plugin created, or the original record in the in-place lane** (`in_place=true`) — it
+  genuinely removes that INFO, which is right and is the tool you want.
 
 The lever that is verifiable from the data layer is **conditioning the line out** — give it a `Conditions`
 entry that cannot pass (`housecarl_set_field` on `Conditions`). The line remains, is never selected, and you

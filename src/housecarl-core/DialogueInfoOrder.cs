@@ -116,6 +116,13 @@ public sealed record InfoOrderView(
     /// lines are absent from <see cref="Order"/>. Empty in the normal case.</summary>
     public IReadOnlyList<string> UnreadContributors { get; init; } = Array.Empty<string>();
 
+    /// <summary>Whether <see cref="InfoOrderEntry.OriginIndex"/> really is the DEFINING plugin's list. False when
+    /// an unread plugin precedes the first contributing one, which silently makes a later plugin's list the
+    /// baseline. EVERY origin-derived claim must be gated on this — not just <see cref="Moved"/>: with a shifted
+    /// baseline the definer's own lines carry a null OriginIndex and would render as "added by a later plugin",
+    /// stated as fact directly under a banner saying the baseline is suspect.</summary>
+    public bool BaselineTrusted { get; init; } = true;
+
     /// <summary>Every touching plugin's list made it into the merge. When false the order is built from FEWER
     /// lists than the load order has, so neither it nor a "nothing merges here" reading of it is authoritative —
     /// the render must not state either as fact (Q3).</summary>
@@ -234,7 +241,8 @@ public static class DialogueInfoOrder
         state.Cycles = CountPnamCycles(order, state.Placed);
         return new InfoOrderView(entries, contributing, moved,
                                  BuildNote(state, order.Count, originIdx is not null, unreadContributors, originIsDefiningPlugin))
-            { UnreadContributors = unreadContributors ?? Array.Empty<string>() };
+            { UnreadContributors = unreadContributors ?? Array.Empty<string>(),
+              BaselineTrusted = originIsDefiningPlugin };
     }
 
     /// <summary>The DEGRADATION note: what part of this merge did not run cleanly, and on what input. Null when the
@@ -266,8 +274,8 @@ public static class DialogueInfoOrder
                       ") — malformed, and placed as if the link were unresolvable");
         if (state.Cycles > 0)
             parts.Add($"{state.Cycles} PNAM cycle(s) — no order satisfies a cycle, so the loop is broken at " +
-                      "whichever of its lines was placed first and the positions of the lines INSIDE it are not " +
-                      "authoritative");
+                      "whichever of its lines ends up FIRST in the order below, and the positions of the lines " +
+                      "INSIDE it are not authoritative");
         if (state.DepthCapped)
             parts.Add($"a PNAM chain ran past the {MaxChainDepth}-hop ceiling and was truncated — the lines beyond " +
                       "it are placed as if unlinked, so their order is not authoritative");
