@@ -102,6 +102,29 @@ public static class DialogueInfoOrderProbe
         tDeleted.Responses.Add(d0); tDeleted.Responses.Add(d1); tDeleted.Responses.Add(d2);
         var deletedFk = d1.FormKey;
 
+        // ---- BATCH FAN-IN fixture: ONE quest owning TWO topics touched by DIFFERENT plugin subsets. Validating
+        //      the quest drives OrdersFor with a multi-topic collection — the axis every other arm leaves at 1,
+        //      where the cross-topic wanted-filter degenerates to an equality test and a mis-association (or the
+        //      plugin-name comparer mismatch) is structurally unobservable (PR #293 re-review). ----
+        var qFan = master.Quests.AddNew(); qFan.EditorID = "HcIoFanQuest";
+        var tFanA = master.DialogTopics.AddNew(); tFanA.EditorID = "HcIoFanA"; tFanA.Quest.SetTo(qFan.FormKey);
+        var fa0 = NewInfo("HcIoFanA0"); var fa1 = NewInfo("HcIoFanA1");
+        tFanA.Responses.Add(fa0); tFanA.Responses.Add(fa1);
+        var tFanB = master.DialogTopics.AddNew(); tFanB.EditorID = "HcIoFanB"; tFanB.Quest.SetTo(qFan.FormKey);
+        var fb0 = NewInfo("HcIoFanB0"); var fb1 = NewInfo("HcIoFanB1");
+        tFanB.Responses.Add(fb0); tFanB.Responses.Add(fb1);
+        var fanA = tFanA.FormKey; var fanB = tFanB.FormKey;
+        var fanA0 = fa0.FormKey; var fanB0 = fb0.FormKey;
+
+        // ---- tForeign: a PNAM pointing at an INFO that belongs to ANOTHER topic, so it appears in none of this
+        //      topic's own child lists. The ONLY shape that reaches the fallback resolver's SUCCESS path — every
+        //      other arm's targets are served from the topic's own lines, leaving that path uncovered. ----
+        var tForeign = master.DialogTopics.AddNew(); tForeign.EditorID = "HcIoForeign";
+        var g0 = NewInfo("HcIoForeign0");
+        g0.PreviousDialog.SetTo(fanA0);                 // defined in tFanA — foreign to this topic
+        tForeign.Responses.Add(g0);
+        var foreignLine = g0.FormKey;
+
         // ---- tSelf: an INFO whose PNAM names its OWN record. Malformed, and before the explicit guard it drove
         //      Place() into a negative-length insert — an uncatchable-shaped crash out of a "never throws" path
         //      (PR #293 review). It is the FIRST line so it is placed into an empty list, the exact trace. ----
@@ -135,6 +158,13 @@ public static class DialogueInfoOrderProbe
             r.PreviousDialog.SetTo(info[i - 1]);
             midT.Responses.Add(r);
         }
+        // MID also adds one line to fan-out topic A and does NOT touch topic B — the asymmetry the BATCH-FAN-IN
+        // arm reads. If the batched loader cross-wired topics or served only the first, A and B would not differ
+        // in contributor count and line count the way they must.
+        var midFanA = (IDialogTopic)WriteEngine.GenericGetOrAddAsOverride(mid, tFanA);
+        midFanA.Responses.Clear();
+        midFanA.Responses.Add(new DialogResponses(mid.GetNextFormKey(), SkyrimRelease.SkyrimSE)
+            { EditorID = "HcIoFanAMid" });
         mid.BeginWrite.ToPath(midPath).WithLoadOrder(new ISkyrimModGetter[] { master }).Write();
 
         // ---- LAST: re-lists ONLY INFO 0, with NO PNAM. The whole bug in one edit — it is evicted from the top
@@ -220,6 +250,37 @@ public static class DialogueInfoOrderProbe
             bool ok = e is not null && measured == DialogueInfoOrder.PnamZeroIsDistinguishable;
             all &= Pass("PNAM-ZERO-AXIS", ok, e is null ? "marked line absent from order"
                 : $"measured distinguishable={measured} (placement={e.Placement}), product flag={DialogueInfoOrder.PnamZeroIsDistinguishable}");
+        }
+
+        // ---------- BATCH-FAN-IN: one quest, two topics, DIFFERENT contributing plugins each ----------
+        {
+            var rep = DialogueValidate.Run(resolver, assets, qFan.FormKey);
+            var a = rep.Topics.FirstOrDefault(t => t.Topic == fanA)?.InfoOrder;
+            var b = rep.Topics.FirstOrDefault(t => t.Topic == fanB)?.InfoOrder;
+
+            // A carries the mid plugin's extra line, B does not — so a cross-wired or first-topic-only batch
+            // shows up as the wrong contributor set or the wrong line count, not merely a different order.
+            bool aOk = a is not null && a.ContributingPlugins.Count == 2 && a.Order.Count == 3
+                       && a.ContributingPlugins.Contains(midName, StringComparer.OrdinalIgnoreCase);
+            bool bOk = b is not null && b.ContributingPlugins.Count == 1 && b.Order.Count == 2
+                       && !b.ContributingPlugins.Contains(midName, StringComparer.OrdinalIgnoreCase);
+            all &= Pass("BATCH-FAN-IN", aOk && bOk,
+                a is null || b is null ? "a topic returned no order view"
+                    : $"A: {a.ContributingPlugins.Count} plugin(s)/{a.Order.Count} lines, B: {b.ContributingPlugins.Count}/{b.Order.Count}");
+        }
+
+        // ---------- PNAM-FOREIGN: a PNAM target in NO contributing list reaches the fallback resolver ----------
+        {
+            var io = Order(tForeign.FormKey);
+            var e = io?.Order.FirstOrDefault(x => x.Info == foreignLine);
+            var target = io?.Order.FirstOrDefault(x => x.Info == fanA0);
+            // The foreign target is pulled IN and placed first, credited to ITS OWN plugin — not merely
+            // treated as unresolvable. A regression to Head placement (or the wrong PlacedBy) fails here.
+            bool ok = io is not null && io.Order.Count == 2
+                      && e is { Placement: InfoPlacement.AfterTarget } && target is { Index: 0 }
+                      && target.PlacedBy.Equals(masterName, StringComparison.OrdinalIgnoreCase);
+            all &= Pass("PNAM-FOREIGN", ok, e is null ? "line absent"
+                : $"placement={e.Placement} target@{target?.Index} by {target?.PlacedBy}");
         }
 
         // ---------- PNAM-SELF: a self-referencing PNAM degrades, never throws ----------

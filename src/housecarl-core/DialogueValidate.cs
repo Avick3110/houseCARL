@@ -203,7 +203,7 @@ public static class DialogueValidate
             {
                 if (k.IsNull || view.ResolveWinner(k) is not { } w) return null;
                 return Resolve(k) is IDialogResponsesGetter r
-                    ? (new InfoLine(r.FormKey, r.PreviousDialog.FormKeyNullable, r.IsDeleted), w.WinnerPlugin)
+                    ? (DialogueInfoOrder.LineOf(r), w.WinnerPlugin)      // the ONE projection, shared with LinesOf
                     : null;
             }
 
@@ -228,19 +228,41 @@ public static class DialogueValidate
                     }
                 }
 
-                var lines = new Dictionary<(string Plugin, FormKey Topic), IReadOnlyList<InfoLine>>();
+                // Keyed plugin-name -> topic -> lines, with the OUTER dictionary case-insensitive to match
+                // wantedIn and TouchingPlugins. A single flat (string, FormKey) tuple key compares its string
+                // ORDINALLY, so a plugin whose name reached the store and the lookup with different casing would
+                // miss — dropping that plugin from that topic's merge with no note (PR #293 re-review).
+                var lines = new Dictionary<string, Dictionary<FormKey, IReadOnlyList<InfoLine>>>(
+                    StringComparer.OrdinalIgnoreCase);
                 foreach (var (plugin, wanted) in wantedIn)
+                {
+                    var perTopic = new Dictionary<FormKey, IReadOnlyList<InfoLine>>();
                     foreach (var (rfk, _, body, _) in view.RecordsIn(new[] { plugin }, DialTypes))
                         if (wanted.Contains(rfk) && body is IDialogTopicGetter dt)
-                            lines[(plugin, rfk)] = DialogueInfoOrder.LinesOf(dt);
+                            perTopic[rfk] = DialogueInfoOrder.LinesOf(dt);
+                    lines[plugin] = perTopic;
+                }
 
                 var built = new Dictionary<FormKey, InfoOrderView>();
                 foreach (var (tfk, touching) in touchingOf)
                 {
                     var groups = new List<(string, IReadOnlyList<InfoLine>)>(touching.Count);
+                    var unread = new List<string>();
                     foreach (var p in touching)
-                        if (lines.TryGetValue((p, tfk), out var l)) groups.Add((p, l));
-                    if (groups.Count > 0) built[tfk] = DialogueInfoOrder.Compute(groups, ResolveInfo);
+                    {
+                        if (lines.TryGetValue(p, out var perTopic) && perTopic.TryGetValue(tfk, out var l))
+                            groups.Add((p, l));
+                        else
+                            unread.Add(p);                  // the index says it TOUCHES this topic — see below
+                    }
+
+                    // RecordsIn swallows an overlay it cannot open (catch/continue), where the GetRecord path this
+                    // replaced would have thrown into Run's named CheckError. So a plugin moved or locked by
+                    // MO2/xEdit mid-call now vanishes SILENTLY — and if the drop leaves one contributor the render
+                    // would claim "single plugin, nothing merges here" for a genuinely contested topic, hiding the
+                    // very reorder this exists to surface. Carry the absentees so the note states it (Q3).
+                    if (groups.Count > 0)
+                        built[tfk] = DialogueInfoOrder.Compute(groups, ResolveInfo, unread);
                 }
                 return built;
             }
