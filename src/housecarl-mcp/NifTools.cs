@@ -131,11 +131,14 @@ public static class NifTools
          "the edit before anything lands. Resolve the Data-relative mesh_path through Mod Organizer 2's VFS to the winning " +
          "copy (or mod=), apply the op, and pass it two offset-immune verification gates (only the block/value the op " +
          "claims to touch changed; a reload re-reads the new value; census + SE-stream intact) — a failure writes NOTHING " +
-         "and says why. The six ops (op=): rename_shape / rename_node (retitle a baked shape/node — the HDPT-EDID facegen " +
+         "and says why. The ops (op=): rename_shape / rename_node (retitle a baked shape/node — the HDPT-EDID facegen " +
          "case), set_flags (NiAVObject flags on a shape/node — the 0x80000 head/hair-class bit), set_scale, set_partition " +
          "(a BSDismember body-part id — pass body_part_id [+ partition_index]), set_alpha (alpha_flags word and/or " +
          "alpha_threshold — the hair 0x12ED / hairline 0x12EE class), set_path (swap a BSShaderTextureSet slot — pass " +
-         "texture_slot + path; e.g. the FaceTint slot 6 or skin slots 0/1). target= is the shape or node NAME the op edits " +
+         "texture_slot + path; e.g. the FaceTint slot 6 or skin slots 0/1), set_shader_value (a shader LIGHTING value — " +
+         "pass shader_value + value: glossiness, specular_strength, specular_color, emissive_color, emissive_multiple, " +
+         "alpha; the plastic-looking armour or over-bright glow fix. NOT set_alpha — that is the separate NiAlphaProperty). " +
+         "target= is the shape or node NAME the op edits " +
          "(from housecarl_nif_inspect). By DEFAULT the verified mesh is written into a NEW houseCARL MO2 mod folder at the " +
          "same path (originals untouched) — enable it and sort it ABOVE the current winner so the edit wins; a BSA-packed " +
          "source becomes a loose winning override this way. in_place=true instead OVERWRITES the winning LOOSE file where " +
@@ -159,6 +162,8 @@ public static class NifTools
         [Description("set_alpha: the alpha test threshold, 0-255. Optional if only changing the flags word.")] string alpha_threshold = "",
         [Description("set_path: the BSShaderTextureSet slot index (0 diffuse, 1 normal, 6 tint/skin/detail, ...).")] string texture_slot = "",
         [Description("set_path: the new texture path (Data-relative, e.g. 'textures\\...\\facetint\\Mod.esp\\00000ABC.dds').")] string path = "",
+        [Description("set_shader_value: which lighting value — 'glossiness', 'specular_strength', 'specular_color', 'emissive_color', 'emissive_multiple', or 'alpha'.")] string shader_value = "",
+        [Description("set_shader_value: the new value — one number for a scalar ('30'), or three comma-separated 0-1 components for a colour ('1,0.5,0.25').")] string value = "",
         [Description("Optional. Edit a specific provider's copy instead of the VFS winner — the mod folder name, 'overwrite', 'Data', or a BSA filename from the providers chain. Empty = the winner.")]
             string mod = "",
         [Description("Optional. Base name for the NEW mod folder the edited mesh is written into (default lane; auto-suffixed if taken). Ignored with in_place=true.")]
@@ -172,10 +177,10 @@ public static class NifTools
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
         if (string.IsNullOrWhiteSpace(mesh_path)) return "error: mesh_path is empty. Pass a Data-relative mesh path.";
-        if (string.IsNullOrWhiteSpace(op)) return "error: op is empty. Pass one of: rename_shape, rename_node, set_flags, set_scale, set_partition, set_alpha, set_path.";
+        if (string.IsNullOrWhiteSpace(op)) return "error: op is empty. Pass one of: " + OpList + ".";
         if (string.IsNullOrWhiteSpace(target)) return "error: target is empty. Pass the shape/node NAME the op edits (from housecarl_nif_inspect).";
 
-        var (built, buildErr) = BuildOp(op.Trim(), target.Trim(), new_name, flags, scale, body_part_id, partition_index, alpha_flags, alpha_threshold, texture_slot, path);
+        var (built, buildErr) = BuildOp(op.Trim(), target.Trim(), new_name, flags, scale, body_part_id, partition_index, alpha_flags, alpha_threshold, texture_slot, path, shader_value, value);
         if (buildErr is not null) return "error: " + buildErr;
 
         var data = svc.NifSet(mesh_path, new[] { built! },
@@ -190,7 +195,8 @@ public static class NifTools
     /// or an unparseable value — before the value ever reaches the service. Numeric params are strings so an omitted one is
     /// distinguishable from a real 0 (partition_index 0 is valid).</summary>
     static (NifSetOp? Op, string? Error) BuildOp(string op, string target,
-        string newName, string flags, string scale, string bodyPartId, string partitionIndex, string alphaFlags, string alphaThreshold, string textureSlot, string path)
+        string newName, string flags, string scale, string bodyPartId, string partitionIndex, string alphaFlags, string alphaThreshold, string textureSlot, string path,
+        string shaderValue, string value)
     {
         switch (op.ToLowerInvariant())
         {
@@ -218,10 +224,33 @@ public static class NifTools
                 if (!int.TryParse(textureSlot, out var slot)) return (null, $"set_path needs a numeric texture_slot; got '{textureSlot}'.");
                 if (string.IsNullOrWhiteSpace(path)) return (null, "set_path needs a path.");
                 return (new NifSetOp(NifSetOpKind.SetPath, target, TextureSlot: slot, Path: path), null);
+            case "set_shader_value":
+            {
+                if (string.IsNullOrWhiteSpace(shaderValue)) return (null, $"set_shader_value needs a shader_value ({NifService.ShaderValueList}).");
+                if (NifService.ShaderValueProperty(shaderValue) is null)
+                    return (null, $"unknown shader_value '{shaderValue}'. Use one of: {NifService.ShaderValueList}.");
+                if (string.IsNullOrWhiteSpace(value)) return (null, "set_shader_value needs a value — one number for a scalar, or 'r,g,b' for a colour.");
+                // Parsed to a bare list here; the ARITY is checked in the core against the library's own property type,
+                // so "how many components does this value take" has exactly one owner (see NifSetOp.ShaderNumbers).
+                var parts = value.Split(new[] { ',', ' ', ';', '[', ']' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                var nums = new List<float>(parts.Length);
+                foreach (var p in parts)
+                {
+                    if (!float.TryParse(p, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var f))
+                        return (null, $"set_shader_value: '{p}' in value is not a number. Pass one number for a scalar, or 'r,g,b' for a colour.");
+                    nums.Add(f);
+                }
+                if (nums.Count == 0) return (null, "set_shader_value needs a value — one number for a scalar, or 'r,g,b' for a colour.");
+                return (new NifSetOp(NifSetOpKind.SetShaderValue, target, ShaderValue: shaderValue.Trim(), ShaderNumbers: nums), null);
+            }
             default:
-                return (null, $"unknown op '{op}'. Use one of: rename_shape, rename_node, set_flags, set_scale, set_partition, set_alpha, set_path.");
+                return (null, $"unknown op '{op}'. Use one of: {OpList}.");
         }
     }
+
+    /// <summary>The op names, in one place — every "unknown op" / "op is empty" refusal reads from it, so adding an op
+    /// cannot leave a stale list behind in a message.</summary>
+    internal const string OpList = "rename_shape, rename_node, set_flags, set_scale, set_partition, set_alpha, set_path, set_shader_value";
 
     /// <summary>Parse a uint from hex ('0x...') or decimal.</summary>
     static bool TryParseUInt(string s, out uint value)
