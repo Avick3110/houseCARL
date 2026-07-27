@@ -255,10 +255,19 @@ internal static class NifServiceGuardProbe
         // the six read correctly on FO4 — so the layout sentence must appear and the library sentence must not, and
         // no lighting number may survive into the render (review of PR #290).
         Check(fo4Render.Contains("lighting values: NOT INTERPRETED for this block")
-              && fo4Render.Contains("glossiness is a constant 80 there")
+              && fo4Render.Contains("this layout's stream never carried")
               && !fo4Render.Contains("NOT READ by this NiflySharp version")
               && !fo4Render.Contains("glossiness 80") && !fo4Render.Contains("glossiness 30"),
               "NOT-SKYRIM-RENDER — the lighting decline states the LAYOUT as its reason, not the library, and prints no value");
+        // The decline sentence must make no NUMERIC claim about the block in hand. "constant 80" is a fact about
+        // BSLightingShaderProperty — the only one of the 17 INiShader blocks carrying Glossiness — so asserting it for
+        // "the FO3NV layout" would name a field an FO3NV lighting block does not have, while declining the emissive
+        // colour it genuinely reads. This arm exists because the previous revision PINNED that wrong sentence, which
+        // is how a guard locks a claim in instead of catching it (re-review of PR #290).
+        Check(!fo4Render.Contains("constant 80") && !System.Text.RegularExpressions.Regex.IsMatch(
+                  fo4Render, @"glossiness is a constant \d"),
+              "NOT-SKYRIM-RENDER — the decline asserts NO number about this block, since the one it used to name "
+              + "belongs to a single block type and not to any layout");
         var skRender = NifWire.Render(FakeData(outcome.Inspect, null), fo4Sections, Array.Empty<string>(), 80_000);
         Check(!skRender.Contains("NOT DERIVED"),
               "NOT-SKYRIM-RENDER — an ordinary Skyrim mesh carries none of that noise");

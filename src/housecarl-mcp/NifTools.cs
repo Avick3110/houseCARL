@@ -39,9 +39,11 @@ public static class NifTools
          "documented default plus the 0x80000 bit) and scale, the BSDismember body-part " +
          "partitions (decoded to their SBP_* names), the alpha property (decoded blend / test / threshold), the SHADER " +
          "property (block type, the shader TYPE enum — SkinTint / FaceTint / HairTint / EnvironmentMap / Parallax / … — " +
-         "the SLSF1+SLSF2 flags decoded to their names, and the lighting values — emissive colour and multiple, " +
-         "glossiness, specular strength and colour, alpha; any one that would be a constant rather than this mesh's " +
-         "number is NAMED as unreported, with which reason, rather than printed), the embedded " +
+         "the SLSF1+SLSF2 flags decoded to their names, and the lighting values on a Skyrim-layout shader — emissive " +
+         "colour and multiple, glossiness, specular strength and colour, alpha. Anything not reported is NAMED, with " +
+         "its reason: the library stubs that accessor for that block type, or the mesh reads as another game's " +
+         "layout, where houseCARL declines the group rather than interpret the ones that survive the layout change " +
+         "and guess at the rest), the embedded " +
          "texture-set paths with their semantic slot names where the shader determines them, and the bone list; plus the node tree and the header string table. Use it to answer 'what " +
          "shapes / bones / textures / partitions / alpha does this mesh have', 'does this mesh glow / use soft lighting / " +
          "subsurface skin / env-mapping', to read a facegen mesh's baked shape names " +
@@ -493,10 +495,17 @@ static class NifWire
         // blaming the library would be false — so that decline gets its own sentence (review of PR #290).
         if (!IsSkyrimLayout(sh))
         {
+            // NO NUMBER HERE, and the one example is SCOPED to the block it is true of (re-review of PR #290). The
+            // "constant 80" this sentence used to assert is a fact about BSLightingShaderProperty, not about a layout:
+            // of the 17 blocks implementing INiShader, that is the only one carrying Glossiness at all. On an FO3NV or
+            // Oblivion-era lighting block the claim named a field the block does not have — while declining the
+            // emissive colour it genuinely does read, for a reason that did not apply to it. That is the same
+            // type-vs-layout conflation this decline exists to fix, running the other way.
             sb.Append("    lighting values: NOT INTERPRETED for this block — houseCARL models the Skyrim shader "
-                      + "layout, and this reads as the ").Append(sh.GameType).Append(" layout, where some of these "
-                      + "accessors answer a field the stream never carried (glossiness is a constant 80 there, not "
-                      + "the mesh's). Declined rather than guessed which: ")
+                      + "layout, and this reads as the ").Append(sh.GameType).Append(" layout. Some of these "
+                      + "accessors read a field this layout's stream never carried, so they would answer a constant "
+                      + "rather than this mesh's value (on a lighting shader, glossiness is the live case). Rather "
+                      + "than interpret some and guess at the rest, all are declined: ")
               .Append(string.Join(", ", missing)).Append(". NifSkope reads this mesh's own layout.\n");
             return;
         }

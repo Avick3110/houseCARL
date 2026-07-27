@@ -13,13 +13,22 @@ upstream's crash/corruption fixes (#287).**
 The pinned 1.0.0 was published from a commit 52 changes behind upstream, and the gap was costing two different things.
 The visible one: `sections=shader` could not report *glossiness, specular strength, specular colour, emissive multiple*
 or *alpha* — 1.0.0's accessors returned a constant regardless of what the mesh held, so houseCARL named them as unread
-rather than print a wrong number. 1.1.0 implements all five, and they now report their real values on any lighting
-shader. The less visible one, and the reason the bump is worth taking on its own: upstream's most recent work is a code
+rather than print a wrong number. 1.1.0 implements all five, and they now report their real values on any **Skyrim-layout**
+lighting shader. The less visible one, and the reason the bump is worth taking on its own: upstream's most recent work is a code
 audit fixing *crashes, hangs, data corruption and leaks*, alongside a batch of community fixes (UV writes landing in
 the wrong buffer, a file-handle leak, block-array resizing). Every mesh read and write houseCARL does now runs on that
 code. Nothing in the tool surface changed shape — the shader section detects which values the library genuinely reads
 by inspecting the library, so the five started reporting with no change to the reporting logic, and an effect shader
 (where upstream still stubs them) correctly keeps saying so.
+**One value is withheld on purpose, and it is a scope decision rather than a library one.** On a mesh read as another
+game's layout — an unconverted Fallout 4 or Fallout 3 mesh shipped inside a Skyrim mod — houseCARL now declines *all*
+the lighting values and says so. The reason is that some of these accessors read a field the other layout's stream
+never carried, and answer a fixed constant rather than the mesh's own number (glossiness on a lighting shader is the
+live case: it reads the same value whatever the file holds). Rather than interpret the ones that survive the layout
+change and guess at the rest, the whole group is declined there. That withholds up to four values that *would* have
+been correct, which is a deliberate trade — houseCARL models the Skyrim shader layout, the same reason it already
+declines to name texture slots on a foreign-layout mesh. Unlike the library detection above, this half does **not**
+track the bundled version; it is houseCARL's own boundary.
 Parse fidelity was **re-proven, not assumed to carry over** — both versions were run back to back over the same
 91,601 workspace meshes and compared file by file, not by headline percentage. **Nine meshes that houseCARL could not
 read at all now read**: 1.0.0 threw on a malformed boolean byte in them, taking Glorious Doors of Skyrim, Golden
@@ -75,11 +84,12 @@ takes). Slot naming is a **Skyrim** convention, so it declines entirely on a mes
 an unconverted Fallout 4 mesh shipped inside a Skyrim mod gets bare indices, and the output says so rather than
 leaving "unnamed" to read as "undetermined".
 **Lighting values** — *emissive colour and multiple, glossiness, specular strength, specular colour, alpha* — are
-reported for a lighting shader (see the mesh-library bump above; they were unreadable when this section was first
-built, and never shipped that way). On an **effect** shader the library still answers them from a stub that returns a
-constant, so houseCARL prints nothing for them there and names them as not read, rather than a number it cannot vouch
-for. Which values are readable is detected from the library itself, not a hard-coded list, so this tracks the bundled
-version automatically in both directions.
+reported for a Skyrim-layout lighting shader (see the mesh-library bump above; they were unreadable when this section
+was first built, and never shipped that way). Two cases report nothing instead, each saying which it is: on an
+**effect** shader the library answers them from a stub returning a constant, and on a **non-Skyrim layout** houseCARL
+declines them as a matter of its own scope. Either way you get a named reason, never a number houseCARL cannot vouch
+for. The first is detected from the library itself rather than a hard-coded list, so it tracks the bundled version
+automatically in both directions; the second is houseCARL's own boundary and does not.
 
 **`check_errors` and the compact/merge dependency scan now treat a deleted record the same way (#279).**
 The #276 fix taught `cross_plugin_query` that a deleted record links to nothing; the two sibling walkers that ride the
