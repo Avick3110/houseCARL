@@ -14,8 +14,9 @@ strength, specular colour, emissive colour, emissive multiple,* and *alpha*. Pas
 number for a scalar (`glossiness` `55`), three comma-separated components for a colour (`specular_color`
 `1,0.5,0.25`). Colours and alpha are conventionally 0–1 rather than 0–255 — a value outside that range is still
 written (the format stores the number it is given, and real meshes do carry out-of-range values), but the result
-says so, which is what catches a `255,255,255` pasted out of NifSkope's colour picker. It rides the same lanes and the same two verification gates as every other op: by default the edited
-mesh lands in a new MO2 mod folder with the original untouched, and a write that did not actually persist is refused
+says so, which is what catches a `255,255,255` pasted out of NifSkope's colour picker. It rides the same lanes and
+the same two verification gates as every other op: by default the edited mesh lands in a new MO2 mod folder with the
+original untouched, and a write that did not actually persist is refused
 rather than reported as success. This is the fix for an armour that reads shiny and plastic because its specular
 strength came in wrong, a glow mesh whose emissive multiple is off by an order of magnitude, or a folder of BodySlide
 output sharing one bad glossiness — previously NifSkope, by hand, one mesh at a time. Note it is **not** `set_alpha`,
