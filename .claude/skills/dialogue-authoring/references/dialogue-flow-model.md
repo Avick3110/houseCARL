@@ -32,9 +32,13 @@ Field names below are Mutagen spellings (what `housecarl_create_record` / `house
 
 1. **Entry into a conversation:** `DLBR.StartingTopic`, or — for generic chatter — a topic matched by its
    `Subtype` (Hello / Goodbye / …).
-2. **Which line fires within a topic:** the INFO's **`Conditions`** — primarily `GetStage` (quest
-   progress), `GetIsID` / alias checks (who is speaking), etc. **NOT PNAM, NOT the list order.** (Real
-   example: a DA03 line gated by `GetStage(DA03) ∈ [100,155)` AND `GetIsID(Barbas)`.)
+2. **Which line fires within a topic:** the INFO's **`Conditions`** decide which lines are *eligible* —
+   primarily `GetStage` (quest progress), `GetIsID` / alias checks (who is speaking), etc. (Real example:
+   a DA03 line gated by `GetStage(DA03) ∈ [100,155)` AND `GetIsID(Barbas)`.) **Then ORDER settles it:** the
+   game walks the topic top to bottom and plays the **first** eligible line, so when two lines both pass,
+   position decides — not specificity. Within one plugin that order is its `Responses` list; across plugins
+   it is the merge described under *Resolution model* below. This is why a line can stop playing without any
+   field of it changing.
 3. **Topic → next topic:** **`INFO.LinkTo`** is the real conversation chain (proven: DA03Greet → LinkTo →
    DA03ConvincePlayer). This — not PNAM — is how one topic leads to the next.
 4. **Quest tie:** ownership (the `Quest` field on DLVW / DLBR / DIAL) **plus** conditions reading the
@@ -82,8 +86,13 @@ set it via a sibling `@editorid` FormLink). Consequences for authoring and audit
   deliberately does not flag an empty PNAM for this reason.
 - **Only a SET-but-unresolvable PNAM is a real (dangling) defect** — a previous-link pointing at an INFO
   that doesn't exist. That is what the validator flags.
-- If you want lines to play in a fixed forced order, the levers are the `Responses` list order and the
-  `Conditions` — reach for PNAM only for a genuine forced sequence, and expect to set it yourself.
+- If you want lines to play in a fixed forced order **within one plugin**, the levers are the `Responses`
+  list order and the `Conditions` — reach for PNAM only for a genuine forced sequence.
+- **The one case where PNAM is not optional: RE-LISTING an existing line.** Everything above describes
+  authoring a topic in a single plugin. The moment you override a line another plugin already carries, its
+  PNAM becomes the thing that holds its position — without one it is appended to the bottom of the merged
+  topic (see *Resolution model* below). "Vanilla leaves PNAM empty" stays true and is still not a defect;
+  it just means a vanilla line you override carries no anchor, and you must supply it.
 
 ## Resolution model — lines MERGE; what a conflict changes is ORDER
 
@@ -105,8 +114,13 @@ top to bottom and plays the **first** line whose `Conditions` pass. The merge ru
 
 For authoring this means the **opposite** of the advice this section used to give. Do **not** "carry forward
 every line" into your override: re-listing lines you didn't change appends them to the bottom in your order,
-which *is* the reordering bug. List only the lines you actually add or change, and if position matters for
-one of them, set its PNAM deliberately.
+which *is* the reordering bug. List only the lines you actually add or change.
+
+And mind the asymmetry between those two: **adding** a line moves nothing, but **changing** an existing line
+is itself a re-list (an override must sit in your plugin's copy of the topic), so it moves that line to the
+bottom unless you carry its PNAM. When you edit an existing line, set its `PreviousDialog` to the line that
+preceded it — vanilla carries none, so there is nothing to inherit. Omitting a line no longer removes it: to
+stop one playing, mark it deleted in your override or condition it out.
 
 `housecarl_validate_dialogue` prints the effective merged order for a topic and flags any line whose
 position moved, naming the plugin that moved it.

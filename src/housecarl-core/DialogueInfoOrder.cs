@@ -57,8 +57,13 @@ namespace HousecarlCore;
 /// <c>IDialogResponsesGetter</c> taken while the body is live (see <see cref="DialogueInfoOrder.LinesOf"/>).</summary>
 public sealed record InfoLine(FormKey Info, FormKey? PreviousDialog, bool Deleted);
 
-/// <summary>Where an INFO's placement rule put it — the PNAM arm that decided its position. Surfaced so a reader
-/// can see WHY a line sits where it does, not just that it does (Q3: the merge is explainable, never a bare list).</summary>
+/// <summary>Which PNAM arm decided this line's position AT THE MOMENT IT WAS PLACED. Surfaced so a reader can see
+/// WHY a line sits where it does, not just that it does (Q3: the merge is explainable, never a bare list).
+///
+/// It is a record of the placement DECISION, not a standing claim about the final list: a later plugin can evict and
+/// re-place other lines around this one, so an <see cref="AfterTarget"/> line need not still sit immediately after
+/// its target once the merge finishes. That is faithful to the model — the engine places in the same order — but do
+/// not read the label as a post-merge invariant.</summary>
 public enum InfoPlacement
 {
     /// <summary>No PNAM — appended at the end of the list as it stood. The overwhelmingly common arm, and the one
@@ -103,8 +108,18 @@ public sealed record InfoOrderView(
     string? Note)
 {
     /// <summary>More than one plugin contributed a child list — the case where the merged order can differ from
-    /// any single plugin's own list.</summary>
+    /// any single plugin's own list. Only meaningful when <see cref="Complete"/>: with a contributor missing, a
+    /// contested topic can look uncontested.</summary>
     public bool Contested => ContributingPlugins.Count > 1;
+
+    /// <summary>Plugins the load-order index says TOUCH this topic whose child list could not be read, so their
+    /// lines are absent from <see cref="Order"/>. Empty in the normal case.</summary>
+    public IReadOnlyList<string> UnreadContributors { get; init; } = Array.Empty<string>();
+
+    /// <summary>Every touching plugin's list made it into the merge. When false the order is built from FEWER
+    /// lists than the load order has, so neither it nor a "nothing merges here" reading of it is authoritative —
+    /// the render must not state either as fact (Q3).</summary>
+    public bool Complete => UnreadContributors.Count == 0;
 }
 
 public static class DialogueInfoOrder
@@ -142,10 +157,14 @@ public static class DialogueInfoOrder
     {
         if (topic.Responses is not { Count: > 0 } responses) return Array.Empty<InfoLine>();
         var lines = new List<InfoLine>(responses.Count);
-        foreach (var r in responses)
-            lines.Add(new InfoLine(r.FormKey, r.PreviousDialog.FormKeyNullable, r.IsDeleted));
+        foreach (var r in responses) lines.Add(LineOf(r));
         return lines;
     }
+
+    /// <summary>Project ONE live INFO body into the merge's data. The single home for that projection — the fallback
+    /// resolver builds lines too, and a field added here must reach both sites or the two silently disagree.</summary>
+    public static InfoLine LineOf(IDialogResponsesGetter info) =>
+        new(info.FormKey, info.PreviousDialog.FormKeyNullable, info.IsDeleted);
 
     /// <summary>Merge every touching plugin's child list into the effective INFO order for one topic.
     /// <paramref name="groups"/> is the per-plugin (name, projected lines) sequence in LOAD ORDER, winner last — a
@@ -158,7 +177,8 @@ public static class DialogueInfoOrder
     /// Deterministic and pure — the same inputs always give the same order.</summary>
     public static InfoOrderView Compute(
         IReadOnlyList<(string Plugin, IReadOnlyList<InfoLine> Lines)> groups,
-        Func<FormKey, (InfoLine Line, string Plugin)?>? resolveInfo = null)
+        Func<FormKey, (InfoLine Line, string Plugin)?> resolveInfo,
+        IReadOnlyList<string>? unreadContributors = null)
     {
         var state = new MergeState { Fallback = resolveInfo };
         var contributing = new List<string>();
@@ -198,7 +218,7 @@ public static class DialogueInfoOrder
         {
             var fk = order[i];
             int? origin = originIdx is not null && originIdx.TryGetValue(fk, out int o) ? o : null;
-            var p = state.Placed.GetValueOrDefault(fk, new Placed("?", InfoPlacement.Tail, false));
+            var p = state.Placed.GetValueOrDefault(fk, new Placed("?", InfoPlacement.Tail, false, null));
             entries.Add(new InfoOrderEntry(fk, i, p.PlacedBy, p.Placement, origin, p.Deleted, movedKeys.Contains(fk)));
         }
 
@@ -206,15 +226,27 @@ public static class DialogueInfoOrder
                            .OrderByDescending(e => Math.Abs(e.Index - (e.OriginIndex ?? e.Index)))
                            .ToList();
 
-        return new InfoOrderView(entries, contributing, moved, BuildNote(state, order.Count, originIdx is not null));
+        state.Cycles = CountPnamCycles(order, state.Placed);
+        return new InfoOrderView(entries, contributing, moved,
+                                 BuildNote(state, order.Count, originIdx is not null, unreadContributors))
+            { UnreadContributors = unreadContributors ?? Array.Empty<string>() };
     }
 
     /// <summary>The DEGRADATION note: what part of this merge did not run cleanly, and on what input. Null when the
     /// merge was fully determined. Each clause names a concrete malformation so the reader can act on it (Q3) —
     /// these are data problems in the plugins, not tool limits.</summary>
-    static string? BuildNote(MergeState state, int lineCount, bool haveOrigin)
+    static string? BuildNote(MergeState state, int lineCount, bool haveOrigin,
+                             IReadOnlyList<string>? unreadContributors)
     {
         var parts = new List<string>();
+        // A plugin the index says TOUCHES this topic whose child list could not be read. Q3: the merge below is
+        // built from FEWER lists than the load order actually has, so the order — and any "single plugin, nothing
+        // merges" reading of it — is NOT authoritative. Never silently absorbed into a clean-looking result.
+        if (unreadContributors is { Count: > 0 })
+            parts.Add($"{unreadContributors.Count} plugin(s) that TOUCH this topic could not be read " +
+                      $"({string.Join(", ", unreadContributors)}) — their lines are MISSING from the order below, " +
+                      "so it is incomplete and any line's position may be wrong; re-run (a plugin moved or locked " +
+                      "by MO2/xEdit mid-call is the usual cause)");
         if (haveOrigin && lineCount > MaxMoveAnalysisLines)
             parts.Add($"this topic carries {lineCount} lines, past the {MaxMoveAnalysisLines}-line ceiling for move " +
                       "analysis — the order above is exact, but which lines moved was NOT computed");
@@ -245,12 +277,12 @@ public static class DialogueInfoOrder
         var order = state.Order;
         var fk = line.Info;
         order.Remove(fk);                                        // evict every prior copy — last lister owns position
-        state.Placed[fk] = new Placed(plugin, InfoPlacement.Tail, line.Deleted);
+        state.Placed[fk] = new Placed(plugin, InfoPlacement.Tail, line.Deleted, line.PreviousDialog);
 
-        void Head(InfoPlacement why = InfoPlacement.Head)
+        void Head()
         {
             order.Insert(0, fk);
-            state.Placed[fk] = new Placed(plugin, why, line.Deleted);
+            state.Placed[fk] = new Placed(plugin, InfoPlacement.Head, line.Deleted, line.PreviousDialog);
         }
 
         var prev = line.PreviousDialog;
@@ -296,10 +328,6 @@ public static class DialogueInfoOrder
         {
             state.DepthCapped = true;
         }
-        else if (at < 0)
-        {
-            state.Cycles++;                                      // Stack.Add failed — this line closes a loop
-        }
 
         if (at < 0)                                              // unreachable target (dangling, cycle, or truncated)
         {
@@ -308,7 +336,7 @@ public static class DialogueInfoOrder
         }
 
         order.Insert(Math.Clamp(at + 1, 0, order.Count), fk);
-        state.Placed[fk] = new Placed(plugin, InfoPlacement.AfterTarget, line.Deleted);
+        state.Placed[fk] = new Placed(plugin, InfoPlacement.AfterTarget, line.Deleted, line.PreviousDialog);
     }
 
     /// <summary>The lines that changed RELATIVE order between the defining plugin's list and the effective one:
@@ -347,10 +375,47 @@ public static class DialogueInfoOrder
         return moved;
     }
 
+    /// <summary>Count PNAM cycles as a property of the DATA, over the final placed line set — not as a by-product
+    /// of the recursion. The placement-time signal (the cycle guard tripping) only fires when a target is not yet
+    /// placed, so a cycle whose members were BOTH already placed by an earlier plugin — e.g. plugin A lists a and b
+    /// unlinked, then plugin B re-lists both pointing at each other — went entirely undetected and the report read
+    /// clean on unsatisfiable input (PR #293 re-review). Each line has at most ONE PNAM edge, so this is a walk over
+    /// a functional graph: follow each unvisited chain and count a cycle when it re-enters the current walk.
+    /// Self-edges are excluded — those are reported as self-references, and would otherwise be counted twice.</summary>
+    static int CountPnamCycles(IReadOnlyList<FormKey> order, IReadOnlyDictionary<FormKey, Placed> placed)
+    {
+        const int OnThisWalk = 1, Settled = 2;
+        var seen = new Dictionary<FormKey, int>(order.Count);
+        int cycles = 0;
+
+        foreach (var start in order)
+        {
+            if (seen.ContainsKey(start)) continue;
+            var walk = new List<FormKey>();
+            var cur = start;
+            while (true)
+            {
+                if (seen.TryGetValue(cur, out int st))
+                {
+                    if (st == OnThisWalk) cycles++;               // re-entered this walk — a genuine loop
+                    break;
+                }
+                seen[cur] = OnThisWalk;
+                walk.Add(cur);
+                if (!placed.TryGetValue(cur, out var p) || p.Pnam is not { } next) break;   // no link — chain ends
+                if (next == cur) break;                          // self-edge — reported as a self-reference
+                if (!placed.ContainsKey(next)) break;             // dangling — reported by its Head placement
+                cur = next;
+            }
+            foreach (var n in walk) seen[n] = Settled;
+        }
+        return cycles;
+    }
+
     /// <summary>One line's placement outcome — bundled so every exit path of <see cref="Place"/> writes the whole
     /// tuple at once. (Three parallel dictionaries let a new code path update two of three and produce a
     /// silently-wrong entry behind the defaults; this makes that a compile error instead.)</summary>
-    readonly record struct Placed(string PlacedBy, InfoPlacement Placement, bool Deleted);
+    readonly record struct Placed(string PlacedBy, InfoPlacement Placement, bool Deleted, FormKey? Pnam);
 
     /// <summary>The merge's working state, threaded through the recursion as one object rather than as a growing
     /// parameter list.</summary>
@@ -360,7 +425,7 @@ public static class DialogueInfoOrder
         public readonly Dictionary<FormKey, Placed> Placed = new();
         public readonly Dictionary<FormKey, (InfoLine Line, string Plugin)> Known = new();
         public readonly HashSet<FormKey> Stack = new();
-        public readonly List<FormKey> SelfReferencing = new();
+        public readonly HashSet<FormKey> SelfReferencing = new();
         public Func<FormKey, (InfoLine Line, string Plugin)?>? Fallback;
         public int Cycles;
         public bool DepthCapped;

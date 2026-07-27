@@ -169,6 +169,12 @@ public static class FieldsDiff
                     // as an ORDER-DIFFERS note — never element deltas, the contents ARE equal. Type-agnostic by
                     // design: over-reporting a noise reorder is the safe direction; silently equating a semantic one
                     // is not (the whole module's posture — over-report, never under-report).
+                    //
+                    // SIBLING DETECTOR: DialogueInfoOrder.RelativeOrderChanges answers the finer "WHICH elements
+                    // moved" (an LCS pass) for a DIAL's N-plugin merge against its origin, feeding validate_dialogue.
+                    // This one answers the coarser "did this list get reordered at all" for an arbitrary two-sided
+                    // field diff. Deliberately separate — different granularity, different call sites — but a change
+                    // to reorder semantics here should consider that one too, and vice versa.
                     if (!tElems.Select(e => e.Fingerprint).SequenceEqual(wElems.Select(e => e.Fingerprint)))
                         deltas.Add($"{root}: same {tElems.Count} item(s), ORDER DIFFERS from {referenceLabel}");
                     continue;

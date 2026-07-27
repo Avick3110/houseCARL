@@ -207,7 +207,10 @@ static class DialogueWire
     {
         if (t.InfoOrder is not { } io || io.Order.Count == 0) return true;
 
-        if (!io.Contested)
+        // "Nothing merges here" is a CLAIM, and it holds only if EVERY touching plugin's list was actually read.
+        // With one dropped, a genuinely contested topic presents as single-plugin — so the claim is gated on
+        // Complete, and the incomplete case says what it is instead of asserting something false (Q3).
+        if (!io.Contested && io.Complete)
         {
             sb.Append(pad).Append("  INFO order: ").Append(io.Order.Count)
               .Append(io.Order.Count == 1 ? " line, from a single plugin (" : " lines, from a single plugin (")
@@ -216,6 +219,11 @@ static class DialogueWire
             AppendOrderNote(sb, io, pad);          // a degraded merge is degraded whether or not anything contests it
             return true;
         }
+
+        if (!io.Complete)
+            sb.Append(pad).Append("  INFO order: INCOMPLETE — read from ").Append(io.ContributingPlugins.Count)
+              .Append(" of ").Append(io.ContributingPlugins.Count + io.UnreadContributors.Count)
+              .Append(" plugin(s) that touch this topic. The sequence below is NOT authoritative — lines are missing and positions may be wrong.\n");
 
         var moved = io.Moved;
         bool listAll = io.Order.Count <= MaxOrderRows;

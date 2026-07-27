@@ -256,8 +256,25 @@ behind a broader line that also passes, so it is never reached.
 The trap is the reverse of how it looks: **re-listing a line moves it to the bottom**, unless you also carry
 that line's `PreviousDialog` (PNAM). So "carry forward every line to be safe" — the advice this section used
 to give, and still common in the wild — reorders the whole topic into your override's order and *causes* the
-bug. Instead, **list only the lines you add or change.** If one of them has to sit at a particular spot, set
-its PNAM to the line it should follow.
+bug.
+
+The rule, in two halves, because they are **not** the same job:
+
+- **Adding a line** — list only your new line. Nothing else moves. If it must sit at a particular spot
+  rather than last, set its PNAM to the line it should follow.
+- **Changing an existing line** — an override of an existing INFO *is* a re-list, structurally: it has to
+  sit in your plugin's copy of the topic. So editing one line's text moves that line to the bottom unless
+  you **carry its PNAM**. Treat that as the default, not a special case: **when you change an existing
+  line, set its `PreviousDialog` to whatever line preceded it**, or accept that it moves. Vanilla lines
+  carry no PNAM (empty in 2,757/2,757 topics surveyed), so there is nothing to inherit — you must supply
+  it. This is precisely what a well-behaved patch like USSEP does: it re-lists six lines of a topic and
+  moves none of them, because each carries its PNAM.
+
+**Removing a line is not done by omitting it.** Omission is now a no-op — the line still plays. To stop one
+playing, either mark that INFO deleted in your override (houseCARL keeps it visible in the effective order,
+flagged, and the validator skips it rather than pretending it's gone), or give it a condition that cannot
+pass. Deleting records has its own well-known hazards in Skyrim modding, so conditioning it out is the
+gentler lever where it works.
 
 `housecarl_validate_dialogue` prints the topic's effective merged order and flags any line whose position
 moved, naming the plugin that moved it — that is the check for this.
@@ -335,9 +352,11 @@ has no `Subtype` field. Copy the exact value from a known-good ForceGreet topic 
 
 ## Common mistakes
 
-- **Building a PNAM chain, or flagging a missing one.** Vanilla topics have empty PNAM; ordering is the
-  `Responses` list + conditions. Set `PreviousDialog` only for a genuine forced sequence; never add one to
-  "fix" a topic, and never report its absence as a defect.
+- **Building a PNAM chain across a topic you authored, or flagging a missing one.** Vanilla topics have
+  empty PNAM and that is never a defect, so don't "complete the chain" on a topic you wrote yourself —
+  order it with the `Responses` list. **The exception is re-listing:** when your override carries a line
+  another plugin already had, set that line's `PreviousDialog` or it moves to the bottom of the merged
+  topic. Not a chain across the topic — one anchor on each line you re-list.
 - **Forgetting the SEQ.** A Start-Game-Enabled quest with no `.seq` never starts, and neither does its
   dialogue. Ticking the flag is half the job — write the `.seq`.
 - **Reading a clean validate as "it'll play."** A green validate catches *malformed* conditions but never
