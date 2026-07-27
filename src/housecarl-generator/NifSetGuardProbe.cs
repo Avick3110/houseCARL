@@ -163,12 +163,19 @@ internal static class NifSetGuardProbe
             Check(noIfaceSetters, "INiShader still declares all six lighting values GET-ONLY — the reason the write gate reflects the CONCRETE block, not the interface map");
 
             // The gate itself, on both branches. These are the two facts the refusal messages assert.
-            Check(NifService.ReallyWrites(typeof(BSLightingShaderProperty), "Glossiness") == (true, 1)
-                  && NifService.ReallyWrites(typeof(BSLightingShaderProperty), "SpecularColor") == (true, 3),
+            Check(NifService.ReallyWrites(typeof(BSLightingShaderProperty), "Glossiness") is { Writable: true, Components: 1 }
+                  && NifService.ReallyWrites(typeof(BSLightingShaderProperty), "SpecularColor") is { Writable: true, Components: 3 },
                   "ReallyWrites says YES on BSLightingShaderProperty, with the component count read off the property TYPE (scalar 1 / colour 3)");
-            Check(NifService.ReallyWrites(typeof(BSEffectShaderProperty), "Glossiness") == (false, 0)
-                  && NifService.ReallyWrites(typeof(BSEffectShaderProperty), "Alpha") == (false, 0),
-                  "ReallyWrites says NO on BSEffectShaderProperty — the block whose accessor is the interface stub (a write there would silently no-op)");
+            // NO-SETTER vs UNKNOWN-TYPE are separate states, and the effect shader is specifically the FORMER. Checking
+            // only 'not writable' would let the two collapse again — and the refusal messages assert different facts.
+            Check(NifService.ReallyWrites(typeof(BSEffectShaderProperty), "Glossiness") is { Writable: false, UnknownTypeName: null }
+                  && NifService.ReallyWrites(typeof(BSEffectShaderProperty), "Alpha") is { Writable: false, UnknownTypeName: null },
+                  "ReallyWrites says NO-SETTER (not unknown-type) on BSEffectShaderProperty — the block whose accessor is the interface stub (a write there would silently no-op)");
+            // The unknown-type arm is unreachable through any real shader block on 1.1.0, so it is pinned on a stand-in
+            // with a settable property of a type houseCARL does not marshal. Without this, the third state ships
+            // unexercised and the branch that keeps its message honest is never proven to fire.
+            Check(NifService.ReallyWrites(typeof(UnmarshalableShaderStandIn), nameof(UnmarshalableShaderStandIn.Glossiness)) is { Writable: false, UnknownTypeName: "String" },
+                  "a SETTABLE property of an unmarshalable type reports unknown-type — a distinct state from no-setter, so the refusal cannot claim 'not settable'");
 
             // YES branch — every one of the six writes, survives the save/reload, and reads back as the NEW value.
             // Each expected value is distinct from BOTH the fixture's authored value and the block's constructor
@@ -226,10 +233,42 @@ internal static class NifSetGuardProbe
             // "colour", the library says "Color" — a caller reading one and typing it at the other is not an error).
             Check(NifService.Set(shBytes, new[] { new NifSetOp(NifSetOpKind.SetShaderValue, "LitShape", ShaderValue: "shininess", ShaderNumbers: new[] { 1f }) }).Error is { } ev && ev.Contains("glossiness"),
                   "an unknown shader_value → named refusal listing the accepted names");
-            Check(NifService.ShaderValueProperty("specular_colour") == "SpecularColor" && NifService.ShaderValueProperty("Glossiness") == "Glossiness",
-                  "the British spelling and mixed case both resolve");
+            // BOTH AXES AT ONCE, and that is the point. The first version of this arm tested British-lowercase and
+            // American-mixed-case separately, so it passed while 'Specular_Colour' — the combination, and the obvious
+            // thing a caller actually types — resolved to nothing: the rewrite ran before the case fold and could not
+            // match. An arm that never exercises the combination its wording claims is the "pins the wording, not the
+            // claim" shape (review of PR #292).
+            Check(NifService.ShaderValueProperty("Specular_Colour") == "SpecularColor"
+                  && NifService.ShaderValueProperty("EMISSIVE_COLOUR") == "EmissiveColor"
+                  && NifService.ShaderValueProperty("specular_colour") == "SpecularColor"
+                  && NifService.ShaderValueProperty("Glossiness") == "Glossiness"
+                  && NifService.ShaderValueProperty("specular-strength") == "SpecularStrength",
+                  "the British spelling resolves AT ANY CASE (not just lower), alongside mixed case and the hyphen form");
             Check(NifService.Set(shBytes, new[] { new NifSetOp(NifSetOpKind.SetShaderValue, "NoShaderShape", ShaderValue: "glossiness", ShaderNumbers: new[] { 1f }) }).Error is { } ens && ens.Contains("no shader property"),
                   "set_shader_value on a shape with NO shader → named refusal");
+
+            // THE 0-1 CONVENTION — warned, never enforced, and the choice is empirical rather than tidy. A scan of
+            // 40,000 workspace meshes (190,298 SK lighting shaders) found 261 shapes with alpha above 1 (max 100), 155
+            // emissive-colour components above 1, and 4 specular-colour components above 1 — so refusing out-of-range
+            // would refuse edits to meshes that exist. The write lands; the report says the number looks wrong. Before
+            // this, the 0-1 bound was asserted in three places and enforced in none (review of PR #292).
+            {
+                var o = NifService.Set(shBytes, new[] { new NifSetOp(NifSetOpKind.SetShaderValue, "LitShape", ShaderValue: "specular_color", ShaderNumbers: new[] { 255f, 255f, 255f }) });
+                var sh = ShapeOf(o.WrittenBytes, "LitShape")?.Shader;
+                Check(o.Error is null && Rgb2(sh?.SpecularColor) == "rgb(255,255,255)",
+                      $"an out-of-convention colour is WRITTEN, not refused (real meshes carry them) — {o.Error ?? Rgb2(sh?.SpecularColor)}");
+                Check(o.Report is { } rep && rep.Warnings.Any(x => x.Contains("outside the 0-1 range") && x.Contains("255")),
+                      $"…and the report WARNS, naming the NifSkope 0-255 confusion — {(o.Report is null ? "(no report)" : string.Join(" | ", o.Report.Warnings))}");
+                // The warning is scoped to the values the convention applies to: glossiness 900000 is real (the same
+                // scan saw exactly that), so warning about it would be crying wolf on a legitimate write.
+                var g = NifService.Set(shBytes, new[] { new NifSetOp(NifSetOpKind.SetShaderValue, "LitShape", ShaderValue: "glossiness", ShaderNumbers: new[] { 900f }) });
+                Check(g.Error is null && g.Report is { } grep2 && !grep2.Warnings.Any(x => x.Contains("outside the 0-1 range")),
+                      "an unbounded value (glossiness 900) is NOT warned about — the convention is per-value, not blanket");
+                // And a normalized value INSIDE the range stays quiet, so the warning means something when it appears.
+                var a = NifService.Set(shBytes, new[] { new NifSetOp(NifSetOpKind.SetShaderValue, "LitShape", ShaderValue: "alpha", ShaderNumbers: new[] { 0.25f }) });
+                Check(a.Error is null && a.Report is { } arep && !arep.Warnings.Any(x => x.Contains("outside the 0-1 range")),
+                      "an in-range alpha is not warned about");
+            }
 
             // THE LAYOUT GATE's premise. ApplyOp declines any non-Skyrim shader layout, the same scope claim the read
             // path makes — but Set() refuses a non-SE stream before ApplyOp is reached, and an SE stream always parses
@@ -381,6 +420,11 @@ internal static class NifSetGuardProbe
 
     static NifShape? ShapeOf(byte[]? bytes, string name)
         => bytes is null ? null : NifService.Inspect(bytes).Inspect?.Shapes.FirstOrDefault(s => s.Name == name);
+
+    /// <summary>A stand-in for the one <see cref="NifService.ReallyWrites"/> state no real NiflySharp 1.1.0 shader block
+    /// can produce: a lighting value that IS settable, of a type houseCARL has no marshalling for. It exists so that
+    /// state's refusal — which must NOT claim the value is unsettable — is exercised rather than shipped on trust.</summary>
+    sealed class UnmarshalableShaderStandIn { public string Glossiness { get; set; } = ""; }
 
     /// <summary>A nullable shader scalar as invariant text — "(unread)" when the reader withheld it, which is a
     /// DIFFERENT outcome from any number and must never compare equal to one.</summary>

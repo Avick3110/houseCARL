@@ -149,7 +149,10 @@ public static class NifTools
         LoadOrderService svc,
         [Description("The Data-relative mesh path to edit, e.g. 'meshes\\actors\\character\\facegendata\\facegeom\\Skyrim.esm\\00000007.nif'.")]
             string mesh_path,
-        [Description("The write op: 'rename_shape', 'rename_node', 'set_flags', 'set_scale', 'set_partition', 'set_alpha', or 'set_path'.")]
+        // Built from OpList (a const, so it is legal in an attribute) rather than spelled out: this is the string a
+        // caller actually READS TO CHOOSE an op, so a stale list here is worse than a stale refusal — it makes a
+        // shipped op invisible in the tool schema, and the caller concludes houseCARL cannot do the thing.
+        [Description("The write op — one of: " + OpList + ".")]
             string op,
         [Description("The NAME of the shape or node the op edits (the current name; from housecarl_nif_inspect). For a rename this is the OLD name.")]
             string target,
@@ -163,7 +166,7 @@ public static class NifTools
         [Description("set_path: the BSShaderTextureSet slot index (0 diffuse, 1 normal, 6 tint/skin/detail, ...).")] string texture_slot = "",
         [Description("set_path: the new texture path (Data-relative, e.g. 'textures\\...\\facetint\\Mod.esp\\00000ABC.dds').")] string path = "",
         [Description("set_shader_value: which lighting value — 'glossiness', 'specular_strength', 'specular_color', 'emissive_color', 'emissive_multiple', or 'alpha'.")] string shader_value = "",
-        [Description("set_shader_value: the new value — one number for a scalar ('30'), or three comma-separated 0-1 components for a colour ('1,0.5,0.25').")] string value = "",
+        [Description("set_shader_value: the new value — one number for a scalar ('30'), or three comma-separated components for a colour ('1,0.5,0.25'). Colours and alpha are conventionally 0-1 (NOT 0-255); a value outside that is written as asked but WARNED about.")] string value = "",
         [Description("Optional. Edit a specific provider's copy instead of the VFS winner — the mod folder name, 'overwrite', 'Data', or a BSA filename from the providers chain. Empty = the winner.")]
             string mod = "",
         [Description("Optional. Base name for the NEW mod folder the edited mesh is written into (default lane; auto-suffixed if taken). Ignored with in_place=true.")]
