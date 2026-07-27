@@ -270,11 +270,21 @@ The rule, in two halves, because they are **not** the same job:
   it. This is precisely what a well-behaved patch like USSEP does: it re-lists six lines of a topic and
   moves none of them, because each carries its PNAM.
 
-**Removing a line is not done by omitting it.** Omission is now a no-op — the line still plays. To stop one
-playing, either mark that INFO deleted in your override (houseCARL keeps it visible in the effective order,
-flagged, and the validator skips it rather than pretending it's gone), or give it a condition that cannot
-pass. Deleting records has its own well-known hazards in Skyrim modding, so conditioning it out is the
-gentler lever where it works.
+**Removing a line is not done by omitting it, and `housecarl_remove_record` is not the tool.** Omission is a
+no-op — the line still plays. And `remove_record` is a literal drop-from-plugin, *not* a flag-as-deleted: in
+the default lane it deletes the override **your own patch** carries, which reverts the line to the underlying
+winner, so it plays exactly as before. Reaching for the tool named "remove" undoes your patch.
+
+The lever that is verifiable from the data layer is **conditioning the line out** — give it a `Conditions`
+entry that cannot pass (`housecarl_set_field` on `Conditions`). The line remains, is never selected, and you
+can confirm the change by reading the record back.
+
+The other lever is marking that INFO **deleted** in your override (`housecarl_set_field` on `IsDeleted` —
+writable per the schema; *not* `remove_record`). Treat this as **inferred, not measured**: houseCARL's own
+handling is consistent with a deleted line not playing — the validator skips deleted INFOs and the effective
+order keeps the slot flagged — but this skill has no measurement proving the engine ignores it, and deleted
+records carry their own well-known hazards in Skyrim modding. Prefer conditioning-out where it works; if you
+do use the deleted flag, verify in game rather than trusting this paragraph.
 
 `housecarl_validate_dialogue` prints the topic's effective merged order and flags any line whose position
 moved, naming the plugin that moved it — that is the check for this.

@@ -205,7 +205,10 @@ static class DialogueWire
     /// the cap so the caller stops (Q3 — an explicit notice, never a silent cut).</summary>
     static bool AppendInfoOrder(StringBuilder sb, TopicValidation t, string pad, int cap)
     {
-        if (t.InfoOrder is not { } io || io.Order.Count == 0) return true;
+        // An EMPTY order is normally nothing to say — unless it is empty because nothing could be READ, which is
+        // the total-drop case and the one that must never render as silence (most topics are touched by exactly
+        // one plugin, so for them any read failure IS a total failure).
+        if (t.InfoOrder is not { } io || (io.Order.Count == 0 && io.Complete)) return true;
 
         // "Nothing merges here" is a CLAIM, and it holds only if EVERY touching plugin's list was actually read.
         // With one dropped, a genuinely contested topic presents as single-plugin — so the claim is gated on
@@ -221,9 +224,15 @@ static class DialogueWire
         }
 
         if (!io.Complete)
+        {
+            int total = io.ContributingPlugins.Count + io.UnreadContributors.Count;
             sb.Append(pad).Append("  INFO order: INCOMPLETE — read from ").Append(io.ContributingPlugins.Count)
-              .Append(" of ").Append(io.ContributingPlugins.Count + io.UnreadContributors.Count)
-              .Append(" plugin(s) that touch this topic. The sequence below is NOT authoritative — lines are missing and positions may be wrong.\n");
+              .Append(" of ").Append(total).Append(" plugin(s) that touch this topic.");
+            sb.Append(io.Order.Count == 0
+                ? " NOTHING could be read, so no order is shown at all — this is a read failure, NOT an empty topic.\n"
+                : " The sequence below is NOT authoritative — lines are missing and positions may be wrong.\n");
+            if (io.Order.Count == 0) { AppendOrderNote(sb, io, pad); return true; }
+        }
 
         var moved = io.Moved;
         bool listAll = io.Order.Count <= MaxOrderRows;
