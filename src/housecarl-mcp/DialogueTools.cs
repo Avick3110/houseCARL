@@ -271,9 +271,15 @@ static class DialogueWire
             return true;
         }
 
+        // Same gate as the branch above, for the same reason. "the rest keep their original relative order" is a
+        // claim about the rows this branch deliberately WITHHOLDS, so the reader cannot check it — and it held
+        // only if the analysis ran over complete input. Worse than the sibling case, not better.
         if (!listAll)
             sb.Append(pad).Append("    (").Append(io.Order.Count).Append(" lines; listing only the ")
-              .Append(moved.Count).Append(" that MOVED — the rest keep their original relative order. Validate this topic's DIAL on its own to see every line.)\n");
+              .Append(moved.Count).Append(movesKnown
+                  ? " that MOVED — the rest keep their original relative order."
+                  : " found to have MOVED — whether the rest held position is NOT known here (see the note below).")
+              .Append(" Validate this topic's DIAL on its own to see every line.)\n");
 
         foreach (var e in listAll ? io.Order : moved)
         {

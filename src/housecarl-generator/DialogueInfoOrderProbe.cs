@@ -630,9 +630,24 @@ public static class DialogueInfoOrderProbe
             bool completeGateOk = incomplete.MovesComputed && !incomplete.Complete
                                   && !rIncomplete.Contains("none of which changed position", StringComparison.Ordinal);
 
-            all &= Pass("RENDER-CLAIM-GATES", countOk && claimOk && completeGateOk,
+            // The SIBLING branch, six lines below the one above: "the rest keep their original relative order"
+            // is a claim about rows that branch WITHHOLDS, so a reader cannot check it. Needs a moved line to
+            // reach that branch at all, plus an unread contributor so the claim is unsafe.
+            var withMove = new List<InfoLine>(lines);
+            var movedGroups = new List<(string, IReadOnlyList<InfoLine>)>
+            {
+                ("definer.esp", withMove),
+                ("patch.esp",   new[] { withMove[0] }),        // re-lists line 1, no PNAM -> it goes to the tail
+            };
+            var siblingIncomplete = DialogueInfoOrder.Compute(movedGroups, _ => null, new[] { "locked.esp" });
+            string rSibling = RenderOrderOnly(siblingIncomplete, asQuest: true);
+            bool siblingOk = siblingIncomplete.Moved.Count > 0 && !siblingIncomplete.Complete
+                             && !rSibling.Contains("the rest keep their original relative order",
+                                                   StringComparison.Ordinal);
+
+            all &= Pass("RENDER-CLAIM-GATES", countOk && claimOk && completeGateOk && siblingOk,
                 $"touchingCount={countOk} skippedGated={claimOk} incompleteGated={completeGateOk} " +
-                $"(movesComputed={incomplete.MovesComputed}, complete={incomplete.Complete})");
+                $"siblingGated={siblingOk} (movesComputed={incomplete.MovesComputed}, complete={incomplete.Complete})");
         }
 
         // ---------- RENDER-HEAD-SPLIT: the split must be visible where users see it ----------
@@ -714,11 +729,6 @@ public static class DialogueInfoOrderProbe
         Console.WriteLine(all ? "RESULT: PASS — effective INFO order holds." : "RESULT: FAIL");
         return all ? 0 : 1;
     }
-
-    /// <summary>Render a REAL topic through the shipped path, for arms that must assert on user-visible text
-    /// rather than on Compute's return value.</summary>
-    static string RenderTopic(LoadOrderResolver resolver, AssetResolver assets, FormKey topic) =>
-        DialogueWire.Render(DialogueValidate.Run(resolver, assets, topic), 0);
 
     /// <summary>Render just the INFO-order block for a synthesised view, by wrapping it in the minimum report the
     /// real renderer consumes — so the arms above pin the SHIPPED render path (the gated "nothing merges here"
