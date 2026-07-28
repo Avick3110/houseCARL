@@ -1,21 +1,109 @@
-[
-  {"query": "Build me a catalogue of every piece of armour the exotic armour plugins add — name, armor rating, slots, and how you craft each one. I want it as a spreadsheet eventually.", "should_trigger": true},
-  {"query": "which mods win the contested Apocalypse spell records? there are like 800 of them, i just want a breakdown by plugin", "should_trigger": true},
-  {"query": "I need to rebuild the old Requiem-Apocalypse patch against Apocalypse 10.2.3 — the old patch is disabled in MO2 but still on disk. Figure out what deltas it applied and re-apply the still-valid ones onto the new baseline.", "should_trigger": true},
-  {"query": "Extract every weapon defined in Heavy Armory.esp with its damage, reach, speed and material keywords, and return the results as JSON rows.", "should_trigger": true},
-  {"query": "can you list all the smithing recipes that use ebony ingots across my whole load order and which perks gate them", "should_trigger": true},
-  {"query": "Aaron wants an in-game book listing every craftable jewelry piece with materials and stations - can you pull that data together?", "should_trigger": true},
-  {"query": "audit Immersive Weapons for me - what does it actually add vs just override, and are its stats still live after all my patches?", "should_trigger": true},
-  {"query": "I'm fanning this out to 6 subagents, each takes a plugin group and extracts the NPC data. What should I tell them so the outputs merge cleanly?", "should_trigger": true},
-  {"query": "make me a table of all requiem heavy armors w/ live AR values, the ones in the esp are stale i think", "should_trigger": true},
-  {"query": "What fields does the COBJ record type have? Is WorkbenchKeyword writable?", "should_trigger": false},
-  {"query": "Why does my character's face turn grey when I install this NPC replacer mod?", "should_trigger": false},
-  {"query": "Change the damage on Chillrend to 25 in a new patch plugin", "should_trigger": false},
-  {"query": "Write a SPID ini that distributes this cloak spell to all bandit NPCs", "should_trigger": false},
-  {"query": "Which armors sit on biped slot 52 in my load order?", "should_trigger": false},
-  {"query": "What does REQ_DisableRecipe mean when it's the workbench keyword on a recipe record?", "should_trigger": false},
-  {"query": "My game CTDs when I open the smithing menu at the forge, can you check the crash logs?", "should_trigger": false},
-  {"query": "read me the stats of the iron sword real quick", "should_trigger": false},
-  {"query": "Compact my new patch plugin to ESL and run the error check on it", "should_trigger": false},
-  {"query": "what changed between the two versions of this one perk record, 0A1B2C in the old esp vs the new one?", "should_trigger": false}
-]
+{
+ "skill": "bulk-record-jobs",
+ "revalidation_2026-07-28_294": {
+  "method": "2026-07-28 revalidation for issue #294 (all 13 descriptions compressed to the amended section-3.5 200-400 char target): section-6.5 fan-out, one fresh-context sonnet (low effort) agent per query, each shown the full lettered menu of all 13 NEW descriptions (under-test skill unflagged, letter D) plus NONE, asked which ONE to load; one opus adjudicator per skill scored from reasoning per section-6.5 step 4. No fable-model agents. Conductor session: #294 worktree.",
+  "gate": {
+   "recall_threshold": 0.8,
+   "specificity_threshold": 0.5
+  },
+  "recall": "8/9 = 0.89",
+  "specificity": "10/10 = 1.00",
+  "passed": true,
+  "misses": [
+   {
+    "id": 3,
+    "query": "I need to rebuild the old Requiem-Apocalypse patch against Apocalypse 10.2.3 — the old patch is disabled in MO2 but still on disk. Figure out what deltas it applied and re-apply the still-valid ones onto the new baseline.",
+    "should_trigger": true,
+    "pick": "N",
+    "diagnosis": "D's patch-rebuild clause (\"wants a compatibility patch rebuilt against a new mod version\") sits last in a long comma-chain after five catalogue/audit examples, so it read as a catalogue skill; the Requiem framing then made the agent hunt for absent mod-specific balance knowledge and fall through to N rather than recognise the delta-extract-and-reapply job D actually owns."
+   }
+  ],
+  "adjudicator_notes": "18 rows scored (no row id 12 in the set). Recall 8/9 = 0.89 (>=0.80); specificity 9/9 = 1.00 (>=0.50); PASS. No reasoning-vs-pick overrides needed — every pick token matched its stated reasoning, including the one miss (row 3's reasoning explicitly rejects the whole menu on Requiem-domain grounds, never naming D's capability, so N stands as a genuine miss and not a token slip). Specificity is clean and well-separated: the near-neighbour rows resolved to their intended owners with no D contamination — schema lookup to G (10), slot-52 filter to K (14), SPID ini to E (13) — and D did not pull the three record-read/tooling rows (17, 18, 19) that involve records but not a many-to-one deliverable, nor row 16's crash-log request. Only structural weakness: the batch-patch-rebuild trigger, which is the one D clause that competes against mod-domain skills rather than against generic record tools.",
+  "backfilled_row": {
+   "id": 12,
+   "query": "Change the damage on Chillrend to 25 in a new patch plugin",
+   "should_trigger": false,
+   "pick": "G",
+   "hit": true,
+   "note": "rate-limited in the main run, backfilled same day; routed to mutagen-reference — specificity hit, folded into the totals below"
+  }
+ },
+ "evals": [
+  {
+   "query": "Build me a catalogue of every piece of armour the exotic armour plugins add — name, armor rating, slots, and how you craft each one. I want it as a spreadsheet eventually.",
+   "should_trigger": true
+  },
+  {
+   "query": "which mods win the contested Apocalypse spell records? there are like 800 of them, i just want a breakdown by plugin",
+   "should_trigger": true
+  },
+  {
+   "query": "I need to rebuild the old Requiem-Apocalypse patch against Apocalypse 10.2.3 — the old patch is disabled in MO2 but still on disk. Figure out what deltas it applied and re-apply the still-valid ones onto the new baseline.",
+   "should_trigger": true
+  },
+  {
+   "query": "Extract every weapon defined in Heavy Armory.esp with its damage, reach, speed and material keywords, and return the results as JSON rows.",
+   "should_trigger": true
+  },
+  {
+   "query": "can you list all the smithing recipes that use ebony ingots across my whole load order and which perks gate them",
+   "should_trigger": true
+  },
+  {
+   "query": "Aaron wants an in-game book listing every craftable jewelry piece with materials and stations - can you pull that data together?",
+   "should_trigger": true
+  },
+  {
+   "query": "audit Immersive Weapons for me - what does it actually add vs just override, and are its stats still live after all my patches?",
+   "should_trigger": true
+  },
+  {
+   "query": "I'm fanning this out to 6 subagents, each takes a plugin group and extracts the NPC data. What should I tell them so the outputs merge cleanly?",
+   "should_trigger": true
+  },
+  {
+   "query": "make me a table of all requiem heavy armors w/ live AR values, the ones in the esp are stale i think",
+   "should_trigger": true
+  },
+  {
+   "query": "What fields does the COBJ record type have? Is WorkbenchKeyword writable?",
+   "should_trigger": false
+  },
+  {
+   "query": "Why does my character's face turn grey when I install this NPC replacer mod?",
+   "should_trigger": false
+  },
+  {
+   "query": "Change the damage on Chillrend to 25 in a new patch plugin",
+   "should_trigger": false
+  },
+  {
+   "query": "Write a SPID ini that distributes this cloak spell to all bandit NPCs",
+   "should_trigger": false
+  },
+  {
+   "query": "Which armors sit on biped slot 52 in my load order?",
+   "should_trigger": false
+  },
+  {
+   "query": "What does REQ_DisableRecipe mean when it's the workbench keyword on a recipe record?",
+   "should_trigger": false
+  },
+  {
+   "query": "My game CTDs when I open the smithing menu at the forge, can you check the crash logs?",
+   "should_trigger": false
+  },
+  {
+   "query": "read me the stats of the iron sword real quick",
+   "should_trigger": false
+  },
+  {
+   "query": "Compact my new patch plugin to ESL and run the error check on it",
+   "should_trigger": false
+  },
+  {
+   "query": "what changed between the two versions of this one perk record, 0A1B2C in the old esp vs the new one?",
+   "should_trigger": false
+  }
+ ]
+}

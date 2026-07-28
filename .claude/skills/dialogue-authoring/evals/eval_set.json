@@ -199,5 +199,25 @@
    "routed_to": "modding-basics",
    "note": "near-miss held — names dialogue, but the agent called it a topical lure for an install task"
   }
- ]
+ ],
+ "revalidation_2026-07-28_294": {
+  "method": "2026-07-28 revalidation for issue #294 (all 13 descriptions compressed to the amended section-3.5 200-400 char target): section-6.5 fan-out, one fresh-context sonnet (low effort) agent per query, each shown the full lettered menu of all 13 NEW descriptions (under-test skill unflagged, letter I) plus NONE, asked which ONE to load; one opus adjudicator per skill scored from reasoning per section-6.5 step 4. No fable-model agents. Conductor session: #294 worktree.",
+  "gate": {
+   "recall_threshold": 0.8,
+   "specificity_threshold": 0.5
+  },
+  "recall": "10/10 = 1.00",
+  "specificity": "9/10 = 0.90",
+  "passed": true,
+  "misses": [
+   {
+    "id": 19,
+    "query": "which plugin is winning the override on the DialogGenericHello topic in my lorerim load order?",
+    "should_trigger": false,
+    "pick": "I",
+    "diagnosis": "Description's \"auditing dialogue\" + \"resolve a dropped-line or reordered dialogue conflict\" scope makes any conflict/winner question about a DIAL record read as in-scope; nothing in I cedes plain load-order winner lookups (a cross_plugin_query / bulk-record-jobs job) — the record TYPE being dialogue outweighed the QUESTION being a generic override-winner query."
+   }
+  ],
+  "adjudicator_notes": "Recall 10/10 (100%), specificity 9/10 (90%) — both thresholds cleared (>=0.80 / >=0.50), PASS. No reasoning-vs-pick overrides needed: every recall row's reasoning cited I's own trigger clauses (add a line/greeting, wire to quest stage, attach result script, .fuz/voiced lines, never plays, .seq/start-game-enabled, audit dialogue) and matched its pick token; every specificity hit reasoned explicitly about why a sibling owned the job. Notable near-misses that landed correctly and show the boundary lines are earning their keep: id 14 (INFO record fields -> G/mutagen-reference, agent explicitly said \"not authoring dialogue content/wiring (I), just the schema\"), id 17 (dark face during a conversation -> A/facegen-diagnostics, dialogue framing did not pull it), id 18 (distribute a voice type to follower NPCs -> E/SPID, agent named \"not dialogue-authoring (DIAL/INFO records)\" citing I's own cede line). The single miss is the one uncovered boundary: dialogue-record CONFLICT/winner lookups. Two nearby recall rows (8, 9) are legitimately I's, so the fix is narrow — cede \"which plugin wins an override\" style queries explicitly (to the bulk/cross-plugin lane) while keeping \"a mod's added line broke other lines\" and \"audit for non-firing topics\". Note the reasoning traces quote a longer description variant (with the \\\"distributing forms to NPCs is SPID... keywords to items is KID\\\" cede sentence) than the shortened front matter now in the worktree's dialogue-authoring/SKILL.md — worth confirming which text the eval menu was actually built from before folding any wording change. Skill file: C:\\\\Users\\\\compl\\\\Documents\\\\Claude\\\\Projects\\\\houseCARL\\\\.claude\\\\worktrees\\\\294-skill-descriptions\\\\.claude\\\\skills\\\\dialogue-authoring\\\\SKILL.md"
+ }
 }

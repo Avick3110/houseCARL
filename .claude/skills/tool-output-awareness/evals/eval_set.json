@@ -1,33 +1,209 @@
 {
-  "_meta": {
-    "skill": "tool-output-awareness",
-    "purpose": "Trigger-reliability eval per HOUSECARL_SKILL_AUTHORING.md section 6.",
-    "validation": "Two stages per HOUSECARL_SKILL_AUTHORING.md section 6. (1) Manual predictions at authoring time (the section 6.5 degraded fallback): predicted recall 10/10, predicted specificity 10/10. (2) The section 6.5 fresh-context agent fan-out is the actual gate and runs natively on any host Claude Code runs on, Windows included -- the abandoned run_loop/run_eval is NOT used (section 6.4), so there is no WSL2/Linux/macOS requirement. Fan-out measured (adjudicated from each agent's reasoning per section 6.5 step 4): recall 8/10 = 80%, specificity 10/10 = 100% -- clears the section 6.3 gate (recall >=80%, specificity >=50%). The two recall misses are the renamed/re-wrapped Reqtificator patch (deferred to modlist memory by design) and the NPC Plugin Chooser 2 staleness case.",
-    "scoring": "manual_predicted_trigger == should_trigger counts as correct.",
-    "specificity_stress_cases": "Negatives 1, 2, and 9 deliberately name tool-output plugins (DynDOLOD.esp, Reqtificator, ParallaxGen) in non-authoring contexts (load-order placement, a failed tool run, a pure CTD diagnosis). They are the queries most likely to over-trigger on plugin-name match alone; watch them closely in empirical re-validation. The description is authoring-anchored ('create a patch, override or forward a record, resolve a conflict, pull a conflict tree, study how a mod works') specifically so these do not fire."
+ "_meta": {
+  "skill": "tool-output-awareness",
+  "purpose": "Trigger-reliability eval per HOUSECARL_SKILL_AUTHORING.md section 6.",
+  "validation": "Two stages per HOUSECARL_SKILL_AUTHORING.md section 6. (1) Manual predictions at authoring time (the section 6.5 degraded fallback): predicted recall 10/10, predicted specificity 10/10. (2) The section 6.5 fresh-context agent fan-out is the actual gate and runs natively on any host Claude Code runs on, Windows included -- the abandoned run_loop/run_eval is NOT used (section 6.4), so there is no WSL2/Linux/macOS requirement. Fan-out measured (adjudicated from each agent's reasoning per section 6.5 step 4): recall 8/10 = 80%, specificity 10/10 = 100% -- clears the section 6.3 gate (recall >=80%, specificity >=50%). The two recall misses are the renamed/re-wrapped Reqtificator patch (deferred to modlist memory by design) and the NPC Plugin Chooser 2 staleness case.",
+  "scoring": "manual_predicted_trigger == should_trigger counts as correct.",
+  "specificity_stress_cases": "Negatives 1, 2, and 9 deliberately name tool-output plugins (DynDOLOD.esp, Reqtificator, ParallaxGen) in non-authoring contexts (load-order placement, a failed tool run, a pure CTD diagnosis). They are the queries most likely to over-trigger on plugin-name match alone; watch them closely in empirical re-validation. The description is authoring-anchored ('create a patch, override or forward a record, resolve a conflict, pull a conflict tree, study how a mod works') specifically so these do not fire."
+ },
+ "should_trigger": [
+  {
+   "query": "I'm patching this rock STAT to add a material keyword. houseCARL says the load-order winner is PGPatcher.esp — do I just override that one?",
+   "should_trigger": true,
+   "manual_predicted_trigger": true,
+   "note": "Canonical bug: the winner is a ParallaxGen output; forwarding it freezes a regenerated mesh path."
   },
-  "should_trigger": [
-    { "query": "I'm patching this rock STAT to add a material keyword. houseCARL says the load-order winner is PGPatcher.esp — do I just override that one?", "should_trigger": true, "manual_predicted_trigger": true, "note": "Canonical bug: the winner is a ParallaxGen output; forwarding it freezes a regenerated mesh path." },
-    { "query": "override the winning record for this steel sword and bump its damage — pull the conflict tree first, looks like Requiem for the Indifferent.esp is sitting on top", "should_trigger": true, "manual_predicted_trigger": true, "note": "Reqtificator output is the winner; author against the source and re-run the Reqtificator." },
-    { "query": "build me a small patch that changes the lighting template on this interior cell; the conflict tree has Occlusion.esp and DynDOLOD.esp in it — just forward the winner", "should_trigger": true, "manual_predicted_trigger": true, "note": "DynDOLOD outputs in the conflict tree; look past them to the authored cell record." },
-    { "query": "I want to make Lydia follower-balanced. The appearance winner is in the 'Authoria - NPC Merge' mod (it has that NPC_Token.json file) — base the patch on that?", "should_trigger": true, "manual_predicted_trigger": true, "note": "NPC Plugin Chooser 2 output identified by the token marker." },
-    { "query": "explain what Authoria - Output - Synthesis Gameplay.esp does to the economy so I can write a compatible patch against it", "should_trigger": true, "manual_predicted_trigger": true, "note": "Learning a mod via a Synthesis output reads derived state, not design — study the source mod instead." },
-    { "query": "create overrides for these 12 armor records; for about half of them the load-order winner is the 'Authoria - Reqtificated - <mod>' patch for that mod", "should_trigger": true, "manual_predicted_trigger": true, "note": "Renamed/re-wrapped Reqtificator output — still a tool output for the Requiem data it carries." },
-    { "query": "houseCARL keeps pulling the requiem for the indifferent version of this spell into the patch and i dont want that baked in, how should i actually patch it", "should_trigger": true, "manual_predicted_trigger": true, "note": "The literal failure mode, in the user's own words." },
-    { "query": "forward the winning NPC appearance into a new plugin for this bandit — the winner traces back to the NPC merge output", "should_trigger": true, "manual_predicted_trigger": true, "note": "Forwarding generated appearance/facegen into a created patch." },
-    { "query": "I'm writing a new mod and want to copy how DynDOLOD.esp set up these LOD references — read them and replicate them into my plugin", "should_trigger": true, "manual_predicted_trigger": true, "note": "Basing new authoring on a generator's records freezes derived data." },
-    { "query": "the conflict tree on this water STAT shows PGPatcher on top with a different model path than the source mod. when I override it, which model path do I keep?", "should_trigger": true, "manual_predicted_trigger": true, "note": "Asset-path forwarding decision — keep the source path, let ParallaxGen re-apply." }
+  {
+   "query": "override the winning record for this steel sword and bump its damage — pull the conflict tree first, looks like Requiem for the Indifferent.esp is sitting on top",
+   "should_trigger": true,
+   "manual_predicted_trigger": true,
+   "note": "Reqtificator output is the winner; author against the source and re-run the Reqtificator."
+  },
+  {
+   "query": "build me a small patch that changes the lighting template on this interior cell; the conflict tree has Occlusion.esp and DynDOLOD.esp in it — just forward the winner",
+   "should_trigger": true,
+   "manual_predicted_trigger": true,
+   "note": "DynDOLOD outputs in the conflict tree; look past them to the authored cell record."
+  },
+  {
+   "query": "I want to make Lydia follower-balanced. The appearance winner is in the 'Authoria - NPC Merge' mod (it has that NPC_Token.json file) — base the patch on that?",
+   "should_trigger": true,
+   "manual_predicted_trigger": true,
+   "note": "NPC Plugin Chooser 2 output identified by the token marker."
+  },
+  {
+   "query": "explain what Authoria - Output - Synthesis Gameplay.esp does to the economy so I can write a compatible patch against it",
+   "should_trigger": true,
+   "manual_predicted_trigger": true,
+   "note": "Learning a mod via a Synthesis output reads derived state, not design — study the source mod instead."
+  },
+  {
+   "query": "create overrides for these 12 armor records; for about half of them the load-order winner is the 'Authoria - Reqtificated - <mod>' patch for that mod",
+   "should_trigger": true,
+   "manual_predicted_trigger": true,
+   "note": "Renamed/re-wrapped Reqtificator output — still a tool output for the Requiem data it carries."
+  },
+  {
+   "query": "houseCARL keeps pulling the requiem for the indifferent version of this spell into the patch and i dont want that baked in, how should i actually patch it",
+   "should_trigger": true,
+   "manual_predicted_trigger": true,
+   "note": "The literal failure mode, in the user's own words."
+  },
+  {
+   "query": "forward the winning NPC appearance into a new plugin for this bandit — the winner traces back to the NPC merge output",
+   "should_trigger": true,
+   "manual_predicted_trigger": true,
+   "note": "Forwarding generated appearance/facegen into a created patch."
+  },
+  {
+   "query": "I'm writing a new mod and want to copy how DynDOLOD.esp set up these LOD references — read them and replicate them into my plugin",
+   "should_trigger": true,
+   "manual_predicted_trigger": true,
+   "note": "Basing new authoring on a generator's records freezes derived data."
+  },
+  {
+   "query": "the conflict tree on this water STAT shows PGPatcher on top with a different model path than the source mod. when I override it, which model path do I keep?",
+   "should_trigger": true,
+   "manual_predicted_trigger": true,
+   "note": "Asset-path forwarding decision — keep the source path, let ParallaxGen re-apply."
+  }
+ ],
+ "should_not_trigger": [
+  {
+   "query": "where should DynDOLOD.esp and Occlusion.esp sit in my load order, and do I enable them in MO2 after I generate?",
+   "should_trigger": false,
+   "manual_predicted_trigger": false,
+   "note": "Load-order/MO2 mechanics; names the outputs but no record forwarding or patch authoring. Specificity stress case."
+  },
+  {
+   "query": "the Reqtificator run just failed with a 'missing master' error — how do I get the patch to finish generating?",
+   "should_trigger": false,
+   "manual_predicted_trigger": false,
+   "note": "Running the tool, not forwarding its output into a patch. Specificity stress case."
+  },
+  {
+   "query": "should I re-run ParallaxGen after I add a new mesh replacer mod, or is that unnecessary?",
+   "should_trigger": false,
+   "manual_predicted_trigger": false,
+   "note": "Build-workflow question; no patch authoring."
+  },
+  {
+   "query": "what fields does the WEAP record have, and is the Critical Damage field writable?",
+   "should_trigger": false,
+   "manual_predicted_trigger": false,
+   "note": "mutagen-reference schema lookup."
+  },
+  {
+   "query": "write a _DISTR.ini so all Forsworn Briarhearts get a fire cloak spell",
+   "should_trigger": false,
+   "manual_predicted_trigger": false,
+   "note": "spid-authoring; form distribution to NPCs."
+  },
+  {
+   "query": "compile this TIF__000DA70D.psc for me — here are the import dirs for the vanilla and SKSE source",
+   "should_trigger": false,
+   "manual_predicted_trigger": false,
+   "note": "Papyrus compile; no records or tool outputs."
+  },
+  {
+   "query": "search Nexus for a Requiem-compatible Markarth overhaul I could add to the list",
+   "should_trigger": false,
+   "manual_predicted_trigger": false,
+   "note": "Nexus search; 'Requiem' is a near-miss keyword with no forwarding involved."
+  },
+  {
+   "query": "this OAR user.json plays my dual-wield idle even with a bow equipped — fix the equip conditions",
+   "should_trigger": false,
+   "manual_predicted_trigger": false,
+   "note": "oar-authoring; animation config, not a record patch."
+  },
+  {
+   "query": "my game CTDs entering Whiterun from the Riverwood road and I suspect a DynDOLOD LOD problem — walk me through diagnosing it",
+   "should_trigger": false,
+   "manual_predicted_trigger": false,
+   "note": "Pure in-game diagnosis (the debugging exception): reading the tool output is allowed and the guardrail isn't the load-bearing need; routes to crash investigation. Hardest near-miss / specificity stress case."
+  },
+  {
+   "query": "what does this _KID.ini actually tag — does the '0x000801~Skyrim.esm' line hit all the iron daggers?",
+   "should_trigger": false,
+   "manual_predicted_trigger": false,
+   "note": "kid-authoring interpretation; 'iron daggers' shares item vocabulary but no tool output."
+  }
+ ],
+ "revalidation_2026-07-28_294": {
+  "method": "2026-07-28 revalidation for issue #294: section-6.5 fan-out, one fresh-context sonnet (low effort) agent per query, full lettered menu of all 13 NEW descriptions (under-test skill unflagged, letter M) plus NONE; opus adjudicator scored from reasoning per section-6.5 step 4. No fable-model agents. FOUR runs — this skill was the one below-threshold case and went through the fix loop.",
+  "gate": {
+   "recall_threshold": 0.8,
+   "specificity_threshold": 0.5
+  },
+  "run_history": [
+   {
+    "run": 1,
+    "description": "first compression (394 chars, generator names only)",
+    "recall": "6/10",
+    "specificity": "9/10",
+    "passed": false,
+    "diagnosis": "fired only on literal filename matches; missing Occlusion.esp / Reqtificated-pattern / NPC-merge vocabulary; re-run-lifecycle rationale caused one over-trigger"
+   },
+   {
+    "run": 2,
+    "description": "artifact names restored + 'load alongside' clause (416 chars)",
+    "recall": "6/10",
+    "specificity": "10/10",
+    "passed": false,
+    "diagnosis": "'load alongside' self-demoted the skill under a forced single pick — judges cited it verbatim as the reason to pick the primary authoring skill; fixed 2 misses, created 2"
+   },
+   {
+    "run": 3,
+    "description": "imperative precedence gate + bare NPC-merge vocabulary + 'explaining' scope (465 chars)",
+    "recall": "9/10",
+    "specificity": "10/10",
+    "passed": true,
+    "diagnosis": "gate framing beat the authoring-skill pull; only miss was the missing PGPatcher.esp filename (PGPatcher/SkyPatcher name collision)"
+   },
+   {
+    "run": 4,
+    "description": "FINAL shipped text — PGPatcher.esp added (483 chars)",
+    "recall": "8/10",
+    "specificity": "8/10",
+    "passed": true,
+    "diagnosis": "PGPatcher rows fixed; rows 3/6 regressed vs run 3 as cross-skill-competition variance on borderline rows; two filename-keyword over-triggers (11, 13) on tool-workflow questions"
+   }
   ],
-  "should_not_trigger": [
-    { "query": "where should DynDOLOD.esp and Occlusion.esp sit in my load order, and do I enable them in MO2 after I generate?", "should_trigger": false, "manual_predicted_trigger": false, "note": "Load-order/MO2 mechanics; names the outputs but no record forwarding or patch authoring. Specificity stress case." },
-    { "query": "the Reqtificator run just failed with a 'missing master' error — how do I get the patch to finish generating?", "should_trigger": false, "manual_predicted_trigger": false, "note": "Running the tool, not forwarding its output into a patch. Specificity stress case." },
-    { "query": "should I re-run ParallaxGen after I add a new mesh replacer mod, or is that unnecessary?", "should_trigger": false, "manual_predicted_trigger": false, "note": "Build-workflow question; no patch authoring." },
-    { "query": "what fields does the WEAP record have, and is the Critical Damage field writable?", "should_trigger": false, "manual_predicted_trigger": false, "note": "mutagen-reference schema lookup." },
-    { "query": "write a _DISTR.ini so all Forsworn Briarhearts get a fire cloak spell", "should_trigger": false, "manual_predicted_trigger": false, "note": "spid-authoring; form distribution to NPCs." },
-    { "query": "compile this TIF__000DA70D.psc for me — here are the import dirs for the vanilla and SKSE source", "should_trigger": false, "manual_predicted_trigger": false, "note": "Papyrus compile; no records or tool outputs." },
-    { "query": "search Nexus for a Requiem-compatible Markarth overhaul I could add to the list", "should_trigger": false, "manual_predicted_trigger": false, "note": "Nexus search; 'Requiem' is a near-miss keyword with no forwarding involved." },
-    { "query": "this OAR user.json plays my dual-wield idle even with a bow equipped — fix the equip conditions", "should_trigger": false, "manual_predicted_trigger": false, "note": "oar-authoring; animation config, not a record patch." },
-    { "query": "my game CTDs entering Whiterun from the Riverwood road and I suspect a DynDOLOD LOD problem — walk me through diagnosing it", "should_trigger": false, "manual_predicted_trigger": false, "note": "Pure in-game diagnosis (the debugging exception): reading the tool output is allowed and the guardrail isn't the load-bearing need; routes to crash investigation. Hardest near-miss / specificity stress case." },
-    { "query": "what does this _KID.ini actually tag — does the '0x000801~Skyrim.esm' line hit all the iron daggers?", "should_trigger": false, "manual_predicted_trigger": false, "note": "kid-authoring interpretation; 'iron daggers' shares item vocabulary but no tool output." }
-  ]
+  "recall": "8/10 = 0.80",
+  "specificity": "8/10 = 0.80",
+  "passed": true,
+  "misses": [
+   {
+    "id": 3,
+    "query": "build me a small patch that changes the lighting template on this interior cell; the conflict tree has Occlusion.esp and DynDOLOD.esp in it — just forward the winner",
+    "should_trigger": true,
+    "pick": "B",
+    "diagnosis": "Authoring-verb pull: 'build a patch / change cell lighting' matched skypatcher-authoring's explicit 'tweak cell lighting or fog' phrase, and the agent consciously demoted the DynDOLOD/Occlusion winner to mere context — M's 'forwarding the winner' trigger lost to a stronger literal verb match."
+   },
+   {
+    "id": 6,
+    "query": "create overrides for these 12 armor records; for about half of them the load-order winner is the 'Authoria - Reqtificated - <mod>' patch for that mod",
+    "should_trigger": true,
+    "pick": "N",
+    "diagnosis": "Domain-skill shadowing: the agent framed it as Requiem armor patching, concluded the needed skill (requiem-armor-patching) was absent from the A–M menu, and answered N without noticing M covers exactly the 'Reqtificated per-mod patch is the winner' half of the ask."
+   },
+   {
+    "id": 11,
+    "query": "where should DynDOLOD.esp and Occlusion.esp sit in my load order, and do I enable them in MO2 after I generate?",
+    "should_trigger": false,
+    "pick": "M",
+    "diagnosis": "Filename-keyword over-trigger: DynDOLOD/Occlusion.esp are named literally in M's description, so a pure load-order/MO2 workflow question was pulled in despite M's trigger being scoped to forwarding/overriding/patching against records."
+   },
+   {
+    "id": 13,
+    "query": "should I re-run ParallaxGen after I add a new mesh replacer mod, or is that unnecessary?",
+    "should_trigger": false,
+    "pick": "M",
+    "diagnosis": "Same filename-keyword over-trigger, regressed from the prior run: adding the literal 'PGPatcher.esp' strengthened ParallaxGen's pull, and a tool-regeneration-cadence question (no record, no patch) now reads as in-scope."
+   }
+  ],
+  "adjudicator_notes": "Skill under test: tool-output-awareness (menu M), description read at .claude/skills/tool-output-awareness/SKILL.md — trigger list now includes ParallaxGen (`PGPatcher.esp`) literally. Recall 8/10 (0.80, at threshold), specificity 8/10 (0.80, well above 0.50) → PASS on both gates. Adjudicated from reasoning per 6.5 step 4; no pick/reasoning conflicts found — every reasoning matched its pick token, so no overrides recorded. Rows 12, 16, 17, 19 correctly answered N with reasoning that explicitly considered and rejected M (12 and 19 named M and gave the right ground for rejection: tool-run failure and CTD triage are not 'what may a patch copy' questions). PRIOR MISS id 1: FIXED — the agent now picks M and cites PGPatcher by name as 'explicitly listed in M's trigger conditions', with no SkyPatcher/PGPatcher name collision anywhere in its reasoning; id 10 (the other PGPatcher row) also hits for the same reason, so the filename addition did its intended job. SPECIFICITY 13 and 19: 19 HELD (N, clean rejection of M); 13 did NOT hold — it flipped from a prior-run pass to a false positive, and its reasoning quotes 'ParallaxGen output, PGPatcher.esp', so the fix that repaired id 1 is the plausible cause of the id-13 regression. Net effect of the change: +1 recall (id 1), −1 specificity (id 13), plus a new specificity false positive at id 11 (DynDOLOD/Occlusion, unrelated to the edit — variance or a pre-existing weakness the prior run happened to pass). Recall also fell on ids 3 and 6, which the prior run scored as hits; both are cross-skill competition misses (skypatcher-authoring's literal 'cell lighting' phrase, and a Requiem domain skill judged absent from the menu) rather than anything the PGPatcher edit touched — treat as run-to-run variance on already-borderline rows. Recall is now sitting exactly on the 0.80 line, so any further regression fails; the shared root cause behind ids 11 and 13 is that M's trigger sentence names tool/plugin filenames prominently while the scoping clause ('BEFORE forwarding, overriding, patching against, or explaining any record') is easy to skip — a future revision could add an explicit non-trigger note (installing, generating, re-running, ordering, or enabling these tools is out of scope) without weakening the filename anchors that fixed id 1.",
+  "carry_forward": "Recall sits exactly on the 0.80 gate and rows 3/6 flip run-to-run: this is the structural cost of evaluating a companion/guardrail skill under a forced-single-pick menu — the deliverable-authoring skill is also a legitimate pick for those queries. Two candidate follow-ups for the next release: (a) an explicit out-of-scope clause for install/generate/re-run/ordering questions (would repair over-triggers 11/13; check against section 3.4's negative-gate prohibition first — frame as a disambiguation sentence like kid-authoring's 'Keywords on NPCs are SPID, not KID'); (b) consider whether the section-6.5 method should allow a stated co-load pick for guardrail-archetype skills."
+ }
 }

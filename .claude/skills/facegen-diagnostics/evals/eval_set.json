@@ -1,209 +1,234 @@
 {
-  "skill_name": "facegen-diagnostics",
-  "_validation_method": "Manual prediction per HOUSECARL_SKILL_AUTHORING.md §6.5 at authoring time (empirical run_loop.py unavailable: absent from this repo and no non-Windows env), THEN validated via houseCARL's native cold-read fan-out (anonymized, relevance-framed; fresh agents shown a neutral skill catalog with the candidate description unlabeled among the real shipped skills, queries shuffled into mixed batches so no agent saw the trigger cluster, judging blind — per feedback_skill_trigger_eval_fanout). The candidate skill lived only in the worktree (not installed), so it could not contaminate its own eval. Reasoning was read, not just the verdict. Outcome correctness (§6.6) covered by the _q3_outcome notes below + Aaron empirical sign-off on the live order before the 1.3 release (PRE_RELEASE_1.3_LOCAL_TEST_CHECKLIST.md).",
-  "_fanout_note_post_trim": "After the fan-out, the description was trimmed from 190→179 words to meet the §3.5 soft target. The trim removed only redundant phrasings ('a face that's'→'a face', 'into a new plugin'→'into an override', dropped 'or a baked face that doesn't match the record'); NO validated trigger noun was removed, so the shipped trigger surface is a strict subset of the fanned-out one and the 10/10 recall holds a fortiori.",
-  "_nif_inspect_rewrite_note": "2026-07-08 (branch claude/facegen-nif-inspect): the skill body was rewritten to fold in housecarl_nif_inspect (tool #34, landed on main via PR #159) — the '.nif internals are unreadable' boundary is now 'readable (nif_inspect) but not writable'. The frontmatter description gained one ADDITIVE capability clause ('read inside the winning facegen mesh … baked shape names, embedded tint/skin paths, flags') and grew ~179→~195 words. NO trigger noun was removed and the clause is scoped to the winning FACEGEN mesh (not general mesh inspection), so the fanned-out trigger surface remains a superset and the 10/10 recall holds a fortiori. The owed re-fanout was RUN 2026-07-08 (see _fanout_result_2026-07-08) — recall held 10/10, the three new general-mesh-vocabulary probes (snt-mesh-shapes-listing / snt-skeleton-nodetree / snt-nif-texpaths-generic) ALL resisted to None, so the added clause introduced no new false-fire; specificity 12/13, the lone miss being the pre-existing hard CBBE-body near-miss (snt-body-neck-seam-cbbe), which fired on the unchanged 'neck seam' face-symptom overlap, not on any mesh vocabulary. The word count is ~15 over the §3.5 soft target — a re-trim of the capability clause is the natural place to recover it if desired.",
-  "_fanout_result_2026-07-08": "Re-measure of the nif_inspect rewrite's description via houseCARL's native cold-read fan-out (anonymized 12-option catalog, candidate unlabeled among the real shipped skills + a 'None/raw-tool' bucket; 6 fresh router agents × ~4 mixed queries = 23 total, ST/SNT shuffled so no agent saw the trigger cluster; blind; reasoning read, not just the verdict). Query set = the 2026-06-16 baseline 10 ST + 10 SNT, PLUS 3 new SNT probes targeting the added mesh vocabulary. RECALL 10/10 (100%) — every dark/grey/black/brown/player-grey/which-copy/FDF/ESL-batch case routed to the candidate. SPECIFICITY 12/13 (92.3%, gate ≥50%). The 3 new probes — 'list shapes/bones in an armor mesh', 'dump a skeleton.nif node tree/bones', 'read a weapon nif's texture paths' — ALL routed to None (raw nif_inspect), each agent explicitly distinguishing a mesh READ from a face BUG: the additive clause pulled zero general-mesh queries. The single miss: snt-body-neck-seam-cbbe → Option 7 (one agent keyed on 'neck seam / head-body mismatch' and missed the 'tone breaks BELOW the neck = body-texture' discriminator). That query and its trigger words are UNCHANGED by this rewrite, so the miss is borderline variance on the known hardest near-miss, not a regression from the nif_inspect addition. Net: description change is safe to ship on the trigger surface; the CBBE body-vs-face boundary remains the one soft spot to keep watching.",
-  "_nif_set_write_note": "2026-07-09 (branch claude/facegen-nifset-wave2): NIF Wave 2 landed housecarl_nif_set (tool #35, PR #161) — the '.nif values are readable but NOT writable' boundary is retired. The skill body flips every marked 'must instruct NifSkope / FaceGenEslify / NPC Facegen Patcher' claim for the WHITELISTED write ops to houseCARL-doable: set_path (embedded FaceTint slot 6 / skin slots 0/1), rename_shape/rename_node (HDPT-EDID mismatch), set_flags (0x80000 head/hair bit), set_alpha (hair 0x12ED / hairline 0x12EE), set_partition, set_scale — each VERIFIED before landing (two offset-immune gates; a bad write aborts touching nothing). Still instructed: CK bake (geometry), .dds pixels, material/.tri/xml string refs (set_path is texture-slot only), the render judgment (a verified write != a verified render), and BULK cross-mod runs (still faster in the batch tool). All Lucien read anchors (shapes, slot-6 FaceTint path, hair/hairline alpha 0x12ED/0x12EE, partitions 30/31/32, 0x80000 flag split) RE-VALIDATED live against the 35-tool build this session. The frontmatter description gained one ADDITIVE write clause ('write the winning facegen mesh's data values … rewrite a wrong path or rename a shape') and (after a trim of the read-clause verbosity) sits at 213 words — ~33 over the §3.5 soft target, trigger clause and every trigger noun UNCHANGED, so a re-trim of the capability narration is the natural recovery if desired (recall holds a fortiori). NEW specificity risk: the write clause could pull a generic 'rename a shape / swap a texture path / change flags in a .nif' request → correct routing is raw nif_set (None), NOT the face-BUG skill. Guarded by the 3 new snt-nifset-* probes below.",
-  "_fanout_result_2026-07-09": "Re-measure of the nif_set WRITE-clause description via houseCARL's native cold-read fan-out (anonymized 13-option catalog — the 12 shipped skills' real descriptions with the candidate facegen desc unlabeled at position 3, plus a 'None/raw-tool' bucket at 13; 6 fresh router agents, 27 queries shuffled 4–5 per agent so no agent saw the trigger cluster; blind, given only raw query text — no ids, no should_trigger; reasoning read, not just the verdict; queries mapped back to ids by the conductor). Query set = 11 ST + 16 SNT (the 2026-06-16 baseline + the 2026-07-08 mesh-READ probes + 1 new write-recall probe st-nifset-facetint-repair + 3 new write-specificity probes snt-nifset-rename/flags/texpath-write-generic). RECALL 11/11 (100%) — every dark/grey/black/brown/player-grey/which-copy/FDF/ESL-batch case AND the new embedded-FaceTint-path write-repair case routed to the candidate. SPECIFICITY 15/16 (93.75%, gate >=50%). The 3 new write probes — 'rename a shape in a clutter nif', 'set alpha/flags on a weapon-mesh shape', 'swap a diffuse path in an armor nif' — ALL routed to 13 (raw nif_set), each agent explicitly calling them a 'single-value raw mesh write' vs the face BUG: the added write clause pulled ZERO generic mesh-write queries. The single miss: snt-body-neck-seam-cbbe -> 3 (one agent keyed on 'neck seam / head-vs-body mismatch' and missed the 'tone breaks BELOW the neck = body-texture' discriminator) — the SAME pre-existing hardest near-miss that missed in the 2026-07-08 run, on wording UNCHANGED by this rewrite, so borderline variance on the known soft spot, not a regression from the nif_set addition. Net: the write-capability description change is safe to ship on the trigger surface; the CBBE body-vs-face boundary remains the one watch item.",
-  "_fanout_result": "2026-06-16, 5 router agents × 4 mixed queries (20 total). RECALL 10/10 (100%) — every should-trigger query routed to facegen-diagnostics, each citing the correct symptom (dark/grey/black/brown face, neck seam, fine-in-xEdit, ESL-batch, FDF, player-grey, which-copy-wins). SPECIFICITY 10/10 (100%) — every should-not-trigger near-miss routed elsewhere (skypatcher ×2, spid, papyrus-reference, none ×6). Both far exceed the §6.3 gates (≥80% / ≥50%). Notable: the CBBE body neck-seam near-miss was correctly distinguished — the agent keyed on 'tone breaks BELOW the neck → body-texture, not facegen' and explicitly noted 'head darker than body would flip it to facegen', i.e. the skill's intended discriminator held. The asset_status-only and purple-armor cases resisted the VFS/texture-vocabulary overlap. No near-miss false-fire.",
-  "_predicted_recall": "10/10 should-trigger predicted to fire (100%) — CONFIRMED 10/10 by fan-out",
-  "_predicted_specificity": "10/10 should-not-trigger predicted to abstain — CONFIRMED 10/10 by fan-out (the four flagged risks all held)",
-  "_specificity_risks_to_watch": [
-    "snt-skypatcher-npc-face", "snt-asset-status-only", "snt-shiny-enb-face", "snt-npc-outfit-edit", "snt-body-neck-seam-cbbe",
-    "snt-nifset-rename-generic", "snt-nifset-flags-generic", "snt-nifset-texpath-write-generic"
+ "skill_name": "facegen-diagnostics",
+ "_validation_method": "Manual prediction per HOUSECARL_SKILL_AUTHORING.md §6.5 at authoring time (empirical run_loop.py unavailable: absent from this repo and no non-Windows env), THEN validated via houseCARL's native cold-read fan-out (anonymized, relevance-framed; fresh agents shown a neutral skill catalog with the candidate description unlabeled among the real shipped skills, queries shuffled into mixed batches so no agent saw the trigger cluster, judging blind — per feedback_skill_trigger_eval_fanout). The candidate skill lived only in the worktree (not installed), so it could not contaminate its own eval. Reasoning was read, not just the verdict. Outcome correctness (§6.6) covered by the _q3_outcome notes below + Aaron empirical sign-off on the live order before the 1.3 release (PRE_RELEASE_1.3_LOCAL_TEST_CHECKLIST.md).",
+ "_fanout_note_post_trim": "After the fan-out, the description was trimmed from 190→179 words to meet the §3.5 soft target. The trim removed only redundant phrasings ('a face that's'→'a face', 'into a new plugin'→'into an override', dropped 'or a baked face that doesn't match the record'); NO validated trigger noun was removed, so the shipped trigger surface is a strict subset of the fanned-out one and the 10/10 recall holds a fortiori.",
+ "_nif_inspect_rewrite_note": "2026-07-08 (branch claude/facegen-nif-inspect): the skill body was rewritten to fold in housecarl_nif_inspect (tool #34, landed on main via PR #159) — the '.nif internals are unreadable' boundary is now 'readable (nif_inspect) but not writable'. The frontmatter description gained one ADDITIVE capability clause ('read inside the winning facegen mesh … baked shape names, embedded tint/skin paths, flags') and grew ~179→~195 words. NO trigger noun was removed and the clause is scoped to the winning FACEGEN mesh (not general mesh inspection), so the fanned-out trigger surface remains a superset and the 10/10 recall holds a fortiori. The owed re-fanout was RUN 2026-07-08 (see _fanout_result_2026-07-08) — recall held 10/10, the three new general-mesh-vocabulary probes (snt-mesh-shapes-listing / snt-skeleton-nodetree / snt-nif-texpaths-generic) ALL resisted to None, so the added clause introduced no new false-fire; specificity 12/13, the lone miss being the pre-existing hard CBBE-body near-miss (snt-body-neck-seam-cbbe), which fired on the unchanged 'neck seam' face-symptom overlap, not on any mesh vocabulary. The word count is ~15 over the §3.5 soft target — a re-trim of the capability clause is the natural place to recover it if desired.",
+ "_fanout_result_2026-07-08": "Re-measure of the nif_inspect rewrite's description via houseCARL's native cold-read fan-out (anonymized 12-option catalog, candidate unlabeled among the real shipped skills + a 'None/raw-tool' bucket; 6 fresh router agents × ~4 mixed queries = 23 total, ST/SNT shuffled so no agent saw the trigger cluster; blind; reasoning read, not just the verdict). Query set = the 2026-06-16 baseline 10 ST + 10 SNT, PLUS 3 new SNT probes targeting the added mesh vocabulary. RECALL 10/10 (100%) — every dark/grey/black/brown/player-grey/which-copy/FDF/ESL-batch case routed to the candidate. SPECIFICITY 12/13 (92.3%, gate ≥50%). The 3 new probes — 'list shapes/bones in an armor mesh', 'dump a skeleton.nif node tree/bones', 'read a weapon nif's texture paths' — ALL routed to None (raw nif_inspect), each agent explicitly distinguishing a mesh READ from a face BUG: the additive clause pulled zero general-mesh queries. The single miss: snt-body-neck-seam-cbbe → Option 7 (one agent keyed on 'neck seam / head-body mismatch' and missed the 'tone breaks BELOW the neck = body-texture' discriminator). That query and its trigger words are UNCHANGED by this rewrite, so the miss is borderline variance on the known hardest near-miss, not a regression from the nif_inspect addition. Net: description change is safe to ship on the trigger surface; the CBBE body-vs-face boundary remains the one soft spot to keep watching.",
+ "_nif_set_write_note": "2026-07-09 (branch claude/facegen-nifset-wave2): NIF Wave 2 landed housecarl_nif_set (tool #35, PR #161) — the '.nif values are readable but NOT writable' boundary is retired. The skill body flips every marked 'must instruct NifSkope / FaceGenEslify / NPC Facegen Patcher' claim for the WHITELISTED write ops to houseCARL-doable: set_path (embedded FaceTint slot 6 / skin slots 0/1), rename_shape/rename_node (HDPT-EDID mismatch), set_flags (0x80000 head/hair bit), set_alpha (hair 0x12ED / hairline 0x12EE), set_partition, set_scale — each VERIFIED before landing (two offset-immune gates; a bad write aborts touching nothing). Still instructed: CK bake (geometry), .dds pixels, material/.tri/xml string refs (set_path is texture-slot only), the render judgment (a verified write != a verified render), and BULK cross-mod runs (still faster in the batch tool). All Lucien read anchors (shapes, slot-6 FaceTint path, hair/hairline alpha 0x12ED/0x12EE, partitions 30/31/32, 0x80000 flag split) RE-VALIDATED live against the 35-tool build this session. The frontmatter description gained one ADDITIVE write clause ('write the winning facegen mesh's data values … rewrite a wrong path or rename a shape') and (after a trim of the read-clause verbosity) sits at 213 words — ~33 over the §3.5 soft target, trigger clause and every trigger noun UNCHANGED, so a re-trim of the capability narration is the natural recovery if desired (recall holds a fortiori). NEW specificity risk: the write clause could pull a generic 'rename a shape / swap a texture path / change flags in a .nif' request → correct routing is raw nif_set (None), NOT the face-BUG skill. Guarded by the 3 new snt-nifset-* probes below.",
+ "_fanout_result_2026-07-09": "Re-measure of the nif_set WRITE-clause description via houseCARL's native cold-read fan-out (anonymized 13-option catalog — the 12 shipped skills' real descriptions with the candidate facegen desc unlabeled at position 3, plus a 'None/raw-tool' bucket at 13; 6 fresh router agents, 27 queries shuffled 4–5 per agent so no agent saw the trigger cluster; blind, given only raw query text — no ids, no should_trigger; reasoning read, not just the verdict; queries mapped back to ids by the conductor). Query set = 11 ST + 16 SNT (the 2026-06-16 baseline + the 2026-07-08 mesh-READ probes + 1 new write-recall probe st-nifset-facetint-repair + 3 new write-specificity probes snt-nifset-rename/flags/texpath-write-generic). RECALL 11/11 (100%) — every dark/grey/black/brown/player-grey/which-copy/FDF/ESL-batch case AND the new embedded-FaceTint-path write-repair case routed to the candidate. SPECIFICITY 15/16 (93.75%, gate >=50%). The 3 new write probes — 'rename a shape in a clutter nif', 'set alpha/flags on a weapon-mesh shape', 'swap a diffuse path in an armor nif' — ALL routed to 13 (raw nif_set), each agent explicitly calling them a 'single-value raw mesh write' vs the face BUG: the added write clause pulled ZERO generic mesh-write queries. The single miss: snt-body-neck-seam-cbbe -> 3 (one agent keyed on 'neck seam / head-vs-body mismatch' and missed the 'tone breaks BELOW the neck = body-texture' discriminator) — the SAME pre-existing hardest near-miss that missed in the 2026-07-08 run, on wording UNCHANGED by this rewrite, so borderline variance on the known soft spot, not a regression from the nif_set addition. Net: the write-capability description change is safe to ship on the trigger surface; the CBBE body-vs-face boundary remains the one watch item.",
+ "_fanout_result": "2026-06-16, 5 router agents × 4 mixed queries (20 total). RECALL 10/10 (100%) — every should-trigger query routed to facegen-diagnostics, each citing the correct symptom (dark/grey/black/brown face, neck seam, fine-in-xEdit, ESL-batch, FDF, player-grey, which-copy-wins). SPECIFICITY 10/10 (100%) — every should-not-trigger near-miss routed elsewhere (skypatcher ×2, spid, papyrus-reference, none ×6). Both far exceed the §6.3 gates (≥80% / ≥50%). Notable: the CBBE body neck-seam near-miss was correctly distinguished — the agent keyed on 'tone breaks BELOW the neck → body-texture, not facegen' and explicitly noted 'head darker than body would flip it to facegen', i.e. the skill's intended discriminator held. The asset_status-only and purple-armor cases resisted the VFS/texture-vocabulary overlap. No near-miss false-fire.",
+ "_predicted_recall": "10/10 should-trigger predicted to fire (100%) — CONFIRMED 10/10 by fan-out",
+ "_predicted_specificity": "10/10 should-not-trigger predicted to abstain — CONFIRMED 10/10 by fan-out (the four flagged risks all held)",
+ "_specificity_risks_to_watch": [
+  "snt-skypatcher-npc-face",
+  "snt-asset-status-only",
+  "snt-shiny-enb-face",
+  "snt-npc-outfit-edit",
+  "snt-body-neck-seam-cbbe",
+  "snt-nifset-rename-generic",
+  "snt-nifset-flags-generic",
+  "snt-nifset-texpath-write-generic"
+ ],
+ "_q3_outcome": "Investigation-flow + procedural-write archetype → §6.6 Q3 conformance applies. Pass = emit a correct cause+fix+capability-class diagnosis OR an explicit 'houseCARL cannot finish this — here's what I checked + the external tool that can' (CK/NifSkope/RaceMenu/ReSaver). Silent wrong answer (e.g. 'place this file and you're done' when the real cause is out of lane, or anchoring the facegen folder to the conflict winner) fails outright. The out-of-lane should-trigger cases (brown face, player-only grey) are deliberate Q3 probes: the correct outcome is the honest 'houseCARL is a no-op, here's the runtime fix', not a place_asset.",
+ "evals": [
+  {
+   "id": "st-dark-follower-overhaul",
+   "query": "i installed Bijin and now Lydia's face is way darker than her body with a visible neck seam, how do i fix it",
+   "should_trigger": true,
+   "manual_predicted_trigger": true,
+   "rationale": "Canonical dark-face desync on an overhauled NPC (Cause A). Named symptom (darker face + neck seam) + named NPC. Core use case."
+  },
+  {
+   "id": "st-fine-in-xedit-dark-in-game",
+   "query": "this NPC looks fine in xedit, no conflicts, but in game her face is black. what am i missing",
+   "should_trigger": true,
+   "manual_predicted_trigger": true,
+   "rationale": "The record-vs-file desync tell verbatim — the exact case a record-only tool misses and asset_status catches."
+  },
+  {
+   "id": "st-esl-batch-dark",
+   "query": "i compacted my follower mod to ESL and now every single NPC in it has a grey face. did i break the facegen?",
+   "should_trigger": true,
+   "manual_predicted_trigger": true,
+   "rationale": "Whole-mod ESL-compaction FormID renumber (Cause F), the batch 'universal' signature. Mentions facegen explicitly."
+  },
+  {
+   "id": "st-generic-greyface-bug",
+   "query": "how do i fix the grey face bug on npcs in skyrim se",
+   "should_trigger": true,
+   "manual_predicted_trigger": true,
+   "rationale": "Generic dark/grey face bug request — the skill's headline topic."
+  },
+  {
+   "id": "st-modder-baked-still-black",
+   "query": "i made a custom npc and baked the facegen with ctrl+f4 in the CK but her head is still pitch black in game",
+   "should_trigger": true,
+   "manual_predicted_trigger": true,
+   "rationale": "Baked-but-still-black → mode ii head-parts/nif mismatch or a path/winner problem; the skill triages record-vs-file AND now reads the .nif internals (nif_inspect: baked shape names vs record HeadParts, tint/skin slot paths), then hands the last-mile render check in-game."
+  },
+  {
+   "id": "st-fdf-mention",
+   "query": "should i just install Face Discoloration Fix for my black face npcs or is there a real fix",
+   "should_trigger": true,
+   "manual_predicted_trigger": true,
+   "rationale": "Names FDF + black-face NPCs. The skill owns the FDF-is-a-color-mask-not-a-fix framing and the FDF-off litmus."
+  },
+  {
+   "id": "st-dark-after-installing-mod",
+   "query": "a bunch of my npcs went dark in the face after i added that big npc overhaul pack, how do i track down which ones and fix them",
+   "should_trigger": true,
+   "manual_predicted_trigger": true,
+   "rationale": "Batch 'after I installed X' flow — enumerate winners → compute paths → asset_status-all → bulk_place."
+  },
+  {
+   "id": "st-brown-face",
+   "query": "one of my followers has a brown face that doesn't match her body, the rest look fine",
+   "should_trigger": true,
+   "manual_predicted_trigger": true,
+   "rationale": "Brown face (Cause Q). Q3 probe: the skill should TRIGGER and triage correctly to weight/save-baked + setnpcweight/ReSaver — an out-of-lane-for-place_asset outcome, not a file fix."
+  },
+  {
+   "id": "st-player-grey-after-update",
+   "query": "after the latest skyrim update my character's face is grey in the inventory menu but npcs are all fine",
+   "should_trigger": true,
+   "manual_predicted_trigger": true,
+   "rationale": "Player-only grey (Cause U/V). Q3 probe: the skill should TRIGGER and correctly exclude it as RaceMenu/SKEE runtime state — houseCARL is a no-op; route to version match / OverlayFix / skse64.log. The strongest exclusion rule is the skill's to own."
+  },
+  {
+   "id": "st-which-facegen-wins",
+   "query": "two of my npc mods both ship facegen for the same character and i think the wrong one is winning, can you tell which copy the game actually uses",
+   "should_trigger": true,
+   "manual_predicted_trigger": true,
+   "rationale": "Record-vs-file winner / VFS facegen precedence — exactly asset_status + the decide-which-copy-is-correct judgment the skill owns."
+  },
+  {
+   "id": "snt-skypatcher-npc-face",
+   "query": "my skypatcher ini that changes an npc's head parts and skin tone isn't applying, can you see why",
+   "should_trigger": false,
+   "manual_predicted_trigger": false,
+   "rationale": "Near-miss / RISK: mentions npc head parts + skin tone (face vocabulary) but it's a SkyPatcher INI authoring/debug task → skypatcher-authoring, not a dark-face bug. Watch the 'head parts'/'skin tone' overlap."
+  },
+  {
+   "id": "snt-spid-distribute-appearance",
+   "query": "i want to give all the bandits in my game a new menacing look, how do i set that up with SPID",
+   "should_trigger": false,
+   "manual_predicted_trigger": false,
+   "rationale": "Near-miss: distributing appearance to NPCs, but it's SPID authoring → spid-authoring, not diagnosing a baked-face bug."
+  },
+  {
+   "id": "snt-ctd-on-npc",
+   "query": "my game crashes to desktop every time a specific npc loads in whiterun, here's the crash log",
+   "should_trigger": false,
+   "manual_predicted_trigger": false,
+   "rationale": "Near-miss: NPC + 'after loads' + an artifact, but it's a CTD diagnosis → crash-diagnostics, not a face-rendering bug."
+  },
+  {
+   "id": "snt-shiny-enb-face",
+   "query": "my follower's face looks really shiny and oily in direct sunlight, the rest of the skin is fine",
+   "should_trigger": false,
+   "manual_predicted_trigger": false,
+   "rationale": "Near-miss / RISK: a 'face' problem, but it's specular/ENB, not facegen (the skill itself lists shiny face as not-facegen). Watch the 'face' overlap."
+  },
+  {
+   "id": "snt-asset-status-only",
+   "query": "which mod is providing femalehead.dds in my load order right now?",
+   "should_trigger": false,
+   "manual_predicted_trigger": false,
+   "rationale": "Near-miss / RISK: a head-texture VFS-winner question Claude answers directly with housecarl_asset_status — no dark-face diagnosis, no facegen skill needed. Watch the asset/VFS vocabulary overlap."
+  },
+  {
+   "id": "snt-npc-outfit-edit",
+   "query": "can you change this npc's default outfit and add a steel sword to her inventory in a patch",
+   "should_trigger": false,
+   "manual_predicted_trigger": false,
+   "rationale": "Near-miss / RISK: an NPC record edit, but outfit/inventory, nothing to do with a face bug. Watch the 'NPC + patch' overlap (it's esp-patching territory, not facegen)."
+  },
+  {
+   "id": "snt-create-follower-mod",
+   "query": "i want to make my own custom follower from scratch, what's the process for setting up the npc record and her face",
+   "should_trigger": false,
+   "manual_predicted_trigger": false,
+   "rationale": "Near-miss: mentions 'her face' + NPC record, but it's greenfield follower authoring, not diagnosing a dark/grey face — no symptom to investigate."
+  },
+  {
+   "id": "snt-purple-armor-texture",
+   "query": "the steel armor on my new mod shows up bright purple in game, what did i do wrong",
+   "should_trigger": false,
+   "manual_predicted_trigger": false,
+   "rationale": "Near-miss: a purple/missing-texture problem (which the skill mentions for FACES), but it's armor, not a face — tests that the skill keys on the face-bug family, not on 'purple/missing texture' generally."
+  },
+  {
+   "id": "snt-body-neck-seam-cbbe",
+   "query": "i'm getting a neck seam between the body and the head on my CBBE setup, different skin tone below the neck",
+   "should_trigger": false,
+   "manual_predicted_trigger": false,
+   "rationale": "Hard near-miss: 'neck seam' is a dark-face symptom too, BUT a CBBE body/skin-texture-set mismatch across the whole body is a body-texture install problem, not a per-NPC facegen desync. Genuinely tricky — flagged as a watch item; a body-wide seam ≠ a single NPC's baked-face seam."
+  },
+  {
+   "id": "snt-compile-papyrus",
+   "query": "how do i compile this quest script into a pex, i keep getting an unknown identifier error",
+   "should_trigger": false,
+   "manual_predicted_trigger": false,
+   "rationale": "Clean negative in an adjacent modding domain (Papyrus compile) — shares no facegen vocabulary; confirms the skill doesn't fire on generic 'skyrim modding help'."
+  },
+  {
+   "id": "snt-mesh-shapes-listing",
+   "query": "what shapes and bones are inside this armor mesh, meshes/armor/steel/cuirass.nif - can you list them",
+   "should_trigger": false,
+   "manual_predicted_trigger": false,
+   "rationale": "NEW RISK (added 2026-07-08 for the nif_inspect rewrite): the description now mentions reading 'baked shape names … flags' inside a facegen mesh, which could pull a general 'what shapes/bones are in this .nif' request. But this is an ARMOR mesh read with no face bug — correct routing is raw housecarl_nif_inspect (None), not the face-BUG skill. CONFIRMED None in the 2026-07-08 fan-out (agent cited 'raw nif_inspect read of a non-face mesh')."
+  },
+  {
+   "id": "snt-skeleton-nodetree",
+   "query": "can you dump the node tree and block types of my skeleton.nif so i can check the bone names",
+   "should_trigger": false,
+   "manual_predicted_trigger": false,
+   "rationale": "NEW RISK: uses nif_inspect vocabulary (node tree, block types, bone names) but a skeleton inspection is not a face bug — correct routing is raw housecarl_nif_inspect (None). CONFIRMED None in the 2026-07-08 fan-out ('raw mesh inspection, the general nif_inspect tool, not any authoring/reference skill')."
+  },
+  {
+   "id": "snt-nif-texpaths-generic",
+   "query": "read the texture paths out of this weapon nif for me, i want to see what diffuse it points at",
+   "should_trigger": false,
+   "manual_predicted_trigger": false,
+   "rationale": "NEW RISK: the description mentions reading 'embedded tint/skin paths', which could pull a generic 'read the texture paths out of this nif' request. But a weapon-nif texture-path read is raw nif_inspect (None), not a face bug. CONFIRMED None in the 2026-07-08 fan-out ('a raw mesh read, exactly the nif_inspect general-tool case')."
+  },
+  {
+   "id": "st-nifset-facetint-repair",
+   "query": "after i compacted this follower mod to ESL the facetint texture path baked inside her head nif still points at the old form id and her face is grey, can you fix the embedded path",
+   "should_trigger": true,
+   "manual_predicted_trigger": true,
+   "rationale": "NEW (nif_set write): a grey face from a stale embedded FaceTint path after ESL compaction (Cause F(b)) — the dark-face family, now houseCARL-repairable with nif_set set_path slot 6 (was FaceGenEslify's manual NifSkope step). Recall probe for the added write capability: names a face SYMPTOM (grey face) + the embedded-path repair, so it must route to the face-bug skill, not raw nif_set."
+  },
+  {
+   "id": "snt-nifset-rename-generic",
+   "query": "rename the shape 'MyBottle01' to 'MyBottle01:0' inside meshes/clutter/bottle.nif so the material picks up",
+   "should_trigger": false,
+   "manual_predicted_trigger": false,
+   "rationale": "NEW RISK (nif_set write clause): the description now says 'rename a shape', which could pull a generic rename-a-block request. But a clutter-mesh shape rename with no face bug is raw housecarl_nif_set (None), not the face-diagnosis skill. Watch the 'rename a shape' overlap."
+  },
+  {
+   "id": "snt-nifset-flags-generic",
+   "query": "can you set the alpha threshold and flags on a shape in my weapon mesh, the blade edge is showing hard alpha cutout",
+   "should_trigger": false,
+   "manual_predicted_trigger": false,
+   "rationale": "NEW RISK: the description mentions 'set flags / alpha', which could pull a generic weapon-mesh alpha/flags edit. No face bug → raw housecarl_nif_set (None). Watch the 'flags/alpha' write overlap."
+  },
+  {
+   "id": "snt-nifset-texpath-write-generic",
+   "query": "swap the diffuse texture path in this armor nif to point at my retextured dds",
+   "should_trigger": false,
+   "manual_predicted_trigger": false,
+   "rationale": "NEW RISK: the description mentions 'rewrite a wrong path', which could pull a generic armor-mesh texture-path swap. No face bug → raw housecarl_nif_set set_path (None). The write analogue of snt-nif-texpaths-generic — distinguishes an armor-retexture write from a facegen skin/tint-slot repair."
+  }
+ ],
+ "revalidation_2026-07-28_294": {
+  "method": "2026-07-28 revalidation for issue #294 (all 13 descriptions compressed to the amended section-3.5 200-400 char target): section-6.5 fan-out, one fresh-context sonnet (low effort) agent per query, each shown the full lettered menu of all 13 NEW descriptions (under-test skill unflagged, letter A) plus NONE, asked which ONE to load; one opus adjudicator per skill scored from reasoning per section-6.5 step 4. No fable-model agents. Conductor session: #294 worktree.",
+  "gate": {
+   "recall_threshold": 0.8,
+   "specificity_threshold": 0.5
+  },
+  "recall": "11/11 = 1.00",
+  "specificity": "15/16 = 0.94",
+  "passed": true,
+  "misses": [
+   {
+    "id": 19,
+    "query": "i'm getting a neck seam between the body and the head on my CBBE setup, different skin tone below the neck",
+    "should_trigger": false,
+    "pick": "A",
+    "diagnosis": "A's description lists \"or a neck seam\" as a bare standalone disjunct, unqualified by facegen precedence — so a CBBE body/head skin-texture seam (a texture-set mismatch, not a facegen record-vs-file problem) matches the literal token; the agent quoted that exact clause as its justification."
+   }
   ],
-  "_q3_outcome": "Investigation-flow + procedural-write archetype → §6.6 Q3 conformance applies. Pass = emit a correct cause+fix+capability-class diagnosis OR an explicit 'houseCARL cannot finish this — here's what I checked + the external tool that can' (CK/NifSkope/RaceMenu/ReSaver). Silent wrong answer (e.g. 'place this file and you're done' when the real cause is out of lane, or anchoring the facegen folder to the conflict winner) fails outright. The out-of-lane should-trigger cases (brown face, player-only grey) are deliberate Q3 probes: the correct outcome is the honest 'houseCARL is a no-op, here's the runtime fix', not a place_asset.",
-  "evals": [
-    {
-      "id": "st-dark-follower-overhaul",
-      "query": "i installed Bijin and now Lydia's face is way darker than her body with a visible neck seam, how do i fix it",
-      "should_trigger": true,
-      "manual_predicted_trigger": true,
-      "rationale": "Canonical dark-face desync on an overhauled NPC (Cause A). Named symptom (darker face + neck seam) + named NPC. Core use case."
-    },
-    {
-      "id": "st-fine-in-xedit-dark-in-game",
-      "query": "this NPC looks fine in xedit, no conflicts, but in game her face is black. what am i missing",
-      "should_trigger": true,
-      "manual_predicted_trigger": true,
-      "rationale": "The record-vs-file desync tell verbatim — the exact case a record-only tool misses and asset_status catches."
-    },
-    {
-      "id": "st-esl-batch-dark",
-      "query": "i compacted my follower mod to ESL and now every single NPC in it has a grey face. did i break the facegen?",
-      "should_trigger": true,
-      "manual_predicted_trigger": true,
-      "rationale": "Whole-mod ESL-compaction FormID renumber (Cause F), the batch 'universal' signature. Mentions facegen explicitly."
-    },
-    {
-      "id": "st-generic-greyface-bug",
-      "query": "how do i fix the grey face bug on npcs in skyrim se",
-      "should_trigger": true,
-      "manual_predicted_trigger": true,
-      "rationale": "Generic dark/grey face bug request — the skill's headline topic."
-    },
-    {
-      "id": "st-modder-baked-still-black",
-      "query": "i made a custom npc and baked the facegen with ctrl+f4 in the CK but her head is still pitch black in game",
-      "should_trigger": true,
-      "manual_predicted_trigger": true,
-      "rationale": "Baked-but-still-black → mode ii head-parts/nif mismatch or a path/winner problem; the skill triages record-vs-file AND now reads the .nif internals (nif_inspect: baked shape names vs record HeadParts, tint/skin slot paths), then hands the last-mile render check in-game."
-    },
-    {
-      "id": "st-fdf-mention",
-      "query": "should i just install Face Discoloration Fix for my black face npcs or is there a real fix",
-      "should_trigger": true,
-      "manual_predicted_trigger": true,
-      "rationale": "Names FDF + black-face NPCs. The skill owns the FDF-is-a-color-mask-not-a-fix framing and the FDF-off litmus."
-    },
-    {
-      "id": "st-dark-after-installing-mod",
-      "query": "a bunch of my npcs went dark in the face after i added that big npc overhaul pack, how do i track down which ones and fix them",
-      "should_trigger": true,
-      "manual_predicted_trigger": true,
-      "rationale": "Batch 'after I installed X' flow — enumerate winners → compute paths → asset_status-all → bulk_place."
-    },
-    {
-      "id": "st-brown-face",
-      "query": "one of my followers has a brown face that doesn't match her body, the rest look fine",
-      "should_trigger": true,
-      "manual_predicted_trigger": true,
-      "rationale": "Brown face (Cause Q). Q3 probe: the skill should TRIGGER and triage correctly to weight/save-baked + setnpcweight/ReSaver — an out-of-lane-for-place_asset outcome, not a file fix."
-    },
-    {
-      "id": "st-player-grey-after-update",
-      "query": "after the latest skyrim update my character's face is grey in the inventory menu but npcs are all fine",
-      "should_trigger": true,
-      "manual_predicted_trigger": true,
-      "rationale": "Player-only grey (Cause U/V). Q3 probe: the skill should TRIGGER and correctly exclude it as RaceMenu/SKEE runtime state — houseCARL is a no-op; route to version match / OverlayFix / skse64.log. The strongest exclusion rule is the skill's to own."
-    },
-    {
-      "id": "st-which-facegen-wins",
-      "query": "two of my npc mods both ship facegen for the same character and i think the wrong one is winning, can you tell which copy the game actually uses",
-      "should_trigger": true,
-      "manual_predicted_trigger": true,
-      "rationale": "Record-vs-file winner / VFS facegen precedence — exactly asset_status + the decide-which-copy-is-correct judgment the skill owns."
-    },
-
-    {
-      "id": "snt-skypatcher-npc-face",
-      "query": "my skypatcher ini that changes an npc's head parts and skin tone isn't applying, can you see why",
-      "should_trigger": false,
-      "manual_predicted_trigger": false,
-      "rationale": "Near-miss / RISK: mentions npc head parts + skin tone (face vocabulary) but it's a SkyPatcher INI authoring/debug task → skypatcher-authoring, not a dark-face bug. Watch the 'head parts'/'skin tone' overlap."
-    },
-    {
-      "id": "snt-spid-distribute-appearance",
-      "query": "i want to give all the bandits in my game a new menacing look, how do i set that up with SPID",
-      "should_trigger": false,
-      "manual_predicted_trigger": false,
-      "rationale": "Near-miss: distributing appearance to NPCs, but it's SPID authoring → spid-authoring, not diagnosing a baked-face bug."
-    },
-    {
-      "id": "snt-ctd-on-npc",
-      "query": "my game crashes to desktop every time a specific npc loads in whiterun, here's the crash log",
-      "should_trigger": false,
-      "manual_predicted_trigger": false,
-      "rationale": "Near-miss: NPC + 'after loads' + an artifact, but it's a CTD diagnosis → crash-diagnostics, not a face-rendering bug."
-    },
-    {
-      "id": "snt-shiny-enb-face",
-      "query": "my follower's face looks really shiny and oily in direct sunlight, the rest of the skin is fine",
-      "should_trigger": false,
-      "manual_predicted_trigger": false,
-      "rationale": "Near-miss / RISK: a 'face' problem, but it's specular/ENB, not facegen (the skill itself lists shiny face as not-facegen). Watch the 'face' overlap."
-    },
-    {
-      "id": "snt-asset-status-only",
-      "query": "which mod is providing femalehead.dds in my load order right now?",
-      "should_trigger": false,
-      "manual_predicted_trigger": false,
-      "rationale": "Near-miss / RISK: a head-texture VFS-winner question Claude answers directly with housecarl_asset_status — no dark-face diagnosis, no facegen skill needed. Watch the asset/VFS vocabulary overlap."
-    },
-    {
-      "id": "snt-npc-outfit-edit",
-      "query": "can you change this npc's default outfit and add a steel sword to her inventory in a patch",
-      "should_trigger": false,
-      "manual_predicted_trigger": false,
-      "rationale": "Near-miss / RISK: an NPC record edit, but outfit/inventory, nothing to do with a face bug. Watch the 'NPC + patch' overlap (it's esp-patching territory, not facegen)."
-    },
-    {
-      "id": "snt-create-follower-mod",
-      "query": "i want to make my own custom follower from scratch, what's the process for setting up the npc record and her face",
-      "should_trigger": false,
-      "manual_predicted_trigger": false,
-      "rationale": "Near-miss: mentions 'her face' + NPC record, but it's greenfield follower authoring, not diagnosing a dark/grey face — no symptom to investigate."
-    },
-    {
-      "id": "snt-purple-armor-texture",
-      "query": "the steel armor on my new mod shows up bright purple in game, what did i do wrong",
-      "should_trigger": false,
-      "manual_predicted_trigger": false,
-      "rationale": "Near-miss: a purple/missing-texture problem (which the skill mentions for FACES), but it's armor, not a face — tests that the skill keys on the face-bug family, not on 'purple/missing texture' generally."
-    },
-    {
-      "id": "snt-body-neck-seam-cbbe",
-      "query": "i'm getting a neck seam between the body and the head on my CBBE setup, different skin tone below the neck",
-      "should_trigger": false,
-      "manual_predicted_trigger": false,
-      "rationale": "Hard near-miss: 'neck seam' is a dark-face symptom too, BUT a CBBE body/skin-texture-set mismatch across the whole body is a body-texture install problem, not a per-NPC facegen desync. Genuinely tricky — flagged as a watch item; a body-wide seam ≠ a single NPC's baked-face seam."
-    },
-    {
-      "id": "snt-compile-papyrus",
-      "query": "how do i compile this quest script into a pex, i keep getting an unknown identifier error",
-      "should_trigger": false,
-      "manual_predicted_trigger": false,
-      "rationale": "Clean negative in an adjacent modding domain (Papyrus compile) — shares no facegen vocabulary; confirms the skill doesn't fire on generic 'skyrim modding help'."
-    },
-    {
-      "id": "snt-mesh-shapes-listing",
-      "query": "what shapes and bones are inside this armor mesh, meshes/armor/steel/cuirass.nif - can you list them",
-      "should_trigger": false,
-      "manual_predicted_trigger": false,
-      "rationale": "NEW RISK (added 2026-07-08 for the nif_inspect rewrite): the description now mentions reading 'baked shape names … flags' inside a facegen mesh, which could pull a general 'what shapes/bones are in this .nif' request. But this is an ARMOR mesh read with no face bug — correct routing is raw housecarl_nif_inspect (None), not the face-BUG skill. CONFIRMED None in the 2026-07-08 fan-out (agent cited 'raw nif_inspect read of a non-face mesh')."
-    },
-    {
-      "id": "snt-skeleton-nodetree",
-      "query": "can you dump the node tree and block types of my skeleton.nif so i can check the bone names",
-      "should_trigger": false,
-      "manual_predicted_trigger": false,
-      "rationale": "NEW RISK: uses nif_inspect vocabulary (node tree, block types, bone names) but a skeleton inspection is not a face bug — correct routing is raw housecarl_nif_inspect (None). CONFIRMED None in the 2026-07-08 fan-out ('raw mesh inspection, the general nif_inspect tool, not any authoring/reference skill')."
-    },
-    {
-      "id": "snt-nif-texpaths-generic",
-      "query": "read the texture paths out of this weapon nif for me, i want to see what diffuse it points at",
-      "should_trigger": false,
-      "manual_predicted_trigger": false,
-      "rationale": "NEW RISK: the description mentions reading 'embedded tint/skin paths', which could pull a generic 'read the texture paths out of this nif' request. But a weapon-nif texture-path read is raw nif_inspect (None), not a face bug. CONFIRMED None in the 2026-07-08 fan-out ('a raw mesh read, exactly the nif_inspect general-tool case')."
-    },
-    {
-      "id": "st-nifset-facetint-repair",
-      "query": "after i compacted this follower mod to ESL the facetint texture path baked inside her head nif still points at the old form id and her face is grey, can you fix the embedded path",
-      "should_trigger": true,
-      "manual_predicted_trigger": true,
-      "rationale": "NEW (nif_set write): a grey face from a stale embedded FaceTint path after ESL compaction (Cause F(b)) — the dark-face family, now houseCARL-repairable with nif_set set_path slot 6 (was FaceGenEslify's manual NifSkope step). Recall probe for the added write capability: names a face SYMPTOM (grey face) + the embedded-path repair, so it must route to the face-bug skill, not raw nif_set."
-    },
-    {
-      "id": "snt-nifset-rename-generic",
-      "query": "rename the shape 'MyBottle01' to 'MyBottle01:0' inside meshes/clutter/bottle.nif so the material picks up",
-      "should_trigger": false,
-      "manual_predicted_trigger": false,
-      "rationale": "NEW RISK (nif_set write clause): the description now says 'rename a shape', which could pull a generic rename-a-block request. But a clutter-mesh shape rename with no face bug is raw housecarl_nif_set (None), not the face-diagnosis skill. Watch the 'rename a shape' overlap."
-    },
-    {
-      "id": "snt-nifset-flags-generic",
-      "query": "can you set the alpha threshold and flags on a shape in my weapon mesh, the blade edge is showing hard alpha cutout",
-      "should_trigger": false,
-      "manual_predicted_trigger": false,
-      "rationale": "NEW RISK: the description mentions 'set flags / alpha', which could pull a generic weapon-mesh alpha/flags edit. No face bug → raw housecarl_nif_set (None). Watch the 'flags/alpha' write overlap."
-    },
-    {
-      "id": "snt-nifset-texpath-write-generic",
-      "query": "swap the diffuse texture path in this armor nif to point at my retextured dds",
-      "should_trigger": false,
-      "manual_predicted_trigger": false,
-      "rationale": "NEW RISK: the description mentions 'rewrite a wrong path', which could pull a generic armor-mesh texture-path swap. No face bug → raw housecarl_nif_set set_path (None). The write analogue of snt-nif-texpaths-generic — distinguishes an armor-retexture write from a facegen skin/tint-slot repair."
-    }
-  ]
+  "adjudicator_notes": "Recall 11/11 (ids 1-10, 24), specificity 15/16. Both thresholds cleared (recall 1.00 >= 0.80; specificity 0.94 >= 0.50) — PASS.\n\nNo reasoning-vs-pick overrides applied: every pick token was consistent with its stated reasoning.\n\nNotable near-misses that stayed hits (no action needed, but they show where the boundary sits):\n- id 14 (shiny/oily face) and id 15 (which mod provides femalehead.dds) both explicitly reasoned about A and correctly ruled it out on \"discoloration is the trigger, not general face/asset questions\" — the description's symptom-anchored phrasing is doing real work there.\n- id 17 (build a custom follower from scratch) wobbled — the agent considered A for \"her face\" but correctly narrowed A to bug diagnosis rather than face authoring.\n- ids 21-23, 25-27 (NIF inspection/editing) all landed N cleanly; A's facegen-mesh read/write clause (\"read and write the winning facegen mesh's values\") did not over-pull generic NIF work, because it is scoped by \"facegen\" in-clause.\n\nOnly structural weakness: the \"or a neck seam\" disjunct. It earns its place on recall (id 1 cites neck seam alongside dark face), but standing alone it also matches body/head texture seams that have nothing to do with facegen. If tightened, bind it to the face — e.g. \"a head darker than its body, or a neck seam where the head and body tones disagree because the face is discolored\" — rather than deleting it; id 1 shows the token carries recall weight. Given the eval passes comfortably, this is optional polish, not a required fix."
+ }
 }
