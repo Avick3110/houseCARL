@@ -23,6 +23,24 @@ keeps the artifact names (`PGPatcher.esp`, `Reqtificated` patches, `NPC_Token.js
 its first eval set. The authoring standard's length rules were amended to match, so future skills are written to the
 budget instead of re-discovering it.
 
+**`compile_script` now finds your script's dependencies itself, instead of making you list them every time (#200).**
+Compiling a Papyrus script means telling the compiler every folder its dependencies' source code lives in — and it
+takes the **whole list, every call**. A script built on the usual frameworks (SKSE, SkyUI, PapyrusUtil, PO3,
+JContainers, RaceMenu, UIExtensions…) meant retyping eight or ten folder paths for each compile, and getting one
+wrong produced an avalanche of errors that read like bugs in your code. houseCARL now **scans your enabled mods**
+for the source folders they already ship and puts them on the path for you, in MO2 priority order — so a mod's own
+extended copy of a script wins over the vanilla one exactly as it does everywhere else. Anything the scan can't
+reach (your own stubs, a dev project folder, sources you had to extract out of a BSA — the Creation Kit's compiler
+cannot read archives) still goes in `import_dirs=`, and you can now **save that list under a name** with
+`save_import_set=` and recall it later with `import_set=`, so it is typed once rather than once per call. Pass
+`auto_imports=false` to skip the modlist scan entirely. **The folders actually searched are now reported on every
+compile** — a summary on success, the full ordered list on failure. That was previously invisible, which made the
+two ways a compile goes wrong impossible to tell apart from the output: a dependency that was never on the path, and
+a dependency found in the *wrong* folder because something earlier in the order shadowed it. Relatedly, a failure
+that looks like missing dependencies now gives you the right next step for your situation: if the scan already ran,
+it points at the causes a scan cannot fix (the mod isn't enabled, its sources are inside a BSA, or they sit one
+folder deeper) rather than repeating "list every dependency".
+
 **`validate_dialogue` now reports a topic's EFFECTIVE line order — and which mod moved a line (#275).** A dialogue
 topic is a list of possible lines, and the game plays the **first** one whose conditions pass. That list is not held
 by any single record: every mod that touches the topic contributes its own list, and the real order is the merge of
