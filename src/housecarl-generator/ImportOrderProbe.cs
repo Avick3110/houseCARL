@@ -228,6 +228,26 @@ internal static class ImportOrderProbe
                       .Equals(fakeVanilla, StringComparison.OrdinalIgnoreCase),
                   "BuildImports takes the caller's RESOLVED vanilla dir rather than re-deriving its own");
 
+            // NeedsModlistScan — auto_imports=false must actually SKIP the scan. Fetching the vanilla fallback made
+            // the call unconditional for one commit, which quietly cost the flag its only real use (the scan forces
+            // the asset build and probes two layouts under every enabled mod) while three render strings still said
+            // the mods had not been scanned. The vanilla-only branch is the single exception, and it is narrow.
+            Check(CompileTools.NeedsModlistScan(true, fakeCompiler), "auto_imports=true scans");
+            Check(CompileTools.NeedsModlistScan(true, noSrcCompiler), "…scans regardless of whether the compiler has vanilla beside it");
+            Check(!CompileTools.NeedsModlistScan(false, fakeCompiler),
+                  "auto_imports=false with the compiler's vanilla present does NOT touch the modlist — the flag's promise, and its whole point");
+            Check(CompileTools.NeedsModlistScan(false, noSrcCompiler),
+                  "auto_imports=false WITHOUT compiler vanilla still reads the modlist — the only place left to find any (a vanilla-less path resolves nothing)");
+
+            // …and the strings printed on that path must not claim a scan verdict they no longer hold. The old
+            // "your enabled mods were NOT scanned" was printed at the very moment the scan had just run.
+            var offPlan = CompileTools.PlanImports(
+                targetPsc, scriptDir, fakeCompiler, Array.Empty<string>(),
+                Array.Empty<PapyrusSourceRoot>(), autoEnabled: false, importSetName: null, warning: null);
+            var offText = CompileTools.ImportSummary(offPlan);
+            Check(!offText.Contains("NOT scanned") && offText.Contains("NOT on the import path"),
+                  "the auto_imports=false line states where the mods ARE NOT (the path), not what houseCARL did or didn't read");
+
             var stranded = CompileTools.PlanImports(
                 targetPsc, scriptDir, noSrcCompiler, Array.Empty<string>(),
                 new[] { Root("SKSE", autoA) }, autoEnabled: true, importSetName: null, warning: null,

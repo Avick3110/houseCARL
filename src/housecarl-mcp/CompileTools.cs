@@ -70,7 +70,7 @@ public static class CompileTools
          "folders your enabled MO2 mods already ship (Source\\Scripts / Scripts\\Source, in MO2 priority order — so SKSE, " +
          "PapyrusUtil, PO3, SkyUI, JContainers and friends need no retyping), NARROWED to the folders this script actually " +
          "references (directly or transitively), then the vanilla sources LAST; pass " +
-         "auto_imports=false to skip the modlist scan. Add anything the scan can't reach (local stubs, a dev project tree, " +
+         "auto_imports=false to leave your enabled mods off the import path. Add anything the scan can't reach (local stubs, a dev project tree, " +
          "sources you extracted from a BSA — the CK compiler cannot read archives) via import_dirs= (';'-separated), and " +
          "save_import_set=<name> to persist that list so later calls just pass import_set=<name>. Precedence is your " +
          "import_dirs=/import_set= > the auto-discovered mods > vanilla, so mod-extended copies of vanilla scripts " +
@@ -160,12 +160,23 @@ public static class CompileTools
         }
 
         // 6) the import path — the script's own folder, the caller's extras, the modlist's own source folders, vanilla last.
-        // auto_imports=false still asks for the game-Data sources: they are the vanilla FALLBACK, not a scan result,
-        // and a compiler whose own Data\Source\Scripts is missing needs them just as much with the scan switched off.
-        var (autoRoots, gameDataSources, autoWarning) = svc.PapyrusSourceImportDirs();
-        if (!auto_imports) autoRoots = Array.Empty<PapyrusSourceRoot>();
+        // The scan is skipped when auto_imports=false — which is what that flag PROMISES, and its only real use: it is
+        // what you reach for when the scan is slow or the profile is pathological, and an unconditional call would take
+        // that away while three render strings still said it hadn't run. The one exception is the rare branch where the
+        // compiler has no vanilla sources beside it: then the modlist is read purely to LOCATE them, because the
+        // alternative is a path with no vanilla at all.
+        IReadOnlyList<PapyrusSourceRoot> autoRoots = Array.Empty<PapyrusSourceRoot>();
+        string? gameDataSources = null, autoWarning = null;
+        if (NeedsModlistScan(auto_imports, compilerExe!))
+        {
+            (autoRoots, gameDataSources, autoWarning) = svc.PapyrusSourceImportDirs();
+            if (!auto_imports) autoRoots = Array.Empty<PapyrusSourceRoot>();   // read for the vanilla fallback only
+        }
+        // The warning rides along whenever the scan actually ran: with auto_imports on it explains missing mods, and on
+        // the vanilla-only branch it explains a missing vanilla slot, which the VanillaMissing caveat would otherwise
+        // report without the cause the code already has in hand.
         var plan = PlanImports(script, scriptDir, compilerExe!, callerExtras, autoRoots, auto_imports, importSetName,
-                               auto_imports ? autoWarning : null, gameDataSources);
+                               autoWarning, gameDataSources);
 
         // The whole path travels as ONE `-i=` argument and Windows caps a process command line (~32k chars), so a modlist
         // with hundreds of source folders could cross it. Refuse LOUDLY with the way out rather than letting the process
@@ -226,6 +237,16 @@ public static class CompileTools
             if (d.Length > 0) yield return d;
         }
     }
+
+    /// <summary>Whether the rider must read the MO2 modlist at all. True when the scan was asked for, and — even when
+    /// it was declined — when the compiler has no vanilla sources beside it, because the modlist's own
+    /// <c>Data\Source\Scripts</c> is then the only place left to find them and a path with no vanilla resolves nothing.
+    /// <para>A NAMED rule rather than an inline condition because it is the difference between honouring
+    /// <c>auto_imports=false</c> and quietly ignoring it: the scan forces the asset build and probes two layouts under
+    /// every enabled mod (~7,200 directory probes on the 3,617-mod order this work measured), which is exactly the cost
+    /// that flag exists to let a caller avoid.</para></summary>
+    internal static bool NeedsModlistScan(bool autoImports, string compilerExe)
+        => autoImports || VanillaSourceDir(compilerExe) is null;
 
     /// <summary>The vanilla Papyrus sources shipped with the game the COMPILER belongs to
     /// (&lt;game&gt;\Papyrus Compiler\PapyrusCompiler.exe → &lt;game&gt;\Data\Source\Scripts, which also holds the flags
@@ -364,7 +385,7 @@ public static class CompileTools
             if (p.ImportSetName is not null) sb.Append("/import_set=").Append(p.ImportSetName);
         }
         if (!p.AutoEnabled)
-            sb.Append("; auto_imports=false (your enabled mods were NOT scanned)");
+            sb.Append("; auto_imports=false (your enabled mods are NOT on the import path)");
         else
         {
             // Report the NARROWING, not just the survivors: "12 auto-discovered" reads as "your modlist ships 12
@@ -491,7 +512,7 @@ public static class CompileTools
                 // job and then list causes that exclude the real one. The caveats print with the path below.
                 bool narrowingIncomplete = plan.Scan is { TargetUnreadable: true } or { BudgetExhausted: true };
                 sb.Append(!plan.AutoEnabled
-                    ? " auto_imports=false, so your enabled mods were NOT scanned — re-run with auto_imports=true, or pass " +
+                    ? " auto_imports=false, so your enabled mods are NOT on the import path — re-run with auto_imports=true, or pass " +
                       "EVERY dependency's source folder via import_dirs= (SKSE, SkyUI, PapyrusUtil, PO3, JContainers, …; " +
                       "';'-separated) — the same set your project's compile .bat passes via -i=."
                     : narrowingIncomplete
