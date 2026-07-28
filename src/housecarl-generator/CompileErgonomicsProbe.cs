@@ -378,27 +378,71 @@ internal static class CompileErgonomicsProbe
         Check(realZero.Contains("matched 0 of 501") && realZero.Contains("referenced by this script"),
               "a scan that ran and matched nothing DOES report that conclusion (no false alarm)");
 
-        // CLOSURE over the degraded-scan flags, not another one-off. Three consecutive review passes found the same
-        // shape — a path where the scan did not run, or did not finish, rendering as a scan that ran and concluded —
-        // each time in a NEW flag (TargetUnreadable, then VanillaMissing's cause, then ScanFailed). Per-flag arms only
-        // ever pin the flags that already exist. This asserts the RULE: no state that means "the scan's answer is not
-        // authoritative" may print the conclusion phrase. A fourth such flag added without gating the wording fails
-        // here rather than in a fifth review.
-        (string Name, CompileTools.ImportPlan P)[] degraded =
+        // CLOSURE over the render's boolean state, REFLECTED rather than hand-listed. Three consecutive review passes
+        // found the same shape — a path where the scan did not run, or did not finish, rendering as one that ran and
+        // concluded — each time in a NEW flag. A hand-written array of the flags that already exist cannot catch the
+        // next one, which is precisely the manual step it claims to remove (PR #296, 4th pass: the first version of
+        // this block said it asserted the rule for any future flag while being a pair selected to pass).
+        //
+        // So: every bool on ImportPlan and PapyrusDependencyScan must be CLASSIFIED here. Adding one without a
+        // decision fails the first arm — that is the part no hand-list can do. The classification then says what the
+        // render owes that state, and both answers are asserted, so an exemption is a recorded judgement rather than
+        // an omission that looks like one.
+        //
+        // SUPPRESS = the scan's answer is not authoritative, so the conclusion phrase must not be printed at all.
+        // EXEMPT   = it may print, WITH the stated reason. Not every degraded state is a false claim: a truncated
+        //            walk really did match the folders it names, so "referenced by this script" is a true lower
+        //            bound, and only the set's completeness is in doubt — which its ⚠ states one line down.
+        var classification = new Dictionary<string, (bool Suppress, string Why, CompileTools.ImportPlan? Sample)>
         {
-            ("ScanFailed", failedScan),
-            ("TargetUnreadable", Plan(autoCount: 0, scanned: 501, scan: new PapyrusDependencyScan(
-                Array.Empty<string>(), Indexed: 13235, FilesRead: 0, BudgetExhausted: false, TargetUnreadable: true))),
+            ["ScanFailed"] = (true,
+                "the modlist read threw — there is no conclusion, and an empty root list looks exactly like a modlist with no source folders",
+                failedScan),
+            ["TargetUnreadable"] = (true,
+                "the target's source was never opened, so nothing was resolved from its contents",
+                Plan(autoCount: 0, scanned: 501, scan: new PapyrusDependencyScan(
+                    Array.Empty<string>(), Indexed: 13235, FilesRead: 0, BudgetExhausted: false, TargetUnreadable: true))),
+            ["BudgetExhausted"] = (false,
+                "the walk DID match the folders it names — the claim is a true lower bound; only completeness is in doubt, and the ⚠ says so",
+                Plan(autoCount: 2, scanned: 501, scan: new PapyrusDependencyScan(
+                    Array.Empty<string>(), Indexed: 13235, FilesRead: PapyrusDependencyFilter.MaxFilesRead, BudgetExhausted: true))),
+            ["VanillaMissing"] = (false,
+                "a different axis — the vanilla SLOT, not the scan's answer; it carries its own ⚠ and says nothing about what the script references",
+                null),
+            ["AutoEnabled"] = (false,
+                "not a degradation at all — it records what the caller asked for, and its own summary branch already replaces the phrase",
+                null),
         };
-        foreach (var (name, plan) in degraded)
+
+        var stateFlags = typeof(CompileTools.ImportPlan).GetProperties()
+            .Concat(typeof(PapyrusDependencyScan).GetProperties())
+            .Where(pi => pi.PropertyType == typeof(bool))
+            .Select(pi => pi.Name)
+            .Distinct()
+            .ToList();
+        Check(stateFlags.Count >= 5, $"reflection found the state flags to classify (got {stateFlags.Count}: {string.Join(", ", stateFlags)})");
+        foreach (var name in stateFlags)
+            Check(classification.ContainsKey(name),
+                  $"closure: bool state '{name}' is CLASSIFIED suppress-or-exempt — a new flag cannot reach the render undecided");
+
+        foreach (var (name, (suppress, why, sample)) in classification)
         {
-            var okText = CompileTools.Render(ok, plan, userChoseOutputDir: false);
-            var failText = CompileTools.Render(missingImports, plan, userChoseOutputDir: false);
-            Check(!okText.Contains("referenced by this script"),
-                  $"closure [{name}]: a non-authoritative scan never prints the conclusion phrase (success render)");
-            Check(!failText.Contains("REFERENCES BY NAME"),
-                  $"closure [{name}]: …nor does the missing-imports banner assert it (failure render)");
-            Check(okText.Contains("⚠"), $"closure [{name}]: …and it always carries a ⚠ caveat saying why");
+            if (sample is null) continue;                    // classified by judgement; no render shape of its own
+            var okText = CompileTools.Render(ok, sample, userChoseOutputDir: false);
+            var failText = CompileTools.Render(missingImports, sample, userChoseOutputDir: false);
+            if (suppress)
+            {
+                Check(!okText.Contains("referenced by this script"),
+                      $"closure [{name}] SUPPRESS: the conclusion phrase is withheld on the success render — {why}");
+                Check(!failText.Contains("REFERENCES BY NAME"),
+                      $"closure [{name}] SUPPRESS: …and the banner does not assert it either");
+            }
+            else
+            {
+                Check(okText.Contains("referenced by this script"),
+                      $"closure [{name}] EXEMPT: the conclusion phrase still prints, deliberately — {why}");
+            }
+            Check(okText.Contains("⚠"), $"closure [{name}]: carries a ⚠ caveat either way");
         }
 
         // ---------------------------------------------------------- F: named import sets persist and coexist (#200)
