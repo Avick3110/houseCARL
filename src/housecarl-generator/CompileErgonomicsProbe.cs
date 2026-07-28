@@ -345,6 +345,62 @@ internal static class CompileErgonomicsProbe
         Check(rawMsg.Contains("could not read the MO2 modlist"),
               "the discovery warning survives the no-parseable-diagnostics branch too (every branch that prints a path prints its caveats)");
 
+        // E7 (PR #296 re-review, 3rd pass): a FAILED modlist read must not render as a scan that ran and concluded.
+        // An empty root list from a read that threw is indistinguishable from a modlist with no source folders, and
+        // the three statements collided: a "matched 0 of 0 … referenced by this script" conclusion, a claim that
+        // houseCARL had looked under the MO2 data folder, and a tail asserting vanilla was on a single-entry path.
+        var failWarning = "modlist scan: could not read the MO2 modlist to discover Papyrus source folders (boom) — " +
+                          "none of your installed mods' source folders are on the import path for this compile.";
+        var failedScan = new CompileTools.ImportPlan(
+            new[] { (@"C:\work", CompileTools.ImportPlan.OwnFolder) },
+            AutoEnabled: true, ImportSetName: null, Warning: failWarning,
+            AutoScanned: 0, Scan: null, ReferencedProviders: null, VanillaMissing: true, ScanFailed: true);
+        var failedText = CompileTools.Render(ok, failedScan, userChoseOutputDir: false);
+        Check(!failedText.Contains("referenced by this script") && !failedText.Contains("matched 0 of 0"),
+              "a failed modlist read draws NO scan conclusion — 'matched 0 of 0 … referenced by this script' is a verdict a read that threw never reached");
+        Check(failedText.Contains("modlist could NOT be read"), "…it says the read failed instead");
+        Check(failedText.Contains("could not read your MO2 modlist to look under the data folder")
+              && !failedText.Contains("and none under your MO2 data folder"),
+              "the vanilla caveat stops claiming houseCARL LOOKED under the data folder — which of the two it is changes the fix");
+        Check(!failedText.Contains("vanilla sources are on the import path"),
+              "…and no tail asserts a vanilla slot two lines under a caveat saying there is none");
+        Check(!failedText.Contains("auto_imports:"),
+              "the warning is labelled 'modlist scan', not 'auto_imports' — the rider reaches this read with auto_imports OFF too");
+
+        // …and the same on the failure render, where the banner would otherwise blame the script.
+        var failedBanner = CompileTools.Render(missingImports, failedScan, userChoseOutputDir: false);
+        Check(failedBanner.Contains("The modlist could NOT be read") && !failedBanner.Contains("REFERENCES BY NAME"),
+              "the missing-imports banner leads with the failed read, not with causes that presuppose a scan happened");
+
+        // Control: a scan that RAN and genuinely matched nothing still says so — the flag must not swallow the real
+        // zero, which is a legitimate conclusion.
+        var realZero = CompileTools.Render(ok, Plan(autoCount: 0, scanned: 501), userChoseOutputDir: false);
+        Check(realZero.Contains("matched 0 of 501") && realZero.Contains("referenced by this script"),
+              "a scan that ran and matched nothing DOES report that conclusion (no false alarm)");
+
+        // CLOSURE over the degraded-scan flags, not another one-off. Three consecutive review passes found the same
+        // shape — a path where the scan did not run, or did not finish, rendering as a scan that ran and concluded —
+        // each time in a NEW flag (TargetUnreadable, then VanillaMissing's cause, then ScanFailed). Per-flag arms only
+        // ever pin the flags that already exist. This asserts the RULE: no state that means "the scan's answer is not
+        // authoritative" may print the conclusion phrase. A fourth such flag added without gating the wording fails
+        // here rather than in a fifth review.
+        (string Name, CompileTools.ImportPlan P)[] degraded =
+        {
+            ("ScanFailed", failedScan),
+            ("TargetUnreadable", Plan(autoCount: 0, scanned: 501, scan: new PapyrusDependencyScan(
+                Array.Empty<string>(), Indexed: 13235, FilesRead: 0, BudgetExhausted: false, TargetUnreadable: true))),
+        };
+        foreach (var (name, plan) in degraded)
+        {
+            var okText = CompileTools.Render(ok, plan, userChoseOutputDir: false);
+            var failText = CompileTools.Render(missingImports, plan, userChoseOutputDir: false);
+            Check(!okText.Contains("referenced by this script"),
+                  $"closure [{name}]: a non-authoritative scan never prints the conclusion phrase (success render)");
+            Check(!failText.Contains("REFERENCES BY NAME"),
+                  $"closure [{name}]: …nor does the missing-imports banner assert it (failure render)");
+            Check(okText.Contains("⚠"), $"closure [{name}]: …and it always carries a ⚠ caveat saying why");
+        }
+
         // ---------------------------------------------------------- F: named import sets persist and coexist (#200)
         Console.WriteLine();
         Console.WriteLine("--- F: UserConfigStore import sets — round-trip, case handling, and the no-clobber contract ---");

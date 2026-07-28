@@ -31,7 +31,8 @@ public static class CompileTools
         int AutoScanned = 0,
         PapyrusDependencyScan? Scan = null,
         IReadOnlyList<string>? ReferencedProviders = null,
-        bool VanillaMissing = false)
+        bool VanillaMissing = false,
+        bool ScanFailed = false)
     {
         /// <summary>Provenance labels — the exact strings <see cref="ImportDetail"/> prints, and the keys the counts group on.</summary>
         public const string OwnFolder = "the script's own folder";
@@ -167,16 +168,17 @@ public static class CompileTools
         // alternative is a path with no vanilla at all.
         IReadOnlyList<PapyrusSourceRoot> autoRoots = Array.Empty<PapyrusSourceRoot>();
         string? gameDataSources = null, autoWarning = null;
+        bool scanFailed = false;
         if (NeedsModlistScan(auto_imports, compilerExe!))
         {
-            (autoRoots, gameDataSources, autoWarning) = svc.PapyrusSourceImportDirs();
+            (autoRoots, gameDataSources, autoWarning, scanFailed) = svc.PapyrusSourceImportDirs();
             if (!auto_imports) autoRoots = Array.Empty<PapyrusSourceRoot>();   // read for the vanilla fallback only
         }
         // The warning rides along whenever the scan actually ran: with auto_imports on it explains missing mods, and on
         // the vanilla-only branch it explains a missing vanilla slot, which the VanillaMissing caveat would otherwise
         // report without the cause the code already has in hand.
         var plan = PlanImports(script, scriptDir, compilerExe!, callerExtras, autoRoots, auto_imports, importSetName,
-                               autoWarning, gameDataSources);
+                               autoWarning, gameDataSources, scanFailed);
 
         // The whole path travels as ONE `-i=` argument and Windows caps a process command line (~32k chars), so a modlist
         // with hundreds of source folders could cross it. Refuse LOUDLY with the way out rather than letting the process
@@ -308,7 +310,7 @@ public static class CompileTools
     internal static ImportPlan PlanImports(
         string targetScript, string scriptDir, string compilerExe, IReadOnlyList<string> callerExtras,
         IReadOnlyList<PapyrusSourceRoot> autoRoots, bool autoEnabled, string? importSetName, string? warning,
-        string? gameDataSources = null)
+        string? gameDataSources = null, bool scanFailed = false)
     {
         // The compiler's own game dir first — its sources are the ones matching the flags file it will use — then the
         // modlist's Data\Source\Scripts, which the scan split out precisely so it could stand in here.
@@ -368,7 +370,7 @@ public static class CompileTools
             : scan.Folders.Select(f => providers.TryGetValue(f, out var m) ? m : Path.GetFileName(f)).ToList();
 
         return new ImportPlan(entries, autoEnabled, importSetName, warning, candidates.Count, scan, referenced,
-                              VanillaMissing: vanilla is null);
+                              VanillaMissing: vanilla is null, ScanFailed: scanFailed);
     }
 
     /// <summary>The one-line "what was actually searched" summary printed on EVERY call (#200 — the old render took the
@@ -386,6 +388,11 @@ public static class CompileTools
         }
         if (!p.AutoEnabled)
             sb.Append("; auto_imports=false (your enabled mods are NOT on the import path)");
+        else if (p.ScanFailed)
+            // "matched 0 of 0" is a CONCLUSION, and a read that threw never reached one. An empty root list from a
+            // failure looks exactly like a modlist with no source folders, which is why the failure is flagged rather
+            // than inferred from the count.
+            sb.Append("; the modlist could NOT be read, so none of your installed mods' source folders were scanned");
         else
         {
             // Report the NARROWING, not just the survivors: "12 auto-discovered" reads as "your modlist ships 12
@@ -445,9 +452,14 @@ public static class CompileTools
         // split dropped the only copy on the machine and nothing replaced it (PR #296 re-review).
         if (p.VanillaMissing)
             sb.Append("\n⚠ NO vanilla Papyrus sources are on the import path — houseCARL found none beside the compiler " +
-                      "(<game>\\Data\\Source\\Scripts) and none under your MO2 data folder. Every vanilla type will fail " +
-                      "to resolve until you unpack them (the CK ships them as Scripts.zip) or pass their folder via " +
-                      "import_dirs=.");
+                      "(<game>\\Data\\Source\\Scripts)")
+              // "found none under your MO2 data folder" would be a second claim about a place the failed read never
+              // reached. Which of the two it is changes the fix, so it is said rather than smoothed over.
+              .Append(p.ScanFailed
+                          ? " and could not read your MO2 modlist to look under the data folder (see below)."
+                          : " and none under your MO2 data folder.")
+              .Append(" Every vanilla type will fail to resolve until you unpack them (the CK ships them as " +
+                      "Scripts.zip) or pass their folder via import_dirs=.");
         if (p.Scan is { TargetUnreadable: true })
             sb.Append("\n⚠ the script's own source could not be READ when the import path was assembled (locked or moved " +
                       "after houseCARL first checked it), so NOTHING was resolved from its contents and the modlist scan " +
@@ -515,6 +527,10 @@ public static class CompileTools
                     ? " auto_imports=false, so your enabled mods are NOT on the import path — re-run with auto_imports=true, or pass " +
                       "EVERY dependency's source folder via import_dirs= (SKSE, SkyUI, PapyrusUtil, PO3, JContainers, …; " +
                       "';'-separated) — the same set your project's compile .bat passes via -i=."
+                    : plan.ScanFailed
+                    ? " The modlist could NOT be read (see the ⚠ note below), so NONE of your installed mods' source folders " +
+                      "reached the path — that is the most likely cause here, ahead of anything about this script. Fix the " +
+                      "modlist read, or pass the dependency's source folder via import_dirs= for now."
                     : narrowingIncomplete
                     ? " START WITH THE ⚠ NOTE BELOW: the modlist scan did not complete, so the " + plan.Referenced.Count +
                       " folder(s) it matched out of " + plan.AutoScanned + " scanned are NOT the full set this script " +

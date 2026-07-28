@@ -302,17 +302,25 @@ public sealed class LoadOrderService : IDisposable
     /// <para>BEST-EFFORT BY CONTRACT (Q3): an unconfigured/unreadable profile returns an EMPTY list plus a warning the
     /// rider renders, never an exception — losing the ergonomic default must not lose the compile, and the rendered
     /// import summary makes a short list visible rather than silent.</para></summary>
-    public (IReadOnlyList<PapyrusSourceRoot> Roots, string? GameDataSources, string? Warning) PapyrusSourceImportDirs()
+    /// <para>A FAILURE is flagged, not just warned about (<c>Failed</c>): an empty root list from a read that threw is
+    /// otherwise indistinguishable from a modlist that genuinely ships no source folders, and the rider renders the
+    /// two very differently — "the scan matched 0 of 0" is a conclusion, and a scan that never ran has not reached
+    /// one. Same shape as the scan's own TargetUnreadable / BudgetExhausted flags.</para>
+    public (IReadOnlyList<PapyrusSourceRoot> Roots, string? GameDataSources, string? Warning, bool Failed) PapyrusSourceImportDirs()
     {
         IReadOnlyList<(string Name, string Dir)> roots;
         string dataDir;
         try { lock (_gate) { roots = Assets.LooseRoots; dataDir = _dataDir; } }
         catch (Exception ex)
         {
+            // Says what failed and what it costs — and nothing about vanilla. The old tail ("…and the vanilla sources
+            // are on the import path") was a claim this method has no way to check, and it could print directly under
+            // a caveat stating there are none. Labelled "modlist scan", not "auto_imports", because the rider also
+            // reaches here with auto_imports OFF, purely to locate the vanilla fallback.
             return (Array.Empty<PapyrusSourceRoot>(), null,
-                    "auto_imports: could not read the MO2 modlist to discover Papyrus source folders " +
-                    $"({ex.Message}) — only the script's own folder, your import_dirs=/import_set=, and the vanilla " +
-                    "sources are on the import path.");
+                    "modlist scan: could not read the MO2 modlist to discover Papyrus source folders " +
+                    $"({ex.Message}) — none of your installed mods' source folders are on the import path for this compile.",
+                    true);
         }
         // The game's own Data root is SPLIT OUT here, where the data dir is known, rather than left to the rider's
         // compiler-relative vanilla check: on a Stock Game setup those are deliberately different folders (the CK
@@ -323,13 +331,14 @@ public sealed class LoadOrderService : IDisposable
         try
         {
             var (mods, gameData) = PapyrusSourceRoots.SplitGameData(PapyrusSourceRoots.Discover(roots), dataDir);
-            return (mods, gameData, null);
+            return (mods, gameData, null, false);
         }
         catch (Exception ex)
         {
             return (Array.Empty<PapyrusSourceRoot>(), null,
-                    $"auto_imports: scanning the modlist for Papyrus source folders failed ({ex.Message}) — " +
-                    "pass the dependency source folders via import_dirs=/import_set= for this compile.");
+                    $"modlist scan: scanning the modlist for Papyrus source folders failed ({ex.Message}) — " +
+                    "pass the dependency source folders via import_dirs=/import_set= for this compile.",
+                    true);
         }
     }
 
