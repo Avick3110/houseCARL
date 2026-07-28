@@ -166,6 +166,26 @@ internal static class ImportOrderProbe
                   "PlanImports' dirs ARE BuildImports' output over the KEPT folders — the labels describe the path that actually ran");
             Check(labelled.CallerCount == 1 && labelled.AutoProviders.SequenceEqual(new[] { "SKSE" }),
                   "the summary counts are derived from the FINAL entries: 1 caller, 1 auto (Data and the own folder are not counted as mods)");
+
+            // PR #296 review: a folder the caller passed EXPLICITLY must keep its caller identity even when the scan
+            // also knows it. This is the recovery path the tool itself prints — a failure says "pass that folder via
+            // import_dirs=", the user does, and the next run must not report it back as one the script references.
+            // Both derived counts went wrong at once before this: CallerCount missed it, AutoProviders claimed it.
+            var overlap2 = CompileTools.PlanImports(
+                targetPsc, scriptDir, fakeCompiler, new[] { userB, autoB },
+                new[] { Root("SKSE", autoA), Root("PapyrusUtil", autoB) },
+                autoEnabled: true, importSetName: null, warning: null);
+            string Label2(string dir) => overlap2.Entries.First(e => e.Dir.Equals(dir, StringComparison.OrdinalIgnoreCase)).Origin;
+            Check(Label2(autoB) == CompileTools.ImportPlan.CallerDirs,
+                  "a DROPPED candidate that the caller passed is labelled import_dirs=, not MO2:<mod> (it reached the path only because the caller asked)");
+            Check(overlap2.CallerCount == 2 && overlap2.AutoProviders.SequenceEqual(new[] { "SKSE" }),
+                  "…and the counts follow: 2 caller dirs, 1 from the scan — the 'kept the N this script REFERENCES BY NAME' number no longer over-counts by the overlap");
+
+            var overlap3 = CompileTools.PlanImports(
+                targetPsc, scriptDir, fakeCompiler, new[] { autoA },
+                new[] { Root("SKSE", autoA) }, autoEnabled: true, importSetName: null, warning: null);
+            Check(overlap3.CallerCount == 1 && overlap3.AutoProviders.Count == 0,
+                  "a KEPT candidate the caller also passed counts as the caller's — it would be on the path with the scan switched off");
         }
         finally { try { Directory.Delete(fake, recursive: true); } catch { /* temp scratch; non-fatal */ } }
 

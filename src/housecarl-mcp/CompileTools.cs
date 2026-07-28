@@ -289,15 +289,27 @@ public static class CompileTools
         }
 
         var dirs = BuildImports(scriptDir, compilerExe, string.Join(";", callerExtras), autoDirs);
+
+        // Providers are indexed from the KEPT folders only. A candidate the filter DROPPED can still reach the final
+        // list — but only because the caller passed it — so indexing every discovered root would label it as one the
+        // scan contributed.
+        var keptSet = new HashSet<string>(autoDirs, StringComparer.OrdinalIgnoreCase);
         var providers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var r in autoRoots) providers.TryAdd(r.Dir, r.Provider);
+        foreach (var r in candidates) if (keptSet.Contains(r.Dir)) providers.TryAdd(r.Dir, r.Provider);
+        var callerSet = new HashSet<string>(callerExtras, StringComparer.OrdinalIgnoreCase);
 
         var entries = new List<(string Dir, string Origin)>(dirs.Count);
         foreach (var d in dirs)
         {
+            // CALLER outranks the scan here, mirroring the slot BuildImports gave it. A dir the caller passed keeps
+            // its caller identity even when the scan also found it — otherwise the two derived counts both go wrong
+            // at once (CallerCount misses it, AutoProviders claims it), and the number the reader is asked to audit
+            // ("kept the N this script REFERENCES BY NAME") over-counts by the overlap. That overlap is not exotic: it
+            // is the recovery path this tool prints, where a failure tells the user to pass a folder via import_dirs=.
             string origin =
                 d.Equals(scriptDir, StringComparison.OrdinalIgnoreCase) ? ImportPlan.OwnFolder
                 : vanilla is not null && d.Equals(vanilla, StringComparison.OrdinalIgnoreCase) ? ImportPlan.Vanilla
+                : callerSet.Contains(d) ? ImportPlan.CallerDirs
                 : providers.TryGetValue(d, out var mod) ? ImportPlan.AutoPrefix + mod
                 : ImportPlan.CallerDirs;
             entries.Add((d, origin));
@@ -327,7 +339,12 @@ public static class CompileTools
             // dependency turns up missing — that the other 489 were dropped as unreferenced, not overlooked.
             var provs = p.AutoProviders;
             sb.Append("; ").Append(provs.Count).Append(" of ").Append(p.AutoScanned)
-              .Append(" scanned mod source folder(s) referenced by this script");
+              // "referenced by this script" is a claim about the source's CONTENTS. It is only earned when the source
+              // was actually read: an unreadable target yields the same empty result, and asserting it there would be
+              // a confident wrong answer rather than a degraded one.
+              .Append(p.Scan is { TargetUnreadable: true }
+                          ? " scanned mod source folder(s) kept (the script could NOT be read — see below)"
+                          : " scanned mod source folder(s) referenced by this script");
             if (provs.Count > 0)
             {
                 const int Show = 8;
@@ -339,11 +356,7 @@ public static class CompileTools
         if (p.Entries.Count > 0 && p.Entries[^1].Origin == ImportPlan.Vanilla)
             sb.Append("; vanilla sources last");
         sb.Append('.');
-        if (p.Scan is { BudgetExhausted: true } s)
-            sb.Append("\n⚠ the reference walk stopped at its ").Append(PapyrusDependencyFilter.MaxFilesRead)
-              .Append("-file ceiling, so a dependency reached only through the unread tail may be missing from the path — " +
-                      "if the compile fails on unresolved symbols, pass that folder via import_dirs=.");
-        if (p.Warning is not null) sb.Append('\n').Append(p.Warning);
+        sb.Append(ImportCaveats(p));
         return sb.ToString();
     }
 
@@ -355,6 +368,29 @@ public static class CompileTools
         for (int i = 0; i < p.Entries.Count; i++)
             sb.Append("\n  ").Append((i + 1).ToString().PadLeft(2)).Append(". ")
               .Append(p.Entries[i].Dir).Append("   [").Append(p.Entries[i].Origin).Append(']');
+        sb.Append(ImportCaveats(p));
+        return sb.ToString();
+    }
+
+    /// <summary>Everything that makes the printed path LESS than a complete answer. Emitted by BOTH
+    /// <see cref="ImportSummary"/> and <see cref="ImportDetail"/> — i.e. on success and on failure — because these
+    /// caveats are written for the failing run: the truncation note literally ends "if the compile fails on unresolved
+    /// symbols, pass that folder via import_dirs=", and it previously could only print on a compile that succeeded.
+    /// Living inside the two import blocks (rather than being appended per branch) is what makes that structural: every
+    /// path that prints an import path prints its caveats, including the no-parseable-diagnostics branch that used to
+    /// drop the discovery warning entirely.</summary>
+    internal static string ImportCaveats(ImportPlan p)
+    {
+        var sb = new StringBuilder();
+        if (p.Scan is { TargetUnreadable: true })
+            sb.Append("\n⚠ the script's own source could not be READ when the import path was assembled (locked or moved " +
+                      "after houseCARL first checked it), so NOTHING was resolved from its contents and the modlist scan " +
+                      "contributed nothing — this is not a statement that the script references none of your mods.");
+        if (p.Scan is { BudgetExhausted: true })
+            sb.Append("\n⚠ the reference walk stopped at its ").Append(PapyrusDependencyFilter.MaxFilesRead)
+              .Append("-file ceiling, so a dependency reached only through the unread tail may be missing from the path — " +
+                      "if the compile fails on unresolved symbols, pass that folder via import_dirs=.");
+        if (p.Warning is not null) sb.Append('\n').Append(p.Warning);
         return sb.ToString();
     }
 
@@ -405,24 +441,32 @@ public static class CompileTools
                           "folder is missing makes ALL its calls and types fail.");
                 // The remedy DIFFERS once the modlist has already been scanned: "list every dependency's folder" is the
                 // wrong instruction when dozens are already on the path, and it hides the causes the scan cannot fix (#200).
-                sb.Append(plan.AutoEnabled
-                    ? " The modlist scan found " + plan.AutoScanned + " mod source folder(s) and kept the " +
+                // When the narrowing was itself INCOMPLETE — the source unreadable, or the walk truncated — the cause
+                // is most likely the narrowing, and saying "kept the N this script references" would assert a complete
+                // job and then list causes that exclude the real one. The caveats print with the path below.
+                bool narrowingIncomplete = plan.Scan is { TargetUnreadable: true } or { BudgetExhausted: true };
+                sb.Append(!plan.AutoEnabled
+                    ? " auto_imports=false, so your enabled mods were NOT scanned — re-run with auto_imports=true, or pass " +
+                      "EVERY dependency's source folder via import_dirs= (SKSE, SkyUI, PapyrusUtil, PO3, JContainers, …; " +
+                      "';'-separated) — the same set your project's compile .bat passes via -i=."
+                    : narrowingIncomplete
+                    ? " START WITH THE ⚠ NOTE BELOW: the modlist scan did not complete, so the " + plan.AutoProviders.Count +
+                      " folder(s) it contributed out of " + plan.AutoScanned + " scanned are NOT the full set this script " +
+                      "needs — the missing dependency was most likely dropped by that, not by anything wrong with your setup. " +
+                      "Pass its source folder via import_dirs= (and save_import_set= to keep it for next time)."
+                    : " The modlist scan found " + plan.AutoScanned + " mod source folder(s) and kept the " +
                       plan.AutoProviders.Count + " this script REFERENCES BY NAME (listed below). So the missing dependency " +
                       "is most likely one the source never names outright, or one that is not installed as an enabled mod, " +
                       "or one shipping its sources inside a BSA (the CK compiler cannot read archives — extract them first, " +
                       "e.g. with housecarl_bsa_extract), or one keeping them in a SUBFOLDER of a listed dir. Pass that folder " +
-                      "via import_dirs= (and save_import_set= to keep it for next time)."
-                    : " auto_imports=false, so your enabled mods were NOT scanned — re-run with auto_imports=true, or pass " +
-                      "EVERY dependency's source folder via import_dirs= (SKSE, SkyUI, PapyrusUtil, PO3, JContainers, …; " +
-                      "';'-separated) — the same set your project's compile .bat passes via -i=.");
+                      "via import_dirs= (and save_import_set= to keep it for next time).");
             }
 
             // "diagnostic(s)", not "error(s)": the CK compiler mixes warnings into a failed run's output and the
             // parser doesn't split severities — labelling them all errors over-claims (2026-06-12 hunt render wave).
             sb.Append('\n').Append(r.Diagnostics.Count).Append(" diagnostic(s) (errors and possibly warnings — the CK compiler mixes them):");
             foreach (var d in r.Diagnostics) sb.Append("\n  ").Append(d);
-            sb.Append('\n').Append(ImportDetail(plan));
-            if (plan.Warning is not null) sb.Append('\n').Append(plan.Warning);
+            sb.Append('\n').Append(ImportDetail(plan));   // carries the caveats (ImportCaveats), warning included
             // The generic tail stays for the NON-dominated case (a few resolution errors mixed with real ones); when we
             // already led with the strong missing-imports banner, don't repeat the import line.
             sb.Append("\nfix the .psc and recompile (look unfamiliar functions/types up with the papyrus-reference skill).");
