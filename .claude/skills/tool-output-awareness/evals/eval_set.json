@@ -170,8 +170,8 @@
     "diagnosis": "PGPatcher rows fixed; rows 3/6 regressed vs run 3 as cross-skill-competition variance on borderline rows; two filename-keyword over-triggers (11, 13) on tool-workflow questions"
    }
   ],
-  "recall": "8/10 = 0.80",
-  "specificity": "8/10 = 0.80",
+  "recall": "29/30 = 0.97 (final shipped text, 3-rep head-to-head; see head_to_head_2026-07-28)",
+  "specificity": "28/30 = 0.93 (final shipped text, 3-rep head-to-head)",
   "passed": true,
   "misses": [
    {
@@ -204,6 +204,103 @@
    }
   ],
   "adjudicator_notes": "Skill under test: tool-output-awareness (menu M), description read at .claude/skills/tool-output-awareness/SKILL.md — trigger list now includes ParallaxGen (`PGPatcher.esp`) literally. Recall 8/10 (0.80, at threshold), specificity 8/10 (0.80, well above 0.50) → PASS on both gates. Adjudicated from reasoning per 6.5 step 4; no pick/reasoning conflicts found — every reasoning matched its pick token, so no overrides recorded. Rows 12, 16, 17, 19 correctly answered N with reasoning that explicitly considered and rejected M (12 and 19 named M and gave the right ground for rejection: tool-run failure and CTD triage are not 'what may a patch copy' questions). PRIOR MISS id 1: FIXED — the agent now picks M and cites PGPatcher by name as 'explicitly listed in M's trigger conditions', with no SkyPatcher/PGPatcher name collision anywhere in its reasoning; id 10 (the other PGPatcher row) also hits for the same reason, so the filename addition did its intended job. SPECIFICITY 13 and 19: 19 HELD (N, clean rejection of M); 13 did NOT hold — it flipped from a prior-run pass to a false positive, and its reasoning quotes 'ParallaxGen output, PGPatcher.esp', so the fix that repaired id 1 is the plausible cause of the id-13 regression. Net effect of the change: +1 recall (id 1), −1 specificity (id 13), plus a new specificity false positive at id 11 (DynDOLOD/Occlusion, unrelated to the edit — variance or a pre-existing weakness the prior run happened to pass). Recall also fell on ids 3 and 6, which the prior run scored as hits; both are cross-skill competition misses (skypatcher-authoring's literal 'cell lighting' phrase, and a Requiem domain skill judged absent from the menu) rather than anything the PGPatcher edit touched — treat as run-to-run variance on already-borderline rows. Recall is now sitting exactly on the 0.80 line, so any further regression fails; the shared root cause behind ids 11 and 13 is that M's trigger sentence names tool/plugin filenames prominently while the scoping clause ('BEFORE forwarding, overriding, patching against, or explaining any record') is easy to skip — a future revision could add an explicit non-trigger note (installing, generating, re-running, ordering, or enabling these tools is out of scope) without weakening the filename anchors that fixed id 1.",
-  "carry_forward": "Recall sits exactly on the 0.80 gate and rows 3/6 flip run-to-run: this is the structural cost of evaluating a companion/guardrail skill under a forced-single-pick menu — the deliverable-authoring skill is also a legitimate pick for those queries. Two candidate follow-ups for the next release: (a) an explicit out-of-scope clause for install/generate/re-run/ordering questions (would repair over-triggers 11/13; check against section 3.4's negative-gate prohibition first — frame as a disambiguation sentence like kid-authoring's 'Keywords on NPCs are SPID, not KID'); (b) consider whether the section-6.5 method should allow a stated co-load pick for guardrail-archetype skills."
+  "carry_forward": "Resolved 2026-07-28 by the PR #295 head-to-head: the at-gate 8/10 recall was single-rep variance; the shipped (run-3) text scores 29/30 recall / 28/30 specificity over 3 replications with every query correct at majority vote. Remaining known failure mode (minority-rep): generator-workflow questions (when to re-run / where to place the output) occasionally keyword-capture on the plugin-name list. The earlier method note stands: consider whether section 6.5 should allow a stated co-load pick for guardrail-archetype skills.",
+  "contamination_audit_2026-07-28": "2026-07-28 PR #295 review follow-up (contamination audit): the independent review found adjudicator notes quoting text that exists only in the PRE-compression descriptions. Forensics on the run journal established: (a) judges were shown the NEW menu (the loader agent's journaled return contains it verbatim); (b) 11 of 281 judge rows leaked OLD description text from the agents' own environment skill listing (the installed plugin) into their reasoning; (c) separately, some opus adjudicator notes confabulated 'verbatim quotes' from that same stale environment. All contaminated rows were re-judged with a hardened prompt (explicit stale-environment warning): 15/15 confirmed their original verdicts, except dialogue-authoring q19, whose recorded MISS was itself a contamination artifact and is overturned. Treat quoted description text in the run-1 adjudicator_notes above as unreliable where it does not appear in the shipped description; scores are pick-derived and were confirmed by the hardened re-run.",
+  "head_to_head_2026-07-28": {
+   "method": "PR #295 review follow-up: the reviewer noted run 4 shipped the candidate that measured worse. Head-to-head, 3 replications of all 20 queries per candidate (120 hardened sonnet judges; one opus adjudicator per candidate given the exact candidate text).",
+   "run3_text_no_PGPatcher_filename": {
+    "recall": "29/30",
+    "specificity": "28/30",
+    "per_query_majority_vote": "20/20 correct"
+   },
+   "run4_text_with_PGPatcher_filename": {
+    "recall": "28/30",
+    "specificity": "26/30"
+   },
+   "decision": "SHIP the run-3 text (465 chars). Decisive datum: all 6 PGPatcher-winner rows hit WITHOUT the PGPatcher.esp filename (judges infer PGPatcher = ParallaxGen), while the literal filename in the run-4 text feeds keyword-capture over-triggers on generator-workflow questions. Run-1's PGPatcher miss was minority-rep variance, not a vocabulary gap.",
+   "final_scores_shipped_text": {
+    "recall": "29/30 = 0.97",
+    "specificity": "28/30 = 0.93",
+    "passed": true
+   },
+   "adjudicator_notes_run3": "PASS on both gates. Recall 29/30 (96.7%, gate 80%); specificity 28/30 (93.3%, gate 50%).\n\nPer-replication recall (10 rows each): rep 1 = 10/10, rep 2 = 9/10 (id 2 → D), rep 3 = 10/10.\nPer-replication specificity (10 rows each): rep 1 = 10/10, rep 2 = 10/10, rep 3 = 8/10 (ids 11, 13).\n\nReasoning-vs-pick adjudication (6.5 step 4): no overrides applied. One row needed a close read — id 12 rep 2, whose reasoning oscillates (\"closest is M since it's the only entry that even mentions Reqtificator\") before landing on \"none actually match ... So N fits best\". Terminal reasoning and pick agree on N; scored HIT. id 2 rep 2 is a genuine pick-D miss, not a token error — the reasoning names tool-output-awareness and consciously deprioritizes it.\n\nEnvironment contamination: none. No judge quoted text absent from the supplied block. Worth flagging separately (not contamination): candidate B's text does NOT contain the string \"PGPatcher.esp\", yet all 6 PGPatcher rows (id 1 ×3, id 10 ×3) triggered M correctly by inferring PGPatcher = ParallaxGen. Two of those reasonings overstate it as \"explicitly listed\" (id 1 rep 1, id 10 rep 3) — the inference is right, the provenance claim is loose. This is the decisive datum for the head-to-head: dropping the PGPatcher.esp filename costs nothing in recall on ParallaxGen-winner rows, 6/6 with the bare tool name.\n\nFailure-mode split, both misses vs the single recall miss:\n- Over-trigger (2 rows, both rep 3): plugin-name recognition without applying the verb gate. Queries about *operating* the generator (load-order placement, MO2 enable, when to re-run) match the name list but not \"forwarding, overriding, patching against, or explaining any record\". The description's second sentence already scopes this correctly; the misses are judges skipping it, and the 4 sibling reps on the same two queries answered N with explicit gate reasoning. Residual variance, not a text defect — no edit indicated unless a future run shows it clustering.\n- Under-trigger (1 row): competitive loss to bulk-record-jobs on a conflict-tree phrasing. The only recall miss in 30, and the only row where a sibling description's overlapping vocabulary (\"who wins contested records\") outbid M's precedence clause.\n\nDistinct-query view: 10/10 recall queries triggered on at least 2 of 3 reps; 10/10 specificity queries stayed clear on at least 2 of 3. No query fails outright at majority vote — every miss is a minority-rep flip, which is the strongest form of this result.",
+   "adjudicator_notes_run4": "TOTALS — recall 28/30 (93.3%, threshold 80%); specificity 26/30 (86.7%, threshold 50%). PASSED on both gates with margin.\n\nPER-REPLICATION RECALL (requested): rep 1 = 10/10; rep 2 = 10/10; rep 3 = 8/10 (misses id 2 -> B, id 5 -> D). Per-replication specificity for context: rep 1 = 9/10 (miss id 12); rep 2 = 9/10 (miss id 13); rep 3 = 8/10 (misses id 11, id 13). Rep 3 carries every recall miss and half the specificity misses — replication variance is real but never drops a single rep below either threshold (worst rep: recall 8/10 = 80%, exactly at gate; specificity 8/10 = 80%).\n\nREASONING ADJUDICATION (6.5 step 4). Checked all 60 rows for pick/reasoning conflict. No overrides applied. Two rows examined closely and left as scored:\n- id 6 rep 3 (recall, pick M): reasoning openly meanders — considers B, names an out-of-menu skill, then settles on M as \"the load-bearing gate before patching against Reqtificator output ... deciding what the override may copy from.\" It lands on M for M's actual stated reason, so scored HIT, not a lucky token. Flagging as a low-confidence hit: had the menu contained a Requiem armor entry, this row reads like it would have gone elsewhere.\n- id 11 rep 3 (specificity, pick M): reasoning correctly identifies the query as out of M's scope and picks M anyway as nearest neighbour. Pick and reasoning agree on the action, so no override; scored MISS.\n\nENVIRONMENT CONTAMINATION. No agent quoted description text absent from the supplied block — every quotation checked (ids 1, 3, 4, 6, 8, 9, 10 across reps) is verbatim from the run-4 text, including \"Load BEFORE forwarding, overriding, patching against, or explaining any record whose winner traces to one of these\", \"whose regenerated records stay OUT of authored patches\", \"NPC Plugin Chooser / NPC-merge output (NPC_Token.json)\", \"DynDOLOD / Occlusion.esp\", and \"this check decides what a patch may copy.\" Two non-quotation flags worth recording: (1) id 13 reps 2 and 3 attribute regeneration-timing coverage to M that the text does not contain — paraphrase over-reach, not contamination; (2) id 6 rep 3 names \"requiem-armor-patching\" as a better route, a skill from the agent's own environment listing rather than the lettered menu — the agent explicitly notes it \"is not in the lettered menu\" and does not pick it, so it did not affect the score, but it confirms judges can see their local skill set and this should be watched in future runs.\n\nCANDIDATE A (run-4 text, with PGPatcher.esp) ASSESSMENT. The named-plugin list is doing nearly all the work in both directions. Every recall hit cites at least one list item; both recall misses are rows where the plugin name sat in a subordinate clause (\"looks like X is sitting on top\") or inside a naturalistic modlist filename and lost salience to a competing skill that named the user's stated goal. Symmetrically, all four specificity misses are bare name-matches on Reqtificator (1), ParallaxGen (2), and DynDOLOD/Occlusion (1) in queries about TOOL WORKFLOW — re-running, load-order placement, fixing a generation failure — rather than about records. The trigger clause already scopes correctly, and the reps that answered N proved it: they quoted it to rule M out. The clause simply loses to the name list when the query is about the generator rather than its output.\n\nPGPATCHER.ESP SPECIFICALLY. It earns its place on recall: ids 1 and 10, six rows, six hits, every one citing PGPatcher by name — id 10's \"which model path do I keep\" is exactly the copy decision M exists to gate, and the string is what got it there. Its cost is id 13, the worst specificity row (2/3 miss). Net across the eight PGPatcher-adjacent rows: 6 recall hits, 1 specificity hit, 2 misses. Keep it.\n\nRECOMMENDATION. Ship Candidate A unchanged; both gates clear with margin and no miss is a correctness hazard (every specificity miss loads a skill that then declines to apply, costing tokens, not accuracy). If a cheap tightening is wanted before locking, the highest-leverage edit is a negative-scope clause on the workflow axis — on the order of \"this is about the OUTPUT RECORDS, not running or troubleshooting the generators themselves\" — which addresses ids 12 and 13 (3 of 4 specificity misses) without touching the plugin-name list the recall depends on. Do not fix the id-2 recall miss by adding action verbs; that trades away the specificity margin for one row two of three reps already get right.",
+   "misses_run3": [
+    {
+     "id": 2,
+     "rep": 2,
+     "query": "override the winning record for this steel sword and bump its damage — pull the conflict tree first, looks like Requiem for the Indifferent.esp is sitting on top",
+     "should_trigger": true,
+     "pick": "D",
+     "diagnosis": "Recall miss. The judge explicitly recognized the trigger (\"Requiem context (Reqtificator on top) also flags tool-output-awareness\") but ranked the mechanical action higher, routing to D (bulk-record-jobs) because that entry advertises conflict-tree pulling and \"who wins contested records\". The description's precedence language — \"Load BEFORE forwarding, overriding, patching against ... this check decides what a patch may copy\" — did not read as outranking a sibling skill that names the same conflict-tree mechanic. Competitive loss to D, not a recognition failure: the winner-plugin `Requiem for the Indifferent.esp` was matched correctly."
+    },
+    {
+     "id": 11,
+     "rep": 3,
+     "query": "where should DynDOLOD.esp and Occlusion.esp sit in my load order, and do I enable them in MO2 after I generate?",
+     "should_trigger": false,
+     "pick": "M",
+     "diagnosis": "Specificity miss (over-trigger). Pure plugin-name recognition: the query names two plugins the description lists verbatim (\"DynDOLOD / `Occlusion.esp`\"), and the judge stopped there — \"Entry M explicitly covers DynDOLOD/Occlusion.esp ... This matches best among the menu.\" It never tested the verb gate; the question is load-order placement and MO2 activation, none of \"forwarding, overriding, patching against, or explaining any record\". The other two reps applied that gate correctly and answered N, so this is variance around a name-match shortcut rather than a systematic defect."
+    },
+    {
+     "id": 13,
+     "rep": 3,
+     "query": "should I re-run ParallaxGen after I add a new mesh replacer mod, or is that unnecessary?",
+     "should_trigger": false,
+     "pick": "M",
+     "diagnosis": "Specificity miss (over-trigger), same failure mode as id 11 rep 3 and by the same judge replication. The tool name ParallaxGen appears in the description's list, and the judge generalized from \"recognize generated tool-output plugins\" to workflow ownership: \"deciding what stays out of authored patches / when regeneration matters relates to understanding ParallaxGen's regenerated output nature.\" That bridge is the judge's own invention — the block scopes the check to records, not to when the generator should be re-run. Reps 1 and 2 drew the line correctly."
+    }
+   ],
+   "misses_run4": [
+    {
+     "id": 2,
+     "rep": 3,
+     "query": "override the winning record for this steel sword and bump its damage — pull the conflict tree first, looks like Requiem for the Indifferent.esp is sitting on top",
+     "should_trigger": true,
+     "pick": "B",
+     "diagnosis": "Recall miss. Agent routed on the ACTION verb (\"bump its damage\" on a weapon) to SkyPatcher-authoring and never processed the named plugin. `Requiem for the Indifferent.esp` is a verbatim string in M's description, yet the reasoning does not mention it at all — the Reqtificator clause lost the salience contest against B's explicit \"rebalancing weapons\" phrasing. This is the one description-attributable weakness: M's trigger clause leads with the neutral verb list (\"Load BEFORE forwarding, overriding, patching against\") rather than with the plugin-name recognition cue, so a query where the plugin name is an aside (\"looks like X is sitting on top\") loses to a skill whose description names the user's stated goal. Reps 1 and 2 on the identical query both hit M, so this is variance at the margin, not a systematic gap."
+    },
+    {
+     "id": 5,
+     "rep": 3,
+     "query": "explain what Authoria - Output - Synthesis Gameplay.esp does to the economy so I can write a compatible patch against it",
+     "should_trigger": true,
+     "pick": "D",
+     "diagnosis": "Recall miss. Agent reframed \"explain what X does to the economy\" as a load-order-wide economy audit and matched entry D (bulk-record-jobs) on its \"wants a catalogue, audit... or wants a patch rebuilt\" language. It never registered \"Synthesis\" as the generated-output signal, despite \"Synthesis output\" being an explicit item in M's list and \"explaining\" being an explicit verb in M's trigger clause. Contributing factor: the plugin name is a naturalistic modlist name (`Authoria - Output - Synthesis Gameplay.esp`) rather than a canonical filename, so the match required reading the middle of the string. Reps 1 and 2 both hit M with direct quotes from the trigger clause."
+    },
+    {
+     "id": 11,
+     "rep": 3,
+     "query": "where should DynDOLOD.esp and Occlusion.esp sit in my load order, and do I enable them in MO2 after I generate?",
+     "should_trigger": false,
+     "pick": "M",
+     "diagnosis": "Specificity miss, but a well-reasoned one and near the boundary. The agent explicitly diagnosed the mismatch — \"the question here is really just load-order/MO2 workflow\" — and picked M anyway as \"closest match since it explicitly lists Occlusion.esp/DynDOLOD as generated tool output.\" Reasoning and pick do not conflict (it knowingly chose closest-fit over none), so no override applied. Root cause is not the trigger clause, which correctly scopes to forwarding/overriding/patching/explaining records; it is the plugin-name list acting as a keyword magnet in a menu where no entry covers load-order placement, leaving M as the only entry sharing any noun with the query. Reps 1 and 2 correctly answered N, both citing the same trigger-clause scoping."
+    },
+    {
+     "id": 12,
+     "rep": 1,
+     "query": "the Reqtificator run just failed with a 'missing master' error — how do I get the patch to finish generating?",
+     "should_trigger": false,
+     "pick": "M",
+     "diagnosis": "Specificity miss. Pure keyword capture on \"Reqtificator\" with no engagement with M's trigger clause: the reasoning asserts the error \"relates to recognizing/understanding Reqtificator output, per entry M's explicit mention of Reqtificator\" — i.e. it justifies the pick from the tool NAME alone, ignoring that M scopes to records whose winner traces to that output, not to the generator's own run failures. This is the failure mode the named-plugin list buys recall with. Reps 2 and 3 both correctly separated \"fixing the Reqtificator's own build\" from \"handling its output records\" and answered N."
+    },
+    {
+     "id": 13,
+     "rep": 2,
+     "query": "should I re-run ParallaxGen after I add a new mesh replacer mod, or is that unnecessary?",
+     "should_trigger": false,
+     "pick": "M",
+     "diagnosis": "Specificity miss, with over-reading of the description. The agent claims \"Entry M explicitly covers recognizing ParallaxGen (PGPatcher.esp) as generated tool output and when it needs to be treated/regenerated relative to new mods\" — the second half is not in the text block; M says only that ParallaxGen's regenerated records stay out of authored patches, and never addresses regeneration timing or workflow. This is an inference presented as explicit coverage, not a quotation, so it is not environment contamination, but it is the agent supplying scope the description does not grant. Rep 1 on the same query correctly answered N, reasoning that the query concerns tool-rerun workflow and not M's stated trigger."
+    },
+    {
+     "id": 13,
+     "rep": 3,
+     "query": "should I re-run ParallaxGen after I add a new mesh replacer mod, or is that unnecessary?",
+     "should_trigger": false,
+     "pick": "M",
+     "diagnosis": "Specificity miss, same query and same mechanism as rep 2 but with less justification — a two-sentence pick resting on \"Menu M covers ParallaxGen (PGPatcher.esp) explicitly as generated tool output,\" plus the assertion that the request is about \"recognizing regenerated output and when it needs rerunning,\" which M does not cover. Bare name-match on `PGPatcher.esp`. The clustering of both id-13 misses on the ParallaxGen row (2 of 3 reps) makes this the weakest specificity row in the set."
+    }
+   ]
+  }
  }
 }

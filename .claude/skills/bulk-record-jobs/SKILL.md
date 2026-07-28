@@ -1,7 +1,7 @@
 ---
 name: bulk-record-jobs
 description: >-
-  Plan bulk record jobs over the load order — catalogues, audits, link graphs, conflict surveys, patch rebuilds — on houseCARL's bulk primitives with one canonical JSON shape, instead of per-record loops. Use for any many-records-to-one-deliverable request, and in ANY subagent task told to "extract X and return JSON". Load before the first query — loops and schema drift lock in at the first call.
+  Plan bulk record jobs over the load order on houseCARL's bulk primitives with one canonical JSON shape. Use when the user wants a catalogue, audit, spreadsheet, or link graph of records, asks who wins contested records, or wants a patch rebuilt against a new mod version — and in ANY subagent task told to "extract X and return JSON". Load before the first query — per-record loops lock in at the first call.
 ---
 
 # Bulk Record Jobs

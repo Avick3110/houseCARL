@@ -1,7 +1,7 @@
 ---
 name: tool-output-awareness
 description: >-
-  Recognize generated tool-output plugins — Reqtificator (`Requiem for the Indifferent.esp`, `Reqtificated` per-mod patches), DynDOLOD / `Occlusion.esp`, ParallaxGen (`PGPatcher.esp`), Synthesis output, xLODGen, NPC Plugin Chooser / NPC-merge output (`NPC_Token.json`) — whose regenerated records stay OUT of authored patches. Load BEFORE forwarding, overriding, patching against, or explaining any record whose winner traces to one of these — this check decides what a patch may copy.
+  Recognize generated tool-output plugins — Reqtificator (`Requiem for the Indifferent.esp`, `Reqtificated` per-mod patches), DynDOLOD / `Occlusion.esp`, ParallaxGen, Synthesis output, xLODGen, NPC Plugin Chooser / NPC-merge output (`NPC_Token.json`) — whose regenerated records stay OUT of authored patches. Load BEFORE forwarding, overriding, patching against, or explaining any record whose winner traces to one of these — this check decides what a patch may copy.
 ---
 
 # Tool Output Awareness
