@@ -26,8 +26,8 @@ namespace HousecarlGenerator;
 ///   PNAM-CHAIN-NOOP  — the mid plugin re-lists SIX INFOs carrying a PNAM chain in their original relative order →
 ///                      net order UNCHANGED. Teeth: proves the after-target arm actually places by PNAM. Were PNAM
 ///                      ignored (everything tail-appended), those six would rotate to the end and this fails.
-///   PNAM-HEAD        — an INFO whose PNAM names a record no plugin defines is placed at the HEAD, not silently
-///                      tail-appended — the arm that keeps an unresolvable link from reading as "no link".
+///   PNAM-HEAD        — an INFO whose PNAM names a record no plugin defines is placed at the HEAD as
+///                      HeadUnresolvable, not silently tail-appended, and not confused with the zero marker.
 ///   PNAM-CYCLE       — two INFOs whose PNAMs point at each other TERMINATE and both appear (a cycle degrades to a
 ///                      placement, never a hang or a dropped line).
 ///   PNAM-SELF        — an INFO whose PNAM names its OWN record degrades to a placement AND says so on the note.
@@ -71,6 +71,13 @@ namespace HousecarlGenerator;
 ///   CYCLE-PREPLACED  — a PNAM cycle whose members were BOTH already placed by an earlier plugin, so no recursion
 ///                      occurs. The shape post-hoc CountPnamCycles was written for, and the one the old
 ///                      placement-time signal could never see; without it CountPnamCycles could return 0 unnoticed.
+///   RENDER-BIG-TOPIC — over the row cap with nothing moved must not print an EMPTY list, and a SINGLE-topic
+///                      report must ignore the cap (it counts rows, so max_chars could not lift it).
+///   RENDER-CLAIM-GATES — two aggregate claims that were stated unconditionally: the header counted plugins
+///                      successfully READ while calling them the plugins that TOUCH the topic (printing a
+///                      different number from the banner directly above it), and "none of which changed position"
+///                      was asserted whenever the moved set was empty — including where the analysis never ran,
+///                      contradicting the note two lines below. Both now gated; this pins the gates.
 ///   DEGRADE-CEILINGS — both bounds, previously unpinned: the move-analysis line ceiling (order still exact, moved
 ///                      set not computed) and the PNAM-chain hop ceiling on a 600-deep FORWARD chain — the
 ///                      stack-overflow shape, which must degrade and say so rather than take the process down.
@@ -283,7 +290,7 @@ public static class DialogueInfoOrderProbe
         {
             var io = Order(tHead.FormKey);
             var e = io?.Order.FirstOrDefault(x => x.Info == headSecond);
-            bool ok = e is { Index: 0, Placement: InfoPlacement.Head };
+            bool ok = e is { Index: 0, Placement: InfoPlacement.HeadUnresolvable };
             all &= Pass("PNAM-HEAD", ok, e is null ? "line not in order" : $"index={e.Index} placement={e.Placement}");
         }
 
@@ -311,7 +318,7 @@ public static class DialogueInfoOrderProbe
         {
             var io = Order(zeroTopic);
             var e = io?.Order.FirstOrDefault(x => x.Info == zeroMarkedReal);
-            bool measured = e is { Placement: InfoPlacement.Head };      // Head ⇒ the reader saw a PRESENT zero
+            bool measured = e is { Placement: InfoPlacement.HeadFirstMarker };      // Head ⇒ the reader saw a PRESENT zero
             bool ok = zeroed > 0 && e is not null
                       && measured == DialogueInfoOrder.PnamZeroIsDistinguishable
                       && e.Index == 0;
@@ -517,10 +524,12 @@ public static class DialogueInfoOrderProbe
                 {
                     var rep = DialogueValidate.Run(resolver, assets, tOrder.FormKey);
                     string rendered = DialogueWire.Render(rep, 0);
-                    bool loud = rep.CheckError is not null
-                                || (rep.Topics.Count == 1 && rep.Topics[0].InfoOrder is { Complete: false });
-                    bool saysSo = rendered.Contains("could NOT complete", StringComparison.Ordinal)
-                                  || rendered.Contains("INCOMPLETE", StringComparison.Ordinal);
+                    // Asserted on the MECHANISM, not on "loud somehow". The defence-in-depth argument rests on
+                    // the fetch THROWING before any order code runs; also accepting the INCOMPLETE render would
+                    // keep this green if the fetch started swallowing its failure — which is the regression the
+                    // arm exists to catch, so the looser form could not fail on what it claims to pin.
+                    bool loud = rep.CheckError is not null;
+                    bool saysSo = rendered.Contains("could NOT complete", StringComparison.Ordinal);
                     all &= Pass("DEFINER-LOCK-LOUD", loud && saysSo,
                         $"checkError={(rep.CheckError is null ? "<none>" : "set")} rendersLoud={saysSo}");
                 }
@@ -547,11 +556,11 @@ public static class DialogueInfoOrderProbe
                     var rep = DialogueValidate.Run(resolver, assets, tOrder.FormKey);
                     string rendered = DialogueWire.Render(rep, 0);
                     // Either a named CheckError, or an explicitly incomplete order — never a clean-looking pass.
-                    bool loud = rep.CheckError is not null || rep.Error is not null
-                                || (rep.Topics.Count == 1 && rep.Topics[0].InfoOrder is { Complete: false });
-                    bool saysSo = rendered.Contains("could NOT complete", StringComparison.Ordinal)
-                                  || rendered.Contains("INCOMPLETE", StringComparison.Ordinal)
-                                  || rendered.Contains("error:", StringComparison.Ordinal);
+                    // Same tightening as DEFINER-LOCK-LOUD. Accepting rep.Error here would have accepted the very
+                    // branch a swallowing GetRecord takes (body is null -> ForError), so the arm could not fail
+                    // on the mechanism it names.
+                    bool loud = rep.CheckError is not null;
+                    bool saysSo = rendered.Contains("could NOT complete", StringComparison.Ordinal);
                     all &= Pass("WINNER-LOCK-LOUD", loud && saysSo,
                         $"checkError={(rep.CheckError is null ? "<none>" : "set")} topics={rep.Topics.Count} rendersLoud={saysSo}");
                 }
@@ -577,6 +586,35 @@ public static class DialogueInfoOrderProbe
             bool soloOk = solo.Contains("#40", StringComparison.Ordinal);   // full list, cap ignored
             all &= Pass("RENDER-BIG-TOPIC", questOk && soloOk,
                 $"moved={io.Moved.Count} questSaysNoMoves={questOk} soloListsAll={soloOk}");
+        }
+
+        // ---------- RENDER-CLAIM-GATES: two aggregate claims that were stated unconditionally ----------
+        // (a) the header counted plugins successfully READ while calling them the plugins that TOUCH the topic,
+        //     printing a different number from the INCOMPLETE banner directly above it; (b) "none of which
+        //     changed position" was asserted whenever the moved set was empty — including when move analysis
+        //     never ran, contradicting the note two lines below it.
+        {
+            var lines = new List<InfoLine>();
+            for (int i = 1; i <= 40; i++) lines.Add(new InfoLine(FormKey.Factory($"{i:X6}:big.esp"), null, false));
+
+            // One list read, one plugin unread -> the header must say 2 touching, not 1, and not "1 plugins".
+            var partial = DialogueInfoOrder.Compute(
+                new List<(string, IReadOnlyList<InfoLine>)> { ("read.esp", lines) }, _ => null, new[] { "locked.esp" });
+            string rPartial = RenderOrderOnly(partial, asQuest: true);
+            bool countOk = rPartial.Contains("merged across 2 plugins that touch", StringComparison.Ordinal)
+                           && !rPartial.Contains("merged across 1 plugins", StringComparison.Ordinal);
+
+            // Move analysis skipped (baseline untrusted) -> must NOT claim nothing moved.
+            var skipped = DialogueInfoOrder.Compute(
+                new List<(string, IReadOnlyList<InfoLine>)> { ("read.esp", lines) }, _ => null,
+                new[] { "definer.esp" }, originIsDefiningPlugin: false);
+            string rSkipped = RenderOrderOnly(skipped, asQuest: true);
+            bool claimOk = !skipped.MovesComputed
+                           && !rSkipped.Contains("none of which changed position", StringComparison.Ordinal)
+                           && rSkipped.Contains("was NOT computed", StringComparison.Ordinal);
+
+            all &= Pass("RENDER-CLAIM-GATES", countOk && claimOk,
+                $"touchingCount={countOk} movedClaimGated={claimOk} (movesComputed={skipped.MovesComputed})");
         }
 
         // ---------- CYCLE-PREPLACED: the shape post-hoc detection was added FOR ----------

@@ -137,13 +137,18 @@ separating out: no order can satisfy it, so the loop is broken at whichever of i
 the positions of the lines inside it are not meaningful. Don't expect a cyclic line at the top — expect it
 somewhere arbitrary. `validate_dialogue` reports the cycle explicitly rather than leaving you to infer it.
 
-> **Evidence note.** The HEAD/tail/after-target placement rules are derived from xEdit's own INFO-ordering
-> implementation (`ProcessDIAL`) — the community's reference model of engine behaviour. The **tail-append**,
-> **after-target** and **HEAD** arms are all exercised against a live load order (2026-07-27, #275):
-> `HirelingQuestTopic1` alone shows a tail-append re-list, a six-line PNAM chain, and a zero-PNAM line
-> correctly placed first. What remains model-derived rather than measured in game is that the *engine* walks
-> the same order xEdit computes, and the foreign-target pull-in. Treat those as strong but not proven, in the
-> same spirit as the `IsDeleted` note in `SKILL.md`.
+> **Evidence note.** The head/tail/after-target placement rules are derived from xEdit's own INFO-ordering
+> implementation (`ProcessDIAL`) — the community's reference model of engine behaviour. Run against a live load
+> order (2026-07-28, #275), `HirelingQuestTopic1` exercises the **after-target** arm (a six-line PNAM chain that
+> moves nothing), the **head** arm (a zero-PNAM line correctly pinned first), and plain tail placement of the
+> defining plugin's own lines.
+>
+> What has **not** been seen against real data is a **re-list that tail-appends** — the reordering this whole
+> view exists to surface. It is pinned by the guard suite and reproduces the reported shape synthetically, but
+> every contested topic sampled on the test load order was well-behaved (the patches carried their PNAMs), so no
+> live instance was found. Also model-derived rather than measured: that the *engine* walks the same order xEdit
+> computes, and the foreign-target pull-in. Treat those as strong but not proven, in the same spirit as the
+> `IsDeleted` note in `SKILL.md`.
 
 Omitting a line no longer removes it. To stop one playing, condition it out (the verifiable lever) or mark it
 deleted — see the removal note in `SKILL.md`, including which tool to use and which not to.

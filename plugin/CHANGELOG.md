@@ -16,9 +16,11 @@ reorder changes which line answers while leaving every field identical, so no fi
 prints the merged order the game actually walks, marks any line whose position **moved**, and names the mod that
 moved it. The rule it makes visible: **re-listing a line appends it to the bottom** unless that mod also carries the
 line's previous-line link. So a mod that touches one line of an eight-line topic can silently send it to the back,
-and a broader line answers in its place. That is the shape behind "I got hired for 79 gold when the prompt says
-5000" — the refusal was line #1 and two mods pushed it to #8 — and behind most "my dialogue mod stopped working"
-reports. The order is computed to match what xEdit's INFO Order (INOM/INOA) rows show, which completes the half of
+and a broader line answers in its place. That is the shape behind the report this came from — a hireling asking 5000
+gold but hiring for 79, because the "you can't afford me" refusal had stopped being the first line reached — and
+behind most "my dialogue mod stopped working" complaints, where the line is still present but no longer reached in
+time. Whether any given topic is affected depends on your load order: a mod that re-lists a line **and carries its
+previous-line link** moves nothing, which is what a well-behaved patch does. The order is computed to match what xEdit's INFO Order (INOM/INOA) rows show, which completes the half of
 this that 1.9.0 left open (that release taught the conflict diff to stop calling a pure reorder "identical to
 winner"; this one shows you the order itself). One line you may see flagged: a line whose previous-line link was
 written as an explicit "I am first" marker is pinned to the **top** of the topic, and the report says so — that is

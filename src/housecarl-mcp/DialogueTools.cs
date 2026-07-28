@@ -241,15 +241,27 @@ static class DialogueWire
         // characters. Measured live: a 37-line topic printed a header and nothing under it.
         bool listAll = !indent || io.Order.Count <= MaxOrderRows;
 
-        sb.Append(pad).Append("  effective INFO order — merged across ").Append(io.ContributingPlugins.Count)
-          .Append(" plugins that touch this topic; the game walks it top to bottom and plays the FIRST line whose conditions pass:\n");
+        // Count the plugins that TOUCH the topic, not the ones successfully READ. On the incomplete path this
+        // line sits directly beneath a banner giving the true total, so printing the read count put two different
+        // numbers for the same quantity on adjacent lines, the second one wrong (and "1 plugins").
+        int touching = io.ContributingPlugins.Count + io.UnreadContributors.Count;
+        sb.Append(pad).Append("  effective INFO order — merged across ").Append(touching)
+          .Append(touching == 1 ? " plugin that touches" : " plugins that touch")
+          .Append(" this topic; the game walks it top to bottom and plays the FIRST line whose conditions pass:\n");
 
         // Over the cap AND nothing moved: say so. Falling through printed "listing only the 0 that moved"
         // followed by an EMPTY list — a header promising an order and delivering none.
+        //
+        // But an empty moved set means "nothing moved" ONLY if the analysis ran. Where it was skipped (past the
+        // line ceiling, or an untrustworthy baseline) the same emptiness means "not computed" — asserting the
+        // first there contradicted the note printed two lines below it, and claimed a match against "the
+        // defining plugin's own list" in precisely the case where that plugin could not be read.
         if (!listAll && moved.Count == 0)
         {
-            sb.Append(pad).Append("    ").Append(io.Order.Count)
-              .Append(" lines, none of which changed position — the merged order matches the defining plugin's own list. Validate this topic's DIAL on its own to see every line.\n");
+            sb.Append(pad).Append("    ").Append(io.Order.Count).Append(io.MovesComputed
+                ? " lines, none of which changed position — the merged order matches the defining plugin's own list."
+                : " lines. Which lines moved was NOT computed (see the note below), so this is not a statement that none did.")
+              .Append(" Validate this topic's DIAL on its own to see every line.\n");
             AppendOrderNote(sb, io, pad);
             return true;
         }
@@ -268,7 +280,13 @@ static class DialogueWire
             // and this would call them late additions as flat fact under a banner saying the baseline is suspect.
             else if (e.OriginIndex is null && io.BaselineTrusted) sb.Append("  (added by a later plugin)");
             sb.Append("  placed by ").Append(e.PlacedBy);
-            if (e.Placement == InfoPlacement.Head) sb.Append(" [PNAM names no reachable line — forced to the top]");
+            // The zero "I am first" marker and a broken link both land at the head, but only one is a fault —
+            // and the marker is the COMMON shape, so identical wording meant most readers met a correct vanilla
+            // line described in the vocabulary of a malformed one, and would go and "fix" it.
+            if (e.Placement == InfoPlacement.HeadFirstMarker)
+                sb.Append("  [pinned first by its own PNAM marker — deliberate, not a fault]");
+            else if (e.Placement == InfoPlacement.HeadUnresolvable)
+                sb.Append("  [PNAM names no reachable line — forced to the top; worth a look]");
             sb.Append('\n');
         }
 
@@ -287,11 +305,14 @@ static class DialogueWire
         return true;
     }
 
-    /// <summary>The per-topic DEGRADATION note (a malformed PNAM, a cycle, a truncated chain, skipped move
-    /// analysis) — data problems in the plugins, so they ride the topic they belong to. The STANDING PNAM-zero
-    /// fidelity limit is deliberately NOT here: it applies to every topic of 2+ lines whether contested or not, so
-    /// it lives in the standing-limits footer where it is stated once and cannot be missed by a topic that happened
-    /// to report no moves.</summary>
+    /// <summary>The per-topic DEGRADATION note (a malformed PNAM, a cycle, a truncated chain, an unread
+    /// contributor, skipped move analysis) — these are data problems in the plugins, so they ride the topic they
+    /// belong to rather than a report-wide footer.
+    ///
+    /// There is deliberately NO standing PNAM-zero caveat, here or in the footer: the reader distinguishes a
+    /// present-but-zero PNAM from an absent one (see <c>DialogueInfoOrder.PnamZeroIsDistinguishable</c>), so the
+    /// caveat that shipped for four review rounds described a limitation that does not exist. It was retracted,
+    /// and <c>RENDER-NO-FALSE-CAVEAT</c> pins its absence — do not re-add it.</summary>
     static void AppendOrderNote(StringBuilder sb, InfoOrderView io, string pad)
     {
         if (io.Note is { } note)
