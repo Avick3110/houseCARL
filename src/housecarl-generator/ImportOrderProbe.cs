@@ -138,10 +138,22 @@ internal static class ImportOrderProbe
             // Source\Scripts (own folder == an auto root), and the scan always reaches the game's Data folder
             // (an auto root == vanilla). Driven through the REAL PlanImports, not a hand-built plan.
             PapyrusSourceRoot Root(string provider, string dir) => new(provider, dir, @"Source\Scripts");
+            // PlanImports narrows the scan to what the target REFERENCES, so the arm needs a real target: it names a
+            // script that autoA provides and says nothing about autoB, which must therefore be dropped.
+            var targetPsc = Path.Combine(scriptDir, "HCPlanTarget.psc");
+            File.WriteAllText(targetPsc, "Scriptname HCPlanTarget extends Quest\n\nFunction Go()\n    HCSkseHelper.Ping()\nEndFunction\n");
+            File.WriteAllText(Path.Combine(autoA, "HCSkseHelper.psc"), "Scriptname HCSkseHelper\n");
+            File.WriteAllText(Path.Combine(autoB, "HCUnrelated.psc"), "Scriptname HCUnrelated\n");
             var labelled = CompileTools.PlanImports(
-                scriptDir, fakeCompiler, new[] { userB },
-                new[] { Root("Data", fakeVanilla), Root("SKSE", autoA), Root("Me", scriptDir) },
+                targetPsc, scriptDir, fakeCompiler, new[] { userB },
+                new[] { Root("Data", fakeVanilla), Root("SKSE", autoA), Root("PapyrusUtil", autoB), Root("Me", scriptDir) },
                 autoEnabled: true, importSetName: null, warning: null);
+            Check(labelled.Dirs.Any(d => d.Equals(autoA, StringComparison.OrdinalIgnoreCase)),
+                  "a scanned folder the script REFERENCES is kept");
+            Check(!labelled.Dirs.Any(d => d.Equals(autoB, StringComparison.OrdinalIgnoreCase)),
+                  "a scanned folder the script never references is DROPPED (the narrowing that makes the scan usable at modlist scale)");
+            Check(labelled.AutoScanned == 3 && labelled.AutoProviders.Count == 1,
+                  "the plan reports BOTH numbers — 3 folders scanned, 1 kept — so a dropped dependency reads as dropped, not overlooked");
             string LabelOf(string dir) => labelled.Entries.First(e => e.Dir.Equals(dir, StringComparison.OrdinalIgnoreCase)).Origin;
             Check(LabelOf(scriptDir) == CompileTools.ImportPlan.OwnFolder,
                   "a dir that is BOTH the script's own folder and a scanned mod is labelled the own folder (it holds that slot)");
@@ -151,7 +163,7 @@ internal static class ImportOrderProbe
             Check(LabelOf(userB) == CompileTools.ImportPlan.CallerDirs, "a caller dir is labelled import_dirs=");
             Check(labelled.Dirs.SequenceEqual(CompileTools.BuildImports(scriptDir, fakeCompiler, userB,
                       new[] { fakeVanilla, autoA, scriptDir }), StringComparer.OrdinalIgnoreCase),
-                  "PlanImports' dirs ARE BuildImports' output — the labels describe the path that actually ran");
+                  "PlanImports' dirs ARE BuildImports' output over the KEPT folders — the labels describe the path that actually ran");
             Check(labelled.CallerCount == 1 && labelled.AutoProviders.SequenceEqual(new[] { "SKSE" }),
                   "the summary counts are derived from the FINAL entries: 1 caller, 1 auto (Data and the own folder are not counted as mods)");
         }
