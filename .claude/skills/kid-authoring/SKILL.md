@@ -1,6 +1,7 @@
 ---
 name: kid-authoring
-description: Author or interpret KID (Keyword Item Distributor) `_KID.ini` files — runtime, no-ESP distribution of keywords onto items (weapons, armor, ammo, magic effects, potions, scrolls, books, soul gems, spells, enchantments, and more), from the bundled KID grammar reference. Use when the user wants to write or fix a `_KID` ini, add or distribute a keyword to items, tag all iron weapons / heavy armor / food / soul gems / a whole mod's gear with a keyword, filter items by name, archetype, equip slot, enchanted or templated state, or damage/armor/weight range, set up an `ExclusiveGroup` of mutually-exclusive keywords — or asks what an existing `_KID.ini` does, whether a given item gets a keyword from it, why a line isn't applying, or to audit or review a mod's KID lines. This is keywords on ITEMS — keywords on NPCs are SPID, items in containers are CID, editing a record's own fields is SkyPatcher. Load before writing or reading any KID line — a misread token silently changes what gets tagged.
+description: >-
+  Author or interpret KID (Keyword Item Distributor) `_KID.ini` files — runtime, no-ESP distribution of keywords onto items. Use when writing or auditing a `_KID.ini`, tagging items by name / archetype / equip-slot / stat filters, or asking why a KID line isn't applying. Keywords on NPCs are SPID, not KID. Load before any KID line — a misread token silently changes what gets tagged.
 ---
 
 # KID Authoring

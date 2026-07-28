@@ -1,6 +1,7 @@
 ---
 name: facegen-diagnostics
-description: Diagnose and (where houseCARL can) repair the dark / grey / black-face NPC bug in Skyrim SE — resolve the NPC to a FormKey, compare the load-order record winner against the VFS facegen file winner, read and write the winning facegen mesh's values, place the correct facegen as a winning override, or forward the matching appearance. Use when an NPC has a dark, grey, black, brown, or discolored face, a head darker than its body or a neck seam, a face "fine in xEdit but wrong in game", a whole mod's NPCs gone dark after an ESL-compaction or merge, a missing or headless face, or the player's own face turned grey — or when the user mentions FaceGen, facegeom/facetint, the dark face bug, or Face Discoloration Fix. Load before judging any face bug — the fix hinges on which of two precedence systems (record vs file) wins.
+description: >-
+  Diagnose and repair the dark / grey / black-face NPC bug in Skyrim SE by comparing the record winner against the VFS facegen file winner. Use for any discolored face, neck seam, "fine in xEdit but wrong in game", NPCs gone dark after an ESL-compaction or merge, or any FaceGen / facegeom / facetint mention. Load before judging any face bug — record-vs-file precedence decides the fix.
 ---
 
 # Facegen Diagnostics

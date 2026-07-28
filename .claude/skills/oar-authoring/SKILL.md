@@ -1,7 +1,7 @@
 ---
 name: oar-authoring
 description: >-
-  Author or interpret Open Animation Replacer (OAR) configs — the runtime, condition-driven animation system (config.json / user.json) that supersedes Dynamic Animation Replacer (DAR) and still reads DAR's legacy folders, from the bundled OAR reference. Use when the user wants to write or fix a config.json or user.json, add or edit animation conditions, gate a moveset, idle, dodge, or attack animation by weapon type, keyword, perk, race, or magic effect, set a submod priority, override a mod's conditions without editing it, read or convert a DAR _conditions.txt, or use an OAR addon condition (Math, RaySense, IED, Detection, Dialogue) — or asks why an animation isn't playing, which submod wins, or what a config does. This authors animation CONFIGS — distributing forms to NPCs is SPID, keywords to items is KID, editing record fields is SkyPatcher. Load before writing or reading any OAR config — OAR picks winners by priority, not plugin load order, and a wrong token silently no-ops at load.
+  Author or interpret Open Animation Replacer (OAR) configs — config.json / user.json conditions, submod priorities, DAR _conditions.txt conversion. Use when gating animations by weapon, keyword, perk, or race, editing or auditing an OAR config, or asking why an animation isn't playing or which submod wins. Load first — OAR picks winners by priority, not load order, and a wrong token no-ops.
 ---
 
 # OAR Authoring

@@ -1,6 +1,7 @@
 ---
 name: skse-plugin-authoring
-description: Author, build, or audit a native SKSE plugin DLL — C++ / CommonLibSSE-NG code, the layer beneath every SPID/KID/SkyPatcher distributor, framework, and crash logger — NOT an ESP/record plugin and NOT a .psc Papyrus script. Use when the user wants to write or build an SKSE plugin or a .dll, add a native or SKSE Papyrus function, create a BSTEventSink to react to game events, hook the game (trampoline, vtable, Address Library / versionlib), target SE + AE + VR from one DLL, set up a CommonLibSSE / CommonLibSSE-NG project, or audit / explain what an existing open-source SKSE plugin does. This is the C++ producer side — editing records (ARMO, NPC_, DIAL) is the mutagen/record tools, and the .psc Papyrus signature surface is `papyrus-reference`; "plugin" here is a compiled native DLL, not an .esp. Load before scaffolding, building, or reading any SKSE C++ — the multi-runtime, Address-Library, and lifecycle rules compile clean while failing at load.
+description: >-
+  Author, build, or audit a native SKSE plugin DLL in C++ against CommonLibSSE-NG — "plugin" here means a compiled DLL, not an .esp or .psc. Use for writing or building an SKSE plugin or .dll, native Papyrus functions, BSTEventSinks, game hooks (trampoline, Address Library), or SE + AE + VR targeting. Load before any SKSE C++ — multi-runtime and lifecycle rules compile clean yet fail at load.
 ---
 
 # SKSE Plugin Authoring
