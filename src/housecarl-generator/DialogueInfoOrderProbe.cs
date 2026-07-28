@@ -643,7 +643,11 @@ public static class DialogueInfoOrderProbe
             string rSibling = RenderOrderOnly(siblingIncomplete, asQuest: true);
             bool siblingOk = siblingIncomplete.Moved.Count > 0 && !siblingIncomplete.Complete
                              && !rSibling.Contains("the rest keep their original relative order",
-                                                   StringComparison.Ordinal);
+                                                   StringComparison.Ordinal)
+                             // …and the POSITIVE moved claim is qualified rather than suppressed: an unread
+                             // plugin could re-list the same line WITH its PNAM and put it back, so the lead
+                             // must say how far the evidence reaches instead of asserting the shift outright.
+                             && rSibling.Contains("as far as could be read", StringComparison.Ordinal);
 
             all &= Pass("RENDER-CLAIM-GATES", countOk && claimOk && completeGateOk && siblingOk,
                 $"touchingCount={countOk} skippedGated={claimOk} incompleteGated={completeGateOk} " +
