@@ -90,8 +90,14 @@ public enum InfoPlacement
     HeadFirstMarker,
 
     /// <summary>A PNAM present but naming no reachable INFO — a target no active plugin defines, a self-reference,
-    /// a link closing a cycle, or a chain past the depth ceiling. Placed at the head because that is what the model
-    /// does with an unusable link, but unlike <see cref="HeadFirstMarker"/> this one IS worth a second look.</summary>
+    /// or a chain past the depth ceiling. Placed at the head because that is what the model does with an unusable
+    /// link, and unlike <see cref="HeadFirstMarker"/> this one IS worth a second look.
+    ///
+    /// NOT cycle members, despite the obvious guess (measured; the claim was in this doc twice and false both
+    /// times). A cycle's inner frame does take the head arm, but the OUTER frame for that same FormKey overwrites
+    /// the placement with <see cref="AfterTarget"/> when it returns, because the recursion did place the target.
+    /// So no cycle member survives as HeadUnresolvable and none is annotated — cycles surface through the view's
+    /// Note, which names the members for that reason.</summary>
     HeadUnresolvable,
 
     /// <summary>PNAM resolved — placed immediately after its target.</summary>
@@ -263,7 +269,7 @@ public static class DialogueInfoOrder
                            .OrderByDescending(e => Math.Abs(e.Index - (e.OriginIndex ?? e.Index)))
                            .ToList();
 
-        state.Cycles = CountPnamCycles(order, state.Placed);
+        (state.Cycles, state.CycleMembers) = CountPnamCycles(order, state.Placed);
         return new InfoOrderView(entries, contributing, moved,
                                  BuildNote(state, order.Count, originIdx is not null, unreadContributors, originIsDefiningPlugin))
             { UnreadContributors = unreadContributors ?? Array.Empty<string>(),
@@ -299,9 +305,12 @@ public static class DialogueInfoOrder
                       (state.SelfReferencing.Count > 3 ? ", …" : "") +
                       ") — malformed, and placed as if the link were unresolvable");
         if (state.Cycles > 0)
-            parts.Add($"{state.Cycles} PNAM cycle(s) — no order satisfies a cycle, so the loop is broken at " +
-                      "whichever of its lines ends up FIRST in the order below, and the positions of the lines " +
-                      "INSIDE it are not authoritative");
+            parts.Add($"{state.Cycles} PNAM cycle(s), among these lines: " +
+                      string.Join(", ", state.CycleMembers.Take(4)) +
+                      (state.CycleMembers.Count > 4 ? ", …" : "") +
+                      " — no order satisfies a cycle, so the loop is broken at whichever of its lines ends up " +
+                      "FIRST in the order below, and the positions of the lines INSIDE it are not authoritative " +
+                      "(they carry no per-line annotation, which is why they are named here)");
         if (state.DepthCapped)
             parts.Add($"a PNAM chain ran past the {MaxChainDepth}-hop ceiling and was truncated — the lines beyond " +
                       "it are placed as if unlinked, so their order is not authoritative");
@@ -312,8 +321,10 @@ public static class DialogueInfoOrder
     /// not yet placed is placed FIRST (recursively, from the topic's own lines where possible) exactly as xEdit does,
     /// so a chain of PNAM-linked lines lands in chain order regardless of the order the file lists them.
     ///
-    /// Every malformed shape degrades to the HEAD (unresolvable) arm rather than throwing: a PNAM naming its own
-    /// record, a cycle (the line that closes the loop), and a chain past <see cref="MaxChainDepth"/>. The final
+    /// Malformed shapes degrade rather than throwing: a PNAM naming its own record and a chain past
+    /// <see cref="MaxChainDepth"/> both take the HeadUnresolvable arm. A CYCLE does not, despite taking that arm in
+    /// its inner frame — the outer frame for the same FormKey overwrites the placement with AfterTarget on return,
+    /// so cycles are reported on the Note (with their members named) rather than annotated per line. The final
     /// insert index is clamped because the recursion can mutate the list under this frame — the self-reference case
     /// reached a negative-length insert before the explicit guard was added.</summary>
     static void Place(MergeState state, InfoLine line, string plugin, int depth)
@@ -430,11 +441,13 @@ public static class DialogueInfoOrder
     /// clean on unsatisfiable input (PR #293 re-review). Each line has at most ONE PNAM edge, so this is a walk over
     /// a functional graph: follow each unvisited chain and count a cycle when it re-enters the current walk.
     /// Self-edges are excluded — those are reported as self-references, and would otherwise be counted twice.</summary>
-    static int CountPnamCycles(IReadOnlyList<FormKey> order, IReadOnlyDictionary<FormKey, Placed> placed)
+    static (int Count, List<FormKey> Members) CountPnamCycles(
+        IReadOnlyList<FormKey> order, IReadOnlyDictionary<FormKey, Placed> placed)
     {
         const int OnThisWalk = 1, Settled = 2;
         var seen = new Dictionary<FormKey, int>(order.Count);
         int cycles = 0;
+        var members = new List<FormKey>();
 
         foreach (var start in order)
         {
@@ -445,7 +458,13 @@ public static class DialogueInfoOrder
             {
                 if (seen.TryGetValue(cur, out int st))
                 {
-                    if (st == OnThisWalk) cycles++;               // re-entered this walk — a genuine loop
+                    if (st == OnThisWalk)
+                    {
+                        cycles++;                                // re-entered this walk — a genuine loop
+                        // Name the loop so the reader can find it: no cycle member carries an annotation
+                        // (see InfoPlacement.HeadUnresolvable), so the Note is the only handle they get.
+                        members.AddRange(walk.SkipWhile(k => k != cur));
+                    }
                     break;
                 }
                 seen[cur] = OnThisWalk;
@@ -457,7 +476,7 @@ public static class DialogueInfoOrder
             }
             foreach (var n in walk) seen[n] = Settled;
         }
-        return cycles;
+        return (cycles, members);
     }
 
     /// <summary>One line's placement outcome — bundled so every exit path of <see cref="Place"/> writes the whole
@@ -476,6 +495,7 @@ public static class DialogueInfoOrder
         public readonly HashSet<FormKey> SelfReferencing = new();
         public Func<FormKey, (InfoLine Line, string Plugin)?>? Fallback;
         public int Cycles;
+        public List<FormKey> CycleMembers = new();
         public bool DepthCapped;
     }
 }

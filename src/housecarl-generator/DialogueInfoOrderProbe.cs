@@ -73,11 +73,17 @@ namespace HousecarlGenerator;
 ///                      placement-time signal could never see; without it CountPnamCycles could return 0 unnoticed.
 ///   RENDER-BIG-TOPIC — over the row cap with nothing moved must not print an EMPTY list, and a SINGLE-topic
 ///                      report must ignore the cap (it counts rows, so max_chars could not lift it).
-///   RENDER-CLAIM-GATES — two aggregate claims that were stated unconditionally: the header counted plugins
-///                      successfully READ while calling them the plugins that TOUCH the topic (printing a
-///                      different number from the banner directly above it), and "none of which changed position"
-///                      was asserted whenever the moved set was empty — including where the analysis never ran,
-///                      contradicting the note two lines below. Both now gated; this pins the gates.
+///   RENDER-CLAIM-GATES — aggregate claims stated unconditionally: the header counted plugins successfully READ
+///                      while calling them the plugins that TOUCH the topic (a different number from the banner
+///                      directly above it), and "none of which changed position" was asserted whenever the moved
+///                      set was empty. Gated on BOTH axes — the analysis having RUN and having run over COMPLETE
+///                      input; an unread plugin AFTER the definer keeps MovesComputed true while lines are
+///                      missing, and this arm's first cut covered only the other axis and stayed green with the
+///                      Complete gate deleted.
+///   RENDER-HEAD-SPLIT — the HeadFirstMarker/HeadUnresolvable split asserted where a USER meets it. Pinned only
+///                      at the enum level, collapsing the two render branches back to one shared string would
+///                      restore the whole user-visible defect with the suite green — the fourth-pass lesson
+///                      applied to the fifth pass's own fix. Asserted per LINE, so a swap fails too.
 ///   DEGRADE-CEILINGS — both bounds, previously unpinned: the move-analysis line ceiling (order still exact, moved
 ///                      set not computed) and the PNAM-chain hop ceiling on a 600-deep FORWARD chain — the
 ///                      stack-overflow shape, which must degrade and say so rather than take the process down.
@@ -611,10 +617,54 @@ public static class DialogueInfoOrderProbe
             string rSkipped = RenderOrderOnly(skipped, asQuest: true);
             bool claimOk = !skipped.MovesComputed
                            && !rSkipped.Contains("none of which changed position", StringComparison.Ordinal)
-                           && rSkipped.Contains("was NOT computed", StringComparison.Ordinal);
+                           && rSkipped.Contains("is NOT known here", StringComparison.Ordinal);
 
-            all &= Pass("RENDER-CLAIM-GATES", countOk && claimOk,
-                $"touchingCount={countOk} movedClaimGated={claimOk} (movesComputed={skipped.MovesComputed})");
+            // The OTHER axis, and the one actually reported: an unread plugin AFTER the definer leaves the
+            // baseline trusted, so MovesComputed stays TRUE while lines are missing. Gating on MovesComputed
+            // alone passes here — measured: this arm's first cut used only the untrusted-baseline fixture and
+            // stayed green with the Complete gate deleted, the same vacuity the review found in it.
+            var incomplete = DialogueInfoOrder.Compute(
+                new List<(string, IReadOnlyList<InfoLine>)> { ("read.esp", lines) }, _ => null,
+                new[] { "locked.esp" });                       // definer read, a LATER plugin unread
+            string rIncomplete = RenderOrderOnly(incomplete, asQuest: true);
+            bool completeGateOk = incomplete.MovesComputed && !incomplete.Complete
+                                  && !rIncomplete.Contains("none of which changed position", StringComparison.Ordinal);
+
+            all &= Pass("RENDER-CLAIM-GATES", countOk && claimOk && completeGateOk,
+                $"touchingCount={countOk} skippedGated={claimOk} incompleteGated={completeGateOk} " +
+                $"(movesComputed={incomplete.MovesComputed}, complete={incomplete.Complete})");
+        }
+
+        // ---------- RENDER-HEAD-SPLIT: the split must be visible where users see it ----------
+        // HeadFirstMarker/HeadUnresolvable were pinned only at the enum level. Collapsing the two render branches
+        // back to one shared string would restore the whole user-visible defect — a correct vanilla line
+        // described as a fault — with the entire suite green. That is the fourth-pass lesson (a guard that never
+        // drives the shipped path cannot catch an unwired one) applied to the fifth pass's own fix.
+        {
+            // A CONTESTED view, because the uncontested branch prints a one-line summary and no rows at all —
+            // so the annotations under test never render there. Entries are built directly to put one of each
+            // placement in the same list; the placements themselves are pinned against Compute by PNAM-ZERO-AXIS
+            // and PNAM-HEAD. Asserted per LINE, not merely per report, so a swap would fail too.
+            var fkMarker = FormKey.Factory("00AA01:split.esp");
+            var fkBroken = FormKey.Factory("00AA02:split.esp");
+            var view = new InfoOrderView(
+                new[]
+                {
+                    new InfoOrderEntry(fkMarker, 0, "a.esp", InfoPlacement.HeadFirstMarker, 0, false, false),
+                    new InfoOrderEntry(fkBroken, 1, "b.esp", InfoPlacement.HeadUnresolvable, 1, false, false),
+                },
+                new[] { "a.esp", "b.esp" }, Array.Empty<InfoOrderEntry>(), null);
+
+            string rendered = RenderOrderOnly(view);
+            string markerLine = rendered.Split((char)10).FirstOrDefault(l => l.Contains(fkMarker.ToString(), StringComparison.Ordinal)) ?? "";
+            string brokenLine = rendered.Split((char)10).FirstOrDefault(l => l.Contains(fkBroken.ToString(), StringComparison.Ordinal)) ?? "";
+
+            bool markerOk = markerLine.Contains("deliberate, not a fault", StringComparison.Ordinal)
+                            && !markerLine.Contains("names no reachable line", StringComparison.Ordinal);
+            bool brokenOk = brokenLine.Contains("names no reachable line", StringComparison.Ordinal)
+                            && !brokenLine.Contains("deliberate, not a fault", StringComparison.Ordinal);
+            all &= Pass("RENDER-HEAD-SPLIT", markerOk && brokenOk,
+                $"markerWordedDeliberate={markerOk} unresolvableWordedSuspect={brokenOk}");
         }
 
         // ---------- CYCLE-PREPLACED: the shape post-hoc detection was added FOR ----------
@@ -664,6 +714,11 @@ public static class DialogueInfoOrderProbe
         Console.WriteLine(all ? "RESULT: PASS — effective INFO order holds." : "RESULT: FAIL");
         return all ? 0 : 1;
     }
+
+    /// <summary>Render a REAL topic through the shipped path, for arms that must assert on user-visible text
+    /// rather than on Compute's return value.</summary>
+    static string RenderTopic(LoadOrderResolver resolver, AssetResolver assets, FormKey topic) =>
+        DialogueWire.Render(DialogueValidate.Run(resolver, assets, topic), 0);
 
     /// <summary>Render just the INFO-order block for a synthesised view, by wrapping it in the minimum report the
     /// real renderer consumes — so the arms above pin the SHIPPED render path (the gated "nothing merges here"

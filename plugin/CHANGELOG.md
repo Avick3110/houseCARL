@@ -20,8 +20,9 @@ and a broader line answers in its place. That is the shape behind the report thi
 gold but hiring for 79, because the "you can't afford me" refusal had stopped being the first line reached — and
 behind most "my dialogue mod stopped working" complaints, where the line is still present but no longer reached in
 time. Whether any given topic is affected depends on your load order: a mod that re-lists a line **and carries its
-previous-line link** moves nothing, which is what a well-behaved patch does. The order is computed to match what xEdit's INFO Order (INOM/INOA) rows show, which completes the half of
-this that 1.9.0 left open (that release taught the conflict diff to stop calling a pure reorder "identical to
+previous-line link** moves nothing, which is what a well-behaved patch does. The order is computed to match what
+xEdit's INFO Order (INOM/INOA) rows show, which completes the half of this that 1.9.0 left open (that release
+taught the conflict diff to stop calling a pure reorder "identical to
 winner"; this one shows you the order itself). One line you may see flagged: a line whose previous-line link was
 written as an explicit "I am first" marker is pinned to the **top** of the topic, and the report says so — that is
 correct behaviour, not a fault, and it is often what keeps a vanilla refusal ahead of the line it guards.

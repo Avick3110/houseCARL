@@ -252,15 +252,20 @@ static class DialogueWire
         // Over the cap AND nothing moved: say so. Falling through printed "listing only the 0 that moved"
         // followed by an EMPTY list — a header promising an order and delivering none.
         //
-        // But an empty moved set means "nothing moved" ONLY if the analysis ran. Where it was skipped (past the
-        // line ceiling, or an untrustworthy baseline) the same emptiness means "not computed" — asserting the
-        // first there contradicted the note printed two lines below it, and claimed a match against "the
-        // defining plugin's own list" in precisely the case where that plugin could not be read.
+        // But an empty moved set is evidence of nothing unless the analysis RAN over COMPLETE input. Two separate
+        // ways it can fail, and the claim needs both:
+        //   MovesComputed — the analysis ran at all (not skipped by the line ceiling or a suspect baseline);
+        //   Complete      — it ran over every touching plugin's list. An unread plugin sitting AFTER the definer
+        //                   leaves the baseline trusted, so MovesComputed stays true while lines are missing —
+        //                   and the unread plugin is precisely the one that could have moved something.
+        // Gating on the first alone put "none of which changed position" between two lines saying positions may
+        // be wrong.
+        bool movesKnown = io.MovesComputed && io.Complete;
         if (!listAll && moved.Count == 0)
         {
-            sb.Append(pad).Append("    ").Append(io.Order.Count).Append(io.MovesComputed
+            sb.Append(pad).Append("    ").Append(io.Order.Count).Append(movesKnown
                 ? " lines, none of which changed position — the merged order matches the defining plugin's own list."
-                : " lines. Which lines moved was NOT computed (see the note below), so this is not a statement that none did.")
+                : " lines. Which lines moved is NOT known here (see the note below), so this is not a statement that none did.")
               .Append(" Validate this topic's DIAL on its own to see every line.\n");
             AppendOrderNote(sb, io, pad);
             return true;
