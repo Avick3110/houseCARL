@@ -138,10 +138,12 @@ the positions of the lines inside it are not meaningful. Don't expect a cyclic l
 somewhere arbitrary. `validate_dialogue` reports the cycle explicitly rather than leaving you to infer it.
 
 > **Evidence note.** The HEAD/tail/after-target placement rules are derived from xEdit's own INFO-ordering
-> implementation (`ProcessDIAL`) — the community's reference model of engine behaviour. The **tail-append**
-> arm is additionally confirmed against a live load order (2026-07-27, #275); the HEAD arm and the
-> foreign-target pull-in are model-derived and describe what houseCARL computes, not something measured in
-> game. Treat them as strong but not proven, in the same spirit as the `IsDeleted` note in `SKILL.md`.
+> implementation (`ProcessDIAL`) — the community's reference model of engine behaviour. The **tail-append**,
+> **after-target** and **HEAD** arms are all exercised against a live load order (2026-07-27, #275):
+> `HirelingQuestTopic1` alone shows a tail-append re-list, a six-line PNAM chain, and a zero-PNAM line
+> correctly placed first. What remains model-derived rather than measured in game is that the *engine* walks
+> the same order xEdit computes, and the foreign-target pull-in. Treat those as strong but not proven, in the
+> same spirit as the `IsDeleted` note in `SKILL.md`.
 
 Omitting a line no longer removes it. To stop one playing, condition it out (the verifiable lever) or mark it
 deleted — see the removal note in `SKILL.md`, including which tool to use and which not to.
