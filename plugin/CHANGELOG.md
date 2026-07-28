@@ -18,7 +18,11 @@ moved it. The rule it makes visible: **re-listing a line appends it to the botto
 line's previous-line link. So a mod that touches one line of an eight-line topic can silently send it to the back,
 and a broader line answers in its place. That is the shape behind "I got hired for 79 gold when the prompt says
 5000" — the refusal was line #1 and two mods pushed it to #8 — and behind most "my dialogue mod stopped working"
-reports. The order is computed to match what xEdit's INFO Order (INOM/INOA) rows show.
+reports. The order is computed to match what xEdit's INFO Order (INOM/INOA) rows show, which completes the half of
+this that 1.9.0 left open (that release taught the conflict diff to stop calling a pure reorder "identical to
+winner"; this one shows you the order itself). One line you may see flagged: a line whose previous-line link was
+written as an explicit "I am first" marker is pinned to the **top** of the topic, and the report says so — that is
+correct behaviour, not a fault, and it is often what keeps a vanilla refusal ahead of the line it guards.
 
 **Correction — houseCARL previously said lines get dropped by a dialogue conflict. They do not (#275).** The tool
 used to state that a line another mod adds but the winning topic does not re-list "is dropped in game", and advised
