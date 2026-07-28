@@ -187,7 +187,7 @@ static class DialogueWire
             if (!AppendIssues(sb, t.Issues, pad + "    ", cap)) return;
         }
 
-        if (!AppendInfoOrder(sb, t, pad, cap)) return;
+        if (!AppendInfoOrder(sb, t, pad, cap, indent)) return;
 
         AppendVoice(sb, t, pad, cap);
         AppendScripts(sb, t, pad, cap);
@@ -203,7 +203,7 @@ static class DialogueWire
     /// annotation is the diagnostic payload — a pure reorder changes which line answers while leaving every field
     /// identical, so it is invisible to a field diff. Budget-aware like <see cref="AppendIssues"/>: returns false at
     /// the cap so the caller stops (Q3 — an explicit notice, never a silent cut).</summary>
-    static bool AppendInfoOrder(StringBuilder sb, TopicValidation t, string pad, int cap)
+    static bool AppendInfoOrder(StringBuilder sb, TopicValidation t, string pad, int cap, bool indent)
     {
         // An EMPTY order is normally nothing to say — unless it is empty because nothing could be READ, which is
         // the total-drop case and the one that must never render as silence (most topics are touched by exactly
@@ -235,13 +235,28 @@ static class DialogueWire
         }
 
         var moved = io.Moved;
-        bool listAll = io.Order.Count <= MaxOrderRows;
+        // The row cap exists so a quest owning many topics doesn't bury its findings under hundreds of lines. A
+        // SINGLE-topic report has nothing to bury, so it always lists in full — abbreviating there withheld the
+        // whole answer and offered no way to get it back, since the cap counts ROWS and max_chars counts
+        // characters. Measured live: a 37-line topic printed a header and nothing under it.
+        bool listAll = !indent || io.Order.Count <= MaxOrderRows;
 
         sb.Append(pad).Append("  effective INFO order — merged across ").Append(io.ContributingPlugins.Count)
           .Append(" plugins that touch this topic; the game walks it top to bottom and plays the FIRST line whose conditions pass:\n");
+
+        // Over the cap AND nothing moved: say so. Falling through printed "listing only the 0 that moved"
+        // followed by an EMPTY list — a header promising an order and delivering none.
+        if (!listAll && moved.Count == 0)
+        {
+            sb.Append(pad).Append("    ").Append(io.Order.Count)
+              .Append(" lines, none of which changed position — the merged order matches the defining plugin's own list. Validate this topic's DIAL on its own to see every line.\n");
+            AppendOrderNote(sb, io, pad);
+            return true;
+        }
+
         if (!listAll)
-            sb.Append(pad).Append("    (").Append(io.Order.Count).Append(" lines total — listing only the ")
-              .Append(moved.Count).Append(" that moved; raise max_chars is not needed, the rest are in original order)\n");
+            sb.Append(pad).Append("    (").Append(io.Order.Count).Append(" lines; listing only the ")
+              .Append(moved.Count).Append(" that MOVED — the rest keep their original relative order. Validate this topic's DIAL on its own to see every line.)\n");
 
         foreach (var e in listAll ? io.Order : moved)
         {
