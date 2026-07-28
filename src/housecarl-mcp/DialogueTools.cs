@@ -304,7 +304,13 @@ static class DialogueWire
         if (moved.Count > 0)
         {
             var w = moved[0];
-            sb.Append(pad).Append("  [!] ").Append(moved.Count)
+            // QUALIFIED, not gated, when the read is incomplete — deliberately unlike the two negative claims
+            // above. Those assert an absence the banner contradicts, and a false negative ends the
+            // investigation; this is a positive lead the banner already qualifies, it carries [!], and an
+            // unread plugin could equally re-list the line WITH its PNAM and put it back. Suppressing it would
+            // withhold the lead exactly where a modder most wants one, so it says how far the evidence reaches
+            // instead. The per-row "MOVED from #N" annotations inherit this same sentence.
+            sb.Append(pad).Append("  [!] ").Append(io.Complete ? "" : "as far as could be read, ").Append(moved.Count)
               .Append(moved.Count == 1 ? " line sits" : " lines sit")
               .Append(" at a different position than this topic's defining plugin laid down — the biggest shift is ")
               .Append(w.Info).Append(" #").Append(w.OriginIndex!.Value + 1).Append(" -> #").Append(w.Index + 1)
