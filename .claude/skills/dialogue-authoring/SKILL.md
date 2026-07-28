@@ -1,6 +1,7 @@
 ---
 name: dialogue-authoring
-description: Author or interpret Skyrim dialogue at the data layer via houseCARL — create dialogue topics (DIAL) and lines (INFO) in a new plugin, wire them to a branch and quest, attach result (TIF) scripts, write the start-game-enabled-quest .seq, check voiced lines for their .fuz, and validate a topic's or quest's dialogue graph. Use when the user wants to add or write dialogue, add a line to a topic, create an NPC greeting or conversation, author a dialogue branch or quest dialogue, wire dialogue to a quest stage, attach a result script to a line, make a start-game-enabled quest's dialogue actually start, fix dialogue that never plays / never fires / went silent, or resolve a dropped-line or reordered dialogue conflict — or asks what a dialogue topic does, why a line won't fire, or to audit a mod's dialogue. This authors the dialogue RECORDS — distributing forms to NPCs is SPID, keywords to items is KID, editing a record's own fields is SkyPatcher. Load before composing or judging any DIAL/INFO — Skyrim plays nothing unless the Creation-Kit bookkeeping a byte-valid insert skips is done.
+description: >-
+  Author or interpret Skyrim dialogue records via houseCARL — DIAL topics, INFO lines, branches, quest wiring, TIF result scripts, the .seq file, .fuz checks, dialogue-graph validation. Use when adding, writing, or auditing dialogue, or fixing lines that never play or fire. Load before composing or judging any DIAL/INFO — a byte-valid insert that skips the Creation-Kit bookkeeping plays nothing.
 ---
 
 # Dialogue Authoring

@@ -1,6 +1,7 @@
 ---
 name: skypatcher-authoring
-description: Author or interpret SkyPatcher INI patches — runtime, no-ESP record edits that filter Bethesda records and set/add/remove their properties, from the bundled SkyPatcher grammar reference. Use when the user wants to write or fix a SkyPatcher patch or `.ini`, buff/nerf/rebalance weapons or armor, change NPC stats/factions/inventory, add or remove keywords, edit a leveled list or container contents, retune spells/enchantments/potions, unlevel encounter zones, tweak cell lighting or fog, disable a placed reference — or asks what an existing SkyPatcher INI does, which records or NPCs it affects, why a patch line isn't applying, to audit or review a mod's INI patches, which filters or operations a record type supports (filterByWeapons, filterByNpcs, attackDamage, keywordsToAdd…), or which subfolder a `.ini` belongs in. Load before writing or reading any SkyPatcher line — the `Plugin.esp|FormID`/EditorID addressing and per-record filter names are non-obvious, and a misread line silently changes what it edits.
+description: >-
+  Author or interpret SkyPatcher INI patches — runtime, no-ESP edits that filter Bethesda records and set / add / remove their properties. Use when writing or auditing a SkyPatcher `.ini`, rebalancing weapons / armor / NPCs / leveled lists without an ESP, or asking why a patch line isn't applying. Load before any SkyPatcher line — the `Plugin.esp|FormID` addressing and filter names are non-obvious.
 ---
 
 # SkyPatcher Authoring

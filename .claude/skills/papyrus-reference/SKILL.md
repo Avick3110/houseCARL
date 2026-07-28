@@ -1,6 +1,7 @@
 ---
 name: papyrus-reference
-description: Look up Papyrus function signatures, parameter and return types, flags, and documentation from bundled reference files when reading or writing .psc scripts. Corpus covers vanilla Skyrim + SKSE + ~45 popular SKSE-plugin sources (PapyrusUtil, JContainers, MCMHelper, RaceMenu, PO3 Papyrus Extender, ConsoleUtil, and others). Use when the user is editing a Papyrus script, adding or modifying ANY function call in a .psc (even one copied from elsewhere in the same file), investigating a function call, looking up an SKSE plugin function, calling JContainers / PapyrusUtil / SkyUI / MCM scripting APIs, debugging an unknown-identifier or type-mismatch compile error, asking what a Papyrus function or event does, or checking a parameter type. Load before any .psc read or edit; if a function isn't bundled, the skill warns rather than inventing a signature.
+description: >-
+  Look up Papyrus function signatures, parameter and return types, and flags from bundled references — vanilla + SKSE + ~45 SKSE-plugin APIs (PapyrusUtil, JContainers, MCMHelper, …). Use for any .psc read or edit, any added or changed function call, or an unknown-identifier / type-mismatch compile error. Unbundled functions get a warning, never an invented signature.
 ---
 
 # Papyrus Reference

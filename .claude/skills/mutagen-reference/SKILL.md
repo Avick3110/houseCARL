@@ -1,6 +1,7 @@
 ---
 name: mutagen-reference
-description: Look up the schema of any Skyrim record type — its fields, their types, which are writable, the legal enum values, and the arms a polymorphic field accepts — from the bundled record-schema reference before reading or editing that record type. Use when the user wants to edit, patch, or override a record (ARMO, WEAP, MGEF, NPC_, CELL, …), asks what fields a record type has or what an xEdit signature maps to, whether a field is writable, or what values an enum field allows (legal ActorValue, Aggression, or CastType values), or needs a field's name, type, or cardinality before composing a record change. Load before answering any "what fields does X have" or "can I set Y on Z" question and before composing any record write — the reference is by construction from the game's full record library, so a type that's absent is a real coverage gap to surface, never something to guess.
+description: >-
+  Look up the schema of any Skyrim record type — fields, types, writability, legal enum values — from the bundled by-construction reference. Use before reading, editing, or patching any record (ARMO, WEAP, MGEF, NPC_, …) and for any "what fields does X have" or xEdit-signature question. A type absent from the reference is a real coverage gap to surface, never something to guess.
 ---
 
 # Mutagen Reference

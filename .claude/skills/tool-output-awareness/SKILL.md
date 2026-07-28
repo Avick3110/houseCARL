@@ -1,6 +1,7 @@
 ---
 name: tool-output-awareness
-description: Recognize which load-order plugins and mods are generated TOOL OUTPUTS — Reqtificator (`Requiem for the Indifferent.esp`), ParallaxGen (`PGPatcher.esp` / `PG_1.esp`), DynDOLOD (`DynDOLOD.esm` / `.esp`, `Occlusion.esp`), Synthesis, TexGen, xLODGen, and NPC Plugin Chooser 2 (generated `NPC_Token.json`) — and keep their regenerated records and asset paths out of any patch you author, because the user re-runs these tools, so a frozen copy goes stale or silently breaks. Use whenever you create a patch, override or forward a record, resolve a conflict, pull a conflict tree, or study how a mod works and the winner — or a referenced mesh/texture — traces to one of these generators. Reading one is fine only when debugging an in-game problem it may have caused; otherwise don't base your work on it, and never copy its changes into a patch.
+description: >-
+  Recognize generated tool-output plugins — Reqtificator (`Requiem for the Indifferent.esp`), DynDOLOD, ParallaxGen, Synthesis, TexGen, xLODGen — and keep their regenerated records and assets out of any patch you author; the user re-runs these tools, so a frozen copy goes stale or silently breaks. Use whenever a patch, forward, or conflict resolution traces a winner to one of these generators.
 ---
 
 # Tool Output Awareness
