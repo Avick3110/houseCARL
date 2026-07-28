@@ -186,6 +186,56 @@ internal static class ImportOrderProbe
                 new[] { Root("SKSE", autoA) }, autoEnabled: true, importSetName: null, warning: null);
             Check(overlap3.CallerCount == 1 && overlap3.AutoProviders.Count == 0,
                   "a KEPT candidate the caller also passed counts as the caller's — it would be on the path with the scan switched off");
+            // …and the mirror of that (PR #296 re-review): taking the caller SLOT must not erase the fact that the
+            // WALK matched it. AutoProviders answers "why is this folder on the path"; Referenced answers "what does
+            // this script reference" — the number the summary and the banner quote. One field doing both made a
+            // genuine match render as "matched the 0 this script REFERENCES BY NAME".
+            var overlapRef = CompileTools.PlanImports(
+                targetPsc, scriptDir, fakeCompiler, new[] { autoA },
+                new[] { Root("SKSE", autoA), Root("PapyrusUtil", autoB) },
+                autoEnabled: true, importSetName: null, warning: null);
+            Check(overlapRef.Referenced.SequenceEqual(new[] { "SKSE" }),
+                  "a folder the walk matched stays in the REFERENCED count even when the caller also passed it (slot ≠ reference)");
+            Check(overlapRef.AutoProviders.Count == 0 && overlapRef.CallerCount == 1,
+                  "…while the SLOT attribution still credits the caller (the two questions answered separately)");
+            Check(CompileTools.ImportSummary(overlapRef).Contains("matched 1 of 2"),
+                  "…and the summary quotes the walk's number, not the slot's");
+
+            // THE REGRESSION THE RE-REVIEW CAUGHT. Splitting the game's Data sources out of the mod candidates is only
+            // safe if something still fills the vanilla slot. With a compiler whose own <game>\Data\Source\Scripts does
+            // not exist — a hand-set compiler path, or a Stock Game whose sources live under MO2's data dir — the fold
+            // left the path with NO vanilla at all, and every compile would fail on Form/Quest/ObjectReference while
+            // the banner blamed a missing mod.
+            var noSrcCompiler = Path.Combine(fake, "nogame", "Papyrus Compiler", "PapyrusCompiler.exe");
+            Directory.CreateDirectory(Path.GetDirectoryName(noSrcCompiler)!);
+            Check(CompileTools.VanillaSourceDir(noSrcCompiler) is null, "control: this compiler has no vanilla sources beside it");
+            var rescued = CompileTools.PlanImports(
+                targetPsc, scriptDir, noSrcCompiler, Array.Empty<string>(),
+                new[] { Root("SKSE", autoA) }, autoEnabled: true, importSetName: null, warning: null,
+                gameDataSources: fakeVanilla);
+            Check(rescued.Dirs.Any(d => d.Equals(fakeVanilla, StringComparison.OrdinalIgnoreCase)),
+                  "the modlist's own Data sources fill the vanilla slot when the compiler-relative folder is missing");
+            Check(rescued.Entries[^1].Dir.Equals(fakeVanilla, StringComparison.OrdinalIgnoreCase)
+                  && rescued.Entries[^1].Origin == CompileTools.ImportPlan.Vanilla,
+                  "…in the vanilla slot: LAST, and labelled vanilla rather than as a mod");
+            Check(!rescued.VanillaMissing, "…and the plan does not claim vanilla is missing");
+            // ONE decision, not two: the plan's VanillaMissing and the assembled path must be the same answer. They
+            // were computed by two copies of the same expression, so a change to either could have left the plan
+            // reporting a vanilla slot the path did not carry.
+            Check(rescued.VanillaMissing == !rescued.Entries.Any(e => e.Origin == CompileTools.ImportPlan.Vanilla),
+                  "VanillaMissing agrees with the assembled path (the vanilla dir is resolved ONCE and handed down)");
+            Check(CompileTools.BuildImports(scriptDir, noSrcCompiler, null, null, fakeVanilla)[^1]
+                      .Equals(fakeVanilla, StringComparison.OrdinalIgnoreCase),
+                  "BuildImports takes the caller's RESOLVED vanilla dir rather than re-deriving its own");
+
+            var stranded = CompileTools.PlanImports(
+                targetPsc, scriptDir, noSrcCompiler, Array.Empty<string>(),
+                new[] { Root("SKSE", autoA) }, autoEnabled: true, importSetName: null, warning: null,
+                gameDataSources: null);
+            Check(stranded.VanillaMissing && !stranded.Dirs.Any(d => d.Equals(fakeVanilla, StringComparison.OrdinalIgnoreCase)),
+                  "with vanilla sources genuinely nowhere, the plan says so rather than shipping a silently vanilla-less path");
+            Check(CompileTools.ImportSummary(stranded).Contains("NO vanilla Papyrus sources"),
+                  "…and the render leads with it (Q3 — otherwise the missing-imports banner blames a mod)");
         }
         finally { try { Directory.Delete(fake, recursive: true); } catch { /* temp scratch; non-fatal */ } }
 

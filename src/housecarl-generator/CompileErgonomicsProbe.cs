@@ -253,7 +253,7 @@ internal static class CompileErgonomicsProbe
         var okMsg = CompileTools.Render(ok, Plan(autoCount: 3, callerCount: 1, scanned: 501), userChoseOutputDir: false);
         Check(okMsg.Contains("imports: 6 dir(s) searched"),
               "success renders the import summary with the TOTAL (own + 1 caller + 3 auto + vanilla = 6)");
-        Check(okMsg.Contains("1 from import_dirs=") && okMsg.Contains("3 of 501 scanned mod source folder(s) referenced by this script"),
+        Check(okMsg.Contains("1 from import_dirs=") && okMsg.Contains("the modlist scan matched 3 of 501 scanned mod source folder(s) referenced by this script"),
               "the summary splits caller dirs from the scan, and reports BOTH scan numbers (kept AND scanned)");
         Check(okMsg.Contains("modA") && okMsg.Contains("modC"), "the summary NAMES the providing mods");
         Check(okMsg.Contains("vanilla sources last"), "the summary states that vanilla ranks last");
@@ -265,7 +265,7 @@ internal static class CompileErgonomicsProbe
 
         // E3: the display cap NAMES what it dropped — a truncated provider list must never read as the whole list.
         var manyMsg = CompileTools.Render(ok, Plan(autoCount: 12), userChoseOutputDir: false);
-        Check(manyMsg.Contains("12 of 12 scanned mod source folder(s)") && manyMsg.Contains("+4 more"),
+        Check(manyMsg.Contains("matched 12 of 12 scanned mod source folder(s)") && manyMsg.Contains("+4 more"),
               "over 8 providers: the full COUNT is stated and the tail is named '+4 more' (no silent truncation)");
 
         // E3b: hitting the reference-walk ceiling is DISCLOSED — a shortened path must never look like a complete one.
@@ -319,7 +319,7 @@ internal static class CompileErgonomicsProbe
         // fix (not installed / sources inside a BSA / nested a level down).
         var scanned = CompileTools.Render(missingImports, Plan(autoCount: 3, scanned: 501), userChoseOutputDir: false);
         var unscanned = CompileTools.Render(missingImports, Plan(autoEnabled: false), userChoseOutputDir: false);
-        Check(scanned.Contains("inside a BSA") && scanned.Contains("found 501 mod source folder(s) and kept the 3"),
+        Check(scanned.Contains("inside a BSA") && scanned.Contains("found 501 mod source folder(s) and matched the 3"),
               "auto_imports ON: the banner names what the scan found AND kept, plus the causes it cannot fix (never named / not installed / BSA / subfolder)");
         Check(unscanned.Contains("auto_imports=false") && unscanned.Contains("re-run with auto_imports=true"),
               "auto_imports OFF: the banner's first remedy is to turn the scan ON");
@@ -451,13 +451,21 @@ internal static class CompileErgonomicsProbe
             };
             var withData = PapyrusSourceRoots.Discover(stockRoots);
             Check(withData.Any(r => r.Dir == stockData), "control: the scan DOES find the game's own Data sources (they hold .psc)");
-            var noData = PapyrusSourceRoots.ExcludeGameData(withData, Path.Combine(gRoot, "StockGameData"));
+            var (noData, gameData) = PapyrusSourceRoots.SplitGameData(withData, Path.Combine(gRoot, "StockGameData"));
             Check(noData.All(r => r.Dir != stockData) && noData.Count == withData.Count - 1,
-                  "ExcludeGameData drops the game's Data sources by PATH — no dependence on them coinciding with the compiler's vanilla dir");
-            Check(noData.Any(r => r.Provider == "SKSE"), "…and drops nothing else");
-            Check(PapyrusSourceRoots.ExcludeGameData(withData, null).Count == withData.Count
-                  && PapyrusSourceRoots.ExcludeGameData(withData, "  ").Count == withData.Count,
-                  "a blank data dir drops NOTHING (Path.Combine would otherwise resolve the layouts against the process CWD)");
+                  "SplitGameData takes the game's Data sources out of the MOD candidates by PATH — no dependence on them coinciding with the compiler's vanilla dir");
+            Check(noData.Any(r => r.Provider == "SKSE"), "…and takes nothing else");
+            // The re-review regression: dropping it is only half right. Handed back, it can stand in as the vanilla
+            // slot when the compiler-relative folder is missing; discarded, the path can end up with NO vanilla at all.
+            Check(gameData == stockData, "…and HANDS IT BACK, so the caller can use it as the vanilla slot rather than losing it");
+            var (blankMods, blankGame) = PapyrusSourceRoots.SplitGameData(withData, null);
+            Check(blankMods.Count == withData.Count && blankGame is null,
+                  "a blank data dir splits NOTHING (Path.Combine would otherwise resolve the layouts against the process CWD)");
+            var (noneMods, noneGame) = PapyrusSourceRoots.SplitGameData(
+                PapyrusSourceRoots.Discover(new (string, string)[] { ("SKSE", Path.Combine(gRoot, "SKSE")) }),
+                Path.Combine(gRoot, "StockGameData"));
+            Check(noneMods.Count == 1 && noneGame is null,
+                  "a data dir whose sources the scan never found yields no game-Data folder (no phantom vanilla path)");
 
             // Best-effort by contract: a missing / nonsense root costs one candidate, never the scan.
             bool threw = false;
@@ -559,9 +567,14 @@ internal static class CompileErgonomicsProbe
     {
         var e = new List<(string Dir, string Origin)> { (@"C:\work", CompileTools.ImportPlan.OwnFolder) };
         for (int i = 0; i < callerCount; i++) e.Add(($@"C:\caller{i}", CompileTools.ImportPlan.CallerDirs));
+        var referenced = new List<string>();
         for (int i = 0; i < autoCount; i++)
-            e.Add(($@"C:\MO2\mods\mod{(char)('A' + i)}\Source\Scripts", CompileTools.ImportPlan.AutoPrefix + "mod" + (char)('A' + i)));
+        {
+            var mod = "mod" + (char)('A' + i);
+            e.Add(($@"C:\MO2\mods\{mod}\Source\Scripts", CompileTools.ImportPlan.AutoPrefix + mod));
+            referenced.Add(mod);   // the ordinary case: every folder the walk matched also took an auto SLOT
+        }
         e.Add((@"C:\Game\Data\Source\Scripts", CompileTools.ImportPlan.Vanilla));
-        return new CompileTools.ImportPlan(e, autoEnabled, setName, warning, scanned < 0 ? autoCount : scanned, scan);
+        return new CompileTools.ImportPlan(e, autoEnabled, setName, warning, scanned < 0 ? autoCount : scanned, scan, referenced);
     }
 }
