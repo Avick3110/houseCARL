@@ -397,7 +397,9 @@ static class DialogueWire
         sb.Append(".\n");
         sb.Append("  • voice presence is an on-disk file check only — lip-sync accuracy and the audio content itself are not verified (voice acting is out of scope).\n");
         sb.Append("  • the per-line checks above (voice, result script, CK parity) audit the WINNING topic's INFO list only. A line another plugin contributes but this winner does not re-list is NOT dropped from the game — it still plays, and it DOES appear in the effective INFO order above — but its voice/script/parity is not audited here.\n");
-        sb.Append("  • line ORDER has one blind spot: a line whose previous-line link (PNAM) was written as an explicit \"I am first\" marker reads here identically to a line carrying no link at all, so it is placed LAST where the game places it FIRST. Nothing in the data marks which line that is, so it can affect any topic of 2+ lines — if a line's position above looks wrong, confirm it against xEdit's INFO Order (INOA) row for the topic.\n");
+        // (No PNAM-zero caveat here. One shipped for four review rounds describing a blind spot that does not
+        //  exist — the reader DOES distinguish a present-but-zero PNAM from an absent one. See
+        //  DialogueInfoOrder.PnamZeroIsDistinguishable for the mis-measurement that produced it.)
         if (readIncomplete)
             sb.Append("  • a BSA failed to read this build, so an \"absent\" voice/.pex above may merely be unscanned — see housecarl_load_order_status.\n");
     }

@@ -33,16 +33,17 @@ namespace HousecarlGenerator;
 ///   PNAM-SELF        — an INFO whose PNAM names its OWN record degrades to a placement AND says so on the note.
 ///                      RED before the PR #293 review fix: that shape drove a negative-length list insert, throwing
 ///                      ArgumentOutOfRangeException out of a path whose contract is that it never throws.
-///   RENDER-ZERO-CAVEAT — the standing PNAM-zero fidelity limit reaches the reader on an UNCONTESTED topic too. The
-///                      limit applies to any topic of 2+ lines, so a conditional per-topic note (the first cut)
-///                      silently omitted it exactly where a clean-looking report needed it most.
+///   RENDER-NO-FALSE-CAVEAT — the footer does NOT carry the retracted PNAM-zero blind-spot caveat. It shipped for
+///                      four review rounds describing a limitation that does not exist; this pins the retraction so
+///                      the false caveat cannot drift back in.
 ///   DELETED-KEPT     — a deleted INFO still occupies its slot in the order (it is shown flagged, never silently
 ///                      dropped — the index of every line after it depends on it being counted).
 ///   PNAM-ZERO-AXIS   — THE FIDELITY PIN. "PNAM absent" and "PNAM present-but-zero" place at OPPOSITE ENDS (tail vs
-///                      head), so the merge is only as faithful as Mutagen's ability to tell them apart. This arm
-///                      MEASURES that round-trip against a real write→read and asserts it agrees with
-///                      <see cref="DialogueInfoOrder.PnamZeroIsDistinguishable"/> — so a Mutagen bump that changes
-///                      the behaviour fails CI instead of silently degrading the order.
+///                      head), so the merge is only as faithful as the READER's ability to tell them apart. The
+///                      fixture is BYTE-PATCHED to carry a real on-disk zero PNAM, because authoring it through
+///                      Mutagen's writer (which emits no subrecord for a null link) measured the WRITER and made
+///                      this arm assert a non-existent limitation for four rounds — caught only by running the
+///                      shipped build against the real load order. A round-trip test measures the round trip.
 ///   RENDER-MODEL-PIN — the rendered report states the CORRECTED model and does NOT contain the falsified claim
 ///                      ("dropped in game"). Pins the prose against a regression to the pre-#275 wording.
 ///   UNREAD-PARTIAL / UNREAD-TOTAL / UNREAD-RENDER / UNREAD-BASELINE — the silent-contributor-drop fix, which
@@ -161,13 +162,36 @@ public static class DialogueInfoOrderProbe
         var s1 = NewInfo("HcIoSelf1");
         tSelf.Responses.Add(s0); tSelf.Responses.Add(s1);
 
-        // ---- tZero: line 2 carries an explicitly-ZEROED PNAM (the "I am first" marker) while line 1 carries
-        //      none at all. If Mutagen preserves the distinction, the zeroed one is placed HEAD and leads. ----
-        var tZero = master.DialogTopics.AddNew(); tZero.EditorID = "HcIoZero";
-        var z0 = NewInfo("HcIoZero0");
-        var z1 = NewInfo("HcIoZero1"); z1.PreviousDialog.SetToNull();
-        tZero.Responses.Add(z0); tZero.Responses.Add(z1);
-        var zeroMarked = z1.FormKey;
+        // ---- ZERO-PNAM fixture, in its OWN plugin so it can be byte-patched safely. Mutagen's WRITER drops a
+        //      PreviousDialog set to null (no subrecord emitted), so authoring the fixture through the writer
+        //      measures the writer, not the reader — the mistake that made the first PNAM-ZERO-AXIS arm assert a
+        //      non-existent limitation for four review rounds. Real plugins DO carry a present-but-zero PNAM (the
+        //      "I am first" marker xEdit's PNAM fill writes), so the fixture is authored with a REAL PNAM and the
+        //      four data bytes are then zeroed ON DISK, giving exactly the shape a shipped plugin has.
+        //      Isolated in its own file because DIAL's own PNAM subrecord is the topic Priority float — patching
+        //      every PNAM in a shared master would also rewrite unrelated records' priorities.
+        const string zeroName = "hcInfoZero.esp";
+        var zeroPath = Path.Combine(dir, zeroName);
+        var zeroMod = new SkyrimMod(ModKey.FromNameAndExtension(zeroName), SkyrimRelease.SkyrimSE);
+        var tZeroReal = zeroMod.DialogTopics.AddNew(); tZeroReal.EditorID = "HcIoZeroReal";
+        var zr0 = new DialogResponses(zeroMod.GetNextFormKey(), SkyrimRelease.SkyrimSE) { EditorID = "HcIoZeroR0" };
+        var zr1 = new DialogResponses(zeroMod.GetNextFormKey(), SkyrimRelease.SkyrimSE) { EditorID = "HcIoZeroR1" };
+        zr1.PreviousDialog.SetTo(zr0.FormKey);          // a REAL link, so the subrecord is actually written
+        tZeroReal.Responses.Add(zr0); tZeroReal.Responses.Add(zr1);
+        zeroMod.BeginWrite.ToPath(zeroPath).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
+        int zeroed = ZeroEveryPnam(zeroPath);
+        var zeroTopic = tZeroReal.FormKey;
+        var zeroMarkedReal = zr1.FormKey;
+
+        // ---- WRITER-SIDE PROVENANCE, kept deliberately: line 2 asks the writer for an explicitly-null PNAM.
+        //      Mutagen emits NO subrecord for it, so this topic reads back as two plain lines — which is exactly
+        //      how the original PNAM-ZERO-AXIS arm concluded the READER could not see a zero PNAM. Retained
+        //      unasserted as the record of that mistake; the real fidelity pin is the byte-patched fixture above.
+        var tZeroWriter = master.DialogTopics.AddNew(); tZeroWriter.EditorID = "HcIoZeroWriter";
+        var zw0 = NewInfo("HcIoZeroW0");
+        var zw1 = NewInfo("HcIoZeroW1"); zw1.PreviousDialog.SetToNull();
+        tZeroWriter.Responses.Add(zw0); tZeroWriter.Responses.Add(zw1);
+        var writerNulled = zw1.FormKey;
 
         master.BeginWrite.ToPath(mPath).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
 
@@ -213,7 +237,7 @@ public static class DialogueInfoOrderProbe
         last.BeginWrite.ToPath(lastPath).WithLoadOrder(new ISkyrimModGetter[] { master, mid }).Write();
 
         var dataDir = Path.Combine(dir, "data"); Directory.CreateDirectory(dataDir);
-        using var resolver = LoadOrderResolver.Build(new[] { mPath, midPath, lastPath });
+        using var resolver = LoadOrderResolver.Build(new[] { mPath, midPath, lastPath, zeroPath });
         using var assets = AssetResolver.Build("", "", dataDir, Array.Empty<string>(), Array.Empty<ActiveArchive>());
         Console.WriteLine($"-- synthesized {masterName} < {midName} < {lastName}; tOrder=8 lines, mid re-lists 6 (PNAM-chained), last re-lists 1 (no PNAM) --");
         Console.WriteLine();
@@ -279,14 +303,20 @@ public static class DialogueInfoOrderProbe
                 : $"n={io!.Order.Count} index={e.Index} deleted={e.Deleted}");
         }
 
-        // ---------- PNAM-ZERO-AXIS — measure the round-trip, assert the product flag matches ----------
+        // ---------- PNAM-ZERO-AXIS — measure the READER against a real on-disk zero PNAM ----------
+        // The fixture is byte-patched, not writer-authored: Mutagen's writer emits NO subrecord for a null link,
+        // so the writer-authored version of this arm measured the writer and concluded the reader could not tell
+        // the two apart. It can. Live 1.9.4-dev against the real load order proved it (0BCC84's winning copy
+        // carries a zero PNAM and is correctly placed FIRST), and this arm now pins the reader directly.
         {
-            var io = Order(tZero.FormKey);
-            var e = io?.Order.FirstOrDefault(x => x.Info == zeroMarked);
-            bool measured = e is { Placement: InfoPlacement.Head };      // head ⇒ the zero survived the round-trip
-            bool ok = e is not null && measured == DialogueInfoOrder.PnamZeroIsDistinguishable;
-            all &= Pass("PNAM-ZERO-AXIS", ok, e is null ? "marked line absent from order"
-                : $"measured distinguishable={measured} (placement={e.Placement}), product flag={DialogueInfoOrder.PnamZeroIsDistinguishable}");
+            var io = Order(zeroTopic);
+            var e = io?.Order.FirstOrDefault(x => x.Info == zeroMarkedReal);
+            bool measured = e is { Placement: InfoPlacement.Head };      // Head ⇒ the reader saw a PRESENT zero
+            bool ok = zeroed > 0 && e is not null
+                      && measured == DialogueInfoOrder.PnamZeroIsDistinguishable
+                      && e.Index == 0;
+            all &= Pass("PNAM-ZERO-AXIS", ok, e is null ? $"marked line absent (patched {zeroed} PNAM subrecord(s))"
+                : $"patched={zeroed} reader-distinguishes={measured} (placement={e.Placement}, index={e.Index}), product flag={DialogueInfoOrder.PnamZeroIsDistinguishable}");
         }
 
         // ---------- BATCH-FAN-IN: one quest, two topics, DIFFERENT contributing plugins each ----------
@@ -342,7 +372,20 @@ public static class DialogueInfoOrderProbe
             all &= Pass("PNAM-SELF", ok, detail);
         }
 
-        // ---------- RENDER-MODEL-PIN + the standing PNAM-zero caveat ----------
+        // ---------- WRITER-DROPS-NULL: why the axis was mis-measured, pinned so the lesson is testable ----------
+        // Asking Mutagen's WRITER for a null PreviousDialog emits NO subrecord, so the line reads back as having
+        // no PNAM and takes the TAIL arm. That is the writer's behaviour, NOT the reader's — and conflating them
+        // is what made PNAM-ZERO-AXIS assert a non-existent limitation for four review rounds. If a future Mutagen
+        // starts emitting a zero subrecord here, this arm goes red and the byte-patched fixture becomes redundant.
+        {
+            var io = Order(tZeroWriter.FormKey);
+            var e = io?.Order.FirstOrDefault(x => x.Info == writerNulled);
+            bool ok = e is { Placement: InfoPlacement.Tail, Index: 1 };
+            all &= Pass("WRITER-DROPS-NULL", ok, e is null ? "line absent"
+                : $"placement={e.Placement} index={e.Index} (writer emitted no PNAM subrecord)");
+        }
+
+        // ---------- RENDER-MODEL-PIN + the retracted PNAM-zero caveat ----------
         {
             string r = DialogueWire.Render(DialogueValidate.Run(resolver, assets, tOrder.FormKey), 0);
             bool statesModel = r.Contains("effective INFO order", StringComparison.Ordinal)
@@ -351,14 +394,14 @@ public static class DialogueInfoOrderProbe
             all &= Pass("RENDER-MODEL-PIN", statesModel && dropsFalseClaim,
                 $"statesOrder={statesModel} falseClaimGone={dropsFalseClaim}");
 
-            // The PNAM-zero limit applies to EVERY topic, so it must ride the standing footer — not a conditional
-            // per-topic note that a clean-looking topic would omit (PR #293 review). Pinned on the UNCONTESTED
-            // topic precisely because that is the case the conditional rendering used to skip.
+            // The retracted caveat must NOT reappear. It described a blind spot that does not exist (the reader
+            // distinguishes a present-but-zero PNAM), and it shipped for four review rounds — so pin its absence.
             string rSolo = DialogueWire.Render(DialogueValidate.Run(resolver, assets, tSolo.FormKey), 0);
-            bool caveat = r.Contains("I am first", StringComparison.Ordinal)
-                          && rSolo.Contains("I am first", StringComparison.Ordinal);
-            all &= Pass("RENDER-ZERO-CAVEAT", caveat,
-                $"contested={r.Contains("I am first", StringComparison.Ordinal)} uncontested={rSolo.Contains("I am first", StringComparison.Ordinal)}");
+            bool caveat = !r.Contains("I am first", StringComparison.Ordinal)
+                          && !rSolo.Contains("I am first", StringComparison.Ordinal)
+                          && !r.Contains("placed LAST where the game places it FIRST", StringComparison.Ordinal);
+            all &= Pass("RENDER-NO-FALSE-CAVEAT", caveat,
+                $"falseCaveatAbsent={caveat}");
         }
 
         // ---------- UNREAD-* : the silent-contributor-drop fix, pinned directly ----------
@@ -576,6 +619,29 @@ public static class DialogueInfoOrderProbe
         var report = new DialogueValidationReport(
             topic.Topic, "topic", topic.TopicEditorId, topic.WinnerPlugin, new[] { topic });
         return DialogueWire.Render(report, 0);
+    }
+
+    /// <summary>Zero the 4 data bytes of every 4-byte PNAM subrecord in a plugin, in place. Produces the
+    /// present-but-zero PNAM that real (CK / xEdit-filled) plugins carry and that Mutagen's writer will not emit
+    /// from a null link — so the reader can be measured on the shape it actually meets in the wild. Returns how
+    /// many it patched, so a fixture that silently patched nothing fails loudly rather than testing the absent
+    /// case by accident.</summary>
+    static int ZeroEveryPnam(string path)
+    {
+        var bytes = File.ReadAllBytes(path);
+        var sig = new byte[] { (byte)'P', (byte)'N', (byte)'A', (byte)'M' };
+        int patched = 0;
+        for (int i = 0; i + 10 <= bytes.Length; i++)
+        {
+            if (bytes[i] != sig[0] || bytes[i + 1] != sig[1] || bytes[i + 2] != sig[2] || bytes[i + 3] != sig[3])
+                continue;
+            if (BitConverter.ToUInt16(bytes, i + 4) != 4) continue;          // size field must be 4
+            bytes[i + 6] = bytes[i + 7] = bytes[i + 8] = bytes[i + 9] = 0;
+            patched++;
+            i += 9;
+        }
+        File.WriteAllBytes(path, bytes);
+        return patched;
     }
 
     static bool Pass(string label, bool ok, string detail)

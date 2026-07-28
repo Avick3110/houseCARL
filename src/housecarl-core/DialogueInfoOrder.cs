@@ -36,11 +36,14 @@ namespace HousecarlCore;
 //  list at all — it could not have fired if non-relisted lines were dropped. Non-relisting drops NOTHING; it
 //  REORDERS. (That model was recorded Aaron-confirmed 2026-06-19; superseded on the evidence above, #275.)
 //
-//  Q3 BOUNDARY — the one thing this cannot see. "PNAM absent" and "PNAM present but zero" place at OPPOSITE ENDS
-//  (tail vs head), and Mutagen does NOT preserve that distinction (measured — see PnamZeroIsDistinguishable). It
-//  applies to ANY topic of 2+ lines, contested or not, and nothing in the data marks which line is affected — so
-//  it is disclosed ONCE PER REPORT in the validator's standing-limits footer (the established home for a standing
-//  caveat), never as a per-topic note that would fire on every topic and stop being read.
+//  THE PNAM-ZERO AXIS. "PNAM absent" and "PNAM present but zero" place at OPPOSITE ENDS (tail vs head), and the
+//  reader DOES tell them apart — measured against a real on-disk zero PNAM, and confirmed live 2026-07-27, where
+//  0BCC84's winning copy carries the zero marker and is correctly placed FIRST. This was recorded the OTHER WAY
+//  for four review rounds, and the validator shipped a standing footer caveat about a blind spot that does not
+//  exist. The error was in the measurement, not the model: the guard authored its fixture through Mutagen's
+//  WRITER, which emits no subrecord for a null link, so the "round trip" never contained a zero PNAM and the arm
+//  measured the writer. Standing lesson: a round-trip test measures the round trip — to measure ONE end, you must
+//  construct the other end's output directly, which the arm now does by byte-patching the fixture.
 //
 //  INPUT IS PLAIN DATA (InfoLine), not record getters — deliberately. The caller projects each plugin's child list
 //  while it still holds the body (overlay bodies are consume-before-advance), so this merge can run after every
@@ -70,10 +73,9 @@ public enum InfoPlacement
     /// that moves a re-listed line to the BOTTOM of a topic.</summary>
     Tail,
 
-    /// <summary>A PNAM that names no reachable INFO — placed at the head. Covers a PNAM pointing at a record no
-    /// active plugin defines, one that closes a cycle, one naming its own record, and a chain past the depth
-    /// ceiling. (It does NOT cover a zero PNAM: that is indistinguishable from absent — see
-    /// <see cref="DialogueInfoOrder.PnamZeroIsDistinguishable"/> — so such a line takes the Tail arm.)</summary>
+    /// <summary>A PNAM that is PRESENT but names no reachable INFO — placed at the head. Covers the ZERO PNAM (the
+    /// "I am first" marker xEdit's PNAM fill writes, and the common real-world case), a PNAM pointing at a record no
+    /// active plugin defines, one naming its own record, and a chain past the depth ceiling.</summary>
     Head,
 
     /// <summary>PNAM resolved — placed immediately after its target.</summary>
@@ -97,8 +99,7 @@ public sealed record InfoOrderEntry(
 /// <summary>The effective merged INFO order for one topic: the <see cref="Order"/> the game walks top-to-bottom,
 /// the <see cref="ContributingPlugins"/> whose child lists fed the merge (load order), the <see cref="Moved"/> lines
 /// (worst displacement first), and <see cref="Note"/> — a Q3 caveat when part of the merge DEGRADED on malformed or
-/// oversized input (null when it ran clean). The standing PNAM-zero fidelity limit is NOT carried here; it applies
-/// to every topic and is disclosed once per report by the validator's footer.
+/// oversized input (null when it ran clean).
 /// <see cref="Contested"/> is the whole point of the view: with one contributing plugin the effective order IS
 /// that plugin's list and there is nothing to reconcile.</summary>
 public sealed record InfoOrderView(
@@ -135,16 +136,19 @@ public static class DialogueInfoOrder
     /// PRESENT-but-zero. The two place at OPPOSITE ENDS (tail vs head), so this is the fidelity ceiling of the whole
     /// merge.
     ///
-    /// MEASURED FALSE (2026-07-27, Mutagen as pinned by this build): a PNAM written as an explicit null round-trips
-    /// through the binary overlay indistinguishably from one that was never written — both read back as no link. So
-    /// houseCARL CANNOT see the "I am first" marker, and a line carrying one is placed at the TAIL where xEdit would
-    /// place it at the HEAD. Head and tail coincide only for the first line placed into an empty list, so this can
-    /// bite ANY topic of 2+ lines — which is why the disclosure is a standing footer bullet, not a conditional note.
+    /// MEASURED TRUE (2026-07-27): a PNAM subrecord PRESENT with value zero reads back distinctly from an ABSENT
+    /// one, so the "I am first" marker is visible and such a line is correctly placed at the HEAD.
     ///
-    /// PINNED BY <c>dialogue-info-order-guard</c> against a real write→read round-trip — asserted from measurement,
-    /// never from the model, so a Mutagen bump that gains (or loses) the distinction fails CI instead of silently
-    /// changing every computed order.</summary>
-    public static bool PnamZeroIsDistinguishable => false;
+    /// Recorded FALSE for four review rounds, with a standing validator caveat built on it. The error was in the
+    /// MEASUREMENT: the guard built its fixture with Mutagen's WRITER, which emits no subrecord for a null link, so
+    /// the round trip never contained a zero PNAM and the arm measured the writer's capability, not the reader's.
+    /// Live 1.9.4-dev against the real load order exposed it — 0BCC84's winning copy carries a zero PNAM and was
+    /// placed FIRST, which the recorded flag said could not happen.
+    ///
+    /// PINNED BY <c>dialogue-info-order-guard</c> against a BYTE-PATCHED fixture carrying the on-disk shape real
+    /// (CK / xEdit-filled) plugins have — so the arm exercises the READER, and a Mutagen bump that loses the
+    /// distinction fails CI instead of silently changing every computed order.</summary>
+    public static bool PnamZeroIsDistinguishable => true;
 
     /// <summary>Move analysis is O(n·m) over a topic's line count; past this many lines it is skipped and said to be
     /// skipped (a pathological topic must not turn an on-demand validate into a stall). Real topics are far under.</summary>
