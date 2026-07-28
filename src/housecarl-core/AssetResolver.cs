@@ -125,6 +125,14 @@ public sealed class AssetResolver : IDisposable
 
     volatile Snapshot _snap;
 
+    /// <summary>The loose roots this resolver was built over, in PRECEDENCE order (overwrite → enabled mods
+    /// highest-priority-first → Data) — see <see cref="BuildLooseRoots"/>. Fixed for the resolver's lifetime (the set
+    /// only changes with the profile, which rebuilds the whole resolver), so unlike the archive tables it needs no
+    /// snapshot. Exposed for consumers that need the VFS ORDER itself rather than a resolved file:
+    /// <see cref="PapyrusSourceRoots.Discover"/> reads it to put a modlist's shipped .psc source folders on the
+    /// Papyrus compiler's import path in the same precedence the modlist applies to everything else.</summary>
+    public IReadOnlyList<(string Name, string Dir)> LooseRoots => _looseRoots;
+
     /// <summary>Archives that could not be read this build (path: reason) — surfaced, never silently treated as empty (Q3).</summary>
     public IReadOnlyList<string> BsaFailures => _snap.Failures;
 

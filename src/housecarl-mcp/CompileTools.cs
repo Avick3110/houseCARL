@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Text;
+using HousecarlCore;
 using ModelContextProtocol.Server;
 
 namespace HousecarlMcp;
@@ -15,15 +16,51 @@ namespace HousecarlMcp;
 [McpServerToolType]
 public static class CompileTools
 {
+    /// <summary>The compiler's import path plus the PROVENANCE of every entry — assembled once by
+    /// <see cref="PlanImports"/> and carried to <see cref="Render"/>, which prints it (issue #200: the old signature
+    /// took the dir list and dropped it on the floor, so the caller was never told what was actually searched — the one
+    /// fact that explains both a missing dependency and a shadowed script).
+    /// <para>The summary counts are DERIVED from <see cref="Entries"/>, never tracked alongside it: dedup and the
+    /// vanilla-last re-slot both change what survives, so a count computed from the inputs would quietly disagree with
+    /// the list printed beneath it.</para></summary>
+    public sealed record ImportPlan(
+        IReadOnlyList<(string Dir, string Origin)> Entries,
+        bool AutoEnabled,
+        string? ImportSetName,
+        string? Warning)
+    {
+        /// <summary>Provenance labels — the exact strings <see cref="ImportDetail"/> prints, and the keys the counts group on.</summary>
+        public const string OwnFolder = "the script's own folder";
+        public const string Vanilla = "vanilla sources";
+        public const string CallerDirs = "import_dirs=";
+        public const string AutoPrefix = "MO2: ";
+
+        /// <summary>The ordered list handed to the compiler.</summary>
+        public IReadOnlyList<string> Dirs { get; } = Entries.Select(e => e.Dir).ToList();
+
+        /// <summary>Dirs that came from the caller (import_dirs= / import_set=) and survived into the final path.</summary>
+        public int CallerCount => Entries.Count(e => e.Origin == CallerDirs);
+
+        /// <summary>The providing mod folders behind the auto-discovered entries, in path order.</summary>
+        public IReadOnlyList<string> AutoProviders =>
+            Entries.Where(e => e.Origin.StartsWith(AutoPrefix, StringComparison.Ordinal))
+                   .Select(e => e.Origin[AutoPrefix.Length..]).ToList();
+    }
+
     [McpServerTool(Name = "housecarl_compile_script", Title = "Compile a Papyrus script (.psc → .pex)"),
      Description(
          "Compile a Papyrus script (.psc) to .pex using the Creation Kit's PapyrusCompiler.exe, landing the .pex in a NEW " +
          "houseCARL patch-mod folder you review and enable in MO2 (originals untouched) — or pass output_dir= to land it in a " +
          "folder you choose (houseCARL appends Scripts\\ so MO2 deploys it). Pass script= the full path to the " +
-         ".psc to compile; houseCARL adds the script's own folder and the vanilla source folder (derived from the compiler's " +
-         "game dir) to the import path automatically — pass import_dirs= (';'-separated) for any extra dependency sources " +
-         "(SKSE, other mods); your folders are searched BEFORE the vanilla sources, so mod-extended copies of vanilla " +
-         "scripts (SKSE's Actor.psc etc.) win. On a compile FAILURE it returns the per-line errors as 'name(line,col): message' so you can fix " +
+         ".psc to compile. IMPORT PATH: houseCARL adds the script's own folder, then AUTO-DISCOVERS the Papyrus source " +
+         "folders your enabled MO2 mods already ship (Source\\Scripts / Scripts\\Source, in MO2 priority order — so SKSE, " +
+         "PapyrusUtil, PO3, SkyUI, JContainers and friends need no retyping), then the vanilla sources LAST; pass " +
+         "auto_imports=false to skip the modlist scan. Add anything the scan can't reach (local stubs, a dev project tree, " +
+         "sources you extracted from a BSA — the CK compiler cannot read archives) via import_dirs= (';'-separated), and " +
+         "save_import_set=<name> to persist that list so later calls just pass import_set=<name>. Precedence is your " +
+         "import_dirs=/import_set= > the auto-discovered mods > vanilla, so mod-extended copies of vanilla scripts " +
+         "(SKSE's Actor.psc etc.) win. The import path searched is REPORTED on every call. On a compile FAILURE it returns " +
+         "the per-line errors as 'name(line,col): message' so you can fix " +
          "the .psc and recompile (look unfamiliar functions up with the papyrus-reference skill); on SUCCESS it returns the " +
          ".pex path. Needs houseCARL pointed at your MO2 instance (for the output folder) and the Papyrus compiler path — if " +
          "the compiler isn't set yet, houseCARL tells you exactly what to ask for and how to set it. The CK compiler ships " +
@@ -31,10 +68,17 @@ public static class CompileTools
     public static string CompileScript(
         LoadOrderService svc,
         ToolPathResolver bridge,
+        UserConfigStore store,
         [Description("Full path to the .psc source file to compile.")]
             string script,
-        [Description("Optional. Extra import directories where dependency sources (.psc) live — SKSE, other mods — separated by ';'. The script's own folder and the vanilla source folder are added automatically; your directories are searched before vanilla (first match wins), so extended copies of vanilla scripts take precedence.")]
+        [Description("Optional. Extra import directories where dependency sources (.psc) live — separated by ';'. The script's own folder, your enabled mods' source folders (unless auto_imports=false), and the vanilla source folder are added automatically; these directories outrank all of those (first match wins), so extended copies of vanilla scripts take precedence.")]
             string? import_dirs = null,
+        [Description("Optional (default true). Scan the enabled MO2 mods for Papyrus source folders (Source\\Scripts / Scripts\\Source) and put every one that holds .psc files on the import path, in MO2 priority order — so installed frameworks need no retyping. Pass false to compile against only the script's own folder, your import_dirs=/import_set=, and the vanilla sources.")]
+            bool auto_imports = true,
+        [Description("Optional. Name of a SAVED import-directory set (see save_import_set=) to add to the import path. Its dirs rank after import_dirs= and before the auto-discovered mods. An unknown name is refused, and the saved names are listed.")]
+            string? import_set = null,
+        [Description("Optional. Save this call's import_dirs= (plus any import_set= it loaded) under this name for reuse via import_set=. Persisted in houseCARL's user config, so it survives restarts; re-saving an existing name replaces it.")]
+            string? save_import_set = null,
         [Description("Optional. Base name for the NEW patch-mod folder the .pex lands in (default 'houseCARL_Scripts'); auto-suffixed if taken.")]
             string? patch_name = null,
         [Description("Optional. Filename of an existing houseCARL patch mod to add the .pex into instead of creating a fresh folder (accumulate compiled scripts). Found by the plugin's filename even if you've renamed its MO2 mod folder; for two patches sharing a filename, pass the mod-folder name here instead (folder & plugin names need not match).")]
@@ -63,10 +107,59 @@ public static class CompileTools
         // install, not the copy MO2 points at) both resolve with no prompt; a total miss names where houseCARL looked (6.2).
         if (bridge.RequireOrPrompt(ToolDependency.PapyrusCompiler, out var compilerExe, svc.CompilerGameDirHints()) is { } toolPrompt) return toolPrompt;
 
-        // 4) import dirs — assembled by BuildImports (the guard-probed seam).
-        var imports = BuildImports(scriptDir, compilerExe!, import_dirs);
+        // 4) CALLER extras = import_dirs= then the named set (#200). An unknown set is REFUSED and names the saved sets
+        // rather than silently compiling with a shorter path — not having to check is the whole point of a named set.
+        var callerExtras = SplitDirs(import_dirs).ToList();
+        string? importSetName = null;
+        if (!string.IsNullOrWhiteSpace(import_set))
+        {
+            importSetName = import_set.Trim();
+            var saved = store.GetImportSet(importSetName);
+            if (saved is null)
+            {
+                var known = store.ImportSetNames();
+                return $"error: no saved import set named '{importSetName}'. " + (known.Count == 0
+                    ? "None are saved yet — pass import_dirs= once together with save_import_set= to create one."
+                    : "Saved sets: " + string.Join(", ", known) + ".");
+            }
+            callerExtras.AddRange(saved);
+        }
+        callerExtras = callerExtras.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 
-        // 5) output folder — output_dir= names a USER-OWNED location (append Scripts\, never a houseCARL patch folder; 6.3),
+        // 5) persist the set BEFORE compiling: a set is a path list, worth keeping whether or not this particular script
+        // compiles. A save FAILURE is reported, never swallowed (Q3 — "it worked this session, it won't survive a restart").
+        string? saveNote = null;
+        if (!string.IsNullOrWhiteSpace(save_import_set))
+        {
+            var setName = save_import_set.Trim();
+            if (callerExtras.Count == 0)
+                saveNote = $"note: save_import_set='{setName}' was ignored — there were no import_dirs=/import_set= dirs to save " +
+                           "(the auto-discovered and vanilla folders are re-derived every call, so a set of them would be meaningless).";
+            else
+            {
+                var (ok, err) = store.SaveImportSet(setName, callerExtras);
+                saveNote = ok
+                    ? $"saved import set '{setName}' ({callerExtras.Count} dir(s)) — later calls can pass import_set={setName}."
+                    : $"warning: import set '{setName}' could NOT be saved ({err}) — its dirs apply to this compile but will not survive a restart.";
+            }
+        }
+
+        // 6) the import path — the script's own folder, the caller's extras, the modlist's own source folders, vanilla last.
+        var (autoRoots, autoWarning) = auto_imports
+            ? svc.PapyrusSourceImportDirs()
+            : ((IReadOnlyList<PapyrusSourceRoot>)Array.Empty<PapyrusSourceRoot>(), null);
+        var plan = PlanImports(scriptDir, compilerExe!, callerExtras, autoRoots, auto_imports, importSetName, autoWarning);
+
+        // The whole path travels as ONE `-i=` argument and Windows caps a process command line (~32k chars), so a modlist
+        // with hundreds of source folders could cross it. Refuse LOUDLY with the way out rather than letting the process
+        // start fail with something unreadable (Q3).
+        var joinedLength = string.Join(";", plan.Dirs).Length;
+        if (joinedLength > 30_000)
+            return $"error: the assembled import path is too long for one compiler command line ({plan.Dirs.Count} dirs, " +
+                   $"{joinedLength} chars; the limit is about 32000). Re-run with auto_imports=false and pass only the " +
+                   "dependencies this script needs via import_dirs= (save_import_set= will keep that list for next time).";
+
+        // 7) output folder — output_dir= names a USER-OWNED location (append Scripts\, never a houseCARL patch folder; 6.3),
         // else the default folder-per-patch with its Scripts\ subdir. output_dir= wins; patch_name=/into= are then ignored
         // (surfaced, not silent — Q3).
         LoadOrderService.RiderFolder rf;
@@ -84,9 +177,9 @@ public static class CompileTools
             catch (InvalidOperationException ex) { return "error: " + ex.Message; }
         }
 
-        // 6) compile + render.
-        var result = HousecarlCore.PapyrusCompile.CompileObject(compilerExe!, objectName, imports, rf.OutputDir);
-        var rendered = Render(result, imports, userChoseOutputDir: !string.IsNullOrWhiteSpace(output_dir));
+        // 8) compile + render.
+        var result = HousecarlCore.PapyrusCompile.CompileObject(compilerExe!, objectName, plan.Dirs, rf.OutputDir);
+        var rendered = Render(result, plan, userChoseOutputDir: !string.IsNullOrWhiteSpace(output_dir));
         if (result.Success)
         {
             // Q3: never report a clean "done" for a .pex that won't deploy from where output_dir= put it.
@@ -101,46 +194,143 @@ public static class CompileTools
             if (left is not null)
                 rendered += $"\nThe freshly created mod folder at '{left}' still holds partial output — delete it or retry with into=.";
         }
+        if (saveNote is not null) rendered = saveNote + "\n" + rendered;
         if (outputNote is not null) rendered = outputNote + "\n" + rendered;
         return rendered;
     });
 
+    /// <summary>Split a ';'-separated import-dir spec into trimmed, unquoted directories, dropping blanks.</summary>
+    internal static IEnumerable<string> SplitDirs(string? spec)
+    {
+        if (string.IsNullOrWhiteSpace(spec)) yield break;
+        foreach (var raw in spec.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var d = raw.Trim('"').Trim();
+            if (d.Length > 0) yield return d;
+        }
+    }
+
+    /// <summary>The vanilla Papyrus sources shipped with the game the COMPILER belongs to
+    /// (&lt;game&gt;\Papyrus Compiler\PapyrusCompiler.exe → &lt;game&gt;\Data\Source\Scripts, which also holds the flags
+    /// file), or null if that folder isn't there. ONE definition, used both by <see cref="BuildImports"/> (which pins it
+    /// last) and by the labelling in <see cref="PlanImports"/> (which must recognise the same folder) — derived twice they
+    /// could disagree, and the render would then label the vanilla slot as a mod.</summary>
+    public static string? VanillaSourceDir(string compilerExe)
+    {
+        var gameRoot = Path.GetDirectoryName(Path.GetDirectoryName(compilerExe));
+        if (gameRoot is null) return null;
+        var vanilla = Path.Combine(gameRoot, "Data", "Source", "Scripts");
+        return Directory.Exists(vanilla) ? vanilla : null;
+    }
+
     /// <summary>
     /// Assemble the compiler's import-directory list. The CK compiler resolves each referenced script
     /// to the FIRST matching .psc across these directories in order, so order is semantics: the
-    /// script's own folder first, then CALLER extras, then the vanilla sources LAST (derived from the
-    /// compiler's game dir: &lt;game&gt;\Papyrus Compiler\PapyrusCompiler.exe → &lt;game&gt;\Data\Source\Scripts,
-    /// which also holds the flags file). Vanilla last is load-bearing: mods ship EXTENDED copies of
+    /// script's own folder first, then CALLER extras, then the modlist's own AUTO-DISCOVERED source
+    /// folders (#200 — passed in MO2 priority order, so a higher-priority mod's copy wins exactly as it
+    /// does for every other file in the VFS), then the vanilla sources LAST.
+    /// Vanilla last is load-bearing: mods ship EXTENDED copies of
     /// vanilla sources (SKSE's Actor.psc/Game.psc/Form.psc above all) — ranked above the caller's
     /// dirs, the vanilla copy wins and every call to an extended function fails "not a function or
     /// does not exist" despite the user passing the right folder (the PEX bulk gate hit this twice;
     /// spike findings §5.12). Exposed as the import-order-guard probe's seam.
     /// </summary>
-    public static List<string> BuildImports(string scriptDir, string compilerExe, string? import_dirs)
+    public static List<string> BuildImports(string scriptDir, string compilerExe, string? import_dirs,
+                                            IReadOnlyList<string>? autoDirs = null)
     {
         var imports = new List<string> { scriptDir };
-        if (!string.IsNullOrWhiteSpace(import_dirs))
-            foreach (var d in import_dirs.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
-                imports.Add(d.Trim('"'));
-        var gameRoot = Path.GetDirectoryName(Path.GetDirectoryName(compilerExe));
-        if (gameRoot is not null)
+        imports.AddRange(SplitDirs(import_dirs));
+        if (autoDirs is not null) imports.AddRange(autoDirs);
+        var vanilla = VanillaSourceDir(compilerExe);
+        if (vanilla is not null)
         {
-            var vanilla = Path.Combine(gameRoot, "Data", "Source", "Scripts");
-            if (Directory.Exists(vanilla))
-            {
-                // The auto-added vanilla dir is authoritative-LAST: a caller re-passing it (defensively,
-                // not knowing it's auto-added) must not pin it into the caller slot and resurrect the
-                // shadowing — Distinct keeps the FIRST occurrence. (When the script ITSELF lives in the
-                // vanilla folder, that slot is the own-folder slot and stays.)
-                imports.RemoveAll(d => d.Equals(vanilla, StringComparison.OrdinalIgnoreCase)
-                                       && !d.Equals(scriptDir, StringComparison.OrdinalIgnoreCase));
-                imports.Add(vanilla);
-            }
+            // The auto-added vanilla dir is authoritative-LAST: a caller re-passing it (defensively, not
+            // knowing it's auto-added) — or the modlist scan reaching it, since the game's Data folder is
+            // itself a VFS loose root and Data\Source\Scripts IS this folder — must not pin it into an
+            // earlier slot and resurrect the shadowing; Distinct keeps the FIRST occurrence. (When the
+            // script ITSELF lives in the vanilla folder, that slot is the own-folder slot and stays.)
+            imports.RemoveAll(d => d.Equals(vanilla, StringComparison.OrdinalIgnoreCase)
+                                   && !d.Equals(scriptDir, StringComparison.OrdinalIgnoreCase));
+            imports.Add(vanilla);
         }
         return imports.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
     }
 
-    internal static string Render(HousecarlCore.CompileResult r, IReadOnlyList<string> imports, bool userChoseOutputDir)
+    /// <summary>Drive <see cref="BuildImports"/> and LABEL each surviving dir with where it came from, so the render can
+    /// print the searched path with provenance. Labelling reads the FINAL list, not the inputs — dedup and the vanilla
+    /// re-slot both drop entries, and labels built from the inputs would describe a path that wasn't used.
+    /// Label precedence matters wherever a dir belongs to two origins: the script's own folder wins (it is routinely a
+    /// mod's own Source\Scripts, and it holds the first slot), then vanilla (the game's Data folder is also a loose root,
+    /// so the scan finds it — that is the vanilla slot, not a mod), then a discovered mod, then the caller.</summary>
+    internal static ImportPlan PlanImports(
+        string scriptDir, string compilerExe, IReadOnlyList<string> callerExtras,
+        IReadOnlyList<PapyrusSourceRoot> autoRoots, bool autoEnabled, string? importSetName, string? warning)
+    {
+        var dirs = BuildImports(scriptDir, compilerExe, string.Join(";", callerExtras),
+                                autoRoots.Select(r => r.Dir).ToList());
+        var vanilla = VanillaSourceDir(compilerExe);
+        var providers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var r in autoRoots) providers.TryAdd(r.Dir, r.Provider);
+
+        var entries = new List<(string Dir, string Origin)>(dirs.Count);
+        foreach (var d in dirs)
+        {
+            string origin =
+                d.Equals(scriptDir, StringComparison.OrdinalIgnoreCase) ? ImportPlan.OwnFolder
+                : vanilla is not null && d.Equals(vanilla, StringComparison.OrdinalIgnoreCase) ? ImportPlan.Vanilla
+                : providers.TryGetValue(d, out var mod) ? ImportPlan.AutoPrefix + mod
+                : ImportPlan.CallerDirs;
+            entries.Add((d, origin));
+        }
+        return new ImportPlan(entries, autoEnabled, importSetName, warning);
+    }
+
+    /// <summary>The one-line "what was actually searched" summary printed on EVERY call (#200 — the old render took the
+    /// import list and never showed it, so neither a missing dependency nor a shadowed script could be diagnosed from
+    /// the output). Provider names are display-capped at 8 with a "+N more" tail; the TOTAL is always stated, so a long
+    /// list reads as abbreviated rather than as everything there was.</summary>
+    internal static string ImportSummary(ImportPlan p)
+    {
+        var sb = new StringBuilder();
+        sb.Append("imports: ").Append(p.Dirs.Count).Append(" dir(s) searched — the script's own folder");
+        if (p.CallerCount > 0)
+        {
+            sb.Append("; ").Append(p.CallerCount).Append(" from import_dirs=");
+            if (p.ImportSetName is not null) sb.Append("/import_set=").Append(p.ImportSetName);
+        }
+        if (!p.AutoEnabled)
+            sb.Append("; auto_imports=false (your enabled mods were NOT scanned)");
+        else
+        {
+            var provs = p.AutoProviders;
+            sb.Append("; ").Append(provs.Count).Append(" auto-discovered from MO2");
+            if (provs.Count > 0)
+            {
+                const int Show = 8;
+                sb.Append(" (").Append(string.Join(", ", provs.Take(Show)));
+                if (provs.Count > Show) sb.Append(", +").Append(provs.Count - Show).Append(" more");
+                sb.Append(')');
+            }
+        }
+        if (p.Entries.Count > 0 && p.Entries[^1].Origin == ImportPlan.Vanilla)
+            sb.Append("; vanilla sources last");
+        sb.Append('.');
+        if (p.Warning is not null) sb.Append('\n').Append(p.Warning);
+        return sb.ToString();
+    }
+
+    /// <summary>The FULL ordered import path with provenance — printed on a FAILURE, where "which folders did it look
+    /// in, in what order" is exactly the question the diagnostics raise and the summary line cannot answer.</summary>
+    internal static string ImportDetail(ImportPlan p)
+    {
+        var sb = new StringBuilder("import path searched, in order (the compiler takes the FIRST match):");
+        for (int i = 0; i < p.Entries.Count; i++)
+            sb.Append("\n  ").Append((i + 1).ToString().PadLeft(2)).Append(". ")
+              .Append(p.Entries[i].Dir).Append("   [").Append(p.Entries[i].Origin).Append(']');
+        return sb.ToString();
+    }
+
+    internal static string Render(HousecarlCore.CompileResult r, ImportPlan plan, bool userChoseOutputDir)
     {
         var sb = new StringBuilder();
         if (!r.Ran) return "error: " + r.RunError;   // the compiler couldn't be run at all
@@ -154,6 +344,7 @@ public static class CompileTools
             sb.Append(userChoseOutputDir
                 ? "the .pex is in the output folder you chose (path above)."
                 : "the .pex is in a houseCARL patch-mod folder — enable it in MO2 to use it.");
+            sb.Append('\n').Append(ImportSummary(plan));
             if (r.Diagnostics.Count > 0)   // a .pex WAS produced but the compiler emitted notes → surface them as warnings
             {
                 sb.Append('\n').Append(r.Diagnostics.Count).Append(" warning(s) (the .pex compiled anyway):");
@@ -167,7 +358,7 @@ public static class CompileTools
         if (r.Diagnostics.Count > 0)
         {
             // MISSING-IMPORTS LEAD (HCBR-2026-06-25): when the failure is DOMINATED by unresolved-symbol/type errors, the
-            // overwhelmingly likely cause is an incomplete import_dirs — NOT a bug in the script (a single missing framework
+            // overwhelmingly likely cause is an incomplete import path — NOT a bug in the script (a single missing framework
             // header cascades into dozens of "unknown type / is undefined" lines, plus secondary type-mismatch noise, that
             // read like code errors). Surface that FIRST so the AI fixes the import path instead of "fixing" correct code.
             // Gated on a >=2/3 SUPERMAJORITY of the diagnostics AND a real count (>=3): a genuine missing import is
@@ -178,23 +369,36 @@ public static class CompileTools
             foreach (var d in r.Diagnostics) if (HousecarlCore.PapyrusCompile.IsUnresolvedSymbol(d.Message)) unresolved++;
             bool dominatedByMissingImports = unresolved >= 3 && unresolved * 3 >= r.Diagnostics.Count * 2;
             if (dominatedByMissingImports)
-                sb.Append("\n⚠ This looks like INCOMPLETE import_dirs, not a bug in the script: ")
+            {
+                sb.Append("\n⚠ This looks like an INCOMPLETE import path, not a bug in the script: ")
                   .Append(unresolved).Append(" of ").Append(r.Diagnostics.Count)
                   .Append(" diagnostics are unresolved-symbol/type errors (e.g. 'unknown type …', '… is undefined'). The CK " +
-                          "compiler resolves every referenced script against the import path, so a dependency whose Source\\Scripts " +
-                          "folder is missing makes ALL its calls/types fail. Re-run with import_dirs= listing EVERY dependency's " +
-                          "source folder (SKSE, SkyUI, PapyrusUtil, PO3, JContainers, …; ';'-separated) — the same set your " +
-                          "project's compile .bat passes via -i=.");
+                          "compiler resolves every referenced script against the import path, so a dependency whose source " +
+                          "folder is missing makes ALL its calls and types fail.");
+                // The remedy DIFFERS once the modlist has already been scanned: "list every dependency's folder" is the
+                // wrong instruction when dozens are already on the path, and it hides the causes the scan cannot fix (#200).
+                sb.Append(plan.AutoEnabled
+                    ? " The modlist scan already put " + plan.AutoProviders.Count + " mod source folder(s) on the path (listed " +
+                      "below), so the missing dependency is most likely NOT installed as an enabled mod, ships its sources " +
+                      "inside a BSA (the CK compiler cannot read archives — extract them first, e.g. with housecarl_bsa_extract), " +
+                      "or keeps them in a SUBFOLDER of one of the listed dirs. Pass that folder via import_dirs= (and " +
+                      "save_import_set= to keep it for next time)."
+                    : " auto_imports=false, so your enabled mods were NOT scanned — re-run with auto_imports=true, or pass " +
+                      "EVERY dependency's source folder via import_dirs= (SKSE, SkyUI, PapyrusUtil, PO3, JContainers, …; " +
+                      "';'-separated) — the same set your project's compile .bat passes via -i=.");
+            }
 
             // "diagnostic(s)", not "error(s)": the CK compiler mixes warnings into a failed run's output and the
             // parser doesn't split severities — labelling them all errors over-claims (2026-06-12 hunt render wave).
             sb.Append('\n').Append(r.Diagnostics.Count).Append(" diagnostic(s) (errors and possibly warnings — the CK compiler mixes them):");
             foreach (var d in r.Diagnostics) sb.Append("\n  ").Append(d);
+            sb.Append('\n').Append(ImportDetail(plan));
+            if (plan.Warning is not null) sb.Append('\n').Append(plan.Warning);
             // The generic tail stays for the NON-dominated case (a few resolution errors mixed with real ones); when we
             // already led with the strong missing-imports banner, don't repeat the import line.
             sb.Append("\nfix the .psc and recompile (look unfamiliar functions/types up with the papyrus-reference skill).");
             if (!dominatedByMissingImports)
-                sb.Append(" If a dependency type is 'not found', its source folder may be missing from the import path — pass it via import_dirs=.");
+                sb.Append(" If a dependency type is 'not found', its source folder may be missing from the import path listed above — pass it via import_dirs=.");
         }
         else
         {
@@ -202,6 +406,7 @@ public static class CompileTools
             sb.Append("\nthe compiler reported failure but no per-line diagnostics were parsed. Raw output:");
             if (r.Stderr.Trim().Length > 0) sb.Append("\n[stderr] ").Append(r.Stderr.Trim());
             if (r.Stdout.Trim().Length > 0) sb.Append("\n[stdout] ").Append(r.Stdout.Trim());
+            sb.Append('\n').Append(ImportDetail(plan));
         }
         return sb.ToString();
     }

@@ -1,10 +1,12 @@
+using HousecarlCore;
 using HousecarlMcp;
 
 namespace HousecarlGenerator;
 
 /// <summary>
-/// Import-order guard — locks in the rule that caller-passed import_dirs OUTRANK the auto-added
-/// vanilla source folder in housecarl_compile_script's import list.
+/// Import-order guard — locks in housecarl_compile_script's import-path RANKING: the script's own
+/// folder, then caller-passed import_dirs=/import_set=, then the modlist's auto-discovered source
+/// folders (#200), then the vanilla sources LAST.
 ///
 /// Why it matters: the CK compiler resolves every referenced script to the FIRST matching .psc
 /// across the import dirs, and mods routinely ship EXTENDED copies of vanilla sources (SKSE's
@@ -16,13 +18,16 @@ namespace HousecarlGenerator;
 /// Two arms:
 ///   1. PURE (always runs, CI-safe) — fabricates a fake game layout in temp (compiler path + a
 ///      Data\Source\Scripts dir), drives the REAL <see cref="CompileTools.BuildImports"/>, and
-///      asserts the order contract: script's own folder FIRST, caller dirs NEXT, vanilla LAST,
-///      case-insensitive dedup, quote-trim.
+///      asserts the order contract: script's own folder FIRST, caller dirs NEXT, auto-discovered
+///      modlist dirs AFTER those, vanilla LAST, case-insensitive dedup, quote-trim — including the
+///      Data-root case, where the modlist scan hands the vanilla folder back as an ordinary auto dir
+///      and it must be pulled to the end anyway.
 ///   2. END-TO-END (self-skips without the real CK compiler) — the SKSE-shadow proof: an import
 ///      dir carries a copy of vanilla Form.psc extended with a marker global function; a target
 ///      script calls it. Compiled with the EXACT list BuildImports produced, the compile succeeds
-///      only if the user's dir outranks vanilla. A control compile WITHOUT the import dir must
-///      fail (proves the marker really resolves from the user's copy, not from vanilla).
+///      only if that dir outranks vanilla. Driven for BOTH ranks that must beat vanilla (a caller
+///      import_dirs= and an auto-discovered mod), with a control compile WITHOUT the dir that must
+///      fail (proving the marker really resolves from the extended copy, not from vanilla).
 ///
 /// Run: dotnet run --project src/housecarl-generator import-order-guard ["&lt;PapyrusCompiler.exe&gt;"]
 /// </summary>
@@ -81,6 +86,74 @@ internal static class ImportOrderProbe
             var inVan = CompileTools.BuildImports(fakeVanilla, fakeCompiler, userB);
             Check(inVan.Count == 2 && inVan[0].Equals(fakeVanilla, StringComparison.OrdinalIgnoreCase),
                   "script inside the vanilla folder keeps its own-folder slot first");
+
+            // ---- AUTO-DISCOVERED modlist dirs (#200): a THIRD rank, between the caller and vanilla ----
+            var autoA = Path.Combine(fake, "mods", "SKSE", "Source", "Scripts");
+            var autoB = Path.Combine(fake, "mods", "PapyrusUtil", "Source", "Scripts");
+            foreach (var d in new[] { autoA, autoB }) Directory.CreateDirectory(d);
+
+            var withAuto = CompileTools.BuildImports(scriptDir, fakeCompiler, userB, new[] { autoA, autoB });
+            Check(withAuto.Count == 5, $"5 dirs assembled with 2 auto dirs (got {withAuto.Count})");
+            var iAutoA = withAuto.FindIndex(d => d.Equals(autoA, StringComparison.OrdinalIgnoreCase));
+            var iAutoB = withAuto.FindIndex(d => d.Equals(autoB, StringComparison.OrdinalIgnoreCase));
+            var iUserB = withAuto.FindIndex(d => d.Equals(userB, StringComparison.OrdinalIgnoreCase));
+            var iVan2 = withAuto.FindIndex(d => d.Equals(fakeVanilla, StringComparison.OrdinalIgnoreCase));
+            Check(withAuto[0].Equals(scriptDir, StringComparison.OrdinalIgnoreCase), "own folder still FIRST with auto dirs in play");
+            Check(iUserB < iAutoA, "the CALLER's import_dirs outrank the auto-discovered modlist dirs");
+            Check(iAutoA < iAutoB, "auto dirs keep the order they were given — that order is MO2 priority, which decides which copy wins");
+            Check(iAutoB < iVan2 && iVan2 == withAuto.Count - 1, "the auto dirs outrank vanilla, and vanilla is still LAST");
+
+            // THE Data-ROOT CASE, and the reason the vanilla re-slot had to survive this change: the game's Data folder
+            // is itself a VFS loose root, so the modlist scan finds Data\Source\Scripts and hands it in as an ordinary
+            // auto dir — ahead of every mod that follows it. If it kept that slot, the vanilla copy of Actor.psc would
+            // shadow SKSE's and every extended call would fail, which is exactly the bug the vanilla-last rule exists
+            // to stop. It must be pulled back to LAST.
+            var withData = CompileTools.BuildImports(scriptDir, fakeCompiler, null, new[] { fakeVanilla, autoA });
+            Check(withData.Count == 3 && withData[^1].Equals(fakeVanilla, StringComparison.OrdinalIgnoreCase)
+                  && withData[1].Equals(autoA, StringComparison.OrdinalIgnoreCase),
+                  "an auto dir that IS the vanilla folder (the Data loose root) is re-slotted to LAST, behind the mods");
+
+            // A dir in BOTH the caller list and the scan keeps its CALLER slot (dedup keeps the first occurrence) —
+            // otherwise defensively re-passing a folder you already have installed would demote it below the modlist.
+            var overlap = CompileTools.BuildImports(scriptDir, fakeCompiler, autoA, new[] { autoB, autoA });
+            Check(overlap.Count == 4 && overlap[1].Equals(autoA, StringComparison.OrdinalIgnoreCase)
+                  && overlap[2].Equals(autoB, StringComparison.OrdinalIgnoreCase),
+                  "a dir passed BOTH by the caller and by the scan keeps the caller slot");
+
+            // Null/empty auto list ⇒ byte-identical to the pre-#200 behaviour (the default-off path and every old call).
+            var noAuto = CompileTools.BuildImports(scriptDir, fakeCompiler, userB, null);
+            var emptyAuto = CompileTools.BuildImports(scriptDir, fakeCompiler, userB, Array.Empty<string>());
+            Check(noAuto.SequenceEqual(emptyAuto, StringComparer.OrdinalIgnoreCase) && noAuto.Count == 3,
+                  "no auto dirs (null or empty) → the original three-rank list, unchanged");
+
+            // VanillaSourceDir is the SINGLE definition both the assembly and the render's labelling read. Derived
+            // twice they could disagree, and the render would then label the vanilla slot as a mod.
+            Check(CompileTools.VanillaSourceDir(fakeCompiler) == fakeVanilla, "VanillaSourceDir resolves <game>\\Data\\Source\\Scripts");
+            Check(CompileTools.VanillaSourceDir(Path.Combine(fake, "nogame", "Papyrus Compiler", "PapyrusCompiler.exe")) is null,
+                  "VanillaSourceDir returns null when the folder isn't there (no phantom import dir)");
+
+            // ---- PlanImports: the LABELS the render prints, on the real assembled path ----
+            // A dir can belong to two origins at once, and the label decides what the user is told about a shadowed
+            // script. Both collisions are ordinary, not exotic: you routinely compile a .psc sitting in a mod's own
+            // Source\Scripts (own folder == an auto root), and the scan always reaches the game's Data folder
+            // (an auto root == vanilla). Driven through the REAL PlanImports, not a hand-built plan.
+            PapyrusSourceRoot Root(string provider, string dir) => new(provider, dir, @"Source\Scripts");
+            var labelled = CompileTools.PlanImports(
+                scriptDir, fakeCompiler, new[] { userB },
+                new[] { Root("Data", fakeVanilla), Root("SKSE", autoA), Root("Me", scriptDir) },
+                autoEnabled: true, importSetName: null, warning: null);
+            string LabelOf(string dir) => labelled.Entries.First(e => e.Dir.Equals(dir, StringComparison.OrdinalIgnoreCase)).Origin;
+            Check(LabelOf(scriptDir) == CompileTools.ImportPlan.OwnFolder,
+                  "a dir that is BOTH the script's own folder and a scanned mod is labelled the own folder (it holds that slot)");
+            Check(LabelOf(fakeVanilla) == CompileTools.ImportPlan.Vanilla,
+                  "the game's Data root comes back from the scan as a mod, but is labelled VANILLA (it is the vanilla slot)");
+            Check(LabelOf(autoA) == CompileTools.ImportPlan.AutoPrefix + "SKSE", "a scanned mod is labelled with its providing mod folder");
+            Check(LabelOf(userB) == CompileTools.ImportPlan.CallerDirs, "a caller dir is labelled import_dirs=");
+            Check(labelled.Dirs.SequenceEqual(CompileTools.BuildImports(scriptDir, fakeCompiler, userB,
+                      new[] { fakeVanilla, autoA, scriptDir }), StringComparer.OrdinalIgnoreCase),
+                  "PlanImports' dirs ARE BuildImports' output — the labels describe the path that actually ran");
+            Check(labelled.CallerCount == 1 && labelled.AutoProviders.SequenceEqual(new[] { "SKSE" }),
+                  "the summary counts are derived from the FINAL entries: 1 caller, 1 auto (Data and the own folder are not counted as mods)");
         }
         finally { try { Directory.Delete(fake, recursive: true); } catch { /* temp scratch; non-fatal */ } }
 
@@ -123,6 +196,15 @@ internal static class ImportOrderProbe
                 var ctl = HousecarlCore.PapyrusCompile.CompileObject(compiler, "HCImportOrderTarget", ctlImports, outDir);
                 Check(ctl.Ran && !ctl.Success,
                       "control without import_dirs FAILS (the marker resolves only from the caller's copy)");
+
+                // #200: the same proof for an AUTO-DISCOVERED dir. The modlist scan feeds dirs through a different
+                // parameter and a LOWER rank than import_dirs=, so "caller beats vanilla" does not transitively prove
+                // "a scanned mod beats vanilla" — and that is the case the new default actually relies on.
+                var autoImports = CompileTools.BuildImports(work, compiler, null, new[] { extDir });
+                var auto = HousecarlCore.PapyrusCompile.CompileObject(compiler, "HCImportOrderTarget", autoImports, outDir);
+                Check(auto.Success && auto.PexPath is not null,
+                      "an AUTO-DISCOVERED mod's extended copy also beats vanilla" +
+                      (auto.Success ? "" : $" (first error: {(auto.Diagnostics.Count > 0 ? auto.Diagnostics[0].ToString() : auto.Stderr.Trim())})"));
             }
             finally { try { Directory.Delete(work, recursive: true); } catch { /* in-dir scratch; non-fatal */ } }
         }

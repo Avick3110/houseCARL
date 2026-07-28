@@ -291,6 +291,37 @@ public sealed class LoadOrderService : IDisposable
     /// none is built (a pure-record session never pays for the asset resolver). Caller holds <see cref="_gate"/>.</summary>
     void InvalidateAssetResolver() { _assetResolver?.Dispose(); _assetResolver = null; }
 
+    /// <summary>The Papyrus SOURCE folders this modlist already ships (housecarl_compile_script's auto-import, #200):
+    /// every enabled mod's <c>Source\Scripts</c> / <c>Scripts\Source</c>, in MO2's own VFS precedence, so a framework
+    /// the modder already has installed (SKSE, PapyrusUtil, PO3, SkyUI, JContainers, …) lands on the compiler's import
+    /// path without being retyped per call.
+    /// <para>Reads the ORDER off <see cref="AssetResolver.LooseRoots"/> rather than re-deriving it: the precedence a
+    /// shadowed script resolves through must be the SAME list every other asset answer uses, and a second derivation
+    /// is a second thing to drift. The cost is that a compile-only session now builds the asset resolver (BSA file
+    /// tables — cheap next to the record index, and cached for the process/profile).</para>
+    /// <para>BEST-EFFORT BY CONTRACT (Q3): an unconfigured/unreadable profile returns an EMPTY list plus a warning the
+    /// rider renders, never an exception — losing the ergonomic default must not lose the compile, and the rendered
+    /// import summary makes a short list visible rather than silent.</para></summary>
+    public (IReadOnlyList<PapyrusSourceRoot> Roots, string? Warning) PapyrusSourceImportDirs()
+    {
+        IReadOnlyList<(string Name, string Dir)> roots;
+        try { lock (_gate) { roots = Assets.LooseRoots; } }
+        catch (Exception ex)
+        {
+            return (Array.Empty<PapyrusSourceRoot>(),
+                    "auto_imports: could not read the MO2 modlist to discover Papyrus source folders " +
+                    $"({ex.Message}) — only the script's own folder, your import_dirs=/import_set=, and the vanilla " +
+                    "sources are on the import path.");
+        }
+        try { return (PapyrusSourceRoots.Discover(roots), null); }
+        catch (Exception ex)
+        {
+            return (Array.Empty<PapyrusSourceRoot>(),
+                    $"auto_imports: scanning the modlist for Papyrus source folders failed ({ex.Message}) — " +
+                    "pass the dependency source folders via import_dirs=/import_set= for this compile.");
+        }
+    }
+
     /// <summary>Resolve a batch of Data-relative asset paths through the MO2 VFS (housecarl_asset_status): for each,
     /// which source provides it and which copy WINS (loose beats BSA; among BSAs the higher plugin rank). ONE
     /// <see cref="AssetResolver.Capture"/> for the whole batch, so every path AND the build-level BsaFailures /

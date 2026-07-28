@@ -29,6 +29,14 @@ public sealed class UserConfig
     /// like the other two it is read-modify-written ONLY through <see cref="UserConfigStore.Update"/> so it can never
     /// clobber (or be clobbered by) the MO2 instance / tool paths.</summary>
     public List<string>? InPlaceAcknowledged { get; set; }
+
+    /// <summary>Named Papyrus import-directory sets (housecarl_compile_script's <c>save_import_set=</c> /
+    /// <c>import_set=</c>) — a project's dependency source folders supplied ONCE and referenced by name thereafter
+    /// (issue #200's second half; the auto-scan covers frameworks that ship sources inside a mod, this covers the rest —
+    /// local stubs, a dev project tree, sources extracted out of a BSA). Name → the ordered dirs. Null/absent until the
+    /// first save. The fourth independent concern in this file, read-modify-written ONLY through
+    /// <see cref="UserConfigStore.Update"/> so it can never clobber (or be clobbered by) the other three.</summary>
+    public Dictionary<string, List<string>>? ImportSets { get; set; }
 }
 
 /// <summary>
@@ -149,6 +157,48 @@ public sealed class UserConfigStore
             cfg.InPlaceAcknowledged ??= new List<string>();
             if (!cfg.InPlaceAcknowledged.Any(p => string.Equals(NormalizePath(p), key, StringComparison.Ordinal)))
                 cfg.InPlaceAcknowledged.Add(key);
+        });
+        return (ok, error);
+    }
+
+    /// <summary>The saved import-set names, sorted, for a "did you mean" on an unknown name (Q3 — an unknown set names
+    /// what DOES exist rather than failing blank). Empty when none are saved or the file can't be read.</summary>
+    public IReadOnlyList<string> ImportSetNames()
+    {
+        var sets = Load().ImportSets;
+        if (sets is null) return Array.Empty<string>();
+        return sets.Keys.OrderBy(k => k, StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
+    /// <summary>The dirs saved under <paramref name="name"/>, or null if no such set. Matched CASE-INSENSITIVELY and
+    /// on the trimmed name: the dictionary comes back from JSON with the DEFAULT (ordinal) comparer, so a plain
+    /// indexer lookup would miss a set the user saved as "MyProject" and recalled as "myproject".</summary>
+    public IReadOnlyList<string>? GetImportSet(string name)
+    {
+        var sets = Load().ImportSets;
+        if (sets is null || string.IsNullOrWhiteSpace(name)) return null;
+        var key = name.Trim();
+        foreach (var kv in sets)
+            if (string.Equals(kv.Key, key, StringComparison.OrdinalIgnoreCase))
+                return kv.Value ?? new List<string>();
+        return null;
+    }
+
+    /// <summary>Save (or replace) the import set <paramref name="name"/> through the same atomic read-modify-write as
+    /// every other field, so it can never clobber the MO2 instance / tool paths / in-place acknowledgements sharing
+    /// this file. Replacing is case-insensitive AND removes the old key before adding the trimmed one, so re-saving
+    /// "MyProject" as "myproject" leaves ONE set rather than two that <see cref="GetImportSet"/> would then resolve
+    /// between arbitrarily. Returns (ok, error): a write failure is RETURNED, not thrown (Q3 — the caller can say the
+    /// compile ran but the set won't survive a restart).</summary>
+    public (bool ok, string? error) SaveImportSet(string name, IReadOnlyList<string> dirs)
+    {
+        var key = name.Trim();
+        var (ok, error, _) = Update(cfg =>
+        {
+            cfg.ImportSets ??= new Dictionary<string, List<string>>();
+            foreach (var existing in cfg.ImportSets.Keys.Where(k => string.Equals(k, key, StringComparison.OrdinalIgnoreCase)).ToList())
+                cfg.ImportSets.Remove(existing);
+            cfg.ImportSets[key] = dirs.ToList();
         });
         return (ok, error);
     }

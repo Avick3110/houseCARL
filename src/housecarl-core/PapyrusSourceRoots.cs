@@ -1,0 +1,82 @@
+namespace HousecarlCore;
+
+/// <summary>One discovered Papyrus source folder in the MO2 VFS: which loose root PROVIDED it
+/// (<paramref name="Provider"/> — an enabled mod's folder name, "overwrite", or "Data", exactly the name
+/// <c>AssetResolver</c> gives that root), the absolute folder to hand the compiler, and which of the two
+/// on-disk <see cref="PapyrusSourceRoots.Layouts"/> it matched.</summary>
+public sealed record PapyrusSourceRoot(string Provider, string Dir, string Layout);
+
+/// <summary>
+/// Finds the Papyrus SOURCE folders an MO2 modlist already contains, so housecarl_compile_script can put them on
+/// the compiler's import path instead of making the caller retype them on every call (issue #200).
+///
+/// The issue framed this as "read the import paths configured for the MO2 instance". There are none: MO2 stores no
+/// Papyrus import list, and SkyrimEditor.ini's <c>sScriptSourceFolder</c> is a SINGLE folder, not a list. What does
+/// exist is the mods themselves — a framework that expects to be compiled against ships its .psc sources inside its
+/// own mod folder. So the pickup is a scan of the VFS loose roots, not a config read.
+///
+/// Two layouts are recognised, both seen in shipped mods:
+///   • <c>Source\Scripts</c> — the SE/CK convention (the vanilla sources live at <c>Data\Source\Scripts</c>);
+///   • <c>Scripts\Source</c> — the LE convention, still carried by ported and older mods.
+/// A folder counts only if it actually holds a top-level <c>.psc</c>; an empty or scripts-only folder contributes
+/// nothing (a mod shipping compiled .pex with no sources must not widen the import path for nothing).
+///
+/// ORDER IS SEMANTICS. The compiler resolves each referenced script to the FIRST match across the import path, so
+/// the roots are walked in the caller's given order and emitted in it — handed the AssetResolver's loose roots, that
+/// is MO2's own precedence (overwrite → enabled mods highest-priority-first → Data), which is the same tie-break the
+/// modlist applies to every other file. Pure + I/O-only-on-probe: no MO2 knowledge lives here, which is what lets the
+/// guard drive it against a fabricated tree.
+/// </summary>
+public static class PapyrusSourceRoots
+{
+    /// <summary>The recognised on-disk source layouts, relative to a loose root, in preference order.</summary>
+    public static readonly string[] Layouts = { @"Source\Scripts", @"Scripts\Source" };
+
+    /// <summary>Walk <paramref name="looseRoots"/> IN THE GIVEN ORDER and return every folder that holds Papyrus
+    /// sources. Deduped by absolute path (case-insensitive), FIRST occurrence kept — so the higher-precedence root
+    /// keeps the slot when two roots resolve to the same folder. Unreadable roots are skipped, never thrown on: this
+    /// feeds an ergonomic default, so a permission-denied folder must cost the caller one import dir, not the compile
+    /// (Q3 — the count and the provider names are rendered, so a short list is visible rather than silent).</summary>
+    public static IReadOnlyList<PapyrusSourceRoot> Discover(IReadOnlyList<(string Name, string Dir)> looseRoots)
+    {
+        var found = new List<PapyrusSourceRoot>();
+        if (looseRoots is null) return found;
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (name, dir) in looseRoots)
+        {
+            if (string.IsNullOrWhiteSpace(dir)) continue;
+            foreach (var layout in Layouts)
+            {
+                string candidate;
+                try { candidate = Path.GetFullPath(Path.Combine(dir, layout)); }
+                catch { continue; }                       // an un-rootable root (bad chars) costs one candidate, not the scan
+                if (!HasSources(candidate)) continue;
+                if (!seen.Add(candidate)) continue;       // same folder reached twice → the FIRST (higher-precedence) slot wins
+                found.Add(new PapyrusSourceRoot(name, candidate, layout));
+            }
+        }
+        return found;
+    }
+
+    /// <summary>True iff <paramref name="dir"/> exists and holds at least one top-level <c>.psc</c>. Enumerates
+    /// lazily and returns on the FIRST hit, so the check costs one directory entry on a populated folder rather than
+    /// a full listing — this runs once per loose root, and a big modlist has thousands.
+    /// <para>The explicit <c>EndsWith(".psc")</c> re-check is CHEAP INSURANCE, not a proven necessity: a
+    /// three-character extension pattern can also match longer extensions on Windows via the 8.3 short-name rule, but
+    /// that depends on 8.3 name generation being enabled for the volume. Falsified 2026-07-28 — removing the re-check
+    /// did NOT make the guard's <c>.pscx</c> arm go red on this machine, so the quirk did not reproduce here and that
+    /// arm is a shape-check rather than a proof. The re-check stays because it costs one string compare and the
+    /// failure it guards against (a non-source folder widening every compile's import path) is silent.</para>
+    /// Any I/O failure (denied, vanished mid-walk) reads as "no sources" — best-effort by design.</summary>
+    public static bool HasSources(string dir)
+    {
+        try
+        {
+            if (!Directory.Exists(dir)) return false;
+            foreach (var f in Directory.EnumerateFiles(dir, "*.psc"))
+                if (f.EndsWith(".psc", StringComparison.OrdinalIgnoreCase)) return true;
+            return false;
+        }
+        catch { return false; }
+    }
+}
