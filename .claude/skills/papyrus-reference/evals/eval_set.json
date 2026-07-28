@@ -1,27 +1,121 @@
 {
-  "skill": "papyrus-reference",
-  "method": "HOUSECARL_SKILL_AUTHORING.md §6.5 fan-out. Set authored 2026-07-28 for issue #294 (papyrus-reference was the only skill with no eval set); first run performed the same day against the compressed 200-400-char description, as part of the all-13 revalidation: one fresh-context agent per query, each shown the full lettered menu of all 13 NEW descriptions (under-test skill unflagged) + NONE, asked which ONE to load, verdicts adjudicated from reasoning per §6.5 step 4.",
-  "gate": { "recall_threshold": 0.80, "specificity_threshold": 0.50 },
-  "result": { "pending": "filled by the #294 revalidation run" },
-  "evals": [
-    {"id": 1, "query": "add a GetItemCount check to this quest script so the stage only advances when the player has 3 dragon scales", "should_trigger": true},
-    {"id": 2, "query": "compile error: GetActorValuePercentage is not a function or does not exist — but other mods call it fine?", "should_trigger": true},
-    {"id": 3, "query": "what parameters does OnObjectEquipped actually pass? i need the base object inside the event", "should_trigger": true},
-    {"id": 4, "query": "writing an MCM with MCMHelper — what's the signature for SetModSettingFloat and when does it apply?", "should_trigger": true},
-    {"id": 5, "query": "does StorageUtil.SetIntValue take none as the form? building a save-persistent counter", "should_trigger": true},
-    {"id": 6, "query": "copy the teleport function from elsewhere in this psc and tweak it to use a different xmarker property", "should_trigger": true},
-    {"id": 7, "query": "type mismatch compiling my follower script, it won't cast ObjectReference to Actor on line 40", "should_trigger": true},
-    {"id": 8, "query": "which JContainers call reads a json file into a string array from papyrus?", "should_trigger": true},
-    {"id": 9, "query": "quick one — what does Utility.WaitMenuMode(0.5) return and does it block?", "should_trigger": true},
-
-    {"id": 10, "query": "this script is dumping stacks in my papyrus log, is it too heavy for my load order?", "should_trigger": false, "expected_route": "papyrus-optimization — heaviness judgment, not signature lookup"},
-    {"id": 11, "query": "review this psc and tell me if the OnUpdate loop is going to lag my game", "should_trigger": false, "expected_route": "papyrus-optimization"},
-    {"id": 12, "query": "write an SKSE plugin in C++ that exposes a native papyrus string-hashing function", "should_trigger": false, "expected_route": "skse-plugin-authoring — producer side, C++ not .psc"},
-    {"id": 13, "query": "what fields does the QUST record have and is Priority writable?", "should_trigger": false, "expected_route": "mutagen-reference — record schema, not function signatures"},
-    {"id": 14, "query": "attach this existing script to the magic effect record and fill in its properties", "should_trigger": false, "expected_route": "record-edit tools / NONE — record operation, no .psc is read or written"},
-    {"id": 15, "query": "wire a TIF result fragment onto this dialogue line so it advances the quest stage", "should_trigger": false, "expected_route": "dialogue-authoring"},
-    {"id": 16, "query": "how do i install SKSE and PapyrusUtil in MO2?", "should_trigger": false, "expected_route": "NONE / basics — names corpus members but is an install question"},
-    {"id": 17, "query": "decompile campfire's pex files and tell me how heavy its update loops are", "should_trigger": false, "expected_route": "papyrus-optimization — the judgment asked is heaviness; hard near-miss"},
-    {"id": 18, "query": "gate this dodge animation behind a perk check so only the player gets it", "should_trigger": false, "expected_route": "oar-authoring — animation condition, not a script"}
-  ]
+ "skill": "papyrus-reference",
+ "method": "HOUSECARL_SKILL_AUTHORING.md §6.5 fan-out. Set authored 2026-07-28 for issue #294 (papyrus-reference was the only skill with no eval set); first run performed the same day against the compressed 200-400-char description, as part of the all-13 revalidation: one fresh-context agent per query, each shown the full lettered menu of all 13 NEW descriptions (under-test skill unflagged) + NONE, asked which ONE to load, verdicts adjudicated from reasoning per §6.5 step 4.",
+ "gate": {
+  "recall_threshold": 0.8,
+  "specificity_threshold": 0.5
+ },
+ "result": {
+  "method": "2026-07-28 revalidation for issue #294 (all 13 descriptions compressed to the amended section-3.5 200-400 char target): section-6.5 fan-out, one fresh-context sonnet (low effort) agent per query, each shown the full lettered menu of all 13 NEW descriptions (under-test skill unflagged, letter C) plus NONE, asked which ONE to load; one opus adjudicator per skill scored from reasoning per section-6.5 step 4. No fable-model agents. Conductor session: #294 worktree.",
+  "gate": {
+   "recall_threshold": 0.8,
+   "specificity_threshold": 0.5
+  },
+  "recall": "9/9 = 1.00",
+  "specificity": "9/9 = 1.00",
+  "passed": true,
+  "misses": [],
+  "adjudicator_notes": "Perfect sweep: 9/9 recall (100%, threshold 80%), 9/9 specificity (100%, threshold 50%). No reasoning-vs-pick overrides needed — every pick token agreed with its stated reasoning.\n\nRecall (rows 1-9): all nine agents named the C-described capability explicitly (signature / parameter / return-type lookup, unknown-identifier and type-mismatch compile errors, SKSE-plugin APIs). The description's named-vendor list (PapyrusUtil, JContainers, MCMHelper) did real work — rows 4, 5, 8 each cited the specific vendor by name as the reason C fit. Row 6 (copied-function edit) was carried by the explicit \"even one copied from elsewhere in the same file\" clause, which that agent quoted verbatim; that clause is load-bearing and should not be trimmed.\n\nSpecificity (rows 10-18): clean separation from the two nearest neighbours. L (papyrus-optimization) took all three cost/lag rows (10, 11, 17) with no C bleed — notably row 17, where \"decompile campfire's pex\" could have pulled toward a reference lookup, but the agent reasoned that decompiling is only the means and the judgment task is grading. F took the C++ native-plugin authoring row (12) despite \"papyrus\" in the query. G took both record-schema rows (13, 14). N correctly took the MO2 install how-to (16).\n\nOne soft spot worth noting, not a miss: row 14 (\"attach this existing script to the magic effect record and fill in its properties\") produced visibly unsettled reasoning — the agent cycled the whole menu, noted nothing cleanly covers VMAD script-attachment plus property filling, and landed on G by elimination. C was never a candidate in that reasoning, so specificity holds; the row exposes a menu-level gap (script-to-record wiring, which lives in the authoria-requiem pack, not the houseCARL menu) rather than a papyrus-reference defect. Re-run that row if a skill ever closes the gap.\n\nNo description change indicated for papyrus-reference."
+ },
+ "evals": [
+  {
+   "id": 1,
+   "query": "add a GetItemCount check to this quest script so the stage only advances when the player has 3 dragon scales",
+   "should_trigger": true
+  },
+  {
+   "id": 2,
+   "query": "compile error: GetActorValuePercentage is not a function or does not exist — but other mods call it fine?",
+   "should_trigger": true
+  },
+  {
+   "id": 3,
+   "query": "what parameters does OnObjectEquipped actually pass? i need the base object inside the event",
+   "should_trigger": true
+  },
+  {
+   "id": 4,
+   "query": "writing an MCM with MCMHelper — what's the signature for SetModSettingFloat and when does it apply?",
+   "should_trigger": true
+  },
+  {
+   "id": 5,
+   "query": "does StorageUtil.SetIntValue take none as the form? building a save-persistent counter",
+   "should_trigger": true
+  },
+  {
+   "id": 6,
+   "query": "copy the teleport function from elsewhere in this psc and tweak it to use a different xmarker property",
+   "should_trigger": true
+  },
+  {
+   "id": 7,
+   "query": "type mismatch compiling my follower script, it won't cast ObjectReference to Actor on line 40",
+   "should_trigger": true
+  },
+  {
+   "id": 8,
+   "query": "which JContainers call reads a json file into a string array from papyrus?",
+   "should_trigger": true
+  },
+  {
+   "id": 9,
+   "query": "quick one — what does Utility.WaitMenuMode(0.5) return and does it block?",
+   "should_trigger": true
+  },
+  {
+   "id": 10,
+   "query": "this script is dumping stacks in my papyrus log, is it too heavy for my load order?",
+   "should_trigger": false,
+   "expected_route": "papyrus-optimization — heaviness judgment, not signature lookup"
+  },
+  {
+   "id": 11,
+   "query": "review this psc and tell me if the OnUpdate loop is going to lag my game",
+   "should_trigger": false,
+   "expected_route": "papyrus-optimization"
+  },
+  {
+   "id": 12,
+   "query": "write an SKSE plugin in C++ that exposes a native papyrus string-hashing function",
+   "should_trigger": false,
+   "expected_route": "skse-plugin-authoring — producer side, C++ not .psc"
+  },
+  {
+   "id": 13,
+   "query": "what fields does the QUST record have and is Priority writable?",
+   "should_trigger": false,
+   "expected_route": "mutagen-reference — record schema, not function signatures"
+  },
+  {
+   "id": 14,
+   "query": "attach this existing script to the magic effect record and fill in its properties",
+   "should_trigger": false,
+   "expected_route": "record-edit tools / NONE — record operation, no .psc is read or written"
+  },
+  {
+   "id": 15,
+   "query": "wire a TIF result fragment onto this dialogue line so it advances the quest stage",
+   "should_trigger": false,
+   "expected_route": "dialogue-authoring"
+  },
+  {
+   "id": 16,
+   "query": "how do i install SKSE and PapyrusUtil in MO2?",
+   "should_trigger": false,
+   "expected_route": "NONE / basics — names corpus members but is an install question"
+  },
+  {
+   "id": 17,
+   "query": "decompile campfire's pex files and tell me how heavy its update loops are",
+   "should_trigger": false,
+   "expected_route": "papyrus-optimization — the judgment asked is heaviness; hard near-miss"
+  },
+  {
+   "id": 18,
+   "query": "gate this dodge animation behind a perk check so only the player gets it",
+   "should_trigger": false,
+   "expected_route": "oar-authoring — animation condition, not a script"
+  }
+ ]
 }

@@ -1,34 +1,144 @@
 {
-  "_meta": {
-    "skill": "oar-authoring",
-    "purpose": "Trigger-reliability eval per HOUSECARL_SKILL_AUTHORING.md section 6.",
-    "validation": "Manual predictions only (section 6.5 fallback). The empirical run_loop (section 6.1) must be executed in the houseCARL dev environment on WSL2/Linux/macOS (section 6.4 Windows select() caveat) before ship. Predicted recall 10/10, predicted specificity 10/10.",
-    "peer_prediction": "Independent peer-prediction check (section 6.5 item 3) performed 2026-06-23: a reviewer predicted all 20 queries cold from the description alone, with no access to the labels -- recall 10/10 (100%), specificity 10/10 (100%), zero disagreements. Re-checked after the description was trimmed to <180 words (section 3.5): still 10/10 / 10/10.",
-    "outcome_eval": "Section 6.6 outcome-correctness round-trip over 9 real-world configs (blind-interpret via the skill, diff vs ground truth): 9/9 pass (7 correct, 2 appropriately-uncertain), 0 silent-wrong. The detailed run-record is dev-local (it carries a tester's load-order paths), per repo policy.",
-    "scoring": "manual_predicted_trigger == should_trigger counts as correct."
+ "_meta": {
+  "skill": "oar-authoring",
+  "purpose": "Trigger-reliability eval per HOUSECARL_SKILL_AUTHORING.md section 6.",
+  "validation": "Manual predictions only (section 6.5 fallback). The empirical run_loop (section 6.1) must be executed in the houseCARL dev environment on WSL2/Linux/macOS (section 6.4 Windows select() caveat) before ship. Predicted recall 10/10, predicted specificity 10/10.",
+  "peer_prediction": "Independent peer-prediction check (section 6.5 item 3) performed 2026-06-23: a reviewer predicted all 20 queries cold from the description alone, with no access to the labels -- recall 10/10 (100%), specificity 10/10 (100%), zero disagreements. Re-checked after the description was trimmed to <180 words (section 3.5): still 10/10 / 10/10.",
+  "outcome_eval": "Section 6.6 outcome-correctness round-trip over 9 real-world configs (blind-interpret via the skill, diff vs ground truth): 9/9 pass (7 correct, 2 appropriately-uncertain), 0 silent-wrong. The detailed run-record is dev-local (it carries a tester's load-order paths), per repo policy.",
+  "scoring": "manual_predicted_trigger == should_trigger counts as correct."
+ },
+ "should_trigger": [
+  {
+   "query": "my new dual-wield moveset plays even when I have an axe out, it should be swords only — fix the OAR config",
+   "should_trigger": true,
+   "manual_predicted_trigger": true
   },
-  "should_trigger": [
-    { "query": "my new dual-wield moveset plays even when I have an axe out, it should be swords only — fix the OAR config", "should_trigger": true, "manual_predicted_trigger": true },
-    { "query": "write a user.json so this idle only plays at night, without editing the original animation mod", "should_trigger": true, "manual_predicted_trigger": true },
-    { "query": "which submod wins for the bow draw animation, the priority 9007010 OAR one or the legacy DAR _CustomConditions 225000 one?", "should_trigger": true, "manual_predicted_trigger": true },
-    { "query": "why isn't my dodge animation playing when I have a shield equipped", "should_trigger": true, "manual_predicted_trigger": true },
-    { "query": "add a condition so this sprint animation only triggers when the actor is a vampire", "should_trigger": true, "manual_predicted_trigger": true },
-    { "query": "convert this _conditions.txt into the new OAR config format", "should_trigger": true, "manual_predicted_trigger": true },
-    { "query": "what does this config.json actually do? it has IsEquippedType 6 and a HasMagicEffect line", "should_trigger": true, "manual_predicted_trigger": true },
-    { "query": "gate the Smooth greatsword moveset behind a perk so it only applies once the player learns it", "should_trigger": true, "manual_predicted_trigger": true },
-    { "query": "set the priority on my idle replacer so it beats Leviathan Animations", "should_trigger": true, "manual_predicted_trigger": true },
-    { "query": "can I use the Math plugin condition to make this animation play based on stamina percentage?", "should_trigger": true, "manual_predicted_trigger": true }
-  ],
-  "should_not_trigger": [
-    { "query": "distribute this idle-marker spell to all bandits", "should_trigger": false, "manual_predicted_trigger": false, "note": "SPID — form distribution to NPCs, not an animation config." },
-    { "query": "write a KID ini to tag all greatswords with a custom keyword", "should_trigger": false, "manual_predicted_trigger": false, "note": "KID — keyword on items; shares 'greatswords' vocabulary but not OAR." },
-    { "query": "buff the attack damage on this sword in SkyPatcher", "should_trigger": false, "manual_predicted_trigger": false, "note": "SkyPatcher record edit." },
-    { "query": "this Papyrus script calls RegisterForAnimationEvent in an OnUpdate loop — is it heavy?", "should_trigger": false, "manual_predicted_trigger": false, "note": "papyrus-optimization — an animation EVENT in script, not an OAR config." },
-    { "query": "the NPC T-poses in his walk animation — is a skeleton node missing from the nif?", "should_trigger": false, "manual_predicted_trigger": false, "note": "nif-node-reading / behavior; not an OAR condition problem." },
-    { "query": "what biped slot does this animated armor mesh occupy?", "should_trigger": false, "manual_predicted_trigger": false, "note": "nif-mesh-inspection." },
-    { "query": "my follower's face is dark after I gave her a new animation pack", "should_trigger": false, "manual_predicted_trigger": false, "note": "facegen-diagnostics; 'animation pack' is a red herring." },
-    { "query": "add a SPID _DISTR line so guards use a different voice type", "should_trigger": false, "manual_predicted_trigger": false, "note": "SPID." },
-    { "query": "I just added a new dual-wield moveset animation mod — do I need to run Nemesis or Pandora to regenerate the behavior?", "should_trigger": false, "manual_predicted_trigger": false, "note": "Nemesis/Pandora behavior-graph generation is an animation-engine build step, not OAR config authoring (OAR is runtime and needs no behavior regen for its replacements); shares 'moveset'/'animation mod' vocabulary." },
-    { "query": "repoint the purple texture on this animated waterfall mesh", "should_trigger": false, "manual_predicted_trigger": false, "note": "nif-editing; 'animated' is a red herring." }
-  ]
+  {
+   "query": "write a user.json so this idle only plays at night, without editing the original animation mod",
+   "should_trigger": true,
+   "manual_predicted_trigger": true
+  },
+  {
+   "query": "which submod wins for the bow draw animation, the priority 9007010 OAR one or the legacy DAR _CustomConditions 225000 one?",
+   "should_trigger": true,
+   "manual_predicted_trigger": true
+  },
+  {
+   "query": "why isn't my dodge animation playing when I have a shield equipped",
+   "should_trigger": true,
+   "manual_predicted_trigger": true
+  },
+  {
+   "query": "add a condition so this sprint animation only triggers when the actor is a vampire",
+   "should_trigger": true,
+   "manual_predicted_trigger": true
+  },
+  {
+   "query": "convert this _conditions.txt into the new OAR config format",
+   "should_trigger": true,
+   "manual_predicted_trigger": true
+  },
+  {
+   "query": "what does this config.json actually do? it has IsEquippedType 6 and a HasMagicEffect line",
+   "should_trigger": true,
+   "manual_predicted_trigger": true
+  },
+  {
+   "query": "gate the Smooth greatsword moveset behind a perk so it only applies once the player learns it",
+   "should_trigger": true,
+   "manual_predicted_trigger": true
+  },
+  {
+   "query": "set the priority on my idle replacer so it beats Leviathan Animations",
+   "should_trigger": true,
+   "manual_predicted_trigger": true
+  },
+  {
+   "query": "can I use the Math plugin condition to make this animation play based on stamina percentage?",
+   "should_trigger": true,
+   "manual_predicted_trigger": true
+  }
+ ],
+ "should_not_trigger": [
+  {
+   "query": "distribute this idle-marker spell to all bandits",
+   "should_trigger": false,
+   "manual_predicted_trigger": false,
+   "note": "SPID — form distribution to NPCs, not an animation config."
+  },
+  {
+   "query": "write a KID ini to tag all greatswords with a custom keyword",
+   "should_trigger": false,
+   "manual_predicted_trigger": false,
+   "note": "KID — keyword on items; shares 'greatswords' vocabulary but not OAR."
+  },
+  {
+   "query": "buff the attack damage on this sword in SkyPatcher",
+   "should_trigger": false,
+   "manual_predicted_trigger": false,
+   "note": "SkyPatcher record edit."
+  },
+  {
+   "query": "this Papyrus script calls RegisterForAnimationEvent in an OnUpdate loop — is it heavy?",
+   "should_trigger": false,
+   "manual_predicted_trigger": false,
+   "note": "papyrus-optimization — an animation EVENT in script, not an OAR config."
+  },
+  {
+   "query": "the NPC T-poses in his walk animation — is a skeleton node missing from the nif?",
+   "should_trigger": false,
+   "manual_predicted_trigger": false,
+   "note": "nif-node-reading / behavior; not an OAR condition problem."
+  },
+  {
+   "query": "what biped slot does this animated armor mesh occupy?",
+   "should_trigger": false,
+   "manual_predicted_trigger": false,
+   "note": "nif-mesh-inspection."
+  },
+  {
+   "query": "my follower's face is dark after I gave her a new animation pack",
+   "should_trigger": false,
+   "manual_predicted_trigger": false,
+   "note": "facegen-diagnostics; 'animation pack' is a red herring."
+  },
+  {
+   "query": "add a SPID _DISTR line so guards use a different voice type",
+   "should_trigger": false,
+   "manual_predicted_trigger": false,
+   "note": "SPID."
+  },
+  {
+   "query": "I just added a new dual-wield moveset animation mod — do I need to run Nemesis or Pandora to regenerate the behavior?",
+   "should_trigger": false,
+   "manual_predicted_trigger": false,
+   "note": "Nemesis/Pandora behavior-graph generation is an animation-engine build step, not OAR config authoring (OAR is runtime and needs no behavior regen for its replacements); shares 'moveset'/'animation mod' vocabulary."
+  },
+  {
+   "query": "repoint the purple texture on this animated waterfall mesh",
+   "should_trigger": false,
+   "manual_predicted_trigger": false,
+   "note": "nif-editing; 'animated' is a red herring."
+  }
+ ],
+ "revalidation_2026-07-28_294": {
+  "method": "2026-07-28 revalidation for issue #294 (all 13 descriptions compressed to the amended section-3.5 200-400 char target): section-6.5 fan-out, one fresh-context sonnet (low effort) agent per query, each shown the full lettered menu of all 13 NEW descriptions (under-test skill unflagged, letter H) plus NONE, asked which ONE to load; one opus adjudicator per skill scored from reasoning per section-6.5 step 4. No fable-model agents. Conductor session: #294 worktree.",
+  "gate": {
+   "recall_threshold": 0.8,
+   "specificity_threshold": 0.5
+  },
+  "recall": "10/10 = 1.00",
+  "specificity": "10/10 = 1.00",
+  "passed": true,
+  "misses": [],
+  "adjudicator_notes": "Perfect run: recall 10/10 (1.00), specificity 9/9 (1.00), both well above the 0.80/0.50 gates. Row set has 19 entries (id 18 absent from the input); totals reflect the 19 rows supplied.\n\nReasoning-level adjudication (6.5 step 4) confirmed every pick token — no overrides needed:\n- All 10 recall rows cite the H-described capability by name (OAR config/config.json/user.json conditions, DAR _conditions.txt conversion, priority/winner resolution, gating by weapon type, keyword, perk, race, time, magic effect, Math plugin). No borderline reasoning.\n- Rows 15 and 19 both mention OAR in their reasoning but explicitly rule it out and pick N — correctly reasoned negatives, not accidental hits. Row 15 distinguishes skeleton/rigging from animation condition selection; row 19 distinguishes Nemesis/Pandora behavior generation from OAR condition configs. That boundary language is the strongest signal H's description is drawing the right edge: it claims condition-based selection and winner resolution, not behavior-engine regeneration or NIF/skeleton work.\n- Rows 11-14, 16-17 route cleanly to the adjacent distributor/perf/lookup skills (SPID, KID, SkyPatcher, papyrus-optimization, biped-slot-reference, facegen-diagnostics) with no H pull, including the two designed near-misses that embed animation vocabulary in a non-OAR task: row 11 \"idle-marker spell\" (went to SPID on the distribution verb) and row 17 \"dark face after a new animation pack\" (went to facegen on the symptom, correctly treating the animation pack as a red herring). Row 14's \"RegisterForAnimationEvent\" likewise did not drag it to H.\n\nNo description change warranted for trigger reliability. The one thing to watch on future runs is the animation-adjacent negative cluster (15, 19, 20) — those held on reasoning that no skill covers behavior generation, skeleton nodes, or NIF texture paths, i.e. on H's absence of a claim rather than an explicit exclusion. If a later skill or a broadened H description starts asserting anything about animation assets or behavior patching, re-run those three first.",
+  "backfilled_row": {
+   "id": 18,
+   "query": "add a SPID _DISTR line so guards use a different voice type",
+   "should_trigger": false,
+   "pick": "E",
+   "hit": true,
+   "note": "rate-limited in the main run, backfilled same day; routed to spid-authoring — specificity hit, folded into the totals below"
+  }
+ }
 }
