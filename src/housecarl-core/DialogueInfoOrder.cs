@@ -24,11 +24,20 @@ namespace HousecarlCore;
 //                      PNAM present, unresolvable -> HEAD
 //                      PNAM resolves to T         -> immediately AFTER T (T placed first if absent, cycle-guarded)
 //
-//  EMPIRICAL CONFIRMATION (2026-07-27, live load order). HirelingQuestTopic1 (0BCC84:Skyrim.esm): Skyrim.esm
-//  lists 8 INFOs, USSEP re-lists 6 (PNAM-chained in vanilla relative order — a no-op), then two plugins each
-//  re-list ONLY 01A18E (the "you can't afford me" refusal) with no PNAM. The model evicts it from #0 and
-//  appends it, landing it LAST — putting the hire line 01A1CD ahead of it, which is exactly the reported bug
-//  (hired at 79 gold because the refusal is no longer reached first). Reproduced independently of the report.
+//  EMPIRICAL CONFIRMATION (2026-07-28, run against a live load order). HirelingQuestTopic1 (0BCC84:Skyrim.esm):
+//  Skyrim.esm lists 8 INFOs; USSEP re-lists 6, each carrying its PNAM, and they do not move (the after-target arm
+//  doing its job); two further plugins each re-list ONLY 01A18E, the "you can't afford me" refusal. The winning
+//  copy of 01A18E carries a PRESENT-ZERO PNAM — the "I am first" marker — so it is placed at the HEAD and the
+//  refusal correctly leads the topic. The merged order is 8 lines while the winning DIAL's own child list holds
+//  exactly ONE, which is the load-bearing observation: see WHAT THIS CORRECTS below.
+//
+//  WHAT THIS RECORD DOES *NOT* SHOW, stated because an earlier version of this comment claimed it did. It is NOT
+//  a live reproduction of the reported hireling bug. Predicting from the model by hand, before running it, gave
+//  the refusal at the TAIL (evicted by the two re-lists, no PNAM assumed) — the reported shape. The live run
+//  falsified that: those re-lists carry the zero marker, so the line is pinned first and this topic is healthy on
+//  this order. The tail-append arm is real and guard-pinned (REORDER-TO-TAIL), but it is NOT demonstrated by this
+//  record here; a live instance needs a load order that actually carries the defect. Do not cite 0BCC84 as a
+//  reproduction. (The falsified prediction is also what produced the PNAM-ZERO mis-measurement below.)
 //
 //  WHAT THIS CORRECTS. The prior "DIAL-wins-wholesale" model (the winning topic's Responses IS the in-game INFO
 //  set, so a line no other plugin re-lists is DROPPED) is FALSE and is superseded here. In the case above the
@@ -37,8 +46,9 @@ namespace HousecarlCore;
 //  REORDERS. (That model was recorded Aaron-confirmed 2026-06-19; superseded on the evidence above, #275.)
 //
 //  THE PNAM-ZERO AXIS. "PNAM absent" and "PNAM present but zero" place at OPPOSITE ENDS (tail vs head), and the
-//  reader DOES tell them apart — measured against a real on-disk zero PNAM, and confirmed live 2026-07-27, where
-//  0BCC84's winning copy carries the zero marker and is correctly placed FIRST. This was recorded the OTHER WAY
+//  reader DOES tell them apart — measured against a real on-disk zero PNAM, and confirmed live 2026-07-28, where
+//  the winning copy of INFO 01A18E (under topic 0BCC84 — a DIAL has no PreviousDialog of its own; its PNAM
+//  subrecord is the topic Priority float) carries the zero marker and is correctly placed FIRST. Recorded the OTHER WAY
 //  for four review rounds, and the validator shipped a standing footer caveat about a blind spot that does not
 //  exist. The error was in the measurement, not the model: the guard authored its fixture through Mutagen's
 //  WRITER, which emits no subrecord for a null link, so the "round trip" never contained a zero PNAM and the arm
@@ -73,10 +83,16 @@ public enum InfoPlacement
     /// that moves a re-listed line to the BOTTOM of a topic.</summary>
     Tail,
 
-    /// <summary>A PNAM that is PRESENT but names no reachable INFO — placed at the head. Covers the ZERO PNAM (the
-    /// "I am first" marker xEdit's PNAM fill writes, and the common real-world case), a PNAM pointing at a record no
-    /// active plugin defines, one naming its own record, and a chain past the depth ceiling.</summary>
-    Head,
+    /// <summary>A PNAM present with value ZERO — the "I am first" marker xEdit's PNAM fill writes. Placed at the
+    /// head, and that is CORRECT, DELIBERATE authoring, not a fault: it is how a vanilla line is held ahead of the
+    /// lines it guards. Kept distinct from <see cref="HeadUnresolvable"/> so the render can say so — reporting the
+    /// intended case in the vocabulary of the broken one invites a modder to "fix" a correct line.</summary>
+    HeadFirstMarker,
+
+    /// <summary>A PNAM present but naming no reachable INFO — a target no active plugin defines, a self-reference,
+    /// a link closing a cycle, or a chain past the depth ceiling. Placed at the head because that is what the model
+    /// does with an unusable link, but unlike <see cref="HeadFirstMarker"/> this one IS worth a second look.</summary>
+    HeadUnresolvable,
 
     /// <summary>PNAM resolved — placed immediately after its target.</summary>
     AfterTarget,
@@ -116,6 +132,11 @@ public sealed record InfoOrderView(
     /// <summary>Plugins the load-order index says TOUCH this topic whose child list could not be read, so their
     /// lines are absent from <see cref="Order"/>. Empty in the normal case.</summary>
     public IReadOnlyList<string> UnreadContributors { get; init; } = Array.Empty<string>();
+
+    /// <summary>Whether the move analysis actually RAN. When false, an empty <see cref="Moved"/> means "not
+    /// computed", NOT "nothing moved" — so no caller may read absence of moves as evidence of none. Skipped when
+    /// the baseline is untrustworthy or the topic is past the analysis ceiling.</summary>
+    public bool MovesComputed { get; init; } = true;
 
     /// <summary>Whether <see cref="InfoOrderEntry.OriginIndex"/> really is the DEFINING plugin's list. False when
     /// an unread plugin precedes the first contributing one, which silently makes a later plugin's list the
@@ -246,7 +267,8 @@ public static class DialogueInfoOrder
         return new InfoOrderView(entries, contributing, moved,
                                  BuildNote(state, order.Count, originIdx is not null, unreadContributors, originIsDefiningPlugin))
             { UnreadContributors = unreadContributors ?? Array.Empty<string>(),
-              BaselineTrusted = originIsDefiningPlugin };
+              BaselineTrusted = originIsDefiningPlugin,
+              MovesComputed = originIdx is not null && order.Count <= MaxMoveAnalysisLines && originIsDefiningPlugin };
     }
 
     /// <summary>The DEGRADATION note: what part of this merge did not run cleanly, and on what input. Null when the
@@ -301,10 +323,10 @@ public static class DialogueInfoOrder
         order.Remove(fk);                                        // evict every prior copy — last lister owns position
         state.Placed[fk] = new Placed(plugin, InfoPlacement.Tail, line.Deleted, line.PreviousDialog);
 
-        void Head()
+        void Head(InfoPlacement why)
         {
             order.Insert(0, fk);
-            state.Placed[fk] = new Placed(plugin, InfoPlacement.Head, line.Deleted, line.PreviousDialog);
+            state.Placed[fk] = new Placed(plugin, why, line.Deleted, line.PreviousDialog);
         }
 
         var prev = line.PreviousDialog;
@@ -315,16 +337,20 @@ public static class DialogueInfoOrder
             return;
         }
 
-        if (prev.Value.IsNull)                                   // PNAM present but zero (unreachable today —
-        {                                                        // Mutagen collapses it to absent; kept explicit so
-            Head();                                              // the arm exists if that ever changes)
+        // PNAM present with value ZERO — the "I am first" marker. LOAD-BEARING, not dead: the reader DOES see
+        // this (PnamZeroIsDistinguishable, measured; pinned by the guard's PNAM-ZERO-AXIS arm against a
+        // byte-patched fixture) and it is the COMMON real-world shape. Deleting this branch would silently move
+        // every marked line from the head to the tail — the exact regression this whole change exists to prevent.
+        if (prev.Value.IsNull)
+        {
+            Head(InfoPlacement.HeadFirstMarker);
             return;
         }
 
         if (prev.Value == fk)                                    // a PNAM naming its OWN record — malformed
         {
             state.SelfReferencing.Add(fk);
-            Head();
+            Head(InfoPlacement.HeadUnresolvable);
             return;
         }
 
@@ -353,7 +379,7 @@ public static class DialogueInfoOrder
 
         if (at < 0)                                              // unreachable target (dangling, cycle, or truncated)
         {
-            Head();
+            Head(InfoPlacement.HeadUnresolvable);
             return;
         }
 
