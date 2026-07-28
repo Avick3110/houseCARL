@@ -305,7 +305,8 @@ public sealed class LoadOrderService : IDisposable
     public (IReadOnlyList<PapyrusSourceRoot> Roots, string? Warning) PapyrusSourceImportDirs()
     {
         IReadOnlyList<(string Name, string Dir)> roots;
-        try { lock (_gate) { roots = Assets.LooseRoots; } }
+        string dataDir;
+        try { lock (_gate) { roots = Assets.LooseRoots; dataDir = _dataDir; } }
         catch (Exception ex)
         {
             return (Array.Empty<PapyrusSourceRoot>(),
@@ -313,7 +314,11 @@ public sealed class LoadOrderService : IDisposable
                     $"({ex.Message}) — only the script's own folder, your import_dirs=/import_set=, and the vanilla " +
                     "sources are on the import path.");
         }
-        try { return (PapyrusSourceRoots.Discover(roots), null); }
+        // The game's own Data root is dropped HERE, where the data dir is known, rather than left to the rider's
+        // compiler-relative vanilla check: on a Stock Game setup those are deliberately different folders (the CK
+        // compiler lives in the real Steam install), so that check would never fire and the base game would rank as
+        // an ordinary mod. See PapyrusSourceRoots.ExcludeGameData.
+        try { return (PapyrusSourceRoots.ExcludeGameData(PapyrusSourceRoots.Discover(roots), dataDir), null); }
         catch (Exception ex)
         {
             return (Array.Empty<PapyrusSourceRoot>(),

@@ -276,6 +276,27 @@ internal static class CompileErgonomicsProbe
               "an exhausted reference-walk budget is surfaced with its ceiling (Q3 — no silently shortened import path)");
         Check(!okMsg.Contains("reference walk stopped"), "…and a completed walk says nothing (no false alarm)");
 
+        // E3c (PR #296 review): the caveat is written FOR the failing run — its own text ends "if the compile fails on
+        // unresolved symbols, pass that folder via import_dirs=" — yet it lived only in ImportSummary, which Render
+        // calls only when the compile SUCCEEDED. The failing run got the confident banner and no disclosure at all.
+        var cappedPlan = Plan(autoCount: 2, scanned: 501, scan: new PapyrusDependencyScan(
+            Array.Empty<string>(), Indexed: 13235, FilesRead: PapyrusDependencyFilter.MaxFilesRead, BudgetExhausted: true));
+        var cappedFail = CompileTools.Render(missingImports, cappedPlan, userChoseOutputDir: false);
+        Check(cappedFail.Contains("reference walk stopped"),
+              "the truncation caveat reaches the FAILED render too — the run it was written for");
+        Check(!cappedFail.Contains("REFERENCES BY NAME") && cappedFail.Contains("START WITH THE ⚠ NOTE BELOW"),
+              "…and the banner stops asserting a complete narrowing, pointing at the caveat instead of at causes that exclude it");
+
+        // E3d: the same for an UNREADABLE target. An empty result must not be rendered as a claim about the source's
+        // contents when the source was never opened.
+        var unreadPlan = Plan(autoCount: 0, scanned: 501, scan: new PapyrusDependencyScan(
+            Array.Empty<string>(), Indexed: 13235, FilesRead: 0, BudgetExhausted: false, TargetUnreadable: true));
+        var unreadOk = CompileTools.Render(ok, unreadPlan, userChoseOutputDir: false);
+        Check(unreadOk.Contains("could not be READ") && !unreadOk.Contains("referenced by this script"),
+              "an unreadable target is SAID, and the summary drops the 'referenced by this script' claim it never earned");
+        Check(CompileTools.Render(missingImports, unreadPlan, userChoseOutputDir: false).Contains("could not be READ"),
+              "…on the failed render too");
+
         // E4: a FAILURE prints the full ordered path with provenance — the summary line cannot answer "in what order".
         var failPlan = Plan(autoCount: 2, callerCount: 1);
         var failMsg = CompileTools.Render(syntaxFail, failPlan, userChoseOutputDir: false);
@@ -306,8 +327,23 @@ internal static class CompileErgonomicsProbe
               "the two remedies are exclusive — the OFF branch does not also claim a scan happened");
 
         // E6: a discovery WARNING (unreadable profile) rides the output — losing the ergonomic default is never silent (Q3).
-        var warned = CompileTools.Render(ok, Plan(warning: "auto_imports: could not read the MO2 modlist (boom)"), userChoseOutputDir: false);
+        var warnPlan = Plan(warning: "auto_imports: could not read the MO2 modlist (boom)");
+        var warned = CompileTools.Render(ok, warnPlan, userChoseOutputDir: false);
         Check(warned.Contains("could not read the MO2 modlist"), "an auto-discovery warning is surfaced on a SUCCESSFUL compile too");
+        Check(CompileTools.Render(syntaxFail, warnPlan, userChoseOutputDir: false).Contains("could not read the MO2 modlist"),
+              "…and on a failure WITH diagnostics");
+
+        // E6b (PR #296 review): the third render branch — a failure the diagnostic parser cannot split — appended the
+        // import path but NOT the warning, so "houseCARL could not LOOK at your modlist" was discarded and the reader
+        // was left to read a two-entry path as "nothing is installed".
+        var unparseable = new HousecarlCore.CompileResult(
+            Success: false, ObjectName: "HCRaw", PexPath: null,
+            Diagnostics: Array.Empty<HousecarlCore.PapyrusDiagnostic>(),
+            Stdout: "something the parser cannot split", Stderr: "", ExitCode: 1, RunError: null);
+        var rawMsg = CompileTools.Render(unparseable, warnPlan, userChoseOutputDir: false);
+        Check(rawMsg.Contains("no per-line diagnostics were parsed"), "control: this really is the raw-output branch");
+        Check(rawMsg.Contains("could not read the MO2 modlist"),
+              "the discovery warning survives the no-parseable-diagnostics branch too (every branch that prints a path prints its caveats)");
 
         // ---------------------------------------------------------- F: named import sets persist and coexist (#200)
         Console.WriteLine();
@@ -400,6 +436,29 @@ internal static class CompileErgonomicsProbe
             var deduped = PapyrusSourceRoots.Discover(dupRoots);
             Check(deduped.Count == 1 && deduped[0].Provider == "SKSE", "the same folder twice → ONE entry, the higher-precedence root keeps it");
 
+            // ExcludeGameData (PR #296 review): the game's own Data root is not a mod. The rider ALSO drops whatever
+            // matches the COMPILER's vanilla dir — but on a Wabbajack Stock Game setup those are different folders by
+            // design (the CK compiler lives in the real Steam install), so that check never fires there and the base
+            // game would rank as an ordinary mod: labelled [MO2: Data], counted in the summary, and — because Data is
+            // last in precedence, hence the fallback provider for every unshadowed vanilla name — dragging the
+            // reference walk through the whole base game. The arm is built with the data dir DELIBERATELY unrelated to
+            // any compiler path, which is the case the old check could not see.
+            var stockData = Mk("StockGameData", @"Source\Scripts", "Form.psc", "Quest.psc");
+            var stockRoots = new (string, string)[]
+            {
+                ("SKSE", Path.Combine(gRoot, "SKSE")),
+                ("Data", Path.Combine(gRoot, "StockGameData")),
+            };
+            var withData = PapyrusSourceRoots.Discover(stockRoots);
+            Check(withData.Any(r => r.Dir == stockData), "control: the scan DOES find the game's own Data sources (they hold .psc)");
+            var noData = PapyrusSourceRoots.ExcludeGameData(withData, Path.Combine(gRoot, "StockGameData"));
+            Check(noData.All(r => r.Dir != stockData) && noData.Count == withData.Count - 1,
+                  "ExcludeGameData drops the game's Data sources by PATH — no dependence on them coinciding with the compiler's vanilla dir");
+            Check(noData.Any(r => r.Provider == "SKSE"), "…and drops nothing else");
+            Check(PapyrusSourceRoots.ExcludeGameData(withData, null).Count == withData.Count
+                  && PapyrusSourceRoots.ExcludeGameData(withData, "  ").Count == withData.Count,
+                  "a blank data dir drops NOTHING (Path.Combine would otherwise resolve the layouts against the process CWD)");
+
             // Best-effort by contract: a missing / nonsense root costs one candidate, never the scan.
             bool threw = false;
             try { PapyrusSourceRoots.Discover(new (string, string)[] { ("bad", "\0not a path"), ("gone", Path.Combine(gRoot, "nope")), ("blank", "") }); }
@@ -469,6 +528,10 @@ internal static class CompileErgonomicsProbe
             catch { blewUp = true; }
             Check(!blewUp && missing is not null && missing.Folders.Count == 0,
                   "an unreadable target returns an empty set, never a throw (the compiler's own error is the better one)");
+            // PR #296 review: empty-because-unreadable must be DISTINGUISHABLE from empty-because-nothing-matched, or
+            // the render turns it into "0 of 501 referenced by this script" — a claim about contents never examined.
+            Check(missing is { TargetUnreadable: true }, "…and it is FLAGGED unreadable, not passed off as a walk that found nothing");
+            Check(!scan.TargetUnreadable, "…while a real walk is not flagged (no false alarm)");
 
             // A cycle (A references B references A) must terminate — scripts reference each other routinely.
             var cycA = Folder("cycA", ("CycA", "Scriptname CycA\n\nCycB b\n"));

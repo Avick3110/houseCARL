@@ -58,6 +58,29 @@ public static class PapyrusSourceRoots
         return found;
     }
 
+    /// <summary>Drop the roots that are the GAME's own vanilla sources — <c>&lt;data&gt;\Source\Scripts</c> and its LE
+    /// twin — from a <see cref="Discover"/> result. They are not a mod, and the compile rider appends the vanilla
+    /// sources last unconditionally, so leaving them in the mod candidates would rank the base game as an ordinary
+    /// mod and let the reference walk chase the whole of it.
+    /// <para>This CANNOT be left to "the caller will notice the folder matches the compiler's vanilla dir". On a
+    /// Wabbajack Stock Game setup those are different folders by design — the CK compiler lives in the real Steam
+    /// install (this rider's own tool-path hints exist for exactly that), while MO2's data dir is the Stock Game copy —
+    /// so a compiler-relative comparison silently never fires on the setup it most needs to. Matching is EXACT against
+    /// the folders <see cref="Discover"/> would have produced for this data dir, not a path-prefix guess.</para>
+    /// <para>A blank <paramref name="dataDir"/> (explicit-paths or unconfigured mode) drops nothing: <c>Path.Combine</c>
+    /// would otherwise resolve the layouts against the process CWD and could exclude an unrelated folder.</para></summary>
+    public static IReadOnlyList<PapyrusSourceRoot> ExcludeGameData(IReadOnlyList<PapyrusSourceRoot> found, string? dataDir)
+    {
+        if (string.IsNullOrWhiteSpace(dataDir)) return found;
+        var vanilla = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var layout in Layouts)
+        {
+            try { vanilla.Add(Path.GetFullPath(Path.Combine(dataDir, layout))); }
+            catch { /* an un-rootable data dir excludes nothing — the same best-effort posture as the scan */ }
+        }
+        return found.Where(r => !vanilla.Contains(r.Dir)).ToList();
+    }
+
     /// <summary>True iff <paramref name="dir"/> exists and holds at least one top-level <c>.psc</c>. Enumerates
     /// lazily and returns on the FIRST hit, so the check costs one directory entry on a populated folder rather than
     /// a full listing — this runs once per loose root, and a big modlist has thousands.

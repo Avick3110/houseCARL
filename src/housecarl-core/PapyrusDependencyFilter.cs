@@ -4,12 +4,18 @@ namespace HousecarlCore;
 
 /// <summary>What <see cref="PapyrusDependencyFilter.Relevant"/> concluded: the candidate folders this script actually
 /// reaches (in the order they were offered), plus the numbers the render discloses — how many scripts were indexed,
-/// how many source files were read chasing transitive references, and whether a bound cut the walk short.</summary>
+/// how many source files were read chasing transitive references, and whether a bound cut the walk short.
+/// <para>BOTH degraded outcomes are FLAGGED, never left to look like a clean empty answer.
+/// <see cref="BudgetExhausted"/> means the walk was truncated; <see cref="TargetUnreadable"/> means the target's own
+/// source could not be read at all, so an empty <see cref="Folders"/> says nothing about what the script references —
+/// without it the render would state "0 of 501 … referenced by this script", a positive claim about contents that were
+/// never examined (Q3: a degraded answer must not be indistinguishable from a confident one).</para></summary>
 public sealed record PapyrusDependencyScan(
     IReadOnlyList<string> Folders,
     int Indexed,
     int FilesRead,
-    bool BudgetExhausted);
+    bool BudgetExhausted,
+    bool TargetUnreadable = false);
 
 /// <summary>
 /// Narrows a modlist's Papyrus source folders to the ones a specific script can actually reach (issue #200).
@@ -85,8 +91,13 @@ public static class PapyrusDependencyFilter
 
         int filesRead = 0;
         bool exhausted = false;
+        // The target is re-read here, after CompileScript's own File.Exists — it can be locked by an editor mid-save
+        // or moved in between. Returning empty is right (a throw would cost the compile, and the compiler's own error
+        // is the better one), but it must be DISTINGUISHABLE from a walk that ran and reached nothing: the render turns
+        // an empty result into "your script references none of these", which here would be asserting the contents of a
+        // file that was never opened.
         try { foreach (var id in Names(File.ReadAllText(targetScript))) queue.Enqueue(id); filesRead++; }
-        catch { return new PapyrusDependencyScan(Array.Empty<string>(), folderOf.Count, 0, false); }
+        catch { return new PapyrusDependencyScan(Array.Empty<string>(), folderOf.Count, 0, false, TargetUnreadable: true); }
 
         while (queue.Count > 0)
         {
