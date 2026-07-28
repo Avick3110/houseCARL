@@ -50,7 +50,7 @@ Source: <https://code.claude.com/docs/en/skills> § "Add supporting files".
 
 ### 3.1 — Action-first lead, no exceptions
 
-The description's first sentence must lead with the **action the skill performs** plus **what the skill is for**. The description is ~100 words of "always-in-context" budget per Anthropic's progressive-disclosure model — every word must earn its place.
+The description's first sentence must lead with the **action the skill performs** plus **what the skill is for**. The description is always-resident context, charged against the host's budget for the *entire* skill listing (§ 3.5) — every word must earn its place.
 
 **The four-part formula:**
 
@@ -96,19 +96,20 @@ Per `anthropic-skills:skill-creator`'s SKILL.md (verbatim, lines 67):
 
 > "currently Claude has a tendency to 'undertrigger' skills — to not use them when they'd be useful. To combat this, please make the skill descriptions a little bit 'pushy'."
 
-For Housecarl this means **every skill description ends with one of these tail patterns** (or a domain-appropriate equivalent):
+For Housecarl this means the pushy bias is mandatory, but it is carried as a **compact tail clause**, not a spelled-out sentence pair *(amended 2026-07-28, issue #294 — the previous rule mandated a full tail sentence on every description, which at 13 skills materially contributed to blowing the listing budget in § 3.5)*:
 
-- `"... — even if you think you only need [trivial path]."` (counters under-load on tasks that look small)
-- `"Load this before [concrete first action], not after [concrete failure mode]."` (anchors load timing)
-- `"Use this whenever [topic], even if [common dismissal-rationalization]."` (counters topic-adjacent dismissals)
+- The tail is a single short clause (aim ≤ ~80 characters), e.g. `"Load before the first record write, not after it fails."` or `"— even if the patch looks trivial."`
+- The tail is **mandatory** where the skill has a genuine early-load hazard — a wrong static read produces a false diagnosis, or a hand-guessed value silently does the wrong thing. It is **optional** elsewhere: for plain reference/authoring skills, the concrete trigger nouns in "Use when…" (§ 3.2) carry recall on their own.
 
 Conforms:
 
-> "Use before performing any full-mod analysis — even if you think the mod is small. Many small-looking mods touch hundreds of records once you trace conflicts."
+> "Load before judging any face bug — record-vs-file precedence decides the fix."
 
 Doesn't conform:
 
-> "Use this when appropriate."
+> "Use this when appropriate." *(no bias at all)*
+
+> "Load this before touching an AMMO record, not after the arrows fire wrong in game, and not after the Reqtificator has already rebalanced them wrong, even if the change looks small." *(the old spelled-out shape — correct bias, unaffordable length)*
 
 The bias is asymmetric: a skill that triggers when not strictly needed wastes ~100 words of context (recoverable). A skill that fails to trigger wastes a full session of degraded behavior (unrecoverable inside that session). Optimize for recall.
 
@@ -126,9 +127,18 @@ These items are forbidden in any Housecarl skill description and a reviewer reje
 | Negative-gated triggers | `"Use only when X is true"`, `"Avoid using if Y"` | Pushes Claude toward conservative under-load. Standard 3.3 mandates the opposite bias. |
 | Run-on descriptions over the cap | (anything > 1,536 chars combined description+`when_to_use`) | Anthropic truncates beyond 1,536 chars, so over-cap content silently disappears from the registry. Source: <https://code.claude.com/docs/en/skills> § Frontmatter reference. |
 
-### 3.5 — Description length: target 60-180 words
+### 3.5 — Description length: target 200-400 characters
 
-Hard cap: combined `description` + `when_to_use` ≤ 1,536 characters (Anthropic-imposed truncation). Soft target: 60-180 words. Below 60 words means insufficient trigger surface. Over 180 words means body content has leaked into the description — move it to § 4.
+*(Amended 2026-07-28, issue #294. The previous soft target was 60-180 words — written before the listing budget was measured. At 13 skills averaging 935 characters, houseCARL alone cost ~3,040 est. tokens of always-resident context, ~1.5× the host's budget for the entire skill listing.)*
+
+**The operative budget is the listing budget, not the per-skill cap.** Claude Code allocates roughly 1% of the context window (~2,000 tokens) to the *entire* skill listing across all sources — houseCARL, other plugins, user skills combined. When the listing exceeds that budget, entries get **truncated**, and a truncated description routes *worse* than a short one — over-length descriptions don't just cost tokens, they degrade the routing they were written to improve.
+
+- **Soft target: 200-400 characters** per description (~50-100 est. tokens): the action-first lead (§ 3.1), the two or three *distinctive* trigger nouns (§ 3.2), and the compact pushy tail where § 3.3 requires one.
+- Below ~150 characters usually means insufficient trigger surface.
+- Over ~400 characters means synonym chains or capability inventories have leaked in — a model generalises across near-synonym triggers, and what the skill *contains* belongs in the body (§ 4), which loads on invocation and is free.
+- Hard cap unchanged: combined `description` + `when_to_use` ≤ 1,536 characters (Anthropic-imposed truncation).
+
+**Spend the characters on distinctive vocabulary, not coverage.** `_DISTR.ini`, `facegen`, `.psc`, `SkyPatcher` are what routing actually keys on, and they're cheap. Synonym chains for the same trigger are the first thing to cut.
 
 **Front-load the use case** within the first sentence so it survives mid-string truncation. If a reader sees only the first 200 characters, can they tell what the skill does and roughly when it loads? If no, restructure.
 
@@ -390,9 +400,9 @@ Before a Housecarl skill merges to main:
 2. ☐ Frontmatter includes `name:` set **equal to the folder name** (§ 2) — Codex requires it; a missing or mismatched `name:` fails review.
 3. ☐ Description leads with action verb phrase (§ 3.1).
 4. ☐ Description "Use when..." contains ≥ 3 user-utterance trigger nouns (§ 3.2).
-5. ☐ Description ends with one of the pushy reinforcement tail patterns (§ 3.3).
+5. ☐ Description carries a compact pushy tail clause if the skill has an early-load hazard; no spelled-out tail sentences (§ 3.3).
 6. ☐ Description is free of all forbidden items in § 3.4.
-7. ☐ Combined description + `when_to_use` is ≤ 1,536 characters (§ 3.5).
+7. ☐ Description is within the 200-400 character soft target (or justifies the excess), and combined description + `when_to_use` is ≤ 1,536 characters (§ 3.5).
 8. ☐ Body is ≤ 500 lines (hard cap, § 4.1).
 9. ☐ Body H1 matches folder name in Title Case (§ 4.2).
 10. ☐ Body uses standard sections in standard order (§ 4.2).
