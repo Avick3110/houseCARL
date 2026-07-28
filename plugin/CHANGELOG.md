@@ -39,7 +39,7 @@ practice that turns 501 folders into eight or ten, and it reports both numbers s
 reach (your own stubs, a dev project folder, sources you had to extract out of a BSA — the Creation Kit's compiler
 cannot read archives) still goes in `import_dirs=`, and you can now **save that list under a name** with
 `save_import_set=` and recall it later with `import_set=`, so it is typed once rather than once per call. Pass
-`auto_imports=false` to skip the modlist scan entirely. **The folders actually searched are now reported on every
+`auto_imports=false` to leave your enabled mods off the import path. **The folders actually searched are now reported on every
 compile** — a summary on success, the full ordered list on failure. That was previously invisible, which made the
 two ways a compile goes wrong impossible to tell apart from the output: a dependency that was never on the path, and
 a dependency found in the *wrong* folder because something earlier in the order shadowed it. Relatedly, a failure
