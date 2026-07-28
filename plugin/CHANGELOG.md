@@ -8,6 +8,21 @@ when it changes.
 
 *Accumulating notes for the next cut — not yet released; `plugin.json` still reads the last shipped version.*
 
+**Skill descriptions no longer overflow the context budget — every one compressed and re-validated (#294).** The 13
+skill descriptions cost ~12,150 characters (~3,040 est. tokens) of always-resident context in every session — about
+1.5× the budget Claude Code gives the *entire* skill listing across all installed sources. Past that budget, entries
+get truncated, and a truncated description routes *worse* than a short one, so the length was actively degrading the
+routing it was written to improve. All 13 are rewritten to a 200–400 character target — keeping the distinctive
+trigger vocabulary routing actually keys on (`_DISTR.ini`, `facegen`, `.psc`, `Occlusion.esp`) and cutting the
+synonym chains and capability inventories (that content lives in the skill body, which loads on invocation and is
+free). New listing cost: ~5,130 characters (~1,280 est. tokens), roughly a **1,750-token saving in every session**.
+Every description was re-validated through the full trigger-reliability fan-out (283 eval queries, one fresh agent
+per query against the complete new listing): 12 of 13 passed immediately; `tool-output-awareness` initially lost the
+generator filenames it routes on and went through three fix iterations before passing — its final text deliberately
+keeps the artifact names (`PGPatcher.esp`, `Reqtificated` patches, `NPC_Token.json`). `papyrus-reference` also gains
+its first eval set. The authoring standard's length rules were amended to match, so future skills are written to the
+budget instead of re-discovering it.
+
 **`validate_dialogue` now reports a topic's EFFECTIVE line order — and which mod moved a line (#275).** A dialogue
 topic is a list of possible lines, and the game plays the **first** one whose conditions pass. That list is not held
 by any single record: every mod that touches the topic contributes its own list, and the real order is the merge of
