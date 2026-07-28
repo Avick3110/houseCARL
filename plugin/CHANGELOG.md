@@ -29,7 +29,13 @@ takes the **whole list, every call**. A script built on the usual frameworks (SK
 JContainers, RaceMenu, UIExtensions…) meant retyping eight or ten folder paths for each compile, and getting one
 wrong produced an avalanche of errors that read like bugs in your code. houseCARL now **scans your enabled mods**
 for the source folders they already ship and puts them on the path for you, in MO2 priority order — so a mod's own
-extended copy of a script wins over the vanilla one exactly as it does everywhere else. Anything the scan can't
+extended copy of a script wins over the vanilla one exactly as it does everywhere else. It does **not** hand the
+compiler all of them: a big modlist ships far more script folders than you'd guess (501 on a 3,617-mod order, whose
+combined length a Windows command line cannot even carry), and nearly all belong to quest and follower mods shipping
+their own scripts that nothing else ever calls. So houseCARL keeps the folders your script actually **references** —
+by name, followed onward through those scripts, since the compiler loads your dependencies' dependencies too. In
+practice that turns 501 folders into eight or ten, and it reports both numbers so a folder that was left out reads as
+*dropped as unreferenced*, not *missed*. Anything the scan can't
 reach (your own stubs, a dev project folder, sources you had to extract out of a BSA — the Creation Kit's compiler
 cannot read archives) still goes in `import_dirs=`, and you can now **save that list under a name** with
 `save_import_set=` and recall it later with `import_set=`, so it is typed once rather than once per call. Pass

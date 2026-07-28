@@ -27,7 +27,9 @@ public static class CompileTools
         IReadOnlyList<(string Dir, string Origin)> Entries,
         bool AutoEnabled,
         string? ImportSetName,
-        string? Warning)
+        string? Warning,
+        int AutoScanned = 0,
+        PapyrusDependencyScan? Scan = null)
     {
         /// <summary>Provenance labels — the exact strings <see cref="ImportDetail"/> prints, and the keys the counts group on.</summary>
         public const string OwnFolder = "the script's own folder";
@@ -54,7 +56,8 @@ public static class CompileTools
          "folder you choose (houseCARL appends Scripts\\ so MO2 deploys it). Pass script= the full path to the " +
          ".psc to compile. IMPORT PATH: houseCARL adds the script's own folder, then AUTO-DISCOVERS the Papyrus source " +
          "folders your enabled MO2 mods already ship (Source\\Scripts / Scripts\\Source, in MO2 priority order — so SKSE, " +
-         "PapyrusUtil, PO3, SkyUI, JContainers and friends need no retyping), then the vanilla sources LAST; pass " +
+         "PapyrusUtil, PO3, SkyUI, JContainers and friends need no retyping), NARROWED to the folders this script actually " +
+         "references (directly or transitively), then the vanilla sources LAST; pass " +
          "auto_imports=false to skip the modlist scan. Add anything the scan can't reach (local stubs, a dev project tree, " +
          "sources you extracted from a BSA — the CK compiler cannot read archives) via import_dirs= (';'-separated), and " +
          "save_import_set=<name> to persist that list so later calls just pass import_set=<name>. Precedence is your " +
@@ -73,7 +76,7 @@ public static class CompileTools
             string script,
         [Description("Optional. Extra import directories where dependency sources (.psc) live — separated by ';'. The script's own folder, your enabled mods' source folders (unless auto_imports=false), and the vanilla source folder are added automatically; these directories outrank all of those (first match wins), so extended copies of vanilla scripts take precedence.")]
             string? import_dirs = null,
-        [Description("Optional (default true). Scan the enabled MO2 mods for Papyrus source folders (Source\\Scripts / Scripts\\Source) and put every one that holds .psc files on the import path, in MO2 priority order — so installed frameworks need no retyping. Pass false to compile against only the script's own folder, your import_dirs=/import_set=, and the vanilla sources.")]
+        [Description("Optional (default true). Scan the enabled MO2 mods for Papyrus source folders (Source\\Scripts / Scripts\\Source) and put the ones this script references — by name, followed transitively through those scripts — on the import path, in MO2 priority order, so installed frameworks need no retyping. The narrowing is not optional: a big modlist ships hundreds of source folders (measured: 501 on a 3617-mod order), which together exceed what a Windows command line can carry. Pass false to compile against only the script's own folder, your import_dirs=/import_set=, and the vanilla sources.")]
             bool auto_imports = true,
         [Description("Optional. Name of a SAVED import-directory set (see save_import_set=) to add to the import path. Its dirs rank after import_dirs= and before the auto-discovered mods. An unknown name is refused, and the saved names are listed.")]
             string? import_set = null,
@@ -148,7 +151,7 @@ public static class CompileTools
         var (autoRoots, autoWarning) = auto_imports
             ? svc.PapyrusSourceImportDirs()
             : ((IReadOnlyList<PapyrusSourceRoot>)Array.Empty<PapyrusSourceRoot>(), null);
-        var plan = PlanImports(scriptDir, compilerExe!, callerExtras, autoRoots, auto_imports, importSetName, autoWarning);
+        var plan = PlanImports(script, scriptDir, compilerExe!, callerExtras, autoRoots, auto_imports, importSetName, autoWarning);
 
         // The whole path travels as ONE `-i=` argument and Windows caps a process command line (~32k chars), so a modlist
         // with hundreds of source folders could cross it. Refuse LOUDLY with the way out rather than letting the process
@@ -263,12 +266,29 @@ public static class CompileTools
     /// mod's own Source\Scripts, and it holds the first slot), then vanilla (the game's Data folder is also a loose root,
     /// so the scan finds it — that is the vanilla slot, not a mod), then a discovered mod, then the caller.</summary>
     internal static ImportPlan PlanImports(
-        string scriptDir, string compilerExe, IReadOnlyList<string> callerExtras,
+        string targetScript, string scriptDir, string compilerExe, IReadOnlyList<string> callerExtras,
         IReadOnlyList<PapyrusSourceRoot> autoRoots, bool autoEnabled, string? importSetName, string? warning)
     {
-        var dirs = BuildImports(scriptDir, compilerExe, string.Join(";", callerExtras),
-                                autoRoots.Select(r => r.Dir).ToList());
         var vanilla = VanillaSourceDir(compilerExe);
+
+        // NARROW the scan to what this script reaches. Handing over every folder a modlist ships is not a heavier
+        // version of the same thing — measured on a real 3617-mod order it is 501 folders / ~40,200 chars, past the
+        // ~32,767 a Windows command line can carry, so the compile could not run at all. It is also wrong on the
+        // merits: those folders are overwhelmingly quest and follower mods shipping their own scripts, which nothing
+        // else references. See PapyrusDependencyFilter. Vanilla is held OUT of the candidates (it is appended last
+        // unconditionally, so indexing it could only make the closure walk the base game for no gain).
+        var candidates = autoRoots.Where(r => vanilla is null || !r.Dir.Equals(vanilla, StringComparison.OrdinalIgnoreCase)).ToList();
+        PapyrusDependencyScan? scan = null;
+        IReadOnlyList<string> autoDirs = Array.Empty<string>();
+        if (candidates.Count > 0)
+        {
+            var seeds = new List<string> { scriptDir };
+            seeds.AddRange(callerExtras);
+            scan = PapyrusDependencyFilter.Relevant(targetScript, seeds, candidates.Select(c => c.Dir).ToList());
+            autoDirs = scan.Folders;
+        }
+
+        var dirs = BuildImports(scriptDir, compilerExe, string.Join(";", callerExtras), autoDirs);
         var providers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         foreach (var r in autoRoots) providers.TryAdd(r.Dir, r.Provider);
 
@@ -282,7 +302,7 @@ public static class CompileTools
                 : ImportPlan.CallerDirs;
             entries.Add((d, origin));
         }
-        return new ImportPlan(entries, autoEnabled, importSetName, warning);
+        return new ImportPlan(entries, autoEnabled, importSetName, warning, candidates.Count, scan);
     }
 
     /// <summary>The one-line "what was actually searched" summary printed on EVERY call (#200 — the old render took the
@@ -302,8 +322,12 @@ public static class CompileTools
             sb.Append("; auto_imports=false (your enabled mods were NOT scanned)");
         else
         {
+            // Report the NARROWING, not just the survivors: "12 auto-discovered" reads as "your modlist ships 12
+            // source folders", which is wrong by a factor of forty and hides the one decision worth auditing when a
+            // dependency turns up missing — that the other 489 were dropped as unreferenced, not overlooked.
             var provs = p.AutoProviders;
-            sb.Append("; ").Append(provs.Count).Append(" auto-discovered from MO2");
+            sb.Append("; ").Append(provs.Count).Append(" of ").Append(p.AutoScanned)
+              .Append(" scanned mod source folder(s) referenced by this script");
             if (provs.Count > 0)
             {
                 const int Show = 8;
@@ -315,6 +339,10 @@ public static class CompileTools
         if (p.Entries.Count > 0 && p.Entries[^1].Origin == ImportPlan.Vanilla)
             sb.Append("; vanilla sources last");
         sb.Append('.');
+        if (p.Scan is { BudgetExhausted: true } s)
+            sb.Append("\n⚠ the reference walk stopped at its ").Append(PapyrusDependencyFilter.MaxFilesRead)
+              .Append("-file ceiling, so a dependency reached only through the unread tail may be missing from the path — " +
+                      "if the compile fails on unresolved symbols, pass that folder via import_dirs=.");
         if (p.Warning is not null) sb.Append('\n').Append(p.Warning);
         return sb.ToString();
     }
@@ -378,11 +406,12 @@ public static class CompileTools
                 // The remedy DIFFERS once the modlist has already been scanned: "list every dependency's folder" is the
                 // wrong instruction when dozens are already on the path, and it hides the causes the scan cannot fix (#200).
                 sb.Append(plan.AutoEnabled
-                    ? " The modlist scan already put " + plan.AutoProviders.Count + " mod source folder(s) on the path (listed " +
-                      "below), so the missing dependency is most likely NOT installed as an enabled mod, ships its sources " +
-                      "inside a BSA (the CK compiler cannot read archives — extract them first, e.g. with housecarl_bsa_extract), " +
-                      "or keeps them in a SUBFOLDER of one of the listed dirs. Pass that folder via import_dirs= (and " +
-                      "save_import_set= to keep it for next time)."
+                    ? " The modlist scan found " + plan.AutoScanned + " mod source folder(s) and kept the " +
+                      plan.AutoProviders.Count + " this script REFERENCES BY NAME (listed below). So the missing dependency " +
+                      "is most likely one the source never names outright, or one that is not installed as an enabled mod, " +
+                      "or one shipping its sources inside a BSA (the CK compiler cannot read archives — extract them first, " +
+                      "e.g. with housecarl_bsa_extract), or one keeping them in a SUBFOLDER of a listed dir. Pass that folder " +
+                      "via import_dirs= (and save_import_set= to keep it for next time)."
                     : " auto_imports=false, so your enabled mods were NOT scanned — re-run with auto_imports=true, or pass " +
                       "EVERY dependency's source folder via import_dirs= (SKSE, SkyUI, PapyrusUtil, PO3, JContainers, …; " +
                       "';'-separated) — the same set your project's compile .bat passes via -i=.");

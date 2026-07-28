@@ -248,23 +248,33 @@ internal static class CompileErgonomicsProbe
         Console.WriteLine("--- E: Render prints WHAT WAS SEARCHED — summary on success, full ordered path on failure (#200) ---");
 
         // E1: a success no longer drops the import list on the floor (the pre-#200 render took it and never used it).
-        var okMsg = CompileTools.Render(ok, Plan(autoCount: 3, callerCount: 1), userChoseOutputDir: false);
+        // The 3-of-501 shape is the real one, measured on ARR 2.0 — reporting only the survivors would read as
+        // "your modlist ships 3 source folders", wrong by two orders of magnitude.
+        var okMsg = CompileTools.Render(ok, Plan(autoCount: 3, callerCount: 1, scanned: 501), userChoseOutputDir: false);
         Check(okMsg.Contains("imports: 6 dir(s) searched"),
               "success renders the import summary with the TOTAL (own + 1 caller + 3 auto + vanilla = 6)");
-        Check(okMsg.Contains("1 from import_dirs=") && okMsg.Contains("3 auto-discovered from MO2"),
-              "the summary splits caller dirs from auto-discovered ones");
+        Check(okMsg.Contains("1 from import_dirs=") && okMsg.Contains("3 of 501 scanned mod source folder(s) referenced by this script"),
+              "the summary splits caller dirs from the scan, and reports BOTH scan numbers (kept AND scanned)");
         Check(okMsg.Contains("modA") && okMsg.Contains("modC"), "the summary NAMES the providing mods");
         Check(okMsg.Contains("vanilla sources last"), "the summary states that vanilla ranks last");
 
         // E2: counts are DERIVED from the entries — a plan whose auto block is empty must not claim providers.
         var offMsg = CompileTools.Render(ok, Plan(autoEnabled: false), userChoseOutputDir: false);
-        Check(offMsg.Contains("auto_imports=false") && !offMsg.Contains("auto-discovered from MO2"),
-              "auto_imports=false is stated, and no auto-discovery is claimed");
+        Check(offMsg.Contains("auto_imports=false") && !offMsg.Contains("scanned mod source folder"),
+              "auto_imports=false is stated, and no scan is claimed");
 
         // E3: the display cap NAMES what it dropped — a truncated provider list must never read as the whole list.
         var manyMsg = CompileTools.Render(ok, Plan(autoCount: 12), userChoseOutputDir: false);
-        Check(manyMsg.Contains("12 auto-discovered from MO2") && manyMsg.Contains("+4 more"),
+        Check(manyMsg.Contains("12 of 12 scanned mod source folder(s)") && manyMsg.Contains("+4 more"),
               "over 8 providers: the full COUNT is stated and the tail is named '+4 more' (no silent truncation)");
+
+        // E3b: hitting the reference-walk ceiling is DISCLOSED — a shortened path must never look like a complete one.
+        var cappedMsg = CompileTools.Render(ok, Plan(autoCount: 2, scan: new PapyrusDependencyScan(
+                Array.Empty<string>(), Indexed: 13235, FilesRead: PapyrusDependencyFilter.MaxFilesRead, BudgetExhausted: true)),
+            userChoseOutputDir: false);
+        Check(cappedMsg.Contains("reference walk stopped") && cappedMsg.Contains(PapyrusDependencyFilter.MaxFilesRead.ToString()),
+              "an exhausted reference-walk budget is surfaced with its ceiling (Q3 — no silently shortened import path)");
+        Check(!okMsg.Contains("reference walk stopped"), "…and a completed walk says nothing (no false alarm)");
 
         // E4: a FAILURE prints the full ordered path with provenance — the summary line cannot answer "in what order".
         var failPlan = Plan(autoCount: 2, callerCount: 1);
@@ -286,10 +296,10 @@ internal static class CompileErgonomicsProbe
         // E5: the missing-imports banner's REMEDY tracks whether the modlist was scanned. Telling someone to "list every
         // dependency" when 30 folders are already on the path is the wrong instruction and hides the causes a scan can't
         // fix (not installed / sources inside a BSA / nested a level down).
-        var scanned = CompileTools.Render(missingImports, Plan(autoCount: 3), userChoseOutputDir: false);
+        var scanned = CompileTools.Render(missingImports, Plan(autoCount: 3, scanned: 501), userChoseOutputDir: false);
         var unscanned = CompileTools.Render(missingImports, Plan(autoEnabled: false), userChoseOutputDir: false);
-        Check(scanned.Contains("inside a BSA") && scanned.Contains("3 mod source folder(s)"),
-              "auto_imports ON: the banner names the scan's reach and the causes it cannot fix (BSA / not installed / subfolder)");
+        Check(scanned.Contains("inside a BSA") && scanned.Contains("found 501 mod source folder(s) and kept the 3"),
+              "auto_imports ON: the banner names what the scan found AND kept, plus the causes it cannot fix (never named / not installed / BSA / subfolder)");
         Check(unscanned.Contains("auto_imports=false") && unscanned.Contains("re-run with auto_imports=true"),
               "auto_imports OFF: the banner's first remedy is to turn the scan ON");
         Check(!unscanned.Contains("inside a BSA"),
@@ -398,6 +408,77 @@ internal static class CompileErgonomicsProbe
         }
         finally { try { Directory.Delete(gRoot, recursive: true); } catch { /* non-fatal */ } }
 
+        // ---------------------------------------------------------- H: the reference walk (#200's load-bearing narrowing)
+        Console.WriteLine();
+        Console.WriteLine("--- H: PapyrusDependencyFilter.Relevant — direct, TRANSITIVE, precedence, and the unreferenced drop ---");
+        var hRoot = Path.Combine(Path.GetTempPath(), "hc-pydeps-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            string Folder(string name, params (string File, string Body)[] scripts)
+            {
+                var d = Path.Combine(hRoot, name);
+                Directory.CreateDirectory(d);
+                foreach (var (f, b) in scripts) File.WriteAllText(Path.Combine(d, f + ".psc"), b);
+                return d;
+            }
+
+            // own ──references──> Framework ──references──> Deep.  Unrelated is named by nobody.
+            var own = Folder("own", ("Target", "Scriptname Target extends Quest\n\nFunction Go()\n    Framework.Ping()\nEndFunction\n"));
+            var framework = Folder("framework", ("Framework", "Scriptname Framework\n\nDeep Function Get() global\n    return None\nEndFunction\n"));
+            var deep = Folder("deep", ("Deep", "Scriptname Deep\n"));
+            var unrelated = Folder("unrelated", ("Unrelated", "Scriptname Unrelated\n"));
+            var target = Path.Combine(own, "Target.psc");
+            var candidates = new[] { framework, deep, unrelated };
+
+            var scan = PapyrusDependencyFilter.Relevant(target, new[] { own }, candidates);
+            Check(scan.Folders.Contains(framework), "a folder the target names DIRECTLY is kept");
+            Check(scan.Folders.Contains(deep),
+                  "a folder reached only THROUGH that dependency is kept — the walk is transitive, because type-checking " +
+                  "loads a dependency's own dependencies (one level would compile-fail on Deep)");
+            Check(!scan.Folders.Contains(unrelated), "a folder nothing references is DROPPED");
+            Check(scan.Folders.SequenceEqual(new[] { framework, deep }),
+                  "kept folders come back in the CANDIDATE order (MO2 precedence), not discovery order");
+            Check(!scan.Folders.Contains(own), "a SEED folder is indexed but never returned (the caller adds it unconditionally)");
+            // 4 reads, not 3: the seed read, then Target again (its own `Scriptname Target` token resolves back to its
+            // own folder), then Framework and Deep. The re-read is harmless — `seen` stops each NAME once — and costs
+            // one file, so it is not worth special-casing; the number is asserted as what actually happens.
+            Check(scan.Indexed == 4 && scan.FilesRead == 4 && !scan.BudgetExhausted,
+                  $"the disclosed numbers are real: 4 indexed, 4 read (seed, Target, Framework, Deep) (got {scan.Indexed}/{scan.FilesRead})");
+
+            // PRECEDENCE: two folders provide the same script NAME. The compiler takes the first match on the path, so
+            // only that folder can ever be justified by that name — indexing both would put a shadowed copy on the path.
+            var winner = Folder("winner", ("Shared", "Scriptname Shared\n"));
+            var loser = Folder("loser", ("Shared", "Scriptname Shared\n"));
+            var shTarget = Path.Combine(Folder("shOwn", ("ShTarget", "Scriptname ShTarget\n\nShared s\n")), "ShTarget.psc");
+            var shScan = PapyrusDependencyFilter.Relevant(shTarget, new[] { Path.Combine(hRoot, "shOwn") }, new[] { winner, loser });
+            Check(shScan.Folders.SequenceEqual(new[] { winner }),
+                  "a name provided twice resolves to the HIGHER-precedence folder only — the loser's copy never joins the path");
+
+            // Over-inclusion is the deliberate bias: a name mentioned in a COMMENT still earns its folder, because the
+            // cost is one extra import dir and the opposite error is a compile that used to work and now doesn't.
+            var cmtTarget = Path.Combine(Folder("cmtOwn", ("CmtTarget", "Scriptname CmtTarget\n; TODO: wire up Framework later\n")), "CmtTarget.psc");
+            var cmtScan = PapyrusDependencyFilter.Relevant(cmtTarget, new[] { Path.Combine(hRoot, "cmtOwn") }, new[] { framework, deep, unrelated });
+            Check(cmtScan.Folders.Contains(framework),
+                  "a name appearing only in a comment still earns its folder (deliberate over-inclusion — a wrongly DROPPED folder is the costly error)");
+
+            // A target that cannot be read yields nothing rather than throwing: the compile still runs and fails with
+            // the compiler's own message, which is a better error than the filter's.
+            bool blewUp = false;
+            PapyrusDependencyScan? missing = null;
+            try { missing = PapyrusDependencyFilter.Relevant(Path.Combine(hRoot, "no-such.psc"), new[] { own }, candidates); }
+            catch { blewUp = true; }
+            Check(!blewUp && missing is not null && missing.Folders.Count == 0,
+                  "an unreadable target returns an empty set, never a throw (the compiler's own error is the better one)");
+
+            // A cycle (A references B references A) must terminate — scripts reference each other routinely.
+            var cycA = Folder("cycA", ("CycA", "Scriptname CycA\n\nCycB b\n"));
+            var cycB = Folder("cycB", ("CycB", "Scriptname CycB\n\nCycA a\n"));
+            var cycTarget = Path.Combine(Folder("cycOwn", ("CycTarget", "Scriptname CycTarget\n\nCycA a\n")), "CycTarget.psc");
+            var cycScan = PapyrusDependencyFilter.Relevant(cycTarget, new[] { Path.Combine(hRoot, "cycOwn") }, new[] { cycA, cycB });
+            Check(cycScan.Folders.SequenceEqual(new[] { cycA, cycB }), "a reference CYCLE terminates and keeps both folders");
+        }
+        finally { try { Directory.Delete(hRoot, recursive: true); } catch { /* non-fatal */ } }
+
         Console.WriteLine();
         Console.WriteLine(fail == 0
             ? "================ ALL PASS ================"
@@ -410,13 +491,14 @@ internal static class CompileErgonomicsProbe
     /// (<see cref="ImportOrderProbe"/> owns the assembly contract). Shaped exactly like a real plan: the script's own
     /// folder first, then caller dirs, then auto-discovered mods, then vanilla last.</summary>
     static CompileTools.ImportPlan Plan(bool autoEnabled = true, int autoCount = 0, int callerCount = 0,
-                                        string? setName = null, string? warning = null)
+                                        string? setName = null, string? warning = null, int scanned = -1,
+                                        PapyrusDependencyScan? scan = null)
     {
         var e = new List<(string Dir, string Origin)> { (@"C:\work", CompileTools.ImportPlan.OwnFolder) };
         for (int i = 0; i < callerCount; i++) e.Add(($@"C:\caller{i}", CompileTools.ImportPlan.CallerDirs));
         for (int i = 0; i < autoCount; i++)
             e.Add(($@"C:\MO2\mods\mod{(char)('A' + i)}\Source\Scripts", CompileTools.ImportPlan.AutoPrefix + "mod" + (char)('A' + i)));
         e.Add((@"C:\Game\Data\Source\Scripts", CompileTools.ImportPlan.Vanilla));
-        return new CompileTools.ImportPlan(e, autoEnabled, setName, warning);
+        return new CompileTools.ImportPlan(e, autoEnabled, setName, warning, scanned < 0 ? autoCount : scanned, scan);
     }
 }
