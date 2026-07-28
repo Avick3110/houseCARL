@@ -1,7 +1,7 @@
 ---
 name: biped-slot-reference
 description: >-
-  Find every equippable on a given Skyrim biped slot via houseCARL — translate a slot number, vanilla name, or label (slot 52 / SOS, cape, mask) into its `FirstPersonFlags` bit for a `housecarl_cross_plugin_query` filter. Use for any find/tag/audit-items-by-slot request or "which slot does this piece use". Load before composing the query — a hand-guessed bit mask silently filters the wrong slot.
+  Find every equippable on a given Skyrim biped slot — translate a slot number or label (slot 52 / SOS, cape, mask) into its `FirstPersonFlags` bit for a `cross_plugin_query` filter. Use when asked to find every armor on a slot, audit biped-slot conflicts, or "which slot does this piece use"; editing those records is `skypatcher-authoring`. Load before composing the query — a hand-guessed bit mask filters the wrong slot.
 ---
 
 # Biped Slot Reference

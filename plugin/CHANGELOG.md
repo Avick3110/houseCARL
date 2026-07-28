@@ -15,7 +15,7 @@ get truncated, and a truncated description routes *worse* than a short one, so t
 routing it was written to improve. All 13 are rewritten to a 200–400 character target — keeping the distinctive
 trigger vocabulary routing actually keys on (`_DISTR.ini`, `facegen`, `.psc`, `Occlusion.esp`) and cutting the
 synonym chains and capability inventories (that content lives in the skill body, which loads on invocation and is
-free). New listing cost: ~5,130 characters (~1,280 est. tokens), roughly a **1,750-token saving in every session**.
+free). New listing cost: ~5,150 characters (~1,290 est. tokens), roughly a **1,750-token saving in every session**.
 Every description was re-validated through the full trigger-reliability fan-out (283 eval queries, one fresh agent
 per query against the complete new listing): 12 of 13 passed immediately; `tool-output-awareness` initially lost the
 generator filenames it routes on and went through three fix iterations before passing — its final text deliberately

@@ -131,7 +131,7 @@ These items are forbidden in any Housecarl skill description and a reviewer reje
 
 *(Amended 2026-07-28, issue #294. The previous soft target was 60-180 words — written before the listing budget was measured. At 13 skills averaging 935 characters, houseCARL alone cost ~3,040 est. tokens of always-resident context, ~1.5× the host's budget for the entire skill listing.)*
 
-**The operative budget is the listing budget, not the per-skill cap.** Claude Code allocates roughly 1% of the context window (~2,000 tokens) to the *entire* skill listing across all sources — houseCARL, other plugins, user skills combined. When the listing exceeds that budget, entries get **truncated**, and a truncated description routes *worse* than a short one — over-length descriptions don't just cost tokens, they degrade the routing they were written to improve.
+**The operative budget is the listing budget, not the per-skill cap.** Claude Code budgets the *entire* skill listing across all sources — houseCARL, other plugins, user skills combined — at **1% of the model's context window** (~2,000 tokens on a 200k window; source: <https://code.claude.com/docs/en/skills> § "Skill listing budget", which also documents `/doctor` as the measurement tool and `skillListingBudgetFraction` as the override). When the listing overflows, Claude Code **shortens descriptions to fit — which can strip the keywords Claude needs to match your request** — dropping descriptions starting with the least-invoked skills. A shortened description routes *worse* than a deliberately short one, so over-length descriptions don't just cost tokens, they degrade the routing they were written to improve.
 
 - **Soft target: 200-400 characters** per description (~50-100 est. tokens): the action-first lead (§ 3.1), the two or three *distinctive* trigger nouns (§ 3.2), and the compact pushy tail where § 3.3 requires one.
 - Below ~150 characters usually means insufficient trigger surface.
@@ -139,6 +139,8 @@ These items are forbidden in any Housecarl skill description and a reviewer reje
 - Hard cap unchanged: combined `description` + `when_to_use` ≤ 1,536 characters (Anthropic-imposed truncation).
 
 **Spend the characters on distinctive vocabulary, not coverage.** `_DISTR.ini`, `facegen`, `.psc`, `SkyPatcher` are what routing actually keys on, and they're cheap. Synonym chains for the same trigger are the first thing to cut.
+
+**Watch the listing total, not the per-skill number.** The 200-400 band is a ceiling, not a target to fill: 13 skills all sitting at ~395 chars consume ~1,280 tokens of a shared ~2,000-token budget that other plugins and the user's own skills also draw on, and leaves a 14th skill nowhere to go. When adding a skill, re-check the summed description length across the shipped set (and `/doctor` on a live install) before writing to the top of the band.
 
 **Front-load the use case** within the first sentence so it survives mid-string truncation. If a reader sees only the first 200 characters, can they tell what the skill does and roughly when it loads? If no, restructure.
 
