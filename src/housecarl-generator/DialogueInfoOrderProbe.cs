@@ -557,6 +557,28 @@ public static class DialogueInfoOrderProbe
                 }
         }
 
+        // ---------- RENDER-BIG-TOPIC: over the row cap with nothing moved must not print an EMPTY list ----------
+        // Found by running the shipped build over a real quest: a 37-line topic with 0 moved rendered the
+        // "effective INFO order" header, then "listing only the 0 that moved", then nothing at all. Also pins
+        // that a SINGLE-topic report ignores the row cap — the cap counts rows, so max_chars could not lift it
+        // and the full order was simply unobtainable.
+        {
+            var many = new List<InfoLine>();
+            for (int i = 1; i <= 40; i++) many.Add(new InfoLine(FormKey.Factory($"{i:X6}:big.esp"), null, false));
+            var io = DialogueInfoOrder.Compute(
+                new List<(string, IReadOnlyList<InfoLine>)> { ("big.esp", many), ("patch.esp", many) }, _ => null);
+
+            string quest = RenderOrderOnly(io, asQuest: true);      // indented -> the row cap applies
+            string solo = RenderOrderOnly(io, asQuest: false);      // single topic -> always in full
+
+            bool questOk = io.Moved.Count == 0
+                           && quest.Contains("none of which changed position", StringComparison.Ordinal)
+                           && !quest.Contains("listing only the 0", StringComparison.Ordinal);
+            bool soloOk = solo.Contains("#40", StringComparison.Ordinal);   // full list, cap ignored
+            all &= Pass("RENDER-BIG-TOPIC", questOk && soloOk,
+                $"moved={io.Moved.Count} questSaysNoMoves={questOk} soloListsAll={soloOk}");
+        }
+
         // ---------- CYCLE-PREPLACED: the shape post-hoc detection was added FOR ----------
         // Both members already placed by an earlier plugin, so no recursion happens and the old placement-time
         // signal could never fire. Without this arm CountPnamCycles could `return 0` and everything stays green.
@@ -608,7 +630,7 @@ public static class DialogueInfoOrderProbe
     /// <summary>Render just the INFO-order block for a synthesised view, by wrapping it in the minimum report the
     /// real renderer consumes — so the arms above pin the SHIPPED render path (the gated "nothing merges here"
     /// claim, the INCOMPLETE banner) rather than a re-implementation of it.</summary>
-    static string RenderOrderOnly(InfoOrderView io)
+    static string RenderOrderOnly(InfoOrderView io, bool asQuest = false)
     {
         var topic = new TopicValidation(
             FormKey.Factory("000FFF:hcInfoMaster.esp"), "HcIoSynthetic", "readable.esp",
@@ -617,7 +639,7 @@ public static class DialogueInfoOrderProbe
             Array.Empty<VoiceUndetermined>(), Array.Empty<ScriptBindingFinding>())
             { InfoOrder = io };
         var report = new DialogueValidationReport(
-            topic.Topic, "topic", topic.TopicEditorId, topic.WinnerPlugin, new[] { topic });
+            topic.Topic, asQuest ? "quest" : "topic", topic.TopicEditorId, topic.WinnerPlugin, new[] { topic });
         return DialogueWire.Render(report, 0);
     }
 
