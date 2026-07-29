@@ -80,7 +80,7 @@ Why it failed: "extensive MCP work" is a property of the session in retrospect, 
 
 Why this conforms: every comma-separated item is a user-utterance keyword Claude can match against the conversation surface text. The "even if" tail is the pushy reinforcement (§ 3.3). This is the shape every Housecarl skill description must follow.
 
-**Operational rule for Housecarl:** every "Use when…" must contain at least three concrete, user-utterance-level trigger nouns or symptom phrases. Triggers phrased as "sessions involving X", "when complex Y is needed", "for substantive Z work" are forbidden — they re-create the session-strategy failure.
+**Operational rule for Housecarl:** every "Use when…" must contain at least three concrete, user-utterance-level trigger nouns or symptom phrases. Triggers phrased as "sessions involving X", "when complex Y is needed", "for substantive Z work" are forbidden — they re-create the session-strategy failure. (Amended 2026-07-29, authoria-requiem #43: under the compressed § 3.5 format the three trigger nouns may sit anywhere in the description — the action-first lead often carries them — and a separate "Use when…" clause is optional; where one exists, this rule applies to it as written. Evidence: the #43 fan-out measured four descriptions with no "Use when…" clause at 10/10 recall.)
 
 **Audience calibration (per Q10 lock 2026-05-01).** Housecarl v1.0 is **modder-primary** under Aaron's corrected definitions: **modder = modlist-builder** (the user installing, configuring, conflict-resolving, and shipping a coherent modlist; needs all of Housecarl's tools). **mod-maker = isolated mod author** (creating a single mod from scratch; benefits as byproduct, not the primary audience). This **inverts** common conflations where "modder" sometimes means "consumer" and "mod-maker" means "creator" — Housecarl's terminology centers the modlist-builder, not the isolated mod author.
 
@@ -401,7 +401,7 @@ Before a Housecarl skill merges to main:
 1. ☐ Skill folder name conforms to § 2.
 2. ☐ Frontmatter includes `name:` set **equal to the folder name** (§ 2) — Codex requires it; a missing or mismatched `name:` fails review.
 3. ☐ Description leads with action verb phrase (§ 3.1).
-4. ☐ Description "Use when..." contains ≥ 3 user-utterance trigger nouns (§ 3.2).
+4. ☐ Description contains ≥ 3 concrete user-utterance trigger nouns — in the action-first lead or a "Use…" clause (§ 3.2 as amended 2026-07-29).
 5. ☐ Description carries a compact pushy tail clause if the skill has an early-load hazard; no spelled-out tail sentences (§ 3.3).
 6. ☐ Description is free of all forbidden items in § 3.4.
 7. ☐ Description is within the 200-400 character soft target (or justifies the excess), and combined description + `when_to_use` is ≤ 1,536 characters (§ 3.5).
