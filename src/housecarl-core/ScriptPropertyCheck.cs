@@ -260,7 +260,7 @@ public static class ScriptPropertyCheck
         return new ScriptCheckResult(reports, targets.Count, recordsWithScripts, totalUnbound, totalNull,
                                      totalUnverifiable, capped, av.ReadIncomplete, view.ExcludedPlugins, null,
                                      filterNote, histogram is null ? null : SweepFindings.Histogram(histogram), countsOnly,
-                                     classes, totalUnboundObject, totalUnboundScalar, propFilter);
+                                     classes, totalUnboundObject, totalUnboundScalar, propFilter, view.Epoch);
     }
 
     /// <summary>Every script attachment on the record: the adapter's own <see cref="IAVirtualMachineAdapterGetter.Scripts"/>
@@ -453,7 +453,8 @@ public sealed record ScriptCheckResult(
     ScriptFindingClass Classes = ScriptFindingClass.All,
     int TotalUnboundObject = 0,
     int TotalUnboundScalar = 0,
-    string? PropertyContains = null)
+    string? PropertyContains = null,
+    string? Epoch = null)   // the swept build's fingerprint (SPEC §2.1.1); null only on the pre-sweep refusals
 {
     public bool Success => Error is null;
     public static ScriptCheckResult Fail(string error) =>

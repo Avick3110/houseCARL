@@ -35,7 +35,7 @@ static class JsonWire
     /// one <c>{formid,type,editorid,name,winner}</c> row per resolvable input, or <c>{formid,error}</c> for a
     /// bad/absent one (per-item, the batch survives — Q3). Budget-aware like the other JSON renders: over max_chars it
     /// drops trailing rows and flags <c>truncated</c>, keeping the document valid JSON with an exact <c>count</c>.</summary>
-    public static string RenderResolve(IReadOnlyList<ResolvedRef> rows, int maxChars)
+    public static string RenderResolve(IReadOnlyList<ResolvedRef> rows, int maxChars, string epoch)
     {
         int cap = Cap(maxChars);
         using var ms = new MemoryStream();
@@ -43,6 +43,7 @@ static class JsonWire
         {
             w.WriteStartObject();
             w.WriteNumber("count", rows.Count);
+            w.WriteString("epoch", epoch);   // §2.1.1: the ONE captured build the whole batch resolved against
             w.WriteStartArray("resolved");
             int rendered = 0; bool truncated = false;
             foreach (var r in rows)
@@ -93,6 +94,7 @@ static class JsonWire
             if (o.Error is not null) w.WriteString("error", o.Error);
             else
             {
+                WriteNullable(w, "epoch", o.Epoch);   // §2.1.1: both poles resolved against this build
                 WriteDiffPole(w, "a", o.A!);
                 WriteDiffPole(w, "b", o.B!);
                 var d = o.Diff!;
@@ -185,10 +187,11 @@ static class JsonWire
     /// <summary>Serialize a resolved record: identity + winner/override_depth/source + the fields array. Shared by
     /// read_record, batch_record_detail, and the cross_plugin_query detail path (one shape, no drift). <paramref
     /// name="matches"/> carries the multi-target references= un-merge when present.</summary>
-    static void WriteReadRecord(Utf8JsonWriter w, ReadOutcome o, MemoryStream ms, int cap, string? matches = null)
+    static void WriteReadRecord(Utf8JsonWriter w, ReadOutcome o, MemoryStream ms, int cap, string? matches = null, string? epoch = null)
     {
         var r = o.Record!;
         w.WriteStartObject();
+        if (epoch is not null) w.WriteString("epoch", epoch);   // single-read top level ONLY — see RenderRecord
         w.WriteString("formid", r.FormKey);
         w.WriteString("type", r.Type);
         WriteNullable(w, "editorid", r.EditorId);
@@ -202,7 +205,9 @@ static class JsonWire
 
     // ---- housecarl_read_record (P6) -----------------------------------------------------------------
     /// <summary>read_record as JSON: the record object at top level, or <c>{error}</c>. conflict_tree is refused at
-    /// the tool layer for json (a text-only diff view), so only the field data reaches here.</summary>
+    /// the tool layer for json (a text-only diff view), so only the field data reaches here. The single-read record
+    /// object carries <c>epoch</c> top-level (it IS the response); batch/query rows never repeat it per row — there
+    /// the epoch is response-level accounting.</summary>
     public static string RenderRecord(ReadOutcome o, int maxChars)
     {
         int cap = Cap(maxChars);
@@ -210,7 +215,7 @@ static class JsonWire
         using (var w = new Utf8JsonWriter(ms, Opts))
         {
             if (o.Error is not null) { w.WriteStartObject(); w.WriteString("error", o.Error); w.WriteEndObject(); }
-            else WriteReadRecord(w, o, ms, cap);
+            else WriteReadRecord(w, o, ms, cap, epoch: o.Epoch);
         }
         return Finish(ms);
     }
@@ -227,6 +232,9 @@ static class JsonWire
         {
             w.WriteStartObject();
             w.WriteNumber("count", outcomes.Count);
+            // The whole batch reads ONE captured build (ResolveBatch) — response-level accounting, first non-null
+            // (a malformed-FormID row never consulted a view and carries none).
+            WriteNullable(w, "epoch", outcomes.FirstOrDefault(o => o.Epoch is not null)?.Epoch);
             w.WriteStartArray("records");
             int rendered = 0; bool truncated = false;
             foreach (var o in outcomes)
@@ -263,6 +271,7 @@ static class JsonWire
             {
                 WriteNullable(w, "group_by", q.GroupBy);
                 w.WriteNumber("total", q.Total);
+                WriteNullable(w, "epoch", q.Epoch);
                 if (q.ScopeLabel is not null) w.WriteString("scope", q.ScopeLabel);
                 WriteNotes(w, q);
                 w.WriteStartArray("groups");
@@ -285,6 +294,7 @@ static class JsonWire
                 string? p5 = anyScoped ? ScopedFieldsNote(winnerFields, q.WhereWinner) : null;
                 w.WriteNumber("total", q.Total);
                 w.WriteBoolean("capped", q.Capped);
+                WriteNullable(w, "epoch", q.Epoch);                         // §2.1.1: offset= windows tile ONLY within one epoch
                 if (q.Offset > 0) w.WriteNumber("offset", q.Offset);        // #223 pagination — the window's start, in-band
                 if (q.ScopeLabel is not null) w.WriteString("scope", q.ScopeLabel);
                 WriteNotes(w, q, p5);
@@ -364,6 +374,7 @@ static class JsonWire
                 bool anyScoped = detail && q.Sources is { } ss && ss.Take(q.Keys.Count).Any(s => s is not null);   // P5
                 w.WriteNumber("total", q.Total);
                 w.WriteBoolean("capped", q.Capped);
+                WriteNullable(w, "epoch", q.Epoch);                           // §2.1.1
                 if (q.Offset > 0) w.WriteNumber("offset", q.Offset);
                 if (q.ScopeLabel is not null) w.WriteString("scope", q.ScopeLabel);
                 WriteNotes(w, q, anyScoped ? ScopedFieldsNote(winnerFields, q.WhereWinner) : null);
@@ -505,6 +516,7 @@ static class JsonWire
             if (r.Error is not null) { w.WriteString("error", r.Error); w.WriteEndObject(); return Finish(ms); }
 
             w.WriteNumber("scanned_plugins", r.PluginsScanned);
+            WriteNullable(w, "epoch", r.Epoch);   // §2.1.1: the swept build
             // null (not 0) for a class nobody looked for — see the summary.
             if (didDangling) { w.WriteNumber("dangling", r.TotalDangling); w.WriteNumber("unscannable_records", r.TotalUnscannableRecords); }
             else { w.WriteNull("dangling"); w.WriteNull("unscannable_records"); }
@@ -586,6 +598,7 @@ static class JsonWire
             bool didNull = r.Classes.HasFlag(ScriptFindingClass.BoundNull);
 
             w.WriteNumber("scanned_plugins", r.PluginsScanned);
+            WriteNullable(w, "epoch", r.Epoch);   // §2.1.1: the swept build
             w.WriteNumber("records_with_scripts", r.RecordsWithScripts);
             // null, NOT 0, for a class the caller excluded — a 0 here is parsed as "looked, found none" about a class
             // nobody looked for (PR #288 review, finding 1). The per-class keys make each number's scope self-evident
