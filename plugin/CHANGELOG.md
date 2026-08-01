@@ -8,6 +8,16 @@ when it changes.
 
 *Accumulating notes for the next cut — not yet released; `plugin.json` still reads the last shipped version.*
 
+**Every record-lane response now names the load-order build it was answered from (the 2.0 epoch fingerprint, W1).**
+Each index build gets a deterministic 16-hex fingerprint of the world-state it was built from (plugin set + order +
+file mtimes) — unchanged order means an identical fingerprint, across rebuilds and server restarts alike. Bulk reads
+(`cross_plugin_query` in all three formats and under `group_by=`, `batch_record_detail`, `resolve`, `effect_chain`,
+`check_errors`, `validate_scripts`), `read_record`, and `diff_record` carry it in-band as `epoch=<hex>` (text) or an
+`"epoch"` field (json), and `load_order_status` names the current build's fingerprint on its resolver line. The
+point: paged reads (`offset=` windows) that silently straddled a mid-session load-order change were previously
+indistinguishable from coherent ones — now the stamps disagree and the drift is visible. Also the foundation for the
+2.0 artifact disposition, whose saved result files will be validated against the live build by this fingerprint.
+
 **Parameter-name tolerance is now dictionary-driven (the 2.0 alias layer, W0).** The shim that already fixed
 first-guess parameter misses (`plugin=` for `plugins=`, `form_id` for `formid`) now works from the houseCARL 2.0
 naming dictionary instead of two hard-wired synonym pairs. Visible today: several new-vocabulary spellings bind on

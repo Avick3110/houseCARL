@@ -118,6 +118,12 @@ public static class CiAll
         ("binding-shim-guard", BindingShimProbe.RunGuard),
         ("alias-layer-guard", AliasLayerProbe.RunGuard),
         ("snapshot-view-guard", SnapshotViewProbe.RunGuard),
+        // Epoch fingerprint (tool-surface 2.0 W1, SPEC §2.1.1): the captured-index build identity — deterministic
+        // over (names, mtimes, order), sensitive to content/order/set changes (backdated included), stamped by every
+        // index-backed lane at its Capture() boundary, carried by the text AND json renders (D2), re-stamped on a
+        // mid-session rebuild so cross-page drift is visible. Refusals answered off a build carry it; refusals that
+        // never consulted one stay null.
+        ("epoch-guard", EpochGuardProbe.RunGuard),
         ("verify-loop-guard", VerifyLoopProbe.RunGuard),
         ("vmad-poly-guard", VmadPolyProbe.RunGuard),
         ("poly-field-descend-guard", PolyFieldDescendProbe.RunGuard),
