@@ -8,6 +8,15 @@ when it changes.
 
 *Accumulating notes for the next cut — not yet released; `plugin.json` still reads the last shipped version.*
 
+**Parameter-name tolerance is now dictionary-driven (the 2.0 alias layer, W0).** The shim that already fixed
+first-guess parameter misses (`plugin=` for `plugins=`, `form_id` for `formid`) now works from the houseCARL 2.0
+naming dictionary instead of two hard-wired synonym pairs. Visible today: several new-vocabulary spellings bind on
+the current tools (`patch=` for `patch_name=`, `ops=` for `operations=`, `readback=` for `full_readback=`,
+`filter=` for load-order-status's `lookup=`, `types=` for `type=`), and `patch_name=` now also binds on
+`remove_record` (whose parameter was always the odd one out, bare `patch`). Everything else in the dictionary
+stays dormant by construction until the 2.0 build waves rename the tools it describes; behaviour of well-formed
+calls is byte-identical.
+
 **Skill descriptions no longer overflow the context budget — every one compressed and re-validated (#294).** The 13
 skill descriptions cost ~12,150 characters (~3,040 est. tokens) of always-resident context in every session — about
 1.5× the budget Claude Code gives the *entire* skill listing across all installed sources. Past that budget, entries
