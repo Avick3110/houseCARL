@@ -125,10 +125,14 @@ internal static class ToolCallShim
             bool Supplied(string declaredName) => args.ContainsKey(declaredName)              // caller already supplied the canonical — don't clobber
                 || (rewritten is not null && rewritten.ContainsKey(declaredName));            // an earlier rename already produced it
 
-            // A rename must never fire into a guaranteed kind mismatch (PR #304 review F5): renaming
+            // A TABLE rename must never fire into a guaranteed kind mismatch (PR #304 review F5): renaming
             // types=["A","B"] onto a string-typed type= would produce a type error about a key the caller
             // never sent, and lose the supported-parameter list that would have corrected them. An
             // incompatible stray stays put for UnknownParameters to name under the caller's OWN spelling.
+            // Source 1 is deliberately NOT gated (review R1, the re-review): under the normalization bridge
+            // the caller named the RIGHT parameter (conflicts_Only IS conflicts_only) — the rename must
+            // proceed so TypeMismatches can name the real fault (the value), instead of an unknown-parameter
+            // refusal claiming a parameter that exists doesn't.
             bool CanBind(JsonElement value, JsonElement propSchema)
             {
                 var types = DeclaredTypes(propSchema);
@@ -142,7 +146,7 @@ internal static class ToolCallShim
             string? target = null; bool ambiguous = false;
             foreach (var prop in props.EnumerateObject())
             {
-                if (Normalize(prop.Name) != nkey || Supplied(prop.Name) || !CanBind(kv.Value, prop.Value)) continue;
+                if (Normalize(prop.Name) != nkey || Supplied(prop.Name)) continue;
                 if (target is null) target = prop.Name; else { ambiguous = true; break; }
             }
 
