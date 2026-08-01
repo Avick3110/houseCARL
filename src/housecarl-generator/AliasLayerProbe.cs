@@ -88,6 +88,14 @@ public static class AliasLayerProbe
         failures += Check("E stop: plugin= with source= supplied does not fall through to plugins=",
             e.Arguments!.ContainsKey("plugin") && !e.Arguments!.ContainsKey("plugins") && Has(e, "source", "\"B.esp\""), Dump(e));
 
+        // ---- E2 (final review finding 7): the kind check precedes the supplied-stop — an array plugin=
+        //      could never have meant the supplied string source=, so it falls through to plugins= instead
+        //      of stopping the entry.
+        var e2 = P("housecarl_records", ("plugin", "[\"A.esp\"]"), ("source", "\"B.esp\""));
+        ToolCallShim.ResolveAliases(e2, records20);
+        failures += Check("E2 kind-before-stop: array plugin= with source= supplied still lands on plugins=",
+            Has(e2, "plugins", "[\"A.esp\"]") && Has(e2, "source", "\"B.esp\""), Dump(e2));
+
         // ---- F: the normalization bridge (permanent mechanism) — form_id= → formid=.
         var f = P("housecarl_read_record", ("form_id", "\"0F1AC1:Skyrim.esm\""));
         ToolCallShim.ResolveAliases(f, readToday);

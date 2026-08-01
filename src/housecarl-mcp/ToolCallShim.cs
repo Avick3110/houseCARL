@@ -125,14 +125,13 @@ internal static class ToolCallShim
             bool Supplied(string declaredName) => args.ContainsKey(declaredName)              // caller already supplied the canonical — don't clobber
                 || (rewritten is not null && rewritten.ContainsKey(declaredName));            // an earlier rename already produced it
 
-            // A TABLE rename must never fire into a guaranteed kind mismatch (PR #304 review F5): renaming
-            // types=["A","B"] onto a string-typed type= would produce a type error about a key the caller
-            // never sent, and lose the supported-parameter list that would have corrected them. An
-            // incompatible stray stays put for UnknownParameters to name under the caller's OWN spelling.
-            // Source 1 is deliberately NOT gated (review R1, the re-review): under the normalization bridge
-            // the caller named the RIGHT parameter (conflicts_Only IS conflicts_only) — the rename must
-            // proceed so TypeMismatches can name the real fault (the value), instead of an unknown-parameter
-            // refusal claiming a parameter that exists doesn't.
+            // A TABLE rename must never fire into a guaranteed kind mismatch: renaming types=["A","B"]
+            // onto a string-typed type= would produce a type error about a key the caller never sent, and
+            // lose the supported-parameter list that would have corrected them. An incompatible stray stays
+            // put for UnknownParameters to name under the caller's OWN spelling. The bridge (source 1) is
+            // deliberately NOT gated: an underscore/case variant names the RIGHT parameter, so the rename
+            // must proceed even for an unbindable value — TypeMismatches then names the real fault (the
+            // value), where an unknown-parameter refusal would deny a parameter that exists.
             bool CanBind(JsonElement value, JsonElement propSchema)
             {
                 var types = DeclaredTypes(propSchema);
@@ -160,8 +159,8 @@ internal static class ToolCallShim
                     foreach (var prop in props.EnumerateObject())
                         if (Normalize(prop.Name) == candidate) { declared = prop.Name; declaredSchema = prop.Value; break; }
                     if (declared is null) continue;                    // candidate not on this tool — try the next
-                    if (Supplied(declared)) break;                     // primary meaning already in use — stop the entry
-                    if (!CanBind(kv.Value, declaredSchema)) continue;  // the value's kind says the caller didn't mean this one — try the next (an array plugin= is the scan scope, not the string pole)
+                    if (!CanBind(kv.Value, declaredSchema)) continue;  // the value's kind says the caller didn't mean this one — try the next (an array plugin= is the scan scope, not the string pole) — judged BEFORE the supplied-stop, so a kind the candidate couldn't take never stops the entry
+                    if (Supplied(declared)) break;                     // primary (kind-compatible) meaning already in use — stop the entry
                     target = declared;
                     break;
                 }
@@ -176,7 +175,7 @@ internal static class ToolCallShim
     }
 
     /// <summary>A parameter name reduced to its comparison form: lowercased with underscores removed.</summary>
-    static string Normalize(string s) => s.Replace("_", "").ToLowerInvariant();
+    internal static string Normalize(string s) => s.Replace("_", "").ToLowerInvariant();
 
     /// <summary>Rewrite arguments whose JSON kind mismatches the declared schema type but whose intent is
     /// unambiguous. Only ever REPLACES values for keys the schema declares — unknown keys and already-correct
