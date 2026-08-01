@@ -13,9 +13,12 @@ first-guess parameter misses (`plugin=` for `plugins=`, `form_id` for `formid`) 
 naming dictionary instead of two hard-wired synonym pairs. Visible today: several new-vocabulary spellings bind on
 the current tools (`patch=` for `patch_name=`, `ops=` for `operations=`, `readback=` for `full_readback=`,
 `filter=` for load-order-status's `lookup=`, `types=` for `type=`), and `patch_name=` now also binds on
-`remove_record` (whose parameter was always the odd one out, bare `patch`). Everything else in the dictionary
-stays dormant by construction until the 2.0 build waves rename the tools it describes; behaviour of well-formed
-calls is byte-identical.
+`remove_record` (whose parameter was always the odd one out, bare `patch`). A rename never fires into a type
+mismatch: a spelling whose value can't bind to its would-be target (say, an array `types=` where a single
+`type=` string is declared) keeps its own name in the refusal, alongside the tool's supported-parameter list.
+Everything else in the dictionary stays dormant by construction until the 2.0 build waves rename the tools it
+describes; behaviour of well-formed calls — and of every 1.x tolerated spelling, `plugin=`/`plugin_name=`
+cross-bindings included — is unchanged.
 
 **Skill descriptions no longer overflow the context budget — every one compressed and re-validated (#294).** The 13
 skill descriptions cost ~12,150 characters (~3,040 est. tokens) of always-resident context in every session — about

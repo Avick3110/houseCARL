@@ -40,6 +40,10 @@ public static class AliasLayerProbe
         var writeToday  = Schema("""{"formid":{"type":"string"},"operations":{"type":["array","null"]},"patch_name":{"type":["string","null"]},"in_place":{"type":["boolean","null"]},"target":{"type":["string","null"]}}""", required: """["formid"]""");
         var nifSet20    = Schema("""{"paths":{"type":"array"},"element":{"type":["string","null"]},"op":{"type":["string","null"]},"in_place":{"type":["string","null"]}}""", required: """["paths"]""");
         var removeToday = Schema("""{"formid":{"type":"string"},"patch":{"type":["string","null"]}}""", required: """["formid"]""");
+        var createPluginToday = Schema("""{"plugin_name":{"type":"string"},"esl":{"type":["boolean","null"]},"author":{"type":["string","null"]},"description":{"type":["string","null"]}}""", required: """["plugin_name"]""");
+        var readPluginToday = Schema("""{"plugin":{"type":"string"},"formid":{"type":["string","null"]},"mod":{"type":["string","null"]}}""", required: """["plugin"]""");
+        var compactToday = Schema("""{"plugin":{"type":"string"},"esl":{"type":["boolean","null"]},"in_place":{"type":["boolean","null"]},"repoint_externals":{"type":["boolean","null"]},"acknowledge":{"type":["string","null"]},"patch_name":{"type":["string","null"]}}""", required: """["plugin"]""");
+        var copy20 = Schema("""{"assignments":{"type":"array"},"patch":{"type":["string","null"]},"walk":{"type":["object","null"]}}""", required: """["assignments"]""");
 
         // ---- A: the load-bearing §5.3 row — plugin= → source=, by priority, on a tool declaring BOTH
         //      source and plugins (2.0's records). The amended-row contract: source, never a file form,
@@ -175,6 +179,72 @@ public static class AliasLayerProbe
         var l = P("housecarl_read_plugin_file", ("formid", "\"800:X.esp\""));
         ToolCallShim.ResolveAliases(l, readToday);
         failures += Check("L declared: a real formid= is untouched", Has(l, "formid", "\"800:X.esp\""), Dump(l));
+
+        // ---- M (review F1): the 1.x four-spelling clique is a full set of edges, as SynonymGroups had it —
+        //      plugin= binds on create_plugin's plugin_name, and plugin_name= on the bare-plugin tools.
+        var m1 = P("housecarl_create_plugin", ("plugin", "\"MyTrigger\""));
+        ToolCallShim.ResolveAliases(m1, createPluginToday);
+        failures += Check("M1 clique: plugin= renames to create_plugin's declared plugin_name=",
+            Has(m1, "plugin_name", "\"MyTrigger\""), Dump(m1));
+        var m2 = P("housecarl_read_plugin_file", ("plugin_name", "\"Skyrim.esm\""), ("formid", "\"0F1AC1:Skyrim.esm\""));
+        ToolCallShim.ResolveAliases(m2, readPluginToday);
+        failures += Check("M2 clique: plugin_name= renames to read_plugin_file's declared plugin=",
+            Has(m2, "plugin", "\"Skyrim.esm\""), Dump(m2));
+        var m3 = P("housecarl_create_plugin", ("plugins", "\"MyTrigger\""));
+        ToolCallShim.ResolveAliases(m3, createPluginToday);
+        failures += Check("M3 clique: plugins= renames to create_plugin's declared plugin_name=",
+            Has(m3, "plugin_name", "\"MyTrigger\""), Dump(m3));
+
+        // ---- N (review F2): a BARE stray target= on a 2.0 write tool must NOT be renamed onto in_place
+        //      (that would engage the opt-in overwrite lane from a call that never spelled it) — it gets
+        //      the naming correction instead.
+        var n1 = P("housecarl_apply", ("formids", "[\"800:X.esp\"]"), ("target", "\"CoolWeapons.esp\""));
+        ToolCallShim.ResolveAliases(n1, write20);
+        failures += Check("N1 lane-safety: bare target= is not renamed onto in_place",
+            n1.Arguments!.ContainsKey("target") && !n1.Arguments!.ContainsKey("in_place"), Dump(n1));
+        var n1r = ToolCallShim.LaneCorrections(n1, write20);
+        failures += Check("N1b …and is refused with the naming correction, not silently laned",
+            Text(n1r).Contains("in_place=\"X.esp\"") && Text(n1r).Contains("does not select the lane"), Text(n1r));
+
+        // ---- N2 (review F3): on today's compact_plugin (no target=, 1.x bool in_place=) the target row
+        //      must not fire at all — the pre-PR named-unknown with the supported list is the answer.
+        var n2 = P("housecarl_compact_plugin", ("plugin", "\"X.esp\""), ("target", "\"X.esp\""));
+        ToolCallShim.ResolveAliases(n2, compactToday);
+        var n2Lane = ToolCallShim.LaneCorrections(n2, compactToday);
+        var n2r = ToolCallShim.UnknownParameters(n2, compactToday);
+        failures += Check("N2 today-dormant: compact_plugin target= stays a named unknown (no rename, no lane pass)",
+            Has(n2, "in_place", null) == false && n2Lane is null
+            && Text(n2r).Contains("unknown parameter") && Text(n2r).Contains("target") && Text(n2r).Contains("repoint_externals"),
+            Dump(n2) + " " + Text(n2r));
+
+        // ---- O (review F5): a rename never fires into a guaranteed kind mismatch — the incompatible
+        //      stray keeps its OWN name in the refusal, with the supported list intact.
+        var o1 = P("housecarl_cross_plugin_query", ("types", "[\"ARMO\",\"WEAP\"]"));
+        ToolCallShim.ResolveAliases(o1, scanToday);
+        var o1r = ToolCallShim.UnknownParameters(o1, scanToday);
+        failures += Check("O1 kind-gate: array types= is NOT renamed onto string type=; refusal names types",
+            o1.Arguments!.ContainsKey("types") && Text(o1r).Contains("types"), Dump(o1) + " " + Text(o1r));
+        var o2 = P("housecarl_read_record", ("formids", "[\"A\",\"B\"]"));
+        ToolCallShim.ResolveAliases(o2, readToday);
+        failures += Check("O2 kind-gate: array formids= is NOT renamed onto string formid=",
+            o2.Arguments!.ContainsKey("formids") && !o2.Arguments!.ContainsKey("formid"), Dump(o2));
+        var o3 = P("housecarl_records", ("plugin", "[\"A.esp\",\"B.esp\"]"));
+        ToolCallShim.ResolveAliases(o3, records20);
+        failures += Check("O3 kind fall-through: array plugin= skips the string source pole and lands on plugins=",
+            Has(o3, "plugins", null) && !o3.Arguments!.ContainsKey("source"), Dump(o3));
+
+        // ---- Q (review F6): target_formid is NOT a mechanical rename while target= means the in-place
+        //      filename on the 1.x write tools; on the 2.0 copy shape it rides the assignments-gated hint.
+        var q1 = P("housecarl_set_field", ("formid", "\"800:X.esp\""), ("target_formid", "\"0F1AC1:Skyrim.esm\""));
+        ToolCallShim.ResolveAliases(q1, writeToday);
+        var q1r = ToolCallShim.UnknownParameters(q1, writeToday);
+        failures += Check("Q1 no-rename: target_formid= stays its own named unknown on a target-bearing write tool",
+            q1.Arguments!.ContainsKey("target_formid") && !Has(q1, "target", "\"0F1AC1:Skyrim.esm\"")
+            && Text(q1r).Contains("target_formid"), Dump(q1) + " " + Text(q1r));
+        var q2 = P("housecarl_copy", ("target_formid", "\"0F1AC1:Skyrim.esm\""));
+        var q2r = ToolCallShim.UnknownParameters(q2, copy20);
+        failures += Check("Q2 hint: on the assignments-bearing copy shape, target_formid= carries the zip hint",
+            Text(q2r).Contains("assignments"), Text(q2r));
 
         Console.WriteLine(failures == 0
             ? "[alias-layer-guard] PASS — the §5.3 alias layer renames, corrects, and hints as chartered."

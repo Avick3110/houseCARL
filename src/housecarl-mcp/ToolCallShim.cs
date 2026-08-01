@@ -125,12 +125,24 @@ internal static class ToolCallShim
             bool Supplied(string declaredName) => args.ContainsKey(declaredName)              // caller already supplied the canonical — don't clobber
                 || (rewritten is not null && rewritten.ContainsKey(declaredName));            // an earlier rename already produced it
 
+            // A rename must never fire into a guaranteed kind mismatch (PR #304 review F5): renaming
+            // types=["A","B"] onto a string-typed type= would produce a type error about a key the caller
+            // never sent, and lose the supported-parameter list that would have corrected them. An
+            // incompatible stray stays put for UnknownParameters to name under the caller's OWN spelling.
+            bool CanBind(JsonElement value, JsonElement propSchema)
+            {
+                var types = DeclaredTypes(propSchema);
+                return types.Count == 0                                // untyped/polymorphic — let binding judge
+                    || KindSatisfies(value.ValueKind, types)
+                    || Coerce(value, propSchema) is not null;          // an obvious-intent shape CoerceObviousShapes will fix
+            }
+
             // Source 1 — the normalization bridge: an underscore/case variant of exactly one declared parameter.
             var nkey = Normalize(key);
             string? target = null; bool ambiguous = false;
             foreach (var prop in props.EnumerateObject())
             {
-                if (Normalize(prop.Name) != nkey || Supplied(prop.Name)) continue;
+                if (Normalize(prop.Name) != nkey || Supplied(prop.Name) || !CanBind(kv.Value, prop.Value)) continue;
                 if (target is null) target = prop.Name; else { ambiguous = true; break; }
             }
 
@@ -140,11 +152,13 @@ internal static class ToolCallShim
                 foreach (var candidate in entry.Candidates)
                 {
                     if (AliasTable.IsExcluded(entry, candidate, p.Name)) continue;
-                    string? declared = null;
+                    string? declared = null; JsonElement declaredSchema = default;
                     foreach (var prop in props.EnumerateObject())
-                        if (Normalize(prop.Name) == candidate) { declared = prop.Name; break; }
-                    if (declared is null) continue;                   // candidate not on this tool — try the next
-                    if (!Supplied(declared)) target = declared;       // else: primary meaning already in use — stop
+                        if (Normalize(prop.Name) == candidate) { declared = prop.Name; declaredSchema = prop.Value; break; }
+                    if (declared is null) continue;                    // candidate not on this tool — try the next
+                    if (Supplied(declared)) break;                     // primary meaning already in use — stop the entry
+                    if (!CanBind(kv.Value, declaredSchema)) continue;  // the value's kind says the caller didn't mean this one — try the next (an array plugin= is the scan scope, not the string pole)
+                    target = declared;
                     break;
                 }
             }
@@ -250,7 +264,11 @@ internal static class ToolCallShim
     /// <item>a BARE <c>in_place=true</c> is refused with the naming correction ("name the file:
     /// in_place=\"X.esp\""), never a type error;</item>
     /// <item>a bare <c>in_place=false</c> meant (and still means) the default lane — the key is dropped;
-    /// <c>false</c> WITH a stray <c>target</c> is contradictory and refused by name, not guessed at.</item>
+    /// <c>false</c> WITH a stray <c>target</c> is contradictory and refused by name, not guessed at;</item>
+    /// <item>a stray <c>target="X.esp"</c> with NO <c>in_place</c> at all (PR #304 review F2) is refused
+    /// with the same naming correction — it must NEVER be silently renamed onto <c>in_place</c>, because
+    /// that would engage the opt-in overwrite lane from a call that never spelled it (1.x refuses this
+    /// exact shape too: "target= is only meaningful with in_place=true").</item>
     /// </list>
     /// The quoted spellings <c>"true"</c>/<c>"false"</c> are treated identically (a file literally named "true"
     /// does not exist; binding it silently would be the Q3 sin). DORMANT on every tool whose <c>in_place</c> is
@@ -269,7 +287,19 @@ internal static class ToolCallShim
         var declared = DeclaredTypes(inPlaceSchema);
         if (!declared.Contains("string") || declared.Contains("boolean")) return null;   // 1.x bool (or polymorphic) → dormant
 
-        if (!args.TryGetValue("in_place", out var val)) return null;
+        // The old pair's target= — only a stray (undeclared) key counts; a tool's own target is its own.
+        bool hasStrayTargetKey = args.ContainsKey("target") && !props.TryGetProperty("target", out _);
+
+        if (!args.TryGetValue("in_place", out var val))
+        {
+            // No in_place at all: a stray target= alone is 1.x's half of the pair — refuse with the naming
+            // correction rather than let it near the lane (or fall to a plain unknown that teaches nothing).
+            if (!hasStrayTargetKey) return null;
+            return NamedError(
+                $"error: {p.Name}: target= was 1.x's in-place spelling and does not select the lane by itself — " +
+                "the in-place overwrite lane is spelled in_place=\"X.esp\" (naming the file you intend to " +
+                "overwrite). Omit it entirely for the default new-patch lane. Fix the arguments and retry.");
+        }
         bool? boolish = val.ValueKind switch
         {
             JsonValueKind.True => true,
@@ -279,10 +309,10 @@ internal static class ToolCallShim
         };
         if (boolish is null) return null;                                                // a real file name (or another mistake) — not this pass's
 
-        // The old pair's target= — only a STRING value on a tool that does NOT declare target counts.
+        // The stray target='s value — a string names the file; anything else stays null (correction path).
         string? targetFile = null;
-        bool hasStrayTarget = args.TryGetValue("target", out var tv) && !props.TryGetProperty("target", out _);
-        if (hasStrayTarget && tv.ValueKind == JsonValueKind.String) targetFile = tv.GetString();
+        if (hasStrayTargetKey && args.TryGetValue("target", out var tv) && tv.ValueKind == JsonValueKind.String)
+            targetFile = tv.GetString();
 
         if (boolish == true && targetFile is { Length: > 0 })
         {
@@ -292,7 +322,7 @@ internal static class ToolCallShim
             p.Arguments = rewritten;
             return null;
         }
-        if (boolish == false && !hasStrayTarget)
+        if (boolish == false && !hasStrayTargetKey)
         {
             var rewritten = new Dictionary<string, JsonElement>(args);                   // 1.x "default lane" spelling → absent, the 2.0 default
             rewritten.Remove("in_place");
