@@ -243,6 +243,37 @@ public static class BindingShimProbe
             failures += Check("J5 alias-guard: alias does not clobber an explicit canonical; the extra is named",
                 !j5.text.Contains(GenericError) && j5.text.Contains("unknown parameter") && j5.text.Contains("plugin"),
                 j5.Describe());
+
+            // -- J6/J7: PR #304 review F1 — the 1.x plugin/plugins/plugin_name/plugin_names clique must stay a
+            //    full set of edges under the table-driven layer, ON TOOLS OUTSIDE the J1–J5 pair: plugin= binds
+            //    on create_plugin (whose declared parameter is plugin_name), and plugin_name= binds on
+            //    read_plugin_file (whose declared parameter is bare plugin). Both bound before the alias
+            //    inversion; both must reach the tool body (the config prompt), never an unknown-parameter refusal.
+            var j6 = Call(stdin, stdout, 39, "housecarl_create_plugin", """{"plugin":"MyTrigger"}""");
+            failures += Check("J6 clique: create_plugin binds plugin= onto its plugin_name= and runs the tool body",
+                !j6.text.Contains(GenericError) && !j6.text.Contains("unknown parameter") && j6.text.Contains(ConfigPrompt),
+                j6.Describe());
+            var j7 = Call(stdin, stdout, 40, "housecarl_read_plugin_file",
+                """{"plugin_name":"Skyrim.esm","formid":"0F1AC1:Skyrim.esm"}""");
+            failures += Check("J7 clique: read_plugin_file binds plugin_name= onto its plugin= and runs the tool body",
+                !j7.text.Contains(GenericError) && !j7.text.Contains("unknown parameter") && j7.text.Contains(ConfigPrompt),
+                j7.Describe());
+
+            // -- J8: PR #304 review F3 — a stray target= on compact_plugin (which has no target=, and whose
+            //    in_place= is the 1.x bool) must stay the pre-PR named unknown WITH the supported list — never a
+            //    rename onto in_place that answers with a type error about a key the caller never sent.
+            var j8 = Call(stdin, stdout, 41, "housecarl_compact_plugin", """{"plugin":"X.esp","target":"X.esp"}""");
+            failures += Check("J8 lane-dormant: compact_plugin target= is a named unknown, not an in_place type error",
+                !j8.text.Contains(GenericError) && j8.text.Contains("unknown parameter") && j8.text.Contains("target")
+                && !j8.text.Contains("could not be bound"), j8.Describe());
+
+            // -- J9: PR #304 review F5 — a plural spelling carrying an ARRAY must not be renamed onto a scalar
+            //    parameter: read_record(formids=[…]) keeps the caller's own key in the refusal (here the
+            //    missing-required message, whose Supplied list names formids), never a type error about formid=.
+            var j9 = Call(stdin, stdout, 42, "housecarl_read_record", """{"formids":["A","B"]}""");
+            failures += Check("J9 kind-gate: array formids= on read_record fails naming the caller's own key",
+                !j9.text.Contains(GenericError) && j9.text.Contains("formids") && !j9.text.Contains("could not be bound"),
+                j9.Describe());
         }
         catch (Exception ex)
         {

@@ -48,11 +48,14 @@ internal static class AliasTable
         // this is #221's plugin→plugins tolerance, unchanged. EXCEPTION: place_asset's source= is a
         // file-path operand (the copy to place), not the version pole — a stray plugin= there must stay
         // a named unknown, not silently become a path.
-        new("plugin",  new[] { "source", "plugins" },
+        // The four 1.x spellings remain a full clique among themselves (PR #304 review F1: the old
+        // SynonymGroups tolerated every pairing — plugin= bound on create_plugin's plugin_name, and
+        // plugin_name= on the bare-plugin tools; dropping those edges was a live regression, restored here).
+        new("plugin",  new[] { "source", "plugins", "pluginname", "pluginnames" },
             ExceptTools: new[] { ("housecarl_place_asset", "source") }),
-        new("plugins", new[] { "plugin" }),                       // reverse: today's read_plugin_file / write_seq / compact_plugin
-        new("pluginname",  new[] { "patch", "plugins" }),         // §5.3 — create_plugin's plugin_name → patch; today's guess-miss → plugins (#221 J3)
-        new("pluginnames", new[] { "plugins" }),
+        new("plugins", new[] { "plugin", "pluginname", "pluginnames" }),
+        new("pluginname",  new[] { "patch", "plugins", "plugin", "pluginnames" }),   // §5.3 — create_plugin's plugin_name → patch; today's guess-miss → plugins (#221 J3) or the bare-plugin tools
+        new("pluginnames", new[] { "plugins", "plugin", "pluginname" }),
         new("source", new[] { "plugin", "mod" }),                 // reverse: the new pole spelling on not-yet-renamed tools (read tools' plugin=, the NIF tools' mod=)
 
         // §5.3 — type/types (SELECT is set-valued types; record_type stays a create operand — distinct
@@ -85,12 +88,18 @@ internal static class AliasTable
         new("lookup", new[] { "filter" }),
         new("filter", new[] { "lookup" }),
 
-        // §5.2 — the target collision. Old target= becomes the NIF element (nif_set) or the in-place
-        // file name (the six write tools) — order matters: nif_set's 2.0 schema declares BOTH element
-        // and in_place, and its old target= meant the element. Dormant until W3/W4 (every current
-        // target-tool still declares target). target_formid → target is §5.2(3).
-        new("target", new[] { "element", "inplace" }),
-        new("targetformid", new[] { "target" }),
+        // §5.2 — the target collision. Old nif_set target= becomes the NIF element. Deliberately NOT
+        // mapped to in_place (PR #304 review F2/F3): a rename onto in_place would let a BARE target=
+        // silently engage the opt-in in-place lane on a 2.0 write tool (the lane must never be entered
+        // by a call that didn't spell it), and would fire today on compact_plugin (no target=, bool
+        // in_place=), turning its named-unknown refusal into a type error about a key the caller never
+        // sent. The 1.x in-place spellings are LaneCorrections' job instead: the complete pair
+        // auto-maps, anything partial gets a naming correction (see ToolCallShim.LaneCorrections).
+        // target_formid → target (§5.2(3)) is likewise NOT a mechanical rename (review F6): until the
+        // copy successor ships, six write tools declare target= as the in-place FILENAME — renaming a
+        // FormID onto it would answer with the in-place lane's refusal for a caller who never mentioned
+        // that lane. It rides the assignments-gated hint below, like its source_formid siblings.
+        new("target", new[] { "element" }),
 
         // §5.3 — forward_record's from_plugin and the S2/S3 mod= disambiguator both become source.
         // mod= carries the same place_asset exception as plugin= (its source= is a file-path operand).
@@ -132,25 +141,31 @@ internal static class AliasTable
     /// Each hint is GATED on the replacement grammar's carrier parameter being declared by the tool,
     /// so it fires exactly when the tool's wave has landed (and never as noise on an unrelated tool
     /// that simply never had the old parameter). Names normalized.
+    /// Wording contract (PR #304 review F4): a hint may fire on a 1.x tool that happens to declare the
+    /// carrier (e.g. a validate_scripts spelling strayed onto where-bearing cross_plugin_query), so it
+    /// must never claim the old parameter "was retired" — it states where the job lives, concretely,
+    /// and the refusal's supported-parameter list does the rest. No bare ellipses: every hint spells a
+    /// usable form.
     /// (conflict_tree's hint is deliberately absent at W0: whether the tree is a parameter or a
     /// projection shape is §6's per-wave call — W2 adds the entry when the carrier exists.)</summary>
     internal readonly record struct Dissolution(string Old, string GateParam, string Hint);
 
     static readonly Dissolution[] Dissolutions =
     {
-        new("editoridcontains", "where", "retired in 2.0 — dissolved into the predicate grammar: where=[\"editorid contains …\"]"),
-        new("propertycontains", "where", "retired in 2.0 — dissolved into the predicate grammar: where=[…]"),
-        new("mgefformid",   "walk", "retired in 2.0 — dissolved into the walk construct: seed the walk with the MGEF"),
-        new("closure",      "walk", "retired in 2.0 — the closure copy IS the walk construct"),
-        new("winnerfields", "fieldssource", "retired in 2.0 — dissolved into the display pole: fields_source=\"winner\""),
-        new("fromfile",     "ops", "retired in 2.0 — dissolved into the @file convention: ops=\"@<path>\""),
-        new("plugina", "versus", "retired in 2.0 — the comparison poles are source= (subject) and versus= (reference)"),
-        new("pluginb", "versus", "retired in 2.0 — the comparison poles are source= (subject) and versus= (reference)"),
-        new("moda",    "versus", "retired in 2.0 — structured poles carry mod: source= / versus="),
-        new("modb",    "versus", "retired in 2.0 — structured poles carry mod: source= / versus="),
-        new("sourceformid", "assignments", "retired in 2.0 — dissolved into the assignments zip: from= per assignment"),
-        new("sourceplugin", "assignments", "retired in 2.0 — dissolved into the assignments zip: from_source= per assignment"),
-        new("sourcemod",    "assignments", "retired in 2.0 — dissolved into the assignments zip: from_source= per assignment"),
+        new("editoridcontains", "where", "not a parameter here — this job is the where= predicate grammar: where=[\"editorid contains <text>\"]"),
+        new("propertycontains", "where", "not a parameter here — script-property predicates belong to the where= grammar on tools that support them: where=[\"<property path> contains <text>\"]"),
+        new("mgefformid",   "walk", "not a parameter here — seed the walk= construct with the MGEF's FormID instead"),
+        new("closure",      "walk", "not a parameter here — the closure copy is expressed as the walk= construct"),
+        new("winnerfields", "fieldssource", "not a parameter here — the display pole spells it: fields_source=\"winner\""),
+        new("fromfile",     "ops", "not a parameter here — pass the file with the @file convention: ops=\"@<path>\""),
+        new("plugina", "versus", "not a parameter here — the comparison poles are source= (subject) and versus= (reference)"),
+        new("pluginb", "versus", "not a parameter here — the comparison poles are source= (subject) and versus= (reference)"),
+        new("moda",    "versus", "not a parameter here — structured source=/versus= poles carry the mod disambiguator"),
+        new("modb",    "versus", "not a parameter here — structured source=/versus= poles carry the mod disambiguator"),
+        new("sourceformid", "assignments", "not a parameter here — the assignments= zip carries from= per assignment"),
+        new("sourceplugin", "assignments", "not a parameter here — the assignments= zip carries from_source= per assignment"),
+        new("sourcemod",    "assignments", "not a parameter here — the assignments= zip carries from_source= per assignment"),
+        new("targetformid", "assignments", "not a parameter here — the assignments= zip carries target= per assignment (§5.2's record pole)"),
     };
 
     /// <summary>The migration hint for a normalized unknown key, or null — gated on the replacement
