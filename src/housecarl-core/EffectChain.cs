@@ -85,21 +85,25 @@ public static class EffectChain
     public static EffectChainResult Resolve(LoadOrderResolver resolver, FormKey mgef, IReadOnlyList<Type> scope, int limit)
     {
         var view = resolver.Capture();
+        // Post-capture refusals are STAMPED (PR #305 review): "not in the load order" / "not an MGEF" are answers
+        // ABOUT this build — the same refusal contract read_record's stamped refusals follow. Only the service's
+        // pre-capture type-narrow gate refuses without an epoch.
+        EffectChainResult FailStamped(string msg) => EffectChainResult.Fail(msg) with { Epoch = view.Epoch };
 
         // --- Q3 typed-match gate: the target must be an MGEF. Cheap — one winner-body fetch off this view. ---
         var w = view.ResolveWinner(mgef);
         if (w is null)
-            return EffectChainResult.Fail(
+            return FailStamped(
                 $"no record with FormID {mgef} in the load order. effect_chain needs a MagicEffect (MGEF) the active order defines.");
         string mgefEid;
         using (var session = resolver.OpenSession())
         {
             var mbody = view.GetRecord(session, w.Value.WinnerPlugin, mgef);
             if (mbody is null)
-                return EffectChainResult.Fail(
+                return FailStamped(
                     $"winner '{w.Value.WinnerPlugin}' did not yield {mgef} on fetch — cannot confirm it is a MagicEffect.");
             if (mbody is not IMagicEffectGetter mr)
-                return EffectChainResult.Fail(
+                return FailStamped(
                     $"{mgef} resolves to a {RecordNaming.StripOverlay(mbody.GetType().Name)}, not a MagicEffect — effect_chain " +
                     "needs an MGEF. (To find what references an arbitrary record, use cross_plugin_query references=.)");
             mgefEid = mr.EditorID ?? "<none>";
@@ -137,7 +141,7 @@ public static class EffectChain
         }
         // Anything escaping the stream itself (a bad scope type, a build fault) gets a NAMED failure — never the
         // MCP layer's generic "An error occurred invoking …" as the terminal diagnostic for a data failure (Q3).
-        catch (Exception ex) { return EffectChainResult.Fail($"scan aborted: {ex.GetType().Name}: {ex.Message}"); }
+        catch (Exception ex) { return FailStamped($"scan aborted: {ex.GetType().Name}: {ex.Message}"); }
 
         string? scanNote = unscannable == 0 ? null
             : $"note: {unscannable} record instance(s) could not be scanned (Mutagen could not parse their content) and were skipped: "
@@ -162,7 +166,7 @@ public sealed record EffectChainRow(
 public sealed record EffectChainResult(
     FormKey Mgef, string MgefEditorId, IReadOnlyList<EffectChainRow> Rows,
     int Total, bool Capped, string? Error, string? ScanNote,
-    string? Epoch = null)   // the scanned build's fingerprint (SPEC §2.1.1); null only on the pre-scan refusals
+    string? Epoch = null)   // the build's fingerprint (SPEC §2.1.1) — success AND every post-capture refusal; null only on the service's pre-capture type-narrow gate
 {
     public bool Success => Error is null;
     public static EffectChainResult Fail(string error) =>

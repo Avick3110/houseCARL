@@ -91,10 +91,10 @@ static class JsonWire
         {
             w.WriteStartObject();
             w.WriteString("formid", o.Formid);
-            if (o.Error is not null) w.WriteString("error", o.Error);
+            if (o.Error is not null) { w.WriteString("error", o.Error); WriteNullable(w, "epoch", o.Epoch); }
             else
             {
-                WriteNullable(w, "epoch", o.Epoch);   // §2.1.1: both poles resolved against this build
+                WriteNullable(w, "epoch", o.Epoch);   // §2.1.1: the INDEX build — an off-order pole's file content is outside the fingerprint (each pole's in_order/where carries that fact)
                 WriteDiffPole(w, "a", o.A!);
                 WriteDiffPole(w, "b", o.B!);
                 var d = o.Diff!;
@@ -214,7 +214,11 @@ static class JsonWire
         using var ms = new MemoryStream();
         using (var w = new Utf8JsonWriter(ms, Opts))
         {
-            if (o.Error is not null) { w.WriteStartObject(); w.WriteString("error", o.Error); w.WriteEndObject(); }
+            if (o.Error is not null)
+            {
+                // A stamped refusal carries its stamp on the wire too (PR #305 review) — same contract as text.
+                w.WriteStartObject(); w.WriteString("error", o.Error); WriteNullable(w, "epoch", o.Epoch); w.WriteEndObject();
+            }
             else WriteReadRecord(w, o, ms, cap, epoch: o.Epoch);
         }
         return Finish(ms);
@@ -311,13 +315,14 @@ static class JsonWire
                     {
                         // winner_fields=: read the WINNER's body (source=null) regardless of scan scope; the record's
                         // "source" field still names the body read, so the json carries the same source/winner truth.
-                        var o = svc.ResolveRead(fk, winnerFields ? null : (q.Sources is { } src ? src[i] : null), fields, false, depth, resolveNames: resolveNames, linkMemo: linkMemo);
+                        // Pinned to the scan's build (PR #305 review) — the document's epoch names ONE build.
+                        var o = svc.ResolveReadOn(q, fk, winnerFields ? null : (q.Sources is { } src ? src[i] : null), fields, false, depth, resolveNames: resolveNames, linkMemo: linkMemo);
                         if (o.Error is not null) { w.WriteStartObject(); w.WriteString("formid", fk.ToString()); w.WriteString("error", o.Error); if (matches is not null) w.WriteString("matches", matches); w.WriteEndObject(); }
                         else WriteReadRecord(w, o, ms, cap, matches);
                     }
                     else
                     {
-                        var m = q.Prefilled is not null ? q.Prefilled[i] : svc.ResolveSummary(fk);
+                        var m = q.Prefilled is not null ? q.Prefilled[i] : svc.ResolveSummaryOn(q, fk);   // pinned to the scan's build
                         WriteSummaryRow(w, m, matches);
                     }
                     rendered++;
@@ -409,8 +414,8 @@ static class JsonWire
                     string? matches = q.MatchedTargets is { } mt && i < mt.Count ? mt[i] : null;
                     if (detail)
                     {
-                        var o = svc.ResolveRead(fk, winnerFields ? null : (q.Sources is { } src ? src[i] : null), fields, false,
-                                                resolveNames: resolveNames, linkMemo: linkMemo, containerHint: Wire.DenseContainerHint);   // dense refuses depth>1 — hint the format hop with the knob (#231)
+                        var o = svc.ResolveReadOn(q, fk, winnerFields ? null : (q.Sources is { } src ? src[i] : null), fields, false,
+                                                  resolveNames: resolveNames, linkMemo: linkMemo, containerHint: Wire.DenseContainerHint);   // dense refuses depth>1 — hint the format hop with the knob (#231); pinned to the scan's build
                         if (o.Error is not null) { (errors ??= new()).Add((fk.ToString(), o.Error)); rendered++; continue; }
                         var r = o.Record!;
                         w.WriteStartArray();
@@ -423,7 +428,7 @@ static class JsonWire
                     }
                     else
                     {
-                        var m = q.Prefilled is not null ? q.Prefilled[i] : svc.ResolveSummary(fk);
+                        var m = q.Prefilled is not null ? q.Prefilled[i] : svc.ResolveSummaryOn(q, fk);   // pinned to the scan's build
                         if (m.Error is not null) { (errors ??= new()).Add((m.FormKey.ToString(), m.Error)); rendered++; continue; }
                         w.WriteStartArray();
                         w.WriteStringValue(m.FormKey.ToString());
@@ -513,10 +518,10 @@ static class JsonWire
         using (var w = new Utf8JsonWriter(ms, Opts))
         {
             w.WriteStartObject();
-            if (r.Error is not null) { w.WriteString("error", r.Error); w.WriteEndObject(); return Finish(ms); }
+            if (r.Error is not null) { w.WriteString("error", r.Error); WriteNullable(w, "epoch", r.Epoch); w.WriteEndObject(); return Finish(ms); }
 
             w.WriteNumber("scanned_plugins", r.PluginsScanned);
-            WriteNullable(w, "epoch", r.Epoch);   // §2.1.1: the swept build
+            WriteNullable(w, "epoch", r.Epoch);   // §2.1.1: the swept INDEXED build — off_order_scanned file content is outside the fingerprint
             // null (not 0) for a class nobody looked for — see the summary.
             if (didDangling) { w.WriteNumber("dangling", r.TotalDangling); w.WriteNumber("unscannable_records", r.TotalUnscannableRecords); }
             else { w.WriteNull("dangling"); w.WriteNull("unscannable_records"); }
@@ -591,7 +596,7 @@ static class JsonWire
         using (var w = new Utf8JsonWriter(ms, Opts))
         {
             w.WriteStartObject();
-            if (r.Error is not null) { w.WriteString("error", r.Error); w.WriteEndObject(); return Finish(ms); }
+            if (r.Error is not null) { w.WriteString("error", r.Error); WriteNullable(w, "epoch", r.Epoch); w.WriteEndObject(); return Finish(ms); }
 
             bool didObject = r.Classes.HasFlag(ScriptFindingClass.UnboundObject);
             bool didScalar = r.Classes.HasFlag(ScriptFindingClass.UnboundScalar);

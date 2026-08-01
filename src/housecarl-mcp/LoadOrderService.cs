@@ -2164,9 +2164,11 @@ public sealed class LoadOrderService : IDisposable
     /// and touching-plugin list all describe the SAME build — a freshness rebuild landing mid-read can no longer make
     /// a record's reported winner disagree with its own TOUCHING LIST. (The body fetch reads the file on disk through
     /// the session; a mid-read file edit surfaces as the existing named fetch-inconsistency error, never torn values.
-    /// Known residue, review #1: the conflict-tree DIFF the render layer adds is a separate <see cref="ResolveTree"/>
-    /// call with its own capture, so one rendered response can still pair this read's build with an adjacent build's
-    /// diff — same low-severity class, named for the next wave rather than threaded through the render API here.)</summary>
+    /// Known residue, review #1, NARROWED by PR #305's fold: inside a cross-query detail render the tree fill is now
+    /// PINNED to the scan's build (<see cref="ResolveTreeOn"/> via <see cref="CrossQueryOutcome.Pin"/>), so that
+    /// response's epoch stamp holds for its trees too. The single-read/batch conflict-tree renders still take their
+    /// own <see cref="ResolveTree"/> capture — one rendered response there can still pair this read's build with an
+    /// adjacent build's diff; low-severity, named for the wave that reworks those renders.)</summary>
     ReadOutcome ResolveRead(LoadOrderResolver resolver, LoadOrderResolver.IndexView view,
                             FormKey fk, string? plugin, IReadOnlyList<string>? fields, bool conflictTree, int depth,
                             bool resolveNames = false, Dictionary<FormKey, ResolvedRef>? linkMemo = null,
@@ -2290,7 +2292,11 @@ public sealed class LoadOrderService : IDisposable
     public RecordSummary ResolveSummary(FormKey fk)
     {
         var resolver = Resolver;
-        var view = resolver.Capture();                  // one capture per summary (winner + depth + fetch from one build)
+        return ResolveSummary(resolver, resolver.Capture(), fk);   // one capture per summary (winner + depth + fetch from one build)
+    }
+
+    static RecordSummary ResolveSummary(LoadOrderResolver resolver, LoadOrderResolver.IndexView view, FormKey fk)
+    {
         var w = view.ResolveWinner(fk);
         if (w is null) return new RecordSummary(fk, "?", null, "?", 0, $"{fk} not in the load order");
         using var session = resolver.OpenSession();
@@ -2300,6 +2306,47 @@ public sealed class LoadOrderService : IDisposable
                 $"winner '{w.Value.WinnerPlugin}' did not yield {fk} on fetch");
         return new RecordSummary(fk, RecordNaming.StripOverlay(body.GetType().Name), body.EditorID,
                                  w.Value.WinnerPlugin, w.Value.OverrideDepth, null);
+    }
+
+    // ---- pinned per-match fills (PR #305 review) --------------------------------------------------------
+
+    /// <summary>The scan's pinned (resolver, view), carried on <see cref="CrossQueryOutcome.Pin"/> so the render's
+    /// per-match fills read the build the scan matched and the stamped epoch names. Pure data, no handles.</summary>
+    internal sealed record ScanPin(LoadOrderResolver Resolver, LoadOrderResolver.IndexView View);
+
+    /// <summary>The cross-query detail fill, PINNED to the scan's build when the outcome carries one (PR #305
+    /// review): the render loop used to call the public <see cref="ResolveRead(FormKey, string?, IReadOnlyList{string}?, bool, int, bool, Dictionary{FormKey, ResolvedRef}?, string?)"/>,
+    /// which re-gates + re-captures PER ROW — so a freshness rebuild landing mid-render filled the remaining rows
+    /// from a build the header's epoch does not name. Pinning also drops the per-row stat sweep. Bodies are still
+    /// fetched from disk at fill time (Option B holds none) — the pin freezes winner IDENTITY, and a file that
+    /// changed under a pinned fetch surfaces as the named fetch-inconsistency error, never as a silently re-resolved
+    /// winner. Falls back to the public path when the outcome carries no pin (a hand-built outcome in guards).</summary>
+    internal ReadOutcome ResolveReadOn(CrossQueryOutcome q, FormKey fk, string? plugin, IReadOnlyList<string>? fields,
+                                       bool conflictTree, int depth = 1, bool resolveNames = false,
+                                       Dictionary<FormKey, ResolvedRef>? linkMemo = null,
+                                       string? containerHint = ReadEngine.DepthExpandHint)
+        => q.Pin is { } p
+            ? ResolveRead(p.Resolver, p.View, fk, plugin, fields, conflictTree, depth, resolveNames, linkMemo, containerHint)
+              with { Epoch = p.View.Epoch }
+            : ResolveRead(fk, plugin, fields, conflictTree, depth, resolveNames, linkMemo, containerHint);
+
+    /// <summary>The summary twin of <see cref="ResolveReadOn"/> — the conflicts-only lazy fill, pinned to the scan's
+    /// build when the outcome carries one.</summary>
+    internal RecordSummary ResolveSummaryOn(CrossQueryOutcome q, FormKey fk)
+        => q.Pin is { } p ? ResolveSummary(p.Resolver, p.View, fk) : ResolveSummary(fk);
+
+    /// <summary>The conflict-tree twin — the detail render's tree + diff blocks, pinned to the scan's build when the
+    /// outcome carries one (the tree's touching list and the header's epoch then name the same build).</summary>
+    internal ConflictTreeView? ResolveTreeOn(CrossQueryOutcome q, FormKey fk, IReadOnlyList<string>? fields)
+    {
+        if (q.Pin is not { } p) return ResolveTree(fk, fields);
+        using var session = p.Resolver.OpenSession();
+        var tree = p.View.ResolveTree(session, fk);
+        if (tree is null) return null;
+        var nodes = new List<ConflictNodeView>(tree.Nodes.Count);
+        foreach (var n in tree.Nodes)
+            nodes.Add(new ConflictNodeView(n.Plugin, ReadEngine.ReadFields(n.Record, fields, ConflictDiffDepth)));   // materialise while open
+        return new ConflictTreeView(nodes);
     }
 
     /// <summary>The best-effort display Name of a record body — reflection-generic via Mutagen's <c>INamedGetter</c>
@@ -2392,10 +2439,12 @@ public sealed class LoadOrderService : IDisposable
         var view = resolver.Capture();
         using var session = resolver.OpenSession();
 
+        // Post-capture refusals are STAMPED (PR #305 review): an unresolvable pole is an answer about THIS build
+        // (membership, exclusion, on-disk locate against its composition). Pre-capture refusals above carry none.
         var a = ResolveDiffPole(view, session, fk, pluginA.Trim(), modA, fields);
-        if (a.Error is not null) return DiffRecordOutcome.Fail(fidLabel, $"plugin_a: {a.Error}");
+        if (a.Error is not null) return DiffRecordOutcome.Fail(fidLabel, $"plugin_a: {a.Error}") with { Epoch = view.Epoch };
         var b = ResolveDiffPole(view, session, fk, pluginB.Trim(), modB, fields);
-        if (b.Error is not null) return DiffRecordOutcome.Fail(fidLabel, $"plugin_b: {b.Error}");
+        if (b.Error is not null) return DiffRecordOutcome.Fail(fidLabel, $"plugin_b: {b.Error}") with { Epoch = view.Epoch };
 
         // Label the reference side with what the pole RESOLVED to, not the raw argument — a pole addressed by path
         // renders its plugin name in the header, and delta lines quoting the path back would read as a second,
@@ -2487,8 +2536,13 @@ public sealed class LoadOrderService : IDisposable
     /// field-level delta of <see cref="A"/> vs <see cref="B"/> (B the reference side), truncation-honest via Complete.</summary>
     public sealed record DiffRecordOutcome(string Formid, DiffPole? A, DiffPole? B, FieldsDiff.Result? Diff, string? Error)
     {
-        /// <summary>The captured build BOTH poles resolved against (SPEC §2.1.1 epoch fingerprint — a comparison never
-        /// spans two builds, §4.1). Null on the pre-resolve refusals.</summary>
+        /// <summary>The captured INDEX build this call resolved against (SPEC §2.1.1 epoch fingerprint) — one build
+        /// for the whole call (§4.1), stamped on success and on every post-capture refusal; null only on the
+        /// pre-capture refusals (bad FormID / missing pole name). COVERAGE (PR #305 review): the fingerprint
+        /// describes the ACTIVE ORDER only. An OUT-OF-LOAD-ORDER pole's file is located on disk outside the index,
+        /// so its content is NOT under this fingerprint — an edit to that file changes the deltas without changing
+        /// the epoch. The per-pole <see cref="DiffPole.InOrder"/>/<see cref="DiffPole.Where"/> carry which pole
+        /// that is, and the renders qualify the stamp when one applies.</summary>
         public string? Epoch { get; init; }
 
         public static DiffRecordOutcome Fail(string formid, string error) => new(formid, null, null, null, error);
@@ -2799,7 +2853,8 @@ public sealed class LoadOrderService : IDisposable
         return new CrossQueryOutcome(keys, prefilled, total, groups is null && total > offset + keys.Count, null,
                                      predicate?.AccountingNote(), sources, scanNote,
                                      matched, groupRows, groupBy, definedIn ? string.Join(", ", plugins!) : null, offset,
-                                     whereWinner, whereSourceNote) { Epoch = view.Epoch };
+                                     whereWinner, whereSourceNote)
+               { Epoch = view.Epoch, Pin = new ScanPin(resolver, view) };
     }
 
     // ---- effect-chain resolver (housecarl_effect_chain — gap 2026-06-08) --------------------------------
@@ -2875,13 +2930,17 @@ public sealed class LoadOrderService : IDisposable
                 if (view.ContainsPlugin(n)) { active.Add(n); continue; }
                 comp ??= Mo2LoadOrder.ReadComposition(profileDir);
                 var loc = LocatePluginFileOnDisk(comp, modsDir, dataDir, overwriteDir, n, null);
+                // Membership/locate refusals are decided against THIS captured build + its composition — stamped
+                // (PR #305 review, the refusal contract). The parse refusals above consulted no build and stay null.
                 if (loc.Error is not null)
-                    return ErrorCheckResult.Fail($"plugin not in the load order: {n} — and no on-disk copy was found either ({loc.Error})");
+                    return ErrorCheckResult.Fail($"plugin not in the load order: {n} — and no on-disk copy was found either ({loc.Error})")
+                           with { Epoch = view.Epoch };
                 if (loc.Ambiguous is not null)
                     return ErrorCheckResult.Fail(
                         $"plugin '{n}' is not in the active load order and {loc.Ambiguous.Count} mod folders provide a file with that name " +
                         $"({string.Join(", ", loc.Ambiguous.Select(h => h.Where))}) — ambiguous, refusing to guess which to sweep. " +
-                        "Enable the one you mean in MO2, or remove the duplicates.");
+                        "Enable the one you mean in MO2, or remove the duplicates.")
+                           with { Epoch = view.Epoch };
                 offOrder.Add((n, loc.Path!));
             }
             return ErrorCheck.Run(Resolver, active, limit, offOrder.Count > 0 ? offOrder : null,
@@ -5922,6 +5981,13 @@ public sealed record CrossQueryOutcome(
     /// <summary>The captured build the SCAN ran over (SPEC §2.1.1 epoch fingerprint) — the render stamps it into the
     /// in-band accounting so paged windows (offset=) are checkably from the SAME build. Null on the pre-scan refusals.</summary>
     public string? Epoch { get; init; }
+
+    /// <summary>The scan's pinned (resolver, view) — carried so the RENDER's per-match fills (detail bodies,
+    /// summaries, conflict trees) read off the SAME build the scan matched and <see cref="Epoch"/> names (PR #305
+    /// review: the fills used to re-capture per row through the public read path, so a freshness rebuild landing
+    /// mid-render made the response an affirmative single-build claim it didn't satisfy). Pure data — an immutable
+    /// snapshot reference, no handles held. Internal: a render implementation detail, never serialized.</summary>
+    internal LoadOrderService.ScanPin? Pin { get; init; }
 
     public static CrossQueryOutcome Fail(string error) => new(Array.Empty<FormKey>(), null, 0, false, error);
 }

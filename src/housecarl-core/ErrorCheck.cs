@@ -429,7 +429,7 @@ public sealed record ErrorCheckResult(
     ErrorFindingClass Classes = ErrorFindingClass.All,
     IReadOnlyList<SweepCount>? Histogram = null,
     bool CountsOnly = false,
-    string? Epoch = null)   // the swept build's fingerprint (SPEC §2.1.1); null only on the pre-sweep refusals
+    string? Epoch = null)   // the swept INDEXED build's fingerprint (SPEC §2.1.1). Stamped on success and on refusals decided against a captured build (membership/locate); null on parse-level refusals that consulted none. OffOrderScanned files are located OUTSIDE the index — their content is not under this fingerprint (the renders qualify the stamp when any were swept; PR #305 review)
 {
     public bool Success => Error is null;
     public static ErrorCheckResult Fail(string error) =>

@@ -68,14 +68,25 @@ internal static class EpochGuardProbe
             ((IWeapon)WriteEngine.GenericGetOrAddAsOverride(ovMod, master.Weapons.First()))
                 .BasicStats = new WeaponBasicStats { Damage = 20, Weight = 1 };
 
+            // An OFF-ORDER plugin: in a DISABLED mod folder (modlist '-OldMod'), overriding weapons[0] — the
+            // documented diff-against-a-disabled-old-patch case, for the F3 coverage-qualifier arms (PR #305 fold).
+            var oldKey = new ModKey("HcEpochOld", ModType.Plugin);
+            string oldName = oldKey.FileName.String;
+            var oldMod = new SkyrimMod(oldKey, SkyrimRelease.SkyrimSE);
+            ((IWeapon)WriteEngine.GenericGetOrAddAsOverride(oldMod, master.Weapons.First()))
+                .BasicStats = new WeaponBasicStats { Damage = 15, Weight = 1 };
+
             var inst = Path.Combine(root, "inst");
             var mods = Path.Combine(inst, "mods");
             Directory.CreateDirectory(Path.Combine(mods, "MasterMod"));
             Directory.CreateDirectory(Path.Combine(mods, "OverrideMod"));
+            Directory.CreateDirectory(Path.Combine(mods, "OldMod"));
             var masterFile = Path.Combine(mods, "MasterMod", masterName);
             var ovFile = Path.Combine(mods, "OverrideMod", ovName);
+            var oldFile = Path.Combine(mods, "OldMod", oldName);
             master.BeginWrite.ToPath(masterFile).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
             ovMod.BeginWrite.ToPath(ovFile).WithLoadOrder(new ISkyrimModGetter[] { master }).Write();
+            oldMod.BeginWrite.ToPath(oldFile).WithLoadOrder(new ISkyrimModGetter[] { master }).Write();
 
             string Fid(FormKey fk) => $"{fk.ID:X6}:{fk.ModKey.FileName}";
 
@@ -108,6 +119,19 @@ internal static class EpochGuardProbe
                 Check(rSwap.Epoch != e1, "a REORDER fingerprints differently (winner identity depends on it)");
                 using var rOne = LoadOrderResolver.Build(new[] { masterFile });            // different set
                 Check(rOne.Epoch != e1 && rOne.Epoch != rSwap.Epoch, "a SET change fingerprints differently");
+
+                // PR #305 review: the MO2 same-name conflict — two mods ship the SAME-NAMED plugin; a left-pane
+                // reorder swaps WHICH file wins the slot with no name change and (move, or same base archive) no
+                // mtime change. Names+mtimes alone gave the new build the OLD epoch; the path term catches it.
+                var dirA = Path.Combine(root, "same-name-a"); var dirB = Path.Combine(root, "same-name-b");
+                Directory.CreateDirectory(dirA); Directory.CreateDirectory(dirB);
+                var copyA = Path.Combine(dirA, ovName); var copyB = Path.Combine(dirB, ovName);
+                File.Copy(ovFile, copyA); File.Copy(ovFile, copyB);
+                var tick = DateTime.UtcNow.AddHours(-1);
+                File.SetLastWriteTimeUtc(copyA, tick); File.SetLastWriteTimeUtc(copyB, tick);   // identical name + mtime
+                using var rA = LoadOrderResolver.Build(new[] { masterFile, copyA });
+                using var rB = LoadOrderResolver.Build(new[] { masterFile, copyB });
+                Check(rA.Epoch != rB.Epoch, "a DIFFERENT FILE winning a same-named slot (same name, same mtime) fingerprints differently — the path term");
             }
 
             // ---- 3+4: stamps + renders, on the real service over a synthetic MO2 instance ----
@@ -125,7 +149,7 @@ internal static class EpochGuardProbe
                 Directory.CreateDirectory(prof);
                 File.WriteAllText(Path.Combine(prof, "loadorder.txt"), "# header\r\n" + masterName + "\r\n" + ovName + "\r\n");
                 File.WriteAllText(Path.Combine(prof, "plugins.txt"), "*" + masterName + "\r\n*" + ovName + "\r\n");
-                File.WriteAllText(Path.Combine(prof, "modlist.txt"), "# header\r\n+OverrideMod\r\n+MasterMod\r\n");
+                File.WriteAllText(Path.Combine(prof, "modlist.txt"), "# header\r\n-OldMod\r\n+OverrideMod\r\n+MasterMod\r\n");
 
                 var store = new UserConfigStore(Path.Combine(root, "user.json"));
                 using var svc = LoadOrderService.WithInstance(inst, 0, store);
@@ -184,13 +208,72 @@ internal static class EpochGuardProbe
                 Check(Wire.RenderScriptCheck(vs, 0).Contains($"epoch={current}") && JsonWire.RenderScriptCheck(vs, 0).Contains($"\"epoch\": \"{current}\""),
                       "…both renders carry it");
 
-                // ---- 4: the point of it all — a rebuild between two queries changes the STAMP ----
+                // ---- PR #305 fold: the refusal contract ON THE WIRE (finding 1) ----
                 Console.WriteLine();
-                Console.WriteLine("--- 4: a mid-session rebuild re-stamps — cross-page drift becomes visible ---");
-                File.SetLastWriteTimeUtc(ovFile, DateTime.UtcNow.AddMinutes(-30));
+                Console.WriteLine("--- 3b (PR #305 fold): stamped refusals render their stamp; pre-capture refusals stay null ---");
+                var miss = svc.ResolveRead(FormKey.Factory("0ABC12:" + masterName), null, null, false);
+                Check(miss.Error is not null && miss.Epoch == current, "an absent-record read refusal is stamped on the DTO");
+                Check(Wire.RenderRecord(svc, miss, null, false, 0).Contains($"epoch={current}"), "…and the TEXT refusal carries it");
+                Check(JsonWire.RenderRecord(miss, 0).Contains($"\"epoch\": \"{current}\""), "…and the JSON refusal carries it");
+
+                // finding 4: effect_chain / diff / check_errors post-capture refusals stamped; pre-capture null.
+                var ecMiss = svc.ResolveEffectChain(FormKey.Factory("0ABC12:" + masterName), null, 500);
+                Check(ecMiss.Error is not null && ecMiss.Epoch == current, "effect_chain's not-in-order refusal is stamped");
+                Check(Wire.RenderEffectChain(ecMiss, 0).Contains($"epoch={current}"), "…and rendered");
+                Check(svc.ResolveEffectChain(mgef.FormKey, new[] { "WEAP" }, 500).Epoch is null,
+                      "…its PRE-capture type-narrow refusal stays null");
+                var dMiss = svc.DiffRecord(Fid(weapons[0]), masterName, "Nope.esp", null);
+                Check(dMiss.Error is not null && dMiss.Epoch == current, "diff_record's unresolvable-pole refusal is stamped");
+                Check(Wire.RenderDiffRecord(dMiss, 0).Contains($"epoch={current}"), "…and rendered");
+                Check(svc.DiffRecord("notaformid", masterName, ovName, null).Epoch is null,
+                      "…its PRE-capture bad-FormID refusal stays null");
+                var ceMiss = svc.CheckErrors(new[] { "Nope.esp" }, 1000);
+                Check(ceMiss.Error is not null && ceMiss.Epoch == current, "check_errors' locate refusal is stamped");
+                Check(Wire.RenderCheckErrors(ceMiss, 0).Contains($"epoch={current}"), "…and rendered");
+
+                // ---- PR #305 fold: off-order coverage is QUALIFIED, never overclaimed (finding 3) ----
+                Console.WriteLine();
+                Console.WriteLine("--- 3c (PR #305 fold): an off-order input qualifies the stamp — the fingerprint covers the index only ---");
+                var dOld = svc.DiffRecord(Fid(weapons[0]), masterName, oldName, null);
+                Check(dOld.Error is null && dOld.Epoch == current && !dOld.B!.InOrder,
+                      "an off-order diff pole resolves (10 vs 15) and still stamps the INDEX build");
+                Check(Wire.RenderDiffRecord(dOld, 0).Contains("(active-order inputs only"),
+                      "…and the text stamp is QUALIFIED — the off-order file's content is outside the fingerprint");
+                var dInOrder = svc.DiffRecord(Fid(weapons[0]), masterName, ovName, null);
+                Check(!Wire.RenderDiffRecord(dInOrder, 0).Contains("(active-order inputs only"),
+                      "…while an all-active diff carries NO qualifier (control)");
+                var ceOld = svc.CheckErrors(new[] { oldName }, 1000);
+                Check(ceOld.Error is null && ceOld.Epoch == current && ceOld.OffOrderScanned is { Count: > 0 },
+                      "an off-order sweep resolves and still stamps the INDEX build");
+                Check(Wire.RenderCheckErrors(ceOld, 0).Contains("(indexed plugins only"),
+                      "…and its text stamp is qualified");
+                Check(!Wire.RenderCheckErrors(ce, 0).Contains("(indexed plugins only"),
+                      "…while the all-indexed sweep carries NO qualifier (control)");
+
+                // ---- 4: the pin + the re-stamp (PR #305 fold, finding 2) ----
+                Console.WriteLine();
+                Console.WriteLine("--- 4: detail fills read the SCANNED build (the pin); the NEXT query re-stamps ---");
+                // Scan at the current build, THEN rewrite the override plugin to also override weapons[1]. The
+                // pinned render must fill its rows off the SCANNED build (override wins exactly ONE record); the
+                // pre-fold code re-captured per row, so the rewrite's build leaked into rows under a header
+                // stamped with the old epoch — the affirmative single-build claim the response didn't satisfy.
+                var qPin = svc.CrossQuery("WEAP", null, null, false, null, null, 500);
+                Check(qPin.Epoch == current, "pin arm: scan stamped at the current build");
+                var ovMod2 = new SkyrimMod(ovKey, SkyrimRelease.SkyrimSE);
+                ((IWeapon)WriteEngine.GenericGetOrAddAsOverride(ovMod2, master.Weapons.First()))
+                    .BasicStats = new WeaponBasicStats { Damage = 20, Weight = 1 };
+                ((IWeapon)WriteEngine.GenericGetOrAddAsOverride(ovMod2, master.Weapons.Skip(1).First()))
+                    .BasicStats = new WeaponBasicStats { Damage = 99, Weight = 1 };
+                ovMod2.BeginWrite.ToPath(ovFile).WithLoadOrder(new ISkyrimModGetter[] { master }).Write();
+                var pinned = JsonWire.RenderCrossQuery(svc, qPin, new[] { "EditorID" }, 0, false, false);
+                Check(pinned.Contains($"\"epoch\": \"{current}\""), "the pinned render still stamps the scanned build");
+                int ovWins = System.Text.RegularExpressions.Regex.Matches(
+                    pinned, "\"winner\": \"" + System.Text.RegularExpressions.Regex.Escape(ovName) + "\"").Count;
+                Check(ovWins == 1,
+                      $"…and its fills read the SCANNED build's winners — the override wins exactly its one record ({ovWins}/1), not the mid-render rewrite's two");
                 var q2 = svc.CrossQuery("WEAP", null, null, false, null, null, 500);
                 Check(q2.Epoch is not null && q2.Epoch != current,
-                      $"page 2 after a content change carries a DIFFERENT epoch ({current} → {q2.Epoch}) — the incoherent-assembly tell");
+                      $"the NEXT query re-stamps ({current} → {q2.Epoch}) — cross-page drift visible");
                 Check(svc.Stats().epoch == q2.Epoch, "…and status agrees with the new build");
             }
         }
