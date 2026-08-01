@@ -12,8 +12,11 @@ when it changes.
 first-guess parameter misses (`plugin=` for `plugins=`, `form_id` for `formid`) now works from the houseCARL 2.0
 naming dictionary instead of two hard-wired synonym pairs. Visible today: several new-vocabulary spellings bind on
 the current tools (`patch=` for `patch_name=`, `ops=` for `operations=`, `readback=` for `full_readback=`,
-`filter=` for load-order-status's `lookup=`, `types=` for `type=`), and `patch_name=` now also binds on
-`remove_record` (whose parameter was always the odd one out, bare `patch`). A rename never fires into a type
+`filter=` for load-order-status's `lookup=`, `types=` for `type=`), and `remove_record` (whose parameter was
+always the odd one out, bare `patch`) now binds every artifact-name spelling — `patch_name=`, `plugin_name=`,
+`archive_name=`, `output=`. On tools declaring several output names, `patch=` lands on the ARTIFACT: the merged
+plugin (`output`) on `merge_plugins`, the repacked archive (`archive_name`) on `bsa_repack`, the mod-folder
+name elsewhere. A rename never fires into a type
 mismatch: a spelling whose value can't bind to its would-be target (say, an array `types=` where a single
 `type=` string is declared) keeps its own name in the refusal, alongside the tool's supported-parameter list.
 Everything else in the dictionary stays dormant by construction until the 2.0 build waves rename the tools it

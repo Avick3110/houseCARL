@@ -284,6 +284,17 @@ public static class BindingShimProbe
             failures += Check("J10 bridge ungated: a case-variant key with a bad value gets the TYPE refusal, not unknown-parameter",
                 !j10.text.Contains(GenericError) && !j10.text.Contains("unknown parameter")
                 && j10.text.Contains("conflicts_only") && j10.text.Contains("boolean"), j10.Describe());
+
+            // -- CENSUS: PR #304 final review finding 3 — the executable form of "dormant by construction".
+            //    AliasLayerProbe proves the MECHANISM against synthetic schemas; this arm pins the TABLE
+            //    against the REAL published schemas: for every rename row and dissolution hint, the exact
+            //    set of tools where it activates today. A row that silently fails to fire (a mistyped
+            //    candidate), or fires somewhere unintended (a schema this table's author didn't check),
+            //    changes this set and goes RED — which is precisely how final-review findings 1 and 5 were
+            //    found by hand. Value-dependent guards (supplied-stop, the kind gate) are deliberately
+            //    outside the census: activation here means "the row CAN fire on this tool for some value".
+            //    On any schema or table change: eyeball the printed diff, then update CensusExpected.
+            failures += CensusArm(tools);
         }
         catch (Exception ex)
         {
@@ -307,6 +318,172 @@ public static class BindingShimProbe
     {
         Console.WriteLine($"{(ok ? "PASS" : "FAIL")}  {what}");
         if (!ok) Console.WriteLine($"      got: {detail}");
+        return ok ? 0 : 1;
+    }
+
+    // ---- the alias-table activation census ------------------------------------------------------
+
+    /// <summary>Every (tool, old spelling) pair where an AliasTable row can fire on TODAY's published
+    /// schemas — renames as "tool: old -> target", dissolution hints as "tool: old => hint". Baked from
+    /// an eyeballed run; any schema or table change that shifts activation must be re-eyeballed here.</summary>
+    static readonly string[] CensusExpected =
+    {
+        // Eyeballed 2026-08-01 (PR #304, the W0 alias layer). Notable negatives this list certifies:
+        // NO dissolution hint is active on today's surface (no "=> hint" lines — every gate misses),
+        // nothing fires on S8 Nexus / S9 session tools, source-> only lands on the whose-version
+        // plugin= tools and the two NIF mod= tools, and patch= lands on the §5.3 ARTIFACT per tool
+        // (output on merge_plugins, archive_name on bsa_repack, patch_name elsewhere).
+        "housecarl_asset_status: paths -> asset_paths",
+        "housecarl_batch_record_detail: formid -> formids",
+        "housecarl_batch_record_detail: pluginname -> plugin",
+        "housecarl_batch_record_detail: pluginnames -> plugin",
+        "housecarl_batch_record_detail: plugins -> plugin",
+        "housecarl_batch_record_detail: source -> plugin",
+        "housecarl_bsa_extract: outpath -> dest",
+        "housecarl_bsa_extract: outputdir -> dest",
+        "housecarl_bsa_repack: fromfolder -> source_folder",
+        "housecarl_bsa_repack: patch -> archive_name",
+        "housecarl_bulk_apply: ops -> operations",
+        "housecarl_bulk_apply: patch -> patch_name",
+        "housecarl_bulk_apply: readback -> full_readback",
+        "housecarl_bulk_create: patch -> patch_name",
+        "housecarl_bulk_create: readback -> full_readback",
+        "housecarl_bulk_place_asset: patch -> patch_name",
+        "housecarl_check_errors: formid -> formids",
+        "housecarl_check_errors: plugin -> plugins",
+        "housecarl_check_errors: pluginname -> plugins",
+        "housecarl_check_errors: pluginnames -> plugins",
+        "housecarl_check_errors: types -> type",
+        "housecarl_compact_plugin: patch -> patch_name",
+        "housecarl_compact_plugin: pluginname -> plugin",
+        "housecarl_compact_plugin: pluginnames -> plugin",
+        "housecarl_compact_plugin: plugins -> plugin",
+        "housecarl_compact_plugin: source -> plugin",
+        "housecarl_compile_script: dest -> output_dir",
+        "housecarl_compile_script: outpath -> output_dir",
+        "housecarl_compile_script: patch -> patch_name",
+        "housecarl_compile_script: paths -> script",
+        "housecarl_copy_npc_appearance: patch -> patch_name",
+        "housecarl_create_plugin: patch -> plugin_name",
+        "housecarl_create_plugin: plugin -> plugin_name",
+        "housecarl_create_plugin: pluginnames -> plugin_name",
+        "housecarl_create_plugin: plugins -> plugin_name",
+        "housecarl_create_record: ops -> operations",
+        "housecarl_create_record: patch -> patch_name",
+        "housecarl_create_record: readback -> full_readback",
+        "housecarl_cross_plugin_query: plugin -> plugins",
+        "housecarl_cross_plugin_query: pluginname -> plugins",
+        "housecarl_cross_plugin_query: pluginnames -> plugins",
+        "housecarl_cross_plugin_query: types -> type",
+        "housecarl_decompile_script: patch -> patch_name",
+        "housecarl_decompile_script: paths -> pex",
+        "housecarl_diff_record: formids -> formid",
+        "housecarl_effect_chain: type -> types",
+        "housecarl_forward_record: formid -> formids",
+        "housecarl_forward_record: patch -> patch_name",
+        "housecarl_forward_record: readback -> full_readback",
+        "housecarl_load_order_status: filter -> lookup",
+        "housecarl_merge_plugins: patch -> output",
+        "housecarl_merge_plugins: plugin -> plugins",
+        "housecarl_merge_plugins: pluginname -> plugins",
+        "housecarl_merge_plugins: pluginnames -> plugins",
+        "housecarl_native_pairing_audit: lookup -> filter",
+        "housecarl_nif_inspect: paths -> mesh_paths",
+        "housecarl_nif_inspect: source -> mod",
+        "housecarl_nif_set: patch -> patch_name",
+        "housecarl_nif_set: paths -> mesh_path",
+        "housecarl_nif_set: source -> mod",
+        "housecarl_nif_set: verb -> op",
+        "housecarl_place_asset: formids -> formid",
+        "housecarl_place_asset: patch -> patch_name",
+        "housecarl_read_plugin_file: formids -> formid",
+        "housecarl_read_plugin_file: pluginname -> plugin",
+        "housecarl_read_plugin_file: pluginnames -> plugin",
+        "housecarl_read_plugin_file: plugins -> plugin",
+        "housecarl_read_plugin_file: source -> plugin",
+        "housecarl_read_plugin_file: types -> type",
+        "housecarl_read_record: formids -> formid",
+        "housecarl_read_record: pluginname -> plugin",
+        "housecarl_read_record: pluginnames -> plugin",
+        "housecarl_read_record: plugins -> plugin",
+        "housecarl_read_record: source -> plugin",
+        "housecarl_remove_record: archivename -> patch",
+        "housecarl_remove_record: formids -> formid",
+        "housecarl_remove_record: output -> patch",
+        "housecarl_remove_record: patchname -> patch",
+        "housecarl_remove_record: pluginname -> patch",
+        "housecarl_resolve: formid -> formids",
+        "housecarl_set_field: formids -> formid",
+        "housecarl_set_field: op -> verb",
+        "housecarl_set_field: patch -> patch_name",
+        "housecarl_set_field: readback -> full_readback",
+        "housecarl_skse_config_audit: lookup -> filter",
+        "housecarl_skse_inventory: lookup -> filter",
+        "housecarl_skypatcher_layer: lookup -> filter",
+        "housecarl_skypatcher_read: formids -> formid",
+        "housecarl_validate_dialogue: formids -> formid",
+        "housecarl_validate_scripts: formid -> formids",
+        "housecarl_validate_scripts: plugin -> plugins",
+        "housecarl_validate_scripts: pluginname -> plugins",
+        "housecarl_validate_scripts: pluginnames -> plugins",
+        "housecarl_validate_scripts: types -> type",
+        "housecarl_write_seq: patch -> patch_name",
+        "housecarl_write_seq: pluginname -> plugin",
+        "housecarl_write_seq: pluginnames -> plugin",
+        "housecarl_write_seq: plugins -> plugin",
+        "housecarl_write_seq: source -> plugin",
+    };
+
+    /// <summary>Compute the activation census from the served tools/list and diff it against
+    /// <see cref="CensusExpected"/>. Mirrors ResolveAliases' value-independent gates: a row is active on
+    /// a tool when NO declared parameter normalizes to the old spelling (else the call is declared, or
+    /// the bridge owns it) and the first non-excluded candidate IS declared; a hint is active when the
+    /// old spelling is undeclared and every gate parameter is declared.</summary>
+    static int CensusArm(JsonElement toolsList)
+    {
+        var actual = new List<string>();
+        foreach (var t in toolsList.GetProperty("tools").EnumerateArray())
+        {
+            var name = t.GetProperty("name").GetString()!;
+            if (!t.TryGetProperty("inputSchema", out var schema) || schema.ValueKind != JsonValueKind.Object) continue;
+            if (!schema.TryGetProperty("properties", out var props) || props.ValueKind != JsonValueKind.Object) continue;
+            var declared = new List<string>();
+            foreach (var pr in props.EnumerateObject()) declared.Add(pr.Name);
+            var declaredNorm = new HashSet<string>(declared.Select(HousecarlMcp.ToolCallShim.Normalize));
+
+            foreach (var row in HousecarlMcp.AliasTable.AllRenames)
+            {
+                if (declaredNorm.Contains(row.Old)) continue;
+                foreach (var candidate in row.Candidates)
+                {
+                    if (HousecarlMcp.AliasTable.IsExcluded(row, candidate, name)) continue;
+                    var target = declared.FirstOrDefault(d => HousecarlMcp.ToolCallShim.Normalize(d) == candidate);
+                    if (target is null) continue;
+                    actual.Add($"{name}: {row.Old} -> {target}");
+                    break;
+                }
+            }
+            foreach (var d in HousecarlMcp.AliasTable.AllDissolutions)
+            {
+                if (declaredNorm.Contains(d.Old)) continue;
+                if (d.GateParams.All(declaredNorm.Contains)) actual.Add($"{name}: {d.Old} => hint");
+            }
+        }
+        actual.Sort(StringComparer.Ordinal);
+
+        var expected = new HashSet<string>(CensusExpected, StringComparer.Ordinal);
+        var got = new HashSet<string>(actual, StringComparer.Ordinal);
+        var missing = expected.Except(got).OrderBy(s => s, StringComparer.Ordinal).ToList();
+        var surplus = got.Except(expected).OrderBy(s => s, StringComparer.Ordinal).ToList();
+        bool ok = missing.Count == 0 && surplus.Count == 0;
+        Console.WriteLine($"{(ok ? "PASS" : "FAIL")}  CENSUS: alias-table activation over the real schemas matches the eyeballed expectation ({actual.Count} activations)");
+        if (!ok)
+        {
+            foreach (var m in missing) Console.WriteLine($"      expected but absent: {m}");
+            foreach (var s in surplus) Console.WriteLine($"      active but unexpected: {s}");
+            Console.WriteLine("      full actual census:");
+            foreach (var a in actual) Console.WriteLine($"        \"{a}\",");
+        }
         return ok ? 0 : 1;
     }
 

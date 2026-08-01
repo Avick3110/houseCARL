@@ -56,7 +56,11 @@ internal static class AliasTable
         new("plugins", new[] { "plugin", "pluginname", "pluginnames" }),
         new("pluginname",  new[] { "patch", "plugins", "plugin", "pluginnames" }),   // §5.3 — create_plugin's plugin_name → patch; today's guess-miss → plugins (#221 J3) or the bare-plugin tools
         new("pluginnames", new[] { "plugins", "plugin", "pluginname" }),
-        new("source", new[] { "plugin", "mod" }),                 // reverse: the new pole spelling on not-yet-renamed tools (read tools' plugin=, the NIF tools' mod=)
+        // Reverse: the new pole spelling on not-yet-renamed tools (read tools' plugin=, the NIF tools'
+        // mod=). nexus_mod excepted (census catch): its mod= is a Nexus mod ID, not the S2/S3 provider
+        // disambiguator — S8 is chartered untouched (§6.4), so nothing renames onto it.
+        new("source", new[] { "plugin", "mod" },
+            ExceptTools: new[] { ("housecarl_nexus_mod", "mod") }),
 
         // §5.3 — type/types (SELECT is set-valued types; record_type stays a create operand — distinct
         // normalization, no entry needed).
@@ -66,14 +70,22 @@ internal static class AliasTable
         // §5.3 — ONE name for "the new artifact": patch. Forward rows fire today on remove_record
         // (bare patch already declared there — the drift instance §5's census found); reverse row
         // lets patch= bind on today's patch_name / plugin_name / archive_name / output spellings.
+        // Candidate order carries §5.3's "the new ARTIFACT" on tools declaring several output names
+        // (final review finding 5, generalized by the census arm): merge_plugins declares patch_name
+        // (mod-folder base) AND output (the merged plugin) — patch= must land on output; bsa_repack
+        // declares patch_name AND archive_name (the repacked .bsa, §5.3's artifact there) — patch=
+        // must land on archive_name. Hence output, then archivename, before patchname; everywhere
+        // else the earlier candidates are undeclared and the order is inert.
         new("patchname",   new[] { "patch" }),
         new("archivename", new[] { "patch" }),
         new("output",      new[] { "patch" }),
-        new("patch",       new[] { "patchname", "pluginname", "archivename", "output" }),
+        new("patch",       new[] { "output", "archivename", "patchname", "pluginname" }),
 
-        // §5.3 — unmanaged filesystem output: out_path.
-        new("outputdir", new[] { "outpath" }),
-        new("dest",      new[] { "outpath" }),
+        // §5.3 — unmanaged filesystem output: out_path. The two 1.x spellings are also each other's
+        // candidates (final review finding 6, the F1 clique logic): output_dir= on bsa_extract and
+        // dest= on compile_script name the same concept and must keep binding during the build.
+        new("outputdir", new[] { "outpath", "dest" }),
+        new("dest",      new[] { "outpath", "outputdir" }),
         new("outpath",   new[] { "outputdir", "dest" }),
 
         // §5.3 — one verb-name (op) and the bulk list (ops).
@@ -102,8 +114,11 @@ internal static class AliasTable
         new("target", new[] { "element" }),
 
         // §5.3 — forward_record's from_plugin and the S2/S3 mod= disambiguator both become source.
-        // mod= carries the same place_asset exception as plugin= (its source= is a file-path operand).
-        new("fromplugin", new[] { "source" }),
+        // All three plugin-naming spellings carry the place_asset exception (its source= is a
+        // file-path operand, not the version pole — final review finding 1: place_asset is the ONLY
+        // tool declaring bare source today, so an unexcepted row is live exactly where it's wrong).
+        new("fromplugin", new[] { "source" },
+            ExceptTools: new[] { ("housecarl_place_asset", "source") }),
         new("mod", new[] { "source" },
             ExceptTools: new[] { ("housecarl_place_asset", "source") }),
 
@@ -118,6 +133,12 @@ internal static class AliasTable
         new("sourcefolder", new[] { "fromfolder" }),
         new("fromfolder",   new[] { "sourcefolder" }),
     };
+
+    /// <summary>The full tables, for the activation census (binding-shim-guard's CENSUS arm): the guard
+    /// enumerates the REAL published schemas and asserts, per row, exactly where it activates — the
+    /// executable form of "dormant by construction".</summary>
+    internal static IReadOnlyList<Rename> AllRenames => Renames;
+    internal static IReadOnlyList<Dissolution> AllDissolutions => Dissolutions;
 
     /// <summary>Directed lookup: the candidates for a normalized old spelling, or null.</summary>
     internal static Rename? RenameFor(string normalizedKey)
@@ -147,33 +168,38 @@ internal static class AliasTable
     /// and the refusal's supported-parameter list does the rest. No bare ellipses: every hint spells a
     /// usable form.
     /// (conflict_tree's hint is deliberately absent at W0: whether the tree is a parameter or a
-    /// projection shape is §6's per-wave call — W2 adds the entry when the carrier exists.)</summary>
-    internal readonly record struct Dissolution(string Old, string GateParam, string Hint);
+    /// projection shape is §6's per-wave call — W2 adds the entry when the carrier exists.)
+    /// A hint may carry SEVERAL gate params — ALL must be declared. property_contains is gated on
+    /// where AND findings: no 1.x tool declares both, and W3's check (its true successor) declares
+    /// both, so the hint activates exactly at its wave. Its single-gate form fired today on
+    /// cross_plugin_query, pointing at a script-property where= spelling nothing establishes that
+    /// tool's grammar can resolve (final review finding 2 — held back the same way as conflict_tree).</summary>
+    internal readonly record struct Dissolution(string Old, string[] GateParams, string Hint);
 
     static readonly Dissolution[] Dissolutions =
     {
-        new("editoridcontains", "where", "not a parameter here — this job is the where= predicate grammar: where=[\"editorid contains <text>\"]"),
-        new("propertycontains", "where", "not a parameter here — script-property predicates belong to the where= grammar on tools that support them: where=[\"<property path> contains <text>\"]"),
-        new("mgefformid",   "walk", "not a parameter here — seed the walk= construct with the MGEF's FormID instead"),
-        new("closure",      "walk", "not a parameter here — the closure copy is expressed as the walk= construct"),
-        new("winnerfields", "fieldssource", "not a parameter here — the display pole spells it: fields_source=\"winner\""),
-        new("fromfile",     "ops", "not a parameter here — pass the file with the @file convention: ops=\"@<path>\""),
-        new("plugina", "versus", "not a parameter here — the comparison poles are source= (subject) and versus= (reference)"),
-        new("pluginb", "versus", "not a parameter here — the comparison poles are source= (subject) and versus= (reference)"),
-        new("moda",    "versus", "not a parameter here — structured source=/versus= poles carry the mod disambiguator"),
-        new("modb",    "versus", "not a parameter here — structured source=/versus= poles carry the mod disambiguator"),
-        new("sourceformid", "assignments", "not a parameter here — the assignments= zip carries from= per assignment"),
-        new("sourceplugin", "assignments", "not a parameter here — the assignments= zip carries from_source= per assignment"),
-        new("sourcemod",    "assignments", "not a parameter here — the assignments= zip carries from_source= per assignment"),
-        new("targetformid", "assignments", "not a parameter here — the assignments= zip carries target= per assignment (§5.2's record pole)"),
+        new("editoridcontains", new[] { "where" }, "not a parameter here — this job is the where= predicate grammar: where=[\"editorid contains <text>\"]"),
+        new("propertycontains", new[] { "where", "findings" }, "not a parameter here — script-property predicates belong to the where= grammar: where=[\"<property path> contains <text>\"]"),
+        new("mgefformid",   new[] { "walk" }, "not a parameter here — seed the walk= construct with the MGEF's FormID instead"),
+        new("closure",      new[] { "walk" }, "not a parameter here — the closure copy is expressed as the walk= construct"),
+        new("winnerfields", new[] { "fieldssource" }, "not a parameter here — the display pole spells it: fields_source=\"winner\""),
+        new("fromfile",     new[] { "ops" }, "not a parameter here — pass the file with the @file convention: ops=\"@<path>\""),
+        new("plugina", new[] { "versus" }, "not a parameter here — the comparison poles are source= (subject) and versus= (reference)"),
+        new("pluginb", new[] { "versus" }, "not a parameter here — the comparison poles are source= (subject) and versus= (reference)"),
+        new("moda",    new[] { "versus" }, "not a parameter here — structured source=/versus= poles carry the mod disambiguator"),
+        new("modb",    new[] { "versus" }, "not a parameter here — structured source=/versus= poles carry the mod disambiguator"),
+        new("sourceformid", new[] { "assignments" }, "not a parameter here — the assignments= zip carries from= per assignment"),
+        new("sourceplugin", new[] { "assignments" }, "not a parameter here — the assignments= zip carries from_source= per assignment"),
+        new("sourcemod",    new[] { "assignments" }, "not a parameter here — the assignments= zip carries from_source= per assignment"),
+        new("targetformid", new[] { "assignments" }, "not a parameter here — the assignments= zip carries target= per assignment (§5.2's record pole)"),
     };
 
-    /// <summary>The migration hint for a normalized unknown key, or null — gated on the replacement
-    /// grammar's carrier parameter being declared in <paramref name="declaredNormalized"/>.</summary>
+    /// <summary>The migration hint for a normalized unknown key, or null — gated on EVERY one of the
+    /// entry's carrier parameters being declared in <paramref name="declaredNormalized"/>.</summary>
     internal static string? DissolutionHint(string normalizedKey, IReadOnlySet<string> declaredNormalized)
     {
         foreach (var d in Dissolutions)
-            if (d.Old == normalizedKey && declaredNormalized.Contains(d.GateParam)) return d.Hint;
+            if (d.Old == normalizedKey && d.GateParams.All(declaredNormalized.Contains)) return d.Hint;
         return null;
     }
 }
