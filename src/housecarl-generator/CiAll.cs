@@ -116,6 +116,7 @@ public static class CiAll
         ("bulk-create-guard", BulkCreateGuardProbe.RunGuard),
         ("create-abstract-group-guard", CreateGlobalProbe.RunGuard),
         ("binding-shim-guard", BindingShimProbe.RunGuard),
+        ("alias-layer-guard", AliasLayerProbe.RunGuard),
         ("snapshot-view-guard", SnapshotViewProbe.RunGuard),
         ("verify-loop-guard", VerifyLoopProbe.RunGuard),
         ("vmad-poly-guard", VmadPolyProbe.RunGuard),
