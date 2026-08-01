@@ -437,21 +437,25 @@ public sealed class LoadOrderResolver : IDisposable
         return new IndexSnapshot(
             index,
             overriders.ToDictionary(kv => kv.Key, kv => kv.Value.ToArray()),  // trim List overhead → int[]
-            failures, excluded, excludedPlugins, maxDepth, ComputeEpoch(_names, _mtimes));
+            failures, excluded, excludedPlugins, maxDepth, ComputeEpoch(_names, _paths, _mtimes));
     }
 
     /// <summary>The epoch fingerprint: a compact, deterministic identity for ONE index build, derived from the
-    /// world-state the build was made from — every plugin's filename + last-write time, in priority order. Two
-    /// builds over an unchanged order fingerprint IDENTICALLY (a server restart does not invalidate anything);
-    /// any content edit, reorder, or set change fingerprints differently. Stamped into every bulk response's
-    /// in-band accounting (SPEC §2.1.1) so cross-page drift is detectable instead of silently incoherent, and
-    /// checked on artifact re-entry (a mismatch refuses loud, naming both epochs). Opaque to consumers — 16 hex
-    /// chars of SHA-256, compared only for equality.</summary>
-    static string ComputeEpoch(string[] names, DateTime[] mtimes)
+    /// world-state the build was made from — every plugin's filename, RESOLVED PATH, and last-write time, in
+    /// priority order. The path matters (PR #305 review): under MO2 two enabled mods can ship the same-named
+    /// plugin, and a left-pane reorder swaps WHICH file wins the slot without changing name or (if the copies
+    /// share a last-write tick — same base archive, or a move rather than a copy) mtime — names+mtimes alone
+    /// would give the new build the old epoch while resolving different winners. Two builds over an unchanged
+    /// order fingerprint IDENTICALLY (a server restart does not invalidate anything; the resolved paths are as
+    /// restart-stable as the names); any content edit, reorder, or set change fingerprints differently. Stamped
+    /// into every bulk response's in-band accounting (SPEC §2.1.1) so cross-page drift is detectable instead of
+    /// silently incoherent, and checked on artifact re-entry (a mismatch refuses loud, naming both epochs).
+    /// Opaque to consumers — 16 hex chars of SHA-256, compared only for equality.</summary>
+    static string ComputeEpoch(string[] names, string[] paths, DateTime[] mtimes)
     {
-        var sb = new StringBuilder(names.Length * 48);
+        var sb = new StringBuilder(names.Length * 96);
         for (int i = 0; i < names.Length; i++)
-            sb.Append(names[i]).Append('|').Append(mtimes[i].Ticks).Append('\n');
+            sb.Append(names[i]).Append('|').Append(paths[i]).Append('|').Append(mtimes[i].Ticks).Append('\n');
         var hash = System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(sb.ToString()));
         return Convert.ToHexString(hash.AsSpan(0, 8)).ToLowerInvariant();
     }
@@ -581,6 +585,11 @@ public sealed class LoadOrderResolver : IDisposable
         /// (Q3) on a name not in the order or excluded this build. The integrity sweep diffs this against the masters a
         /// plugin's records actually reference; judged against THIS view's build (same exclusion set as the scan).</summary>
         public IReadOnlyList<string> DeclaredMasters(string pluginName) => _r.DeclaredMasters(pluginName, _s);
+
+        /// <summary>The full conflict tree (<see cref="LoadOrderResolver.ResolveTree(OverlaySession, FormKey)"/>),
+        /// pinned to THIS view's build — so a render that stamps this view's epoch fills its trees from the same
+        /// build the stamp names (PR #305 review).</summary>
+        public ConflictTree? ResolveTree(OverlaySession session, FormKey fk) => _r.ResolveTree(session, fk, _s);
     }
 
     // ---- Queries -------------------------------------------------------
@@ -601,9 +610,13 @@ public sealed class LoadOrderResolver : IDisposable
     /// <summary>The full conflict tree: every touching plugin's body, in priority order (winner last). Bodies are
     /// fetched on demand into <paramref name="session"/> (which keeps the touched plugins open until the caller has
     /// materialised them, then disposes them). null if the FormKey isn't in the order.</summary>
-    public ConflictTree? ResolveTree(OverlaySession session, FormKey fk)
+    public ConflictTree? ResolveTree(OverlaySession session, FormKey fk) => ResolveTree(session, fk, _snap);
+
+    /// <summary>The snapshot-pinned body of <see cref="ResolveTree(OverlaySession, FormKey)"/> — taken by
+    /// <see cref="IndexView.ResolveTree"/> so a caller that already pinned a build (a cross-query render filling
+    /// conflict trees per match, PR #305 review) reads the tree off the SAME build its epoch stamp names.</summary>
+    internal ConflictTree? ResolveTree(OverlaySession session, FormKey fk, IndexSnapshot s)
     {
-        var s = _snap;                                                 // ONE build — Index and Overriders can't disagree
         if (!s.Index.TryGetValue(fk, out var e)) return null;
         var overlayIdxs = e.count == 1 ? new[] { e.winner } : s.Overriders[fk];
         var nodes = new ConflictNode[overlayIdxs.Length];

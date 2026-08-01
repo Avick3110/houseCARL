@@ -486,12 +486,19 @@ static class Wire
     /// TRUNCATED, in which case it says so instead of claiming identical (Q3). On refusal, a single error: line.</summary>
     public static string RenderDiffRecord(LoadOrderService.DiffRecordOutcome o, int maxChars)
     {
-        if (o.Error is not null) return $"error: {o.Error}";
+        if (o.Error is not null) return $"error: {o.Error}" + (o.Epoch is not null ? $"\nepoch={o.Epoch}" : "");
         int cap = Cap(maxChars);
         var a = o.A!; var b = o.B!; var d = o.Diff!;
         var sb = new StringBuilder();
         sb.Append("diff ").Append(o.Formid);
-        if (o.Epoch is not null) sb.Append("  epoch=").Append(o.Epoch);   // §2.1.1: both poles resolved against THIS build
+        if (o.Epoch is not null)
+        {
+            sb.Append("  epoch=").Append(o.Epoch);
+            // The fingerprint covers the ACTIVE ORDER only — an off-order pole's file content sits outside it, so
+            // equal epochs must not be read as "same inputs" across such calls (PR #305 review; the fact itself is
+            // per-pole data: InOrder/Where, rendered on each pole line).
+            if (!a.InOrder || !b.InOrder) sb.Append(" (active-order inputs only — the off-order pole's file is outside the fingerprint)");
+        }
         sb.Append('\n')
           .Append("  a: ").Append(PoleLine(a)).Append('\n')
           .Append("  b: ").Append(PoleLine(b)).Append('\n');
@@ -566,7 +573,9 @@ static class Wire
     // ---- housecarl_read_record ----------------------------------------------------------------------
     public static string RenderRecord(LoadOrderService svc, ReadOutcome o, IReadOnlyList<string>? fields, bool conflictTree, int maxChars)
     {
-        if (o.Error is not null) return "error: " + o.Error;
+        // A stamped refusal renders its stamp (PR #305 review): "not present" is an answer about a build, and the
+        // wire must say WHICH — the DTO carrying it while the render dropped it was the unmet half of the contract.
+        if (o.Error is not null) return "error: " + o.Error + (o.Epoch is not null ? $"\nepoch={o.Epoch}" : "");
         var sb = new StringBuilder();
         AppendRecord(sb, o, Cap(maxChars));
         if (conflictTree) AppendConflictTree(sb, svc, o, fields, Cap(maxChars));
@@ -662,15 +671,17 @@ static class Wire
             {
                 // winner_fields=: read the load-order WINNER's body (source=null) regardless of scan scope; else the
                 // body the scan filtered (scoped plugin under plugins=, else winner) — so display never contradicts filter.
-                var o = svc.ResolveRead(fk, winnerFields ? null : (q.Sources is { } src ? src[i] : null), fields, conflictTree, depth, resolveNames: resolveNames, linkMemo: linkMemo);
+                // PINNED to the scan's build (ResolveReadOn / the q-carrying AppendConflictTree): the header's epoch
+                // names ONE build, so every fill must read it (PR #305 review).
+                var o = svc.ResolveReadOn(q, fk, winnerFields ? null : (q.Sources is { } src ? src[i] : null), fields, conflictTree, depth, resolveNames: resolveNames, linkMemo: linkMemo);
                 sb.Append('\n');
                 if (matches is not null) sb.Append("  ").Append(fk).Append("  matches=").Append(matches).Append('\n');
                 if (o.Error is not null) sb.Append(fk).Append(": error: ").Append(o.Error).Append('\n');
-                else { AppendRecord(sb, o, cap); if (conflictTree) AppendConflictTree(sb, svc, o, fields, cap); }
+                else { AppendRecord(sb, o, cap); if (conflictTree) AppendConflictTree(sb, svc, o, fields, cap, q); }
             }
             else
             {
-                var m = q.Prefilled is not null ? q.Prefilled[i] : svc.ResolveSummary(fk);   // lazy fill for conflicts-only
+                var m = q.Prefilled is not null ? q.Prefilled[i] : svc.ResolveSummaryOn(q, fk);   // lazy fill for conflicts-only, pinned to the scan's build
                 sb.Append("  ").Append(m.FormKey);
                 if (m.Error is not null) sb.Append("  error=").Append(m.Error).Append('\n');
                 else
@@ -722,7 +733,7 @@ static class Wire
     /// stops with the same explicit notice the other read renders use (Q3 — never silent).</summary>
     public static string RenderEffectChain(EffectChainResult r, int maxChars)
     {
-        if (r.Error is not null) return "error: " + r.Error;
+        if (r.Error is not null) return "error: " + r.Error + (r.Epoch is not null ? $"\nepoch={r.Epoch}" : "");
         int cap = Cap(maxChars);
         var sb = new StringBuilder();
         sb.Append("effect_chain for ").Append(r.Mgef).Append(" (").Append(r.MgefEditorId).Append(", MagicEffect): ")
@@ -770,7 +781,7 @@ static class Wire
     /// caller EXCLUDED renders as "NOT CHECKED", never as a 0, so a skipped check can never be read as a clean one (Q3).</summary>
     public static string RenderCheckErrors(ErrorCheckResult r, int maxChars, int histogramLimit = 1000)
     {
-        if (r.Error is not null) return "error: " + r.Error;
+        if (r.Error is not null) return "error: " + r.Error + (r.Epoch is not null ? $"\nepoch={r.Epoch}" : "");
         int cap = Cap(maxChars);
         bool didDangling = r.Classes.HasFlag(ErrorFindingClass.Dangling);
         bool didMasters = r.Classes.HasFlag(ErrorFindingClass.MissingMasters);
@@ -783,7 +794,7 @@ static class Wire
           .Append(didDangling ? $"{r.TotalUnscannableRecords} unscannable record(s)" : "unscannable records NOT COUNTED (the record walk was skipped)");
         if (r.ExcludedPlugins.Count > 0)
             sb.Append(" · ").Append(r.ExcludedPlugins.Count).Append(" plugin(s) excluded (unparseable)");
-        if (r.Epoch is not null) sb.Append(" · epoch=").Append(r.Epoch);
+        if (r.Epoch is not null) sb.Append(" · epoch=").Append(r.Epoch).Append(EpochOffOrderQualifier(r));
         sb.Append('\n');
         if (r.FilterNote is not null) sb.Append(r.FilterNote).Append('\n');
         if (r.OffOrderScanned is { Count: > 0 } off)
@@ -859,6 +870,18 @@ static class Wire
     const string SweepNarrowHint =
         "narrow with type= / formids= / editorid_contains= / findings=, ask counts_only=true for just the totals, or raise max_chars";
 
+    /// <summary>The epoch stamp's coverage qualifier (PR #305 review): when off-order files were swept beside the
+    /// index, the fingerprint does NOT cover their content (they are located on disk, outside the fingerprinted
+    /// order) — say so next to the stamp, so equal epochs are never read as "same inputs" across such sweeps. The
+    /// fact itself is data (the OffOrderScanned list / the json <c>off_order_scanned</c> array); this qualifier is
+    /// its header-line rendering.</summary>
+    static string EpochOffOrderQualifier(ErrorCheckResult r) =>
+        r.OffOrderScanned is { Count: > 0 } ? " (indexed plugins only — off-order file content is outside the fingerprint)" : "";
+
+    /// <summary>validate_scripts has no off-order lane — its stamp always covers everything it swept. The overload
+    /// exists so the two sweep headers stay textually identical (one shape, no drift).</summary>
+    static string EpochOffOrderQualifier(ScriptCheckResult r) => "";
+
     /// <summary>Render a <c>counts_only=</c> histogram, capped at <paramref name="rowLimit"/> with the true distinct-key
     /// count always stated. A null histogram means the mode was not requested; an EMPTY one means the sweep genuinely
     /// found nothing, and the two read differently (Q3).</summary>
@@ -917,7 +940,7 @@ static class Wire
     /// <c>counts_only=</c> histogram rows.</summary>
     public static string RenderScriptCheck(ScriptCheckResult r, int maxChars, int histogramLimit = 1000)
     {
-        if (r.Error is not null) return "error: " + r.Error;
+        if (r.Error is not null) return "error: " + r.Error + (r.Epoch is not null ? $"\nepoch={r.Epoch}" : "");
         int cap = Cap(maxChars);
         var sb = new StringBuilder();
 
@@ -937,7 +960,7 @@ static class Wire
           .Append(r.TotalUnverifiable).Append(" unverifiable");
         if (r.ExcludedPlugins.Count > 0)
             sb.Append(" · ").Append(r.ExcludedPlugins.Count).Append(" plugin(s) excluded (unparseable)");
-        if (r.Epoch is not null) sb.Append(" · epoch=").Append(r.Epoch);
+        if (r.Epoch is not null) sb.Append(" · epoch=").Append(r.Epoch).Append(EpochOffOrderQualifier(r));
         sb.Append('\n');
         if (r.FilterNote is not null) sb.Append(r.FilterNote).Append('\n');
         if (r.ReadIncomplete)
@@ -1080,7 +1103,11 @@ static class Wire
     /// winner-relative field diff — each other plugin's only-the-fields-that-differ, as `path=theirs (winner X)`.
     /// Bodies come from <see cref="LoadOrderService.ResolveTree"/> (on-demand fetch, held by nothing). The diff
     /// is char-budget-bounded: over <paramref name="cap"/> it stops with an explicit notice (Q3).</summary>
-    static void AppendConflictTree(StringBuilder sb, LoadOrderService svc, ReadOutcome o, IReadOnlyList<string>? fields, int cap)
+    /// <param name="pin">When rendering inside a cross-query detail loop, the outcome whose scan pin the tree fill
+    /// must read from (PR #305 review — the header's epoch names one build; the tree must not re-capture). Null on
+    /// the single-read/batch paths, which keep their own (documented) capture.</param>
+    static void AppendConflictTree(StringBuilder sb, LoadOrderService svc, ReadOutcome o, IReadOnlyList<string>? fields, int cap,
+                                   CrossQueryOutcome? pin = null)
     {
         var tp = o.TouchingPlugins;
         if (tp is null) return;
@@ -1098,7 +1125,8 @@ static class Wire
         }
 
         if (tp.Count <= 1) return;                                         // nothing to diff against
-        var tree = svc.ResolveTree(o.FormKey, fields);                     // materialised (no live overlay) — Option B
+        var tree = pin is not null ? svc.ResolveTreeOn(pin, o.FormKey, fields)
+                                   : svc.ResolveTree(o.FormKey, fields);   // materialised (no live overlay) — Option B
         if (tree is null || tree.Nodes.Count <= 1) return;
 
         var winnerNode = tree.Winner;                                       // Nodes[^1] = highest priority = the winner
