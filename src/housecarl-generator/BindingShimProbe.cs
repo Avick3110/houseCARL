@@ -274,6 +274,16 @@ public static class BindingShimProbe
             failures += Check("J9 kind-gate: array formids= on read_record fails naming the caller's own key",
                 !j9.text.Contains(GenericError) && j9.text.Contains("formids") && !j9.text.Contains("could not be bound"),
                 j9.Describe());
+
+            // -- J10: re-review R1 — the kind gate must not reach the NORMALIZATION bridge: conflicts_Only is
+            //    the same parameter as conflicts_only (case variant), so even with an unbindable value the
+            //    rename proceeds and the TYPE refusal names the real parameter and fault — never an
+            //    unknown-parameter refusal denying that the parameter exists.
+            var j10 = Call(stdin, stdout, 43, "housecarl_cross_plugin_query",
+                """{"type":"CELL","conflicts_Only":"CELL"}""");
+            failures += Check("J10 bridge ungated: a case-variant key with a bad value gets the TYPE refusal, not unknown-parameter",
+                !j10.text.Contains(GenericError) && !j10.text.Contains("unknown parameter")
+                && j10.text.Contains("conflicts_only") && j10.text.Contains("boolean"), j10.Describe());
         }
         catch (Exception ex)
         {

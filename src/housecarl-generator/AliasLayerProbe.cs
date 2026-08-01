@@ -31,7 +31,7 @@ public static class AliasLayerProbe
         int failures = 0;
 
         // ---- schemas: today-shaped and 2.0-shaped -------------------------------------------
-        var scanToday   = Schema("""{"plugins":{"type":["array","null"]},"type":{"type":["string","null"]}}""");
+        var scanToday   = Schema("""{"plugins":{"type":["array","null"]},"type":{"type":["string","null"]},"conflicts_only":{"type":["boolean","null"]}}""");
         var records20   = Schema("""{"formids":{"type":["array","null"]},"types":{"type":["array","null"]},"plugins":{"type":["array","null"]},"source":{"type":["string","null"]},"where":{"type":["array","null"]},"fields_source":{"type":["string","null"]}}""");
         var readToday   = Schema("""{"formid":{"type":"string"},"depth":{"type":["integer","null"]}}""", required: """["formid"]""");
         var batchToday  = Schema("""{"formids":{"type":"array"}}""", required: """["formids"]""");
@@ -42,7 +42,7 @@ public static class AliasLayerProbe
         var removeToday = Schema("""{"formid":{"type":"string"},"patch":{"type":["string","null"]}}""", required: """["formid"]""");
         var createPluginToday = Schema("""{"plugin_name":{"type":"string"},"esl":{"type":["boolean","null"]},"author":{"type":["string","null"]},"description":{"type":["string","null"]}}""", required: """["plugin_name"]""");
         var readPluginToday = Schema("""{"plugin":{"type":"string"},"formid":{"type":["string","null"]},"mod":{"type":["string","null"]}}""", required: """["plugin"]""");
-        var compactToday = Schema("""{"plugin":{"type":"string"},"esl":{"type":["boolean","null"]},"in_place":{"type":["boolean","null"]},"repoint_externals":{"type":["boolean","null"]},"acknowledge":{"type":["string","null"]},"patch_name":{"type":["string","null"]}}""", required: """["plugin"]""");
+        var compactToday = Schema("""{"plugin":{"type":"string"},"esl":{"type":["boolean","null"]},"in_place":{"type":["boolean","null"]},"repoint_externals":{"type":["boolean","null"]},"acknowledge":{"type":"boolean"},"patch_name":{"type":["string","null"]}}""", required: """["plugin"]""");
         var copy20 = Schema("""{"assignments":{"type":"array"},"patch":{"type":["string","null"]},"walk":{"type":["object","null"]}}""", required: """["assignments"]""");
 
         // ---- A: the load-bearing §5.3 row — plugin= → source=, by priority, on a tool declaring BOTH
@@ -172,8 +172,10 @@ public static class AliasLayerProbe
             Text(k2r).Contains("unknown parameter") && !Text(k2r).Contains("editorid contains"), Text(k2r));
         var k3 = P("housecarl_records", ("formids", "[\"800:X.esp\"]"), ("winner_fields", "true"));
         var k3r = ToolCallShim.UnknownParameters(k3, records20);
+        // Assert on wording unique to the HINT (review R2): records20 declares fields_source, so the
+        // supported-parameter list alone would satisfy a Contains("fields_source") even with the hint gone.
         failures += Check("K3 hint: winner_fields on a fields_source-bearing tool points at the pole",
-            Text(k3r).Contains("fields_source"), Text(k3r));
+            Text(k3r).Contains("display pole spells it"), Text(k3r));
 
         // ---- L: a declared parameter is never treated as an alias (mechanism guard, J4's unit twin).
         var l = P("housecarl_read_plugin_file", ("formid", "\"800:X.esp\""));
@@ -243,8 +245,18 @@ public static class AliasLayerProbe
             && Text(q1r).Contains("target_formid"), Dump(q1) + " " + Text(q1r));
         var q2 = P("housecarl_copy", ("target_formid", "\"0F1AC1:Skyrim.esm\""));
         var q2r = ToolCallShim.UnknownParameters(q2, copy20);
+        // Hint-unique wording (review R2): copy20's supported list already prints "assignments", so that
+        // substring proves nothing about the Dissolutions row.
         failures += Check("Q2 hint: on the assignments-bearing copy shape, target_formid= carries the zip hint",
-            Text(q2r).Contains("assignments"), Text(q2r));
+            Text(q2r).Contains("zip carries target="), Text(q2r));
+
+        // ---- R (re-review R1): the kind gate must NOT reach the normalization bridge — a case/underscore
+        //      variant names the RIGHT parameter, so even an unbindable value renames, letting the type
+        //      refusal name the real fault (the value) instead of denying the parameter exists.
+        var r1 = P("housecarl_cross_plugin_query", ("conflicts_Only", "\"yes\""));
+        ToolCallShim.ResolveAliases(r1, scanToday);
+        failures += Check("R1 bridge ungated: conflicts_Only=\"yes\" still renames to conflicts_only despite the unbindable value",
+            Has(r1, "conflicts_only", "\"yes\"") && !r1.Arguments!.ContainsKey("conflicts_Only"), Dump(r1));
 
         Console.WriteLine(failures == 0
             ? "[alias-layer-guard] PASS — the §5.3 alias layer renames, corrects, and hints as chartered."
