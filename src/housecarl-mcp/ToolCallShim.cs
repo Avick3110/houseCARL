@@ -15,13 +15,18 @@ namespace HousecarlMcp;
 /// Its moves, all schema-driven off the tool's own published InputSchema (so every current and future tool
 /// parameter is covered by construction — no per-tool wiring):
 /// <list type="number">
-/// <item><b>Resolve obvious aliases</b> — a parameter named by an obvious synonym of a declared one
-/// (<c>form_id</c> for <c>formid</c>; <c>plugin</c>/<c>plugin_name</c> for a tool's <c>plugins</c>; any
-/// underscore/case variant) is renamed to the canonical parameter when the mapping is unambiguous — exactly one
-/// declared, not-already-supplied synonym target — so a first-guess miss BINDS instead of costing a round-trip
-/// (#221). A synonym that resolves to nothing (or to more than one target) is left for the unknown-parameter
-/// path. The published schema still advertises only the canonical name, and a declared parameter is never
-/// treated as an alias (so a tool's real <c>plugin=</c> is untouched).</item>
+/// <item><b>Resolve obvious aliases</b> — a parameter named by a known alternate spelling of a declared one is
+/// renamed to the canonical parameter, so a first-guess miss BINDS instead of costing a round-trip (#221).
+/// Two sources, both conservative by construction (a declared parameter is never treated as an alias, an
+/// explicitly-supplied canonical is never clobbered, a well-formed call is byte-identical): the permanent
+/// underscore/case normalization bridge (<c>form_id</c> for <c>formid</c>), and — during the 2.0 build only —
+/// <see cref="AliasTable"/>, the SPEC §5.3 old → new dictionary that lets each build wave land its renames
+/// non-breaking (old spellings bind on renamed tools, new spellings on not-yet-renamed ones). The published
+/// schema still advertises only the canonical name.</item>
+/// <item><b>Correct retired lane spellings by name</b> — 1.x's <c>in_place=true</c> + <c>target="X.esp"</c>
+/// pair, sent to a tool whose 2.0 <c>in_place</c> is the STRING naming the overwritten file (SPEC §5.2), is
+/// auto-mapped when complete and answered with a naming correction when bare — never a generic type error.
+/// Dormant on every tool whose <c>in_place</c> is still the 1.x bool. See <see cref="LaneCorrections"/>.</item>
 /// <item><b>Coerce obvious intent</b> — a bare string where an array is declared becomes a one-element array
 /// (the live failing shape: <c>plugins="A.esp"</c>); quoted numbers/booleans become numbers/booleans; a bare
 /// number where a string is declared becomes its text. Anything else is left for binding to judge.</item>
@@ -60,6 +65,7 @@ internal static class ToolCallShim
                 var schema = tool.ProtocolTool.InputSchema;
                 ResolveAliases(p, schema);
                 CoerceObviousShapes(p, schema);
+                if (LaneCorrections(p, schema) is { } laneRefusal) return laneRefusal;
                 if (MissingRequired(p, schema) is { } refusal) return refusal;
                 if (UnknownParameters(p, schema) is { } unknownRefusal) return unknownRefusal;
                 if (TypeMismatches(p, schema) is { } typeRefusal) return typeRefusal;
@@ -84,25 +90,23 @@ internal static class ToolCallShim
         }
     };
 
-    /// <summary>Sets of interchangeable parameter names (normalized: lowercased, underscores stripped) — the
-    /// synonyms that differ by more than an underscore/case variant, so <see cref="Normalize"/> alone can't
-    /// bridge them: singular↔plural and the <c>plugin_name</c> spelling. Underscore/case variants
-    /// (<c>form_id</c>≡<c>formid</c>) need no entry here — <see cref="Normalize"/> equality catches those.</summary>
-    static readonly string[][] SynonymGroups =
-    {
-        new[] { "plugin", "plugins", "pluginname", "pluginnames" },
-        new[] { "formid", "formids" },
-    };
-
-    /// <summary>Rename an argument keyed by an obvious synonym of a declared parameter to that canonical parameter,
-    /// so a first-guess miss (<c>form_id</c> for <c>formid</c>, <c>plugin</c> for a tool's <c>plugins</c>) binds
-    /// instead of costing a round-trip (#221). Conservative by construction: only a key the schema does NOT declare
-    /// is considered, it is renamed ONLY when EXACTLY ONE declared, not-already-supplied parameter is its synonym
-    /// (zero or ambiguous → left for <see cref="UnknownParameters"/> to name), and a declared parameter is never
-    /// touched — so a tool's real <c>plugin=</c> stays its own, an explicit canonical value is never clobbered, and
-    /// a well-formed call is byte-identical. Runs BEFORE <see cref="CoerceObviousShapes"/> so the renamed value is
-    /// then shape-coerced (a bare-string <c>plugin</c> → <c>plugins</c> → a one-element array) as usual.</summary>
-    static void ResolveAliases(CallToolRequestParams p, JsonElement schema)
+    /// <summary>Rename an argument keyed by a known alternate spelling of a declared parameter to that canonical
+    /// parameter, so a first-guess miss binds instead of costing a round-trip (#221). Two sources, tried in order:
+    /// <list type="number">
+    /// <item>the permanent underscore/case <see cref="Normalize"/> bridge (<c>form_id</c> → <c>formid</c>) —
+    /// exactly-one-match conservative, as ever (zero or ambiguous → left for <see cref="UnknownParameters"/>);</item>
+    /// <item><see cref="AliasTable"/> — the SPEC §5.3 old → new dictionary (2.0 build scaffolding). Its candidates
+    /// are tried in the entry's priority order; the FIRST candidate the tool declares decides. If that candidate is
+    /// already supplied the entry deliberately stops (no fall-through to a lower-priority candidate — the caller
+    /// already used the spelling's primary meaning, and reinterpreting the stray onto a different axis is how a
+    /// wrong guess binds silently); the stray is left for <see cref="UnknownParameters"/> to name.</item>
+    /// </list>
+    /// Conservative by construction either way: only a key the schema does NOT declare is considered, and a declared
+    /// parameter is never touched — so a tool's real <c>plugin=</c> stays its own, an explicit canonical value is
+    /// never clobbered, and a well-formed call is byte-identical. Runs BEFORE <see cref="CoerceObviousShapes"/> so
+    /// the renamed value is then shape-coerced (a bare-string <c>plugin</c> → <c>plugins</c> → a one-element array)
+    /// as usual.</summary>
+    internal static void ResolveAliases(CallToolRequestParams p, JsonElement schema)
     {
         if (p.Arguments is not { Count: > 0 } args) return;
         if (schema.ValueKind != JsonValueKind.Object) return;
@@ -118,14 +122,31 @@ internal static class ToolCallShim
             if (key.Length > 0 && key[0] == '_') continue;            // MCP/JSON-RPC metadata — never an alias
             if (props.TryGetProperty(key, out _)) continue;           // already a real parameter of this tool
 
+            bool Supplied(string declaredName) => args.ContainsKey(declaredName)              // caller already supplied the canonical — don't clobber
+                || (rewritten is not null && rewritten.ContainsKey(declaredName));            // an earlier rename already produced it
+
+            // Source 1 — the normalization bridge: an underscore/case variant of exactly one declared parameter.
+            var nkey = Normalize(key);
             string? target = null; bool ambiguous = false;
             foreach (var prop in props.EnumerateObject())
             {
-                var declaredName = prop.Name;
-                if (args.ContainsKey(declaredName)) continue;                                 // caller already supplied the canonical — don't clobber
-                if (rewritten is not null && rewritten.ContainsKey(declaredName)) continue;   // an earlier rename already produced it
-                if (!AreSynonyms(key, declaredName)) continue;
-                if (target is null) target = declaredName; else { ambiguous = true; break; }
+                if (Normalize(prop.Name) != nkey || Supplied(prop.Name)) continue;
+                if (target is null) target = prop.Name; else { ambiguous = true; break; }
+            }
+
+            // Source 2 — the §5.3 table: first declared candidate decides; declared-but-supplied stops the entry.
+            if (target is null && !ambiguous && AliasTable.RenameFor(nkey) is { } entry)
+            {
+                foreach (var candidate in entry.Candidates)
+                {
+                    if (AliasTable.IsExcluded(entry, candidate, p.Name)) continue;
+                    string? declared = null;
+                    foreach (var prop in props.EnumerateObject())
+                        if (Normalize(prop.Name) == candidate) { declared = prop.Name; break; }
+                    if (declared is null) continue;                   // candidate not on this tool — try the next
+                    if (!Supplied(declared)) target = declared;       // else: primary meaning already in use — stop
+                    break;
+                }
             }
             if (ambiguous || target is null) continue;                // nothing unambiguous — leave for UnknownParameters
 
@@ -134,19 +155,6 @@ internal static class ToolCallShim
             rewritten[target] = kv.Value;
         }
         if (rewritten is not null) p.Arguments = rewritten;
-    }
-
-    /// <summary>Whether two parameter names denote the same concept: equal once normalized (an underscore/case
-    /// variant, <c>form_id</c>≡<c>formid</c>) or listed together in a <see cref="SynonymGroups"/> entry
-    /// (singular↔plural, <c>plugin_name</c>↔<c>plugins</c>).</summary>
-    static bool AreSynonyms(string a, string b)
-    {
-        var na = Normalize(a);
-        var nb = Normalize(b);
-        if (na == nb) return true;
-        foreach (var g in SynonymGroups)
-            if (Array.IndexOf(g, na) >= 0 && Array.IndexOf(g, nb) >= 0) return true;
-        return false;
     }
 
     /// <summary>A parameter name reduced to its comparison form: lowercased with underscores removed.</summary>
@@ -230,6 +238,76 @@ internal static class ToolCallShim
         return set;
     }
 
+    /// <summary>The 1.x → 2.0 lane-spelling correction (SPEC §5.2(1); 2.0 build scaffolding like
+    /// <see cref="AliasTable"/>): on a tool whose <c>in_place</c> is the 2.0 STRING (the name of the file being
+    /// overwritten), model priors and 1.x callers WILL still send the old bool spelling — <c>in_place=true</c>,
+    /// usually paired with <c>target="X.esp"</c>. A bool against a string declaration would otherwise fall to
+    /// <see cref="TypeMismatches"/>' generic wording (and the stray <c>target</c> to <see cref="UnknownParameters"/>),
+    /// costing round-trips the §5.2 charter says this exact shape must not cost:
+    /// <list type="bullet">
+    /// <item>the COMPLETE old pair (<c>in_place=true</c> + a string <c>target</c> the tool does not declare) is
+    /// auto-mapped — <c>in_place := target's value</c>, <c>target</c> dropped — so old callers keep WORKING;</item>
+    /// <item>a BARE <c>in_place=true</c> is refused with the naming correction ("name the file:
+    /// in_place=\"X.esp\""), never a type error;</item>
+    /// <item>a bare <c>in_place=false</c> meant (and still means) the default lane — the key is dropped;
+    /// <c>false</c> WITH a stray <c>target</c> is contradictory and refused by name, not guessed at.</item>
+    /// </list>
+    /// The quoted spellings <c>"true"</c>/<c>"false"</c> are treated identically (a file literally named "true"
+    /// does not exist; binding it silently would be the Q3 sin). DORMANT on every tool whose <c>in_place</c> is
+    /// still the 1.x bool (declared boolean → the whole pass is a no-op), so today's surface is byte-identical.
+    /// Runs after <see cref="ResolveAliases"/>/<see cref="CoerceObviousShapes"/> (which never produce these shapes:
+    /// <c>target</c> does not rename onto a supplied <c>in_place</c>, and string-declared values are not coerced)
+    /// and BEFORE the refusal passes, so the correction outranks the generic messages.</summary>
+    internal static CallToolResult? LaneCorrections(CallToolRequestParams p, JsonElement schema)
+    {
+        if (p.Arguments is not { Count: > 0 } args) return null;
+        if (schema.ValueKind != JsonValueKind.Object ||
+            !schema.TryGetProperty("properties", out var props) || props.ValueKind != JsonValueKind.Object) return null;
+
+        // The pass concerns exactly one declared parameter: a STRING-typed in_place (the 2.0 spelling).
+        if (!props.TryGetProperty("in_place", out var inPlaceSchema)) return null;
+        var declared = DeclaredTypes(inPlaceSchema);
+        if (!declared.Contains("string") || declared.Contains("boolean")) return null;   // 1.x bool (or polymorphic) → dormant
+
+        if (!args.TryGetValue("in_place", out var val)) return null;
+        bool? boolish = val.ValueKind switch
+        {
+            JsonValueKind.True => true,
+            JsonValueKind.False => false,
+            JsonValueKind.String when bool.TryParse(val.GetString(), out var b) => b,
+            _ => null,
+        };
+        if (boolish is null) return null;                                                // a real file name (or another mistake) — not this pass's
+
+        // The old pair's target= — only a STRING value on a tool that does NOT declare target counts.
+        string? targetFile = null;
+        bool hasStrayTarget = args.TryGetValue("target", out var tv) && !props.TryGetProperty("target", out _);
+        if (hasStrayTarget && tv.ValueKind == JsonValueKind.String) targetFile = tv.GetString();
+
+        if (boolish == true && targetFile is { Length: > 0 })
+        {
+            var rewritten = new Dictionary<string, JsonElement>(args);
+            rewritten["in_place"] = Parse(JsonSerializer.Serialize(targetFile));         // the complete 1.x pair → the 2.0 spelling
+            rewritten.Remove("target");
+            p.Arguments = rewritten;
+            return null;
+        }
+        if (boolish == false && !hasStrayTarget)
+        {
+            var rewritten = new Dictionary<string, JsonElement>(args);                   // 1.x "default lane" spelling → absent, the 2.0 default
+            rewritten.Remove("in_place");
+            p.Arguments = rewritten;
+            return null;
+        }
+        return NamedError(boolish == true
+            ? $"error: {p.Name}: in_place names the FILE being overwritten — name the file: in_place=\"X.esp\". " +
+              "(1.x's in_place=true + target=\"X.esp\" became in_place=\"X.esp\"; omit in_place entirely for the " +
+              "default new-patch lane.) Fix the argument and retry."
+            : $"error: {p.Name}: in_place=false alongside target= is contradictory — 1.x's in_place=false meant " +
+              "the default new-patch lane, which ignores target. Either omit both (default lane) or name the file " +
+              "to overwrite: in_place=\"X.esp\". Fix the arguments and retry.");
+    }
+
     /// <summary>Schema-required parameters absent from the call → a named refusal (Q3), or null to proceed.
     /// An EXPLICIT JSON <c>null</c> for a required parameter counts as missing too (unless the schema itself declares
     /// null legal): the SDK binds it and the tool body NullReferences into the generic "internal houseCARL failure"
@@ -271,7 +349,7 @@ internal static class ToolCallShim
     /// opts into free-form args (<c>additionalProperties</c> not <c>false</c>); none of houseCARL's tools do today,
     /// but the check does not assume it. Runs AFTER <see cref="CoerceObviousShapes"/> (which only ever rewrites
     /// DECLARED keys) and <see cref="MissingRequired"/>, so a well-formed call is byte-identical to before.</summary>
-    static CallToolResult? UnknownParameters(CallToolRequestParams p, JsonElement schema)
+    internal static CallToolResult? UnknownParameters(CallToolRequestParams p, JsonElement schema)
     {
         if (p.Arguments is not { Count: > 0 } args) return null;
         if (schema.ValueKind != JsonValueKind.Object) return null;
@@ -279,11 +357,18 @@ internal static class ToolCallShim
         if (schema.TryGetProperty("additionalProperties", out var ap) && ap.ValueKind != JsonValueKind.False) return null;
         if (!schema.TryGetProperty("properties", out var props) || props.ValueKind != JsonValueKind.Object) return null;
 
+        // For the §5.3 ⤳ dissolution hints: the declared names, normalized — the gate that scopes each hint to
+        // tools whose build wave has actually landed the replacement grammar (see AliasTable.Dissolutions).
+        var declaredNormalized = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var prop in props.EnumerateObject()) declaredNormalized.Add(Normalize(prop.Name));
+
         List<string>? unknown = null;
         foreach (var kv in args)
         {
             if (kv.Key.Length > 0 && kv.Key[0] == '_') continue;   // MCP/JSON-RPC metadata convention — never a real tool param
-            if (!props.TryGetProperty(kv.Key, out _)) (unknown ??= new()).Add(kv.Key);
+            if (props.TryGetProperty(kv.Key, out _)) continue;
+            var hint = AliasTable.DissolutionHint(Normalize(kv.Key), declaredNormalized);
+            (unknown ??= new()).Add(hint is null ? kv.Key : $"{kv.Key} ({hint})");
         }
         if (unknown is null) return null;
 
