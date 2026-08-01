@@ -329,7 +329,7 @@ public static class ErrorCheck
         return new ErrorCheckResult(reports, targets.Count + offOrderScanned.Count, totalDangling, totalMissing,
                                     totalUnscannable, capped, view.ExcludedPlugins, null, offOrderScanned,
                                     filterNote, classes, histogram is null ? null : SweepFindings.Histogram(histogram),
-                                    countsOnly);
+                                    countsOnly, view.Epoch);
     }
 
     /// <summary>The off-order file's record stream, type-scoped when the caller asked for one (#282) — the overlay
@@ -428,7 +428,8 @@ public sealed record ErrorCheckResult(
     string? FilterNote = null,
     ErrorFindingClass Classes = ErrorFindingClass.All,
     IReadOnlyList<SweepCount>? Histogram = null,
-    bool CountsOnly = false)
+    bool CountsOnly = false,
+    string? Epoch = null)   // the swept build's fingerprint (SPEC §2.1.1); null only on the pre-sweep refusals
 {
     public bool Success => Error is null;
     public static ErrorCheckResult Fail(string error) =>

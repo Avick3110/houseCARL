@@ -1,3 +1,4 @@
+using System.Text;
 using Mutagen.Bethesda;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Plugins.Binary.Parameters;
@@ -105,10 +106,11 @@ public sealed class LoadOrderResolver : IDisposable
         public readonly HashSet<int> Excluded;                                // overlay indices excluded this build — never re-touched by any path
         public readonly Dictionary<string, string> ExcludedPlugins;           // excluded plugin name → reason (Q3)
         public readonly int MaxDepth;
+        public readonly string Epoch;                                         // this build's fingerprint (SPEC §2.1.1) — immutable with the snapshot
 
         public IndexSnapshot(Dictionary<FormKey, (int winner, int count)> index, Dictionary<FormKey, int[]> overriders,
-                             List<string> loadFailures, HashSet<int> excluded, Dictionary<string, string> excludedPlugins, int maxDepth)
-        { Index = index; Overriders = overriders; LoadFailures = loadFailures; Excluded = excluded; ExcludedPlugins = excludedPlugins; MaxDepth = maxDepth; }
+                             List<string> loadFailures, HashSet<int> excluded, Dictionary<string, string> excludedPlugins, int maxDepth, string epoch)
+        { Index = index; Overriders = overriders; LoadFailures = loadFailures; Excluded = excluded; ExcludedPlugins = excludedPlugins; MaxDepth = maxDepth; Epoch = epoch; }
     }
 
     volatile IndexSnapshot _snap;
@@ -127,6 +129,10 @@ public sealed class LoadOrderResolver : IDisposable
     public int RecordCount => _snap.Index.Count;            // distinct FormKeys across the order
     public int ConflictCount => _snap.Overriders.Count;     // FormKeys overridden by >1 plugin
     public int MaxDepth => _snap.MaxDepth;
+
+    /// <summary>The CURRENT build's epoch fingerprint. Single-shot convenience — a multi-read operation should
+    /// Capture() and use the view's <see cref="IndexView.Epoch"/> so the stamp names the build it actually read.</summary>
+    public string Epoch => _snap.Epoch;
 
     /// <summary>Every plugin's filename, in priority order (PURE DATA — no handles). The known-name list the write
     /// harnesses scan to decide which masters are in the order; replaces the old held-overlay ModKey enumeration.</summary>
@@ -431,7 +437,23 @@ public sealed class LoadOrderResolver : IDisposable
         return new IndexSnapshot(
             index,
             overriders.ToDictionary(kv => kv.Key, kv => kv.Value.ToArray()),  // trim List overhead → int[]
-            failures, excluded, excludedPlugins, maxDepth);
+            failures, excluded, excludedPlugins, maxDepth, ComputeEpoch(_names, _mtimes));
+    }
+
+    /// <summary>The epoch fingerprint: a compact, deterministic identity for ONE index build, derived from the
+    /// world-state the build was made from — every plugin's filename + last-write time, in priority order. Two
+    /// builds over an unchanged order fingerprint IDENTICALLY (a server restart does not invalidate anything);
+    /// any content edit, reorder, or set change fingerprints differently. Stamped into every bulk response's
+    /// in-band accounting (SPEC §2.1.1) so cross-page drift is detectable instead of silently incoherent, and
+    /// checked on artifact re-entry (a mismatch refuses loud, naming both epochs). Opaque to consumers — 16 hex
+    /// chars of SHA-256, compared only for equality.</summary>
+    static string ComputeEpoch(string[] names, DateTime[] mtimes)
+    {
+        var sb = new StringBuilder(names.Length * 48);
+        for (int i = 0; i < names.Length; i++)
+            sb.Append(names[i]).Append('|').Append(mtimes[i].Ticks).Append('\n');
+        var hash = System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(sb.ToString()));
+        return Convert.ToHexString(hash.AsSpan(0, 8)).ToLowerInvariant();
     }
 
     /// <summary>Record one plugin's exclusion from the index build (Q3): into the human-readable failure list, the
@@ -486,6 +508,10 @@ public sealed class LoadOrderResolver : IDisposable
         public int MaxDepth => _s.MaxDepth;
         public IReadOnlyList<string> LoadFailures => _s.LoadFailures;
         public IReadOnlyDictionary<string, string> ExcludedPlugins => _s.ExcludedPlugins;
+
+        /// <summary>THIS captured build's epoch fingerprint — the stamp a bulk response computed off this view
+        /// must carry (SPEC §2.1.1). Immutable with the snapshot: a concurrent rebuild changes nothing here.</summary>
+        public string Epoch => _s.Epoch;
 
         /// <summary>Whether a plugin filename is in the indexed load order — the same OrdinalIgnoreCase name table
         /// <see cref="LoadOrderResolver.GetRecord"/> resolves against (fixed for the resolver's lifetime, like

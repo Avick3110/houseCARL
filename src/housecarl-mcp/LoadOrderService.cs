@@ -1680,10 +1680,10 @@ public sealed class LoadOrderService : IDisposable
         : $"'{s.LooseFilePath}'";
 
     /// <summary>Whole-order stats (forces the lazy build). For the server's stand-up / health check.</summary>
-    public (int plugins, int records, int conflicts, int maxDepth, IReadOnlyList<string> loadFailures) Stats()
+    public (int plugins, int records, int conflicts, int maxDepth, IReadOnlyList<string> loadFailures, string epoch) Stats()
     {
         var view = Resolver.Capture();          // ONE build for every counter in the line (HCBR-2026-06-11-02)
-        return (view.PluginCount, view.RecordCount, view.ConflictCount, view.MaxDepth, view.LoadFailures);
+        return (view.PluginCount, view.RecordCount, view.ConflictCount, view.MaxDepth, view.LoadFailures, view.Epoch);
     }
 
     /// <summary>Diagnostic snapshot for housecarl_load_order_status: the CURRENT enabled/disabled composition (read fresh
@@ -1709,7 +1709,8 @@ public sealed class LoadOrderService : IDisposable
         }
         var comp = Mo2LoadOrder.ReadComposition(profileDir);       // FRESH composition (always current)
         return new LoadOrderStatusData(
-            comp, warnings, view.PluginCount, _maxPlugins, profileChanged, profileDir, profileName, instanceDir, view.ExcludedPlugins);
+            comp, warnings, view.PluginCount, _maxPlugins, profileChanged, profileDir, profileName, instanceDir, view.ExcludedPlugins,
+            view.Epoch);
     }
 
     /// <summary>Read MO2's OWN local Nexus update cache — the modid / version / newestVersion / ignoredVersion /
@@ -2142,7 +2143,9 @@ public sealed class LoadOrderService : IDisposable
                                    string? containerHint = ReadEngine.DepthExpandHint)
     {
         var resolver = Resolver;
-        return ResolveRead(resolver, resolver.Capture(), fk, plugin, fields, conflictTree, depth, resolveNames, linkMemo, containerHint);
+        var view = resolver.Capture();
+        return ResolveRead(resolver, view, fk, plugin, fields, conflictTree, depth, resolveNames, linkMemo, containerHint)
+               with { Epoch = view.Epoch };   // stamped HERE, off the view actually read — never off a post-read re-capture
     }
 
     /// <summary>Layer B unit C2 — the on-demand whole-topic dialogue-graph validator (housecarl_validate_dialogue):
@@ -2340,10 +2343,17 @@ public sealed class LoadOrderService : IDisposable
     /// yields a per-item result carrying its reason (Error for a malformed string, Resolved=false for a valid-but-absent
     /// FormKey) without failing the whole batch (Q3, the batch_record_detail convention). Deliberately minimal — no
     /// fields/depth/conflict_tree; anything richer is housecarl_batch_record_detail's job.</summary>
-    public IReadOnlyList<ResolvedRef> ResolveRefs(IReadOnlyList<string> formids)
+    public IReadOnlyList<ResolvedRef> ResolveRefs(IReadOnlyList<string> formids) => ResolveRefs(formids, out _);
+
+    /// <summary>As above, also handing back the captured build's <paramref name="epoch"/> fingerprint — the batch is
+    /// ONE capture, and the render stamps that identity into the response's in-band accounting (SPEC §2.1.1).
+    /// <see cref="ResolvedRef"/> itself stays epoch-free: it is core's per-row identity DTO, reused as the
+    /// resolve_names annotation, where a per-row stamp would be noise.</summary>
+    public IReadOnlyList<ResolvedRef> ResolveRefs(IReadOnlyList<string> formids, out string epoch)
     {
         var resolver = Resolver;
         var view = resolver.Capture();                  // ONE build for the whole batch (HCBR-2026-06-11-02)
+        epoch = view.Epoch;
         using var session = resolver.OpenSession();
         var memo = new Dictionary<FormKey, ResolvedRef>();
         var results = new List<ResolvedRef>(formids.Count);
@@ -2391,7 +2401,7 @@ public sealed class LoadOrderService : IDisposable
         // renders its plugin name in the header, and delta lines quoting the path back would read as a second,
         // different plugin.
         var diff = FieldsDiff.Compare(a.Fields!, b.Fields!, referenceLabel: b.Pole!.Plugin);
-        return new DiffRecordOutcome(fidLabel, a.Pole!, b.Pole!, diff, null);
+        return new DiffRecordOutcome(fidLabel, a.Pole!, b.Pole!, diff, null) { Epoch = view.Epoch };
     }
 
     /// <summary>Resolve ONE diff pole: the named plugin's version of <paramref name="fk"/> + its deep-read fields. An
@@ -2477,6 +2487,10 @@ public sealed class LoadOrderService : IDisposable
     /// field-level delta of <see cref="A"/> vs <see cref="B"/> (B the reference side), truncation-honest via Complete.</summary>
     public sealed record DiffRecordOutcome(string Formid, DiffPole? A, DiffPole? B, FieldsDiff.Result? Diff, string? Error)
     {
+        /// <summary>The captured build BOTH poles resolved against (SPEC §2.1.1 epoch fingerprint — a comparison never
+        /// spans two builds, §4.1). Null on the pre-resolve refusals.</summary>
+        public string? Epoch { get; init; }
+
         public static DiffRecordOutcome Fail(string formid, string error) => new(formid, null, null, null, error);
     }
 
@@ -2500,7 +2514,8 @@ public sealed class LoadOrderService : IDisposable
             FormKey fk;
             try { fk = FormKey.Factory(raw.Trim()); }
             catch (Exception ex) { outcomes.Add(ReadOutcome.Fail(default, $"bad FormID '{raw}': {ex.Message}")); continue; }
-            outcomes.Add(ResolveRead(resolver, view, fk, plugin, fields, conflictTree, depth, resolveNames, linkMemo));
+            outcomes.Add(ResolveRead(resolver, view, fk, plugin, fields, conflictTree, depth, resolveNames, linkMemo)
+                         with { Epoch = view.Epoch });   // the batch's ONE build, stamped per item (SPEC §2.1.1)
         }
         return outcomes;
     }
@@ -2784,7 +2799,7 @@ public sealed class LoadOrderService : IDisposable
         return new CrossQueryOutcome(keys, prefilled, total, groups is null && total > offset + keys.Count, null,
                                      predicate?.AccountingNote(), sources, scanNote,
                                      matched, groupRows, groupBy, definedIn ? string.Join(", ", plugins!) : null, offset,
-                                     whereWinner, whereSourceNote);
+                                     whereWinner, whereSourceNote) { Epoch = view.Epoch };
     }
 
     // ---- effect-chain resolver (housecarl_effect_chain — gap 2026-06-08) --------------------------------
@@ -5881,6 +5896,11 @@ public sealed record ReadOutcome(
     IReadOnlyList<string>? TouchingPlugins,
     string? Error)
 {
+    /// <summary>The captured build this outcome was answered from (SPEC §2.1.1 epoch fingerprint) — stamped at the
+    /// Capture() boundary (the public ResolveRead / ResolveBatch), so refusals carry it too: a "not present" is an
+    /// answer ABOUT a build. Null only where no view was ever consulted (a malformed-FormID parse failure).</summary>
+    public string? Epoch { get; init; }
+
     public static ReadOutcome Fail(FormKey fk, string error) => new(fk, null, null, null, 0, null, error);
 }
 
@@ -5899,6 +5919,10 @@ public sealed record CrossQueryOutcome(
     string? GroupBy = null, string? ScopeLabel = null, int Offset = 0,
     bool WhereWinner = false, string? WhereSourceNote = null)   // #233: WhereWinner ⇒ the match decided on the live winner; WhereSourceNote carries the type=-scope redundancy note
 {
+    /// <summary>The captured build the SCAN ran over (SPEC §2.1.1 epoch fingerprint) — the render stamps it into the
+    /// in-band accounting so paged windows (offset=) are checkably from the SAME build. Null on the pre-scan refusals.</summary>
+    public string? Epoch { get; init; }
+
     public static CrossQueryOutcome Fail(string error) => new(Array.Empty<FormKey>(), null, 0, false, error);
 }
 
@@ -5980,7 +6004,8 @@ public sealed record LoadOrderStatusData(
     string ProfileDir,
     string ProfileName,         // the ACTIVE profile (instance mode: MO2's selected_profile; explicit: the dir name) — captured under the gate, not re-derived at render
     string? InstanceDir,        // the resolved MO2 instance folder houseCARL is pointed at; null ⇒ explicit-paths / unconfigured mode
-    IReadOnlyDictionary<string, string> ExcludedPlugins);
+    IReadOnlyDictionary<string, string> ExcludedPlugins,
+    string Epoch = "");         // the resolver's current build fingerprint (SPEC §2.1.1) — the status line names it so a caller can match responses/artifacts to the build
 
 /// <summary>The data behind housecarl_update_status: MO2's own local Nexus update cache read from meta.ini, with no
 /// network. <see cref="Entries"/> is one row per Nexus-linked mod (installed vs newest version, modid, enabled state);

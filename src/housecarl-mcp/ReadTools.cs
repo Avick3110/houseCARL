@@ -247,8 +247,8 @@ public static class ReadTools
         if (formids is null || formids.Length == 0) return "error: formids is empty. Pass one or more 'XXXXXX:Plugin.esp' FormIDs.";
         bool json = Wire.WantsJson(format, out var ferr);
         if (ferr is not null) return ferr;
-        var rows = svc.ResolveRefs(formids);
-        return json ? JsonWire.RenderResolve(rows, max_chars) : Wire.RenderResolve(rows, max_chars);
+        var rows = svc.ResolveRefs(formids, out var epoch);
+        return json ? JsonWire.RenderResolve(rows, max_chars, epoch) : Wire.RenderResolve(rows, max_chars, epoch);
     });
 
     [McpServerTool(Name = "housecarl_effect_chain", ReadOnly = true, Title = "Resolve an effect's carriers + magnitudes"),
@@ -490,7 +490,9 @@ static class Wire
         int cap = Cap(maxChars);
         var a = o.A!; var b = o.B!; var d = o.Diff!;
         var sb = new StringBuilder();
-        sb.Append("diff ").Append(o.Formid).Append('\n')
+        sb.Append("diff ").Append(o.Formid);
+        if (o.Epoch is not null) sb.Append("  epoch=").Append(o.Epoch);   // §2.1.1: both poles resolved against THIS build
+        sb.Append('\n')
           .Append("  a: ").Append(PoleLine(a)).Append('\n')
           .Append("  b: ").Append(PoleLine(b)).Append('\n');
 
@@ -533,11 +535,12 @@ static class Wire
     /// <summary>Render the bulk name-resolution result (housecarl_resolve — P3): one compact identity line per input
     /// FormID (type/editorid/name/winner), or <c>error=</c> for a bad/absent input (per-item, the batch survives — Q3).
     /// Budget-bounded with the same explicit cut the other reads use.</summary>
-    public static string RenderResolve(IReadOnlyList<ResolvedRef> rows, int maxChars)
+    public static string RenderResolve(IReadOnlyList<ResolvedRef> rows, int maxChars, string epoch)
     {
         int cap = Cap(maxChars);
         var sb = new StringBuilder();
-        sb.Append("resolve: ").Append(rows.Count).Append(rows.Count == 1 ? " formid\n" : " formids\n");
+        sb.Append("resolve: ").Append(rows.Count).Append(rows.Count == 1 ? " formid" : " formids")
+          .Append("  epoch=").Append(epoch).Append('\n');
         for (int i = 0; i < rows.Count; i++)
         {
             if (sb.Length >= cap)
@@ -567,6 +570,7 @@ static class Wire
         var sb = new StringBuilder();
         AppendRecord(sb, o, Cap(maxChars));
         if (conflictTree) AppendConflictTree(sb, svc, o, fields, Cap(maxChars));
+        if (o.Epoch is not null) sb.Append("epoch=").Append(o.Epoch).Append('\n');   // §2.1.1: the build this read answered from
         return sb.ToString().TrimEnd('\n');
     }
 
@@ -575,7 +579,11 @@ static class Wire
     {
         int cap = Cap(maxChars);
         var sb = new StringBuilder();
-        sb.Append("batch: ").Append(outcomes.Count).Append(outcomes.Count == 1 ? " record\n" : " records\n");
+        sb.Append("batch: ").Append(outcomes.Count).Append(outcomes.Count == 1 ? " record" : " records");
+        // The whole batch reads ONE captured build (ResolveBatch), so its epoch is response-level accounting —
+        // first non-null (a malformed-FormID row never consulted a view and carries none).
+        if (outcomes.FirstOrDefault(o => o.Epoch is not null)?.Epoch is { } epoch) sb.Append("  epoch=").Append(epoch);
+        sb.Append('\n');
         int rendered = 0;
         foreach (var o in outcomes)
         {
@@ -627,6 +635,7 @@ static class Wire
             }
         }
         else if (q.Capped) sb.Append(" (showing first ").Append(q.Keys.Count).Append("; raise limit=, page with offset=, or narrow to see more)");
+        if (q.Epoch is not null) sb.Append("  epoch=").Append(q.Epoch);   // §2.1.1: offset= windows tile ONLY within one epoch
         sb.Append('\n');
         if (q.PredicateNote is not null) sb.Append(q.PredicateNote).Append('\n');   // where= Q3 accounting (wrong-path/no-value surface)
         if (q.ScanNote is not null) sb.Append(q.ScanNote).Append('\n');             // unscannable-record Q3 accounting (Mutagen-unparseable content)
@@ -689,6 +698,7 @@ static class Wire
           .Append(q.Total).Append(q.Total == 1 ? " match" : " matches")
           .Append(" across ").Append(groups.Count).Append(groups.Count == 1 ? " group" : " groups");
         if (q.ScopeLabel is not null) sb.Append(" (DEFINED IN ").Append(q.ScopeLabel).Append(')');
+        if (q.Epoch is not null) sb.Append("  epoch=").Append(q.Epoch);
         sb.Append('\n');
         if (q.PredicateNote is not null) sb.Append(q.PredicateNote).Append('\n');
         if (q.ScanNote is not null) sb.Append(q.ScanNote).Append('\n');
@@ -718,6 +728,7 @@ static class Wire
         sb.Append("effect_chain for ").Append(r.Mgef).Append(" (").Append(r.MgefEditorId).Append(", MagicEffect): ")
           .Append(r.Total).Append(r.Total == 1 ? " carrier row" : " carrier rows");
         if (r.Capped) sb.Append(" (showing first ").Append(r.Rows.Count).Append("; raise limit= or narrow to see more)");
+        if (r.Epoch is not null) sb.Append("  epoch=").Append(r.Epoch);
         sb.Append('\n');
         if (r.Total == 0)
             sb.Append("  none — ").Append(r.MgefEditorId)
@@ -772,6 +783,7 @@ static class Wire
           .Append(didDangling ? $"{r.TotalUnscannableRecords} unscannable record(s)" : "unscannable records NOT COUNTED (the record walk was skipped)");
         if (r.ExcludedPlugins.Count > 0)
             sb.Append(" · ").Append(r.ExcludedPlugins.Count).Append(" plugin(s) excluded (unparseable)");
+        if (r.Epoch is not null) sb.Append(" · epoch=").Append(r.Epoch);
         sb.Append('\n');
         if (r.FilterNote is not null) sb.Append(r.FilterNote).Append('\n');
         if (r.OffOrderScanned is { Count: > 0 } off)
@@ -925,6 +937,7 @@ static class Wire
           .Append(r.TotalUnverifiable).Append(" unverifiable");
         if (r.ExcludedPlugins.Count > 0)
             sb.Append(" · ").Append(r.ExcludedPlugins.Count).Append(" plugin(s) excluded (unparseable)");
+        if (r.Epoch is not null) sb.Append(" · epoch=").Append(r.Epoch);
         sb.Append('\n');
         if (r.FilterNote is not null) sb.Append(r.FilterNote).Append('\n');
         if (r.ReadIncomplete)

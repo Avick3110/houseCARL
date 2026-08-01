@@ -145,7 +145,7 @@ public static class EffectChain
               + (unscannable > samples.Count ? $"; and {unscannable - samples.Count} more" : "")
               + ". Inspect one with read_record (per-field fault isolation applies).";
 
-        return new EffectChainResult(mgef, mgefEid, rows, total, total > rows.Count, null, scanNote);
+        return new EffectChainResult(mgef, mgefEid, rows, total, total > rows.Count, null, scanNote, view.Epoch);
     }
 }
 
@@ -161,7 +161,8 @@ public sealed record EffectChainRow(
 /// scan note, and — on the Q3 gate — a recoverable <see cref="Error"/> with no rows.</summary>
 public sealed record EffectChainResult(
     FormKey Mgef, string MgefEditorId, IReadOnlyList<EffectChainRow> Rows,
-    int Total, bool Capped, string? Error, string? ScanNote)
+    int Total, bool Capped, string? Error, string? ScanNote,
+    string? Epoch = null)   // the scanned build's fingerprint (SPEC §2.1.1); null only on the pre-scan refusals
 {
     public bool Success => Error is null;
     public static EffectChainResult Fail(string error) =>

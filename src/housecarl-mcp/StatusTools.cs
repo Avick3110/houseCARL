@@ -73,6 +73,7 @@ static class StatusWire
         sb.Append("  inactive: ").Append(inactive).Append("  (present but unchecked — houseCARL excludes these)\n");
         sb.Append("resolver: ").Append(d.ResolvedPluginCount).Append(" plugins resolved to real files");
         if (d.MaxPlugins > 0) sb.Append(" [capped at MaxPlugins=").Append(d.MaxPlugins).Append(']');
+        if (d.Epoch.Length > 0) sb.Append("  epoch=").Append(d.Epoch);   // §2.1.1: the current build's fingerprint — bulk responses stamp the build THEY read, matched against this
         sb.Append('\n');
         if (d.ProfileChanged)
             sb.Append("[!] the profile changed mid-call and a refresh is still pending — houseCARL re-reads it " +
