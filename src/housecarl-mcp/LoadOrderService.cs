@@ -2759,8 +2759,23 @@ public sealed class LoadOrderService : IDisposable
             var seen = new HashSet<FormKey>();
             // where_source=winner (#233): the match decides on the live WINNER body, fetched via this ONE session
             // (Option B — one session for every per-match winner fetch, not one per record). Opened only when the
-            // scan streams SCOPED bodies (plugins=); a type=-only scan already yields the winner. Disposed with the scan.
-            LoadOrderResolver.OverlaySession? winnerSession = whereWinnerActive ? resolver.OpenSession() : null;
+            // scan streams SCOPED bodies (plugins=); a type=-only scan already yields the winner. Disposed with the
+            // scan. W2: the `->` link-step predicate shares the session for its target-body fetches.
+            LoadOrderResolver.OverlaySession? winnerSession =
+                (whereWinnerActive || predicate is { NeedsBodyResolution: true }) ? resolver.OpenSession() : null;
+            // W2 resolution binding: the `winner` provenance term and the `->` link step read the view's
+            // RESOLUTION (winner name; a target's winner body) — bound off the SAME captured view the scan
+            // answers from, so a predicate can never judge against a different build than the rows (the
+            // Capture() discipline extended to the predicate layer).
+            predicate?.BindResolution(
+                fk => view.ResolveWinner(fk)?.WinnerPlugin,
+                predicate.NeedsBodyResolution
+                    ? fk =>
+                    {
+                        var w = view.ResolveWinner(fk);
+                        return w is null ? null : view.GetRecord(winnerSession!, w.Value.WinnerPlugin, fk);
+                    }
+                    : null);
             try
             {
                 // Carry the SOURCE plugin per record so the render shows the body the scan filtered (not the winner):
