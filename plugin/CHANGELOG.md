@@ -22,8 +22,10 @@ spelling — `formids=["@<path>"]` on `batch_record_detail`/`resolve`, `where=["
 `cross_plugin_query` — yielding the file's identity column ("scan once, project forever"), and re-entry is
 **epoch-checked**: if the load order changed since the artifact was written, the call refuses loudly naming both
 fingerprints (there is deliberately no stale-override switch; plain formid-list files keep working unchanged, and
-unchanged worlds fingerprint identically across restarts, so artifacts survive them). Guarded by the new
-`artifact-guard` (45 checks) in CI.
+unchanged worlds fingerprint identically across restarts, so artifacts survive them). A truncated
+`conflict_tree` view is the one shape that does **not** auto-spill (its trees have no row form) — the response says
+so and names the alternatives, and a spill of a `limit=`-windowed result says it holds the *window*, never claiming
+the full result. Guarded by the new `artifact-guard` (59 checks) in CI.
 
 **Fixed: `check_errors` / `validate_scripts` refusals in `format=json` returned an empty string.** Both sweeps'
 json renders returned before flushing the JSON writer on their error path, so any refusal — a scope naming a plugin

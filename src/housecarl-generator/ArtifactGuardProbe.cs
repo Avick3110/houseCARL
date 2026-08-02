@@ -30,6 +30,12 @@ namespace HousecarlGenerator;
 ///      (no epoch claim to violate). Re-materializing via to_file against the new build re-enters cleanly.
 ///   6  RESULTS STORE — prune-by-age deletes old spills at write time; a to_file target overwrites wholesale
 ///      (a re-run is a NEW artifact, not an append).
+///   7  PR #306 REVIEW FOLDS — a truncated conflict_tree render refuses to spill thinner rows and says why
+///      (no row form); a limit-windowed spill says WINDOW, never "complete result" (json complete=false); a
+///      post-scan to_file failure keeps the format contract ({error,epoch} under json); a whitespace list
+///      element stays a per-item error; path reservation is atomic (same-second spills can't collide) and a
+///      failed spill releases its reservation; orphaned Writer temps prune on age; to_file into the pruned
+///      results dir refuses naming the hazard.
 ///
 /// Self-contained: synthetic MO2 instance + synthesized plugins in temp. No game data.
 /// </summary>
@@ -279,6 +285,79 @@ internal static class ArtifactGuardProbe
                 ResultsStore.NextPath("housecarl_cross_plugin_query", "0123456789abcdef");
                 Check(!File.Exists(old), $"a spill older than {ResultsStore.PruneAfterDays} days is pruned at the next write");
                 Check(File.Exists(fresh), "…while a fresh spill survives");
+            }
+
+            // ---- 7: PR #306 review folds — honesty at the edges ----
+            Console.WriteLine();
+            Console.WriteLine("--- 7 (PR #306 fold): no-row-form honesty, windowed wording, format-kept failures, races, hygiene ---");
+            {
+                var epochNow = svc.Stats().epoch;
+                int SpillCount(string prefix) => Directory.GetFiles(resultsDir, prefix + "_*.jsonl").Length;
+
+                // F1 — a truncated conflict_tree render is NOT auto-spilled into thinner rows; it says why.
+                int before = SpillCount("cross_plugin_query");
+                var ct = ReadTools.CrossPluginQuery(svc, type: "WEAP", conflict_tree: true, max_chars: 250);
+                Check(ct.Contains("[truncated:") && ct.Contains("NOT auto-spilled") && ct.Contains("conflict_tree"),
+                      "a truncated conflict_tree query names its no-row-form instead of spilling thinner rows");
+                Check(SpillCount("cross_plugin_query") == before, "…and no artifact was written for it");
+                int bBefore = SpillCount("batch_record_detail");
+                var bct = ReadTools.BatchRecordDetail(svc, weapons.Select(Fid).ToArray(), conflict_tree: true, max_chars: 300);
+                Check(bct.Contains("NOT auto-spilled") && SpillCount("batch_record_detail") == bBefore,
+                      "…batch twin: same honesty, no artifact");
+
+                // F3 — a limit-windowed auto-spill never claims the complete result.
+                var win = ReadTools.CrossPluginQuery(svc, type: "WEAP", limit: 3, max_chars: 250);
+                Check(win.Contains("the returned WINDOW (3 rows of 8 total matches)") && !win.Contains("complete result"),
+                      "a windowed spill says WINDOW (3 of 8), never 'complete result'");
+                Check(win.Contains("beyond limit= are in NO file"), "…and names where the missing matches are (nowhere)");
+                var winJson = ReadTools.CrossPluginQuery(svc, type: "WEAP", limit: 3, format: "json", max_chars: 250);
+                using (var doc = Parse(winJson))
+                {
+                    var sp = doc.RootElement.GetProperty("spilled");
+                    Check(!sp.GetProperty("complete").GetBoolean() && sp.GetProperty("row_count").GetInt32() == 3 && sp.GetProperty("total").GetInt32() == 8,
+                          "…json: spilled.complete=false with row_count/total as data");
+                }
+                var whole = ReadTools.CrossPluginQuery(svc, type: "WEAP", format: "json", max_chars: 250);
+                using (var doc = Parse(whole))
+                    Check(doc.RootElement.GetProperty("spilled").GetProperty("complete").GetBoolean(),
+                          "…control: an un-windowed spill is complete=true");
+
+                // F4 — a POST-scan to_file write failure keeps the format contract.
+                var blocked = Path.Combine(root, "blocked-tofile");
+                File.WriteAllText(blocked, "a file where a directory should be");
+                var tfj = ReadTools.CrossPluginQuery(svc, type: "WEAP", format: "json", to_file: Path.Combine(blocked, "sub", "x.jsonl"));
+                using (var doc = Parse(tfj))
+                    Check(doc.RootElement.GetProperty("error").GetString()!.Contains("could not write")
+                          && doc.RootElement.GetProperty("epoch").GetString() == epochNow,
+                          "a failed to_file under format=json returns a PARSEABLE {error, epoch} document");
+                var tfb = ReadTools.BatchRecordDetail(svc, new[] { Fid(weapons[0]) }, format: "json", to_file: Path.Combine(blocked, "sub", "y.jsonl"));
+                using (var doc = Parse(tfb))
+                    Check(doc.RootElement.TryGetProperty("error", out _), "…batch twin parses too");
+
+                // F5 — a whitespace-only list element is a per-item error, never a fake internal failure.
+                var ws = ReadTools.BatchRecordDetail(svc, new[] { Fid(weapons[0]), "  " });
+                Check(ws.StartsWith("batch: 2 records") && ws.Contains("bad FormID") && !ws.Contains("failed unexpectedly"),
+                      "a whitespace-only formids element stays a per-item error (the batch survives)");
+
+                // F2 — path reservation is atomic: two same-second reservations get DIFFERENT names, both created.
+                var p1 = ResultsStore.NextPath("housecarl_cross_plugin_query", epochNow);
+                var p2 = ResultsStore.NextPath("housecarl_cross_plugin_query", epochNow);
+                Check(p1 != p2 && File.Exists(p1) && File.Exists(p2),
+                      "same-second reservations get distinct names because reserving CREATES the file");
+                ResultsStore.Release(p1); ResultsStore.Release(p2);
+                Check(!File.Exists(p1) && !File.Exists(p2), "…and Release cleans a failed spill's reservation");
+
+                // F6 — orphaned Writer temps are swept by the age prune.
+                var orphan = Path.Combine(resultsDir, "cross_plugin_query_x.jsonl.tmp-deadbeef");
+                File.WriteAllText(orphan, "half-written");
+                File.SetLastWriteTimeUtc(orphan, DateTime.UtcNow.AddDays(-(ResultsStore.PruneAfterDays + 1)));
+                ResultsStore.Release(ResultsStore.NextPath("housecarl_resolve", epochNow));   // any write-time prune pass
+                Check(!File.Exists(orphan), "an old orphaned .jsonl.tmp-* is pruned like any stale spill");
+
+                // F7 — to_file may not point into the pruned results dir.
+                var collide = ReadTools.CrossPluginQuery(svc, type: "WEAP", to_file: Path.Combine(resultsDir, "mine.jsonl"));
+                Check(collide.StartsWith("error:") && collide.Contains("pruned by age"),
+                      "to_file into the server results dir refuses naming the prune hazard");
             }
         }
         finally
