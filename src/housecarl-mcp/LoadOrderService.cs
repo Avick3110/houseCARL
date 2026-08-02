@@ -2243,7 +2243,9 @@ public sealed class LoadOrderService : IDisposable
                 return ReadOutcome.Fail(fk, $"Winner '{winner.Value.WinnerPlugin}' did not yield {fk} on fetch — a load-order inconsistency.");
             // §4.2 (W2): an untouched record under a named pole refuses NAMING THE ACTUAL TOUCHERS — a bare
             // "does not define" reads as "my write was lost"; the touching list is the actionable fact.
-            var touchers = view.TouchingPlugins(fk);
+            // (?? is belt-and-braces here — the non-null winner above proves the fk is in the index — but the
+            // nullable-return shape became a real NRE on the off-order sibling, so the same guard applies.)
+            var touchers = view.TouchingPlugins(fk) ?? Array.Empty<string>();
             return ReadOutcome.Fail(fk,
                 $"Plugin '{plugin}' does not touch {fk} — it has no version of this record. " +
                 $"Touched by (load order, winner last): {string.Join(", ", touchers)}.");

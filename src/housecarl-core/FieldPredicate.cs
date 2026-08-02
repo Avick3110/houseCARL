@@ -311,7 +311,7 @@ public sealed class FieldPredicateSet
                 return (null, $"predicate '{raw}': 'winner {OpStr(op)} <list>' is not supported (yet) — AND/OR the '=' form per plugin, e.g. \"winner = A.esp\".");
             if (pseudo == PseudoPath.FormId)
             {
-                var (set, artifact, lerr) = ParseFormIdList(raw, operand);
+                var (set, artifact, lerr) = ParseFormIdList(text, operand);
                 if (lerr is not null) return (null, lerr);
                 return (new Predicate(text, segs, path, op, operand, 0, set, artifact, LinkPath: linkSegs, LinkPathDisplay: linkDisplay, Pseudo: pseudo), null);
             }
