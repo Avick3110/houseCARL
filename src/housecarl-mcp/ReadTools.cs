@@ -677,7 +677,7 @@ static class Wire
                 sb.Append('\n');
                 if (matches is not null) sb.Append("  ").Append(fk).Append("  matches=").Append(matches).Append('\n');
                 if (o.Error is not null) sb.Append(fk).Append(": error: ").Append(o.Error).Append('\n');
-                else { AppendRecord(sb, o, cap); if (conflictTree) AppendConflictTree(sb, svc, o, fields, cap, q); }
+                else { AppendRecord(sb, o, cap); if (conflictTree) AppendConflictTree(sb, svc, o, fields, cap); }   // o carries the scan's pin
             }
             else
             {
@@ -1103,11 +1103,7 @@ static class Wire
     /// winner-relative field diff — each other plugin's only-the-fields-that-differ, as `path=theirs (winner X)`.
     /// Bodies come from <see cref="LoadOrderService.ResolveTree"/> (on-demand fetch, held by nothing). The diff
     /// is char-budget-bounded: over <paramref name="cap"/> it stops with an explicit notice (Q3).</summary>
-    /// <param name="pin">When rendering inside a cross-query detail loop, the outcome whose scan pin the tree fill
-    /// must read from (PR #305 review — the header's epoch names one build; the tree must not re-capture). Null on
-    /// the single-read/batch paths, which keep their own (documented) capture.</param>
-    static void AppendConflictTree(StringBuilder sb, LoadOrderService svc, ReadOutcome o, IReadOnlyList<string>? fields, int cap,
-                                   CrossQueryOutcome? pin = null)
+    static void AppendConflictTree(StringBuilder sb, LoadOrderService svc, ReadOutcome o, IReadOnlyList<string>? fields, int cap)
     {
         var tp = o.TouchingPlugins;
         if (tp is null) return;
@@ -1125,8 +1121,12 @@ static class Wire
         }
 
         if (tp.Count <= 1) return;                                         // nothing to diff against
-        var tree = pin is not null ? svc.ResolveTreeOn(pin, o.FormKey, fields)
-                                   : svc.ResolveTree(o.FormKey, fields);   // materialised (no live overlay) — Option B
+        // Pinned to the OUTCOME's own build (PR #305 review + re-review): every ReadOutcome — single read, batch
+        // item, cross-query detail row — carries the (resolver, view) it was answered from, so the tree fill and
+        // the response's epoch stamp name the same build. The unpinned fallback exists only for a hand-built
+        // outcome (guards).
+        var tree = o.Pin is { } p ? svc.ResolveTreePinned(p, o.FormKey, fields)
+                                  : svc.ResolveTree(o.FormKey, fields);    // materialised (no live overlay) — Option B
         if (tree is null || tree.Nodes.Count <= 1) return;
 
         var winnerNode = tree.Winner;                                       // Nodes[^1] = highest priority = the winner

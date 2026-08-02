@@ -81,12 +81,17 @@ internal static class EpochGuardProbe
             Directory.CreateDirectory(Path.Combine(mods, "MasterMod"));
             Directory.CreateDirectory(Path.Combine(mods, "OverrideMod"));
             Directory.CreateDirectory(Path.Combine(mods, "OldMod"));
+            Directory.CreateDirectory(Path.Combine(mods, "BadMod"));
             var masterFile = Path.Combine(mods, "MasterMod", masterName);
             var ovFile = Path.Combine(mods, "OverrideMod", ovName);
             var oldFile = Path.Combine(mods, "OldMod", oldName);
             master.BeginWrite.ToPath(masterFile).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
             ovMod.BeginWrite.ToPath(ovFile).WithLoadOrder(new ISkyrimModGetter[] { master }).Write();
             oldMod.BeginWrite.ToPath(oldFile).WithLoadOrder(new ISkyrimModGetter[] { master }).Write();
+            // An UNPARSEABLE plugin, ENABLED — the index build excludes it, so a scope naming it hits the CORE
+            // sweep frame's excluded-plugin refusal (PR #305 re-review finding 1).
+            const string badName = "HcEpochBad.esp";
+            File.WriteAllText(Path.Combine(mods, "BadMod", badName), "this is not a bethesda plugin");
 
             string Fid(FormKey fk) => $"{fk.ID:X6}:{fk.ModKey.FileName}";
 
@@ -147,9 +152,9 @@ internal static class EpochGuardProbe
                     + Path.Combine(root, "game").Replace(@"\", @"\\") + ")\r\n");
                 var prof = Path.Combine(inst, "profiles", "Default");
                 Directory.CreateDirectory(prof);
-                File.WriteAllText(Path.Combine(prof, "loadorder.txt"), "# header\r\n" + masterName + "\r\n" + ovName + "\r\n");
-                File.WriteAllText(Path.Combine(prof, "plugins.txt"), "*" + masterName + "\r\n*" + ovName + "\r\n");
-                File.WriteAllText(Path.Combine(prof, "modlist.txt"), "# header\r\n-OldMod\r\n+OverrideMod\r\n+MasterMod\r\n");
+                File.WriteAllText(Path.Combine(prof, "loadorder.txt"), "# header\r\n" + masterName + "\r\n" + ovName + "\r\n" + badName + "\r\n");
+                File.WriteAllText(Path.Combine(prof, "plugins.txt"), "*" + masterName + "\r\n*" + ovName + "\r\n*" + badName + "\r\n");
+                File.WriteAllText(Path.Combine(prof, "modlist.txt"), "# header\r\n-OldMod\r\n+BadMod\r\n+OverrideMod\r\n+MasterMod\r\n");
 
                 var store = new UserConfigStore(Path.Combine(root, "user.json"));
                 using var svc = LoadOrderService.WithInstance(inst, 0, store);
@@ -230,6 +235,23 @@ internal static class EpochGuardProbe
                 var ceMiss = svc.CheckErrors(new[] { "Nope.esp" }, 1000);
                 Check(ceMiss.Error is not null && ceMiss.Epoch == current, "check_errors' locate refusal is stamped");
                 Check(Wire.RenderCheckErrors(ceMiss, 0).Contains($"epoch={current}"), "…and rendered");
+                // Latent bug surfaced by this arm: both sweep json refusal paths returned INSIDE the writer's using
+                // without a Flush — every json-mode sweep refusal rendered as an EMPTY STRING (pre-existing, silent).
+                Check(JsonWire.RenderCheckErrors(ceMiss, 0).Contains("\"error\"") && JsonWire.RenderCheckErrors(ceMiss, 0).Contains($"\"epoch\": \"{current}\""),
+                      "…check_errors' JSON refusal is a real document with the stamp (the empty-refusal flush bug is dead)");
+
+                // Re-review finding 1: the CORE sweep frame's own refusals — one frame deeper than the service's.
+                var ceExcl = svc.CheckErrors(new[] { badName }, 1000);
+                Check(ceExcl.Error is not null && ceExcl.Error.Contains("excluded") && ceExcl.Epoch == current,
+                      "check_errors' CORE-frame excluded-plugin refusal is stamped (the frame the first fold missed)");
+                Check(Wire.RenderCheckErrors(ceExcl, 0).Contains($"epoch={current}"), "…and rendered");
+                var vsMiss = svc.ValidateScripts(new[] { "Nope.esp" }, 1000);
+                Check(vsMiss.Error is not null && vsMiss.Epoch == current,
+                      "validate_scripts' not-in-order refusal is stamped (previously NO ScriptCheckResult refusal could be)");
+                Check(Wire.RenderScriptCheck(vsMiss, 0).Contains($"epoch={current}"),
+                      "…and the TEXT refusal render carries it — no longer dead code");
+                Check(JsonWire.RenderScriptCheck(vsMiss, 0).Contains($"\"epoch\": \"{current}\""),
+                      "…and the JSON refusal render carries it");
 
                 // ---- PR #305 fold: off-order coverage is QUALIFIED, never overclaimed (finding 3) ----
                 Console.WriteLine();
@@ -249,6 +271,16 @@ internal static class EpochGuardProbe
                       "…and its text stamp is qualified");
                 Check(!Wire.RenderCheckErrors(ce, 0).Contains("(indexed plugins only"),
                       "…while the all-indexed sweep carries NO qualifier (control)");
+                // Re-review finding 4: the coverage fact rides the JSON as DATA, not prose — the machine consumer
+                // comparing epochs is the one that needs it.
+                Check(JsonWire.RenderDiffRecord(dOld, 0).Contains("\"epoch_covers_all_inputs\": false"),
+                      "diff json carries epoch_covers_all_inputs=false for the off-order pole");
+                Check(JsonWire.RenderDiffRecord(dInOrder, 0).Contains("\"epoch_covers_all_inputs\": true"),
+                      "…and true for the all-active control");
+                Check(JsonWire.RenderCheckErrors(ceOld, 0).Contains("\"epoch_covers_all_inputs\": false"),
+                      "check_errors json: false when off-order files were swept");
+                Check(JsonWire.RenderCheckErrors(ce, 0).Contains("\"epoch_covers_all_inputs\": true"),
+                      "…and true for the all-indexed control");
 
                 // ---- 4: the pin + the re-stamp (PR #305 fold, finding 2) ----
                 Console.WriteLine();
@@ -259,6 +291,13 @@ internal static class EpochGuardProbe
                 // stamped with the old epoch — the affirmative single-build claim the response didn't satisfy.
                 var qPin = svc.CrossQuery("WEAP", null, null, false, null, null, 500);
                 Check(qPin.Epoch == current, "pin arm: scan stamped at the current build");
+                // Re-review finding 3 (structural): every ReadOutcome carries the ViewPin its epoch names, so the
+                // conflict-tree fill on single reads / batch items reads the stamped build through the SAME
+                // ResolveTreePinned path the behavioural arm below exercises for the scan.
+                Check(qPin.Pin is not null
+                      && svc.ResolveRead(FormKey.Factory(Fid(weapons[0])), null, null, true).Pin is not null
+                      && svc.ResolveBatch(new[] { Fid(weapons[0]) }, null, true)[0].Pin is not null,
+                      "scan, single read, and batch outcomes all carry the ViewPin their stamp names (tree fills read it)");
                 var ovMod2 = new SkyrimMod(ovKey, SkyrimRelease.SkyrimSE);
                 ((IWeapon)WriteEngine.GenericGetOrAddAsOverride(ovMod2, master.Weapons.First()))
                     .BasicStats = new WeaponBasicStats { Damage = 20, Weight = 1 };
