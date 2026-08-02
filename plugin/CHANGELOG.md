@@ -8,6 +8,32 @@ when it changes.
 
 *Accumulating notes for the next cut — not yet released; `plugin.json` still reads the last shipped version.*
 
+**New tool: `housecarl_records` — the 2.0 read surface, core forms (W2 PR 1).** One read call composes *which
+records* (SELECT: `formids=` incl. `@file`/artifact re-entry · set-valued `types=` · a structured `plugins=` scope
+with `defined_in` inside it · `conflicts_only=` · the `where=` grammar · `references=`) × *whose version* (SOURCE:
+the winner by default, or `source=` naming a plugin **wherever it lives** — active in the order or sitting on disk
+unticked; the response states which arm resolved, a record the plugin doesn't touch is refused naming the plugins
+that DO touch it, and a plugin found in neither place is refused naming both places searched) × *what shape*
+(PROJECT: a form-scoped `project=` object — `identity | summary | fields | everything | aggregate`, each
+sub-parameter living only inside the form that uses it) × transport (`text`/`json`/`dense`, exact windows,
+`counts_only=`, `to_file=` and auto-spill riding the W1 artifact lane). The comparison forms (`delta`/`tree`/
+`chain`/`info_order`), `previous_provider`, the SkyPatcher-overlay source, and `formids=`×scan composition arrive
+in W2 PR 2 — until then those spellings get a **named staging refusal** pointing at the 1.x tool that does the job
+today. The 1.x read tools are unchanged and stay through the build waves (they retire at 2.0.0's clean cut).
+
+**The `where=` grammar grows the chartered 2.0 SELECT terms — on `cross_plugin_query` too.** New everywhere the
+grammar runs: `startswith`; an `editorid` term (`editorid contains/startswith/= …`, `editorid missing` — the
+`editorid_contains=` job as plain grammar, live even on records whose deep body can't parse); the **`winner`
+provenance term** (`where=["winner = X.esp"]` — *which records does X win*; it reads resolution, not content, and
+declares its winner-resolution cost); `in`/`not in` **generalized to any scalar leaf** (`"Race in
+[XXXXXX:A.esm, …]"`, enum names and numbers too, artifact `@file` lists included); and a single **`->` link step**
+(`"Perks->editorid startswith REQ_NULL_"` — the predicate crosses ONE form link and tests the target's winner body,
+ANY-match over list targets, wrong paths still fail loud in the accounting). A stray `conflict_tree=`/`fields=`/
+`depth=`/`group_by=` on the new tool answers with the form-scoping rule by name, and the alias layer maps the 1.x
+spellings (`plugin=`/`mod=`/`from_plugin=` → `source=`, `formid=` → `formids=`, `type=` → `types=`) so first
+guesses bind. Guarded by the new `records-guard` in CI; alias CENSUS re-baked (99 → 113 activations, all on the
+new tool).
+
 **Big results now come back whole, as a file — truncation stops losing data on the record-bulk reads (the 2.0
 artifact disposition, W1).** `cross_plugin_query`, `batch_record_detail`, and `resolve` gain the §2.1.1 artifact
 lane. Pass `to_file=<absolute .jsonl path>` to write the **complete** result — never limit-windowed — as one
