@@ -283,6 +283,50 @@ public static class ReadEngine
         return keys;
     }
 
+    /// <summary>Collect every FormKey linked UNDER one field path — the `-&gt;` link-step's left side (W2, SPEC
+    /// §2.2's P3 term). Navigation is the same engine walk reads use (<see cref="NavigateValue"/>), then the value
+    /// yields its links by shape: a FormLink → its key; a list → each element's own links (a direct link element,
+    /// or a link-bearing struct like PerkPlacement via Mutagen's generic <c>EnumerateFormLinks</c>); a link-bearing
+    /// substruct → its links. De-duplicated, null links dropped. Returns (null, note) when the path doesn't reach a
+    /// link-bearing value — the note reuses the read walk's vocabulary ("(no field …", "(absent)", "(unreadable …")
+    /// so callers classify it exactly like a leaf miss; a present-but-empty list returns an EMPTY list (a genuine
+    /// "no links here", distinct from "not a link path").</summary>
+    internal static (List<FormKey>? Links, string? Note) CollectLinksAt(object record, string[] path)
+    {
+        try
+        {
+            var nav = NavigateValue(record, path);
+            if (!nav.ok) return (null, nav.note);
+            if (nav.val is null) return (null, AbsentNote);
+            var keys = new List<FormKey>();
+            var seen = new HashSet<FormKey>();
+            void Add(FormKey fk) { if (!fk.IsNull && seen.Add(fk)) keys.Add(fk); }
+            switch (nav.val)
+            {
+                case IFormLinkGetter link:
+                    Add(link.FormKey);
+                    break;
+                case string:
+                    return (null, $"(no links: '{string.Join(".", path)}' is a string, not a link-bearing field)");
+                case System.Collections.IEnumerable list:
+                    foreach (var item in list)
+                    {
+                        if (item is IFormLinkGetter il) Add(il.FormKey);
+                        else if (item is IFormLinkContainerGetter fc)
+                            foreach (var l in fc.EnumerateFormLinks()) Add(l.FormKey);
+                    }
+                    break;
+                case IFormLinkContainerGetter sub:
+                    foreach (var l in sub.EnumerateFormLinks()) Add(l.FormKey);
+                    break;
+                default:
+                    return (null, $"(no links: '{string.Join(".", path)}' is not a link-bearing field)");
+            }
+            return (keys, null);
+        }
+        catch (Exception ex) { return (null, $"(unreadable: {ex.Message})"); }
+    }
+
     /// <summary>A "no such field" note that, when the owner is a collection, points the caller at bracket
     /// indexing — the common <c>.0</c>-vs-<c>[0]</c> confusion (the read analog of the write pre-flight's
     /// bracket hint in <c>CorpusRulebook</c>). Brackets are how you step into a list/dict element mid-path;
