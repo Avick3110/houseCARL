@@ -2639,6 +2639,11 @@ public sealed class LoadOrderService : IDisposable
         /// <summary>The on-disk locate result for the OFF-ORDER arm (null on the active arm) — carried so the
         /// consuming lane can open the file without re-running the locate.</summary>
         internal string? Path { get; init; }
+
+        /// <summary>The epoch of the build the arm was judged against (set by <see cref="ProbeSourceArm"/>) — the
+        /// caller compares it against its dispatch's own stamp, so a load-order change in the probe→dispatch gap
+        /// surfaces as a loud retry refusal instead of an arm statement about a different world (PR #307 round 3).</summary>
+        public string? Epoch { get; init; }
     }
 
     /// <summary>Resolve a `records` source= pole against ONE captured view (the §4.2 one-pole rule): active in the
@@ -2673,14 +2678,15 @@ public sealed class LoadOrderService : IDisposable
     }
 
     /// <summary>The tool-layer probe: WHICH arm would this source= pole resolve to (active / off-order / neither)?
-    /// Uses its own capture; the consuming scan re-captures — the caller compares epochs where a tear would mix
-    /// builds (rare: only a load-order change in the gap).</summary>
+    /// Uses its own capture and stamps its epoch on the <see cref="PoleInfo"/>; the consuming ACTIVE-arm scan
+    /// re-captures and compares stamps (a divergence refuses loud — retry). The OFF-ORDER arm's lane reads the
+    /// file directly and consults no further build, so its arm statement is simply the probe's own build's truth.</summary>
     public PoleInfo? ProbeSourceArm(string plugin, string? mod, out string? error)
     {
         var view = Resolver.Capture();
         var (pole, err) = ResolvePoleArm(view, plugin, mod);
         error = err;
-        return pole;
+        return pole is null ? null : pole with { Epoch = view.Epoch };
     }
 
     /// <summary>The list-driven `records` read under a NAMED source pole (SPEC §4.2): resolve the pole ONCE —
@@ -2789,8 +2795,15 @@ public sealed class LoadOrderService : IDisposable
             {
                 if (!found.TryGetValue(fk, out var rec))
                 {
+                    // The §4.2 untouched contract holds on THIS arm too (PR #307 round 3): name the plugins that
+                    // DO touch the record in the active order — or say plainly that nothing does.
+                    IReadOnlyList<string> touchers;
+                    try { touchers = view.TouchingPlugins(fk); } catch { touchers = Array.Empty<string>(); }
                     results[index] = ReadOutcome.Fail(fk,
-                        $"file '{plugin}' ({poleWhere}) does not define or override {fk} — it has no version of this record.")
+                        $"file '{plugin}' ({poleWhere}) does not define or override {fk} — it has no version of this record. " +
+                        (touchers.Count > 0
+                            ? $"Touched by (active order, winner last): {string.Join(", ", touchers)}."
+                            : "No active plugin touches it either."))
                         with { Epoch = view.Epoch, Pin = pin };
                     continue;
                 }

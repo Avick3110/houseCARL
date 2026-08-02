@@ -64,7 +64,9 @@ public static class RecordsTools
          "SELECT: formids= | types= | plugins= (scope: which records are considered) | conflicts_only= | where= " +
          "(body predicates, ANDed: comparisons 'BasicStats.Damage >= 50', 'editorid contains Iron', 'editorid " +
          "startswith REQ_', flag tests 'BodyTemplate.FirstPersonFlags has Body', presence 'VirtualMachineAdapter " +
-         "exists', membership 'formid not in @<file>' / 'Race in [XXXXXX:A.esm, YYYYYY:B.esm]', ONE '->' link step " +
+         "exists', membership 'formid not in @<file>' / 'Race in [XXXXXX:A.esm, YYYYYY:B.esm]' (list entries " +
+         "separate on commas/newlines with brackets and quotes stripped — a value that itself contains a comma " +
+         "or bracket is not expressible in a list; test it with '='), ONE '->' link step " +
          "'Perks->editorid startswith REQ_NULL_', and the provenance term 'winner = X.esp' — which records does X " +
          "WIN; that term forces winner resolution over the scanned scope, the same declared cost as any winner " +
          "scan) | references= (reverse, one step — requires a bounding types=/plugins= scope; the reverse-reference " +
@@ -155,12 +157,28 @@ public static class RecordsTools
             return $"error: project.fields belongs to the 'fields' form only (got form='{form}'). Set project.form='fields', or drop fields.";
         if (form == "fields" && project?.fields is not { Length: > 0 })
             return "error: the 'fields' form names its field paths — pass project.fields=[\"<path>\", …] (or use form='everything' for the full body).";
-        if (project?.depth is { } dv && dv > 1 && form is not ("fields" or "everything"))
-            return $"error: project.depth expands field contents and belongs to the 'fields'/'everything' forms (got form='{form}').";
+        if (project?.depth is { } dv)
+        {
+            // ANY explicit depth is form-scoped (review round 3: `depth: 1` was accepted-and-dropped on other
+            // forms while `depth: 2` refused — the rule must not depend on the value), and 0/negative is refused
+            // rather than silently becoming 1.
+            if (form is not ("fields" or "everything"))
+                return $"error: project.depth expands field contents and belongs to the 'fields'/'everything' forms (got form='{form}').";
+            if (dv < 1)
+                return $"error: project.depth={dv} — depth must be >= 1 (1 shows a container as a collapsed summary; higher opens it).";
+        }
         if (project?.group_by is not null && form != "aggregate")
             return $"error: project.group_by belongs to the 'aggregate' form only (got form='{form}'). Set project.form='aggregate', or drop group_by.";
-        if (form == "aggregate" && string.IsNullOrWhiteSpace(project?.group_by))
-            return "error: the 'aggregate' form names its count key — pass project.group_by='winner' | 'type' | 'defined_in'.";
+        if (form == "aggregate")
+        {
+            // Validated HERE, before any read runs (review round 3: the list lane validated it only inside the
+            // render, after the batch had already been paid for).
+            var gbv = project?.group_by?.Trim().ToLowerInvariant();
+            if (string.IsNullOrEmpty(gbv))
+                return "error: the 'aggregate' form names its count key — pass project.group_by='winner' | 'type' | 'defined_in'.";
+            if (gbv is not ("winner" or "type" or "defined_in"))
+                return $"error: project.group_by='{project!.group_by}' is not a count key — use 'winner', 'type', or 'defined_in'.";
+        }
         if (project is { resolve_names: true } && form is not ("fields" or "everything"))
             return $"error: project.resolve_names annotates field values and belongs to the 'fields'/'everything' forms (got form='{form}').";
         int depth = project?.depth is { } d && d > 0 ? d : 1;
@@ -232,6 +250,7 @@ public static class RecordsTools
             if (Artifacts.ValidateToFile(toFile!) is { } verr) return verr;
             if (offset > 0) return "error: to_file= captures the COMPLETE result (the artifact is never a window), so offset= has nothing to page — drop offset=.";
             if (form == "aggregate") return "error: to_file= writes row artifacts, and the aggregate form is a count table with no record rows — drop one of the two.";
+            if (counts_only) return "error: counts_only= returns the census with no rows, and to_file= writes the rows — the two contradict; drop one (review: this pair used to return the census and silently write nothing).";
         }
         if (where_source is not null && where is not { Length: > 0 })
             return "error: where_source= retargets the where= predicates and needs where= — add predicates, or drop where_source=.";
@@ -241,6 +260,20 @@ public static class RecordsTools
         var envelope = new List<KeyValuePair<string, string>> { new("form", form) };
         string headerLine = $"records  form={form}";
         void Arm(string statement) { envelope.Add(new("source", statement)); headerLine += $"  source={statement}"; }
+
+        // limit=/offset= WINDOW the list lane's render (round-3 review: they were accepted-and-dropped there).
+        // The census, the aggregate, and every artifact write still cover the COMPLETE list; the window note
+        // rides the header + envelope so a windowed render can never read as the whole list.
+        int lim = limit <= 0 ? 500 : limit;
+        IReadOnlyList<T> Windowed<T>(IReadOnlyList<T> rows)
+        {
+            if (offset == 0 && rows.Count <= lim) return rows;
+            var w = rows.Skip(offset).Take(lim).ToList();
+            var note = $"window: rows {(w.Count == 0 ? 0 : offset + 1)}–{offset + w.Count} of {rows.Count} (limit={lim}, offset={offset})";
+            envelope.Add(new("window", note));
+            headerLine += "\n" + note;
+            return w;
+        }
 
         return hasFormids
             ? ListLane()
@@ -277,6 +310,14 @@ public static class RecordsTools
                 if (refusal is not null)
                     return json ? JsonWire.RenderError(refusal, epoch) : "error: " + refusal + $"\nepoch={epoch}";
                 Arm("winner");
+                if (counts_only)
+                {
+                    // The census honors counts_only on EVERY list form (round-3 review: identity rendered rows anyway).
+                    int okI = rows.Count(r => r.Error is null);
+                    return json ? JsonWire.RenderCounts(envelope, rows.Count, okI, rows.Count - okI, epoch)
+                                : $"{headerLine}\ncount={rows.Count} ok={okI} errors={rows.Count - okI}\nepoch={epoch}";
+                }
+                var winRows = Windowed(rows);
                 SpillState? spill = null;
                 if (wantFile)
                 {
@@ -285,8 +326,8 @@ public static class RecordsTools
                     spill = SpillState.Spilled(s!, manifestOnly: true);
                 }
                 string Render(SpillState? sp, out bool trunc) => json
-                    ? JsonWire.RenderResolve(rows, max_chars, epoch, sp, out trunc, envelope)
-                    : headerLine + "\n" + Wire.RenderResolve(rows, max_chars, epoch, sp, out trunc);
+                    ? JsonWire.RenderResolve(winRows, max_chars, epoch, sp, out trunc, envelope)
+                    : headerLine + "\n" + Wire.RenderResolve(winRows, max_chars, epoch, sp, out trunc);
                 var rendered = Render(spill, out var truncated);
                 if (spill is null && truncated)
                 {
@@ -344,6 +385,7 @@ public static class RecordsTools
                     : $"{headerLine}\ncount={outcomes.Count} ok={ok} errors={err}" + (epoch2 is not null ? $"\nepoch={epoch2}" : "");
             }
 
+            var winOutcomes = Windowed(outcomes);   // render window; census/aggregate/artifacts stay complete
             SpillState? spill2 = null;
             if (wantFile)
             {
@@ -352,9 +394,9 @@ public static class RecordsTools
                 spill2 = SpillState.Spilled(s!, manifestOnly: true);
             }
             string Render2(SpillState? sp, out bool trunc) => form == "summary"
-                ? RenderRecordsSummary(outcomes, json, headerLine, envelope, max_chars, sp, out trunc)
-                : json ? JsonWire.RenderBatch(outcomes, max_chars, sp, out trunc, envelope)
-                       : headerLine + "\n" + Wire.RenderBatch(svc, outcomes, projFields, false, max_chars, sp, out trunc);
+                ? RenderRecordsSummary(winOutcomes, json, headerLine, envelope, max_chars, sp, out trunc)
+                : json ? JsonWire.RenderBatch(winOutcomes, max_chars, sp, out trunc, envelope)
+                       : headerLine + "\n" + Wire.RenderBatch(svc, winOutcomes, projFields, false, max_chars, sp, out trunc);
             var rendered2 = Render2(spill2, out var truncated2);
             if (spill2 is null && truncated2)
             {
@@ -385,14 +427,18 @@ public static class RecordsTools
                 return "error: plugins.defined_in=true keeps records DEFINED in the scoped plugins, so plugins.names must name that scope.";
 
             // ---- OFF-ORDER source universe: the file's own records (absorbs read_plugin_file's enumeration).
+            string? probeEpoch = null;
             if (srcName is not null)
             {
-                // Resolve which arm ONCE via a cheap containment probe: the scan below re-captures, and the epoch
-                // stamp on its outcome is compared by the caller reading both — a mid-call order change surfaces
-                // as differing epochs, never a silently mixed answer.
+                // Resolve which arm ONCE via a cheap containment probe. The ACTIVE-arm scan below re-captures;
+                // its outcome stamp is compared against the probe's (a mid-call order change refuses loud, never
+                // an arm statement about a different world). The off-order lane reads the file directly and
+                // consults no further build.
                 var probe = svc.ProbeSourceArm(srcName, srcMod, out var probeErr);
                 if (probeErr is not null) return "error: " + probeErr;
-                if (!probe!.InOrder)
+                srcName = probe!.Plugin;   // a PATH pole resolves back to its plugin name — every consumer below uses the resolved name (round-3 F4)
+                probeEpoch = probe.Epoch;
+                if (!probe.InOrder)
                     return OffOrderScan(probe);
                 if (hasScope)
                     return "error: a plugins= scope combined with an ACTIVE named source= (scope-vs-pole streams) lands in W2 PR 2 — " +
@@ -433,6 +479,11 @@ public static class RecordsTools
             var outcome = svc.CrossQuery(types, refFks, null, conflicts_only, scanPlugins, where,
                                          effLimit, definedIn, groupBy, offset, where_source,
                                          refDemand is null ? null : new[] { refDemand });
+            // The probe→scan seam IS epoch-compared (round-3 F5): the arm statement must describe the same
+            // build the rows were scanned from.
+            if (probeEpoch is not null && outcome.Error is null && outcome.Epoch is not null && outcome.Epoch != probeEpoch)
+                return $"error: the load order changed between resolving the source arm (epoch={probeEpoch}) and the scan " +
+                       $"(epoch={outcome.Epoch}) — the arm statement would describe a different world. Retry the call.";
 
             List<KeyValuePair<string, string>> Echo()
             {
@@ -454,8 +505,9 @@ public static class RecordsTools
                 return e;
             }
 
-            // ---- form=everything on a scan: selection here, bodies via the batch lane (window-bounded). --
-            if (form == "everything" && outcome.Error is null && outcome.Groups is null)
+            // ---- form=everything on a scan: selection here, bodies via the batch lane (window-bounded).
+            // counts_only skips the body lane entirely — the census is the cross-query render below (round 3).
+            if (form == "everything" && !counts_only && outcome.Error is null && outcome.Groups is null)
             {
                 var keys = outcome.Keys.Select(k => k.ToString()).ToList();
                 IReadOnlyList<ReadOutcome> bodies;
