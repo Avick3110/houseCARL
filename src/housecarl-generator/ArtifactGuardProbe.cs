@@ -1,0 +1,297 @@
+using System.Text.Json;
+using Mutagen.Bethesda;
+using Mutagen.Bethesda.Plugins;
+using Mutagen.Bethesda.Skyrim;
+using HousecarlCore;
+using HousecarlMcp;
+
+namespace HousecarlGenerator;
+
+/// <summary>
+/// REGRESSION GUARD for the §2.1.1 artifact disposition (tool-surface 2.0, W1 PR 2): bulk output decouples result
+/// size from render size via ONE self-contained JSONL file — manifest line 1, one row per line — and re-enters
+/// through the @file convention, epoch-checked. Arms:
+///
+///   1  ROUND-TRIP — the core writer/reader pair: manifest fields survive, identity tokens come back in row
+///      order, the artifact sniff says yes to a manifest and no to a plain list.
+///   2  TO_FILE — the forced disposition on all three wired lanes: the COMPLETE result lands in the caller's
+///      file, only the manifest renders inline (no rows), the spilled marker names the file in BOTH formats
+///      (D2), and the doomed-disposition refusals (relative path, wrong extension, conflict_tree, offset) fire
+///      BEFORE any scan.
+///   3  AUTO-SPILL — a render that hits max_chars ALWAYS leaves a complete artifact in the server results dir
+///      and says so in-band (text, json, dense; cross-query, batch, resolve). Truncation without a named
+///      complete artifact is the E4.2 failure this kills. A FAILED spill write is named loud in both formats —
+///      never a truncated response silently missing its promised file.
+///   4  RE-ENTRY — formids=@artifact (batch, resolve) and where=["formid in @artifact"] (cross-query) yield the
+///      identity column against the SAME build; a plain @file list keeps working with no epoch claim; @ mixed
+///      with inline entries refuses named; a no-identity (group_by) artifact refuses named.
+///   5  EPOCH CHECK — after the load order changes, artifact re-entry refuses LOUD naming BOTH epochs on every
+///      consuming lane, the refusal is stamped (it consulted the build), and the plain-list control still works
+///      (no epoch claim to violate). Re-materializing via to_file against the new build re-enters cleanly.
+///   6  RESULTS STORE — prune-by-age deletes old spills at write time; a to_file target overwrites wholesale
+///      (a re-run is a NEW artifact, not an append).
+///
+/// Self-contained: synthetic MO2 instance + synthesized plugins in temp. No game data.
+/// </summary>
+internal static class ArtifactGuardProbe
+{
+    public static int RunGuard(string[] args)
+    {
+        Console.WriteLine("================================================================");
+        Console.WriteLine(" artifact guard — §2.1.1: results decouple from renders; artifacts re-enter epoch-checked");
+        Console.WriteLine("================================================================");
+        Console.WriteLine();
+        int fail = 0;
+        void Check(bool c, string label) { Console.WriteLine((c ? "  PASS  " : "  FAIL  ") + label); if (!c) fail++; }
+
+        var root = Path.Combine(Path.GetTempPath(), "hc-artifact-guard-" + Guid.NewGuid().ToString("N"));
+        var savedOverride = ResultsStore.OverrideDirForTests;
+        try
+        {
+            Directory.CreateDirectory(Path.Combine(root, "game", "Data"));
+
+            // ---- synthesized plugins: a master with 8 weapons, and an override ----
+            var masterKey = new ModKey("HcArtMaster", ModType.Master);
+            var ovKey = new ModKey("HcArtOverride", ModType.Plugin);
+            string masterName = masterKey.FileName.String, ovName = ovKey.FileName.String;
+
+            var master = new SkyrimMod(masterKey, SkyrimRelease.SkyrimSE);
+            var weapons = new List<FormKey>();
+            for (int i = 0; i < 8; i++)
+            {
+                var w = master.Weapons.AddNew(); w.EditorID = $"HcArtW{i}";
+                w.BasicStats = new WeaponBasicStats { Damage = (ushort)(10 + i), Weight = 1 };
+                weapons.Add(w.FormKey);
+            }
+            var ovMod = new SkyrimMod(ovKey, SkyrimRelease.SkyrimSE);
+            ((IWeapon)WriteEngine.GenericGetOrAddAsOverride(ovMod, master.Weapons.First()))
+                .BasicStats = new WeaponBasicStats { Damage = 99, Weight = 1 };
+
+            var inst = Path.Combine(root, "inst");
+            var mods = Path.Combine(inst, "mods");
+            Directory.CreateDirectory(Path.Combine(mods, "MasterMod"));
+            Directory.CreateDirectory(Path.Combine(mods, "OverrideMod"));
+            var masterFile = Path.Combine(mods, "MasterMod", masterName);
+            var ovFile = Path.Combine(mods, "OverrideMod", ovName);
+            master.BeginWrite.ToPath(masterFile).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
+            ovMod.BeginWrite.ToPath(ovFile).WithLoadOrder(new ISkyrimModGetter[] { master }).Write();
+
+            var genDir = Path.Combine(root, "corpus-gen");
+            CorpusGenerator.GenerateAll(genDir, Path.Combine(root, "corpus-ref"));
+            CorpusRulebook.CorpusPath = Path.Combine(genDir, "corpus.json");
+
+            File.WriteAllText(Path.Combine(inst, "ModOrganizer.ini"),
+                "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(Default)\r\ngamePath=@ByteArray("
+                + Path.Combine(root, "game").Replace(@"\", @"\\") + ")\r\n");
+            var prof = Path.Combine(inst, "profiles", "Default");
+            Directory.CreateDirectory(prof);
+            File.WriteAllText(Path.Combine(prof, "loadorder.txt"), "# header\r\n" + masterName + "\r\n" + ovName + "\r\n");
+            File.WriteAllText(Path.Combine(prof, "plugins.txt"), "*" + masterName + "\r\n*" + ovName + "\r\n");
+            File.WriteAllText(Path.Combine(prof, "modlist.txt"), "# header\r\n+OverrideMod\r\n+MasterMod\r\n");
+
+            var store = new UserConfigStore(Path.Combine(root, "user.json"));
+            using var svc = LoadOrderService.WithInstance(inst, 0, store);
+            var epoch0 = svc.Stats().epoch;
+
+            var resultsDir = Path.Combine(root, "results");
+            ResultsStore.OverrideDirForTests = resultsDir;
+
+            string Fid(FormKey fk) => $"{fk.ID:X6}:{fk.ModKey.FileName}";
+            var work = Path.Combine(root, "work");
+            Directory.CreateDirectory(work);
+
+            static JsonDocument Parse(string s) => JsonDocument.Parse(s);
+
+            // ---- 1: the core writer/reader round-trip ----
+            Console.WriteLine("--- 1: writer/reader round-trip — manifest line 1, identity column back in row order ---");
+            {
+                var p = Path.Combine(work, "roundtrip.jsonl");
+                using (var w = new ResultArtifact.Writer())
+                {
+                    w.WriteRow((jw, _) => { jw.WriteStartObject(); jw.WriteString("formid", "000001:A.esp"); jw.WriteString("type", "Weapon"); jw.WriteEndObject(); }, "Weapon");
+                    w.WriteRow((jw, _) => { jw.WriteStartObject(); jw.WriteString("formid", "000002:A.esp"); jw.WriteString("type", "Armor"); jw.WriteEndObject(); }, "Armor");
+                    var (m, err) = w.Save(p, "housecarl_test", new List<KeyValuePair<string, string>> { new("type", "WEAP") },
+                                          "formid", new[] { "formid", "type" }, "input order", 2, "abcdef0123456789");
+                    Check(err is null && m is not null, $"writer saves manifest+rows ({err ?? "ok"})");
+                }
+                var content = File.ReadAllText(p);
+                Check(ResultArtifact.LooksLikeArtifact(content), "the sniff recognizes a manifest on line 1");
+                Check(!ResultArtifact.LooksLikeArtifact("000001:A.esp\n000002:A.esp\n"), "…and says NO to a plain formid list");
+                var (rm, tokens, rerr) = ResultArtifact.ReadIdentity(p, content);
+                Check(rerr is null && rm is not null && rm.Epoch == "abcdef0123456789" && rm.Tool == "housecarl_test"
+                      && rm.RowCount == 2 && rm.Identity == "formid" && rm.TypeCounts is { Count: 2 },
+                      "manifest fields survive the round-trip (tool, epoch, row_count, identity, type_counts)");
+                Check(tokens is ["000001:A.esp", "000002:A.esp"], "identity tokens come back in row order");
+            }
+
+            // ---- 2: to_file — the forced disposition ----
+            Console.WriteLine();
+            Console.WriteLine("--- 2: to_file — complete result to the caller's file, manifest-only inline, refusals pre-scan ---");
+            var artifactPath = Path.Combine(work, "weapons.jsonl");
+            {
+                var text = ReadTools.CrossPluginQuery(svc, type: "WEAP", to_file: artifactPath);
+                Check(File.Exists(artifactPath), "to_file writes the artifact where asked");
+                var (m, toks, err) = ResultArtifact.ReadIdentity(artifactPath, File.ReadAllText(artifactPath));
+                Check(err is null && m!.RowCount == 8 && m.Total == 8 && m.Epoch == epoch0 && toks!.Count == 8,
+                      $"…the artifact is COMPLETE (8/8 rows) and stamped with the scanned build ({m?.Epoch})");
+                Check(m!.TypeCounts is { Count: 1 } tc && tc["Weapon"] == 8, "…manifest type_counts count the rows");
+                Check(text.Contains("spilled:") && text.Contains(artifactPath), "…the text response's spilled marker NAMES the file (contract)");
+                Check(text.Contains("8 matches") && !text.Contains(Fid(weapons[0])), "…and renders the manifest ONLY — no inline rows");
+
+                var json = ReadTools.CrossPluginQuery(svc, type: "WEAP", format: "json", to_file: Path.Combine(work, "weapons-j.jsonl"));
+                using var doc = Parse(json);
+                Check(doc.RootElement.TryGetProperty("spilled", out var sp) && sp.GetProperty("path").GetString()!.EndsWith("weapons-j.jsonl")
+                      && sp.GetProperty("reason").GetString() == "to_file",
+                      "json mode: the spilled marker rides IN the document with the path (D2)");
+                Check(doc.RootElement.GetProperty("matches").GetArrayLength() == 0 && doc.RootElement.GetProperty("total").GetInt32() == 8,
+                      "…json rows omitted, true total intact");
+
+                // group_by to_file: a count-table artifact carries NO identity column.
+                var gPath = Path.Combine(work, "groups.jsonl");
+                ReadTools.CrossPluginQuery(svc, type: "WEAP", group_by: "winner", to_file: gPath);
+                var (gm, _, gerr) = ResultArtifact.ReadIdentity(gPath, File.ReadAllText(gPath));
+                Check(gerr is not null && gerr.Contains("NO identity column"), "a group_by artifact refuses identity re-entry by name");
+
+                // Doomed dispositions refuse BEFORE any scan.
+                Check(ReadTools.CrossPluginQuery(svc, type: "WEAP", to_file: "relative.jsonl").Contains("ABSOLUTE"),
+                      "to_file refuses a relative path, named");
+                Check(ReadTools.CrossPluginQuery(svc, type: "WEAP", to_file: Path.Combine(work, "x.csv")).Contains(".jsonl"),
+                      "…and a non-.jsonl name (the file must say what it is)");
+                Check(ReadTools.CrossPluginQuery(svc, type: "WEAP", conflict_tree: true, to_file: Path.Combine(work, "x.jsonl")).Contains("conflict_tree"),
+                      "…and conflict_tree (a text-only view with no row form)");
+                Check(ReadTools.CrossPluginQuery(svc, type: "WEAP", offset: 2, to_file: Path.Combine(work, "y.jsonl")).Contains("offset"),
+                      "…and offset= (the artifact is never a window)");
+            }
+
+            // ---- 3: auto-spill at the inline ceiling ----
+            Console.WriteLine();
+            Console.WriteLine("--- 3: auto-spill — a truncated render ALWAYS leaves a complete, named artifact ---");
+            {
+                var text = ReadTools.CrossPluginQuery(svc, type: "WEAP", max_chars: 250);
+                Check(text.Contains("[truncated:"), "control: max_chars=250 truncates the inline text render");
+                Check(text.Contains("spilled: complete result (8 rows)"), "…and the spilled marker says the artifact is COMPLETE (8 rows, not the rendered prefix)");
+                var spillPath = Directory.GetFiles(resultsDir, "cross_plugin_query_*.jsonl").SingleOrDefault();
+                Check(spillPath is not null && text.Contains(spillPath), "…naming the results-dir file that actually exists");
+                var (sm, stoks, serr) = ResultArtifact.ReadIdentity(spillPath!, File.ReadAllText(spillPath!));
+                Check(serr is null && sm!.RowCount == 8 && stoks!.Count == 8 && sm.Epoch == epoch0,
+                      "…whose rows are the complete window, stamped with the scanned build");
+
+                var json = ReadTools.CrossPluginQuery(svc, type: "WEAP", format: "json", max_chars: 250);
+                using (var doc = Parse(json))
+                    Check(doc.RootElement.GetProperty("truncated").GetBoolean()
+                          && doc.RootElement.GetProperty("spilled").GetProperty("path").GetString() is { } jp && File.Exists(jp),
+                          "json mode: truncated=true AND spilled.path names a real file (D2)");
+                var dense = ReadTools.CrossPluginQuery(svc, type: "WEAP", format: "dense", max_chars: 250);
+                using (var doc = Parse(dense))
+                    Check(doc.RootElement.TryGetProperty("spilled", out var dsp) && File.Exists(dsp.GetProperty("path").GetString()!),
+                          "dense mode: the spilled marker rides too");
+
+                var allFids = weapons.Select(Fid).ToArray();
+                var bt = ReadTools.BatchRecordDetail(svc, allFids, max_chars: 300);
+                Check(bt.Contains("spilled:") && Directory.GetFiles(resultsDir, "batch_record_detail_*.jsonl").Length == 1,
+                      "batch: a truncated batch auto-spills its complete rows");
+                var rt = ReadTools.Resolve(svc, allFids, max_chars: 250);
+                Check(rt.Contains("spilled:") && Directory.GetFiles(resultsDir, "resolve_*.jsonl").Length == 1,
+                      "resolve: same contract");
+
+                // A FAILED spill write is named loud — never a truncated response silently missing its artifact.
+                var blocker = Path.Combine(root, "results-blocked");
+                File.WriteAllText(blocker, "a file where the results DIR should be");
+                ResultsStore.OverrideDirForTests = Path.Combine(blocker, "sub");   // un-creatable: parent is a file
+                var failText = ReadTools.CrossPluginQuery(svc, type: "WEAP", max_chars: 250);
+                Check(failText.Contains("[truncated:") && failText.Contains("could NOT be written") && failText.Contains("exists NOWHERE"),
+                      "a failed auto-spill is named in the text response (the truncation keeps rendering)");
+                var failJson = ReadTools.CrossPluginQuery(svc, type: "WEAP", format: "json", max_chars: 250);
+                using (var doc = Parse(failJson))
+                    Check(doc.RootElement.TryGetProperty("spill_error", out _), "…and in the json document (spill_error)");
+                ResultsStore.OverrideDirForTests = resultsDir;
+            }
+
+            // ---- 4: @file re-entry against the same build ----
+            Console.WriteLine();
+            Console.WriteLine("--- 4: @file re-entry — artifact yields its identity column; plain lists unchanged; misuse named ---");
+            {
+                var bt = ReadTools.BatchRecordDetail(svc, new[] { "@" + artifactPath });
+                Check(bt.StartsWith("batch: 8 records") && bt.Contains($"epoch={epoch0}"), "formids=@artifact reads all 8 identities (batch)");
+                var rt = ReadTools.Resolve(svc, new[] { "@" + artifactPath });
+                Check(rt.StartsWith("resolve: 8 formids"), "…and resolve");
+                var qt = ReadTools.CrossPluginQuery(svc, type: "WEAP", where: new[] { $"formid in @{artifactPath}" });
+                Check(qt.Contains("8 matches"), "…and the where-grammar membership test (cross-query)");
+
+                var plainPath = Path.Combine(work, "plain.txt");
+                File.WriteAllText(plainPath, string.Join("\r\n", weapons.Take(3).Select(Fid)));
+                Check(ReadTools.BatchRecordDetail(svc, new[] { "@" + plainPath }).StartsWith("batch: 3 records"),
+                      "a PLAIN @file list still works (no manifest, no epoch claim)");
+
+                Check(ReadTools.BatchRecordDetail(svc, new[] { "@" + plainPath, Fid(weapons[0]) }).Contains("IN PLACE OF the whole list"),
+                      "@ mixed with inline entries refuses named");
+                Check(ReadTools.BatchRecordDetail(svc, new[] { "@relative.txt" }).Contains("ABSOLUTE"),
+                      "a relative @path refuses named");
+                Check(ReadTools.BatchRecordDetail(svc, new[] { "@" + gArtifactPathFor(work) }).Contains("NO identity column"),
+                      "a no-identity (group_by) artifact refuses named at the formids= door too");
+            }
+
+            // ---- 5: the epoch check — the load order changes, re-entry refuses loud ----
+            Console.WriteLine();
+            Console.WriteLine("--- 5: epoch check — a stale artifact refuses LOUD naming both epochs; plain lists don't claim ---");
+            {
+                File.SetLastWriteTimeUtc(ovFile, DateTime.UtcNow.AddHours(1));   // content-change signal → next capture re-fingerprints
+                var epoch1 = svc.Stats().epoch;
+                Check(epoch1 != epoch0, $"control: the build re-fingerprinted ({epoch0} -> {epoch1})");
+
+                var bt = ReadTools.BatchRecordDetail(svc, new[] { "@" + artifactPath });
+                Check(bt.StartsWith("error:") && bt.Contains(epoch0) && bt.Contains(epoch1) && bt.Contains("no stale-override"),
+                      "batch re-entry refuses naming BOTH epochs and the no-override posture");
+                Check(bt.Contains($"epoch={epoch1}"), "…and the refusal is STAMPED with the build it consulted");
+                var bj = ReadTools.BatchRecordDetail(svc, new[] { "@" + artifactPath }, format: "json");
+                using (var doc = Parse(bj))
+                    Check(doc.RootElement.TryGetProperty("error", out _) && doc.RootElement.GetProperty("epoch").GetString() == epoch1,
+                          "…json refusal: {error, epoch} (D2)");
+
+                var qt = ReadTools.CrossPluginQuery(svc, type: "WEAP", where: new[] { $"formid in @{artifactPath}" });
+                Check(qt.StartsWith("error:") && qt.Contains(epoch0) && qt.Contains(epoch1) && qt.Contains($"epoch={epoch1}"),
+                      "cross-query predicate re-entry refuses the same way, stamped");
+                var rt = ReadTools.Resolve(svc, new[] { "@" + artifactPath });
+                Check(rt.StartsWith("error:") && rt.Contains(epoch0) && rt.Contains(epoch1), "resolve re-entry refuses too");
+
+                var plainPath = Path.Combine(work, "plain.txt");
+                Check(ReadTools.BatchRecordDetail(svc, new[] { "@" + plainPath }).StartsWith("batch: 3 records"),
+                      "control: the PLAIN list still enters — it never claimed a build");
+
+                // Re-materialize against the new build → re-entry is clean again (and to_file overwrites wholesale).
+                var text = ReadTools.CrossPluginQuery(svc, type: "WEAP", to_file: artifactPath);
+                var (m2, _, err2) = ResultArtifact.ReadIdentity(artifactPath, File.ReadAllText(artifactPath));
+                Check(err2 is null && m2!.Epoch == epoch1 && text.Contains(artifactPath),
+                      "to_file OVERWRITES the stale artifact with the new build's result");
+                Check(ReadTools.BatchRecordDetail(svc, new[] { "@" + artifactPath }).StartsWith("batch: 8 records"),
+                      "…and re-entry is clean against the re-materialized artifact");
+            }
+
+            // ---- 6: the results store — prune-by-age at write ----
+            Console.WriteLine();
+            Console.WriteLine("--- 6: results store — old spills prune at write time ---");
+            {
+                var old = Path.Combine(resultsDir, "cross_plugin_query_old.jsonl");
+                File.WriteAllText(old, "{}");
+                File.SetLastWriteTimeUtc(old, DateTime.UtcNow.AddDays(-(ResultsStore.PruneAfterDays + 1)));
+                var fresh = Path.Combine(resultsDir, "resolve_fresh.jsonl");
+                File.WriteAllText(fresh, "{}");
+                ResultsStore.NextPath("housecarl_cross_plugin_query", "0123456789abcdef");
+                Check(!File.Exists(old), $"a spill older than {ResultsStore.PruneAfterDays} days is pruned at the next write");
+                Check(File.Exists(fresh), "…while a fresh spill survives");
+            }
+        }
+        finally
+        {
+            ResultsStore.OverrideDirForTests = savedOverride;
+            try { Directory.Delete(root, recursive: true); } catch { /* best-effort temp cleanup */ }
+        }
+
+        Console.WriteLine();
+        Console.WriteLine($"[artifact-guard] {(fail == 0 ? "PASS — results decouple from renders, and artifacts re-enter honestly." : $"FAIL — {fail} check(s) failed.")}");
+        return fail == 0 ? 0 : 1;
+    }
+
+    /// <summary>The group_by artifact arm 2 wrote — one place for the path so arms 2 and 4 can't drift.</summary>
+    static string gArtifactPathFor(string work) => Path.Combine(work, "groups.jsonl");
+}

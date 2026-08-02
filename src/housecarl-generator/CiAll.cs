@@ -124,6 +124,12 @@ public static class CiAll
         // mid-session rebuild so cross-page drift is visible. Refusals answered off a build carry it; refusals that
         // never consulted one stay null.
         ("epoch-guard", EpochGuardProbe.RunGuard),
+        // Artifact disposition (tool-surface 2.0 W1 PR 2, SPEC §2.1.1): bulk results decouple from renders via ONE
+        // JSONL file (manifest line 1 with the epoch fingerprint); to_file forces it, a max_chars truncation ALWAYS
+        // auto-spills the complete result to the server results dir with the spilled marker naming its file in both
+        // formats, and @file re-entry yields the identity column epoch-checked against the consuming call's own
+        // capture — a stale artifact refuses loud naming both epochs, with no override switch by design.
+        ("artifact-guard", ArtifactGuardProbe.RunGuard),
         ("verify-loop-guard", VerifyLoopProbe.RunGuard),
         ("vmad-poly-guard", VmadPolyProbe.RunGuard),
         ("poly-field-descend-guard", PolyFieldDescendProbe.RunGuard),

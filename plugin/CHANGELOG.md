@@ -8,6 +8,23 @@ when it changes.
 
 *Accumulating notes for the next cut — not yet released; `plugin.json` still reads the last shipped version.*
 
+**Big results now come back whole, as a file — truncation stops losing data on the record-bulk reads (the 2.0
+artifact disposition, W1).** `cross_plugin_query`, `batch_record_detail`, and `resolve` gain the §2.1.1 artifact
+lane. Pass `to_file=<absolute .jsonl path>` to write the **complete** result — never limit-windowed — as one
+self-contained JSONL file (line 1 is a manifest: the query that produced it, row count and schema, per-type counts,
+and the build's epoch fingerprint; then one JSON row per record, the same rows `format=json` emits), with only the
+manifest rendered into context. And when an ordinary response hits its `max_chars` ceiling, the complete requested
+result is now **auto-spilled** to a server-managed results folder (pruned by age after 7 days) and the response says
+exactly where it went — a `spilled:` block in text, a `"spilled"` object in json/dense, always naming the file. If
+the spill itself cannot be written, the response says *that* instead — a truncated response never again implies the
+tail is simply gone, or silently lacks the file it promised. Artifacts **re-enter** through the existing `@file`
+spelling — `formids=["@<path>"]` on `batch_record_detail`/`resolve`, `where=["formid in @<path>"]` on
+`cross_plugin_query` — yielding the file's identity column ("scan once, project forever"), and re-entry is
+**epoch-checked**: if the load order changed since the artifact was written, the call refuses loudly naming both
+fingerprints (there is deliberately no stale-override switch; plain formid-list files keep working unchanged, and
+unchanged worlds fingerprint identically across restarts, so artifacts survive them). Guarded by the new
+`artifact-guard` (45 checks) in CI.
+
 **Fixed: `check_errors` / `validate_scripts` refusals in `format=json` returned an empty string.** Both sweeps'
 json renders returned before flushing the JSON writer on their error path, so any refusal — a scope naming a plugin
 not in the order, an excluded plugin, a bad filter — rendered as `""` instead of an `{"error": …}` document. Text
