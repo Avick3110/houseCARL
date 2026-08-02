@@ -85,10 +85,12 @@ public static class VerifyLoopProbe
                   miss.Error is not null && miss.Error.Contains("full_readback", StringComparison.OrdinalIgnoreCase));
 
             var noDefine = svc.ResolveRead(w2Fk, ovrName, null, conflictTree: false);
-            Check("TAXONOMY CONTROL: an IN-ORDER plugin that doesn't define the record keeps the true does-not-define message",
+            // W2 UPDATE (SPEC §4.2): the true message is now "does not touch {fk}" + the ACTUAL TOUCHERS named
+            // (load order, winner last) — still unmistakably distinct from the not-in-order taxonomy above.
+            Check("TAXONOMY CONTROL: an IN-ORDER plugin that doesn't define the record keeps the true does-not-touch message, touchers named",
                   noDefine.Error is not null
-                  && noDefine.Error.Contains("does not define", StringComparison.OrdinalIgnoreCase)
-                  && noDefine.Error.Contains("does not touch this record", StringComparison.OrdinalIgnoreCase));
+                  && noDefine.Error.Contains("does not touch", StringComparison.OrdinalIgnoreCase)
+                  && noDefine.Error.Contains("Touched by", StringComparison.OrdinalIgnoreCase));
 
             var defines = svc.ResolveRead(w1Fk, ovrName, null, conflictTree: false);
             Check("TAXONOMY CONTROL: an in-order plugin that DOES define the record still reads clean (source = the named plugin)",

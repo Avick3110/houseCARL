@@ -285,6 +285,19 @@ public static class BindingShimProbe
                 !j10.text.Contains(GenericError) && !j10.text.Contains("unknown parameter")
                 && j10.text.Contains("conflicts_only") && j10.text.Contains("boolean"), j10.Describe());
 
+            // -- J11 (W2 PR 1): the STRUCTURED params bind over the real wire — records' form-scoped project=
+            //    object and the polymorphic source= (a bare string) must reach the tool body (⇒ the config
+            //    prompt), never a binding error. This is the one seam records-guard (which calls the C# method
+            //    directly) cannot cover: the SDK's JSON→POCO deserialization of the published nested schema.
+            var j11 = Call(stdin, stdout, 44, "housecarl_records",
+                """{"formids":["0F1AC1:Skyrim.esm"],"source":"winner","project":{"form":"identity"}}""");
+            failures += Check("J11 structured bind: records' nested project= object + string source= bind and reach the body",
+                j11.text.Contains(ConfigPrompt), j11.Describe());
+            var j11b = Call(stdin, stdout, 45, "housecarl_records",
+                """{"types":["WEAP"],"plugins":{"names":["Skyrim.esm"],"defined_in":true}}""");
+            failures += Check("J11b structured bind: the plugins= scope object binds and reaches the body",
+                j11b.text.Contains(ConfigPrompt), j11b.Describe());
+
             // -- CENSUS: PR #304 final review finding 3 — the executable form of "dormant by construction".
             //    AliasLayerProbe proves the MECHANISM against synthetic schemas; this arm pins the TABLE
             //    against the REAL published schemas: for every rename row and dissolution hint, the exact

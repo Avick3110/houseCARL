@@ -323,8 +323,10 @@ public static class BulkPrimitivesWave2Probe
 
             var bMiss = ReadTools.BatchRecordDetail(svc, new[] { w2Fk.ToString(), w1Fk.ToString() }, plugin: replName,
                 fields: new[] { "BasicStats.Damage" }, depth: 1, conflict_tree: false, resolve_names: false, format: null, max_chars: 0);
-            Check("plugin=Repl: W2 (untouched by Repl) is a per-item 'does not define' error, W1 still reads (batch survives — Q3)",
-                  bMiss.Contains("does not define") && bMiss.Contains("BasicStats.Damage = 15"));
+            // W2 UPDATE (SPEC §4.2 untouched contract): the per-item error now says "does not touch" and NAMES
+            // the actual touchers, replacing the old "does not define … the winner is" wording.
+            Check("plugin=Repl: W2 (untouched by Repl) is a per-item 'does not touch' error naming the touchers, W1 still reads (batch survives — Q3)",
+                  bMiss.Contains("does not touch") && bMiss.Contains("Touched by") && bMiss.Contains("BasicStats.Damage = 15"));
 
             var bJson = ReadTools.BatchRecordDetail(svc, new[] { w1Fk.ToString() }, plugin: masterName,
                 fields: new[] { "BasicStats.Damage" }, depth: 1, conflict_tree: false, resolve_names: false, format: "json", max_chars: 0);
