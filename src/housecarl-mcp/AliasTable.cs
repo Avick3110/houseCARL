@@ -167,8 +167,8 @@ internal static class AliasTable
     /// must never claim the old parameter "was retired" — it states where the job lives, concretely,
     /// and the refusal's supported-parameter list does the rest. No bare ellipses: every hint spells a
     /// usable form.
-    /// (conflict_tree's hint is deliberately absent at W0: whether the tree is a parameter or a
-    /// projection shape is §6's per-wave call — W2 adds the entry when the carrier exists.)
+    /// (conflict_tree's hint — deliberately absent at W0 — landed at W2 PR 1 gated on the `project`
+    /// carrier, per the consumer-inventory obligation: the tree is a PROJECT form, not a parameter.)
     /// A hint may carry SEVERAL gate params — ALL must be declared. property_contains is gated on
     /// where AND findings: no 1.x tool declares both, and W3's check (its true successor) declares
     /// both, so the hint activates exactly at its wave. Its single-gate form fired today on
@@ -179,6 +179,18 @@ internal static class AliasTable
     static readonly Dissolution[] Dissolutions =
     {
         new("editoridcontains", new[] { "where" }, "not a parameter here — this job is the where= predicate grammar: where=[\"editorid contains <text>\"]"),
+
+        // W2 PR 1 — the form-scoped PROJECT teachings (SPEC §2.2 F2): the flat 1.x spellings became sub-parameters
+        // of the project= form object on `records`, so a stray flat one gets the form-scoping rule by name. All
+        // gated on `project` — today that is exactly housecarl_records. conflict_tree is the CHARTERED W2 hint
+        // (the most-taught changing spelling — 9+ skills teach conflict_tree=true; consumer-inventory obligation):
+        // its PROJECT form (tree) ships in W2 PR 2, so the hint names both the destination and today's working
+        // spelling, and PR 2 trims the interim clause when the form lands.
+        new("conflicttree", new[] { "project" }, "not a parameter here — the provider tree is a PROJECT form: project={\"form\": \"tree\"} (lands with the W2 comparison forms; until then housecarl_read_record conflict_tree=true renders it)"),
+        new("fields",       new[] { "project" }, "not a parameter here — field paths live inside the form: project={\"form\": \"fields\", \"fields\": [\"<path>\", …]}"),
+        new("depth",        new[] { "project" }, "not a parameter here — depth lives inside the fields/everything forms: project={\"form\": \"fields\", \"fields\": […], \"depth\": <n>}"),
+        new("groupby",      new[] { "project" }, "not a parameter here — aggregation is a PROJECT form: project={\"form\": \"aggregate\", \"group_by\": \"winner\"}"),
+        new("resolvenames", new[] { "project" }, "not a parameter here — display annotation lives inside the fields/everything forms: project={\"form\": \"fields\", \"fields\": […], \"resolve_names\": true}"),
         new("propertycontains", new[] { "where", "findings" }, "not a parameter here — script-property predicates belong to the where= grammar: where=[\"<property path> contains <text>\"]"),
         new("mgefformid",   new[] { "walk" }, "not a parameter here — seed the walk= construct with the MGEF's FormID instead"),
         new("closure",      new[] { "walk" }, "not a parameter here — the closure copy is expressed as the walk= construct"),
