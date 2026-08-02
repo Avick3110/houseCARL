@@ -38,7 +38,17 @@ static class JsonWire
     public static string RenderResolve(IReadOnlyList<ResolvedRef> rows, int maxChars, string epoch)
         => RenderResolve(rows, maxChars, epoch, null, out _);
 
-    public static string RenderResolve(IReadOnlyList<ResolvedRef> rows, int maxChars, string epoch, SpillState? spill, out bool truncated)
+    /// <summary>W2 `records`: optional response-envelope pairs (form=, the resolved source arm, …) written as
+    /// top-level string fields at the START of a json document — so a json consumer sees the same call context
+    /// the text header line states, in-band, without any per-render shape change.</summary>
+    static void WriteEnvelope(Utf8JsonWriter w, IReadOnlyList<KeyValuePair<string, string>>? envelope)
+    {
+        if (envelope is null) return;
+        foreach (var kv in envelope) w.WriteString(kv.Key, kv.Value);
+    }
+
+    public static string RenderResolve(IReadOnlyList<ResolvedRef> rows, int maxChars, string epoch, SpillState? spill, out bool truncated,
+                                       IReadOnlyList<KeyValuePair<string, string>>? envelope = null)
     {
         truncated = false;
         int cap = Cap(maxChars);
@@ -47,6 +57,7 @@ static class JsonWire
         using (var w = new Utf8JsonWriter(ms, Opts))
         {
             w.WriteStartObject();
+            WriteEnvelope(w, envelope);
             w.WriteNumber("count", rows.Count);
             w.WriteString("epoch", epoch);   // §2.1.1: the ONE captured build the whole batch resolved against
             w.WriteStartArray("resolved");
@@ -274,7 +285,8 @@ static class JsonWire
     public static string RenderBatch(IReadOnlyList<ReadOutcome> outcomes, int maxChars)
         => RenderBatch(outcomes, maxChars, null, out _);
 
-    public static string RenderBatch(IReadOnlyList<ReadOutcome> outcomes, int maxChars, SpillState? spill, out bool truncated)
+    public static string RenderBatch(IReadOnlyList<ReadOutcome> outcomes, int maxChars, SpillState? spill, out bool truncated,
+                                     IReadOnlyList<KeyValuePair<string, string>>? envelope = null)
     {
         truncated = false;
         int cap = Cap(maxChars);
@@ -283,6 +295,7 @@ static class JsonWire
         using (var w = new Utf8JsonWriter(ms, Opts))
         {
             w.WriteStartObject();
+            WriteEnvelope(w, envelope);
             w.WriteNumber("count", outcomes.Count);
             // The whole batch reads ONE captured build (ResolveBatch) — response-level accounting, first non-null
             // (a malformed-FormID row never consulted a view and carries none).
@@ -308,6 +321,100 @@ static class JsonWire
         return Finish(ms);
     }
 
+    // ---- housecarl_records (W2 PR 1) ----------------------------------------------------------------
+
+    /// <summary>records counts_only on the list lane: the census document, no rows.</summary>
+    public static string RenderCounts(IReadOnlyList<KeyValuePair<string, string>> envelope, int count, int ok, int errors, string? epoch)
+    {
+        using var ms = new MemoryStream();
+        using (var w = new Utf8JsonWriter(ms, Opts))
+        {
+            w.WriteStartObject();
+            WriteEnvelope(w, envelope);
+            w.WriteNumber("count", count);
+            w.WriteNumber("ok", ok);
+            w.WriteNumber("errors", errors);
+            WriteNullable(w, "epoch", epoch);
+            w.WriteEndObject();
+        }
+        return Finish(ms);
+    }
+
+    /// <summary>records form=summary on the list lane: one identity+winner row per outcome (or its per-item
+    /// error) — the json twin of the text summary lines, spill marker in-band.</summary>
+    public static string RenderRecordsSummary(IReadOnlyList<ReadOutcome> outcomes, int maxChars,
+                                              IReadOnlyList<KeyValuePair<string, string>> envelope,
+                                              SpillState? spill, out bool truncated)
+    {
+        truncated = false;
+        int cap = Cap(maxChars);
+        bool manifestOnly = spill?.ManifestOnly ?? false;
+        using var ms = new MemoryStream();
+        using (var w = new Utf8JsonWriter(ms, Opts))
+        {
+            w.WriteStartObject();
+            WriteEnvelope(w, envelope);
+            w.WriteNumber("count", outcomes.Count);
+            WriteNullable(w, "epoch", outcomes.FirstOrDefault(o => o.Epoch is not null)?.Epoch);
+            w.WriteStartArray("records");
+            int rendered = 0; bool rowsTruncated = false;
+            foreach (var o in outcomes)
+            {
+                if (manifestOnly) break;
+                w.Flush();
+                if (ms.Length >= cap) { rowsTruncated = true; break; }
+                w.WriteStartObject();
+                w.WriteString("formid", o.FormKey.ToString());
+                if (o.Error is not null) w.WriteString("error", o.Error);
+                else
+                {
+                    w.WriteString("type", o.Record!.Type);
+                    WriteNullable(w, "editorid", o.Record.EditorId);
+                    WriteNullable(w, "source", o.SourcePlugin);
+                    WriteNullable(w, "winner", o.WinnerPlugin);
+                    w.WriteNumber("override_depth", o.OverrideDepth);
+                }
+                w.WriteEndObject();
+                rendered++;
+            }
+            w.WriteEndArray();
+            w.WriteNumber("rendered", rendered);
+            w.WriteBoolean("truncated", rowsTruncated);
+            truncated = rowsTruncated;
+            if (spill is not null) Artifacts.WriteSpillStateJson(w, spill);
+            w.WriteEndObject();
+        }
+        return Finish(ms);
+    }
+
+    /// <summary>records form=aggregate on the list lane: the count table over resolved rows, per-item errors
+    /// counted apart (never silently dropped from a census — Q3).</summary>
+    public static string RenderListAggregate(string groupBy, IReadOnlyList<KeyValuePair<string, int>> rows,
+                                             int count, int errors, string? epoch)
+    {
+        using var ms = new MemoryStream();
+        using (var w = new Utf8JsonWriter(ms, Opts))
+        {
+            w.WriteStartObject();
+            w.WriteString("form", "aggregate");
+            w.WriteString("group_by", groupBy);
+            w.WriteNumber("count", count);
+            if (errors > 0) w.WriteNumber("errors", errors);
+            WriteNullable(w, "epoch", epoch);
+            w.WriteStartArray("groups");
+            foreach (var (key, n) in rows.Select(r => (r.Key, r.Value)))
+            {
+                w.WriteStartObject();
+                w.WriteString("key", key);
+                w.WriteNumber("count", n);
+                w.WriteEndObject();
+            }
+            w.WriteEndArray();
+            w.WriteEndObject();
+        }
+        return Finish(ms);
+    }
+
     // ---- housecarl_cross_plugin_query (P6) ----------------------------------------------------------
     /// <summary>cross_plugin_query as JSON — three shapes matching the text render: group_by count table
     /// (<c>{group_by, total, groups:[…]}</c>), detail rows (full record objects with fields), or summary rows
@@ -321,7 +428,8 @@ static class JsonWire
     /// marker outside the json body would be invisible to a json consumer), <paramref name="truncated"/> is the
     /// auto-spill trigger handed back to the tool layer.</summary>
     public static string RenderCrossQuery(LoadOrderService svc, CrossQueryOutcome q, IReadOnlyList<string>? fields, int maxChars, bool resolveNames, bool winnerFields, int depth,
-                                          SpillState? spill, out bool truncated)
+                                          SpillState? spill, out bool truncated,
+                                          IReadOnlyList<KeyValuePair<string, string>>? envelope = null)
     {
         truncated = false;
         int cap = Cap(maxChars);
@@ -330,6 +438,7 @@ static class JsonWire
         using (var w = new Utf8JsonWriter(ms, Opts))
         {
             w.WriteStartObject();
+            WriteEnvelope(w, envelope);
             // Post-capture refusals are stamped (PR #305 contract — e.g. the artifact epoch-mismatch refusal);
             // pre-capture validation refusals carry null and render bare, same as the text twin.
             if (q.Error is not null) { w.WriteString("error", q.Error); if (q.Epoch is not null) w.WriteString("epoch", q.Epoch); }
@@ -435,7 +544,8 @@ static class JsonWire
         => RenderCrossQueryDense(svc, q, fields, maxChars, resolveNames, winnerFields, null, out _);
 
     public static string RenderCrossQueryDense(LoadOrderService svc, CrossQueryOutcome q, IReadOnlyList<string>? fields, int maxChars, bool resolveNames, bool winnerFields,
-                                               SpillState? spill, out bool truncated)
+                                               SpillState? spill, out bool truncated,
+                                               IReadOnlyList<KeyValuePair<string, string>>? envelope = null)
     {
         truncated = false;
         int cap = Cap(maxChars);
@@ -444,6 +554,7 @@ static class JsonWire
         using (var w = new Utf8JsonWriter(ms, Opts))
         {
             w.WriteStartObject();
+            WriteEnvelope(w, envelope);
             // Post-capture refusals are stamped (PR #305 contract); pre-capture validation refusals stay bare.
             if (q.Error is not null) { w.WriteString("error", q.Error); if (q.Epoch is not null) w.WriteString("epoch", q.Epoch); }
             else
@@ -878,13 +989,15 @@ static class JsonWire
     /// caveat), then the file/masters context and the mode payload: <c>record</c> (the FILE's own record — no winner,
     /// it's not resolved), <c>records</c> (enumerate), or <c>type_counts</c> (summary). <c>error</c>/<c>ambiguous</c>
     /// on failure.</summary>
-    public static string RenderPluginFile(PluginFileOutcome o, int maxChars)
+    public static string RenderPluginFile(PluginFileOutcome o, int maxChars,
+                                          IReadOnlyList<KeyValuePair<string, string>>? envelope = null)
     {
         int cap = Cap(maxChars);
         using var ms = new MemoryStream();
         using (var w = new Utf8JsonWriter(ms, Opts))
         {
             w.WriteStartObject();
+            WriteEnvelope(w, envelope);
             if (o.Mode == "error") { w.WriteString("error", o.Error); }
             else if (o.Mode == "ambiguous")
             {
