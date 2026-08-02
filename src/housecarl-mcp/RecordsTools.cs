@@ -321,7 +321,7 @@ public static class RecordsTools
             var epoch2 = outcomes.FirstOrDefault(o => o.Epoch is not null)?.Epoch;
 
             if (form == "aggregate")
-                return RenderListAggregate(outcomes, project!.group_by!, json, dense, epoch2);
+                return RenderListAggregate(outcomes, project!.group_by!, json, dense, epoch2, headerLine, envelope);
 
             if (counts_only)
             {
@@ -445,15 +445,60 @@ public static class RecordsTools
             if (form == "everything" && outcome.Error is null && outcome.Groups is null)
             {
                 var keys = outcome.Keys.Select(k => k.ToString()).ToList();
-                IReadOnlyList<ReadOutcome> bodies = srcName is null
-                    ? svc.ResolveBatch(keys, null, false, depth, resolveNames)
-                    : svc.ResolveBatchFromPole(keys, srcName, srcMod, null, depth, resolveNames, null, out _, out var bref, out _);
-                if (srcName is not null && bodies.Count == 0)
-                    return "error: the source pole vanished between the scan and the body read — the load order changed mid-call; retry.";
-                var bodyEpoch = bodies.FirstOrDefault(o => o.Epoch is not null)?.Epoch;
-                if (bodyEpoch is not null && outcome.Epoch is not null && bodyEpoch != outcome.Epoch)
-                    return $"error: the load order changed between the scan (epoch={outcome.Epoch}) and the body read (epoch={bodyEpoch}) — " +
-                           "the two halves would mix builds. Retry the call.";
+                IReadOnlyList<ReadOutcome> bodies;
+                if (srcName is not null)
+                {
+                    bodies = svc.ResolveBatchFromPole(keys, srcName, srcMod, null, depth, resolveNames, null,
+                                                      out _, out var bref, out var brefEpoch);
+                    // A refusal is judged on the NAMED cause, never on row count (review: a zero-match scan is an
+                    // honest EMPTY result, and the pole lane's real refusals were being replaced by a generic one).
+                    if (bref is not null)
+                        return json ? JsonWire.RenderError(bref, brefEpoch)
+                                    : "error: " + bref + (brefEpoch is not null ? $"\nepoch={brefEpoch}" : "");
+                }
+                else
+                {
+                    // The scan's per-match SOURCE decides whose body `everything` dumps — the SAME rule the fields
+                    // form renders by (review: this branch read the WINNER under a plugins= scope while the fields
+                    // form read the scoped body — same SELECT, different pole, nothing said so). Keys group by
+                    // their matched source and each group reads off its own plugin; fields_source="winner"
+                    // retargets display to the winner exactly as on the fields form.
+                    var srcs = outcome.Sources;
+                    if (winnerFields || srcs is null || srcs.Take(keys.Count).All(s => s is null))
+                        bodies = svc.ResolveBatch(keys, null, false, depth, resolveNames);
+                    else
+                    {
+                        var byIndex = new ReadOutcome[keys.Count];
+                        var bySource = new Dictionary<string, List<int>>(StringComparer.OrdinalIgnoreCase);
+                        var winnerIdx = new List<int>();
+                        for (int i = 0; i < keys.Count; i++)
+                        {
+                            var s = i < srcs.Count ? srcs[i] : null;
+                            if (s is null) { winnerIdx.Add(i); continue; }
+                            if (!bySource.TryGetValue(s, out var l)) bySource[s] = l = new List<int>();
+                            l.Add(i);
+                        }
+                        if (winnerIdx.Count > 0)
+                        {
+                            var res = svc.ResolveBatch(winnerIdx.Select(i => keys[i]).ToList(), null, false, depth, resolveNames);
+                            for (int i = 0; i < winnerIdx.Count; i++) byIndex[winnerIdx[i]] = res[i];
+                        }
+                        foreach (var kv in bySource)
+                        {
+                            var res = svc.ResolveBatch(kv.Value.Select(i => keys[i]).ToList(), null, false, depth, resolveNames, kv.Key);
+                            for (int i = 0; i < kv.Value.Count; i++) byIndex[kv.Value[i]] = res[i];
+                        }
+                        bodies = byIndex;
+                    }
+                }
+                // The selection and every body read must agree on ONE build (grouped reads capture per batch) —
+                // any divergence refuses loud rather than mixing builds. An empty selection has no body epochs
+                // and passes: it renders as an honest 0-row batch.
+                var bodyEpochs = bodies.Where(o => o.Epoch is not null).Select(o => o.Epoch!).Distinct().ToList();
+                if (outcome.Epoch is not null && bodyEpochs.Any(e => e != outcome.Epoch))
+                    return $"error: the load order changed between the scan (epoch={outcome.Epoch}) and the body read " +
+                           $"(epoch={string.Join(", ", bodyEpochs.Where(e => e != outcome.Epoch))}) — the two halves would mix builds. Retry the call.";
+                var bodyEpoch = bodyEpochs.FirstOrDefault() ?? outcome.Epoch;
                 envelope.Add(new("total", outcome.Total.ToString()));
                 headerLine += $"\n{outcome.Total} match(es); bodies for the {keys.Count}-row window below";
                 string RenderEv(SpillState? sp, out bool trunc) => json
@@ -518,6 +563,8 @@ public static class RecordsTools
                 return "error: the fields/everything forms over an out-of-load-order file SCAN land in W2 PR 2 — meanwhile enumerate with form='summary', then read the specific records via formids= (the one-pole batch reads any of the file's records in full).";
             if (dense) return "error: format='dense' is the in-order scan's columnar form — an off-order file scan renders text or json.";
             if (wantFile) return "error: to_file= over an out-of-load-order file scan lands in W2 PR 2 — enumerate inline, or batch-read via formids= with to_file=.";
+            if (offset > 0) return "error: offset= paging over an out-of-load-order file scan lands in W2 PR 2 — this wave renders the file's first limit= rows (narrow with types= or an 'editorid contains' clause).";
+            if (counts_only) return "error: counts_only= over an out-of-load-order file scan lands in W2 PR 2 — meanwhile form='aggregate' group_by='type' is the whole-file census.";
 
             // The one where-clause this lane carries natively: a single 'editorid contains <text>'.
             string? eidContains = null;
@@ -604,8 +651,11 @@ public static class RecordsTools
 
     /// <summary>The list-lane aggregate render: count the resolved rows by winner | type | defined_in — the batch
     /// twin of the scan lane's count table. Per-item errors are counted and named as their own bucket (never
-    /// silently dropped from a census — Q3).</summary>
-    static string RenderListAggregate(IReadOnlyList<ReadOutcome> outcomes, string groupBy, bool json, bool dense, string? epoch)
+    /// silently dropped from a census — Q3). Carries the SAME response envelope as every other form (review fold:
+    /// this render dropped the resolved source arm + the epoch-coverage qualifier — the one statement the tool
+    /// description promises unconditionally).</summary>
+    static string RenderListAggregate(IReadOnlyList<ReadOutcome> outcomes, string groupBy, bool json, bool dense, string? epoch,
+                                      string headerLine, List<KeyValuePair<string, string>> envelope)
     {
         var gb = groupBy.Trim().ToLowerInvariant();
         if (gb is not ("winner" or "type" or "defined_in"))
@@ -625,9 +675,9 @@ public static class RecordsTools
         }
         var rows = groups.OrderByDescending(g => g.Value).ThenBy(g => g.Key, StringComparer.Ordinal).ToList();
         if (json || dense)
-            return JsonWire.RenderListAggregate(gb, rows, outcomes.Count, errors, epoch);
+            return JsonWire.RenderListAggregate(gb, rows, outcomes.Count, errors, epoch, envelope);
         var sb = new StringBuilder();
-        sb.Append("records  form=aggregate  group_by=").Append(gb).Append('\n');
+        sb.Append(headerLine).Append("  group_by=").Append(gb).Append('\n');
         sb.Append(outcomes.Count).Append(" record(s)");
         if (errors > 0) sb.Append("  (").Append(errors).Append(" per-item error(s) — counted apart, listed via form='summary')");
         if (epoch is not null) sb.Append("  epoch=").Append(epoch);

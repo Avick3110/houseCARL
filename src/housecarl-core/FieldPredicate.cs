@@ -104,6 +104,13 @@ public sealed class FieldPredicateSet
     /// winner name) — the call site opens an overlay session for the fetch when true.</summary>
     public bool NeedsBodyResolution => _predicates.Any(p => p.LinkPath is not null);
 
+    /// <summary>Whether any predicate reads record BODY content (a leaf walk or a link step) — false when every
+    /// term is header/resolution-only (`editorid`, `winner`, `formid` membership). The scan's deleted-record
+    /// guard keys on this (review fold): a deleted record has no live body for the CONTENT filters, but its
+    /// EditorID and its winner resolution are real facts — a header-only predicate set must still see it, exactly
+    /// as the 1.x `editorid_contains=` deliberately did.</summary>
+    public bool NeedsLiveBody => _predicates.Any(p => p.LinkPath is not null || p.Pseudo == PseudoPath.None);
+
     /// <summary>Bind the scan's resolution context: <paramref name="winnerOf"/> answers "which plugin wins this
     /// FormKey" (the `winner` term), <paramref name="fetchWinnerBody"/> produces a linked target's winner body
     /// (the `-&gt;` link step; null when the target doesn't resolve). Both must come from the SAME captured view
@@ -269,7 +276,7 @@ public sealed class FieldPredicateSet
                 return (null, $"predicate '{raw}': 'winner' is the provenance term (which plugin WINS the record) and takes '=' or '!=' with a plugin filename — e.g. \"winner = Requiem.esp\".");
         }
         if (pseudo == PseudoPath.EditorId && op is Op.Gt or Op.Ge or Op.Lt or Op.Le or Op.Has)
-            return (null, $"predicate '{raw}': 'editorid' is a text term — use = != contains startswith exists missing (got '{OpStr(op)}').");
+            return (null, $"predicate '{raw}': 'editorid' is a text term — use = != contains startswith exists missing in 'not in' (got '{OpStr(op)}').");
 
         // A presence op (exists/missing) takes NO operand — a trailing value is a mistake, refused loud (Q3, never
         // silently ignored). Every other op REQUIRES an operand.
@@ -534,13 +541,18 @@ public sealed class FieldPredicateSet
                 bool present = !string.IsNullOrEmpty(eid);
                 return (p.Op == Op.Exists ? present : !present, EvalKind.Definite);
             }
-            if (eid is null) return (false, EvalKind.Definite);   // no EditorID ⇒ a definite non-match (editorid_contains= semantics, carried)
+            // A null EditorID is a DEFINITE verdict either way, but the polarity must be right per op (review
+            // finding: a blanket non-match silently dropped every no-EditorID record from '!=' — a record with
+            // no EditorID is unambiguously NOT EQUAL to any operand, and NOT IN any list). The positive ops
+            // (=, contains, startswith, in) keep the 1.x editorid_contains= semantics: no EditorID never matches.
             bool ok = p.Op switch
             {
-                Op.Eq => string.Equals(eid, p.Operand, StringComparison.OrdinalIgnoreCase),
-                Op.Ne => !string.Equals(eid, p.Operand, StringComparison.OrdinalIgnoreCase),
-                Op.Contains => eid.Contains(p.Operand, StringComparison.OrdinalIgnoreCase),
-                Op.StartsWith => eid.StartsWith(p.Operand, StringComparison.OrdinalIgnoreCase),
+                Op.Eq => eid is not null && string.Equals(eid, p.Operand, StringComparison.OrdinalIgnoreCase),
+                Op.Ne => eid is null || !string.Equals(eid, p.Operand, StringComparison.OrdinalIgnoreCase),
+                Op.Contains => eid is not null && eid.Contains(p.Operand, StringComparison.OrdinalIgnoreCase),
+                Op.StartsWith => eid is not null && eid.StartsWith(p.Operand, StringComparison.OrdinalIgnoreCase),
+                Op.In => eid is not null && p.RawMembers!.Any(m => string.Equals(eid, m, StringComparison.OrdinalIgnoreCase)),
+                Op.NotIn => eid is null || !p.RawMembers!.Any(m => string.Equals(eid, m, StringComparison.OrdinalIgnoreCase)),
                 _ => false,
             };
             return (ok, EvalKind.Definite);

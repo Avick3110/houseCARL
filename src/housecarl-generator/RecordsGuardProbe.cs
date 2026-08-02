@@ -84,6 +84,9 @@ internal static class RecordsGuardProbe
             var ovMod = new SkyrimMod(ovKey, SkyrimRelease.SkyrimSE);
             ((IWeapon)WriteEngine.GenericGetOrAddAsOverride(ovMod, master.Weapons.First(w => w.FormKey == weapons[0])))
                 .BasicStats = new WeaponBasicStats { Damage = 99, Weight = 1 };
+            // A DELETED override (PR #307 review fold): header/resolution-only where-terms must still see it.
+            ((IWeapon)WriteEngine.GenericGetOrAddAsOverride(ovMod, master.Weapons.First(w => w.FormKey == weapons[2])))
+                .IsDeleted = true;
 
             var oldMod = new SkyrimMod(oldKey, SkyrimRelease.SkyrimSE);
             ((IWeapon)WriteEngine.GenericGetOrAddAsOverride(oldMod, master.Weapons.First(w => w.FormKey == weapons[1])))
@@ -225,7 +228,7 @@ internal static class RecordsGuardProbe
                   "identity form + a named source refuses by contract (identity is the resolution frame)");
 
             // default form (summary) + the ACTIVE one-pole arm + the touchers-named untouched refusal
-            var sumActive = RecordsTools.Records(svc, formids: new[] { Fid(weapons[0]), Fid(weapons[2]) }, source: Je($"\"{ovName}\""));
+            var sumActive = RecordsTools.Records(svc, formids: new[] { Fid(weapons[0]), Fid(weapons[1]) }, source: Je($"\"{ovName}\""));
             Check(sumActive.Contains("form=summary") && sumActive.Contains("active in the load order"),
                   "one-pole ACTIVE arm: the response STATES the arm (source= name — active)");
             Check(sumActive.Contains("does not touch") && sumActive.Contains(masterName) && sumActive.Contains(ovName),
@@ -286,7 +289,7 @@ internal static class RecordsGuardProbe
             Check(linkStep.Contains("HcRecSpellA") && !linkStep.Contains("HcRecSpellB"),
                   "the -> link step rides where= end to end (spells whose effect target matches)");
             var eidTerm = RecordsTools.Records(svc, types: new[] { "WEAP" }, where: new[] { "editorid startswith HcRecW" });
-            Check(eidTerm.Contains("HcRecW0") && eidTerm.Contains("HcRecW2"),
+            Check(eidTerm.Contains("HcRecW0") && eidTerm.Contains("HcRecW1"),
                   "the editorid term replaces editorid_contains= (startswith works in a scan)");
 
             // form-scoping refusals + staged refusals
@@ -338,6 +341,67 @@ internal static class RecordsGuardProbe
                   "off-order scan: the fields form refuses by name (staged) with the formids= workaround");
 
             // ============================================================================================
+            //  4b — PR #307 review folds
+            // ============================================================================================
+            Console.WriteLine();
+            Console.WriteLine("--- 4b: review folds — null-EditorID polarity, deleted records, pole coherence, empty results ---");
+
+            // editorid '!=' / membership polarity over a no-EditorID record (findings 2 + 7).
+            Check(Run(new[] { "editorid != HcRecW0" }, weapBodies)
+                      .SetEquals(weapBodies.Select(b => b.FormKey).Where(k => k != weapons[0])),
+                  "editorid '!=' KEEPS the no-EditorID record (not-equal is unambiguously true there)");
+            Check(Run(new[] { "editorid in [HcRecW0, HcRecW2]" }, weapBodies).SetEquals(new[] { weapons[0], weapons[2] }),
+                  "editorid membership: 'in [list]' selects exactly the listed EditorIDs");
+            Check(Run(new[] { "editorid not in [HcRecW0]" }, weapBodies)
+                      .SetEquals(weapBodies.Select(b => b.FormKey).Where(k => k != weapons[0])),
+                  "editorid membership: 'not in' keeps the rest INCLUDING the no-EditorID record");
+
+            // Header/resolution-only terms see DELETED records; body terms still skip them (finding 4).
+            var delWin = RecordsTools.Records(svc, types: new[] { "WEAP" }, where: new[] { $"winner = {ovName}" });
+            Check(delWin.Contains(Fid(weapons[2])),
+                  "the winner term SEES a deleted record (resolution is a real fact about it)");
+            var delBody = RecordsTools.Records(svc, types: new[] { "WEAP" }, where: new[] { "BasicStats.Damage > 0" });
+            Check(!delBody.Contains(Fid(weapons[2])),
+                  "…while a body predicate still skips it (no live body to judge)");
+
+            // everything under a plugins= scope reads the SCOPED body — the fields form's pole (finding 3).
+            var evScoped = RecordsTools.Records(svc, plugins: new RecordsTools.RecordsScope { names = new[] { masterName } },
+                                                types: new[] { "WEAP" }, where: new[] { "editorid = HcRecW0" },
+                                                project: new RecordsTools.RecordsProject { form = "everything", depth = 2 });
+            Check(evScoped.Contains("Damage = 10") && !evScoped.Contains("Damage = 99"),
+                  "scan+everything under plugins= dumps the SCOPED body (the matched pole), not the winner");
+            var evScopedW = RecordsTools.Records(svc, plugins: new RecordsTools.RecordsScope { names = new[] { masterName } },
+                                                 types: new[] { "WEAP" }, where: new[] { "editorid = HcRecW0" }, fields_source: "winner",
+                                                 project: new RecordsTools.RecordsProject { form = "everything", depth = 2 });
+            Check(evScopedW.Contains("Damage = 99"),
+                  "…and fields_source='winner' retargets the dump to the winner, same as the fields form");
+
+            // A zero-match scan is an honest EMPTY result, never the mid-call-tear message (finding 1).
+            var evEmpty = RecordsTools.Records(svc, types: new[] { "WEAP" }, where: new[] { "BasicStats.Damage > 9999" },
+                                               source: Je($"\"{ovName}\""),
+                                               project: new RecordsTools.RecordsProject { form = "everything" });
+            Check(!evEmpty.StartsWith("error:") && !evEmpty.Contains("vanished") && evEmpty.Contains("0 match(es)"),
+                  "a zero-match scan + named source + everything renders an honest empty result, not a tear refusal");
+
+            // Off-order scan: offset= and counts_only= refuse by name (finding 5).
+            var offOffset = RecordsTools.Records(svc, types: new[] { "WEAP" }, source: Je($"\"{oldName}\""), offset: 500);
+            Check(offOffset.StartsWith("error:") && offOffset.Contains("offset"),
+                  "off-order scan: offset= refuses by name (no silent same-window paging)");
+            var offCounts = RecordsTools.Records(svc, types: new[] { "WEAP" }, source: Je($"\"{oldName}\""), counts_only: true);
+            Check(offCounts.StartsWith("error:") && offCounts.Contains("counts_only"),
+                  "off-order scan: counts_only= refuses by name");
+
+            // List aggregate carries the source arm + coverage qualifier in BOTH formats (finding 6).
+            var aggOld = RecordsTools.Records(svc, formids: new[] { Fid(weapons[1]) }, source: Je($"\"{oldName}\""),
+                                              project: new RecordsTools.RecordsProject { form = "aggregate", group_by = "winner" });
+            Check(aggOld.Contains("OUT-OF-LOAD-ORDER"),
+                  "list aggregate (text) states the resolved OFF-ORDER arm");
+            var aggOldJson = RecordsTools.Records(svc, formids: new[] { Fid(weapons[1]) }, source: Je($"\"{oldName}\""), format: "json",
+                                                  project: new RecordsTools.RecordsProject { form = "aggregate", group_by = "winner" });
+            Check(aggOldJson.Contains("OUT-OF-LOAD-ORDER") && aggOldJson.Contains("epoch_covers_source"),
+                  "list aggregate (json) carries the arm + the epoch-coverage qualifier in the envelope");
+
+            // ============================================================================================
             //  5 — TRANSPORT: to_file + @artifact re-entry, epoch-checked
             // ============================================================================================
             Console.WriteLine();
@@ -350,7 +414,7 @@ internal static class RecordsGuardProbe
                   "to_file: the artifact is written, the response is manifest-only inline");
             var reenter = RecordsTools.Records(svc, formids: new[] { "@" + artPath },
                                                project: new RecordsTools.RecordsProject { form = "identity" });
-            Check(reenter.Contains("HcRecW0") && reenter.Contains("HcRecW2") && !reenter.StartsWith("error:"),
+            Check(reenter.Contains("HcRecW0") && reenter.Contains("HcRecW1") && !reenter.StartsWith("error:"),
                   "@artifact re-entry: the identity column becomes the list against the SAME build");
             File.SetLastWriteTimeUtc(ovFile, DateTime.UtcNow.AddMinutes(5));   // change the order → new epoch
             var stale = RecordsTools.Records(svc, formids: new[] { "@" + artPath },
