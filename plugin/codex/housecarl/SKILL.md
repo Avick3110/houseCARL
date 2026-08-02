@@ -29,6 +29,7 @@ Use this skill for data-layer Skyrim Special Edition modding through the configu
 Beyond the core workflow, reach for the right group. Depth for the specialist areas lives in the helper skills (next section) — load the skill before composing in that area.
 
 **Read / query / resolve**
+- `housecarl_records` — the consolidated 2.0 read surface (SELECT × SOURCE × PROJECT in one call): record lists or scans, any plugin's version wherever it lives (active or on disk), form-scoped `project=` shapes. The 1.x read tools below keep working through the 2.0 build.
 - `housecarl_read_record`, `housecarl_batch_record_detail` — read one or many records at the true winner (`conflict_tree=true` for provenance).
 - `housecarl_read_plugin_file` — read a plugin directly, even one that is disabled or not active.
 - `housecarl_cross_plugin_query` — query and filter records or references across the whole order; page with `offset=`, count with `group_by=`.
