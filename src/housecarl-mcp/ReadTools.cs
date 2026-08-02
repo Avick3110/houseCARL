@@ -82,15 +82,68 @@ public static class ReadTools
         [Description("Optional. 'text' (default) or 'json' — a machine-readable {count, records:[…], rendered, truncated} document (each record like read_record's json; field values are the SAME tokens as text). conflict_tree is a text-only diff view.")]
             string? format = null,
         [Description("Optional. Max characters before the response stops with an explicit 'rendered X of N' notice. 0 = the server default (~80k).")]
-            int max_chars = 0) => Guard.Tool("housecarl_batch_record_detail", () =>
+            int max_chars = 0,
+        [Description("Optional. Write the COMPLETE batch to this ABSOLUTE .jsonl path as a §2.1.1 artifact (line 1 = manifest with the epoch fingerprint; then one JSON record-row per input, per-item errors included) and render only the manifest inline. Re-enter it later via formids=[\"@<path>\"] — epoch-checked against the then-current build. Not combinable with conflict_tree (a text-only view with no row form).")]
+            string? to_file = null) => Guard.Tool("housecarl_batch_record_detail", () =>
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
         if (formids is null || formids.Length == 0) return "error: formids is empty. Pass one or more 'XXXXXX:Plugin.esp' FormIDs.";
         bool json = Wire.WantsJson(format, out var ferr);
         if (ferr is not null) return ferr;
         if (json && conflict_tree) return "error: conflict_tree=true is a text-only diff view and is not carried in json mode — use format=text for the conflict tree, or drop conflict_tree for the json field data.";
-        var outcomes = svc.ResolveBatch(formids, fields, conflict_tree, depth <= 0 ? 1 : depth, resolve_names, plugin?.Trim());
-        return json ? JsonWire.RenderBatch(outcomes, max_chars) : Wire.RenderBatch(svc, outcomes, fields, conflict_tree, max_chars);
+
+        // formids= under the @file convention (§5.1): a single "@<path>" element stands for the whole list — a
+        // plain file's tokens, or a §2.1.1 artifact's identity column + its epoch demand (checked in the batch's
+        // own capture: scan once, project forever, never against a build the artifact didn't come from).
+        var (toks, demand, echoSrc, xerr) = Artifacts.ExpandListInput(formids, "formids");
+        if (xerr is not null) return xerr;
+        formids = toks!;
+
+        var toFile = to_file?.Trim();
+        bool wantFile = !string.IsNullOrEmpty(toFile);
+        if (wantFile)
+        {
+            if (Artifacts.ValidateToFile(toFile!) is { } verr) return verr;
+            if (conflict_tree) return "error: to_file= writes the result as JSONL rows, and conflict_tree=true is a text-only diff view with no row form — drop one of the two.";
+        }
+
+        var outcomes = svc.ResolveBatch(formids, fields, conflict_tree, depth <= 0 ? 1 : depth, resolve_names, plugin?.Trim(),
+                                        demand, out var artifactRefusal, out var refusalEpoch);
+        if (artifactRefusal is not null)
+            return json ? JsonWire.RenderError(artifactRefusal, refusalEpoch)
+                        : "error: " + artifactRefusal + (refusalEpoch is not null ? $"\nepoch={refusalEpoch}" : "");
+
+        List<KeyValuePair<string, string>> Echo()
+        {
+            var e = new List<KeyValuePair<string, string>> { new("formids", echoSrc ?? $"{formids.Length} inline formid(s)") };
+            void Add(string k, string? v) { if (!string.IsNullOrEmpty(v)) e.Add(new(k, v!)); }
+            Add("plugin", plugin?.Trim());
+            Add("fields", fields is { Length: > 0 } ? string.Join(", ", fields) : null);
+            if (depth > 1) Add("depth", depth.ToString());
+            return e;
+        }
+
+        SpillState? spill = null;
+        if (wantFile)
+        {
+            var (s, aerr) = Artifacts.WriteBatch(outcomes, toFile!, "to_file", Echo());
+            if (aerr is not null) return "error: " + aerr;
+            spill = SpillState.Spilled(s!, manifestOnly: true);
+        }
+
+        string Render(SpillState? sp, out bool trunc) => json
+            ? JsonWire.RenderBatch(outcomes, max_chars, sp, out trunc)
+            : Wire.RenderBatch(svc, outcomes, fields, conflict_tree, max_chars, sp, out trunc);
+        var rendered = Render(spill, out var truncated);
+        if (spill is null && truncated)
+        {
+            // AUTO-SPILL (§2.1.1): the complete batch goes to the server results dir; the response re-renders
+            // with the spilled marker in-band. See cross_plugin_query's twin for the contract notes.
+            var path = ResultsStore.NextPath("housecarl_batch_record_detail", outcomes.FirstOrDefault(o => o.Epoch is not null)?.Epoch ?? "none");
+            var (s, aerr) = Artifacts.WriteBatch(outcomes, path, "ceiling", Echo());
+            rendered = Render(aerr is null ? SpillState.Spilled(s!, manifestOnly: false) : SpillState.Failed(aerr), out _);
+        }
+        return rendered;
     });
 
     [McpServerTool(Name = "housecarl_diff_record", ReadOnly = true, Title = "Diff two plugins' versions of a record"),
@@ -187,7 +240,9 @@ public static class ReadTools
         [Description("Optional. Skip the first N post-filter matches before returning rows (#223 pagination) — combine with limit= to page a big enumeration in windows (offset=0/500/1000…). Scan order is deterministic while the load order is unchanged, so windows tile exactly. The true total always counts ALL matches. Not valid with group_by= (a count table has no window). Every response carries epoch=<hex> in-band — the identity of the load-order build it was answered from: windows tile ONLY within one epoch, so if two pages' epochs differ, the load order changed mid-pagination and the pages must not be stitched (re-run from offset=0).")]
             int offset = 0,
         [Description("Optional. Max characters before the response stops with an explicit notice. 0 = the server default (~80k).")]
-            int max_chars = 0) => Guard.Tool("housecarl_cross_plugin_query", () =>
+            int max_chars = 0,
+        [Description("Optional. Write the COMPLETE result to this ABSOLUTE .jsonl path as a §2.1.1 artifact (line 1 = a manifest carrying the query echo, row count/schema, and the epoch fingerprint; then one JSON row per match) and render only the manifest inline. The artifact is never windowed: limit=/offset= do not apply to it (offset= is refused with to_file=). Re-enter it later via where=[\"formid in @<path>\"] — epoch-checked against the then-current build. Not combinable with conflict_tree (a text-only view with no row form).")]
+            string? to_file = null) => Guard.Tool("housecarl_cross_plugin_query", () =>
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
         var fmt = Wire.CrossQueryFormat(format, out var ferr);
@@ -202,6 +257,16 @@ public static class ReadTools
             return "error: depth= expands the list/dict contents of fields= paths, and no fields= was passed — summary lines have nothing to expand. Pass fields= (e.g. fields=['Effects'], depth=4) or conflict_tree=true (the whole-record dump), or drop depth=.";
         if (depth > 1 && fmt is Wire.QueryFormat.Dense)
             return "error: depth>1 is not carried in format='dense' — dense rows are positional (one cell per requested fields= path), and depth expansion emits extra sub-paths that would break the column alignment. Use format=text or format=json for depth expansion, or drop depth= for the dense summary cells.";
+        // references= may itself be an @file / @artifact list (the §5.1 @file convention) — expanded BEFORE the
+        // FormKey parse; an artifact target contributes its epoch demand, checked inside the scan's own capture.
+        HousecarlCore.ArtifactDemand? refDemand = null;
+        string? refEcho = null;
+        if (references is { Length: > 0 })
+        {
+            var (toks, demand, echoSrc, xerr) = Artifacts.ExpandListInput(references, "references");
+            if (xerr is not null) return xerr;
+            references = toks!; refDemand = demand; refEcho = echoSrc;
+        }
         IReadOnlyList<FormKey>? refFks = null;
         if (references is { Length: > 0 })
         {
@@ -214,15 +279,71 @@ public static class ReadTools
             }
             if (list.Count > 0) refFks = list.Distinct().ToList();   // preserve input order, drop dupes
         }
-        var outcome = svc.CrossQuery(type, refFks, editorid_contains, conflicts_only, plugins, where, limit <= 0 ? 500 : limit, defined_in, group_by, offset, where_source);
+
+        // to_file= (§2.1.1): validated BEFORE the scan — a doomed disposition must not pay a scan first.
+        var toFile = to_file?.Trim();
+        bool wantFile = !string.IsNullOrEmpty(toFile);
+        if (wantFile)
+        {
+            if (Artifacts.ValidateToFile(toFile!) is { } verr) return verr;
+            if (conflict_tree) return "error: to_file= writes the result as JSONL rows, and conflict_tree=true is a text-only diff view with no row form — drop one of the two.";
+            if (offset > 0) return "error: to_file= captures the COMPLETE result (the artifact is never a window), so offset= has nothing to page — drop offset=.";
+        }
+
+        var outcome = svc.CrossQuery(type, refFks, editorid_contains, conflicts_only, plugins, where,
+                                     wantFile ? int.MaxValue : (limit <= 0 ? 500 : limit),   // to_file: the artifact is the FULL result, never limit-windowed
+                                     defined_in, group_by, offset, where_source,
+                                     refDemand is null ? null : new[] { refDemand });
+
+        // The query echo the manifest carries — what produced this artifact, readable without this conversation.
+        List<KeyValuePair<string, string>> Echo()
+        {
+            var e = new List<KeyValuePair<string, string>>();
+            void Add(string k, string? v) { if (!string.IsNullOrEmpty(v)) e.Add(new(k, v!)); }
+            Add("type", type);
+            Add("references", refEcho ?? (references is { Length: > 0 } ? string.Join(", ", references) : null));
+            Add("editorid_contains", editorid_contains);
+            if (conflicts_only) Add("conflicts_only", "true");
+            Add("plugins", plugins is { Length: > 0 } ? string.Join(", ", plugins) : null);
+            if (defined_in) Add("defined_in", "true");
+            Add("where", where is { Length: > 0 } ? string.Join(" AND ", where) : null);
+            Add("group_by", group_by);
+            Add("fields", fields is { Length: > 0 } ? string.Join(", ", fields) : null);
+            if (depth > 1) Add("depth", depth.ToString());
+            if (winner_fields) Add("winner_fields", "true");
+            Add("where_source", where_source);
+            return e;
+        }
+
+        SpillState? spill = null;
+        if (wantFile && outcome.Error is null)
+        {
+            var (s, aerr) = Artifacts.WriteCrossQuery(svc, outcome, fields, resolve_names, winner_fields, depth, toFile!, "to_file", Echo());
+            if (aerr is not null) return "error: " + aerr;
+            spill = SpillState.Spilled(s!, manifestOnly: true);
+        }
+
         // dense + group_by: the count table is already columnar — render it exactly as json (documented on format=),
         // so dense is never a refusal there and the two renders can't drift.
-        return fmt switch
+        string Render(SpillState? sp, out bool trunc) => fmt switch
         {
-            Wire.QueryFormat.Dense when group_by is null => JsonWire.RenderCrossQueryDense(svc, outcome, fields, max_chars, resolve_names, winner_fields),
-            Wire.QueryFormat.Dense or Wire.QueryFormat.Json => JsonWire.RenderCrossQuery(svc, outcome, fields, max_chars, resolve_names, winner_fields, depth),
-            _ => Wire.RenderCrossQuery(svc, outcome, fields, conflict_tree, max_chars, resolve_names, winner_fields, depth),
+            Wire.QueryFormat.Dense when group_by is null => JsonWire.RenderCrossQueryDense(svc, outcome, fields, max_chars, resolve_names, winner_fields, sp, out trunc),
+            Wire.QueryFormat.Dense or Wire.QueryFormat.Json => JsonWire.RenderCrossQuery(svc, outcome, fields, max_chars, resolve_names, winner_fields, depth, sp, out trunc),
+            _ => Wire.RenderCrossQuery(svc, outcome, fields, conflict_tree, max_chars, resolve_names, winner_fields, depth, sp, out trunc),
         };
+        var rendered = Render(spill, out var truncated);
+        if (spill is null && truncated && outcome.Error is null)
+        {
+            // AUTO-SPILL (§2.1.1, decided over refuse-and-redirect): the inline render hit max_chars, so the
+            // complete requested window goes to the server results dir and the response re-renders with the
+            // spilled marker IN-BAND (both formats). The rows are re-filled off the SAME pinned view the scan
+            // stamped, so the file cannot mix builds the header didn't claim. A failed write re-renders with the
+            // failure named — a truncated response silently missing its promised artifact is the Q3 case.
+            var path = ResultsStore.NextPath("housecarl_cross_plugin_query", outcome.Epoch ?? "none");
+            var (s, aerr) = Artifacts.WriteCrossQuery(svc, outcome, fields, resolve_names, winner_fields, depth, path, "ceiling", Echo());
+            rendered = Render(aerr is null ? SpillState.Spilled(s!, manifestOnly: false) : SpillState.Failed(aerr), out _);
+        }
+        return rendered;
     });
 
     [McpServerTool(Name = "housecarl_resolve", ReadOnly = true, Title = "Resolve FormIDs to their identity"),
@@ -245,14 +366,50 @@ public static class ReadTools
         [Description("Optional. 'text' (default) — one compact identity line per FormID — or 'json' for a machine-readable document (one {formid,type,editorid,name,winner} row per input; a bad/absent input carries {formid,error}).")]
             string? format = null,
         [Description("Optional. Max characters before the response stops with an explicit notice (text) or drops trailing rows with truncated=true (json). 0 = the server default (~80k).")]
-            int max_chars = 0) => Guard.Tool("housecarl_resolve", () =>
+            int max_chars = 0,
+        [Description("Optional. Write the COMPLETE identity table to this ABSOLUTE .jsonl path as a §2.1.1 artifact (line 1 = manifest with the epoch fingerprint; then one identity row per input, per-item errors included) and render only the manifest inline. Re-enter it later via formids=[\"@<path>\"] — epoch-checked against the then-current build.")]
+            string? to_file = null) => Guard.Tool("housecarl_resolve", () =>
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
         if (formids is null || formids.Length == 0) return "error: formids is empty. Pass one or more 'XXXXXX:Plugin.esp' FormIDs.";
         bool json = Wire.WantsJson(format, out var ferr);
         if (ferr is not null) return ferr;
-        var rows = svc.ResolveRefs(formids, out var epoch);
-        return json ? JsonWire.RenderResolve(rows, max_chars, epoch) : Wire.RenderResolve(rows, max_chars, epoch);
+
+        // formids= under the @file convention — see batch_record_detail's twin.
+        var (toks, demand, echoSrc, xerr) = Artifacts.ExpandListInput(formids, "formids");
+        if (xerr is not null) return xerr;
+        formids = toks!;
+
+        var toFile = to_file?.Trim();
+        bool wantFile = !string.IsNullOrEmpty(toFile);
+        if (wantFile && Artifacts.ValidateToFile(toFile!) is { } verr) return verr;
+
+        var rows = svc.ResolveRefs(formids, demand, out var epoch, out var artifactRefusal);
+        if (artifactRefusal is not null)
+            return json ? JsonWire.RenderError(artifactRefusal, epoch)
+                        : "error: " + artifactRefusal + $"\nepoch={epoch}";
+
+        var echo = new List<KeyValuePair<string, string>> { new("formids", echoSrc ?? $"{formids.Length} inline formid(s)") };
+        SpillState? spill = null;
+        if (wantFile)
+        {
+            var (s, aerr) = Artifacts.WriteResolve(rows, epoch, toFile!, "to_file", echo);
+            if (aerr is not null) return "error: " + aerr;
+            spill = SpillState.Spilled(s!, manifestOnly: true);
+        }
+
+        string Render(SpillState? sp, out bool trunc) => json
+            ? JsonWire.RenderResolve(rows, max_chars, epoch, sp, out trunc)
+            : Wire.RenderResolve(rows, max_chars, epoch, sp, out trunc);
+        var rendered = Render(spill, out var truncated);
+        if (spill is null && truncated)
+        {
+            // AUTO-SPILL (§2.1.1) — see cross_plugin_query's twin for the contract notes.
+            var path = ResultsStore.NextPath("housecarl_resolve", epoch);
+            var (s, aerr) = Artifacts.WriteResolve(rows, epoch, path, "ceiling", echo);
+            rendered = Render(aerr is null ? SpillState.Spilled(s!, manifestOnly: false) : SpillState.Failed(aerr), out _);
+        }
+        return rendered;
     });
 
     [McpServerTool(Name = "housecarl_effect_chain", ReadOnly = true, Title = "Resolve an effect's carriers + magnitudes"),
@@ -547,15 +704,20 @@ static class Wire
     /// FormID (type/editorid/name/winner), or <c>error=</c> for a bad/absent input (per-item, the batch survives — Q3).
     /// Budget-bounded with the same explicit cut the other reads use.</summary>
     public static string RenderResolve(IReadOnlyList<ResolvedRef> rows, int maxChars, string epoch)
+        => RenderResolve(rows, maxChars, epoch, null, out _);
+
+    public static string RenderResolve(IReadOnlyList<ResolvedRef> rows, int maxChars, string epoch, SpillState? spill, out bool truncated)
     {
+        truncated = false;
         int cap = Cap(maxChars);
         var sb = new StringBuilder();
         sb.Append("resolve: ").Append(rows.Count).Append(rows.Count == 1 ? " formid" : " formids")
           .Append("  epoch=").Append(epoch).Append('\n');
-        for (int i = 0; i < rows.Count; i++)
+        for (int i = 0; i < rows.Count && !(spill?.ManifestOnly ?? false); i++)
         {
             if (sb.Length >= cap)
             {
+                truncated = true;
                 sb.Append("... [truncated: rendered ").Append(i).Append(" of ").Append(rows.Count)
                   .Append(" at max_chars=").Append(cap).Append("; request fewer formids or raise max_chars]\n");
                 break;
@@ -571,6 +733,7 @@ static class Wire
             else sb.Append("  error=").Append(r.Error ?? "not present in the active order");
             sb.Append('\n');
         }
+        if (spill is not null) Artifacts.AppendSpillStateText(sb, spill);
         return sb.ToString().TrimEnd('\n');
     }
 
@@ -591,7 +754,12 @@ static class Wire
 
     // ---- housecarl_batch_record_detail --------------------------------------------------------------
     public static string RenderBatch(LoadOrderService svc, IReadOnlyList<ReadOutcome> outcomes, IReadOnlyList<string>? fields, bool conflictTree, int maxChars)
+        => RenderBatch(svc, outcomes, fields, conflictTree, maxChars, null, out _);
+
+    public static string RenderBatch(LoadOrderService svc, IReadOnlyList<ReadOutcome> outcomes, IReadOnlyList<string>? fields, bool conflictTree, int maxChars,
+                                     SpillState? spill, out bool truncated)
     {
+        truncated = false;
         int cap = Cap(maxChars);
         var sb = new StringBuilder();
         sb.Append("batch: ").Append(outcomes.Count).Append(outcomes.Count == 1 ? " record" : " records");
@@ -602,8 +770,10 @@ static class Wire
         int rendered = 0;
         foreach (var o in outcomes)
         {
+            if (spill?.ManifestOnly ?? false) break;   // to_file: only the manifest renders — the rows are the FILE
             if (sb.Length >= cap)
             {
+                truncated = true;
                 sb.Append("... [truncated: rendered ").Append(rendered).Append(" of ").Append(outcomes.Count)
                   .Append(" records before hitting max_chars=").Append(cap)
                   .Append("; request fewer formids, pass fields= to slim each, or raise max_chars]\n");
@@ -614,6 +784,7 @@ static class Wire
             else { AppendRecord(sb, o, cap); if (conflictTree) AppendConflictTree(sb, svc, o, fields, cap); }
             rendered++;
         }
+        if (spill is not null) Artifacts.AppendSpillStateText(sb, spill);
         return sb.ToString().TrimEnd('\n');
     }
 
@@ -628,10 +799,20 @@ static class Wire
 
     public static string RenderCrossQuery(LoadOrderService svc, CrossQueryOutcome q, IReadOnlyList<string>? fields, bool conflictTree, int maxChars,
                                           bool resolveNames = false, bool winnerFields = false, int depth = 1)
+        => RenderCrossQuery(svc, q, fields, conflictTree, maxChars, resolveNames, winnerFields, depth, null, out _);
+
+    /// <summary>The §2.1.1-aware render: <paramref name="spill"/> carries the call's artifact disposition (the
+    /// spilled marker / to_file manifest-only mode / failed-spill warning), and <paramref name="truncated"/> hands
+    /// the row-level max_chars cut back to the tool layer — the auto-spill trigger.</summary>
+    public static string RenderCrossQuery(LoadOrderService svc, CrossQueryOutcome q, IReadOnlyList<string>? fields, bool conflictTree, int maxChars,
+                                          bool resolveNames, bool winnerFields, int depth, SpillState? spill, out bool truncated)
     {
-        if (q.Error is not null) return "error: " + q.Error;
+        truncated = false;
+        // A post-capture refusal is stamped (PR #305 contract) — e.g. the artifact epoch-mismatch refusal, which
+        // consulted the build to compare against it. Pre-capture validation refusals carry null and render bare.
+        if (q.Error is not null) return "error: " + q.Error + (q.Epoch is not null ? $"\nepoch={q.Epoch}" : "");
         int cap = Cap(maxChars);
-        if (q.Groups is not null) return RenderCrossQueryGroups(q, cap);   // group_by= → a count table, not per-match lines
+        if (q.Groups is not null) return RenderCrossQueryGroups(q, cap, spill, out truncated);   // group_by= → a count table, not per-match lines
         bool detail = (fields is { Count: > 0 }) || conflictTree;          // expand matches, vs. one-line summaries
         var linkMemo = resolveNames && detail ? new Dictionary<FormKey, ResolvedRef>() : null;   // P7: one link cache across all rendered matches
         bool anyScoped = detail && q.Sources is { } ss && ss.Take(q.Keys.Count).Any(s => s is not null);   // P5: plugins= scope shows a plugin's OWN body
@@ -662,10 +843,11 @@ static class Wire
         if (anyScoped) sb.Append("note: ").Append(JsonWire.ScopedFieldsNote(winnerFields, q.WhereWinner)).Append('\n');
 
         int rendered = 0;
-        for (int i = 0; i < q.Keys.Count; i++)
+        for (int i = 0; i < q.Keys.Count && !(spill?.ManifestOnly ?? false); i++)   // to_file: only the manifest renders — the rows are the FILE
         {
             if (sb.Length >= cap)
             {
+                truncated = true;
                 sb.Append("... [truncated: rendered ").Append(rendered).Append(" of ").Append(q.Keys.Count)
                   .Append(" returned matches before hitting max_chars=").Append(cap)
                   .Append("; lower limit=, drop fields=/conflict_tree, or raise max_chars]\n");
@@ -700,6 +882,7 @@ static class Wire
             }
             rendered++;
         }
+        if (spill is not null) Artifacts.AppendSpillStateText(sb, spill);
         return sb.ToString().TrimEnd('\n');
     }
 
@@ -707,8 +890,9 @@ static class Wire
     /// count, then one "  &lt;key&gt; = &lt;count&gt;" row per group (already sorted desc by the core). Q3 accounting
     /// (where= / unscannable notes) survives the aggregation. Over max_chars it stops with the explicit truncation
     /// notice — the count is exact even when the row LIST is clipped (aggregation isn't limit-capped; only rendering is).</summary>
-    static string RenderCrossQueryGroups(CrossQueryOutcome q, int cap)
+    static string RenderCrossQueryGroups(CrossQueryOutcome q, int cap, SpillState? spill, out bool truncated)
     {
+        truncated = false;
         var groups = q.Groups!;
         var sb = new StringBuilder();
         sb.Append("cross_plugin_query: grouped by ").Append(q.GroupBy).Append(" — ")
@@ -719,16 +903,18 @@ static class Wire
         sb.Append('\n');
         if (q.PredicateNote is not null) sb.Append(q.PredicateNote).Append('\n');
         if (q.ScanNote is not null) sb.Append(q.ScanNote).Append('\n');
-        for (int i = 0; i < groups.Count; i++)
+        for (int i = 0; i < groups.Count && !(spill?.ManifestOnly ?? false); i++)   // to_file: rows live in the file
         {
             if (sb.Length >= cap)
             {
+                truncated = true;
                 sb.Append("... [truncated: rendered ").Append(i).Append(" of ").Append(groups.Count)
                   .Append(" groups before hitting max_chars=").Append(cap).Append("; raise max_chars — the total above is exact]\n");
                 break;
             }
             sb.Append("  ").Append(groups[i].Key).Append(" = ").Append(groups[i].Count).Append('\n');
         }
+        if (spill is not null) Artifacts.AppendSpillStateText(sb, spill);
         return sb.ToString().TrimEnd('\n');
     }
 
