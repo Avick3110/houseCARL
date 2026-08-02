@@ -164,9 +164,17 @@ public static class ResultArtifact
 
     /// <summary>Parse an artifact's manifest + extract its identity-column tokens, in row order. A named error
     /// (never a throw, never a silent partial list — Q3) on: a malformed manifest, a manifest declaring NO identity
-    /// column (a count-table artifact has no per-record identity to re-enter with), a row missing the column, or a
-    /// row that isn't valid JSON. <paramref name="content"/> is the file's full text (the callers already hold it —
-    /// one read, two uses).</summary>
+    /// column (a count-table artifact has no per-record identity to re-enter with), a non-error row missing the
+    /// column, or a row that isn't valid JSON. <paramref name="content"/> is the file's full text (the callers
+    /// already hold it — one read, two uses).
+    /// <para><b>Error rows are not identity-bearing (PR #306 re-review).</b> A row carrying an <c>error</c> member
+    /// documents a failure — a malformed input token, an absent record — it does not name a record: resolve/batch
+    /// write the caller's RAW token (or the null FormKey) into such rows, so their identity values are legitimately
+    /// not FormIDs. Extraction SKIPS them by contract: re-entering an artifact means "the records this file
+    /// resolved", and treating a failure row's raw token as a record identity is how the reconciliation subtraction
+    /// would go wrong, not right. An all-error artifact refuses by name (nothing resolvable to re-enter). The
+    /// was-it-edited refusal below is reserved for genuine mismatches — a SUCCESS row without the identity column —
+    /// which a server-written artifact never contains.</para></summary>
     public static (Manifest? Manifest, List<string>? Tokens, string? Error) ReadIdentity(string path, string content)
     {
         Manifest? manifest;
@@ -181,7 +189,7 @@ public static class ResultArtifact
                                 $"Re-run the producing query without group_by= (or with to_file=) to get a per-record artifact.");
 
         var tokens = new List<string>(manifest.RowCount);
-        int lineNo = 1;
+        int lineNo = 1, errorRows = 0;
         foreach (var line in EnumerateLines(content))
         {
             lineNo++;
@@ -189,6 +197,7 @@ public static class ResultArtifact
             try
             {
                 using var doc = JsonDocument.Parse(line);
+                if (doc.RootElement.TryGetProperty("error", out _)) { errorRows++; continue; }   // not identity-bearing — see the doc
                 if (!doc.RootElement.TryGetProperty(manifest.Identity, out var idProp) || idProp.ValueKind != JsonValueKind.String)
                     return (null, null, $"artifact '{path}': row on line {lineNo} carries no '{manifest.Identity}' identity value — " +
                                         $"the file does not match its own manifest (was it edited?). Regenerate it from the producing query.");
@@ -201,7 +210,9 @@ public static class ResultArtifact
             }
         }
         if (tokens.Count == 0)
-            return (null, null, $"artifact '{path}' has a manifest but no rows — the producing query matched nothing; there is no list to re-enter with.");
+            return (null, null, errorRows > 0
+                ? $"artifact '{path}': all {errorRows} row(s) are ERROR rows (failed inputs of the producing call) — nothing resolved, so there is no formid list to re-enter with."
+                : $"artifact '{path}' has a manifest but no rows — the producing query matched nothing; there is no list to re-enter with.");
         return (manifest, tokens, null);
     }
 

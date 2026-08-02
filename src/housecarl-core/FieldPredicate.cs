@@ -237,7 +237,6 @@ public sealed class FieldPredicateSet
     static (HashSet<FormKey>?, ArtifactDemand?, string?) ParseFormIdList(string raw, string operand)
     {
         string content;
-        ArtifactDemand? artifact = null;
         bool fromFile = operand[0] == '@';
         if (fromFile)
         {
@@ -259,6 +258,9 @@ public sealed class FieldPredicateSet
                 var aset = new HashSet<FormKey>();
                 foreach (var tok in tokens!)
                 {
+                    // Error rows were already excluded by ReadIdentity (they carry raw failed inputs, not record
+                    // identities — PR #306 re-review), so a non-FormID here is a GENUINE mismatch: server-written
+                    // success rows always carry valid formids.
                     try { aset.Add(FormKey.Factory(tok)); }
                     catch (Exception ex)
                     {
