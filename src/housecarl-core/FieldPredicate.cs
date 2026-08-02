@@ -93,7 +93,12 @@ public sealed class FieldPredicateSet
     // evaluating an unbound term is a FatalError, never a silent non-match (Q3).
     Func<FormKey, string?>? _winnerOf;
     Func<FormKey, IMajorRecordGetter?>? _fetchWinnerBody;
-    readonly Dictionary<FormKey, IMajorRecordGetter?> _targetCache = new();   // link-step targets recur across candidates — fetch once per scan
+    // Link-step targets recur across candidates — fetch once per scan. Unbounded BY DESIGN for the set's
+    // lifetime (one call): magnitude is the DISTINCT link-target population of the scanned scope, which for
+    // realistic link paths (Perks, Effects, Keywords) is hundreds-to-low-thousands of record getters — small
+    // beside the scan itself. A pathological whole-order high-fan-out path is bounded by the same scope the
+    // grammar already requires (types=/plugins=) — noted per the PR #307 round-3 review.
+    readonly Dictionary<FormKey, IMajorRecordGetter?> _targetCache = new();
 
     /// <summary>Whether any predicate needs the scan's resolution context (<c>winner</c> term or a <c>-&gt;</c>
     /// link step) — the call site checks this to bind <see cref="BindResolution"/> (and open the body-fetch

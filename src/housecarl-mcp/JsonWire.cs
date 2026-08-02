@@ -40,7 +40,11 @@ static class JsonWire
 
     /// <summary>W2 `records`: optional response-envelope pairs (form=, the resolved source arm, …) written as
     /// top-level string fields at the START of a json document — so a json consumer sees the same call context
-    /// the text header line states, in-band, without any per-render shape change.</summary>
+    /// the text header line states, in-band, without any per-render shape change.
+    /// CONTRACT (PR #307 round 3): envelope keys must not collide with any renderer's own top-level keys
+    /// (count/epoch/records/rendered/truncated/total/…) — Utf8JsonWriter does not dedupe, so a collision would
+    /// emit a duplicate-key document. Today's set (form/source/window/epoch_covers_source/total) is disjoint;
+    /// keep it that way when adding pairs.</summary>
     static void WriteEnvelope(Utf8JsonWriter w, IReadOnlyList<KeyValuePair<string, string>>? envelope)
     {
         if (envelope is null) return;

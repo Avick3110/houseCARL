@@ -121,9 +121,12 @@ internal static class RecordsGuardProbe
                 return bodies.Where(b => set.Matches(b)).Select(b => b.FormKey).ToHashSet();
             }
 
-            // startswith — on a leaf token (EditorID via the pseudo-path) and on a field token.
+            // startswith — on the editorid pseudo-path AND on a REAL leaf token (round-3 F6: the pseudo-path
+            // short-circuits before Compare(), so only a genuine leaf drives the new Op.StartsWith arm there).
             Check(Run(new[] { "editorid startswith HcRecW" }, weapBodies).SetEquals(weapons),
                   "startswith: 'editorid startswith HcRecW' selects exactly the three named weapons (no-editorid record drops out)");
+            Check(Run(new[] { "BasicStats.Damage startswith 1" }, weapBodies).SetEquals(new[] { weapons[0] }),
+                  "startswith on a REAL leaf token routes through Compare (10 matches '1'; 20/30/5 do not)");
             Check(Run(new[] { "editorid contains recw1" }, weapBodies).SetEquals(new[] { weapons[1] }),
                   "editorid term: 'contains' is case-insensitive and selects the one match");
             Check(Run(new[] { "editorid missing" }, weapBodies).SetEquals(new[] { noEidWeap.FormKey }),
@@ -415,6 +418,33 @@ internal static class RecordsGuardProbe
                                               project: new RecordsTools.RecordsProject { form = "fields", fields = new[] { "BasicStats.Damage" } });
             Check(listFs.StartsWith("error:") && listFs.Contains("fields_source"),
                   "fields_source= on the formids= lane refuses by name — never accepted-and-dropped");
+
+            // Round-3 folds: transport params are honored or refused, never accepted-and-dropped.
+            var coToFile = RecordsTools.Records(svc, formids: weapons.Select(Fid).ToArray(), counts_only: true,
+                                                to_file: Path.Combine(root, "never.jsonl"));
+            Check(coToFile.StartsWith("error:") && coToFile.Contains("counts_only"),
+                  "counts_only + to_file refuses by name (used to return the census and silently write nothing)");
+            var idCensus = RecordsTools.Records(svc, formids: new[] { Fid(weapons[0]), "notaformid" }, counts_only: true,
+                                                project: new RecordsTools.RecordsProject { form = "identity" });
+            Check(idCensus.Contains("count=2") && idCensus.Contains("errors=1") && !idCensus.Contains("HcRecW0"),
+                  "identity + counts_only returns the census, no rows (was rendered anyway)");
+            var winList = RecordsTools.Records(svc, formids: weapons.Select(Fid).ToArray(), limit: 2, offset: 1);
+            Check(winList.Contains("window: rows 2–3 of 3") && !winList.Contains(Fid(weapons[0])),
+                  "limit/offset WINDOW the formids= render with the note in-band (were accepted-and-dropped)");
+            var depthOne = RecordsTools.Records(svc, formids: new[] { Fid(weapons[0]) },
+                                                project: new RecordsTools.RecordsProject { form = "summary", depth = 1 });
+            Check(depthOne.StartsWith("error:") && depthOne.Contains("depth"),
+                  "an EXPLICIT depth outside its forms refuses regardless of value (depth:1 was accepted-and-dropped)");
+
+            // Off-order untouched refusal names the touchers (round-3 F3) — oldName touches only W1.
+            var offUntouched = RecordsTools.Records(svc, formids: new[] { Fid(weapons[0]) }, source: Je($"\"{oldName}\""));
+            Check(offUntouched.Contains("does not define or override") && offUntouched.Contains("Touched by") && offUntouched.Contains(masterName),
+                  "off-order untouched: the per-item refusal names the ACTIVE touchers (was arm-asymmetric)");
+
+            // A PATH-form source on the scan lane resolves back to the plugin name (round-3 F4).
+            var pathScan = RecordsTools.Records(svc, types: new[] { "WEAP" }, source: Je(JsonSerializer.Serialize(ovFile)));
+            Check(pathScan.Contains("active in the load order") && pathScan.Contains("HcRecW0") && !pathScan.StartsWith("error:"),
+                  "a path-form source= on the scan lane resolves to its active plugin and the scan RUNS (was a refusal after a correct arm statement)");
 
             // ============================================================================================
             //  5 — TRANSPORT: to_file + @artifact re-entry, epoch-checked
