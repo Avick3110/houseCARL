@@ -2634,7 +2634,54 @@ public sealed class LoadOrderService : IDisposable
     /// on-disk FILE outside it — the response always STATES which arm, so nothing resolves silently. An off-order
     /// file sits OUTSIDE the epoch fingerprint (the PR #305 coverage rule diff_record already declares) —
     /// <see cref="EpochCoversPole"/> carries that as data for the render.</summary>
-    public sealed record PoleInfo(string Plugin, string Where, bool InOrder, bool EpochCoversPole);
+    public sealed record PoleInfo(string Plugin, string Where, bool InOrder, bool EpochCoversPole)
+    {
+        /// <summary>The on-disk locate result for the OFF-ORDER arm (null on the active arm) — carried so the
+        /// consuming lane can open the file without re-running the locate.</summary>
+        internal string? Path { get; init; }
+    }
+
+    /// <summary>Resolve a `records` source= pole against ONE captured view (the §4.2 one-pole rule): active in the
+    /// order, else located on disk across the whole install. Error non-null ⇒ found in NEITHER place (naming both),
+    /// or ambiguous across mod folders (naming them + the {file, mod} disambiguator).</summary>
+    (PoleInfo? Pole, string? Error) ResolvePoleArm(LoadOrderResolver.IndexView view, string plugin, string? mod)
+    {
+        // A pole addressed by PATH that IS the active order's file resolves back to its plugin name (#269's rule).
+        if (LooksLikePath(plugin) && ActiveNameForPath(view, plugin) is { } activeName) plugin = activeName;
+
+        if (view.ContainsPlugin(plugin))
+            return (new PoleInfo(plugin, "active in the load order", InOrder: true, EpochCoversPole: true), null);
+
+        string modsDir, dataDir, overwriteDir, profileDir;
+        try { lock (_gate) { EnsurePathsDerived(); modsDir = _modsDir; dataDir = _dataDir; overwriteDir = _overwriteDir; profileDir = _profileDir; } }
+        catch (Exception ex)
+        {
+            return (null, $"source '{plugin}' is not active in the load order, and the MO2 roots couldn't be derived to search for it on disk: {ex.Message}");
+        }
+        var comp = Mo2LoadOrder.ReadComposition(profileDir);
+        var loc = LocatePluginFileOnDisk(comp, modsDir, dataDir, overwriteDir, plugin, mod);
+        if (loc.Error is not null)
+            // The §4.2 refusal contract: a pole found in NEITHER place names BOTH places searched.
+            return (null, $"source '{plugin}' resolves in NEITHER place the one-pole rule searches: it is not ACTIVE in " +
+                          $"the load order ({view.PluginCount} plugins), and on disk {loc.Error}");
+        if (loc.Ambiguous is not null)
+            return (null, $"source '{plugin}' is not active in the load order and its filename is provided by SEVERAL mod " +
+                          $"folders on disk: {string.Join(", ", loc.Ambiguous.Select(h => $"'{h.Where}'"))} — disambiguate " +
+                          "with source={\"file\": \"" + plugin + "\", \"mod\": \"<mod folder>\"}.");
+        var poleWhere = $"OUT-OF-LOAD-ORDER ({loc.Where}{(loc.WhyNotActive is { } why ? $"; NOT active — {why}" : "")})";
+        return (new PoleInfo(plugin, poleWhere, InOrder: false, EpochCoversPole: false) { Path = loc.Path }, null);
+    }
+
+    /// <summary>The tool-layer probe: WHICH arm would this source= pole resolve to (active / off-order / neither)?
+    /// Uses its own capture; the consuming scan re-captures — the caller compares epochs where a tear would mix
+    /// builds (rare: only a load-order change in the gap).</summary>
+    public PoleInfo? ProbeSourceArm(string plugin, string? mod, out string? error)
+    {
+        var view = Resolver.Capture();
+        var (pole, err) = ResolvePoleArm(view, plugin, mod);
+        error = err;
+        return pole;
+    }
 
     /// <summary>The list-driven `records` read under a NAMED source pole (SPEC §4.2): resolve the pole ONCE —
     /// active in the order, else a file on disk (enabled, disabled, or unlisted mod folders; the read_plugin_file
@@ -2660,14 +2707,20 @@ public sealed class LoadOrderService : IDisposable
         }
         var pin = new ViewPin(resolver, view);
 
-        // A pole addressed by PATH that IS the active order's file resolves back to its plugin name (#269's rule).
-        if (LooksLikePath(plugin) && ActiveNameForPath(view, plugin) is { } activeName) plugin = activeName;
+        var (arm, armErr) = ResolvePoleArm(view, plugin, mod);
+        if (armErr is not null)
+        {
+            refusal = armErr;
+            refusalEpoch = view.Epoch;
+            return Array.Empty<ReadOutcome>();
+        }
+        pole = arm;
+        plugin = arm!.Plugin;   // a path pole may have resolved back to its active plugin name
 
-        if (view.ContainsPlugin(plugin))
+        if (arm.InOrder)
         {
             // ACTIVE arm — the same per-item reads ResolveBatch(plugin=) does, off the same captured view
             // (excluded-plugin and untouched-record refusals per item, touchers named).
-            pole = new PoleInfo(plugin, "active in the load order", InOrder: true, EpochCoversPole: true);
             var linkMemo = resolveNames ? new Dictionary<FormKey, ResolvedRef>() : null;
             var outcomes = new List<ReadOutcome>(formids.Count);
             foreach (var raw in formids)
@@ -2681,37 +2734,17 @@ public sealed class LoadOrderService : IDisposable
             return outcomes;
         }
 
-        // OFF-ORDER arm (the read_plugin_file reach, absorbed): locate the file across the whole install, open
-        // its overlay ONCE, and pick every requested record in a single enumeration pass.
-        string modsDir, dataDir, overwriteDir, profileDir;
-        try { lock (_gate) { EnsurePathsDerived(); modsDir = _modsDir; dataDir = _dataDir; overwriteDir = _overwriteDir; profileDir = _profileDir; } }
+        // OFF-ORDER arm (the read_plugin_file reach, absorbed): the locate already ran in ResolvePoleArm; open
+        // the overlay ONCE and pick every requested record in a single enumeration pass.
+        string dataDirForOverlay;
+        try { lock (_gate) { EnsurePathsDerived(); dataDirForOverlay = _dataDir; } }
         catch (Exception ex)
         {
-            refusal = $"source '{plugin}' is not active in the load order, and the MO2 roots couldn't be derived to search for it on disk: {ex.Message}";
+            refusal = $"the MO2 roots couldn't be derived to open '{plugin}': {ex.Message}";
             refusalEpoch = view.Epoch;
             return Array.Empty<ReadOutcome>();
         }
-        var comp = Mo2LoadOrder.ReadComposition(profileDir);
-        var loc = LocatePluginFileOnDisk(comp, modsDir, dataDir, overwriteDir, plugin, mod);
-        if (loc.Error is not null)
-        {
-            // The §4.2 refusal contract: a pole found in NEITHER place names BOTH places searched.
-            refusal = $"source '{plugin}' resolves in NEITHER place the one-pole rule searches: it is not ACTIVE in " +
-                      $"the load order ({view.PluginCount} plugins), and on disk {loc.Error}";
-            refusalEpoch = view.Epoch;
-            return Array.Empty<ReadOutcome>();
-        }
-        if (loc.Ambiguous is not null)
-        {
-            refusal = $"source '{plugin}' is not active in the load order and its filename is provided by SEVERAL mod " +
-                      $"folders on disk: {string.Join(", ", loc.Ambiguous.Select(h => $"'{h.Where}'"))} — disambiguate " +
-                      "with source={\"file\": \"" + plugin + "\", \"mod\": \"<mod folder>\"}.";
-            refusalEpoch = view.Epoch;
-            return Array.Empty<ReadOutcome>();
-        }
-
-        var poleWhere = $"OUT-OF-LOAD-ORDER ({loc.Where}{(loc.WhyNotActive is { } why ? $"; NOT active — {why}" : "")})";
-        pole = new PoleInfo(plugin, poleWhere, InOrder: false, EpochCoversPole: false);
+        var poleWhere = arm.Where;
 
         // Parse every FormID first (per-item errors keep their input positions), then one enumeration pass.
         var parsed = new List<(int Index, FormKey Fk)>();
@@ -2723,10 +2756,10 @@ public sealed class LoadOrderService : IDisposable
         }
 
         ISkyrimModGetter ov;
-        try { ov = LoadOrderResolver.OpenOverlay(loc.Path!, string.IsNullOrEmpty(dataDir) ? null : dataDir); }
+        try { ov = LoadOrderResolver.OpenOverlay(arm.Path!, string.IsNullOrEmpty(dataDirForOverlay) ? null : dataDirForOverlay); }
         catch (Exception ex)
         {
-            refusal = $"could not open '{loc.Path}' as a Skyrim plugin: {ex.Message}";
+            refusal = $"could not open '{arm.Path}' as a Skyrim plugin: {ex.Message}";
             refusalEpoch = view.Epoch;
             return Array.Empty<ReadOutcome>();
         }
