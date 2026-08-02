@@ -2797,8 +2797,10 @@ public sealed class LoadOrderService : IDisposable
                 {
                     // The §4.2 untouched contract holds on THIS arm too (PR #307 round 3): name the plugins that
                     // DO touch the record in the active order — or say plainly that nothing does.
-                    IReadOnlyList<string> touchers;
-                    try { touchers = view.TouchingPlugins(fk); } catch { touchers = Array.Empty<string>(); }
+                    // TouchingPlugins returns NULL (it does not throw) for a FormKey outside the index — e.g. an
+                    // old patch whose master is also disabled (round-3 re-review blocker: the try/catch never
+                    // fired and the null dereferenced into a whole-call generic failure).
+                    IReadOnlyList<string> touchers = view.TouchingPlugins(fk) ?? Array.Empty<string>();
                     results[index] = ReadOutcome.Fail(fk,
                         $"file '{plugin}' ({poleWhere}) does not define or override {fk} — it has no version of this record. " +
                         (touchers.Count > 0
