@@ -62,9 +62,11 @@ public sealed class FieldPredicateSet
     /// the operator, the raw operand, and — for a numeric operator — the operand pre-parsed to a double (validated
     /// at parse, so a non-numeric operand under <c>&gt;</c>/<c>&lt;</c> fails the whole call before any scan).
     /// <paramref name="FormIds"/> is the pre-parsed membership set for <see cref="Op.In"/>/<see cref="Op.NotIn"/>
-    /// (file already read + every token validated at parse — the scan never does IO), null for every other op.</summary>
+    /// (file already read + every token validated at parse — the scan never does IO), null for every other op.
+    /// <paramref name="Artifact"/> is non-null when the list came from a §2.1.1 result ARTIFACT: the epoch
+    /// obligation the consuming scan must check against the build it captures (see <see cref="ArtifactDemands"/>).</summary>
     sealed record Predicate(string Text, string[] PathSegments, string PathDisplay, Op Op, string Operand, double NumericOperand,
-                            HashSet<FormKey>? FormIds = null);
+                            HashSet<FormKey>? FormIds = null, ArtifactDemand? Artifact = null);
 
     readonly IReadOnlyList<Predicate> _predicates;
     readonly long[] _valueRead;   // per-predicate: candidates whose path read SOME value
@@ -89,6 +91,13 @@ public sealed class FieldPredicateSet
     /// candidate — a typed predicate error. The scan checks this and aborts, surfacing it as a recoverable error
     /// (never a silent skip). Null while the predicate is well-typed.</summary>
     public string? FatalError => _fatal;
+
+    /// <summary>The epoch obligations this predicate set carries (SPEC §2.1.1): one per <c>in</c>/<c>not in</c>
+    /// list that came from a result ARTIFACT (vs a plain formid-list file, which claims nothing). The consuming
+    /// scan compares each against the build it captures — AFTER its own Capture(), so the check and the answer
+    /// read the same build — and refuses loud on mismatch, naming both epochs. Empty for plain-list predicates.</summary>
+    public IReadOnlyList<ArtifactDemand> ArtifactDemands =>
+        _predicates.Where(p => p.Artifact is not null).Select(p => p.Artifact!).ToList();
 
     /// <summary>Candidate bodies tested so far — the denominator the Q3 accounting reports against.</summary>
     public long Scanned => _scanned;
@@ -202,9 +211,9 @@ public sealed class FieldPredicateSet
                 return (null, $"predicate '{raw}': '{OpStr(op)}' tests the record's IDENTITY and takes the path 'formid' only " +
                               $"(got '{path}') — write \"formid {OpStr(op)} <list>\". Membership over a field's VALUE is not supported (yet); " +
                               $"use '=' per value, or references= for list→FormID membership.");
-            var (set, lerr) = ParseFormIdList(raw, operand);
+            var (set, artifact, lerr) = ParseFormIdList(raw, operand);
             if (lerr is not null) return (null, lerr);
-            return (new Predicate(text, segs, path, op, operand, 0, set), null);
+            return (new Predicate(text, segs, path, op, operand, 0, set, artifact), null);
         }
 
         // 5. a numeric operator demands a numeric operand — fail fast at parse (before any scan).
@@ -221,20 +230,44 @@ public sealed class FieldPredicateSet
     /// grammar: FormIDs separated by commas and/or newlines — NEVER bare spaces, because a plugin filename can
     /// contain them (<c>123456:My Mod.esp</c>) — with optional surrounding brackets and quotes stripped per token,
     /// so a pasted JSON array (<c>["123456:A.esp", "234567:B.esp"]</c>) parses as-is. Every token must be a valid
-    /// FormID and the set must be non-empty; any violation names itself and refuses the call (Q3).</summary>
-    static (HashSet<FormKey>?, string?) ParseFormIdList(string raw, string operand)
+    /// FormID and the set must be non-empty; any violation names itself and refuses the call (Q3).
+    /// <para>An <c>@file</c> whose target is a §2.1.1 result ARTIFACT (line 1 = manifest) yields its IDENTITY
+    /// column as the list instead of raw tokens, and hands back the artifact's epoch obligation — the scan-once
+    /// re-entry lane. A plain list file stays exactly what it was (no manifest, no epoch claim).</para></summary>
+    static (HashSet<FormKey>?, ArtifactDemand?, string?) ParseFormIdList(string raw, string operand)
     {
         string content;
+        ArtifactDemand? artifact = null;
         bool fromFile = operand[0] == '@';
         if (fromFile)
         {
             var path = operand.Substring(1).Trim().Trim('"', '\'');   // both quote kinds, matching the inline token trim
             if (path.Length == 0)
-                return (null, $"predicate '{raw}': '@' names a formid-list file but no path follows it.");
+                return (null, null, $"predicate '{raw}': '@' names a formid-list file but no path follows it.");
             if (!Path.IsPathRooted(path))
-                return (null, $"predicate '{raw}': formid-list file '{path}' must be an ABSOLUTE path — the server resolves relative paths against its OWN working directory, not yours.");
+                return (null, null, $"predicate '{raw}': formid-list file '{path}' must be an ABSOLUTE path — the server resolves relative paths against its OWN working directory, not yours.");
             try { content = File.ReadAllText(path); }
-            catch (Exception ex) { return (null, $"predicate '{raw}': could not read formid-list file '{path}' — {ex.GetType().Name}: {ex.Message}"); }
+            catch (Exception ex) { return (null, null, $"predicate '{raw}': could not read formid-list file '{path}' — {ex.GetType().Name}: {ex.Message}"); }
+
+            if (ResultArtifact.LooksLikeArtifact(content))
+            {
+                var (manifest, tokens, aerr) = ResultArtifact.ReadIdentity(path, content);
+                if (aerr is not null) return (null, null, $"predicate '{raw}': {aerr}");
+                if (!manifest!.Identity!.Equals("formid", StringComparison.OrdinalIgnoreCase))
+                    return (null, null, $"predicate '{raw}': artifact '{path}' (from {manifest.Tool}) carries '{manifest.Identity}' " +
+                                        $"identities, not FormIDs — there is no formid list in it to test membership against.");
+                var aset = new HashSet<FormKey>();
+                foreach (var tok in tokens!)
+                {
+                    try { aset.Add(FormKey.Factory(tok)); }
+                    catch (Exception ex)
+                    {
+                        return (null, null, $"predicate '{raw}': artifact '{path}' identity value '{tok}' is not a FormID ({ex.Message}) — " +
+                                            "the file does not match its own manifest (was it edited?). Regenerate it from the producing query.");
+                    }
+                }
+                return (aset, new ArtifactDemand(path, manifest.Epoch), null);
+            }
         }
         else content = operand;
 
@@ -254,14 +287,14 @@ public sealed class FieldPredicateSet
                 bool shearShape = tok.Contains(':') && !tok.EndsWith(".esp", StringComparison.OrdinalIgnoreCase)
                                                     && !tok.EndsWith(".esm", StringComparison.OrdinalIgnoreCase)
                                                     && !tok.EndsWith(".esl", StringComparison.OrdinalIgnoreCase);
-                return (null, $"predicate '{raw}': list entry '{tok}'{(fromFile ? $" (in the @file)" : "")} is not a FormID ({ex.Message}). " +
-                              "Expected 'XXXXXX:Plugin.esp' entries separated by commas or newlines." +
-                              (shearShape ? " If the plugin's filename itself contains a comma, it cannot be written in this list — commas always separate entries; rename the plugin or filter another way." : ""));
+                return (null, null, $"predicate '{raw}': list entry '{tok}'{(fromFile ? $" (in the @file)" : "")} is not a FormID ({ex.Message}). " +
+                                    "Expected 'XXXXXX:Plugin.esp' entries separated by commas or newlines." +
+                                    (shearShape ? " If the plugin's filename itself contains a comma, it cannot be written in this list — commas always separate entries; rename the plugin or filter another way." : ""));
             }
         }
         if (set.Count == 0)
-            return (null, $"predicate '{raw}': the formid list{(fromFile ? " file" : "")} is empty — give at least one 'XXXXXX:Plugin.esp'.");
-        return (set, null);
+            return (null, null, $"predicate '{raw}': the formid list{(fromFile ? " file" : "")} is empty — give at least one 'XXXXXX:Plugin.esp'.");
+        return (set, null, null);
     }
 
     /// <summary>Commas and newlines ONLY — a bare space is a legal character inside a plugin filename
