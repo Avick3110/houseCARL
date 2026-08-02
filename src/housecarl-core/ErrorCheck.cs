@@ -76,8 +76,17 @@ public static class ErrorCheck
                                        IReadOnlyList<(string Name, string Path)>? offOrder = null,
                                        SweepScope? recordScope = null,
                                        ErrorFindingClass classes = ErrorFindingClass.All, bool countsOnly = false)
+        => Run(resolver, resolver.Capture(), scope, limit, offOrder, recordScope, classes, countsOnly);
+
+    /// <summary>The view-threaded body (PR #305 re-review): a caller that already captured — the service, which
+    /// vets the scope and stamps refusals off ITS view — hands that view in, so the membership gate, the sweep,
+    /// and the epoch stamp all name ONE build. The convenience overload above captures for direct callers.</summary>
+    public static ErrorCheckResult Run(LoadOrderResolver resolver, LoadOrderResolver.IndexView view,
+                                       IReadOnlyList<string>? scope, int limit,
+                                       IReadOnlyList<(string Name, string Path)>? offOrder = null,
+                                       SweepScope? recordScope = null,
+                                       ErrorFindingClass classes = ErrorFindingClass.All, bool countsOnly = false)
     {
-        var view = resolver.Capture();
         bool wantDangling = classes.HasFlag(ErrorFindingClass.Dangling);
         bool wantMasters = classes.HasFlag(ErrorFindingClass.MissingMasters);
         // The missing-master count comes off the plugin's master TABLE, so a RECORD scope cannot narrow it. Saying
@@ -106,11 +115,15 @@ public static class ErrorCheck
             targets = new List<string>(scope.Count);
             foreach (var name in scope)
             {
+                // Membership refusals are decided against THIS view — stamped (PR #305 re-review: the same logical
+                // refusal must not stamp through one tool frame and not another).
                 if (!view.ContainsPlugin(name))
-                    return ErrorCheckResult.Fail($"plugin not in the load order: {name}.{view.AbsenceClause(name)}");
+                    return ErrorCheckResult.Fail($"plugin not in the load order: {name}.{view.AbsenceClause(name)}")
+                           with { Epoch = view.Epoch };
                 if (view.ExcludedPlugins.TryGetValue(name, out var why))
                     return ErrorCheckResult.Fail(
-                        $"plugin '{name}' was excluded from this session because it could not be parsed ({why}) — fix or remove it upstream; it cannot be checked.");
+                        $"plugin '{name}' was excluded from this session because it could not be parsed ({why}) — fix or remove it upstream; it cannot be checked.")
+                           with { Epoch = view.Epoch };
                 targets.Add(name);
             }
         }

@@ -76,6 +76,17 @@ public static class ScriptPropertyCheck
                                         IReadOnlyList<string>? scope, int limit,
                                         SweepScope? recordScope = null, string? propertyContains = null,
                                         ScriptFindingClass classes = ScriptFindingClass.All, bool countsOnly = false)
+        => Run(resolver, resolver.Capture(), assets, scope, limit, recordScope, propertyContains, classes, countsOnly);
+
+    /// <summary>The view-threaded body (PR #305 re-review) — same contract as <see cref="ErrorCheck"/>'s: the
+    /// caller's captured view decides membership, drives the sweep, and stamps success AND refusals, so one call
+    /// never mixes builds between its gate and its scan. (The ASSET capture stays internal: .pex lookups are the
+    /// asset substrate, outside the record epoch — <see cref="ScriptCheckResult.ReadIncomplete"/> carries its
+    /// honesty separately.)</summary>
+    public static ScriptCheckResult Run(LoadOrderResolver resolver, LoadOrderResolver.IndexView view, AssetResolver assets,
+                                        IReadOnlyList<string>? scope, int limit,
+                                        SweepScope? recordScope = null, string? propertyContains = null,
+                                        ScriptFindingClass classes = ScriptFindingClass.All, bool countsOnly = false)
     {
         var propFilter = string.IsNullOrWhiteSpace(propertyContains) ? null : propertyContains.Trim();
         bool PropOk(string name) => propFilter is null || name.Contains(propFilter, StringComparison.OrdinalIgnoreCase);
@@ -92,7 +103,6 @@ public static class ScriptPropertyCheck
             recordScope?.Label,
             SweepFindings.Describe(classes),
             propFilter is null ? null : $"property_contains='{propFilter}'");
-        var view = resolver.Capture();
         var av = assets.Capture();          // ONE asset build → every .pex lookup + ReadIncomplete describe the same build
 
         // --- resolve the plugin set to scan (Q3: a bad or excluded explicit scope name fails loud, never a silent skip). ---
@@ -102,11 +112,15 @@ public static class ScriptPropertyCheck
             targets = new List<string>(scope.Count);
             foreach (var name in scope)
             {
+                // Membership refusals are decided against THIS view — stamped (PR #305 re-review; without this the
+                // renders' error-path epoch was unreachable dead code: no ScriptCheckResult refusal carried one).
                 if (!view.ContainsPlugin(name))
-                    return ScriptCheckResult.Fail($"plugin not in the load order: {name}.{view.AbsenceClause(name)}");
+                    return ScriptCheckResult.Fail($"plugin not in the load order: {name}.{view.AbsenceClause(name)}")
+                           with { Epoch = view.Epoch };
                 if (view.ExcludedPlugins.TryGetValue(name, out var why))
                     return ScriptCheckResult.Fail(
-                        $"plugin '{name}' was excluded from this session because it could not be parsed ({why}) — fix or remove it upstream; it cannot be checked.");
+                        $"plugin '{name}' was excluded from this session because it could not be parsed ({why}) — fix or remove it upstream; it cannot be checked.")
+                           with { Epoch = view.Epoch };
                 targets.Add(name);
             }
         }

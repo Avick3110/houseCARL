@@ -91,10 +91,10 @@ static class JsonWire
         {
             w.WriteStartObject();
             w.WriteString("formid", o.Formid);
-            if (o.Error is not null) { w.WriteString("error", o.Error); WriteNullable(w, "epoch", o.Epoch); }
+            if (o.Error is not null) { w.WriteString("error", o.Error); WriteEpochWithCoverage(w, o); }
             else
             {
-                WriteNullable(w, "epoch", o.Epoch);   // §2.1.1: the INDEX build — an off-order pole's file content is outside the fingerprint (each pole's in_order/where carries that fact)
+                WriteEpochWithCoverage(w, o);   // §2.1.1: the INDEX build + whether it covers every input
                 WriteDiffPole(w, "a", o.A!);
                 WriteDiffPole(w, "b", o.B!);
                 var d = o.Diff!;
@@ -118,6 +118,20 @@ static class JsonWire
             w.WriteEndObject();
         }
         return Finish(ms);
+    }
+
+    /// <summary>The diff stamp + its coverage AS DATA (PR #305 re-review): the epoch names the INDEX build, and an
+    /// OUT-OF-LOAD-ORDER pole's file content is outside that fingerprint — so a machine consumer comparing epochs
+    /// for "same inputs ⇒ same answer" gets told in-band, not in a C# comment. <c>epoch_covers_all_inputs</c> is
+    /// false exactly when an off-order pole contributed (derivable from the poles' <c>in_order</c>, emitted as a
+    /// sibling so equality checks need no join); the text render's "(active-order inputs only …)" qualifier is this
+    /// same fact's prose form (D2 — one datum, two renders). Omitted with the epoch on unstamped refusals.</summary>
+    static void WriteEpochWithCoverage(Utf8JsonWriter w, LoadOrderService.DiffRecordOutcome o)
+    {
+        if (o.Epoch is null) return;
+        w.WriteString("epoch", o.Epoch);
+        w.WriteBoolean("epoch_covers_all_inputs",
+                       o.A is null or { InOrder: true } && o.B is null or { InOrder: true });
     }
 
     static void WriteDiffPole(Utf8JsonWriter w, string name, LoadOrderService.DiffPole p)
@@ -518,10 +532,13 @@ static class JsonWire
         using (var w = new Utf8JsonWriter(ms, Opts))
         {
             w.WriteStartObject();
-            if (r.Error is not null) { w.WriteString("error", r.Error); WriteNullable(w, "epoch", r.Epoch); w.WriteEndObject(); return Finish(ms); }
+            // w.Flush() before Finish: this early return sits INSIDE the using, so without it the writer's buffered
+            // bytes never reach the stream and the refusal rendered as an EMPTY STRING — a latent, pre-existing Q3
+            // break on every json-mode sweep refusal, surfaced by the epoch guard's refusal-render arm (PR #305).
+            if (r.Error is not null) { w.WriteString("error", r.Error); WriteSweepEpoch(w, r); w.WriteEndObject(); w.Flush(); return Finish(ms); }
 
             w.WriteNumber("scanned_plugins", r.PluginsScanned);
-            WriteNullable(w, "epoch", r.Epoch);   // §2.1.1: the swept INDEXED build — off_order_scanned file content is outside the fingerprint
+            WriteSweepEpoch(w, r);   // §2.1.1: the swept INDEXED build + whether it covers every swept input
             // null (not 0) for a class nobody looked for — see the summary.
             if (didDangling) { w.WriteNumber("dangling", r.TotalDangling); w.WriteNumber("unscannable_records", r.TotalUnscannableRecords); }
             else { w.WriteNull("dangling"); w.WriteNull("unscannable_records"); }
@@ -580,6 +597,17 @@ static class JsonWire
         return Finish(ms);
     }
 
+    /// <summary>check_errors' stamp + coverage as data (PR #305 re-review) — the sweep twin of
+    /// <see cref="WriteEpochWithCoverage"/>: <c>epoch_covers_all_inputs</c> is false exactly when off-order files
+    /// were swept beside the index (their content is outside the fingerprint; <c>off_order_scanned</c> names them).
+    /// validate_scripts needs no twin — it has no off-order lane, so its stamp always covers everything swept.</summary>
+    static void WriteSweepEpoch(Utf8JsonWriter w, ErrorCheckResult r)
+    {
+        if (r.Epoch is null) return;
+        w.WriteString("epoch", r.Epoch);
+        w.WriteBoolean("epoch_covers_all_inputs", r.OffOrderScanned is not { Count: > 0 });
+    }
+
     // ---- housecarl_validate_scripts (#282) ---------------------------------------------------------
     /// <summary>The script-property sweep as JSON: <c>{scanned_plugins, records_with_scripts, unbound, unbound_object,
     /// unbound_scalar, bound_but_null, unverifiable, classes_checked, filter_note, read_incomplete, excluded_plugins,
@@ -596,7 +624,8 @@ static class JsonWire
         using (var w = new Utf8JsonWriter(ms, Opts))
         {
             w.WriteStartObject();
-            if (r.Error is not null) { w.WriteString("error", r.Error); WriteNullable(w, "epoch", r.Epoch); w.WriteEndObject(); return Finish(ms); }
+            // w.Flush() before Finish — same latent empty-refusal bug as RenderCheckErrors' early return (see there).
+            if (r.Error is not null) { w.WriteString("error", r.Error); WriteNullable(w, "epoch", r.Epoch); w.WriteEndObject(); w.Flush(); return Finish(ms); }
 
             bool didObject = r.Classes.HasFlag(ScriptFindingClass.UnboundObject);
             bool didScalar = r.Classes.HasFlag(ScriptFindingClass.UnboundScalar);

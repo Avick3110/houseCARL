@@ -2145,7 +2145,7 @@ public sealed class LoadOrderService : IDisposable
         var resolver = Resolver;
         var view = resolver.Capture();
         return ResolveRead(resolver, view, fk, plugin, fields, conflictTree, depth, resolveNames, linkMemo, containerHint)
-               with { Epoch = view.Epoch };   // stamped HERE, off the view actually read — never off a post-read re-capture
+               with { Epoch = view.Epoch, Pin = new ViewPin(resolver, view) };   // stamped + pinned HERE, off the view actually read
     }
 
     /// <summary>Layer B unit C2 — the on-demand whole-topic dialogue-graph validator (housecarl_validate_dialogue):
@@ -2164,11 +2164,12 @@ public sealed class LoadOrderService : IDisposable
     /// and touching-plugin list all describe the SAME build — a freshness rebuild landing mid-read can no longer make
     /// a record's reported winner disagree with its own TOUCHING LIST. (The body fetch reads the file on disk through
     /// the session; a mid-read file edit surfaces as the existing named fetch-inconsistency error, never torn values.
-    /// Known residue, review #1, NARROWED by PR #305's fold: inside a cross-query detail render the tree fill is now
-    /// PINNED to the scan's build (<see cref="ResolveTreeOn"/> via <see cref="CrossQueryOutcome.Pin"/>), so that
-    /// response's epoch stamp holds for its trees too. The single-read/batch conflict-tree renders still take their
-    /// own <see cref="ResolveTree"/> capture — one rendered response there can still pair this read's build with an
-    /// adjacent build's diff; low-severity, named for the wave that reworks those renders.)</summary>
+    /// The review-#1 residue is CLOSED by PR #305's fold + re-review fold: every <see cref="ReadOutcome"/> — single
+    /// read, batch item, cross-query detail row — carries the <see cref="ViewPin"/> it was answered from, and the
+    /// render's conflict-tree fill (<see cref="ResolveTreePinned"/>) reads through it, so one rendered response's
+    /// tree, touching list, and epoch stamp all name the same build. What Option B still leaves open, uniformly and
+    /// by design: bodies are fetched from disk at fill time, so a file edited mid-render surfaces as the named
+    /// fetch-inconsistency error — never as a silently re-resolved winner.)</summary>
     ReadOutcome ResolveRead(LoadOrderResolver resolver, LoadOrderResolver.IndexView view,
                             FormKey fk, string? plugin, IReadOnlyList<string>? fields, bool conflictTree, int depth,
                             bool resolveNames = false, Dictionary<FormKey, ResolvedRef>? linkMemo = null,
@@ -2310,9 +2311,11 @@ public sealed class LoadOrderService : IDisposable
 
     // ---- pinned per-match fills (PR #305 review) --------------------------------------------------------
 
-    /// <summary>The scan's pinned (resolver, view), carried on <see cref="CrossQueryOutcome.Pin"/> so the render's
-    /// per-match fills read the build the scan matched and the stamped epoch names. Pure data, no handles.</summary>
-    internal sealed record ScanPin(LoadOrderResolver Resolver, LoadOrderResolver.IndexView View);
+    /// <summary>A pinned (resolver, view) pair, carried on <see cref="CrossQueryOutcome.Pin"/> and
+    /// <see cref="ReadOutcome.Pin"/> so the RENDER-time fills a response makes (cross-query detail bodies, lazy
+    /// summaries, conflict-tree blocks) read the build the outcome's epoch names — never a fresh capture of an
+    /// adjacent build (PR #305 review + re-review). Pure data, no handles.</summary>
+    internal sealed record ViewPin(LoadOrderResolver Resolver, LoadOrderResolver.IndexView View);
 
     /// <summary>The cross-query detail fill, PINNED to the scan's build when the outcome carries one (PR #305
     /// review): the render loop used to call the public <see cref="ResolveRead(FormKey, string?, IReadOnlyList{string}?, bool, int, bool, Dictionary{FormKey, ResolvedRef}?, string?)"/>,
@@ -2327,7 +2330,7 @@ public sealed class LoadOrderService : IDisposable
                                        string? containerHint = ReadEngine.DepthExpandHint)
         => q.Pin is { } p
             ? ResolveRead(p.Resolver, p.View, fk, plugin, fields, conflictTree, depth, resolveNames, linkMemo, containerHint)
-              with { Epoch = p.View.Epoch }
+              with { Epoch = p.View.Epoch, Pin = p }
             : ResolveRead(fk, plugin, fields, conflictTree, depth, resolveNames, linkMemo, containerHint);
 
     /// <summary>The summary twin of <see cref="ResolveReadOn"/> — the conflicts-only lazy fill, pinned to the scan's
@@ -2335,11 +2338,11 @@ public sealed class LoadOrderService : IDisposable
     internal RecordSummary ResolveSummaryOn(CrossQueryOutcome q, FormKey fk)
         => q.Pin is { } p ? ResolveSummary(p.Resolver, p.View, fk) : ResolveSummary(fk);
 
-    /// <summary>The conflict-tree twin — the detail render's tree + diff blocks, pinned to the scan's build when the
-    /// outcome carries one (the tree's touching list and the header's epoch then name the same build).</summary>
-    internal ConflictTreeView? ResolveTreeOn(CrossQueryOutcome q, FormKey fk, IReadOnlyList<string>? fields)
+    /// <summary>The conflict-tree fill off a PINNED build (PR #305 review + re-review) — used by the render whenever
+    /// the outcome it is decorating carries a <see cref="ViewPin"/> (single reads, batch items, and cross-query
+    /// detail rows all do), so the tree's membership and the response's epoch stamp name the same build.</summary>
+    internal ConflictTreeView? ResolveTreePinned(ViewPin p, FormKey fk, IReadOnlyList<string>? fields)
     {
-        if (q.Pin is not { } p) return ResolveTree(fk, fields);
         using var session = p.Resolver.OpenSession();
         var tree = p.View.ResolveTree(session, fk);
         if (tree is null) return null;
@@ -2561,6 +2564,7 @@ public sealed class LoadOrderService : IDisposable
     {
         var resolver = Resolver;                // build/refresh ONCE for the batch
         var view = resolver.Capture();          // ONE build for every item — the whole batch is one logical operation (HCBR-2026-06-11-02)
+        var pin = new ViewPin(resolver, view);
         var linkMemo = resolveNames ? new Dictionary<FormKey, ResolvedRef>() : null;   // P7: one link-resolution cache across the WHOLE batch
         var outcomes = new List<ReadOutcome>(formids.Count);
         foreach (var raw in formids)
@@ -2569,7 +2573,7 @@ public sealed class LoadOrderService : IDisposable
             try { fk = FormKey.Factory(raw.Trim()); }
             catch (Exception ex) { outcomes.Add(ReadOutcome.Fail(default, $"bad FormID '{raw}': {ex.Message}")); continue; }
             outcomes.Add(ResolveRead(resolver, view, fk, plugin, fields, conflictTree, depth, resolveNames, linkMemo)
-                         with { Epoch = view.Epoch });   // the batch's ONE build, stamped per item (SPEC §2.1.1)
+                         with { Epoch = view.Epoch, Pin = pin });   // the batch's ONE build, stamped + pinned per item (SPEC §2.1.1)
         }
         return outcomes;
     }
@@ -2854,7 +2858,7 @@ public sealed class LoadOrderService : IDisposable
                                      predicate?.AccountingNote(), sources, scanNote,
                                      matched, groupRows, groupBy, definedIn ? string.Join(", ", plugins!) : null, offset,
                                      whereWinner, whereSourceNote)
-               { Epoch = view.Epoch, Pin = new ScanPin(resolver, view) };
+               { Epoch = view.Epoch, Pin = new ViewPin(resolver, view) };
     }
 
     // ---- effect-chain resolver (housecarl_effect_chain — gap 2026-06-08) --------------------------------
@@ -2915,9 +2919,15 @@ public sealed class LoadOrderService : IDisposable
         if (!SweepFindings.TryParseErrorClasses(findings, out var classes, out var classErr))
             return ErrorCheckResult.Fail(classErr!);
 
+        // ONE resolver + ONE view for the whole call (PR #305 re-review): the scope gate, the refusal stamps, and
+        // the sweep below all name the same build — passing the PROPERTY down would let the core re-gate/refresh
+        // and capture an adjacent build, making a refusal stamp N while the sweep stamped N+1.
+        var resolver = Resolver;
+        var viewAll = resolver.Capture();
+
         if (plugins is { Count: > 0 })
         {
-            var view = Resolver.Capture();
+            var view = viewAll;
             var active = new List<string>();
             var offOrder = new List<(string Name, string Path)>();
             string modsDir, dataDir, overwriteDir, profileDir;
@@ -2943,10 +2953,10 @@ public sealed class LoadOrderService : IDisposable
                            with { Epoch = view.Epoch };
                 offOrder.Add((n, loc.Path!));
             }
-            return ErrorCheck.Run(Resolver, active, limit, offOrder.Count > 0 ? offOrder : null,
+            return ErrorCheck.Run(resolver, viewAll, active, limit, offOrder.Count > 0 ? offOrder : null,
                                   recordScope, classes, countsOnly);
         }
-        return ErrorCheck.Run(Resolver, plugins, limit, null, recordScope, classes, countsOnly);
+        return ErrorCheck.Run(resolver, viewAll, plugins, limit, null, recordScope, classes, countsOnly);
     }
 
     /// <summary>Parse the two sweep tools' shared record-scope params (#282) into a <see cref="SweepScope"/>: FormID
@@ -2999,7 +3009,9 @@ public sealed class LoadOrderService : IDisposable
         if (scopeErr is not null) return ScriptCheckResult.Fail(scopeErr);
         if (!SweepFindings.TryParseScriptClasses(findings, out var classes, out var classErr))
             return ScriptCheckResult.Fail(classErr!);
-        return ScriptPropertyCheck.Run(Resolver, Assets, plugins, limit, recordScope, propertyContains, classes, countsOnly);
+        // ONE resolver + view threaded through, same contract as CheckErrors (PR #305 re-review).
+        var resolver = Resolver;
+        return ScriptPropertyCheck.Run(resolver, resolver.Capture(), Assets, plugins, limit, recordScope, propertyContains, classes, countsOnly);
     }
 
     // ---- writes (§8.4 Beat C: housecarl_set_field / housecarl_bulk_apply) -------------------------------
@@ -5960,6 +5972,11 @@ public sealed record ReadOutcome(
     /// answer ABOUT a build. Null only where no view was ever consulted (a malformed-FormID parse failure).</summary>
     public string? Epoch { get; init; }
 
+    /// <summary>The (resolver, view) this outcome was answered from — carried beside <see cref="Epoch"/> so the
+    /// RENDER's conflict-tree fill reads the SAME build the stamp names (PR #305 re-review; the pin that closed
+    /// the cross-query fills closes the single-read/batch tree fills identically). Internal render plumbing.</summary>
+    internal LoadOrderService.ViewPin? Pin { get; init; }
+
     public static ReadOutcome Fail(FormKey fk, string error) => new(fk, null, null, null, 0, null, error);
 }
 
@@ -5987,7 +6004,7 @@ public sealed record CrossQueryOutcome(
     /// review: the fills used to re-capture per row through the public read path, so a freshness rebuild landing
     /// mid-render made the response an affirmative single-build claim it didn't satisfy). Pure data — an immutable
     /// snapshot reference, no handles held. Internal: a render implementation detail, never serialized.</summary>
-    internal LoadOrderService.ScanPin? Pin { get; init; }
+    internal LoadOrderService.ViewPin? Pin { get; init; }
 
     public static CrossQueryOutcome Fail(string error) => new(Array.Empty<FormKey>(), null, 0, false, error);
 }
