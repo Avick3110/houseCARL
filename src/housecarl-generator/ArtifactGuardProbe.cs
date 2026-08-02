@@ -36,6 +36,10 @@ namespace HousecarlGenerator;
 ///      element stays a per-item error; path reservation is atomic (same-second spills can't collide) and a
 ///      failed spill releases its reservation; orphaned Writer temps prune on age; to_file into the pruned
 ///      results dir refuses naming the hazard.
+///   8  PR #306 RE-REVIEW FOLD — error rows are not identity-bearing: a legitimately-produced artifact whose
+///      inputs included garbage (resolve keeps the raw token; batch keeps the null FormKey) still re-enters
+///      cleanly on its RESOLVED rows, and an all-error artifact refuses naming the real cause — never the
+///      was-it-edited misdiagnosis, which is reserved for genuine file/manifest mismatches.
 ///
 /// Self-contained: synthetic MO2 instance + synthesized plugins in temp. No game data.
 /// </summary>
@@ -358,6 +362,37 @@ internal static class ArtifactGuardProbe
                 var collide = ReadTools.CrossPluginQuery(svc, type: "WEAP", to_file: Path.Combine(resultsDir, "mine.jsonl"));
                 Check(collide.StartsWith("error:") && collide.Contains("pruned by age"),
                       "to_file into the server results dir refuses naming the prune hazard");
+            }
+
+            // ---- 8: PR #306 re-review fold — error rows are not identity-bearing ----
+            Console.WriteLine();
+            Console.WriteLine("--- 8 (PR #306 re-review): a legitimately-produced artifact with error rows re-enters on its RESOLVED rows ---");
+            {
+                // A resolve artifact whose inputs included garbage: the error row keeps the caller's RAW token as
+                // its formid — a legitimate, manifest-matching artifact whose identity column is not all FormIDs.
+                var mixed = Path.Combine(work, "mixed.jsonl");
+                ReadTools.Resolve(svc, new[] { "garbage", Fid(weapons[0]), Fid(weapons[1]) }, to_file: mixed);
+                var (mm, mtoks, merr) = ResultArtifact.ReadIdentity(mixed, File.ReadAllText(mixed));
+                Check(merr is null && mm!.RowCount == 3 && mtoks!.Count == 2,
+                      "the artifact keeps its error row (rows=3) while identity extraction yields the 2 RESOLVED formids");
+                Check(ReadTools.BatchRecordDetail(svc, new[] { "@" + mixed }).StartsWith("batch: 2 records"),
+                      "…formids=@mixed-artifact re-enters on the resolved rows — no was-it-edited misdiagnosis");
+                var qm = ReadTools.CrossPluginQuery(svc, type: "WEAP", where: new[] { $"formid in @{mixed}" });
+                Check(qm.Contains("2 matches"), "…and the where-grammar membership test agrees (2 of 8 weapons)");
+
+                // batch's parse-failure rows (the null FormKey) are error rows too — same skip, same clean re-entry.
+                var bmixed = Path.Combine(work, "bmixed.jsonl");
+                ReadTools.BatchRecordDetail(svc, new[] { "notaformid", Fid(weapons[2]) }, to_file: bmixed);
+                var (bm, btoks, berr) = ResultArtifact.ReadIdentity(bmixed, File.ReadAllText(bmixed));
+                Check(berr is null && bm!.RowCount == 2 && btoks is [var only] && only == Fid(weapons[2]),
+                      "a batch artifact's parse-failure row (null FormKey) is skipped the same way");
+
+                // All-error artifact: refuse by the REAL cause, not tampering.
+                var allErr = Path.Combine(work, "allerr.jsonl");
+                ReadTools.Resolve(svc, new[] { "garbage1", "garbage2" }, to_file: allErr);
+                var reenter = ReadTools.BatchRecordDetail(svc, new[] { "@" + allErr });
+                Check(reenter.StartsWith("error:") && reenter.Contains("ERROR rows") && !reenter.Contains("was it edited"),
+                      "an all-error artifact refuses naming the real cause (failed inputs), never accusing the file");
             }
         }
         finally
