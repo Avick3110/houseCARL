@@ -2238,9 +2238,16 @@ public sealed class LoadOrderService : IDisposable
         using var session = resolver.OpenSession();                       // opens the source plugin; disposed at return (Option B)
         var rec = view.GetRecord(session, source, fk);                    // excluded-check pinned to the SAME view the winner came from (hunt F5 discipline)
         if (rec is null)
-            return ReadOutcome.Fail(fk, plugin is null
-                ? $"Winner '{winner.Value.WinnerPlugin}' did not yield {fk} on fetch — a load-order inconsistency."
-                : $"Plugin '{plugin}' does not define {fk} (it does not touch this record). The winner is '{winner.Value.WinnerPlugin}'.");
+        {
+            if (plugin is null)
+                return ReadOutcome.Fail(fk, $"Winner '{winner.Value.WinnerPlugin}' did not yield {fk} on fetch — a load-order inconsistency.");
+            // §4.2 (W2): an untouched record under a named pole refuses NAMING THE ACTUAL TOUCHERS — a bare
+            // "does not define" reads as "my write was lost"; the touching list is the actionable fact.
+            var touchers = view.TouchingPlugins(fk);
+            return ReadOutcome.Fail(fk,
+                $"Plugin '{plugin}' does not touch {fk} — it has no version of this record. " +
+                $"Touched by (load order, winner last): {string.Join(", ", touchers)}.");
+        }
 
         var record = ReadEngine.ReadFields(rec, fields, depth, containerHint);   // materialise while the session (overlay) is open
         if (resolveNames) record = AnnotateLinks(record, view, session, linkMemo ?? new());   // P7: identity of every FormLink token, DISPLAY-ONLY (same open session)
@@ -2621,6 +2628,151 @@ public sealed class LoadOrderService : IDisposable
         return outcomes;
     }
 
+    // ---- W2 `records`: the §4.2 one-pole batch (source=named, wherever the plugin lives) ----------------
+
+    /// <summary>How a `records` source= pole resolved (SPEC §4.2's ONE-POLE rule): ACTIVE in the order, or an
+    /// on-disk FILE outside it — the response always STATES which arm, so nothing resolves silently. An off-order
+    /// file sits OUTSIDE the epoch fingerprint (the PR #305 coverage rule diff_record already declares) —
+    /// <see cref="EpochCoversPole"/> carries that as data for the render.</summary>
+    public sealed record PoleInfo(string Plugin, string Where, bool InOrder, bool EpochCoversPole);
+
+    /// <summary>The list-driven `records` read under a NAMED source pole (SPEC §4.2): resolve the pole ONCE —
+    /// active in the order, else a file on disk (enabled, disabled, or unlisted mod folders; the read_plugin_file
+    /// reach) — and read every FormID's version from it off ONE captured build. A pole found in NEITHER place is a
+    /// whole-call refusal naming both places searched; a record the pole does not touch is a per-item refusal
+    /// naming the actual touchers (never a silent drop — the §4.2 untouched contract); a bad FormID is a per-item
+    /// error. Off-order reads carry winner context where the record resolves in the active order (so the row still
+    /// says who currently wins), and the pole's file content is declared OUTSIDE the epoch fingerprint.</summary>
+    public IReadOnlyList<ReadOutcome> ResolveBatchFromPole(
+        IReadOnlyList<string> formids, string plugin, string? mod,
+        IReadOnlyList<string>? fields, int depth, bool resolveNames,
+        ArtifactDemand? artifactDemand,
+        out PoleInfo? pole, out string? refusal, out string? refusalEpoch)
+    {
+        pole = null; refusal = null; refusalEpoch = null;
+        var resolver = Resolver;
+        var view = resolver.Capture();          // ONE build for the pole test and every read (§4.1)
+        if (artifactDemand is not null && artifactDemand.Epoch != view.Epoch)
+        {
+            refusal = ArtifactEpochMismatch(artifactDemand, view.Epoch);
+            refusalEpoch = view.Epoch;
+            return Array.Empty<ReadOutcome>();
+        }
+        var pin = new ViewPin(resolver, view);
+
+        // A pole addressed by PATH that IS the active order's file resolves back to its plugin name (#269's rule).
+        if (LooksLikePath(plugin) && ActiveNameForPath(view, plugin) is { } activeName) plugin = activeName;
+
+        if (view.ContainsPlugin(plugin))
+        {
+            // ACTIVE arm — the same per-item reads ResolveBatch(plugin=) does, off the same captured view
+            // (excluded-plugin and untouched-record refusals per item, touchers named).
+            pole = new PoleInfo(plugin, "active in the load order", InOrder: true, EpochCoversPole: true);
+            var linkMemo = resolveNames ? new Dictionary<FormKey, ResolvedRef>() : null;
+            var outcomes = new List<ReadOutcome>(formids.Count);
+            foreach (var raw in formids)
+            {
+                FormKey fk;
+                try { fk = FormKey.Factory(raw.Trim()); }
+                catch (Exception ex) { outcomes.Add(ReadOutcome.Fail(default, $"bad FormID '{raw}': {ex.Message}")); continue; }
+                outcomes.Add(ResolveRead(resolver, view, fk, plugin, fields, false, depth, resolveNames, linkMemo)
+                             with { Epoch = view.Epoch, Pin = pin });
+            }
+            return outcomes;
+        }
+
+        // OFF-ORDER arm (the read_plugin_file reach, absorbed): locate the file across the whole install, open
+        // its overlay ONCE, and pick every requested record in a single enumeration pass.
+        string modsDir, dataDir, overwriteDir, profileDir;
+        try { lock (_gate) { EnsurePathsDerived(); modsDir = _modsDir; dataDir = _dataDir; overwriteDir = _overwriteDir; profileDir = _profileDir; } }
+        catch (Exception ex)
+        {
+            refusal = $"source '{plugin}' is not active in the load order, and the MO2 roots couldn't be derived to search for it on disk: {ex.Message}";
+            refusalEpoch = view.Epoch;
+            return Array.Empty<ReadOutcome>();
+        }
+        var comp = Mo2LoadOrder.ReadComposition(profileDir);
+        var loc = LocatePluginFileOnDisk(comp, modsDir, dataDir, overwriteDir, plugin, mod);
+        if (loc.Error is not null)
+        {
+            // The §4.2 refusal contract: a pole found in NEITHER place names BOTH places searched.
+            refusal = $"source '{plugin}' resolves in NEITHER place the one-pole rule searches: it is not ACTIVE in " +
+                      $"the load order ({view.PluginCount} plugins), and on disk {loc.Error}";
+            refusalEpoch = view.Epoch;
+            return Array.Empty<ReadOutcome>();
+        }
+        if (loc.Ambiguous is not null)
+        {
+            refusal = $"source '{plugin}' is not active in the load order and its filename is provided by SEVERAL mod " +
+                      $"folders on disk: {string.Join(", ", loc.Ambiguous.Select(h => $"'{h.Where}'"))} — disambiguate " +
+                      "with source={\"file\": \"" + plugin + "\", \"mod\": \"<mod folder>\"}.";
+            refusalEpoch = view.Epoch;
+            return Array.Empty<ReadOutcome>();
+        }
+
+        var poleWhere = $"OUT-OF-LOAD-ORDER ({loc.Where}{(loc.WhyNotActive is { } why ? $"; NOT active — {why}" : "")})";
+        pole = new PoleInfo(plugin, poleWhere, InOrder: false, EpochCoversPole: false);
+
+        // Parse every FormID first (per-item errors keep their input positions), then one enumeration pass.
+        var parsed = new List<(int Index, FormKey Fk)>();
+        var results = new ReadOutcome?[formids.Count];
+        for (int i = 0; i < formids.Count; i++)
+        {
+            try { parsed.Add((i, FormKey.Factory(formids[i].Trim()))); }
+            catch (Exception ex) { results[i] = ReadOutcome.Fail(default, $"bad FormID '{formids[i]}': {ex.Message}"); }
+        }
+
+        ISkyrimModGetter ov;
+        try { ov = LoadOrderResolver.OpenOverlay(loc.Path!, string.IsNullOrEmpty(dataDir) ? null : dataDir); }
+        catch (Exception ex)
+        {
+            refusal = $"could not open '{loc.Path}' as a Skyrim plugin: {ex.Message}";
+            refusalEpoch = view.Epoch;
+            return Array.Empty<ReadOutcome>();
+        }
+        try
+        {
+            var wanted = parsed.Select(p => p.Fk).ToHashSet();
+            var found = new Dictionary<FormKey, IMajorRecordGetter>();
+            try
+            {
+                foreach (var r in ov.EnumerateMajorRecords())
+                    if (wanted.Contains(r.FormKey) && !found.ContainsKey(r.FormKey))
+                    {
+                        found[r.FormKey] = r;
+                        if (found.Count == wanted.Count) break;
+                    }
+            }
+            catch (Exception ex)
+            {
+                refusal = $"file '{plugin}' could not be fully read — a record Mutagen cannot parse: {ex.Message}";
+                refusalEpoch = view.Epoch;
+                return Array.Empty<ReadOutcome>();
+            }
+
+            var linkMemo = resolveNames ? new Dictionary<FormKey, ResolvedRef>() : null;
+            using var session = resolveNames ? resolver.OpenSession() : null;   // resolve_names annotates against the ACTIVE order
+            foreach (var (index, fk) in parsed)
+            {
+                if (!found.TryGetValue(fk, out var rec))
+                {
+                    results[index] = ReadOutcome.Fail(fk,
+                        $"file '{plugin}' ({poleWhere}) does not define or override {fk} — it has no version of this record.")
+                        with { Epoch = view.Epoch, Pin = pin };
+                    continue;
+                }
+                var record = ReadEngine.ReadFields(rec, fields, depth);          // materialise while the overlay is open
+                if (resolveNames) record = AnnotateLinks(record, view, session!, linkMemo!);
+                var winner = view.ResolveWinner(fk);                             // winner CONTEXT where the record also lives in the order
+                results[index] = new ReadOutcome(fk, record, plugin, winner?.WinnerPlugin,
+                                                 winner?.OverrideDepth ?? 0, null, null)
+                                 with { Epoch = view.Epoch, Pin = pin };
+            }
+            return results.Select(r => r!).ToList();
+        }
+        finally { (ov as IDisposable)?.Dispose(); }
+    }
+
     // ---- cross-plugin query (Q4.9) ----------------------------------------------------------------------
 
     /// <summary>Scan the order for records matching a filter (housecarl_cross_plugin_query). A SINGLE enumeration
@@ -2640,11 +2792,21 @@ public sealed class LoadOrderService : IDisposable
                                         bool conflictsOnly, IReadOnlyList<string>? plugins, IReadOnlyList<string>? where, int limit,
                                         bool definedIn = false, string? groupBy = null, int offset = 0, string? whereSource = null,
                                         IReadOnlyList<ArtifactDemand>? artifactDemands = null)
+        => CrossQuery(type is null ? null : new[] { type }, references, editoridContains, conflictsOnly, plugins, where,
+                      limit, definedIn, groupBy, offset, whereSource, artifactDemands);
+
+    /// <summary>The W2 set-valued-types overload (`records` types= is a SET; one is a degenerate set — SPEC §2.2).
+    /// Each entry resolves through the same <see cref="ResolveTypeFilter"/> the singular form used; the scan streams
+    /// the UNION of the resolved type groups.</summary>
+    public CrossQueryOutcome CrossQuery(IReadOnlyList<string>? typeSet, IReadOnlyList<FormKey>? references, string? editoridContains,
+                                        bool conflictsOnly, IReadOnlyList<string>? plugins, IReadOnlyList<string>? where, int limit,
+                                        bool definedIn = false, string? groupBy = null, int offset = 0, string? whereSource = null,
+                                        IReadOnlyList<ArtifactDemand>? artifactDemands = null)
     {
         var resolver = Resolver;
         var view = resolver.Capture();          // ONE build for the SCAN and every per-match fill it makes (HCBR-2026-06-11-02)
         bool hasPlugins = plugins is { Count: > 0 };
-        bool hasType = type is not null;
+        bool hasType = typeSet is { Count: > 0 };
         bool hasWhere = where is { Count: > 0 };
         bool hasReferences = references is { Count: > 0 };
         bool bodyFilter = hasReferences || !string.IsNullOrEmpty(editoridContains) || hasWhere;
@@ -2734,7 +2896,18 @@ public sealed class LoadOrderService : IDisposable
                 return CrossQueryOutcome.Fail(ArtifactEpochMismatch(demand, view.Epoch)) with { Epoch = view.Epoch };
 
         IReadOnlyList<Type>? types;
-        try { types = hasType ? ResolveTypeFilter(type!) : null; }
+        try
+        {
+            if (hasType)
+            {
+                var union = new List<Type>();
+                foreach (var ts in typeSet!)
+                    foreach (var t in ResolveTypeFilter(ts.Trim()))
+                        if (!union.Contains(t)) union.Add(t);
+                types = union;
+            }
+            else types = null;
+        }
         catch (ArgumentException ex) { return CrossQueryOutcome.Fail(ex.Message); }   // unknown type
 
         var keys = new List<FormKey>();
