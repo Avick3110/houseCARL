@@ -36,8 +36,13 @@ static class JsonWire
     /// bad/absent one (per-item, the batch survives — Q3). Budget-aware like the other JSON renders: over max_chars it
     /// drops trailing rows and flags <c>truncated</c>, keeping the document valid JSON with an exact <c>count</c>.</summary>
     public static string RenderResolve(IReadOnlyList<ResolvedRef> rows, int maxChars, string epoch)
+        => RenderResolve(rows, maxChars, epoch, null, out _);
+
+    public static string RenderResolve(IReadOnlyList<ResolvedRef> rows, int maxChars, string epoch, SpillState? spill, out bool truncated)
     {
+        truncated = false;
         int cap = Cap(maxChars);
+        bool manifestOnly = spill?.ManifestOnly ?? false;
         using var ms = new MemoryStream();
         using (var w = new Utf8JsonWriter(ms, Opts))
         {
@@ -45,17 +50,20 @@ static class JsonWire
             w.WriteNumber("count", rows.Count);
             w.WriteString("epoch", epoch);   // §2.1.1: the ONE captured build the whole batch resolved against
             w.WriteStartArray("resolved");
-            int rendered = 0; bool truncated = false;
+            int rendered = 0; bool rowsTruncated = false;
             foreach (var r in rows)
             {
+                if (manifestOnly) break;   // to_file: the rows are the FILE
                 w.Flush();
-                if (ms.Length >= cap) { truncated = true; break; }
+                if (ms.Length >= cap) { rowsTruncated = true; break; }
                 WriteResolvedRow(w, r);
                 rendered++;
             }
             w.WriteEndArray();
             w.WriteNumber("rendered", rendered);
-            w.WriteBoolean("truncated", truncated);
+            w.WriteBoolean("truncated", rowsTruncated);
+            truncated = rowsTruncated;
+            if (spill is not null) Artifacts.WriteSpillStateJson(w, spill);
             w.WriteEndObject();
         }
         return Finish(ms);
@@ -63,7 +71,7 @@ static class JsonWire
 
     /// <summary>One housecarl_resolve row. Resolved ⇒ the identity fields; not resolved ⇒ a single <c>error</c>
     /// (the malformed-FormID reason, or "not present in the active order" for a valid-but-absent FormKey).</summary>
-    static void WriteResolvedRow(Utf8JsonWriter w, ResolvedRef r)
+    internal static void WriteResolvedRow(Utf8JsonWriter w, ResolvedRef r)
     {
         w.WriteStartObject();
         w.WriteString("formid", r.Token);
@@ -151,6 +159,23 @@ static class JsonWire
 
     static int Cap(int maxChars) => maxChars > 0 ? maxChars : Wire.DefaultMaxChars;
 
+    /// <summary>A bare whole-call refusal document: <c>{error, epoch?}</c> — for tool-layer refusals that have no
+    /// outcome object to render (e.g. the §2.1.1 artifact epoch-mismatch handed back beside the batch), matching
+    /// the outcome-borne refusal shape so json consumers see ONE refusal grammar. The stamp rides when the refusal
+    /// consulted a build (the PR #305 contract).</summary>
+    internal static string RenderError(string error, string? epoch)
+    {
+        using var ms = new MemoryStream();
+        using (var w = new Utf8JsonWriter(ms, Opts))
+        {
+            w.WriteStartObject();
+            w.WriteString("error", error);
+            WriteNullable(w, "epoch", epoch);
+            w.WriteEndObject();
+        }
+        return Finish(ms);
+    }
+
     static void WriteStringArray(Utf8JsonWriter w, string name, IReadOnlyList<string> items)
     {
         w.WriteStartArray(name);
@@ -205,7 +230,7 @@ static class JsonWire
     /// <summary>Serialize a resolved record: identity + winner/override_depth/source + the fields array. Shared by
     /// read_record, batch_record_detail, and the cross_plugin_query detail path (one shape, no drift). <paramref
     /// name="matches"/> carries the multi-target references= un-merge when present.</summary>
-    static void WriteReadRecord(Utf8JsonWriter w, ReadOutcome o, MemoryStream ms, int cap, string? matches = null, string? epoch = null)
+    internal static void WriteReadRecord(Utf8JsonWriter w, ReadOutcome o, MemoryStream ms, int cap, string? matches = null, string? epoch = null)
     {
         var r = o.Record!;
         w.WriteStartObject();
@@ -247,8 +272,13 @@ static class JsonWire
     /// a per-item <c>{formid,error}</c> (the batch survives). Truncation drops trailing records and flags it — the
     /// document stays valid JSON (Q3), and count is exact.</summary>
     public static string RenderBatch(IReadOnlyList<ReadOutcome> outcomes, int maxChars)
+        => RenderBatch(outcomes, maxChars, null, out _);
+
+    public static string RenderBatch(IReadOnlyList<ReadOutcome> outcomes, int maxChars, SpillState? spill, out bool truncated)
     {
+        truncated = false;
         int cap = Cap(maxChars);
+        bool manifestOnly = spill?.ManifestOnly ?? false;
         using var ms = new MemoryStream();
         using (var w = new Utf8JsonWriter(ms, Opts))
         {
@@ -258,18 +288,21 @@ static class JsonWire
             // (a malformed-FormID row never consulted a view and carries none).
             WriteNullable(w, "epoch", outcomes.FirstOrDefault(o => o.Epoch is not null)?.Epoch);
             w.WriteStartArray("records");
-            int rendered = 0; bool truncated = false;
+            int rendered = 0; bool rowsTruncated = false;
             foreach (var o in outcomes)
             {
+                if (manifestOnly) break;   // to_file: the rows are the FILE
                 w.Flush();
-                if (ms.Length >= cap) { truncated = true; break; }
+                if (ms.Length >= cap) { rowsTruncated = true; break; }
                 if (o.Error is not null) { w.WriteStartObject(); w.WriteString("formid", o.FormKey.ToString()); w.WriteString("error", o.Error); w.WriteEndObject(); }
                 else WriteReadRecord(w, o, ms, cap);
                 rendered++;
             }
             w.WriteEndArray();
             w.WriteNumber("rendered", rendered);
-            w.WriteBoolean("truncated", truncated);
+            w.WriteBoolean("truncated", rowsTruncated);
+            truncated = rowsTruncated;
+            if (spill is not null) Artifacts.WriteSpillStateJson(w, spill);
             w.WriteEndObject();
         }
         return Finish(ms);
@@ -282,13 +315,24 @@ static class JsonWire
     /// in-band. The detail path threads resolve_names through the SAME ResolveRead the text render uses, so the two
     /// modes read one path.</summary>
     public static string RenderCrossQuery(LoadOrderService svc, CrossQueryOutcome q, IReadOnlyList<string>? fields, int maxChars, bool resolveNames, bool winnerFields, int depth = 1)
+        => RenderCrossQuery(svc, q, fields, maxChars, resolveNames, winnerFields, depth, null, out _);
+
+    /// <summary>The §2.1.1-aware render — see the text twin: <paramref name="spill"/> rides IN the document (a
+    /// marker outside the json body would be invisible to a json consumer), <paramref name="truncated"/> is the
+    /// auto-spill trigger handed back to the tool layer.</summary>
+    public static string RenderCrossQuery(LoadOrderService svc, CrossQueryOutcome q, IReadOnlyList<string>? fields, int maxChars, bool resolveNames, bool winnerFields, int depth,
+                                          SpillState? spill, out bool truncated)
     {
+        truncated = false;
         int cap = Cap(maxChars);
+        bool manifestOnly = spill?.ManifestOnly ?? false;
         using var ms = new MemoryStream();
         using (var w = new Utf8JsonWriter(ms, Opts))
         {
             w.WriteStartObject();
-            if (q.Error is not null) w.WriteString("error", q.Error);
+            // Post-capture refusals are stamped (PR #305 contract — e.g. the artifact epoch-mismatch refusal);
+            // pre-capture validation refusals carry null and render bare, same as the text twin.
+            if (q.Error is not null) { w.WriteString("error", q.Error); if (q.Epoch is not null) w.WriteString("epoch", q.Epoch); }
             else if (q.Groups is not null)                                   // group_by= → count table
             {
                 WriteNullable(w, "group_by", q.GroupBy);
@@ -300,6 +344,7 @@ static class JsonWire
                 int gRendered = 0; bool gTrunc = false;
                 foreach (var g in q.Groups)
                 {
+                    if (manifestOnly) break;   // to_file: the rows are the FILE
                     w.Flush();
                     if (ms.Length >= cap) { gTrunc = true; break; }
                     w.WriteStartObject(); w.WriteString("key", g.Key); w.WriteNumber("count", g.Count); w.WriteEndObject();
@@ -308,6 +353,7 @@ static class JsonWire
                 w.WriteEndArray();
                 w.WriteNumber("rendered", gRendered);
                 w.WriteBoolean("truncated", gTrunc);
+                truncated = gTrunc;
             }
             else                                                            // per-match: detail (fields=) or summary
             {
@@ -322,11 +368,11 @@ static class JsonWire
                 WriteNotes(w, q, p5);
                 var linkMemo = resolveNames && detail ? new Dictionary<FormKey, ResolvedRef>() : null;
                 w.WriteStartArray("matches");
-                int rendered = 0; bool truncated = false;
-                for (int i = 0; i < q.Keys.Count; i++)
+                int rendered = 0; bool rowsTruncated = false;
+                for (int i = 0; i < q.Keys.Count && !manifestOnly; i++)      // to_file: the rows are the FILE
                 {
                     w.Flush();
-                    if (ms.Length >= cap) { truncated = true; break; }
+                    if (ms.Length >= cap) { rowsTruncated = true; break; }
                     var fk = q.Keys[i];
                     string? matches = q.MatchedTargets is { } mt && i < mt.Count ? mt[i] : null;
                     if (detail)
@@ -347,8 +393,10 @@ static class JsonWire
                 }
                 w.WriteEndArray();
                 w.WriteNumber("rendered", rendered);
-                w.WriteBoolean("truncated", truncated);
+                w.WriteBoolean("truncated", rowsTruncated);
+                truncated = rowsTruncated;
             }
+            if (spill is not null && q.Error is null) Artifacts.WriteSpillStateJson(w, spill);
             w.WriteEndObject();
         }
         return Finish(ms);
@@ -384,13 +432,20 @@ static class JsonWire
     /// rides in-band; a row whose read FAILS lands in a separate <c>errors</c> array — never a silently missing row.
     /// group_by= never reaches here (the tool renders its count table via <see cref="RenderCrossQuery"/>).</summary>
     public static string RenderCrossQueryDense(LoadOrderService svc, CrossQueryOutcome q, IReadOnlyList<string>? fields, int maxChars, bool resolveNames, bool winnerFields)
+        => RenderCrossQueryDense(svc, q, fields, maxChars, resolveNames, winnerFields, null, out _);
+
+    public static string RenderCrossQueryDense(LoadOrderService svc, CrossQueryOutcome q, IReadOnlyList<string>? fields, int maxChars, bool resolveNames, bool winnerFields,
+                                               SpillState? spill, out bool truncated)
     {
+        truncated = false;
         int cap = Cap(maxChars);
+        bool manifestOnly = spill?.ManifestOnly ?? false;
         using var ms = new MemoryStream();
         using (var w = new Utf8JsonWriter(ms, Opts))
         {
             w.WriteStartObject();
-            if (q.Error is not null) w.WriteString("error", q.Error);
+            // Post-capture refusals are stamped (PR #305 contract); pre-capture validation refusals stay bare.
+            if (q.Error is not null) { w.WriteString("error", q.Error); if (q.Epoch is not null) w.WriteString("epoch", q.Epoch); }
             else
             {
                 bool detail = fields is { Count: > 0 };
@@ -422,12 +477,12 @@ static class JsonWire
 
                 var linkMemo = resolveNames && detail ? new Dictionary<FormKey, ResolvedRef>() : null;
                 List<(string Formid, string Error)>? errors = null;
-                int rendered = 0; bool truncated = false;
+                int rendered = 0; bool rowsTruncated = false;
                 w.WriteStartArray("rows");
-                for (int i = 0; i < q.Keys.Count; i++)
+                for (int i = 0; i < q.Keys.Count && !manifestOnly; i++)      // to_file: the rows are the FILE
                 {
                     w.Flush();
-                    if (ms.Length >= cap) { truncated = true; break; }
+                    if (ms.Length >= cap) { rowsTruncated = true; break; }
                     var fk = q.Keys[i];
                     string? matches = q.MatchedTargets is { } mt && i < mt.Count ? mt[i] : null;
                     if (detail)
@@ -468,8 +523,10 @@ static class JsonWire
                     w.WriteEndArray();
                 }
                 w.WriteNumber("rendered", rendered);
-                w.WriteBoolean("truncated", truncated);
+                w.WriteBoolean("truncated", rowsTruncated);
+                truncated = rowsTruncated;
             }
+            if (spill is not null && q.Error is null) Artifacts.WriteSpillStateJson(w, spill);
             w.WriteEndObject();
         }
         return Finish(ms);
@@ -491,7 +548,7 @@ static class JsonWire
         if (v is null) w.WriteNullValue(); else w.WriteStringValue(v);
     }
 
-    static void WriteSummaryRow(Utf8JsonWriter w, RecordSummary m, string? matches)
+    internal static void WriteSummaryRow(Utf8JsonWriter w, RecordSummary m, string? matches)
     {
         w.WriteStartObject();
         w.WriteString("formid", m.FormKey.ToString());

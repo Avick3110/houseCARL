@@ -1,0 +1,293 @@
+using System.Text;
+using System.Text.Json;
+using HousecarlCore;
+using Mutagen.Bethesda.Plugins;
+
+namespace HousecarlMcp;
+
+/// <summary>What the response says when its full result lives in a §2.1.1 artifact: the file, its parsed-back
+/// manifest, and WHY it was written — <c>to_file</c> (the caller forced the disposition) or <c>ceiling</c>
+/// (auto-spill: the inline render hit max_chars). Threaded into the renders so the <c>spilled</c> marker rides
+/// IN-BAND in both formats (a marker appended outside the json document would be invisible to a json consumer —
+/// the D2 pairing rule).</summary>
+internal sealed record SpillInfo(string Path, ResultArtifact.Manifest Manifest, string Reason)
+{
+    public bool ToFile => Reason == "to_file";
+}
+
+/// <summary>How a render learns its call's artifact disposition, as ONE value: a successful spill (with whether
+/// the rows are omitted — the to_file manifest-only render), or a FAILED auto-spill (the write refused — the
+/// response must then say its truncation has NO complete artifact behind it, because "truncation never loses data"
+/// is §2.1.1's promise and a silently broken promise is the Q3 case). Null = ordinary inline response.</summary>
+internal sealed record SpillState(SpillInfo? Spill, string? Failure, bool ManifestOnly)
+{
+    public static SpillState Spilled(SpillInfo s, bool manifestOnly) => new(s, null, manifestOnly);
+    public static SpillState Failed(string failure) => new(null, failure, false);
+}
+
+/// <summary>The §2.1.1 artifact layer for the bulk read lanes (tool-surface 2.0, W1): per-lane artifact BUILDERS
+/// (each writes the SAME rows its json render emits — shared row writers, so the file and the wire can only differ
+/// in formatting, never in data) and the shared in-band ACCOUNTING EMITTER for the <c>spilled</c> marker (one
+/// wording for text, one shape for json, used by every wired lane — the drift-killer the epoch stamps already
+/// established).
+///
+/// <para>Wired lanes (W1): cross_plugin_query (all three formats + group_by), batch_record_detail, resolve —
+/// the record-bulk lanes where unbounded output actually bites. The sweep lanes (check_errors/validate_scripts)
+/// get their artifacts when W2 folds them into the findings= family: their JSONL row shape IS that redesign, and
+/// wiring a throwaway nested shape now would ship a second schema W2 immediately retires.</para></summary>
+internal static class Artifacts
+{
+    // ---- the shared spilled-marker emitter (text) ---------------------------------------------------
+
+    /// <summary>Append the <c>spilled</c> block to a text response. Contract (SPEC §2.1.1): the marker MUST name
+    /// the artifact path — a pathless spill makes well-behaved callers refuse, re-pay the scan, or fabricate a
+    /// path (E4.2 run 1). The block also carries the manifest facts a caller needs to decide its next move
+    /// without opening the file: row count, schema, identity column, epoch.</summary>
+    public static void AppendSpillText(StringBuilder sb, SpillInfo s)
+    {
+        var m = s.Manifest;
+        sb.Append('\n')
+          .Append("spilled: complete result (").Append(m.RowCount).Append(m.RowCount == 1 ? " row" : " rows")
+          .Append(") -> ").Append(s.Path).Append('\n')
+          .Append(s.ToFile
+              ? "  written at your request (to_file=): only this manifest is rendered inline.\n"
+              : "  the inline render hit max_chars, so the COMPLETE result was auto-spilled (nothing is lost; the rows above are a prefix).\n")
+          .Append("  manifest: rows=").Append(m.RowCount)
+          .Append(m.Total != m.RowCount ? $" of total={m.Total}" : "")
+          .Append("  identity=").Append(m.Identity ?? "<none>")
+          .Append("  epoch=").Append(m.Epoch).Append('\n')
+          .Append("  row_schema: ").Append(string.Join(", ", m.RowSchema)).Append('\n')
+          .Append("  sort: ").Append(m.Sort).Append('\n');
+        if (m.TypeCounts is { Count: > 0 })
+            sb.Append("  type_counts: ")
+              .Append(string.Join(", ", m.TypeCounts.OrderByDescending(kv => kv.Value).ThenBy(kv => kv.Key, StringComparer.Ordinal)
+                                                    .Select(kv => $"{kv.Key}={kv.Value}"))).Append('\n');
+        sb.Append("  the file is JSONL (line 1 = this manifest, one row per line) — grep/read it with your own file tools, ")
+          .Append(m.Identity is null
+              ? "or re-run the producing query for fresh values.\n"
+              : $"or re-enter it server-side via formids=@{s.Path} / where=[\"formid in @{s.Path}\"] (epoch-checked against the current build).\n");
+    }
+
+    // ---- the shared spilled-marker emitter (json) ---------------------------------------------------
+
+    /// <summary>Write the <c>spilled</c> member into an OPEN json object — the same facts as the text block
+    /// (D2: one datum, two renders). The path is the value of <c>spilled.path</c>; its presence IS the marker.</summary>
+    public static void WriteSpillJson(Utf8JsonWriter w, SpillInfo s)
+    {
+        var m = s.Manifest;
+        w.WriteStartObject("spilled");
+        w.WriteString("path", s.Path);
+        w.WriteString("reason", s.ToFile ? "to_file" : "over_inline_ceiling");
+        w.WriteNumber("row_count", m.RowCount);
+        w.WriteNumber("total", m.Total);
+        if (m.Identity is null) w.WriteNull("identity"); else w.WriteString("identity", m.Identity);
+        w.WriteStartArray("row_schema");
+        foreach (var c in m.RowSchema) w.WriteStringValue(c);
+        w.WriteEndArray();
+        w.WriteString("sort", m.Sort);
+        if (m.TypeCounts is { Count: > 0 })
+        {
+            w.WriteStartObject("type_counts");
+            foreach (var kv in m.TypeCounts.OrderByDescending(kv => kv.Value).ThenBy(kv => kv.Key, StringComparer.Ordinal))
+                w.WriteNumber(kv.Key, kv.Value);
+            w.WriteEndObject();
+        }
+        w.WriteString("epoch", m.Epoch);
+        w.WriteEndObject();
+    }
+
+    // ---- per-lane artifact builders -----------------------------------------------------------------
+
+    /// <summary>Build + save the artifact for a cross_plugin_query result: group_by count rows, detail rows
+    /// (fields=), or summary rows — the SAME row shapes the json render emits, via the SAME row writers, filled
+    /// off the SAME pinned view the response's epoch names (ResolveReadOn/ResolveSummaryOn — a spill must never
+    /// mix builds the header claims it didn't). Returns the SpillInfo for the response marker, or a named error
+    /// the caller renders (an unwritable path must fail LOUD, not produce a response claiming a file — Q3).</summary>
+    public static (SpillInfo? Spill, string? Error) WriteCrossQuery(
+        LoadOrderService svc, CrossQueryOutcome q, IReadOnlyList<string>? fields,
+        bool resolveNames, bool winnerFields, int depth,
+        string path, string reason, IReadOnlyList<KeyValuePair<string, string>> query)
+    {
+        using var writer = new ResultArtifact.Writer();
+        string[] schema;
+        string? identity;
+        string sort;
+
+        if (q.Groups is not null)                                             // group_by= → count-table rows
+        {
+            identity = null;                                                  // aggregate rows carry no per-record identity
+            schema = new[] { "key", "count" };
+            sort = "count desc, then key asc";
+            foreach (var g in q.Groups)
+                writer.WriteRow((w, _) => { w.WriteStartObject(); w.WriteString("key", g.Key); w.WriteNumber("count", g.Count); w.WriteEndObject(); });
+        }
+        else if (fields is { Count: > 0 })                                    // detail rows — full record objects
+        {
+            identity = "formid";
+            schema = new[] { "formid", "type", "editorid", "winner", "override_depth", "source", "matches?", "fields" };
+            sort = "load-order scan order (deterministic within one epoch)";
+            var linkMemo = resolveNames ? new Dictionary<FormKey, ResolvedRef>() : null;
+            for (int i = 0; i < q.Keys.Count; i++)
+            {
+                var fk = q.Keys[i];
+                string? matches = q.MatchedTargets is { } mt && i < mt.Count ? mt[i] : null;
+                var o = svc.ResolveReadOn(q, fk, winnerFields ? null : (q.Sources is { } src ? src[i] : null), fields, false, depth,
+                                          resolveNames: resolveNames, linkMemo: linkMemo);
+                if (o.Error is not null)
+                    writer.WriteRow((w, _) =>
+                    {
+                        w.WriteStartObject(); w.WriteString("formid", fk.ToString()); w.WriteString("error", o.Error);
+                        if (matches is not null) w.WriteString("matches", matches);
+                        w.WriteEndObject();
+                    });
+                else
+                    writer.WriteRow((w, ms) => JsonWire.WriteReadRecord(w, o, ms, int.MaxValue, matches), o.Record!.Type);
+            }
+        }
+        else                                                                  // summary rows
+        {
+            identity = "formid";
+            schema = new[] { "formid", "type", "editorid", "winner", "override_depth", "matches?" };
+            sort = "load-order scan order (deterministic within one epoch)";
+            for (int i = 0; i < q.Keys.Count; i++)
+            {
+                var fk = q.Keys[i];
+                string? matches = q.MatchedTargets is { } mt && i < mt.Count ? mt[i] : null;
+                var m = q.Prefilled is not null ? q.Prefilled[i] : svc.ResolveSummaryOn(q, fk);   // pinned to the scan's build
+                writer.WriteRow((w, _) => JsonWire.WriteSummaryRow(w, m, matches), m.Error is null ? m.Type : null);
+            }
+        }
+
+        var (manifest, err) = writer.Save(path, "housecarl_cross_plugin_query", query, identity, schema, sort,
+                                          q.Groups is not null ? q.Groups.Count : q.Total, q.Epoch ?? "");
+        return err is not null ? (null, err) : (new SpillInfo(path, manifest!, reason), null);
+    }
+
+    /// <summary>Build + save the artifact for a batch_record_detail result — one row per input, in input order,
+    /// exactly the rows the json render emits (per-item errors included: the artifact is the complete answer, and
+    /// a dropped error row would make the file claim a cleaner batch than the call returned).</summary>
+    public static (SpillInfo? Spill, string? Error) WriteBatch(
+        IReadOnlyList<ReadOutcome> outcomes, string path, string reason, IReadOnlyList<KeyValuePair<string, string>> query)
+    {
+        using var writer = new ResultArtifact.Writer();
+        foreach (var o in outcomes)
+        {
+            if (o.Error is not null)
+                writer.WriteRow((w, _) => { w.WriteStartObject(); w.WriteString("formid", o.FormKey.ToString()); w.WriteString("error", o.Error); w.WriteEndObject(); });
+            else
+                writer.WriteRow((w, ms) => JsonWire.WriteReadRecord(w, o, ms, int.MaxValue), o.Record!.Type);
+        }
+        // The batch's ONE build (first consulted row). A batch of pure parse-failures never consulted a build and
+        // carries "" — such an artifact refuses epoch-checked re-entry against ANY build, which is the honest answer.
+        var epoch = outcomes.FirstOrDefault(o => o.Epoch is not null)?.Epoch ?? "";
+        var (manifest, err) = writer.Save(path, "housecarl_batch_record_detail", query, "formid",
+                                          new[] { "formid", "type", "editorid", "winner", "override_depth", "source", "fields" },
+                                          "input order", outcomes.Count, epoch);
+        return err is not null ? (null, err) : (new SpillInfo(path, manifest!, reason), null);
+    }
+
+    /// <summary>Build + save the artifact for a resolve result — one identity row per input, in input order,
+    /// the json render's exact rows (per-item errors included).</summary>
+    public static (SpillInfo? Spill, string? Error) WriteResolve(
+        IReadOnlyList<ResolvedRef> rows, string epoch, string path, string reason, IReadOnlyList<KeyValuePair<string, string>> query)
+    {
+        using var writer = new ResultArtifact.Writer();
+        foreach (var r in rows)
+            writer.WriteRow((w, _) => JsonWire.WriteResolvedRow(w, r), r.Resolved ? r.Type : null);
+        var (manifest, err) = writer.Save(path, "housecarl_resolve", query, "formid",
+                                          new[] { "formid", "type", "editorid", "name", "winner" },
+                                          "input order", rows.Count, epoch);
+        return err is not null ? (null, err) : (new SpillInfo(path, manifest!, reason), null);
+    }
+
+    /// <summary>Append the whole SpillState to a text response: the spilled block, or the failed-spill warning
+    /// (a truncated response whose promised artifact could NOT be written must say so — the §2.1.1 "nothing is
+    /// ever lost silently" promise would otherwise break exactly when the disk does).</summary>
+    public static void AppendSpillStateText(StringBuilder sb, SpillState s)
+    {
+        if (s.Spill is not null) AppendSpillText(sb, s.Spill);
+        else if (s.Failure is not null)
+            sb.Append('\n')
+              .Append("WARNING: the response is truncated and the auto-spill artifact could NOT be written — ")
+              .Append(s.Failure).Append('\n')
+              .Append("  The complete result exists NOWHERE; re-run with a narrower filter, a higher max_chars, or to_file= at a writable path.\n");
+    }
+
+    /// <summary>The json twin of <see cref="AppendSpillStateText"/> — written into an OPEN object (D2 pairing).</summary>
+    public static void WriteSpillStateJson(Utf8JsonWriter w, SpillState s)
+    {
+        if (s.Spill is not null) WriteSpillJson(w, s.Spill);
+        else if (s.Failure is not null)
+            w.WriteString("spill_error",
+                "the response is truncated and the auto-spill artifact could NOT be written — " + s.Failure +
+                ". The complete result exists NOWHERE; re-run with a narrower filter, a higher max_chars, or to_file= at a writable path.");
+    }
+
+    /// <summary>Split a PLAIN list file's content into tokens — the same grammar the where-grammar's @file uses:
+    /// commas/newlines separate (never bare spaces — plugin filenames contain them), brackets/quotes stripped per
+    /// token so a pasted JSON array parses as-is.</summary>
+    public static IEnumerable<string> SplitListTokens(string content)
+    {
+        foreach (var t in content.Split(ListSeparators, StringSplitOptions.RemoveEmptyEntries))
+        {
+            var tok = t.Trim('[', ']', '"', '\'', ' ', '\t');
+            if (tok.Length > 0) yield return tok;
+        }
+    }
+
+    static readonly char[] ListSeparators = { ',', '\r', '\n' };
+
+    /// <summary>Expand a list-valued tool input under the <c>@file</c> convention (SPEC §5.1): a single
+    /// <c>"@&lt;absolute path&gt;"</c> element IN PLACE OF the inline list reads the file — a §2.1.1 ARTIFACT
+    /// yields its identity column (formids) plus the epoch demand the consuming call must check; a plain file
+    /// yields its comma/newline-separated tokens (no epoch claim). Mixing an @ element WITH inline entries is a
+    /// named refusal (one spelling for the whole list, not a splice grammar). Non-@ input passes through
+    /// untouched. <c>EchoSource</c> is what the query echo / manifest should say the list WAS ("@path" or null
+    /// for inline).</summary>
+    public static (string[]? Tokens, ArtifactDemand? Demand, string? EchoSource, string? Error) ExpandListInput(string[] items, string paramName)
+    {
+        int atCount = items.Count(i => i is { Length: > 0 } && i.TrimStart()[0] == '@');
+        if (atCount == 0) return (items, null, null, null);
+        if (items.Length > 1)
+            return (null, null, null, $"error: {paramName}= mixes an '@file' entry with inline entries — '@<path>' stands IN PLACE OF the whole list. " +
+                                      $"Pass {paramName}=[\"@<path>\"] alone, or put every entry in the file.");
+        var path = items[0].TrimStart().Substring(1).Trim().Trim('"', '\'');
+        if (path.Length == 0)
+            return (null, null, null, $"error: {paramName}= '@' names a list file but no path follows it.");
+        if (!Path.IsPathRooted(path))
+            return (null, null, null, $"error: {paramName}= list file '{path}' must be an ABSOLUTE path — the server resolves relative paths against its OWN working directory, not yours.");
+        string content;
+        try { content = File.ReadAllText(path); }
+        catch (Exception ex) { return (null, null, null, $"error: could not read {paramName}= list file '{path}' — {ex.GetType().Name}: {ex.Message}"); }
+
+        if (ResultArtifact.LooksLikeArtifact(content))
+        {
+            var (manifest, tokens, aerr) = ResultArtifact.ReadIdentity(path, content);
+            if (aerr is not null) return (null, null, null, "error: " + aerr);
+            if (!manifest!.Identity!.Equals("formid", StringComparison.OrdinalIgnoreCase))
+                return (null, null, null, $"error: artifact '{path}' (from {manifest.Tool}) carries '{manifest.Identity}' identities, " +
+                                          $"not FormIDs — there is no formid list in it for {paramName}=.");
+            return (tokens!.ToArray(), new ArtifactDemand(path, manifest.Epoch), "@" + path, null);
+        }
+
+        var plain = SplitListTokens(content).ToArray();
+        if (plain.Length == 0)
+            return (null, null, null, $"error: {paramName}= list file '{path}' is empty — give one entry per line (or comma-separated).");
+        return (plain, null, "@" + path, null);
+    }
+
+    // ---- to_file validation -------------------------------------------------------------------------
+
+    /// <summary>Validate a caller-named <c>to_file=</c> target: absolute, .jsonl-suffixed (the artifact IS jsonl —
+    /// a .csv/.txt name would promise a format the file doesn't have), and not colliding with the auto-spill
+    /// directory's naming authority. Null = fine; else the named refusal.</summary>
+    public static string? ValidateToFile(string toFile)
+    {
+        var p = toFile.Trim();
+        if (p.Length == 0) return "error: to_file= is empty — give the ABSOLUTE path the artifact should be written to (e.g. 'C:\\work\\weapons.jsonl').";
+        if (!Path.IsPathRooted(p)) return $"error: to_file='{toFile}' must be an ABSOLUTE path — the server resolves relative paths against its OWN working directory, not yours.";
+        if (!p.EndsWith(".jsonl", StringComparison.OrdinalIgnoreCase))
+            return $"error: to_file='{toFile}' — the artifact is a JSONL file (line 1 = manifest, one JSON row per line); name it with a .jsonl extension so the file says what it is.";
+        return null;
+    }
+}

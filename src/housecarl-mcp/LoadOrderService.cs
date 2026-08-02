@@ -2398,15 +2398,39 @@ public sealed class LoadOrderService : IDisposable
     /// fields/depth/conflict_tree; anything richer is housecarl_batch_record_detail's job.</summary>
     public IReadOnlyList<ResolvedRef> ResolveRefs(IReadOnlyList<string> formids) => ResolveRefs(formids, out _);
 
+    public IReadOnlyList<ResolvedRef> ResolveRefs(IReadOnlyList<string> formids, out string epoch)
+        => ResolveRefs(formids, null, out epoch, out _);
+
+    /// <summary>The §2.1.1 artifact-epoch mismatch refusal — ONE wording for every consuming lane (cross-query
+    /// predicates, batch, resolve), naming BOTH epochs and the two legitimate next moves. Deliberately no
+    /// stale-override parameter: fresh re-projection goes through the server; honest-snapshot traversal of the
+    /// file is the client's own lane.</summary>
+    internal static string ArtifactEpochMismatch(ArtifactDemand d, string current) =>
+        $"artifact '{d.Path}' was captured at epoch={d.Epoch}, but the CURRENT load-order build is epoch={current} — " +
+        "the load order changed since the artifact was written, so its rows may resolve differently now. " +
+        "Re-run the producing query (with to_file= to re-materialize) against the current build; the old file stays " +
+        "readable with your own tools as an honest snapshot of ITS build. There is deliberately no stale-override switch.";
+
     /// <summary>As above, also handing back the captured build's <paramref name="epoch"/> fingerprint — the batch is
     /// ONE capture, and the render stamps that identity into the response's in-band accounting (SPEC §2.1.1).
     /// <see cref="ResolvedRef"/> itself stays epoch-free: it is core's per-row identity DTO, reused as the
-    /// resolve_names annotation, where a per-row stamp would be noise.</summary>
-    public IReadOnlyList<ResolvedRef> ResolveRefs(IReadOnlyList<string> formids, out string epoch)
+    /// resolve_names annotation, where a per-row stamp would be noise.
+    /// <para><paramref name="artifactDemand"/> — when the formid list came from a §2.1.1 artifact — is checked
+    /// against THIS capture's epoch (the same build that answers), and a mismatch hands back
+    /// <paramref name="artifactRefusal"/> with no rows: the refusal consulted the build, so the caller renders it
+    /// stamped with <paramref name="epoch"/>.</para></summary>
+    public IReadOnlyList<ResolvedRef> ResolveRefs(IReadOnlyList<string> formids, ArtifactDemand? artifactDemand,
+                                                  out string epoch, out string? artifactRefusal)
     {
+        artifactRefusal = null;
         var resolver = Resolver;
         var view = resolver.Capture();                  // ONE build for the whole batch (HCBR-2026-06-11-02)
         epoch = view.Epoch;
+        if (artifactDemand is not null && artifactDemand.Epoch != view.Epoch)
+        {
+            artifactRefusal = ArtifactEpochMismatch(artifactDemand, view.Epoch);
+            return Array.Empty<ResolvedRef>();
+        }
         using var session = resolver.OpenSession();
         var memo = new Dictionary<FormKey, ResolvedRef>();
         var results = new List<ResolvedRef>(formids.Count);
@@ -2564,9 +2588,25 @@ public sealed class LoadOrderService : IDisposable
     /// its own per-item error (ResolveRead's "does not define this record"), never failing the batch.</summary>
     public IReadOnlyList<ReadOutcome> ResolveBatch(IReadOnlyList<string> formids, IReadOnlyList<string>? fields, bool conflictTree, int depth = 1,
                                                    bool resolveNames = false, string? plugin = null)
+        => ResolveBatch(formids, fields, conflictTree, depth, resolveNames, plugin, null, out _, out _);
+
+    /// <summary>The §2.1.1-aware overload: <paramref name="artifactDemand"/> (a formids=@artifact input) is
+    /// checked against THIS capture's epoch — the same build that would answer — and a mismatch hands back
+    /// <paramref name="artifactRefusal"/> + <paramref name="refusalEpoch"/> with no rows (a build-consulting
+    /// refusal renders stamped, per the PR #305 contract).</summary>
+    public IReadOnlyList<ReadOutcome> ResolveBatch(IReadOnlyList<string> formids, IReadOnlyList<string>? fields, bool conflictTree, int depth,
+                                                   bool resolveNames, string? plugin, ArtifactDemand? artifactDemand,
+                                                   out string? artifactRefusal, out string? refusalEpoch)
     {
+        artifactRefusal = null; refusalEpoch = null;
         var resolver = Resolver;                // build/refresh ONCE for the batch
         var view = resolver.Capture();          // ONE build for every item — the whole batch is one logical operation (HCBR-2026-06-11-02)
+        if (artifactDemand is not null && artifactDemand.Epoch != view.Epoch)
+        {
+            artifactRefusal = ArtifactEpochMismatch(artifactDemand, view.Epoch);
+            refusalEpoch = view.Epoch;
+            return Array.Empty<ReadOutcome>();
+        }
         var pin = new ViewPin(resolver, view);
         var linkMemo = resolveNames ? new Dictionary<FormKey, ResolvedRef>() : null;   // P7: one link-resolution cache across the WHOLE batch
         var outcomes = new List<ReadOutcome>(formids.Count);
@@ -2598,7 +2638,8 @@ public sealed class LoadOrderService : IDisposable
     /// <paramref name="limit"/>, with the true total), a group table, or a recoverable Q3 error. Holds nothing.</summary>
     public CrossQueryOutcome CrossQuery(string? type, IReadOnlyList<FormKey>? references, string? editoridContains,
                                         bool conflictsOnly, IReadOnlyList<string>? plugins, IReadOnlyList<string>? where, int limit,
-                                        bool definedIn = false, string? groupBy = null, int offset = 0, string? whereSource = null)
+                                        bool definedIn = false, string? groupBy = null, int offset = 0, string? whereSource = null,
+                                        IReadOnlyList<ArtifactDemand>? artifactDemands = null)
     {
         var resolver = Resolver;
         var view = resolver.Capture();          // ONE build for the SCAN and every per-match fill it makes (HCBR-2026-06-11-02)
@@ -2681,6 +2722,16 @@ public sealed class LoadOrderService : IDisposable
             if (perr is not null) return CrossQueryOutcome.Fail(perr);
             predicate = set;
         }
+
+        // §2.1.1 artifact re-entry: every artifact-backed list input (a references=@artifact expansion passed in,
+        // or a where=["formid in @artifact"] predicate) carries the epoch its rows were captured at. Checked HERE,
+        // against the view this scan will answer from — not at the tool layer, where a freshness rebuild between
+        // check and scan would let a stale artifact through. Mismatch refuses LOUD naming both epochs, and the
+        // refusal is stamped: it consulted this build to compare (PR #305 refusal contract).
+        foreach (var demand in (artifactDemands ?? Array.Empty<ArtifactDemand>()).Concat(
+                     predicate?.ArtifactDemands ?? (IReadOnlyList<ArtifactDemand>)Array.Empty<ArtifactDemand>()))
+            if (demand.Epoch != view.Epoch)
+                return CrossQueryOutcome.Fail(ArtifactEpochMismatch(demand, view.Epoch)) with { Epoch = view.Epoch };
 
         IReadOnlyList<Type>? types;
         try { types = hasType ? ResolveTypeFilter(type!) : null; }
