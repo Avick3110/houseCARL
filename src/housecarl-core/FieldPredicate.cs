@@ -303,7 +303,7 @@ public sealed class FieldPredicateSet
                 if (lerr is not null) return (null, lerr);
                 return (new Predicate(text, segs, path, op, operand, 0, set, artifact, LinkPath: linkSegs, LinkPathDisplay: linkDisplay, Pseudo: pseudo), null);
             }
-            var (members, mset, martifact, merr) = ParseValueList(raw, operand);
+            var (members, mset, martifact, merr) = ParseValueList(text, operand);
             if (merr is not null) return (null, merr);
             return (new Predicate(text, segs, path, op, operand, 0, mset, martifact, LinkPath: linkSegs, LinkPathDisplay: linkDisplay, Pseudo: pseudo, RawMembers: members), null);
         }
