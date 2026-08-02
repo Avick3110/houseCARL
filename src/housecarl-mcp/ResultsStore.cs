@@ -38,8 +38,12 @@ static class ResultsStore
     public static string? OverrideDirForTests;
 
     /// <summary>Reserve a fresh artifact path for an auto-spill from <paramref name="tool"/> at build
-    /// <paramref name="epoch"/>, pruning old spills on the way (the write-time prune). Returns a path that does
-    /// not yet exist; a same-second collision gets a counter suffix.</summary>
+    /// <paramref name="epoch"/>, pruning old spills on the way (the write-time prune). The reservation is ATOMIC —
+    /// the file is CREATED (empty) here with <c>FileMode.CreateNew</c>, not merely probed with File.Exists, because
+    /// parallel tool calls are a normal client pattern and a check-then-write race would hand two same-second
+    /// spills the same path, one silently overwriting the other (PR #306 review). The Writer's temp-then-move
+    /// replaces the empty reservation wholesale; a spill that later FAILS deletes its reservation via
+    /// <see cref="Release"/>. A same-second collision gets a counter suffix.</summary>
     public static string NextPath(string tool, string epoch)
     {
         var dir = Dir;
@@ -50,20 +54,38 @@ static class ResultsStore
         var shortTool = tool.StartsWith("housecarl_", StringComparison.Ordinal) ? tool["housecarl_".Length..] : tool;
         var stamp = DateTime.UtcNow.ToString("yyyyMMdd-HHmmss");
         var basePath = Path.Combine(dir, $"{shortTool}_{stamp}_{epoch}");
-        var path = basePath + ".jsonl";
-        for (int n = 2; File.Exists(path); n++) path = $"{basePath}-{n}.jsonl";
-        return path;
+        for (int n = 1; ; n++)
+        {
+            var path = n == 1 ? basePath + ".jsonl" : $"{basePath}-{n}.jsonl";
+            try
+            {
+                using (new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None)) { }
+                return path;   // reserved: this call owns the name
+            }
+            catch (IOException) when (File.Exists(path)) { /* taken — try the next counter */ }
+            catch (Exception) { return path; }   // non-collision failure (bad dir, permissions) — Save names it loud
+        }
     }
 
-    /// <summary>Delete spilled artifacts older than <see cref="PruneAfterDays"/> days. Best-effort per file — a
-    /// locked or vanished file is skipped, never fatal (pruning is hygiene, not correctness; epoch-checked
-    /// re-entry is what protects against staleness).</summary>
+    /// <summary>Delete a reservation whose spill FAILED — best-effort (the failure is already named in the
+    /// response; an empty leftover would otherwise linger until the age prune).</summary>
+    public static void Release(string path)
+    {
+        try { File.Delete(path); } catch (Exception) { }
+    }
+
+    /// <summary>Delete spilled artifacts older than <see cref="PruneAfterDays"/> days — and orphaned Writer temps
+    /// (<c>*.jsonl.tmp-*</c>) on the same clock: a failed Save deletes its own temp best-effort, but a crash
+    /// mid-write can still strand one, and full-size strays in the server's own data dir are exactly what this
+    /// hygiene pass exists for (PR #306 review). Best-effort per file — a locked or vanished file is skipped,
+    /// never fatal (pruning is hygiene, not correctness; epoch-checked re-entry is what protects against
+    /// staleness).</summary>
     static void Prune(string dir)
     {
         var cutoff = DateTime.UtcNow.AddDays(-PruneAfterDays);
         try
         {
-            foreach (var f in Directory.EnumerateFiles(dir, "*.jsonl"))
+            foreach (var f in Directory.EnumerateFiles(dir, "*.jsonl").Concat(Directory.EnumerateFiles(dir, "*.jsonl.tmp-*")))
                 try { if (File.GetLastWriteTimeUtc(f) < cutoff) File.Delete(f); }
                 catch (IOException) { /* locked/raced — next write retries */ }
                 catch (UnauthorizedAccessException) { /* same */ }

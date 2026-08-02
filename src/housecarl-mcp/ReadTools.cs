@@ -127,7 +127,9 @@ public static class ReadTools
         if (wantFile)
         {
             var (s, aerr) = Artifacts.WriteBatch(outcomes, toFile!, "to_file", Echo());
-            if (aerr is not null) return "error: " + aerr;
+            if (aerr is not null)
+                // Post-scan failure keeps the format contract (review finding 4) — never bare text under json.
+                return json ? JsonWire.RenderError(aerr, outcomes.FirstOrDefault(o => o.Epoch is not null)?.Epoch) : "error: " + aerr;
             spill = SpillState.Spilled(s!, manifestOnly: true);
         }
 
@@ -139,9 +141,17 @@ public static class ReadTools
         {
             // AUTO-SPILL (§2.1.1): the complete batch goes to the server results dir; the response re-renders
             // with the spilled marker in-band. See cross_plugin_query's twin for the contract notes.
-            var path = ResultsStore.NextPath("housecarl_batch_record_detail", outcomes.FirstOrDefault(o => o.Epoch is not null)?.Epoch ?? "none");
-            var (s, aerr) = Artifacts.WriteBatch(outcomes, path, "ceiling", Echo());
-            rendered = Render(aerr is null ? SpillState.Spilled(s!, manifestOnly: false) : SpillState.Failed(aerr), out _);
+            if (conflict_tree)
+                // WriteBatch rows carry no conflict tree — same no-row-form honesty as the cross-query twin
+                // (review finding 1).
+                rendered = Render(SpillState.NoRowForm(), out _);
+            else
+            {
+                var path = ResultsStore.NextPath("housecarl_batch_record_detail", outcomes.FirstOrDefault(o => o.Epoch is not null)?.Epoch ?? "none");
+                var (s, aerr) = Artifacts.WriteBatch(outcomes, path, "ceiling", Echo());
+                if (aerr is not null) ResultsStore.Release(path);
+                rendered = Render(aerr is null ? SpillState.Spilled(s!, manifestOnly: false) : SpillState.WriteFailed(aerr), out _);
+            }
         }
         return rendered;
     });
@@ -319,7 +329,10 @@ public static class ReadTools
         if (wantFile && outcome.Error is null)
         {
             var (s, aerr) = Artifacts.WriteCrossQuery(svc, outcome, fields, resolve_names, winner_fields, depth, toFile!, "to_file", Echo());
-            if (aerr is not null) return "error: " + aerr;
+            if (aerr is not null)
+                // A POST-scan failure must keep the format contract — a bare text "error:" under format=json/dense
+                // hands a json consumer a non-document (review finding 4).
+                return fmt is Wire.QueryFormat.Text ? "error: " + aerr : JsonWire.RenderError(aerr, outcome.Epoch);
             spill = SpillState.Spilled(s!, manifestOnly: true);
         }
 
@@ -339,9 +352,17 @@ public static class ReadTools
             // spilled marker IN-BAND (both formats). The rows are re-filled off the SAME pinned view the scan
             // stamped, so the file cannot mix builds the header didn't claim. A failed write re-renders with the
             // failure named — a truncated response silently missing its promised artifact is the Q3 case.
-            var path = ResultsStore.NextPath("housecarl_cross_plugin_query", outcome.Epoch ?? "none");
-            var (s, aerr) = Artifacts.WriteCrossQuery(svc, outcome, fields, resolve_names, winner_fields, depth, path, "ceiling", Echo());
-            rendered = Render(aerr is null ? SpillState.Spilled(s!, manifestOnly: false) : SpillState.Failed(aerr), out _);
+            if (conflict_tree)
+                // No row form for the trees (to_file refuses on the same ground) — spilling thinner tree-less rows
+                // under a completeness claim would silently substitute the shape (review finding 1). Say so instead.
+                rendered = Render(SpillState.NoRowForm(), out _);
+            else
+            {
+                var path = ResultsStore.NextPath("housecarl_cross_plugin_query", outcome.Epoch ?? "none");
+                var (s, aerr) = Artifacts.WriteCrossQuery(svc, outcome, fields, resolve_names, winner_fields, depth, path, "ceiling", Echo());
+                if (aerr is not null) ResultsStore.Release(path);   // don't leave the empty reservation behind
+                rendered = Render(aerr is null ? SpillState.Spilled(s!, manifestOnly: false) : SpillState.WriteFailed(aerr), out _);
+            }
         }
         return rendered;
     });
@@ -394,7 +415,9 @@ public static class ReadTools
         if (wantFile)
         {
             var (s, aerr) = Artifacts.WriteResolve(rows, epoch, toFile!, "to_file", echo);
-            if (aerr is not null) return "error: " + aerr;
+            if (aerr is not null)
+                // Post-scan failure keeps the format contract (review finding 4).
+                return json ? JsonWire.RenderError(aerr, epoch) : "error: " + aerr;
             spill = SpillState.Spilled(s!, manifestOnly: true);
         }
 
@@ -407,7 +430,8 @@ public static class ReadTools
             // AUTO-SPILL (§2.1.1) — see cross_plugin_query's twin for the contract notes.
             var path = ResultsStore.NextPath("housecarl_resolve", epoch);
             var (s, aerr) = Artifacts.WriteResolve(rows, epoch, path, "ceiling", echo);
-            rendered = Render(aerr is null ? SpillState.Spilled(s!, manifestOnly: false) : SpillState.Failed(aerr), out _);
+            if (aerr is not null) ResultsStore.Release(path);
+            rendered = Render(aerr is null ? SpillState.Spilled(s!, manifestOnly: false) : SpillState.WriteFailed(aerr), out _);
         }
         return rendered;
     });

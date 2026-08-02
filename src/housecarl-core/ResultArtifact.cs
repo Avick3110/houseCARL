@@ -67,6 +67,7 @@ public static class ResultArtifact
             var manifest = new Manifest(tool, query, identity, rowSchema, sort, _rowCount, total,
                                         _typeCounts.Count > 0 ? _typeCounts : null, epoch,
                                         DateTime.UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'"));
+            string? tmp = null;
             try
             {
                 var dir = Path.GetDirectoryName(path);
@@ -74,7 +75,7 @@ public static class ResultArtifact
                 // Temp-then-move so a crash mid-write never leaves a half artifact that could pass for a whole one
                 // (line 1's row_count would not match, but why leave the hazard). Same-directory temp keeps the
                 // move atomic on NTFS.
-                var tmp = path + ".tmp-" + Guid.NewGuid().ToString("N")[..8];
+                tmp = path + ".tmp-" + Guid.NewGuid().ToString("N")[..8];
                 using (var fs = new FileStream(tmp, FileMode.Create, FileAccess.Write, FileShare.None))
                 {
                     using (var w = new Utf8JsonWriter(fs)) { manifest.WriteTo(w); w.Flush(); }
@@ -87,6 +88,10 @@ public static class ResultArtifact
             }
             catch (Exception ex)
             {
+                // The temp is full artifact size and a failed write is likeliest exactly when the volume is tight
+                // (PR #306 review) — never leave it behind. Best-effort: the named error below is the contract; a
+                // second failure deleting the temp must not mask it.
+                if (tmp is not null) try { File.Delete(tmp); } catch (Exception) { }
                 return (null, $"could not write the result artifact to '{path}' — {ex.GetType().Name}: {ex.Message}");
             }
         }

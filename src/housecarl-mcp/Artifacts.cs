@@ -22,7 +22,20 @@ internal sealed record SpillInfo(string Path, ResultArtifact.Manifest Manifest, 
 internal sealed record SpillState(SpillInfo? Spill, string? Failure, bool ManifestOnly)
 {
     public static SpillState Spilled(SpillInfo s, bool manifestOnly) => new(s, null, manifestOnly);
-    public static SpillState Failed(string failure) => new(null, failure, false);
+
+    /// <summary>The spill WRITE failed: the artifact was promised and could not be produced — say so, loud, with
+    /// the recovery moves (PR #306 review: the emitters render this verbatim, so the message is the whole story).</summary>
+    public static SpillState WriteFailed(string error) => new(null,
+        "the response is truncated and the auto-spill artifact could NOT be written — " + error +
+        " The complete result exists NOWHERE; re-run with a narrower filter, a higher max_chars, or to_file= at a writable path.", false);
+
+    /// <summary>The result HAS no spillable row form (conflict_tree — the same reason to_file= refuses it), so no
+    /// artifact was attempted: writing thinner summary rows under a completeness claim would be the silent-substitution
+    /// Q3 case (PR #306 review, finding 1).</summary>
+    public static SpillState NoRowForm() => new(null,
+        "the response is truncated and was NOT auto-spilled: conflict_tree=true has no JSONL row form (the same reason " +
+        "to_file= refuses it), and spilling thinner tree-less rows under a completeness claim would misrepresent the file. " +
+        "The complete trees exist only inline — raise max_chars, narrow the set, or drop conflict_tree (plain rows spill fine).", false);
 }
 
 /// <summary>The §2.1.1 artifact layer for the bulk read lanes (tool-surface 2.0, W1): per-lane artifact BUILDERS
@@ -46,14 +59,22 @@ internal static class Artifacts
     public static void AppendSpillText(StringBuilder sb, SpillInfo s)
     {
         var m = s.Manifest;
+        // "complete result" is claimed ONLY when the file holds every match (PR #306 review, finding 3): an
+        // auto-spill of a limit= window is complete AS A WINDOW — the matches beyond limit= are in no file, and
+        // saying otherwise is exactly the silent data-loss claim this PR exists to kill.
+        bool whole = m.Total == m.RowCount;
         sb.Append('\n')
-          .Append("spilled: complete result (").Append(m.RowCount).Append(m.RowCount == 1 ? " row" : " rows")
+          .Append(whole ? "spilled: complete result (" : "spilled: the returned WINDOW (")
+          .Append(m.RowCount).Append(m.RowCount == 1 ? " row" : " rows")
+          .Append(whole ? "" : $" of {m.Total} total matches")
           .Append(") -> ").Append(s.Path).Append('\n')
           .Append(s.ToFile
               ? "  written at your request (to_file=): only this manifest is rendered inline.\n"
-              : "  the inline render hit max_chars, so the COMPLETE result was auto-spilled (nothing is lost; the rows above are a prefix).\n")
+              : whole
+                  ? "  the inline render hit max_chars, so the COMPLETE result was auto-spilled (nothing is lost; the rows above are a prefix).\n"
+                  : $"  the inline render hit max_chars; the spilled WINDOW is complete in the file, but the {m.Total - m.RowCount} matches beyond limit= are in NO file — page with offset=, raise limit=, or use to_file= for the full result.\n")
           .Append("  manifest: rows=").Append(m.RowCount)
-          .Append(m.Total != m.RowCount ? $" of total={m.Total}" : "")
+          .Append(whole ? "" : $" of total={m.Total}")
           .Append("  identity=").Append(m.Identity ?? "<none>")
           .Append("  epoch=").Append(m.Epoch).Append('\n')
           .Append("  row_schema: ").Append(string.Join(", ", m.RowSchema)).Append('\n')
@@ -80,6 +101,9 @@ internal static class Artifacts
         w.WriteString("reason", s.ToFile ? "to_file" : "over_inline_ceiling");
         w.WriteNumber("row_count", m.RowCount);
         w.WriteNumber("total", m.Total);
+        // Explicit, not derivable-only (finding 3's json half): false = the file is a WINDOW, matches beyond
+        // limit= are in no file.
+        w.WriteBoolean("complete", m.Total == m.RowCount);
         if (m.Identity is null) w.WriteNull("identity"); else w.WriteString("identity", m.Identity);
         w.WriteStartArray("row_schema");
         foreach (var c in m.RowSchema) w.WriteStringValue(c);
@@ -207,20 +231,14 @@ internal static class Artifacts
     {
         if (s.Spill is not null) AppendSpillText(sb, s.Spill);
         else if (s.Failure is not null)
-            sb.Append('\n')
-              .Append("WARNING: the response is truncated and the auto-spill artifact could NOT be written — ")
-              .Append(s.Failure).Append('\n')
-              .Append("  The complete result exists NOWHERE; re-run with a narrower filter, a higher max_chars, or to_file= at a writable path.\n");
+            sb.Append('\n').Append("WARNING: ").Append(s.Failure).Append('\n');
     }
 
     /// <summary>The json twin of <see cref="AppendSpillStateText"/> — written into an OPEN object (D2 pairing).</summary>
     public static void WriteSpillStateJson(Utf8JsonWriter w, SpillState s)
     {
         if (s.Spill is not null) WriteSpillJson(w, s.Spill);
-        else if (s.Failure is not null)
-            w.WriteString("spill_error",
-                "the response is truncated and the auto-spill artifact could NOT be written — " + s.Failure +
-                ". The complete result exists NOWHERE; re-run with a narrower filter, a higher max_chars, or to_file= at a writable path.");
+        else if (s.Failure is not null) w.WriteString("spill_error", s.Failure);
     }
 
     /// <summary>Split a PLAIN list file's content into tokens — the same grammar the where-grammar's @file uses:
@@ -246,7 +264,9 @@ internal static class Artifacts
     /// for inline).</summary>
     public static (string[]? Tokens, ArtifactDemand? Demand, string? EchoSource, string? Error) ExpandListInput(string[] items, string paramName)
     {
-        int atCount = items.Count(i => i is { Length: > 0 } && i.TrimStart()[0] == '@');
+        // `is not null && TrimStart() is { Length: > 0 }` — a whitespace-only element must fall through to the
+        // per-item "not a FormID" path, not throw on [0] and surface as a fake internal failure (PR #306 review).
+        int atCount = items.Count(i => i is not null && i.TrimStart() is { Length: > 0 } t && t[0] == '@');
         if (atCount == 0) return (items, null, null, null);
         if (items.Length > 1)
             return (null, null, null, $"error: {paramName}= mixes an '@file' entry with inline entries — '@<path>' stands IN PLACE OF the whole list. " +
@@ -279,8 +299,10 @@ internal static class Artifacts
     // ---- to_file validation -------------------------------------------------------------------------
 
     /// <summary>Validate a caller-named <c>to_file=</c> target: absolute, .jsonl-suffixed (the artifact IS jsonl —
-    /// a .csv/.txt name would promise a format the file doesn't have), and not colliding with the auto-spill
-    /// directory's naming authority. Null = fine; else the named refusal.</summary>
+    /// a .csv/.txt name would promise a format the file doesn't have), and NOT inside the auto-spill results
+    /// directory — the server prunes that folder by age, so a caller-named artifact there would be silently
+    /// destroyed by hygiene (PR #306 review: the check the doc claimed, now real). Null = fine; else the named
+    /// refusal.</summary>
     public static string? ValidateToFile(string toFile)
     {
         var p = toFile.Trim();
@@ -288,6 +310,16 @@ internal static class Artifacts
         if (!Path.IsPathRooted(p)) return $"error: to_file='{toFile}' must be an ABSOLUTE path — the server resolves relative paths against its OWN working directory, not yours.";
         if (!p.EndsWith(".jsonl", StringComparison.OrdinalIgnoreCase))
             return $"error: to_file='{toFile}' — the artifact is a JSONL file (line 1 = manifest, one JSON row per line); name it with a .jsonl extension so the file says what it is.";
+        try
+        {
+            var dir = Path.GetFullPath(Path.GetDirectoryName(p) ?? "");
+            var results = Path.GetFullPath(ResultsStore.Dir);
+            if (string.Equals(dir.TrimEnd('\\', '/'), results.TrimEnd('\\', '/'), StringComparison.OrdinalIgnoreCase))
+                return $"error: to_file='{toFile}' points into the server's auto-spill results directory ('{results}'), " +
+                       $"which is pruned by age after {ResultsStore.PruneAfterDays} days — your artifact would be silently deleted by that hygiene. " +
+                       "Name a path outside it; the server owns that folder's lifecycle.";
+        }
+        catch (Exception) { /* an unnormalizable path fails later with the writer's own named error */ }
         return null;
     }
 }
