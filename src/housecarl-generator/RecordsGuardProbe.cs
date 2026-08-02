@@ -401,6 +401,21 @@ internal static class RecordsGuardProbe
             Check(aggOldJson.Contains("OUT-OF-LOAD-ORDER") && aggOldJson.Contains("epoch_covers_source"),
                   "list aggregate (json) carries the arm + the epoch-coverage qualifier in the envelope");
 
+            // Re-review folds: dense refuses the column-less forms by name (never a silent transport switch),
+            // and the list lane refuses fields_source= by name (never accepted-and-dropped).
+            var denseEv = RecordsTools.Records(svc, types: new[] { "WEAP" }, format: "dense",
+                                               project: new RecordsTools.RecordsProject { form = "everything" });
+            Check(denseEv.StartsWith("error:") && denseEv.Contains("column"),
+                  "dense + everything refuses by name (no fixed column set) — never a silent text fallback");
+            var denseAgg = RecordsTools.Records(svc, types: new[] { "WEAP" }, format: "dense",
+                                                project: new RecordsTools.RecordsProject { form = "aggregate", group_by = "winner" });
+            Check(denseAgg.StartsWith("error:") && denseAgg.Contains("json"),
+                  "dense + aggregate refuses by name pointing at json — never a silent json switch");
+            var listFs = RecordsTools.Records(svc, formids: new[] { Fid(weapons[1]) }, source: Je($"\"{oldName}\""), fields_source: "winner",
+                                              project: new RecordsTools.RecordsProject { form = "fields", fields = new[] { "BasicStats.Damage" } });
+            Check(listFs.StartsWith("error:") && listFs.Contains("fields_source"),
+                  "fields_source= on the formids= lane refuses by name — never accepted-and-dropped");
+
             // ============================================================================================
             //  5 — TRANSPORT: to_file + @artifact re-entry, epoch-checked
             // ============================================================================================

@@ -211,6 +211,19 @@ public static class RecordsTools
             return "error: formids= composes with the scan terms (types=/plugins=/where=/references=/conflicts_only=) in W2 PR 2 — " +
                    "not on this surface yet. Meanwhile: run the scan, spill/to_file the result, and re-enter it via where=[\"formid in @<file>\"]; " +
                    "or filter the formids list client-side.";
+        // dense is DEFINED as positional columnar cells 1:1 with the requested field paths (the tool description's
+        // own rule) — the forms with no fixed column set refuse by name rather than quietly switching transport
+        // (re-review: everything fell back to text, aggregate to the json table, neither saying so).
+        if (dense && form == "everything")
+            return "error: format='dense' renders positional columnar cells 1:1 with requested field paths, and the 'everything' form has no fixed column set — use format='text' or 'json', or name the paths via form='fields'.";
+        if (dense && form == "aggregate")
+            return "error: format='dense' is the per-row columnar transport, and the 'aggregate' form is a count table — its json render IS the compact form; use format='json'.";
+        // fields_source= is the SCAN lane's display pole in this wave (it retargets what a matched row DISPLAYS);
+        // the list lane's read is its display, so the request would be silently meaningless there — refuse by
+        // name (re-review: it was accepted and dropped). The generalized poles land with W2 PR 2's comparison forms.
+        if (winnerFields && formids is { Length: > 0 })
+            return "error: fields_source= is the scan lane's display pole in this wave — on a formids= read the version you want IS the source: name it via source= (source=\"winner\" is the default). The generalized display poles land with the W2 comparison forms.";
+
         if (offset < 0) return $"error: offset={offset} — offset must be >= 0.";
         var toFile = to_file?.Trim();
         bool wantFile = !string.IsNullOrEmpty(toFile);
