@@ -186,7 +186,7 @@ internal static class EpochGuardProbe
                 var g = svc.CrossQuery("WEAP", null, null, false, null, null, 500, groupBy: "winner");
                 Check(g.Epoch == current && Wire.RenderCrossQuery(svc, g, null, false, 0).Contains($"epoch={current}"),
                       "…group_by count table carries it (aggregations page too)");
-                Check(svc.CrossQuery(null, null, null, false, null, null, 500).Epoch is null,
+                Check(svc.CrossQuery((string?)null, null, null, false, null, null, 500).Epoch is null,
                       "…a REFUSED query (no filter) stays unstamped — a refusal that consulted no build invents none");
 
                 // batch — ONE epoch for the whole batch; refusal rows answered off the build carry it; parse failures don't

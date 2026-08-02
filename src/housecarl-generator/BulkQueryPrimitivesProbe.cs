@@ -152,9 +152,9 @@ public static class BulkQueryPrimitivesProbe
                   byDef.Total == 3 && gd.GetValueOrDefault(masterName) == 2 && gd.GetValueOrDefault(replName) == 1);
 
             // group_by=type over a broad (all-touched) scope, cross-checked against a hand tally of the same scope.
-            var byType = svc.CrossQuery(null, null, null, false, new[] { masterName, replName }, null, 500, groupBy: "type");
+            var byType = svc.CrossQuery((string?)null, null, null, false, new[] { masterName, replName }, null, 500, groupBy: "type");
             var gt = GroupMap(byType);
-            var plain = svc.CrossQuery(null, null, null, false, new[] { masterName, replName }, null, 5000);   // same scope, no group_by
+            var plain = svc.CrossQuery((string?)null, null, null, false, new[] { masterName, replName }, null, 5000);   // same scope, no group_by
             var handTally = new Dictionary<string, int>(StringComparer.Ordinal);
             foreach (var s in plain.Prefilled ?? Array.Empty<RecordSummary>()) handTally[s.Type] = handTally.GetValueOrDefault(s.Type) + 1;
             Check($"group_by=type over plugins=[master,Repl]: Weapon=3, Armor=2, Keyword=2, total 7 — got total {byType.Total}",
@@ -163,13 +163,13 @@ public static class BulkQueryPrimitivesProbe
                   plain.Total == byType.Total && gt.Count == handTally.Count && gt.All(kv => handTally.GetValueOrDefault(kv.Key) == kv.Value));
 
             // conflicts_only + group_by=winner: the pure-index branch (NO body) still aggregates by winner.
-            var conflictWinner = svc.CrossQuery(null, null, null, true, null, null, 500, groupBy: "winner");
+            var conflictWinner = svc.CrossQuery((string?)null, null, null, true, null, null, 500, groupBy: "winner");
             var cw = GroupMap(conflictWinner);
             Check($"conflicts_only + group_by=winner (no body scope): the 1 contested record (W1) → Repl=1 — got total {conflictWinner.Total}",
                   conflictWinner.Total == 1 && cw.GetValueOrDefault(replName) == 1);
 
             // group_by=type WITHOUT a body-bearing scope is refused (type isn't known without a per-record fetch).
-            var typeNoBody = svc.CrossQuery(null, null, null, true, null, null, 500, groupBy: "type");
+            var typeNoBody = svc.CrossQuery((string?)null, null, null, true, null, null, 500, groupBy: "type");
             Check("group_by=type without type=/plugins= is REFUSED loud (no body to name the type)",
                   typeNoBody.Error is not null && typeNoBody.Error.Contains("group_by=type", StringComparison.OrdinalIgnoreCase));
 
@@ -216,7 +216,7 @@ public static class BulkQueryPrimitivesProbe
             using (var cfResolver = LoadOrderResolver.Build(new[] { cfMasterPath, cfAPath, cfBPath }))
             {
                 var cfSvc = LoadOrderService.ForGuard(cfResolver, new UserConfigStore(Path.Combine(dir, "houseCARL.cf.user.json")));
-                var byDef248 = cfSvc.CrossQuery(null, null, null, false, new[] { cfAName, cfBName }, null, 500, groupBy: "defined_in");
+                var byDef248 = cfSvc.CrossQuery((string?)null, null, null, false, new[] { cfAName, cfBName }, null, 500, groupBy: "defined_in");
                 // Setup sanity: the two overrides ARE seen (2 touched records) — the variance test has something to fold.
                 Check($"#248 setup: plugins=[A,B] group_by=defined_in sees 2 touched records — got total {byDef248.Total}",
                       byDef248.Total == 2);
@@ -342,20 +342,20 @@ public static class BulkQueryPrimitivesProbe
 
             // Tiling on the OTHER two collect paths (PR #239 review: type= never fires the de-dup, and conflicts_only
             // collects in its own branch — a branch-confined offset regression must not pass the guard).
-            var fullP = svc.CrossQuery(null, null, null, false, new[] { masterName, replName }, null, 5000);   // 7 records, de-dup ACTIVE
+            var fullP = svc.CrossQuery((string?)null, null, null, false, new[] { masterName, replName }, null, 5000);   // 7 records, de-dup ACTIVE
             var pagedP = new List<FormKey>();
             for (int off = 0; off < fullP.Total; off += 3)
             {
-                var win = svc.CrossQuery(null, null, null, false, new[] { masterName, replName }, null, 3, offset: off);
+                var win = svc.CrossQuery((string?)null, null, null, false, new[] { masterName, replName }, null, 3, offset: off);
                 Check($"plugins-scope window offset={off} limit=3: sources stay parallel to keys",
                       win.Sources is not null && win.Sources.Count == win.Keys.Count);
                 pagedP.AddRange(win.Keys);
             }
             Check($"plugins=[master,Repl] windows tile the de-dup'd enumeration EXACTLY ({fullP.Total} records)",
                   pagedP.SequenceEqual(fullP.Keys));
-            var fullC = svc.CrossQuery(null, null, null, true, null, null, 500);                                // conflicts_only branch
-            var winC0 = svc.CrossQuery(null, null, null, true, null, null, 500, offset: 0);
-            var winC1 = svc.CrossQuery(null, null, null, true, null, null, 500, offset: 1);
+            var fullC = svc.CrossQuery((string?)null, null, null, true, null, null, 500);                                // conflicts_only branch
+            var winC0 = svc.CrossQuery((string?)null, null, null, true, null, null, 500, offset: 0);
+            var winC1 = svc.CrossQuery((string?)null, null, null, true, null, null, 500, offset: 1);
             Check("conflicts_only offset: window 0 = the 1 contested record; offset=1 = honest empty window, not capped",
                   fullC.Total == 1 && winC0.Keys.SequenceEqual(fullC.Keys) && winC1.Keys.Count == 0 && winC1.Total == 1 && !winC1.Capped);
 

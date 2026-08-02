@@ -407,6 +407,26 @@ public static class BindingShimProbe
         "housecarl_read_record: pluginnames -> plugin",
         "housecarl_read_record: plugins -> plugin",
         "housecarl_read_record: source -> plugin",
+        // W2 PR 1 (re-eyeballed 2026-08-02): housecarl_records joins the surface. The 1.x spellings land on
+        // their 2.0 poles (plugin/mod/from_plugin -> source; formid -> formids; type -> types), the first
+        // dissolution hints go LIVE (the form-scoped PROJECT spellings incl. the chartered conflict_tree hint,
+        // editorid_contains -> the where grammar, winner_fields -> fields_source), and pluginname/pluginnames
+        // list plugins= as their schema-level candidate (kind-gated at runtime: a string cannot bind the
+        // structured scope object, so a live stray still refuses named rather than renaming).
+        "housecarl_records: conflicttree => hint",
+        "housecarl_records: depth => hint",
+        "housecarl_records: editoridcontains => hint",
+        "housecarl_records: fields => hint",
+        "housecarl_records: formid -> formids",
+        "housecarl_records: fromplugin -> source",
+        "housecarl_records: groupby => hint",
+        "housecarl_records: mod -> source",
+        "housecarl_records: plugin -> source",
+        "housecarl_records: pluginname -> plugins",
+        "housecarl_records: pluginnames -> plugins",
+        "housecarl_records: resolvenames => hint",
+        "housecarl_records: type -> types",
+        "housecarl_records: winnerfields => hint",
         "housecarl_remove_record: archivename -> patch",
         "housecarl_remove_record: formids -> formid",
         "housecarl_remove_record: output -> patch",
