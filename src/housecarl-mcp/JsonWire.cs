@@ -390,13 +390,14 @@ static class JsonWire
     /// <summary>records form=aggregate on the list lane: the count table over resolved rows, per-item errors
     /// counted apart (never silently dropped from a census — Q3).</summary>
     public static string RenderListAggregate(string groupBy, IReadOnlyList<KeyValuePair<string, int>> rows,
-                                             int count, int errors, string? epoch)
+                                             int count, int errors, string? epoch,
+                                             IReadOnlyList<KeyValuePair<string, string>>? envelope = null)
     {
         using var ms = new MemoryStream();
         using (var w = new Utf8JsonWriter(ms, Opts))
         {
             w.WriteStartObject();
-            w.WriteString("form", "aggregate");
+            WriteEnvelope(w, envelope);   // form + the resolved source arm + coverage qualifiers (review fold)
             w.WriteString("group_by", groupBy);
             w.WriteNumber("count", count);
             if (errors > 0) w.WriteNumber("errors", errors);

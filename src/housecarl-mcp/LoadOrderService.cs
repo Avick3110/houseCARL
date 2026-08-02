@@ -3032,7 +3032,11 @@ public sealed class LoadOrderService : IDisposable
                         // isolates its own faults, so it is excluded on the semantic ground alone — see
                         // DeletedRecordRule). editorid_contains= stays live: EditorID reads from the
                         // record's early EDID subrecord, before the deep body parse that can throw.
-                        if (DeletedRecordRule.HasNoLiveBody(filterBody) && (refSet is not null || predicate is not null)) continue;
+                        // W2 (PR #307 review): the guard keys on whether the predicates actually READ body
+                        // content — the header/resolution-only terms (`editorid`, `winner`, formid membership)
+                        // must see deleted records exactly as editorid_contains= below deliberately does.
+                        if (DeletedRecordRule.HasNoLiveBody(filterBody)
+                            && (refSet is not null || predicate is { NeedsLiveBody: true })) continue;
                         if (!string.IsNullOrEmpty(editoridContains)
                             && (filterBody.EditorID is null || filterBody.EditorID.IndexOf(editoridContains, StringComparison.OrdinalIgnoreCase) < 0))
                             continue;
