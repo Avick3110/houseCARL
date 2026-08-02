@@ -8,6 +8,12 @@ when it changes.
 
 *Accumulating notes for the next cut — not yet released; `plugin.json` still reads the last shipped version.*
 
+**Fixed: `check_errors` / `validate_scripts` refusals in `format=json` returned an empty string.** Both sweeps'
+json renders returned before flushing the JSON writer on their error path, so any refusal — a scope naming a plugin
+not in the order, an excluded plugin, a bad filter — rendered as `""` instead of an `{"error": …}` document. Text
+mode was unaffected. Latent since the json sweeps shipped; surfaced by the epoch guard's refusal-render arm and now
+pinned by it.
+
 **Every record-lane response now names the load-order build it was answered from (the 2.0 epoch fingerprint, W1).**
 Each index build gets a deterministic 16-hex fingerprint of the world-state it was built from (plugin set + order +
 file mtimes) — unchanged order means an identical fingerprint, across rebuilds and server restarts alike. Bulk reads

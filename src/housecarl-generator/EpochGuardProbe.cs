@@ -137,6 +137,21 @@ internal static class EpochGuardProbe
                 using var rA = LoadOrderResolver.Build(new[] { masterFile, copyA });
                 using var rB = LoadOrderResolver.Build(new[] { masterFile, copyB });
                 Check(rA.Epoch != rB.Epoch, "a DIFFERENT FILE winning a same-named slot (same name, same mtime) fingerprints differently — the path term");
+
+                // Third-round BLOCKER: an open failure is TRANSIENT (xEdit/MO2 holding an exclusive handle) and
+                // excludes the plugin wholesale — a build that skipped it resolves materially different winners
+                // than the healthy build over identical names/paths/mtimes, so the exclusion set is a fingerprint
+                // term. Locked here exactly the way a real editor locks it (FileShare.None), mtimes untouched.
+                string lockedEpoch;
+                using (new FileStream(copyA, FileMode.Open, FileAccess.Read, FileShare.None))
+                {
+                    using var rLocked = LoadOrderResolver.Build(new[] { masterFile, copyA });
+                    Check(rLocked.ExcludedPlugins.Count == 1, "a LOCKED plugin is excluded from the build (the transient degraded state)");
+                    lockedEpoch = rLocked.Epoch;
+                }
+                using var rHealthy = LoadOrderResolver.Build(new[] { masterFile, copyA });
+                Check(rHealthy.ExcludedPlugins.Count == 0 && lockedEpoch != rHealthy.Epoch,
+                      $"…and the degraded and healthy builds fingerprint DIFFERENTLY over identical names/paths/mtimes ({lockedEpoch} vs {rHealthy.Epoch}) — an artifact saved degraded can never pass re-entry against healthy");
             }
 
             // ---- 3+4: stamps + renders, on the real service over a synthetic MO2 instance ----
@@ -230,6 +245,10 @@ internal static class EpochGuardProbe
                 var dMiss = svc.DiffRecord(Fid(weapons[0]), masterName, "Nope.esp", null);
                 Check(dMiss.Error is not null && dMiss.Epoch == current, "diff_record's unresolvable-pole refusal is stamped");
                 Check(Wire.RenderDiffRecord(dMiss, 0).Contains($"epoch={current}"), "…and rendered");
+                // Third-round finding 2: a refusal's poles/inputs were never resolved — the coverage bool is a
+                // success-path assertion and must NOT ride refusal documents (it claimed true on null poles).
+                Check(!JsonWire.RenderDiffRecord(dMiss, 0).Contains("epoch_covers_all_inputs"),
+                      "…its json refusal carries the bare stamp, NO coverage claim");
                 Check(svc.DiffRecord("notaformid", masterName, ovName, null).Epoch is null,
                       "…its PRE-capture bad-FormID refusal stays null");
                 var ceMiss = svc.CheckErrors(new[] { "Nope.esp" }, 1000);
@@ -239,6 +258,8 @@ internal static class EpochGuardProbe
                 // without a Flush — every json-mode sweep refusal rendered as an EMPTY STRING (pre-existing, silent).
                 Check(JsonWire.RenderCheckErrors(ceMiss, 0).Contains("\"error\"") && JsonWire.RenderCheckErrors(ceMiss, 0).Contains($"\"epoch\": \"{current}\""),
                       "…check_errors' JSON refusal is a real document with the stamp (the empty-refusal flush bug is dead)");
+                Check(!JsonWire.RenderCheckErrors(ceMiss, 0).Contains("epoch_covers_all_inputs"),
+                      "…and it carries NO coverage claim (a refusal swept nothing — third-round finding 2)");
 
                 // Re-review finding 1: the CORE sweep frame's own refusals — one frame deeper than the service's.
                 var ceExcl = svc.CheckErrors(new[] { badName }, 1000);
