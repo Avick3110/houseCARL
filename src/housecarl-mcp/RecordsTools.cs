@@ -243,6 +243,8 @@ public static class RecordsTools
             return "error: fields_source= is the scan lane's display pole in this wave — on a formids= read the version you want IS the source: name it via source= (source=\"winner\" is the default). The generalized display poles land with the W2 comparison forms.";
 
         if (offset < 0) return $"error: offset={offset} — offset must be >= 0.";
+        if (offset > 0 && form == "aggregate")
+            return "error: the aggregate form counts ALL selected records (a count table has no row window), so offset= has nothing to page — drop offset=, or drop the aggregate form for per-record rows.";
         var toFile = to_file?.Trim();
         bool wantFile = !string.IsNullOrEmpty(toFile);
         if (wantFile)
@@ -267,9 +269,14 @@ public static class RecordsTools
         int lim = limit <= 0 ? 500 : limit;
         IReadOnlyList<T> Windowed<T>(IReadOnlyList<T> rows)
         {
+            // Under to_file= the rows are the FILE (the render is manifest-only) — a window note over a complete
+            // artifact would misdescribe both halves, so the window doesn't apply (round-3 re-review).
+            if (wantFile) return rows;
             if (offset == 0 && rows.Count <= lim) return rows;
             var w = rows.Skip(offset).Take(lim).ToList();
-            var note = $"window: rows {(w.Count == 0 ? 0 : offset + 1)}–{offset + w.Count} of {rows.Count} (limit={lim}, offset={offset})";
+            var note = w.Count == 0
+                ? $"window: no rows — offset={offset} is past the end of the {rows.Count}-row list"
+                : $"window: rows {offset + 1}–{offset + w.Count} of {rows.Count} (limit={lim}, offset={offset})";
             envelope.Add(new("window", note));
             headerLine += "\n" + note;
             return w;
@@ -482,8 +489,12 @@ public static class RecordsTools
             // The probe→scan seam IS epoch-compared (round-3 F5): the arm statement must describe the same
             // build the rows were scanned from.
             if (probeEpoch is not null && outcome.Error is null && outcome.Epoch is not null && outcome.Epoch != probeEpoch)
-                return $"error: the load order changed between resolving the source arm (epoch={probeEpoch}) and the scan " +
-                       $"(epoch={outcome.Epoch}) — the arm statement would describe a different world. Retry the call.";
+            {
+                var tear = $"the load order changed between resolving the source arm (epoch={probeEpoch}) and the scan " +
+                           $"(epoch={outcome.Epoch}) — the arm statement would describe a different world. Retry the call.";
+                // Format-kept like every other refusal on these paths (round-3 re-review minor).
+                return fmt is Wire.QueryFormat.Text ? "error: " + tear : JsonWire.RenderError(tear, outcome.Epoch);
+            }
 
             List<KeyValuePair<string, string>> Echo()
             {
@@ -561,8 +572,11 @@ public static class RecordsTools
                 // and passes: it renders as an honest 0-row batch.
                 var bodyEpochs = bodies.Where(o => o.Epoch is not null).Select(o => o.Epoch!).Distinct().ToList();
                 if (outcome.Epoch is not null && bodyEpochs.Any(e => e != outcome.Epoch))
-                    return $"error: the load order changed between the scan (epoch={outcome.Epoch}) and the body read " +
-                           $"(epoch={string.Join(", ", bodyEpochs.Where(e => e != outcome.Epoch))}) — the two halves would mix builds. Retry the call.";
+                {
+                    var tear = $"the load order changed between the scan (epoch={outcome.Epoch}) and the body read " +
+                               $"(epoch={string.Join(", ", bodyEpochs.Where(e => e != outcome.Epoch))}) — the two halves would mix builds. Retry the call.";
+                    return json ? JsonWire.RenderError(tear, outcome.Epoch) : "error: " + tear;
+                }
                 var bodyEpoch = bodyEpochs.FirstOrDefault() ?? outcome.Epoch;
                 envelope.Add(new("total", outcome.Total.ToString()));
                 headerLine += $"\n{outcome.Total} match(es); bodies for the {keys.Count}-row window below";

@@ -441,6 +441,27 @@ internal static class RecordsGuardProbe
             Check(offUntouched.Contains("does not define or override") && offUntouched.Contains("Touched by") && offUntouched.Contains(masterName),
                   "off-order untouched: the per-item refusal names the ACTIVE touchers (was arm-asymmetric)");
 
+            // Round-3 RE-REVIEW blocker: an off-order pole asked for a FormID whose defining plugin is NOT in
+            // the index must be a per-item honest refusal (TouchingPlugins returns NULL there, not a throw) —
+            // never a whole-call NullReferenceException dressed as an internal failure.
+            var offAlien = RecordsTools.Records(svc, formids: new[] { "000123:NotInOrder.esp" }, source: Je($"\"{oldName}\""));
+            Check(!offAlien.Contains("NullReferenceException") && offAlien.Contains("No active plugin touches it either"),
+                  "off-order pole + out-of-index FormID: a per-item refusal saying nothing touches it (was an NRE)");
+            // Re-review minors: the empty window says so honestly; to_file suppresses the window (the artifact
+            // is complete and the render is manifest-only); aggregate + offset refuses on the list lane too.
+            var pastEnd = RecordsTools.Records(svc, formids: new[] { Fid(weapons[0]) }, offset: 10);
+            Check(pastEnd.Contains("no rows") && pastEnd.Contains("past the end") && !pastEnd.Contains("rows 11"),
+                  "an offset past the end renders the honest empty-window note (was 'rows 0–10 of N')");
+            var artNoWin = Path.Combine(root, "results", "nowindow.jsonl");
+            var toFileLim = RecordsTools.Records(svc, formids: weapons.Select(Fid).ToArray(), limit: 2, to_file: artNoWin,
+                                                 project: new RecordsTools.RecordsProject { form = "identity" });
+            Check(!toFileLim.Contains("window:") && File.Exists(artNoWin),
+                  "to_file + limit: no window note over the complete artifact (the rows ARE the file)");
+            var aggOffset = RecordsTools.Records(svc, formids: weapons.Select(Fid).ToArray(), offset: 1,
+                                                 project: new RecordsTools.RecordsProject { form = "aggregate", group_by = "winner" });
+            Check(aggOffset.StartsWith("error:") && aggOffset.Contains("offset"),
+                  "aggregate + offset refuses by name on the list lane too (was silently ignored)");
+
             // A PATH-form source on the scan lane resolves back to the plugin name (round-3 F4).
             var pathScan = RecordsTools.Records(svc, types: new[] { "WEAP" }, source: Je(JsonSerializer.Serialize(ovFile)));
             Check(pathScan.Contains("active in the load order") && pathScan.Contains("HcRecW0") && !pathScan.StartsWith("error:"),
