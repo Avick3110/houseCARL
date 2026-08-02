@@ -437,25 +437,41 @@ public sealed class LoadOrderResolver : IDisposable
         return new IndexSnapshot(
             index,
             overriders.ToDictionary(kv => kv.Key, kv => kv.Value.ToArray()),  // trim List overhead → int[]
-            failures, excluded, excludedPlugins, maxDepth, ComputeEpoch(_names, _paths, _mtimes));
+            failures, excluded, excludedPlugins, maxDepth, ComputeEpoch(_names, _paths, _mtimes, excludedPlugins));
     }
 
     /// <summary>The epoch fingerprint: a compact, deterministic identity for ONE index build, derived from the
     /// world-state the build was made from — every plugin's filename, RESOLVED PATH, and last-write time, in
-    /// priority order. The path matters (PR #305 review): under MO2 two enabled mods can ship the same-named
-    /// plugin, and a left-pane reorder swaps WHICH file wins the slot without changing name or (if the copies
-    /// share a last-write tick — same base archive, or a move rather than a copy) mtime — names+mtimes alone
-    /// would give the new build the old epoch while resolving different winners. Two builds over an unchanged
-    /// order fingerprint IDENTICALLY (a server restart does not invalidate anything; the resolved paths are as
-    /// restart-stable as the names); any content edit, reorder, or set change fingerprints differently. Stamped
-    /// into every bulk response's in-band accounting (SPEC §2.1.1) so cross-page drift is detectable instead of
+    /// priority order, PLUS which plugins this build EXCLUDED. The path matters (PR #305 review): under MO2 two
+    /// enabled mods can ship the same-named plugin, and a left-pane reorder swaps WHICH file wins the slot without
+    /// changing name or (if the copies share a last-write tick — same base archive, or a move rather than a copy)
+    /// mtime — names+mtimes alone would give the new build the old epoch while resolving different winners. The
+    /// exclusion set matters just as much (PR #305 third round, BLOCKING): an OPEN failure is transient (xEdit/MO2
+    /// holding an exclusive handle, an AV scan), so a build that skipped a locked plugin resolves materially
+    /// different winners than the healthy build over the same names/paths/mtimes — without this term the two
+    /// fingerprint identically, and an artifact saved under the degraded build would pass epoch-checked re-entry
+    /// against the healthy one. Two builds over an unchanged order that INDEXED the same set fingerprint
+    /// IDENTICALLY (a server restart does not invalidate anything; the resolved paths are as restart-stable as the
+    /// names); any content edit, reorder, set change, or exclusion change fingerprints differently. Stamped into
+    /// every bulk response's in-band accounting (SPEC §2.1.1) so cross-page drift is detectable instead of
     /// silently incoherent, and checked on artifact re-entry (a mismatch refuses loud, naming both epochs).
-    /// Opaque to consumers — 16 hex chars of SHA-256, compared only for equality.</summary>
-    static string ComputeEpoch(string[] names, string[] paths, DateTime[] mtimes)
+    /// Opaque to consumers — 16 hex chars of SHA-256, compared only for equality.
+    ///
+    /// <para>Known approximations, inherited rather than introduced: an unstattable-but-openable file collapses to
+    /// <see cref="SafeMtime"/>'s MinValue sentinel (distinct world-states, one mtime term — vanishingly rare since
+    /// a file that can't be statted rarely opens); and <see cref="RefreshIfStale"/> stamps mtimes BEFORE re-reading
+    /// the files, so a plugin rewritten mid-rebuild can pair its new mtime with old content until its next change —
+    /// the pre-existing freshness-baseline race, which this fingerprint shares by construction.</para></summary>
+    static string ComputeEpoch(string[] names, string[] paths, DateTime[] mtimes, Dictionary<string, string> excludedPlugins)
     {
         var sb = new StringBuilder(names.Length * 96);
         for (int i = 0; i < names.Length; i++)
             sb.Append(names[i]).Append('|').Append(paths[i]).Append('|').Append(mtimes[i].Ticks).Append('\n');
+        // Sorted, names only: the exclusion REASON often embeds exception text (message wording, paths) that can
+        // vary between identical world-states — WHICH plugins were skipped is the deterministic fact that changes
+        // what the index resolves.
+        foreach (var name in excludedPlugins.Keys.OrderBy(n => n, StringComparer.OrdinalIgnoreCase))
+            sb.Append("excluded|").Append(name).Append('\n');
         var hash = System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(sb.ToString()));
         return Convert.ToHexString(hash.AsSpan(0, 8)).ToLowerInvariant();
     }

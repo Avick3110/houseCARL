@@ -988,6 +988,10 @@ public sealed class LoadOrderService : IDisposable
     /// </summary>
     public SkyPatcherPostStateData SkyPatcherPostState(FormKey fk)
     {
+        // EPOCH: deliberately NOT stamped (PR #305 third round, named not silent) — this lane answers off the
+        // captured index PLUS the SkyPatcher INI layer, whose files are outside the fingerprint; a bare index
+        // epoch would overclaim exactly the way the off-order diff pole did. The S6 `layer` wave (W5) owns its
+        // epoch treatment, which needs an INI-layer term to be honest.
         var resolver = Resolver;
         var view = resolver.Capture();
         AssetResolver.AssetView assets;
@@ -1093,6 +1097,8 @@ public sealed class LoadOrderService : IDisposable
     /// </summary>
     public SkyPatcherLayerData SkyPatcherLayer()
     {
+        // EPOCH: deliberately NOT stamped — same posture and reason as SkyPatcherPostState above (the INI layer is
+        // outside the index fingerprint; the S6 wave owns an honest, layer-aware stamp).
         var view = Resolver.Capture();
         AssetResolver.AssetView assets;
         IReadOnlyList<string> assetWarnings;
@@ -2158,6 +2164,9 @@ public sealed class LoadOrderService : IDisposable
     /// enrichers — here it just hands core the live record resolver + the VFS asset resolver. NEVER throws over a
     /// verify step: a mid-run resolve/asset failure rides <see cref="DialogueValidationReport.CheckError"/>, and a
     /// not-in-order / not-a-DIAL-or-QUST input is a NAMED <see cref="DialogueValidationReport.Error"/> (Q3).</summary>
+    // EPOCH: deliberately NOT stamped (PR #305 third round, named not silent) — the report is one build's answer
+    // (core pins a view) but half its verdicts come off the ASSET substrate (.fuz/.pex presence), outside the
+    // record fingerprint; the dialogue-fold wave (W3) owns an honest stamp for it.
     public DialogueValidationReport ValidateDialogue(FormKey fk) => DialogueValidate.Run(Resolver, Assets, fk);
 
     /// <summary>The read body, answered entirely off ONE captured view (HCBR-2026-06-11-02): excluded-check, winner,
@@ -2279,13 +2288,7 @@ public sealed class LoadOrderService : IDisposable
     public ConflictTreeView? ResolveTree(FormKey fk, IReadOnlyList<string>? fields)
     {
         var resolver = Resolver;
-        using var session = resolver.OpenSession();
-        var tree = resolver.ResolveTree(session, fk);
-        if (tree is null) return null;
-        var nodes = new List<ConflictNodeView>(tree.Nodes.Count);
-        foreach (var n in tree.Nodes)
-            nodes.Add(new ConflictNodeView(n.Plugin, ReadEngine.ReadFields(n.Record, fields, ConflictDiffDepth)));   // materialise while open
-        return new ConflictTreeView(nodes);
+        return ResolveTreePinned(new ViewPin(resolver, resolver.Capture()), fk, fields);   // one body, two entries (third-round note)
     }
 
     /// <summary>A header-only summary for one record (winner + type + editorid, no field dump) — the compact
@@ -5578,6 +5581,9 @@ public sealed class LoadOrderService : IDisposable
                     // (the only identity frame houseCARL holds) — honest, and a target the active order doesn't define
                     // is marked 'unresolved', not guessed. Opt-in only, so the deliberate no-resolver cheapness of the
                     // default path is untouched; a caller asking for identities accepts the resolver build.
+                    // EPOCH: deliberately NOT stamped even on this arm (PR #305 third round, named not silent) — the
+                    // response's SUBJECT is the raw file, outside the fingerprint; only display annotations touch the
+                    // build. The W2 named() pole that absorbs this tool owns its honest stamp.
                     var view = Resolver.Capture();
                     using var session = Resolver.OpenSession();
                     rf = AnnotateLinks(rf, view, session, new());
@@ -6088,7 +6094,7 @@ public sealed record LoadOrderStatusData(
     string ProfileName,         // the ACTIVE profile (instance mode: MO2's selected_profile; explicit: the dir name) — captured under the gate, not re-derived at render
     string? InstanceDir,        // the resolved MO2 instance folder houseCARL is pointed at; null ⇒ explicit-paths / unconfigured mode
     IReadOnlyDictionary<string, string> ExcludedPlugins,
-    string Epoch = "");         // the resolver's current build fingerprint (SPEC §2.1.1) — the status line names it so a caller can match responses/artifacts to the build
+    string? Epoch = null);      // the resolver's current build fingerprint (SPEC §2.1.1) — the status line names it so a caller can match responses/artifacts to the build; nullable like every other carrier
 
 /// <summary>The data behind housecarl_update_status: MO2's own local Nexus update cache read from meta.ini, with no
 /// network. <see cref="Entries"/> is one row per Nexus-linked mod (installed vs newest version, modid, enabled state);

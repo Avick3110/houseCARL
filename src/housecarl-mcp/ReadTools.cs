@@ -62,7 +62,9 @@ public static class ReadTools
          "or absent FormID yields a per-item error without failing the batch. With conflict_tree=true each record " +
          "also gets its touching-plugin list + winner-relative field diff. The combined response is size-estimated: " +
          "over the cap it stops with an explicit 'rendered X of N' notice (never silent truncation) — request fewer " +
-         "formids, pass fields= to slim each, or raise max_chars. Does NOT modify anything.")]
+         "formids, pass fields= to slim each, or raise max_chars. The header carries epoch=<hex> — the load-order " +
+         "build identity the WHOLE batch was answered from; a different epoch on a sibling call means the order " +
+         "changed between them. Does NOT modify anything.")]
     public static string BatchRecordDetail(
         LoadOrderService svc,
         [Description("The FormIDs to read, each 'XXXXXX:Plugin.esp'. Resolved in order; results are returned in the same order.")]
@@ -182,7 +184,7 @@ public static class ReadTools
             string? format = null,
         [Description("Optional. Max matches to return (default 500). The TRUE total is always reported; over the cap it says 'showing first N'. Page with offset=.")]
             int limit = 500,
-        [Description("Optional. Skip the first N post-filter matches before returning rows (#223 pagination) — combine with limit= to page a big enumeration in windows (offset=0/500/1000…). Scan order is deterministic while the load order is unchanged, so windows tile exactly. The true total always counts ALL matches. Not valid with group_by= (a count table has no window).")]
+        [Description("Optional. Skip the first N post-filter matches before returning rows (#223 pagination) — combine with limit= to page a big enumeration in windows (offset=0/500/1000…). Scan order is deterministic while the load order is unchanged, so windows tile exactly. The true total always counts ALL matches. Not valid with group_by= (a count table has no window). Every response carries epoch=<hex> in-band — the identity of the load-order build it was answered from: windows tile ONLY within one epoch, so if two pages' epochs differ, the load order changed mid-pagination and the pages must not be stitched (re-run from offset=0).")]
             int offset = 0,
         [Description("Optional. Max characters before the response stops with an explicit notice. 0 = the server default (~80k).")]
             int max_chars = 0) => Guard.Tool("housecarl_cross_plugin_query", () =>
@@ -233,7 +235,9 @@ public static class ReadTools
          "Q3). Winners only (the load-order-effective identity of each target). The engine-implicit forms (PlayerRef " +
          "000014:Skyrim.esm / Player 000007:Skyrim.esm) resolve to their hardcoded identity with winner '<engine>' — " +
          "no plugin defines them, but they are real, never dangling. Deliberately minimal: no fields=, no " +
-         "depth, no conflict_tree — for those use housecarl_batch_record_detail. Does NOT modify anything.")]
+         "depth, no conflict_tree — for those use housecarl_batch_record_detail. The header carries epoch=<hex> — " +
+         "the load-order build identity the whole batch resolved against (differs across calls only when the order " +
+         "changed between them). Does NOT modify anything.")]
     public static string Resolve(
         LoadOrderService svc,
         [Description("The FormIDs to resolve, each 'XXXXXX:Plugin.esp'. Resolved in order; results are returned in the same order.")]
@@ -577,9 +581,11 @@ static class Wire
         // wire must say WHICH — the DTO carrying it while the render dropped it was the unmet half of the contract.
         if (o.Error is not null) return "error: " + o.Error + (o.Epoch is not null ? $"\nepoch={o.Epoch}" : "");
         var sb = new StringBuilder();
+        // Header line, like every other text lane — and BEFORE the cap-bounded body, so a capped record never
+        // overruns its budget to fit the stamp (third-round note).
+        if (o.Epoch is not null) sb.Append("epoch=").Append(o.Epoch).Append('\n');   // §2.1.1: the build this read answered from
         AppendRecord(sb, o, Cap(maxChars));
         if (conflictTree) AppendConflictTree(sb, svc, o, fields, Cap(maxChars));
-        if (o.Epoch is not null) sb.Append("epoch=").Append(o.Epoch).Append('\n');   // §2.1.1: the build this read answered from
         return sb.ToString().TrimEnd('\n');
     }
 
