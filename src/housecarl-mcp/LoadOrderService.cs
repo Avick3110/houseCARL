@@ -3337,6 +3337,77 @@ public sealed class LoadOrderService : IDisposable
         return rows;
     }
 
+    // ---- W2 PR 2: the info_order PROJECT form (§6.1 F1 split — validate_dialogue's class 8) --------------
+
+    /// <summary>One topic's effective-INFO-order row: the merged sequence with its honesty gates
+    /// (Complete / MovesComputed / BaselineTrusted ride inside <see cref="Order"/>). Error non-null ⇒ per-item
+    /// refusal (bad FormID, absent record, or a non-DIAL target — typed, naming the actual type).</summary>
+    public sealed record InfoOrderRow(string Formid, string? Type, string? EditorId, string? WinnerPlugin,
+                                      InfoOrderView? Order, string? Error);
+
+    /// <summary>The records form='info_order' batch: per DIAL topic, the effective MERGED INFO order across every
+    /// touching plugin (the game's walk order — the "why does the wrong line play" diagnostic, #275), off ONE
+    /// captured build. Epoch-stamped honestly: this form reads plugin records through the index only (no VFS or
+    /// INI layer). A non-DIAL FormID is a per-item typed refusal — a quest's topics are selected by composition
+    /// (types=["DIAL"] where=["Quest = &lt;quest formid&gt;"]), not by silently fanning out here.</summary>
+    public IReadOnlyList<InfoOrderRow> InfoOrderBatch(IReadOnlyList<string> formids, ArtifactDemand? demand,
+                                                      out string? refusal, out string? epoch)
+    {
+        refusal = null;
+        var resolver = Resolver;
+        var view = resolver.Capture();
+        epoch = view.Epoch;
+        if (demand is not null && demand.Epoch != view.Epoch)
+        {
+            refusal = ArtifactEpochMismatch(demand, view.Epoch);
+            return Array.Empty<InfoOrderRow>();
+        }
+        using var session = resolver.OpenSession();
+
+        var rows = new List<InfoOrderRow>(formids.Count);
+        var dialFks = new List<FormKey>();
+        var rowIndexOf = new Dictionary<FormKey, int>();
+        foreach (var raw in formids)
+        {
+            FormKey fk;
+            try { fk = FormKey.Factory(raw.Trim()); }
+            catch (Exception ex) { rows.Add(new InfoOrderRow(raw?.Trim() ?? "", null, null, null, null, $"bad FormID '{raw}': {ex.Message}")); continue; }
+            var win = view.ResolveWinner(fk);
+            if (win is null)
+            {
+                rows.Add(new InfoOrderRow(fk.ToString(), null, null, null, null,
+                                          $"{fk} is not present in the active order."));
+                continue;
+            }
+            var body = view.GetRecord(session, win.Value.WinnerPlugin, fk);
+            if (body is null)
+            {
+                rows.Add(new InfoOrderRow(fk.ToString(), null, null, win.Value.WinnerPlugin, null,
+                                          $"the winner body of {fk} could not be read from '{win.Value.WinnerPlugin}'."));
+                continue;
+            }
+            if (body is not Mutagen.Bethesda.Skyrim.IDialogTopicGetter)
+            {
+                var typeName = RecordNaming.StripOverlay(body.GetType().Name);
+                rows.Add(new InfoOrderRow(fk.ToString(), typeName, body.EditorID, win.Value.WinnerPlugin, null,
+                    $"{fk} is a {typeName}, and the info_order form renders the merged INFO sequence of a DIALOGUE TOPIC (DIAL). " +
+                    "For a quest's topics, select them by composition: types=[\"DIAL\"] where=[\"Quest = " + fk + "\"]."));
+                continue;
+            }
+            rowIndexOf[fk] = rows.Count;
+            rows.Add(new InfoOrderRow(fk.ToString(), RecordNaming.StripOverlay(body.GetType().Name), body.EditorID,
+                                      win.Value.WinnerPlugin, null, null));
+            dialFks.Add(fk);
+        }
+        if (dialFks.Count > 0)
+        {
+            var orders = DialogueValidate.InfoOrders(view, session, dialFks);
+            foreach (var (fk, idx) in rowIndexOf.Select(kv => (kv.Key, kv.Value)))
+                if (orders.TryGetValue(fk, out var io)) rows[idx] = rows[idx] with { Order = io };
+        }
+        return rows;
+    }
+
     // ---- cross-plugin query (Q4.9) ----------------------------------------------------------------------
 
     /// <summary>Scan the order for records matching a filter (housecarl_cross_plugin_query). A SINGLE enumeration

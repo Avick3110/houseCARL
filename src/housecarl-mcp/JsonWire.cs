@@ -603,6 +603,97 @@ static class JsonWire
         return Finish(ms);
     }
 
+    // ---- housecarl_records (W2 PR 2): the info_order form -------------------------------------------
+
+    /// <summary>One info_order row — shared by the json render and the artifact writer. Positions are 1-based
+    /// (matching the text render's #N). The honesty gates ride as data: <c>complete</c> (every touching plugin's
+    /// list read), <c>moves_computed</c> (the move analysis ran), <c>baseline_trusted</c> (origin positions
+    /// anchored on the true definer) — negative claims about moves hold only when the first two are both true.</summary>
+    internal static void WriteInfoOrderRow(Utf8JsonWriter w, LoadOrderService.InfoOrderRow row, MemoryStream ms, int cap)
+    {
+        w.WriteStartObject();
+        w.WriteString("formid", row.Formid);
+        if (row.Error is not null) { w.WriteString("error", row.Error); w.WriteEndObject(); return; }
+        WriteNullable(w, "type", row.Type);
+        WriteNullable(w, "editorid", row.EditorId);
+        WriteNullable(w, "winner", row.WinnerPlugin);
+        if (row.Order is not { } io)
+        {
+            w.WriteString("note", "the merge could not be computed for this topic (its key did not resolve in the touching index)");
+            w.WriteEndObject();
+            return;
+        }
+        w.WriteBoolean("contested", io.Contested);
+        w.WriteBoolean("complete", io.Complete);
+        w.WriteBoolean("moves_computed", io.MovesComputed);
+        w.WriteBoolean("baseline_trusted", io.BaselineTrusted);
+        WriteStringArray(w, "contributing", io.ContributingPlugins);
+        if (io.UnreadContributors.Count > 0) WriteStringArray(w, "unread", io.UnreadContributors);
+        WriteNullable(w, "note", io.Note);
+        w.WriteNumber("moved_count", io.Moved.Count);
+        w.WriteStartArray("order");
+        foreach (var e in io.Order)
+        {
+            w.Flush();
+            if (ms.Length >= cap)
+            {
+                w.WriteStartObject();
+                w.WriteString("note", "[order truncated at max_chars — raise max_chars]");
+                w.WriteEndObject();
+                break;
+            }
+            w.WriteStartObject();
+            w.WriteNumber("position", e.Index + 1);
+            w.WriteString("info", e.Info.ToString());
+            w.WriteString("placed_by", e.PlacedBy);
+            if (e.Deleted) w.WriteBoolean("deleted", true);
+            if (e.Moved) { w.WriteBoolean("moved", true); w.WriteNumber("origin_position", e.OriginIndex!.Value + 1); }
+            else if (e.OriginIndex is null && io.BaselineTrusted) w.WriteBoolean("added_by_later_plugin", true);
+            if (e.Placement == InfoPlacement.HeadFirstMarker) w.WriteString("placement", "pinned first by its own PNAM marker (deliberate)");
+            else if (e.Placement == InfoPlacement.HeadUnresolvable) w.WriteString("placement", "PNAM names no reachable line — forced to the top");
+            w.WriteEndObject();
+        }
+        w.WriteEndArray();
+        w.WriteEndObject();
+    }
+
+    /// <summary>records form=info_order: <c>{…envelope, count, contested, errors, epoch, rows:[…]}</c>.</summary>
+    public static string RenderInfoOrder(IReadOnlyList<LoadOrderService.InfoOrderRow> rows, int maxChars, string? epoch,
+                                         IReadOnlyList<KeyValuePair<string, string>> envelope,
+                                         SpillState? spill, out bool truncated)
+    {
+        truncated = false;
+        int cap = Cap(maxChars);
+        bool manifestOnly = spill?.ManifestOnly ?? false;
+        using var ms = new MemoryStream();
+        using (var w = new Utf8JsonWriter(ms, Opts))
+        {
+            w.WriteStartObject();
+            WriteEnvelope(w, envelope);
+            w.WriteNumber("count", rows.Count);
+            w.WriteNumber("contested", rows.Count(x => x.Error is null && x.Order is { Contested: true }));
+            w.WriteNumber("errors", rows.Count(x => x.Error is not null));
+            WriteNullable(w, "epoch", epoch);
+            w.WriteStartArray("rows");
+            int rendered = 0; bool rowsTruncated = false;
+            foreach (var row in rows)
+            {
+                if (manifestOnly) break;
+                w.Flush();
+                if (ms.Length >= cap) { rowsTruncated = true; break; }
+                WriteInfoOrderRow(w, row, ms, cap);
+                rendered++;
+            }
+            w.WriteEndArray();
+            w.WriteNumber("rendered", rendered);
+            w.WriteBoolean("truncated", rowsTruncated);
+            truncated = rowsTruncated;
+            if (spill is not null) Artifacts.WriteSpillStateJson(w, spill);
+            w.WriteEndObject();
+        }
+        return Finish(ms);
+    }
+
     // ---- housecarl_cross_plugin_query (P6) ----------------------------------------------------------
     /// <summary>cross_plugin_query as JSON — three shapes matching the text render: group_by count table
     /// (<c>{group_by, total, groups:[…]}</c>), detail rows (full record objects with fields), or summary rows

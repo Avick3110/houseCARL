@@ -204,11 +204,16 @@ static class DialogueWire
     /// identical, so it is invisible to a field diff. Budget-aware like <see cref="AppendIssues"/>: returns false at
     /// the cap so the caller stops (Q3 — an explicit notice, never a silent cut).</summary>
     static bool AppendInfoOrder(StringBuilder sb, TopicValidation t, string pad, int cap, bool indent)
+        => AppendInfoOrderView(sb, t.InfoOrder, pad, cap, indent);
+
+    /// <summary>The view-level body, shared with the records info_order PROJECT form (the §6.1 F1 split carried
+    /// this render's MOVED annotations and honesty gates across intact — one render, no drift).</summary>
+    internal static bool AppendInfoOrderView(StringBuilder sb, InfoOrderView? view, string pad, int cap, bool indent)
     {
         // An EMPTY order is normally nothing to say — unless it is empty because nothing could be READ, which is
         // the total-drop case and the one that must never render as silence (most topics are touched by exactly
         // one plugin, so for them any read failure IS a total failure).
-        if (t.InfoOrder is not { } io || (io.Order.Count == 0 && io.Complete)) return true;
+        if (view is not { } io || (io.Order.Count == 0 && io.Complete)) return true;
 
         // "Nothing merges here" is a CLAIM, and it holds only if EVERY touching plugin's list was actually read.
         // With one dropped, a genuinely contested topic presents as single-plugin — so the claim is gated on

@@ -37,7 +37,7 @@ public static class RecordsTools
     /// them (SPEC §2.2: form-scoped and structured — the flat spelling for an illegal pairing does not exist).</summary>
     public sealed class RecordsProject
     {
-        [Description("The form: 'identity' (FormID -> type/editorid/name/winner — the labeling form; needs formids=) | 'summary' (identity plus winner/override-depth header facts — the default) | 'fields' (named field values; takes fields= and depth=) | 'everything' (the full record body; takes depth=) | 'aggregate' (a counted table; takes group_by=) | 'delta' (subject vs reference, differences only — source= is the subject, versus= the reference; takes fields= to narrow) | 'tree' (every provider of each record in priority order, winner last, each diffed against the reference pole — default the winner; takes fields=). The traversal forms (chain | info_order) are refused by NAME until they land.")]
+        [Description("The form: 'identity' (FormID -> type/editorid/name/winner — the labeling form; needs formids=) | 'summary' (identity plus winner/override-depth header facts — the default) | 'fields' (named field values; takes fields= and depth=) | 'everything' (the full record body; takes depth=) | 'aggregate' (a counted table; takes group_by=) | 'delta' (subject vs reference, differences only — source= is the subject, versus= the reference; takes fields= to narrow) | 'tree' (every provider of each record in priority order, winner last, each diffed against the reference pole — default the winner; takes fields=) | 'info_order' (DIAL topics only: the effective MERGED INFO sequence across every touching plugin — the order the game walks, with MOVED annotations; the 'why does the wrong line play' diagnostic). The 'chain' traversal form is refused by NAME until it lands.")]
         public string? form { get; set; }
 
         [Description("fields form only: dotted field paths to read, e.g. [\"BasicStats.Damage\", \"Keywords\", \"Effects\"]. Index a list/dict element with BRACKETS ('Effects[0].Data.Magnitude').")]
@@ -92,7 +92,12 @@ public static class RecordsTools
          "it'. A tree lists EVERY plugin touching each record (load order, winner last) with each provider's " +
          "only-the-fields-that-differ against the reference (default the winner) — the conflict-resolution view. " +
          "Both compare by the content-keyed, truncation-honest engine (list reorders flagged; a truncated deep " +
-         "read is reported, never claimed 'identical').\n\n" +
+         "read is reported, never claimed 'identical'). form='info_order' (DIAL topics) renders the effective " +
+         "MERGED INFO sequence across every plugin touching each topic — the game walks it top to bottom and " +
+         "plays the FIRST passing line; re-listing a line appends it to the BOTTOM unless the plugin also carries " +
+         "its PNAM, so a reorder changes which line answers while every field stays identical (invisible to a " +
+         "diff — this form is how you see it). A quest's topics select by composition: types=[\"DIAL\"] " +
+         "where=[\"Quest = <quest formid>\"].\n\n" +
          "TRANSPORT: format= 'text' | 'json' | 'dense' (scan lane: positional columnar cells 1:1 with the requested " +
          "fields — by that definition depth expansion and the everything form are inexpressible in it); limit=/" +
          "offset= page a scan in exact windows WITHIN one epoch (different epochs across pages ⇒ the order changed " +
@@ -152,10 +157,10 @@ public static class RecordsTools
         var form = project?.form?.Trim().ToLowerInvariant() ?? "summary";
         switch (form)
         {
-            case "identity" or "summary" or "fields" or "everything" or "aggregate" or "delta" or "tree": break;
-            case "chain" or "info_order":
-                return $"error: project.form='{form}' is a W2 PR 2 form (traversal) and is not on this surface yet — " +
-                       "meanwhile: chain = housecarl_effect_chain / references=; info_order = housecarl_validate_dialogue.";
+            case "identity" or "summary" or "fields" or "everything" or "aggregate" or "delta" or "tree" or "info_order": break;
+            case "chain":
+                return "error: project.form='chain' is a W2 PR 2 form (traversal) and is not on this surface yet — " +
+                       "meanwhile: housecarl_effect_chain traces an MGEF's carriers; references= is the one-step reverse lookup.";
             default:
                 return $"error: project.form='{project?.form}' is not a form — use identity | summary | fields | everything | aggregate | delta | tree.";
         }
@@ -249,6 +254,10 @@ public static class RecordsTools
             return "error: format='dense' is the per-row columnar transport, and the 'aggregate' form is a count table — its json render IS the compact form; use format='json'.";
         if (dense && comparisonForm)
             return $"error: format='dense' renders positional columnar cells 1:1 with requested field paths, and the '{form}' form's rows are variable-length delta lists with no fixed column set — use format='text' or 'json'.";
+        if (dense && form == "info_order")
+            return "error: format='dense' renders positional columnar cells 1:1 with requested field paths, and the 'info_order' form is an ordered sequence render with no fixed column set — use format='text' or 'json'.";
+        if (form == "info_order" && srcSpec.Kind != LoadOrderService.PoleKind.Winner)
+            return "error: the info_order form merges EVERY plugin touching each topic — that merge is the answer, so a source= pole has no seat here (each line already names the plugin that placed it). Drop source=.";
         // fields_source= is the SCAN lane's display pole in this wave (it retargets what a matched row DISPLAYS);
         // the list lane's read is its display, so the request would be silently meaningless there — refuse by
         // name (re-review: it was accepted and dropped). The generalized poles land with W2 PR 2's comparison forms.
@@ -322,6 +331,20 @@ public static class RecordsTools
 
             // ---- delta / tree: the §4.1 comparison forms ride their own engine batches. ------------------
             if (form is "delta" or "tree") return ListCompare(ids, demand, echoSrc);
+
+            // ---- info_order: the merged effective INFO sequence (§6.1 F1 split). ------------------------
+            if (form == "info_order")
+            {
+                var ioRows = svc.InfoOrderBatch(ids, demand, out var ioRefusal, out var ioEpoch);
+                if (ioRefusal is not null)
+                    return json ? JsonWire.RenderError(ioRefusal, ioEpoch) : "error: " + ioRefusal + (ioEpoch is not null ? $"\nepoch={ioEpoch}" : "");
+                var e = new List<KeyValuePair<string, string>>
+                {
+                    new("formids", echoSrc ?? $"{ids.Length} inline formid(s)"),
+                    new("form", form),
+                };
+                return InfoOrderResponse(ioRows, ioEpoch, e);
+            }
 
             // ---- identity form: the labeling lane (absorbs housecarl_resolve). Winner frame by contract. --
             if (form == "identity")
@@ -555,6 +578,40 @@ public static class RecordsTools
             return rendered;
         }
 
+        // The shared info_order response pipeline (envelope, counts_only, window, to_file/ceiling spill, both
+        // renders) — one path for the list AND scan lanes.
+        string InfoOrderResponse(IReadOnlyList<LoadOrderService.InfoOrderRow> rows, string? epoch,
+                                 List<KeyValuePair<string, string>> echo)
+        {
+            Arm("the merge of every touching plugin (the effective order the game walks)");
+            int contested = rows.Count(x => x.Error is null && x.Order is { Contested: true });
+            int errs = rows.Count(x => x.Error is not null);
+            if (counts_only)
+                return json
+                    ? JsonWire.RenderNamedCounts(envelope, new[] { KvI("count", rows.Count), KvI("contested", contested), KvI("errors", errs) }, epoch)
+                    : $"{headerLine}\ncount={rows.Count} contested={contested} errors={errs}" + (epoch is not null ? $"\nepoch={epoch}" : "");
+            var winRows = Windowed(rows);
+            SpillState? spill = null;
+            if (wantFile)
+            {
+                var (s, aerr) = Artifacts.WriteInfoOrder(rows, epoch, toFile!, "to_file", echo);
+                if (aerr is not null) return json ? JsonWire.RenderError(aerr, epoch) : "error: " + aerr;
+                spill = SpillState.Spilled(s!, manifestOnly: true);
+            }
+            string Render(SpillState? sp, out bool trunc) => json
+                ? JsonWire.RenderInfoOrder(winRows, max_chars, epoch, envelope, sp, out trunc)
+                : RenderRecordsInfoOrder(winRows, rows.Count, contested, errs, headerLine, epoch, max_chars, sp, out trunc);
+            var rendered = Render(spill, out var truncated);
+            if (spill is null && truncated)
+            {
+                var path = ResultsStore.NextPath("housecarl_records", epoch ?? "none");
+                var (s, aerr) = Artifacts.WriteInfoOrder(rows, epoch, path, "ceiling", echo);
+                if (aerr is not null) ResultsStore.Release(path);
+                rendered = Render(aerr is null ? SpillState.Spilled(s!, manifestOnly: false) : SpillState.WriteFailed(aerr), out _);
+            }
+            return rendered;
+        }
+
         // A pole that reads content outside the epoch fingerprint (an off-order file; the overlay's INIs) is
         // DECLARED, envelope + header alike (the PR #305 coverage rule) — one helper so no form forgets.
         void CoverageNote(bool covers)
@@ -709,6 +766,25 @@ public static class RecordsTools
                 }
             }
 
+            // ---- info_order on a scan: the scan SELECTS the topics (types=["DIAL"] + where= is the quest
+            //      fan-out spelling), the merge engine renders — seam epoch-compared like every two-capture form.
+            if (form == "info_order" && outcome.Error is null && outcome.Groups is null)
+            {
+                var ioKeys = outcome.Keys.Select(k => k.ToString()).ToList();
+                envelope.Add(new("total", outcome.Total.ToString()));
+                headerLine += $"\n{outcome.Total} match(es) selected by the scan";
+                var ioRows = svc.InfoOrderBatch(ioKeys, null, out var ioRefusal, out var ioEpoch);
+                if (ioRefusal is not null)
+                    return json ? JsonWire.RenderError(ioRefusal, ioEpoch) : "error: " + ioRefusal + (ioEpoch is not null ? $"\nepoch={ioEpoch}" : "");
+                if (outcome.Epoch is not null && ioEpoch is not null && ioEpoch != outcome.Epoch)
+                {
+                    var tear = $"the load order changed between the scan (epoch={outcome.Epoch}) and the merge " +
+                               $"(epoch={ioEpoch}) — the two halves would mix builds. Retry the call.";
+                    return json ? JsonWire.RenderError(tear, ioEpoch) : "error: " + tear;
+                }
+                return InfoOrderResponse(ioRows, ioEpoch, Echo());
+            }
+
             // ---- form=everything on a scan: selection here, bodies via the batch lane (window-bounded).
             // counts_only skips the body lane entirely — the census is the cross-query render below (round 3).
             if (form == "everything" && !counts_only && outcome.Error is null && outcome.Groups is null)
@@ -831,6 +907,8 @@ public static class RecordsTools
                 return "error: conflicts_only= has no meaning on an out-of-load-order file — it is not in the conflict frame. Drop it, or read the winner (source=\"winner\").";
             if (comparisonForm)
                 return "error: the 'delta'/'tree' forms over an out-of-load-order file SCAN are not composed yet — enumerate the file with form='summary', then compare the specific records via formids= (the comparison poles read the off-order file under the one-pole rule).";
+            if (form == "info_order")
+                return "error: the info_order form merges the ACTIVE order's touching plugins — an out-of-load-order file is not in that frame. Read the winner's merge (drop source=), or enumerate the file's DIAL records with form='summary'.";
             if (references is { Length: > 0 } || plugins?.names is { Length: > 0 } || (plugins?.defined_in ?? false))
                 return "error: references=/plugins= over an out-of-load-order file land in W2 PR 2 — this wave reads the file by types= (and an 'editorid contains' where-clause).";
             if (form is "fields" or "everything")
@@ -1057,6 +1135,52 @@ public static class RecordsTools
                     sb.Append(fieldsNarrow
                         ? $"identical to {row.ReferencePlugin} across the fields read ({n.AgreedCount} leaf/leaves agree)\n"
                         : $"identical to {row.ReferencePlugin} (whole record; {n.AgreedCount} leaf/leaves agree)\n");
+            }
+            rendered++;
+        }
+        if (spill is not null) Artifacts.AppendSpillStateText(sb, spill);
+        return sb.ToString().TrimEnd('\n');
+    }
+
+    /// <summary>The info_order form's text render: per topic its identity, then the SAME merged-order body
+    /// housecarl_validate_dialogue renders (shared via <see cref="DialogueWire.AppendInfoOrderView"/> — the §6.1
+    /// split carried the MOVED annotations and the MovesComputed×Complete / BaselineTrusted honesty gates across
+    /// intact, one render, no drift).</summary>
+    static string RenderRecordsInfoOrder(IReadOnlyList<LoadOrderService.InfoOrderRow> rows, int total, int contested,
+                                         int errors, string headerLine, string? epoch, int maxChars,
+                                         SpillState? spill, out bool truncated)
+    {
+        truncated = false;
+        int cap = maxChars > 0 ? maxChars : Wire.DefaultMaxChars;
+        bool manifestOnly = spill?.ManifestOnly ?? false;
+        var sb = new StringBuilder();
+        sb.Append(headerLine).Append('\n');
+        sb.Append(total).Append(" topic(s): ").Append(contested).Append(" contested, ").Append(errors).Append(" error(s)");
+        if (epoch is not null) sb.Append("  epoch=").Append(epoch);
+        sb.Append('\n');
+        int rendered = 0;
+        foreach (var row in rows)
+        {
+            if (manifestOnly) break;
+            if (sb.Length >= cap)
+            {
+                truncated = true;
+                sb.Append("... [rendered ").Append(rendered).Append(" of ").Append(rows.Count)
+                  .Append(" rows at max_chars=").Append(cap).Append("]\n");
+                break;
+            }
+            sb.Append('\n').Append(row.Formid);
+            if (row.Error is not null) { sb.Append("  error=").Append(row.Error).Append('\n'); rendered++; continue; }
+            sb.Append("  ").Append(row.Type ?? "?").Append("  ").Append(row.EditorId ?? "<no editorid>")
+              .Append("  winner=").Append(row.WinnerPlugin ?? "?").Append('\n');
+            if (row.Order is null)
+                sb.Append("  [!] the merge could not be computed for this topic (its key did not resolve in the touching index).\n");
+            else if (row.Order.Order.Count == 0 && row.Order.Complete)
+                sb.Append("  no INFO lines — every touching plugin's child list is empty.\n");
+            else if (!DialogueWire.AppendInfoOrderView(sb, row.Order, "", cap, indent: false))
+            {
+                truncated = true;
+                break;
             }
             rendered++;
         }
