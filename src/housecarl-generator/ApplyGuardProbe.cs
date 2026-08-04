@@ -85,6 +85,11 @@ public static class ApplyGuardProbe
         public required string ArmorFid { get; init; }        // a different record TYPE — the cross-type refusal source
         public required string ModsDir { get; init; }
         public required string ReplacerPath { get; init; }   // the in-place target's real on-disk file
+        public required FormKey DonorKey { get; init; }
+        public required string PotionAFid { get; init; }     // same-file COPY SOURCE for the aliasing arm
+        public required string PotionBFid { get; init; }     // its target
+        public required FormKey PotionAKey { get; init; }
+        public required FormKey PotionBKey { get; init; }
         public required string MasterName { get; init; }
         public required string ReplacerName { get; init; }
         public required FormKey SubjectKey { get; init; }
@@ -125,6 +130,17 @@ public static class ApplyGuardProbe
             donor.Keywords = new Noggog.ExtendedList<IFormLinkGetter<IKeywordGetter>>
                 { new FormLink<IKeywordGetter>(k1.FormKey), new FormLink<IKeywordGetter>(k2.FormKey) };
 
+            // Two potions with modeled Effects lists — the aliasing arm copies A's Effects onto B, then edits B's
+            // copy; a shared element would show up as A changing too. Both are overridden by the replacer below so
+            // the in-place lane (which edits only what the file OWNS) can touch them.
+            var mg = m.MagicEffects.AddNew(); mg.EditorID = "ApMgef";
+            var potA = m.Ingestibles.AddNew(); potA.EditorID = "ApPotionA";
+            var eA = new Effect { Data = new EffectData { Magnitude = 5 } }; eA.BaseEffect.SetTo(mg.FormKey);
+            potA.Effects.Add(eA);
+            var potB = m.Ingestibles.AddNew(); potB.EditorID = "ApPotionB";
+            var eB = new Effect { Data = new EffectData { Magnitude = 1 } }; eB.BaseEffect.SetTo(mg.FormKey);
+            potB.Effects.Add(eB);
+
             var armor = m.Armors.AddNew();
             armor.EditorID = "ApArmor";
             armor.Name = "Some Cuirass";
@@ -144,6 +160,8 @@ public static class ApplyGuardProbe
             // named from_source, or defaulted to the wrong plugin, would leave both arms green. 7 vs 42 separates them.
             var rd = (IWeapon)WriteEngine.GenericGetOrAddAsOverride(r, donor);
             rd.BasicStats = new WeaponBasicStats { Damage = 7 };   // keywords carry over from the master (still 2)
+            WriteEngine.GenericGetOrAddAsOverride(r, potA);        // the replacer OWNS both potions, so in-place may edit them
+            WriteEngine.GenericGetOrAddAsOverride(r, potB);
             r.BeginWrite.ToPath(replPath).WithLoadOrder(new ISkyrimModGetter[] { m }).Write();
 
             File.WriteAllText(Path.Combine(profiles, "loadorder.txt"), "# header\r\n" + mKey.FileName + "\r\n" + rKey.FileName + "\r\n");
@@ -166,6 +184,11 @@ public static class ApplyGuardProbe
                 ArmorFid = $"{armor.FormKey.ID:X6}:{mKey.FileName}",
                 ModsDir = mods,
                 ReplacerPath = replPath,
+                DonorKey = donor.FormKey,
+                PotionAFid = $"{potA.FormKey.ID:X6}:{mKey.FileName}",
+                PotionBFid = $"{potB.FormKey.ID:X6}:{mKey.FileName}",
+                PotionAKey = potA.FormKey,
+                PotionBKey = potB.FormKey,
                 MasterName = mKey.FileName.String,
                 ReplacerName = rKey.FileName.String,
                 SubjectKey = subject.FormKey,
@@ -437,6 +460,52 @@ public static class ApplyGuardProbe
         var landed = ReadSubject(fx.ReplacerPath, fx.SubjectKey);
         Check($"...and the copied value actually landed intact in the rewritten file (Damage 7, got {landed.Dmg})",
             landed.Dmg == 7, sameFile);
+
+        // RE-REVIEW FOLD [high] — ALIASING. A same-file copy of a modeled LIST, then an edit to the target's copy.
+        // CopyElement shares an element the target's type already accepts; with a live source out of targetMod the
+        // two records would share the very same Effect object, so op 2 would silently mutate the SOURCE as well.
+        // The source is snapshotted, so it must be untouched. (Both potions are the replacer's own records.)
+        var alias = ApplyTools.Apply(fx.Svc,
+            ops: Json($$"""[{"formid":"{{fx.PotionBFid}}","field_path":"Effects","op":"CopyFrom","from":"{{fx.PotionAFid}}","from_source":"{{fx.ReplacerName}}"}, {"formid":"{{fx.PotionBFid}}","field_path":"Effects[0].Data.Magnitude","value":"99"}]"""),
+            in_place: fx.ReplacerName, acknowledge: true);
+        Check("a same-file LIST copy followed by an edit to the target's copy completes", alias.StartsWith("edited "), alias);
+        var (magA, magB) = ReadPotionMagnitudes(fx);
+        Check($"...the TARGET took the edit (B magnitude 99, got {magB})", magB == 99, alias);
+        Check($"...and the SOURCE record is UNTOUCHED — no shared element aliasing (A magnitude still 5, got {magA})",
+            magA == 5, alias);
+
+        // RE-REVIEW FOLD [medium] — ORDERING. A swap on one file: each op must read PRE-CALL state, exactly as the
+        // patch lane does. Reading the live mutable mod would leave both records holding the same value.
+        // Seed both sides to known, distinct values first so the exchange is unambiguous.
+        ApplyTools.Apply(fx.Svc,
+            ops: Json($$"""[{"formid":"{{fx.SubjectFid}}","field_path":"BasicStats.Damage","value":"111"}, {"formid":"{{fx.DonorWeaponFid}}","field_path":"BasicStats.Damage","value":"222"}]"""),
+            in_place: fx.ReplacerName, acknowledge: true);
+        var swap = ApplyTools.Apply(fx.Svc,
+            bundle: new[] { "BasicStats.Damage" },
+            assignments: Json($$"""[{"target":"{{fx.SubjectFid}}","from":"{{fx.DonorWeaponFid}}","from_source":"{{fx.ReplacerName}}"}, {"target":"{{fx.DonorWeaponFid}}","from":"{{fx.SubjectFid}}","from_source":"{{fx.ReplacerName}}"}]"""),
+            in_place: fx.ReplacerName, acknowledge: true);
+        Check("an A<->B swap on ONE file completes", swap.StartsWith("edited "), swap);
+        var subjAfter = ReadSubject(fx.ReplacerPath, fx.SubjectKey).Dmg;
+        var donorAfter = ReadSubject(fx.ReplacerPath, fx.DonorKey).Dmg;
+        // Seeded 111 / 222 → a correct swap yields 222 / 111. Reading mid-call state yields 222 / 222 (the first
+        // op overwrites the subject, the second then reads the already-overwritten value back onto the donor).
+        Check($"...and each record took the OTHER's PRE-CALL value, not a mid-call one (subject={subjAfter} expect 222, donor={donorAfter} expect 111)",
+            subjAfter == 222 && donorAfter == 111, swap);
+    }
+
+    /// <summary>The two potions' first-effect magnitudes, read off the rewritten in-place file.</summary>
+    static (ushort? A, ushort? B) ReadPotionMagnitudes(Fixture fx)
+    {
+        ISkyrimModGetter? ov = null;
+        try
+        {
+            ov = SkyrimMod.CreateFromBinaryOverlay(fx.ReplacerPath, SkyrimRelease.SkyrimSE);
+            ushort? Mag(FormKey fk) => (ushort?)ov.Ingestibles.FirstOrDefault(x => x.FormKey == fk)?
+                .Effects.FirstOrDefault()?.Data?.Magnitude;
+            return (Mag(fx.PotionAKey), Mag(fx.PotionBKey));
+        }
+        catch { return (null, null); }
+        finally { (ov as IDisposable)?.Dispose(); }
     }
 
     // ================= ARM 5 — TRANSPORT =================

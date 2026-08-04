@@ -1862,6 +1862,14 @@ public static class WriteEngine
     /// (<c>SomethingMixIn.DeepCopy(this ISomethingGetter, TranslationMask? = null)</c>), not a parameterless instance
     /// method, so this finds and invokes it (or a same-shape instance overload where one exists). Returns null when the
     /// value has no DeepCopy (a plain scalar/value/string — the caller then assigns it directly). Per-type memoised.</summary>
+    /// <summary>A DETACHED deep copy of a whole record, or null if Mutagen models no DeepCopy for its type. Used by
+    /// the in-place lane to snapshot a copy source that lives in the file being rewritten: the source must not be
+    /// the live mutable record, or (a) later ops in the same call would be visible to it, and (b) the element-level
+    /// share in <see cref="CopyElement"/> — safe when a source is a read-only overlay, since an overlay element is
+    /// never the settable concrete type — would alias the two records' collection elements.</summary>
+    internal static IMajorRecordGetter? TryDeepCopyRecord(IMajorRecordGetter record)
+        => TryDeepCopy(record) as IMajorRecordGetter;
+
     static object? TryDeepCopy(object val)
     {
         var t = val.GetType();

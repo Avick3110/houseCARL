@@ -4496,11 +4496,11 @@ public sealed class LoadOrderService : IDisposable
                 // disposed only after ApplyEditsInPlace returns.
                 Dictionary<WritePatchBuilder.PatchEdit, IMajorRecordGetter>? ipSources = null;
                 List<IDisposable>? ipOverlays = null;
-                var ipError = ResolveOffOrderCopySources(resolver, edits, ref ipSources, ref ipOverlays);
+                var ipError = ResolveOffOrderCopySources(resolver, edits, ref ipSources, ref ipOverlays, out var ipEpoch);
                 if (ipError is not null)
                 {
                     if (ipOverlays is not null) foreach (var d in ipOverlays) d.Dispose();
-                    return WritePatchBuilder.PatchOutcome.Fail(ipError);
+                    return WritePatchBuilder.PatchOutcome.Fail(ipError) with { Epoch = ipEpoch };
                 }
                 try { return ApplyEditsInPlace(resolver, rulebook, edits, target!.Trim(), acknowledge, dryRun, ipSources); }
                 finally { if (ipOverlays is not null) foreach (var d in ipOverlays) d.Dispose(); }
@@ -4519,12 +4519,12 @@ public sealed class LoadOrderService : IDisposable
             // their overlays must stay OPEN through the serialize (CopyField deep-copies through them) — disposed after.
             Dictionary<WritePatchBuilder.PatchEdit, IMajorRecordGetter>? copyFromSources = null;
             List<IDisposable>? offOrderOverlays = null;
-            var cfError = ResolveOffOrderCopySources(resolver, edits, ref copyFromSources, ref offOrderOverlays);
+            var cfError = ResolveOffOrderCopySources(resolver, edits, ref copyFromSources, ref offOrderOverlays, out var cfEpoch);
             if (cfError is not null)
             {
                 if (offOrderOverlays is not null) foreach (var d in offOrderOverlays) d.Dispose();
                 if (created) RemoveFolderCreatedThisCall(outPath);   // a refused write leaves no orphan folder
-                return WritePatchBuilder.PatchOutcome.Fail(cfError);
+                return WritePatchBuilder.PatchOutcome.Fail(cfError) with { Epoch = cfEpoch };
             }
             try
             {
@@ -4544,10 +4544,16 @@ public sealed class LoadOrderService : IDisposable
     /// (all-or-nothing, before any write); null on success. Uses the SAME on-disk locate as read_plugin_file / the
     /// copy-npc-appearance donor lane, so the tools can never disagree on which file a filename names.</summary>
     string? ResolveOffOrderCopySources(LoadOrderResolver resolver, IReadOnlyList<WritePatchBuilder.PatchEdit> edits,
-        ref Dictionary<WritePatchBuilder.PatchEdit, IMajorRecordGetter>? sources, ref List<IDisposable>? overlays)
+        ref Dictionary<WritePatchBuilder.PatchEdit, IMajorRecordGetter>? sources, ref List<IDisposable>? overlays,
+        out string? epoch)
     {
+        // This helper takes its OWN capture, so its refusals are decided AFTER a build was consulted and must be
+        // stamped like every other post-capture outcome (re-review [low]: the first epoch fold missed this class).
+        // Null only when no CopyFrom op exists — then nothing here consults a build at all.
+        epoch = null;
         if (!edits.Any(e => string.Equals(e.Verb, "CopyFrom", StringComparison.Ordinal))) return null;   // no CopyFrom → no source work
         var view = resolver.Capture();
+        epoch = view.Epoch;
         string modsDir = "", dataDir = "", overwriteDir = "", profileDir = "";
         Mo2Composition? comp = null;
         var problems = new List<string>();
