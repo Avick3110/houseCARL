@@ -2876,19 +2876,27 @@ public sealed class LoadOrderService : IDisposable
         }
         using var session = resolver.OpenSession();
 
+        // Pre-parse the keys so an off-order pole's cache materializes ONLY the requested records (round-3 F2).
+        var parsed = new List<(string Raw, FormKey? Fk, string? ParseError)>(formids.Count);
+        var wanted = new HashSet<FormKey>();
+        foreach (var raw in formids)
+        {
+            try { var fk0 = FormKey.Factory(raw.Trim()); parsed.Add((raw, fk0, null)); wanted.Add(fk0); }
+            catch (Exception ex) { parsed.Add((raw, null, $"bad FormID '{raw}': {ex.Message}")); }
+        }
+
         // Resolve the uniform arms once (named poles; winner/overlay are per-record but uniform in statement).
-        var sReader = MakePoleReader(view, session, subject, fields, out subjectArm, out var sCovers, out var sErr);
+        var sReader = MakePoleReader(view, session, subject, fields, wanted, out subjectArm, out var sCovers, out var sErr);
         if (sErr is not null) { refusal = "source: " + sErr; return Array.Empty<DeltaRow>(); }
-        var rReader = MakePoleReader(view, session, reference, fields, out referenceArm, out var rCovers, out var rErr);
+        var rReader = MakePoleReader(view, session, reference, fields, wanted, out referenceArm, out var rCovers, out var rErr);
         if (rErr is not null) { refusal = "versus: " + rErr; return Array.Empty<DeltaRow>(); }
         epochCoversAll = sCovers && rCovers;
 
         var rows = new List<DeltaRow>(formids.Count);
-        foreach (var raw in formids)
+        foreach (var (raw, fkOpt, parseError) in parsed)
         {
-            FormKey fk;
-            try { fk = FormKey.Factory(raw.Trim()); }
-            catch (Exception ex) { rows.Add(new DeltaRow(raw?.Trim() ?? "", null, null, null, null, null, $"bad FormID '{raw}': {ex.Message}")); continue; }
+            if (parseError is not null) { rows.Add(new DeltaRow(raw?.Trim() ?? "", null, null, null, null, null, parseError)); continue; }
+            var fk = fkOpt!.Value;
 
             var s = sReader(fk, null);
             if (s.Error is not null) { rows.Add(new DeltaRow(fk.ToString(), s.Pole, null, null, null, null, "subject: " + s.Error)); continue; }
@@ -2917,7 +2925,7 @@ public sealed class LoadOrderService : IDisposable
     /// first use) happens here ONCE; per-record work stays in the returned reader. <paramref name="covers"/> is
     /// false when the pole reads content outside the epoch fingerprint (an off-order file; the overlay's INIs).</summary>
     PoleReader MakePoleReader(LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session,
-                              PoleSpec spec, IReadOnlyList<string>? fields,
+                              PoleSpec spec, IReadOnlyList<string>? fields, IReadOnlyCollection<FormKey>? wanted,
                               out string? armStatement, out bool covers, out string? error)
     {
         error = null; covers = true;
@@ -3004,7 +3012,7 @@ public sealed class LoadOrderService : IDisposable
                 // OFF-ORDER arm: open the overlay lazily ONCE; per-record lookups sweep it on first use and
                 // memoise every record seen on the way (one enumeration pass serves the whole batch).
                 covers = false;   // the file's content sits outside the epoch fingerprint (PR #305 coverage rule)
-                var lazy = new OffOrderPoleCache(this, arm, fields);
+                var lazy = new OffOrderPoleCache(this, arm, fields, wanted);
                 return (fk, _) =>
                 {
                     var (rec, oerr) = lazy.Find(fk);
@@ -3128,11 +3136,13 @@ public sealed class LoadOrderService : IDisposable
         readonly LoadOrderService _svc;
         readonly PoleInfo _arm;
         readonly IReadOnlyList<string>? _fields;
+        readonly HashSet<FormKey>? _wanted;   // round-3 F2: materialize ONLY the requested keys, never the file
         Dictionary<FormKey, RecordFields>? _all;
         string? _error;
 
-        public OffOrderPoleCache(LoadOrderService svc, PoleInfo arm, IReadOnlyList<string>? fields)
-        { _svc = svc; _arm = arm; _fields = fields; }
+        public OffOrderPoleCache(LoadOrderService svc, PoleInfo arm, IReadOnlyList<string>? fields,
+                                 IReadOnlyCollection<FormKey>? wanted)
+        { _svc = svc; _arm = arm; _fields = fields; _wanted = wanted is null ? null : new HashSet<FormKey>(wanted); }
 
         public (RecordFields? Fields, string? Error) Find(FormKey fk)
         {
@@ -3153,8 +3163,12 @@ public sealed class LoadOrderService : IDisposable
             {
                 var all = new Dictionary<FormKey, RecordFields>();
                 foreach (var r in ov.EnumerateMajorRecords())
+                {
+                    if (_wanted is not null && !_wanted.Contains(r.FormKey)) continue;   // one pass, only what was asked (F2)
                     if (!all.ContainsKey(r.FormKey))
                         all[r.FormKey] = ReadEngine.ReadFields(r, _fields, ConflictDiffDepth);
+                    if (_wanted is not null && all.Count == _wanted.Count) break;
+                }
                 _all = all;
                 return null;
             }
@@ -3170,7 +3184,7 @@ public sealed class LoadOrderService : IDisposable
     /// cannot touch it, so post IS pre there. INI content sits outside the epoch fingerprint; the caller declares
     /// that on the envelope.</summary>
     public IReadOnlyList<ReadOutcome> OverlayPostBatch(
-        IReadOnlyList<string> formids, IReadOnlyList<string>? fields, int depth,
+        IReadOnlyList<string> formids, IReadOnlyList<string>? fields, int depth, bool resolveNames,
         ArtifactDemand? demand, out string? refusal, out string? refusalEpoch, out string? epoch)
     {
         refusal = null; refusalEpoch = null;
@@ -3210,6 +3224,7 @@ public sealed class LoadOrderService : IDisposable
         // second replay would run every INI line onto the already-mutated copy — unguarded AddEntry appends
         // twice, Mult/AddNumeric compound. One replay per key; duplicates reuse its outcome.
         var replayMemo = new Dictionary<FormKey, ReadOutcome>();
+        Dictionary<FormKey, ResolvedRef>? overlayLinkMemo = null;   // resolve_names cache, one per batch (F3)
         var outcomes = new List<ReadOutcome>(formids.Count);
         foreach (var raw in formids)
         {
@@ -3239,6 +3254,7 @@ public sealed class LoadOrderService : IDisposable
                 }
             }
             var record = ReadEngine.ReadFields(bodyToRead!, fields, depth);
+            if (resolveNames) record = AnnotateLinks(record, view, session, overlayLinkMemo ??= new Dictionary<FormKey, ResolvedRef>());
             var ok = new ReadOutcome(fk, record, winner.Value.WinnerPlugin, winner.Value.WinnerPlugin,
                                      winner.Value.OverrideDepth, null, null)
                      with { Epoch = view.Epoch, Pin = pin };
@@ -3280,21 +3296,29 @@ public sealed class LoadOrderService : IDisposable
 
         // Winner reference reads each node off the tree itself; a named reference resolves through the same
         // pole reader the delta form uses (one-pole rule + untouched contract, off-order cache included).
+        // Pre-parse for the same F2 reason as DeltaBatch: a named off-order reference materializes only these.
+        var parsedT = new List<(string Raw, FormKey? Fk, string? ParseError)>(formids.Count);
+        var wantedT = new HashSet<FormKey>();
+        foreach (var raw in formids)
+        {
+            try { var fk0 = FormKey.Factory(raw.Trim()); parsedT.Add((raw, fk0, null)); wantedT.Add(fk0); }
+            catch (Exception ex) { parsedT.Add((raw, null, $"bad FormID '{raw}': {ex.Message}")); }
+        }
+
         PoleReader? refReader = null;
         if (reference.Kind is not PoleKind.Winner)
         {
-            refReader = MakePoleReader(view, session, reference, fields, out referenceArm, out var rCovers, out var rErr);
+            refReader = MakePoleReader(view, session, reference, fields, wantedT, out referenceArm, out var rCovers, out var rErr);
             if (rErr is not null) { refusal = "versus: " + rErr; return Array.Empty<TreeRow>(); }
             epochCoversAll = rCovers;
         }
         else referenceArm = "winner";
 
         var rows = new List<TreeRow>(formids.Count);
-        foreach (var raw in formids)
+        foreach (var (raw, fkOpt, parseError) in parsedT)
         {
-            FormKey fk;
-            try { fk = FormKey.Factory(raw.Trim()); }
-            catch (Exception ex) { rows.Add(new TreeRow(raw?.Trim() ?? "", null, null, Array.Empty<string>(), null, Array.Empty<TreeNodeDelta>(), $"bad FormID '{raw}': {ex.Message}")); continue; }
+            if (parseError is not null) { rows.Add(new TreeRow(raw?.Trim() ?? "", null, null, Array.Empty<string>(), null, Array.Empty<TreeNodeDelta>(), parseError)); continue; }
+            var fk = fkOpt!.Value;
 
             var touchers = view.TouchingPlugins(fk) ?? Array.Empty<string>();
             if (touchers.Count == 0)
@@ -3549,7 +3573,6 @@ public sealed class LoadOrderService : IDisposable
             }
             // Walk down: the provider is the first node NOT forwarding this category.
             var cur = seed;
-            var curKey = seedFk;
             string? note = null; string? provKey = null; string? provEid = null;
             var hops = new HashSet<FormKey> { seedFk };
             while (true)
@@ -3566,7 +3589,7 @@ public sealed class LoadOrderService : IDisposable
                 { note = $"template target {nextKey} is a {RecordNaming.StripOverlay(body.GetType().Name)}, not an NPC or leveled actor"; break; }
                 if (!npc.Configuration.TemplateFlags.HasFlag(flag))
                 { provKey = nextKey.ToString(); provEid = npc.EditorID; break; }
-                cur = npc; curKey = nextKey;
+                cur = npc;
             }
             report.Add(new NpcTemplateCategory(name, true, provKey, provEid, note));
         }
@@ -3606,6 +3629,7 @@ public sealed class LoadOrderService : IDisposable
         // order to EVERY occurrence — a dictionary keyed on FormKey kept only the last row's index, and the
         // earlier duplicates rendered a fabricated "merge could not be computed" failure.
         var dialRows = new List<(int Index, FormKey Fk)>();
+        var dialSeen = new HashSet<FormKey>();
         foreach (var raw in formids)
         {
             FormKey fk;
@@ -3636,7 +3660,7 @@ public sealed class LoadOrderService : IDisposable
             dialRows.Add((rows.Count, fk));
             rows.Add(new InfoOrderRow(fk.ToString(), RecordNaming.StripOverlay(body.GetType().Name), body.EditorID,
                                       win.Value.WinnerPlugin, null, null));
-            if (!dialFks.Contains(fk)) dialFks.Add(fk);
+            if (dialSeen.Add(fk)) dialFks.Add(fk);
         }
         if (dialFks.Count > 0)
         {
@@ -3793,7 +3817,6 @@ public sealed class LoadOrderService : IDisposable
         }
         catch (ArgumentException ex) { return CrossQueryOutcome.Fail(ex.Message); }   // unknown type
 
-        IReadOnlyList<Type>? typesForSet = types;   // the set-alone branch type-checks bodies directly
         var keys = new List<FormKey>();
         var sources = new List<string?>();                                    // parallel to keys: the plugin whose body matched (null ⇒ winner), so the render displays the SAME body it filtered
         List<string?>? matched = multiTarget ? new() : null;                  // parallel to keys: which target(s) each hit referenced (multi-target references= un-merge); null when 0/1 target
@@ -3859,7 +3882,6 @@ public sealed class LoadOrderService : IDisposable
                             if (hitSet.Count == 0) continue;
                             if (multiTarget && groups is null) hitTargets = references!.Where(hitSet.Contains).Distinct().ToList();
                         }
-                        if (typesForSet is not null && !typesForSet.Any(t => t.IsInstanceOfType(body))) continue;
                         if (predicate is not null && !predicate.Matches(body))
                         {
                             if (predicate.FatalError is not null) break;
