@@ -78,6 +78,8 @@ internal static class RecordsGuardProbe
             var mgefB = master.MagicEffects.AddNew(); mgefB.EditorID = "OtherMgef";
             var spellA = master.Spells.AddNew(); spellA.EditorID = "HcRecSpellA";
             { var e = new Effect(); e.BaseEffect.SetTo(mgefA.FormKey); e.Data = new EffectData { Magnitude = 5 }; spellA.Effects.Add(e); }
+            var spellC = master.Spells.AddNew(); spellC.EditorID = "HcRecSpellC";
+            { var e = new Effect(); e.BaseEffect.SetTo(mgefA.FormKey); e.Data = new EffectData { Magnitude = 9 }; spellC.Effects.Add(e); }
             var spellB = master.Spells.AddNew(); spellB.EditorID = "HcRecSpellB";
             { var e = new Effect(); e.BaseEffect.SetTo(mgefB.FormKey); e.Data = new EffectData { Magnitude = 7 }; spellB.Effects.Add(e); }
 
@@ -154,7 +156,7 @@ internal static class RecordsGuardProbe
                   "membership: a numeric leaf 'in [10, 30]' keeps exactly the listed values");
             Check(Run(new[] { "BasicStats.Damage not in [10, 30]" }, weapBodies).SetEquals(new[] { weapons[1], noEidWeap.FormKey }),
                   "membership: 'not in' is its complement over value-bearing records");
-            Check(Run(new[] { $"Effects[0].BaseEffect in [{Fid(mgefA.FormKey)}]" }, spellBodies).SetEquals(new[] { spellA.FormKey }),
+            Check(Run(new[] { $"Effects[0].BaseEffect in [{Fid(mgefA.FormKey)}]" }, spellBodies).SetEquals(new[] { spellA.FormKey, spellC.FormKey }),
                   "membership: a FormLink leaf against a FormKey list uses identity-canonical equality");
 
             // the winner provenance term — bound resolver decides; unbound is a typed fatal.
@@ -176,7 +178,7 @@ internal static class RecordsGuardProbe
             // the -> link step — ANY-match over targets, resolved through the bound fetch.
             {
                 IMajorRecordGetter? Fetch(FormKey fk) => mgefByKey.GetValueOrDefault(fk);
-                Check(Run(new[] { "Effects->editorid startswith HcRec" }, spellBodies, null, Fetch).SetEquals(new[] { spellA.FormKey }),
+                Check(Run(new[] { "Effects->editorid startswith HcRec" }, spellBodies, null, Fetch).SetEquals(new[] { spellA.FormKey, spellC.FormKey }),
                       "link step: 'Effects->editorid startswith HcRec' selects the spell whose EFFECT TARGET matches");
                 Check(Run(new[] { $"Effects->formid in [{Fid(mgefB.FormKey)}]" }, spellBodies, null, Fetch).SetEquals(new[] { spellB.FormKey }),
                       "link step: '->formid in [list]' tests the TARGETS' identity");
@@ -677,6 +679,19 @@ internal static class RecordsGuardProbe
             var offEmptyIds = RecordsTools.Records(svc, formids: new[] { "" }, types: new[] { "WEAP" }, source: Je($"\"{oldName}\""));
             Check(offEmptyIds.StartsWith("error:") && offEmptyIds.Contains("empty"),
                   "fold F10: off-order formids= expanding to empty refuses (was a silent whole-file scan)");
+
+            // ---- PR #309 re-review folds ----
+            var offOvlCmp = RecordsTools.Records(svc, types: new[] { "WEAP" }, source: Je($"\"{oldName}\""),
+                                                 versus: Je("{\"overlay\": \"skypatcher\", \"state\": \"post\"}"),
+                                                 project: new RecordsTools.RecordsProject { form = "delta" });
+            Check(offOvlCmp.StartsWith("error:") && offOvlCmp.Contains("formids="),
+                  "re-review: an overlay versus= on the OFF-ORDER scan refuses too (the residual F5 gap)");
+            var revWin = RecordsTools.Records(svc, formids: new[] { Fid(mgefA.FormKey) },
+                                              walk: new RecordsTools.RecordsWalk { direction = "reverse" }, limit: 1,
+                                              project: new RecordsTools.RecordsProject { form = "chain" });
+            Check(!revWin.StartsWith("error:") && revWin.Contains("HcRecSpellA") && revWin.Contains("HcRecSpellC")
+                  && revWin.Contains("carrier_total=2") == false,
+                  "re-review: limit= windows the SEEDS only — both carriers of the one seed render (the cap is walk.max_nodes)");
 
             // ============================================================================================
             //  5 — TRANSPORT: to_file + @artifact re-entry, epoch-checked

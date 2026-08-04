@@ -64,7 +64,7 @@ public static class RecordsTools
         [Description("The link path followed at every LATER hop. \"*\" (default) walks every link — full closure. A named path restricts to one chain, e.g. \"Template\" for NPC template inheritance.")]
         public string? follow { get; set; }
 
-        [Description("'forward' (default) — what the seeds point AT (cheap: each hop is one link resolve). 'reverse' — what points AT the seeds; depth 1 only (reverse is a bounded scan; transitive reverse is refused naming the reverse-reference index as the future capability). The general reverse spelling on this surface IS references= (same construct); walk.direction='reverse' serves the typed MGEF lane — magic-effect seeds get per-carrier magnitude/area/duration.")]
+        [Description("'forward' (default) — what the seeds point AT (cheap: each hop is one link resolve). 'reverse' — what points AT the seeds; depth 1 only (reverse is a bounded scan; transitive reverse is refused naming the reverse-reference index as the future capability). The general reverse spelling on this surface IS references= (same construct); walk.direction='reverse' serves the typed MGEF lane — magic-effect seeds get per-carrier magnitude/area/duration (types= narrows the carrier types; walk.max_nodes bounds each seed's carrier rows; limit=/offset= window the SEEDS).")]
         public string? direction { get; set; }
 
         [Description("Maximum hops from a seed (default 16). Nodes AT the cap are recorded, not entered, and the response says the cap cut the walk — never a silent stop.")]
@@ -600,7 +600,9 @@ public static class RecordsTools
                     FormKey fk;
                     try { fk = FormKey.Factory(raw.Trim()); }
                     catch (Exception ex) { results.Add((raw?.Trim() ?? "", EffectChainResult.Fail($"bad FormID '{raw}': {ex.Message}"))); continue; }
-                    results.Add((fk.ToString(), svc.ResolveEffectChain(fk, types, limit <= 0 ? 500 : limit)));
+                    // The per-seed carrier bound is the WALK's own reach budget (walk.max_nodes, default 2000) —
+                    // limit=/offset= stay the SEED window, never a second silent cut on the carrier axis (re-review).
+                    results.Add((fk.ToString(), svc.ResolveEffectChain(fk, types, walkMaxNodes)));
                 }
                 // ONE build for the whole batch (review F3): each seed's resolve captures its own view — the
                 // stamps must agree, and an @artifact seed list's epoch demand must match that build.
@@ -622,13 +624,19 @@ public static class RecordsTools
                 Arm("winner (carriers are the load-order-effective versions)");
                 envelope.Add(new("walk", "reverse, depth 1 — the typed MGEF carrier lane"));
                 headerLine += "\nwalk=reverse (per seed: every SPEL/ENCH/ALCH/SCRL/INGR applying it, with the MATCHING entry's magnitude/area/duration — reported AS AUTHORED; conditions are not evaluated, so a row means 'defines it at this strength', not 'it will fire')";
-                int carrierRows = results.Sum(r => r.Result.Error is null ? r.Result.Total : 0);
+                // The census separates WRITTEN rows from the true total, and names capped seeds — so the
+                // artifact and its census can never disagree, and a walk.max_nodes cut is declared (re-review).
+                int carrierRows = results.Sum(r => r.Result.Error is null ? r.Result.Rows.Count : 0);
+                int carrierTotal = results.Sum(r => r.Result.Error is null ? r.Result.Total : 0);
+                int cappedSeeds = results.Count(r => r.Result.Error is null && r.Result.Capped);
                 int seedErrs2 = results.Count(r => r.Result.Error is not null);
-                var revCounts = new[] { KvI("seeds", results.Count), KvI("carrier_rows", carrierRows), KvI("errors", seedErrs2) };
+                var revCounts = new[] { KvI("seeds", results.Count), KvI("carrier_rows", carrierRows), KvI("carrier_total", carrierTotal), KvI("capped_seeds", cappedSeeds), KvI("errors", seedErrs2) };
+                if (cappedSeeds > 0)
+                    headerLine += $"\n[!] {cappedSeeds} seed(s) hit the walk.max_nodes carrier bound ({walkMaxNodes}) — their rows are a prefix of carrier_total; raise walk.max_nodes.";
                 if (counts_only)
                     return json
                         ? JsonWire.RenderNamedCounts(envelope, revCounts, epochR)
-                        : $"{headerLine}\nseeds={results.Count} carrier_rows={carrierRows} errors={seedErrs2}" + (epochR is not null ? $"\nepoch={epochR}" : "");
+                        : $"{headerLine}\nseeds={results.Count} carrier_rows={carrierRows} carrier_total={carrierTotal} capped_seeds={cappedSeeds} errors={seedErrs2}" + (epochR is not null ? $"\nepoch={epochR}" : "");
                 var winResults = Windowed(results);
                 SpillState? revSpill = null;
                 if (wantFile)
@@ -639,7 +647,7 @@ public static class RecordsTools
                 }
                 string RenderRev(SpillState? sp, out bool trunc) => json
                     ? JsonWire.RenderEffectChains(winResults, max_chars, envelope, revCounts, epochR, sp, out trunc)
-                    : RenderRecordsEffectChains(winResults, results.Count, carrierRows, seedErrs2, headerLine, epochR, max_chars, sp, out trunc);
+                    : RenderRecordsEffectChains(winResults, results.Count, carrierRows, seedErrs2, headerLine, epochR, max_chars, sp, out trunc);   // header carries carrier_total/capped via headerLine
                 var revRendered = RenderRev(revSpill, out var revTrunc);
                 if (revSpill is null && revTrunc)
                 {
@@ -1224,6 +1232,10 @@ public static class RecordsTools
             if (walk is not null)
                 return "error: the walk expands the ACTIVE order's winner link graph — an out-of-load-order file's records are not in that graph. Enumerate the file with form='summary', then walk specific records via formids= (dropping source=).";
             if (dense) return "error: format='dense' is the in-order scan's columnar form — an off-order file scan renders text or json.";
+            if (versusSpec?.Kind == LoadOrderService.PoleKind.Overlay)
+                return "error: an overlay pole on a SCAN would replay the SkyPatcher INI layer over every match — a per-record replay at scan scale " +
+                       "(a scan comparison compares EVERY match, so it is not a bound). Name the records via formids= — the list lane reads and " +
+                       "compares their post-state bodies — or read the whole layer via housecarl_skypatcher_layer.";
             if (where_source is not null)
             {
                 // Full-vocabulary validation, mirroring the in-order engine (review F9): an unknown spelling must
