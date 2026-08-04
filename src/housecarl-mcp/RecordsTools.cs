@@ -106,8 +106,10 @@ public static class RecordsTools
          "index that would lift the bound is a known future capability). UNION-ARM tip: when a field is one of " +
          "several shapes (an NPC's Configuration.Level is a fixed level OR a PC-level multiplier), a scalar " +
          "predicate on one arm's sub-field doubles as an ARM-PRESENCE test: where=[\"Configuration.Level.LevelMult " +
-         ">= 0\"] returns exactly the NPCs on a multiplier. In this wave formids= composes with the OTHER select " +
-         "terms in W2 PR 2 — a combined call is refused by name until then.\n\n" +
+         ">= 0\"] returns exactly the NPCs on a multiplier. formids= COMPOSES with the scan terms: the identity set " +
+         "intersects the scan — or, alone, IS the scan universe (the set is the bound, so a where= over it needs " +
+         "no types=/plugins=). The walk= construct is a SELECT term too: what it reaches is a selection any " +
+         "reading form can consume.\n\n" +
          "SOURCE decides WHOSE version you read. Default: the load-order winner. Naming a plugin (source= " +
          "\"OldPatch.esp\", or {\"file\": \"X.esp\", \"mod\": \"<mod folder>\"} when two mods ship the filename) " +
          "reads THAT plugin's version wherever the plugin lives — active in your order, or sitting on disk unticked " +
@@ -115,9 +117,11 @@ public static class RecordsTools
          "and from where). A plugin found in neither place is refused naming both places searched. A record the " +
          "named plugin does not touch is refused naming the plugins that DO touch it — never silently absent. " +
          "An off-order file's content sits OUTSIDE the epoch fingerprint and the response says so. " +
-         "('previous_provider' and the SkyPatcher overlay source arrive in W2 PR 2.)\n\n" +
+         "versus= is the comparison REFERENCE pole (delta/tree); {\"overlay\": \"skypatcher\", \"state\": " +
+         "\"pre\"|\"post\"} reads around the SkyPatcher INI layer; \"previous_provider\" (a versus= value) is the " +
+         "plugin immediately below the SUBJECT in the record's touching stack.\n\n" +
          "PROJECT is a single form (see project=): identity | summary (default) | fields | everything | aggregate | " +
-         "delta | tree. Sub-parameters live INSIDE the form that uses them (depth belongs to fields/everything, " +
+         "delta | tree | chain | info_order. Sub-parameters live INSIDE the form that uses them (depth belongs to fields/everything, " +
          "group_by to aggregate, fields to fields/delta/tree) — there is no flat spelling for an illegal pairing. " +
          "COMPARISONS (form='delta'/'tree'): a delta reads the SUBJECT (source=) and a REFERENCE (versus=) and " +
          "returns only what differs — each delta line shows the subject's value with the reference's labeled by its " +
@@ -312,7 +316,7 @@ public static class RecordsTools
             var fs = fields_source.Trim().ToLowerInvariant();
             if (fs == "winner") winnerFields = true;
             else if (fs is not ("scoped" or "scanned"))
-                return $"error: fields_source='{fields_source}' — use 'winner' (display the live winner's values) or omit it (display the matched body). Further poles arrive with the W2 comparison wave.";
+                return $"error: fields_source='{fields_source}' — use 'winner' (display the live winner's values) or omit it (display the matched body). A NAMED display pole is the scope-vs-pole composition: plugins= selects, source= names whose version the body forms read.";
         }
 
         // ---- lane decision ------------------------------------------------------------------------------
@@ -342,11 +346,13 @@ public static class RecordsTools
             return "error: format='dense' renders positional columnar cells 1:1 with requested field paths, and the 'info_order' form is an ordered sequence render with no fixed column set — use format='text' or 'json'.";
         if (form == "info_order" && srcSpec.Kind != LoadOrderService.PoleKind.Winner)
             return "error: the info_order form merges EVERY plugin touching each topic — that merge is the answer, so a source= pole has no seat here (each line already names the plugin that placed it). Drop source=.";
-        // fields_source= is the SCAN lane's display pole in this wave (it retargets what a matched row DISPLAYS);
-        // the list lane's read is its display, so the request would be silently meaningless there — refuse by
-        // name (re-review: it was accepted and dropped). The generalized poles land with W2 PR 2's comparison forms.
-        if (winnerFields && formids is { Length: > 0 })
-            return "error: fields_source= is the scan lane's display pole in this wave — on a formids= read the version you want IS the source: name it via source= (source=\"winner\" is the default). The generalized display poles land with the W2 comparison forms.";
+        // fields_source= is the SCAN lane's display pole (it retargets what a matched row DISPLAYS); the list
+        // lane's read IS its display, so the request would be silently meaningless there — refuse by name
+        // (re-review: it was accepted and dropped). The GENERAL display pole is the composition itself:
+        // plugins= (scope) x source= (whose version) reads any pole's bodies; fields_source='winner' remains
+        // the winner shorthand on a scoped scan.
+        if (winnerFields && formids is { Length: > 0 } && !hasScan)
+            return "error: fields_source= is the scan lane's display pole — on a formids= read the version you want IS the source: name it via source= (source=\"winner\" is the default).";
 
         if (offset < 0) return $"error: offset={offset} — offset must be >= 0.";
         if (offset > 0 && form == "aggregate")
@@ -1101,7 +1107,7 @@ public static class RecordsTools
                 // impossible (the per-item wording below is ResolveBatchFromPole's own).
                 if (scopePlusPole)
                 {
-                    int notTouched = bodies.Count(o => o.Error is not null && o.Error.Contains("does not define or override"));
+                    int notTouched = bodies.Count(o => o.Error is not null && (o.Error.Contains("does not touch") || o.Error.Contains("does not define or override")));
                     if (notTouched > 0)
                     {
                         envelope.Add(new("not_touched", notTouched.ToString()));
