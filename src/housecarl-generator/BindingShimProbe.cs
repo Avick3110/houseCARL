@@ -440,6 +440,16 @@ public static class BindingShimProbe
         "housecarl_records: resolvenames => hint",
         "housecarl_records: type -> types",
         "housecarl_records: winnerfields => hint",
+        // W2 PR 2 (re-eyeballed 2026-08-04): versus= and walk= land on housecarl_records, so their gated
+        // hints go LIVE — the diff_record pole spellings (plugin_a/b, mod_a/b -> the source=/versus= poles)
+        // and the walk-carried absorptions (effect_chain's mgef_formid; copy's closure). 113 -> 119, all six
+        // on housecarl_records.
+        "housecarl_records: closure => hint",
+        "housecarl_records: mgefformid => hint",
+        "housecarl_records: moda => hint",
+        "housecarl_records: modb => hint",
+        "housecarl_records: plugina => hint",
+        "housecarl_records: pluginb => hint",
         "housecarl_remove_record: archivename -> patch",
         "housecarl_remove_record: formids -> formid",
         "housecarl_remove_record: output -> patch",

@@ -50,9 +50,14 @@ internal static class ToolCallShim
     /// <summary>The filter. Registered on the server in Program.cs via WithRequestFilters → AddCallToolFilter.</summary>
     public static McpRequestFilter<CallToolRequestParams, CallToolResult> LenientArguments => next => async (request, cancellationToken) =>
     {
-        // MatchedPrimitive is resolved by the SDK BEFORE filters run; unknown tool names pass through untouched
-        // (the SDK's own unknown-tool error is already specific).
+        // MatchedPrimitive is resolved by the SDK BEFORE filters run. An unknown tool name normally passes
+        // through to the SDK's own specific unknown-tool error — EXCEPT a RETIRED name (W2 PR 2, the
+        // tool-NAME lane): the 8 reads housecarl_records absorbed answer with their successor call shape
+        // instead of a dead end. Dormant while those tools stay registered (a registered name resolves and
+        // never reaches this check); load-bearing the moment one is unregistered (2.0.0's clean cut).
         var p = request.Params;
+        if (request.MatchedPrimitive is not McpServerTool && AliasTable.RetiredToolHint(p?.Name) is { } retiredRedirect)
+            return NamedError(retiredRedirect);
         var received = DescribeArgs(p?.Arguments);   // what the caller ACTUALLY sent — captured before coercion rewrites
                                                      // the dictionary, so the failure message never shows a coerced shape
                                                      // as if the caller had sent it (review #1 finding 2)
