@@ -4485,7 +4485,22 @@ public sealed class LoadOrderService : IDisposable
             var rulebook = Rulebook;
 
             if (inPlace)
-                return ApplyEditsInPlace(resolver, rulebook, edits, target!.Trim(), acknowledge, dryRun);
+            {
+                // The in-place lane resolves off-order CopyFrom sources exactly as the patch lane does (W3: LANE is
+                // uniform — every ACT verb composes with in_place). The overlays must stay OPEN across the whole
+                // in-place write (CopyField deep-copies through them, and the re-serialize follows), so they are
+                // disposed only after ApplyEditsInPlace returns.
+                Dictionary<WritePatchBuilder.PatchEdit, IMajorRecordGetter>? ipSources = null;
+                List<IDisposable>? ipOverlays = null;
+                var ipError = ResolveOffOrderCopySources(resolver, edits, ref ipSources, ref ipOverlays);
+                if (ipError is not null)
+                {
+                    if (ipOverlays is not null) foreach (var d in ipOverlays) d.Dispose();
+                    return WritePatchBuilder.PatchOutcome.Fail(ipError);
+                }
+                try { return ApplyEditsInPlace(resolver, rulebook, edits, target!.Trim(), acknowledge, dryRun, ipSources); }
+                finally { if (ipOverlays is not null) foreach (var d in ipOverlays) d.Dispose(); }
+            }
 
             // #225: a dry run resolves the would-be output path WITHOUT creating the mod folder (create:false) — the
             // one disk side effect the pre-serialize pipeline otherwise has. The fresh-lane name is a preview: the
@@ -4549,9 +4564,18 @@ public sealed class LoadOrderService : IDisposable
             try { ov = LoadOrderResolver.OpenOverlay(loc.Path!, string.IsNullOrEmpty(dataDir) ? null : dataDir); }
             catch (Exception ex) { problems.Add($"{e.Target}: CopyFrom source file '{e.FromPlugin}' could not be opened as a Skyrim plugin ({ex.Message})."); continue; }
             IMajorRecordGetter? body;
-            try { body = ov.EnumerateMajorRecords().FirstOrDefault(r => r.FormKey == e.Target); }
+            try { body = ov.EnumerateMajorRecords().FirstOrDefault(r => r.FormKey == e.CopySource); }
             catch (Exception ex) { (ov as IDisposable)?.Dispose(); problems.Add($"{e.Target}: CopyFrom source file '{e.FromPlugin}' could not be read ({ex.Message})."); continue; }
-            if (body is null) { (ov as IDisposable)?.Dispose(); problems.Add($"{e.Target}: CopyFrom source file '{e.FromPlugin}' does not define or override this record — there is no version of it there to copy."); continue; }
+            if (body is null)
+            {
+                (ov as IDisposable)?.Dispose();
+                // Name WHICH record the file is missing: the target's own version (same-record copy) or the §4.5
+                // zip's SOURCE record (cross-record) — "this record" would point at the wrong one on the zip lane.
+                problems.Add(e.FromTarget is null
+                    ? $"{e.Target}: CopyFrom source file '{e.FromPlugin}' does not define or override this record — there is no version of it there to copy."
+                    : $"{e.Target}: CopyFrom source file '{e.FromPlugin}' does not define or override the SOURCE record {e.CopySource} — there is no version of it there to copy from.");
+                continue;
+            }
             (overlays ??= new()).Add((IDisposable)ov);
             (sources ??= new())[e] = body;   // distinct Path-array refs make each PatchEdit a distinct key (value equality); indexer is collision-safe regardless
         }
@@ -4571,7 +4595,8 @@ public sealed class LoadOrderService : IDisposable
     /// the CONSENT axis ONLY — the verify is a corruption-axis fact no acknowledgement overrides.</summary>
     WritePatchBuilder.PatchOutcome ApplyEditsInPlace(
         LoadOrderResolver resolver, CorpusRulebook rulebook, IReadOnlyList<WritePatchBuilder.PatchEdit> edits,
-        string target, bool acknowledge, bool dryRun = false)
+        string target, bool acknowledge, bool dryRun = false,
+        IReadOnlyDictionary<WritePatchBuilder.PatchEdit, IMajorRecordGetter>? copyFromSources = null)
     {
         // (1) Resolve target -> real on-disk path via the load order (by plugin FILENAME — unique in an order). Refuse
         //     loud if it isn't a real active plugin (closes the coincidental-folder collision the into= lane can hit).
@@ -4615,7 +4640,7 @@ public sealed class LoadOrderService : IDisposable
             return WritePatchBuilder.PatchOutcome.Fail(why);
 
         // (4) The write — touched-record verify forced ON (the model-C substitute for the dropped whole-plugin floor).
-        var outcome = WritePatchBuilder.ApplyInPlace(resolver, rulebook, edits, targetPath, targetName, fullReadback: true, dryRun);
+        var outcome = WritePatchBuilder.ApplyInPlace(resolver, rulebook, edits, targetPath, targetName, fullReadback: true, dryRun, copyFromSources);
 
         // (5-dry) #225: a successful dry run stamps NOTHING (no editedInPlace marker, no .seq note — those describe a
         //     write that happened); only the core's would-grow note + the pending-consent note ride along.
