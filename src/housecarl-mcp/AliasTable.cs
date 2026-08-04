@@ -213,4 +213,42 @@ internal static class AliasTable
             if (d.Old == normalizedKey && d.GateParams.All(declaredNormalized.Contains)) return d.Hint;
         return null;
     }
+
+    // ---- retired tool NAMES (W2 PR 2 — the tool-NAME lane, on top of the parameter layer) -----------
+
+    /// <summary>The 8 read tools `housecarl_records` absorbs, each mapped to its successor call shape.
+    /// The lane is DORMANT BY CONSTRUCTION while these tools stay registered (they do, through the build
+    /// waves — CHARTER_PHASE4 §3.4a): the SDK resolves a registered name before the shim's filter runs, so
+    /// this table answers only a call naming a tool the server does NOT have — which today is nothing, and
+    /// at retirement is exactly these. It turns the SDK's generic unknown-tool error into the successor
+    /// spelling, so a caller working from old docs lands on `records` in one hop instead of a dead end.</summary>
+    static readonly (string Old, string Successor)[] RetiredTools =
+    {
+        ("housecarl_read_record",
+         "absorbed into housecarl_records: formids=[\"XXXXXX:Plugin.esp\"] — project={\"form\": \"fields\", \"fields\": […]} for named fields, \"everything\" for the full body; plugin= is source=; conflict_tree=true is project={\"form\": \"tree\"}."),
+        ("housecarl_batch_record_detail",
+         "absorbed into housecarl_records: the same formids= list with a project= form (summary | fields | everything); plugin= is source=; to_file=/@file re-entry unchanged."),
+        ("housecarl_resolve",
+         "absorbed into housecarl_records: formids=[…] with project={\"form\": \"identity\"} — the labeling form."),
+        ("housecarl_cross_plugin_query",
+         "absorbed into housecarl_records: the same scan terms, set-valued — type= is types=, editorid_contains= is where=[\"editorid contains …\"], group_by= is project={\"form\": \"aggregate\", \"group_by\": …}, fields= lives inside project={\"form\": \"fields\"}."),
+        ("housecarl_read_plugin_file",
+         "absorbed into housecarl_records: source=\"X.esp\" reads that plugin WHEREVER it lives (active or on disk out of the order — the response states which); types=/where= scan the file's records; formids= reads specific ones."),
+        ("housecarl_diff_record",
+         "absorbed into housecarl_records: project={\"form\": \"delta\"} — source= is the subject (was plugin_a), versus= the reference (was plugin_b; structured poles carry the mod disambiguator), project.fields narrows the comparison."),
+        ("housecarl_effect_chain",
+         "absorbed into housecarl_records: project={\"form\": \"chain\"} with walk={\"direction\": \"reverse\"} and the MGEF in formids= (types= still narrows the carrier types)."),
+        ("housecarl_skypatcher_read",
+         "absorbed into housecarl_records: source={\"overlay\": \"skypatcher\", \"state\": \"post\"} reads the post-INI body; pre-vs-post is project={\"form\": \"delta\"} with the two overlay poles."),
+    };
+
+    /// <summary>The successor teaching for a retired tool name, or null. Case-insensitive on the full name.</summary>
+    internal static string? RetiredToolHint(string? toolName)
+    {
+        if (string.IsNullOrEmpty(toolName)) return null;
+        foreach (var (old, successor) in RetiredTools)
+            if (old.Equals(toolName.Trim(), StringComparison.OrdinalIgnoreCase))
+                return $"error: {old} is not on this surface — {successor}";
+        return null;
+    }
 }
