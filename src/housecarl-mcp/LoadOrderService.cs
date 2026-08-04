@@ -3159,6 +3159,82 @@ public sealed class LoadOrderService : IDisposable
         }
     }
 
+    /// <summary>The list-driven `records` read under the SkyPatcher-overlay POST source: each record's winner is
+    /// replayed through the discovered INI layer (the skypatcher_read core) and the REPLAYED body is what the
+    /// fields/everything/summary forms read, at the caller's own depth. Declared rule (envelope-carried, not
+    /// per-item silence): a record whose type SkyPatcher cannot patch reads as its plain winner — the layer
+    /// cannot touch it, so post IS pre there. INI content sits outside the epoch fingerprint; the caller declares
+    /// that on the envelope.</summary>
+    public IReadOnlyList<ReadOutcome> OverlayPostBatch(
+        IReadOnlyList<string> formids, IReadOnlyList<string>? fields, int depth,
+        ArtifactDemand? demand, out string? refusal, out string? refusalEpoch, out string? epoch)
+    {
+        refusal = null; refusalEpoch = null;
+        var resolver = Resolver;
+        var view = resolver.Capture();
+        epoch = view.Epoch;
+        if (demand is not null && demand.Epoch != view.Epoch)
+        {
+            refusal = ArtifactEpochMismatch(demand, view.Epoch);
+            refusalEpoch = view.Epoch;
+            return Array.Empty<ReadOutcome>();
+        }
+        var pin = new ViewPin(resolver, view);
+        using var session = resolver.OpenSession();
+
+        SkyPatcherFieldMap fieldMap; SkyPatcherCatalog catalog; SkyPatcherDiscovery.LayerScan scan;
+        SkyrimMod scratch; SkyPatcherOverlay.IFormResolver formResolver;
+        try
+        {
+            AssetResolver.AssetView assets;
+            lock (_gate) { assets = Assets.Capture(); }
+            fieldMap = SkyPatcherFieldMap.Load();
+            catalog = SkyPatcherCatalog.Load();
+            scan = SkyPatcherDiscovery.Scan(assets, catalog, view.ContainsPlugin, _skyPatcherParseCache);
+            scratch = new SkyrimMod(SkyPatcherScratchKey, SkyrimRelease.SkyrimSE);
+            formResolver = new SkyPatcherServiceResolver(this, view, session);
+        }
+        catch (Exception ex)
+        {
+            refusal = $"the SkyPatcher layer could not be discovered for the overlay source: {ex.Message}";
+            refusalEpoch = view.Epoch;
+            return Array.Empty<ReadOutcome>();
+        }
+        var linesCache = new Dictionary<string, IReadOnlyList<SkyPatcherOverlay.OrderedLine>>(StringComparer.OrdinalIgnoreCase);
+
+        var outcomes = new List<ReadOutcome>(formids.Count);
+        foreach (var raw in formids)
+        {
+            FormKey fk;
+            try { fk = FormKey.Factory(raw.Trim()); }
+            catch (Exception ex) { outcomes.Add(ReadOutcome.Fail(default, $"bad FormID '{raw}': {ex.Message}")); continue; }
+            var winner = view.ResolveWinner(fk);
+            if (winner is null)
+            {
+                outcomes.Add(ReadOutcome.Fail(fk, $"FormID {fk} is not present in the load order ({view.PluginCount} plugins).")
+                             with { Epoch = view.Epoch, Pin = pin });
+                continue;
+            }
+            var r = ReplaySkyPatcher(view, session, scan, catalog, fieldMap, scratch, formResolver, fk, linesCache);
+            IMajorRecordGetter? bodyToRead = r.Copy;
+            if (r.Error is not null)
+            {
+                if (r.Error.Contains("not a SkyPatcher-patchable type"))
+                    bodyToRead = view.GetRecord(session, winner.Value.WinnerPlugin, fk);   // post IS pre — the declared rule
+                if (bodyToRead is null)
+                {
+                    outcomes.Add(ReadOutcome.Fail(fk, r.Error) with { Epoch = view.Epoch, Pin = pin });
+                    continue;
+                }
+            }
+            var record = ReadEngine.ReadFields(bodyToRead!, fields, depth);
+            outcomes.Add(new ReadOutcome(fk, record, winner.Value.WinnerPlugin, winner.Value.WinnerPlugin,
+                                         winner.Value.OverrideDepth, null, null)
+                         with { Epoch = view.Epoch, Pin = pin });
+        }
+        return outcomes;
+    }
+
     /// <summary>One provider's node in a §4.1 PROJECT=tree row: its position in the touching list plus its delta
     /// against the row's reference pole (empty deltas + Complete ⇒ genuinely identical to the reference).</summary>
     public sealed record TreeNodeDelta(string Plugin, bool IsWinner, bool IsReference,

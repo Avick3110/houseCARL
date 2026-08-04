@@ -183,10 +183,9 @@ internal static class AliasTable
         // W2 PR 1 — the form-scoped PROJECT teachings (SPEC §2.2 F2): the flat 1.x spellings became sub-parameters
         // of the project= form object on `records`, so a stray flat one gets the form-scoping rule by name. All
         // gated on `project` — today that is exactly housecarl_records. conflict_tree is the CHARTERED W2 hint
-        // (the most-taught changing spelling — 9+ skills teach conflict_tree=true; consumer-inventory obligation):
-        // its PROJECT form (tree) ships in W2 PR 2, so the hint names both the destination and today's working
-        // spelling, and PR 2 trims the interim clause when the form lands.
-        new("conflicttree", new[] { "project" }, "not a parameter here — the provider tree is a PROJECT form: project={\"form\": \"tree\"} (lands with the W2 comparison forms; until then housecarl_read_record conflict_tree=true renders it)"),
+        // (the most-taught changing spelling — 9+ skills teach conflict_tree=true; consumer-inventory obligation);
+        // the tree form landed in W2 PR 2, so the interim "until then" clause is gone.
+        new("conflicttree", new[] { "project" }, "not a parameter here — the provider tree is a PROJECT form: project={\"form\": \"tree\"}"),
         new("fields",       new[] { "project" }, "not a parameter here — field paths live inside the form: project={\"form\": \"fields\", \"fields\": [\"<path>\", …]}"),
         new("depth",        new[] { "project" }, "not a parameter here — depth lives inside the fields/everything forms: project={\"form\": \"fields\", \"fields\": […], \"depth\": <n>}"),
         new("groupby",      new[] { "project" }, "not a parameter here — aggregation is a PROJECT form: project={\"form\": \"aggregate\", \"group_by\": \"winner\"}"),

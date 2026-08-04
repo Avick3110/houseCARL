@@ -306,11 +306,11 @@ internal static class RecordsGuardProbe
                   "form-scoping: group_by outside the aggregate form refuses naming the rule");
             var tree = RecordsTools.Records(svc, formids: new[] { Fid(weapons[0]) },
                                             project: new RecordsTools.RecordsProject { form = "tree" });
-            Check(tree.StartsWith("error:") && tree.Contains("conflict_tree"),
-                  "staging: form='tree' refuses by NAME pointing at today's working spelling");
+            Check(!tree.StartsWith("error:") && tree.Contains("winner last") && tree.Contains(ovName),
+                  "form='tree' renders the provider stack (winner last) with per-node deltas");
             var prevProv = RecordsTools.Records(svc, formids: new[] { Fid(weapons[0]) }, source: Je("\"previous_provider\""));
-            Check(prevProv.StartsWith("error:") && prevProv.Contains("PR 2"),
-                  "staging: source='previous_provider' refuses by name");
+            Check(prevProv.StartsWith("error:") && prevProv.Contains("subject", StringComparison.OrdinalIgnoreCase),
+                  "source='previous_provider' refuses naming the subject-relative rule (it is a versus= value)");
             var mixed = RecordsTools.Records(svc, formids: new[] { Fid(weapons[0]) }, types: new[] { "WEAP" });
             Check(mixed.StartsWith("error:") && mixed.Contains("W2 PR 2"),
                   "staging: formids= x scan-terms composition refuses by name with the workaround");

@@ -37,7 +37,7 @@ public static class RecordsTools
     /// them (SPEC §2.2: form-scoped and structured — the flat spelling for an illegal pairing does not exist).</summary>
     public sealed class RecordsProject
     {
-        [Description("The form: 'identity' (FormID -> type/editorid/name/winner — the labeling form; needs formids=) | 'summary' (identity plus winner/override-depth header facts — the default) | 'fields' (named field values; takes fields= and depth=) | 'everything' (the full record body; takes depth=) | 'aggregate' (a counted table; takes group_by=). The comparison forms (delta | tree | chain | info_order) arrive with the W2 comparison wave and are refused by NAME until then.")]
+        [Description("The form: 'identity' (FormID -> type/editorid/name/winner — the labeling form; needs formids=) | 'summary' (identity plus winner/override-depth header facts — the default) | 'fields' (named field values; takes fields= and depth=) | 'everything' (the full record body; takes depth=) | 'aggregate' (a counted table; takes group_by=) | 'delta' (subject vs reference, differences only — source= is the subject, versus= the reference; takes fields= to narrow) | 'tree' (every provider of each record in priority order, winner last, each diffed against the reference pole — default the winner; takes fields=). The traversal forms (chain | info_order) are refused by NAME until they land.")]
         public string? form { get; set; }
 
         [Description("fields form only: dotted field paths to read, e.g. [\"BasicStats.Damage\", \"Keywords\", \"Effects\"]. Index a list/dict element with BRACKETS ('Effects[0].Data.Magnitude').")]
@@ -83,9 +83,16 @@ public static class RecordsTools
          "named plugin does not touch is refused naming the plugins that DO touch it — never silently absent. " +
          "An off-order file's content sits OUTSIDE the epoch fingerprint and the response says so. " +
          "('previous_provider' and the SkyPatcher overlay source arrive in W2 PR 2.)\n\n" +
-         "PROJECT is a single form (see project=): identity | summary (default) | fields | everything | aggregate. " +
-         "Sub-parameters live INSIDE the form that uses them (depth belongs to fields/everything, group_by to " +
-         "aggregate) — there is no flat spelling for an illegal pairing.\n\n" +
+         "PROJECT is a single form (see project=): identity | summary (default) | fields | everything | aggregate | " +
+         "delta | tree. Sub-parameters live INSIDE the form that uses them (depth belongs to fields/everything, " +
+         "group_by to aggregate, fields to fields/delta/tree) — there is no flat spelling for an illegal pairing. " +
+         "COMPARISONS (form='delta'/'tree'): a delta reads the SUBJECT (source=) and a REFERENCE (versus=) and " +
+         "returns only what differs — each delta line shows the subject's value with the reference's labeled by its " +
+         "plugin; versus=\"previous_provider\" answers 'what did this plugin change relative to what sat beneath " +
+         "it'. A tree lists EVERY plugin touching each record (load order, winner last) with each provider's " +
+         "only-the-fields-that-differ against the reference (default the winner) — the conflict-resolution view. " +
+         "Both compare by the content-keyed, truncation-honest engine (list reorders flagged; a truncated deep " +
+         "read is reported, never claimed 'identical').\n\n" +
          "TRANSPORT: format= 'text' | 'json' | 'dense' (scan lane: positional columnar cells 1:1 with the requested " +
          "fields — by that definition depth expansion and the everything form are inexpressible in it); limit=/" +
          "offset= page a scan in exact windows WITHIN one epoch (different epochs across pages ⇒ the order changed " +
@@ -112,8 +119,10 @@ public static class RecordsTools
             string? where_source = null,
         [Description("SELECT: find records that REFERENCE these FormIDs (reverse, one step; OR over the list, each match names which target(s) it hit). Requires a bounding types= or plugins= scope — see the cost declaration in the tool description. Accepts [\"@<path>\"] like formids=.")]
             string[]? references = null,
-        [Description("SOURCE: whose version to read. Omit or \"winner\" for the load-order winner; a plugin filename (e.g. \"OldPatch.esp\") for that plugin's version WHEREVER it lives — active or on disk out of the order (the response states which); {\"file\": \"X.esp\", \"mod\": \"<mod folder>\"} when two mods ship the same filename. \"previous_provider\" and the runtime overlay arrive in W2 PR 2.")]
+        [Description("SOURCE: whose version to read — the SUBJECT of the call. Omit or \"winner\" for the load-order winner; a plugin filename (e.g. \"OldPatch.esp\") for that plugin's version WHEREVER it lives — active or on disk out of the order (the response states which); {\"file\": \"X.esp\", \"mod\": \"<mod folder>\"} when two mods ship the same filename; {\"overlay\": \"skypatcher\", \"state\": \"pre\"|\"post\"} for the runtime view around the SkyPatcher INI layer (post = after it replays; INI content sits OUTSIDE the epoch fingerprint and the response says so). \"previous_provider\" is a versus= value only — it is measured FROM the subject this parameter names.")]
             JsonElement? source = null,
+        [Description("SOURCE (comparison forms): the REFERENCE pole a delta/tree compares against. Same forms as source= — \"winner\" | a plugin filename | {\"file\", \"mod\"} | {\"overlay\", \"state\"} — plus \"previous_provider\": the plugin immediately below the SUBJECT (whatever source= names) in the record's touching stack, measured FROM THE SUBJECT, never from the winner. Its four cases are all declared: subject=winner → next plugin down; subject mid-stack → still the one below the SUBJECT, with what sits above reported as plain fact (a mid-stack patch is ordinary practice, not judged); subject defines the record → refused naming it (never an empty diff that reads as 'no changes'); subject doesn't touch it → refused naming the actual touchers. REQUIRED when project.form='delta'; defaults to \"winner\" on 'tree'; refused on other forms.")]
+            JsonElement? versus = null,
         [Description("The pole field VALUES display from, when it differs from the matching pole: \"winner\" shows the live winner's values on a plugins=-scoped scan (the old winner_fields=true). Display only — where_source= governs matching.")]
             string? fields_source = null,
         [Description("PROJECT: the shape of the answer — a single form plus its own sub-parameters. Omit for summary rows.")]
@@ -143,18 +152,18 @@ public static class RecordsTools
         var form = project?.form?.Trim().ToLowerInvariant() ?? "summary";
         switch (form)
         {
-            case "identity" or "summary" or "fields" or "everything" or "aggregate": break;
-            case "delta" or "tree" or "chain" or "info_order":
-                return $"error: project.form='{form}' is a W2 PR 2 form (comparison/traversal) and is not on this surface yet — " +
-                       "meanwhile: delta = housecarl_diff_record; tree = housecarl_read_record conflict_tree=true; chain = " +
-                       "housecarl_effect_chain / references=; info_order = housecarl_validate_dialogue.";
+            case "identity" or "summary" or "fields" or "everything" or "aggregate" or "delta" or "tree": break;
+            case "chain" or "info_order":
+                return $"error: project.form='{form}' is a W2 PR 2 form (traversal) and is not on this surface yet — " +
+                       "meanwhile: chain = housecarl_effect_chain / references=; info_order = housecarl_validate_dialogue.";
             default:
-                return $"error: project.form='{project?.form}' is not a form — use identity | summary | fields | everything | aggregate.";
+                return $"error: project.form='{project?.form}' is not a form — use identity | summary | fields | everything | aggregate | delta | tree.";
         }
+        bool comparisonForm = form is "delta" or "tree";
         // Sub-parameters exist only inside their forms (SPEC §2.2) — a stray one is refused by name, so the caller
         // learns the form-scoping rule instead of getting a silently-ignored knob.
-        if (project?.fields is { Length: > 0 } && form != "fields")
-            return $"error: project.fields belongs to the 'fields' form only (got form='{form}'). Set project.form='fields', or drop fields.";
+        if (project?.fields is { Length: > 0 } && form != "fields" && !comparisonForm)
+            return $"error: project.fields belongs to the 'fields'/'delta'/'tree' forms (got form='{form}'). Set project.form, or drop fields.";
         if (form == "fields" && project?.fields is not { Length: > 0 })
             return "error: the 'fields' form names its field paths — pass project.fields=[\"<path>\", …] (or use form='everything' for the full body).";
         if (project?.depth is { } dv)
@@ -163,7 +172,9 @@ public static class RecordsTools
             // forms while `depth: 2` refused — the rule must not depend on the value), and 0/negative is refused
             // rather than silently becoming 1.
             if (form is not ("fields" or "everything"))
-                return $"error: project.depth expands field contents and belongs to the 'fields'/'everything' forms (got form='{form}').";
+                return comparisonForm
+                    ? $"error: project.depth belongs to the 'fields'/'everything' forms — the '{form}' comparison always deep-reads BOTH sides at the diff engine's fixed depth so line sets correspond (narrow with project.fields instead)."
+                    : $"error: project.depth expands field contents and belongs to the 'fields'/'everything' forms (got form='{form}').";
             if (dv < 1)
                 return $"error: project.depth={dv} — depth must be >= 1 (1 shows a container as a collapsed summary; higher opens it).";
         }
@@ -182,37 +193,37 @@ public static class RecordsTools
         if (project is { resolve_names: true } && form is not ("fields" or "everything"))
             return $"error: project.resolve_names annotates field values and belongs to the 'fields'/'everything' forms (got form='{form}').";
         int depth = project?.depth is { } d && d > 0 ? d : 1;
-        var projFields = form == "fields" ? project!.fields : null;
+        var projFields = form is "fields" or "delta" or "tree" ? project?.fields : null;
         bool resolveNames = project?.resolve_names ?? false;
 
-        // ---- SOURCE: the one-pole spelling --------------------------------------------------------------
-        string? srcName = null; string? srcMod = null;
-        if (source is { } se && se.ValueKind is not JsonValueKind.Null and not JsonValueKind.Undefined)
+        // ---- SOURCE: the §4.2 pole grammar (source = the SUBJECT; versus = the comparison REFERENCE) ----
+        if (ParsePole(source, "source", subjectRole: true, out var srcSpec) is { } sperr) return sperr;
+        srcSpec ??= LoadOrderService.PoleSpec.Winner;
+        if (ParsePole(versus, "versus", subjectRole: false, out var versusSpec) is { } vperr) return vperr;
+
+        // versus= belongs to the comparison forms; the delta form REQUIRES it (§4.1 — a delta has two poles).
+        if (versusSpec is not null && !comparisonForm)
+            return $"error: versus= is the comparison REFERENCE pole and belongs to the 'delta'/'tree' forms (got form='{form}') — set project.form='delta' (subject vs reference) or 'tree' (every provider vs reference), or drop versus=.";
+        if (form == "delta" && versusSpec is null)
+            return "error: the 'delta' form compares the subject (source=, default the winner) against a REFERENCE — pass versus= (\"winner\" | a plugin filename | \"previous_provider\" | {\"overlay\": …}).";
+        if (form == "tree")
         {
-            if (se.ValueKind == JsonValueKind.String)
-            {
-                var s = se.GetString()!.Trim();
-                if (s.Equals("previous_provider", StringComparison.OrdinalIgnoreCase))
-                    return "error: source='previous_provider' is a W2 PR 2 pole (it pairs with the delta/tree comparison forms) — " +
-                           "meanwhile housecarl_read_record conflict_tree=true shows the full provider stack.";
-                if (s.Length > 0 && !s.Equals("winner", StringComparison.OrdinalIgnoreCase)) srcName = s;
-            }
-            else if (se.ValueKind == JsonValueKind.Object)
-            {
-                if (se.TryGetProperty("overlay", out _))
-                    return "error: the runtime-overlay source (SkyPatcher post-state) is a W2 PR 2 pole — meanwhile use housecarl_skypatcher_read.";
-                if (!se.TryGetProperty("file", out var fEl) || fEl.ValueKind != JsonValueKind.String)
-                    return "error: a structured source= names the plugin as {\"file\": \"X.esp\"[, \"mod\": \"<mod folder>\"]} — 'file' is required.";
-                srcName = fEl.GetString()!.Trim();
-                if (se.TryGetProperty("mod", out var mEl) && mEl.ValueKind == JsonValueKind.String) srcMod = mEl.GetString()!.Trim();
-            }
-            else return "error: source= is a string (\"winner\" | a plugin filename) or {\"file\": …, \"mod\": …}.";
+            versusSpec ??= LoadOrderService.PoleSpec.Winner;
+            if (versusSpec.Kind == LoadOrderService.PoleKind.PreviousProvider)
+                return "error: versus='previous_provider' is subject-relative and pairs with the 'delta' form (one subject, one reference below it) — a tree diffs EVERY provider against ONE reference pole. Use form='delta', or a named/winner versus= on the tree.";
         }
+        // The existing single-pole lanes below drive off the named-pole fields; the richer specs dispatch to the
+        // comparison/overlay lanes before reaching them.
+        string? srcName = srcSpec.Kind == LoadOrderService.PoleKind.Named ? srcSpec.Plugin : null;
+        string? srcMod = srcSpec.Kind == LoadOrderService.PoleKind.Named ? srcSpec.Mod : null;
+        bool srcOverlay = srcSpec.Kind == LoadOrderService.PoleKind.Overlay;
 
         // ---- fields_source (display pole) ---------------------------------------------------------------
         bool winnerFields = false;
         if (!string.IsNullOrWhiteSpace(fields_source))
         {
+            if (comparisonForm)
+                return $"error: fields_source= retargets what a matched row DISPLAYS, and the '{form}' form's display IS its two poles (source=/versus=) — name the version you want as a pole instead.";
             var fs = fields_source.Trim().ToLowerInvariant();
             if (fs == "winner") winnerFields = true;
             else if (fs is not ("scoped" or "scanned"))
@@ -236,6 +247,8 @@ public static class RecordsTools
             return "error: format='dense' renders positional columnar cells 1:1 with requested field paths, and the 'everything' form has no fixed column set — use format='text' or 'json', or name the paths via form='fields'.";
         if (dense && form == "aggregate")
             return "error: format='dense' is the per-row columnar transport, and the 'aggregate' form is a count table — its json render IS the compact form; use format='json'.";
+        if (dense && comparisonForm)
+            return $"error: format='dense' renders positional columnar cells 1:1 with requested field paths, and the '{form}' form's rows are variable-length delta lists with no fixed column set — use format='text' or 'json'.";
         // fields_source= is the SCAN lane's display pole in this wave (it retargets what a matched row DISPLAYS);
         // the list lane's read is its display, so the request would be silently meaningless there — refuse by
         // name (re-review: it was accepted and dropped). The generalized poles land with W2 PR 2's comparison forms.
@@ -307,10 +320,13 @@ public static class RecordsTools
                 return e;
             }
 
+            // ---- delta / tree: the §4.1 comparison forms ride their own engine batches. ------------------
+            if (form is "delta" or "tree") return ListCompare(ids, demand, echoSrc);
+
             // ---- identity form: the labeling lane (absorbs housecarl_resolve). Winner frame by contract. --
             if (form == "identity")
             {
-                if (srcName is not null)
+                if (srcName is not null || srcOverlay)
                     return "error: the identity form is the load-order labeling frame (type/editorid/name/WINNER per FormID) — " +
                            "it does not take a source= pole. Use form='summary' or 'fields' for a named version's view.";
                 var rows = svc.ResolveRefs(ids, demand, out var epoch, out var refusal);
@@ -357,13 +373,27 @@ public static class RecordsTools
             };
             IReadOnlyList<ReadOutcome> outcomes;
             LoadOrderService.PoleInfo? pole = null;
-            if (srcName is null)
+            if (srcOverlay && !string.Equals(srcSpec.OverlayState ?? "post", "pre", StringComparison.OrdinalIgnoreCase))
             {
+                // The overlay POST source: every record's winner replayed through the SkyPatcher INI layer, the
+                // replayed body read at the caller's own depth (absorbs skypatcher_read's post-state view).
+                outcomes = svc.OverlayPostBatch(ids, readFields, depth, demand, out var ovRefusal, out var ovEpoch, out _);
+                if (ovRefusal is not null)
+                    return json ? JsonWire.RenderError(ovRefusal, ovEpoch)
+                                : "error: " + ovRefusal + (ovEpoch is not null ? $"\nepoch={ovEpoch}" : "");
+                Arm("skypatcher overlay (post) — the winner after the SkyPatcher INI layer replays");
+                envelope.Add(new("epoch_covers_source", "false"));
+                headerLine += "\n(the SkyPatcher INI layer's files are OUTSIDE the epoch fingerprint — an INI edit changes answers " +
+                              "without changing the epoch; a record whose type SkyPatcher cannot patch reads as its plain winner)";
+            }
+            else if (srcName is null)
+            {
+                if (srcOverlay) Arm("skypatcher overlay (pre) = winner — the body the INI layer starts from");
                 outcomes = svc.ResolveBatch(ids, readFields, false, depth, resolveNames, null, demand, out var refusal, out var refusalEpoch);
                 if (refusal is not null)
                     return json ? JsonWire.RenderError(refusal, refusalEpoch)
                                 : "error: " + refusal + (refusalEpoch is not null ? $"\nepoch={refusalEpoch}" : "");
-                Arm("winner");
+                if (!srcOverlay) Arm("winner");
             }
             else
             {
@@ -416,6 +446,125 @@ public static class RecordsTools
         }
 
         // ================================================================================================
+        //  COMPARISON forms on the list lane — delta (subject vs reference) and tree (every provider vs
+        //  reference), riding the §4.1 engine batches (one captured build per call).
+        // ================================================================================================
+        string ListCompare(string[] ids, HousecarlCore.ArtifactDemand? demand, string? echoSrc)
+        {
+            List<KeyValuePair<string, string>> Echo()
+            {
+                var e = new List<KeyValuePair<string, string>>
+                {
+                    new("formids", echoSrc ?? $"{ids.Length} inline formid(s)"),
+                    new("form", form),
+                    new("source", srcSpec.Label),
+                };
+                if (versusSpec is not null) e.Add(new("versus", versusSpec.Label));
+                if (projFields is { Length: > 0 }) e.Add(new("fields", string.Join(", ", projFields)));
+                return e;
+            }
+
+            if (form == "delta")
+            {
+                var rows = svc.DeltaBatch(ids, srcSpec, versusSpec!, projFields, demand,
+                                          out var sArm, out var rArm, out var covers, out var refusal, out var epoch);
+                if (refusal is not null)
+                    return json ? JsonWire.RenderError(refusal, epoch) : "error: " + refusal + (epoch is not null ? $"\nepoch={epoch}" : "");
+                return DeltaResponse(rows, sArm, rArm, covers, epoch, Echo());
+            }
+            else   // tree
+            {
+                var rows = svc.TreeBatch(ids, versusSpec!, projFields, demand,
+                                         out var rArm, out var covers, out var refusal, out var epoch);
+                if (refusal is not null)
+                    return json ? JsonWire.RenderError(refusal, epoch) : "error: " + refusal + (epoch is not null ? $"\nepoch={epoch}" : "");
+                return TreeResponse(rows, rArm, covers, epoch, Echo());
+            }
+        }
+
+        // The shared delta response pipeline (envelope, counts_only, window, to_file/ceiling spill, both
+        // renders) — one path for the list AND scan lanes, so their behavior cannot drift.
+        string DeltaResponse(IReadOnlyList<LoadOrderService.DeltaRow> rows, string? sArm, string? rArm, bool covers,
+                             string? epoch, List<KeyValuePair<string, string>> echo)
+        {
+            Arm(sArm ?? srcSpec.Label);
+            envelope.Add(new("versus", rArm ?? versusSpec!.Label));
+            headerLine += $"  versus={rArm ?? versusSpec!.Label}";
+            CoverageNote(covers);
+            int differing = rows.Count(x => x.Error is null && x.Diff!.Deltas.Count > 0);
+            int identical = rows.Count(x => x.Error is null && x.Diff!.Deltas.Count == 0 && x.Diff.Complete);
+            int errs = rows.Count(x => x.Error is not null);
+            if (counts_only)
+                return json
+                    ? JsonWire.RenderNamedCounts(envelope, new[] { KvI("count", rows.Count), KvI("differing", differing), KvI("identical", identical), KvI("errors", errs) }, epoch)
+                    : $"{headerLine}\ncount={rows.Count} differing={differing} identical={identical} errors={errs}" + (epoch is not null ? $"\nepoch={epoch}" : "");
+            var winRows = Windowed(rows);
+            SpillState? spill = null;
+            if (wantFile)
+            {
+                var (s, aerr) = Artifacts.WriteDelta(rows, epoch, toFile!, "to_file", echo);
+                if (aerr is not null) return json ? JsonWire.RenderError(aerr, epoch) : "error: " + aerr;
+                spill = SpillState.Spilled(s!, manifestOnly: true);
+            }
+            string Render(SpillState? sp, out bool trunc) => json
+                ? JsonWire.RenderDelta(winRows, max_chars, epoch, envelope, sp, out trunc)
+                : RenderRecordsDelta(winRows, rows.Count, differing, identical, errs, headerLine, epoch, max_chars, sp, out trunc);
+            var rendered = Render(spill, out var truncated);
+            if (spill is null && truncated)
+            {
+                var path = ResultsStore.NextPath("housecarl_records", epoch ?? "none");
+                var (s, aerr) = Artifacts.WriteDelta(rows, epoch, path, "ceiling", echo);
+                if (aerr is not null) ResultsStore.Release(path);
+                rendered = Render(aerr is null ? SpillState.Spilled(s!, manifestOnly: false) : SpillState.WriteFailed(aerr), out _);
+            }
+            return rendered;
+        }
+
+        // The shared tree response pipeline — the tree form has no subject (every provider is on the bench);
+        // the envelope's source slot carries the reference statement instead.
+        string TreeResponse(IReadOnlyList<LoadOrderService.TreeRow> rows, string? rArm, bool covers,
+                            string? epoch, List<KeyValuePair<string, string>> echo)
+        {
+            Arm(versusSpec!.Kind == LoadOrderService.PoleKind.Winner ? "winner (every provider diffed against it)" : $"reference: {rArm}");
+            CoverageNote(covers);
+            int contested = rows.Count(x => x.Error is null && x.Touchers.Count > 1);
+            int errs = rows.Count(x => x.Error is not null);
+            if (counts_only)
+                return json
+                    ? JsonWire.RenderNamedCounts(envelope, new[] { KvI("count", rows.Count), KvI("contested", contested), KvI("errors", errs) }, epoch)
+                    : $"{headerLine}\ncount={rows.Count} contested={contested} errors={errs}" + (epoch is not null ? $"\nepoch={epoch}" : "");
+            var winRows = Windowed(rows);
+            SpillState? spill = null;
+            if (wantFile)
+            {
+                var (s, aerr) = Artifacts.WriteTree(rows, epoch, toFile!, "to_file", echo);
+                if (aerr is not null) return json ? JsonWire.RenderError(aerr, epoch) : "error: " + aerr;
+                spill = SpillState.Spilled(s!, manifestOnly: true);
+            }
+            string Render(SpillState? sp, out bool trunc) => json
+                ? JsonWire.RenderTree(winRows, max_chars, epoch, envelope, sp, out trunc)
+                : RenderRecordsTree(winRows, rows.Count, contested, errs, projFields is { Length: > 0 }, headerLine, epoch, max_chars, sp, out trunc);
+            var rendered = Render(spill, out var truncated);
+            if (spill is null && truncated)
+            {
+                var path = ResultsStore.NextPath("housecarl_records", epoch ?? "none");
+                var (s, aerr) = Artifacts.WriteTree(rows, epoch, path, "ceiling", echo);
+                if (aerr is not null) ResultsStore.Release(path);
+                rendered = Render(aerr is null ? SpillState.Spilled(s!, manifestOnly: false) : SpillState.WriteFailed(aerr), out _);
+            }
+            return rendered;
+        }
+
+        // A pole that reads content outside the epoch fingerprint (an off-order file; the overlay's INIs) is
+        // DECLARED, envelope + header alike (the PR #305 coverage rule) — one helper so no form forgets.
+        void CoverageNote(bool covers)
+        {
+            if (covers) return;
+            envelope.Add(new("epoch_covers_source", "false"));
+            headerLine += "\n(a pole reads content OUTSIDE the epoch fingerprint — an off-order file or the INI layer; an edit there changes answers without changing the epoch)";
+        }
+
+        // ================================================================================================
         //  SCAN lane — types/plugins/where/references/conflicts_only drive; SOURCE picks the universe.
         // ================================================================================================
         string ScanLane()
@@ -423,6 +572,9 @@ public static class RecordsTools
             if (form == "identity")
                 return "error: the identity form labels a formids= list; a scan's summary rows already carry each match's identity — use form='summary' (the default).";
 
+            if (srcOverlay && !comparisonForm)
+                return "error: the overlay source on a SCAN would replay the SkyPatcher INI layer over every match — a per-record replay at scan scale. " +
+                       "Name the records (formids= reads their post-state bodies), use form='delta'/'tree' for a bounded comparison, or read the whole layer via housecarl_skypatcher_layer.";
             bool hasBodyFilter = where is { Length: > 0 } || references is { Length: > 0 };
             bool hasTypes = types is { Length: > 0 };
             bool hasScope = plugins?.names is { Length: > 0 };
@@ -481,7 +633,9 @@ public static class RecordsTools
             var scanPlugins = srcName is not null ? new[] { srcName } : plugins?.names;
             bool definedIn = plugins?.defined_in ?? false;
             var groupBy = form == "aggregate" ? project!.group_by!.Trim().ToLowerInvariant() : null;
-            int effLimit = wantFile ? int.MaxValue : counts_only ? 0 : (limit <= 0 ? 500 : limit);
+            // Comparison forms compare EVERY match (the window applies to the comparison rows, and the counts /
+            // artifact must cover the full selection) — the scan itself is uncapped for them.
+            int effLimit = wantFile || comparisonForm ? int.MaxValue : counts_only ? 0 : (limit <= 0 ? 500 : limit);
 
             var outcome = svc.CrossQuery(types, refFks, null, conflicts_only, scanPlugins, where,
                                          effLimit, definedIn, groupBy, offset, where_source,
@@ -512,8 +666,47 @@ public static class RecordsTools
                 Add("fields", projFields is { Length: > 0 } ? string.Join(", ", projFields) : null);
                 if (depth > 1) Add("depth", depth.ToString());
                 if (winnerFields) Add("fields_source", "winner");
-                Add("source", srcName);
+                Add("source", srcName ?? (srcSpec.Kind != LoadOrderService.PoleKind.Winner ? srcSpec.Label : null));
+                if (versusSpec is not null) Add("versus", versusSpec.Label);
                 return e;
+            }
+
+            // ---- delta / tree on a scan: the scan SELECTS the records, the §4.1 engine batches compare
+            //      them. Two captures meet here, so the seam is epoch-compared — the halves can never
+            //      silently mix builds (the form=everything discipline).
+            if (comparisonForm && outcome.Error is null && outcome.Groups is null)
+            {
+                var cmpKeys = outcome.Keys.Select(k => k.ToString()).ToList();
+                envelope.Add(new("total", outcome.Total.ToString()));
+                headerLine += $"\n{outcome.Total} match(es) selected by the scan";
+                if (form == "delta")
+                {
+                    var rows = svc.DeltaBatch(cmpKeys, srcSpec, versusSpec!, projFields, null,
+                                              out var sArm, out var rArm, out var covers, out var refusal, out var depoch);
+                    if (refusal is not null)
+                        return json ? JsonWire.RenderError(refusal, depoch) : "error: " + refusal + (depoch is not null ? $"\nepoch={depoch}" : "");
+                    if (outcome.Epoch is not null && depoch is not null && depoch != outcome.Epoch)
+                    {
+                        var tear = $"the load order changed between the scan (epoch={outcome.Epoch}) and the comparison " +
+                                   $"(epoch={depoch}) — the two halves would mix builds. Retry the call.";
+                        return json ? JsonWire.RenderError(tear, depoch) : "error: " + tear;
+                    }
+                    return DeltaResponse(rows, sArm, rArm, covers, depoch, Echo());
+                }
+                else
+                {
+                    var rows = svc.TreeBatch(cmpKeys, versusSpec!, projFields, null,
+                                             out var rArm, out var covers, out var refusal, out var tepoch);
+                    if (refusal is not null)
+                        return json ? JsonWire.RenderError(refusal, tepoch) : "error: " + refusal + (tepoch is not null ? $"\nepoch={tepoch}" : "");
+                    if (outcome.Epoch is not null && tepoch is not null && tepoch != outcome.Epoch)
+                    {
+                        var tear = $"the load order changed between the scan (epoch={outcome.Epoch}) and the comparison " +
+                                   $"(epoch={tepoch}) — the two halves would mix builds. Retry the call.";
+                        return json ? JsonWire.RenderError(tear, tepoch) : "error: " + tear;
+                    }
+                    return TreeResponse(rows, rArm, covers, tepoch, Echo());
+                }
             }
 
             // ---- form=everything on a scan: selection here, bodies via the batch lane (window-bounded).
@@ -636,6 +829,8 @@ public static class RecordsTools
             envelope.Add(new("epoch_covers_source", "false"));
             if (conflicts_only)
                 return "error: conflicts_only= has no meaning on an out-of-load-order file — it is not in the conflict frame. Drop it, or read the winner (source=\"winner\").";
+            if (comparisonForm)
+                return "error: the 'delta'/'tree' forms over an out-of-load-order file SCAN are not composed yet — enumerate the file with form='summary', then compare the specific records via formids= (the comparison poles read the off-order file under the one-pole rule).";
             if (references is { Length: > 0 } || plugins?.names is { Length: > 0 } || (plugins?.defined_in ?? false))
                 return "error: references=/plugins= over an out-of-load-order file land in W2 PR 2 — this wave reads the file by types= (and an 'editorid contains' where-clause).";
             if (form is "fields" or "everything")
@@ -683,6 +878,190 @@ public static class RecordsTools
         if (t.Length == 0) return false;
         text = t;
         return true;
+    }
+
+    static KeyValuePair<string, int> KvI(string k, int v) => new(k, v);
+
+    /// <summary>Parse a §4.2 pole expression from its wire spelling. Null element ⇒ null spec (the caller applies
+    /// its default). Returns the named refusal, or null on success. <paramref name="subjectRole"/> marks source=
+    /// (the SUBJECT): previous_provider is measured FROM the subject and so cannot BE it (§4.3).</summary>
+    static string? ParsePole(JsonElement? el, string param, bool subjectRole, out LoadOrderService.PoleSpec? spec)
+    {
+        spec = null;
+        if (el is not { } e || e.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined) return null;
+        if (e.ValueKind == JsonValueKind.String)
+        {
+            var s = e.GetString()!.Trim();
+            if (s.Length == 0 || s.Equals("winner", StringComparison.OrdinalIgnoreCase))
+            { spec = LoadOrderService.PoleSpec.Winner; return null; }
+            if (s.Equals("previous_provider", StringComparison.OrdinalIgnoreCase))
+            {
+                if (subjectRole)
+                    return "error: source= is the SUBJECT of the call, and 'previous_provider' is measured FROM the subject " +
+                           "(it is the plugin immediately below whatever source= names, §4.3) — so it cannot BE the subject. " +
+                           "Name the subject via source= and pass versus=\"previous_provider\".";
+                spec = new LoadOrderService.PoleSpec(LoadOrderService.PoleKind.PreviousProvider);
+                return null;
+            }
+            spec = new LoadOrderService.PoleSpec(LoadOrderService.PoleKind.Named, s);
+            return null;
+        }
+        if (e.ValueKind == JsonValueKind.Object)
+        {
+            if (e.TryGetProperty("overlay", out var ov))
+            {
+                var kind = ov.ValueKind == JsonValueKind.String ? ov.GetString()!.Trim() : null;
+                if (!string.Equals(kind, "skypatcher", StringComparison.OrdinalIgnoreCase))
+                    return $"error: {param}= names overlay '{kind ?? "<non-string>"}', and the one runtime overlay on this surface is " +
+                           "{\"overlay\": \"skypatcher\", \"state\": \"pre\"|\"post\"} (post = after the INI layer replays; the default).";
+                string? st = e.TryGetProperty("state", out var stEl) && stEl.ValueKind == JsonValueKind.String ? stEl.GetString()!.Trim() : "post";
+                if (!st!.Equals("pre", StringComparison.OrdinalIgnoreCase) && !st.Equals("post", StringComparison.OrdinalIgnoreCase))
+                    return $"error: {param}= overlay state '{st}' — use \"pre\" (the winner before the INI layer) or \"post\" (after it; the default).";
+                spec = new LoadOrderService.PoleSpec(LoadOrderService.PoleKind.Overlay, OverlayState: st.ToLowerInvariant());
+                return null;
+            }
+            if (!e.TryGetProperty("file", out var fEl) || fEl.ValueKind != JsonValueKind.String)
+                return $"error: a structured {param}= names the plugin as {{\"file\": \"X.esp\"[, \"mod\": \"<mod folder>\"]}} or the runtime view as {{\"overlay\": \"skypatcher\", \"state\": \"pre\"|\"post\"}}.";
+            string? mod = e.TryGetProperty("mod", out var mEl) && mEl.ValueKind == JsonValueKind.String ? mEl.GetString()!.Trim() : null;
+            spec = new LoadOrderService.PoleSpec(LoadOrderService.PoleKind.Named, fEl.GetString()!.Trim(), mod);
+            return null;
+        }
+        return $"error: {param}= is a string (\"winner\" | a plugin filename{(subjectRole ? "" : " | \"previous_provider\"")}) or an object ({{\"file\", \"mod\"}} | {{\"overlay\", \"state\"}}).";
+    }
+
+    /// <summary>The delta form's text render: header counts, then per record the two pole lines, the §4.3
+    /// stack-above FACT (neutral — never advice), and diff_record's own delta-line grammar with its truncation
+    /// honesty (a truncated deep read is never rendered as 'identical').</summary>
+    static string RenderRecordsDelta(IReadOnlyList<LoadOrderService.DeltaRow> rows, int total, int differing, int identical, int errors,
+                                     string headerLine, string? epoch, int maxChars, SpillState? spill, out bool truncated)
+    {
+        truncated = false;
+        int cap = maxChars > 0 ? maxChars : Wire.DefaultMaxChars;
+        bool manifestOnly = spill?.ManifestOnly ?? false;
+        var sb = new StringBuilder();
+        sb.Append(headerLine).Append('\n');
+        sb.Append(total).Append(" record(s): ").Append(differing).Append(" differing, ").Append(identical)
+          .Append(" identical, ").Append(errors).Append(" error(s)");
+        if (epoch is not null) sb.Append("  epoch=").Append(epoch);
+        sb.Append('\n');
+        int rendered = 0;
+        foreach (var row in rows)
+        {
+            if (manifestOnly) break;
+            if (sb.Length >= cap)
+            {
+                truncated = true;
+                sb.Append("... [rendered ").Append(rendered).Append(" of ").Append(rows.Count)
+                  .Append(" rows at max_chars=").Append(cap).Append("]\n");
+                break;
+            }
+            sb.Append('\n').Append(row.Formid);
+            if (row.Error is not null)
+            {
+                sb.Append("  error=").Append(row.Error).Append('\n');
+                if (row.StackAbove is { Count: > 0 })
+                    sb.Append("  stack above the subject (closer to winning, winner last): ").Append(string.Join(", ", row.StackAbove)).Append('\n');
+                rendered++;
+                continue;
+            }
+            var s = row.Subject!; var r = row.Reference!; var d = row.Diff!;
+            sb.Append("  ").Append(s.RecordType ?? "?").Append("  ").Append(s.EditorId ?? "<no editorid>").Append('\n');
+            sb.Append("  subject:   ").Append(s.Plugin).Append(" [").Append(s.Where).Append("]\n");
+            sb.Append("  reference: ").Append(r.Plugin).Append(" [").Append(r.Where).Append("]\n");
+            if (row.StackAbove is { Count: > 0 })
+                sb.Append("  stack above the subject (closer to winning, winner last): ").Append(string.Join(", ", row.StackAbove)).Append('\n');
+            if (row.Note is not null) sb.Append("  note: ").Append(row.Note).Append('\n');
+            if (d.Deltas.Count == 0)
+            {
+                if (!d.Complete)
+                    sb.Append("  no differing fields in what was read, but the deep read was TRUNCATED at the cap — NOT a clean 'identical' (Q3). Narrow with project.fields to compare in full.\n");
+                else if (d.AgreedCount > 0)
+                    sb.Append("  identical across the fields read (").Append(d.AgreedCount).Append(" value leaf/leaves agree).\n");
+                else
+                    sb.Append("  identical across the fields read (no differing fields).\n");
+            }
+            else
+            {
+                sb.Append("  ").Append(d.Deltas.Count).Append(d.Deltas.Count == 1 ? " difference" : " differences")
+                  .Append(" — each line: ").Append(s.Plugin).Append("'s value (reference = ").Append(r.Plugin).Append("):\n");
+                foreach (var delta in d.Deltas)
+                {
+                    if (sb.Length >= cap)
+                    {
+                        truncated = true;
+                        sb.Append("    ... [delta lines cut at max_chars=").Append(cap).Append(" — raise max_chars or narrow with project.fields]\n");
+                        break;
+                    }
+                    sb.Append("    - ").Append(delta).Append('\n');
+                }
+                if (!d.Complete)
+                    sb.Append("  note: the deep read was TRUNCATED — list-content and one-sided-presence deltas are SUPPRESSED; narrow with project.fields to compare those in full.\n");
+            }
+            rendered++;
+        }
+        if (spill is not null) Artifacts.AppendSpillStateText(sb, spill);
+        return sb.ToString().TrimEnd('\n');
+    }
+
+    /// <summary>The tree form's text render: per record the touching list (load order, winner LAST) and each
+    /// provider's delta against the reference — the conflict_tree view as a PROJECT form, same wording rules
+    /// (identical-vs-truncated honesty; list contents compared by content, reorders flagged).</summary>
+    static string RenderRecordsTree(IReadOnlyList<LoadOrderService.TreeRow> rows, int total, int contested, int errors,
+                                    bool fieldsNarrow, string headerLine, string? epoch, int maxChars,
+                                    SpillState? spill, out bool truncated)
+    {
+        truncated = false;
+        int cap = maxChars > 0 ? maxChars : Wire.DefaultMaxChars;
+        bool manifestOnly = spill?.ManifestOnly ?? false;
+        var sb = new StringBuilder();
+        sb.Append(headerLine).Append('\n');
+        sb.Append(total).Append(" record(s): ").Append(contested).Append(" contested, ").Append(errors).Append(" error(s)");
+        if (epoch is not null) sb.Append("  epoch=").Append(epoch);
+        sb.Append('\n');
+        int rendered = 0;
+        foreach (var row in rows)
+        {
+            if (manifestOnly) break;
+            if (sb.Length >= cap)
+            {
+                truncated = true;
+                sb.Append("... [rendered ").Append(rendered).Append(" of ").Append(rows.Count)
+                  .Append(" rows at max_chars=").Append(cap).Append("]\n");
+                break;
+            }
+            sb.Append('\n').Append(row.Formid);
+            if (row.Error is not null) { sb.Append("  error=").Append(row.Error).Append('\n'); rendered++; continue; }
+            sb.Append("  ").Append(row.Type ?? "?").Append("  ").Append(row.EditorId ?? "<no editorid>").Append('\n');
+            sb.Append("  ").Append(row.Touchers.Count).Append(" plugin(s) touch this record (load order, winner last):\n");
+            for (int i = 0; i < row.Touchers.Count; i++)
+                sb.Append("    ").Append(i + 1).Append(". ").Append(row.Touchers[i])
+                  .Append(i == row.Touchers.Count - 1 ? "  (winner)" : "").Append('\n');
+            if (row.Nodes.Count <= 1) { rendered++; continue; }   // a sole provider has nothing to diff against
+            sb.Append("  diff (field deltas vs ").Append(row.ReferencePlugin)
+              .Append("; identical fields omitted; list contents compared by content, element reorders flagged):\n");
+            foreach (var n in row.Nodes)
+            {
+                if (n.IsReference) continue;
+                if (sb.Length >= cap)
+                {
+                    truncated = true;
+                    sb.Append("    ... [nodes cut at max_chars=").Append(cap).Append(" — raise max_chars or narrow with project.fields]\n");
+                    break;
+                }
+                sb.Append("    ").Append(n.Plugin).Append(n.IsWinner ? " (winner)" : "").Append(": ");
+                if (n.Deltas.Count > 0)
+                    sb.Append(string.Join("; ", n.Deltas)).Append('\n');
+                else if (!n.Complete)
+                    sb.Append("no differing fields in what was read, but the deep read was TRUNCATED — not a clean 'identical'.\n");
+                else
+                    sb.Append(fieldsNarrow
+                        ? $"identical to {row.ReferencePlugin} across the fields read ({n.AgreedCount} leaf/leaves agree)\n"
+                        : $"identical to {row.ReferencePlugin} (whole record; {n.AgreedCount} leaf/leaves agree)\n");
+            }
+            rendered++;
+        }
+        if (spill is not null) Artifacts.AppendSpillStateText(sb, spill);
+        return sb.ToString().TrimEnd('\n');
     }
 
     /// <summary>The list-lane summary render: one identity+winner line per outcome (or its per-item error) — the
