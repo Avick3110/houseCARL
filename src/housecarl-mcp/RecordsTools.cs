@@ -53,6 +53,39 @@ public static class RecordsTools
         public bool resolve_names { get; set; }
     }
 
+    /// <summary>The §3 traversal construct: follow record-to-record FORM LINKS and select what the walk reaches.
+    /// This traverses BETWEEN records; expanding nested fields WITHIN one record is project.depth (the declared
+    /// seam). Seeds are this call's own SELECT (formids=, or a scan's matches).</summary>
+    public sealed class RecordsWalk
+    {
+        [Description("Link-bearing field paths that start the walk from each seed, e.g. [\"HeadParts\", \"WornArmor\"]. Omit for every link on the seed.")]
+        public string[]? seed_paths { get; set; }
+
+        [Description("The link path followed at every LATER hop. \"*\" (default) walks every link — full closure. A named path restricts to one chain, e.g. \"Template\" for NPC template inheritance.")]
+        public string? follow { get; set; }
+
+        [Description("'forward' (default) — what the seeds point AT (cheap: each hop is one link resolve). 'reverse' — what points AT the seeds; depth 1 only (reverse is a bounded scan; transitive reverse is refused naming the reverse-reference index as the future capability). The general reverse spelling on this surface IS references= (same construct); walk.direction='reverse' serves the typed MGEF lane — magic-effect seeds get per-carrier magnitude/area/duration.")]
+        public string? direction { get; set; }
+
+        [Description("Maximum hops from a seed (default 16). Nodes AT the cap are recorded, not entered, and the response says the cap cut the walk — never a silent stop.")]
+        public int? depth { get; set; }
+
+        [Description("Maximum nodes reached per seed (default 2000, the read-expansion budget). A breach keeps what was proved and says so.")]
+        public int? max_nodes { get; set; }
+
+        [Description("Node classes the walk must not enter, as data: [{\"match\": \"Race\", \"severity\": \"stop\"|\"refuse\"}] — match is the record type name a read reports; stop prunes there (recorded as a boundary), refuse fails the whole call loud.")]
+        public RecordsWalkExclusion[]? exclusions { get; set; }
+    }
+
+    public sealed class RecordsWalkExclusion
+    {
+        [Description("The record type name to match (as reads report it, e.g. 'Race', 'Npc').")]
+        public string? match { get; set; }
+
+        [Description("'stop' (prune here, record the boundary) or 'refuse' (the whole walk fails loud).")]
+        public string? severity { get; set; }
+    }
+
     [McpServerTool(Name = "housecarl_records", ReadOnly = true, Title = "Read records (the 2.0 read surface)"),
      Description(
          "Read Bethesda records from the load order — ONE read surface: which records (SELECT) x whose version " +
@@ -132,6 +165,8 @@ public static class RecordsTools
             string? fields_source = null,
         [Description("PROJECT: the shape of the answer — a single form plus its own sub-parameters. Omit for summary rows.")]
             RecordsProject? project = null,
+        [Description("SELECT: the traversal construct — follow record-to-record links from this call's own SELECT (the seeds) and select what the walk reaches; project.form='chain' renders the paths/endpoints/cycles themselves (with, for NPC template chains, the per-category active-vs-masked inheritance report), while any other form reads the reached set like any selection. The walk expands on the WINNER's link graph; source= governs whose version the form then reads.")]
+            RecordsWalk? walk = null,
         [Description("TRANSPORT: 'text' (default) | 'json' (machine-readable document; same accounting in-band) | 'dense' (scan lane: columnar positional rows — the compact bulk-enumeration form).")]
             string? format = null,
         [Description("TRANSPORT: max rows to render (default 500). The TRUE total is always reported; page with offset=.")]
@@ -157,12 +192,9 @@ public static class RecordsTools
         var form = project?.form?.Trim().ToLowerInvariant() ?? "summary";
         switch (form)
         {
-            case "identity" or "summary" or "fields" or "everything" or "aggregate" or "delta" or "tree" or "info_order": break;
-            case "chain":
-                return "error: project.form='chain' is a W2 PR 2 form (traversal) and is not on this surface yet — " +
-                       "meanwhile: housecarl_effect_chain traces an MGEF's carriers; references= is the one-step reverse lookup.";
+            case "identity" or "summary" or "fields" or "everything" or "aggregate" or "delta" or "tree" or "info_order" or "chain": break;
             default:
-                return $"error: project.form='{project?.form}' is not a form — use identity | summary | fields | everything | aggregate | delta | tree.";
+                return $"error: project.form='{project?.form}' is not a form — use identity | summary | fields | everything | aggregate | delta | tree | chain | info_order.";
         }
         bool comparisonForm = form is "delta" or "tree";
         // Sub-parameters exist only inside their forms (SPEC §2.2) — a stray one is refused by name, so the caller
@@ -217,6 +249,54 @@ public static class RecordsTools
             if (versusSpec.Kind == LoadOrderService.PoleKind.PreviousProvider)
                 return "error: versus='previous_provider' is subject-relative and pairs with the 'delta' form (one subject, one reference below it) — a tree diffs EVERY provider against ONE reference pole. Use form='delta', or a named/winner versus= on the tree.";
         }
+        // ---- walk= (the §3 traversal construct) ---------------------------------------------------------
+        string walkDirection = "forward";
+        int walkDepth = 16, walkMaxNodes = 2000;
+        var walkExclusions = new List<(string Match, bool Refuse)>();
+        if (walk is not null)
+        {
+            var dir = walk.direction?.Trim().ToLowerInvariant();
+            if (dir is not (null or "" or "forward" or "reverse"))
+                return $"error: walk.direction='{walk.direction}' — use 'forward' (what the seeds point at) or 'reverse' (what points at them; depth 1).";
+            if (!string.IsNullOrEmpty(dir)) walkDirection = dir!;
+            if (walk.depth is { } wd)
+            {
+                if (wd < 1) return $"error: walk.depth={wd} — depth must be >= 1 (hops from the seed).";
+                walkDepth = wd;
+            }
+            if (walk.max_nodes is { } wn)
+            {
+                if (wn < 1) return $"error: walk.max_nodes={wn} — the node budget must be >= 1.";
+                walkMaxNodes = wn;
+            }
+            foreach (var x in walk.exclusions ?? Array.Empty<RecordsWalkExclusion>())
+            {
+                if (string.IsNullOrWhiteSpace(x.match))
+                    return "error: a walk.exclusions entry needs match= — the record type name a read reports (e.g. 'Race').";
+                var sev = x.severity?.Trim().ToLowerInvariant();
+                if (sev is not ("stop" or "refuse"))
+                    return $"error: walk.exclusions '{x.match}': severity='{x.severity}' — use 'stop' (prune, record the boundary) or 'refuse' (the whole walk fails loud).";
+                walkExclusions.Add((x.match!.Trim(), sev == "refuse"));
+            }
+            if (walkDirection == "reverse")
+            {
+                if (walk.depth is > 1)
+                    return "error: walk.direction='reverse' with depth>1 is a TRANSITIVE reverse lookup — no index exists for it today, so it is refused rather than run as an unbounded scan-of-scans (the reverse-reference index is the known future capability that lifts this). Depth-1 reverse: references= with a bounding types=/plugins=, or MGEF seeds under form='chain' for the typed carrier lane.";
+                if (walk.seed_paths is { Length: > 0 } || walk.exclusions is { Length: > 0 } || walk.follow is not null)
+                    return "error: walk.seed_paths/follow/exclusions shape a FORWARD expansion — a reverse walk scans TOWARD the seeds. Drop them.";
+                if (form != "chain")
+                    return "error: the reverse walk's general spelling on this surface IS references= (the same construct, depth 1, bounded by types=/plugins=) — walk.direction='reverse' serves form='chain' with MGEF seeds (per-carrier magnitude/area/duration).";
+            }
+            if (references is { Length: > 0 })
+                return "error: walk= and references= are the same construct (references= IS the reverse walk at depth 1) — use one spelling per call.";
+            if (comparisonForm || form is "info_order" or "identity")
+                return $"error: walk= derives a selection (the reached set), and the '{form}' form does not consume one — use form='chain' for the walk's own paths, or summary/fields/everything/aggregate over the reached set. To compare reached records, walk with to_file= and re-enter the artifact via formids=[\"@<file>\"] with form='{form}'.";
+            if (where is { Length: > 0 })
+                return "error: walk= composed with where= (filtering the reached set by predicate) — walk with to_file=, then re-enter the artifact on a bounded scan via where=[\"formid in @<file>\", …]; the reached set becomes the scan's identity list.";
+        }
+        if (form == "chain" && walk is null)
+            return "error: the 'chain' form renders a walk's paths — pass walk= (e.g. walk={\"follow\": \"Template\"} over NPC seeds; reverse MGEF carriers: walk={\"direction\": \"reverse\"} with MGEF formids=).";
+
         // The existing single-pole lanes below drive off the named-pole fields; the richer specs dispatch to the
         // comparison/overlay lanes before reaching them.
         string? srcName = srcSpec.Kind == LoadOrderService.PoleKind.Named ? srcSpec.Plugin : null;
@@ -241,10 +321,17 @@ public static class RecordsTools
                        || where is { Length: > 0 } || references is { Length: > 0 };
         if (!hasFormids && !hasScan)
             return "error: select something — formids= (a record list), or a scan scope: types=, plugins=, conflicts_only=true, where=, references=.";
-        if (hasFormids && hasScan)
+        // A reverse MGEF walk narrows its carrier set with types= — the one place formids (the seeds) and a scan
+        // term legitimately meet ahead of the general composition (the types entries bound the typed carrier scan).
+        bool reverseWalk = walk is not null && walkDirection == "reverse";
+        if (hasFormids && hasScan && !reverseWalk)
             return "error: formids= composes with the scan terms (types=/plugins=/where=/references=/conflicts_only=) in W2 PR 2 — " +
                    "not on this surface yet. Meanwhile: run the scan, spill/to_file the result, and re-enter it via where=[\"formid in @<file>\"]; " +
                    "or filter the formids list client-side.";
+        if (reverseWalk && (plugins?.names is { Length: > 0 } || conflicts_only || where is { Length: > 0 }))
+            return "error: the reverse MGEF walk takes formids= (the effects) and optionally types= (narrowing the carrier types) — the general bounded reverse over other scan terms is the references= spelling.";
+        if (reverseWalk && !hasFormids)
+            return "error: the reverse walk needs its seeds — pass formids= (the MGEF(s) whose carriers to trace).";
         // dense is DEFINED as positional columnar cells 1:1 with the requested field paths (the tool description's
         // own rule) — the forms with no fixed column set refuse by name rather than quietly switching transport
         // (re-review: everything fell back to text, aggregate to the json table, neither saying so).
@@ -284,6 +371,14 @@ public static class RecordsTools
         var envelope = new List<KeyValuePair<string, string>> { new("form", form) };
         string headerLine = $"records  form={form}";
         void Arm(string statement) { envelope.Add(new("source", statement)); headerLine += $"  source={statement}"; }
+        // When a walk (or a scan) derived the selection this call now reads, the two captures meet at a seam —
+        // every downstream form's epoch is compared against the deriving step's, and a divergence refuses loud
+        // (the mixed-builds rule every two-capture path on this surface follows).
+        string? expectEpoch = null;
+        string? SeamTear(string? epoch) =>
+            expectEpoch is not null && epoch is not null && epoch != expectEpoch
+                ? $"the load order changed between deriving the selection (epoch={expectEpoch}) and reading it (epoch={epoch}) — the two halves would mix builds. Retry the call."
+                : null;
 
         // limit=/offset= WINDOW the list lane's render (round-3 review: they were accepted-and-dropped there).
         // The census, the aggregate, and every artifact write still cover the COMPLETE list; the window note
@@ -328,6 +423,9 @@ public static class RecordsTools
                 if (depth > 1) e.Add(new("depth", depth.ToString()));
                 return e;
             }
+
+            // ---- walk=: the traversal construct derives the selection (or, form='chain', IS the render). --
+            if (walk is not null) return WalkLane(ids, demand, echoSrc);
 
             // ---- delta / tree: the §4.1 comparison forms ride their own engine batches. ------------------
             if (form is "delta" or "tree") return ListCompare(ids, demand, echoSrc);
@@ -433,6 +531,8 @@ public static class RecordsTools
                 }
             }
             var epoch2 = outcomes.FirstOrDefault(o => o.Epoch is not null)?.Epoch;
+            if (SeamTear(epoch2) is { } seamTear)
+                return json ? JsonWire.RenderError(seamTear, epoch2) : "error: " + seamTear;
 
             if (form == "aggregate")
                 return RenderListAggregate(outcomes, project!.group_by!, json, dense, epoch2, headerLine, envelope);
@@ -466,6 +566,123 @@ public static class RecordsTools
                 rendered2 = Render2(aerr is null ? SpillState.Spilled(s!, manifestOnly: false) : SpillState.WriteFailed(aerr), out _);
             }
             return rendered2;
+        }
+
+        // ================================================================================================
+        //  WALK lane — the §3 traversal construct: forward walks expand the winner link graph (chain form
+        //  renders the paths; any other form consumes the reached set as its selection); the reverse walk's
+        //  typed MGEF lane traces carriers with per-hit payload (the effect_chain absorption).
+        // ================================================================================================
+        string WalkLane(string[] ids, HousecarlCore.ArtifactDemand? demand, string? echoSrc)
+        {
+            List<KeyValuePair<string, string>> Echo()
+            {
+                var e = new List<KeyValuePair<string, string>>
+                {
+                    new("formids", echoSrc ?? $"{ids.Length} inline seed(s)"),
+                    new("form", form),
+                    new("walk", $"{walkDirection}{(walk!.follow is { } f ? $" follow={f}" : "")} depth={walkDepth}"),
+                };
+                if (walk.seed_paths is { Length: > 0 }) e.Add(new("seed_paths", string.Join(", ", walk.seed_paths)));
+                return e;
+            }
+
+            if (walkDirection == "reverse")
+            {
+                // The typed MGEF lane (the effect_chain absorption, §3.3): each seed MUST resolve to a
+                // MagicEffect — a non-MGEF seed fails LOUD per item, never a silent '0 carriers'.
+                var results = new List<(string Seed, EffectChainResult Result)>(ids.Length);
+                foreach (var raw in ids)
+                {
+                    FormKey fk;
+                    try { fk = FormKey.Factory(raw.Trim()); }
+                    catch (Exception ex) { results.Add((raw?.Trim() ?? "", EffectChainResult.Fail($"bad FormID '{raw}': {ex.Message}"))); continue; }
+                    results.Add((fk.ToString(), svc.ResolveEffectChain(fk, types, limit <= 0 ? 500 : limit)));
+                }
+                Arm("winner (carriers are the load-order-effective versions)");
+                envelope.Add(new("walk", "reverse, depth 1 — the typed MGEF carrier lane"));
+                headerLine += "\nwalk=reverse (per seed: every SPEL/ENCH/ALCH/SCRL/INGR applying it, with the MATCHING entry's magnitude/area/duration — reported AS AUTHORED; conditions are not evaluated, so a row means 'defines it at this strength', not 'it will fire')";
+                var epochR = results.Select(r => r.Result.Epoch).FirstOrDefault(e => e is not null);
+                if (counts_only)
+                    return json
+                        ? JsonWire.RenderNamedCounts(envelope, new[] { KvI("seeds", results.Count), KvI("carrier_rows", results.Sum(r => r.Result.Error is null ? r.Result.Total : 0)), KvI("errors", results.Count(r => r.Result.Error is not null)) }, epochR)
+                        : $"{headerLine}\nseeds={results.Count} carrier_rows={results.Sum(r => r.Result.Error is null ? r.Result.Total : 0)} errors={results.Count(r => r.Result.Error is not null)}" + (epochR is not null ? $"\nepoch={epochR}" : "");
+                if (json) return JsonWire.RenderEffectChains(results, max_chars, envelope);
+                var sbR = new StringBuilder();
+                sbR.Append(headerLine).Append('\n');
+                foreach (var (seed, result) in results)
+                {
+                    sbR.Append('\n').Append("seed ").Append(seed).Append('\n');
+                    sbR.Append(Wire.RenderEffectChain(result, max_chars));
+                    sbR.Append('\n');
+                    if (sbR.Length >= (max_chars > 0 ? max_chars : Wire.DefaultMaxChars))
+                    { sbR.Append("... [seeds cut at max_chars — raise max_chars or pass fewer seeds]\n"); break; }
+                }
+                return sbR.ToString().TrimEnd('\n');
+            }
+
+            // FORWARD: one engine batch, one captured build; the chain form renders it, every other form
+            // consumes the reached set (seeds ∪ reached — the render says so) through the normal lanes.
+            var rows = svc.WalkForwardBatch(ids, walk!.seed_paths, walk.follow, walkDepth, walkMaxNodes,
+                                            walkExclusions, demand, out var wRefusal, out var wEpoch);
+            if (wRefusal is not null)
+                return json ? JsonWire.RenderError(wRefusal, wEpoch) : "error: " + wRefusal + (wEpoch is not null ? $"\nepoch={wEpoch}" : "");
+            if (SeamTear(wEpoch) is { } wTear)
+                return json ? JsonWire.RenderError(wTear, wEpoch) : "error: " + wTear;
+
+            if (form == "chain")
+            {
+                Arm("winner (the walk expands the winner link graph)");
+                int reached = rows.Where(r => r.Error is null).Sum(r => r.Nodes.Count(n => !n.Status.StartsWith("no links")));
+                int errs = rows.Count(r => r.Error is not null);
+                envelope.Add(new("walk", $"forward{(walk.follow is { } f2 ? $" follow={f2}" : " (closure)")} depth={walkDepth}"));
+                if (counts_only)
+                    return json
+                        ? JsonWire.RenderNamedCounts(envelope, new[] { KvI("seeds", rows.Count), KvI("reached", reached), KvI("errors", errs) }, wEpoch)
+                        : $"{headerLine}\nseeds={rows.Count} reached={reached} errors={errs}" + (wEpoch is not null ? $"\nepoch={wEpoch}" : "");
+                var winRows = Windowed(rows);
+                SpillState? spill = null;
+                if (wantFile)
+                {
+                    var (s, aerr) = Artifacts.WriteChain(rows, wEpoch, toFile!, "to_file", Echo());
+                    if (aerr is not null) return json ? JsonWire.RenderError(aerr, wEpoch) : "error: " + aerr;
+                    spill = SpillState.Spilled(s!, manifestOnly: true);
+                }
+                string Render(SpillState? sp, out bool trunc) => json
+                    ? JsonWire.RenderChain(winRows, max_chars, wEpoch, envelope, sp, out trunc)
+                    : RenderRecordsChain(winRows, rows.Count, reached, errs, headerLine, wEpoch, max_chars, sp, out trunc);
+                var rendered = Render(spill, out var truncated);
+                if (spill is null && truncated)
+                {
+                    var path = ResultsStore.NextPath("housecarl_records", wEpoch ?? "none");
+                    var (s, aerr) = Artifacts.WriteChain(rows, wEpoch, path, "ceiling", Echo());
+                    if (aerr is not null) ResultsStore.Release(path);
+                    rendered = Render(aerr is null ? SpillState.Spilled(s!, manifestOnly: false) : SpillState.WriteFailed(aerr), out _);
+                }
+                return rendered;
+            }
+
+            // Selection consumption: seeds ∪ reached, in walk order, deduplicated — then the ordinary form
+            // pipelines read it (source= decides whose version), seam-checked against the walk's build.
+            var combined = new List<string>();
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var r in rows)
+            {
+                if (r.Error is not null) continue;
+                if (seen.Add(r.Seed)) combined.Add(r.Seed);
+                foreach (var n in r.Nodes)
+                    if (n.Type is not null && seen.Add(n.Key)) combined.Add(n.Key);
+            }
+            int seedErrs = rows.Count(r => r.Error is not null);
+            if (combined.Count == 0)
+                return json ? JsonWire.RenderError($"the walk reached nothing readable ({seedErrs} seed error(s) — run form='chain' to see each seed's outcome).", wEpoch)
+                            : $"error: the walk reached nothing readable ({seedErrs} seed error(s) — run form='chain' to see each seed's outcome)." + (wEpoch is not null ? $"\nepoch={wEpoch}" : "");
+            envelope.Add(new("walk", $"forward{(walk.follow is { } f3 ? $" follow={f3}" : " (closure)")} depth={walkDepth} — selection = the {combined.Count} record(s) the walk reached (seeds included{(seedErrs > 0 ? $"; {seedErrs} seed error(s), listed via form='chain'" : "")})"));
+            headerLine += $"\nwalk: selection = {combined.Count} reached record(s) (seeds included)";
+            expectEpoch = wEpoch;
+            formids = combined.ToArray();
+            walk = null;
+            return ListLane();
         }
 
         // ================================================================================================
@@ -690,9 +907,11 @@ public static class RecordsTools
             var scanPlugins = srcName is not null ? new[] { srcName } : plugins?.names;
             bool definedIn = plugins?.defined_in ?? false;
             var groupBy = form == "aggregate" ? project!.group_by!.Trim().ToLowerInvariant() : null;
-            // Comparison forms compare EVERY match (the window applies to the comparison rows, and the counts /
-            // artifact must cover the full selection) — the scan itself is uncapped for them.
-            int effLimit = wantFile || comparisonForm ? int.MaxValue : counts_only ? 0 : (limit <= 0 ? 500 : limit);
+            // The derived-selection forms (comparisons, info_order, a walk's seeds) consume EVERY match — the
+            // window applies to their rows, and the counts / artifact must cover the full selection — so the
+            // scan itself is uncapped for them.
+            bool derivedSelection = comparisonForm || form == "info_order" || walk is not null;
+            int effLimit = wantFile || derivedSelection ? int.MaxValue : counts_only ? 0 : (limit <= 0 ? 500 : limit);
 
             var outcome = svc.CrossQuery(types, refFks, null, conflicts_only, scanPlugins, where,
                                          effLimit, definedIn, groupBy, offset, where_source,
@@ -726,6 +945,17 @@ public static class RecordsTools
                 Add("source", srcName ?? (srcSpec.Kind != LoadOrderService.PoleKind.Winner ? srcSpec.Label : null));
                 if (versusSpec is not null) Add("versus", versusSpec.Label);
                 return e;
+            }
+
+            // ---- walk= on a scan: the scan's matches are the SEEDS; the walk lane takes it from there
+            //      (chain render, or the reached set through the form pipelines), seam-checked throughout.
+            if (walk is not null && outcome.Error is null && outcome.Groups is null)
+            {
+                var seedKeys = outcome.Keys.Select(k => k.ToString()).ToArray();
+                envelope.Add(new("total", outcome.Total.ToString()));
+                headerLine += $"\n{outcome.Total} match(es) selected by the scan as walk seeds";
+                expectEpoch = outcome.Epoch;
+                return WalkLane(seedKeys, null, null);
             }
 
             // ---- delta / tree on a scan: the scan SELECTS the records, the §4.1 engine batches compare
@@ -909,6 +1139,8 @@ public static class RecordsTools
                 return "error: the 'delta'/'tree' forms over an out-of-load-order file SCAN are not composed yet — enumerate the file with form='summary', then compare the specific records via formids= (the comparison poles read the off-order file under the one-pole rule).";
             if (form == "info_order")
                 return "error: the info_order form merges the ACTIVE order's touching plugins — an out-of-load-order file is not in that frame. Read the winner's merge (drop source=), or enumerate the file's DIAL records with form='summary'.";
+            if (walk is not null)
+                return "error: the walk expands the ACTIVE order's winner link graph — an out-of-load-order file's records are not in that graph. Enumerate the file with form='summary', then walk specific records via formids= (dropping source=).";
             if (references is { Length: > 0 } || plugins?.names is { Length: > 0 } || (plugins?.defined_in ?? false))
                 return "error: references=/plugins= over an out-of-load-order file land in W2 PR 2 — this wave reads the file by types= (and an 'editorid contains' where-clause).";
             if (form is "fields" or "everything")
@@ -1135,6 +1367,75 @@ public static class RecordsTools
                     sb.Append(fieldsNarrow
                         ? $"identical to {row.ReferencePlugin} across the fields read ({n.AgreedCount} leaf/leaves agree)\n"
                         : $"identical to {row.ReferencePlugin} (whole record; {n.AgreedCount} leaf/leaves agree)\n");
+            }
+            rendered++;
+        }
+        if (spill is not null) Artifacts.AppendSpillStateText(sb, spill);
+        return sb.ToString().TrimEnd('\n');
+    }
+
+    /// <summary>The chain form's text render: per seed the reached nodes in BFS order with provenance (what
+    /// pulled each node in), recorded cycles, the cap-truncation note (read posture — what is listed IS proved),
+    /// and the NPC_ TemplateFlags inheritance report where the walk was a Template chain.</summary>
+    static string RenderRecordsChain(IReadOnlyList<LoadOrderService.WalkSeedResult> rows, int total, int reached,
+                                     int errors, string headerLine, string? epoch, int maxChars,
+                                     SpillState? spill, out bool truncated)
+    {
+        truncated = false;
+        int cap = maxChars > 0 ? maxChars : Wire.DefaultMaxChars;
+        bool manifestOnly = spill?.ManifestOnly ?? false;
+        var sb = new StringBuilder();
+        sb.Append(headerLine).Append('\n');
+        sb.Append(total).Append(" seed(s), ").Append(reached).Append(" node(s) reached, ").Append(errors).Append(" error(s)");
+        if (epoch is not null) sb.Append("  epoch=").Append(epoch);
+        sb.Append('\n');
+        int rendered = 0;
+        foreach (var row in rows)
+        {
+            if (manifestOnly) break;
+            if (sb.Length >= cap)
+            {
+                truncated = true;
+                sb.Append("... [rendered ").Append(rendered).Append(" of ").Append(rows.Count)
+                  .Append(" seeds at max_chars=").Append(cap).Append("]\n");
+                break;
+            }
+            sb.Append('\n').Append(row.Seed);
+            if (row.Error is not null) { sb.Append("  error=").Append(row.Error).Append('\n'); rendered++; continue; }
+            sb.Append("  ").Append(row.Type ?? "?").Append("  ").Append(row.EditorId ?? "<no editorid>").Append('\n');
+            if (row.Nodes.Count == 0)
+                sb.Append("  no links to follow from this seed").Append(row.TruncationNote is null ? ".\n" : " before the cap.\n");
+            foreach (var n in row.Nodes)
+            {
+                if (sb.Length >= cap)
+                {
+                    truncated = true;
+                    sb.Append("    ... [nodes cut at max_chars=").Append(cap).Append(" — raise max_chars, or to_file= for the complete walk]\n");
+                    break;
+                }
+                sb.Append("    d").Append(n.Depth).Append("  ").Append(n.Key);
+                if (n.Type is not null) sb.Append("  ").Append(n.Type).Append("  ").Append(n.EditorId ?? "<no editorid>");
+                sb.Append("  [").Append(n.Status).Append(']');
+                if (n.Note is not null) sb.Append("  ").Append(n.Note);
+                sb.Append("  <- ").Append(n.PulledBy).Append('\n');
+            }
+            foreach (var c in row.Cycles)
+                sb.Append("  cycle: ").Append(c).Append('\n');
+            if (row.TruncationNote is not null)
+                sb.Append("  [!] ").Append(row.TruncationNote).Append('\n');
+            if (row.TemplateReport is { } tr)
+            {
+                sb.Append("  template inheritance (TemplateFlags — a SET flag means the category is INHERITED and the seed's own local data for it is MASKED):\n");
+                foreach (var c in tr)
+                {
+                    sb.Append("    ").Append(c.Category).Append(": ");
+                    if (!c.InheritedAtSeed) sb.Append("local data ACTIVE");
+                    else if (c.ProviderKey is not null)
+                        sb.Append("INHERITED from ").Append(c.ProviderKey).Append(" (").Append(c.ProviderEditorId ?? "<no editorid>").Append(')');
+                    else sb.Append("INHERITED");
+                    if (c.Note is not null && c.InheritedAtSeed) sb.Append("  — ").Append(c.Note);
+                    sb.Append('\n');
+                }
             }
             rendered++;
         }

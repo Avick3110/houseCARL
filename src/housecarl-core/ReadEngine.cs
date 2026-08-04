@@ -291,7 +291,7 @@ public static class ReadEngine
     /// link-bearing value — the note reuses the read walk's vocabulary ("(no field …", "(absent)", "(unreadable …")
     /// so callers classify it exactly like a leaf miss; a present-but-empty list returns an EMPTY list (a genuine
     /// "no links here", distinct from "not a link path").</summary>
-    internal static (List<FormKey>? Links, string? Note) CollectLinksAt(object record, string[] path)
+    public static (List<FormKey>? Links, string? Note) CollectLinksAt(object record, string[] path)
     {
         try
         {

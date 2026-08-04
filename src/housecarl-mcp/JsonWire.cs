@@ -603,6 +603,148 @@ static class JsonWire
         return Finish(ms);
     }
 
+    // ---- housecarl_records (W2 PR 2): the chain form (walk=) ----------------------------------------
+
+    /// <summary>One chain row — shared by the json render and the artifact writer. Node status is 'expanded'
+    /// (entered) or 'kept' (a boundary: exclusion stop, depth cap, unresolved link — the note names which).</summary>
+    internal static void WriteChainRow(Utf8JsonWriter w, LoadOrderService.WalkSeedResult row, MemoryStream ms, int cap)
+    {
+        w.WriteStartObject();
+        w.WriteString("formid", row.Seed);
+        if (row.Error is not null) { w.WriteString("error", row.Error); w.WriteEndObject(); return; }
+        WriteNullable(w, "type", row.Type);
+        WriteNullable(w, "editorid", row.EditorId);
+        w.WriteStartArray("nodes");
+        foreach (var n in row.Nodes)
+        {
+            w.Flush();
+            if (ms.Length >= cap)
+            {
+                w.WriteStartObject();
+                w.WriteString("note", "[nodes truncated at max_chars — raise max_chars, or to_file= for the complete walk]");
+                w.WriteEndObject();
+                break;
+            }
+            w.WriteStartObject();
+            w.WriteString("key", n.Key);
+            WriteNullable(w, "type", n.Type);
+            WriteNullable(w, "editorid", n.EditorId);
+            w.WriteNumber("depth", n.Depth);
+            w.WriteString("pulled_by", n.PulledBy);
+            w.WriteString("status", n.Status);
+            WriteNullable(w, "note", n.Note);
+            w.WriteEndObject();
+        }
+        w.WriteEndArray();
+        if (row.Cycles.Count > 0) WriteStringArray(w, "cycles", row.Cycles);
+        WriteNullable(w, "truncation", row.TruncationNote);
+        if (row.TemplateReport is { } tr)
+        {
+            w.WriteStartArray("template_inheritance");
+            foreach (var c in tr)
+            {
+                w.WriteStartObject();
+                w.WriteString("category", c.Category);
+                w.WriteBoolean("inherited", c.InheritedAtSeed);
+                WriteNullable(w, "provider", c.ProviderKey);
+                WriteNullable(w, "provider_editorid", c.ProviderEditorId);
+                WriteNullable(w, "note", c.Note);
+                w.WriteEndObject();
+            }
+            w.WriteEndArray();
+        }
+        w.WriteEndObject();
+    }
+
+    /// <summary>records form=chain: <c>{…envelope, seeds, errors, epoch, rows:[…]}</c>.</summary>
+    public static string RenderChain(IReadOnlyList<LoadOrderService.WalkSeedResult> rows, int maxChars, string? epoch,
+                                     IReadOnlyList<KeyValuePair<string, string>> envelope,
+                                     SpillState? spill, out bool truncated)
+    {
+        truncated = false;
+        int cap = Cap(maxChars);
+        bool manifestOnly = spill?.ManifestOnly ?? false;
+        using var ms = new MemoryStream();
+        using (var w = new Utf8JsonWriter(ms, Opts))
+        {
+            w.WriteStartObject();
+            WriteEnvelope(w, envelope);
+            w.WriteNumber("seeds", rows.Count);
+            w.WriteNumber("errors", rows.Count(x => x.Error is not null));
+            WriteNullable(w, "epoch", epoch);
+            w.WriteStartArray("rows");
+            int rendered = 0; bool rowsTruncated = false;
+            foreach (var row in rows)
+            {
+                if (manifestOnly) break;
+                w.Flush();
+                if (ms.Length >= cap) { rowsTruncated = true; break; }
+                WriteChainRow(w, row, ms, cap);
+                rendered++;
+            }
+            w.WriteEndArray();
+            w.WriteNumber("rendered", rendered);
+            w.WriteBoolean("truncated", rowsTruncated);
+            truncated = rowsTruncated;
+            if (spill is not null) Artifacts.WriteSpillStateJson(w, spill);
+            w.WriteEndObject();
+        }
+        return Finish(ms);
+    }
+
+    /// <summary>records form=chain, walk=reverse (the typed MGEF carrier lane): per seed the carriers with the
+    /// MATCHING entry's payload — magnitudes AS AUTHORED (conditions not evaluated), the effect_chain contract.</summary>
+    public static string RenderEffectChains(IReadOnlyList<(string Seed, EffectChainResult Result)> results,
+                                            int maxChars, IReadOnlyList<KeyValuePair<string, string>> envelope)
+    {
+        int cap = Cap(maxChars);
+        using var ms = new MemoryStream();
+        using (var w = new Utf8JsonWriter(ms, Opts))
+        {
+            w.WriteStartObject();
+            WriteEnvelope(w, envelope);
+            w.WriteNumber("seeds", results.Count);
+            WriteNullable(w, "epoch", results.Select(r => r.Result.Epoch).FirstOrDefault(e => e is not null));
+            w.WriteStartArray("rows");
+            bool truncated = false;
+            foreach (var (seed, r) in results)
+            {
+                w.Flush();
+                if (ms.Length >= cap) { truncated = true; break; }
+                w.WriteStartObject();
+                w.WriteString("seed", seed);
+                if (r.Error is not null) { w.WriteString("error", r.Error); w.WriteEndObject(); continue; }
+                w.WriteString("mgef_editorid", r.MgefEditorId);
+                w.WriteNumber("total", r.Total);
+                w.WriteBoolean("capped", r.Capped);
+                WriteNullable(w, "scan_note", r.ScanNote);
+                w.WriteStartArray("carriers");
+                foreach (var row in r.Rows)
+                {
+                    w.Flush();
+                    if (ms.Length >= cap) { truncated = true; break; }
+                    w.WriteStartObject();
+                    w.WriteString("formid", row.Carrier.ToString());
+                    w.WriteString("type", row.Type);
+                    WriteNullable(w, "editorid", row.EditorId);
+                    w.WriteString("winner", row.Winner);
+                    w.WriteNumber("effect_index", row.EffectIndex);
+                    w.WriteNumber("effect_count", row.EffectCount);
+                    w.WriteNumber("magnitude", row.Magnitude);
+                    w.WriteNumber("area", row.Area);
+                    w.WriteNumber("duration", row.Duration);
+                    w.WriteEndObject();
+                }
+                w.WriteEndArray();
+                w.WriteEndObject();
+            }
+            w.WriteEndArray();
+            w.WriteBoolean("truncated", truncated);
+            w.WriteEndObject();
+        }
+        return Finish(ms);
+    }
+
     // ---- housecarl_records (W2 PR 2): the info_order form -------------------------------------------
 
     /// <summary>One info_order row — shared by the json render and the artifact writer. Positions are 1-based
