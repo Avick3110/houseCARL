@@ -8,6 +8,35 @@ when it changes.
 
 *Accumulating notes for the next cut — not yet released; `plugin.json` still reads the last shipped version.*
 
+**New tool: `housecarl_apply` — the 2.0 field-write surface (W3 PR 1).** One write call composes *what changes*
+× *where it lands* × *how it reads back*, replacing `set_field` + `bulk_apply`. **Edits:** `ops=` is the edit
+list — one op is a set of one, so the old single-field call is the degenerate case — and it takes the inline
+array **or `"@<absolute path>"`**, the `@file` convention that retires `from_file=` along with its
+inline-vs-file mutual exclusion. Both lanes now read through the same strict parser, so an **undeclared op
+member is refused by name inline too** (the SDK's binder silently *drops* one, which in a large generated batch
+sends every downstream refusal chasing the wrong op); a 1.x spelling inside an op — `verb`, `from_plugin` —
+gets the new word in the refusal, because the alias layer only reaches top-level arguments.
+**Copying a field bundle between records** is `bundle=` (the paths, uniform across pairs) × `assignments=`
+(`[{target, from, from_source?}]`) — a **zip, never a product**: each target reads its own paired source, so N
+targets never fan out to N×N. Everything outside the bundle is untouched *by construction*, `from_source`
+defaults to the source record's load-order winner, and a cross-record pair must be the same record type
+(refused by name at pre-flight, with every bad pair reported at once). It composes with `ops=` in one call.
+**One lane spelling:** a new patch (`patch=`), `into=` an existing one, or **`in_place="X.esp"` — the string
+names the file being overwritten**, replacing the old `target=` + `in_place=true` pair. The three destinations
+are mutually exclusive and **naming two is refused by name**, as is `acknowledge=` without a lane (1.x silently
+ignored `patch_name=` under `into=`). `dry_run=`, the one-time in-place consent handshake, and the
+all-or-nothing pre-flight are unchanged. **Transport:** `readback=`, `max_chars=`, `format="json"` (the same
+data machine-readable — a refusal is a document too, and the consent prompt is its own flag rather than an
+error), and **every write response now carries `epoch=`**, the identity of the index build its winners were
+resolved from. `set_field` / `bulk_apply` are unchanged and stay registered through the build waves; from
+2.0.0's clean cut a call naming one answers with its successor `housecarl_apply` spelling.
+
+**Fixed: `CopyFrom` never worked on the in-place lane.** A legal `verb="CopyFrom"` edit with `in_place` resolved
+no source record and fell through to the verb engine, which has no CopyFrom branch — so it failed as *"pre-flight
+accepted it but the apply threw"*, reporting a missing capability as an internal fault. The in-place lane now
+resolves copy sources under the same contract as the patch lane (active-order and off-order alike), and copying a
+record's own field onto itself is refused as the no-op it is.
+
 **`housecarl_records` completed: the comparison and traversal forms, every SOURCE pole, and the full SELECT
 composition (W2 PR 2).** Every staging refusal from the core wave is now a capability. **Comparisons:**
 `project={"form": "delta"}` diffs the SUBJECT (`source=`) against a REFERENCE (`versus=`) and returns only what
