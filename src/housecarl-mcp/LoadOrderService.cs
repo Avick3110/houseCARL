@@ -3337,6 +3337,230 @@ public sealed class LoadOrderService : IDisposable
         return rows;
     }
 
+    // ---- W2 PR 2: the §3 traversal construct (walk=) ----------------------------------------------------
+
+    /// <summary>One record the walk reached: identity + provenance (<see cref="PulledBy"/> — the parent node's
+    /// label, the ClosureItem posture) + whether the walk ENTERED it (expanded) or recorded it as a boundary
+    /// (kept: an exclusion stop, the depth cap, an unresolved link — the reason rides in <see cref="Note"/>).</summary>
+    public sealed record WalkNodeRow(string Key, string? Type, string? EditorId, int Depth,
+                                     string PulledBy, string Status, string? Note);
+
+    /// <summary>The NPC_ TemplateFlags typed interpreter (§3.3 — registry entry #1, and deliberately the ONLY
+    /// entry until a gap report demands a second): per inheritance category, whether the seed INHERITS it (its
+    /// own local data masked) and which record in the template chain actually provides it.</summary>
+    public sealed record NpcTemplateCategory(string Category, bool InheritedAtSeed,
+                                             string? ProviderKey, string? ProviderEditorId, string? Note);
+
+    /// <summary>One seed's walk: the reached nodes in BFS order with provenance, recorded cycles (named-follow
+    /// chains only — a closure walk dedupes on its visited set, the copy engine's own posture), the truncation
+    /// note when a cap cut the walk (the read posture: keep what was proved, say what wasn't), and — for an NPC_
+    /// seed under follow="Template" — the per-category inheritance report.</summary>
+    public sealed record WalkSeedResult(string Seed, string? Type, string? EditorId,
+                                        IReadOnlyList<WalkNodeRow> Nodes, IReadOnlyList<string> Cycles,
+                                        string? TruncationNote, IReadOnlyList<NpcTemplateCategory>? TemplateReport,
+                                        string? Error);
+
+    /// <summary>The §3 FORWARD walk over the winner link graph, per seed off ONE captured build. The edge unit is
+    /// the FORM LINK; within-record navigation stays PROJECT's path grammar (§3's declared seam). seed_paths
+    /// scope the FIRST hop (default: every link); follow scopes every LATER hop (default "*" = closure via the
+    /// generic EnumerateFormLinks — by construction, no per-type list; a named path = a restricted chain).
+    /// Exclusions are DATA handed in by the caller: stop prunes (recorded as a boundary), refuse fails the whole
+    /// call loud naming the seed and pull chain (the Race-refusal posture). Caps are the READ posture: an
+    /// explicit truncation note, never a silent cut.</summary>
+    public IReadOnlyList<WalkSeedResult> WalkForwardBatch(
+        IReadOnlyList<string> seeds, IReadOnlyList<string>? seedPaths, string? follow,
+        int depth, int maxNodes, IReadOnlyList<(string Match, bool Refuse)> exclusions,
+        ArtifactDemand? demand, out string? refusal, out string? epoch)
+    {
+        refusal = null;
+        var resolver = Resolver;
+        var view = resolver.Capture();
+        epoch = view.Epoch;
+        if (demand is not null && demand.Epoch != view.Epoch)
+        {
+            refusal = ArtifactEpochMismatch(demand, view.Epoch);
+            return Array.Empty<WalkSeedResult>();
+        }
+        using var session = resolver.OpenSession();
+
+        string[]? followSegs = null;
+        bool closure = string.IsNullOrWhiteSpace(follow) || follow!.Trim() == "*";
+        if (!closure)
+        {
+            followSegs = follow!.Trim().Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            if (followSegs.Length == 0) { refusal = $"walk.follow '{follow}' is not a usable field path."; return Array.Empty<WalkSeedResult>(); }
+        }
+
+        var bodyCache = new Dictionary<FormKey, IMajorRecordGetter?>();
+        IMajorRecordGetter? Fetch(FormKey k)
+        {
+            if (bodyCache.TryGetValue(k, out var c)) return c;
+            IMajorRecordGetter? g = view.ResolveWinner(k) is { } w ? view.GetRecord(session, w.WinnerPlugin, k) : null;
+            bodyCache[k] = g;
+            return g;
+        }
+        static string TypeOf(IMajorRecordGetter b) => RecordNaming.StripOverlay(b.GetType().Name);
+        List<FormKey> LinksOf(IMajorRecordGetter body, string[]? segs, out string? note)
+        {
+            note = null;
+            if (segs is null)
+            {
+                var seen = new HashSet<FormKey>();
+                var list = new List<FormKey>();
+                if (body is Mutagen.Bethesda.Plugins.Records.IFormLinkContainerGetter flc)
+                    foreach (var link in flc.EnumerateFormLinks())
+                        if (!link.FormKey.IsNull && seen.Add(link.FormKey)) list.Add(link.FormKey);
+                return list;
+            }
+            var (links, n) = ReadEngine.CollectLinksAt(body, segs);
+            note = n;
+            return links ?? new List<FormKey>();
+        }
+
+        var results = new List<WalkSeedResult>(seeds.Count);
+        foreach (var raw in seeds)
+        {
+            FormKey seedFk;
+            try { seedFk = FormKey.Factory(raw.Trim()); }
+            catch (Exception ex) { results.Add(new WalkSeedResult(raw?.Trim() ?? "", null, null, Array.Empty<WalkNodeRow>(), Array.Empty<string>(), null, null, $"bad FormID '{raw}': {ex.Message}")); continue; }
+            var seedBody = Fetch(seedFk);
+            if (seedBody is null)
+            {
+                results.Add(new WalkSeedResult(seedFk.ToString(), null, null, Array.Empty<WalkNodeRow>(), Array.Empty<string>(), null, null,
+                                               $"{seedFk} is not present in the active order — nothing to walk from."));
+                continue;
+            }
+            var seedType = TypeOf(seedBody);
+            var seedLabel = $"{seedType} {seedFk} ({seedBody.EditorID ?? "<no editorid>"})";
+
+            var nodes = new List<WalkNodeRow>();
+            var cycles = new List<string>();
+            string? truncation = null;
+            var visited = new HashSet<FormKey> { seedFk };
+            var queue = new Queue<(FormKey Key, int Depth, string PulledBy)>();
+
+            // First hop: seed_paths (each path's links) or every link on the seed.
+            if (seedPaths is { Count: > 0 })
+            {
+                foreach (var p in seedPaths)
+                {
+                    var segs = p.Trim().Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                    if (segs.Length == 0) continue;
+                    var links = LinksOf(seedBody, segs, out var note);
+                    if (links.Count == 0 && note is not null)
+                        nodes.Add(new WalkNodeRow($"(seed path '{p}')", null, null, 0, seedLabel, "no links", note));   // a wrong path fails LOUD in the rows (Q3)
+                    foreach (var l in links) queue.Enqueue((l, 1, $"{seedLabel}.{p}"));
+                }
+            }
+            else
+            {
+                foreach (var l in LinksOf(seedBody, null, out _)) queue.Enqueue((l, 1, seedLabel));
+            }
+
+            string? refuseError = null;
+            while (queue.Count > 0 && refuseError is null)
+            {
+                var (key, d, pulledBy) = queue.Dequeue();
+                if (key.IsNull) continue;
+                if (!visited.Add(key))
+                {
+                    // A named-follow walk is a linear chain per seed — a revisit IS a cycle, recorded and named
+                    // (never looped, never silently stopped — §3.1). Closure walks dedupe on the visited set.
+                    if (followSegs is not null) cycles.Add($"{pulledBy} -> {key} (already on this chain)");
+                    continue;
+                }
+                if (nodes.Count >= maxNodes)
+                {
+                    truncation = $"walk truncated: the {maxNodes}-node cap was reached — what is listed IS reached and proved; raise walk.max_nodes to walk further.";
+                    break;
+                }
+                var body = Fetch(key);
+                if (body is null)
+                {
+                    nodes.Add(new WalkNodeRow(key.ToString(), null, null, d, pulledBy, "kept",
+                                              "unresolved — no active plugin defines this target (a missing endpoint)"));
+                    continue;
+                }
+                var type = TypeOf(body);
+                var excl = exclusions.FirstOrDefault(x => x.Match.Equals(type, StringComparison.OrdinalIgnoreCase));
+                if (excl.Match is not null)
+                {
+                    if (excl.Refuse) { refuseError = $"the walk reached a {type} ({key}, via {pulledBy}) — a node class this call excludes with severity 'refuse'. Nothing is returned for this call."; break; }
+                    nodes.Add(new WalkNodeRow(key.ToString(), type, body.EditorID, d, pulledBy, "kept", $"excluded ({type}, severity stop) — recorded as a boundary, not entered"));
+                    continue;
+                }
+                bool atCap = d >= depth;
+                nodes.Add(new WalkNodeRow(key.ToString(), type, body.EditorID, d, pulledBy,
+                                          atCap ? "kept" : "expanded",
+                                          atCap ? $"at the walk.depth cap ({depth}) — not entered" : null));
+                if (atCap)
+                {
+                    truncation ??= $"walk reached its depth cap ({depth}) on at least one chain — nodes at the cap are recorded, not entered; raise walk.depth to walk deeper.";
+                    continue;
+                }
+                var label = $"{type} {key} ({body.EditorID ?? "<no editorid>"})";
+                foreach (var l in LinksOf(body, followSegs, out _))
+                    if (!l.IsNull) queue.Enqueue((l, d + 1, label));
+            }
+            if (refuseError is not null)
+            {
+                refusal = refuseError;
+                return Array.Empty<WalkSeedResult>();
+            }
+
+            IReadOnlyList<NpcTemplateCategory>? templateReport = null;
+            if (followSegs is { Length: 1 } && followSegs[0].Equals("Template", StringComparison.OrdinalIgnoreCase)
+                && seedBody is INpcGetter seedNpc)
+                templateReport = NpcTemplateReport(Fetch, seedNpc, seedFk);
+
+            results.Add(new WalkSeedResult(seedFk.ToString(), seedType, seedBody.EditorID, nodes, cycles, truncation, templateReport, null));
+        }
+        return results;
+    }
+
+    /// <summary>The NPC_ TemplateFlags interpreter (§3.3, registry entry #1): a SET flag means the category is
+    /// INHERITED — the seed's own local data for it is masked; the provider is the first record down the template
+    /// chain whose flag for that category is CLEAR (its own data is active). A chain ending in a leveled actor
+    /// resolves at runtime; a broken or missing link is reported, never guessed (Q3).</summary>
+    static IReadOnlyList<NpcTemplateCategory> NpcTemplateReport(Func<FormKey, IMajorRecordGetter?> fetch,
+                                                                INpcGetter seed, FormKey seedFk)
+    {
+        var report = new List<NpcTemplateCategory>();
+        foreach (NpcConfiguration.TemplateFlag flag in Enum.GetValues(typeof(NpcConfiguration.TemplateFlag)))
+        {
+            var name = flag.ToString();
+            if (!seed.Configuration.TemplateFlags.HasFlag(flag))
+            {
+                report.Add(new NpcTemplateCategory(name, false, seedFk.ToString(), seed.EditorID,
+                                                   "local data ACTIVE (flag clear)"));
+                continue;
+            }
+            // Walk down: the provider is the first node NOT forwarding this category.
+            var cur = seed;
+            var curKey = seedFk;
+            string? note = null; string? provKey = null; string? provEid = null;
+            var hops = new HashSet<FormKey> { seedFk };
+            while (true)
+            {
+                var t = cur.Template;
+                if (t is null || t.IsNull) { note = "flag SET but the template link is empty — the category inherits from nothing (worth a look)"; break; }
+                var nextKey = t.FormKey;
+                if (!hops.Add(nextKey)) { note = $"template chain CYCLES at {nextKey} — no provider is reachable"; break; }
+                var body = fetch(nextKey);
+                if (body is null) { note = $"template target {nextKey} is unresolved — the chain is broken here"; break; }
+                if (body is ILeveledNpcGetter lvln)
+                { provKey = nextKey.ToString(); provEid = lvln.EditorID; note = "a LEVELED actor — the concrete provider is rolled at runtime"; break; }
+                if (body is not INpcGetter npc)
+                { note = $"template target {nextKey} is a {RecordNaming.StripOverlay(body.GetType().Name)}, not an NPC or leveled actor"; break; }
+                if (!npc.Configuration.TemplateFlags.HasFlag(flag))
+                { provKey = nextKey.ToString(); provEid = npc.EditorID; break; }
+                cur = npc; curKey = nextKey;
+            }
+            report.Add(new NpcTemplateCategory(name, true, provKey, provEid, note));
+        }
+        return report;
+    }
+
     // ---- W2 PR 2: the info_order PROJECT form (§6.1 F1 split — validate_dialogue's class 8) --------------
 
     /// <summary>One topic's effective-INFO-order row: the merged sequence with its honesty gates
