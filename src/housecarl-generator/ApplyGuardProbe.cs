@@ -84,6 +84,7 @@ public static class ApplyGuardProbe
         public required string DonorWeaponFid { get; init; }  // a DIFFERENT weapon (Damage 42, 2 keywords) — the zip source
         public required string ArmorFid { get; init; }        // a different record TYPE — the cross-type refusal source
         public required string ModsDir { get; init; }
+        public required string ReplacerPath { get; init; }   // the in-place target's real on-disk file
         public required string MasterName { get; init; }
         public required string ReplacerName { get; init; }
         public required FormKey SubjectKey { get; init; }
@@ -136,6 +137,13 @@ public static class ApplyGuardProbe
             rw.Name = "Winner Sword";
             rw.BasicStats = new WeaponBasicStats { Damage = 99 };
             rw.Keywords = new Noggog.ExtendedList<IFormLinkGetter<IKeywordGetter>>();
+
+            // The replacer ALSO overrides the DONOR, at a distinct Damage. Without this the donor's winner IS the
+            // master, so "the pole defaulted to the source's winner" and "from_source named the master" would assert
+            // the SAME observable and neither would prove anything (review [medium]): a regression that ignored a
+            // named from_source, or defaulted to the wrong plugin, would leave both arms green. 7 vs 42 separates them.
+            var rd = (IWeapon)WriteEngine.GenericGetOrAddAsOverride(r, donor);
+            rd.BasicStats = new WeaponBasicStats { Damage = 7 };   // keywords carry over from the master (still 2)
             r.BeginWrite.ToPath(replPath).WithLoadOrder(new ISkyrimModGetter[] { m }).Write();
 
             File.WriteAllText(Path.Combine(profiles, "loadorder.txt"), "# header\r\n" + mKey.FileName + "\r\n" + rKey.FileName + "\r\n");
@@ -157,6 +165,7 @@ public static class ApplyGuardProbe
                 DonorWeaponFid = $"{donor.FormKey.ID:X6}:{mKey.FileName}",
                 ArmorFid = $"{armor.FormKey.ID:X6}:{mKey.FileName}",
                 ModsDir = mods,
+                ReplacerPath = replPath,
                 MasterName = mKey.FileName.String,
                 ReplacerName = rKey.FileName.String,
                 SubjectKey = subject.FormKey,
@@ -298,30 +307,33 @@ public static class ApplyGuardProbe
         Console.WriteLine("── ARM 4.5: the zip — bundle x assignments as a cross-RECORD copy ──");
 
         // the load-bearing case: copy a DIFFERENT record's fields onto the subject. The subject's winner has
-        // Damage 99 and no keywords; the donor has Damage 42 and two keywords.
+        // Damage 99 and no keywords; the donor's WINNER (the replacer's override) has Damage 7 and two keywords,
+        // while the MASTER's version of the donor has 42 — the two poles are observably different.
         var zip = ApplyTools.Apply(fx.Svc,
             bundle: new[] { "BasicStats.Damage", "Keywords" },
             assignments: Json($$"""[{"target":"{{fx.SubjectFid}}","from":"{{fx.DonorWeaponFid}}"}]"""),
             patch: "ApZip");
         var zipPath = PatchPathFrom(fx, zip);
         (ushort? Dmg, string? Name, int? Kw) after = zipPath is null ? (null, null, null) : ReadSubject(zipPath, fx.SubjectKey);
-        Check($"the zip copies a bundle BETWEEN records: Damage 99 -> 42 and 0 -> 2 keywords (got {after.Dmg}/{after.Kw})",
-            after.Dmg == 42 && after.Kw == 2, zip);
+        Check($"the zip copies a bundle BETWEEN records: Damage 99 -> 7 and 0 -> 2 keywords (got {after.Dmg}/{after.Kw})",
+            after.Dmg == 7 && after.Kw == 2, zip);
         Check("...and leaves everything OUTSIDE the bundle untouched (Name is still the winner's)",
             after.Name == "Winner Sword", zip);
 
-        // from_source defaults to the source record's WINNER (§4.5) — no pole named above, and it resolved
-        Check("from_source is optional: it defaulted to the source record's load-order winner",
-            zip.StartsWith("wrote "), zip);
+        // from_source omitted ⇒ the SOURCE RECORD's load-order winner (§4.5) — 7, the replacer's override, NOT the
+        // master's 42 and NOT the target's own plugin. This is the arm that pins the default's meaning.
+        Check($"from_source is optional and defaults to the SOURCE record's winner (7, the replacer's override — not the master's 42) (got {after.Dmg})",
+            after.Dmg == 7, zip);
 
-        // a named from_source reads THAT plugin's version instead
+        // a named from_source reads THAT plugin's version instead — 42, distinguishable from the default above
         var poled = ApplyTools.Apply(fx.Svc,
             bundle: new[] { "BasicStats.Damage" },
             assignments: Json($$"""[{"target":"{{fx.SubjectFid}}","from":"{{fx.DonorWeaponFid}}","from_source":"{{fx.MasterName}}"}]"""),
             patch: "ApZipPole");
         var poledPath = PatchPathFrom(fx, poled);
-        Check("a named from_source reads that plugin's version of the source record",
-            poledPath is not null && ReadSubject(poledPath, fx.SubjectKey).Dmg == 42, poled);
+        var poledDmg = poledPath is null ? null : ReadSubject(poledPath, fx.SubjectKey).Dmg;
+        Check($"a named from_source reads THAT plugin's version of the source record (42, the master's — not the winner's 7) (got {poledDmg})",
+            poledDmg == 42, poled);
 
         // half a zip is not a zip
         var bundleOnly = ApplyTools.Apply(fx.Svc, bundle: new[] { "BasicStats.Damage" });
@@ -349,6 +361,33 @@ public static class ApplyGuardProbe
         Check("an assignment missing from= is refused at its own index",
             noFrom.StartsWith("error:") && noFrom.Contains("assignments[0]"), noFrom);
 
+        // REVIEW FOLD [medium]: a zip-generated op must never be refused at an op[i] the caller never wrote.
+        // Two real ops here, so a naive index would say "op[2]" — a line that does not exist in the call.
+        var badPair = ApplyTools.Apply(fx.Svc,
+            ops: Json($$"""[{"formid":"{{fx.SubjectFid}}","field_path":"Name","value":"a"},{"formid":"{{fx.SubjectFid}}","field_path":"Value","value":"1"}]"""),
+            bundle: new[] { "Name" },
+            assignments: Json($$"""[{"target":"NOTAFORMID","from":"{{fx.DonorWeaponFid}}"}]"""));
+        Check("a bad FormID in an assignment is refused NAMING THE ASSIGNMENT, not a phantom op index",
+            badPair.StartsWith("error:") && badPair.Contains("assignments[0]") && !badPair.Contains("op[2]"), badPair);
+
+        // REVIEW FOLD [low]: a mixed inline/@file bundle is named like the other two list inputs, not silently
+        // treated as a literal field path.
+        var mixedBundle = ApplyTools.Apply(fx.Svc, bundle: new[] { "@C:\\jobs\\paths.json", "Keywords" },
+            assignments: Json($$"""[{"target":"{{fx.SubjectFid}}","from":"{{fx.DonorWeaponFid}}"}]"""));
+        Check("a MIXED inline/@file bundle= is refused by name (parity with ops=/assignments=)",
+            mixedBundle.StartsWith("error:") && mixedBundle.Contains("cannot be mixed with inline elements"), mixedBundle);
+
+        // REVIEW FOLD [high]: a copy carries no authored value — and that rule must not depend on whether the
+        // POLE was named. The from=-without-from_source= shape used to return early past this check and DISCARD
+        // the value silently; both spellings must refuse alike.
+        foreach (var (label, extra) in new[] { ("without from_source", ""), ("with from_source", $",\"from_source\":\"{fx.MasterName}\"") })
+        {
+            var valued = ApplyTools.Apply(fx.Svc,
+                ops: Json($$"""[{"formid":"{{fx.SubjectFid}}","field_path":"BasicStats.Damage","op":"CopyFrom","from":"{{fx.DonorWeaponFid}}"{{extra}},"value":"55"}]"""));
+            Check($"CopyFrom + value= is refused {label} (the value is never silently discarded)",
+                valued.StartsWith("error:") && valued.Contains("takes no value"), valued);
+        }
+
         // the zip COMPOSES with ops= in one call — one patch, both edit sources
         var composed = ApplyTools.Apply(fx.Svc,
             ops: Json($$"""[{"formid":"{{fx.SubjectFid}}","field_path":"Name","value":"Renamed"}]"""),
@@ -358,7 +397,7 @@ public static class ApplyGuardProbe
         var composedPath = PatchPathFrom(fx, composed);
         (ushort? Dmg, string? Name, int? Kw) both = composedPath is null ? (null, null, null) : ReadSubject(composedPath, fx.SubjectKey);
         Check($"ops= and the zip compose in ONE call (got name={both.Name}, dmg={both.Dmg})",
-            both.Name == "Renamed" && both.Dmg == 42, composed);
+            both.Name == "Renamed" && both.Dmg == 7, composed);
     }
 
     // ================= ARM 4 — in-place CopyFrom parity =================
@@ -383,6 +422,21 @@ public static class ApplyGuardProbe
             in_place: fx.ReplacerName, acknowledge: true);
         Check("copying the in-place target's own field onto itself is refused as a no-op",
             selfSource.StartsWith("error:") && selfSource.Contains("no-op"), selfSource);
+
+        // REVIEW FOLD [high] — the LIFETIME case. A CROSS-record copy whose source lives in the in-place target's
+        // OWN file: legitimate (not the self-record no-op above), and the source body must come from the mutable
+        // targetMod, never the session overlay Phase 4 releases before serialize. Both records are defined by the
+        // master but the REPLACER overrides both, so in-place on the replacer owns them: copy the donor's Damage
+        // (7, the replacer's own value) onto the subject, in place, and the write must complete AND land 7 —
+        // reading through a disposed overlay would yield garbage or throw at serialize.
+        var sameFile = ApplyTools.Apply(fx.Svc,
+            ops: Json($$"""[{"formid":"{{fx.SubjectFid}}","field_path":"BasicStats.Damage","op":"CopyFrom","from":"{{fx.DonorWeaponFid}}","from_source":"{{fx.ReplacerName}}"}]"""),
+            in_place: fx.ReplacerName, acknowledge: true);
+        Check("a CROSS-record copy sourced from the in-place target's OWN file completes (source read from the mutable mod, not the released overlay)",
+            sameFile.StartsWith("edited "), sameFile);
+        var landed = ReadSubject(fx.ReplacerPath, fx.SubjectKey);
+        Check($"...and the copied value actually landed intact in the rewritten file (Damage 7, got {landed.Dmg})",
+            landed.Dmg == 7, sameFile);
     }
 
     // ================= ARM 5 — TRANSPORT =================
@@ -435,6 +489,24 @@ public static class ApplyGuardProbe
         }
         catch { }
         Check("the in-place CONSENT prompt is its own json flag + 'confirmation' key, never an 'error'", consentFlagged, jsonConsent);
+
+        // REVIEW FOLD [medium] — the epoch contract says EVERY outcome decided after the capture carries one:
+        // success, refusal, dry run, AND the consent prompt. The prompt and the service-side in-place refusals are
+        // decided in LoadOrderService (before the core runs), and were the ones going out unstamped — while
+        // "first in_place call" is the single most common shape a caller meets. Both renders are pinned here,
+        // because checking only the success renders is exactly how this got through the first time.
+        bool consentEpoch = false;
+        try { consentEpoch = Json(jsonConsent).TryGetProperty("epoch", out var ce) && ce.ValueKind == JsonValueKind.String; }
+        catch { }
+        Check("the json CONSENT prompt carries the epoch (decided after a capture ⇒ stamped)", consentEpoch, jsonConsent);
+
+        var textConsent = ApplyTools.Apply(fx.Svc, ops: Json(OneOp("65")), in_place: fx.MasterName);
+        Check("the TEXT consent prompt carries the epoch too", textConsent.Contains("\nepoch="), textConsent);
+
+        // ...and the service-side "not an active plugin" refusal, decided off the same capture.
+        var notActive = ApplyTools.Apply(fx.Svc, ops: Json(OneOp("66")), in_place: "NotInTheOrder.esp");
+        Check("the service-side in-place 'not an active plugin' refusal carries the epoch",
+            notActive.StartsWith("error:") && notActive.Contains("\nepoch="), notActive);
 
         var badFormat = ApplyTools.Apply(fx.Svc, ops: Json(OneOp("64")), format: "yaml");
         Check("an unrecognized format= is refused by name, never a silent fall-through to text",

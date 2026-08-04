@@ -190,13 +190,18 @@ public static class ApplyTools
         // wire member). Mapping problems are collected per element, all at once, like every other refusal.
         var wire = new List<BulkOp>(edits.Count);
         var fromRecords = new List<string?>(edits.Count);
+        var origins = new List<string?>(edits.Count);
         var problems = new List<string>();
         for (int i = 0; i < edits.Count; i++)
         {
             var e = edits[i];
+            // Zip-generated edits carry the caller's OWN spelling (assignments[i] x bundle[j]); inline ops fall
+            // back to their real index. Both this loop and the service's mapper use it, so a refusal never points
+            // at an op index the caller did not write.
+            var where = e.Origin ?? $"op[{i}]";
             if (e.From is not null && !string.Equals(e.Op ?? "Set", "CopyFrom", StringComparison.OrdinalIgnoreCase))
             {
-                problems.Add($"op[{i}]: from= names the SOURCE RECORD of a copy and is only valid with op='CopyFrom' (got op='{e.Op ?? "Set"}').");
+                problems.Add($"{where}: from= names the SOURCE RECORD of a copy and is only valid with op='CopyFrom' (got op='{e.Op ?? "Set"}').");
                 continue;
             }
             wire.Add(new BulkOp
@@ -206,12 +211,13 @@ public static class ApplyTools
                 FromPlugin = e.FromSource,
             });
             fromRecords.Add(e.From);
+            origins.Add(e.Origin);
         }
         if (problems.Count > 0)
             return $"error: refused — {problems.Count} of {edits.Count} operation(s) malformed; NOTHING written:\n  - "
                  + string.Join("\n  - ", problems);
 
-        var outcome = svc.ApplyEdits(wire, patch ?? "Patch", into, readback, in_place, hasInPlace, acknowledge, dry_run, fromRecords);
+        var outcome = svc.ApplyEdits(wire, patch ?? "Patch", into, readback, in_place, hasInPlace, acknowledge, dry_run, fromRecords, origins);
         return json
             ? JsonWire.RenderPatchOutcome(outcome, max_chars, readback)
             : WriteTools.Render(outcome, max_chars, readback);
@@ -361,6 +367,14 @@ public static class ApplyTools
     /// list input.</summary>
     static (IReadOnlyList<string>? Paths, string? Error) ReadBundlePaths(string[] bundle)
     {
+        // A MIXED inline/@file list has no meaning here either — and it used to slip through, because the @file
+        // branch only fired at Length == 1: an "@path" sitting beside real paths became a literal dotted FIELD
+        // path, and the caller got an engine "no such field" refusal naming something they never meant as a field
+        // (review [low]). Named here with ReadListParam's wording, so all three list inputs answer alike.
+        int atCount = bundle.Count(b => b?.TrimStart().StartsWith('@') == true);
+        if (atCount > 0 && bundle.Length != 1)
+            return (null, $"bundle: \"@<path>\" reads the WHOLE list from a file, so it cannot be mixed with inline elements " +
+                          $"(found {atCount} @-element(s) among {bundle.Length}). Pass either the inline array of field paths or a single \"@<absolute path>\".");
         if (bundle.Length == 1 && bundle[0]?.TrimStart().StartsWith('@') == true)
         {
             var (text, err) = ReadAtFile(bundle[0], "bundle");
@@ -384,9 +398,11 @@ public static class ApplyTools
 
     /// <summary>Expand the §4.5 zip into ops: for each assignment, ONE CopyFrom op per bundle path. A zip, never a
     /// product — each target reads its OWN paired source record, so N targets x M paths is N*M ops over N sources,
-    /// not N*N. Every pair is validated here (both FormIDs present and well-formed); the same-record-type gate and
-    /// the per-path legality rulebook run at the engine's pre-flight, which reports EVERY failure at once before
-    /// anything is written (§4.5: "legality does not shrink").</summary>
+    /// not N*N. Pair-level shape is validated here (both halves present, and not the same record); FormID SYNTAX,
+    /// the same-record-type gate, and the per-path legality rulebook are the engine's pre-flight, which reports
+    /// EVERY failure at once before anything is written (§4.5: "legality does not shrink"). Each generated op
+    /// carries the caller's own spelling as its <see cref="ApplyOp.Origin"/>, so a downstream refusal names
+    /// <c>assignments[i] x bundle[j]</c> rather than an op index that exists only after this expansion.</summary>
     static (IReadOnlyList<ApplyOp>? Ops, string? Error) ExpandZip(IReadOnlyList<string> paths, JsonElement assignments)
     {
         var (pairs, err) = ReadAssignments(assignments);
@@ -403,11 +419,12 @@ public static class ApplyTools
                 { problems.Add($"assignments[{i}] ({a.Target}): from is required — the FormID of the record to copy the bundle FROM."); continue; }
             if (string.Equals(a.Target!.Trim(), a.From!.Trim(), StringComparison.OrdinalIgnoreCase))
                 { problems.Add($"assignments[{i}]: target and from are the same record ({a.Target}) — copying a record's fields onto itself is a no-op. To re-assert an EARLIER PLUGIN's version of this record's fields, keep from= off and name that plugin in from_source=."); continue; }
-            foreach (var p in paths)
+            for (int b = 0; b < paths.Count; b++)
                 ops.Add(new ApplyOp
                 {
-                    Formid = a.Target, FieldPath = p, Op = "CopyFrom",
+                    Formid = a.Target, FieldPath = paths[b], Op = "CopyFrom",
                     From = a.From, FromSource = a.FromSource,
+                    Origin = $"assignments[{i}] x bundle[{b}] ('{paths[b]}')",
                 });
         }
         return problems.Count > 0
@@ -456,6 +473,13 @@ public sealed record ApplyOp
 
     [JsonPropertyName("from_source"), Description("op='CopyFrom' only: WHOSE version of the source record to copy — an ACTIVE plugin, or a plugin FILE on disk that isn't in the load order (a disabled old patch). With from= it defaults to the source record's load-order winner; without from= it is required (there is no other source to name).")]
     public string? FromSource { get; init; }
+
+    /// <summary>NOT a wire member — never deserialized from a caller (<see cref="JsonIgnoreAttribute"/> keeps it out
+    /// of the published schema and out of the strict reader's member set). It is how an op the §4.5 zip GENERATED
+    /// remembers the caller's own spelling, so a refusal reads "assignments[0] x bundle[1]" instead of an op index
+    /// that only exists after expansion.</summary>
+    [JsonIgnore]
+    public string? Origin { get; init; }
 }
 
 /// <summary>One pair of the SPEC §4.5 <c>assignments=</c> zip: the record being written, the record its bundle is

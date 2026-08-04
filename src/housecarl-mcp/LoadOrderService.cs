@@ -4447,7 +4447,7 @@ public sealed class LoadOrderService : IDisposable
     /// (the pre-enable verify loop — wishlist #3 re-scoped / HCBR-2026-06-11-02 wave (b)).</summary>
     public WritePatchBuilder.PatchOutcome ApplyEdits(IReadOnlyList<BulkOp> ops, string? patchName, string? into,
         bool fullReadback = false, string? target = null, bool inPlace = false, bool acknowledge = false,
-        bool dryRun = false, IReadOnlyList<string?>? fromRecords = null)
+        bool dryRun = false, IReadOnlyList<string?>? fromRecords = null, IReadOnlyList<string?>? opOrigins = null)
     {
         if (ops.Count == 0)
             return WritePatchBuilder.PatchOutcome.Fail("no operations supplied.");
@@ -4474,7 +4474,9 @@ public sealed class LoadOrderService : IDisposable
         {
             // fromRecords[i] is the §4.5 zip's per-op SOURCE RECORD (housecarl_apply's from=), carried parallel to
             // the op list because BulkOp — the 1.x published wire shape — deliberately gains no new member.
-            var edit = MapEdit(ops[i], i, out var err, fromRecords is not null && i < fromRecords.Count ? fromRecords[i] : null);
+            var edit = MapEdit(ops[i], i, out var err,
+                fromRecords is not null && i < fromRecords.Count ? fromRecords[i] : null,
+                opOrigins is not null && i < opOrigins.Count ? opOrigins[i] : null);
             if (err is not null) problems.Add(err); else edits.Add(edit!);
         }
         if (problems.Count > 0)
@@ -4607,7 +4609,8 @@ public sealed class LoadOrderService : IDisposable
         if (targetPath is null)
             return WritePatchBuilder.PatchOutcome.Fail(
                 $"in-place target '{target}' is not an active plugin in the load order — name a plugin enabled in MO2, by its " +
-                "plugin filename (e.g. 'CoolWeapons.esp'). in-place edits the file the game actually loads. Nothing was written.");
+                "plugin filename (e.g. 'CoolWeapons.esp'). in-place edits the file the game actually loads. Nothing was written.")
+                with { Epoch = view.Epoch };
 
         // (2) CONSENT axis — the persistent, server-enforced first-touch handshake, keyed off the resolved path. NOT a
         //     sticky mode: each in-place write still names its own target=, so this only stops re-explaining the
@@ -4626,7 +4629,12 @@ public sealed class LoadOrderService : IDisposable
         else
         {
             if (!already && !acknowledge)
-                return WritePatchBuilder.PatchOutcome.NeedsAck(InPlaceHandshakeText(targetName, targetPath));
+                // Stamped like every other post-capture outcome (review [medium]): this branch is reached only
+                // after the view above resolved the target, and it is the MOST COMMON in-place response shape —
+                // an unstamped one would make the "every write response carries an epoch" contract false exactly
+                // where a caller most often meets it.
+                return WritePatchBuilder.PatchOutcome.NeedsAck(InPlaceHandshakeText(targetName, targetPath))
+                    with { Epoch = view.Epoch };
             if (!already && acknowledge)
             {
                 var (ok, err) = _store.RecordInPlaceAcknowledged(targetPath);
@@ -4639,7 +4647,7 @@ public sealed class LoadOrderService : IDisposable
         //     front with a clear message before any work). Kept in the dry run too: an unwritable parent is exactly
         //     what the real write would refuse on, and predicting that refusal is the dry run's job.
         if (InPlaceParentUnwritable(targetPath, out var why))
-            return WritePatchBuilder.PatchOutcome.Fail(why);
+            return WritePatchBuilder.PatchOutcome.Fail(why) with { Epoch = view.Epoch };
 
         // (4) The write — touched-record verify forced ON (the model-C substitute for the dropped whole-plugin floor).
         var outcome = WritePatchBuilder.ApplyInPlace(resolver, rulebook, edits, targetPath, targetName, fullReadback: true, dryRun, copyFromSources);
@@ -6193,10 +6201,13 @@ public sealed class LoadOrderService : IDisposable
     /// <summary>Map a wire op to a core <see cref="WritePatchBuilder.PatchEdit"/>: parse the FormID, split the dotted
     /// field path, and (if present) build the composition <see cref="StructSpec"/>. RecordType is NOT taken from the wire
     /// — the cleave derives it from the resolved winner. Returns null + a named error (Q3) on any malformed input.</summary>
-    WritePatchBuilder.PatchEdit? MapEdit(BulkOp op, int index, out string? error, string? fromRecord = null)
+    WritePatchBuilder.PatchEdit? MapEdit(BulkOp op, int index, out string? error, string? fromRecord = null, string? origin = null)
     {
         error = null;
-        var where = $"op[{index}]";
+        // The caller's OWN spelling for this edit. Ops written inline are op[i]; ops the §4.5 zip generated are
+        // named by the pair and path they came from — pointing a refusal at an op index the caller never wrote
+        // sends anyone fixing it to a line that does not exist (review [medium]).
+        var where = origin ?? $"op[{index}]";
         if (string.IsNullOrWhiteSpace(op.Formid)) { error = $"{where}: formid is required."; return null; }
         FormKey fk;
         try { fk = FormKey.Factory(op.Formid.Trim()); }
@@ -6253,6 +6264,17 @@ public sealed class LoadOrderService : IDisposable
                 error = $"{where}: from_plugin is only valid with verb=CopyFrom (got verb={verb}).";
             return null;
         }
+        // The "a copy carries no authored value" rule is independent of whether the POLE was named, so it is
+        // checked FIRST (review [high]): it used to sit below the from_plugin block, and the §4.5 cross-record
+        // shape (from= with no from_source=) returned early past it — so `op=CopyFrom, from=…, value="55"` was
+        // accepted and the value silently DISCARDED, while the same mistake WITH from_source= was refused by name.
+        // Nothing downstream catches it: the rulebook short-circuits CopyFrom to CopyFromLegality (which never
+        // sees Value), and the apply takes the CopyField branch. Two spellings of one mistake, one silent.
+        if (op.Value is not null || op.Values is not null || op.Entries is not null || spec is not null || specs is not null)
+        {
+            error = $"{where}: CopyFrom copies the field from the source record's version — it takes no value/values/entries/compose/composes.";
+            return null;
+        }
         if (string.IsNullOrWhiteSpace(op.FromPlugin))
         {
             // A named SOURCE RECORD (§4.5) identifies what to copy on its own, so the pole is optional and defaults
@@ -6260,11 +6282,6 @@ public sealed class LoadOrderService : IDisposable
             // from the target's own — required, or the op means nothing.
             if (hasSourceRecord) return null;
             error = $"{where}: CopyFrom requires from_plugin — the plugin whose version of this record to copy field_path from.";
-            return null;
-        }
-        if (op.Value is not null || op.Values is not null || op.Entries is not null || spec is not null || specs is not null)
-        {
-            error = $"{where}: CopyFrom copies the field from from_plugin's version — it takes no value/values/entries/compose/composes.";
             return null;
         }
         return op.FromPlugin.Trim();

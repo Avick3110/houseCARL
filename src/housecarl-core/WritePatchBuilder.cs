@@ -707,10 +707,11 @@ public static class WritePatchBuilder
                 $"cannot edit '{targetName}' in place: it was EXCLUDED from this session ({excluded}) — houseCARL won't " +
                 "re-serialize a plugin it can't fully parse (that would risk dropping the record it couldn't read, Q3). The file is UNTOUCHED.");
 
-        var resolved = new List<(PatchEdit edit, IMajorRecordGetter body, WriteRequest req, string label, IMajorRecordGetter? srcBody)>(edits.Count);
+        var resolved = new List<(PatchEdit edit, IMajorRecordGetter body, WriteRequest req, string label, IMajorRecordGetter? srcBody, bool selfSource)>(edits.Count);
         var problems = new List<string>();
         foreach (var e in edits)
         {
+            bool selfSource = false;   // the copy source lives in the TARGET's own file — see the lifetime note below
             var body = view.GetRecord(session, targetName, e.Target);
             if (body is null)
             {
@@ -753,10 +754,19 @@ public static class WritePatchBuilder
                 {
                     srcBody = view.GetRecord(session, srcPlugin, e.CopySource);
                     if (srcBody is null) { problems.Add(CopySourceMissing(e, srcPlugin)); continue; }
+                    // LIFETIME (review [high]): a source resolved out of the TARGET's own file comes from a session
+                    // overlay that Phase 4 disposes (ReleaseOverlay, before WriteInPlace) — while CopyField's
+                    // contract is that the source overlay outlives the serialize, because TransplantValue shares
+                    // directly-assignable immutables (strings, MemorySlice) BY REFERENCE. Reading through the
+                    // disposed overlay at serialize time is garbage bytes over the user's original, on the one lane
+                    // that keeps no backup. Pre-flight (the type gate below) may use this body; the APPLY must not,
+                    // so it is re-resolved from the mutable targetMod in Phase 3, which lives through the write.
+                    // Deliberately not refused: copying between two records of the same file is a legitimate job.
+                    if (string.Equals(srcPlugin, targetName, StringComparison.OrdinalIgnoreCase)) selfSource = true;
                 }
                 if (CrossTypeRefusal(e, srcBody, body) is { } typeErr) { problems.Add(typeErr); continue; }
             }
-            resolved.Add((e, body, req, label, srcBody));
+            resolved.Add((e, body, req, label, srcBody, selfSource));
         }
         if (problems.Count > 0)
             return PatchOutcome.Fail(
@@ -785,7 +795,7 @@ public static class WritePatchBuilder
         //     never a foreign override's. A nested record gets the target overlay's link cache on demand (released in
         //     Phase 4). A throw after pre-flight passed is a real engine inconsistency — fail the WHOLE call (Q3). ---
         var ops = new List<OpResult>(resolved.Count);
-        foreach (var (e, body, req, label, srcBody) in resolved)
+        foreach (var (e, body, req, label, srcBody, selfSource) in resolved)
         {
             try
             {
@@ -794,7 +804,22 @@ public static class WritePatchBuilder
                 // CopyFrom transplants the field FROM the resolved source body into the target's own record; every
                 // other verb applies to it directly (the same two-branch shape Apply uses — one engine, two lanes).
                 if (string.Equals(req.Verb, "CopyFrom", StringComparison.Ordinal))
-                    WriteEngine.CopyField(srcBody!, ov, req.Path);
+                {
+                    // A source in the TARGET's own file is re-read from the MUTABLE targetMod, never the session
+                    // overlay Phase 4 releases — see the lifetime note in Phase 1. targetMod outlives the serialize,
+                    // so the by-reference immutables CopyField shares stay valid through it.
+                    var copyFrom = srcBody;
+                    if (selfSource)
+                    {
+                        copyFrom = targetMod.EnumerateMajorRecords().FirstOrDefault(r => r.FormKey == e.CopySource);
+                        if (copyFrom is null)
+                            return PatchOutcome.Fail(
+                                $"refused applying [{label}] to {req.RecordType} {e.Target} — the copy source {e.CopySource} " +
+                                $"resolved in '{fileName}' at pre-flight but is not present in the opened file (a real " +
+                                $"inconsistency, surfaced not swallowed — Q3). The file is untouched.");
+                    }
+                    WriteEngine.CopyField(copyFrom!, ov, req.Path);
+                }
                 else
                     WriteEngine.ApplyVerb(ov, req);
                 var (after, landed) = DescribeApplied(ov, req);
