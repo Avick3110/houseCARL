@@ -707,7 +707,8 @@ internal static class RecordsGuardProbe
             Check(CountOf(dScanJson, "\"source\":") == 1,
                   "fold3 F1: a scan-lane delta's json envelope carries exactly ONE source property");
             var wScanSum = RecordsTools.Records(svc, types: new[] { "SPEL" }, walk: new RecordsTools.RecordsWalk());
-            Check(CountOf(wScanSum.Substring(0, Math.Max(0, wScanSum.IndexOf("epoch=", StringComparison.Ordinal))), "source=") == 1,
+            int wScanEp = wScanSum.IndexOf("epoch=", StringComparison.Ordinal);
+            Check(wScanEp > 0 && CountOf(wScanSum.Substring(0, wScanEp), "source=") == 1,
                   "fold3 F1: a scan-seeded walk's re-entered summary states ONE source arm");
             // F3: resolve_names is HONORED under the overlay post pole (link annotation resolves the effect).
             var ovlRn = RecordsTools.Records(svc, formids: new[] { Fid(spellA.FormKey) },
@@ -735,6 +736,25 @@ internal static class RecordsGuardProbe
                                                  walk: new RecordsTools.RecordsWalk());
             Check(denseWalk.StartsWith("error:") && denseWalk.Contains("dense"),
                   "fold3 F7: dense + walk refuses up front (was: the scan-lane walk ran, then rendered TEXT under dense)");
+
+            // ---- PR #309 round-4 folds (R3-1/R3-2/R3-3) ----
+            var treeOffSel = RecordsTools.Records(svc, types: new[] { "WEAP" }, source: Je($"\"{oldName}\""), format: "json",
+                                                  project: new RecordsTools.RecordsProject { form = "tree" });
+            Check(treeOffSel.Contains("OUT-OF-LOAD-ORDER") && treeOffSel.Contains("\"versus\": \"winner\"")
+                  && CountOf(treeOffSel, "\"source\":") == 1,
+                  "fold4 R3-1: an off-order tree's envelope keeps the SELECTION arm in source and the reference in versus");
+            var treeSrcList = RecordsTools.Records(svc, formids: new[] { Fid(weapons[0]) }, source: Je($"\"{ovName}\""),
+                                                   project: new RecordsTools.RecordsProject { form = "tree" });
+            Check(treeSrcList.StartsWith("error:") && treeSrcList.Contains("no subject"),
+                  "fold4 R3-1: source= on the list-lane tree refuses by name (a tree has no subject)");
+            var fsNoop = RecordsTools.Records(svc, formids: new[] { Fid(spellA.FormKey) }, fields_source: "scoped",
+                                              walk: new RecordsTools.RecordsWalk());
+            Check(!fsNoop.StartsWith("error:"),
+                  "fold4 R3-3: fields_source='scoped' (the documented no-op default) stays accepted under a walk");
+            var fsBogusWalk = RecordsTools.Records(svc, formids: new[] { Fid(spellA.FormKey) }, fields_source: "winnner",
+                                                   walk: new RecordsTools.RecordsWalk());
+            Check(fsBogusWalk.StartsWith("error:") && fsBogusWalk.Contains("winnner"),
+                  "fold4 R3-3: an unknown fields_source under a walk gets the not-a-known-source refusal, by value");
 
             // ============================================================================================
             //  5 — TRANSPORT: to_file + @artifact re-entry, epoch-checked
