@@ -88,17 +88,32 @@ internal static class RecordsGuardProbe
             ((IWeapon)WriteEngine.GenericGetOrAddAsOverride(ovMod, master.Weapons.First(w => w.FormKey == weapons[2])))
                 .IsDeleted = true;
 
+            // W2 PR 2 additions: a MID override (P2's mid-stack subject), and an NPC template pair for
+            // the TemplateFlags interpreter (child inherits Traits from parent; Stats stay local).
+            var midKey = new ModKey("HcRecMid", ModType.Plugin);
+            string midName = midKey.FileName.String;
+            var npcParent = master.Npcs.AddNew(); npcParent.EditorID = "HcRecNpcParent";
+            var npcChild = master.Npcs.AddNew(); npcChild.EditorID = "HcRecNpcChild";
+            npcChild.Template.SetTo(npcParent.FormKey);
+            npcChild.Configuration.TemplateFlags |= NpcConfiguration.TemplateFlag.Traits;
+
             var oldMod = new SkyrimMod(oldKey, SkyrimRelease.SkyrimSE);
             ((IWeapon)WriteEngine.GenericGetOrAddAsOverride(oldMod, master.Weapons.First(w => w.FormKey == weapons[1])))
                 .BasicStats = new WeaponBasicStats { Damage = 55, Weight = 1 };
 
+            var midMod = new SkyrimMod(midKey, SkyrimRelease.SkyrimSE);
+            ((IWeapon)WriteEngine.GenericGetOrAddAsOverride(midMod, master.Weapons.First(w => w.FormKey == weapons[0])))
+                .BasicStats = new WeaponBasicStats { Damage = 50, Weight = 1 };
+
             var inst = Path.Combine(root, "inst");
             var mods = Path.Combine(inst, "mods");
-            foreach (var d in new[] { "MasterMod", "OverrideMod", "OldMod" }) Directory.CreateDirectory(Path.Combine(mods, d));
+            foreach (var d in new[] { "MasterMod", "MidMod", "OverrideMod", "OldMod" }) Directory.CreateDirectory(Path.Combine(mods, d));
             var masterFile = Path.Combine(mods, "MasterMod", masterName);
             var ovFile = Path.Combine(mods, "OverrideMod", ovName);
             var oldFile = Path.Combine(mods, "OldMod", oldName);
+            var midFile = Path.Combine(mods, "MidMod", midName);
             master.BeginWrite.ToPath(masterFile).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
+            midMod.BeginWrite.ToPath(midFile).WithLoadOrder(new ISkyrimModGetter[] { master }).Write();
             ovMod.BeginWrite.ToPath(ovFile).WithLoadOrder(new ISkyrimModGetter[] { master }).Write();
             oldMod.BeginWrite.ToPath(oldFile).WithLoadOrder(new ISkyrimModGetter[] { master }).Write();
 
@@ -213,9 +228,9 @@ internal static class RecordsGuardProbe
                 + Path.Combine(root, "game").Replace(@"\", @"\\") + ")\r\n");
             var prof = Path.Combine(inst, "profiles", "Default");
             Directory.CreateDirectory(prof);
-            File.WriteAllText(Path.Combine(prof, "loadorder.txt"), "# header\r\n" + masterName + "\r\n" + ovName + "\r\n");
-            File.WriteAllText(Path.Combine(prof, "plugins.txt"), "*" + masterName + "\r\n*" + ovName + "\r\n");
-            File.WriteAllText(Path.Combine(prof, "modlist.txt"), "# header\r\n-OldMod\r\n+OverrideMod\r\n+MasterMod\r\n");
+            File.WriteAllText(Path.Combine(prof, "loadorder.txt"), "# header\r\n" + masterName + "\r\n" + midName + "\r\n" + ovName + "\r\n");
+            File.WriteAllText(Path.Combine(prof, "plugins.txt"), "*" + masterName + "\r\n*" + midName + "\r\n*" + ovName + "\r\n");
+            File.WriteAllText(Path.Combine(prof, "modlist.txt"), "# header\r\n-OldMod\r\n+OverrideMod\r\n+MidMod\r\n+MasterMod\r\n");
             var store = new UserConfigStore(Path.Combine(root, "user.json"));
             using var svc = LoadOrderService.WithInstance(inst, 0, store);
             var epoch0 = svc.Stats().epoch;
@@ -396,11 +411,9 @@ internal static class RecordsGuardProbe
 
             // Off-order scan: offset= and counts_only= refuse by name (finding 5).
             var offOffset = RecordsTools.Records(svc, types: new[] { "WEAP" }, source: Je($"\"{oldName}\""), offset: 500);
-            Console.WriteLine("DBG-OFFSET: " + offOffset.Substring(0, Math.Min(400, offOffset.Length)).Replace("\n", " | "));
             Check(!offOffset.StartsWith("error:") && offOffset.Contains("offset=500 skipped past"),
                   "off-order scan: offset= pages in exact windows (past-the-end renders the true total, no rows)");
             var offCounts = RecordsTools.Records(svc, types: new[] { "WEAP" }, source: Je($"\"{oldName}\""), counts_only: true);
-            Console.WriteLine("DBG-COUNTS: " + offCounts.Substring(0, Math.Min(400, offCounts.Length)).Replace("\n", " | "));
             Check(!offCounts.StartsWith("error:") && offCounts.Contains("1 match"),
                   "off-order scan: counts_only= returns the census over the file's records");
 
@@ -476,6 +489,149 @@ internal static class RecordsGuardProbe
             var pathScan = RecordsTools.Records(svc, types: new[] { "WEAP" }, source: Je(JsonSerializer.Serialize(ovFile)));
             Check(pathScan.Contains("active in the load order") && pathScan.Contains("HcRecW0") && !pathScan.StartsWith("error:"),
                   "a path-form source= on the scan lane resolves to its active plugin and the scan RUNS (was a refusal after a correct arm statement)");
+
+
+            // ============================================================================================
+            //  6 — W2 PR 2: the comparison/traversal forms, poles, and compositions
+            // ============================================================================================
+            Console.WriteLine();
+            Console.WriteLine("--- 6: W2 PR 2 — delta/tree/chain/info_order, poles, compositions ---");
+
+            // delta + previous_provider, the four §4.3 pins over the 3-deep stack on W0 (master < mid < override).
+            var d1 = RecordsTools.Records(svc, formids: new[] { Fid(weapons[0]) }, source: Je($"\"{ovName}\""),
+                                          versus: Je("\"previous_provider\""),
+                                          project: new RecordsTools.RecordsProject { form = "delta" });
+            Check(!d1.StartsWith("error:") && d1.Contains("previous provider") && d1.Contains(midName) && d1.Contains("Damage"),
+                  "delta P1: subject wins — the reference is the plugin immediately below (the MID override)");
+            var d2 = RecordsTools.Records(svc, formids: new[] { Fid(weapons[0]) }, source: Je($"\"{midName}\""),
+                                          versus: Je("\"previous_provider\""),
+                                          project: new RecordsTools.RecordsProject { form = "delta" });
+            Check(!d2.StartsWith("error:") && d2.Contains(masterName) && d2.Contains("stack above the subject") && d2.Contains(ovName)
+                  && !d2.Contains("consider") && !d2.Contains("should"),
+                  "delta P2: a mid-stack subject still measures BELOW ITSELF; what outranks it is stated as neutral FACT (§4.3)");
+            var d3 = RecordsTools.Records(svc, formids: new[] { Fid(weapons[0]) }, source: Je($"\"{masterName}\""),
+                                          versus: Je("\"previous_provider\""),
+                                          project: new RecordsTools.RecordsProject { form = "delta" });
+            Check(d3.Contains("no previous provider") && d3.Contains("DEFINES"),
+                  "delta P3: the defining subject refuses loud — never an empty diff that reads as 'no changes'");
+            var d4 = RecordsTools.Records(svc, formids: new[] { Fid(weapons[1]) }, source: Je($"\"{ovName}\""),
+                                          versus: Je("\"previous_provider\""),
+                                          project: new RecordsTools.RecordsProject { form = "delta" });
+            Check(d4.Contains("does not define or override") && d4.Contains("Touched by") && d4.Contains(masterName),
+                  "delta P4: a subject that doesn't touch the record refuses naming the actual touchers");
+
+            var dNoV = RecordsTools.Records(svc, formids: new[] { Fid(weapons[0]) },
+                                            project: new RecordsTools.RecordsProject { form = "delta" });
+            Check(dNoV.StartsWith("error:") && dNoV.Contains("versus"),
+                  "the delta form REQUIRES versus= (a delta has two poles)");
+            var vStray = RecordsTools.Records(svc, formids: new[] { Fid(weapons[0]) }, versus: Je("\"winner\""));
+            Check(vStray.StartsWith("error:") && vStray.Contains("delta"),
+                  "versus= outside the comparison forms refuses naming them (form-scoping, never accepted-and-dropped)");
+            var srcPrev = RecordsTools.Records(svc, formids: new[] { Fid(weapons[0]) }, source: Je("\"previous_provider\""),
+                                               versus: Je("\"winner\""),
+                                               project: new RecordsTools.RecordsProject { form = "delta" });
+            Check(srcPrev.StartsWith("error:") && srcPrev.Contains("SUBJECT"),
+                  "the inverted composition (source='previous_provider') refuses naming the subject rule");
+
+            // delta against an off-order reference: the coverage is declared, the file's own value shows.
+            var dOff = RecordsTools.Records(svc, formids: new[] { Fid(weapons[1]) }, versus: Je($"\"{oldName}\""),
+                                            project: new RecordsTools.RecordsProject { form = "delta" });
+            Check(!dOff.StartsWith("error:") && dOff.Contains("OUTSIDE the epoch fingerprint") && dOff.Contains("55"),
+                  "delta vs an OFF-ORDER reference: the one-pole rule serves the file's version, coverage declared");
+            var dSame = RecordsTools.Records(svc, formids: new[] { Fid(weapons[0]) }, source: Je($"\"{ovName}\""),
+                                             versus: Je($"\"{ovName}\""),
+                                             project: new RecordsTools.RecordsProject { form = "delta" });
+            Check(dSame.Contains("SAME provider"),
+                  "both poles resolving to one provider is SAID (trivially empty by construction), never silent");
+
+            // tree: json render exists (committed) and the artifact row form makes trees spillable.
+            var tJson = RecordsTools.Records(svc, formids: new[] { Fid(weapons[0]) }, format: "json",
+                                             project: new RecordsTools.RecordsProject { form = "tree" });
+            Check(tJson.Contains("\"nodes\"") && tJson.Contains("\"touchers\"") && tJson.Contains("\"is_winner\""),
+                  "tree in json: the committed render (the 1.x text-only refusal died by construction)");
+            var treeArt = Path.Combine(root, "results", "tree.jsonl");
+            var tFile = RecordsTools.Records(svc, formids: new[] { Fid(weapons[0]) }, to_file: treeArt,
+                                             project: new RecordsTools.RecordsProject { form = "tree" });
+            Check(File.Exists(treeArt) && tFile.Contains(treeArt),
+                  "tree + to_file: trees SPILL (PR #306 fold-decision 1 — the row form exists now)");
+
+            // scan-lane delta: the scan SELECTS, the engine compares, totals stated.
+            var dScan = RecordsTools.Records(svc, types: new[] { "WEAP" }, where: new[] { $"winner = {ovName}" },
+                                             source: Je($"\"{ovName}\""), versus: Je("\"previous_provider\""),
+                                             project: new RecordsTools.RecordsProject { form = "delta" });
+            Check(!dScan.StartsWith("error:") && dScan.Contains("selected by the scan") && dScan.Contains(midName),
+                  "delta on the scan lane: scan selects (winner term), the comparison rides the selection");
+
+            // chain: forward named-follow and closure walks reach the spell's effect.
+            var chF = RecordsTools.Records(svc, formids: new[] { Fid(spellA.FormKey) },
+                                           walk: new RecordsTools.RecordsWalk { follow = "Effects" },
+                                           project: new RecordsTools.RecordsProject { form = "chain" });
+            Check(!chF.StartsWith("error:") && chF.Contains("HcRecMgefFire"),
+                  "chain forward, follow='Effects': the spell's effect link is reached with provenance");
+            var chAll = RecordsTools.Records(svc, formids: new[] { Fid(spellA.FormKey) },
+                                             walk: new RecordsTools.RecordsWalk(),
+                                             project: new RecordsTools.RecordsProject { form = "chain" });
+            Check(!chAll.StartsWith("error:") && chAll.Contains("HcRecMgefFire"),
+                  "chain forward closure (follow omitted): every link expands via the generic enumeration");
+            var walkSel = RecordsTools.Records(svc, formids: new[] { Fid(spellA.FormKey) },
+                                               walk: new RecordsTools.RecordsWalk());
+            Check(!walkSel.StartsWith("error:") && walkSel.Contains("HcRecSpellA") && walkSel.Contains("HcRecMgefFire")
+                  && walkSel.Contains("selection ="),
+                  "walk WITHOUT chain: the reached set (seeds included, declared) feeds the summary form");
+
+            // the NPC_ TemplateFlags interpreter (§3.3 registry entry #1).
+            var tpl = RecordsTools.Records(svc, formids: new[] { Fid(npcChild.FormKey) },
+                                           walk: new RecordsTools.RecordsWalk { follow = "Template" },
+                                           project: new RecordsTools.RecordsProject { form = "chain" });
+            Check(tpl.Contains("Traits: INHERITED from") && tpl.Contains("HcRecNpcParent") && tpl.Contains("Stats: local data ACTIVE"),
+                  "TemplateFlags interpreter: inherited categories name their PROVIDER; clear flags read local-active");
+
+            // the reverse MGEF lane (the effect_chain absorption): payload rows + the loud typed gate.
+            var rev = RecordsTools.Records(svc, formids: new[] { Fid(mgefA.FormKey) },
+                                           walk: new RecordsTools.RecordsWalk { direction = "reverse" },
+                                           project: new RecordsTools.RecordsProject { form = "chain" });
+            Check(!rev.StartsWith("error:") && rev.Contains("HcRecSpellA") && !rev.Contains("HcRecSpellB"),
+                  "reverse MGEF lane: the carriers of THIS effect, with the matching entry's payload");
+            var revBad = RecordsTools.Records(svc, formids: new[] { Fid(weapons[0]) },
+                                              walk: new RecordsTools.RecordsWalk { direction = "reverse" },
+                                              project: new RecordsTools.RecordsProject { form = "chain" });
+            Check(revBad.Contains("error") && (revBad.Contains("MagicEffect") || revBad.Contains("MGEF")),
+                  "reverse with a non-MGEF seed fails LOUD naming the type (never a silent '0 carriers')");
+            var revDeep = RecordsTools.Records(svc, formids: new[] { Fid(mgefA.FormKey) },
+                                               walk: new RecordsTools.RecordsWalk { direction = "reverse", depth = 3 },
+                                               project: new RecordsTools.RecordsProject { form = "chain" });
+            Check(revDeep.StartsWith("error:") && revDeep.Contains("reverse-reference index"),
+                  "reverse depth>1 refuses naming the reverse-reference index as the future capability (§3.2)");
+
+            // info_order: a non-DIAL target refuses TYPED with the quest-composition teaching.
+            var io = RecordsTools.Records(svc, formids: new[] { Fid(weapons[0]) },
+                                          project: new RecordsTools.RecordsProject { form = "info_order" });
+            Check(io.Contains("DIAL") && io.Contains("Quest ="),
+                  "info_order on a non-DIAL: a typed per-item refusal teaching the quest fan-out composition");
+
+            // the overlay source: post-state bodies read (no INI layer here, so post IS the winner), coverage declared.
+            var ovl = RecordsTools.Records(svc, formids: new[] { Fid(weapons[0]) },
+                                           source: Je("{\"overlay\": \"skypatcher\", \"state\": \"post\"}"),
+                                           project: new RecordsTools.RecordsProject { form = "fields", fields = new[] { "BasicStats.Damage" } });
+            Check(!ovl.StartsWith("error:") && ovl.Contains("99") && ovl.Contains("OUTSIDE the epoch fingerprint"),
+                  "overlay post source: the replayed body is read; INI content declared outside the fingerprint");
+            var ovlD = RecordsTools.Records(svc, formids: new[] { Fid(weapons[0]) },
+                                            source: Je("{\"overlay\": \"skypatcher\", \"state\": \"pre\"}"),
+                                            versus: Je("{\"overlay\": \"skypatcher\", \"state\": \"post\"}"),
+                                            project: new RecordsTools.RecordsProject { form = "delta" });
+            Check(!ovlD.StartsWith("error:") && ovlD.Contains("identical"),
+                  "pre-vs-post overlay delta: no INI layer here, so the two states agree (an honest identical)");
+
+            // scope-vs-pole streams: plugins= selects, source= is whose version the body forms read.
+            var sp = RecordsTools.Records(svc, types: null, plugins: new RecordsTools.RecordsScope { names = new[] { masterName } },
+                                          source: Je($"\"{ovName}\""),
+                                          project: new RecordsTools.RecordsProject { form = "fields", fields = new[] { "BasicStats.Damage" } });
+            Check(!sp.StartsWith("error:") && sp.Contains("99") && sp.Contains("not_touched"),
+                  "scope-vs-pole: the scope's matches read from the pole; untouched ones counted + named (§4.2)");
+            var spSum = RecordsTools.Records(svc, plugins: new RecordsTools.RecordsScope { names = new[] { masterName } },
+                                             source: Je($"\"{ovName}\""));
+            Check(spSum.StartsWith("error:") && spSum.Contains("identity facts"),
+                  "scope-vs-pole + summary refuses by name (the pole changes nothing there — never accepted-and-dropped)");
 
             // ============================================================================================
             //  5 — TRANSPORT: to_file + @artifact re-entry, epoch-checked

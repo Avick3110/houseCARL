@@ -8,6 +8,38 @@ when it changes.
 
 *Accumulating notes for the next cut — not yet released; `plugin.json` still reads the last shipped version.*
 
+**`housecarl_records` completed: the comparison and traversal forms, every SOURCE pole, and the full SELECT
+composition (W2 PR 2).** Every staging refusal from the core wave is now a capability. **Comparisons:**
+`project={"form": "delta"}` diffs the SUBJECT (`source=`) against a REFERENCE (`versus=`) and returns only what
+differs — `versus="previous_provider"` answers *what did this plugin change relative to what sat beneath it*
+(measured FROM the subject, never from the winner; a mid-stack subject reports what outranks it as plain fact, a
+defining subject refuses rather than rendering an empty diff, and a subject that doesn't touch a record refuses
+naming its actual touchers); `project={"form": "tree"}` is the conflict view as a form — every provider of each
+record, winner last, each diffed against the reference pole — **now with a json render and a row form, so trees
+spill to artifacts like every other result**. **Traversal:** `walk=` follows record-to-record links from the
+call's own selection (seed paths, a named `follow=` chain or full closure, caller-supplied stop/refuse
+exclusions, recorded cycles, explicit caps); `project={"form": "chain"}` renders the paths with provenance —
+and an NPC `follow="Template"` walk adds the TemplateFlags report: per inheritance category, whether the NPC's
+own data is active or masked and WHICH record in the chain provides it. `walk={"direction": "reverse"}` over an
+MGEF traces every SPEL/ENCH/ALCH/SCRL/INGR applying it with the matching entry's magnitude/area/duration (the
+`effect_chain` job); any other reading form consumes what a walk reaches as its selection.
+**`project={"form": "info_order"}`** renders a dialogue topic's effective MERGED INFO sequence across every
+touching plugin — the order the game actually walks, MOVED lines annotated — with honest incompleteness
+reporting when a contributor can't be read (a quest fans out by composition: `types=["DIAL"]
+where=["Quest = <formid>"]`). **Poles:** `source={"overlay": "skypatcher", "state": "pre"|"post"}` reads records
+around the SkyPatcher INI layer (post-state bodies for any reading form; pre-vs-post is a delta of the two
+poles; INI content is declared outside the epoch fingerprint). **Composition:** `formids=` now composes with
+every scan term (the identity set intersects the scan, or alone IS the scan's bound); a `plugins=` scope
+combines with a named `source=` (the scope selects, the pole's version is read — untouched records counted and
+named, never silently absent); and the out-of-load-order scan lane carries the complete grammar (multi-type,
+the full `where=` predicate set over the file's own bodies, `references=`, windows, counts, artifacts,
+comparisons). Every two-capture seam (scan→compare, walk→read, probe→scan) is epoch-compared — a load-order
+change mid-call refuses loudly rather than mixing builds. The 8 absorbed 1.x read tools stay registered through
+the build waves; from 2.0.0's clean cut, a call naming one answers with its successor `housecarl_records`
+spelling instead of a generic unknown-tool error. Guarded by the extended `records-guard` (incl. the four
+`previous_provider` probe pins) in CI; alias CENSUS re-baked (113 → 119 — `versus=`/`walk=` activate the
+`plugin_a`/`plugin_b`/`mod_a`/`mod_b`/`mgef_formid`/`closure` hints).
+
 **New tool: `housecarl_records` — the 2.0 read surface, core forms (W2 PR 1).** One read call composes *which
 records* (SELECT: `formids=` incl. `@file`/artifact re-entry · set-valued `types=` · a structured `plugins=` scope
 with `defined_in` inside it · `conflicts_only=` · the `where=` grammar · `references=`) × *whose version* (SOURCE:
