@@ -3654,13 +3654,19 @@ public sealed class LoadOrderService : IDisposable
         => CrossQuery(type is null ? null : new[] { type }, references, editoridContains, conflictsOnly, plugins, where,
                       limit, definedIn, groupBy, offset, whereSource, artifactDemands);
 
+    /// <summary>W2 PR 2 — the formids×scan composition: <paramref name="formidSet"/> intersects the selection
+    /// with an explicit identity set (inline or artifact-fed). With a body-bearing scope it is a cheap pre-filter
+    /// on the stream; ALONE it IS the scan universe — each key's winner body is fetched and filtered, so a where=
+    /// over a formid set needs no types=/plugins= bound (the set is the bound).</summary>
+
     /// <summary>The W2 set-valued-types overload (`records` types= is a SET; one is a degenerate set — SPEC §2.2).
     /// Each entry resolves through the same <see cref="ResolveTypeFilter"/> the singular form used; the scan streams
     /// the UNION of the resolved type groups.</summary>
     public CrossQueryOutcome CrossQuery(IReadOnlyList<string>? typeSet, IReadOnlyList<FormKey>? references, string? editoridContains,
                                         bool conflictsOnly, IReadOnlyList<string>? plugins, IReadOnlyList<string>? where, int limit,
                                         bool definedIn = false, string? groupBy = null, int offset = 0, string? whereSource = null,
-                                        IReadOnlyList<ArtifactDemand>? artifactDemands = null)
+                                        IReadOnlyList<ArtifactDemand>? artifactDemands = null,
+                                        IReadOnlyList<FormKey>? formidSet = null)
     {
         var resolver = Resolver;
         var view = resolver.Capture();          // ONE build for the SCAN and every per-match fill it makes (HCBR-2026-06-11-02)
@@ -3669,10 +3675,13 @@ public sealed class LoadOrderService : IDisposable
         bool hasWhere = where is { Count: > 0 };
         bool hasReferences = references is { Count: > 0 };
         bool bodyFilter = hasReferences || !string.IsNullOrEmpty(editoridContains) || hasWhere;
+        bool hasFormidSet = formidSet is { Count: > 0 };
 
-        if (!hasType && !conflictsOnly && !hasPlugins && !bodyFilter)
+        if (!hasType && !conflictsOnly && !hasPlugins && !bodyFilter && !hasFormidSet)
             return CrossQueryOutcome.Fail("cross_plugin_query needs at least one of: type=, conflicts_only=true, editorid_contains=, references=, where=, or plugins=.");
-        if (bodyFilter && !hasType && !hasPlugins)
+        // A formid set is itself a bound: the scan touches at most those keys, so a body filter over one needs no
+        // types=/plugins= (the W2 formids×scan composition).
+        if (bodyFilter && !hasType && !hasPlugins && !hasFormidSet)
             return CrossQueryOutcome.Fail("editorid_contains/references/where is a body scan and must be combined with type= or plugins= to bound it (conflicts_only= alone is not enough — an unbounded body scan over the whole order is refused). A global reverse-reference index is a future capability.");
 
         // defined_in= keeps only records DEFINED in the scoped plugins (origin FormKey), the catalogue-scope semantics
@@ -3728,7 +3737,7 @@ public sealed class LoadOrderService : IDisposable
             groupBy = groupBy.Trim().ToLowerInvariant();
             if (groupBy is not ("winner" or "type" or "defined_in"))
                 return CrossQueryOutcome.Fail($"group_by='{groupBy}' is not a known aggregation key — use 'winner', 'type', or 'defined_in'.");
-            if (groupBy == "type" && !hasType && !hasPlugins)
+            if (groupBy == "type" && !hasType && !hasPlugins && !hasFormidSet)
                 return CrossQueryOutcome.Fail("group_by=type needs each match's type, which requires a body-bearing scope — add type= or plugins= (winner/defined_in group without a body).");
         }
         var refSet = hasReferences ? new HashSet<FormKey>(references!) : null;
@@ -3769,10 +3778,11 @@ public sealed class LoadOrderService : IDisposable
         }
         catch (ArgumentException ex) { return CrossQueryOutcome.Fail(ex.Message); }   // unknown type
 
+        IReadOnlyList<Type>? typesForSet = types;   // the set-alone branch type-checks bodies directly
         var keys = new List<FormKey>();
         var sources = new List<string?>();                                    // parallel to keys: the plugin whose body matched (null ⇒ winner), so the render displays the SAME body it filtered
         List<string?>? matched = multiTarget ? new() : null;                  // parallel to keys: which target(s) each hit referenced (multi-target references= un-merge); null when 0/1 target
-        List<RecordSummary>? prefilled = (hasType || hasPlugins) ? new() : null;   // parallel to keys; null = renderer fills lazily
+        List<RecordSummary>? prefilled = (hasType || hasPlugins || hasFormidSet) ? new() : null;   // parallel to keys; null = renderer fills lazily
         // OrdinalIgnoreCase so case-variant spellings of the SAME plugin — a master listed as `ccBGSSSE025-AdvDSGS.esm`
         // in one plugin's masters and `ccbgssse025-advdsgs.esm` in another's — merge into ONE group instead of splitting
         // the count (#248). Plugin filenames are case-insensitive identifiers everywhere else in houseCARL (and in the
@@ -3783,7 +3793,89 @@ public sealed class LoadOrderService : IDisposable
         int unscannable = 0;                                                  // records whose body tests THREW (Mutagen-unparseable content) — excluded + accounted, never silent (Q3)
         var unscannableSamples = new List<string>();
 
-        if (hasType || hasPlugins)                                            // a body-bearing scope: stream + filter in hand
+        HashSet<FormKey>? setFilter = hasFormidSet ? new HashSet<FormKey>(formidSet!) : null;
+        if (!hasType && !hasPlugins && hasFormidSet && !conflictsOnly)        // the formid set ALONE is the universe: per-key winner fetch
+        {
+            LoadOrderResolver.OverlaySession? setSession = null;
+            try
+            {
+                setSession = resolver.OpenSession();
+                var sess = setSession;
+                predicate?.BindResolution(
+                    fk => view.ResolveWinner(fk)?.WinnerPlugin,
+                    predicate.NeedsBodyResolution
+                        ? fk =>
+                        {
+                            var w = view.ResolveWinner(fk);
+                            return w is null ? null : view.GetRecord(sess, w.Value.WinnerPlugin, fk);
+                        }
+                        : null);
+                var seenSet = new HashSet<FormKey>();
+                foreach (var fk in formidSet!)
+                {
+                    if (!seenSet.Add(fk)) continue;
+                    var w = view.ResolveWinner(fk);
+                    if (w is null) continue;                                  // not in the order — a clean non-match for a SCAN (per-item errors are the formids= list lane's shape)
+                    try
+                    {
+                        var body = view.GetRecord(setSession, w.Value.WinnerPlugin, fk);
+                        if (body is null)
+                        {
+                            unscannable++;
+                            if (unscannableSamples.Count < 3)
+                                unscannableSamples.Add($"{fk} — winner '{w.Value.WinnerPlugin}' did not yield the record on fetch");
+                            continue;
+                        }
+                        if (conflictsOnly && (view.TouchingPlugins(fk)?.Count ?? 0) <= 1) continue;
+                        if (DeletedRecordRule.HasNoLiveBody(body)
+                            && (refSet is not null || predicate is { NeedsLiveBody: true })) continue;
+                        if (!string.IsNullOrEmpty(editoridContains)
+                            && (body.EditorID is null || body.EditorID.IndexOf(editoridContains, StringComparison.OrdinalIgnoreCase) < 0))
+                            continue;
+                        List<FormKey>? hitTargets = null;
+                        if (refSet is not null)
+                        {
+                            if (body is not IFormLinkContainerGetter flc) continue;
+                            var hitSet = new HashSet<FormKey>();
+                            foreach (var l in flc.EnumerateFormLinks()) if (refSet.Contains(l.FormKey)) hitSet.Add(l.FormKey);
+                            if (hitSet.Count == 0) continue;
+                            if (multiTarget && groups is null) hitTargets = references!.Where(hitSet.Contains).Distinct().ToList();
+                        }
+                        if (typesForSet is not null && !typesForSet.Any(t => t.IsInstanceOfType(body))) continue;
+                        if (predicate is not null && !predicate.Matches(body))
+                        {
+                            if (predicate.FatalError is not null) break;
+                            continue;
+                        }
+                        total++;
+                        if (groups is not null)
+                        {
+                            var gk = groupBy == "type" ? RecordNaming.StripOverlay(body.GetType().Name)
+                                   : groupBy == "defined_in" ? fk.ModKey.FileName.ToString()
+                                   : w.Value.WinnerPlugin;
+                            groups[gk] = groups.GetValueOrDefault(gk) + 1;
+                        }
+                        else if (total > offset && keys.Count < limit)
+                        {
+                            keys.Add(fk);
+                            sources.Add(null);                                // the winner body is what matched and displays
+                            matched?.Add(hitTargets is not null ? string.Join(", ", hitTargets) : null);
+                            prefilled?.Add(new RecordSummary(fk, RecordNaming.StripOverlay(body.GetType().Name), body.EditorID,
+                                                             w.Value.WinnerPlugin, w.Value.OverrideDepth, null));
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        unscannable++;
+                        if (unscannableSamples.Count < 3)
+                            unscannableSamples.Add($"{fk} — {ex.GetType().Name}: {ex.Message}");
+                    }
+                }
+            }
+            finally { setSession?.Dispose(); }
+            if (predicate?.FatalError is not null) return CrossQueryOutcome.Fail(predicate.FatalError);
+        }
+        else if (hasType || hasPlugins)                                       // a body-bearing scope: stream + filter in hand
         {
             // RecordsIn / WinnerRecordsOfType are LAZY iterators: ScopeIndices (a plugin not in the order) and
             // EnumerateMajorRecords(throwIfUnknown) throw on ENUMERATION, not on creation — so the try must wrap the
@@ -3817,6 +3909,7 @@ public sealed class LoadOrderService : IDisposable
                                : view.WinnerRecordsOfType(types!).Select(x => (fk: x.fk, depth: x.depth, body: x.body, source: (string?)null));    // the load-order winner's body
                 foreach (var (fk, depth, body, source) in stream)
                 {
+                    if (setFilter is not null && !setFilter.Contains(fk)) continue;   // formids×scan: the identity intersection, cheapest first
                     if (conflictsOnly && depth <= 1) continue;
                     // defined_in=: keep only records whose ORIGIN FormKey is a scoped plugin (a DEFINITION here, not
                     // an override this plugin merely touches). A FormKey test — no body needed, so it runs before the try.
@@ -3930,6 +4023,7 @@ public sealed class LoadOrderService : IDisposable
             // group_by= here can only be winner/defined_in (type was refused up front — no body to name the type).
             foreach (var fk in view.ConflictKeys())
             {
+                if (setFilter is not null && !setFilter.Contains(fk)) continue;   // formids×scan on the index-only branch
                 total++;
                 if (groups is not null)
                 {
@@ -3963,6 +4057,187 @@ public sealed class LoadOrderService : IDisposable
                                      predicate?.AccountingNote(), sources, scanNote,
                                      matched, groupRows, groupBy, definedIn ? string.Join(", ", plugins!) : null, offset,
                                      whereWinner, whereSourceNote)
+               { Epoch = view.Epoch, Pin = new ViewPin(resolver, view) };
+    }
+
+    // ---- W2 PR 2: the OFF-ORDER scan completed (the read_plugin_file reach, full grammar) ---------------
+
+    /// <summary>The off-order scan, completed (W2 PR 2): the FILE's own records are the universe, with the same
+    /// filter grammar the in-order scan runs — multi-type, the full where= predicate set (its `winner` and `-&gt;`
+    /// terms bound to the ACTIVE view's resolution — declared: provenance is an active-order question even when
+    /// the bodies come from the file), references=, a plugins= scope (keep file records those ACTIVE plugins also
+    /// touch), defined_in (records the file itself DEFINES), group_by, exact windows, artifact-fed identity sets.
+    /// Returns the same outcome shape the in-order scan renders, sources naming the file on every row; the
+    /// caller declares the file's content outside the epoch fingerprint (the standing coverage rule).</summary>
+    public CrossQueryOutcome OffOrderQuery(PoleInfo pole, IReadOnlyList<string>? typeSet,
+        IReadOnlyList<FormKey>? references, string? editoridContains, IReadOnlyList<string>? scopePlugins,
+        bool definedIn, IReadOnlyList<string>? where, int limit, string? groupBy, int offset,
+        IReadOnlyList<FormKey>? formidSet, IReadOnlyList<ArtifactDemand>? artifactDemands)
+    {
+        var resolver = Resolver;
+        var view = resolver.Capture();
+
+        if (groupBy is not null)
+        {
+            groupBy = groupBy.Trim().ToLowerInvariant();
+            if (groupBy is not ("winner" or "type" or "defined_in"))
+                return CrossQueryOutcome.Fail($"group_by='{groupBy}' is not a known aggregation key — use 'winner', 'type', or 'defined_in'.");
+        }
+        if (offset < 0)
+            return CrossQueryOutcome.Fail($"offset={offset} — offset must be >= 0.");
+        if (offset > 0 && groupBy is not null)
+            return CrossQueryOutcome.Fail("group_by= aggregates ALL matches into a count table, so offset= has nothing to page — drop one.");
+
+        FieldPredicateSet? predicate = null;
+        if (where is { Count: > 0 })
+        {
+            var (set, perr) = FieldPredicateSet.Parse(where);
+            if (perr is not null) return CrossQueryOutcome.Fail(perr);
+            predicate = set;
+        }
+        foreach (var demand in (artifactDemands ?? Array.Empty<ArtifactDemand>()).Concat(
+                     predicate?.ArtifactDemands ?? (IReadOnlyList<ArtifactDemand>)Array.Empty<ArtifactDemand>()))
+            if (demand.Epoch != view.Epoch)
+                return CrossQueryOutcome.Fail(ArtifactEpochMismatch(demand, view.Epoch)) with { Epoch = view.Epoch };
+
+        IReadOnlyList<Type>? types;
+        try
+        {
+            if (typeSet is { Count: > 0 })
+            {
+                var union = new List<Type>();
+                foreach (var ts in typeSet)
+                    foreach (var t in ResolveTypeFilter(ts.Trim()))
+                        if (!union.Contains(t)) union.Add(t);
+                types = union;
+            }
+            else types = null;
+        }
+        catch (ArgumentException ex) { return CrossQueryOutcome.Fail(ex.Message); }
+
+        var scopeSet = scopePlugins is { Count: > 0 }
+            ? new HashSet<string>(scopePlugins.Select(p => p.Trim()), StringComparer.OrdinalIgnoreCase)
+            : null;
+        if (scopeSet is not null)
+            foreach (var p in scopeSet)
+                if (!view.ContainsPlugin(p))
+                    return CrossQueryOutcome.Fail($"plugins= scope '{p}' is not in the active load order — over an out-of-load-order file the scope keeps the file's records that ACTIVE plugins also touch, so the scope names active plugins.") with { Epoch = view.Epoch };
+
+        ModKey fileKey;
+        try { fileKey = ModKey.FromFileName(pole.Plugin); }
+        catch (Exception ex) { return CrossQueryOutcome.Fail($"'{pole.Plugin}' is not a valid plugin filename: {ex.Message}"); }
+
+        string dataDir;
+        try { lock (_gate) { EnsurePathsDerived(); dataDir = _dataDir; } }
+        catch (Exception ex) { return CrossQueryOutcome.Fail($"the MO2 roots couldn't be derived to open '{pole.Plugin}': {ex.Message}") with { Epoch = view.Epoch }; }
+        ISkyrimModGetter ov;
+        try { ov = LoadOrderResolver.OpenOverlay(pole.Path!, string.IsNullOrEmpty(dataDir) ? null : dataDir); }
+        catch (Exception ex) { return CrossQueryOutcome.Fail($"could not open '{pole.Path}' as a Skyrim plugin: {ex.Message}") with { Epoch = view.Epoch }; }
+
+        var refSet = references is { Count: > 0 } ? new HashSet<FormKey>(references) : null;
+        bool multiTarget = references is { Count: >= 2 };
+        var setFilter = formidSet is { Count: > 0 } ? new HashSet<FormKey>(formidSet) : null;
+
+        var keys = new List<FormKey>();
+        var sources = new List<string?>();
+        List<string?>? matched = multiTarget ? new() : null;
+        var prefilled = new List<RecordSummary>();
+        Dictionary<string, int>? groups = groupBy is not null ? new(StringComparer.OrdinalIgnoreCase) : null;
+        int total = 0, unscannable = 0;
+        var unscannableSamples = new List<string>();
+        LoadOrderResolver.OverlaySession? session = null;
+        try
+        {
+            if (predicate is not null)
+            {
+                // The provenance/link terms read the ACTIVE order's resolution — a `winner` term over an
+                // off-order file asks "who wins this key in MY order", and a `->` target resolves to its live
+                // winner body. Declared semantics, same binding discipline as the in-order scan.
+                session = (predicate.NeedsBodyResolution ? resolver.OpenSession() : null);
+                var sess = session;
+                predicate.BindResolution(
+                    fk => view.ResolveWinner(fk)?.WinnerPlugin,
+                    predicate.NeedsBodyResolution
+                        ? fk =>
+                        {
+                            var w = view.ResolveWinner(fk);
+                            return w is null ? null : view.GetRecord(sess!, w.Value.WinnerPlugin, fk);
+                        }
+                        : null);
+            }
+            var seen = new HashSet<FormKey>();
+            foreach (var rec in ov.EnumerateMajorRecords())
+            {
+                var fk = rec.FormKey;
+                if (!seen.Add(fk)) continue;
+                try
+                {
+                    if (setFilter is not null && !setFilter.Contains(fk)) continue;
+                    if (definedIn && fk.ModKey != fileKey) continue;
+                    if (types is not null && !types.Any(t => t.IsInstanceOfType(rec))) continue;
+                    if (scopeSet is not null)
+                    {
+                        var touchers = view.TouchingPlugins(fk);
+                        if (touchers is null || !touchers.Any(scopeSet.Contains)) continue;
+                    }
+                    if (DeletedRecordRule.HasNoLiveBody(rec)
+                        && (refSet is not null || predicate is { NeedsLiveBody: true })) continue;
+                    if (!string.IsNullOrEmpty(editoridContains)
+                        && (rec.EditorID is null || rec.EditorID.IndexOf(editoridContains, StringComparison.OrdinalIgnoreCase) < 0))
+                        continue;
+                    List<FormKey>? hitTargets = null;
+                    if (refSet is not null)
+                    {
+                        if (rec is not IFormLinkContainerGetter flc) continue;
+                        var hitSet = new HashSet<FormKey>();
+                        foreach (var l in flc.EnumerateFormLinks()) if (refSet.Contains(l.FormKey)) hitSet.Add(l.FormKey);
+                        if (hitSet.Count == 0) continue;
+                        if (multiTarget && groups is null) hitTargets = references!.Where(hitSet.Contains).Distinct().ToList();
+                    }
+                    if (predicate is not null && !predicate.Matches(rec))
+                    {
+                        if (predicate.FatalError is not null) break;
+                        continue;
+                    }
+                    total++;
+                    if (groups is not null)
+                    {
+                        var gk = groupBy == "type" ? RecordNaming.StripOverlay(rec.GetType().Name)
+                               : groupBy == "defined_in" ? fk.ModKey.FileName.ToString()
+                               : view.ResolveWinner(fk)?.WinnerPlugin ?? "(not in the active order)";
+                        groups[gk] = groups.GetValueOrDefault(gk) + 1;
+                    }
+                    else if (total > offset && keys.Count < limit)
+                    {
+                        var w = view.ResolveWinner(fk);
+                        keys.Add(fk);
+                        sources.Add(pole.Plugin);
+                        matched?.Add(hitTargets is not null ? string.Join(", ", hitTargets) : null);
+                        prefilled.Add(new RecordSummary(fk, RecordNaming.StripOverlay(rec.GetType().Name), rec.EditorID,
+                                                        w?.WinnerPlugin ?? "(not in the active order)", w?.OverrideDepth ?? 0, null));
+                    }
+                }
+                catch (Exception ex)
+                {
+                    unscannable++;
+                    if (unscannableSamples.Count < 3)
+                        unscannableSamples.Add($"{fk} in {pole.Plugin} — {ex.GetType().Name}: {ex.Message}");
+                }
+            }
+        }
+        catch (Exception ex) { return CrossQueryOutcome.Fail($"file '{pole.Plugin}' could not be fully read — {ex.GetType().Name}: {ex.Message}") with { Epoch = view.Epoch }; }
+        finally { session?.Dispose(); (ov as IDisposable)?.Dispose(); }
+        if (predicate?.FatalError is not null) return CrossQueryOutcome.Fail(predicate.FatalError) with { Epoch = view.Epoch };
+
+        string? scanNote = unscannable == 0 ? null
+            : $"note: {unscannable} record(s) in '{pole.Plugin}' could not be scanned and were skipped where the failure occurred: "
+              + string.Join("; ", unscannableSamples)
+              + (unscannable > unscannableSamples.Count ? $"; and {unscannable - unscannableSamples.Count} more" : "") + ".";
+        var groupRows = groups?.Select(kv => new GroupCount(kv.Key, kv.Value))
+                              .OrderByDescending(g => g.Count).ThenBy(g => g.Key, StringComparer.Ordinal).ToList();
+        return new CrossQueryOutcome(keys, prefilled, total, groups is null && total > offset + keys.Count, null,
+                                     predicate?.AccountingNote(), sources, scanNote, matched, groupRows, groupBy,
+                                     definedIn ? pole.Plugin : null, offset, false, null)
                { Epoch = view.Epoch, Pin = new ViewPin(resolver, view) };
     }
 
