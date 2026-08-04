@@ -293,8 +293,6 @@ public static class RecordsTools
             }
             if (references is { Length: > 0 })
                 return "error: walk= and references= are the same construct (references= IS the reverse walk at depth 1) — use one spelling per call.";
-            if (!string.IsNullOrWhiteSpace(fields_source))
-                return "error: fields_source= is the scan lane's display pole — a walk's reading forms display the source= pole's version of the reached set: name it via source= instead.";
             if (dense)
                 return "error: format='dense' renders positional columnar cells 1:1 with requested field paths, and a walk's outputs (chains; reached-set reads) have no fixed column set — use format='text' or 'json'.";
             if (comparisonForm || form is "info_order" or "identity")
@@ -312,17 +310,22 @@ public static class RecordsTools
         bool srcOverlay = srcSpec.Kind == LoadOrderService.PoleKind.Overlay;
 
         // ---- fields_source (display pole) ---------------------------------------------------------------
+        // Value first, THEN the lane rules (re-review R3-3): 'scoped'/'scanned' are the documented no-op
+        // defaults and stay accepted everywhere; only the actual RETARGET ('winner') is refused on the lanes
+        // that cannot honor it, and an unknown value always gets the not-a-known-source refusal.
         bool winnerFields = false;
         if (!string.IsNullOrWhiteSpace(fields_source))
         {
-            if (comparisonForm)
-                return $"error: fields_source= retargets what a matched row DISPLAYS, and the '{form}' form's display IS its two poles (source=/versus=) — name the version you want as a pole instead.";
-            if (form is "chain" or "info_order")
-                return $"error: fields_source= retargets FIELD display, and the '{form}' form renders no field values — drop it.";
             var fs = fields_source.Trim().ToLowerInvariant();
             if (fs == "winner") winnerFields = true;
             else if (fs is not ("scoped" or "scanned"))
                 return $"error: fields_source='{fields_source}' — use 'winner' (display the live winner's values) or omit it (display the matched body). A NAMED display pole is the scope-vs-pole composition: plugins= selects, source= names whose version the body forms read.";
+            if (winnerFields && comparisonForm)
+                return $"error: fields_source='winner' retargets what a matched row DISPLAYS, and the '{form}' form's display IS its two poles (source=/versus=) — name the version you want as a pole instead.";
+            if (winnerFields && form is "chain" or "info_order")
+                return $"error: fields_source='winner' retargets FIELD display, and the '{form}' form renders no field values — drop it.";
+            if (winnerFields && walk is not null)
+                return "error: fields_source='winner' — a walk's reading forms display the source= pole's version of the reached set: name the version via source= instead.";
         }
 
         // ---- lane decision ------------------------------------------------------------------------------
@@ -767,6 +770,8 @@ public static class RecordsTools
             }
             else   // tree
             {
+                if (srcSpec.Kind != LoadOrderService.PoleKind.Winner)
+                    return "error: the tree form has no subject — every provider of each record is on the bench, and the pole each is diffed against is versus=. Drop source= (or use form='delta' for a subject-vs-reference comparison).";
                 var rows = svc.TreeBatch(ids, versusSpec!, projFields, demand,
                                          out var rArm, out var covers, out var refusal, out var epoch);
                 if (refusal is not null)
@@ -819,7 +824,14 @@ public static class RecordsTools
         string TreeResponse(IReadOnlyList<LoadOrderService.TreeRow> rows, string? rArm, bool covers,
                             string? epoch, List<KeyValuePair<string, string>> echo)
         {
-            Arm(versusSpec!.Kind == LoadOrderService.PoleKind.Winner ? "winner (every provider diffed against it)" : $"reference: {rArm}");
+            // The tree has no subject: its REFERENCE rides the `versus` envelope key (delta's own convention),
+            // and `source` keeps the SELECTION arm — stated by the lane (scan/off-order), or the stack
+            // statement here on the list lane (first-wins; re-review R3-1: the reference in the source slot
+            // suppressed the selection arm that made epoch_covers_source intelligible).
+            var refStatement = versusSpec!.Kind == LoadOrderService.PoleKind.Winner ? "winner" : rArm ?? versusSpec.Label;
+            envelope.Add(new("versus", refStatement));
+            headerLine += $"  versus={refStatement}";
+            Arm("every provider of each record (the touching stack, winner last)");
             CoverageNote(covers);
             int contested = rows.Count(x => x.Error is null && x.Touchers.Count > 1);
             int errs = rows.Count(x => x.Error is not null);
@@ -910,9 +922,15 @@ public static class RecordsTools
             bool hasTypes = types is { Length: > 0 };
             bool hasScope = plugins?.names is { Length: > 0 };
             bool scopePlusPole = false;
-            // The derived-selection forms (comparisons, info_order, a walk's seeds) state their own source arm
-            // and consume EVERY match; known up front, used by the arm rule (F1) and the scan cap below.
+            // The derived-selection forms (comparisons, info_order, a walk's seeds) consume EVERY match;
+            // known up front, used by the scan cap below.
             bool derivedSelection = comparisonForm || form == "info_order" || walk is not null;
+            // The arm rule (F1, corrected in the round-4 fold): the scan pre-arm is skipped ONLY for forms
+            // whose pipeline states its own SOURCE arm (delta = the subject; info_order = the merge; a walk =
+            // the re-entered reading arm). The TREE has no subject — its reference lives in the `versus`
+            // envelope key — so the scan's own selection arm stays, which is exactly what discloses an
+            // off-order or scoped selection universe (re-review R3-1/R3-2).
+            bool pipelineArms = form == "delta" || form == "info_order" || walk is not null;
             if (hasBodyFilter && !hasTypes && !hasScope && !hasFormids)
                 return "error: where=/references= is a body scan and must be combined with types=, plugins=, or a formids= set to bound the work " +
                        "(conflicts_only= alone is not enough — an unbounded body scan over the whole order is refused; the " +
@@ -965,13 +983,17 @@ public static class RecordsTools
                     if (winnerFields)
                         return "error: fields_source='winner' and a named source= under a plugins= scope are TWO display poles on one call — the pole's version is what this composition reads. Drop fields_source= (or drop source= and keep fields_source='winner').";
                     scopePlusPole = true;
-                    Arm($"{probe.Plugin} — active in the load order (the plugins= scope selects; this pole's version is read)");
+                    // The scope statement is the truthful arm only for the forms that READ the pole's bodies;
+                    // delta's pipeline states its subject itself (R3-2). A scoped TREE reads every provider,
+                    // so the scope-selection arm (without the pole clause) is stated below like any scan.
+                    if (form == "tree") Arm($"{probe.Plugin} — scope-selected ({string.Join(", ", plugins!.names!)}); the tree reads every provider");
+                    else if (!pipelineArms) Arm($"{probe.Plugin} — active in the load order (the plugins= scope selects; this pole's version is read)");
                 }
-                else if (!derivedSelection)
+                else if (!pipelineArms)
                     // ACTIVE arm: the pole's records ARE the scan universe — the plugins= stream with the arm stated.
                     Arm($"{probe.Plugin} — active in the load order");
             }
-            else if (!derivedSelection) Arm("winner");   // the derived forms' pipelines state their own arm (F1)
+            else if (!pipelineArms) Arm("winner");   // delta/info_order/walk pipelines state their own arm (F1)
 
             // references= @file expansion + FormKey parse (mirrors cross_plugin_query).
             HousecarlCore.ArtifactDemand? refDemand = null; string? refEcho = null;
@@ -1240,10 +1262,9 @@ public static class RecordsTools
         // ================================================================================================
         string OffOrderScan(LoadOrderService.PoleInfo pole)
         {
-            // The comparison pipelines state their own subject arm (F1's one-statement rule; first-wins would
-            // otherwise pin the file arm on a delta whose subject is the file — same statement, so keep it for
-            // the reading forms and let the pipelines win on comparisons).
-            if (!comparisonForm) Arm($"{pole.Plugin} — {pole.Where}");
+            // The file arm is the SELECTION statement — stated for every form except delta, whose pipeline
+            // names the same file as its subject (R3-1: the tree needs this arm; its reference rides `versus`).
+            if (form != "delta") Arm($"{pole.Plugin} — {pole.Where}");
             envelope.Add(new("epoch_covers_source", "false"));
             headerLine += "\n(the off-order file's content is OUTSIDE the epoch fingerprint — an edit to it changes answers without changing the epoch)";
             if (conflicts_only)
