@@ -42,6 +42,7 @@ Beyond the core workflow, reach for the right group. Depth for the specialist ar
 - `housecarl_skse_inventory` — SKSE-plugin DLLs, configs, provider/metadata; `housecarl_skse_config_audit` — config references vs the load order; `housecarl_native_pairing_audit` — native Papyrus declarations vs the DLLs implementing them.
 
 **Write / author**
+- `housecarl_apply` — the consolidated 2.0 field-write surface (one or many edits × the lane × the read-back in one call): `ops=` for field edits, `bundle=`+`assignments=` to copy a field bundle from one record onto another, and one lane spelling — a new patch, `into=` an existing one, or `in_place="X.esp"` naming the file you intend to overwrite. The 1.x write tools below keep working through the 2.0 build.
 - `housecarl_set_field`, `housecarl_bulk_apply`, `housecarl_create_record`, `housecarl_bulk_create`, `housecarl_create_plugin` (header-only trigger plugin), `housecarl_remove_record`, `housecarl_forward_record` (copy-as-override, or revert to another plugin's version), `housecarl_validate_scripts` (unbound script properties).
 
 **Dialogue** — `housecarl_validate_dialogue`, `housecarl_write_seq` (the start-game-enabled quest `.seq`). Depth: `dialogue-authoring`.

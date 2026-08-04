@@ -85,6 +85,10 @@ public static class CiAll
         // for CopyFrom/diff); asserts append-vs-clear semantics, all-or-nothing per-element reasons, copy-then-readback
         // equality across field kinds + named non-transplantable refusals, and the two-pole diff incl. an off-order side.
         ("bulk-primitives-wave3-guard", BulkPrimitivesWave3Probe.RunGuard),
+        // W3 — housecarl_apply, the 2.0 S1 write surface: the ops grammar + @file, the LANE grammar (three
+        // exclusive destinations, in_place as the overwritten file's NAME, the consent handshake), the §4.5
+        // bundle x assignments cross-record copy zip, CopyFrom on the in-place lane, and json/epoch TRANSPORT.
+        ("apply-guard", ApplyGuardProbe.RunGuard),
         ("writelock-guard", WriteLockProbe.RunGuard),
         // #225 dry_run= on the write tools — the real pipeline HALTED before serialize, nothing written: refusal
         // parity with the real call, prediction parity (path/After/masters), the pre-empted missing-master failure,
