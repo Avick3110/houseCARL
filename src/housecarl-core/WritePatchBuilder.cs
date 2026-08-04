@@ -409,27 +409,33 @@ public static class WritePatchBuilder
             IMajorRecordGetter? srcBody = null;
             if (string.Equals(e.Verb, "CopyFrom", StringComparison.Ordinal))
             {
+                // §4.5: with a source RECORD named, from_source is optional and DEFAULTS to that record's winner —
+                // resolved here, where the one captured view lives, so the default reads the same build every other
+                // decision in this call reads.
+                var srcPlugin = ResolveCopyPole(e, view, out var poleErr);
+                if (poleErr is not null) { problems.Add(poleErr); continue; }
+
                 if (copyFromSources is not null && copyFromSources.TryGetValue(e, out var offSrc))
                     srcBody = offSrc;
-                else if (string.IsNullOrWhiteSpace(e.FromPlugin))
+                else if (string.IsNullOrWhiteSpace(srcPlugin))
                 { problems.Add($"{e.Target}: CopyFrom is missing from_plugin (internal — the mapper should have caught this)."); continue; }
-                else if (string.Equals(e.FromPlugin, fileName, StringComparison.OrdinalIgnoreCase))
-                { problems.Add($"{e.Target}: CopyFrom from_plugin '{e.FromPlugin}' is the output patch itself — name the OTHER plugin whose version to copy from."); continue; }
-                else if (!view.ContainsPlugin(e.FromPlugin))
+                else if (string.Equals(srcPlugin, fileName, StringComparison.OrdinalIgnoreCase))
+                { problems.Add($"{e.Target}: CopyFrom from_plugin '{srcPlugin}' is the output patch itself — name the OTHER plugin whose version to copy from."); continue; }
+                else if (!view.ContainsPlugin(srcPlugin))
                 // Deliberately NO AbsenceClause here (review of PR #274): the service pre-resolves every off-order
                 // CopyFrom source before Apply — a source that is merely unticked / in a disabled mod / shadowed is
                 // LOCATED and supplied via copyFromSources above, and one that cannot be located aborts the whole call
                 // earlier. So the only name reaching this arm has no on-disk copy at all, which is exactly the case the
                 // explainer cannot explain — it would pay a profile parse plus a whole-install sweep, per edit, to
                 // return the did-you-mean the message would have got anyway. The sentence already says what is known.
-                { problems.Add($"{e.Target}: CopyFrom source '{e.FromPlugin}' is not in the load order (and no plugin file by that name was located on disk) — name an active plugin, or a plugin file present on disk."); continue; }
-                else if (view.ExcludedPlugins.TryGetValue(e.FromPlugin, out var why))
-                { problems.Add($"{e.Target}: CopyFrom source '{e.FromPlugin}' was excluded from this session ({why}) — its records aren't resolvable."); continue; }
+                { problems.Add($"{e.Target}: CopyFrom source '{srcPlugin}' is not in the load order (and no plugin file by that name was located on disk) — name an active plugin, or a plugin file present on disk."); continue; }
+                else if (view.ExcludedPlugins.TryGetValue(srcPlugin, out var why))
+                { problems.Add($"{e.Target}: CopyFrom source '{srcPlugin}' was excluded from this session ({why}) — its records aren't resolvable."); continue; }
                 else
                 {
-                    srcBody = view.GetRecord(session, e.FromPlugin, e.CopySource);
+                    srcBody = view.GetRecord(session, srcPlugin, e.CopySource);
                     if (srcBody is null)
-                    { problems.Add(CopySourceMissing(e)); continue; }
+                    { problems.Add(CopySourceMissing(e, srcPlugin)); continue; }
                 }
                 // §4.5 — the same-runtime-record-type gate. A same-FormKey copy passes by construction (one record,
                 // one type); the zip's CROSS-record pair is the case that can disagree, and a cross-type transplant
@@ -562,10 +568,32 @@ public static class WritePatchBuilder
     /// SAME-record copy names the target (the P8b sentence, unchanged); a §4.5 cross-record copy names the SOURCE
     /// record and the target it was being copied INTO, so the reader can tell WHICH of the two the source plugin is
     /// missing (Q3 — the ambiguous "this record" would point at the wrong one half the time).</summary>
-    static string CopySourceMissing(PatchEdit e) =>
+    static string CopySourceMissing(PatchEdit e, string srcPlugin) =>
         e.FromTarget is null
-            ? $"{e.Target}: CopyFrom source '{e.FromPlugin}' is in the load order but does NOT define or override this record — there is no version of it there to copy."
-            : $"{e.Target}: CopyFrom source '{e.FromPlugin}' is in the load order but does NOT define or override the SOURCE record {e.CopySource} — there is no version of it there to copy from.";
+            ? $"{e.Target}: CopyFrom source '{srcPlugin}' is in the load order but does NOT define or override this record — there is no version of it there to copy."
+            : $"{e.Target}: CopyFrom source '{srcPlugin}' is in the load order but does NOT define or override the SOURCE record {e.CopySource} — there is no version of it there to copy from.";
+
+    /// <summary>Resolve the PLUGIN a CopyFrom reads its source body from. Named <c>from_source</c> wins; when it is
+    /// absent AND a source RECORD is named (the §4.5 zip's <c>from</c>), it defaults to that record's load-order
+    /// WINNER — the §4.5 wording ("<c>from_source</c> … defaulting to winner"), resolved against the call's ONE
+    /// captured build so the default can't read a different order than the rest of the write. Returns null with a
+    /// null error when there is nothing to resolve (a non-CopyFrom op, or the off-order arm the service pre-located);
+    /// a source record absent from the whole order is a named refusal, never a silent skip.</summary>
+    static string? ResolveCopyPole(PatchEdit e, LoadOrderResolver.IndexView view, out string? error)
+    {
+        error = null;
+        if (!string.IsNullOrWhiteSpace(e.FromPlugin)) return e.FromPlugin;
+        if (e.FromTarget is null) return null;                     // same-record copy with no pole — the caller's mapper already refused it
+        var w = view.ResolveWinner(e.CopySource);
+        if (w is null)
+        {
+            error = $"{e.Target}: the source record {e.CopySource} is not present in the load order ({view.PluginCount} plugins), " +
+                    "so there is no winning version of it to copy from. Enable the plugin that defines it, or name a specific " +
+                    "plugin in from_source.";
+            return null;
+        }
+        return w.Value.WinnerPlugin;
+    }
 
     /// <summary>SPEC §4.5's same-runtime-record-type gate for a CROSS-record copy. Returns a named refusal when the
     /// source and target records are different runtime types, else null. A same-FormKey copy (<see
@@ -708,20 +736,23 @@ public static class WritePatchBuilder
             IMajorRecordGetter? srcBody = null;
             if (string.Equals(e.Verb, "CopyFrom", StringComparison.Ordinal))
             {
+                var srcPlugin = ResolveCopyPole(e, view, out var poleErr);
+                if (poleErr is not null) { problems.Add(poleErr); continue; }
+
                 if (copyFromSources is not null && copyFromSources.TryGetValue(e, out var offSrc))
                     srcBody = offSrc;
-                else if (string.IsNullOrWhiteSpace(e.FromPlugin))
+                else if (string.IsNullOrWhiteSpace(srcPlugin))
                 { problems.Add($"{e.Target}: CopyFrom is missing from_plugin (internal — the mapper should have caught this)."); continue; }
-                else if (e.FromTarget is null && string.Equals(e.FromPlugin, targetName, StringComparison.OrdinalIgnoreCase))
-                { problems.Add($"{e.Target}: CopyFrom from_plugin '{e.FromPlugin}' is the in-place target itself — copying this record's own field onto itself is a no-op; name the OTHER plugin whose version to copy from."); continue; }
-                else if (!view.ContainsPlugin(e.FromPlugin))
-                { problems.Add($"{e.Target}: CopyFrom source '{e.FromPlugin}' is not in the load order (and no plugin file by that name was located on disk) — name an active plugin, or a plugin file present on disk."); continue; }
-                else if (view.ExcludedPlugins.TryGetValue(e.FromPlugin, out var cfWhy))
-                { problems.Add($"{e.Target}: CopyFrom source '{e.FromPlugin}' was excluded from this session ({cfWhy}) — its records aren't resolvable."); continue; }
+                else if (e.FromTarget is null && string.Equals(srcPlugin, targetName, StringComparison.OrdinalIgnoreCase))
+                { problems.Add($"{e.Target}: CopyFrom from_plugin '{srcPlugin}' is the in-place target itself — copying this record's own field onto itself is a no-op; name the OTHER plugin whose version to copy from."); continue; }
+                else if (!view.ContainsPlugin(srcPlugin))
+                { problems.Add($"{e.Target}: CopyFrom source '{srcPlugin}' is not in the load order (and no plugin file by that name was located on disk) — name an active plugin, or a plugin file present on disk."); continue; }
+                else if (view.ExcludedPlugins.TryGetValue(srcPlugin, out var cfWhy))
+                { problems.Add($"{e.Target}: CopyFrom source '{srcPlugin}' was excluded from this session ({cfWhy}) — its records aren't resolvable."); continue; }
                 else
                 {
-                    srcBody = view.GetRecord(session, e.FromPlugin, e.CopySource);
-                    if (srcBody is null) { problems.Add(CopySourceMissing(e)); continue; }
+                    srcBody = view.GetRecord(session, srcPlugin, e.CopySource);
+                    if (srcBody is null) { problems.Add(CopySourceMissing(e, srcPlugin)); continue; }
                 }
                 if (CrossTypeRefusal(e, srcBody, body) is { } typeErr) { problems.Add(typeErr); continue; }
             }

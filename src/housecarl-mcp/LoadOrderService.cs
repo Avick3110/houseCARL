@@ -4447,7 +4447,7 @@ public sealed class LoadOrderService : IDisposable
     /// (the pre-enable verify loop — wishlist #3 re-scoped / HCBR-2026-06-11-02 wave (b)).</summary>
     public WritePatchBuilder.PatchOutcome ApplyEdits(IReadOnlyList<BulkOp> ops, string? patchName, string? into,
         bool fullReadback = false, string? target = null, bool inPlace = false, bool acknowledge = false,
-        bool dryRun = false)
+        bool dryRun = false, IReadOnlyList<string?>? fromRecords = null)
     {
         if (ops.Count == 0)
             return WritePatchBuilder.PatchOutcome.Fail("no operations supplied.");
@@ -4472,7 +4472,9 @@ public sealed class LoadOrderService : IDisposable
         var problems = new List<string>();
         for (int i = 0; i < ops.Count; i++)
         {
-            var edit = MapEdit(ops[i], i, out var err);
+            // fromRecords[i] is the §4.5 zip's per-op SOURCE RECORD (housecarl_apply's from=), carried parallel to
+            // the op list because BulkOp — the 1.x published wire shape — deliberately gains no new member.
+            var edit = MapEdit(ops[i], i, out var err, fromRecords is not null && i < fromRecords.Count ? fromRecords[i] : null);
             if (err is not null) problems.Add(err); else edits.Add(edit!);
         }
         if (problems.Count > 0)
@@ -6191,7 +6193,7 @@ public sealed class LoadOrderService : IDisposable
     /// <summary>Map a wire op to a core <see cref="WritePatchBuilder.PatchEdit"/>: parse the FormID, split the dotted
     /// field path, and (if present) build the composition <see cref="StructSpec"/>. RecordType is NOT taken from the wire
     /// — the cleave derives it from the resolved winner. Returns null + a named error (Q3) on any malformed input.</summary>
-    WritePatchBuilder.PatchEdit? MapEdit(BulkOp op, int index, out string? error)
+    WritePatchBuilder.PatchEdit? MapEdit(BulkOp op, int index, out string? error, string? fromRecord = null)
     {
         error = null;
         var where = $"op[{index}]";
@@ -6213,21 +6215,36 @@ public sealed class LoadOrderService : IDisposable
         if (error is not null) return null;
 
         var verb = string.IsNullOrWhiteSpace(op.Verb) ? "Set" : op.Verb;
-        var fromPlugin = MapFromPlugin(op, verb, $"{where} ({op.Formid})", spec, specs, out error);
+
+        // SPEC §4.5 — the CROSS-RECORD copy source (housecarl_apply's from=). A named source record makes
+        // from_source OPTIONAL (it defaults to that record's load-order winner, resolved at pre-flight where the
+        // captured view lives); without one, the source plugin is the only thing that identifies a version to copy,
+        // so it stays required. A source equal to the target is a no-op, refused by name rather than written.
+        FormKey? fromKey = null;
+        if (!string.IsNullOrWhiteSpace(fromRecord))
+        {
+            try { fromKey = FormKey.Factory(fromRecord.Trim()); }
+            catch (Exception ex) { error = $"{where} ({op.Formid}): bad from '{fromRecord}' ({ex.Message}). Expected 'XXXXXX:Plugin.esp'."; return null; }
+            if (fromKey == fk)
+            { error = $"{where} ({op.Formid}): from names the SAME record as formid — copying a record's field onto itself is a no-op. Drop from=, and name the plugin whose version to copy in from_source=."; return null; }
+        }
+
+        var fromPlugin = MapFromPlugin(op, verb, $"{where} ({op.Formid})", spec, specs, fromKey is not null, out error);
         if (error is not null) return null;
 
         return new WritePatchBuilder.PatchEdit
         {
             Target = fk, Path = path, Verb = verb,
             Key = op.Key, Value = op.Value, Values = op.Values, Entries = op.Entries, Struct = spec, Structs = specs,
-            FromPlugin = fromPlugin,
+            FromPlugin = fromPlugin, FromTarget = fromKey,
         };
     }
 
     /// <summary>P8b — validate + extract from_plugin for a CopyFrom op. from_plugin is REQUIRED with (and ONLY with)
     /// verb=CopyFrom, which copies the field FROM that plugin's version and so takes no value/values/entries/compose/
     /// composes. Both rules refuse loud (Q3), never silently ignore. Returns null for a non-CopyFrom op.</summary>
-    static string? MapFromPlugin(BulkOp op, string verb, string where, StructSpec? spec, IReadOnlyList<StructSpec>? specs, out string? error)
+    static string? MapFromPlugin(BulkOp op, string verb, string where, StructSpec? spec, IReadOnlyList<StructSpec>? specs,
+        bool hasSourceRecord, out string? error)
     {
         error = null;
         if (!string.Equals(verb, "CopyFrom", StringComparison.Ordinal))   // match the engine's Ordinal verb compare — a mis-cased verb fails loud uniformly (Unknown verb … Legal: …CopyFrom)
@@ -6238,6 +6255,10 @@ public sealed class LoadOrderService : IDisposable
         }
         if (string.IsNullOrWhiteSpace(op.FromPlugin))
         {
+            // A named SOURCE RECORD (§4.5) identifies what to copy on its own, so the pole is optional and defaults
+            // to that record's winner. Without one, the plugin IS the only thing distinguishing a source version
+            // from the target's own — required, or the op means nothing.
+            if (hasSourceRecord) return null;
             error = $"{where}: CopyFrom requires from_plugin — the plugin whose version of this record to copy field_path from.";
             return null;
         }
