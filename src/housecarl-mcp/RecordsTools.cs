@@ -173,7 +173,7 @@ public static class RecordsTools
             RecordsWalk? walk = null,
         [Description("TRANSPORT: 'text' (default) | 'json' (machine-readable document; same accounting in-band) | 'dense' (scan lane: columnar positional rows — the compact bulk-enumeration form).")]
             string? format = null,
-        [Description("TRANSPORT: max rows to render (default 500). The TRUE total is always reported; page with offset=.")]
+        [Description("TRANSPORT: max rows to render (default 500). The TRUE total is always reported; page with offset=. DECLARED COST: the derived-selection forms (delta/tree/chain/info_order, and any walk) consume EVERY scan match — their censuses and artifacts cover the full selection, and limit= windows only the rendered rows — so on a big order the SCAN TERMS (types=/plugins=/where=) are the cost bound: narrow them.")]
             int limit = 500,
         [Description("TRANSPORT: skip the first N matches (exact windows: offset=0/500/1000…). Windows tile only within one epoch — if two pages' epochs differ the load order changed mid-pagination; re-run from offset=0.")]
             int offset = 0,
@@ -293,6 +293,10 @@ public static class RecordsTools
             }
             if (references is { Length: > 0 })
                 return "error: walk= and references= are the same construct (references= IS the reverse walk at depth 1) — use one spelling per call.";
+            if (!string.IsNullOrWhiteSpace(fields_source))
+                return "error: fields_source= is the scan lane's display pole — a walk's reading forms display the source= pole's version of the reached set: name it via source= instead.";
+            if (dense)
+                return "error: format='dense' renders positional columnar cells 1:1 with requested field paths, and a walk's outputs (chains; reached-set reads) have no fixed column set — use format='text' or 'json'.";
             if (comparisonForm || form is "info_order" or "identity")
                 return $"error: walk= derives a selection (the reached set), and the '{form}' form does not consume one — use form='chain' for the walk's own paths, or summary/fields/everything/aggregate over the reached set. To compare reached records, walk with to_file= and re-enter the artifact via formids=[\"@<file>\"] with form='{form}'.";
             if (where is { Length: > 0 })
@@ -313,6 +317,8 @@ public static class RecordsTools
         {
             if (comparisonForm)
                 return $"error: fields_source= retargets what a matched row DISPLAYS, and the '{form}' form's display IS its two poles (source=/versus=) — name the version you want as a pole instead.";
+            if (form is "chain" or "info_order")
+                return $"error: fields_source= retargets FIELD display, and the '{form}' form renders no field values — drop it.";
             var fs = fields_source.Trim().ToLowerInvariant();
             if (fs == "winner") winnerFields = true;
             else if (fs is not ("scoped" or "scanned"))
@@ -373,7 +379,15 @@ public static class RecordsTools
         // Text renders get it as a header line; json renders carry the same pairs as top-level fields.
         var envelope = new List<KeyValuePair<string, string>> { new("form", form) };
         string headerLine = $"records  form={form}";
-        void Arm(string statement) { envelope.Add(new("source", statement)); headerLine += $"  source={statement}"; }
+        void Arm(string statement)
+        {
+            // ONE source statement per response (round-3 F1: the scan lane pre-armed and the derived forms'
+            // pipelines armed again — two "source" properties in one json object). The specific arm is always
+            // stated first now; first-wins is the backstop that keeps a future double-call from lying twice.
+            if (envelope.Any(kv => kv.Key == "source")) return;
+            envelope.Add(new("source", statement));
+            headerLine += $"  source={statement}";
+        }
         // When a walk (or a scan) derived the selection this call now reads, the two captures meet at a seam —
         // every downstream form's epoch is compared against the deriving step's, and a divergence refuses loud
         // (the mixed-builds rule every two-capture path on this surface follows).
@@ -501,7 +515,7 @@ public static class RecordsTools
             {
                 // The overlay POST source: every record's winner replayed through the SkyPatcher INI layer, the
                 // replayed body read at the caller's own depth (absorbs skypatcher_read's post-state view).
-                outcomes = svc.OverlayPostBatch(ids, readFields, depth, demand, out var ovRefusal, out var ovEpoch, out _);
+                outcomes = svc.OverlayPostBatch(ids, readFields, depth, resolveNames, demand, out var ovRefusal, out var ovEpoch, out _);
                 if (ovRefusal is not null)
                     return json ? JsonWire.RenderError(ovRefusal, ovEpoch)
                                 : "error: " + ovRefusal + (ovEpoch is not null ? $"\nepoch={ovEpoch}" : "");
@@ -647,7 +661,7 @@ public static class RecordsTools
                 }
                 string RenderRev(SpillState? sp, out bool trunc) => json
                     ? JsonWire.RenderEffectChains(winResults, max_chars, envelope, revCounts, epochR, sp, out trunc)
-                    : RenderRecordsEffectChains(winResults, results.Count, carrierRows, seedErrs2, headerLine, epochR, max_chars, sp, out trunc);   // header carries carrier_total/capped via headerLine
+                    : RenderRecordsEffectChains(winResults, results.Count, carrierRows, carrierTotal, seedErrs2, headerLine, epochR, max_chars, sp, out trunc);
                 var revRendered = RenderRev(revSpill, out var revTrunc);
                 if (revSpill is null && revTrunc)
                 {
@@ -896,6 +910,9 @@ public static class RecordsTools
             bool hasTypes = types is { Length: > 0 };
             bool hasScope = plugins?.names is { Length: > 0 };
             bool scopePlusPole = false;
+            // The derived-selection forms (comparisons, info_order, a walk's seeds) state their own source arm
+            // and consume EVERY match; known up front, used by the arm rule (F1) and the scan cap below.
+            bool derivedSelection = comparisonForm || form == "info_order" || walk is not null;
             if (hasBodyFilter && !hasTypes && !hasScope && !hasFormids)
                 return "error: where=/references= is a body scan and must be combined with types=, plugins=, or a formids= set to bound the work " +
                        "(conflicts_only= alone is not enough — an unbounded body scan over the whole order is refused; the " +
@@ -945,14 +962,16 @@ public static class RecordsTools
                     // forms have nothing for the pole to change — accepting-and-ignoring it is the sin.
                     if (form is "summary" or "aggregate")
                         return $"error: a plugins= scope with a named source= reads the POLE's version of each scoped match — and the '{form}' form's rows are identity facts the pole doesn't change. Drop source=, or use form='fields'/'everything' (the pole's bodies) or 'delta'/'tree' (comparisons).";
+                    if (winnerFields)
+                        return "error: fields_source='winner' and a named source= under a plugins= scope are TWO display poles on one call — the pole's version is what this composition reads. Drop fields_source= (or drop source= and keep fields_source='winner').";
                     scopePlusPole = true;
                     Arm($"{probe.Plugin} — active in the load order (the plugins= scope selects; this pole's version is read)");
                 }
-                else
+                else if (!derivedSelection)
                     // ACTIVE arm: the pole's records ARE the scan universe — the plugins= stream with the arm stated.
                     Arm($"{probe.Plugin} — active in the load order");
             }
-            else Arm("winner");
+            else if (!derivedSelection) Arm("winner");   // the derived forms' pipelines state their own arm (F1)
 
             // references= @file expansion + FormKey parse (mirrors cross_plugin_query).
             HousecarlCore.ArtifactDemand? refDemand = null; string? refEcho = null;
@@ -982,10 +1001,9 @@ public static class RecordsTools
             // the REACHED set via the walk lane's re-entry. Grouping the scan itself would return an aggregate
             // of the seeds labeled as the walk's answer, with walk= silently dropped (review F2).
             var groupBy = form == "aggregate" && walk is null ? project!.group_by!.Trim().ToLowerInvariant() : null;
-            // The derived-selection forms (comparisons, info_order, a walk's seeds) consume EVERY match — the
-            // window applies to their rows, and the counts / artifact must cover the full selection — so the
-            // scan itself is uncapped for them.
-            bool derivedSelection = comparisonForm || form == "info_order" || walk is not null;
+            // The derived-selection forms consume EVERY match — the window applies to their rows, and the
+            // counts / artifact must cover the full selection — so the scan itself is uncapped for them
+            // (a DECLARED cost, carried in the tool description: the scan terms are the bound).
             int effLimit = wantFile || derivedSelection ? int.MaxValue : counts_only ? 0 : (limit <= 0 ? 500 : limit);
 
             var demandsList = new List<HousecarlCore.ArtifactDemand>();
@@ -1222,7 +1240,10 @@ public static class RecordsTools
         // ================================================================================================
         string OffOrderScan(LoadOrderService.PoleInfo pole)
         {
-            Arm($"{pole.Plugin} — {pole.Where}");
+            // The comparison pipelines state their own subject arm (F1's one-statement rule; first-wins would
+            // otherwise pin the file arm on a delta whose subject is the file — same statement, so keep it for
+            // the reading forms and let the pipelines win on comparisons).
+            if (!comparisonForm) Arm($"{pole.Plugin} — {pole.Where}");
             envelope.Add(new("epoch_covers_source", "false"));
             headerLine += "\n(the off-order file's content is OUTSIDE the epoch fingerprint — an edit to it changes answers without changing the epoch)";
             if (conflicts_only)
@@ -1691,7 +1712,7 @@ public static class RecordsTools
     /// <summary>The reverse MGEF lane's text render: header census over the COMPLETE seed list, each windowed
     /// seed's carriers via the shared effect-chain render, the standard explicit cut + in-band spill marker.</summary>
     static string RenderRecordsEffectChains(IReadOnlyList<(string Seed, EffectChainResult Result)> results,
-                                            int totalSeeds, int carrierRows, int errors, string headerLine,
+                                            int totalSeeds, int carrierRows, int carrierTotal, int errors, string headerLine,
                                             string? epoch, int maxChars, SpillState? spill, out bool truncated)
     {
         truncated = false;
@@ -1699,7 +1720,9 @@ public static class RecordsTools
         bool manifestOnly = spill?.ManifestOnly ?? false;
         var sb = new StringBuilder();
         sb.Append(headerLine).Append('\n');
-        sb.Append(totalSeeds).Append(" seed(s), ").Append(carrierRows).Append(" carrier row(s), ").Append(errors).Append(" error(s)");
+        sb.Append(totalSeeds).Append(" seed(s), ").Append(carrierRows).Append(" carrier row(s)");
+        if (carrierTotal != carrierRows) sb.Append(" of ").Append(carrierTotal).Append(" total");
+        sb.Append(", ").Append(errors).Append(" error(s)");
         if (epoch is not null) sb.Append("  epoch=").Append(epoch);
         sb.Append('\n');
         int rendered = 0;

@@ -354,7 +354,7 @@ static class JsonWire
         {
             w.WriteStartObject();
             WriteEnvelope(w, envelope);
-            foreach (var (k, v) in counts.Select(c => (c.Key, c.Value))) w.WriteNumber(k, v);
+            foreach (var c in counts) w.WriteNumber(c.Key, c.Value);
             WriteNullable(w, "epoch", epoch);
             w.WriteEndObject();
         }

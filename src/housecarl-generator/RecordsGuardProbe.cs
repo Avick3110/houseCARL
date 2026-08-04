@@ -42,6 +42,13 @@ internal static class RecordsGuardProbe
 
     static JsonElement Je(string json) => JsonDocument.Parse(json).RootElement.Clone();
 
+    static int CountOf(string haystack, string needle)
+    {
+        int n = 0, i = 0;
+        while ((i = haystack.IndexOf(needle, i, StringComparison.Ordinal)) >= 0) { n++; i += needle.Length; }
+        return n;
+    }
+
     public static int RunGuard(string[] args)
     {
         Console.WriteLine("================================================================");
@@ -689,9 +696,45 @@ internal static class RecordsGuardProbe
             var revWin = RecordsTools.Records(svc, formids: new[] { Fid(mgefA.FormKey) },
                                               walk: new RecordsTools.RecordsWalk { direction = "reverse" }, limit: 1,
                                               project: new RecordsTools.RecordsProject { form = "chain" });
-            Check(!revWin.StartsWith("error:") && revWin.Contains("HcRecSpellA") && revWin.Contains("HcRecSpellC")
-                  && revWin.Contains("carrier_total=2") == false,
+            Check(!revWin.StartsWith("error:") && revWin.Contains("HcRecSpellA") && revWin.Contains("HcRecSpellC"),
                   "re-review: limit= windows the SEEDS only — both carriers of the one seed render (the cap is walk.max_nodes)");
+
+            // ---- PR #309 round-3 folds ----
+            // F1: exactly ONE source statement per response, scan-derived forms included.
+            var dScanJson = RecordsTools.Records(svc, types: new[] { "WEAP" }, where: new[] { $"winner = {ovName}" },
+                                                 source: Je($"\"{ovName}\""), versus: Je("\"previous_provider\""), format: "json",
+                                                 project: new RecordsTools.RecordsProject { form = "delta" });
+            Check(CountOf(dScanJson, "\"source\":") == 1,
+                  "fold3 F1: a scan-lane delta's json envelope carries exactly ONE source property");
+            var wScanSum = RecordsTools.Records(svc, types: new[] { "SPEL" }, walk: new RecordsTools.RecordsWalk());
+            Check(CountOf(wScanSum.Substring(0, Math.Max(0, wScanSum.IndexOf("epoch=", StringComparison.Ordinal))), "source=") == 1,
+                  "fold3 F1: a scan-seeded walk's re-entered summary states ONE source arm");
+            // F3: resolve_names is HONORED under the overlay post pole (link annotation resolves the effect).
+            var ovlRn = RecordsTools.Records(svc, formids: new[] { Fid(spellA.FormKey) },
+                                             source: Je("{\"overlay\": \"skypatcher\", \"state\": \"post\"}"),
+                                             project: new RecordsTools.RecordsProject { form = "fields", fields = new[] { "Effects" }, depth = 4, resolve_names = true });
+            Check(!ovlRn.StartsWith("error:") && ovlRn.Contains("HcRecMgefFire"),
+                  "fold3 F3: resolve_names under the overlay post pole annotates link targets (was accepted-and-dropped)");
+            // F4: fields_source refused by name on the lanes that cannot honor it.
+            var fsScope = RecordsTools.Records(svc, plugins: new RecordsTools.RecordsScope { names = new[] { masterName } },
+                                               source: Je($"\"{ovName}\""), fields_source: "winner",
+                                               project: new RecordsTools.RecordsProject { form = "fields", fields = new[] { "BasicStats.Damage" } });
+            Check(fsScope.StartsWith("error:") && fsScope.Contains("TWO display poles"),
+                  "fold3 F4: fields_source + scope-vs-pole refuses by name (two display poles on one call)");
+            var fsWalk = RecordsTools.Records(svc, formids: new[] { Fid(spellA.FormKey) }, fields_source: "winner",
+                                              walk: new RecordsTools.RecordsWalk());
+            Check(fsWalk.StartsWith("error:") && fsWalk.Contains("fields_source"),
+                  "fold3 F4: fields_source + walk refuses by name (the reading forms display the source= pole)");
+            var fsChain = RecordsTools.Records(svc, formids: new[] { Fid(spellA.FormKey) }, fields_source: "winner",
+                                               walk: new RecordsTools.RecordsWalk(),
+                                               project: new RecordsTools.RecordsProject { form = "chain" });
+            Check(fsChain.StartsWith("error:") && fsChain.Contains("fields_source"),
+                  "fold3 F4: fields_source + chain refuses by name (no field values to retarget)");
+            // F7: dense + walk refuses BEFORE any walk work, on both lanes.
+            var denseWalk = RecordsTools.Records(svc, types: new[] { "SPEL" }, format: "dense",
+                                                 walk: new RecordsTools.RecordsWalk());
+            Check(denseWalk.StartsWith("error:") && denseWalk.Contains("dense"),
+                  "fold3 F7: dense + walk refuses up front (was: the scan-lane walk ran, then rendered TEXT under dense)");
 
             // ============================================================================================
             //  5 — TRANSPORT: to_file + @artifact re-entry, epoch-checked
