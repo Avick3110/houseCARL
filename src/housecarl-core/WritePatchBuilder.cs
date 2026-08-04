@@ -87,12 +87,18 @@ public static class WritePatchBuilder
     {
         public IReadOnlyList<FullReadback>? ReadBack { get; init; }
 
-        /// <summary>SPEC §2.1.1 — the fingerprint of the index build this write resolved against (winners, master
-        /// membership, the in-place target's own body). Stamped on EVERY outcome decided after the capture: success,
+        /// <summary>SPEC §2.1.1 — the fingerprint of the index build THIS OUTCOME was decided from (winners, master
+        /// membership, the in-place target's own body). Stamped on EVERY outcome decided after a capture: success,
         /// refusal, dry run, and the consent prompt alike. Null only for the refusals taken BEFORE any build was
         /// consulted (a malformed op, an unopenable patch file) — they read no index, so they claim no build.
         /// Why a WRITE carries one: the readback proves what landed in the FILE, not what wins in the ORDER, and the
-        /// epoch is what lets a caller tell whether the winner it edited is the winner it read a moment earlier.</summary>
+        /// epoch is what lets a caller tell whether the winner it edited is the winner it read a moment earlier.
+        /// <para>HONESTY BOUND (round-4 review): a few call shapes consult more than one capture — an off-order
+        /// CopyFrom pre-locate takes its own, and the in-place lane captures once in the service to resolve the
+        /// target and again in the core. The field names the build the reported outcome came from, NOT a claim that
+        /// exactly one capture occurred. They can only differ if the load order changed mid-call (mtime freshness),
+        /// which would show as an epoch that does not match a read taken either side of it — detectable, which is
+        /// the point, rather than papered over.</para></summary>
         public string? Epoch { get; init; }
 
         /// <summary>True ⇒ this outcome came from the IN-PLACE lane (<see cref="Apply"/>'s sibling

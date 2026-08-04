@@ -139,50 +139,65 @@ public static class ApplyTools
 
         // ---- TRANSPORT: format --------------------------------------------------------------------------
         bool json = Wire.WantsJson(format, out var ferr);
-        if (ferr is not null) return ferr;
+        if (ferr is not null) return ferr;   // the format value itself is unparsed — there is no known render to answer in
+
+        // EVERY refusal below this point answers in the caller's requested format. RenderPatchOutcome's contract
+        // says a json caller must never have to parse "error: …" out of a string, and the sites a caller hits most
+        // (a mixed inline/@file list, an undeclared op member, a LANE conflict, half a zip) are all decided HERE,
+        // before any engine outcome exists to render. Epoch is null on all of them: none has consulted a build yet.
+        string Refuse(string message) => json ? JsonWire.RenderError(message, null) : "error: " + message;
 
         // ---- LANE: the three destinations are mutually exclusive, and a dropped one is named ------------
         // (SPEC §2.1 LANE; the W2 review's recurring theme carried to the write side — a parameter is honored
         //  or refused BY NAME, never accepted-and-ignored. 1.x silently ignored patch_name= under into=.)
-        bool hasPatch = !string.IsNullOrWhiteSpace(patch);
+        // Emptiness is judged ONE way for a lane string: whitespace-only is absent, and the forwarded value uses
+        // the same rule (`patch` is normalized below), so the exclusivity checks and what actually gets written
+        // can never disagree about whether a lane was named.
+        var patchName = string.IsNullOrWhiteSpace(patch) ? null : patch.Trim();
+        bool hasPatch = patchName is not null;
         bool hasInto = !string.IsNullOrWhiteSpace(into);
         bool hasInPlace = !string.IsNullOrWhiteSpace(in_place);
         if (hasInto && hasInPlace)
-            return "error: into= and in_place= are different lanes — into= EXTENDS a houseCARL patch, in_place= rewrites an existing plugin's own file. Name one.";
+            return Refuse("into= and in_place= are different lanes — into= EXTENDS a houseCARL patch, in_place= rewrites an existing plugin's own file. Name one.");
         if (hasPatch && hasInto)
-            return $"error: patch='{patch}' names a NEW patch to write, but into='{into}' extends an existing one — the two lanes are exclusive. Drop patch= to extend, or drop into= to write fresh.";
+            return Refuse($"patch='{patch}' names a NEW patch to write, but into='{into}' extends an existing one — the two lanes are exclusive. Drop patch= to extend, or drop into= to write fresh.");
         if (hasPatch && hasInPlace)
-            return $"error: patch='{patch}' names a NEW patch to write, but in_place='{in_place}' rewrites that plugin's own file — the two lanes are exclusive. Drop patch= to edit in place, or drop in_place= to write a patch.";
+            return Refuse($"patch='{patch}' names a NEW patch to write, but in_place='{in_place}' rewrites that plugin's own file — the two lanes are exclusive. Drop patch= to edit in place, or drop in_place= to write a patch.");
         if (acknowledge && !hasInPlace)
-            return "error: acknowledge= confirms the in-place trade-off and is meaningless without in_place=<plugin filename>. Drop it, or name the file to overwrite.";
+            return Refuse("acknowledge= confirms the in-place trade-off and is meaningless without in_place=<plugin filename>. Drop it, or name the file to overwrite.");
 
         // ---- The edit sources: ops= and/or the §4.5 zip -------------------------------------------------
         var edits = new List<ApplyOp>();
         if (ops is { } opsEl && opsEl.ValueKind is not JsonValueKind.Null)
         {
             var (parsed, err) = ReadOps(opsEl);
-            if (err is not null) return "error: " + err;
+            if (err is not null) return Refuse(err);
             edits.AddRange(parsed!);
         }
 
-        bool hasBundle = bundle is { Length: > 0 };
+        // An explicitly EMPTY bundle= is a supplied parameter, not an absent one — reading it as absent is the
+        // accepted-and-silently-dropped class this tool exists to close, and it is exactly what `ops=[]` already
+        // refuses by name. Judge presence on the ARRAY, then refuse emptiness on its own terms.
+        bool hasBundle = bundle is not null;
         bool hasAssignments = assignments is { } aEl && aEl.ValueKind is not JsonValueKind.Null;
+        if (hasBundle && bundle!.Length == 0)
+            return Refuse("bundle= is an empty array — give at least one dotted field path to copy (e.g. bundle=[\"BasicStats.Damage\"]), or drop bundle= and assignments= entirely.");
         if (hasBundle != hasAssignments)
-            return hasBundle
-                ? "error: bundle= names the field paths to copy but assignments= names the target/source PAIRS — the zip needs both. Add assignments=[{target, from}, …], or use ops= for edits that aren't a copy."
-                : "error: assignments= names the target/source PAIRS but bundle= names the field paths to copy — the zip needs both. Add bundle=[\"<field path>\", …].";
+            return Refuse(hasBundle
+                ? "bundle= names the field paths to copy but assignments= names the target/source PAIRS — the zip needs both. Add assignments=[{target, from}, …], or use ops= for edits that aren't a copy."
+                : "assignments= names the target/source PAIRS but bundle= names the field paths to copy — the zip needs both. Add bundle=[\"<field path>\", …].");
         if (hasBundle)
         {
             var (paths, perr) = ReadBundlePaths(bundle!);
-            if (perr is not null) return "error: " + perr;
+            if (perr is not null) return Refuse(perr);
             var (zipped, zerr) = ExpandZip(paths!, assignments!.Value);
-            if (zerr is not null) return "error: " + zerr;
+            if (zerr is not null) return Refuse(zerr);
             edits.AddRange(zipped!);
         }
 
         if (edits.Count == 0)
-            return "error: nothing to apply. Pass ops=[{formid, field_path, …}, …] (or ops=\"@<absolute path>\"), " +
-                   "and/or the copy zip bundle=[\"<field path>\", …] + assignments=[{target, from}, …].";
+            return Refuse("nothing to apply. Pass ops=[{formid, field_path, …}, …] (or ops=\"@<absolute path>\"), " +
+                          "and/or the copy zip bundle=[\"<field path>\", …] + assignments=[{target, from}, …].");
 
         // ---- Map the 2.0 op shape onto the proven cleave ------------------------------------------------
         // The 2.0 spellings are a RENAME over the same engine inputs: op -> verb, from_source -> the source
@@ -214,10 +229,10 @@ public static class ApplyTools
             origins.Add(e.Origin);
         }
         if (problems.Count > 0)
-            return $"error: refused — {problems.Count} of {edits.Count} operation(s) malformed; NOTHING written:\n  - "
-                 + string.Join("\n  - ", problems);
+            return Refuse($"refused — {problems.Count} of {edits.Count} operation(s) malformed; NOTHING written:\n  - "
+                        + string.Join("\n  - ", problems));
 
-        var outcome = svc.ApplyEdits(wire, patch ?? "Patch", into, readback, in_place, hasInPlace, acknowledge, dry_run, fromRecords, origins);
+        var outcome = svc.ApplyEdits(wire, patchName ?? "Patch", into, readback, in_place, hasInPlace, acknowledge, dry_run, fromRecords, origins);
         return json
             ? JsonWire.RenderPatchOutcome(outcome, max_chars, readback)
             : WriteTools.Render(outcome, max_chars, readback);
@@ -334,7 +349,12 @@ public static class ApplyTools
 
     static readonly (string Old, string Correction)[] ElementRenames =
     {
-        ("verb", "the verb member is now op, one verb-name across the whole surface: op=\"Add\""),
+        // Scoped deliberately: the rename is AT THE OP LEVEL only. A nested set inside compose= is a NestedSet,
+        // shared verbatim with the 1.x wire shape, and still spells `verb` — so an unscoped "op everywhere"
+        // correction would send a caller straight into the opposite refusal one level down. The reverse row
+        // below catches exactly that caller.
+        ("verb", "at the OP level the verb member is now op — op=\"Add\". (A nested set inside compose= is unchanged and still takes verb.)"),
+        ("op", "a nested set inside compose= still spells its verb `verb` — only the top-level op member was renamed to op"),
         ("from_plugin", "it split in two: from_source names the PLUGIN to copy from, from names a different source RECORD"),
         ("fromplugin", "it split in two: from_source names the PLUGIN to copy from, from names a different source RECORD"),
         ("target_formid", "a copy's destination record is the assignments= zip's target="),
@@ -436,7 +456,9 @@ public static class ApplyTools
 // ---- wire DTOs (the 2.0 op + zip shapes) ---------------------------------------------------------------
 
 /// <summary>One field edit off the 2.0 wire (housecarl_apply). The 1.x <see cref="BulkOp"/> with the SPEC §5.1
-/// vocabulary — <c>verb</c> is <c>op</c> (one verb-name across substrates), <c>from_plugin</c> splits into the
+/// vocabulary — <c>verb</c> is <c>op</c> (§5.1's one verb-name, AT THE OP LEVEL: a nested set inside
+/// <c>compose=</c> is a <see cref="NestedSet"/>, shared verbatim with the 1.x wire shape, and still spells
+/// <c>verb</c>; the §5.3 row renames the op member, not every verb-shaped member beneath it), <c>from_plugin</c> splits into the
 /// §4.5 pair <c>from</c> (the source RECORD) + <c>from_source</c> (the pole it is read from). Its own record rather
 /// than a reshaped BulkOp so the 1.x tools' published schemas stay untouched through the build waves.</summary>
 public sealed record ApplyOp
