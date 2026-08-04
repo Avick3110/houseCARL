@@ -308,6 +308,15 @@ public static class BindingShimProbe
             //    outside the census: activation here means "the row CAN fire on this tool for some value".
             //    On any schema or table change: eyeball the printed diff, then update CensusExpected.
             failures += CensusArm(tools);
+
+            // -- SCHEMA: the @file union ToolSchemas publishes, and the invariant that made it necessary.
+            //    ops=/assignments= are declared JsonElement (no C# type expresses "array OR '@path'"), so the
+            //    generator would publish {}; ToolSchemas republishes anyOf[<generated element array>, string].
+            //    The load-bearing check is the LAST one: the generator terminates a recursive type with a
+            //    POSITIONAL "#/..." back-reference relative to its own document, so nesting a generated
+            //    sub-schema silently produces a dangling $ref — a broken schema, strictly worse than the {}
+            //    it replaced. That check is generic over every tool, not just this one.
+            failures += SchemaArm(tools);
         }
         catch (Exception ex)
         {
@@ -502,6 +511,97 @@ public static class BindingShimProbe
     /// a tool when NO declared parameter normalizes to the old spelling (else the call is declared, or
     /// the bridge owns it) and the first non-excluded candidate IS declared; a hint is active when the
     /// old spelling is undeclared and every gate parameter is declared.</summary>
+    /// <summary>The published-schema arm (W3): the SPEC §5.1 <c>@file</c> union on the JsonElement-typed list
+    /// parameters, plus the same-document-pointer invariant every tool's schema must satisfy.</summary>
+    static int SchemaArm(JsonElement toolsList)
+    {
+        int failures = 0;
+        JsonElement apply = default;
+        bool found = false;
+        foreach (var t in toolsList.GetProperty("tools").EnumerateArray())
+            if (t.GetProperty("name").GetString() == "housecarl_apply") { apply = t; found = true; break; }
+
+        failures += Check("SCHEMA: housecarl_apply is published", found, "tool absent from tools/list");
+        if (found)
+        {
+            foreach (var (param, member) in new[] { ("ops", "field_path"), ("assignments", "target") })
+            {
+                JsonElement arms = default;
+                var ok = apply.GetProperty("inputSchema").GetProperty("properties").TryGetProperty(param, out var node)
+                      && node.TryGetProperty("anyOf", out arms)
+                      && arms.GetArrayLength() == 2
+                      && arms[0].TryGetProperty("type", out var t0) && t0.GetString() == "array"
+                      && arms[1].TryGetProperty("type", out var t1) && t1.GetString() == "string";
+                failures += Check($"SCHEMA: {param}= publishes anyOf[<generated array>, string] — not the bare {{}} the declared JsonElement would give",
+                    ok, ok ? "" : node.ValueKind == JsonValueKind.Undefined ? "parameter absent" : node.GetRawText());
+
+                // The array arm must be the GENERATED element schema, not an empty placeholder: a named member
+                // proves the generator ran over the real C# type (and so keeps tracking it as it changes).
+                bool typed = ok && arms[0].TryGetProperty("items", out var items)
+                                && items.TryGetProperty("properties", out var mprops)
+                                && mprops.TryGetProperty(member, out _);
+                failures += Check($"SCHEMA: {param}='s array arm carries the generated element members (e.g. {member})", typed, "");
+            }
+        }
+
+        // GENERIC: every same-document $ref in every published schema must resolve. This is what catches a
+        // generated sub-schema nested without rebasing its pointers.
+        var dangling = new List<string>();
+        foreach (var t in toolsList.GetProperty("tools").EnumerateArray())
+        {
+            if (!t.TryGetProperty("inputSchema", out var schema)) continue;
+            var name = t.GetProperty("name").GetString()!;
+            foreach (var r in CollectRefs(schema))
+                if (!PointerResolves(schema, r)) dangling.Add($"{name}: {r}");
+        }
+        failures += Check($"SCHEMA: every same-document $ref in every published tool schema resolves ({dangling.Count} dangling)",
+            dangling.Count == 0, string.Join(" | ", dangling.Take(5)));
+        return failures;
+    }
+
+    /// <summary>Every <c>$ref</c> string anywhere in a schema document.</summary>
+    static IEnumerable<string> CollectRefs(JsonElement node)
+    {
+        switch (node.ValueKind)
+        {
+            case JsonValueKind.Object:
+                foreach (var p in node.EnumerateObject())
+                {
+                    if (p.Name == "$ref" && p.Value.ValueKind == JsonValueKind.String) yield return p.Value.GetString()!;
+                    else foreach (var r in CollectRefs(p.Value)) yield return r;
+                }
+                break;
+            case JsonValueKind.Array:
+                foreach (var item in node.EnumerateArray())
+                    foreach (var r in CollectRefs(item)) yield return r;
+                break;
+        }
+    }
+
+    /// <summary>Walk a same-document JSON pointer ("#/a/b/0"). Anything not starting with '#' is external and
+    /// counts as resolvable — this arm polices the pointers we rebase, not the whole of JSON Schema.</summary>
+    static bool PointerResolves(JsonElement root, string reference)
+    {
+        if (!reference.StartsWith('#')) return true;
+        var cur = root;
+        foreach (var raw in reference[1..].Split('/', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var seg = raw.Replace("~1", "/").Replace("~0", "~");
+            if (cur.ValueKind == JsonValueKind.Object)
+            {
+                if (!cur.TryGetProperty(seg, out var next)) return false;
+                cur = next;
+            }
+            else if (cur.ValueKind == JsonValueKind.Array)
+            {
+                if (!int.TryParse(seg, out var i) || i < 0 || i >= cur.GetArrayLength()) return false;
+                cur = cur[i];
+            }
+            else return false;
+        }
+        return true;
+    }
+
     static int CensusArm(JsonElement toolsList)
     {
         var actual = new List<string>();
