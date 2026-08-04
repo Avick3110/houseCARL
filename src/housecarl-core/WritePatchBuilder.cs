@@ -49,7 +49,19 @@ public static class WritePatchBuilder
         public Dictionary<string, string>? Entries { get; init; }
         public StructSpec? Struct { get; init; }
         public IReadOnlyList<StructSpec>? Structs { get; init; } // P8a batch struct-list ops (composes=): Add appends each, ReplaceAll clears+appends each.
-        public string? FromPlugin { get; init; } // P8b verb=CopyFrom: the plugin whose version of Target to deep-copy the field FROM (active, or off-order on disk).
+        public string? FromPlugin { get; init; } // P8b verb=CopyFrom: the plugin whose version of the SOURCE record to deep-copy the field FROM (active, or off-order on disk).
+
+        /// <summary>SPEC §4.5 (the <c>assignments=</c> zip) — the SOURCE RECORD a CopyFrom reads, when it is a
+        /// DIFFERENT record from <see cref="Target"/> (cross-record copy: "give this weapon that weapon's Keywords").
+        /// Null ⇒ same-FormKey copy, the P8b behaviour: <see cref="FromPlugin"/>'s version of <see cref="Target"/>
+        /// itself. The pair passes the same-runtime-record-type gate at pre-flight (§4.5: "legality does not
+        /// shrink") — a cross-TYPE pair is refused by name, never coerced.</summary>
+        public FormKey? FromTarget { get; init; }
+
+        /// <summary>The record a CopyFrom actually READS — the §4.5 zip's source record when one is named, else the
+        /// target itself. One accessor so every source-resolution site (pre-flight, the off-order pre-locate, the
+        /// in-place lane) can never disagree about which FormKey the copy reads.</summary>
+        public FormKey CopySource => FromTarget ?? Target;
     }
 
     /// <summary>Per-edit result. On a successful call every op has <see cref="Applied"/>=true (all-or-nothing);
@@ -74,6 +86,14 @@ public static class WritePatchBuilder
         IReadOnlyList<string> Masters, IReadOnlyList<OpResult> Ops, long Bytes)
     {
         public IReadOnlyList<FullReadback>? ReadBack { get; init; }
+
+        /// <summary>SPEC §2.1.1 — the fingerprint of the index build this write resolved against (winners, master
+        /// membership, the in-place target's own body). Stamped on EVERY outcome decided after the capture: success,
+        /// refusal, dry run, and the consent prompt alike. Null only for the refusals taken BEFORE any build was
+        /// consulted (a malformed op, an unopenable patch file) — they read no index, so they claim no build.
+        /// Why a WRITE carries one: the readback proves what landed in the FILE, not what wins in the ORDER, and the
+        /// epoch is what lets a caller tell whether the winner it edited is the winner it read a moment earlier.</summary>
+        public string? Epoch { get; init; }
 
         /// <summary>True ⇒ this outcome came from the IN-PLACE lane (<see cref="Apply"/>'s sibling
         /// <see cref="ApplyInPlace"/>) — the edits landed in the USER's own file at <see cref="OutputPath"/>, not a new
@@ -286,6 +306,20 @@ public static class WritePatchBuilder
         IReadOnlyList<PatchEdit> edits, string outPath, bool extend, bool fullReadback = false,
         IReadOnlyDictionary<PatchEdit, IMajorRecordGetter>? copyFromSources = null, bool dryRun = false)
     {
+        string? epoch = null;
+        var outcome = ApplyCore(resolver, rulebook, edits, outPath, extend, fullReadback, copyFromSources, dryRun, ref epoch);
+        return epoch is null ? outcome : outcome with { Epoch = epoch };
+    }
+
+    /// <summary>The body of <see cref="Apply"/>. Split only so the ONE captured build's fingerprint (SPEC §2.1.1)
+    /// stamps EVERY outcome — success, refusal, dry run, consent prompt — from a single place, instead of threading
+    /// it through the dozen return sites below. <paramref name="epoch"/> stays null for the refusals decided BEFORE
+    /// the capture (they consulted no build, so stamping them would claim evidence they never read).</summary>
+    static PatchOutcome ApplyCore(
+        LoadOrderResolver resolver, CorpusRulebook rulebook,
+        IReadOnlyList<PatchEdit> edits, string outPath, bool extend, bool fullReadback,
+        IReadOnlyDictionary<PatchEdit, IMajorRecordGetter>? copyFromSources, bool dryRun, ref string? epoch)
+    {
         if (edits.Count == 0) return PatchOutcome.Fail("no edits supplied.");
 
         // Per-call overlay session (Option B): every source plugin this write reads (winner bodies, the nested link
@@ -325,6 +359,7 @@ public static class WritePatchBuilder
         //     the current authoring session, never an arbitrary un-enabled plugin, so the Q3 winner-confusion hazard
         //     the declined read-un-enabled-plugins feature guards against doesn't arise. ---
         var view = resolver.Capture();
+        epoch = view.Epoch;                                               // SPEC §2.1.1 — stamped on every outcome from here down
         var resolved = new List<(PatchEdit edit, IMajorRecordGetter? body, string? winnerPlugin, IMajorRecord? patchLocal, WriteRequest req, string label, IMajorRecordGetter? srcBody)>(edits.Count);
         var problems = new List<string>();
         // Records the extended patch DEFINES (FormKey in the patch's own master space — created by a prior into=
@@ -366,9 +401,11 @@ public static class WritePatchBuilder
                 }
             }
 
-            // P8b CopyFrom source: from_plugin's version of e.Target — an OFF-ORDER file the SERVICE pre-located (passed in
-            // copyFromSources), ELSE resolved from the ACTIVE order via this same captured view (the forward_record contract:
-            // in the order, defines/overrides the record, and not the output patch itself). Refused loud, all-or-nothing (Q3).
+            // P8b CopyFrom source: from_plugin's version of the SOURCE record (e.CopySource — e.Target for a same-record
+            // copy, the §4.5 zip's `from` record for a cross-record one) — an OFF-ORDER file the SERVICE pre-located
+            // (passed in copyFromSources), ELSE resolved from the ACTIVE order via this same captured view (the
+            // forward_record contract: in the order, defines/overrides the record, and not the output patch itself).
+            // Refused loud, all-or-nothing (Q3).
             IMajorRecordGetter? srcBody = null;
             if (string.Equals(e.Verb, "CopyFrom", StringComparison.Ordinal))
             {
@@ -390,10 +427,16 @@ public static class WritePatchBuilder
                 { problems.Add($"{e.Target}: CopyFrom source '{e.FromPlugin}' was excluded from this session ({why}) — its records aren't resolvable."); continue; }
                 else
                 {
-                    srcBody = view.GetRecord(session, e.FromPlugin, e.Target);
+                    srcBody = view.GetRecord(session, e.FromPlugin, e.CopySource);
                     if (srcBody is null)
-                    { problems.Add($"{e.Target}: CopyFrom source '{e.FromPlugin}' is in the load order but does NOT define or override this record — there is no version of it there to copy."); continue; }
+                    { problems.Add(CopySourceMissing(e)); continue; }
                 }
+                // §4.5 — the same-runtime-record-type gate. A same-FormKey copy passes by construction (one record,
+                // one type); the zip's CROSS-record pair is the case that can disagree, and a cross-type transplant
+                // is refused BY NAME here rather than reaching CopyField, where the mismatch would surface as a
+                // property-shaped "no field X on Y" that points away from the real cause.
+                if (CrossTypeRefusal(e, srcBody, patchLocal ?? (object?)body) is { } typeErr)
+                { problems.Add(typeErr); continue; }
             }
 
             var recType = RecordNaming.StripOverlay((patchLocal ?? (object)body!).GetType().Name);
@@ -515,6 +558,31 @@ public static class WritePatchBuilder
         return new PatchOutcome(true, null, outPath, extend, masters, ops, bytes) { ReadBack = readBack };
     }
 
+    /// <summary>The "source plugin doesn't carry the record to copy" refusal, worded for the lane that hit it: a
+    /// SAME-record copy names the target (the P8b sentence, unchanged); a §4.5 cross-record copy names the SOURCE
+    /// record and the target it was being copied INTO, so the reader can tell WHICH of the two the source plugin is
+    /// missing (Q3 — the ambiguous "this record" would point at the wrong one half the time).</summary>
+    static string CopySourceMissing(PatchEdit e) =>
+        e.FromTarget is null
+            ? $"{e.Target}: CopyFrom source '{e.FromPlugin}' is in the load order but does NOT define or override this record — there is no version of it there to copy."
+            : $"{e.Target}: CopyFrom source '{e.FromPlugin}' is in the load order but does NOT define or override the SOURCE record {e.CopySource} — there is no version of it there to copy from.";
+
+    /// <summary>SPEC §4.5's same-runtime-record-type gate for a CROSS-record copy. Returns a named refusal when the
+    /// source and target records are different runtime types, else null. A same-FormKey copy (<see
+    /// cref="PatchEdit.FromTarget"/> null) is one record and always passes — the gate exists for the zip's pairs.
+    /// Compared on the OVERLAY-STRIPPED type name, the same identity every other surface reports, so a binary-overlay
+    /// source and a settable target of the same record type agree instead of tripping on their runtime classes.</summary>
+    static string? CrossTypeRefusal(PatchEdit e, IMajorRecordGetter srcBody, object? targetBody)
+    {
+        if (e.FromTarget is null || targetBody is null) return null;
+        var srcType = RecordNaming.StripOverlay(srcBody.GetType().Name);
+        var tgtType = RecordNaming.StripOverlay(targetBody.GetType().Name);
+        if (string.Equals(srcType, tgtType, StringComparison.Ordinal)) return null;
+        return $"{e.Target}: cannot copy from {e.CopySource} — the source is a {srcType} and the target is a {tgtType}. " +
+               "A field bundle copies between records of the SAME record type (a field path means different things on " +
+               "different types); pair each target with a source of its own type.";
+    }
+
     /// <summary>#131 F1 (edit-lane intent-following), shared by <see cref="Apply"/> and <see cref="ApplyInPlace"/>:
     /// after the edits are applied, for each DialogTopic this call edited where it SET <c>Subtype</c> but NOT
     /// <c>SubtypeName</c>, sync the SNAM marker to the new Subtype — otherwise the change is a silent in-game no-op
@@ -579,7 +647,19 @@ public static class WritePatchBuilder
     public static PatchOutcome ApplyInPlace(
         LoadOrderResolver resolver, CorpusRulebook rulebook,
         IReadOnlyList<PatchEdit> edits, string targetPath, string targetName, bool fullReadback = true,
-        bool dryRun = false)
+        bool dryRun = false, IReadOnlyDictionary<PatchEdit, IMajorRecordGetter>? copyFromSources = null)
+    {
+        string? epoch = null;
+        var outcome = ApplyInPlaceCore(resolver, rulebook, edits, targetPath, targetName, fullReadback, dryRun, copyFromSources, ref epoch);
+        return epoch is null ? outcome : outcome with { Epoch = epoch };
+    }
+
+    /// <summary>The body of <see cref="ApplyInPlace"/> — split for the same single-point epoch stamp as
+    /// <see cref="ApplyCore"/> (SPEC §2.1.1).</summary>
+    static PatchOutcome ApplyInPlaceCore(
+        LoadOrderResolver resolver, CorpusRulebook rulebook,
+        IReadOnlyList<PatchEdit> edits, string targetPath, string targetName, bool fullReadback,
+        bool dryRun, IReadOnlyDictionary<PatchEdit, IMajorRecordGetter>? copyFromSources, ref string? epoch)
     {
         if (edits.Count == 0) return PatchOutcome.Fail("no edits supplied.");
 
@@ -591,6 +671,7 @@ public static class WritePatchBuilder
         // --- Phase 1: resolve each edit's body FROM THE TARGET (not the winner) + derive type + pre-flight. The §4.1
         //     content-source guard. ONE captured view answers every edit (the hunt-F5 one-view discipline). ---
         var view = resolver.Capture();
+        epoch = view.Epoch;                                               // SPEC §2.1.1 — stamped on every outcome from here down
         if (!view.ContainsPlugin(targetName))
             return PatchOutcome.Fail($"in-place target '{targetName}' is not an active plugin in the load order.{view.AbsenceClause(targetName)}");
         if (view.ExcludedPlugins.TryGetValue(targetName, out var excluded))
@@ -598,7 +679,7 @@ public static class WritePatchBuilder
                 $"cannot edit '{targetName}' in place: it was EXCLUDED from this session ({excluded}) — houseCARL won't " +
                 "re-serialize a plugin it can't fully parse (that would risk dropping the record it couldn't read, Q3). The file is UNTOUCHED.");
 
-        var resolved = new List<(PatchEdit edit, IMajorRecordGetter body, WriteRequest req, string label)>(edits.Count);
+        var resolved = new List<(PatchEdit edit, IMajorRecordGetter body, WriteRequest req, string label, IMajorRecordGetter? srcBody)>(edits.Count);
         var problems = new List<string>();
         foreach (var e in edits)
         {
@@ -617,7 +698,34 @@ public static class WritePatchBuilder
             };
             var label = Label(req);
             if (rulebook.Validate(req) is { } reject) { problems.Add($"{recType} {e.Target} [{label}]: {reject}"); continue; }
-            resolved.Add((e, body, req, label));
+
+            // CopyFrom SOURCE resolution — the same contract Apply enforces, on this lane too (W3: the LANE axis is
+            // uniform, so every ACT verb must compose with in_place). Before this, a CopyFrom op reaching the in-place
+            // lane had NO source resolved and fell through to ApplyVerb, which has no CopyFrom branch — it surfaced as
+            // the "pre-flight ACCEPTED it but the apply threw" engine-inconsistency wrapper, i.e. a real capability gap
+            // reported as an internal fault (Q3). The source may be any plugin (the target itself is legitimate ONLY
+            // for a cross-record copy — copying a record's own field onto itself is a no-op, refused by name).
+            IMajorRecordGetter? srcBody = null;
+            if (string.Equals(e.Verb, "CopyFrom", StringComparison.Ordinal))
+            {
+                if (copyFromSources is not null && copyFromSources.TryGetValue(e, out var offSrc))
+                    srcBody = offSrc;
+                else if (string.IsNullOrWhiteSpace(e.FromPlugin))
+                { problems.Add($"{e.Target}: CopyFrom is missing from_plugin (internal — the mapper should have caught this)."); continue; }
+                else if (e.FromTarget is null && string.Equals(e.FromPlugin, targetName, StringComparison.OrdinalIgnoreCase))
+                { problems.Add($"{e.Target}: CopyFrom from_plugin '{e.FromPlugin}' is the in-place target itself — copying this record's own field onto itself is a no-op; name the OTHER plugin whose version to copy from."); continue; }
+                else if (!view.ContainsPlugin(e.FromPlugin))
+                { problems.Add($"{e.Target}: CopyFrom source '{e.FromPlugin}' is not in the load order (and no plugin file by that name was located on disk) — name an active plugin, or a plugin file present on disk."); continue; }
+                else if (view.ExcludedPlugins.TryGetValue(e.FromPlugin, out var cfWhy))
+                { problems.Add($"{e.Target}: CopyFrom source '{e.FromPlugin}' was excluded from this session ({cfWhy}) — its records aren't resolvable."); continue; }
+                else
+                {
+                    srcBody = view.GetRecord(session, e.FromPlugin, e.CopySource);
+                    if (srcBody is null) { problems.Add(CopySourceMissing(e)); continue; }
+                }
+                if (CrossTypeRefusal(e, srcBody, body) is { } typeErr) { problems.Add(typeErr); continue; }
+            }
+            resolved.Add((e, body, req, label, srcBody));
         }
         if (problems.Count > 0)
             return PatchOutcome.Fail(
@@ -646,13 +754,18 @@ public static class WritePatchBuilder
         //     never a foreign override's. A nested record gets the target overlay's link cache on demand (released in
         //     Phase 4). A throw after pre-flight passed is a real engine inconsistency — fail the WHOLE call (Q3). ---
         var ops = new List<OpResult>(resolved.Count);
-        foreach (var (e, body, req, label) in resolved)
+        foreach (var (e, body, req, label, srcBody) in resolved)
         {
             try
             {
                 ILinkCache? cache = WriteEngine.RecordNeedsSourceCache(body) ? session.LinkCacheFor(targetName) : null;
                 var ov = WriteEngine.GenericGetOrAddAsOverride(targetMod, body, cache);
-                WriteEngine.ApplyVerb(ov, req);
+                // CopyFrom transplants the field FROM the resolved source body into the target's own record; every
+                // other verb applies to it directly (the same two-branch shape Apply uses — one engine, two lanes).
+                if (string.Equals(req.Verb, "CopyFrom", StringComparison.Ordinal))
+                    WriteEngine.CopyField(srcBody!, ov, req.Path);
+                else
+                    WriteEngine.ApplyVerb(ov, req);
                 var (after, landed) = DescribeApplied(ov, req);
                 ops.Add(new OpResult(e.Target, req.RecordType, label, true, null, after, landed));
             }
