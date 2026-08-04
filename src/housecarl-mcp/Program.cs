@@ -164,6 +164,11 @@ static void AddMcp(IServiceCollection services, bool stdio)
     if (stdio) mcp.WithStdioServerTransport();
     else mcp.WithHttpTransport(o => o.Stateless = true);
     mcp.WithToolsFromAssembly();
+    // SPEC §5.1's @file convention forces a list parameter to accept an array OR a string, which C# cannot
+    // express as one type — so those parameters are declared JsonElement and the generator publishes "anything".
+    // This republishes them as anyOf[<the GENERATED element-array schema>, string]. Published shape only; what
+    // the tool ACCEPTS is unchanged (ApplyTools' strict reader). See ToolSchemas.
+    ToolSchemas.PublishFileListUnions(services);
     // The argument-binding shim (HCBR-2026-06-11-01): schema-driven coercion of obvious-intent argument shapes
     // (a bare string where an array is declared, quoted bools/numbers), named refusal of missing required
     // parameters, and a named rewrite of the SDK's generic binding-failure text. See ToolCallShim.
