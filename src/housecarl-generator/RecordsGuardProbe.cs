@@ -311,9 +311,13 @@ internal static class RecordsGuardProbe
             var prevProv = RecordsTools.Records(svc, formids: new[] { Fid(weapons[0]) }, source: Je("\"previous_provider\""));
             Check(prevProv.StartsWith("error:") && prevProv.Contains("subject", StringComparison.OrdinalIgnoreCase),
                   "source='previous_provider' refuses naming the subject-relative rule (it is a versus= value)");
-            var mixed = RecordsTools.Records(svc, formids: new[] { Fid(weapons[0]) }, types: new[] { "WEAP" });
-            Check(mixed.StartsWith("error:") && mixed.Contains("W2 PR 2"),
-                  "staging: formids= x scan-terms composition refuses by name with the workaround");
+            var mixed = RecordsTools.Records(svc, formids: new[] { Fid(weapons[0]), Fid(armo.FormKey) }, types: new[] { "WEAP" });
+            Check(!mixed.StartsWith("error:") && mixed.Contains("HcRecW0") && !mixed.Contains("HcRecA0"),
+                  "formids x scan composition: the identity set intersects the type scan (the armor drops out)");
+            var setOnly = RecordsTools.Records(svc, formids: new[] { Fid(weapons[0]), Fid(weapons[1]) },
+                                               where: new[] { "BasicStats.Damage >= 90" });
+            Check(!setOnly.StartsWith("error:") && setOnly.Contains("HcRecW0") && !setOnly.Contains("HcRecW1"),
+                  "formids as the ONLY bound: a where= over the set needs no types=/plugins= (the set is the bound)");
             var idScan = RecordsTools.Records(svc, types: new[] { "WEAP" },
                                               project: new RecordsTools.RecordsProject { form = "identity" });
             Check(idScan.StartsWith("error:") && idScan.Contains("summary"),
@@ -338,10 +342,14 @@ internal static class RecordsGuardProbe
             var offScan = RecordsTools.Records(svc, types: new[] { "WEAP" }, source: Je($"\"{oldName}\""));
             Check(offScan.Contains("OUT-OF-LOAD-ORDER") && offScan.Contains("HcRecW1"),
                   "off-order scan: types= enumerates the FILE's own records, arm stated");
-            var offAgg = RecordsTools.Records(svc, source: Je($"\"{oldName}\""), types: new[] { "WEAP" },
-                                              project: new RecordsTools.RecordsProject { form = "fields", fields = new[] { "BasicStats.Damage" } });
-            Check(offAgg.StartsWith("error:") && offAgg.Contains("W2 PR 2"),
-                  "off-order scan: the fields form refuses by name (staged) with the formids= workaround");
+            var offFields = RecordsTools.Records(svc, source: Je($"\"{oldName}\""), types: new[] { "WEAP" },
+                                                 project: new RecordsTools.RecordsProject { form = "fields", fields = new[] { "BasicStats.Damage" } });
+            Check(!offFields.StartsWith("error:") && offFields.Contains("55") && offFields.Contains("OUT-OF-LOAD-ORDER"),
+                  "off-order scan: the fields form reads the FILE's bodies (the disabled patch's own damage)");
+            var offWhere = RecordsTools.Records(svc, source: Je($"\"{oldName}\""), types: new[] { "WEAP" },
+                                                where: new[] { "BasicStats.Damage >= 50" });
+            Check(!offWhere.StartsWith("error:") && offWhere.Contains("HcRecW1"),
+                  "off-order scan: the FULL where= grammar runs over the file's own bodies");
 
             // ============================================================================================
             //  4b — PR #307 review folds
@@ -388,11 +396,13 @@ internal static class RecordsGuardProbe
 
             // Off-order scan: offset= and counts_only= refuse by name (finding 5).
             var offOffset = RecordsTools.Records(svc, types: new[] { "WEAP" }, source: Je($"\"{oldName}\""), offset: 500);
-            Check(offOffset.StartsWith("error:") && offOffset.Contains("offset"),
-                  "off-order scan: offset= refuses by name (no silent same-window paging)");
+            Console.WriteLine("DBG-OFFSET: " + offOffset.Substring(0, Math.Min(400, offOffset.Length)).Replace("\n", " | "));
+            Check(!offOffset.StartsWith("error:") && offOffset.Contains("offset=500 skipped past"),
+                  "off-order scan: offset= pages in exact windows (past-the-end renders the true total, no rows)");
             var offCounts = RecordsTools.Records(svc, types: new[] { "WEAP" }, source: Je($"\"{oldName}\""), counts_only: true);
-            Check(offCounts.StartsWith("error:") && offCounts.Contains("counts_only"),
-                  "off-order scan: counts_only= refuses by name");
+            Console.WriteLine("DBG-COUNTS: " + offCounts.Substring(0, Math.Min(400, offCounts.Length)).Replace("\n", " | "));
+            Check(!offCounts.StartsWith("error:") && offCounts.Contains("1 match"),
+                  "off-order scan: counts_only= returns the census over the file's records");
 
             // List aggregate carries the source arm + coverage qualifier in BOTH formats (finding 6).
             var aggOld = RecordsTools.Records(svc, formids: new[] { Fid(weapons[1]) }, source: Je($"\"{oldName}\""),

@@ -321,13 +321,10 @@ public static class RecordsTools
                        || where is { Length: > 0 } || references is { Length: > 0 };
         if (!hasFormids && !hasScan)
             return "error: select something — formids= (a record list), or a scan scope: types=, plugins=, conflicts_only=true, where=, references=.";
-        // A reverse MGEF walk narrows its carrier set with types= — the one place formids (the seeds) and a scan
-        // term legitimately meet ahead of the general composition (the types entries bound the typed carrier scan).
+        // formids= composes with the scan terms (the W2 formids×scan composition): the identity set intersects
+        // the scan's selection — or IS the universe when it is the only bound. The reverse MGEF walk keeps its
+        // own lane (formids are the seeds; types= narrows the typed carrier scan).
         bool reverseWalk = walk is not null && walkDirection == "reverse";
-        if (hasFormids && hasScan && !reverseWalk)
-            return "error: formids= composes with the scan terms (types=/plugins=/where=/references=/conflicts_only=) in W2 PR 2 — " +
-                   "not on this surface yet. Meanwhile: run the scan, spill/to_file the result, and re-enter it via where=[\"formid in @<file>\"]; " +
-                   "or filter the formids list client-side.";
         if (reverseWalk && (plugins?.names is { Length: > 0 } || conflicts_only || where is { Length: > 0 }))
             return "error: the reverse MGEF walk takes formids= (the effects) and optionally types= (narrowing the carrier types) — the general bounded reverse over other scan terms is the references= spelling.";
         if (reverseWalk && !hasFormids)
@@ -399,9 +396,9 @@ public static class RecordsTools
             return w;
         }
 
-        return hasFormids
-            ? ListLane()
-            : ScanLane();
+        return hasScan && !reverseWalk
+            ? ScanLane()          // incl. formids×scan: the identity set rides the scan as an intersection
+            : ListLane();
 
         // ================================================================================================
         //  LIST lane — formids= drives; SOURCE picks the read lane.
@@ -852,12 +849,34 @@ public static class RecordsTools
             bool hasBodyFilter = where is { Length: > 0 } || references is { Length: > 0 };
             bool hasTypes = types is { Length: > 0 };
             bool hasScope = plugins?.names is { Length: > 0 };
-            if (hasBodyFilter && !hasTypes && !hasScope)
-                return "error: where=/references= is a body scan and must be combined with types= or plugins= to bound the work " +
+            bool scopePlusPole = false;
+            if (hasBodyFilter && !hasTypes && !hasScope && !hasFormids)
+                return "error: where=/references= is a body scan and must be combined with types=, plugins=, or a formids= set to bound the work " +
                        "(conflicts_only= alone is not enough — an unbounded body scan over the whole order is refused; the " +
                        "reverse-reference index that would lift this is a known future capability).";
             if (plugins is { defined_in: true } && !hasScope)
                 return "error: plugins.defined_in=true keeps records DEFINED in the scoped plugins, so plugins.names must name that scope.";
+
+            // formids×scan (W2 composition): the identity set intersects the scan — expanded here (@file /
+            // artifact demand honored inside the scan's own capture), parsed once, handed to the engine as the
+            // set filter (alone, it IS the scan universe — the set is the bound).
+            HousecarlCore.ArtifactDemand? fidDemand = null; string? fidEcho = null;
+            IReadOnlyList<FormKey>? formidSet = null;
+            if (hasFormids)
+            {
+                var (ftoks, fdemand, fecho, fxerr) = Artifacts.ExpandListInput(formids!, "formids");
+                if (fxerr is not null) return fxerr;
+                fidDemand = fdemand; fidEcho = fecho;
+                var fkList = new List<FormKey>();
+                foreach (var t in ftoks!)
+                {
+                    if (string.IsNullOrWhiteSpace(t)) continue;
+                    try { fkList.Add(FormKey.Factory(t.Trim())); }
+                    catch (Exception ex) { return $"error: bad formids entry '{t}': {ex.Message}. Expected 'XXXXXX:Plugin.esp'."; }
+                }
+                if (fkList.Count == 0) return "error: formids= expanded to an empty list — nothing to intersect the scan with.";
+                formidSet = fkList;
+            }
 
             // ---- OFF-ORDER source universe: the file's own records (absorbs read_plugin_file's enumeration).
             string? probeEpoch = null;
@@ -874,11 +893,18 @@ public static class RecordsTools
                 if (!probe.InOrder)
                     return OffOrderScan(probe);
                 if (hasScope)
-                    return "error: a plugins= scope combined with an ACTIVE named source= (scope-vs-pole streams) lands in W2 PR 2 — " +
-                           "meanwhile: scope to the source plugin itself (plugins.names=[source]) reads its records, or use " +
-                           "fields_source='winner' for winner-value display.";
-                // ACTIVE arm: the pole's records ARE the scan universe — the plugins= stream with the arm stated.
-                Arm($"{probe.Plugin} — active in the load order");
+                {
+                    // Scope-vs-pole streams (the W2 composition): the plugins= scope decides WHICH records are
+                    // considered; the named source= decides whose VERSION the body forms read. Identity-fact
+                    // forms have nothing for the pole to change — accepting-and-ignoring it is the sin.
+                    if (form is "summary" or "aggregate")
+                        return $"error: a plugins= scope with a named source= reads the POLE's version of each scoped match — and the '{form}' form's rows are identity facts the pole doesn't change. Drop source=, or use form='fields'/'everything' (the pole's bodies) or 'delta'/'tree' (comparisons).";
+                    scopePlusPole = true;
+                    Arm($"{probe.Plugin} — active in the load order (the plugins= scope selects; this pole's version is read)");
+                }
+                else
+                    // ACTIVE arm: the pole's records ARE the scan universe — the plugins= stream with the arm stated.
+                    Arm($"{probe.Plugin} — active in the load order");
             }
             else Arm("winner");
 
@@ -904,7 +930,7 @@ public static class RecordsTools
                 if (list.Count > 0) refFks = list.Distinct().ToList();
             }
 
-            var scanPlugins = srcName is not null ? new[] { srcName } : plugins?.names;
+            var scanPlugins = scopePlusPole ? plugins!.names : (srcName is not null ? new[] { srcName } : plugins?.names);
             bool definedIn = plugins?.defined_in ?? false;
             var groupBy = form == "aggregate" ? project!.group_by!.Trim().ToLowerInvariant() : null;
             // The derived-selection forms (comparisons, info_order, a walk's seeds) consume EVERY match — the
@@ -913,9 +939,12 @@ public static class RecordsTools
             bool derivedSelection = comparisonForm || form == "info_order" || walk is not null;
             int effLimit = wantFile || derivedSelection ? int.MaxValue : counts_only ? 0 : (limit <= 0 ? 500 : limit);
 
+            var demandsList = new List<HousecarlCore.ArtifactDemand>();
+            if (refDemand is not null) demandsList.Add(refDemand);
+            if (fidDemand is not null) demandsList.Add(fidDemand);
             var outcome = svc.CrossQuery(types, refFks, null, conflicts_only, scanPlugins, where,
                                          effLimit, definedIn, groupBy, offset, where_source,
-                                         refDemand is null ? null : new[] { refDemand });
+                                         demandsList.Count > 0 ? demandsList : null, formidSet);
             // The probe→scan seam IS epoch-compared (round-3 F5): the arm statement must describe the same
             // build the rows were scanned from.
             if (probeEpoch is not null && outcome.Error is null && outcome.Epoch is not null && outcome.Epoch != probeEpoch)
@@ -931,6 +960,7 @@ public static class RecordsTools
                 var e = new List<KeyValuePair<string, string>>();
                 void Add(string k, string? v) { if (!string.IsNullOrEmpty(v)) e.Add(new(k, v!)); }
                 Add("form", form);
+                Add("formids", fidEcho ?? (formidSet is not null ? $"{formidSet.Count} inline formid(s)" : null));
                 Add("types", types is { Length: > 0 } ? string.Join(", ", types) : null);
                 Add("references", refEcho ?? (refs is { Length: > 0 } ? string.Join(", ", refs) : null));
                 if (conflicts_only) Add("conflicts_only", "true");
@@ -1017,13 +1047,13 @@ public static class RecordsTools
 
             // ---- form=everything on a scan: selection here, bodies via the batch lane (window-bounded).
             // counts_only skips the body lane entirely — the census is the cross-query render below (round 3).
-            if (form == "everything" && !counts_only && outcome.Error is null && outcome.Groups is null)
+            if ((form == "everything" || (form == "fields" && scopePlusPole)) && !counts_only && outcome.Error is null && outcome.Groups is null)
             {
                 var keys = outcome.Keys.Select(k => k.ToString()).ToList();
                 IReadOnlyList<ReadOutcome> bodies;
                 if (srcName is not null)
                 {
-                    bodies = svc.ResolveBatchFromPole(keys, srcName, srcMod, null, depth, resolveNames, null,
+                    bodies = svc.ResolveBatchFromPole(keys, srcName, srcMod, form == "fields" ? projFields : null, depth, resolveNames, null,
                                                       out _, out var bref, out var brefEpoch);
                     // A refusal is judged on the NAMED cause, never on row count (review: a zero-match scan is an
                     // honest EMPTY result, and the pole lane's real refusals were being replaced by a generic one).
@@ -1064,6 +1094,18 @@ public static class RecordsTools
                             for (int i = 0; i < kv.Value.Count; i++) byIndex[kv.Value[i]] = res[i];
                         }
                         bodies = byIndex;
+                    }
+                }
+                // The §4.2 untouched contract, bulk shape: rows the pole does not touch come back as per-item
+                // refusals naming the touchers; the ACCOUNTING carries the explicit count so quiet omission is
+                // impossible (the per-item wording below is ResolveBatchFromPole's own).
+                if (scopePlusPole)
+                {
+                    int notTouched = bodies.Count(o => o.Error is not null && o.Error.Contains("does not define or override"));
+                    if (notTouched > 0)
+                    {
+                        envelope.Add(new("not_touched", notTouched.ToString()));
+                        headerLine += $"\nnot_touched={notTouched} — scoped match(es) the source pole has no version of (each row names its actual touchers)";
                     }
                 }
                 // The selection and every body read must agree on ONE build (grouped reads capture per batch) —
@@ -1133,47 +1175,164 @@ public static class RecordsTools
         {
             Arm($"{pole.Plugin} — {pole.Where}");
             envelope.Add(new("epoch_covers_source", "false"));
+            headerLine += "\n(the off-order file's content is OUTSIDE the epoch fingerprint — an edit to it changes answers without changing the epoch)";
             if (conflicts_only)
                 return "error: conflicts_only= has no meaning on an out-of-load-order file — it is not in the conflict frame. Drop it, or read the winner (source=\"winner\").";
-            if (comparisonForm)
-                return "error: the 'delta'/'tree' forms over an out-of-load-order file SCAN are not composed yet — enumerate the file with form='summary', then compare the specific records via formids= (the comparison poles read the off-order file under the one-pole rule).";
             if (form == "info_order")
                 return "error: the info_order form merges the ACTIVE order's touching plugins — an out-of-load-order file is not in that frame. Read the winner's merge (drop source=), or enumerate the file's DIAL records with form='summary'.";
             if (walk is not null)
                 return "error: the walk expands the ACTIVE order's winner link graph — an out-of-load-order file's records are not in that graph. Enumerate the file with form='summary', then walk specific records via formids= (dropping source=).";
-            if (references is { Length: > 0 } || plugins?.names is { Length: > 0 } || (plugins?.defined_in ?? false))
-                return "error: references=/plugins= over an out-of-load-order file land in W2 PR 2 — this wave reads the file by types= (and an 'editorid contains' where-clause).";
-            if (form is "fields" or "everything")
-                return "error: the fields/everything forms over an out-of-load-order file SCAN land in W2 PR 2 — meanwhile enumerate with form='summary', then read the specific records via formids= (the one-pole batch reads any of the file's records in full).";
             if (dense) return "error: format='dense' is the in-order scan's columnar form — an off-order file scan renders text or json.";
-            if (wantFile) return "error: to_file= over an out-of-load-order file scan lands in W2 PR 2 — enumerate inline, or batch-read via formids= with to_file=.";
-            if (offset > 0) return "error: offset= paging over an out-of-load-order file scan lands in W2 PR 2 — this wave renders the file's first limit= rows (narrow with types= or an 'editorid contains' clause).";
-            if (counts_only) return "error: counts_only= over an out-of-load-order file scan lands in W2 PR 2 — meanwhile form='aggregate' group_by='type' is the whole-file census.";
+            if (where_source is not null && where_source.Trim().ToLowerInvariant() == "winner")
+                return "error: where_source=winner matches on the live load-order winner — but this scan streams an out-of-load-order FILE's bodies, many of which have no winner. Match the winner by scanning the winner (drop source=), or drop where_source=.";
 
-            // The one where-clause this lane carries natively: a single 'editorid contains <text>'.
-            string? eidContains = null;
-            if (where is { Length: > 0 })
+            // The completed off-order lane (W2 PR 2): the same filter grammar as the in-order scan, run by the
+            // engine over the file's own records; provenance terms bind to the ACTIVE view (declared).
+            HousecarlCore.ArtifactDemand? refDemand = null; string? refEcho = null;
+            var refs = references;
+            if (refs is { Length: > 0 })
             {
-                if (where.Length == 1 && TryEditorIdContains(where[0], out eidContains)) { }
-                else return "error: over an out-of-load-order file this wave carries exactly one where-clause form: [\"editorid contains <text>\"] — " +
-                            "the full predicate grammar over off-order bodies lands in W2 PR 2.";
+                var (toks, demand, echoSrc2, xerr) = Artifacts.ExpandListInput(refs, "references");
+                if (xerr is not null) return xerr;
+                refs = toks!; refDemand = demand; refEcho = echoSrc2;
+            }
+            IReadOnlyList<FormKey>? refFks = null;
+            if (refs is { Length: > 0 })
+            {
+                var list = new List<FormKey>();
+                foreach (var r in refs)
+                {
+                    if (string.IsNullOrWhiteSpace(r)) continue;
+                    try { list.Add(FormKey.Factory(r.Trim())); }
+                    catch (Exception ex) { return $"error: bad references FormID '{r}': {ex.Message}. Expected 'XXXXXX:Plugin.esp'."; }
+                }
+                if (list.Count > 0) refFks = list.Distinct().ToList();
+            }
+            HousecarlCore.ArtifactDemand? fidDemand = null; string? fidEcho = null;
+            IReadOnlyList<FormKey>? formidSet = null;
+            if (formids is { Length: > 0 })
+            {
+                var (ftoks, fdemand, fecho, fxerr) = Artifacts.ExpandListInput(formids!, "formids");
+                if (fxerr is not null) return fxerr;
+                fidDemand = fdemand; fidEcho = fecho;
+                var fkList = new List<FormKey>();
+                foreach (var t in ftoks!)
+                {
+                    if (string.IsNullOrWhiteSpace(t)) continue;
+                    try { fkList.Add(FormKey.Factory(t.Trim())); }
+                    catch (Exception ex) { return $"error: bad formids entry '{t}': {ex.Message}. Expected 'XXXXXX:Plugin.esp'."; }
+                }
+                if (fkList.Count > 0) formidSet = fkList;
+            }
+            var offGroupBy = form == "aggregate" ? project!.group_by!.Trim().ToLowerInvariant() : null;
+            bool offDerived = comparisonForm;
+            int offLimit = wantFile || offDerived ? int.MaxValue : counts_only ? 0 : (limit <= 0 ? 500 : limit);
+            var offDemands = new List<HousecarlCore.ArtifactDemand>();
+            if (refDemand is not null) offDemands.Add(refDemand);
+            if (fidDemand is not null) offDemands.Add(fidDemand);
+
+            var outcome = svc.OffOrderQuery(pole, types, refFks, null, plugins?.names,
+                                            plugins?.defined_in ?? false, where, offLimit, offGroupBy, offset,
+                                            formidSet, offDemands.Count > 0 ? offDemands : null);
+
+            List<KeyValuePair<string, string>> Echo()
+            {
+                var e = new List<KeyValuePair<string, string>>();
+                void Add(string k, string? v) { if (!string.IsNullOrEmpty(v)) e.Add(new(k, v!)); }
+                Add("form", form);
+                Add("source", $"{pole.Plugin} (out-of-load-order)");
+                Add("formids", fidEcho ?? (formidSet is not null ? $"{formidSet.Count} inline formid(s)" : null));
+                Add("types", types is { Length: > 0 } ? string.Join(", ", types) : null);
+                Add("references", refEcho ?? (refs is { Length: > 0 } ? string.Join(", ", refs) : null));
+                Add("plugins", plugins?.names is { Length: > 0 } ? string.Join(", ", plugins.names) : null);
+                if (plugins?.defined_in ?? false) Add("defined_in", "true");
+                Add("where", where is { Length: > 0 } ? string.Join(" AND ", where) : null);
+                Add("group_by", offGroupBy);
+                if (versusSpec is not null) Add("versus", versusSpec.Label);
+                return e;
             }
 
-            string? typeArg = null;
-            if (types is { Length: > 1 })
-                return "error: an out-of-load-order file scan reads ONE types= entry at a time in this wave — call per type, or use form='aggregate' group_by='type' for the whole file's census.";
-            if (types is { Length: 1 }) typeArg = types[0];
-            if (form == "aggregate")
+            // Comparisons over the file's matches: the file IS the subject pole (its version of each match).
+            if (comparisonForm && outcome.Error is null && outcome.Groups is null)
             {
-                var gb = project!.group_by!.Trim().ToLowerInvariant();
-                if (gb != "type")
-                    return $"error: over an out-of-load-order file the aggregate form counts by 'type' (the file's own record census) — group_by='{gb}' has no frame there.";
-                typeArg = null;   // no type filter ⇒ the whole-file record-type summary
+                var cmpKeys = outcome.Keys.Select(k => k.ToString()).ToList();
+                envelope.Add(new("total", outcome.Total.ToString()));
+                headerLine += $"\n{outcome.Total} match(es) selected from the file";
+                if (form == "delta")
+                {
+                    var rows = svc.DeltaBatch(cmpKeys, srcSpec, versusSpec!, projFields, null,
+                                              out var sArm, out var rArm, out var covers, out var refusal, out var depoch);
+                    if (refusal is not null)
+                        return json ? JsonWire.RenderError(refusal, depoch) : "error: " + refusal + (depoch is not null ? $"\nepoch={depoch}" : "");
+                    return DeltaResponse(rows, sArm, rArm, covers, depoch, Echo());
+                }
+                else
+                {
+                    var rows = svc.TreeBatch(cmpKeys, versusSpec!, projFields, null,
+                                             out var rArm, out var covers, out var refusal, out var tepoch);
+                    if (refusal is not null)
+                        return json ? JsonWire.RenderError(refusal, tepoch) : "error: " + refusal + (tepoch is not null ? $"\nepoch={tepoch}" : "");
+                    return TreeResponse(rows, rArm, covers, tepoch, Echo());
+                }
             }
 
-            var o = svc.ReadPluginFile(pole.Plugin, null, typeArg, srcMod, null, 1, eidContains, limit <= 0 ? 500 : limit, false);
-            return json ? JsonWire.RenderPluginFile(o, max_chars, envelope)
-                        : headerLine + "\n" + Wire.RenderPluginFile(o, max_chars);
+            // fields/everything over the file's matches: bodies via the one-pole batch (it reads the FILE).
+            if (form is ("fields" or "everything") && !counts_only && outcome.Error is null && outcome.Groups is null)
+            {
+                var keys = outcome.Keys.Select(k => k.ToString()).ToList();
+                var bodies = svc.ResolveBatchFromPole(keys, pole.Plugin, srcMod, form == "fields" ? projFields : null,
+                                                      depth, resolveNames, null, out _, out var bref, out var brefEpoch);
+                if (bref is not null)
+                    return json ? JsonWire.RenderError(bref, brefEpoch)
+                                : "error: " + bref + (brefEpoch is not null ? $"\nepoch={brefEpoch}" : "");
+                envelope.Add(new("total", outcome.Total.ToString()));
+                headerLine += $"\n{outcome.Total} match(es); bodies for the {keys.Count}-row window below";
+                string RenderOff(SpillState? sp, out bool trunc) => json
+                    ? JsonWire.RenderBatch(bodies, max_chars, sp, out trunc, envelope)
+                    : headerLine + "\n" + Wire.RenderBatch(svc, bodies, form == "fields" ? projFields : null, false, max_chars, sp, out trunc);
+                SpillState? offSpill = null;
+                var offEpoch = bodies.FirstOrDefault(o => o.Epoch is not null)?.Epoch ?? outcome.Epoch;
+                if (wantFile)
+                {
+                    var (sp, aerr) = Artifacts.WriteBatch(bodies, toFile!, "to_file", Echo());
+                    if (aerr is not null) return json ? JsonWire.RenderError(aerr, offEpoch) : "error: " + aerr;
+                    offSpill = SpillState.Spilled(sp!, manifestOnly: true);
+                }
+                var offRendered = RenderOff(offSpill, out var offTrunc);
+                if (offSpill is null && offTrunc)
+                {
+                    var path = ResultsStore.NextPath("housecarl_records", offEpoch ?? "none");
+                    var (sp, aerr) = Artifacts.WriteBatch(bodies, path, "ceiling", Echo());
+                    if (aerr is not null) ResultsStore.Release(path);
+                    offRendered = RenderOff(aerr is null ? SpillState.Spilled(sp!, manifestOnly: false) : SpillState.WriteFailed(aerr), out _);
+                }
+                return offRendered;
+            }
+
+            // summary / aggregate: the shared cross-query renders (Prefilled rows carry the file's identities;
+            // winner context rides where a record also lives in the order).
+            SpillState? spill = null;
+            if (wantFile && outcome.Error is null)
+            {
+                var (sp, aerr) = Artifacts.WriteCrossQuery(svc, outcome, null, false, false, 1, toFile!, "to_file", Echo());
+                if (aerr is not null)
+                    return fmt is Wire.QueryFormat.Text ? "error: " + aerr : JsonWire.RenderError(aerr, outcome.Epoch);
+                spill = SpillState.Spilled(sp!, manifestOnly: true);
+            }
+            string Render(SpillState? sp, out bool trunc) => fmt switch
+            {
+                Wire.QueryFormat.Dense or Wire.QueryFormat.Json => JsonWire.RenderCrossQuery(svc, outcome, null, max_chars, false, false, 1, sp, out trunc, envelope),
+                _ => headerLine + "\n" + Wire.RenderCrossQuery(svc, outcome, null, false, max_chars, false, false, 1, sp, out trunc),
+            };
+            var rendered = Render(spill, out var truncated);
+            if (spill is null && truncated && outcome.Error is null)
+            {
+                var path = ResultsStore.NextPath("housecarl_records", outcome.Epoch ?? "none");
+                var (sp, aerr) = Artifacts.WriteCrossQuery(svc, outcome, null, false, false, 1, path, "ceiling", Echo());
+                if (aerr is not null) ResultsStore.Release(path);
+                rendered = Render(aerr is null ? SpillState.Spilled(sp!, manifestOnly: false) : SpillState.WriteFailed(aerr), out _);
+            }
+            return rendered;
         }
     });
 
