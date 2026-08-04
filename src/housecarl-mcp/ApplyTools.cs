@@ -282,8 +282,9 @@ public static class ApplyTools
             // would contradict the 1-based position stated here — shear it; the element path is surfaced separately.
             string at = ex.LineNumber is { } ln ? $" at line {ln + 1}, byte {(ex.BytePositionInLine ?? 0) + 1} in the line" : "";
             string element = ex.Path is { Length: > 2 } p ? $" (element {p})" : "";
-            return (null, $"{origin} could not be parsed{at}{element}: {ShearStjPosition(Guard.Flatten(ex.Message))} " +
-                          $"Expected a JSON ARRAY of {shape} elements.");
+            var msg = ShearStjPosition(Guard.Flatten(ex.Message));
+            return (null, $"{origin} could not be parsed{at}{element}: {msg} " +
+                          $"Expected a JSON ARRAY of {shape} elements.{ElementVocabularyHint(msg)}");
         }
         if (items is null) return (null, $"{origin} parsed to JSON null — expected a JSON array of {shape} elements.");
         if (items.Length == 0) return (null, $"{param} is an empty array — give at least one {shape}.");
@@ -310,6 +311,30 @@ public static class ApplyTools
             return (null, $"{param}: '{path}' is empty. Expected a JSON array.");
         return (text, null);
     }
+
+    /// <summary>The §5.3 vocabulary correction for a rejected OP-ELEMENT member. The alias layer rewrites TOP-LEVEL
+    /// arguments only (<see cref="ToolCallShim"/> works off the published schema, and an op's members are inside a
+    /// list value), so a caller carrying 1.x habits — <c>verb</c>, <c>from_plugin</c> — gets the strict reader's
+    /// unmapped-member refusal with no way to learn the new word. That refusal is correct and stays; this appends
+    /// the one-hop correction to it. Deliberately narrow: only the spellings this tool actually renamed, matched off
+    /// the property name STJ already quoted, so it can never invent a member the shape doesn't declare.</summary>
+    static string ElementVocabularyHint(string stjMessage)
+    {
+        foreach (var (old, correction) in ElementRenames)
+            if (stjMessage.Contains($"'{old}'", StringComparison.Ordinal))
+                return $" ('{old}' was the 1.x spelling — {correction})";
+        return "";
+    }
+
+    static readonly (string Old, string Correction)[] ElementRenames =
+    {
+        ("verb", "the verb member is now op, one verb-name across the whole surface: op=\"Add\""),
+        ("from_plugin", "it split in two: from_source names the PLUGIN to copy from, from names a different source RECORD"),
+        ("fromplugin", "it split in two: from_source names the PLUGIN to copy from, from names a different source RECORD"),
+        ("target_formid", "a copy's destination record is the assignments= zip's target="),
+        ("source_formid", "a copy's source record is the assignments= zip's from= (or an op's from=)"),
+        ("source_plugin", "a copy's source pole is from_source="),
+    };
 
     /// <summary>STJ appends its own position block (" Path: $[0].x | LineNumber: 0 | BytePositionInLine: 89.") to a
     /// JsonException message — 0-based, contradicting the 1-based position the refusal already leads with. Shear it.</summary>

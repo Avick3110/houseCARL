@@ -240,6 +240,14 @@ internal static class AliasTable
          "absorbed into housecarl_records: project={\"form\": \"chain\"} with walk={\"direction\": \"reverse\"} and the MGEF in formids= (types= still narrows the carrier types)."),
         ("housecarl_skypatcher_read",
          "absorbed into housecarl_records: source={\"overlay\": \"skypatcher\", \"state\": \"post\"} reads the post-INI body; pre-vs-post is project={\"form\": \"delta\"} with the two overlay poles."),
+
+        // W3 — the write side. Both field-edit tools became housecarl_apply; the LANE and vocabulary changes
+        // (§5.1/§5.2) are named here too, because a caller arriving from old docs has the old PARAMETER habits
+        // as well as the old tool name, and the one-hop redirect is worth more than a bare "use apply".
+        ("housecarl_set_field",
+         "absorbed into housecarl_apply: one op is a set of one — ops=[{formid, field_path, value}] (verb= is op=). patch_name= is patch=, full_readback= is readback=, and the target=+in_place=true pair is in_place=\"X.esp\" (the file being overwritten)."),
+        ("housecarl_bulk_apply",
+         "absorbed into housecarl_apply: operations= is ops= (verb= is op=), and from_file= is the @file convention — ops=\"@<absolute path>\". patch_name= is patch=, full_readback= is readback=, target=+in_place=true is in_place=\"X.esp\". Copying a field bundle BETWEEN records is bundle= + assignments=."),
     };
 
     /// <summary>The successor teaching for a retired tool name, or null. Case-insensitive on the full name.</summary>
