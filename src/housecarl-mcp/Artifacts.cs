@@ -258,6 +258,22 @@ internal static class Artifacts
         return err is not null ? (null, err) : (new SpillInfo(path, manifest!, reason), null);
     }
 
+    /// <summary>Build + save the artifact for a records form=info_order result — one row per topic, in input
+    /// order, exactly the json render's rows (honesty gates carried as data; per-item errors included).</summary>
+    public static (SpillInfo? Spill, string? Error) WriteInfoOrder(
+        IReadOnlyList<LoadOrderService.InfoOrderRow> rows, string? epoch, string path, string reason,
+        IReadOnlyList<KeyValuePair<string, string>> query)
+    {
+        using var writer = new ResultArtifact.Writer();
+        foreach (var row in rows)
+            writer.WriteRow((w, ms) => JsonWire.WriteInfoOrderRow(w, row, ms, int.MaxValue),
+                            row.Error is null ? row.Type : null);
+        var (manifest, err) = writer.Save(path, "housecarl_records", query, "formid",
+                                          new[] { "formid", "type", "editorid", "winner", "contested", "complete", "moves_computed", "baseline_trusted", "contributing", "unread?", "note?", "moved_count", "order" },
+                                          "input order", rows.Count, epoch ?? "");
+        return err is not null ? (null, err) : (new SpillInfo(path, manifest!, reason), null);
+    }
+
     /// <summary>Append the whole SpillState to a text response: the spilled block, or the failed-spill warning
     /// (a truncated response whose promised artifact could NOT be written must say so — the §2.1.1 "nothing is
     /// ever lost silently" promise would otherwise break exactly when the disk does).</summary>
