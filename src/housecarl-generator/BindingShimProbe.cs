@@ -506,11 +506,6 @@ public static class BindingShimProbe
         "housecarl_write_seq: source -> plugin",
     };
 
-    /// <summary>Compute the activation census from the served tools/list and diff it against
-    /// <see cref="CensusExpected"/>. Mirrors ResolveAliases' value-independent gates: a row is active on
-    /// a tool when NO declared parameter normalizes to the old spelling (else the call is declared, or
-    /// the bridge owns it) and the first non-excluded candidate IS declared; a hint is active when the
-    /// old spelling is undeclared and every gate parameter is declared.</summary>
     /// <summary>The published-schema arm (W3): the SPEC §5.1 <c>@file</c> union on the JsonElement-typed list
     /// parameters, plus the same-document-pointer invariant every tool's schema must satisfy.</summary>
     static int SchemaArm(JsonElement toolsList)
@@ -602,6 +597,11 @@ public static class BindingShimProbe
         return true;
     }
 
+    /// <summary>Compute the activation census from the served tools/list and diff it against
+    /// <see cref="CensusExpected"/>. Mirrors ResolveAliases' value-independent gates: a row is active on
+    /// a tool when NO declared parameter normalizes to the old spelling (else the call is declared, or
+    /// the bridge owns it) and the first non-excluded candidate IS declared; a hint is active when the
+    /// old spelling is undeclared and every gate parameter is declared.</summary>
     static int CensusArm(JsonElement toolsList)
     {
         var actual = new List<string>();
