@@ -1513,6 +1513,11 @@ static class JsonWire
                 // NeedsAcknowledge carries its prompt in Error — labelled as a prompt, never as an error string.
                 WriteNullable(w, o.NeedsAcknowledge ? "confirmation" : "error", o.Error);
                 w.WriteEndObject();
+                // Flush BEFORE reading the stream: this return is INSIDE the writer's using-block, so without it
+                // the buffered document is still unwritten and the caller gets an EMPTY string — exactly the
+                // silent-degrade class PR #306 found on the json sweep refusals (a refusal that renders as nothing
+                // is worse than the failure it was reporting). The success path below returns after disposal.
+                w.Flush();
                 return Finish(ms);
             }
 

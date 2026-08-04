@@ -527,8 +527,8 @@ public static class WriteTools
     /// On refusal, the full reason (every malformed/rejected op) so the caller can fix and retry.</summary>
     internal static string Render(WritePatchBuilder.PatchOutcome o, int maxChars = 0, bool fullDump = false)   // internal: the compact-readback guard renders one outcome three ways
     {
-        if (o.NeedsAcknowledge) return o.Error!;            // the first-touch in-place CONSENT prompt — a required confirmation, NOT an error (Q3)
-        if (!o.Success) return "error: " + o.Error;
+        if (o.NeedsAcknowledge) return o.Error! + Epoch(o);  // the first-touch in-place CONSENT prompt — a required confirmation, NOT an error (Q3)
+        if (!o.Success) return "error: " + o.Error + Epoch(o);
         if (o.DryRun) return RenderDryRun(o, maxChars, fullDump);
         var file = Path.GetFileName(o.OutputPath);
         var modFolder = Path.GetFileName(Path.GetDirectoryName(o.OutputPath) ?? "");
@@ -571,8 +571,15 @@ public static class WriteTools
         sb.Append(o.InPlace
             ? $"to make more in-place edits to this plugin, pass target=\"{file}\" in_place=true (no further confirmation needed for it)."
             : $"to add more edits to THIS patch, pass into=\"{file}\".");
+        sb.Append(Epoch(o));
         return sb.ToString();
     }
+
+    /// <summary>SPEC §2.1.1 — the index build this write resolved winners against, appended to EVERY write render
+    /// (success, refusal, dry run, consent prompt) exactly as the read surfaces stamp theirs. It is what lets a
+    /// caller tell whether the winner it edited is the winner a read reported a moment earlier: the read-back proves
+    /// what landed in the FILE, never what wins in the ORDER. Empty when the outcome consulted no build.</summary>
+    static string Epoch(WritePatchBuilder.PatchOutcome o) => o.Epoch is null ? "" : $"\nepoch={o.Epoch}";
 
     /// <summary>#225 — the dry_run=true confirmation: the SAME pipeline ran (winner resolve, pre-flight, every verb
     /// applied in memory, the reference-resolution check) and stopped AT the point of no return, so this reports what
@@ -600,7 +607,8 @@ public static class WriteTools
         if (fullDump && o.ReadBack is { } rb) AppendFullReadback(sb, rb, maxChars, dryRun: true);
         if (o.Note is { } note) sb.Append("note: ").Append(note).Append('\n');
         sb.Append("every op passed resolve + pre-flight; to apply for real, repeat the call without dry_run. ")
-          .Append("(A real write can still fail at serialize/commit — disk faults and data Mutagen refuses to serialize surface only there.)");
+          .Append("(A real write can still fail at serialize/commit — disk faults and data Mutagen refuses to serialize surface only there.)")
+          .Append(Epoch(o));
         return sb.ToString();
     }
 
