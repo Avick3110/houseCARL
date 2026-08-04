@@ -90,7 +90,12 @@ internal static class ToolSchemas
                 defs ??= new JsonObject();
                 foreach (var name in genDefs.Select(kv => kv.Key).ToList())
                 {
-                    if (defs.ContainsKey(name)) continue;          // same type, same generator ⇒ same schema; first wins
+                    // First-wins on the DEFINITION NAME. Sound for today's rows and for `create`'s records= in
+                    // W3 PR 2 — same generator, and the shared shapes (StructInput/NestedSet) are literally the
+                    // same C# types, so a duplicate name is a duplicate schema. It would bind the WRONG
+                    // definition only if two DISTINCT types ever produced the same short name here; if that day
+                    // comes, key the hoist by type rather than by name.
+                    if (defs.ContainsKey(name)) continue;
                     var node = genDefs[name];
                     genDefs.Remove(name);
                     defs[name] = node;

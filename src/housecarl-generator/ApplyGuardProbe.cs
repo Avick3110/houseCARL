@@ -52,13 +52,16 @@ public static class ApplyGuardProbe
         Directory.CreateDirectory(root);
         try
         {
-            var fx = Fixture.Build(Path.Combine(root, "fx"));
+            // `using`, not a trailing Dispose(): an arm that throws lands in the catch below, and a bare
+            // Dispose() call there would be skipped — leaving the LoadOrderService and its plugin overlays
+            // OPEN, which then makes the finally's Directory.Delete fail silently. Inside ci-all (one process,
+            // many probes) that is a leaked service plus file handles for every failing run.
+            using var fx = Fixture.Build(Path.Combine(root, "fx"));
             OpsGrammarArm(fx, root);
             LaneArm(fx);
             ZipArm(fx);
             InPlaceCopyArm(fx);
             TransportArm(fx);
-            fx.Dispose();
 
             Console.WriteLine();
             Console.WriteLine($"=== apply-guard: {_pass} passed, {_fail} failed -> {(_fail == 0 ? "PASS" : "FAIL")} ===");
@@ -86,6 +89,7 @@ public static class ApplyGuardProbe
         public required string ModsDir { get; init; }
         public required string ReplacerPath { get; init; }   // the in-place target's real on-disk file
         public required FormKey DonorKey { get; init; }
+        public required string KeywordFid { get; init; }     // a resolvable link value for values=/Add arms
         public required string PotionAFid { get; init; }     // same-file COPY SOURCE for the aliasing arm
         public required string PotionBFid { get; init; }     // its target
         public required FormKey PotionAKey { get; init; }
@@ -185,6 +189,7 @@ public static class ApplyGuardProbe
                 ModsDir = mods,
                 ReplacerPath = replPath,
                 DonorKey = donor.FormKey,
+                KeywordFid = $"{k1.FormKey.ID:X6}:{mKey.FileName}",
                 PotionAFid = $"{potA.FormKey.ID:X6}:{mKey.FileName}",
                 PotionBFid = $"{potB.FormKey.ID:X6}:{mKey.FileName}",
                 PotionAKey = potA.FormKey,
@@ -277,6 +282,59 @@ public static class ApplyGuardProbe
         var badPath = ApplyTools.Apply(fx.Svc, ops: Json($$"""[{"formid":"{{fx.SubjectFid}}","field_path":"NoSuchField","value":"1"}]"""), patch: "ApBad");
         Check("a bad field path refuses the whole call with nothing written (all-or-nothing preserved)",
             badPath.StartsWith("error:"), badPath);
+
+        // ROUND-4 FOLD [medium] — the COMPOSED payloads through the NEW strict reader. ReadListParam is a
+        // brand-new deserialization path replacing BOTH the SDK binder (1.x inline) and the old from_file=
+        // reader, and UnmappedMemberHandling.Disallow applies RECURSIVELY down StructInput -> NestedSet ->
+        // StructInput. Nothing above sends one, so the recursive shape was schema-pinned but never executed —
+        // and migrating a bulk_apply payload onto apply is exactly what the CHANGELOG instructs.
+        // composes= + ReplaceAll over a modeled list, with a NESTED compose arm inside sets[] (a Condition's
+        // polymorphic Data), inline:
+        string composeOps =
+            $$"""[{"formid":"{{fx.PotionAFid}}","field_path":"Effects","op":"ReplaceAll","composes":[""" +
+            """{"type":"Effect","sets":[{"path":"Data.Magnitude","value":"11"}]},""" +
+            """{"type":"Effect","sets":[{"path":"Data.Magnitude","value":"22"}]},""" +
+            """{"type":"Effect","sets":[{"path":"Data.Magnitude","value":"33"}]}]}]""";
+        var composed = ApplyTools.Apply(fx.Svc, ops: Json(composeOps), patch: "ApCompose");
+        var composedPath = PatchPathFrom(fx, composed);
+        Check("composes= + ReplaceAll builds a modeled list through the new strict reader (StructInput -> NestedSet recursion)",
+            composedPath is not null && CountEffects(composedPath, fx.PotionAKey) == 3, composed);
+
+        // the SAME payload via @file — the two lanes share one reader, so the file lane must accept it identically
+        var composeManifest = Path.Combine(root, "compose-ops.json");
+        File.WriteAllText(composeManifest, composeOps);
+        var composedFile = ApplyTools.Apply(fx.Svc, ops: Json($"\"@{composeManifest.Replace("\\", "\\\\")}\""), patch: "ApComposeFile");
+        var composedFilePath = PatchPathFrom(fx, composedFile);
+        Check("...and the IDENTICAL composed payload via ops=\"@<path>\" (ONE reader, both lanes)",
+            composedFilePath is not null && CountEffects(composedFilePath, fx.PotionAKey) == 3, composedFile);
+
+        // an undeclared member DEEP inside the recursion (compose.sets[0]) must refuse by name, not be dropped
+        var deepStray = ApplyTools.Apply(fx.Svc, ops: Json(
+            $$"""[{"formid":"{{fx.PotionAFid}}","field_path":"Effects","op":"Add","compose":""" +
+            """{"type":"Effect","sets":[{"path":"Data.Magnitude","value":"1","nosuchmember":"x"}]}}]"""));
+        Check("an undeclared member NESTED in compose.sets[0] is refused BY NAME (Disallow reaches the recursion)",
+            deepStray.StartsWith("error:") && deepStray.Contains("nosuchmember"), deepStray);
+
+        // values= / entries= — the other two payload members, likewise unexercised until now
+        var valuesOp = ApplyTools.Apply(fx.Svc,
+            ops: Json($$"""[{"formid":"{{fx.SubjectFid}}","field_path":"Keywords","op":"ReplaceAll","values":["{{fx.KeywordFid}}"]}]"""),
+            patch: "ApValues");
+        var valuesPath = PatchPathFrom(fx, valuesOp);
+        Check("values= drives a list ReplaceAll through the new reader",
+            valuesPath is not null && ReadSubject(valuesPath, fx.SubjectKey).Kw == 1, valuesOp);
+    }
+
+    /// <summary>Effect count on a potion, off a written patch.</summary>
+    static int? CountEffects(string espPath, FormKey fk)
+    {
+        ISkyrimModGetter? ov = null;
+        try
+        {
+            ov = SkyrimMod.CreateFromBinaryOverlay(espPath, SkyrimRelease.SkyrimSE);
+            return ov.Ingestibles.FirstOrDefault(x => x.FormKey == fk)?.Effects?.Count;
+        }
+        catch { return null; }
+        finally { (ov as IDisposable)?.Dispose(); }
     }
 
     // ================= ARM 2 — the LANE grammar =================
@@ -327,7 +385,7 @@ public static class ApplyGuardProbe
     // ================= ARM 3 — the §4.5 zip =================
     static void ZipArm(Fixture fx)
     {
-        Console.WriteLine("── ARM 4.5: the zip — bundle x assignments as a cross-RECORD copy ──");
+        Console.WriteLine("── ARM 3: the §4.5 zip — bundle x assignments as a cross-RECORD copy ──");
 
         // the load-bearing case: copy a DIFFERENT record's fields onto the subject. The subject's winner has
         // Damage 99 and no keywords; the donor's WINNER (the replacer's override) has Damage 7 and two keywords,
@@ -580,5 +638,33 @@ public static class ApplyGuardProbe
         var badFormat = ApplyTools.Apply(fx.Svc, ops: Json(OneOp("64")), format: "yaml");
         Check("an unrecognized format= is refused by name, never a silent fall-through to text",
             badFormat.StartsWith("error:") && badFormat.Contains("format="), badFormat);
+
+        // ROUND-4 FOLD [low] — a json caller must never parse "error: …" out of a string, and the sites hit most
+        // are the PRE-ENGINE ones (no outcome exists yet to render). Every refusal after format= is parsed now
+        // answers in the requested format; format= itself cannot, since its value is what failed to parse.
+        foreach (var (label, call) in new (string, string)[]
+        {
+            ("a LANE conflict", ApplyTools.Apply(fx.Svc, ops: Json(OneOp("70")), patch: "X", into: "Y.esp", format: "json")),
+            ("an undeclared op member", ApplyTools.Apply(fx.Svc, ops: Json($$"""[{"formid":"{{fx.SubjectFid}}","field_path":"Name","verb":"Set","value":"x"}]"""), format: "json")),
+            ("half a zip", ApplyTools.Apply(fx.Svc, bundle: new[] { "Name" }, format: "json")),
+            ("nothing to apply", ApplyTools.Apply(fx.Svc, format: "json")),
+        })
+        {
+            bool isDocument = false;
+            try { isDocument = Json(call).TryGetProperty("error", out _); } catch { }
+            Check($"a PRE-ENGINE refusal answers in json when asked — {label}", isDocument, call);
+        }
+
+        // ROUND-4 FOLD [low] — an explicitly EMPTY bundle= is a supplied parameter, not an absent one. Reading it
+        // as absent is the accepted-and-silently-dropped class; ops=[] already refused by name, so the two agree.
+        var emptyBundle = ApplyTools.Apply(fx.Svc, ops: Json(OneOp("71")), bundle: Array.Empty<string>(), patch: "ApEmptyBundle");
+        Check("an EMPTY bundle= is refused by name, not silently dropped (parity with ops=[])",
+            emptyBundle.StartsWith("error:") && emptyBundle.Contains("bundle="), emptyBundle);
+
+        // ...and the same emptiness rule governs a lane string, so the exclusivity check and what gets written
+        // cannot disagree about whether patch= was named.
+        var blankPatch = ApplyTools.Apply(fx.Svc, ops: Json(OneOp("72")), patch: "   ", into: "NoSuchPatch.esp");
+        Check("a whitespace-only patch= counts as ABSENT for exclusivity, exactly as it does for the write",
+            !blankPatch.Contains("the two lanes are exclusive"), blankPatch);
     }
 }
