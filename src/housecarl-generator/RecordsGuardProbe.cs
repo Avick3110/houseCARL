@@ -633,6 +633,51 @@ internal static class RecordsGuardProbe
             Check(spSum.StartsWith("error:") && spSum.Contains("identity facts"),
                   "scope-vs-pole + summary refuses by name (the pole changes nothing there — never accepted-and-dropped)");
 
+            // ---- PR #309 review folds ----
+            // F1: conflicts_only + formids must still evaluate the body filters (was: index-only, filters dropped).
+            var coSet = RecordsTools.Records(svc, formids: new[] { Fid(weapons[0]), Fid(weapons[1]) }, conflicts_only: true,
+                                             where: new[] { "BasicStats.Damage >= 90" });
+            Check(!coSet.StartsWith("error:") && coSet.Contains("HcRecW0") && !coSet.Contains("HcRecW1"),
+                  "fold F1: conflicts_only + formids evaluates where= (the contested-but-non-matching key drops out)");
+            var coSetMiss = RecordsTools.Records(svc, formids: new[] { Fid(weapons[0]) }, conflicts_only: true,
+                                                 where: new[] { "BasicStats.Damage >= 500" });
+            Check(!coSetMiss.StartsWith("error:") && !coSetMiss.Contains("HcRecW0"),
+                  "fold F1: …and a contested key FAILING the predicate is excluded, not returned as a match");
+            // F2: walk + aggregate on the scan lane aggregates the REACHED set, never the seeds relabeled.
+            var wAgg = RecordsTools.Records(svc, types: new[] { "SPEL" }, walk: new RecordsTools.RecordsWalk(),
+                                            project: new RecordsTools.RecordsProject { form = "aggregate", group_by = "type" });
+            Check(!wAgg.StartsWith("error:") && wAgg.Contains("MagicEffect") && wAgg.Contains("selection ="),
+                  "fold F2: scan + walk + aggregate counts the REACHED set (MGEFs appear) with the walk declared");
+            // F3: the reverse MGEF lane honors to_file= like every sibling lane.
+            var revArt = Path.Combine(root, "results", "carriers.jsonl");
+            var revFile = RecordsTools.Records(svc, formids: new[] { Fid(mgefA.FormKey) },
+                                               walk: new RecordsTools.RecordsWalk { direction = "reverse" },
+                                               to_file: revArt,
+                                               project: new RecordsTools.RecordsProject { form = "chain" });
+            Check(File.Exists(revArt) && revFile.Contains(revArt),
+                  "fold F3: reverse walk + to_file writes the carrier artifact (was accepted-and-dropped)");
+            // F5: an overlay pole on ANY scan form refuses (comparisons included — they compare every match).
+            var ovlScanCmp = RecordsTools.Records(svc, types: new[] { "WEAP" },
+                                                  source: Je("{\"overlay\": \"skypatcher\", \"state\": \"post\"}"),
+                                                  versus: Je("\"winner\""),
+                                                  project: new RecordsTools.RecordsProject { form = "delta" });
+            Check(ovlScanCmp.StartsWith("error:") && ovlScanCmp.Contains("formids="),
+                  "fold F5: an overlay pole on a scan COMPARISON refuses too, naming the bounded formids= lane");
+            // F8: the json census covers the COMPLETE list even when limit= windows the rows.
+            var dJsonWin = RecordsTools.Records(svc, formids: new[] { Fid(weapons[0]), Fid(weapons[1]), Fid(weapons[2]) },
+                                                versus: Je("\"winner\""), format: "json", limit: 1,
+                                                project: new RecordsTools.RecordsProject { form = "delta" });
+            Check(dJsonWin.Contains("\"count\": 3") && dJsonWin.Contains("\"rendered\": 1"),
+                  "fold F8: json delta census counts the COMPLETE list (3), rows windowed to 1");
+            // F9/F10: the off-order lane's narrowed validations restored.
+            var offWsBad = RecordsTools.Records(svc, types: new[] { "WEAP" }, source: Je($"\"{oldName}\""),
+                                                where: new[] { "BasicStats.Damage >= 1" }, where_source: "winnner");
+            Check(offWsBad.StartsWith("error:") && offWsBad.Contains("winnner"),
+                  "fold F9: off-order where_source with an unknown spelling refuses by name (was accepted-and-ignored)");
+            var offEmptyIds = RecordsTools.Records(svc, formids: new[] { "" }, types: new[] { "WEAP" }, source: Je($"\"{oldName}\""));
+            Check(offEmptyIds.StartsWith("error:") && offEmptyIds.Contains("empty"),
+                  "fold F10: off-order formids= expanding to empty refuses (was a silent whole-file scan)");
+
             // ============================================================================================
             //  5 — TRANSPORT: to_file + @artifact re-entry, epoch-checked
             // ============================================================================================

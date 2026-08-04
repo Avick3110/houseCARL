@@ -483,6 +483,7 @@ static class JsonWire
     /// via <c>complete:false</c>, the §4.4 truncation-honesty rule).</summary>
     public static string RenderDelta(IReadOnlyList<LoadOrderService.DeltaRow> rows, int maxChars, string? epoch,
                                      IReadOnlyList<KeyValuePair<string, string>> envelope,
+                                     IReadOnlyList<KeyValuePair<string, int>> counts,
                                      SpillState? spill, out bool truncated)
     {
         truncated = false;
@@ -493,10 +494,9 @@ static class JsonWire
         {
             w.WriteStartObject();
             WriteEnvelope(w, envelope);
-            w.WriteNumber("count", rows.Count);
-            w.WriteNumber("differing", rows.Count(x => x.Error is null && x.Diff!.Deltas.Count > 0));
-            w.WriteNumber("identical", rows.Count(x => x.Error is null && x.Diff!.Deltas.Count == 0 && x.Diff.Complete));
-            w.WriteNumber("errors", rows.Count(x => x.Error is not null));
+            // The census covers the COMPLETE list (review F8): rows may be a WINDOW, so the caller computes the
+            // counters over everything and hands them in — recomputing here reported the window as the world.
+            foreach (var (k, v) in counts.Select(c => (c.Key, c.Value))) w.WriteNumber(k, v);
             WriteNullable(w, "epoch", epoch);
             w.WriteStartArray("rows");
             int rendered = 0; bool rowsTruncated = false;
@@ -569,6 +569,7 @@ static class JsonWire
     /// construction here).</summary>
     public static string RenderTree(IReadOnlyList<LoadOrderService.TreeRow> rows, int maxChars, string? epoch,
                                     IReadOnlyList<KeyValuePair<string, string>> envelope,
+                                    IReadOnlyList<KeyValuePair<string, int>> counts,
                                     SpillState? spill, out bool truncated)
     {
         truncated = false;
@@ -579,9 +580,7 @@ static class JsonWire
         {
             w.WriteStartObject();
             WriteEnvelope(w, envelope);
-            w.WriteNumber("count", rows.Count);
-            w.WriteNumber("contested", rows.Count(x => x.Error is null && x.Touchers.Count > 1));
-            w.WriteNumber("errors", rows.Count(x => x.Error is not null));
+            foreach (var (k, v) in counts.Select(c => (c.Key, c.Value))) w.WriteNumber(k, v);   // complete-list census (review F8)
             WriteNullable(w, "epoch", epoch);
             w.WriteStartArray("rows");
             int rendered = 0; bool rowsTruncated = false;
@@ -659,6 +658,7 @@ static class JsonWire
     /// <summary>records form=chain: <c>{…envelope, seeds, errors, epoch, rows:[…]}</c>.</summary>
     public static string RenderChain(IReadOnlyList<LoadOrderService.WalkSeedResult> rows, int maxChars, string? epoch,
                                      IReadOnlyList<KeyValuePair<string, string>> envelope,
+                                     IReadOnlyList<KeyValuePair<string, int>> counts,
                                      SpillState? spill, out bool truncated)
     {
         truncated = false;
@@ -669,8 +669,7 @@ static class JsonWire
         {
             w.WriteStartObject();
             WriteEnvelope(w, envelope);
-            w.WriteNumber("seeds", rows.Count);
-            w.WriteNumber("errors", rows.Count(x => x.Error is not null));
+            foreach (var (k, v) in counts.Select(c => (c.Key, c.Value))) w.WriteNumber(k, v);   // complete-list census (review F8)
             WriteNullable(w, "epoch", epoch);
             w.WriteStartArray("rows");
             int rendered = 0; bool rowsTruncated = false;
@@ -695,20 +694,25 @@ static class JsonWire
     /// <summary>records form=chain, walk=reverse (the typed MGEF carrier lane): per seed the carriers with the
     /// MATCHING entry's payload — magnitudes AS AUTHORED (conditions not evaluated), the effect_chain contract.</summary>
     public static string RenderEffectChains(IReadOnlyList<(string Seed, EffectChainResult Result)> results,
-                                            int maxChars, IReadOnlyList<KeyValuePair<string, string>> envelope)
+                                            int maxChars, IReadOnlyList<KeyValuePair<string, string>> envelope,
+                                            IReadOnlyList<KeyValuePair<string, int>> counts, string? epoch,
+                                            SpillState? spill, out bool outTruncated)
     {
+        outTruncated = false;
         int cap = Cap(maxChars);
+        bool manifestOnly = spill?.ManifestOnly ?? false;
         using var ms = new MemoryStream();
         using (var w = new Utf8JsonWriter(ms, Opts))
         {
             w.WriteStartObject();
             WriteEnvelope(w, envelope);
-            w.WriteNumber("seeds", results.Count);
-            WriteNullable(w, "epoch", results.Select(r => r.Result.Epoch).FirstOrDefault(e => e is not null));
+            foreach (var (k, v) in counts.Select(c => (c.Key, c.Value))) w.WriteNumber(k, v);   // complete-list census (review F8)
+            WriteNullable(w, "epoch", epoch);
             w.WriteStartArray("rows");
             bool truncated = false;
             foreach (var (seed, r) in results)
             {
+                if (manifestOnly) break;
                 w.Flush();
                 if (ms.Length >= cap) { truncated = true; break; }
                 w.WriteStartObject();
@@ -740,6 +744,8 @@ static class JsonWire
             }
             w.WriteEndArray();
             w.WriteBoolean("truncated", truncated);
+            outTruncated = truncated;
+            if (spill is not null) Artifacts.WriteSpillStateJson(w, spill);
             w.WriteEndObject();
         }
         return Finish(ms);
@@ -802,6 +808,7 @@ static class JsonWire
     /// <summary>records form=info_order: <c>{…envelope, count, contested, errors, epoch, rows:[…]}</c>.</summary>
     public static string RenderInfoOrder(IReadOnlyList<LoadOrderService.InfoOrderRow> rows, int maxChars, string? epoch,
                                          IReadOnlyList<KeyValuePair<string, string>> envelope,
+                                         IReadOnlyList<KeyValuePair<string, int>> counts,
                                          SpillState? spill, out bool truncated)
     {
         truncated = false;
@@ -812,9 +819,7 @@ static class JsonWire
         {
             w.WriteStartObject();
             WriteEnvelope(w, envelope);
-            w.WriteNumber("count", rows.Count);
-            w.WriteNumber("contested", rows.Count(x => x.Error is null && x.Order is { Contested: true }));
-            w.WriteNumber("errors", rows.Count(x => x.Error is not null));
+            foreach (var (k, v) in counts.Select(c => (c.Key, c.Value))) w.WriteNumber(k, v);   // complete-list census (review F8)
             WriteNullable(w, "epoch", epoch);
             w.WriteStartArray("rows");
             int rendered = 0; bool rowsTruncated = false;

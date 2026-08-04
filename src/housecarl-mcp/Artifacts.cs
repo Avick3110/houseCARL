@@ -274,6 +274,49 @@ internal static class Artifacts
         return err is not null ? (null, err) : (new SpillInfo(path, manifest!, reason), null);
     }
 
+    /// <summary>Build + save the artifact for the reverse MGEF walk (records form=chain,
+    /// walk.direction='reverse') — one row per (seed, carrier) with the matching entry's payload; a failed
+    /// seed is an identity-less error row (errors are never identity-bearing).</summary>
+    public static (SpillInfo? Spill, string? Error) WriteEffectChains(
+        IReadOnlyList<(string Seed, EffectChainResult Result)> results, string? epoch, string path, string reason,
+        IReadOnlyList<KeyValuePair<string, string>> query)
+    {
+        using var writer = new ResultArtifact.Writer();
+        int total = 0;
+        foreach (var (seed, r) in results)
+        {
+            if (r.Error is not null)
+            {
+                writer.WriteRow((w, _) => { w.WriteStartObject(); w.WriteString("seed", seed); w.WriteString("error", r.Error); w.WriteEndObject(); });
+                total++;
+                continue;
+            }
+            foreach (var row in r.Rows)
+            {
+                writer.WriteRow((w, _) =>
+                {
+                    w.WriteStartObject();
+                    w.WriteString("seed", seed);
+                    w.WriteString("formid", row.Carrier.ToString());
+                    w.WriteString("type", row.Type);
+                    if (row.EditorId is not null) w.WriteString("editorid", row.EditorId);
+                    w.WriteString("winner", row.Winner);
+                    w.WriteNumber("effect_index", row.EffectIndex);
+                    w.WriteNumber("effect_count", row.EffectCount);
+                    w.WriteNumber("magnitude", row.Magnitude);
+                    w.WriteNumber("area", row.Area);
+                    w.WriteNumber("duration", row.Duration);
+                    w.WriteEndObject();
+                }, row.Type);
+                total++;
+            }
+        }
+        var (manifest, err) = writer.Save(path, "housecarl_records", query, "formid",
+                                          new[] { "seed", "formid", "type", "editorid", "winner", "effect_index", "effect_count", "magnitude", "area", "duration" },
+                                          "seed order, then carrier scan order", total, epoch ?? "");
+        return err is not null ? (null, err) : (new SpillInfo(path, manifest!, reason), null);
+    }
+
     /// <summary>Build + save the artifact for a records form=info_order result — one row per topic, in input
     /// order, exactly the json render's rows (honesty gates carried as data; per-item errors included).</summary>
     public static (SpillInfo? Spill, string? Error) WriteInfoOrder(
