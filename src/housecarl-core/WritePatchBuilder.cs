@@ -794,6 +794,41 @@ public static class WritePatchBuilder
         //     (already present in targetMod) returns THAT record (get-semantics) — the verb edits the file's own body,
         //     never a foreign override's. A nested record gets the target overlay's link cache on demand (released in
         //     Phase 4). A throw after pre-flight passed is a real engine inconsistency — fail the WHOLE call (Q3). ---
+        // --- Phase 2b: SNAPSHOT every same-file copy source, BEFORE any op mutates anything (re-review [high] +
+        //     [medium] + [low], one fix). A source living in the file being rewritten cannot be read from the live
+        //     mutable record for three reasons:
+        //       • ALIASING — CopyElement shares an element when the target's element type already accepts it. That
+        //         is safe for an overlay source (an EffectBinaryOverlay is not an Effect, so it deep-copies), but a
+        //         source out of targetMod IS the settable concrete type, so the two records would share the very
+        //         same element objects: editing the target's copy would silently edit the SOURCE too.
+        //       • ORDERING — targetMod is what the ops are mutating as they run, so a later op would read a source
+        //         an earlier op had already overwritten. Every other copy shape reads pre-call state; a swap
+        //         (A←B, B←A) must not depend on op order on one lane and not the other.
+        //       • COST — a per-op EnumerateMajorRecords() is O(records × ops) inside the write gate. One pass here.
+        //     ONE snapshot PER OP, not per FormKey: two ops copying one source onto two targets would otherwise
+        //     share that snapshot's elements and alias the two TARGETS to each other instead.
+        Dictionary<PatchEdit, IMajorRecordGetter>? selfSnapshots = null;
+        if (resolved.Any(r => r.selfSource))
+        {
+            var byKey = new Dictionary<FormKey, IMajorRecordGetter>();
+            foreach (var rec in targetMod.EnumerateMajorRecords()) byKey.TryAdd(rec.FormKey, rec);
+            selfSnapshots = new Dictionary<PatchEdit, IMajorRecordGetter>();
+            foreach (var r in resolved)
+            {
+                if (!r.selfSource) continue;
+                if (!byKey.TryGetValue(r.edit.CopySource, out var live))
+                    return PatchOutcome.Fail(
+                        $"refused: the copy source {r.edit.CopySource} resolved in '{fileName}' at pre-flight but is not " +
+                        "present in the opened file (a real inconsistency, surfaced not swallowed — Q3). The file is UNTOUCHED.");
+                if (WriteEngine.TryDeepCopyRecord(live) is not { } snap)
+                    return PatchOutcome.Fail(
+                        $"refused: cannot copy from {r.edit.CopySource} inside '{fileName}' — Mutagen models no deep copy for " +
+                        $"{RecordNaming.StripOverlay(live.GetType().Name)}, and copying from the live record would alias the two " +
+                        "records' data. Copy from another plugin's version instead. The file is UNTOUCHED.");
+                selfSnapshots[r.edit] = snap;
+            }
+        }
+
         var ops = new List<OpResult>(resolved.Count);
         foreach (var (e, body, req, label, srcBody, selfSource) in resolved)
         {
@@ -804,22 +839,9 @@ public static class WritePatchBuilder
                 // CopyFrom transplants the field FROM the resolved source body into the target's own record; every
                 // other verb applies to it directly (the same two-branch shape Apply uses — one engine, two lanes).
                 if (string.Equals(req.Verb, "CopyFrom", StringComparison.Ordinal))
-                {
-                    // A source in the TARGET's own file is re-read from the MUTABLE targetMod, never the session
-                    // overlay Phase 4 releases — see the lifetime note in Phase 1. targetMod outlives the serialize,
-                    // so the by-reference immutables CopyField shares stay valid through it.
-                    var copyFrom = srcBody;
-                    if (selfSource)
-                    {
-                        copyFrom = targetMod.EnumerateMajorRecords().FirstOrDefault(r => r.FormKey == e.CopySource);
-                        if (copyFrom is null)
-                            return PatchOutcome.Fail(
-                                $"refused applying [{label}] to {req.RecordType} {e.Target} — the copy source {e.CopySource} " +
-                                $"resolved in '{fileName}' at pre-flight but is not present in the opened file (a real " +
-                                $"inconsistency, surfaced not swallowed — Q3). The file is untouched.");
-                    }
-                    WriteEngine.CopyField(copyFrom!, ov, req.Path);
-                }
+                    WriteEngine.CopyField(
+                        selfSource ? selfSnapshots![e] : srcBody!,   // the pre-mutation private snapshot, never the live record
+                        ov, req.Path);
                 else
                     WriteEngine.ApplyVerb(ov, req);
                 var (after, landed) = DescribeApplied(ov, req);
