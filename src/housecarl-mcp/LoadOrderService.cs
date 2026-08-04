@@ -1021,7 +1021,7 @@ public sealed class LoadOrderService : IDisposable
     /// no-op (true-ITM) scan: resolve the winner, materialize a mutable scratch copy, apply every
     /// type folder's ordered lines in field-map order. Error = the named reason the record can't be
     /// replayed (Q3 — the caller decides whether that's a Fail or a skip-with-count).</summary>
-    (string? TypeName, string? WinnerPlugin, string? EditorId, List<SkyPatcherFolderOutcome> Folders, string? Error)
+    (string? TypeName, string? WinnerPlugin, string? EditorId, List<SkyPatcherFolderOutcome> Folders, string? Error, IMajorRecord? Copy)
         ReplaySkyPatcher(
             LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session,
             SkyPatcherDiscovery.LayerScan scan, SkyPatcherCatalog catalog, SkyPatcherFieldMap fieldMap,
@@ -1031,17 +1031,17 @@ public sealed class LoadOrderService : IDisposable
         var none = new List<SkyPatcherFolderOutcome>();
         var winner = view.ResolveWinner(fk);
         if (winner is null)
-            return (null, null, null, none, $"FormID {fk} is not present in the load order ({view.PluginCount} plugins).");
+            return (null, null, null, none, $"FormID {fk} is not present in the load order ({view.PluginCount} plugins).", null);
 
         var body = view.GetRecord(session, winner.Value.WinnerPlugin, fk);
         if (body is null)
-            return (null, winner.Value.WinnerPlugin, null, none, $"Winner '{winner.Value.WinnerPlugin}' did not yield {fk} on fetch — a load-order inconsistency.");
+            return (null, winner.Value.WinnerPlugin, null, none, $"Winner '{winner.Value.WinnerPlugin}' did not yield {fk} on fetch — a load-order inconsistency.", null);
 
         var typeName = ReadEngine.ReadFields(body, new[] { "EditorID" }).Type;   // the same type naming every read tool reports
         var maps = fieldMap.ForRecordType(typeName);
         if (maps.Count == 0)
             return (typeName, winner.Value.WinnerPlugin, body.EditorID, none,
-                $"Record type '{typeName}' is not a SkyPatcher-patchable type (or has no field map) — the SkyPatcher layer cannot touch {fk}.");
+                $"Record type '{typeName}' is not a SkyPatcher-patchable type (or has no field map) — the SkyPatcher layer cannot touch {fk}.", null);
 
         // The running copy: the winner overridden into an in-memory scratch mod (never written to disk).
         // Nested-group types (CELL / REFR / INFO…) need the source link cache to rebuild their parent
@@ -1057,7 +1057,7 @@ public sealed class LoadOrderService : IDisposable
         catch (Exception ex)
         {
             return (typeName, winner.Value.WinnerPlugin, body.EditorID, none,
-                $"Could not materialize a mutable copy of {fk} ({typeName}) for the replay — {ex.GetType().Name}: {ex.Message}");
+                $"Could not materialize a mutable copy of {fk} ({typeName}) for the replay — {ex.GetType().Name}: {ex.Message}", null);
         }
 
         var folders = new List<SkyPatcherFolderOutcome>();
@@ -1082,7 +1082,7 @@ public sealed class LoadOrderService : IDisposable
                 folder.PatchingEnabled));
         }
 
-        return (typeName, winner.Value.WinnerPlugin, body.EditorID, folders, null);
+        return (typeName, winner.Value.WinnerPlugin, body.EditorID, folders, null, copy);
     }
 
     /// <summary>
@@ -2821,6 +2821,444 @@ public sealed class LoadOrderService : IDisposable
             return results.Select(r => r!).ToList();
         }
         finally { (ov as IDisposable)?.Dispose(); }
+    }
+
+    // ---- W2 PR 2: comparison poles + the delta/tree batches (SPEC §4.1–§4.4) ---------------------------
+
+    /// <summary>Which §4.2 pole a source=/versus= expression names. <see cref="Overlay"/> is the SkyPatcher
+    /// runtime replay (pre = the plain winner body; post = the winner body after the INI layer replays).</summary>
+    public enum PoleKind { Winner, Named, PreviousProvider, Overlay }
+
+    /// <summary>A parsed §4.2 pole expression — the tool layer parses the wire spelling ("winner" | a plugin
+    /// filename | {file, mod} | "previous_provider" | {overlay, state}) into this engine value.</summary>
+    public sealed record PoleSpec(PoleKind Kind, string? Plugin = null, string? Mod = null, string? OverlayState = null)
+    {
+        public static readonly PoleSpec Winner = new(PoleKind.Winner);
+        /// <summary>The arm statement a render leads with when the pole is uniform across the batch (Named/Winner/
+        /// Overlay). PreviousProvider is per-record; its statement is the rule, not an arm.</summary>
+        public string Label => Kind switch
+        {
+            PoleKind.Winner => "winner",
+            PoleKind.PreviousProvider => "previous_provider (the provider immediately below the subject, per record)",
+            PoleKind.Overlay => $"skypatcher overlay ({OverlayState})",
+            _ => Plugin ?? "?",
+        };
+    }
+
+    /// <summary>One record's §4.1 delta: subject pole vs reference pole, compared by <see cref="FieldsDiff"/>.
+    /// <see cref="StackAbove"/> — set only under a previous_provider reference when the subject sits mid-stack —
+    /// names what outranks the subject (winner last) as NEUTRAL FACT (§4.3: a non-winning subject is not an
+    /// anomaly; no advice, no warning tone). <see cref="Note"/> carries per-row facts like the two poles resolving
+    /// to the same provider. Error non-null ⇒ per-item refusal (P3/P4/untouched), the batch survives.</summary>
+    public sealed record DeltaRow(string Formid, DiffPole? Subject, DiffPole? Reference, FieldsDiff.Result? Diff,
+                                  IReadOnlyList<string>? StackAbove, string? Note, string? Error);
+
+    /// <summary>The §4.1 PROJECT=delta batch: every pole of every record resolves against ONE captured build
+    /// (§4.1 — a comparison can never span two builds). Subject defaults to winner; reference may be winner, a
+    /// named plugin (active or off-order — the §4.2 one-pole rule, off-order files declared outside the epoch
+    /// fingerprint), or previous_provider (§4.3, subject-relative, P1–P4 declared). A named pole that does not
+    /// touch a record is a per-item refusal naming the actual touchers (§4.2's untouched contract); the caller
+    /// counts those as not_touched accounting. Overlay poles resolve via the SkyPatcher replay.</summary>
+    public IReadOnlyList<DeltaRow> DeltaBatch(
+        IReadOnlyList<string> formids, PoleSpec subject, PoleSpec reference, IReadOnlyList<string>? fields,
+        ArtifactDemand? demand,
+        out string? subjectArm, out string? referenceArm, out bool epochCoversAll,
+        out string? refusal, out string? epoch)
+    {
+        subjectArm = null; referenceArm = null; epochCoversAll = true; refusal = null;
+        var resolver = Resolver;
+        var view = resolver.Capture();          // ONE build for every pole of every record (§4.1)
+        epoch = view.Epoch;
+        if (demand is not null && demand.Epoch != view.Epoch)
+        {
+            refusal = ArtifactEpochMismatch(demand, view.Epoch);
+            return Array.Empty<DeltaRow>();
+        }
+        using var session = resolver.OpenSession();
+
+        // Resolve the uniform arms once (named poles; winner/overlay are per-record but uniform in statement).
+        var sReader = MakePoleReader(view, session, subject, fields, out subjectArm, out var sCovers, out var sErr);
+        if (sErr is not null) { refusal = "source: " + sErr; return Array.Empty<DeltaRow>(); }
+        var rReader = MakePoleReader(view, session, reference, fields, out referenceArm, out var rCovers, out var rErr);
+        if (rErr is not null) { refusal = "versus: " + rErr; return Array.Empty<DeltaRow>(); }
+        epochCoversAll = sCovers && rCovers;
+
+        var rows = new List<DeltaRow>(formids.Count);
+        foreach (var raw in formids)
+        {
+            FormKey fk;
+            try { fk = FormKey.Factory(raw.Trim()); }
+            catch (Exception ex) { rows.Add(new DeltaRow(raw?.Trim() ?? "", null, null, null, null, null, $"bad FormID '{raw}': {ex.Message}")); continue; }
+
+            var s = sReader(fk, null);
+            if (s.Error is not null) { rows.Add(new DeltaRow(fk.ToString(), s.Pole, null, null, null, null, "subject: " + s.Error)); continue; }
+            // previous_provider is measured FROM THE SUBJECT (§4.3) — hand the reference reader the subject's
+            // resolved plugin for this record so P1–P4 anchor on the right stack position.
+            var r = rReader(fk, s.Pole!.Plugin);
+            if (r.Error is not null) { rows.Add(new DeltaRow(fk.ToString(), s.Pole, r.Pole, null, r.StackAbove, null, "versus: " + r.Error)); continue; }
+
+            string? note = string.Equals(s.Pole.Plugin, r.Pole!.Plugin, StringComparison.OrdinalIgnoreCase) && s.Pole.Where == r.Pole.Where
+                ? "the two poles resolved to the SAME provider — the diff is trivially empty by construction"
+                : null;
+            var diff = FieldsDiff.Compare(s.Fields!, r.Fields!, referenceLabel: r.Pole.Plugin);
+            rows.Add(new DeltaRow(fk.ToString(), s.Pole, r.Pole, diff, r.StackAbove, note, null));
+        }
+        return rows;
+    }
+
+    /// <summary>A pole reader's per-record result: the deep-read fields + the pole identity for the render, or a
+    /// per-item error. <see cref="StackAbove"/> is the previous_provider P2 fact (what outranks the subject).</summary>
+    internal sealed record PoleReading(RecordFields? Fields, DiffPole? Pole, IReadOnlyList<string>? StackAbove, string? Error);
+
+    internal delegate PoleReading PoleReader(FormKey fk, string? subjectPlugin);
+
+    /// <summary>Build the per-record reader for one §4.2 pole against the SHARED captured view/session. Uniform
+    /// arm resolution (a named plugin's active-vs-off-order arm; an off-order file opened and swept lazily on
+    /// first use) happens here ONCE; per-record work stays in the returned reader. <paramref name="covers"/> is
+    /// false when the pole reads content outside the epoch fingerprint (an off-order file; the overlay's INIs).</summary>
+    PoleReader MakePoleReader(LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session,
+                              PoleSpec spec, IReadOnlyList<string>? fields,
+                              out string? armStatement, out bool covers, out string? error)
+    {
+        error = null; covers = true;
+        switch (spec.Kind)
+        {
+            case PoleKind.Winner:
+                armStatement = "winner";
+                return (fk, _) =>
+                {
+                    var w = view.ResolveWinner(fk);
+                    if (w is null)
+                        return new PoleReading(null, null, null, $"{fk} is not present in the active order.");
+                    var body = view.GetRecord(session, w.Value.WinnerPlugin, fk);
+                    if (body is null)
+                        return new PoleReading(null, null, null, $"the winner body of {fk} could not be read from '{w.Value.WinnerPlugin}'.");
+                    return new PoleReading(ReadEngine.ReadFields(body, fields, ConflictDiffDepth),
+                                           new DiffPole(w.Value.WinnerPlugin, "winner (active order)", true,
+                                                        RecordNaming.StripOverlay(body.GetType().Name), body.EditorID), null, null);
+                };
+
+            case PoleKind.PreviousProvider:
+                // Subject-relative (§4.3): resolved per record against the touching list, anchored on the plugin
+                // the SUBJECT resolved to for that record. Always active-order (the touching list is the order's).
+                armStatement = spec.Label;
+                return (fk, subjectPlugin) =>
+                {
+                    var touchers = view.TouchingPlugins(fk) ?? Array.Empty<string>();
+                    if (touchers.Count == 0)
+                        return new PoleReading(null, null, null, $"no active plugin touches {fk} — there is no provider stack to measure previous_provider in.");
+                    int idx = -1;
+                    for (int i = 0; i < touchers.Count; i++)
+                        if (string.Equals(touchers[i], subjectPlugin, StringComparison.OrdinalIgnoreCase)) { idx = i; break; }
+                    if (idx < 0)   // P4 — the subject doesn't touch the record at all
+                        return new PoleReading(null, null, null,
+                            $"the subject '{subjectPlugin}' does not touch {fk}, so it has no position to measure previous_provider from. " +
+                            $"Touched by (active order, winner last): {string.Join(", ", touchers)}.");
+                    if (idx == 0)  // P3 — the subject IS the origin; never a silent empty diff
+                        return new PoleReading(null, null, null,
+                            $"no previous provider — '{subjectPlugin}' DEFINES {fk} (bottom of the touching list); there is nothing beneath it to compare against.");
+                    var refPlugin = touchers[idx - 1];
+                    var body = view.GetRecord(session, refPlugin, fk);
+                    if (body is null)
+                        return new PoleReading(null, null, null, $"the previous provider '{refPlugin}' of {fk} could not be read.");
+                    // P2 — mid-stack subject: what sits ABOVE is surfaced as neutral fact (§4.3), never advice.
+                    IReadOnlyList<string>? above = idx < touchers.Count - 1 ? touchers.Skip(idx + 1).ToList() : null;
+                    return new PoleReading(ReadEngine.ReadFields(body, fields, ConflictDiffDepth),
+                                           new DiffPole(refPlugin, $"previous provider (immediately below '{subjectPlugin}')", true,
+                                                        RecordNaming.StripOverlay(body.GetType().Name), body.EditorID), above, null);
+                };
+
+            case PoleKind.Overlay:
+                return MakeOverlayPoleReader(view, session, spec, fields, out armStatement, out covers, out error);
+
+            default:   // Named — the §4.2 one-pole rule: active in the order, else an on-disk file.
+                var (arm, armErr) = ResolvePoleArm(view, spec.Plugin!, spec.Mod);
+                if (armErr is not null) { armStatement = null; error = armErr; return (_, _) => new PoleReading(null, null, null, armErr); }
+                armStatement = $"{arm!.Plugin} — {arm.Where}";
+                if (arm.InOrder)
+                {
+                    if (view.ExcludedPlugins.TryGetValue(arm.Plugin, out var why))
+                    {
+                        var exclMsg = $"'{arm.Plugin}' was excluded from this session ({why}) — its records aren't resolvable.";
+                        error = exclMsg;
+                        return (_, _) => new PoleReading(null, null, null, exclMsg);
+                    }
+                    return (fk, _) =>
+                    {
+                        var body = view.GetRecord(session, arm.Plugin, fk);
+                        if (body is null)
+                        {
+                            // The §4.2 untouched contract: name the actual touchers, never a silent absence.
+                            var touchers = view.TouchingPlugins(fk) ?? Array.Empty<string>();
+                            return new PoleReading(null, null, null,
+                                $"'{arm.Plugin}' does not define or override {fk} — it has no version of this record. " +
+                                (touchers.Count > 0
+                                    ? $"Touched by (active order, winner last): {string.Join(", ", touchers)}."
+                                    : "No active plugin touches it either."));
+                        }
+                        return new PoleReading(ReadEngine.ReadFields(body, fields, ConflictDiffDepth),
+                                               new DiffPole(arm.Plugin, arm.Where, true,
+                                                            RecordNaming.StripOverlay(body.GetType().Name), body.EditorID), null, null);
+                    };
+                }
+                // OFF-ORDER arm: open the overlay lazily ONCE; per-record lookups sweep it on first use and
+                // memoise every record seen on the way (one enumeration pass serves the whole batch).
+                covers = false;   // the file's content sits outside the epoch fingerprint (PR #305 coverage rule)
+                var lazy = new OffOrderPoleCache(this, arm, fields);
+                return (fk, _) =>
+                {
+                    var (rec, oerr) = lazy.Find(fk);
+                    if (oerr is not null) return new PoleReading(null, null, null, oerr);
+                    if (rec is null)
+                    {
+                        var touchers = view.TouchingPlugins(fk) ?? Array.Empty<string>();
+                        return new PoleReading(null, null, null,
+                            $"file '{arm.Plugin}' ({arm.Where}) does not define or override {fk} — it has no version of this record. " +
+                            (touchers.Count > 0
+                                ? $"Touched by (active order, winner last): {string.Join(", ", touchers)}."
+                                : "No active plugin touches it either."));
+                    }
+                    return new PoleReading(rec, new DiffPole(arm.Plugin, arm.Where, false, rec.Type, rec.EditorId), null, null);
+                };
+        }
+    }
+
+    /// <summary>The SkyPatcher-overlay §4.2 pole (source={overlay:"skypatcher", state:"pre"|"post"}).
+    /// <c>pre</c> IS the plain load-order winner (the body the INI layer starts from) — labeled as the overlay's
+    /// pre state so a pre-vs-post delta's two arms read as a pair. <c>post</c> replays the discovered INI layer
+    /// onto a mutable copy of each record's winner via the SAME per-record core housecarl_skypatcher_read uses,
+    /// and reads the replayed body. INI content sits OUTSIDE the epoch fingerprint (the skypatcher_read posture),
+    /// so <paramref name="covers"/> is false on the post arm and the render declares it. A record whose type
+    /// SkyPatcher cannot patch reads as its winner with the fact stated on the pole line (the layer cannot touch
+    /// it — post IS pre there, an answer, not an error).</summary>
+    PoleReader MakeOverlayPoleReader(LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session,
+                                     PoleSpec spec, IReadOnlyList<string>? fields,
+                                     out string? armStatement, out bool covers, out string? error)
+    {
+        error = null;
+        var state = (spec.OverlayState ?? "post").Trim().ToLowerInvariant();
+        if (state is not ("pre" or "post"))
+        {
+            armStatement = null; covers = true;
+            error = $"overlay state '{spec.OverlayState}' is not recognized — use \"pre\" (the winner before the INI layer) or \"post\" (after it; the default).";
+            var msg = error;
+            return (_, _) => new PoleReading(null, null, null, msg);
+        }
+
+        if (state == "pre")
+        {
+            covers = true;
+            armStatement = "skypatcher overlay (pre) — the plain load-order winner, before the INI layer";
+            return (fk, _) =>
+            {
+                var w = view.ResolveWinner(fk);
+                if (w is null) return new PoleReading(null, null, null, $"{fk} is not present in the active order.");
+                var body = view.GetRecord(session, w.Value.WinnerPlugin, fk);
+                if (body is null) return new PoleReading(null, null, null, $"the winner body of {fk} could not be read from '{w.Value.WinnerPlugin}'.");
+                return new PoleReading(ReadEngine.ReadFields(body, fields, ConflictDiffDepth),
+                                       new DiffPole(w.Value.WinnerPlugin, "skypatcher overlay (pre) = winner", true,
+                                                    RecordNaming.StripOverlay(body.GetType().Name), body.EditorID), null, null);
+            };
+        }
+
+        covers = false;   // the INI layer's files are outside the index fingerprint (the skypatcher_read posture)
+        armStatement = "skypatcher overlay (post) — the winner after the SkyPatcher INI layer replays";
+        // The replay context is built lazily ONCE for the whole batch (discovery scan + catalogs + scratch mod +
+        // form resolver + per-folder line cache — the SkyPatcherLayer no-op scan's own idiom).
+        SkyPatcherFieldMap? fieldMap = null; SkyPatcherCatalog? catalog = null;
+        SkyPatcherDiscovery.LayerScan? scan = null; SkyrimMod? scratch = null;
+        SkyPatcherOverlay.IFormResolver? formResolver = null;
+        Dictionary<string, IReadOnlyList<SkyPatcherOverlay.OrderedLine>>? linesCache = null;
+        string? setupError = null;
+        return (fk, _) =>
+        {
+            if (setupError is not null) return new PoleReading(null, null, null, setupError);
+            if (scan is null)
+            {
+                try
+                {
+                    AssetResolver.AssetView assets;
+                    lock (_gate) { assets = Assets.Capture(); }
+                    fieldMap = SkyPatcherFieldMap.Load();
+                    catalog = SkyPatcherCatalog.Load();
+                    scan = SkyPatcherDiscovery.Scan(assets, catalog, view.ContainsPlugin, _skyPatcherParseCache);
+                    scratch = new SkyrimMod(SkyPatcherScratchKey, SkyrimRelease.SkyrimSE);
+                    formResolver = new SkyPatcherServiceResolver(this, view, session);
+                    linesCache = new Dictionary<string, IReadOnlyList<SkyPatcherOverlay.OrderedLine>>(StringComparer.OrdinalIgnoreCase);
+                }
+                catch (Exception ex)
+                {
+                    setupError = $"the SkyPatcher layer could not be discovered for the overlay pole: {ex.Message}";
+                    return new PoleReading(null, null, null, setupError);
+                }
+            }
+            var r = ReplaySkyPatcher(view, session, scan, catalog!, fieldMap!, scratch!, formResolver!, fk, linesCache);
+            if (r.Error is not null)
+            {
+                // An unpatchable TYPE is an answer, not a failure: the layer cannot touch it, so post IS pre.
+                if (r.TypeName is not null && r.Copy is null && r.Error.Contains("not a SkyPatcher-patchable type"))
+                {
+                    var w = view.ResolveWinner(fk);
+                    var body = w is null ? null : view.GetRecord(session, w.Value.WinnerPlugin, fk);
+                    if (body is not null)
+                        return new PoleReading(ReadEngine.ReadFields(body, fields, ConflictDiffDepth),
+                                               new DiffPole(w!.Value.WinnerPlugin,
+                                                            "skypatcher overlay (post) = winner — type not SkyPatcher-patchable, the layer cannot touch it",
+                                                            true, RecordNaming.StripOverlay(body.GetType().Name), body.EditorID), null, null);
+                }
+                return new PoleReading(null, null, null, r.Error);
+            }
+            int applied = r.Folders.Where(f => f.Result is not null).Sum(f => f.Result!.Applied.Count);
+            var post = ReadEngine.ReadFields(r.Copy!, fields, ConflictDiffDepth);
+            return new PoleReading(post,
+                new DiffPole(r.WinnerPlugin!, $"skypatcher overlay (post) — {applied} op(s) applied onto the winner", true,
+                             post.Type, r.EditorId), null, null);
+        };
+    }
+
+    /// <summary>The off-order pole's lazy single-pass cache: opens the file's overlay on first lookup, sweeps it
+    /// ONCE materialising every record's deep fields as it passes (a value snapshot — the overlay is disposed at
+    /// the end of the sweep, no handle held at rest). Misses after the full sweep are definitive.</summary>
+    sealed class OffOrderPoleCache
+    {
+        readonly LoadOrderService _svc;
+        readonly PoleInfo _arm;
+        readonly IReadOnlyList<string>? _fields;
+        Dictionary<FormKey, RecordFields>? _all;
+        string? _error;
+
+        public OffOrderPoleCache(LoadOrderService svc, PoleInfo arm, IReadOnlyList<string>? fields)
+        { _svc = svc; _arm = arm; _fields = fields; }
+
+        public (RecordFields? Fields, string? Error) Find(FormKey fk)
+        {
+            if (_error is not null) return (null, _error);
+            if (_all is null && Sweep() is { } err) { _error = err; return (null, err); }
+            return (_all!.TryGetValue(fk, out var rec) ? rec : null, null);
+        }
+
+        string? Sweep()
+        {
+            string dataDir;
+            try { lock (_svc._gate) { _svc.EnsurePathsDerived(); dataDir = _svc._dataDir; } }
+            catch (Exception ex) { return $"the MO2 roots couldn't be derived to open '{_arm.Plugin}': {ex.Message}"; }
+            ISkyrimModGetter ov;
+            try { ov = LoadOrderResolver.OpenOverlay(_arm.Path!, string.IsNullOrEmpty(dataDir) ? null : dataDir); }
+            catch (Exception ex) { return $"could not open '{_arm.Path}' as a Skyrim plugin: {ex.Message}"; }
+            try
+            {
+                var all = new Dictionary<FormKey, RecordFields>();
+                foreach (var r in ov.EnumerateMajorRecords())
+                    if (!all.ContainsKey(r.FormKey))
+                        all[r.FormKey] = ReadEngine.ReadFields(r, _fields, ConflictDiffDepth);
+                _all = all;
+                return null;
+            }
+            catch (Exception ex) { return $"file '{_arm.Plugin}' could not be fully read — a record Mutagen cannot parse: {ex.Message}"; }
+            finally { (ov as IDisposable)?.Dispose(); }
+        }
+    }
+
+    /// <summary>One provider's node in a §4.1 PROJECT=tree row: its position in the touching list plus its delta
+    /// against the row's reference pole (empty deltas + Complete ⇒ genuinely identical to the reference).</summary>
+    public sealed record TreeNodeDelta(string Plugin, bool IsWinner, bool IsReference,
+                                       IReadOnlyList<string> Deltas, int AgreedCount, bool Complete, string? Error);
+
+    /// <summary>One record's §4.1 PROJECT=tree: every provider in priority order (winner LAST — the load order's
+    /// own reading direction), each diffed against the reference pole. Error non-null ⇒ per-item refusal.</summary>
+    public sealed record TreeRow(string Formid, string? Type, string? EditorId,
+                                 IReadOnlyList<string> Touchers, string? ReferencePlugin,
+                                 IReadOnlyList<TreeNodeDelta> Nodes, string? Error);
+
+    /// <summary>The §4.1 PROJECT=tree batch: per record, the full provider stack (touching list, winner last) with
+    /// each provider diffed against the reference pole — default winner (today's conflict_tree, now a PROJECT
+    /// form), or a named plugin (active or off-order under the one-pole rule; untouched records refuse naming the
+    /// touchers). One captured build for everything (§4.1).</summary>
+    public IReadOnlyList<TreeRow> TreeBatch(
+        IReadOnlyList<string> formids, PoleSpec reference, IReadOnlyList<string>? fields,
+        ArtifactDemand? demand,
+        out string? referenceArm, out bool epochCoversAll, out string? refusal, out string? epoch)
+    {
+        referenceArm = null; epochCoversAll = true; refusal = null;
+        var resolver = Resolver;
+        var view = resolver.Capture();
+        epoch = view.Epoch;
+        if (demand is not null && demand.Epoch != view.Epoch)
+        {
+            refusal = ArtifactEpochMismatch(demand, view.Epoch);
+            return Array.Empty<TreeRow>();
+        }
+        using var session = resolver.OpenSession();
+
+        // Winner reference reads each node off the tree itself; a named reference resolves through the same
+        // pole reader the delta form uses (one-pole rule + untouched contract, off-order cache included).
+        PoleReader? refReader = null;
+        if (reference.Kind is not PoleKind.Winner)
+        {
+            refReader = MakePoleReader(view, session, reference, fields, out referenceArm, out var rCovers, out var rErr);
+            if (rErr is not null) { refusal = "versus: " + rErr; return Array.Empty<TreeRow>(); }
+            epochCoversAll = rCovers;
+        }
+        else referenceArm = "winner";
+
+        var rows = new List<TreeRow>(formids.Count);
+        foreach (var raw in formids)
+        {
+            FormKey fk;
+            try { fk = FormKey.Factory(raw.Trim()); }
+            catch (Exception ex) { rows.Add(new TreeRow(raw?.Trim() ?? "", null, null, Array.Empty<string>(), null, Array.Empty<TreeNodeDelta>(), $"bad FormID '{raw}': {ex.Message}")); continue; }
+
+            var touchers = view.TouchingPlugins(fk) ?? Array.Empty<string>();
+            if (touchers.Count == 0)
+            {
+                rows.Add(new TreeRow(fk.ToString(), null, null, Array.Empty<string>(), null, Array.Empty<TreeNodeDelta>(),
+                                     $"{fk} is not present in the active order — no plugin touches it."));
+                continue;
+            }
+            var tree = ResolveTreePinned(new ViewPin(resolver, view), fk, fields);
+            if (tree is null || tree.Nodes.Count == 0)
+            {
+                rows.Add(new TreeRow(fk.ToString(), null, null, touchers, null, Array.Empty<TreeNodeDelta>(),
+                                     $"the provider bodies of {fk} could not be read."));
+                continue;
+            }
+
+            RecordFields? refFields; string refPlugin;
+            if (refReader is null)
+            {
+                var winnerNode = tree.Winner;
+                refFields = winnerNode.Record; refPlugin = winnerNode.Plugin;
+            }
+            else
+            {
+                var r = refReader(fk, null);
+                if (r.Error is not null)
+                {
+                    rows.Add(new TreeRow(fk.ToString(), tree.Winner.Record.Type, tree.Winner.Record.EditorId,
+                                         touchers, null, Array.Empty<TreeNodeDelta>(), "versus: " + r.Error));
+                    continue;
+                }
+                refFields = r.Fields; refPlugin = r.Pole!.Plugin;
+            }
+
+            var nodes = new List<TreeNodeDelta>(tree.Nodes.Count);
+            foreach (var node in tree.Nodes)
+            {
+                bool isWinner = ReferenceEquals(node, tree.Winner);
+                bool isRef = refReader is null ? isWinner
+                           : string.Equals(node.Plugin, refPlugin, StringComparison.OrdinalIgnoreCase);
+                if (isRef)
+                {
+                    nodes.Add(new TreeNodeDelta(node.Plugin, isWinner, true, Array.Empty<string>(), 0, true, null));
+                    continue;
+                }
+                var d = FieldsDiff.Compare(node.Record, refFields!, referenceLabel: refPlugin);
+                nodes.Add(new TreeNodeDelta(node.Plugin, isWinner, false, d.Deltas, d.AgreedCount, d.Complete, null));
+            }
+            rows.Add(new TreeRow(fk.ToString(), tree.Winner.Record.Type, tree.Winner.Record.EditorId,
+                                 touchers, refPlugin, nodes, null));
+        }
+        return rows;
     }
 
     // ---- cross-plugin query (Q4.9) ----------------------------------------------------------------------
