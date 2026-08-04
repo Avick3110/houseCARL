@@ -344,6 +344,23 @@ static class JsonWire
         return Finish(ms);
     }
 
+    /// <summary>records counts_only for forms whose census has named counters (delta: differing/identical;
+    /// tree: contested) — the envelope plus the counters, no rows.</summary>
+    public static string RenderNamedCounts(IReadOnlyList<KeyValuePair<string, string>> envelope,
+                                           IReadOnlyList<KeyValuePair<string, int>> counts, string? epoch)
+    {
+        using var ms = new MemoryStream();
+        using (var w = new Utf8JsonWriter(ms, Opts))
+        {
+            w.WriteStartObject();
+            WriteEnvelope(w, envelope);
+            foreach (var (k, v) in counts.Select(c => (c.Key, c.Value))) w.WriteNumber(k, v);
+            WriteNullable(w, "epoch", epoch);
+            w.WriteEndObject();
+        }
+        return Finish(ms);
+    }
+
     /// <summary>records form=summary on the list lane: one identity+winner row per outcome (or its per-item
     /// error) — the json twin of the text summary lines, spill marker in-band.</summary>
     public static string RenderRecordsSummary(IReadOnlyList<ReadOutcome> outcomes, int maxChars,
@@ -415,6 +432,172 @@ static class JsonWire
                 w.WriteEndObject();
             }
             w.WriteEndArray();
+            w.WriteEndObject();
+        }
+        return Finish(ms);
+    }
+
+    // ---- housecarl_records (W2 PR 2): the delta / tree comparison forms -----------------------------
+
+    /// <summary>One §4.1 delta row — shared verbatim by the json render and the artifact writer (one shape, no
+    /// drift). A per-item refusal is <c>{formid, error, stack_above?}</c>; a compared row carries both poles, the
+    /// §4.3 stack-above FACT when the subject sits mid-stack, and the same delta strings the text render emits.</summary>
+    internal static void WriteDeltaRow(Utf8JsonWriter w, LoadOrderService.DeltaRow row, MemoryStream ms, int cap)
+    {
+        w.WriteStartObject();
+        w.WriteString("formid", row.Formid);
+        if (row.Error is not null)
+        {
+            w.WriteString("error", row.Error);
+            if (row.StackAbove is { Count: > 0 }) WriteStringArray(w, "stack_above", row.StackAbove);
+            w.WriteEndObject();
+            return;
+        }
+        var s = row.Subject!; var r = row.Reference!;
+        WriteNullable(w, "type", s.RecordType);
+        WriteNullable(w, "editorid", s.EditorId);
+        WriteDiffPole(w, "subject", s);
+        WriteDiffPole(w, "reference", r);
+        if (row.StackAbove is { Count: > 0 }) WriteStringArray(w, "stack_above", row.StackAbove);
+        if (row.Note is not null) w.WriteString("note", row.Note);
+        var d = row.Diff!;
+        w.WriteBoolean("complete", d.Complete);
+        w.WriteStartArray("deltas");
+        int rendered = 0; bool cut = false;
+        foreach (var delta in d.Deltas)
+        {
+            w.Flush();
+            if (ms.Length >= cap) { cut = true; break; }
+            w.WriteStringValue(delta);
+            rendered++;
+        }
+        w.WriteEndArray();
+        w.WriteNumber("delta_count", d.Deltas.Count);
+        if (cut) { w.WriteNumber("deltas_rendered", rendered); w.WriteBoolean("deltas_truncated", true); }
+        w.WriteNumber("agreed_count", d.AgreedCount);
+        w.WriteEndObject();
+    }
+
+    /// <summary>records form=delta: <c>{…envelope, count, differing, identical, errors, epoch, rows:[…]}</c>.
+    /// The identical count only counts COMPLETE comparisons — a truncated deep read is neither (its row says so
+    /// via <c>complete:false</c>, the §4.4 truncation-honesty rule).</summary>
+    public static string RenderDelta(IReadOnlyList<LoadOrderService.DeltaRow> rows, int maxChars, string? epoch,
+                                     IReadOnlyList<KeyValuePair<string, string>> envelope,
+                                     SpillState? spill, out bool truncated)
+    {
+        truncated = false;
+        int cap = Cap(maxChars);
+        bool manifestOnly = spill?.ManifestOnly ?? false;
+        using var ms = new MemoryStream();
+        using (var w = new Utf8JsonWriter(ms, Opts))
+        {
+            w.WriteStartObject();
+            WriteEnvelope(w, envelope);
+            w.WriteNumber("count", rows.Count);
+            w.WriteNumber("differing", rows.Count(x => x.Error is null && x.Diff!.Deltas.Count > 0));
+            w.WriteNumber("identical", rows.Count(x => x.Error is null && x.Diff!.Deltas.Count == 0 && x.Diff.Complete));
+            w.WriteNumber("errors", rows.Count(x => x.Error is not null));
+            WriteNullable(w, "epoch", epoch);
+            w.WriteStartArray("rows");
+            int rendered = 0; bool rowsTruncated = false;
+            foreach (var row in rows)
+            {
+                if (manifestOnly) break;
+                w.Flush();
+                if (ms.Length >= cap) { rowsTruncated = true; break; }
+                WriteDeltaRow(w, row, ms, cap);
+                rendered++;
+            }
+            w.WriteEndArray();
+            w.WriteNumber("rendered", rendered);
+            w.WriteBoolean("truncated", rowsTruncated);
+            truncated = rowsTruncated;
+            if (spill is not null) Artifacts.WriteSpillStateJson(w, spill);
+            w.WriteEndObject();
+        }
+        return Finish(ms);
+    }
+
+    /// <summary>One §4.1 tree row — the provider stack with per-node deltas against the row's reference pole.
+    /// Shared by the json render and the artifact writer: THIS is what makes trees spillable (PR #306
+    /// fold-decision 1 — the 1.x conflict_tree had no row form; the tree FORM does).</summary>
+    internal static void WriteTreeRow(Utf8JsonWriter w, LoadOrderService.TreeRow row, MemoryStream ms, int cap)
+    {
+        w.WriteStartObject();
+        w.WriteString("formid", row.Formid);
+        if (row.Error is not null)
+        {
+            w.WriteString("error", row.Error);
+            if (row.Touchers.Count > 0) WriteStringArray(w, "touchers", row.Touchers);
+            w.WriteEndObject();
+            return;
+        }
+        WriteNullable(w, "type", row.Type);
+        WriteNullable(w, "editorid", row.EditorId);
+        WriteNullable(w, "reference", row.ReferencePlugin);
+        WriteStringArray(w, "touchers", row.Touchers);   // priority order, winner LAST
+        w.WriteStartArray("nodes");
+        foreach (var n in row.Nodes)
+        {
+            w.Flush();
+            if (ms.Length >= cap)
+            {
+                w.WriteStartObject();
+                w.WriteString("note", "[nodes truncated at max_chars — raise max_chars or narrow with project.fields]");
+                w.WriteEndObject();
+                break;
+            }
+            w.WriteStartObject();
+            w.WriteString("plugin", n.Plugin);
+            w.WriteBoolean("is_winner", n.IsWinner);
+            w.WriteBoolean("is_reference", n.IsReference);
+            if (!n.IsReference)
+            {
+                w.WriteBoolean("complete", n.Complete);
+                WriteStringArray(w, "deltas", n.Deltas);
+                w.WriteNumber("delta_count", n.Deltas.Count);
+                w.WriteNumber("agreed_count", n.AgreedCount);
+            }
+            w.WriteEndObject();
+        }
+        w.WriteEndArray();
+        w.WriteEndObject();
+    }
+
+    /// <summary>records form=tree: <c>{…envelope, count, contested, errors, epoch, rows:[…]}</c> — the committed
+    /// json tree render (§6.1: "the tree/delta forms get a built json render"; the 1.x text-only refusal dies by
+    /// construction here).</summary>
+    public static string RenderTree(IReadOnlyList<LoadOrderService.TreeRow> rows, int maxChars, string? epoch,
+                                    IReadOnlyList<KeyValuePair<string, string>> envelope,
+                                    SpillState? spill, out bool truncated)
+    {
+        truncated = false;
+        int cap = Cap(maxChars);
+        bool manifestOnly = spill?.ManifestOnly ?? false;
+        using var ms = new MemoryStream();
+        using (var w = new Utf8JsonWriter(ms, Opts))
+        {
+            w.WriteStartObject();
+            WriteEnvelope(w, envelope);
+            w.WriteNumber("count", rows.Count);
+            w.WriteNumber("contested", rows.Count(x => x.Error is null && x.Touchers.Count > 1));
+            w.WriteNumber("errors", rows.Count(x => x.Error is not null));
+            WriteNullable(w, "epoch", epoch);
+            w.WriteStartArray("rows");
+            int rendered = 0; bool rowsTruncated = false;
+            foreach (var row in rows)
+            {
+                if (manifestOnly) break;
+                w.Flush();
+                if (ms.Length >= cap) { rowsTruncated = true; break; }
+                WriteTreeRow(w, row, ms, cap);
+                rendered++;
+            }
+            w.WriteEndArray();
+            w.WriteNumber("rendered", rendered);
+            w.WriteBoolean("truncated", rowsTruncated);
+            truncated = rowsTruncated;
+            if (spill is not null) Artifacts.WriteSpillStateJson(w, spill);
             w.WriteEndObject();
         }
         return Finish(ms);

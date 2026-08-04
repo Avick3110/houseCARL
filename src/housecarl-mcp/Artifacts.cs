@@ -224,6 +224,40 @@ internal static class Artifacts
         return err is not null ? (null, err) : (new SpillInfo(path, manifest!, reason), null);
     }
 
+    /// <summary>Build + save the artifact for a records form=delta result — one row per input, in input order,
+    /// exactly the rows the json render emits (per-item refusals included: a dropped P3/P4/untouched row would
+    /// make the file claim a cleaner comparison than the call returned).</summary>
+    public static (SpillInfo? Spill, string? Error) WriteDelta(
+        IReadOnlyList<LoadOrderService.DeltaRow> rows, string? epoch, string path, string reason,
+        IReadOnlyList<KeyValuePair<string, string>> query)
+    {
+        using var writer = new ResultArtifact.Writer();
+        foreach (var row in rows)
+            writer.WriteRow((w, ms) => JsonWire.WriteDeltaRow(w, row, ms, int.MaxValue),
+                            row.Error is null ? row.Subject?.RecordType : null);
+        var (manifest, err) = writer.Save(path, "housecarl_records", query, "formid",
+                                          new[] { "formid", "type", "editorid", "subject", "reference", "stack_above?", "note?", "complete", "deltas", "delta_count", "agreed_count" },
+                                          "input order", rows.Count, epoch ?? "");
+        return err is not null ? (null, err) : (new SpillInfo(path, manifest!, reason), null);
+    }
+
+    /// <summary>Build + save the artifact for a records form=tree result — the row form that makes trees
+    /// SPILLABLE (PR #306 fold-decision 1): one row per record, the provider stack with per-node deltas, exactly
+    /// the json render's rows.</summary>
+    public static (SpillInfo? Spill, string? Error) WriteTree(
+        IReadOnlyList<LoadOrderService.TreeRow> rows, string? epoch, string path, string reason,
+        IReadOnlyList<KeyValuePair<string, string>> query)
+    {
+        using var writer = new ResultArtifact.Writer();
+        foreach (var row in rows)
+            writer.WriteRow((w, ms) => JsonWire.WriteTreeRow(w, row, ms, int.MaxValue),
+                            row.Error is null ? row.Type : null);
+        var (manifest, err) = writer.Save(path, "housecarl_records", query, "formid",
+                                          new[] { "formid", "type", "editorid", "reference", "touchers", "nodes" },
+                                          "input order", rows.Count, epoch ?? "");
+        return err is not null ? (null, err) : (new SpillInfo(path, manifest!, reason), null);
+    }
+
     /// <summary>Append the whole SpillState to a text response: the spilled block, or the failed-spill warning
     /// (a truncated response whose promised artifact could NOT be written must say so — the §2.1.1 "nothing is
     /// ever lost silently" promise would otherwise break exactly when the disk does).</summary>
