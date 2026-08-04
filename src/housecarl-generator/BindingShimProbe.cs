@@ -346,6 +346,26 @@ public static class BindingShimProbe
         // nothing fires on S8 Nexus / S9 session tools, source-> only lands on the whose-version
         // plugin= tools and the two NIF mod= tools, and patch= lands on the §5.3 ARTIFACT per tool
         // (output on merge_plugins, archive_name on bsa_repack, patch_name elsewhere).
+        // W3 (eyeballed 2026-08-04): housecarl_apply joins the surface — the FIRST 2.0 write tool, so the
+        // write-side §5.3 rows go live. operations->ops and full_readback->readback are the pure renames;
+        // all four "the new artifact" spellings land on patch= (apply declares no other output name, so the
+        // clique's priority order is inert here); from_file's ⤳ hint activates on the `ops` gate — the @file
+        // convention that retired it now exists — and the four copy-zip hints activate on the `assignments`
+        // gate, exactly the wave §5.3 assigned them. 119 -> 130, all eleven on housecarl_apply.
+        // NOTE (deliberate negative): verb->op does NOT appear. `op` is a member of an ops ELEMENT, not a
+        // top-level parameter, and the shim rewrites top-level arguments only — a stray `verb` inside an op
+        // is refused by the strict element reader instead, which carries its own §5.3 correction.
+        "housecarl_apply: archivename -> patch",
+        "housecarl_apply: fromfile => hint",
+        "housecarl_apply: fullreadback -> readback",
+        "housecarl_apply: operations -> ops",
+        "housecarl_apply: output -> patch",
+        "housecarl_apply: patchname -> patch",
+        "housecarl_apply: pluginname -> patch",
+        "housecarl_apply: sourceformid => hint",
+        "housecarl_apply: sourcemod => hint",
+        "housecarl_apply: sourceplugin => hint",
+        "housecarl_apply: targetformid => hint",
         "housecarl_asset_status: paths -> asset_paths",
         "housecarl_batch_record_detail: formid -> formids",
         "housecarl_batch_record_detail: pluginname -> plugin",
