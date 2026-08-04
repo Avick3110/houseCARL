@@ -3069,10 +3069,14 @@ public sealed class LoadOrderService : IDisposable
         SkyPatcherDiscovery.LayerScan? scan = null; SkyrimMod? scratch = null;
         SkyPatcherOverlay.IFormResolver? formResolver = null;
         Dictionary<string, IReadOnlyList<SkyPatcherOverlay.OrderedLine>>? linesCache = null;
+        // Per-key memo (review F7): the scratch mod is shared across the reader's lifetime, so a repeated key's
+        // second replay would re-apply every INI line onto the already-mutated copy. One replay per key.
+        var postMemo = new Dictionary<FormKey, PoleReading>();
         string? setupError = null;
         return (fk, _) =>
         {
             if (setupError is not null) return new PoleReading(null, null, null, setupError);
+            if (postMemo.TryGetValue(fk, out var memoized)) return memoized;
             if (scan is null)
             {
                 try
@@ -3101,16 +3105,16 @@ public sealed class LoadOrderService : IDisposable
                     var w = view.ResolveWinner(fk);
                     var body = w is null ? null : view.GetRecord(session, w.Value.WinnerPlugin, fk);
                     if (body is not null)
-                        return new PoleReading(ReadEngine.ReadFields(body, fields, ConflictDiffDepth),
+                        return postMemo[fk] = new PoleReading(ReadEngine.ReadFields(body, fields, ConflictDiffDepth),
                                                new DiffPole(w!.Value.WinnerPlugin,
                                                             "skypatcher overlay (post) = winner — type not SkyPatcher-patchable, the layer cannot touch it",
                                                             true, RecordNaming.StripOverlay(body.GetType().Name), body.EditorID), null, null);
                 }
-                return new PoleReading(null, null, null, r.Error);
+                return postMemo[fk] = new PoleReading(null, null, null, r.Error);
             }
             int applied = r.Folders.Where(f => f.Result is not null).Sum(f => f.Result!.Applied.Count);
             var post = ReadEngine.ReadFields(r.Copy!, fields, ConflictDiffDepth);
-            return new PoleReading(post,
+            return postMemo[fk] = new PoleReading(post,
                 new DiffPole(r.WinnerPlugin!, $"skypatcher overlay (post) — {applied} op(s) applied onto the winner", true,
                              post.Type, r.EditorId), null, null);
         };
@@ -3202,17 +3206,23 @@ public sealed class LoadOrderService : IDisposable
         }
         var linesCache = new Dictionary<string, IReadOnlyList<SkyPatcherOverlay.OrderedLine>>(StringComparer.OrdinalIgnoreCase);
 
+        // Per-batch replay memo (review F7): the scratch mod is shared across the batch, so a DUPLICATED key's
+        // second replay would run every INI line onto the already-mutated copy — unguarded AddEntry appends
+        // twice, Mult/AddNumeric compound. One replay per key; duplicates reuse its outcome.
+        var replayMemo = new Dictionary<FormKey, ReadOutcome>();
         var outcomes = new List<ReadOutcome>(formids.Count);
         foreach (var raw in formids)
         {
             FormKey fk;
             try { fk = FormKey.Factory(raw.Trim()); }
             catch (Exception ex) { outcomes.Add(ReadOutcome.Fail(default, $"bad FormID '{raw}': {ex.Message}")); continue; }
+            if (replayMemo.TryGetValue(fk, out var memoized)) { outcomes.Add(memoized); continue; }
             var winner = view.ResolveWinner(fk);
             if (winner is null)
             {
-                outcomes.Add(ReadOutcome.Fail(fk, $"FormID {fk} is not present in the load order ({view.PluginCount} plugins).")
-                             with { Epoch = view.Epoch, Pin = pin });
+                var miss = ReadOutcome.Fail(fk, $"FormID {fk} is not present in the load order ({view.PluginCount} plugins).")
+                           with { Epoch = view.Epoch, Pin = pin };
+                replayMemo[fk] = miss; outcomes.Add(miss);
                 continue;
             }
             var r = ReplaySkyPatcher(view, session, scan, catalog, fieldMap, scratch, formResolver, fk, linesCache);
@@ -3223,14 +3233,16 @@ public sealed class LoadOrderService : IDisposable
                     bodyToRead = view.GetRecord(session, winner.Value.WinnerPlugin, fk);   // post IS pre — the declared rule
                 if (bodyToRead is null)
                 {
-                    outcomes.Add(ReadOutcome.Fail(fk, r.Error) with { Epoch = view.Epoch, Pin = pin });
+                    var fail = ReadOutcome.Fail(fk, r.Error) with { Epoch = view.Epoch, Pin = pin };
+                    replayMemo[fk] = fail; outcomes.Add(fail);
                     continue;
                 }
             }
             var record = ReadEngine.ReadFields(bodyToRead!, fields, depth);
-            outcomes.Add(new ReadOutcome(fk, record, winner.Value.WinnerPlugin, winner.Value.WinnerPlugin,
-                                         winner.Value.OverrideDepth, null, null)
-                         with { Epoch = view.Epoch, Pin = pin });
+            var ok = new ReadOutcome(fk, record, winner.Value.WinnerPlugin, winner.Value.WinnerPlugin,
+                                     winner.Value.OverrideDepth, null, null)
+                     with { Epoch = view.Epoch, Pin = pin };
+            replayMemo[fk] = ok; outcomes.Add(ok);
         }
         return outcomes;
     }
@@ -3590,7 +3602,10 @@ public sealed class LoadOrderService : IDisposable
 
         var rows = new List<InfoOrderRow>(formids.Count);
         var dialFks = new List<FormKey>();
-        var rowIndexOf = new Dictionary<FormKey, int>();
+        // Per ROW, not per FormKey (review F6): a duplicated DIAL key in the input must attach the computed
+        // order to EVERY occurrence — a dictionary keyed on FormKey kept only the last row's index, and the
+        // earlier duplicates rendered a fabricated "merge could not be computed" failure.
+        var dialRows = new List<(int Index, FormKey Fk)>();
         foreach (var raw in formids)
         {
             FormKey fk;
@@ -3618,15 +3633,15 @@ public sealed class LoadOrderService : IDisposable
                     "For a quest's topics, select them by composition: types=[\"DIAL\"] where=[\"Quest = " + fk + "\"]."));
                 continue;
             }
-            rowIndexOf[fk] = rows.Count;
+            dialRows.Add((rows.Count, fk));
             rows.Add(new InfoOrderRow(fk.ToString(), RecordNaming.StripOverlay(body.GetType().Name), body.EditorID,
                                       win.Value.WinnerPlugin, null, null));
-            dialFks.Add(fk);
+            if (!dialFks.Contains(fk)) dialFks.Add(fk);
         }
         if (dialFks.Count > 0)
         {
             var orders = DialogueValidate.InfoOrders(view, session, dialFks);
-            foreach (var (fk, idx) in rowIndexOf.Select(kv => (kv.Key, kv.Value)))
+            foreach (var (idx, fk) in dialRows)
                 if (orders.TryGetValue(fk, out var io)) rows[idx] = rows[idx] with { Order = io };
         }
         return rows;
@@ -3794,7 +3809,10 @@ public sealed class LoadOrderService : IDisposable
         var unscannableSamples = new List<string>();
 
         HashSet<FormKey>? setFilter = hasFormidSet ? new HashSet<FormKey>(formidSet!) : null;
-        if (!hasType && !hasPlugins && hasFormidSet && !conflictsOnly)        // the formid set ALONE is the universe: per-key winner fetch
+        // The set-alone branch also owns conflicts_only + formidSet (its in-loop touching-count test): routing
+        // that pair to the index-only else-branch dropped every parsed body filter silently (review F1 — the
+        // predicate/references/editorid_contains were never evaluated, a Q3 silent wrong answer).
+        if (!hasType && !hasPlugins && hasFormidSet)                          // the formid set ALONE is the universe: per-key winner fetch
         {
             LoadOrderResolver.OverlaySession? setSession = null;
             try
