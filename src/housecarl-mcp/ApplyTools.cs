@@ -333,33 +333,52 @@ public static class ApplyTools
         return (text, null);
     }
 
-    /// <summary>The §5.3 vocabulary correction for a rejected OP-ELEMENT member. The alias layer rewrites TOP-LEVEL
-    /// arguments only (<see cref="ToolCallShim"/> works off the published schema, and an op's members are inside a
+    /// <summary>The §5.3 vocabulary correction for a rejected element member. The alias layer rewrites TOP-LEVEL
+    /// arguments only (<see cref="ToolCallShim"/> works off the published schema, and these members are inside a
     /// list value), so a caller carrying 1.x habits — <c>verb</c>, <c>from_plugin</c> — gets the strict reader's
     /// unmapped-member refusal with no way to learn the new word. That refusal is correct and stays; this appends
-    /// the one-hop correction to it. Deliberately narrow: only the spellings this tool actually renamed, matched off
-    /// the property name STJ already quoted, so it can never invent a member the shape doesn't declare.</summary>
+    /// the one-hop correction to it.
+    /// <para>Matched on the member name AND the DECLARING TYPE, both of which STJ already quotes. The type half is
+    /// load-bearing, not belt-and-braces: the same word means different things per shape — <c>verb</c> is a rename
+    /// on an op but a LEGAL member on a <see cref="NestedSet"/>, and <c>op</c> is legal on an op but a mistake in
+    /// two different ways on a nested set and on an <see cref="Assignment"/>. Matching the name alone would answer
+    /// a stray <c>op</c> inside an assignment by lecturing about `compose=`, a construct that caller never used
+    /// (round-5 review). Unmatched pairs simply get no hint — the refusal still names the member and its type.</para></summary>
     static string ElementVocabularyHint(string stjMessage)
     {
-        foreach (var (old, correction) in ElementRenames)
-            if (stjMessage.Contains($"'{old}'", StringComparison.Ordinal))
+        foreach (var (old, declaringType, correction) in ElementRenames)
+            if (stjMessage.Contains($"'{old}'", StringComparison.Ordinal) &&
+                stjMessage.Contains($".{declaringType}'", StringComparison.Ordinal))
                 return $" ('{old}' was the 1.x spelling — {correction})";
         return "";
     }
 
-    static readonly (string Old, string Correction)[] ElementRenames =
+    /// <summary>(old spelling, the type that REJECTED it, the correction). One row per (member, shape) pair,
+    /// because the same word is a different mistake — or no mistake — depending on which shape it landed in.</summary>
+    static readonly (string Old, string DeclaringType, string Correction)[] ElementRenames =
     {
-        // Scoped deliberately: the rename is AT THE OP LEVEL only. A nested set inside compose= is a NestedSet,
-        // shared verbatim with the 1.x wire shape, and still spells `verb` — so an unscoped "op everywhere"
-        // correction would send a caller straight into the opposite refusal one level down. The reverse row
-        // below catches exactly that caller.
-        ("verb", "at the OP level the verb member is now op — op=\"Add\". (A nested set inside compose= is unchanged and still takes verb.)"),
-        ("op", "a nested set inside compose= still spells its verb `verb` — only the top-level op member was renamed to op"),
-        ("from_plugin", "it split in two: from_source names the PLUGIN to copy from, from names a different source RECORD"),
-        ("fromplugin", "it split in two: from_source names the PLUGIN to copy from, from names a different source RECORD"),
-        ("target_formid", "a copy's destination record is the assignments= zip's target="),
-        ("source_formid", "a copy's source record is the assignments= zip's from= (or an op's from=)"),
-        ("source_plugin", "a copy's source pole is from_source="),
+        // AT THE OP LEVEL the rename is verb -> op. A nested set inside compose= is a NestedSet, shared verbatim
+        // with the 1.x wire shape, and legitimately still spells `verb` — hence the type gate, and the two
+        // opposite corrections below it.
+        ("verb", "ApplyOp", "at the OP level the verb member is now op — op=\"Add\". (A nested set inside compose= is unchanged and still takes verb.)"),
+        ("op", "NestedSet", "a nested set inside compose= still spells its verb `verb` — only the top-level op member was renamed to op"),
+        // An assignment names RECORDS, never a verb: the zip is a copy by construction. Answering this one with
+        // the NestedSet correction would lecture about compose=, which such a caller never used.
+        ("op", "Assignment", "an assignment pairs records and carries no verb — the zip is always a copy. Per-op verbs live in ops=[{…, op: \"…\"}]"),
+        ("verb", "Assignment", "an assignment pairs records and carries no verb — the zip is always a copy. Per-op verbs live in ops=[{…, op: \"…\"}]"),
+
+        ("from_plugin", "ApplyOp", "it split in two: from_source names the PLUGIN to copy from, from names a different source RECORD"),
+        ("fromplugin", "ApplyOp", "it split in two: from_source names the PLUGIN to copy from, from names a different source RECORD"),
+        ("from_plugin", "Assignment", "an assignment's source pole is from_source=, and its source RECORD is from="),
+
+        ("target_formid", "Assignment", "a copy's destination record is the assignments= zip's target="),
+        ("source_formid", "Assignment", "a copy's source record is the assignments= zip's from="),
+        ("source_plugin", "Assignment", "a copy's source pole is from_source="),
+        // The same three, typed into an OP instead — the zip's members do not exist there; an op copies with
+        // from=/from_source= and names its own record in formid=.
+        ("target_formid", "ApplyOp", "an op names its own record in formid=; a copy's DESTINATION only has a separate spelling inside the assignments= zip (target=)"),
+        ("source_formid", "ApplyOp", "an op's source record is from="),
+        ("source_plugin", "ApplyOp", "an op's source pole is from_source="),
     };
 
     /// <summary>STJ appends its own position block (" Path: $[0].x | LineNumber: 0 | BytePositionInLine: 89.") to a

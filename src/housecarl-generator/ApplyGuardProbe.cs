@@ -315,6 +315,21 @@ public static class ApplyGuardProbe
         Check("an undeclared member NESTED in compose.sets[0] is refused BY NAME (Disallow reaches the recursion)",
             deepStray.StartsWith("error:") && deepStray.Contains("nosuchmember"), deepStray);
 
+        // ROUND-5 FOLD [low] — the vocabulary hint is gated on the DECLARING TYPE, not the member name alone.
+        // The same word is a different mistake per shape, so a name-only match answers one caller with another
+        // caller's correction. `op` is the sharp case: legal on an op, wrong two different ways elsewhere.
+        var opInNested = ApplyTools.Apply(fx.Svc, ops: Json(
+            $$"""[{"formid":"{{fx.PotionAFid}}","field_path":"Effects","op":"Add","compose":""" +
+            """{"type":"Effect","sets":[{"path":"Data.Magnitude","op":"Set","value":"1"}]}}]"""));
+        Check("a stray `op` in a NESTED SET is corrected toward verb (the nested shape's own word)",
+            opInNested.StartsWith("error:") && opInNested.Contains("still spells its verb"), opInNested);
+
+        var opInAssignment = ApplyTools.Apply(fx.Svc, bundle: new[] { "Name" },
+            assignments: Json($$"""[{"target":"{{fx.SubjectFid}}","from":"{{fx.DonorWeaponFid}}","op":"CopyFrom"}]"""));
+        Check("...while the SAME stray in an ASSIGNMENT gets the assignment's own correction, not a compose= lecture",
+            opInAssignment.StartsWith("error:") && opInAssignment.Contains("carries no verb")
+                && !opInAssignment.Contains("compose="), opInAssignment);
+
         // values= / entries= — the other two payload members, likewise unexercised until now
         var valuesOp = ApplyTools.Apply(fx.Svc,
             ops: Json($$"""[{"formid":"{{fx.SubjectFid}}","field_path":"Keywords","op":"ReplaceAll","values":["{{fx.KeywordFid}}"]}]"""),
@@ -663,8 +678,13 @@ public static class ApplyGuardProbe
 
         // ...and the same emptiness rule governs a lane string, so the exclusivity check and what gets written
         // cannot disagree about whether patch= was named.
+        // Asserted POSITIVELY (round-5 nit): the earlier form only checked that the exclusivity refusal was
+        // ABSENT, which would stay green if the whole LANE block were deleted. A blank patch= must not merely
+        // fail to trip exclusivity — the call must actually TAKE the into= lane, which this proves by landing on
+        // into='s own "no such patch to extend" refusal.
         var blankPatch = ApplyTools.Apply(fx.Svc, ops: Json(OneOp("72")), patch: "   ", into: "NoSuchPatch.esp");
-        Check("a whitespace-only patch= counts as ABSENT for exclusivity, exactly as it does for the write",
-            !blankPatch.Contains("the two lanes are exclusive"), blankPatch);
+        Check("a whitespace-only patch= counts as ABSENT and the call TAKES the into= lane (its own refusal, not the exclusivity one)",
+            blankPatch.StartsWith("error:") && !blankPatch.Contains("the two lanes are exclusive")
+                && blankPatch.Contains("NoSuchPatch.esp"), blankPatch);
     }
 }
