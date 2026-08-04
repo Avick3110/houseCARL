@@ -7,16 +7,23 @@ using Mutagen.Bethesda.Plugins;
 namespace HousecarlMcp;
 
 /// <summary>
-/// housecarl_records — the 2.0 S1 read surface (tool-surface-2.0 W2 PR 1; SPEC §2.2/§4.2/§6.1).
+/// housecarl_records — the 2.0 S1 read surface, COMPLETE (tool-surface-2.0 W2; SPEC §2.2/§3/§4/§6.1).
 ///
 /// ONE read tool: SELECT (which records) × SOURCE (whose version) × PROJECT (what shape) × TRANSPORT compose in a
 /// single call, over the SAME proven engine lanes the 1.x read tools drive (CrossQuery / ResolveBatch /
 /// ResolveRefs / the one-pole batch / the plugin-file overlay) — consolidation of the surface, not a re-implementation
-/// of the engine. This PR ships the CORE forms (identity | summary | fields | everything | aggregate) and the
-/// one-pole named SOURCE; the comparison/traversal forms (delta | tree | chain | info_order, walk=, versus=,
-/// previous_provider, the SkyPatcher overlay source) arrive in W2 PR 2 — until then those spellings get a NAMED
-/// staging refusal pointing at the 1.x tool that does the job today (never a silent gap). The 1.x read tools stay
-/// registered and unchanged through the build waves; they retire at 2.0.0 (clean cut, CHARTER_PHASE4 §3.4a).
+/// of the engine.
+///
+/// All NINE PROJECT forms are live — identity | summary | fields | everything | aggregate | delta | tree | chain |
+/// info_order — each form-scoped, so a sub-parameter exists only inside the form that carries it (§2.2). SOURCE is
+/// the §4.2 pole grammar: the winner by default, a named plugin resolved wherever it lives (active or on disk
+/// out of the order, with the resolved arm always stated), the SkyPatcher overlay pre/post state, and — as the
+/// comparison REFERENCE, `versus=` — `previous_provider`. SELECT carries the full `where=` grammar (including the
+/// `winner` provenance term), `references=`, and the §3 `walk=` traversal construct, forward closure and the typed
+/// MGEF reverse lane alike.
+///
+/// The 1.x read tools stay registered and unchanged through the build waves; they retire at 2.0.0 (clean cut,
+/// CHARTER_PHASE4 §3.4a), at which point a call naming one is answered with its successor spelling here.
 /// </summary>
 [McpServerToolType]
 public static class RecordsTools
