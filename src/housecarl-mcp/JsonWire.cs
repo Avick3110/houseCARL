@@ -1486,4 +1486,105 @@ static class JsonWire
         }
         return Finish(ms);
     }
+
+    // ---- housecarl_apply (W3 — the 2.0 write surface) -----------------------------------------------
+    /// <summary>The machine-readable twin of <see cref="WriteTools.Render"/>: ONE write outcome, the SAME data the
+    /// text render states (decision D2 — one write path, two renders). Everything the text lane treats as prose is a
+    /// typed field here: the lane taken, whether it was a dry run, the epoch of the build the winners resolved from,
+    /// per-op results, and the read-back. A REFUSAL is a document too (<c>ok:false</c> with the reason), not an empty
+    /// body — a json caller must never have to parse "error: …" out of a string to learn the call failed. The
+    /// first-touch in-place CONSENT prompt is its own flag: it is a required confirmation, not a failure (Q3).
+    /// Budget handling matches every other json render — trailing ROWS drop and <c>truncated</c> says so, so the
+    /// document is always valid JSON rather than a string cut mid-token.</summary>
+    public static string RenderPatchOutcome(WritePatchBuilder.PatchOutcome o, int maxChars, bool readback)
+    {
+        int cap = Cap(maxChars);
+        using var ms = new MemoryStream();
+        using (var w = new Utf8JsonWriter(ms, Opts))
+        {
+            w.WriteStartObject();
+            w.WriteBoolean("ok", o.Success);
+            w.WriteBoolean("needs_acknowledge", o.NeedsAcknowledge);
+            w.WriteBoolean("dry_run", o.DryRun);
+            w.WriteString("lane", o.InPlace ? "in_place" : o.Extended ? "extend" : "patch");
+            WriteNullable(w, "epoch", o.Epoch);
+            if (!o.Success)
+            {
+                // NeedsAcknowledge carries its prompt in Error — labelled as a prompt, never as an error string.
+                WriteNullable(w, o.NeedsAcknowledge ? "confirmation" : "error", o.Error);
+                w.WriteEndObject();
+                return Finish(ms);
+            }
+
+            w.WriteString("path", o.OutputPath);
+            w.WriteString("file", Path.GetFileName(o.OutputPath));
+            w.WriteNumber("bytes", o.Bytes);
+            w.WriteStartArray("masters");
+            foreach (var m in o.Masters) w.WriteStringValue(m);
+            w.WriteEndArray();
+
+            w.WriteNumber("total_ops", o.Ops.Count);
+            w.WriteStartArray("ops");
+            int renderedOps = 0;
+            bool truncated = false;
+            foreach (var op in o.Ops)
+            {
+                if (ms.Length >= cap) { truncated = true; break; }
+                w.WriteStartObject();
+                w.WriteString("formid", op.Target.ToString());
+                w.WriteString("record_type", op.RecordType);
+                w.WriteString("label", op.Label);
+                w.WriteBoolean("applied", op.Applied);
+                WriteNullable(w, "error", op.Error);
+                WriteNullable(w, "after", op.After);
+                WriteNullable(w, "landed", op.Landed);
+                w.WriteEndObject();
+                renderedOps++;
+            }
+            w.WriteEndArray();
+            w.WriteNumber("rendered_ops", renderedOps);
+
+            if (o.ReadBack is { } rb)
+            {
+                // The read-back is the WRITTEN FILE's content, not load-order truth — stated as data (`source`) so a
+                // json consumer cannot lose the distinction the text render spells out in a sentence.
+                w.WriteString("readback_source", o.DryRun ? "in_memory_would_be_content" : "written_file");
+                w.WriteBoolean("readback_full", readback);
+                w.WriteStartArray("readback");
+                foreach (var r in rb)
+                {
+                    if (ms.Length >= cap) { truncated = true; break; }
+                    w.WriteStartObject();
+                    w.WriteString("formid", r.Target.ToString());
+                    if (r.Error is not null) w.WriteString("error", r.Error);
+                    else
+                    {
+                        var rec = r.Record!;
+                        w.WriteString("type", rec.Type);
+                        WriteNullable(w, "editorid", rec.EditorId);
+                        w.WriteNumber("field_count", rec.Fields.Count);
+                        w.WriteStartArray("fields");
+                        foreach (var f in rec.Fields)
+                        {
+                            if (ms.Length >= cap) { truncated = true; break; }
+                            w.WriteStartObject();
+                            w.WriteString("path", f.Path);
+                            if (f.HasValue) w.WriteString("value", f.Token); else w.WriteString("note", f.Note);
+                            w.WriteEndObject();
+                        }
+                        w.WriteEndArray();
+                    }
+                    w.WriteEndObject();
+                }
+                w.WriteEndArray();
+            }
+
+            WriteNullable(w, "note", o.Note);
+            w.WriteBoolean("truncated", truncated);
+            if (truncated)
+                w.WriteString("truncated_note", $"the render hit max_chars={cap} and dropped trailing rows — the WRITE is complete and unaffected; raise max_chars to see the rest.");
+            w.WriteEndObject();
+        }
+        return Finish(ms);
+    }
 }
