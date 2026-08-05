@@ -5924,7 +5924,7 @@ public sealed class LoadOrderService : IDisposable
         string? target = null, bool inPlace = false, bool acknowledge = false)
     {
         var problems = new List<string>();
-        var spec = BuildCreateSpec(recordType, editorid, operations, parent, collection, grid, where: null, problems);
+        var spec = BuildCreateSpec(recordType, editorid, operations, parent, collection, grid, where: null, problems, CreateOpNaming.Legacy);
         if (spec is null)
             return WritePatchBuilder.CreateOutcome.Fail(
                 $"refused — {problems.Count} problem(s) creating the record; NOTHING created:\n  - " + string.Join("\n  - ", problems));
@@ -5938,7 +5938,8 @@ public sealed class LoadOrderService : IDisposable
     /// spec refuses the whole call (with per-record reasons) and the core <see cref="WritePatchBuilder.CreateRecords"/>
     /// likewise refuses the whole batch on any creatability/parent problem. One serialize for the lot.</summary>
     public WritePatchBuilder.CreateOutcome CreateRecordsBatch(IReadOnlyList<CreateOp> records, string? patchName, string? into, bool fullReadback = false,
-        string? target = null, bool inPlace = false, bool acknowledge = false, IReadOnlyList<string?>? origins = null)
+        string? target = null, bool inPlace = false, bool acknowledge = false, IReadOnlyList<string?>? origins = null,
+        CreateOpNaming? naming = null)
     {
         if (records is null || records.Count == 0)
             return WritePatchBuilder.CreateOutcome.Fail("no records to create supplied — pass one or more {record_type, editorid, operations?, parent?, collection?} specs.");
@@ -5952,7 +5953,7 @@ public sealed class LoadOrderService : IDisposable
             // batch passes none and keeps its own "record[r]"). Carried parallel to the list for the same reason
             // ApplyEdits carries opOrigins: a refusal must never name an index shape the caller did not write.
             var where = origins is not null && r < origins.Count && origins[r] is { } o ? o : $"record[{r}]";
-            var spec = BuildCreateSpec(rec.RecordType, rec.Editorid, rec.Operations ?? Array.Empty<BulkOp>(), rec.Parent, rec.Collection, rec.Grid, where, problems);
+            var spec = BuildCreateSpec(rec.RecordType, rec.Editorid, rec.Operations ?? Array.Empty<BulkOp>(), rec.Parent, rec.Collection, rec.Grid, where, problems, naming ?? CreateOpNaming.Legacy);
             if (spec is not null) specs.Add(spec);
         }
         if (problems.Count > 0)
@@ -5968,7 +5969,7 @@ public sealed class LoadOrderService : IDisposable
     /// through (a nested child) — null ⇒ a flat top-level record. Every problem (with the optional <paramref name="where"/>
     /// label) is APPENDED to <paramref name="problems"/>; returns null iff this record contributed any (all-or-nothing).</summary>
     WritePatchBuilder.CreateSpec? BuildCreateSpec(string? recordType, string? editorid, IReadOnlyList<BulkOp> operations,
-        string? parent, string? collection, string? grid, string? where, List<string> problems)
+        string? parent, string? collection, string? grid, string? where, List<string> problems, CreateOpNaming naming)
     {
         var prefix = where is null ? "" : where + ": ";
         int before = problems.Count;
@@ -5995,7 +5996,7 @@ public sealed class LoadOrderService : IDisposable
         if (catalogName is not null)
             for (int i = 0; i < operations.Count; i++)
             {
-                var req = MapCreateEdit(operations[i], i, catalogName, out var err);
+                var req = MapCreateEdit(operations[i], i, catalogName, naming, out var err);
                 if (err is not null) problems.Add($"{prefix}{err}"); else edits.Add(req!);
             }
 
@@ -6187,10 +6188,24 @@ public sealed class LoadOrderService : IDisposable
     /// derived), and a create op carries NO formid (it sets a field on the new record, whose id is auto-allocated) — a
     /// stray formid is refused loud (Q3) rather than silently ignored. Builds the composition <see cref="StructSpec"/> the
     /// same way <see cref="MapEdit"/> does (so a created Spell's Effects / LeveledItem's Entries compose identically).</summary>
-    WriteRequest? MapCreateEdit(BulkOp op, int index, string recordType, out string? error)
+    /// <summary>The CALLING tool's vocabulary for a create op, threaded down so a refusal never names a spelling the
+    /// caller cannot see (PR #311 review 6 [low]; the same rule as <c>origins</c>, <c>sourceParam</c>,
+    /// <c>offerModParam</c> and <c>InPlaceAgainHint</c>). <paramref name="Element"/> is the ops-list member word;
+    /// <paramref name="CopySubject"/> is how the copy refusal refers to what the caller asked for — the 2.0 surface
+    /// declares no <c>from_plugin</c>, so it can only have arrived via <c>op="CopyFrom"</c>.</summary>
+    public readonly record struct CreateOpNaming(string Element, string CopySubject)
+    {
+        /// <summary>1.x housecarl_create_record / housecarl_bulk_create — unchanged wording.</summary>
+        public static readonly CreateOpNaming Legacy = new("op", "CopyFrom / from_plugin");
+    }
+
+    WriteRequest? MapCreateEdit(BulkOp op, int index, string recordType, CreateOpNaming naming, out string? error)
     {
         error = null;
-        var where = $"op[{index}]";
+        // The caller's own element word (PR #311 review 6 [low]) — the same thread as `origins` one level up, for the
+        // same reason: `records[0]` was already the caller's spelling while `op[0]` was nobody's. On housecarl_create
+        // the member is ops=, so the navigational handle a caller must act on is ops[0].
+        var where = $"{naming.Element}[{index}]";
         if (!string.IsNullOrWhiteSpace(op.Formid))
         {
             error = $"{where}: a create operation sets a field on the NEW record, so it takes no formid (the new record's id is auto-allocated). Remove formid='{op.Formid}'.";
@@ -6211,7 +6226,11 @@ public sealed class LoadOrderService : IDisposable
 
         if (string.Equals(op.Verb, "CopyFrom", StringComparison.Ordinal) || !string.IsNullOrWhiteSpace(op.FromPlugin))
         {
-            error = $"{where}: CopyFrom / from_plugin copies from an EXISTING record's other version — it isn't valid when CREATING a record (there is no other version yet). Set the new field with value= / compose= instead.";
+            // Named in the CALLING surface's vocabulary (PR #311 review 6 [low]). This is reachable from
+            // housecarl_create — the strict reader only gates undeclared MEMBERS and `op` is declared, so
+            // ops:[{op:"CopyFrom"}] arrives here — where the old text answered with `from_plugin`, a member
+            // CreateFieldOp does not declare and the caller therefore cannot remove.
+            error = $"{where}: {naming.CopySubject} copies from an EXISTING record's other version — it isn't valid when CREATING a record (there is no other version yet). Set the new field with value= / compose= instead.";
             return null;
         }
 

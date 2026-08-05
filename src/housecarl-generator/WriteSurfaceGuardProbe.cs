@@ -530,6 +530,26 @@ public static class WriteSurfaceGuardProbe
                 && !bareText.TrimStart().StartsWith("{", StringComparison.Ordinal), bareText);
         }
 
+        // Refusals below the tool layer name THIS surface's words, index label included (PR #311 review 6 [low]).
+        // `records[0]` was already the caller's spelling via the origins thread; `op[0]` was nobody's — the member
+        // is ops=, and in a generated batch of hundreds the index label IS the navigational handle.
+        var badOpIndex = CreateTools.Create(fx.Svc, patch: "W2OpLbl", records: Json("""
+            [{"record_type":"Keyword","editorid":"W2OpLbl","ops":[{"value":"x"}]}]
+            """));
+        Check("create: a malformed op is labelled ops[i] — the caller's own member — never op[i]",
+            badOpIndex.Contains("records[0]: ops[0]:", StringComparison.Ordinal)
+            && !badOpIndex.Contains("op[0]:", StringComparison.Ordinal), badOpIndex);
+
+        // …and the create-side CopyFrom refusal names what the caller actually wrote. It is reachable because the
+        // strict reader gates undeclared MEMBERS and `op` IS declared, so op="CopyFrom" arrives at the engine —
+        // where the old text answered with from_plugin, which CreateFieldOp does not declare.
+        var copyOnCreate = CreateTools.Create(fx.Svc, patch: "W2CopyCre", records: Json("""
+            [{"record_type":"Keyword","editorid":"W2CopyCre","ops":[{"field_path":"EditorID","op":"CopyFrom"}]}]
+            """));
+        Check("create: the CopyFrom refusal names op=\"CopyFrom\", not the undeclared from_plugin",
+            copyOnCreate.Contains("op=\"CopyFrom\" copies from an EXISTING record", StringComparison.Ordinal)
+            && !copyOnCreate.Contains("from_plugin", StringComparison.Ordinal), copyOnCreate);
+
         // A REFUSAL is a document too — a json caller must never have to parse "error: …" out of a string. (This
         // is the pre-engine refusal path, which is exactly where PR #306/#310 found an EMPTY string twice.)
         // NOTE the shape: a PRE-ENGINE refusal renders through JsonWire.RenderError, which carries {error, epoch}
