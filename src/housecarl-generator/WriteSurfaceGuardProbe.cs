@@ -604,6 +604,25 @@ public static class WriteSurfaceGuardProbe
             && createCapped.Contains("every one WAS created", StringComparison.Ordinal)
             && !createCapped.Contains("W2CreCapC", StringComparison.Ordinal), createCapped);
 
+        // The remedy must be a READ, never "re-run this call" (PR #311 review 3 round-2 [medium]): repeating a
+        // truncated CREATE allocates the records a second time — a second auto-suffixed patch, or under into= a
+        // re-create at the same FormID with the prior contents discarded. Asserted as a positive AND the absence
+        // of the sibling renders' wording, which is what made this dangerous here.
+        Check("create's truncation notice points at a READ, never at raising max_chars (a repeat would re-create)",
+            createCapped.Contains("housecarl_records source=", StringComparison.Ordinal)
+            && createCapped.Contains("would create them AGAIN", StringComparison.Ordinal)
+            && !createCapped.Contains("raise max_chars", StringComparison.Ordinal), createCapped);
+
+        // …and with a cap so small that NO row renders, the closing line must not point at "the new FormID above".
+        var createAllCut = CreateTools.Create(fx.Svc, patch: "W2CreCut", max_chars: 1, records: Json("""
+            [{"record_type":"Keyword","editorid":"W2CreCutA"},
+             {"record_type":"Keyword","editorid":"W2CreCutB"}]
+            """));
+        Check("create text render: with EVERY row cut, the render stops claiming a FormID it never printed",
+            createAllCut.Contains("truncated: 0 of 2", StringComparison.Ordinal)
+            && !createAllCut.Contains("the new FormID above", StringComparison.Ordinal)
+            && createAllCut.Contains("all 2 WERE created", StringComparison.Ordinal), createAllCut);
+
         var createUncapped = CreateTools.Create(fx.Svc, patch: "W2CreFull", records: Json("""
             [{"record_type":"Keyword","editorid":"W2CreFullA"},
              {"record_type":"Keyword","editorid":"W2CreFullB"},
