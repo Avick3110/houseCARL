@@ -383,6 +383,13 @@ public static class BindingShimProbe
         //   W0 mapping and this is the ONLY row that moves.
         //   * write_seq's five reverse rows (source->plugin, plugins/plugin_name(s)->plugin, patch->patch_name)
         //     are GONE: it declares source= and patch= itself now, so those rows are declared, not renamed.
+        // PR #311 review 3 (eyeballed 2026-08-05): 158 -> 163, five rows, all of them routes RESTORED rather
+        //   than new behaviour. `plugins`/`plugin_names` had dead-ended on write_seq the moment this PR took
+        //   `plugin` off it — their candidates were the three 1.x plugin spellings and nothing else — so both
+        //   gain `source` last (write_seq x2, and forward x2 as the consistent consequence: it already took
+        //   `plugin -> source`, so the plural spellings landing on the same pole is the existing rule, not a
+        //   new one). `patchname -> into` on remove closes the split where `patch=` mapped and the sibling
+        //   spelling every 1.x write tool uses did not. place_asset stays excepted on all of them.
         "housecarl_apply: archivename -> patch",
         "housecarl_apply: fromfile => hint",
         "housecarl_apply: fullreadback -> readback",
@@ -464,6 +471,8 @@ public static class BindingShimProbe
         "housecarl_forward: patchname -> patch",
         "housecarl_forward: plugin -> source",
         "housecarl_forward: pluginname -> patch",
+        "housecarl_forward: pluginnames -> source",
+        "housecarl_forward: plugins -> source",
         "housecarl_forward_record: formid -> formids",
         "housecarl_forward_record: patch -> patch_name",
         "housecarl_forward_record: readback -> full_readback",
@@ -514,6 +523,7 @@ public static class BindingShimProbe
         "housecarl_records: winnerfields => hint",
         "housecarl_remove: formid -> formids",
         "housecarl_remove: patch -> into",
+        "housecarl_remove: patchname -> into",
         "housecarl_remove_record: archivename -> patch",
         "housecarl_remove_record: formids -> formid",
         "housecarl_remove_record: output -> patch",
@@ -541,6 +551,8 @@ public static class BindingShimProbe
         "housecarl_write_seq: patchname -> patch",
         "housecarl_write_seq: plugin -> source",
         "housecarl_write_seq: pluginname -> source",
+        "housecarl_write_seq: pluginnames -> source",
+        "housecarl_write_seq: plugins -> source",
     };
 
     /// <summary>The published-schema arm (W3): the SPEC §5.1 <c>@file</c> union on the JsonElement-typed list
