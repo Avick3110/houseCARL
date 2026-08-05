@@ -699,7 +699,7 @@ public static class WriteTools
 
     /// <summary>Confirmation for housecarl_remove_record: what was dropped, the patch's now-lean masters, and how many
     /// records remain (0 ⇒ inert). On refusal, the named reason (Q3) so the caller can fix and retry.</summary>
-    static string RenderRemoval(WritePatchBuilder.RemovalOutcome o)
+    internal static string RenderRemoval(WritePatchBuilder.RemovalOutcome o)   // internal: housecarl_remove renders the same outcome
     {
         if (o.NeedsAcknowledge) return o.Error! + Epoch(o);  // the first-touch in-place CONSENT prompt — a required confirmation, NOT an error (Q3)
         if (!o.Success) return "error: " + o.Error + Epoch(o);
