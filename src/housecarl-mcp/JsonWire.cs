@@ -1779,8 +1779,11 @@ static class JsonWire
             w.WriteEndArray();
             w.WriteNumber("rendered_quests", rendered);
             w.WriteBoolean("truncated", truncated);
+            // Not "raise max_chars to see the rest" (PR #311 review 5 [medium]): widening the ceiling means
+            // re-issuing a WRITE. This PR moved SeqTools.Render off exactly this wording and left its json twin on
+            // it — the same D2 divergence, in the same fold that fixed it one renderer up.
             if (truncated)
-                w.WriteString("truncated_note", $"the render hit max_chars={cap} and dropped trailing quest rows — the .seq is complete and unaffected; raise max_chars to see the rest.");
+                w.WriteString("truncated_note", $"the render hit max_chars={cap} and dropped trailing quest rows — the .seq itself carries ALL of them; nothing is missing from the FILE. Re-run only if you need this LIST widened: that writes the .seq again (into= the folder named here to keep it in one).");
             w.WriteString("standing_limit", "this makes the quest(s) START at game start; it does not verify the quest or its dialogue is otherwise well-formed.");
             w.WriteEndObject();
         }
@@ -1930,8 +1933,12 @@ static class JsonWire
 
             WriteNullable(w, "note", o.Note);
             w.WriteBoolean("truncated", truncated);
+            // Lane-aware, same rule and same helper as the text twin (PR #311 review 5 [low]): a re-issue is
+            // idempotent on in_place=/into= and free on a dry run, but on the DEFAULT lane it cuts a second patch.
             if (truncated)
-                w.WriteString("truncated_note", $"the render hit max_chars={cap} and dropped trailing rows — the WRITE is complete and unaffected; raise max_chars to see the rest.");
+                w.WriteString("truncated_note",
+                    $"the render hit max_chars={cap} and dropped trailing rows — the WRITE is complete and unaffected; "
+                    + WriteTools.ForwardAgainRemedy(o, Path.GetFileName(o.OutputPath)) + ".");
             w.WriteEndObject();
         }
         return Finish(ms);

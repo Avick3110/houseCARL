@@ -816,8 +816,8 @@ public static class WriteTools
             {
                 sb.Append("  ... [truncated: ").Append(fi).Append(" of ").Append(o.Forwarded.Count)
                   .Append(" record(s) listed at max_chars=").Append(fwdCap)
-                  .Append(o.DryRun ? "; the dry run covered every one — raise max_chars to see the rest]"
-                                   : "; every one WAS forwarded — raise max_chars to see the rest]")
+                  .Append(o.DryRun ? "; the dry run covered every one — " : "; every one WAS forwarded — ")
+                  .Append(ForwardAgainRemedy(o, file)).Append(']')
                   .Append('\n');
                 break;
             }
@@ -1154,6 +1154,19 @@ public static class WriteTools
         sb.Append(Epoch(o));
         return sb.ToString();
     }
+
+    /// <summary>What a truncated FORWARD render tells the caller to do — and it depends on the LANE (PR #311
+    /// review 5 [low]). "raise max_chars and re-issue" was justified here on the grounds that a repeated forward
+    /// re-copies identical bodies; that holds on <c>in_place=</c> and on <c>into=</c> (replace-on-collision, so the
+    /// second call lands on the same FormKeys), and on a dry run, which writes nothing at all. It does NOT hold on
+    /// the DEFAULT lane — the one a caller reaches by naming no lane — where <c>ResolveOutputPath</c>'s
+    /// <c>UniqueStem</c> allocates a fresh stem, so the re-issue is a SECOND full patch mod carrying the same
+    /// overrides. Quieter than create's duplicate (no new FormIDs), not absent. The remedy names the lane that
+    /// makes the re-issue safe rather than leaving the caller to discover the second folder.</summary>
+    internal static string ForwardAgainRemedy(WritePatchBuilder.ForwardOutcome o, string file)   // internal: the json twin says the same thing (D2)
+        => o.DryRun || o.InPlace || o.Extended
+            ? "raise max_chars to see the rest"
+            : $"to see the rest, raise max_chars AND pass into=\"{file}\" — a bare re-issue on the default patch= lane writes a SECOND patch mod carrying the same overrides";
 
     /// <summary>The read-back call a truncated create render points the caller at — a call that actually RESOLVES,
     /// which is the whole point of pointing away from re-issuing the create (PR #311 review 4 [medium]).
