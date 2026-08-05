@@ -743,9 +743,14 @@ public static class WriteTools
         {
             if (sb.Length >= cap)
             {
+                // NOT "raise max_chars to see the rest" (PR #311 review 6 [medium]). RenderCreate's comment cited
+                // "a repeated remove is refused" as the reason that wording was SAFE here — which is also exactly
+                // why it is a dead end: re-issuing the call answers "not carried by patch '<file>'; NOTHING
+                // removed", because the records are already gone. Nothing is actually lost, though, and saying so
+                // is the honest remedy: removal is all-or-nothing, so the rows ARE the formids= the caller passed.
                 sb.Append("  ... [truncated: ").Append(i).Append(" of ").Append(o.Removed.Count)
                   .Append(" removed record(s) listed at max_chars=").Append(cap)
-                  .Append("; every one WAS removed — raise max_chars to see the rest]\n");
+                  .Append("; every one WAS removed — ").Append(RemovedRowsRemedy).Append("]\n");
                 break;
             }
             var r = o.Removed[i];
@@ -1155,6 +1160,15 @@ public static class WriteTools
         return sb.ToString();
     }
 
+    /// <summary>What a truncated REMOVE render tells the caller (PR #311 review 6 [medium]). The one lane where the
+    /// dropped rows carry no information the caller lacks: removal is ALL-OR-NOTHING over the <c>formids=</c> they
+    /// passed, so the listed set and the passed set are the same set. Re-issuing to widen the render is not merely
+    /// wasteful here — it is REFUSED, because the records no longer exist to be found, so the old
+    /// "raise max_chars to see the rest" pointed at the one call guaranteed to fail.</summary>
+    internal const string RemovedRowsRemedy =                       // internal: the json twin says the same thing (D2)
+        "removal is all-or-nothing, so these rows are exactly the formids= you passed — nothing here is unrecoverable. "
+      + "Do NOT re-issue to widen this: the records are gone, so a repeat is refused as 'not carried by' the file";
+
     /// <summary>What a truncated FORWARD render tells the caller to do — and it depends on the LANE (PR #311
     /// review 5 [low]). "raise max_chars and re-issue" was justified here on the grounds that a repeated forward
     /// re-copies identical bodies; that holds on <c>in_place=</c> and on <c>into=</c> (replace-on-collision, so the
@@ -1162,11 +1176,19 @@ public static class WriteTools
     /// the DEFAULT lane — the one a caller reaches by naming no lane — where <c>ResolveOutputPath</c>'s
     /// <c>UniqueStem</c> allocates a fresh stem, so the re-issue is a SECOND full patch mod carrying the same
     /// overrides. Quieter than create's duplicate (no new FormIDs), not absent. The remedy names the lane that
-    /// makes the re-issue safe rather than leaving the caller to discover the second folder.</summary>
+    /// makes the re-issue safe rather than leaving the caller to discover the second folder.
+    /// <para>IN_PLACE is its own case (PR #311 review 6 [low]) and the first pass got it wrong by lumping it with
+    /// <c>into=</c>. A re-issue there is content-idempotent, but it re-serializes the caller's OWN plugin end to
+    /// end — the file this same render just said has "no houseCARL backup or undo" — purely to widen a display.
+    /// It is the only lane of the four where the re-run touches something houseCARL does not own, so it gets the
+    /// read-back remedy instead: the target is active by definition of the lane, so <c>housecarl_records</c>
+    /// reaches it, and the FormIDs to name are the ones the caller passed.</para></summary>
     internal static string ForwardAgainRemedy(WritePatchBuilder.ForwardOutcome o, string file)   // internal: the json twin says the same thing (D2)
-        => o.DryRun || o.InPlace || o.Extended
+        => o.DryRun || o.Extended
             ? "raise max_chars to see the rest"
-            : $"to see the rest, raise max_chars AND pass into=\"{file}\" — a bare re-issue on the default patch= lane writes a SECOND patch mod carrying the same overrides";
+            : o.InPlace
+                ? $"to see the rest, read the rows back with housecarl_records source=\"{file}\" formids=[the ids you passed] — re-issuing would re-serialize your ORIGINAL file a second time just to widen this render"
+                : $"to see the rest, raise max_chars AND pass into=\"{file}\" — a bare re-issue on the default patch= lane writes a SECOND patch mod carrying the same overrides";
 
     /// <summary>The read-back call a truncated create render points the caller at — a call that actually RESOLVES,
     /// which is the whole point of pointing away from re-issuing the create (PR #311 review 4 [medium]).
