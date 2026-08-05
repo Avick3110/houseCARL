@@ -228,10 +228,32 @@ internal static class SeqWriteGuardProbe
             Check(oEmpty.Success && oEmpty.SeqPath is null && oEmpty.Quests.Count == 0 && foldersAfter == foldersBefore,
                 $"EMPTY-NOOP no SGE quests → nothing written, no folder cut — success={oEmpty.Success} path=[{oEmpty.SeqPath}] folders {foldersBefore}->{foldersAfter}");
 
-            // REFUSE-NOFILE: a missing plugin path is refused, named.
+            // REFUSE-NOFILE: a missing plugin path is refused, named — and (W3 PR 2) the refusal states BOTH
+            // accepted source= spellings, since a filename is now resolvable and "pass the full path" alone would
+            // send the caller down the narrower of the two lanes.
             var oMiss = svc.WriteSeq(Path.Combine(root, "does-not-exist.esp"), null, null);
-            Check(!oMiss.Success && oMiss.Error is not null && oMiss.Error.Contains("no such plugin", StringComparison.OrdinalIgnoreCase),
-                $"REFUSE-NOFILE missing plugin path refused + named — err=[{oMiss.Error}]");
+            Check(!oMiss.Success && oMiss.Error is not null
+                  && oMiss.Error.Contains("no file at path", StringComparison.OrdinalIgnoreCase)
+                  && oMiss.Error.Contains("FILENAME", StringComparison.Ordinal)
+                  && oMiss.Error.Contains("ABSOLUTE path", StringComparison.Ordinal),
+                $"REFUSE-NOFILE missing plugin path refused + named, both spellings offered — err=[{oMiss.Error}]");
+
+            // REFUSE-UNFINDABLE (W3 PR 2): a bare FILENAME that no mod folder, the overwrite folder or Data
+            // provides is refused by name too — the filename lane must not degrade into "treat it as a relative
+            // path and fail somewhere else".
+            var oNoName = svc.WriteSeq("HcSeqNoSuchPlugin.esp", null, null);
+            Check(!oNoName.Success && oNoName.Error is not null
+                  && oNoName.Error.Contains("HcSeqNoSuchPlugin.esp", StringComparison.OrdinalIgnoreCase)
+                  && oNoName.Error.Contains("mod folder", StringComparison.OrdinalIgnoreCase),
+                $"REFUSE-UNFINDABLE unlocatable filename refused + named — err=[{oNoName.Error}]");
+
+            // FILENAME-LANE (W3 PR 2): the plugin that SERVICE-WRITE reached by absolute path is reachable by its
+            // bare filename too, and the outcome states which copy it read (SPEC §4.2 — the arm is never silent).
+            var oByName = svc.WriteSeq(Path.GetFileName(svcPlugin), null, null);
+            Check(oByName.Success && oByName.SeqPath is not null
+                  && oByName.ResolvedFrom is { Length: > 0 }
+                  && string.Equals(oByName.PluginPath, Path.GetFullPath(svcPlugin), StringComparison.OrdinalIgnoreCase),
+                $"FILENAME-LANE source= by filename resolves to the same file and states its arm — from=[{oByName.ResolvedFrom}] path=[{oByName.PluginPath}] err=[{oByName.Error}]");
         }
         catch (Exception ex)
         {

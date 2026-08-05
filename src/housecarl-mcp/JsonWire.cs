@@ -1702,6 +1702,63 @@ static class JsonWire
         return Finish(ms);
     }
 
+    // ---- housecarl_write_seq (W3 PR 2) --------------------------------------------------------------
+    /// <summary>The machine-readable twin of <see cref="SeqTools.Render"/>. Two Q3 facts the text render states in
+    /// prose are typed here: <c>written:false</c> with <c>quest_count:0</c> is the "no SGE quests, so no .seq is
+    /// needed" no-op (never a silent empty file), and <c>epoch:null</c> carries its own reason — this call consults
+    /// no load-order build, so an absent stamp is a fact rather than a missing field.</summary>
+    public static string RenderSeqOutcome(SeqOutcome o, int maxChars)
+    {
+        int cap = Cap(maxChars);
+        using var ms = new MemoryStream();
+        using (var w = new Utf8JsonWriter(ms, Opts))
+        {
+            w.WriteStartObject();
+            w.WriteBoolean("ok", o.Success);
+            w.WriteNull("epoch");
+            w.WriteString("epoch_note", "a .seq is derived from the plugin FILE alone (its FormID encoding is load-order-independent), so this call consulted no load-order build — the absent stamp is a fact, not a dropped field.");
+            if (!o.Success)
+            {
+                WriteNullable(w, "error", o.Error);
+                w.WriteEndObject();
+                w.Flush();          // INSIDE the using — see RenderPatchOutcome (an unflushed refusal renders EMPTY).
+                return Finish(ms);
+            }
+
+            w.WriteString("plugin", o.PluginFileName);
+            WriteNullable(w, "source_read_from", o.ResolvedFrom);
+            WriteNullable(w, "source_path", o.PluginPath);
+            w.WriteBoolean("written", o.SeqPath is not null);
+            WriteNullable(w, "seq_path", o.SeqPath);
+            WriteNullable(w, "mod_folder", o.ModFolder);
+            w.WriteBoolean("wrote_into_plugin_folder", o.WroteIntoPluginFolder);
+            w.WriteNumber("quest_count", o.Quests.Count);
+            if (o.Quests.Count == 0)
+                w.WriteString("note", "no start-game-enabled quests in this plugin — a .seq lists only SGE quests, so none is needed and NOTHING was written.");
+
+            w.WriteStartArray("quests");
+            int rendered = 0;
+            bool truncated = false;
+            foreach (var q in o.Quests)
+            {
+                if (ms.Length >= cap) { truncated = true; break; }
+                w.WriteStartObject();
+                WriteNullable(w, "editorid", q.EditorId is { Length: > 0 } e ? e : null);
+                w.WriteString("on_disk_formid", $"0x{q.OnDiskFormId:X8}");
+                w.WriteEndObject();
+                rendered++;
+            }
+            w.WriteEndArray();
+            w.WriteNumber("rendered_quests", rendered);
+            w.WriteBoolean("truncated", truncated);
+            if (truncated)
+                w.WriteString("truncated_note", $"the render hit max_chars={cap} and dropped trailing quest rows — the .seq is complete and unaffected; raise max_chars to see the rest.");
+            w.WriteString("standing_limit", "this makes the quest(s) START at game start; it does not verify the quest or its dialogue is otherwise well-formed.");
+            w.WriteEndObject();
+        }
+        return Finish(ms);
+    }
+
     // ---- housecarl_remove (W3 PR 2) -----------------------------------------------------------------
     /// <summary>The machine-readable twin of <see cref="WriteTools.RenderRemoval"/> — the SAME data (decision D2),
     /// on <see cref="RenderPatchOutcome"/>'s contract: a refusal is a document, the consent prompt is its own flag,
