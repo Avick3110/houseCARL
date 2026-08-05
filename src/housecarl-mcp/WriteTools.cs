@@ -1137,7 +1137,7 @@ public static class WriteTools
         }
         AppendVoiceReport(sb, o.Voice, maxChars);
         AppendScriptBindingReport(sb, o.ScriptBinding, maxChars);
-        AppendCellShellReport(sb, o.CellShell);
+        AppendCellShellReport(sb, o.CellShell, maxChars);
         // Same compact-by-default verify as the edit lane (HCBR-2026-06-28-01): the forced create-in-place re-read still
         // runs; full_readback=true gives the deep dump, the default reports it compactly (per created record: re-read clean
         // + field count, or a named failure). The created records' set fields are already listed above.
@@ -1301,16 +1301,36 @@ public static class WriteTools
     /// content — so per created cell this lists, by kind, what the author must still provide in the Creation Kit
     /// (lighting / terrain / water / navmesh). "Created" must never read as "looks right in game". No-op unless the call
     /// created cells.</summary>
-    static void AppendCellShellReport(StringBuilder sb, CellShellReport? report)
+    static void AppendCellShellReport(StringBuilder sb, CellShellReport? report, int maxChars)
     {
         if (report is null || report.IsEmpty) return;
+        // Budgeted like its two siblings (PR #311 review 7 [low-medium], Aaron-go). This was the last unbudgeted
+        // block on the write renders: the json twin already stopped at `cap` and closed with a census, so one
+        // create authoring a batch of cells rendered every row in TEXT and took the SILENT host-side cut — the
+        // divergence the created-rows / forwarded-rows / removed-rows folds each closed in turn. The inner
+        // MustProvide loop is bounded too: one cell with a long work list could blow the budget by itself.
+        int cap = maxChars > 0 ? maxChars : Wire.DefaultMaxChars;
+        int total = report.Cells.Count, rendered = 0;
+        bool cut = false;
         sb.Append("cell shell — created cells are valid, correctly-placed records but EMPTY; houseCARL does not author world content (provide these in the Creation Kit):\n");
         foreach (var c in report.Cells)
         {
+            if (sb.Length >= cap) { cut = true; break; }
             sb.Append("  ").Append(c.Interior ? "INTERIOR " : "EXTERIOR ").Append(c.EditorId).Append(" (").Append(c.Cell).Append("):\n");
             foreach (var m in c.MustProvide)
+            {
+                if (sb.Length >= cap) { cut = true; break; }
                 sb.Append("      - ").Append(m).Append('\n');
+            }
+            if (cut) break;
+            rendered++;
         }
+        // The notice, then the two Q3 notes below it — which stay OUTSIDE the budget on purpose, the same rule the
+        // removal render states: they are the accounting a truncated report still needs, and the grid-occupancy
+        // seam in particular must not be the thing a cut swallows.
+        if (cut)
+            sb.Append("  ... [cell shell truncated: rendered ").Append(rendered).Append(" of ").Append(total)
+              .Append(" cell(s) at max_chars=").Append(cap).Append(ReportBlockCutClause).Append("]\n");
         // Q3 — declare the un-checked grid-occupancy seam (full load-order occupancy detection is a follow-up; never a
         // silent omission). Only an EXTERIOR cell collides on a grid; an interior cell has no grid identity.
         if (report.Cells.Any(c => !c.Interior))

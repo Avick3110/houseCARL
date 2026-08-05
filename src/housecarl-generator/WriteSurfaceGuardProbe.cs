@@ -713,6 +713,28 @@ public static class WriteSurfaceGuardProbe
             && vct.Contains("Do NOT re-issue the create", StringComparison.Ordinal)
             && !vct.Contains("raise max_chars to see the rest", StringComparison.Ordinal), voiceCappedText);
 
+        // The cell-shell block was the LAST unbudgeted one on the write renders (PR #311 review 7 [low-medium],
+        // Aaron-go): text rendered every cell and took the silent host cut while its json twin stopped at the cap.
+        // Both poles asserted, and the two Q3 notes below the list must survive the cut — they are the accounting a
+        // truncated report still needs, and the grid-occupancy seam in particular must not be what a cut swallows.
+        var cells = Enumerable.Range(0, 30).Select(i => new CellShell(
+            default, $"W2CellShell{i:D2}", i % 2 == 0,
+            new[] { "lighting template", "terrain / landscape", "water height", "navmesh", "an encounter zone" })).ToList();
+        var cellOutcome = synthetic with { Voice = null, CellShell = new CellShellReport(cells) };
+
+        var cellCapped = WriteTools.RenderCreate(cellOutcome, maxChars: 700);
+        Check("create text: the cell-shell block is BUDGETED, with an explicit notice (it was the last unbudgeted one)",
+            cellCapped.Contains("cell shell truncated: rendered ", StringComparison.Ordinal)
+            && cellCapped.Contains(" of 30 cell(s)", StringComparison.Ordinal)
+            && !cellCapped.Contains("W2CellShell29", StringComparison.Ordinal), cellCapped);
+        Check("create text: a CUT cell-shell block still renders the grid-occupancy seam below it",
+            cellCapped.Contains("does NOT check grid-occupancy", StringComparison.Ordinal), cellCapped);
+
+        var cellFull = WriteTools.RenderCreate(cellOutcome);
+        Check("create text: without a cap every cell renders (the budget is not a permanent cut)",
+            cellFull.Contains("W2CellShell29", StringComparison.Ordinal)
+            && !cellFull.Contains("cell shell truncated", StringComparison.Ordinal), cellFull);
+
         // The counts ride on the COMPLETE render too — rendered == total is the positive statement that the list is
         // whole, so a consumer never infers completeness from a missing marker.
         Check("json create: an UNCUT voice block still carries the census, with truncated:false",
