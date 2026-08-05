@@ -530,6 +530,19 @@ public static class WriteSurfaceGuardProbe
                 && !bareText.TrimStart().StartsWith("{", StringComparison.Ordinal), bareText);
         }
 
+        // A null ELEMENT inside a spec's ops= is legal JSON that STJ passes straight through (PR #311 review 7
+        // [low]): it used to NRE and be answered as "an internal houseCARL failure (the arguments bound fine) —
+        // retry once", which is wrong on both counts and loops a caller over deterministic bad input. The arm
+        // asserts the by-name refusal AND that the internal-fault wording is gone.
+        var nullOp = CreateTools.Create(fx.Svc, patch: "W2NullOp", records: Json("""
+            [{"record_type":"Keyword","editorid":"W2NullOp","ops":[null]}]
+            """));
+        Check("create: a null op element is refused BY NAME, never as an 'internal failure — retry once'",
+            nullOp.StartsWith("error:", StringComparison.Ordinal)
+            && nullOp.Contains("records[0]: ops[0] is null", StringComparison.Ordinal)
+            && !nullOp.Contains("internal houseCARL failure", StringComparison.Ordinal)
+            && !nullOp.Contains("Retry once", StringComparison.OrdinalIgnoreCase), nullOp);
+
         // Refusals below the tool layer name THIS surface's words, index label included (PR #311 review 6 [low]).
         // `records[0]` was already the caller's spelling via the origins thread; `op[0]` was nobody's — the member
         // is ops=, and in a generated batch of hundreds the index label IS the navigational handle.
@@ -566,6 +579,19 @@ public static class WriteSurfaceGuardProbe
         Check("remove format=json: the no-lane refusal is a document too",
             removeRefusal.Length > 0 && TryJson(removeRefusal, out var rmdoc)
             && rmdoc!.RootElement.GetProperty("error").GetString()!.Contains("in_place="), removeRefusal);
+
+        // readback_full describes the DOCUMENT; readback_requested keeps the caller's ask (PR #311 review 7 [nit]).
+        // The in-place lane forces the read-back in the service, so the two genuinely differ there — which is the
+        // case that used to publish readback_full:false beside a complete field dump.
+        var rbForced = ForwardTools.Forward(fx.Svc, formids: new[] { fx.SubjectFid }, source: fx.MasterName,
+            in_place: fx.ReplacerName, acknowledge: true, readback: false, format: "json");
+        Check("json: an in-place lane that FORCED the read-back reports readback_full:true, ask kept separately",
+            TryJson(rbForced, out var rbdoc)
+            && rbdoc!.RootElement.TryGetProperty("readback_full", out var rbf) && rbf.GetBoolean()
+            && rbdoc.RootElement.TryGetProperty("readback_requested", out var rbr) && !rbr.GetBoolean()
+            && rbdoc.RootElement.TryGetProperty("readback", out var rbarr)
+            && rbarr.GetArrayLength() > 0
+            && rbarr[0].TryGetProperty("fields", out _), rbForced);
 
         var forwardJson = ForwardTools.Forward(fx.Svc, formids: new[] { fx.SubjectFid }, source: fx.MasterName,
             patch: "W2FwdJson", format: "json");
@@ -675,6 +701,17 @@ public static class WriteSurfaceGuardProbe
             && vnote.Contains("plays SILENT", StringComparison.Ordinal)
             // and it must NOT prescribe re-issuing: this block rides a WRITE render.
             && !vnote.Contains("raise max_chars", StringComparison.OrdinalIgnoreCase), reportCapped);
+
+        // The TEXT twins of those blocks must not contradict the json census (PR #311 review 7 [medium]): they rode
+        // the create render still saying "raise max_chars to see the rest", i.e. re-issue a create — while the json
+        // block added one round earlier says "Do NOT re-issue the write to widen this". One call, two transports,
+        // opposite advice. Rendered directly, since the shared fixture's creates make no dialogue lines.
+        var voiceCappedText = WriteTools.RenderCreate(synthetic, maxChars: 900);
+        Check("create text: the voice-coverage cut notice refuses to prescribe re-issuing the create",
+            voiceCappedText.Contains("voice coverage truncated", StringComparison.Ordinal)
+            && Bracket(voiceCappedText, "voice coverage truncated") is { } vct
+            && vct.Contains("Do NOT re-issue the create", StringComparison.Ordinal)
+            && !vct.Contains("raise max_chars to see the rest", StringComparison.Ordinal), voiceCappedText);
 
         // The counts ride on the COMPLETE render too — rendered == total is the positive statement that the list is
         // whole, so a consumer never infers completeness from a missing marker.

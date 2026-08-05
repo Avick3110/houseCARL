@@ -166,15 +166,31 @@ public static class CreateTools
         for (int i = 0; i < specs.Length; i++)
         {
             var s = specs[i];
+            // A null ELEMENT inside ops= is legal JSON and STJ hands it straight through, so the old
+            // `s.Ops?.Select(o => … o.FieldPath …)` dereferenced null and the tool answered "an internal houseCARL
+            // failure (the arguments bound fine) — retry once": wrong on both counts, and a retry loop over
+            // deterministic bad input (PR #311 review 7 [low]). ListParams.Read makes exactly this check, but only
+            // over the TOP-level list — which is records= here, so a create's ops sit one level below its reach.
+            BulkOp[]? ops = null;
+            if (s.Ops is { } opsIn)
+            {
+                ops = new BulkOp[opsIn.Length];
+                for (int j = 0; j < opsIn.Length; j++)
+                {
+                    if (opsIn[j] is not { } o)
+                        return Refuse($"records[{i}]: ops[{j}] is null — every op must be an object, e.g. {{\"field_path\": \"Name\", \"value\": \"…\"}}. (A JSON null in the array is not an empty op; drop the element.)");
+                    ops[j] = new BulkOp
+                    {
+                        FieldPath = o.FieldPath, Verb = o.Op ?? "Set", Value = o.Value, Key = o.Key,
+                        Values = o.Values, Entries = o.Entries, Compose = o.Compose, Composes = o.Composes,
+                    };
+                }
+            }
             wire.Add(new CreateOp
             {
                 RecordType = s.RecordType, Editorid = s.Editorid, Parent = s.Parent,
                 Collection = s.Collection, Grid = s.Grid,
-                Operations = s.Ops?.Select(o => new BulkOp
-                {
-                    FieldPath = o.FieldPath, Verb = o.Op ?? "Set", Value = o.Value, Key = o.Key,
-                    Values = o.Values, Entries = o.Entries, Compose = o.Compose, Composes = o.Composes,
-                }).ToArray(),
+                Operations = ops,
             });
             // The caller's OWN spelling for this spec. The 1.x batch labels its problems "record[i]" (its parameter
             // is records=, singular label); this tool's element refusals say "records[i]", and a refusal must not

@@ -1279,10 +1279,22 @@ public static class WriteTools
     }
 
     /// <summary>The explicit voice-coverage truncation notice (Q3 — the same convention as the read-back's): how many
-    /// of the total voice entries were rendered before the char budget was hit, and how to see the rest.</summary>
+    /// of the total voice entries were rendered before the char budget was hit, and what that does and does not mean.
+    /// <para>Shares its closing clause with the result-script notice and with the json <c>WriteBlockCensus</c>
+    /// (PR #311 review 7 [medium]): these blocks ride the CREATE render, so "raise max_chars to see the rest" meant
+    /// re-issuing a create — a second auto-suffixed patch on the default lane, or re-creation at the same FormID
+    /// with prior contents discarded under <c>into=</c>. The json twin added this round already said "Do NOT
+    /// re-issue the write to widen this", so the two transports were giving opposite advice about one call.</para></summary>
     static void AppendVoiceTrunc(StringBuilder sb, int rendered, int total, int cap)
         => sb.Append("  ... [voice coverage truncated: rendered ").Append(rendered).Append(" of ").Append(total)
-             .Append(" line(s) at max_chars=").Append(cap).Append("; raise max_chars to see the rest]\n");
+             .Append(" line(s) at max_chars=").Append(cap).Append(ReportBlockCutClause).Append("]\n");
+
+    /// <summary>The closing clause every post-write REPORT truncation notice shares, text and json alike. Names the
+    /// stakes (a cut list is not a clean bill of health) and refuses to prescribe the one action that would widen it
+    /// at the cost of a duplicate write.</summary>
+    internal const string ReportBlockCutClause =
+        "; the records WERE created and this block is only a render of them — compare rendered vs total above rather than "
+      + "reading the list as the whole answer. Do NOT re-issue the create to widen it: that allocates the records again";
 
     /// <summary>Render the coordinate-keyed §4-(b) structural-shell report (a cell create). The enforced Q3 teeth against
     /// a created-but-EMPTY cell: a created cell is a valid, correctly-placed RECORD, but houseCARL does NOT author world
@@ -1326,7 +1338,7 @@ public static class WriteTools
             if (sb.Length >= cap)
             {
                 sb.Append("  ... [result-script coverage truncated: rendered ").Append(rendered).Append(" of ").Append(total)
-                  .Append(" line(s) at max_chars=").Append(cap).Append("; raise max_chars to see the rest]\n");
+                  .Append(" line(s) at max_chars=").Append(cap).Append(ReportBlockCutClause).Append("]\n");
                 return;
             }
             var who = string.IsNullOrEmpty(f.TopicEditorId) ? f.Info.ToString() : $"{f.TopicEditorId} ({f.Info})";
