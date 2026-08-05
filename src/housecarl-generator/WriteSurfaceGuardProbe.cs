@@ -691,6 +691,42 @@ public static class WriteSurfaceGuardProbe
                 capped.Contains("[truncated:", StringComparison.Ordinal)
                 && capped.Contains("max_chars=100", StringComparison.Ordinal)
                 && capped.Contains("every one WAS removed", StringComparison.Ordinal), capped);
+
+            // …and the remedy is EXECUTABLE (PR #311 review 6 [medium]): "raise max_chars" named the one call
+            // guaranteed to fail here, since a repeat is refused as 'not carried by' the file. The notice states
+            // that the rows are the passed formids= instead. Asserted with its negative, and with the refusal
+            // PROVEN below rather than assumed.
+            Check("remove's truncation remedy is executable — it does not prescribe the re-issue that gets refused",
+                capped.Contains("exactly the formids= you passed", StringComparison.Ordinal)
+                && capped.Contains("a repeat is refused", StringComparison.Ordinal)
+                && !capped.Contains("raise max_chars", StringComparison.Ordinal), capped);
+
+            var repeat = RemoveTools.Remove(fx.Svc, formids: capIds.ToArray(), into: Path.GetFileName(capPath), max_chars: 400000);
+            Check("…and the re-issue the OLD remedy prescribed really is refused (the dead end, proven)",
+                repeat.StartsWith("error:", StringComparison.Ordinal)
+                && repeat.Contains("NOTHING removed", StringComparison.Ordinal), repeat);
+
+            // The json twin needs its OWN patch: the removals above already consumed capPath's records, so re-using
+            // them here would assert against a refusal document instead of a truncation note.
+            var capMadeJ = CreateTools.Create(fx.Svc, patch: "W2CapJ", records: Json("""
+                [{"record_type":"Keyword","editorid":"W2CapJA"},
+                 {"record_type":"Keyword","editorid":"W2CapJB"},
+                 {"record_type":"Keyword","editorid":"W2CapJC"}]
+                """));
+            var capPathJ = ArtifactPathFrom(fx, capMadeJ);
+            var capIdsJ = FormIdsFrom(capMadeJ);
+            if (capPathJ is not null && capIdsJ.Count == 3)
+            {
+                var cappedJson = RemoveTools.Remove(fx.Svc, formids: capIdsJ.ToArray(), into: Path.GetFileName(capPathJ),
+                    max_chars: 100, format: "json");
+                Check("remove format=json: the truncation note carries the SAME remedy as its text twin (D2)",
+                    TryJson(cappedJson, out var rjdoc)
+                    && rjdoc!.RootElement.TryGetProperty("truncated_note", out var rjn)
+                    && rjn.GetString() is { } rjnote
+                    && rjnote.Contains("exactly the formids= you passed", StringComparison.Ordinal)
+                    && !rjnote.Contains("raise max_chars", StringComparison.Ordinal), cappedJson);
+            }
+            else Check("remove json remedy arm: fixture (a second patch to remove from)", false, capMadeJ);
         }
         else Check("remove text render: fixture for the max_chars arm", false, capMade);
 
@@ -787,6 +823,22 @@ public static class WriteSurfaceGuardProbe
         }
         else Check("forward into= remedy arm: fixture (a patch to extend)", false, "no patch path");
 
+        // IN_PLACE is its own pole (PR #311 review 6 [low]): the first pass lumped it with into=, but a re-issue
+        // there re-serializes the caller's OWN plugin — the file this render just called backup-less — purely to
+        // widen a display. It gets the read-back remedy instead. (fx.ReplacerName was acknowledged by an arm
+        // above, so no consent prompt here.)
+        var fwdInPlaceCapped = ForwardTools.Forward(fx.Svc, formids: new[] { fx.SubjectFid }, source: fx.MasterName,
+            in_place: fx.ReplacerName, acknowledge: true, max_chars: 120);
+        // The negative is scoped to the ROW notice, not the whole render: an in-place forward forces the full
+        // read-back, whose own (pre-existing, shared) hint still leads with "raise max_chars" — a separate site,
+        // raised with the reviewer rather than folded in silently here.
+        var fwdRowNotice = Bracket(fwdInPlaceCapped, "every one WAS forwarded — ");
+        Check("forward's in-place truncation remedy points at a READ, never at re-writing the caller's original",
+            fwdRowNotice is not null
+            && fwdRowNotice.Contains("housecarl_records source=", StringComparison.Ordinal)
+            && fwdRowNotice.Contains("re-serialize your ORIGINAL file", StringComparison.Ordinal)
+            && !fwdRowNotice.Contains("raise max_chars", StringComparison.Ordinal), fwdInPlaceCapped);
+
         // write_seq's text lane, same contract — asserted on a REAL quest list rather than the fixture's
         // no-SGE plugin, because an arm that never renders a row cannot pin a row budget (the happy-path-only
         // scar). The render is exercised directly over a synthetic outcome: three quests, a cap that fits one.
@@ -877,6 +929,21 @@ public static class WriteSurfaceGuardProbe
     {
         try { doc = JsonDocument.Parse(s); return true; }
         catch { doc = null; return false; }
+    }
+
+    /// <summary>The remainder of ONE render notice — from <paramref name="after"/> to the end of that LINE. Lets an arm
+    /// assert the ABSENCE of a phrase inside one notice without the whole render's other notices answering for it (a
+    /// write render carries several, and they do not all belong to the finding under test).
+    /// <para>Line-bounded, not bracket-bounded: a remedy may legitimately contain brackets of its own — the in-place
+    /// forward's names <c>formids=[the ids you passed]</c> — and cutting at the first ']' silently truncated the very
+    /// clause under test, failing the arm for the wrong reason.</para></summary>
+    static string? Bracket(string render, string after)
+    {
+        int at = render.IndexOf(after, StringComparison.Ordinal);
+        if (at < 0) return null;
+        var tail = render[(at + after.Length)..];
+        int eol = tail.IndexOf('\n');
+        return eol < 0 ? tail : tail[..eol];
     }
 
     /// <summary>Absence-tolerant readers for a nested member. An arm that asserts a member the PRE-FIX code does not

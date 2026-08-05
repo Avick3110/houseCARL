@@ -1839,8 +1839,12 @@ static class JsonWire
 
             WriteNullable(w, "note", o.Note);
             w.WriteBoolean("truncated", truncated);
+            // Same remedy as the text twin, from the same constant (PR #311 review 6 [medium]): a repeated remove
+            // is REFUSED, so "raise max_chars" named the one call guaranteed to fail.
             if (truncated)
-                w.WriteString("truncated_note", $"the render hit max_chars={cap} and dropped trailing rows — the REMOVAL is complete and unaffected; raise max_chars to see the rest.");
+                w.WriteString("truncated_note",
+                    $"the render hit max_chars={cap} and dropped trailing rows — the REMOVAL is complete and unaffected; "
+                    + WriteTools.RemovedRowsRemedy + ".");
             w.WriteEndObject();
         }
         return Finish(ms);
