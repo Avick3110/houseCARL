@@ -120,11 +120,15 @@ public static class CreateTools
         [Description("TRANSPORT: character ceiling on the render; past it the read-back is cut with an explicit notice (never silent). 0 = a safe default kept under the host's per-response limit; raise it to widen a readback=true dump.")]
             int max_chars = 0) => Guard.Tool("housecarl_create", () =>
     {
-        if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
-
         // ---- TRANSPORT: format --------------------------------------------------------------------------
+        // Resolved BEFORE the unconfigured-MO2 prompt (PR #311 review 5 [low]): that prompt is a prose block, and
+        // returning it verbatim to a format="json" caller hands back something JsonDocument.Parse throws on — no
+        // ok, no error to branch on, which is the one thing this tool's Refuse() contract says never happens.
+        // SeqTools has the ordering right and is the model.
         bool json = Wire.WantsJson(format, out var ferr);
         if (ferr is not null) return ferr;   // the format value itself is unparsed — there is no known render to answer in
+        if (svc.ConfigPromptOrNull() is { } prompt)
+            return json ? JsonWire.RenderError(prompt, null) : prompt;
 
         // Every refusal below answers in the caller's requested format (apply's contract, unchanged): a json caller
         // must never have to parse "error: …" out of a string. Epoch is null on all of them — none has consulted a

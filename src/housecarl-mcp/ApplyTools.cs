@@ -135,11 +135,14 @@ public static class ApplyTools
         [Description("TRANSPORT: character ceiling on the render; past it the read-back is cut with an explicit notice (never silent). 0 = a safe default kept under the host's per-response limit; raise it to widen a readback=true dump.")]
             int max_chars = 0) => Guard.Tool("housecarl_apply", () =>
     {
-        if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
-
         // ---- TRANSPORT: format --------------------------------------------------------------------------
+        // Ahead of the unconfigured-MO2 prompt (PR #311 review 5 [low]): that prompt is prose, and a json caller
+        // got it verbatim — unparseable, with no ok/error to branch on. Inherited from PR #310, fixed here with
+        // its three siblings rather than left as the one tool of the four that still does it.
         bool json = Wire.WantsJson(format, out var ferr);
         if (ferr is not null) return ferr;   // the format value itself is unparsed — there is no known render to answer in
+        if (svc.ConfigPromptOrNull() is { } prompt)
+            return json ? JsonWire.RenderError(prompt, null) : prompt;
 
         // EVERY refusal below this point answers in the caller's requested format. RenderPatchOutcome's contract
         // says a json caller must never have to parse "error: …" out of a string, and the sites a caller hits most

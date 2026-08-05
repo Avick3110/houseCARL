@@ -500,6 +500,36 @@ public static class WriteSurfaceGuardProbe
             && cdoc.RootElement.GetProperty("created")[0].GetProperty("editorid").GetString() == "W2JsonKw"
             && cdoc.RootElement.GetProperty("epoch").ValueKind == JsonValueKind.String, createJson);
 
+        // The UNCONFIGURED-MO2 prompt is a refusal a json caller can parse, on every one of the four write tools
+        // (PR #311 review 5 [low]). It used to be returned verbatim — a prose block — because it was checked before
+        // `format` was read; `JsonDocument.Parse` throws on it, so a json client got neither `ok` nor `error`. The
+        // fixture always configures, which is exactly why nothing caught this: this arm builds an UNCONFIGURED
+        // service on purpose (WithInstance(null, …)) rather than relying on the shared one.
+        {
+            var bare = LoadOrderService.WithInstance(null, 0, new UserConfigStore(Path.Combine(fx.ModsDir, "..", "hc-unconfigured.user.json")));
+            var unconfigured = new (string tool, string render)[]
+            {
+                ("create",    CreateTools.Create(bare, records: Json("""[{"record_type":"Keyword","editorid":"X"}]"""), format: "json")),
+                ("remove",    RemoveTools.Remove(bare, formids: new[] { fx.SubjectFid }, into: "X.esp", format: "json")),
+                ("forward",   ForwardTools.Forward(bare, formids: new[] { fx.SubjectFid }, source: fx.MasterName, format: "json")),
+                ("apply",     ApplyTools.Apply(bare, ops: Json($$"""[{"formid":"{{fx.SubjectFid}}","field_path":"Name","value":"x"}]"""), format: "json")),
+                ("write_seq", SeqTools.WriteSeq(bare, source: fx.MasterName, format: "json")),
+            };
+            foreach (var (tool, render) in unconfigured)
+                Check($"{tool} format=json: the unconfigured-MO2 prompt is a DOCUMENT, not prose",
+                    TryJson(render, out var udoc)
+                    && udoc!.RootElement.TryGetProperty("error", out var uerr)
+                    && uerr.GetString() is { } umsg
+                    && umsg.Contains("no Mod Organizer 2 instance configured", StringComparison.Ordinal), $"{tool}: {render}");
+
+            // …and the TEXT lane still gets the trained prose verbatim — the prompt teaches the user what to do, and
+            // wrapping it in json for a text caller would be the opposite mistake.
+            var bareText = CreateTools.Create(bare, records: Json("""[{"record_type":"Keyword","editorid":"X"}]"""));
+            Check("create text: the unconfigured-MO2 prompt stays the trained prose block",
+                bareText.Contains("no Mod Organizer 2 instance configured", StringComparison.Ordinal)
+                && !bareText.TrimStart().StartsWith("{", StringComparison.Ordinal), bareText);
+        }
+
         // A REFUSAL is a document too — a json caller must never have to parse "error: …" out of a string. (This
         // is the pre-engine refusal path, which is exactly where PR #306/#310 found an EMPTY string twice.)
         // NOTE the shape: a PRE-ENGINE refusal renders through JsonWire.RenderError, which carries {error, epoch}
