@@ -1118,8 +1118,8 @@ public static class WriteTools
                 // walks into it.
                 sb.Append("  ... [truncated: ").Append(ci).Append(" of ").Append(o.Created.Count)
                   .Append(" created record(s) listed at max_chars=").Append(createCap)
-                  .Append("; every one WAS created — read them back with housecarl_records source=\"").Append(file)
-                  .Append("\" (re-calling this tool would create them AGAIN)]").Append('\n');
+                  .Append("; every one WAS created — read them back with ").Append(ReadBackCall(o, file))
+                  .Append(" (re-calling this tool would create them AGAIN)]").Append('\n');
                 break;
             }
             var c = o.Created[ci];
@@ -1147,12 +1147,34 @@ public static class WriteTools
         // printed. Say where to get them instead.
         sb.Append(listed > 0
             ? "the new FormID above is how you reference this record (SkyPatcher/SPID, or a follow-up edit). "
-            : $"no records are listed above — the char budget cut the whole list, though all {o.Created.Count} WERE created. Read them back with housecarl_records source=\"{file}\" to get their FormIDs. ");
+            : $"no records are listed above — the char budget cut the whole list, though all {o.Created.Count} WERE created. Read them back with {ReadBackCall(o, file)} to get their FormIDs. ");
         sb.Append(o.InPlace
             ? InPlaceAgainHint("To create more records in this plugin", file, laneAsName)
             : $"To add more to THIS patch, pass into=\"{file}\".");
         sb.Append(Epoch(o));
         return sb.ToString();
+    }
+
+    /// <summary>The read-back call a truncated create render points the caller at — a call that actually RESOLVES,
+    /// which is the whole point of pointing away from re-issuing the create (PR #311 review 4 [medium]).
+    /// <para>Two ways the shorter spellings fail. <c>source=</c> is records' SOURCE pole (WHOSE version), not a SELECT
+    /// term, so a source-only call dies on "select something — formids= …, or a scan scope". And a <c>plugins=</c>
+    /// scope names ACTIVE plugins, so it cannot select the headline case at all: a patch this very call just wrote is
+    /// not enabled in MO2 yet (the render's own next line says to enable it), and over an off-order file the scope is
+    /// refused by name. <c>types=</c> is the SELECT term that carries on BOTH arms — active, where the named pole's
+    /// records are the scan universe; off-order, where the pole is enumerated from the file directly — and the created
+    /// records' own <c>RecordType</c>s are catalog names, exactly what <c>types=</c> resolves.</para></summary>
+    internal static string ReadBackCall(WritePatchBuilder.CreateOutcome o, string file)   // internal: the json twin points at the SAME call (D2)
+    {
+        var types = o.Created.Select(c => c.RecordType).Where(t => !string.IsNullOrWhiteSpace(t))
+                             .Distinct(StringComparer.OrdinalIgnoreCase)
+                             .OrderBy(t => t, StringComparer.OrdinalIgnoreCase).ToList();
+        // Every distinct type, never a sampled head: a partial types= would select a partial answer while reading like
+        // the whole one. (Unreachable-empty — a successful create has at least one created record — but a bare
+        // source= call is the refused shape, so the clause is not silently dropped either.)
+        return types.Count > 0
+            ? $"housecarl_records source=\"{file}\" types=[{string.Join(", ", types.Select(t => $"\"{t}\""))}]"
+            : $"housecarl_records source=\"{file}\" types=[<the record types you created>]";
     }
 
     /// <summary>Render the Layer B unit B voice-coverage report (a dialogue-line create). The enforced Q3 teeth against a

@@ -1714,8 +1714,17 @@ static class JsonWire
 
             WriteNullable(w, "note", o.Note);
             w.WriteBoolean("truncated", truncated);
+            // NOT the sibling renders' "raise max_chars to see the rest" (PR #311 review 4 [medium]). That remedy is
+            // safe on remove/forward/apply — a repeated remove is refused, a repeated forward re-copies identical
+            // bodies — but a repeated CREATE allocates the records AGAIN, and the trap does not care which transport
+            // asked: the text twin was moved off this wording one fold earlier and the json document kept it, so a
+            // json client raising max_chars and re-issuing walked into exactly what the fix existed to prevent.
             if (truncated)
-                w.WriteString("truncated_note", $"the render hit max_chars={cap} and dropped trailing rows — the WRITE is complete and unaffected; raise max_chars to see the rest.");
+                w.WriteString("truncated_note",
+                    $"the render hit max_chars={cap} and dropped trailing rows — the WRITE is complete and unaffected; every record WAS created. " +
+                    $"Read them back with {WriteTools.ReadBackCall(o, Path.GetFileName(o.OutputPath))} — do NOT re-issue this call to see the rest: a repeated create " +
+                    "allocates the records AGAIN (on the default lane patch= auto-suffixes into a second full patch; under into= each record is " +
+                    "re-created at its old FormID with its prior contents discarded).");
             w.WriteEndObject();
         }
         return Finish(ms);

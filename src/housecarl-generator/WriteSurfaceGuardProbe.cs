@@ -162,6 +162,24 @@ public static class WriteSurfaceGuardProbe
         return mod is null ? null : Path.Combine(fx.ModsDir, mod, file);
     }
 
+    /// <summary>Pull the read-back call a truncated create render emits back apart into (source file, types) so the
+    /// arm can RUN it. Returns (null, null) when the render carries no such call — which is itself the failure the
+    /// caller reports, since the whole point of the notice is to name a call that works.</summary>
+    static (string? file, string[]? types) ParseReadBackCall(string render)
+    {
+        const string marker = "housecarl_records source=\"";
+        int at = render.IndexOf(marker, StringComparison.Ordinal);
+        if (at < 0) return (null, null);
+        var tail = render[(at + marker.Length)..];
+        int quote = tail.IndexOf('"');
+        int open = tail.IndexOf("types=[", StringComparison.Ordinal);
+        int close = open < 0 ? -1 : tail.IndexOf(']', open);
+        if (quote < 0 || open < 0 || close < 0) return (null, null);
+        var types = tail[(open + 7)..close].Split(',')
+                        .Select(t => t.Trim().Trim('"')).Where(t => t.Length > 0).ToArray();
+        return (tail[..quote], types.Length > 0 ? types : null);
+    }
+
     /// <summary>Every EditorID the written plugin carries (flat + nested), for the created/removed assertions.</summary>
     static List<string> EditorIdsIn(string espPath)
     {
@@ -570,6 +588,17 @@ public static class WriteSurfaceGuardProbe
             && rcdoc!.RootElement.GetProperty("truncated").GetBoolean()
             && rcdoc.RootElement.GetProperty("voice_coverage").GetProperty("lines").GetArrayLength() < 40, reportCapped);
 
+        // The create hazard does not care which transport asked (PR #311 review 4 [medium]): the text twin was moved
+        // off "raise max_chars to see the rest" one fold earlier and the json document kept it, so a json client
+        // could raise the ceiling, re-issue, and allocate the records a second time. D2 — same remedy, both renders.
+        Check("json create: truncated_note points at the read-back call, never at raising max_chars",
+            rcdoc is not null
+            && rcdoc.RootElement.GetProperty("truncated_note").GetString() is { } jnote
+            && jnote.Contains("housecarl_records source=", StringComparison.Ordinal)
+            && jnote.Contains("types=[", StringComparison.Ordinal)
+            && jnote.Contains("allocates the records AGAIN", StringComparison.Ordinal)
+            && !jnote.Contains("raise max_chars", StringComparison.Ordinal), reportCapped);
+
         // max_chars reaches the TEXT render too, not only json (PR #311 review [medium] / [low-medium]): the
         // parameter's own description promises trailing rows drop with an explicit notice, and removal is
         // set-valued, so the unbounded list is the expected case rather than an edge.
@@ -608,10 +637,36 @@ public static class WriteSurfaceGuardProbe
         // truncated CREATE allocates the records a second time — a second auto-suffixed patch, or under into= a
         // re-create at the same FormID with the prior contents discarded. Asserted as a positive AND the absence
         // of the sibling renders' wording, which is what made this dangerous here.
+        // …and the remedy must be a call records ACCEPTS (PR #311 review 4 [medium]): source= is the SOURCE pole,
+        // not a SELECT term, so the first spelling of this notice named a call that dies on "select something" —
+        // leaving re-issuing the create as the only obvious route, i.e. straight back into the trap. The SELECT
+        // term is asserted by name here and EXERCISED two arms below.
         Check("create's truncation notice points at a READ, never at raising max_chars (a repeat would re-create)",
             createCapped.Contains("housecarl_records source=", StringComparison.Ordinal)
+            && createCapped.Contains("types=[\"Keyword\"]", StringComparison.Ordinal)
             && createCapped.Contains("would create them AGAIN", StringComparison.Ordinal)
             && !createCapped.Contains("raise max_chars", StringComparison.Ordinal), createCapped);
+
+        // The remedy EXERCISED — parsed OUT of the notice this render just produced and RUN, rather than compared
+        // against a literal. That is the difference that matters here: the arm this replaces asserted the string
+        // "housecarl_records source=", which is precisely why CI vouched for a call records refuses. An arm that
+        // executes the emitted call cannot go stale against a reworded remedy.
+        var (remedyFile, remedyTypes) = ParseReadBackCall(createCapped);
+        if (remedyFile is not null && remedyTypes is { Length: > 0 })
+        {
+            var remedy = RecordsTools.Records(fx.Svc, source: Json($"\"{remedyFile}\""), types: remedyTypes);
+            Check("create's truncation remedy, RUN as emitted, resolves and returns the row the render cut",
+                !remedy.StartsWith("error:", StringComparison.Ordinal)
+                && remedy.Contains("W2CreCapC", StringComparison.Ordinal), remedy);
+
+            // …and the SELECT term is load-bearing, not decoration: the same call with source= alone — the shape
+            // the notice used to name — dies on the lane decision. This is the fact the old remedy walked into.
+            var bareSource = RecordsTools.Records(fx.Svc, source: Json($"\"{remedyFile}\""));
+            Check("records: source= ALONE selects nothing, so a remedy without a SELECT term is a dead end",
+                bareSource.StartsWith("error:", StringComparison.Ordinal)
+                && bareSource.Contains("select something", StringComparison.Ordinal), bareSource);
+        }
+        else Check("create's truncation notice emits a parseable source=+types= read-back call", false, createCapped);
 
         // …and with a cap so small that NO row renders, the closing line must not point at "the new FormID above".
         var createAllCut = CreateTools.Create(fx.Svc, patch: "W2CreCut", max_chars: 1, records: Json("""
