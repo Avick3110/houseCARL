@@ -717,6 +717,25 @@ public static class WriteSurfaceGuardProbe
             fwdCapped.Contains("[truncated:", StringComparison.Ordinal)
             && fwdCapped.Contains("every one WAS forwarded", StringComparison.Ordinal), fwdCapped);
 
+        // The remedy is LANE-AWARE (PR #311 review 5 [low]): "a repeated forward re-copies identical bodies" holds
+        // on into=/in_place=, but the DEFAULT lane re-issues into a fresh UniqueStem — a second patch mod carrying
+        // the same overrides. Both poles asserted, so a future uniform-wording regression fails one of them.
+        Check("forward's truncation remedy on the DEFAULT lane names into=, not a bare re-issue",
+            fwdCapped.Contains("SECOND patch", StringComparison.Ordinal)
+            && fwdCapped.Contains("pass into=", StringComparison.Ordinal), fwdCapped);
+
+        var fwdIntoFile = ArtifactPathFrom(fx, ForwardTools.Forward(fx.Svc, formids: new[] { fx.SubjectFid },
+            source: fx.MasterName, patch: "W2FwdInto")) is { } fip ? Path.GetFileName(fip) : null;
+        if (fwdIntoFile is not null)
+        {
+            var fwdIntoCapped = ForwardTools.Forward(fx.Svc, formids: new[] { fx.SubjectFid }, source: fx.MasterName,
+                into: fwdIntoFile, max_chars: 120);
+            Check("forward's truncation remedy on into= is the plain one (a re-issue there is idempotent)",
+                fwdIntoCapped.Contains("raise max_chars to see the rest", StringComparison.Ordinal)
+                && !fwdIntoCapped.Contains("SECOND patch", StringComparison.Ordinal), fwdIntoCapped);
+        }
+        else Check("forward into= remedy arm: fixture (a patch to extend)", false, "no patch path");
+
         // write_seq's text lane, same contract — asserted on a REAL quest list rather than the fixture's
         // no-SGE plugin, because an arm that never renders a row cannot pin a row budget (the happy-path-only
         // scar). The render is exercised directly over a synthetic outcome: three quests, a cap that fits one.
@@ -746,6 +765,19 @@ public static class WriteSurfaceGuardProbe
         Check("write_seq text render: without a cap every quest row is listed (the notice is not a permanent cut)",
             seqUncapped.Contains("HcSeqQuestCharlie", StringComparison.Ordinal)
             && !seqUncapped.Contains("[truncated:", StringComparison.Ordinal), seqUncapped);
+
+        // …and the json twin says the SAME thing (PR #311 review 5 [medium]): the review-4 fold moved the text
+        // notice off "raise max_chars" and left the json document on it, so the guard's teeth were on one lane
+        // only — the exact D2 divergence that fold had just fixed one renderer up. Rendered directly, because the
+        // fixture's plugin has no SGE quests and so cannot truncate a quest list through the tool.
+        var seqJsonCapped = JsonWire.RenderSeqOutcome(seqOutcome, 260);
+        Check("write_seq format=json: the truncation note prices the re-run, like its text twin",
+            TryJson(seqJsonCapped, out var sjdoc)
+            && sjdoc!.RootElement.GetProperty("truncated").GetBoolean()
+            && sjdoc.RootElement.GetProperty("truncated_note").GetString() is { } sjnote
+            && sjnote.Contains("nothing is missing from the FILE", StringComparison.Ordinal)
+            && sjnote.Contains("writes the .seq again", StringComparison.Ordinal)
+            && !sjnote.Contains("raise max_chars", StringComparison.Ordinal), seqJsonCapped);
 
         // LANE exclusivity on write_seq (PR #311 review 4 [low]): both spellings are labelled LANE: by this PR, and
         // ResolvePatchModFolder returns from the into= branch before patch= is read — so the pair used to land the
