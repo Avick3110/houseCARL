@@ -4927,14 +4927,17 @@ public sealed class LoadOrderService : IDisposable
         if (targetPath is null)
             return WritePatchBuilder.RemovalOutcome.Fail(
                 $"in-place target '{target}' is not an active plugin in the load order — name a plugin enabled in MO2, by its " +
-                "plugin filename (e.g. 'CoolWeapons.esp'). in-place removes from the file the game actually loads. Nothing was written.");
+                "plugin filename (e.g. 'CoolWeapons.esp'). in-place removes from the file the game actually loads. Nothing was written.")
+                with { Epoch = view.Epoch };   // decided off the capture above — stamped like every post-capture outcome
 
         // (2) CONSENT axis — the persistent, server-enforced first-touch handshake, keyed off the resolved path (shared
         //     with the edit + create lanes: acknowledging a plugin once covers editing, creating into, AND removing from
         //     it in place — it's the same "touch your original" trade-off).
         bool already = _store.IsInPlaceAcknowledged(targetPath);
         if (!already && !acknowledge)
-            return WritePatchBuilder.RemovalOutcome.NeedsAck(InPlaceHandshakeText(targetName, targetPath));
+            // Stamped for the reason the edit lane's twin states (the most common in-place response shape).
+            return WritePatchBuilder.RemovalOutcome.NeedsAck(InPlaceHandshakeText(targetName, targetPath))
+                with { Epoch = view.Epoch };
         string? ackNote = null;
         if (!already && acknowledge)
         {
@@ -4944,7 +4947,7 @@ public sealed class LoadOrderService : IDisposable
 
         // (3) Writable, same-volume parent pre-flight — refuse rather than degrade (the swap stages a sibling temp here).
         if (InPlaceParentUnwritable(targetPath, out var why))
-            return WritePatchBuilder.RemovalOutcome.Fail(why);
+            return WritePatchBuilder.RemovalOutcome.Fail(why) with { Epoch = view.Epoch };
 
         // (4) The write — absence verify forced ON (the model-C substitute for the dropped whole-plugin floor).
         var outcome = WritePatchBuilder.RemoveRecordsInPlace(resolver, keys, targetPath, targetName);
@@ -5054,7 +5057,8 @@ public sealed class LoadOrderService : IDisposable
         if (targetPath is null)
             return WritePatchBuilder.ForwardOutcome.Fail(
                 $"in-place target '{target}' is not an active plugin in the load order — name a plugin enabled in MO2, by its " +
-                "plugin filename (e.g. 'CoolWeapons.esp'). in-place forwards into the file the game actually loads. Nothing was written.");
+                "plugin filename (e.g. 'CoolWeapons.esp'). in-place forwards into the file the game actually loads. Nothing was written.")
+                with { Epoch = view.Epoch };   // decided off the capture above — stamped like every post-capture outcome
 
         // (2) CONSENT axis — the persistent, server-enforced first-touch handshake, keyed off the resolved path (shared
         //     with the edit/create/remove lanes: it's the same "touch your original" trade-off).
@@ -5071,7 +5075,9 @@ public sealed class LoadOrderService : IDisposable
         else
         {
             if (!already && !acknowledge)
-                return WritePatchBuilder.ForwardOutcome.NeedsAck(InPlaceHandshakeText(targetName, targetPath));
+                // Stamped for the reason the edit lane's twin states (the most common in-place response shape).
+                return WritePatchBuilder.ForwardOutcome.NeedsAck(InPlaceHandshakeText(targetName, targetPath))
+                    with { Epoch = view.Epoch };
             if (!already && acknowledge)
             {
                 var (ok, err) = _store.RecordInPlaceAcknowledged(targetPath);
@@ -5082,7 +5088,7 @@ public sealed class LoadOrderService : IDisposable
         // (3) Writable, same-volume parent pre-flight — refuse rather than degrade. Kept in the dry run (it predicts
         //     exactly what the real write would refuse on).
         if (InPlaceParentUnwritable(targetPath, out var why))
-            return WritePatchBuilder.ForwardOutcome.Fail(why);
+            return WritePatchBuilder.ForwardOutcome.Fail(why) with { Epoch = view.Epoch };
 
         // (4) The write — touched-record verify forced ON (the model-C substitute for the dropped whole-plugin floor).
         var outcome = WritePatchBuilder.ForwardRecordsInPlace(resolver, specs, targetPath, targetName, fullReadback: true, dryRun);
@@ -6067,14 +6073,19 @@ public sealed class LoadOrderService : IDisposable
         if (targetPath is null)
             return WritePatchBuilder.CreateOutcome.Fail(
                 $"in-place target '{target}' is not an active plugin in the load order — name a plugin enabled in MO2, by its " +
-                "plugin filename (e.g. 'CoolWeapons.esp'). in-place creates into the file the game actually loads. Nothing was written.");
+                "plugin filename (e.g. 'CoolWeapons.esp'). in-place creates into the file the game actually loads. Nothing was written.")
+                with { Epoch = view.Epoch };   // decided off the capture above — stamped like every post-capture outcome
 
         // (2) CONSENT axis — the persistent, server-enforced first-touch handshake, keyed off the resolved path (shared with
         //     the edit lane: acknowledging a plugin once covers BOTH editing and creating into it in place — it's the same
         //     "touch your original" trade-off).
         bool already = _store.IsInPlaceAcknowledged(targetPath);
         if (!already && !acknowledge)
-            return WritePatchBuilder.CreateOutcome.NeedsAck(InPlaceHandshakeText(targetName, targetPath));
+            // Stamped for the reason the edit lane's twin states: this branch is reached only after the view above
+            // resolved the target, and it is the MOST COMMON in-place response shape — an unstamped one would make
+            // "every write response carries an epoch" false exactly where a caller most often meets it.
+            return WritePatchBuilder.CreateOutcome.NeedsAck(InPlaceHandshakeText(targetName, targetPath))
+                with { Epoch = view.Epoch };
         string? ackNote = null;
         if (!already && acknowledge)
         {
@@ -6084,7 +6095,7 @@ public sealed class LoadOrderService : IDisposable
 
         // (3) Writable, same-volume parent pre-flight — refuse rather than degrade (the swap stages a sibling temp here).
         if (InPlaceParentUnwritable(targetPath, out var why))
-            return WritePatchBuilder.CreateOutcome.Fail(why);
+            return WritePatchBuilder.CreateOutcome.Fail(why) with { Epoch = view.Epoch };
 
         // (4) The write — created-record verify forced ON (the model-C substitute for the dropped whole-plugin floor).
         var outcome = WritePatchBuilder.CreateRecordsInPlace(resolver, rulebook, specs, targetPath, targetName, fullReadback: true);
