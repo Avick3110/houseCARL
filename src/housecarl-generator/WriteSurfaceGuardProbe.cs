@@ -460,6 +460,30 @@ public static class WriteSurfaceGuardProbe
         var noSource = ForwardTools.Forward(fx.Svc, formids: new[] { fx.SubjectFid }, patch: "W2FwdNo");
         Check("forward without source= is refused naming the parameter and what it means",
             noSource.StartsWith("error:") && noSource.Contains("source="), noSource);
+
+        // The two SELF-forward refusals live in the shared engine cleave, which the 1.x forward_record also drives —
+        // so they named from_plugin=, a parameter housecarl_forward does not expose (PR #311 review 4 [low]). Both
+        // are reachable from here: source= equal to the in_place= target, and source= equal to the into= patch. The
+        // spelling is threaded from the calling tool, the same rule offerModParam / InPlaceAgainHint already encode.
+        // Asserted as a positive AND the ABSENCE of the word the caller cannot act on.
+        var selfInPlace = ForwardTools.Forward(fx.Svc, formids: new[] { fx.SubjectFid }, source: fx.ReplacerName,
+            in_place: fx.ReplacerName, acknowledge: true);
+        Check("forward: source= equal to the in_place= target refuses naming source=, never from_plugin",
+            selfInPlace.Contains("is the in-place target itself", StringComparison.Ordinal)
+            && selfInPlace.Contains("source=", StringComparison.Ordinal)
+            && !selfInPlace.Contains("from_plugin", StringComparison.Ordinal), selfInPlace);
+
+        var intoPatch = ForwardTools.Forward(fx.Svc, formids: new[] { fx.SubjectFid }, source: fx.MasterName, patch: "W2FwdSelf");
+        var intoFile = ArtifactPathFrom(fx, intoPatch) is { } sp ? Path.GetFileName(sp) : null;
+        if (intoFile is not null)
+        {
+            var selfInto = ForwardTools.Forward(fx.Svc, formids: new[] { fx.SubjectFid }, source: intoFile, into: intoFile);
+            Check("forward: source= equal to the into= patch refuses naming source=, never from_plugin",
+                selfInto.Contains("is the output patch itself", StringComparison.Ordinal)
+                && selfInto.Contains("source=", StringComparison.Ordinal)
+                && !selfInto.Contains("from_plugin", StringComparison.Ordinal), selfInto);
+        }
+        else Check("forward self-into arm: fixture (a patch to forward into itself)", false, intoPatch);
     }
 
     // ================= ARM 5 — TRANSPORT =================

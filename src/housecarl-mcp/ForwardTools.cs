@@ -121,7 +121,10 @@ public static class ForwardTools
         if (targets.Count == 0)
             return Refuse("formids= expanded to an empty list — nothing to forward.");
 
-        var outcome = svc.ForwardRecords(targets, source.Trim(), patchName, into, readback, in_place, hasInPlace, acknowledge, dry_run);
+        // sourceParam: the refusals that name the source pole render THIS tool's word (PR #311 review 4 [low]) — the
+        // engine's are shared with the 1.x forward_record, whose pole is still spelled from_plugin=.
+        var outcome = svc.ForwardRecords(targets, source.Trim(), patchName, into, readback, in_place, hasInPlace, acknowledge, dry_run,
+                                         sourceParam: "source=");
         // The lane the CALL named — stated, not derived from the outcome's flags (PR #311 review [medium]).
         return json
             ? JsonWire.RenderForwardOutcome(outcome, max_chars, readback, hasInPlace ? "in_place" : hasInto ? "into" : "patch")

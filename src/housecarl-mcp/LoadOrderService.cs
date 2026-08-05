@@ -4981,13 +4981,16 @@ public sealed class LoadOrderService : IDisposable
     /// is written); <paramref name="target"/>+<paramref name="inPlace"/> is the explicit opt-in third route (in-place
     /// write lane; HCBR-2026-07-08-01 F4) — forward INTO an existing plugin's own file, consent-gated like the sibling
     /// write tools — see <see cref="ForwardRecordsInPlace"/>.</summary>
+    /// <param name="sourceParam">The SPELLING the calling tool exposes for the source pole — 1.x <c>from_plugin=</c>,
+    /// or <c>source=</c> on housecarl_forward (PR #311 review 4 [low]). Every refusal that names the parameter at all
+    /// renders the CALLING surface's word; a caller cannot fix a parameter its tool does not expose.</param>
     public WritePatchBuilder.ForwardOutcome ForwardRecords(IReadOnlyList<string> formids, string fromPlugin, string? patchName, string? into,
         bool fullReadback = false, string? target = null, bool inPlace = false, bool acknowledge = false,
-        bool dryRun = false)
+        bool dryRun = false, string sourceParam = "from_plugin")
     {
         if (string.IsNullOrWhiteSpace(fromPlugin))
             return WritePatchBuilder.ForwardOutcome.Fail(
-                "from_plugin is required — name the plugin whose version of the record(s) to forward (the earlier override, or a master to revert to vanilla).");
+                $"{sourceParam} is required — name the plugin whose version of the record(s) to forward (the earlier override, or a master to revert to vanilla).");
         if (formids is null || formids.Count == 0)
             return WritePatchBuilder.ForwardOutcome.Fail("no formids supplied — pass the FormID(s) to forward from the source plugin.");
 
@@ -5024,14 +5027,14 @@ public sealed class LoadOrderService : IDisposable
             var resolver = Resolver;                                      // builds/refreshes the index (Overlays for the source fetch + serialize)
 
             if (inPlace)
-                return ForwardRecordsInPlace(resolver, specs, target!.Trim(), acknowledge, dryRun);
+                return ForwardRecordsInPlace(resolver, specs, target!.Trim(), acknowledge, dryRun, sourceParam);
 
             // #225: a dry run resolves the would-be output path WITHOUT creating the mod folder (see ApplyEdits).
             string outPath; bool extend, created;
             try { outPath = ResolveOutputPath(patchName, into, out extend, out created, create: !dryRun); }
             catch (Exception ex) { return WritePatchBuilder.ForwardOutcome.Fail(ex.Message); }
 
-            var outcome = WritePatchBuilder.ForwardRecords(resolver, specs, outPath, extend, fullReadback, dryRun);
+            var outcome = WritePatchBuilder.ForwardRecords(resolver, specs, outPath, extend, fullReadback, dryRun, sourceParam);
             if (!outcome.Success && created) RemoveFolderCreatedThisCall(outPath);   // hunt F4: a refused forward leaves no orphan
             return outcome;
         }
@@ -5048,7 +5051,7 @@ public sealed class LoadOrderService : IDisposable
     /// fact no acknowledgement overrides.</summary>
     WritePatchBuilder.ForwardOutcome ForwardRecordsInPlace(
         LoadOrderResolver resolver, IReadOnlyList<WritePatchBuilder.ForwardSpec> specs, string target, bool acknowledge,
-        bool dryRun = false)
+        bool dryRun = false, string sourceParam = "from_plugin")
     {
         // (1) Resolve target -> real on-disk path via the load order (by plugin FILENAME). Refuse loud if it isn't a
         //     real active plugin. Same resolver as the edit + create + remove lanes.
@@ -5091,7 +5094,7 @@ public sealed class LoadOrderService : IDisposable
             return WritePatchBuilder.ForwardOutcome.Fail(why) with { Epoch = view.Epoch };
 
         // (4) The write — touched-record verify forced ON (the model-C substitute for the dropped whole-plugin floor).
-        var outcome = WritePatchBuilder.ForwardRecordsInPlace(resolver, specs, targetPath, targetName, fullReadback: true, dryRun);
+        var outcome = WritePatchBuilder.ForwardRecordsInPlace(resolver, specs, targetPath, targetName, fullReadback: true, dryRun, sourceParam);
 
         // (5-dry) #225: a successful dry run stamps NOTHING (no editedInPlace marker, no .seq note).
         if (dryRun)

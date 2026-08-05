@@ -1366,10 +1366,15 @@ public static class WritePatchBuilder
     /// <summary>Phase-1 source resolution SHARED by <see cref="ForwardRecords"/> and <see cref="ForwardRecordsInPlace"/>:
     /// resolve each spec's body from its NAMED plugin (NOT the load-order winner) off ONE captured view, collecting ALL
     /// problems (Q3 — refuse the whole call if any; <paramref name="refusal"/> non-null ⇒ the caller fails with it).
-    /// <paramref name="selfIsTarget"/> only shapes the self-forward message (output patch vs in-place target).</summary>
+    /// <paramref name="selfIsTarget"/> only shapes the self-forward message (output patch vs in-place target).
+    /// <para><paramref name="sourceParam"/> is the SPELLING the calling tool exposes for the source pole — the
+    /// 1.x <c>from_plugin=</c>, or 2.0's <c>source=</c> (PR #311 review 4 [low]). Only the two self-forward
+    /// refusals name a parameter at all (the rest say "source plugin '<c>x</c>'", which is prose either way), and
+    /// naming one the caller cannot see is the same class this PR closes twice elsewhere — <c>offerModParam</c> on
+    /// the locate refusal, <c>InPlaceAgainHint</c> on the success path: render the CALLING surface's word.</para></summary>
     static List<(ForwardSpec spec, IMajorRecordGetter body, string priorWinner, bool wasWinner)> ResolveForwardSources(
         LoadOrderResolver.OverlaySession session, LoadOrderResolver.IndexView view,
-        IReadOnlyList<ForwardSpec> specs, string fileName, bool selfIsTarget, out string? refusal)
+        IReadOnlyList<ForwardSpec> specs, string fileName, bool selfIsTarget, string sourceParam, out string? refusal)
     {
         var resolved = new List<(ForwardSpec spec, IMajorRecordGetter body, string priorWinner, bool wasWinner)>(specs.Count);
         var problems = new List<string>();
@@ -1392,8 +1397,8 @@ public static class WritePatchBuilder
             if (string.Equals(s.FromPlugin, fileName, StringComparison.OrdinalIgnoreCase))
             {
                 problems.Add(selfIsTarget
-                    ? $"{s.Target}: from_plugin '{s.FromPlugin}' is the in-place target itself — forwarding a plugin's own version into itself is a no-op; name the OTHER plugin whose version you want carried in."
-                    : $"{s.Target}: from_plugin '{s.FromPlugin}' is the output patch itself — forwarding a patch's own version into itself is a no-op; name the EARLIER plugin whose version you want to re-assert.");
+                    ? $"{s.Target}: {sourceParam} '{s.FromPlugin}' is the in-place target itself — forwarding a plugin's own version into itself is a no-op; name the OTHER plugin whose version you want carried in."
+                    : $"{s.Target}: {sourceParam} '{s.FromPlugin}' is the output patch itself — forwarding a patch's own version into itself is a no-op; name the EARLIER plugin whose version you want to re-assert.");
                 continue;
             }
             if (!view.ContainsPlugin(s.FromPlugin))
@@ -1432,10 +1437,10 @@ public static class WritePatchBuilder
     /// </summary>
     public static ForwardOutcome ForwardRecordsInPlace(
         LoadOrderResolver resolver, IReadOnlyList<ForwardSpec> specs, string targetPath, string targetName,
-        bool fullReadback = true, bool dryRun = false)
+        bool fullReadback = true, bool dryRun = false, string sourceParam = "from_plugin")
     {
         string? epoch = null;
-        var outcome = ForwardRecordsInPlaceCore(resolver, specs, targetPath, targetName, fullReadback, dryRun, ref epoch);
+        var outcome = ForwardRecordsInPlaceCore(resolver, specs, targetPath, targetName, fullReadback, dryRun, sourceParam, ref epoch);
         return epoch is null ? outcome : outcome with { Epoch = epoch };
     }
 
@@ -1443,7 +1448,7 @@ public static class WritePatchBuilder
     /// <see cref="ApplyCore"/> (SPEC §2.1.1).</summary>
     static ForwardOutcome ForwardRecordsInPlaceCore(
         LoadOrderResolver resolver, IReadOnlyList<ForwardSpec> specs, string targetPath, string targetName,
-        bool fullReadback, bool dryRun, ref string? epoch)
+        bool fullReadback, bool dryRun, string sourceParam, ref string? epoch)
     {
         if (specs.Count == 0) return ForwardOutcome.Fail("no records to forward supplied.");
 
@@ -1461,7 +1466,7 @@ public static class WritePatchBuilder
             return ForwardOutcome.Fail(
                 $"cannot forward into '{targetName}' in place: it was EXCLUDED from this session ({excluded}) — houseCARL won't " +
                 "re-serialize a plugin it can't fully parse (that would risk dropping the record it couldn't read, Q3). The file is UNTOUCHED.");
-        var resolved = ResolveForwardSources(session, view, specs, targetName, selfIsTarget: true, out var refusal);
+        var resolved = ResolveForwardSources(session, view, specs, targetName, selfIsTarget: true, sourceParam, out var refusal);
         if (refusal is not null) return ForwardOutcome.Fail(refusal);
 
         // --- Phase 2: open the TARGET mutably (EAGER, the single plugin only — never the order). ---
@@ -1741,10 +1746,10 @@ public static class WritePatchBuilder
     /// </summary>
     public static ForwardOutcome ForwardRecords(
         LoadOrderResolver resolver, IReadOnlyList<ForwardSpec> specs, string outPath, bool extend, bool fullReadback = false,
-        bool dryRun = false)
+        bool dryRun = false, string sourceParam = "from_plugin")
     {
         string? epoch = null;
-        var outcome = ForwardRecordsCore(resolver, specs, outPath, extend, fullReadback, dryRun, ref epoch);
+        var outcome = ForwardRecordsCore(resolver, specs, outPath, extend, fullReadback, dryRun, sourceParam, ref epoch);
         return epoch is null ? outcome : outcome with { Epoch = epoch };
     }
 
@@ -1752,7 +1757,7 @@ public static class WritePatchBuilder
     /// <see cref="ApplyCore"/> (SPEC §2.1.1).</summary>
     static ForwardOutcome ForwardRecordsCore(
         LoadOrderResolver resolver, IReadOnlyList<ForwardSpec> specs, string outPath, bool extend, bool fullReadback,
-        bool dryRun, ref string? epoch)
+        bool dryRun, string sourceParam, ref string? epoch)
     {
         if (specs.Count == 0) return ForwardOutcome.Fail("no records to forward supplied.");
 
@@ -1771,7 +1776,7 @@ public static class WritePatchBuilder
         //     enumerate the overlay once collecting all wanted FormKeys) — deferred until measured. ---
         var view = resolver.Capture();
         epoch = view.Epoch;                                               // SPEC §2.1.1 — stamped on every outcome from here down
-        var resolved = ResolveForwardSources(session, view, specs, fileName, selfIsTarget: false, out var refusal);
+        var resolved = ResolveForwardSources(session, view, specs, fileName, selfIsTarget: false, sourceParam, out var refusal);
         if (refusal is not null) return ForwardOutcome.Fail(refusal);
 
         // --- Phase 2: open (extend) or create the patch mod (identical to Apply Phase 2). ---
