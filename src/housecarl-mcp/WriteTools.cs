@@ -1104,16 +1104,26 @@ public static class WriteTools
         // as a follow-up on the grounds that max_chars' description scoped the ceiling to the read-back; the D2
         // divergence is the stronger argument and it wins.)
         int createCap = maxChars > 0 ? maxChars : Wire.DefaultMaxChars;
+        int listed = 0;
         for (int ci = 0; ci < o.Created.Count; ci++)
         {
             if (sb.Length >= createCap)
             {
+                // The remedy points at a READ, never at re-issuing this call (PR #311 review 3 round-2 [medium]).
+                // The sibling renders' "raise max_chars to see the rest" is safe on THEIR lanes — a repeated remove
+                // is refused, a repeated forward re-copies identical bodies — but a repeated CREATE allocates the
+                // records AGAIN: on the default lane patch= auto-suffixes into a second full patch, and under into=
+                // each record is re-created at its old FormID with its prior contents discarded. That is the
+                // duplicate-write trap ReadBackInFull's own doc names, and an agent following the notice literally
+                // walks into it.
                 sb.Append("  ... [truncated: ").Append(ci).Append(" of ").Append(o.Created.Count)
                   .Append(" created record(s) listed at max_chars=").Append(createCap)
-                  .Append("; every one WAS created — raise max_chars to see the rest]").Append('\n');
+                  .Append("; every one WAS created — read them back with housecarl_records source=\"").Append(file)
+                  .Append("\" (re-calling this tool would create them AGAIN)]").Append('\n');
                 break;
             }
             var c = o.Created[ci];
+            listed++;
             sb.Append("  ").Append(c.RecordType).Append(' ').Append(c.FormKey).Append("  ").Append(c.EditorId);
             if (c.ReplacedExisting) sb.Append("  [REPLACED: this patch already defined this editorid — re-created fresh at the same FormID; prior contents, including any set_field edits since, were discarded]");
             sb.Append('\n');
@@ -1132,7 +1142,12 @@ public static class WriteTools
             else AppendCompactReadback(sb, Array.Empty<WritePatchBuilder.OpResult>(), rb, maxChars);
         }
         if (o.Note is { } note) sb.Append("note: ").Append(note).Append('\n');
-        sb.Append("the new FormID above is how you reference this record (SkyPatcher/SPID, or a follow-up edit). ");
+        // Gated on rows having actually rendered (same review finding): with a small max_chars the header alone can
+        // exceed the cap and drop EVERY row, and "the new FormID above" then asserts a referent this render never
+        // printed. Say where to get them instead.
+        sb.Append(listed > 0
+            ? "the new FormID above is how you reference this record (SkyPatcher/SPID, or a follow-up edit). "
+            : $"no records are listed above — the char budget cut the whole list, though all {o.Created.Count} WERE created. Read them back with housecarl_records source=\"{file}\" to get their FormIDs. ");
         sb.Append(o.InPlace
             ? InPlaceAgainHint("To create more records in this plugin", file, laneAsName)
             : $"To add more to THIS patch, pass into=\"{file}\".");
