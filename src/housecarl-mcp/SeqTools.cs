@@ -13,6 +13,17 @@ namespace HousecarlMcp;
 /// reviewable houseCARL mod folder (originals untouched — same folder-per-patch model as every other write). The byte
 /// format and FormID encoding are load-order-independent (see <see cref="HousecarlCore.SeqFile"/>), so the .seq is correct
 /// the moment it's written and travels with the mod.
+///
+/// <para><b>The 2.0 surface (tool-surface-2.0 W3 PR 2).</b> The tool NAME is kept (SPEC §6.1: an S1 selection with a
+/// declared S2 file output, tiny, and its teaching — when a .seq is needed at all — is real), so this is a
+/// parameter migration rather than a new tool: <c>plugin</c> → <c>source</c> (the SOURCE pole, §5.3, now resolving a
+/// bare FILENAME across the MO2 folders instead of demanding a full path), <c>patch_name</c> → <c>patch</c>, plus
+/// TRANSPORT (<c>format=json</c>, <c>max_chars</c>). The alias layer maps the old spellings by name.</para>
+///
+/// <para><b>No epoch, stated rather than omitted</b> (SPEC §2.1.1): every other write response carries the
+/// fingerprint of the index build it resolved against. This call consults NO build — the .seq is derived from one
+/// plugin FILE, and its FormID encoding is load-order-independent by design — so a stamp here would name evidence
+/// that was never read. The render says so instead of leaving a caller to wonder which of the two it is.</para>
 /// </summary>
 [McpServerToolType]
 public static class SeqTools
@@ -21,25 +32,39 @@ public static class SeqTools
      Description(
          "Write the SEQ file (Data\\SEQ\\<plugin>.seq) a plugin needs for its START-GAME-ENABLED quests to actually run. " +
          "Ticking 'Start Game Enabled' on a quest does NOTHING on its own — without the .seq the quest, and any dialogue or " +
-         "change gated on it, silently never starts. Pass plugin= the path to the .esp/.esm/.esl (e.g. the path " +
-         "housecarl_create_record reported for your patch); houseCARL reads its start-game-enabled quests and writes the " +
-         ".seq into a houseCARL mod folder you enable in MO2. If the plugin is itself in a houseCARL patch folder, the .seq " +
-         "defaults into THAT same folder (so enabling the one mod deploys both .esp and .seq); otherwise it lands in a fresh " +
-         "folder (pass into= an existing houseCARL patch to keep them together). A plugin with no start-game-enabled quests " +
-         "needs no .seq — that's reported, nothing is written. The .seq makes the quest START; it does not verify the quest " +
-         "or its dialogue is otherwise correct. Needs houseCARL pointed at your MO2 instance (for the output folder).")]
+         "change gated on it, silently never starts. Pass source= the plugin: its FILENAME (e.g. 'MyQuestMod.esp' — " +
+         "located across your MO2 mod folders, enabled or not, the overwrite folder and game Data) or an ABSOLUTE PATH " +
+         "(e.g. the path housecarl_create reported for a fresh patch, which is not in the load order yet). The response " +
+         "states WHICH copy it read: with the same filename in several folders the call is refused, naming them, rather " +
+         "than picking one. houseCARL reads that plugin's start-game-enabled quests and writes the .seq into a houseCARL " +
+         "mod folder you enable in MO2. If the plugin is itself in a houseCARL patch folder, the .seq defaults into THAT " +
+         "same folder (so enabling the one mod deploys both .esp and .seq); otherwise it lands in a fresh folder (pass " +
+         "into= an existing houseCARL patch to keep them together, or patch= to name the new folder). A plugin with no " +
+         "start-game-enabled quests needs no .seq — that's reported, nothing is written. The .seq makes the quest START; " +
+         "it does not verify the quest or its dialogue is otherwise correct. format='json' returns the same data " +
+         "machine-readable. No epoch on this call, and that is a fact not an omission: a .seq is derived from the plugin " +
+         "FILE alone (its encoding is load-order-independent), so this call consults no load-order build. Needs houseCARL " +
+         "pointed at your MO2 instance (for the output folder).")]
     public static string WriteSeq(
         LoadOrderService svc,
-        [Description("Full path to the plugin (.esp/.esm/.esl) whose start-game-enabled quests need a .seq.")]
-            string plugin,
-        [Description("Optional. Base name for a NEW patch-mod folder the .seq lands in (default: the plugin's own houseCARL folder if it's in one, else 'houseCARL_SEQ'); auto-suffixed if taken.")]
-            string? patch_name = null,
-        [Description("Optional. Filename of an existing houseCARL patch mod to write the .seq into (e.g. the patch that holds the .esp, so one mod deploys both).")]
-            string? into = null) => Guard.Tool("housecarl_write_seq", () =>
+        [Description("SOURCE: the plugin whose start-game-enabled quests need a .seq — a FILENAME ('MyQuestMod.esp', located across enabled, disabled and not-yet-listed mod folders, overwrite, and game Data) or an ABSOLUTE path to the .esp/.esm/.esl. A filename provided by several locations is refused, naming them.")]
+            string source,
+        [Description("LANE: base name for a NEW patch-mod folder the .seq lands in (default: the plugin's own houseCARL folder if it's in one, else 'houseCARL_SEQ'); auto-suffixed if taken.")]
+            string? patch = null,
+        [Description("LANE: filename of an existing houseCARL patch mod to write the .seq into (e.g. the patch that holds the .esp, so one mod deploys both).")]
+            string? into = null,
+        [Description("TRANSPORT: 'text' (default) | 'json' (the same data, machine-readable).")]
+            string? format = null,
+        [Description("TRANSPORT: character ceiling on the render; past it trailing quest rows are dropped with an explicit notice (never silent). 0 = a safe default kept under the host's per-response limit.")]
+            int max_chars = 0) => Guard.Tool("housecarl_write_seq", () =>
     {
-        if (svc.ConfigPromptOrNull() is { } cfgPrompt) return cfgPrompt;
+        bool json = Wire.WantsJson(format, out var ferr);
+        if (ferr is not null) return ferr;
+        if (svc.ConfigPromptOrNull() is { } cfgPrompt)
+            return json ? JsonWire.RenderError(cfgPrompt, null) : cfgPrompt;
 
-        var o = svc.WriteSeq(plugin, patch_name, into);
+        var o = svc.WriteSeq(source, patch, into);
+        if (json) return JsonWire.RenderSeqOutcome(o, max_chars);
         if (!o.Success) return "error: " + o.Error;
         return Render(o);
     });
@@ -48,7 +73,7 @@ public static class SeqTools
     {
         // No SGE quests → a clean, explicit no-op (Q3: never a silent empty .seq, never a misleading "done").
         if (o.Quests.Count == 0)
-            return $"no start-game-enabled quests in {o.PluginFileName} — no .seq is needed (a .seq lists only quests with the " +
+            return $"no start-game-enabled quests in {o.PluginFileName}{ReadFrom(o)} — no .seq is needed (a .seq lists only quests with the " +
                    "Start Game Enabled flag). Nothing written. If a quest SHOULD start at game start, set its Start Game Enabled " +
                    "flag first, then write the .seq.";
 
@@ -59,6 +84,11 @@ public static class SeqTools
         foreach (var q in o.Quests)
             sb.Append("  ").Append(q.EditorId is { Length: > 0 } e ? e : "(no EditorID)")
               .Append("  →  0x").AppendFormat("{0:X8}", q.OnDiskFormId).Append('\n');
+        // WHICH copy of the source was read (§4.2 — the arm is always stated): a filename can be provided by more
+        // than one layer, and the quests came from exactly one of them.
+        if (o.ResolvedFrom is { Length: > 0 })
+            sb.Append("source: ").Append(o.PluginFileName).Append(" — read from ").Append(o.ResolvedFrom)
+              .Append(o.PluginPath is { Length: > 0 } p ? $" ({p})" : "").Append('\n');
         sb.Append("path: ").Append(o.SeqPath).Append('\n');
         sb.Append(o.WroteIntoPluginFolder
             ? "the .seq is in the plugin's OWN houseCARL folder — enabling that one mod in MO2 deploys both the .esp and its .seq."
@@ -68,4 +98,10 @@ public static class SeqTools
                   "well-formed (use housecarl_validate_dialogue for the dialogue graph).");
         return sb.ToString();
     }
+
+    /// <summary>The read-from clause for the nothing-to-do render — "no SGE quests" is a claim ABOUT a specific file,
+    /// so it names which one (a stale copy in a disabled folder has a different quest set, and reporting that as
+    /// "nothing to do" without saying whose is the silent-wrong-answer class Q3 refuses).</summary>
+    static string ReadFrom(SeqOutcome o)
+        => o.ResolvedFrom is { Length: > 0 } w ? $" (read from {w}{(o.PluginPath is { Length: > 0 } p ? $": {p}" : "")})" : "";
 }

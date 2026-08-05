@@ -6669,11 +6669,34 @@ public sealed class LoadOrderService : IDisposable
     public SeqOutcome WriteSeq(string plugin, string? patchName, string? into)
     {
         if (string.IsNullOrWhiteSpace(plugin))
-            return SeqOutcome.Fail("no plugin given. Pass plugin= the path to the .esp/.esm/.esl whose start-game-enabled quests need a .seq.");
+            return SeqOutcome.Fail("no source given. Pass source= the plugin whose start-game-enabled quests need a .seq — its filename (e.g. 'MyQuestMod.esp') or an absolute path.");
         plugin = plugin.Trim().Trim('"');
-        if (!File.Exists(plugin))
-            return SeqOutcome.Fail($"no such plugin file: '{plugin}'. Pass the full path to the plugin (the path housecarl_create_record reported, or any .esp/.esm/.esl).");
-        var pluginPath = Path.GetFullPath(plugin);
+
+        // SOURCE resolution (§4.2's pole, W3 PR 2): a bare FILENAME is located across the MO2 folders — enabled,
+        // disabled, not-yet-listed, overwrite, and game Data — exactly as read_plugin_file and the copy donor lane
+        // locate one, through the SAME shared contract so two tools can never find different files for one name. An
+        // absolute path is still used verbatim (the 1.x spelling, and the "any file on disk" case). The arm that
+        // resolved is REPORTED, never silent: which copy was read decides which .seq you get.
+        string pluginPath, resolvedFrom;
+        try
+        {
+            string modsDir, dataDir, overwriteDir, profileDir;
+            lock (_gate) { EnsurePathsDerived(); modsDir = _modsDir; dataDir = _dataDir; overwriteDir = _overwriteDir; profileDir = _profileDir; }
+            var comp = Mo2LoadOrder.ReadComposition(profileDir);        // cheap text parse — no index build
+            var loc = LocatePluginFileOnDisk(comp, modsDir, dataDir, overwriteDir, plugin, null, offerModParam: false);
+            // The locate contract's own refusal names WHAT it couldn't find; this adds what THIS tool wants
+            // instead, so the caller isn't left to infer that a filename is allowed at all (the 1.x refusal said
+            // "pass the full path", which is now only one of the two accepted spellings).
+            if (loc.Error is not null)
+                return SeqOutcome.Fail($"{loc.Error} Pass source= the plugin's FILENAME (located across your MO2 mod folders, the overwrite folder and game Data) or an ABSOLUTE path to the .esp/.esm/.esl.");
+            if (loc.Ambiguous is { } hits)
+                return SeqOutcome.Fail($"'{Path.GetFileName(plugin)}' is provided by {hits.Count} locations — name the one you mean by absolute path: "
+                                     + string.Join("; ", hits.Select(h => $"{h.Where} -> {h.Path}")));
+            pluginPath = loc.Path!;
+            resolvedFrom = loc.Where;
+        }
+        catch (Exception ex) { return SeqOutcome.Fail(ex.Message); }
+
         if (!PluginExts.Contains(Path.GetExtension(pluginPath), StringComparer.OrdinalIgnoreCase))
             return SeqOutcome.Fail($"'{Path.GetFileName(pluginPath)}' is not a plugin (.esp/.esm/.esl).");
 
@@ -6690,7 +6713,7 @@ public sealed class LoadOrderService : IDisposable
 
             // No SGE quests → no .seq needed; write nothing, cut no folder (Q3: a clean, explicit "nothing to do").
             if (built.Quests.Count == 0)
-                return new SeqOutcome(true, null, null, null, built.Quests, built.PluginFileName, false);
+                return new SeqOutcome(true, null, null, null, built.Quests, built.PluginFileName, false) { ResolvedFrom = resolvedFrom, PluginPath = pluginPath };
 
             // Output folder: default into the plugin's OWN houseCARL folder; else fresh / explicit into=/patch_name.
             string? autoInto = (string.IsNullOrWhiteSpace(into) && string.IsNullOrWhiteSpace(patchName))
@@ -6715,7 +6738,8 @@ public sealed class LoadOrderService : IDisposable
             if (size != built.Bytes.Length)
                 return SeqOutcome.Fail($"wrote '{seqName}' but its on-disk size ({size}) does not match the {built.Bytes.Length} expected byte(s) — verify before relying on it.");
 
-            return new SeqOutcome(true, null, dest, rf.ModFolder, built.Quests, built.PluginFileName, autoInto is not null);
+            return new SeqOutcome(true, null, dest, rf.ModFolder, built.Quests, built.PluginFileName, autoInto is not null)
+                { ResolvedFrom = resolvedFrom, PluginPath = pluginPath };
         }
     }
 
@@ -7287,9 +7311,13 @@ public sealed class LoadOrderService : IDisposable
     /// direct PATH (rooted / has a separator) is used verbatim ("inspect ANY plugin file"); otherwise the argument
     /// is a FILENAME found across the whole install (enabled + disabled mod folders, overwrite, Data), with
     /// <paramref name="mod"/> narrowing a name several folders provide. Ambiguity comes back structured — each
-    /// caller renders its own remedy.</summary>
+    /// caller renders its own remedy.
+    /// <para><paramref name="offerModParam"/> (W3 PR 2): the not-found refusal ends by offering <c>mod=</c> as the
+    /// disambiguator, which is only true for callers that HAVE that parameter. A caller without one passes false and
+    /// the clause is omitted — a refusal must never send someone to a parameter their tool does not expose.</para></summary>
     internal static PluginLocateResult LocatePluginFileOnDisk(
-        Mo2Composition comp, string modsDir, string dataDir, string overwriteDir, string plugin, string? mod)
+        Mo2Composition comp, string modsDir, string dataDir, string overwriteDir, string plugin, string? mod,
+        bool offerModParam = true)
     {
         // A plugin's TICK state is a DIFFERENT fact from its mod folder's switch: a plugin can sit in an enabled mod
         // and be unchecked in MO2's right pane, and the game then does not load it. Every lane below returns the pair
@@ -7339,7 +7367,8 @@ public sealed class LoadOrderService : IDisposable
         var hits = Mo2LoadOrder.LocatePlugin(comp, modsDir, dataDir, overwriteDir, plugin);
         if (hits.Count == 0)
             return new(null, "", ServedStanding.NotAnInstallCopy, TickStanding.Unregistered, null, false, null,
-                $"'{Path.GetFileName(plugin)}' is in no mod folder (enabled, disabled, or not-yet-listed in MO2), the overwrite folder, or the game Data folder. Check the filename, pass an absolute path, or (if it's an MO2 mod) the exact folder via mod=.");
+                $"'{Path.GetFileName(plugin)}' is in no mod folder (enabled, disabled, or not-yet-listed in MO2), the overwrite folder, or the game Data folder. Check the filename, pass an absolute path"
+                + (offerModParam ? ", or (if it's an MO2 mod) the exact folder via mod=." : "."));
         if (hits.Count > 1) return new(null, "", ServedStanding.NotAnInstallCopy, TickStanding.Unregistered, null, false, hits, null);
         var (oneServed, oneDetail) = JudgeServed(comp, hits, hits[0].Path);
         // WhereNamesLayer: TRUE — Where IS the located hit's own label, folder and state both.
@@ -8009,6 +8038,17 @@ public sealed record SeqOutcome(
     bool Success, string? Error, string? SeqPath, string? ModFolder,
     IReadOnlyList<HousecarlCore.SeqFile.SeqQuest> Quests, string PluginFileName, bool WroteIntoPluginFolder)
 {
+    /// <summary>WHERE the source plugin resolved from (W3 PR 2, SPEC §4.2's "the response states which arm
+    /// resolved"): "direct path", or the located hit's own label (its mod folder and state). A .seq is derived from
+    /// ONE file's records, so which copy was read is load-bearing — a disabled folder's older copy yields a
+    /// different quest set than the served one, silently, unless the arm is stated. Null on a refusal taken before
+    /// the source resolved.</summary>
+    public string? ResolvedFrom { get; init; }
+
+    /// <summary>The absolute path the source resolved TO — the second half of the arm statement (the label says
+    /// which layer, this says which file).</summary>
+    public string? PluginPath { get; init; }
+
     public static SeqOutcome Fail(string error)
         => new(false, error, null, null, Array.Empty<HousecarlCore.SeqFile.SeqQuest>(), "", false);
 }
