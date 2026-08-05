@@ -843,6 +843,19 @@ public static class WriteSurfaceGuardProbe
         }
         else Check("forward into= remedy arm: fixture (a patch to extend)", false, "no patch path");
 
+        // apply's json render budgets its `ops` array and carried the same "raise max_chars" the other four write
+        // renders were moved off (PR #311 review 6 — an unrequested sibling, declared on the PR): apply shares the
+        // LANE axis with forward, so it shares the lane-aware remedy. Default lane here ⇒ the into= wording.
+        var applyCapped = ApplyTools.Apply(fx.Svc, patch: "W2ApCap", format: "json", max_chars: 300,
+            ops: Json($$"""[{"formid":"{{fx.SubjectFid}}","field_path":"Name","value":"W2ApCapName"}]"""));
+        Check("apply format=json: the truncation note carries the lane-aware remedy, not a bare 'raise max_chars'",
+            TryJson(applyCapped, out var apdoc)
+            && apdoc!.RootElement.TryGetProperty("truncated_note", out var apn)
+            && apn.GetString() is { } apnote
+            && apnote.Contains("pass into=", StringComparison.Ordinal)
+            && apnote.Contains("SECOND patch mod", StringComparison.Ordinal)
+            && !apnote.Contains("raise max_chars to see the rest", StringComparison.Ordinal), applyCapped);
+
         // IN_PLACE is its own pole (PR #311 review 6 [low]): the first pass lumped it with into=, but a re-issue
         // there re-serializes the caller's OWN plugin — the file this render just called backup-less — purely to
         // widen a display. It gets the read-back remedy instead. (fx.ReplacerName was acknowledged by an arm
@@ -888,6 +901,13 @@ public static class WriteSurfaceGuardProbe
         Check("write_seq text render: without a cap every quest row is listed (the notice is not a permanent cut)",
             seqUncapped.Contains("HcSeqQuestCharlie", StringComparison.Ordinal)
             && !seqUncapped.Contains("[truncated:", StringComparison.Ordinal), seqUncapped);
+
+        // The absent epoch is stated on the TEXT transport too (PR #311 review 6 [low]) — the class doc claimed
+        // "the render says so", which was true of the json twin only, leaving the DEFAULT transport unable to tell
+        // "no build was consulted, by design" from "the stamp was dropped" (the same observable either way).
+        Check("write_seq text render: the ABSENT epoch is stated with its reason, like the json twin (D2)",
+            seqUncapped.Contains("no epoch on this call", StringComparison.Ordinal)
+            && seqUncapped.Contains("load-order-independent", StringComparison.Ordinal), seqUncapped);
 
         // …and the json twin says the SAME thing (PR #311 review 5 [medium]): the review-4 fold moved the text
         // notice off "raise max_chars" and left the json document on it, so the guard's teeth were on one lane

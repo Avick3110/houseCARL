@@ -117,7 +117,7 @@ public static class CreateTools
             bool readback = false,
         [Description("TRANSPORT: 'text' (default) | 'json' (the same data, machine-readable, accounting in-band).")]
             string? format = null,
-        [Description("TRANSPORT: character ceiling on the render; past it the read-back is cut with an explicit notice (never silent). 0 = a safe default kept under the host's per-response limit; raise it to widen a readback=true dump.")]
+        [Description("TRANSPORT: character ceiling on the WHOLE render — the created-record rows (each with its allocated FormID), the voice / result-script / cell-shell reports, and the read-back, in that order. Past it, trailing rows are dropped with an explicit notice and a per-block rendered-vs-total census (never silent). The WRITE is unaffected either way. 0 = a safe default kept under the host's per-response limit.")]
             int max_chars = 0) => Guard.Tool("housecarl_create", () =>
     {
         // ---- TRANSPORT: format --------------------------------------------------------------------------
