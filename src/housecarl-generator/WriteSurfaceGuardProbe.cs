@@ -498,6 +498,71 @@ public static class WriteSurfaceGuardProbe
             && ncdoc.RootElement.GetProperty("error").GetString()!.Contains("not carried by patch")
             && ncdoc.RootElement.GetProperty("epoch").ValueKind == JsonValueKind.String, notCarried);
 
+        // `lane` names the lane the CALL asked for, on a refusal as much as on a success (PR #311 review
+        // [medium]): Fail/NeedsAck leave InPlace/Extended at their defaults, so a lane DERIVED from the outcome
+        // reported "patch" for a consent prompt that exists only because the caller named in_place=, and for an
+        // into= refusal on a call that named no patch= at all.
+        // The CONSENT PROMPT is the reviewer's own example, and the sharpest case: it exists ONLY because the
+        // caller named in_place=. The master has not been acknowledged (ARM 2 acknowledged the replacer), so this
+        // is a real first touch.
+        var lanePrompt = CreateTools.Create(fx.Svc, records: Json("""[{"record_type":"Keyword","editorid":"W2LaneKw2"}]"""),
+            in_place: fx.MasterName, format: "json");
+        Check("json lane on the in-place CONSENT PROMPT says in_place, not the patch lane the caller never named",
+            TryJson(lanePrompt, out var lpdoc)
+            && lpdoc!.RootElement.GetProperty("needs_acknowledge").GetBoolean()
+            && lpdoc.RootElement.GetProperty("lane").GetString() == "in_place", lanePrompt);
+
+        var laneRefusal = RemoveTools.Remove(fx.Svc, formids: new[] { fx.SubjectFid }, into: "NoSuchPatch2.esp", format: "json");
+        Check("json lane on an into= REFUSAL says into, not the patch lane (Fail leaves the outcome flags at default)",
+            TryJson(laneRefusal, out var ldoc) && ldoc!.RootElement.GetProperty("lane").GetString() == "into", laneRefusal);
+
+        var laneInPlace = ForwardTools.Forward(fx.Svc, formids: new[] { fx.SubjectFid }, source: fx.MasterName,
+            in_place: "NotAPlugin.esp", format: "json");
+        Check("json lane on a service-side in-place refusal says in_place too",
+            TryJson(laneInPlace, out var lidoc) && lidoc!.RootElement.GetProperty("lane").GetString() == "in_place", laneInPlace);
+
+        // max_chars reaches the TEXT render too, not only json (PR #311 review [medium] / [low-medium]): the
+        // parameter's own description promises trailing rows drop with an explicit notice, and removal is
+        // set-valued, so the unbounded list is the expected case rather than an edge.
+        var capMade = CreateTools.Create(fx.Svc, patch: "W2Cap", records: Json("""
+            [{"record_type":"Keyword","editorid":"W2CapA"},
+             {"record_type":"Keyword","editorid":"W2CapB"},
+             {"record_type":"Keyword","editorid":"W2CapC"}]
+            """));
+        var capPath = ArtifactPathFrom(fx, capMade);
+        var capIds = FormIdsFrom(capMade);
+        if (capPath is not null && capIds.Count == 3)
+        {
+            var capped = RemoveTools.Remove(fx.Svc, formids: capIds.ToArray(), into: Path.GetFileName(capPath), max_chars: 100);
+            Check("remove text render: max_chars= drops trailing rows with an explicit notice (never a silent host cut)",
+                capped.Contains("[truncated:", StringComparison.Ordinal)
+                && capped.Contains("max_chars=100", StringComparison.Ordinal)
+                && capped.Contains("every one WAS removed", StringComparison.Ordinal), capped);
+        }
+        else Check("remove text render: fixture for the max_chars arm", false, capMade);
+
+        // write_seq's text lane, same contract — asserted on a REAL quest list rather than the fixture's
+        // no-SGE plugin, because an arm that never renders a row cannot pin a row budget (the happy-path-only
+        // scar). The render is exercised directly over a synthetic outcome: three quests, a cap that fits one.
+        var seqOutcome = new SeqOutcome(true, null, @"C:\mods\HcSeq\SEQ\HcSeq.seq", "HcSeq",
+            new[]
+            {
+                new HousecarlCore.SeqFile.SeqQuest(default, "HcSeqQuestAlpha",   0x01000800),
+                new HousecarlCore.SeqFile.SeqQuest(default, "HcSeqQuestBravo",   0x01000801),
+                new HousecarlCore.SeqFile.SeqQuest(default, "HcSeqQuestCharlie", 0x01000802),
+            },
+            "HcSeq.esp", false);
+        var seqCapped = SeqTools.Render(seqOutcome, maxChars: 80);
+        Check("write_seq text render: max_chars= drops trailing quest rows with an explicit notice",
+            seqCapped.Contains("[truncated:", StringComparison.Ordinal)
+            && seqCapped.Contains("max_chars=80", StringComparison.Ordinal)
+            && seqCapped.Contains("the .seq itself carries ALL of them", StringComparison.Ordinal)
+            && !seqCapped.Contains("HcSeqQuestCharlie", StringComparison.Ordinal), seqCapped);
+        var seqUncapped = SeqTools.Render(seqOutcome);
+        Check("write_seq text render: without a cap every quest row is listed (the notice is not a permanent cut)",
+            seqUncapped.Contains("HcSeqQuestCharlie", StringComparison.Ordinal)
+            && !seqUncapped.Contains("[truncated:", StringComparison.Ordinal), seqUncapped);
+
         // write_seq: the ABSENT epoch is a stated fact with its reason, not a dropped field.
         var seqJson = SeqTools.WriteSeq(fx.Svc, source: fx.MasterName, format: "json");
         Check("write_seq format=json: epoch is explicitly null AND carries why (no build is consulted at all)",

@@ -233,8 +233,10 @@ public static class ApplyTools
                         + string.Join("\n  - ", problems));
 
         var outcome = svc.ApplyEdits(wire, patchName ?? "Patch", into, readback, in_place, hasInPlace, acknowledge, dry_run, fromRecords, origins);
+        // The lane the CALL named — stated, not derived from the outcome's flags, which are at their defaults on a
+        // refusal and on the consent prompt (PR #311 review [medium]).
         return json
-            ? JsonWire.RenderPatchOutcome(outcome, max_chars, readback)
+            ? JsonWire.RenderPatchOutcome(outcome, max_chars, readback, hasInPlace ? "in_place" : hasInto ? "extend" : "patch")
             : WriteTools.Render(outcome, max_chars, readback);
     });
 

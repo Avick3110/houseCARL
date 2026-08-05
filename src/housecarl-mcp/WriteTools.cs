@@ -699,7 +699,7 @@ public static class WriteTools
 
     /// <summary>Confirmation for housecarl_remove_record: what was dropped, the patch's now-lean masters, and how many
     /// records remain (0 ⇒ inert). On refusal, the named reason (Q3) so the caller can fix and retry.</summary>
-    internal static string RenderRemoval(WritePatchBuilder.RemovalOutcome o)   // internal: housecarl_remove renders the same outcome
+    internal static string RenderRemoval(WritePatchBuilder.RemovalOutcome o, int maxChars = 0)   // internal: housecarl_remove renders the same outcome
     {
         if (o.NeedsAcknowledge) return o.Error! + Epoch(o);  // the first-touch in-place CONSENT prompt — a required confirmation, NOT an error (Q3)
         if (!o.Success) return "error: " + o.Error + Epoch(o);
@@ -719,9 +719,26 @@ public static class WriteTools
               .Append(o.RemainingRecords).Append(o.RemainingRecords == 1 ? " record remains)\n" : " records remain)\n");
             sb.Append("mod folder: ").Append(modFolder).Append('\n');
         }
-        foreach (var r in o.Removed)
+        // Budgeted like every other write render (PR #311 review [medium]): removal is SET-VALUED now, so the
+        // unbounded case — a few hundred dropped overrides — is the expected one, not an edge, and max_chars=
+        // promises "past it trailing rows are dropped with an explicit notice (never silent)". Without this the
+        // rows all rendered and the HOST cut the oversized response out-of-band: exactly the silent cut the
+        // parameter's own description says never happens. The masters line and the closing guidance below are
+        // outside the budget deliberately — they are the accounting a truncated report still needs.
+        int cap = maxChars > 0 ? maxChars : Wire.DefaultMaxChars;
+        for (int i = 0; i < o.Removed.Count; i++)
+        {
+            if (sb.Length >= cap)
+            {
+                sb.Append("  ... [truncated: ").Append(i).Append(" of ").Append(o.Removed.Count)
+                  .Append(" removed record(s) listed at max_chars=").Append(cap)
+                  .Append("; every one WAS removed — raise max_chars to see the rest]\n");
+                break;
+            }
+            var r = o.Removed[i];
             sb.Append("  - ").Append(r.RecordType).Append(' ').Append(r.Target).Append("  ")
               .Append(r.EditorId ?? "<no editorid>").Append('\n');
+        }
         sb.Append("masters: ").Append(o.Masters.Count == 0 ? "(none)" : string.Join(", ", o.Masters)).Append('\n');
         if (o.Note is { } note) sb.Append("note: ").Append(note).Append('\n');
         if (o.InPlace)

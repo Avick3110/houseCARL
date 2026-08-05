@@ -101,8 +101,9 @@ public static class RemoveTools
         // LANE-as-name maps onto the 1.x service contract: into= IS the patch lane's artifact, in_place= the
         // target+bool pair (§5.2). The service's own exclusivity checks stay as the second line of defence.
         var outcome = svc.RemoveRecords(targets, hasInto ? into : null, in_place, hasInPlace, acknowledge);
+        // The lane the CALL named — stated, not derived from the outcome's flags (PR #311 review [medium]).
         return json
-            ? JsonWire.RenderRemovalOutcome(outcome, max_chars)
-            : WriteTools.RenderRemoval(outcome);
+            ? JsonWire.RenderRemovalOutcome(outcome, max_chars, hasInPlace ? "in_place" : "into")
+            : WriteTools.RenderRemoval(outcome, max_chars);
     });
 }

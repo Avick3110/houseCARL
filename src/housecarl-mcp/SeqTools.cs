@@ -66,10 +66,10 @@ public static class SeqTools
         var o = svc.WriteSeq(source, patch, into);
         if (json) return JsonWire.RenderSeqOutcome(o, max_chars);
         if (!o.Success) return "error: " + o.Error;
-        return Render(o);
+        return Render(o, max_chars);
     });
 
-    internal static string Render(SeqOutcome o)
+    internal static string Render(SeqOutcome o, int maxChars = 0)
     {
         // No SGE quests → a clean, explicit no-op (Q3: never a silent empty .seq, never a misleading "done").
         if (o.Quests.Count == 0)
@@ -81,9 +81,25 @@ public static class SeqTools
         var seqName = Path.GetFileName(o.SeqPath);
         sb.Append("wrote ").Append(seqName).Append(": ").Append(o.Quests.Count)
           .Append(o.Quests.Count == 1 ? " start-game-enabled quest" : " start-game-enabled quests").Append('\n');
-        foreach (var q in o.Quests)
+        // Budgeted like the sibling write renders (PR #311 review [low-medium]): max_chars= promises "past it
+        // trailing quest rows are dropped with an explicit notice (never silent)", and a plugin with hundreds of
+        // start-game-enabled quests would otherwise render every row and let the HOST cut the response with no
+        // in-band signal. The path/next-step lines below stay outside the budget — a truncated list still needs
+        // to say where the file landed.
+        int cap = maxChars > 0 ? maxChars : Wire.DefaultMaxChars;
+        for (int i = 0; i < o.Quests.Count; i++)
+        {
+            if (sb.Length >= cap)
+            {
+                sb.Append("  ... [truncated: ").Append(i).Append(" of ").Append(o.Quests.Count)
+                  .Append(" quest(s) listed at max_chars=").Append(cap)
+                  .Append("; the .seq itself carries ALL of them — raise max_chars to see the rest]\n");
+                break;
+            }
+            var q = o.Quests[i];
             sb.Append("  ").Append(q.EditorId is { Length: > 0 } e ? e : "(no EditorID)")
               .Append("  →  0x").AppendFormat("{0:X8}", q.OnDiskFormId).Append('\n');
+        }
         // WHICH copy of the source was read (§4.2 — the arm is always stated): a filename can be provided by more
         // than one layer, and the quests came from exactly one of them.
         if (o.ResolvedFrom is { Length: > 0 })

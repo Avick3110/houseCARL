@@ -1490,13 +1490,19 @@ static class JsonWire
     // ---- housecarl_apply (W3 — the 2.0 write surface) -----------------------------------------------
     /// <summary>The machine-readable twin of <see cref="WriteTools.Render"/>: ONE write outcome, the SAME data the
     /// text render states (decision D2 — one write path, two renders). Everything the text lane treats as prose is a
-    /// typed field here: the lane taken, whether it was a dry run, the epoch of the build the winners resolved from,
+    /// typed field here: the lane the CALL NAMED (see below), whether it was a dry run, the epoch of the build the winners resolved from,
     /// per-op results, and the read-back. A REFUSAL is a document too (<c>ok:false</c> with the reason), not an empty
     /// body — a json caller must never have to parse "error: …" out of a string to learn the call failed. The
     /// first-touch in-place CONSENT prompt is its own flag: it is a required confirmation, not a failure (Q3).
     /// Budget handling matches every other json render — trailing ROWS drop and <c>truncated</c> says so, so the
-    /// document is always valid JSON rather than a string cut mid-token.</summary>
-    public static string RenderPatchOutcome(WritePatchBuilder.PatchOutcome o, int maxChars, bool readback)
+    /// document is always valid JSON rather than a string cut mid-token.
+    /// <para><b><paramref name="lane"/> is passed in, not derived from the outcome</b> (PR #311 review [medium]).
+    /// <c>Fail</c> and <c>NeedsAck</c> construct their outcome with <c>InPlace</c>/<c>Extended</c> at their
+    /// defaults, so deriving the lane from those flags reported <c>"patch"</c> for a refusal on an <c>into=</c>
+    /// call and — worse — for the first-touch in-place CONSENT PROMPT, a response that exists ONLY because the
+    /// caller asked to rewrite their own file. The tool layer knows which lane the call named; it says so, and the
+    /// value agrees with the outcome's flags on every success.</para></summary>
+    public static string RenderPatchOutcome(WritePatchBuilder.PatchOutcome o, int maxChars, bool readback, string lane)
     {
         int cap = Cap(maxChars);
         using var ms = new MemoryStream();
@@ -1506,7 +1512,7 @@ static class JsonWire
             w.WriteBoolean("ok", o.Success);
             w.WriteBoolean("needs_acknowledge", o.NeedsAcknowledge);
             w.WriteBoolean("dry_run", o.DryRun);
-            w.WriteString("lane", o.InPlace ? "in_place" : o.Extended ? "extend" : "patch");
+            w.WriteString("lane", lane);
             WriteNullable(w, "epoch", o.Epoch);
             if (!o.Success)
             {
@@ -1601,7 +1607,7 @@ static class JsonWire
     /// <para>The three post-write REPORTS ride as data, not prose: a silent line, an inert result script and an empty
     /// cell are the Q3 hazards the text render shouts about, and a json consumer that could not see them would be
     /// exactly the silently-degraded mode this project refuses.</para></summary>
-    public static string RenderCreateOutcome(WritePatchBuilder.CreateOutcome o, int maxChars, bool readback)
+    public static string RenderCreateOutcome(WritePatchBuilder.CreateOutcome o, int maxChars, bool readback, string lane)
     {
         int cap = Cap(maxChars);
         using var ms = new MemoryStream();
@@ -1610,7 +1616,7 @@ static class JsonWire
             w.WriteStartObject();
             w.WriteBoolean("ok", o.Success);
             w.WriteBoolean("needs_acknowledge", o.NeedsAcknowledge);
-            w.WriteString("lane", o.InPlace ? "in_place" : o.Extended ? "extend" : "patch");
+            w.WriteString("lane", lane);
             WriteNullable(w, "epoch", o.Epoch);
             if (!o.Success)
             {
@@ -1764,7 +1770,7 @@ static class JsonWire
     /// on <see cref="RenderPatchOutcome"/>'s contract: a refusal is a document, the consent prompt is its own flag,
     /// the epoch rides on every response. <c>remaining_records:0</c> is the "this file is now an inert shell" fact
     /// the text render spells out in a sentence.</summary>
-    public static string RenderRemovalOutcome(WritePatchBuilder.RemovalOutcome o, int maxChars)
+    public static string RenderRemovalOutcome(WritePatchBuilder.RemovalOutcome o, int maxChars, string lane)
     {
         int cap = Cap(maxChars);
         using var ms = new MemoryStream();
@@ -1773,7 +1779,7 @@ static class JsonWire
             w.WriteStartObject();
             w.WriteBoolean("ok", o.Success);
             w.WriteBoolean("needs_acknowledge", o.NeedsAcknowledge);
-            w.WriteString("lane", o.InPlace ? "in_place" : "into");
+            w.WriteString("lane", lane);
             WriteNullable(w, "epoch", o.Epoch);
             if (!o.Success)
             {
@@ -1821,7 +1827,7 @@ static class JsonWire
     /// flags here: <c>replaced_existing</c> (an override this artifact already carried is GONE) and
     /// <c>was_already_winner</c> (the forward re-asserts content that already wins — a no-op in effect, reported
     /// rather than silent).</summary>
-    public static string RenderForwardOutcome(WritePatchBuilder.ForwardOutcome o, int maxChars, bool readback)
+    public static string RenderForwardOutcome(WritePatchBuilder.ForwardOutcome o, int maxChars, bool readback, string lane)
     {
         int cap = Cap(maxChars);
         using var ms = new MemoryStream();
@@ -1831,7 +1837,7 @@ static class JsonWire
             w.WriteBoolean("ok", o.Success);
             w.WriteBoolean("needs_acknowledge", o.NeedsAcknowledge);
             w.WriteBoolean("dry_run", o.DryRun);
-            w.WriteString("lane", o.InPlace ? "in_place" : o.Extended ? "extend" : "patch");
+            w.WriteString("lane", lane);
             WriteNullable(w, "epoch", o.Epoch);
             if (!o.Success)
             {

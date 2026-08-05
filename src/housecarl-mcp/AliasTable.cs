@@ -54,7 +54,19 @@ internal static class AliasTable
         new("plugin",  new[] { "source", "plugins", "pluginname", "pluginnames" },
             ExceptTools: new[] { ("housecarl_place_asset", "source") }),
         new("plugins", new[] { "plugin", "pluginname", "pluginnames" }),
-        new("pluginname",  new[] { "patch", "plugins", "plugin", "pluginnames" }),   // §5.3 — create_plugin's plugin_name → patch; today's guess-miss → plugins (#221 J3) or the bare-plugin tools
+        // §5.3 — create_plugin's plugin_name → patch; today's guess-miss → plugins (#221 J3) or the bare-plugin
+        // tools. `source` joins the list, and `patch` is suppressed on write_seq (PR #311 review [low]): once
+        // write_seq declared source= AND patch=, the most likely 1.x spelling for THE PLUGIN on that tool became
+        // the one word that could not reach the plugin pole — plugin_name= silently became the OUTPUT FOLDER's
+        // name, so the .seq landed in a fresh folder called "MyQuestMod.esp" instead of the plugin's own houseCARL
+        // folder, with nothing saying a rename happened. place_asset carries the same exception the sibling
+        // plugin-naming rows do: its source= is a file-path operand, not the version pole.
+        // `source` goes LAST, not ahead of `plugins`: on a tool declaring BOTH a scope word and a pole (records),
+        // the 1.x guess-miss stays where W0 put it (#221 J3 — plugin_name -> plugins), and the pole is the
+        // fallback for a tool that has no scope word at all. Which is exactly write_seq, once `patch` is
+        // suppressed there.
+        new("pluginname",  new[] { "patch", "plugins", "plugin", "pluginnames", "source" },
+            ExceptTools: new[] { ("housecarl_write_seq", "patch"), ("housecarl_place_asset", "source") }),
         new("pluginnames", new[] { "plugins", "plugin", "pluginname" }),
         // Reverse: the new pole spelling on not-yet-renamed tools (read tools' plugin=, the NIF tools'
         // mod=). nexus_mod excepted (census catch): its mod= is a Nexus mod ID, not the S2/S3 provider
