@@ -89,6 +89,12 @@ public static class CiAll
         // exclusive destinations, in_place as the overwritten file's NAME, the consent handshake), the §4.5
         // bundle x assignments cross-record copy zip, CopyFrom on the in-place lane, and json/epoch TRANSPORT.
         ("apply-guard", ApplyGuardProbe.RunGuard),
+        // W3 PR 2 — the REST of the 2.0 S1 write surface (create / remove / forward / the migrated write_seq):
+        // the records grammar incl. the nested one-shot and the strict reader's corrections, the LANE grammar on
+        // every tool (removal creates no artifact, so it refuses a call naming no lane), removal's recovered
+        // plural capability, forward's renamed source= pole, and json/epoch TRANSPORT — including write_seq's
+        // ABSENT epoch, stated as a fact with its reason.
+        ("write-surface-guard", WriteSurfaceGuardProbe.RunGuard),
         ("writelock-guard", WriteLockProbe.RunGuard),
         // #225 dry_run= on the write tools — the real pipeline HALTED before serialize, nothing written: refusal
         // parity with the real call, prediction parity (path/After/masters), the pre-empted missing-master failure,
