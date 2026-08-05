@@ -525,7 +525,7 @@ public static class WriteTools
 
     /// <summary>Compact, parseable confirmation (rulebook: short mutation confirmation + the IDs needed for follow-up).
     /// On refusal, the full reason (every malformed/rejected op) so the caller can fix and retry.</summary>
-    internal static string Render(WritePatchBuilder.PatchOutcome o, int maxChars = 0, bool fullDump = false)   // internal: the compact-readback guard renders one outcome three ways
+    internal static string Render(WritePatchBuilder.PatchOutcome o, int maxChars = 0, bool fullDump = false, bool laneAsName = false)   // internal: the compact-readback guard renders one outcome three ways
     {
         if (o.NeedsAcknowledge) return o.Error! + Epoch(o);  // the first-touch in-place CONSENT prompt — a required confirmation, NOT an error (Q3)
         if (!o.Success) return "error: " + o.Error + Epoch(o);
@@ -569,7 +569,7 @@ public static class WriteTools
         }
         if (o.Note is { } note) sb.Append("note: ").Append(note).Append('\n');
         sb.Append(o.InPlace
-            ? $"to make more in-place edits to this plugin, pass target=\"{file}\" in_place=true (no further confirmation needed for it)."
+            ? InPlaceAgainHint("to make more in-place edits to this plugin", file, laneAsName)
             : $"to add more edits to THIS patch, pass into=\"{file}\".");
         sb.Append(Epoch(o));
         return sb.ToString();
@@ -588,6 +588,19 @@ public static class WriteTools
     static string Epoch(WritePatchBuilder.CreateOutcome o) => o.Epoch is null ? "" : $"\nepoch={o.Epoch}";
     static string Epoch(WritePatchBuilder.RemovalOutcome o) => o.Epoch is null ? "" : $"\nepoch={o.Epoch}";
     static string Epoch(WritePatchBuilder.ForwardOutcome o) => o.Epoch is null ? "" : $"\nepoch={o.Epoch}";
+
+    /// <summary>The "how to keep going on this plugin" line for a completed IN-PLACE write. The spelling differs
+    /// by surface and MUST match what the CALLING tool declares (PR #311 round-2 review [medium]): the 1.x tools
+    /// take the <c>target=</c> + <c>in_place=true</c> PAIR, while the 2.0 tools (apply / create / remove /
+    /// forward) declare a single STRING <c>in_place="X.esp"</c> and no <c>target=</c> at all — so the old text
+    /// told a 2.0 caller to send an undeclared parameter plus a BOOLEAN into a string parameter, which fails to
+    /// bind or goes looking for a plugin named "true". Same rule the locate contract's <c>offerModParam</c>
+    /// encodes on the refusal side, now applied to the success path: a response must never send someone to a
+    /// parameter their tool does not expose.</summary>
+    static string InPlaceAgainHint(string verb, string file, bool laneAsName) =>
+        laneAsName
+            ? $"{verb}, pass in_place=\"{file}\" again (no further confirmation needed for it)."
+            : $"{verb}, pass target=\"{file}\" in_place=true (no further confirmation needed for it).";
 
     /// <summary>#225 — the dry_run=true confirmation: the SAME pipeline ran (winner resolve, pre-flight, every verb
     /// applied in memory, the reference-resolution check) and stopped AT the point of no return, so this reports what
@@ -699,7 +712,7 @@ public static class WriteTools
 
     /// <summary>Confirmation for housecarl_remove_record: what was dropped, the patch's now-lean masters, and how many
     /// records remain (0 ⇒ inert). On refusal, the named reason (Q3) so the caller can fix and retry.</summary>
-    internal static string RenderRemoval(WritePatchBuilder.RemovalOutcome o, int maxChars = 0)   // internal: housecarl_remove renders the same outcome
+    internal static string RenderRemoval(WritePatchBuilder.RemovalOutcome o, int maxChars = 0, bool laneAsName = false)   // internal: housecarl_remove renders the same outcome
     {
         if (o.NeedsAcknowledge) return o.Error! + Epoch(o);  // the first-touch in-place CONSENT prompt — a required confirmation, NOT an error (Q3)
         if (!o.Success) return "error: " + o.Error + Epoch(o);
@@ -744,7 +757,7 @@ public static class WriteTools
         if (o.InPlace)
             sb.Append(o.RemainingRecords == 0
                 ? "this plugin now carries no records — it's an inert shell; disable or delete the mod in MO2 if you don't need it."
-                : $"to remove more records from this plugin in place, pass target=\"{file}\" in_place=true (no further confirmation needed for it).");
+                : InPlaceAgainHint("to remove more records from this plugin in place", file, laneAsName));
         else
             sb.Append(o.RemainingRecords == 0
                 ? "this patch now carries no records — it's inert; disable or delete the mod folder in MO2 if you don't need it."
@@ -757,7 +770,7 @@ public static class WriteTools
     /// source it was copied FROM, and the current winner it out-ranks once enabled — with a redundant-forward NOTE when
     /// the copied version was already winning (Q3 — never silently a no-op). On refusal, the named reason so the caller
     /// can fix and retry. Optional full read-back rides along (the pre-enable verify that the copy is the source's).</summary>
-    internal static string RenderForward(WritePatchBuilder.ForwardOutcome o, int maxChars = 0)   // internal: the dry-run guard asserts the would-be phrasing
+    internal static string RenderForward(WritePatchBuilder.ForwardOutcome o, int maxChars = 0, bool laneAsName = false)   // internal: the dry-run guard asserts the would-be phrasing
     {
         if (o.NeedsAcknowledge) return o.Error! + Epoch(o);  // the first-touch in-place CONSENT prompt — a required confirmation, NOT an error (Q3)
         if (!o.Success) return "error: " + o.Error + Epoch(o);
@@ -813,7 +826,7 @@ public static class WriteTools
             ? "every record resolved from its source; to forward for real, repeat the call without dry_run. " +
               "(A real write can still fail at serialize/commit — disk faults surface only there.)"
             : o.InPlace
-                ? $"to forward more into this plugin, pass target=\"{file}\" in_place=true (no further confirmation needed for it)."
+                ? InPlaceAgainHint("to forward more into this plugin", file, laneAsName)
                 : $"to forward more into THIS patch (incl. from a different source plugin), pass into=\"{file}\".");
         sb.Append(Epoch(o));
         return sb.ToString();
@@ -1045,7 +1058,7 @@ public static class WriteTools
     /// <summary>Confirmation for housecarl_create_record: the new record's ALLOCATED FormID + editorid + type (the FormID
     /// is the key output — the caller references the new record by it), the patch path + its (derived) masters, and the
     /// fields applied. On refusal, the named reason (Q3) so the caller can fix and retry.</summary>
-    internal static string RenderCreate(WritePatchBuilder.CreateOutcome o, int maxChars = 0, bool fullDump = false)   // internal: housecarl_create renders the same outcome
+    internal static string RenderCreate(WritePatchBuilder.CreateOutcome o, int maxChars = 0, bool fullDump = false, bool laneAsName = false)   // internal: housecarl_create renders the same outcome
     {
         if (o.NeedsAcknowledge) return o.Error! + Epoch(o);  // the first-touch in-place CONSENT prompt — a required confirmation, NOT an error (Q3)
         if (!o.Success) return "error: " + o.Error + Epoch(o);
@@ -1092,7 +1105,7 @@ public static class WriteTools
         if (o.Note is { } note) sb.Append("note: ").Append(note).Append('\n');
         sb.Append("the new FormID above is how you reference this record (SkyPatcher/SPID, or a follow-up edit). ");
         sb.Append(o.InPlace
-            ? $"To create more records in this plugin, pass target=\"{file}\" in_place=true (no further confirmation needed for it)."
+            ? InPlaceAgainHint("To create more records in this plugin", file, laneAsName)
             : $"To add more to THIS patch, pass into=\"{file}\".");
         sb.Append(Epoch(o));
         return sb.ToString();

@@ -344,6 +344,14 @@ public static class WriteSurfaceGuardProbe
         Check("create in place: acknowledge=true writes into the ORIGINAL file, reported as the in-place lane",
             wrote.Contains("IN PLACE", StringComparison.Ordinal)
             && EditorIdsIn(Path.Combine(fx.ModsDir, "W2Repl", fx.ReplacerName)).Contains("W2InPlaceKw"), wrote);
+
+        // The closing "keep going" line must teach THIS tool's spelling (PR #311 round-2 review [medium]): the 2.0
+        // tools declare a single string in_place= and no target=, so the 1.x pair would send a caller to an
+        // undeclared parameter plus a boolean-into-a-string. Asserted as a positive AND a negative — the positive
+        // alone would still pass if the old sentence were merely appended.
+        Check("the in-place follow-up hint teaches in_place=\"X.esp\", never the 1.x target= + in_place=true pair",
+            wrote.Contains($"pass in_place=\"{fx.ReplacerName}\" again", StringComparison.Ordinal)
+            && !wrote.Contains("target=", StringComparison.Ordinal), wrote);
     }
 
     // ================= ARM 3 — remove, plural =================
@@ -520,6 +528,47 @@ public static class WriteSurfaceGuardProbe
             in_place: "NotAPlugin.esp", format: "json");
         Check("json lane on a service-side in-place refusal says in_place too",
             TryJson(laneInPlace, out var lidoc) && lidoc!.RootElement.GetProperty("lane").GetString() == "in_place", laneInPlace);
+
+        // ONE lane vocabulary across all four tools (PR #311 round-2 review [low]): the value NAMES the parameter
+        // that selected the lane, so an into= call answers "into" everywhere — a json client that learned the
+        // words from apply must not fall into its unknown branch on remove (or the reverse, as it did when apply
+        // said "extend" and remove said "into" for the same lane).
+        var laneCreateInto = CreateTools.Create(fx.Svc, records: Json("""[{"record_type":"Keyword","editorid":"W2LaneKw3"}]"""),
+            into: "NoSuchPatch3.esp", format: "json");
+        var laneFwdInto = ForwardTools.Forward(fx.Svc, formids: new[] { fx.SubjectFid }, source: fx.MasterName,
+            into: "NoSuchPatch3.esp", format: "json");
+        Check("the into= lane is spelled the same on create / forward / remove — the parameter's own name",
+            TryJson(laneCreateInto, out var lcdoc) && lcdoc!.RootElement.GetProperty("lane").GetString() == "into"
+            && TryJson(laneFwdInto, out var lfdoc) && lfdoc!.RootElement.GetProperty("lane").GetString() == "into",
+            laneCreateInto + " || " + laneFwdInto);
+
+        // The three post-write REPORTS are inside the json budget (PR #311 round-2 review [low-medium]). Rendered
+        // DIRECTLY off a synthetic outcome rather than through a create call: a report big enough to blow a
+        // ceiling means dozens of voiced lines, and building those in the fixture would pin the budget behind a
+        // pile of unrelated dialogue plumbing. The claim under test is the RENDERER's — the reports were outside
+        // the cap and the document still closed with truncated:false.
+        var voiced = Enumerable.Range(0, 40).Select(i => new VoiceLine(
+            default, "W2VoiceTopic", i,
+            $@"sound\voice\W2.esp\MaleNord\W2VoiceTopic_{i:D4}.fuz", false, null, false,
+            $@"sound\voice\W2.esp\MaleNord\W2VoiceTopic_{i:D4}.lip", false,
+            false)).ToList();
+        var synthetic = new WritePatchBuilder.CreateOutcome(
+            true, null, @"C:\mods\W2Rep\W2Rep.esp", false,
+            new[] { new WritePatchBuilder.CreatedRecord(default, "DialogResponses", "W2RepL1", Array.Empty<WritePatchBuilder.OpResult>()) },
+            Array.Empty<string>(), 512)
+            { Epoch = "deadbeefdeadbeef", Voice = new VoiceReport(voiced, Array.Empty<VoiceUndetermined>()) };
+
+        var reportFull = JsonWire.RenderCreateOutcome(synthetic, 0, false, "patch");
+        Check("json create: the voice-coverage report is emitted in full when the budget allows (truncated:false)",
+            TryJson(reportFull, out var rfdoc)
+            && rfdoc!.RootElement.GetProperty("voice_coverage").GetProperty("lines").GetArrayLength() == 40
+            && !rfdoc.RootElement.GetProperty("truncated").GetBoolean(), reportFull);
+
+        var reportCapped = JsonWire.RenderCreateOutcome(synthetic, 1200, false, "patch");
+        Check("json create: a ceiling the REPORTS blow past is reported as truncated:true, with the rows dropped",
+            TryJson(reportCapped, out var rcdoc)
+            && rcdoc!.RootElement.GetProperty("truncated").GetBoolean()
+            && rcdoc.RootElement.GetProperty("voice_coverage").GetProperty("lines").GetArrayLength() < 40, reportCapped);
 
         // max_chars reaches the TEXT render too, not only json (PR #311 review [medium] / [low-medium]): the
         // parameter's own description promises trailing rows drop with an explicit notice, and removal is

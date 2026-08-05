@@ -181,8 +181,8 @@ public static class CreateTools
         var outcome = svc.CreateRecordsBatch(wire, patchName, into, readback, in_place, hasInPlace, acknowledge, origins);
         // The lane the CALL named — stated, not derived from the outcome's flags (PR #311 review [medium]).
         return json
-            ? JsonWire.RenderCreateOutcome(outcome, max_chars, readback, hasInPlace ? "in_place" : hasInto ? "extend" : "patch")
-            : WriteTools.RenderCreate(outcome, max_chars, readback);
+            ? JsonWire.RenderCreateOutcome(outcome, max_chars, readback, hasInPlace ? "in_place" : hasInto ? "into" : "patch")
+            : WriteTools.RenderCreate(outcome, max_chars, readback, laneAsName: true);
     });
 }
 

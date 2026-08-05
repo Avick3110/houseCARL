@@ -33,7 +33,10 @@ back* — now covers authoring, removal and whole-record overrides.
 
 All three take the one lane spelling (`patch=` | `into=` | `in_place="X.esp"` + `acknowledge=`, mutually
 exclusive and **refused by name** when two are given), `format="json"`, `max_chars=`, and the `epoch=` stamp —
-**including the first-touch in-place consent prompt**, which previously carried none on these lanes. The 1.x
+**including the first-touch in-place consent prompt**, which previously carried none on these lanes. In
+`format="json"` the `lane` field names **the parameter the call used** — `"patch" | "into" | "in_place"`, the
+same three words on every write tool (`housecarl_apply` reported the `into=` lane as `"extend"`; it now says
+`"into"` like its siblings), and it is correct on refusals and the consent prompt too, not only on success. The 1.x
 tools are unchanged and stay registered through the build waves; from 2.0.0's clean cut a call naming one
 answers with its successor spelling.
 

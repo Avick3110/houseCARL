@@ -61,15 +61,24 @@ public static class CodexUmbrellaCoverageProbe
 
             // The coverage check matches on an IDENTIFIER BOUNDARY, not a bare substring. It has to: the 2.0
             // surface renames tools onto prefixes of the 1.x names they absorb (housecarl_create ⊂
-            // housecarl_create_record, and the same for remove/forward), which is exactly the case the old
-            // GUARD-SELF arm predicted and told a future session to fix with "a boundary match or rename" —
-            // renaming is not available, the names are the SPEC's. The teeth move to a RED arm below.
+            // housecarl_create_record, and the same for remove/forward), which the old Contains match would
+            // false-pass. GUARD-SELF is now the EXECUTABLE form of that claim rather than a restated assumption
+            // (PR #311 round-2 review [low]: the first version computed the colliding pairs and then asserted the
+            // literal `true`, which vouched for nothing): for EVERY pair where one required name is a substring of
+            // another — prefix, suffix or infix — a text mentioning ONLY the longer one must NOT satisfy the
+            // shorter one. That is the exact false-pass the matcher exists to prevent, checked against the real
+            // name set rather than against the shape of collision we happened to think of.
             var required = tools.Concat(skills).ToList();
-            var prefixPairs = required
-                .Where(a => required.Any(b => b != a && b.StartsWith(a, StringComparison.Ordinal)))
-                .OrderBy(a => a, StringComparer.Ordinal).ToList();
-            Check($"GUARD-SELF prefix-named tools exist ({prefixPairs.Count}) and the matcher is boundary-aware, not Contains",
-                true, new());
+            var collisions = (from shortName in required
+                              from longName in required
+                              where longName != shortName && longName.Contains(shortName, StringComparison.Ordinal)
+                              select (shortName, longName)).ToList();
+            var falsePasses = collisions
+                .Where(c => ReferencedAtBoundary($"- `{c.longName}` mentioned alone", c.shortName))
+                .Select(c => $"'{c.shortName}' is satisfied by a text that only mentions '{c.longName}' — the boundary matcher cannot tell them apart")
+                .OrderBy(m => m, StringComparer.Ordinal).ToList();
+            Check($"GUARD-SELF the boundary matcher tells apart every colliding name pair ({collisions.Count} pairs on this surface)",
+                falsePasses.Count == 0, falsePasses);
 
             // INV1 — every tool referenced.
             var missTools = MissingRefs(umbrella, tools, Allow);
@@ -98,6 +107,16 @@ public static class CodexUmbrellaCoverageProbe
             // …and the same matcher must NOT report a name the router really does mention in backticks.
             var greenPrefix = MissingRefs("- `housecarl_create` — the 2.0 tool", new[] { "housecarl_create" }, Empty());
             Check("PREFIX-GREEN a genuinely referenced name is not reported missing", greenPrefix.Count == 0, greenPrefix, redArm: true);
+
+            // SUFFIX-RED — the other half of the boundary, on a SYNTHETIC pair. GUARD-SELF above is an invariant
+            // over the REAL name set, and today that set collides only by prefix, so it cannot prove the leading
+            // check has teeth until the day such a pair actually lands — which is one day too late. This arm names
+            // the reviewer's own scenario (PR #311 round-2 [low]): a future skill slug `record-jobs` alongside the
+            // existing `bulk-record-jobs`, with the router mentioning only the latter. Trailing-side-only matching
+            // reports the shorter one as ROUTED when it is not.
+            var redSuffix = MissingRefs("- `bulk-record-jobs` (catalogues, audits, link graphs)", new[] { "record-jobs" }, Empty());
+            Check("SUFFIX-RED a name mentioned only as another name's SUFFIX is still reported missing",
+                redSuffix.Contains("record-jobs"), redSuffix, redArm: true);
 
             // The allow-list must actually suppress — else an Allow entry would be a lie.
             var allowed = MissingRefs("router text that mentions no tools", new[] { "housecarl_read_record" },
@@ -148,19 +167,27 @@ public static class CodexUmbrellaCoverageProbe
         => required.Where(r => !allow.Contains(r) && !ReferencedAtBoundary(umbrella, r))
                    .OrderBy(r => r, StringComparer.Ordinal).ToList();
 
-    /// <summary>Does the text mention <paramref name="name"/> as a whole identifier (not as another name's prefix)?</summary>
+    /// <summary>Does the text mention <paramref name="name"/> as a whole identifier — not as part of a LONGER
+    /// required name? Both sides are checked (PR #311 round-2 review [low]: checking only the trailing side let a
+    /// suffix collision through — a future skill slug `record-jobs` would have been reported as routed by a router
+    /// that mentions only `bulk-record-jobs`). The identifier alphabet includes <c>-</c>, because skill slugs are
+    /// kebab-case: without it the hyphen in `bulk-record-jobs` would read as a word boundary and re-open exactly
+    /// that hole.</summary>
     static bool ReferencedAtBoundary(string text, string name)
     {
         for (int i = text.IndexOf(name, StringComparison.Ordinal); i >= 0;
              i = text.IndexOf(name, i + 1, StringComparison.Ordinal))
         {
+            if (i > 0 && IsNamePart(text[i - 1])) continue;
             int after = i + name.Length;
-            if (after >= text.Length) return true;
-            char c = text[after];
-            if (!(char.IsLetterOrDigit(c) || c == '_')) return true;
+            if (after >= text.Length || !IsNamePart(text[after])) return true;
         }
         return false;
     }
+
+    /// <summary>The identifier alphabet these names are written in: tool names are snake_case, skill slugs are
+    /// kebab-case, so a letter, digit, <c>_</c> or <c>-</c> continues a name rather than ending it.</summary>
+    static bool IsNamePart(char c) => char.IsLetterOrDigit(c) || c == '_' || c == '-';
 
     static void Check(string label, bool ok, List<string> detail, bool redArm = false)
     {

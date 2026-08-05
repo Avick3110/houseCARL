@@ -124,7 +124,7 @@ public static class ForwardTools
         var outcome = svc.ForwardRecords(targets, source.Trim(), patchName, into, readback, in_place, hasInPlace, acknowledge, dry_run);
         // The lane the CALL named — stated, not derived from the outcome's flags (PR #311 review [medium]).
         return json
-            ? JsonWire.RenderForwardOutcome(outcome, max_chars, readback, hasInPlace ? "in_place" : hasInto ? "extend" : "patch")
-            : WriteTools.RenderForward(outcome, max_chars);
+            ? JsonWire.RenderForwardOutcome(outcome, max_chars, readback, hasInPlace ? "in_place" : hasInto ? "into" : "patch")
+            : WriteTools.RenderForward(outcome, max_chars, laneAsName: true);
     });
 }
