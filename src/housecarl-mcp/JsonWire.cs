@@ -1569,7 +1569,15 @@ static class JsonWire
                 // The read-back is the WRITTEN FILE's content, not load-order truth — stated as data (`source`) so a
                 // json consumer cannot lose the distinction the text render spells out in a sentence.
                 w.WriteString("readback_source", o.DryRun ? "in_memory_would_be_content" : "written_file");
-                w.WriteBoolean("readback_full", readback);
+                // Two DIFFERENT facts, told apart (PR #311 review 7 [nit]). `readback_full` describes THIS
+                // DOCUMENT: the json renders emit every field of every read-back row, so a present read-back
+                // is always the full one. It used to carry the caller's ASK, which the in-place lanes override
+                // (the service forces fullReadback), so `false` sat next to a complete field dump and a
+                // consumer branching on "are these fields complete?" got the opposite of the truth.
+                // `readback_requested` keeps the ask, which is what answers "why did I get one I did not ask
+                // for?" — the in-place lane forced it.
+                w.WriteBoolean("readback_full", true);
+                w.WriteBoolean("readback_requested", readback);
                 w.WriteStartArray("readback");
                 foreach (var r in rb)
                 {
@@ -1687,7 +1695,15 @@ static class JsonWire
             if (o.ReadBack is { } rb)
             {
                 w.WriteString("readback_source", "written_file");
-                w.WriteBoolean("readback_full", readback);
+                // Two DIFFERENT facts, told apart (PR #311 review 7 [nit]). `readback_full` describes THIS
+                // DOCUMENT: the json renders emit every field of every read-back row, so a present read-back
+                // is always the full one. It used to carry the caller's ASK, which the in-place lanes override
+                // (the service forces fullReadback), so `false` sat next to a complete field dump and a
+                // consumer branching on "are these fields complete?" got the opposite of the truth.
+                // `readback_requested` keeps the ask, which is what answers "why did I get one I did not ask
+                // for?" — the in-place lane forced it.
+                w.WriteBoolean("readback_full", true);
+                w.WriteBoolean("readback_requested", readback);
                 w.WriteStartArray("readback");
                 foreach (var r in rb)
                 {
@@ -1910,7 +1926,15 @@ static class JsonWire
             if (o.ReadBack is { } rb)
             {
                 w.WriteString("readback_source", o.DryRun ? "in_memory_would_be_content" : "written_file");
-                w.WriteBoolean("readback_full", readback);
+                // Two DIFFERENT facts, told apart (PR #311 review 7 [nit]). `readback_full` describes THIS
+                // DOCUMENT: the json renders emit every field of every read-back row, so a present read-back
+                // is always the full one. It used to carry the caller's ASK, which the in-place lanes override
+                // (the service forces fullReadback), so `false` sat next to a complete field dump and a
+                // consumer branching on "are these fields complete?" got the opposite of the truth.
+                // `readback_requested` keeps the ask, which is what answers "why did I get one I did not ask
+                // for?" — the in-place lane forced it.
+                w.WriteBoolean("readback_full", true);
+                w.WriteBoolean("readback_requested", readback);
                 w.WriteStartArray("readback");
                 foreach (var r in rb)
                 {
