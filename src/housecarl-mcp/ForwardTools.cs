@@ -85,10 +85,11 @@ public static class ForwardTools
         [Description("TRANSPORT: character ceiling on the render; past it the read-back is cut with an explicit notice (never silent). 0 = a safe default kept under the host's per-response limit; raise it to widen a readback=true dump.")]
             int max_chars = 0) => Guard.Tool("housecarl_forward", () =>
     {
-        if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
-
+        // format first, so the unconfigured-MO2 prompt answers a json caller as a DOCUMENT (PR #311 review 5 [low]).
         bool json = Wire.WantsJson(format, out var ferr);
         if (ferr is not null) return ferr;
+        if (svc.ConfigPromptOrNull() is { } prompt)
+            return json ? JsonWire.RenderError(prompt, null) : prompt;
         string Refuse(string message) => json ? JsonWire.RenderError(message, null) : "error: " + message;
 
         // ---- LANE: the three destinations are mutually exclusive, and a dropped one is named (SPEC §2.1) ----
