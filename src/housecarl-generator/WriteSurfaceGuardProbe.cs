@@ -612,6 +612,27 @@ public static class WriteSurfaceGuardProbe
             && rcdoc!.RootElement.GetProperty("truncated").GetBoolean()
             && rcdoc.RootElement.GetProperty("voice_coverage").GetProperty("lines").GetArrayLength() < 40, reportCapped);
 
+        // …and the CUT BLOCK says so itself (PR #311 review 5 [medium]). Document-level truncated:true does not name
+        // which block lost rows, and a consumer doing `lines.some(l => !l.fuz_present)` on a silently emptied array
+        // gets false — reporting every created line as voiced, the exact inversion of what this block is for.
+        // TryGetProperty throughout: without the fix these members do not exist, and GetProperty would throw —
+        // reporting a CRASHED probe instead of the finding (the same scar the write_seq json arm hit).
+        Check("json create: a CUT voice block carries its own census (total vs rendered) and names the stakes",
+            Num(rcdoc, "voice_coverage", "total_lines") == 40
+            && Num(rcdoc, "voice_coverage", "rendered_lines") is { } vr && vr < 40
+            && Flag(rcdoc, "voice_coverage", "truncated") == true
+            && Str(rcdoc, "voice_coverage", "truncated_note") is { } vnote
+            && vnote.Contains("plays SILENT", StringComparison.Ordinal)
+            // and it must NOT prescribe re-issuing: this block rides a WRITE render.
+            && !vnote.Contains("raise max_chars", StringComparison.OrdinalIgnoreCase), reportCapped);
+
+        // The counts ride on the COMPLETE render too — rendered == total is the positive statement that the list is
+        // whole, so a consumer never infers completeness from a missing marker.
+        Check("json create: an UNCUT voice block still carries the census, with truncated:false",
+            Num(rfdoc, "voice_coverage", "total_lines") == 40
+            && Num(rfdoc, "voice_coverage", "rendered_lines") == 40
+            && Flag(rfdoc, "voice_coverage", "truncated") == false, reportFull);
+
         // The create hazard does not care which transport asked (PR #311 review 4 [medium]): the text twin was moved
         // off "raise max_chars to see the rest" one fold earlier and the json document kept it, so a json client
         // could raise the ceiling, re-issue, and allocate the records a second time. D2 — same remedy, both renders.
@@ -827,4 +848,19 @@ public static class WriteSurfaceGuardProbe
         try { doc = JsonDocument.Parse(s); return true; }
         catch { doc = null; return false; }
     }
+
+    /// <summary>Absence-tolerant readers for a nested member. An arm that asserts a member the PRE-FIX code does not
+    /// emit must FAIL, not throw — a thrown probe reports "guard crashed" and hides which arm found what (a scar
+    /// this fold hit twice). Null/absent ⇒ the comparison is false, which is exactly the RED signal wanted.</summary>
+    static JsonElement? Member(JsonDocument? doc, string obj, string member)
+        => doc is not null && doc.RootElement.TryGetProperty(obj, out var o) && o.TryGetProperty(member, out var m) ? m : null;
+
+    static int? Num(JsonDocument? doc, string obj, string member)
+        => Member(doc, obj, member) is { ValueKind: JsonValueKind.Number } e ? e.GetInt32() : null;
+
+    static bool? Flag(JsonDocument? doc, string obj, string member)
+        => Member(doc, obj, member) is { ValueKind: JsonValueKind.True or JsonValueKind.False } e ? e.GetBoolean() : null;
+
+    static string? Str(JsonDocument? doc, string obj, string member)
+        => Member(doc, obj, member) is { ValueKind: JsonValueKind.String } e ? e.GetString() : null;
 }
