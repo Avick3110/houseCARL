@@ -590,6 +590,35 @@ public static class WriteSurfaceGuardProbe
         }
         else Check("remove text render: fixture for the max_chars arm", false, capMade);
 
+        // The SAME budget on the two remaining set-valued row blocks (PR #311 review 3 [medium] x2): create's
+        // created-records block is the render's largest, forward's rows are the longest, and both json twins
+        // already truncate the identical arrays — so an unbounded text lane made the two renders disagree about
+        // the same call, with text taking the silent host-side cut.
+        var createCapped = CreateTools.Create(fx.Svc, patch: "W2CreCap", max_chars: 130, records: Json("""
+            [{"record_type":"Keyword","editorid":"W2CreCapA"},
+             {"record_type":"Keyword","editorid":"W2CreCapB"},
+             {"record_type":"Keyword","editorid":"W2CreCapC"}]
+            """));
+        Check("create text render: max_chars= drops trailing created rows with an explicit notice",
+            createCapped.Contains("[truncated:", StringComparison.Ordinal)
+            && createCapped.Contains("every one WAS created", StringComparison.Ordinal)
+            && !createCapped.Contains("W2CreCapC", StringComparison.Ordinal), createCapped);
+
+        var createUncapped = CreateTools.Create(fx.Svc, patch: "W2CreFull", records: Json("""
+            [{"record_type":"Keyword","editorid":"W2CreFullA"},
+             {"record_type":"Keyword","editorid":"W2CreFullB"},
+             {"record_type":"Keyword","editorid":"W2CreFullC"}]
+            """));
+        Check("create text render: without a cap every created row is listed",
+            createUncapped.Contains("W2CreFullC", StringComparison.Ordinal)
+            && !createUncapped.Contains("[truncated:", StringComparison.Ordinal), createUncapped);
+
+        var fwdCapped = ForwardTools.Forward(fx.Svc, formids: new[] { fx.SubjectFid }, source: fx.MasterName,
+            patch: "W2FwdCap", max_chars: 120);
+        Check("forward text render: max_chars= drops trailing forwarded rows with an explicit notice",
+            fwdCapped.Contains("[truncated:", StringComparison.Ordinal)
+            && fwdCapped.Contains("every one WAS forwarded", StringComparison.Ordinal), fwdCapped);
+
         // write_seq's text lane, same contract — asserted on a REAL quest list rather than the fixture's
         // no-SGE plugin, because an arm that never renders a row cannot pin a row budget (the happy-path-only
         // scar). The render is exercised directly over a synthetic outcome: three quests, a cap that fits one.

@@ -806,8 +806,22 @@ public static class WriteTools
             sb.Append("masters: ").Append(o.Masters.Count == 0 ? "(none)" : string.Join(", ", o.Masters)).Append('\n');
         sb.Append(o.DryRun ? "would forward " : "forwarded ").Append(o.Forwarded.Count)
           .Append(o.Forwarded.Count == 1 ? " record:\n" : " records:\n");
-        foreach (var f in o.Forwarded)
+        // Budgeted for the same reason as the created-records block: formids= is set-valued, each row is long (type +
+        // FormKey + editorid + the source clause + a REPLACED / redundant / out-ranks bracket), and the json twin
+        // already truncates the identical array (PR #311 review 3 [medium]).
+        int fwdCap = maxChars > 0 ? maxChars : Wire.DefaultMaxChars;
+        for (int fi = 0; fi < o.Forwarded.Count; fi++)
         {
+            if (sb.Length >= fwdCap)
+            {
+                sb.Append("  ... [truncated: ").Append(fi).Append(" of ").Append(o.Forwarded.Count)
+                  .Append(" record(s) listed at max_chars=").Append(fwdCap)
+                  .Append(o.DryRun ? "; the dry run covered every one — raise max_chars to see the rest]"
+                                   : "; every one WAS forwarded — raise max_chars to see the rest]")
+                  .Append('\n');
+                break;
+            }
+            var f = o.Forwarded[fi];
             sb.Append("  ").Append(f.RecordType).Append(' ').Append(f.Target).Append("  ").Append(f.EditorId ?? "<no editorid>")
               .Append(o.DryRun ? "  — would be copied from " : "  — copied from ").Append(f.FromPlugin);
             if (f.ReplacedExisting)
@@ -1083,8 +1097,23 @@ public static class WriteTools
             sb.Append(" (").Append(replacedCount).Append(replacedCount == 1 ? " REPLACED an existing record" : " REPLACED existing records")
               .Append(" — same FormID kept, prior contents discarded)");
         sb.Append(":\n");
-        foreach (var c in o.Created)
+        // Budgeted (PR #311 review 3 [medium]): this is the render's LARGEST block and it is SET-VALUED — a 500-record
+        // authoring job from records="@<manifest>" is the case this tool exists for, not an edge. The json twin
+        // already budgets the same array and closes truncated:true, so leaving this one unbounded made text and json
+        // disagree about the same call, with the text lane taking a silent host-side cut. (The round-1 fold filed this
+        // as a follow-up on the grounds that max_chars' description scoped the ceiling to the read-back; the D2
+        // divergence is the stronger argument and it wins.)
+        int createCap = maxChars > 0 ? maxChars : Wire.DefaultMaxChars;
+        for (int ci = 0; ci < o.Created.Count; ci++)
         {
+            if (sb.Length >= createCap)
+            {
+                sb.Append("  ... [truncated: ").Append(ci).Append(" of ").Append(o.Created.Count)
+                  .Append(" created record(s) listed at max_chars=").Append(createCap)
+                  .Append("; every one WAS created — raise max_chars to see the rest]").Append('\n');
+                break;
+            }
+            var c = o.Created[ci];
             sb.Append("  ").Append(c.RecordType).Append(' ').Append(c.FormKey).Append("  ").Append(c.EditorId);
             if (c.ReplacedExisting) sb.Append("  [REPLACED: this patch already defined this editorid — re-created fresh at the same FormID; prior contents, including any set_field edits since, were discarded]");
             sb.Append('\n');

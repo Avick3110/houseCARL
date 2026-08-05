@@ -53,7 +53,14 @@ internal static class AliasTable
         // plugin_name= on the bare-plugin tools; dropping those edges was a live regression, restored here).
         new("plugin",  new[] { "source", "plugins", "pluginname", "pluginnames" },
             ExceptTools: new[] { ("housecarl_place_asset", "source") }),
-        new("plugins", new[] { "plugin", "pluginname", "pluginnames" }),
+        // `source` last here for the same reason it is last on `pluginname` (PR #311 review 3 [low]): W3 PR 2 took
+        // `plugin` off write_seq, and these two rows' only candidates were the three 1.x plugin spellings — so
+        // BOTH dead-ended on the one tool whose pole they were reaching for, while `plugin=`, `plugin_name=`,
+        // `mod=` and `from_plugin=` all still resolved. A row losing its route because its candidate ceased to
+        // exist is a different failure from a row going dormant because the tool declares the word itself, and it
+        // is the one worth catching.
+        new("plugins", new[] { "plugin", "pluginname", "pluginnames", "source" },
+            ExceptTools: new[] { ("housecarl_place_asset", "source") }),
         // §5.3 — create_plugin's plugin_name → patch; today's guess-miss → plugins (#221 J3) or the bare-plugin
         // tools. `source` joins the list, and `patch` is suppressed on write_seq (PR #311 review [low]): once
         // write_seq declared source= AND patch=, the most likely 1.x spelling for THE PLUGIN on that tool became
@@ -67,7 +74,8 @@ internal static class AliasTable
         // suppressed there.
         new("pluginname",  new[] { "patch", "plugins", "plugin", "pluginnames", "source" },
             ExceptTools: new[] { ("housecarl_write_seq", "patch"), ("housecarl_place_asset", "source") }),
-        new("pluginnames", new[] { "plugins", "plugin", "pluginname" }),
+        new("pluginnames", new[] { "plugins", "plugin", "pluginname", "source" },
+            ExceptTools: new[] { ("housecarl_place_asset", "source") }),
         // Reverse: the new pole spelling on not-yet-renamed tools (read tools' plugin=, the NIF tools'
         // mod=). nexus_mod excepted (census catch): its mod= is a Nexus mod ID, not the S2/S3 provider
         // disambiguator — S8 is chartered untouched (§6.4), so nothing renames onto it.
@@ -88,7 +96,13 @@ internal static class AliasTable
         // declares patch_name AND archive_name (the repacked .bsa, §5.3's artifact there) — patch=
         // must land on archive_name. Hence output, then archivename, before patchname; everywhere
         // else the earlier candidates are undeclared and the order is inert.
-        new("patchname",   new[] { "patch" }),
+        // `patchname` also falls through to `into` (PR #311 review 3 [low]): patch_name= is the output spelling on
+        // EVERY 1.x write tool the caller has habits from (set_field, bulk_apply, create_record, bulk_create,
+        // forward_record), so on housecarl_remove — where `patch=` now maps to into= — the sibling spelling
+        // dead-ending was a split the caller has no way to predict. `archivename`/`output` deliberately do NOT get
+        // it: each names ONE specific tool's artifact (bsa_repack's .bsa, merge_plugins' merged plugin), neither
+        // of which is a removal habit, and a candidate list is a claim about what the word probably meant.
+        new("patchname",   new[] { "patch", "into" }),
         new("archivename", new[] { "patch" }),
         new("output",      new[] { "patch" }),
         // `into` is the LAST candidate (W3 PR 2): on housecarl_remove the artifact a removal edits already

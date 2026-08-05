@@ -159,10 +159,11 @@ public static class CodexUmbrellaCoverageProbe
     }
 
     /// <summary>Required names not present in the umbrella text and not allow-listed. Matched on an IDENTIFIER
-    /// BOUNDARY: an occurrence only counts when the character after it is not another identifier character, so
-    /// <c>housecarl_create_record</c> in the text does NOT satisfy <c>housecarl_create</c>. (Only the trailing side
-    /// needs checking — every required name starts at a word boundary in prose, and the collisions on this surface
-    /// are all suffix extensions: the 2.0 tools are prefixes of the 1.x names they absorb.)</summary>
+    /// BOUNDARY on BOTH sides (see <see cref="ReferencedAtBoundary"/>), so neither
+    /// <c>housecarl_create_record</c> satisfies <c>housecarl_create</c> nor <c>bulk-record-jobs</c> satisfies a
+    /// future <c>record-jobs</c>. (This note used to claim only the trailing side needed checking — the assumption
+    /// SUFFIX-RED now disproves; PR #311 review 3 [nit] caught it still standing next to the fixed matcher, where
+    /// a later maintainer taking it at face value would have re-opened exactly that hole.)</summary>
     static List<string> MissingRefs(string umbrella, IEnumerable<string> required, ISet<string> allow)
         => required.Where(r => !allow.Contains(r) && !ReferencedAtBoundary(umbrella, r))
                    .OrderBy(r => r, StringComparer.Ordinal).ToList();
