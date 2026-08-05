@@ -236,8 +236,8 @@ public static class ApplyTools
         // The lane the CALL named — stated, not derived from the outcome's flags, which are at their defaults on a
         // refusal and on the consent prompt (PR #311 review [medium]).
         return json
-            ? JsonWire.RenderPatchOutcome(outcome, max_chars, readback, hasInPlace ? "in_place" : hasInto ? "extend" : "patch")
-            : WriteTools.Render(outcome, max_chars, readback);
+            ? JsonWire.RenderPatchOutcome(outcome, max_chars, readback, hasInPlace ? "in_place" : hasInto ? "into" : "patch")
+            : WriteTools.Render(outcome, max_chars, readback, laneAsName: true);
     });
 
     // ---- input readers -------------------------------------------------------------------------------

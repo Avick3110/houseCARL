@@ -191,6 +191,15 @@ static class JsonWire
         return Finish(ms);
     }
 
+    /// <summary>Is the document already at its char ceiling? The writer BUFFERS, so <c>ms.Length</c> lags what has
+    /// been written — the row loops that budget by stream length flush first for exactly this reason. Shared by the
+    /// post-write report writers so all three judge the budget the same way.</summary>
+    static bool Over(Utf8JsonWriter w, MemoryStream ms, int cap)
+    {
+        w.Flush();
+        return ms.Length >= cap;
+    }
+
     static void WriteStringArray(Utf8JsonWriter w, string name, IReadOnlyList<string> items)
     {
         w.WriteStartArray(name);
@@ -1540,7 +1549,7 @@ static class JsonWire
             bool truncated = false;
             foreach (var op in o.Ops)
             {
-                if (ms.Length >= cap) { truncated = true; break; }
+                if (Over(w, ms, cap)) { truncated = true; break; }
                 w.WriteStartObject();
                 w.WriteString("formid", op.Target.ToString());
                 w.WriteString("record_type", op.RecordType);
@@ -1564,7 +1573,7 @@ static class JsonWire
                 w.WriteStartArray("readback");
                 foreach (var r in rb)
                 {
-                    if (ms.Length >= cap) { truncated = true; break; }
+                    if (Over(w, ms, cap)) { truncated = true; break; }
                     w.WriteStartObject();
                     w.WriteString("formid", r.Target.ToString());
                     if (r.Error is not null) w.WriteString("error", r.Error);
@@ -1577,7 +1586,7 @@ static class JsonWire
                         w.WriteStartArray("fields");
                         foreach (var f in rec.Fields)
                         {
-                            if (ms.Length >= cap) { truncated = true; break; }
+                            if (Over(w, ms, cap)) { truncated = true; break; }
                             w.WriteStartObject();
                             w.WriteString("path", f.Path);
                             if (f.HasValue) w.WriteString("value", f.Token); else w.WriteString("note", f.Note);
@@ -1637,7 +1646,7 @@ static class JsonWire
             bool truncated = false;
             foreach (var c in o.Created)
             {
-                if (ms.Length >= cap) { truncated = true; break; }
+                if (Over(w, ms, cap)) { truncated = true; break; }
                 w.WriteStartObject();
                 w.WriteString("formid", c.FormKey.ToString());
                 w.WriteString("record_type", c.RecordType);
@@ -1662,9 +1671,13 @@ static class JsonWire
             w.WriteEndArray();
             w.WriteNumber("rendered_created", rendered);
 
-            WriteVoiceReport(w, o.Voice);
-            WriteScriptBindingReport(w, o.ScriptBinding);
-            WriteCellShellReport(w, o.CellShell);
+            // The three post-write reports are INSIDE the budget (PR #311 round-2 review [low-medium]): the TEXT
+            // twin already stops each with an explicit notice, so leaving them unguarded here both blew the
+            // document past max_chars and closed it with truncated:false — the silent cut max_chars exists to
+            // prevent, and a D2 divergence in the direction that matters.
+            WriteVoiceReport(w, o.Voice, ms, cap, ref truncated);
+            WriteScriptBindingReport(w, o.ScriptBinding, ms, cap, ref truncated);
+            WriteCellShellReport(w, o.CellShell, ms, cap, ref truncated);
 
             if (o.ReadBack is { } rb)
             {
@@ -1673,7 +1686,7 @@ static class JsonWire
                 w.WriteStartArray("readback");
                 foreach (var r in rb)
                 {
-                    if (ms.Length >= cap) { truncated = true; break; }
+                    if (Over(w, ms, cap)) { truncated = true; break; }
                     w.WriteStartObject();
                     w.WriteString("formid", r.Target.ToString());
                     if (r.Error is not null) w.WriteString("error", r.Error);
@@ -1686,7 +1699,7 @@ static class JsonWire
                         w.WriteStartArray("fields");
                         foreach (var f in rec.Fields)
                         {
-                            if (ms.Length >= cap) { truncated = true; break; }
+                            if (Over(w, ms, cap)) { truncated = true; break; }
                             w.WriteStartObject();
                             w.WriteString("path", f.Path);
                             if (f.HasValue) w.WriteString("value", f.Token); else w.WriteString("note", f.Note);
@@ -1747,7 +1760,7 @@ static class JsonWire
             bool truncated = false;
             foreach (var q in o.Quests)
             {
-                if (ms.Length >= cap) { truncated = true; break; }
+                if (Over(w, ms, cap)) { truncated = true; break; }
                 w.WriteStartObject();
                 WriteNullable(w, "editorid", q.EditorId is { Length: > 0 } e ? e : null);
                 w.WriteString("on_disk_formid", $"0x{q.OnDiskFormId:X8}");
@@ -1801,7 +1814,7 @@ static class JsonWire
             bool truncated = false;
             foreach (var r in o.Removed)
             {
-                if (ms.Length >= cap) { truncated = true; break; }
+                if (Over(w, ms, cap)) { truncated = true; break; }
                 w.WriteStartObject();
                 w.WriteString("formid", r.Target.ToString());
                 w.WriteString("record_type", r.RecordType);
@@ -1858,7 +1871,7 @@ static class JsonWire
             bool truncated = false;
             foreach (var f in o.Forwarded)
             {
-                if (ms.Length >= cap) { truncated = true; break; }
+                if (Over(w, ms, cap)) { truncated = true; break; }
                 w.WriteStartObject();
                 w.WriteString("formid", f.Target.ToString());
                 w.WriteString("record_type", f.RecordType);
@@ -1880,7 +1893,7 @@ static class JsonWire
                 w.WriteStartArray("readback");
                 foreach (var r in rb)
                 {
-                    if (ms.Length >= cap) { truncated = true; break; }
+                    if (Over(w, ms, cap)) { truncated = true; break; }
                     w.WriteStartObject();
                     w.WriteString("formid", r.Target.ToString());
                     if (r.Error is not null) w.WriteString("error", r.Error);
@@ -1893,7 +1906,7 @@ static class JsonWire
                         w.WriteStartArray("fields");
                         foreach (var fl in rec.Fields)
                         {
-                            if (ms.Length >= cap) { truncated = true; break; }
+                            if (Over(w, ms, cap)) { truncated = true; break; }
                             w.WriteStartObject();
                             w.WriteString("path", fl.Path);
                             if (fl.HasValue) w.WriteString("value", fl.Token); else w.WriteString("note", fl.Note);
@@ -1917,7 +1930,7 @@ static class JsonWire
 
     /// <summary>The voice-coverage report as data (a created dialogue line with no .fuz plays SILENT in game). The
     /// text render's "[!] WILL BE SILENT" becomes <c>fuz_present:false</c> + the path to put the audio at.</summary>
-    static void WriteVoiceReport(Utf8JsonWriter w, VoiceReport? report)
+    static void WriteVoiceReport(Utf8JsonWriter w, VoiceReport? report, MemoryStream ms, int cap, ref bool truncated)
     {
         if (report is null || report.IsEmpty) return;
         w.WriteStartObject("voice_coverage");
@@ -1925,6 +1938,7 @@ static class JsonWire
         w.WriteStartArray("lines");
         foreach (var l in report.Lines)
         {
+            if (Over(w, ms, cap)) { truncated = true; break; }
             w.WriteStartObject();
             w.WriteString("info", l.Info.ToString());
             WriteNullable(w, "topic_editorid", l.TopicEditorId);
@@ -1944,6 +1958,7 @@ static class JsonWire
         w.WriteStartArray("undetermined");
         foreach (var u in report.Undetermined)
         {
+            if (Over(w, ms, cap)) { truncated = true; break; }
             w.WriteStartObject();
             w.WriteString("info", u.Info.ToString());
             WriteNullable(w, "topic_editorid", u.TopicEditorId);
@@ -1956,7 +1971,7 @@ static class JsonWire
 
     /// <summary>The result-script binding report as data (a bound script that is unwired or uncompiled runs NOTHING
     /// in game). <c>status</c> is the enum name the text render turns into "WILL NOT FIRE".</summary>
-    static void WriteScriptBindingReport(Utf8JsonWriter w, ScriptBindingReport? report)
+    static void WriteScriptBindingReport(Utf8JsonWriter w, ScriptBindingReport? report, MemoryStream ms, int cap, ref bool truncated)
     {
         if (report is null || report.IsEmpty) return;
         w.WriteStartObject("result_script_coverage");
@@ -1964,6 +1979,7 @@ static class JsonWire
         w.WriteStartArray("findings");
         foreach (var f in report.Findings)
         {
+            if (Over(w, ms, cap)) { truncated = true; break; }
             w.WriteStartObject();
             w.WriteString("info", f.Info.ToString());
             WriteNullable(w, "topic_editorid", f.TopicEditorId);
@@ -1979,7 +1995,7 @@ static class JsonWire
 
     /// <summary>The cell-shell report as data (a created cell is a valid, correctly-placed record but EMPTY —
     /// houseCARL does not author world content). <c>must_provide</c> is the Creation-Kit work list.</summary>
-    static void WriteCellShellReport(Utf8JsonWriter w, CellShellReport? report)
+    static void WriteCellShellReport(Utf8JsonWriter w, CellShellReport? report, MemoryStream ms, int cap, ref bool truncated)
     {
         if (report is null || report.IsEmpty) return;
         w.WriteStartObject("cell_shell");
@@ -1987,6 +2003,7 @@ static class JsonWire
         w.WriteStartArray("cells");
         foreach (var c in report.Cells)
         {
+            if (Over(w, ms, cap)) { truncated = true; break; }
             w.WriteStartObject();
             w.WriteString("cell", c.Cell.ToString());
             w.WriteString("editorid", c.EditorId);

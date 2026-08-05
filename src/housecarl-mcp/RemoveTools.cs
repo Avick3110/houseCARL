@@ -104,6 +104,6 @@ public static class RemoveTools
         // The lane the CALL named — stated, not derived from the outcome's flags (PR #311 review [medium]).
         return json
             ? JsonWire.RenderRemovalOutcome(outcome, max_chars, hasInPlace ? "in_place" : "into")
-            : WriteTools.RenderRemoval(outcome, max_chars);
+            : WriteTools.RenderRemoval(outcome, max_chars, laneAsName: true);
     });
 }
