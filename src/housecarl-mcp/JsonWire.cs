@@ -1702,6 +1702,156 @@ static class JsonWire
         return Finish(ms);
     }
 
+    // ---- housecarl_remove (W3 PR 2) -----------------------------------------------------------------
+    /// <summary>The machine-readable twin of <see cref="WriteTools.RenderRemoval"/> — the SAME data (decision D2),
+    /// on <see cref="RenderPatchOutcome"/>'s contract: a refusal is a document, the consent prompt is its own flag,
+    /// the epoch rides on every response. <c>remaining_records:0</c> is the "this file is now an inert shell" fact
+    /// the text render spells out in a sentence.</summary>
+    public static string RenderRemovalOutcome(WritePatchBuilder.RemovalOutcome o, int maxChars)
+    {
+        int cap = Cap(maxChars);
+        using var ms = new MemoryStream();
+        using (var w = new Utf8JsonWriter(ms, Opts))
+        {
+            w.WriteStartObject();
+            w.WriteBoolean("ok", o.Success);
+            w.WriteBoolean("needs_acknowledge", o.NeedsAcknowledge);
+            w.WriteString("lane", o.InPlace ? "in_place" : "into");
+            WriteNullable(w, "epoch", o.Epoch);
+            if (!o.Success)
+            {
+                WriteNullable(w, o.NeedsAcknowledge ? "confirmation" : "error", o.Error);
+                w.WriteEndObject();
+                w.Flush();          // INSIDE the using — see RenderPatchOutcome (an unflushed refusal renders EMPTY).
+                return Finish(ms);
+            }
+
+            w.WriteString("path", o.OutputPath);
+            w.WriteString("file", Path.GetFileName(o.OutputPath));
+            w.WriteNumber("bytes", o.Bytes);
+            w.WriteNumber("remaining_records", o.RemainingRecords);
+            WriteStringArray(w, "masters", o.Masters.ToList());
+
+            w.WriteNumber("total_removed", o.Removed.Count);
+            w.WriteStartArray("removed");
+            int rendered = 0;
+            bool truncated = false;
+            foreach (var r in o.Removed)
+            {
+                if (ms.Length >= cap) { truncated = true; break; }
+                w.WriteStartObject();
+                w.WriteString("formid", r.Target.ToString());
+                w.WriteString("record_type", r.RecordType);
+                WriteNullable(w, "editorid", r.EditorId);
+                w.WriteEndObject();
+                rendered++;
+            }
+            w.WriteEndArray();
+            w.WriteNumber("rendered_removed", rendered);
+
+            WriteNullable(w, "note", o.Note);
+            w.WriteBoolean("truncated", truncated);
+            if (truncated)
+                w.WriteString("truncated_note", $"the render hit max_chars={cap} and dropped trailing rows — the REMOVAL is complete and unaffected; raise max_chars to see the rest.");
+            w.WriteEndObject();
+        }
+        return Finish(ms);
+    }
+
+    // ---- housecarl_forward (W3 PR 2) ----------------------------------------------------------------
+    /// <summary>The machine-readable twin of <see cref="WriteTools.RenderForward"/> — the SAME data (decision D2),
+    /// on <see cref="RenderPatchOutcome"/>'s contract. The two per-record facts the text render puts in brackets are
+    /// flags here: <c>replaced_existing</c> (an override this artifact already carried is GONE) and
+    /// <c>was_already_winner</c> (the forward re-asserts content that already wins — a no-op in effect, reported
+    /// rather than silent).</summary>
+    public static string RenderForwardOutcome(WritePatchBuilder.ForwardOutcome o, int maxChars, bool readback)
+    {
+        int cap = Cap(maxChars);
+        using var ms = new MemoryStream();
+        using (var w = new Utf8JsonWriter(ms, Opts))
+        {
+            w.WriteStartObject();
+            w.WriteBoolean("ok", o.Success);
+            w.WriteBoolean("needs_acknowledge", o.NeedsAcknowledge);
+            w.WriteBoolean("dry_run", o.DryRun);
+            w.WriteString("lane", o.InPlace ? "in_place" : o.Extended ? "extend" : "patch");
+            WriteNullable(w, "epoch", o.Epoch);
+            if (!o.Success)
+            {
+                WriteNullable(w, o.NeedsAcknowledge ? "confirmation" : "error", o.Error);
+                w.WriteEndObject();
+                w.Flush();          // INSIDE the using — see RenderPatchOutcome (an unflushed refusal renders EMPTY).
+                return Finish(ms);
+            }
+
+            w.WriteString("path", o.OutputPath);
+            w.WriteString("file", Path.GetFileName(o.OutputPath));
+            w.WriteNumber("bytes", o.Bytes);
+            WriteStringArray(w, "masters", o.Masters.ToList());
+
+            w.WriteNumber("total_forwarded", o.Forwarded.Count);
+            w.WriteStartArray("forwarded");
+            int rendered = 0;
+            bool truncated = false;
+            foreach (var f in o.Forwarded)
+            {
+                if (ms.Length >= cap) { truncated = true; break; }
+                w.WriteStartObject();
+                w.WriteString("formid", f.Target.ToString());
+                w.WriteString("record_type", f.RecordType);
+                WriteNullable(w, "editorid", f.EditorId);
+                w.WriteString("source", f.FromPlugin);
+                w.WriteBoolean("replaced_existing", f.ReplacedExisting);
+                w.WriteBoolean("was_already_winner", f.WasAlreadyWinner);
+                WriteNullable(w, "prior_winner", f.PriorWinner);
+                w.WriteEndObject();
+                rendered++;
+            }
+            w.WriteEndArray();
+            w.WriteNumber("rendered_forwarded", rendered);
+
+            if (o.ReadBack is { } rb)
+            {
+                w.WriteString("readback_source", o.DryRun ? "in_memory_would_be_content" : "written_file");
+                w.WriteBoolean("readback_full", readback);
+                w.WriteStartArray("readback");
+                foreach (var r in rb)
+                {
+                    if (ms.Length >= cap) { truncated = true; break; }
+                    w.WriteStartObject();
+                    w.WriteString("formid", r.Target.ToString());
+                    if (r.Error is not null) w.WriteString("error", r.Error);
+                    else
+                    {
+                        var rec = r.Record!;
+                        w.WriteString("type", rec.Type);
+                        WriteNullable(w, "editorid", rec.EditorId);
+                        w.WriteNumber("field_count", rec.Fields.Count);
+                        w.WriteStartArray("fields");
+                        foreach (var fl in rec.Fields)
+                        {
+                            if (ms.Length >= cap) { truncated = true; break; }
+                            w.WriteStartObject();
+                            w.WriteString("path", fl.Path);
+                            if (fl.HasValue) w.WriteString("value", fl.Token); else w.WriteString("note", fl.Note);
+                            w.WriteEndObject();
+                        }
+                        w.WriteEndArray();
+                    }
+                    w.WriteEndObject();
+                }
+                w.WriteEndArray();
+            }
+
+            WriteNullable(w, "note", o.Note);
+            w.WriteBoolean("truncated", truncated);
+            if (truncated)
+                w.WriteString("truncated_note", $"the render hit max_chars={cap} and dropped trailing rows — the WRITE is complete and unaffected; raise max_chars to see the rest.");
+            w.WriteEndObject();
+        }
+        return Finish(ms);
+    }
+
     /// <summary>The voice-coverage report as data (a created dialogue line with no .fuz plays SILENT in game). The
     /// text render's "[!] WILL BE SILENT" becomes <c>fuz_present:false</c> + the path to put the audio at.</summary>
     static void WriteVoiceReport(Utf8JsonWriter w, VoiceReport? report)
