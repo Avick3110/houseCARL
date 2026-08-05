@@ -8,6 +8,42 @@ when it changes.
 
 *Accumulating notes for the next cut — not yet released; `plugin.json` still reads the last shipped version.*
 
+**New tools: `housecarl_create`, `housecarl_remove`, `housecarl_forward` — the rest of the 2.0 write surface
+(W3 PR 2).** The same shape `housecarl_apply` introduced — *what changes* × *where it lands* × *how it reads
+back* — now covers authoring, removal and whole-record overrides.
+
+- **`housecarl_create`** replaces `create_record` + `bulk_create`. `records=[{record_type, editorid, ops?,
+  parent?, collection?, grid?}]` — **one record is a set of one**, so the single-record call is the degenerate
+  case and the nested one-shot (a dialogue topic *and* its lines, a cell *and* its placed refs) needs no second
+  tool: parent a spec on an **earlier sibling's editorid**, and reference one from a FormLink value as
+  `'@editorid'`. `ops=` is `apply`'s op shape minus `formid` (a new record's id is allocated and reported back);
+  the members a create *cannot* have — `formid`, `from`, `from_source` — are refused **by name** with what to do
+  instead, rather than dropped. `records=` also takes `"@<absolute path>"`. Creating dialogue lines still
+  reports **voice coverage** and **result-script binding**, and creating cells still reports the world content
+  houseCARL does not author — now as typed data in `format="json"` too, not only prose.
+- **`housecarl_remove`** replaces `remove_record` and is **plural**: `formids=` is set-valued, so dropping ten
+  overrides is one call and one re-serialize instead of ten rewrites of the same file (the engine always took a
+  list; only the tool surface didn't). All-or-nothing is unchanged — one target the file doesn't carry refuses
+  the whole call. Its lane is **`into=`** (a houseCARL patch) or `in_place="X.esp"`: a removal edits an artifact
+  that already exists, so it has no `patch=`, and naming *no* lane is refused with both spelled out.
+- **`housecarl_forward`** replaces `forward_record`. `from_plugin=` is now **`source=`** — whose version to
+  copy (an active plugin, or a master to revert a record to vanilla). Unchanged otherwise: the response names
+  the winner each copy will out-rank, a forward that was already winning is flagged redundant, `into=` replaces
+  a FormKey the patch already carries, and `dry_run=` runs the real pipeline and stops before disk.
+
+All three take the one lane spelling (`patch=` | `into=` | `in_place="X.esp"` + `acknowledge=`, mutually
+exclusive and **refused by name** when two are given), `format="json"`, `max_chars=`, and the `epoch=` stamp —
+**including the first-touch in-place consent prompt**, which previously carried none on these lanes. The 1.x
+tools are unchanged and stay registered through the build waves; from 2.0.0's clean cut a call naming one
+answers with its successor spelling.
+
+**`housecarl_write_seq` keeps its name and moves to the 2.0 vocabulary.** `plugin=` is **`source=`**, and it
+now **resolves a plugin filename** across your MO2 mod folders (enabled, disabled, not-yet-listed), the
+overwrite folder and game Data — an absolute path still works, and the response **states which copy it read**
+(a filename several folders provide is refused, naming them). `patch_name=` is `patch=`; `format="json"` and
+`max_chars=` are new. This call consults no load-order build, so it carries **no epoch — stated as a fact with
+its reason** rather than left as a missing field.
+
 **New tool: `housecarl_apply` — the 2.0 field-write surface (W3 PR 1).** One write call composes *what changes*
 × *where it lands* × *how it reads back*, replacing `set_field` + `bulk_apply`. **Edits:** `ops=` is the edit
 list — one op is a set of one, so the old single-field call is the degenerate case — and it takes the inline

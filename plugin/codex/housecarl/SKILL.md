@@ -43,9 +43,12 @@ Beyond the core workflow, reach for the right group. Depth for the specialist ar
 
 **Write / author**
 - `housecarl_apply` — the consolidated 2.0 field-write surface (one or many edits × the lane × the read-back in one call): `ops=` for field edits, `bundle=`+`assignments=` to copy a field bundle from one record onto another, and one lane spelling — a new patch, `into=` an existing one, or `in_place="X.esp"` naming the file you intend to overwrite. The 1.x write tools below keep working through the 2.0 build.
+- `housecarl_create` — the consolidated 2.0 authoring surface: `records=[{record_type, editorid, ops}]`, one record being a set of one, and a nested unit (a topic AND its lines, a cell AND its refs) authored in one call by parenting a spec on an earlier sibling's editorid. Same lane spelling as `apply`.
+- `housecarl_remove` — drop whole records; `formids=` is set-valued, so many drop in one re-serialize. The lane is `into=` a houseCARL patch or `in_place="X.esp"` (a removal edits an artifact that already exists, so there is no `patch=`).
+- `housecarl_forward` — copy a specific plugin's whole record as an override: `source=` names whose version (an active plugin, or a master to revert to vanilla), and the response names the winner it will out-rank.
 - `housecarl_set_field`, `housecarl_bulk_apply`, `housecarl_create_record`, `housecarl_bulk_create`, `housecarl_create_plugin` (header-only trigger plugin), `housecarl_remove_record`, `housecarl_forward_record` (copy-as-override, or revert to another plugin's version), `housecarl_validate_scripts` (unbound script properties).
 
-**Dialogue** — `housecarl_validate_dialogue`, `housecarl_write_seq` (the start-game-enabled quest `.seq`). Depth: `dialogue-authoring`.
+**Dialogue** — `housecarl_validate_dialogue`, `housecarl_write_seq` (the start-game-enabled quest `.seq`; `source=` takes the plugin's filename or an absolute path). Depth: `dialogue-authoring`.
 
 **Assets / NIF / facegen** — `housecarl_asset_status` (which mod/BSA wins a Data-relative path), `housecarl_place_asset` / `housecarl_bulk_place_asset` (make a chosen copy win MO2's VFS), `housecarl_nif_inspect` / `housecarl_nif_set` (read/write mesh data values). Depth: `facegen-diagnostics`.
 
