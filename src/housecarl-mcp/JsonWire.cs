@@ -1601,8 +1601,13 @@ static class JsonWire
 
             WriteNullable(w, "note", o.Note);
             w.WriteBoolean("truncated", truncated);
+            // Lane-aware, shared with forward (PR #311 review 6): this document budgets the `ops` array, and a
+            // re-issue to widen it is safe on into=/dry-run but cuts a second patch on the default lane and
+            // re-serializes the caller's own file on in_place.
             if (truncated)
-                w.WriteString("truncated_note", $"the render hit max_chars={cap} and dropped trailing rows — the WRITE is complete and unaffected; raise max_chars to see the rest.");
+                w.WriteString("truncated_note",
+                    $"the render hit max_chars={cap} and dropped trailing rows — the WRITE is complete and unaffected; "
+                    + WriteTools.ApplyAgainRemedy(o, Path.GetFileName(o.OutputPath)) + ".");
             w.WriteEndObject();
         }
         return Finish(ms);

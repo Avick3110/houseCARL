@@ -128,6 +128,12 @@ public static class SeqTools
         sb.Append(o.WroteIntoPluginFolder
             ? "the .seq is in the plugin's OWN houseCARL folder — enabling that one mod in MO2 deploys both the .esp and its .seq."
             : "the .seq is in a houseCARL mod folder — enable it in MO2 (AND make sure the plugin itself is enabled) so the game reads Data\\SEQ\\.");
+        // The ABSENT epoch, stated on the DEFAULT transport too (PR #311 review 6 [low]). The json twin has carried
+        // `epoch_note` since it was written; the text render said nothing — so a caller on the transport most of
+        // them use saw a response with no epoch= line, which is the same observable a DROPPED stamp would produce.
+        // The class-doc paragraph above claimed "the render says so"; it was true of one render out of two.
+        sb.Append("\nno epoch on this call, and that is a fact rather than an omission: a .seq is derived from the plugin " +
+                  "FILE alone (its FormID encoding is load-order-independent), so nothing here consulted a load-order build.");
         // Q3 standing limit: a written .seq makes the quest START; it is not a guarantee the quest/dialogue is otherwise correct.
         sb.Append("\nnote: this makes the quest(s) START at game start; it does not verify the quest or its dialogue is otherwise " +
                   "well-formed (use housecarl_validate_dialogue for the dialogue graph).");

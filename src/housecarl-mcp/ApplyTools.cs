@@ -132,7 +132,7 @@ public static class ApplyTools
             bool readback = false,
         [Description("TRANSPORT: 'text' (default) | 'json' (the same data, machine-readable, accounting in-band).")]
             string? format = null,
-        [Description("TRANSPORT: character ceiling on the render; past it the read-back is cut with an explicit notice (never silent). 0 = a safe default kept under the host's per-response limit; raise it to widen a readback=true dump.")]
+        [Description("TRANSPORT: character ceiling on the WHOLE render — in format=\"json\" the applied-op rows as well as the read-back; in text, the read-back. Past it, trailing rows are dropped with an explicit notice (never silent); the WRITE is unaffected. 0 = a safe default kept under the host's per-response limit; raise it to widen a readback=true dump.")]
             int max_chars = 0) => Guard.Tool("housecarl_apply", () =>
     {
         // ---- TRANSPORT: format --------------------------------------------------------------------------

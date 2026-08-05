@@ -1184,11 +1184,26 @@ public static class WriteTools
     /// read-back remedy instead: the target is active by definition of the lane, so <c>housecarl_records</c>
     /// reaches it, and the FormIDs to name are the ones the caller passed.</para></summary>
     internal static string ForwardAgainRemedy(WritePatchBuilder.ForwardOutcome o, string file)   // internal: the json twin says the same thing (D2)
-        => o.DryRun || o.Extended
+        => WriteAgainRemedy(o.DryRun, o.InPlace, o.Extended, file, "patch mod carrying the same overrides");
+
+    /// <summary>The lane rule generalized (PR #311 review 6): every WRITE render's row budget faces the same
+    /// question — is re-issuing this call to widen a display safe? — and the answer is a property of the LANE, not
+    /// of the verb. A dry run wrote nothing; <c>into=</c> lands on the same artifact; <c>in_place=</c> re-serializes
+    /// the caller's own file; the DEFAULT lane auto-suffixes a second patch. `apply` shares this with `forward`
+    /// because it shares the lane axis — the alternative was fixing three of four write tools and shipping the
+    /// fourth on wording the reviewer has now flagged in four consecutive rounds.</summary>
+    static string WriteAgainRemedy(bool dryRun, bool inPlace, bool extended, string file, string duplicateNoun)
+        => dryRun || extended
             ? "raise max_chars to see the rest"
-            : o.InPlace
+            : inPlace
                 ? $"to see the rest, read the rows back with housecarl_records source=\"{file}\" formids=[the ids you passed] — re-issuing would re-serialize your ORIGINAL file a second time just to widen this render"
-                : $"to see the rest, raise max_chars AND pass into=\"{file}\" — a bare re-issue on the default patch= lane writes a SECOND patch mod carrying the same overrides";
+                : $"to see the rest, raise max_chars AND pass into=\"{file}\" — a bare re-issue on the default patch= lane writes a SECOND {duplicateNoun}";
+
+    /// <summary>The <c>apply</c> lane's wording of <see cref="WriteAgainRemedy"/> (PR #311 review 6, declared as an
+    /// unrequested sibling): apply's json render budgets its <c>ops</c> array, and its notice carried the same
+    /// "raise max_chars" the forward/remove/create/write_seq notices were all moved off.</summary>
+    internal static string ApplyAgainRemedy(WritePatchBuilder.PatchOutcome o, string file)
+        => WriteAgainRemedy(o.DryRun, o.InPlace, o.Extended, file, "patch mod carrying the same edits");
 
     /// <summary>The read-back call a truncated create render points the caller at — a call that actually RESOLVES,
     /// which is the whole point of pointing away from re-issuing the create (PR #311 review 4 [medium]).
