@@ -79,7 +79,11 @@ internal static class AliasTable
         new("patchname",   new[] { "patch" }),
         new("archivename", new[] { "patch" }),
         new("output",      new[] { "patch" }),
-        new("patch",       new[] { "output", "archivename", "patchname", "pluginname" }),
+        // `into` is the LAST candidate (W3 PR 2): on housecarl_remove the artifact a removal edits already
+        // EXISTS, so 1.x remove_record's bare patch= names what §5.1 calls into= — and remove declares no
+        // patch= for the row to skip. Every tool that has a "new artifact" spelling declares one of the four
+        // candidates above, so this edge activates on exactly that one tool.
+        new("patch",       new[] { "output", "archivename", "patchname", "pluginname", "into" }),
 
         // §5.3 — unmanaged filesystem output: out_path. The two 1.x spellings are also each other's
         // candidates (final review finding 6, the F1 clique logic): output_dir= on bsa_extract and
@@ -203,6 +207,17 @@ internal static class AliasTable
         new("sourceplugin", new[] { "assignments" }, "not a parameter here — the assignments= zip carries from_source= per assignment"),
         new("sourcemod",    new[] { "assignments" }, "not a parameter here — the assignments= zip carries from_source= per assignment"),
         new("targetformid", new[] { "assignments" }, "not a parameter here — the assignments= zip carries target= per assignment (§5.2's record pole)"),
+
+        // W3 PR 2 — housecarl_create absorbed the SCALAR create_record call: its five per-record operands became
+        // members of a records= element, because one record is a set of one. A caller arriving with the 1.x habit
+        // spells them at the TOP level, where they are genuinely gone rather than renamed — so each gets the
+        // one-hop form. Gated on `records`, which today is exactly housecarl_create. (`operations` needs no row:
+        // it is a live rename to ops=, and inside a records element that is where it lands.)
+        new("recordtype",  new[] { "records" }, "not a parameter here — one record is a set of one: records=[{\"record_type\": \"Keyword\", \"editorid\": \"MyKeyword\"}]"),
+        new("editorid",    new[] { "records" }, "not a parameter here — the editorid belongs to its record: records=[{\"record_type\": \"…\", \"editorid\": \"…\"}]"),
+        new("parent",      new[] { "records" }, "not a parameter here — nesting is per record: records=[{…, \"parent\": \"XXXXXX:Plugin.esp\"}] (a parent may also be an EARLIER sibling's editorid)"),
+        new("collection",  new[] { "records" }, "not a parameter here — the child-list is per record: records=[{…, \"parent\": \"…\", \"collection\": \"Persistent\"}]"),
+        new("grid",        new[] { "records" }, "not a parameter here — the exterior-cell grid is per record: records=[{\"record_type\": \"Cell\", …, \"grid\": \"5,-12\"}]"),
     };
 
     /// <summary>The migration hint for a normalized unknown key, or null — gated on EVERY one of the
@@ -248,6 +263,17 @@ internal static class AliasTable
          "absorbed into housecarl_apply: one op is a set of one — ops=[{formid, field_path, value}] (verb= is op=). patch_name= is patch=, full_readback= is readback=, and the target=+in_place=true pair is in_place=\"X.esp\" (the file being overwritten)."),
         ("housecarl_bulk_apply",
          "absorbed into housecarl_apply: operations= is ops= (verb= is op=), and from_file= is the @file convention — ops=\"@<absolute path>\". patch_name= is patch=, full_readback= is readback=, target=+in_place=true is in_place=\"X.esp\". Copying a field bundle BETWEEN records is bundle= + assignments=."),
+
+        // W3 PR 2 — the rest of the write side. Same posture: the redirect carries the PARAMETER migration too,
+        // since a caller arriving from old docs has both habits.
+        ("housecarl_create_record",
+         "absorbed into housecarl_create: one record is a set of one — records=[{record_type, editorid, ops}] (operations= is ops=, verb= is op=). record_type/editorid/parent/collection/grid are members of the record, not top-level arguments. patch_name= is patch=, full_readback= is readback=, and the target=+in_place=true pair is in_place=\"X.esp\" (the file being written into)."),
+        ("housecarl_bulk_create",
+         "absorbed into housecarl_create: records= is unchanged in shape except operations= is ops= (verb= is op=), and it also accepts \"@<absolute path>\". The nested one-shot is unchanged: declare a parent BEFORE the children whose parent= names its editorid, and '@editorid' still references a same-call sibling. patch_name= is patch=, full_readback= is readback=, target=+in_place=true is in_place=\"X.esp\"."),
+        ("housecarl_remove_record",
+         "absorbed into housecarl_remove: formids= is SET-VALUED — drop many records in one re-serialize (one is a set of one). The houseCARL-patch lane is into=\"MyPatch.esp\" (removal edits an artifact that EXISTS; patch= names a NEW one everywhere else on the surface), and the target=+in_place=true pair is in_place=\"X.esp\"."),
+        ("housecarl_forward_record",
+         "absorbed into housecarl_forward: from_plugin= is source= (an ACTIVE plugin — whose version to copy). patch_name= is patch=, full_readback= is readback=, and the target=+in_place=true pair is in_place=\"X.esp\". formids=, dry_run= and the into= replace-on-collision semantics are unchanged."),
     };
 
     /// <summary>The successor teaching for a retired tool name, or null. Case-insensitive on the full name.</summary>

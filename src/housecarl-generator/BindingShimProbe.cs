@@ -364,6 +364,20 @@ public static class BindingShimProbe
         // NOTE (deliberate negative): verb->op does NOT appear. `op` is a member of an ops ELEMENT, not a
         // top-level parameter, and the shim rewrites top-level arguments only — a stray `verb` inside an op
         // is refused by the strict element reader instead, which carries its own §5.3 correction.
+        // W3 PR 2 (eyeballed 2026-08-05): create / remove / forward join the surface and write_seq flips to the
+        // 2.0 vocabulary. 130 -> 158. What the diff certifies:
+        //   * the write-side clique now fires on four tools instead of one (patch=, full_readback=, formid=),
+        //     each landing on the ONE output name that tool declares;
+        //   * from_plugin -> source activates on housecarl_forward — the §5.3 row's real destination, dormant
+        //     since W0;
+        //   * patch -> INTO activates on housecarl_remove ALONE: it is the only tool where the artifact a write
+        //     edits already exists, and the four "new artifact" candidates ahead of `into` all miss there;
+        //   * the five create-operand hints (record_type/editorid/parent/collection/grid) fire on BOTH
+        //     housecarl_create and 1.x housecarl_bulk_create — both declare records=, and on both the scalar
+        //     spelling is genuinely a member of a record rather than a top-level argument, so the hint is
+        //     correct in both places rather than noise in one;
+        //   * write_seq's five reverse rows (source->plugin, plugins/plugin_name(s)->plugin, patch->patch_name)
+        //     are GONE: it declares source= and patch= itself now, so those rows are declared, not renamed.
         "housecarl_apply: archivename -> patch",
         "housecarl_apply: fromfile => hint",
         "housecarl_apply: fullreadback -> readback",
@@ -388,8 +402,13 @@ public static class BindingShimProbe
         "housecarl_bulk_apply: ops -> operations",
         "housecarl_bulk_apply: patch -> patch_name",
         "housecarl_bulk_apply: readback -> full_readback",
+        "housecarl_bulk_create: collection => hint",
+        "housecarl_bulk_create: editorid => hint",
+        "housecarl_bulk_create: grid => hint",
+        "housecarl_bulk_create: parent => hint",
         "housecarl_bulk_create: patch -> patch_name",
         "housecarl_bulk_create: readback -> full_readback",
+        "housecarl_bulk_create: recordtype => hint",
         "housecarl_bulk_place_asset: patch -> patch_name",
         "housecarl_check_errors: formid -> formids",
         "housecarl_check_errors: plugin -> plugins",
@@ -406,6 +425,16 @@ public static class BindingShimProbe
         "housecarl_compile_script: patch -> patch_name",
         "housecarl_compile_script: paths -> script",
         "housecarl_copy_npc_appearance: patch -> patch_name",
+        "housecarl_create: archivename -> patch",
+        "housecarl_create: collection => hint",
+        "housecarl_create: editorid => hint",
+        "housecarl_create: fullreadback -> readback",
+        "housecarl_create: grid => hint",
+        "housecarl_create: output -> patch",
+        "housecarl_create: parent => hint",
+        "housecarl_create: patchname -> patch",
+        "housecarl_create: pluginname -> patch",
+        "housecarl_create: recordtype => hint",
         "housecarl_create_plugin: patch -> plugin_name",
         "housecarl_create_plugin: plugin -> plugin_name",
         "housecarl_create_plugin: pluginnames -> plugin_name",
@@ -421,6 +450,15 @@ public static class BindingShimProbe
         "housecarl_decompile_script: paths -> pex",
         "housecarl_diff_record: formids -> formid",
         "housecarl_effect_chain: type -> types",
+        "housecarl_forward: archivename -> patch",
+        "housecarl_forward: formid -> formids",
+        "housecarl_forward: fromplugin -> source",
+        "housecarl_forward: fullreadback -> readback",
+        "housecarl_forward: mod -> source",
+        "housecarl_forward: output -> patch",
+        "housecarl_forward: patchname -> patch",
+        "housecarl_forward: plugin -> source",
+        "housecarl_forward: pluginname -> patch",
         "housecarl_forward_record: formid -> formids",
         "housecarl_forward_record: patch -> patch_name",
         "housecarl_forward_record: readback -> full_readback",
@@ -449,12 +487,7 @@ public static class BindingShimProbe
         "housecarl_read_record: pluginnames -> plugin",
         "housecarl_read_record: plugins -> plugin",
         "housecarl_read_record: source -> plugin",
-        // W2 PR 1 (re-eyeballed 2026-08-02): housecarl_records joins the surface. The 1.x spellings land on
-        // their 2.0 poles (plugin/mod/from_plugin -> source; formid -> formids; type -> types), the first
-        // dissolution hints go LIVE (the form-scoped PROJECT spellings incl. the chartered conflict_tree hint,
-        // editorid_contains -> the where grammar, winner_fields -> fields_source), and pluginname/pluginnames
-        // list plugins= as their schema-level candidate (kind-gated at runtime: a string cannot bind the
-        // structured scope object, so a live stray still refuses named rather than renaming).
+        "housecarl_records: closure => hint",
         "housecarl_records: conflicttree => hint",
         "housecarl_records: depth => hint",
         "housecarl_records: editoridcontains => hint",
@@ -462,23 +495,20 @@ public static class BindingShimProbe
         "housecarl_records: formid -> formids",
         "housecarl_records: fromplugin -> source",
         "housecarl_records: groupby => hint",
+        "housecarl_records: mgefformid => hint",
         "housecarl_records: mod -> source",
+        "housecarl_records: moda => hint",
+        "housecarl_records: modb => hint",
         "housecarl_records: plugin -> source",
+        "housecarl_records: plugina => hint",
+        "housecarl_records: pluginb => hint",
         "housecarl_records: pluginname -> plugins",
         "housecarl_records: pluginnames -> plugins",
         "housecarl_records: resolvenames => hint",
         "housecarl_records: type -> types",
         "housecarl_records: winnerfields => hint",
-        // W2 PR 2 (re-eyeballed 2026-08-04): versus= and walk= land on housecarl_records, so their gated
-        // hints go LIVE — the diff_record pole spellings (plugin_a/b, mod_a/b -> the source=/versus= poles)
-        // and the walk-carried absorptions (effect_chain's mgef_formid; copy's closure). 113 -> 119, all six
-        // on housecarl_records.
-        "housecarl_records: closure => hint",
-        "housecarl_records: mgefformid => hint",
-        "housecarl_records: moda => hint",
-        "housecarl_records: modb => hint",
-        "housecarl_records: plugina => hint",
-        "housecarl_records: pluginb => hint",
+        "housecarl_remove: formid -> formids",
+        "housecarl_remove: patch -> into",
         "housecarl_remove_record: archivename -> patch",
         "housecarl_remove_record: formids -> formid",
         "housecarl_remove_record: output -> patch",
@@ -499,11 +529,13 @@ public static class BindingShimProbe
         "housecarl_validate_scripts: pluginname -> plugins",
         "housecarl_validate_scripts: pluginnames -> plugins",
         "housecarl_validate_scripts: types -> type",
-        "housecarl_write_seq: patch -> patch_name",
-        "housecarl_write_seq: pluginname -> plugin",
-        "housecarl_write_seq: pluginnames -> plugin",
-        "housecarl_write_seq: plugins -> plugin",
-        "housecarl_write_seq: source -> plugin",
+        "housecarl_write_seq: archivename -> patch",
+        "housecarl_write_seq: fromplugin -> source",
+        "housecarl_write_seq: mod -> source",
+        "housecarl_write_seq: output -> patch",
+        "housecarl_write_seq: patchname -> patch",
+        "housecarl_write_seq: plugin -> source",
+        "housecarl_write_seq: pluginname -> patch",
     };
 
     /// <summary>The published-schema arm (W3): the SPEC §5.1 <c>@file</c> union on the JsonElement-typed list
