@@ -5929,7 +5929,7 @@ public sealed class LoadOrderService : IDisposable
     /// spec refuses the whole call (with per-record reasons) and the core <see cref="WritePatchBuilder.CreateRecords"/>
     /// likewise refuses the whole batch on any creatability/parent problem. One serialize for the lot.</summary>
     public WritePatchBuilder.CreateOutcome CreateRecordsBatch(IReadOnlyList<CreateOp> records, string? patchName, string? into, bool fullReadback = false,
-        string? target = null, bool inPlace = false, bool acknowledge = false)
+        string? target = null, bool inPlace = false, bool acknowledge = false, IReadOnlyList<string?>? origins = null)
     {
         if (records is null || records.Count == 0)
             return WritePatchBuilder.CreateOutcome.Fail("no records to create supplied — pass one or more {record_type, editorid, operations?, parent?, collection?} specs.");
@@ -5939,7 +5939,11 @@ public sealed class LoadOrderService : IDisposable
         for (int r = 0; r < records.Count; r++)
         {
             var rec = records[r];
-            var spec = BuildCreateSpec(rec.RecordType, rec.Editorid, rec.Operations ?? Array.Empty<BulkOp>(), rec.Parent, rec.Collection, rec.Grid, $"record[{r}]", problems);
+            // origins[r] is the CALLER's own spelling for this spec (housecarl_create passes "records[r]"; the 1.x
+            // batch passes none and keeps its own "record[r]"). Carried parallel to the list for the same reason
+            // ApplyEdits carries opOrigins: a refusal must never name an index shape the caller did not write.
+            var where = origins is not null && r < origins.Count && origins[r] is { } o ? o : $"record[{r}]";
+            var spec = BuildCreateSpec(rec.RecordType, rec.Editorid, rec.Operations ?? Array.Empty<BulkOp>(), rec.Parent, rec.Collection, rec.Grid, where, problems);
             if (spec is not null) specs.Add(spec);
         }
         if (problems.Count > 0)

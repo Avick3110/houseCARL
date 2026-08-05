@@ -42,6 +42,11 @@ internal static class ToolSchemas
     {
         new("housecarl_apply", "ops", typeof(ApplyOp[])),
         new("housecarl_apply", "assignments", typeof(Assignment[])),
+        // W3 PR 2 — the chartered carry from PR #310's decision 1: create's records= is the same JsonElement-typed
+        // @file union, so it publishes the same anyOf. Its element type reaches StructInput/NestedSet through
+        // CreateFieldOp, which is why the $defs hoist below is first-wins BY NAME and sound here: those are
+        // literally the same C# types apply's rows generate, so a duplicate name is a duplicate schema.
+        new("housecarl_create", "records", typeof(CreateRecordSpec[])),
     };
 
     /// <summary>Register the rewrite. It runs as a POST-configure over <c>McpServerOptions</c>, which is the one

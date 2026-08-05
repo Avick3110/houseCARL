@@ -1592,4 +1592,200 @@ static class JsonWire
         }
         return Finish(ms);
     }
+
+    // ---- housecarl_create (W3 PR 2) -----------------------------------------------------------------
+    /// <summary>The machine-readable twin of <see cref="WriteTools.RenderCreate"/> — the SAME data the text render
+    /// states (decision D2), on the same contract <see cref="RenderPatchOutcome"/> established: a refusal is a
+    /// document (<c>ok:false</c> with the reason), the first-touch consent prompt is its own flag rather than an
+    /// error, the epoch rides on every response, and truncation drops trailing ROWS so the document stays valid JSON.
+    /// <para>The three post-write REPORTS ride as data, not prose: a silent line, an inert result script and an empty
+    /// cell are the Q3 hazards the text render shouts about, and a json consumer that could not see them would be
+    /// exactly the silently-degraded mode this project refuses.</para></summary>
+    public static string RenderCreateOutcome(WritePatchBuilder.CreateOutcome o, int maxChars, bool readback)
+    {
+        int cap = Cap(maxChars);
+        using var ms = new MemoryStream();
+        using (var w = new Utf8JsonWriter(ms, Opts))
+        {
+            w.WriteStartObject();
+            w.WriteBoolean("ok", o.Success);
+            w.WriteBoolean("needs_acknowledge", o.NeedsAcknowledge);
+            w.WriteString("lane", o.InPlace ? "in_place" : o.Extended ? "extend" : "patch");
+            WriteNullable(w, "epoch", o.Epoch);
+            if (!o.Success)
+            {
+                WriteNullable(w, o.NeedsAcknowledge ? "confirmation" : "error", o.Error);
+                w.WriteEndObject();
+                w.Flush();          // INSIDE the using — without it the buffered document is unwritten and the
+                return Finish(ms);  // caller gets an EMPTY string (the PR #306 class; PR #310 hit it again).
+            }
+
+            w.WriteString("path", o.OutputPath);
+            w.WriteString("file", Path.GetFileName(o.OutputPath));
+            w.WriteNumber("bytes", o.Bytes);
+            WriteStringArray(w, "masters", o.Masters.ToList());
+
+            w.WriteNumber("total_created", o.Created.Count);
+            w.WriteStartArray("created");
+            int rendered = 0;
+            bool truncated = false;
+            foreach (var c in o.Created)
+            {
+                if (ms.Length >= cap) { truncated = true; break; }
+                w.WriteStartObject();
+                w.WriteString("formid", c.FormKey.ToString());
+                w.WriteString("record_type", c.RecordType);
+                w.WriteString("editorid", c.EditorId);
+                // A replace is never silent (the CreatedRecord contract): the same fact the text render puts in
+                // brackets, as a flag a consumer can branch on.
+                w.WriteBoolean("replaced_existing", c.ReplacedExisting);
+                w.WriteStartArray("ops");
+                foreach (var op in c.Ops)
+                {
+                    w.WriteStartObject();
+                    w.WriteString("label", op.Label);
+                    w.WriteBoolean("applied", op.Applied);
+                    WriteNullable(w, "error", op.Error);
+                    WriteNullable(w, "after", op.After);
+                    w.WriteEndObject();
+                }
+                w.WriteEndArray();
+                w.WriteEndObject();
+                rendered++;
+            }
+            w.WriteEndArray();
+            w.WriteNumber("rendered_created", rendered);
+
+            WriteVoiceReport(w, o.Voice);
+            WriteScriptBindingReport(w, o.ScriptBinding);
+            WriteCellShellReport(w, o.CellShell);
+
+            if (o.ReadBack is { } rb)
+            {
+                w.WriteString("readback_source", "written_file");
+                w.WriteBoolean("readback_full", readback);
+                w.WriteStartArray("readback");
+                foreach (var r in rb)
+                {
+                    if (ms.Length >= cap) { truncated = true; break; }
+                    w.WriteStartObject();
+                    w.WriteString("formid", r.Target.ToString());
+                    if (r.Error is not null) w.WriteString("error", r.Error);
+                    else
+                    {
+                        var rec = r.Record!;
+                        w.WriteString("type", rec.Type);
+                        WriteNullable(w, "editorid", rec.EditorId);
+                        w.WriteNumber("field_count", rec.Fields.Count);
+                        w.WriteStartArray("fields");
+                        foreach (var f in rec.Fields)
+                        {
+                            if (ms.Length >= cap) { truncated = true; break; }
+                            w.WriteStartObject();
+                            w.WriteString("path", f.Path);
+                            if (f.HasValue) w.WriteString("value", f.Token); else w.WriteString("note", f.Note);
+                            w.WriteEndObject();
+                        }
+                        w.WriteEndArray();
+                    }
+                    w.WriteEndObject();
+                }
+                w.WriteEndArray();
+            }
+
+            WriteNullable(w, "note", o.Note);
+            w.WriteBoolean("truncated", truncated);
+            if (truncated)
+                w.WriteString("truncated_note", $"the render hit max_chars={cap} and dropped trailing rows — the WRITE is complete and unaffected; raise max_chars to see the rest.");
+            w.WriteEndObject();
+        }
+        return Finish(ms);
+    }
+
+    /// <summary>The voice-coverage report as data (a created dialogue line with no .fuz plays SILENT in game). The
+    /// text render's "[!] WILL BE SILENT" becomes <c>fuz_present:false</c> + the path to put the audio at.</summary>
+    static void WriteVoiceReport(Utf8JsonWriter w, VoiceReport? report)
+    {
+        if (report is null || report.IsEmpty) return;
+        w.WriteStartObject("voice_coverage");
+        WriteNullable(w, "check_error", report.CheckError);
+        w.WriteStartArray("lines");
+        foreach (var l in report.Lines)
+        {
+            w.WriteStartObject();
+            w.WriteString("info", l.Info.ToString());
+            WriteNullable(w, "topic_editorid", l.TopicEditorId);
+            w.WriteNumber("response", l.ResponseNumber);
+            w.WriteBoolean("fuz_present", l.FuzPresent);
+            w.WriteBoolean("lip_present", l.LipPresent);
+            WriteNullable(w, "fuz_path", l.FuzPath);
+            WriteNullable(w, "lip_path", l.LipPath);
+            WriteNullable(w, "fuz_winner", l.FuzWinner);
+            w.WriteBoolean("fuz_contended", l.FuzAmbiguous);
+            // An "absent" that merely went unscanned is not the same claim as an absent that was looked for and
+            // not found — the text render says so in a note; here it is per-line data.
+            w.WriteBoolean("read_incomplete", l.ReadIncomplete);
+            w.WriteEndObject();
+        }
+        w.WriteEndArray();
+        w.WriteStartArray("undetermined");
+        foreach (var u in report.Undetermined)
+        {
+            w.WriteStartObject();
+            w.WriteString("info", u.Info.ToString());
+            WriteNullable(w, "topic_editorid", u.TopicEditorId);
+            w.WriteString("reason", u.Reason);
+            w.WriteEndObject();
+        }
+        w.WriteEndArray();
+        w.WriteEndObject();
+    }
+
+    /// <summary>The result-script binding report as data (a bound script that is unwired or uncompiled runs NOTHING
+    /// in game). <c>status</c> is the enum name the text render turns into "WILL NOT FIRE".</summary>
+    static void WriteScriptBindingReport(Utf8JsonWriter w, ScriptBindingReport? report)
+    {
+        if (report is null || report.IsEmpty) return;
+        w.WriteStartObject("result_script_coverage");
+        WriteNullable(w, "check_error", report.CheckError);
+        w.WriteStartArray("findings");
+        foreach (var f in report.Findings)
+        {
+            w.WriteStartObject();
+            w.WriteString("info", f.Info.ToString());
+            WriteNullable(w, "topic_editorid", f.TopicEditorId);
+            w.WriteString("status", f.Status.ToString());
+            w.WriteString("detail", f.Detail);
+            WriteStringArray(w, "missing_pex", f.MissingPex);
+            w.WriteBoolean("read_incomplete", f.ReadIncomplete);
+            w.WriteEndObject();
+        }
+        w.WriteEndArray();
+        w.WriteEndObject();
+    }
+
+    /// <summary>The cell-shell report as data (a created cell is a valid, correctly-placed record but EMPTY —
+    /// houseCARL does not author world content). <c>must_provide</c> is the Creation-Kit work list.</summary>
+    static void WriteCellShellReport(Utf8JsonWriter w, CellShellReport? report)
+    {
+        if (report is null || report.IsEmpty) return;
+        w.WriteStartObject("cell_shell");
+        WriteNullable(w, "check_error", report.CheckError);
+        w.WriteStartArray("cells");
+        foreach (var c in report.Cells)
+        {
+            w.WriteStartObject();
+            w.WriteString("cell", c.Cell.ToString());
+            w.WriteString("editorid", c.EditorId);
+            w.WriteBoolean("interior", c.Interior);
+            WriteStringArray(w, "must_provide", c.MustProvide);
+            w.WriteEndObject();
+        }
+        w.WriteEndArray();
+        // The grid-occupancy seam the text render declares — a json consumer must not read "cells: []" as "checked".
+        if (report.Cells.Any(c => !c.Interior))
+            w.WriteString("grid_occupancy_note",
+                "houseCARL does NOT check grid-occupancy — a NEW exterior cell at a grid your load order already fills collides. To change an existing cell, OVERRIDE it instead of creating a new one.");
+        w.WriteEndObject();
+    }
 }
