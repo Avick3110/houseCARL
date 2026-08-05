@@ -376,6 +376,11 @@ public static class BindingShimProbe
         //     housecarl_create and 1.x housecarl_bulk_create — both declare records=, and on both the scalar
         //     spelling is genuinely a member of a record rather than a top-level argument, so the hint is
         //     correct in both places rather than noise in one;
+        // PR #311 review [low], folded: write_seq's `pluginname` row now lands on SOURCE, not patch. Once the
+        //   tool declared source= AND patch=, the likeliest 1.x word for THE PLUGIN was the one that could not
+        //   reach the plugin pole — plugin_name= silently renamed the OUTPUT FOLDER. `source` is appended LAST
+        //   to the candidate list (+ patch suppressed on this tool), so records/ scope-bearing tools keep the
+        //   W0 mapping and this is the ONLY row that moves.
         //   * write_seq's five reverse rows (source->plugin, plugins/plugin_name(s)->plugin, patch->patch_name)
         //     are GONE: it declares source= and patch= itself now, so those rows are declared, not renamed.
         "housecarl_apply: archivename -> patch",
@@ -535,7 +540,7 @@ public static class BindingShimProbe
         "housecarl_write_seq: output -> patch",
         "housecarl_write_seq: patchname -> patch",
         "housecarl_write_seq: plugin -> source",
-        "housecarl_write_seq: pluginname -> patch",
+        "housecarl_write_seq: pluginname -> source",
     };
 
     /// <summary>The published-schema arm (W3): the SPEC §5.1 <c>@file</c> union on the JsonElement-typed list
@@ -543,23 +548,34 @@ public static class BindingShimProbe
     static int SchemaArm(JsonElement toolsList)
     {
         int failures = 0;
-        JsonElement apply = default;
-        bool found = false;
-        foreach (var t in toolsList.GetProperty("tools").EnumerateArray())
-            if (t.GetProperty("name").GetString() == "housecarl_apply") { apply = t; found = true; break; }
 
-        failures += Check("SCHEMA: housecarl_apply is published", found, "tool absent from tools/list");
-        if (found)
+        // One row per ToolSchemas.FileListParams entry — (tool, parameter, a member that proves the generator ran
+        // over the real C# type). PR #311 review [low]: this arm used to hardcode housecarl_apply, so
+        // housecarl_create's records= row was covered only by the generic dangling-$ref sweep — and a dropped or
+        // mis-spelled row degrades that parameter back to the bare {} the declared JsonElement gives, which has no
+        // refs to dangle and so passed silently. Every published union is named here.
+        foreach (var (toolName, param, member) in new[]
+                 {
+                     ("housecarl_apply",  "ops",         "field_path"),
+                     ("housecarl_apply",  "assignments", "target"),
+                     ("housecarl_create", "records",     "record_type"),
+                 })
         {
-            foreach (var (param, member) in new[] { ("ops", "field_path"), ("assignments", "target") })
+            JsonElement tool = default;
+            bool found = false;
+            foreach (var t in toolsList.GetProperty("tools").EnumerateArray())
+                if (t.GetProperty("name").GetString() == toolName) { tool = t; found = true; break; }
+
+            failures += Check($"SCHEMA: {toolName} is published", found, "tool absent from tools/list");
+            if (found)
             {
                 JsonElement arms = default;
-                var ok = apply.GetProperty("inputSchema").GetProperty("properties").TryGetProperty(param, out var node)
+                var ok = tool.GetProperty("inputSchema").GetProperty("properties").TryGetProperty(param, out var node)
                       && node.TryGetProperty("anyOf", out arms)
                       && arms.GetArrayLength() == 2
                       && arms[0].TryGetProperty("type", out var t0) && t0.GetString() == "array"
                       && arms[1].TryGetProperty("type", out var t1) && t1.GetString() == "string";
-                failures += Check($"SCHEMA: {param}= publishes anyOf[<generated array>, string] — not the bare {{}} the declared JsonElement would give",
+                failures += Check($"SCHEMA: {toolName} {param}= publishes anyOf[<generated array>, string] — not the bare {{}} the declared JsonElement would give",
                     ok, ok ? "" : node.ValueKind == JsonValueKind.Undefined ? "parameter absent" : node.GetRawText());
 
                 // The array arm must be the GENERATED element schema, not an empty placeholder: a named member
@@ -567,7 +583,7 @@ public static class BindingShimProbe
                 bool typed = ok && arms[0].TryGetProperty("items", out var items)
                                 && items.TryGetProperty("properties", out var mprops)
                                 && mprops.TryGetProperty(member, out _);
-                failures += Check($"SCHEMA: {param}='s array arm carries the generated element members (e.g. {member})", typed, "");
+                failures += Check($"SCHEMA: {toolName} {param}='s array arm carries the generated element members (e.g. {member})", typed, "");
             }
         }
 
