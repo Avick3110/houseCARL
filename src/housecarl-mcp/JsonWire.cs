@@ -1951,10 +1951,12 @@ static class JsonWire
         if (report is null || report.IsEmpty) return;
         w.WriteStartObject("voice_coverage");
         WriteNullable(w, "check_error", report.CheckError);
+        int renderedLines = 0, renderedUndet = 0;
+        bool blockCut = false;
         w.WriteStartArray("lines");
         foreach (var l in report.Lines)
         {
-            if (Over(w, ms, cap)) { truncated = true; break; }
+            if (Over(w, ms, cap)) { truncated = true; blockCut = true; break; }
             w.WriteStartObject();
             w.WriteString("info", l.Info.ToString());
             WriteNullable(w, "topic_editorid", l.TopicEditorId);
@@ -1969,20 +1971,57 @@ static class JsonWire
             // not found — the text render says so in a note; here it is per-line data.
             w.WriteBoolean("read_incomplete", l.ReadIncomplete);
             w.WriteEndObject();
+            renderedLines++;
         }
         w.WriteEndArray();
         w.WriteStartArray("undetermined");
         foreach (var u in report.Undetermined)
         {
-            if (Over(w, ms, cap)) { truncated = true; break; }
+            if (Over(w, ms, cap)) { truncated = true; blockCut = true; break; }
             w.WriteStartObject();
             w.WriteString("info", u.Info.ToString());
             WriteNullable(w, "topic_editorid", u.TopicEditorId);
             w.WriteString("reason", u.Reason);
             w.WriteEndObject();
+            renderedUndet++;
         }
         w.WriteEndArray();
+        WriteBlockCensus(w, blockCut, ("lines", renderedLines, report.Lines.Count),
+                                      ("undetermined", renderedUndet, report.Undetermined.Count),
+            "voice coverage", cap,
+            "a created voiced response with NO .fuz plays SILENT in game — an empty or short list here is a RENDER cut, not a clean bill of health");
         w.WriteEndObject();
+    }
+
+    /// <summary>The per-BLOCK truncation census the three post-write reports carry (PR #311 review 5 [medium]).
+    /// <para>Without it a cut block renders as <c>lines: []</c> — indistinguishable from "nothing to report", which
+    /// is the exact inversion of what these blocks exist to say: an empty voice list reads as "every created line
+    /// is voiced" when it may mean "150 silent lines were dropped by the budget". The text renders have said so
+    /// since they were written (<c>AppendVoiceTrunc</c>); only the json twins were silent. And it is not an edge —
+    /// <see cref="RenderCreateOutcome"/>'s created rows budget against the SAME <c>cap</c> and run first, so
+    /// whenever they truncate, <c>Over</c> is already true at each report's first row and every block renders
+    /// empty, deterministically. The document-level <c>truncated</c> flag is a weaker claim: it does not say WHICH
+    /// block lost rows.</para>
+    /// <para>Counts ride even when nothing was cut — <c>rendered == total</c> is the positive statement that the
+    /// list IS complete, so a consumer never has to infer completeness from the absence of a marker.</para></summary>
+    static void WriteBlockCensus(Utf8JsonWriter w, bool cut, (string name, int rendered, int total) a,
+                                 (string name, int rendered, int total)? b, string blockLabel, int cap, string stakes)
+    {
+        w.WriteNumber($"total_{a.name}", a.total);
+        w.WriteNumber($"rendered_{a.name}", a.rendered);
+        if (b is { } bb)
+        {
+            w.WriteNumber($"total_{bb.name}", bb.total);
+            w.WriteNumber($"rendered_{bb.name}", bb.rendered);
+        }
+        w.WriteBoolean("truncated", cut);
+        // Deliberately NOT "raise max_chars": these blocks ride the WRITE renders, and re-issuing a create or an
+        // apply on the default lane auto-suffixes a second patch (the class this PR has now been told about three
+        // times). The note states the cut and the stakes and stops there — the write is done, the report is only a
+        // render of it, and the counts above are what a consumer branches on.
+        if (cut)
+            w.WriteString("truncated_note",
+                $"the {blockLabel} block hit max_chars={cap} and its rows were CUT — {stakes}. The WRITE is complete and unaffected; this block is only a render of it, so compare rendered_* against total_* rather than reading the array as the whole answer. Do NOT re-issue the write to widen this.");
     }
 
     /// <summary>The result-script binding report as data (a bound script that is unwired or uncompiled runs NOTHING
@@ -1992,10 +2031,12 @@ static class JsonWire
         if (report is null || report.IsEmpty) return;
         w.WriteStartObject("result_script_coverage");
         WriteNullable(w, "check_error", report.CheckError);
+        int renderedFindings = 0;
+        bool blockCut = false;
         w.WriteStartArray("findings");
         foreach (var f in report.Findings)
         {
-            if (Over(w, ms, cap)) { truncated = true; break; }
+            if (Over(w, ms, cap)) { truncated = true; blockCut = true; break; }
             w.WriteStartObject();
             w.WriteString("info", f.Info.ToString());
             WriteNullable(w, "topic_editorid", f.TopicEditorId);
@@ -2004,8 +2045,12 @@ static class JsonWire
             WriteStringArray(w, "missing_pex", f.MissingPex);
             w.WriteBoolean("read_incomplete", f.ReadIncomplete);
             w.WriteEndObject();
+            renderedFindings++;
         }
         w.WriteEndArray();
+        WriteBlockCensus(w, blockCut, ("findings", renderedFindings, report.Findings.Count), null,
+            "result-script coverage", cap,
+            "a bound script that is unwired or uncompiled runs NOTHING in game — an empty or short list here is a RENDER cut, not a clean bill of health");
         w.WriteEndObject();
     }
 
@@ -2016,18 +2061,23 @@ static class JsonWire
         if (report is null || report.IsEmpty) return;
         w.WriteStartObject("cell_shell");
         WriteNullable(w, "check_error", report.CheckError);
+        int renderedCells = 0;
+        bool blockCut = false;
         w.WriteStartArray("cells");
         foreach (var c in report.Cells)
         {
-            if (Over(w, ms, cap)) { truncated = true; break; }
+            if (Over(w, ms, cap)) { truncated = true; blockCut = true; break; }
             w.WriteStartObject();
             w.WriteString("cell", c.Cell.ToString());
             w.WriteString("editorid", c.EditorId);
             w.WriteBoolean("interior", c.Interior);
             WriteStringArray(w, "must_provide", c.MustProvide);
             w.WriteEndObject();
+            renderedCells++;
         }
         w.WriteEndArray();
+        WriteBlockCensus(w, blockCut, ("cells", renderedCells, report.Cells.Count), null, "cell shell", cap,
+            "a created cell is a valid record but EMPTY, and each dropped row is Creation-Kit work this response was supposed to name");
         // The grid-occupancy seam the text render declares — a json consumer must not read "cells: []" as "checked".
         if (report.Cells.Any(c => !c.Interior))
             w.WriteString("grid_occupancy_note",
