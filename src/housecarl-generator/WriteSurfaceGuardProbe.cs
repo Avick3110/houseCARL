@@ -710,10 +710,47 @@ public static class WriteSurfaceGuardProbe
             && seqCapped.Contains("max_chars=80", StringComparison.Ordinal)
             && seqCapped.Contains("the .seq itself carries ALL of them", StringComparison.Ordinal)
             && !seqCapped.Contains("HcSeqQuestCharlie", StringComparison.Ordinal), seqCapped);
+        // …and the notice must not prescribe a re-run: widening the ceiling re-runs a WRITE, which with no lane
+        // named for a plugin outside a houseCARL folder cuts a SECOND auto-suffixed folder holding a duplicate
+        // .seq. Nothing is missing from the file, so the notice says that and prices the re-run instead.
+        Check("write_seq's truncation notice prices the re-run instead of prescribing 'raise max_chars'",
+            seqCapped.Contains("nothing is missing from the FILE", StringComparison.Ordinal)
+            && seqCapped.Contains("writes the .seq again", StringComparison.Ordinal)
+            && !seqCapped.Contains("raise max_chars", StringComparison.Ordinal), seqCapped);
+
         var seqUncapped = SeqTools.Render(seqOutcome);
         Check("write_seq text render: without a cap every quest row is listed (the notice is not a permanent cut)",
             seqUncapped.Contains("HcSeqQuestCharlie", StringComparison.Ordinal)
             && !seqUncapped.Contains("[truncated:", StringComparison.Ordinal), seqUncapped);
+
+        // LANE exclusivity on write_seq (PR #311 review 4 [low]): both spellings are labelled LANE: by this PR, and
+        // ResolvePatchModFolder returns from the into= branch before patch= is read — so the pair used to land the
+        // .seq in into='s folder with patch= silently dropped. Refused BY NAME like every sibling, and in BOTH
+        // transports: a json caller getting prose here is the same class one layer up.
+        var seqBothLanes = SeqTools.WriteSeq(fx.Svc, source: fx.MasterName, patch: "HcSeqNew", into: "HcSeqExisting.esp");
+        Check("write_seq: patch= and into= together are refused BY NAME, never silently resolved to into=",
+            seqBothLanes.StartsWith("error:", StringComparison.Ordinal)
+            && seqBothLanes.Contains("HcSeqNew", StringComparison.Ordinal)
+            && seqBothLanes.Contains("HcSeqExisting.esp", StringComparison.Ordinal)
+            && seqBothLanes.Contains("exclusive", StringComparison.Ordinal), seqBothLanes);
+
+        // Same pre-engine RenderError shape as the create/remove refusal arms above — {error, epoch}, no `ok`
+        // discriminant (the reviewer-scoped-out W3 PR 3 sweep), so this asserts the REASON is machine-readable and
+        // tightens to ok:false when that lands.
+        var seqBothLanesJson = SeqTools.WriteSeq(fx.Svc, source: fx.MasterName, patch: "HcSeqNew",
+            into: "HcSeqExisting.esp", format: "json");
+        // TryGetProperty, not GetProperty: without the fix this document is a SUCCESS (patch= silently dropped),
+        // which carries no `error` at all — an arm that throws there reports a crashed probe instead of the finding.
+        Check("write_seq format=json: the LANE refusal is a DOCUMENT carrying the reason, not prose",
+            seqBothLanesJson.Length > 0 && TryJson(seqBothLanesJson, out var sldoc)
+            && sldoc!.RootElement.TryGetProperty("error", out var slerr)
+            && slerr.GetString() is { } slmsg && slmsg.Contains("exclusive", StringComparison.Ordinal),
+            seqBothLanesJson);
+
+        // …and a single lane still reaches the engine — the refusal must be the PAIR, not "patch= is refused".
+        var seqOneLane = SeqTools.WriteSeq(fx.Svc, source: fx.MasterName, patch: "HcSeqOnlyNew");
+        Check("write_seq: patch= ALONE is still honored (the refusal is the pair, not the parameter)",
+            !seqOneLane.StartsWith("error:", StringComparison.Ordinal), seqOneLane);
 
         // write_seq: the ABSENT epoch is a stated fact with its reason, not a dropped field.
         var seqJson = SeqTools.WriteSeq(fx.Svc, source: fx.MasterName, format: "json");

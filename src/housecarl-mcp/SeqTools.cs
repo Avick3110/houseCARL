@@ -63,6 +63,18 @@ public static class SeqTools
         if (svc.ConfigPromptOrNull() is { } cfgPrompt)
             return json ? JsonWire.RenderError(cfgPrompt, null) : cfgPrompt;
 
+        // LANE exclusivity, the same rule the sibling write tools enforce (PR #311 review 4 [low]). This PR is what
+        // renamed the pair onto the 2.0 words and labelled BOTH "LANE:", and a LANE that can be named alongside
+        // another and silently lose is the accepted-and-ignored class the grammar exists to close:
+        // ResolvePatchModFolder returns from the into= branch before patch= is ever read, so the .seq landed in
+        // into='s folder and the response said nothing about the folder patch= asked for.
+        if (!string.IsNullOrWhiteSpace(patch) && !string.IsNullOrWhiteSpace(into))
+        {
+            var laneErr = $"patch='{patch}' names a NEW mod folder for the .seq, but into='{into}' writes it into an existing houseCARL "
+                        + "patch — the two lanes are exclusive. Drop patch= to write into that patch, or drop into= to make a new folder.";
+            return json ? JsonWire.RenderError(laneErr, null) : "error: " + laneErr;
+        }
+
         var o = svc.WriteSeq(source, patch, into);
         if (json) return JsonWire.RenderSeqOutcome(o, max_chars);
         if (!o.Success) return "error: " + o.Error;
@@ -91,9 +103,16 @@ public static class SeqTools
         {
             if (sb.Length >= cap)
             {
+                // Not "raise max_chars to see the rest" — the same class as create's notice (PR #311 review 3
+                // round-2 / review 4), one tool over: re-running write_seq with a wider ceiling WRITES THE .seq
+                // AGAIN, and with no lane named for a plugin outside a houseCARL folder that is a second
+                // auto-suffixed mod folder holding a duplicate. Nothing is missing from the FILE, so the honest
+                // notice says so and prices the re-run instead of prescribing it. (Not a review-4 finding — a
+                // sibling spotted while folding one; declared on the PR rather than folded silently.)
                 sb.Append("  ... [truncated: ").Append(i).Append(" of ").Append(o.Quests.Count)
                   .Append(" quest(s) listed at max_chars=").Append(cap)
-                  .Append("; the .seq itself carries ALL of them — raise max_chars to see the rest]\n");
+                  .Append("; the .seq itself carries ALL of them — nothing is missing from the FILE. Re-run only if you need this "
+                        + "LIST widened: that writes the .seq again (into= the folder named below to keep it in one)]\n");
                 break;
             }
             var q = o.Quests[i];
