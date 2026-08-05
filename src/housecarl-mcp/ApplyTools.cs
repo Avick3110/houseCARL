@@ -68,7 +68,7 @@ public static class ApplyTools
          "to from_source's version of the record being edited); with from= and no from_source= the source is that " +
          "record's load-order winner. Cross-record pairs must be the SAME record type — refused by name otherwise. " +
          "CopyFrom copies a WHOLE field (scalar, formlink, modeled list, sub-struct); it cannot copy owned child " +
-         "records (forward the whole record with housecarl_forward_record instead).\n\n" +
+         "records (forward the whole record with housecarl_forward instead).\n\n" +
          "THE COPY ZIP (bundle= x assignments=). To copy the SAME set of fields from one record to another — many " +
          "pairs in one call — name the paths once and pair them explicitly: bundle=[\"BasicStats.Damage\"," +
          "\"Keywords\"], assignments=[{target:'AAA:Mod.esp', from:'BBB:Other.esp'}, {target:..., from:..., " +
@@ -80,7 +80,7 @@ public static class ApplyTools
          "is never overwritten). into='<an existing patch's filename>' EXTENDS that patch instead — the way to " +
          "accumulate across calls and sessions. PRECEDENCE with into= (pinned): a FormKey the patch ALREADY CARRIES " +
          "is edited AS-IS in the patch; only a FormKey it does NOT yet carry copies the load-order winner in first. " +
-         "So housecarl_forward_record from a source + apply into= the same patch is THE recipe to build on a " +
+         "So housecarl_forward from a source + apply into= the same patch is THE recipe to build on a " +
          "specific plugin's version while a stale winner sits above it. in_place='<plugin filename>' is the opt-in " +
          "THIRD lane: houseCARL rewrites your ORIGINAL file (incl. a mod it didn't author) — no new patch, and NO " +
          "houseCARL backup or undo (keep your own). It re-lays-out the whole plugin the way xEdit/CK do on save, " +
@@ -107,9 +107,9 @@ public static class ApplyTools
          "re-run the same manifest to recover an interrupted write (overrides are idempotent). The path must be " +
          "ABSOLUTE (the server resolves relative paths against its OWN working directory, not yours), and the file " +
          "is read at CALL time, so re-dry-run it after editing.\n\n" +
-         "This tool edits EXISTING records' fields. New records are housecarl_create_record / housecarl_bulk_create; " +
-         "dropping a whole record is housecarl_remove_record; copying a whole record verbatim is " +
-         "housecarl_forward_record. Read first with housecarl_records.")]
+         "This tool edits EXISTING records' fields. New records are housecarl_create; dropping whole records is " +
+         "housecarl_remove; copying a whole record verbatim is housecarl_forward. Read first with " +
+         "housecarl_records.")]
     public static string Apply(
         LoadOrderService svc,
         [Description("The edits, all into one artifact: [{formid, field_path, op?, value?, values?, key?, entries?, compose?, composes?, from?, from_source?}, …] — or \"@<absolute path>\" to read that SAME array from a JSON manifest file. One op is a set of one. An op member the shape does not declare is refused BY NAME at its element, never silently dropped.")]

@@ -59,16 +59,17 @@ public static class CodexUmbrellaCoverageProbe
             Check($"GREEN found bundled skill folders ({skills.Count})", skills.Count > 0,
                 new() { "no folders under .claude/skills — wrong CWD or empty tree" });
 
-            // The Contains() coverage check below is only sound if no required name is a substring of ANOTHER
-            // required name — else referencing the longer one would falsely satisfy the shorter one being missing.
-            // Assert that invariant instead of trusting it: a future prefix-named tool (housecarl_read ⊂
-            // housecarl_read_record) trips THIS arm rather than silently passing unrouted.
+            // The coverage check matches on an IDENTIFIER BOUNDARY, not a bare substring. It has to: the 2.0
+            // surface renames tools onto prefixes of the 1.x names they absorb (housecarl_create ⊂
+            // housecarl_create_record, and the same for remove/forward), which is exactly the case the old
+            // GUARD-SELF arm predicted and told a future session to fix with "a boundary match or rename" —
+            // renaming is not available, the names are the SPEC's. The teeth move to a RED arm below.
             var required = tools.Concat(skills).ToList();
-            var subsumed = required
-                .Where(a => required.Any(b => b != a && b.Contains(a, StringComparison.Ordinal)))
+            var prefixPairs = required
+                .Where(a => required.Any(b => b != a && b.StartsWith(a, StringComparison.Ordinal)))
                 .OrderBy(a => a, StringComparer.Ordinal).ToList();
-            Check("GUARD-SELF no required name is a substring of another (Contains match is unambiguous)", subsumed.Count == 0,
-                subsumed.Select(a => $"'{a}' is a substring of another required name — the Contains coverage check could false-pass it; use a boundary match or rename").ToList());
+            Check($"GUARD-SELF prefix-named tools exist ({prefixPairs.Count}) and the matcher is boundary-aware, not Contains",
+                true, new());
 
             // INV1 — every tool referenced.
             var missTools = MissingRefs(umbrella, tools, Allow);
@@ -86,6 +87,17 @@ public static class CodexUmbrellaCoverageProbe
 
             var redSkill = MissingRefs("router text that mentions no skills", new[] { "facegen-diagnostics" }, Empty());
             Check("INV2-RED  a missing skill reference is caught", redSkill.Contains("facegen-diagnostics"), redSkill, redArm: true);
+
+            // The boundary matcher's own teeth: a router that mentions ONLY the longer 1.x name must still report
+            // the shorter 2.0 name missing. A bare Contains would false-pass this — which, with three such pairs
+            // on the surface now, would silently un-route the three newest tools.
+            var redPrefix = MissingRefs("- `housecarl_create_record` — the 1.x tool", new[] { "housecarl_create" }, Empty());
+            Check("PREFIX-RED a name mentioned only as another name's PREFIX is still reported missing",
+                redPrefix.Contains("housecarl_create"), redPrefix, redArm: true);
+
+            // …and the same matcher must NOT report a name the router really does mention in backticks.
+            var greenPrefix = MissingRefs("- `housecarl_create` — the 2.0 tool", new[] { "housecarl_create" }, Empty());
+            Check("PREFIX-GREEN a genuinely referenced name is not reported missing", greenPrefix.Count == 0, greenPrefix, redArm: true);
 
             // The allow-list must actually suppress — else an Allow entry would be a lie.
             var allowed = MissingRefs("router text that mentions no tools", new[] { "housecarl_read_record" },
@@ -127,11 +139,28 @@ public static class CodexUmbrellaCoverageProbe
             : new();
     }
 
-    /// <summary>Required names not present in the umbrella text and not allow-listed. Ordinal substring match — no
-    /// tool or skill name is a substring of another, so a plain Contains is unambiguous.</summary>
+    /// <summary>Required names not present in the umbrella text and not allow-listed. Matched on an IDENTIFIER
+    /// BOUNDARY: an occurrence only counts when the character after it is not another identifier character, so
+    /// <c>housecarl_create_record</c> in the text does NOT satisfy <c>housecarl_create</c>. (Only the trailing side
+    /// needs checking — every required name starts at a word boundary in prose, and the collisions on this surface
+    /// are all suffix extensions: the 2.0 tools are prefixes of the 1.x names they absorb.)</summary>
     static List<string> MissingRefs(string umbrella, IEnumerable<string> required, ISet<string> allow)
-        => required.Where(r => !allow.Contains(r) && !umbrella.Contains(r, StringComparison.Ordinal))
+        => required.Where(r => !allow.Contains(r) && !ReferencedAtBoundary(umbrella, r))
                    .OrderBy(r => r, StringComparer.Ordinal).ToList();
+
+    /// <summary>Does the text mention <paramref name="name"/> as a whole identifier (not as another name's prefix)?</summary>
+    static bool ReferencedAtBoundary(string text, string name)
+    {
+        for (int i = text.IndexOf(name, StringComparison.Ordinal); i >= 0;
+             i = text.IndexOf(name, i + 1, StringComparison.Ordinal))
+        {
+            int after = i + name.Length;
+            if (after >= text.Length) return true;
+            char c = text[after];
+            if (!(char.IsLetterOrDigit(c) || c == '_')) return true;
+        }
+        return false;
+    }
 
     static void Check(string label, bool ok, List<string> detail, bool redArm = false)
     {

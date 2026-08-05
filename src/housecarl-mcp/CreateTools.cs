@@ -42,11 +42,14 @@ public static class CreateTools
          "RECORDS. records= is the spec list — {record_type, editorid, ops?, parent?, collection?, grid?} each; ONE " +
          "record is a set of one (the old create_record call). record_type is a catalog name ('Keyword', 'Spell', " +
          "'LeveledItem', 'DialogTopic') or a 4-char signature ('KYWD'). editorid is REQUIRED — the EditorID the " +
-         "record is referenced by (in SkyPatcher/SPID, in xEdit); choose a clear, prefixed name. For an ABSTRACT " +
+         "record is referenced by (in SkyPatcher/SPID, in xEdit); choose a clear, prefixed name. Any flat " +
+         "top-level record is fair game — a keyword, spell, perk, magic effect, faction, armor, weapon, leveled " +
+         "list, global, quest — as is a nested one (see NESTING). For an ABSTRACT " +
          "record group name the CONCRETE subtype directly ('GlobalFloat'/'GlobalInt'/'GlobalShort', " +
          "'GameSettingFloat'/'GameSettingInt'/'GameSettingString') — that is how a global variable or game setting " +
          "is created. Each new FormID is auto-allocated in the patch's own 0x800+ range and REPORTED BACK: it is how " +
-         "you reference the record afterwards.\n\n" +
+         "you reference the record afterwards — to make ANOTHER record point at it, call this tool or " +
+         "housecarl_apply again with into='<this patch>' and that FormID as the value.\n\n" +
          "OPS set the new record's fields — the same shape housecarl_apply takes MINUS formid (the record has no id " +
          "yet): {field_path, op?, value?, key?, values?, entries?, compose?, composes?}. e.g. " +
          "ops=[{field_path:'Name', value:'My Spell'}, {field_path:'EffectList', op:'Add', compose:{...}}]. compose " +
@@ -96,7 +99,7 @@ public static class CreateTools
          "the SAME array as a JSON manifest on disk. The path must be ABSOLUTE (the server resolves relative paths " +
          "against its OWN working directory, not yours), and the file is read at CALL time.\n\n" +
          "This tool authors NEW records. Editing an existing record's fields is housecarl_apply; dropping a whole " +
-         "record is housecarl_remove_record; an EMPTY header-only trigger plugin (no records at all) is " +
+         "record is housecarl_remove; an EMPTY header-only trigger plugin (no records at all) is " +
          "housecarl_create_plugin. Read first with housecarl_records.")]
     public static string Create(
         LoadOrderService svc,
