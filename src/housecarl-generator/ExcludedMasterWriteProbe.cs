@@ -322,8 +322,14 @@ public static class ExcludedMasterWriteProbe
         var dry = ApplyTools.Apply(svc, patch: "BlDry", dry_run: true,
             ops: System.Text.Json.JsonDocument.Parse(
                 $$"""[{"formid":"{{subjectFid}}","field_path":"Name","value":"Bl"}]""").RootElement.Clone());
-        Check("…and dry_run predicts that same refusal, naming the baseline (#225 parity)",
-            dry.StartsWith("error:") && dry.Contains("BASELINE master", StringComparison.Ordinal), dry);
+        // …with the SAME words, not merely the same phrase. A Contains() on both sides cannot see the two drift
+        // apart, which is exactly what happened: review 4's rewording landed in the exception and not in the dry
+        // run's paraphrase (PR #315 re-review). The refusals now share one string, so the arm asserts that identity
+        // — the dry-run text must contain the real call's message verbatim.
+        var realBody = created["error: ".Length..].Trim();
+        Check("…and dry_run predicts that same refusal VERBATIM, not a paraphrase that can drift (#225 parity)",
+            dry.StartsWith("error:") && dry.Contains(realBody, StringComparison.Ordinal),
+            $"real=[{realBody}] dry=[{dry}]");
 
         // copy_npc_appearance is the one write lane that renders through an INJECTED renderer rather than calling
         // SerializeFailure directly, so it is the lane that silently kept the doubled tail and the wrong phase after

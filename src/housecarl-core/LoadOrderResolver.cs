@@ -83,9 +83,9 @@ public sealed class UnopenableBaselineMasterException : Exception
         // no write can resolve against a master it cannot open.
         : base($"'{pluginName}' is a BASELINE master (Skyrim.esm / Update.esm) and is ACTIVE in your load order, but " +
                "houseCARL cannot open it — see load_order_status for the reason. Nothing can be written while that is " +
-               "true: no write can resolve references against a master it cannot read, and a new patch must list the " +
-               "baselines in its header, so emitting one without them would produce a plugin the game treats as " +
-               "malformed. Repair or replace that plugin in MO2 and retry. Nothing was written.")
+               "true, for either reason alone: a new patch must list the baselines in its header (emitting one without " +
+               "them produces a plugin the game treats as malformed), and no write can resolve references against a " +
+               "master it cannot read. Repair or replace that plugin in MO2 and retry. Nothing was written.")
         => PluginName = pluginName;
 }
 

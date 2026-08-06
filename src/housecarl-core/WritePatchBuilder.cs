@@ -1051,10 +1051,12 @@ public static class WritePatchBuilder
             // IsUnopenable already returns false for a name absent from the order, so a membership pre-test would only
             // add an O(n) scan of every plugin name per baseline, on every dry run (PR #315 review 4).
             if (resolver.IsUnopenable(bm.FileName.String))
-                return $"dry run caught what the real write would fail on: '{bm.FileName}' is a BASELINE master (every " +
-                       "written plugin must list it) and is ACTIVE in your load order, but houseCARL cannot open it — " +
-                       "see load_order_status for the reason. No plugin can be written until it is repaired or " +
-                       "replaced. Nothing was written.";
+                // The REAL call's own message, constructed rather than paraphrased (PR #315 re-review). Finding 4 was
+                // folded in the exception and missed here, so the two immediately disagreed — this one still carried
+                // the patch-lane-only reason on a lane that reaches it in-place, and had lost the remedy. Sharing the
+                // string makes #225 parity a fact instead of two prose blocks somebody has to keep in step.
+                return "dry run caught what the real write would fail on: "
+                       + new UnopenableBaselineMasterException(bm.FileName.String).Message;
 
         var unopenable = set.Where(resolver.IsUnopenable).OrderBy(n => n, StringComparer.OrdinalIgnoreCase).ToList();
         if (unopenable.Count > 0 && set.Count > 1)
@@ -1688,7 +1690,12 @@ public static class WritePatchBuilder
     {
         for (Exception? b = ex; b is not null; b = b.InnerException)
             if (b is UnopenableBaselineMasterException ub) return ub.Message;
-        return lead + WriteEngine.Describe(ex) + UnopenableMasterClause(ex, session) + trailer;
+        var body = lead + WriteEngine.Describe(ex) + UnopenableMasterClause(ex, session);
+        if (trailer.Length == 0) return body;
+        // Exactly ONE terminator before a lane's tail. A fixed trailer cannot do this alone: the clause already ends
+        // in a full stop when it fires, and Describe(ex) does not when it doesn't — so a leading period doubles in one
+        // case and its absence runs two sentences together in the other (PR #315 re-review).
+        return body.TrimEnd().EndsWith('.') ? body + trailer : body + "." + trailer;
     }
 
     /// <summary>Walk an exception chain (inner + aggregate branches) collecting the SKIPPED plugins a
