@@ -1438,12 +1438,18 @@ public static class WritePatchBuilder
     /// 1.x <c>from_plugin=</c>, or 2.0's <c>source=</c> (PR #311 review 4 [low]). Only the two self-forward
     /// refusals name a parameter at all (the rest say "source plugin '<c>x</c>'", which is prose either way), and
     /// naming one the caller cannot see is the same class this PR closes twice elsewhere — <c>offerModParam</c> on
-    /// the locate refusal, <c>InPlaceAgainHint</c> on the success path: render the CALLING surface's word.</para></summary>
-    static List<(ForwardSpec spec, IMajorRecordGetter body, string priorWinner, bool wasWinner)> ResolveForwardSources(
+    /// the locate refusal, <c>InPlaceAgainHint</c> on the success path: render the CALLING surface's word.</para>
+    /// <para><paramref name="offOrder"/> (W3 PR 2b), when non-null, carries the bodies of a source the ACTIVE order does
+    /// NOT contain, pre-fetched by the service off that file's own overlay. It is consulted INSTEAD of the index for
+    /// exactly that plugin — so "on disk but not in the order" resolves rather than being refused, and every other
+    /// refusal below still applies to it unchanged.</para></summary>
+    static List<(ForwardSpec spec, IMajorRecordGetter body, string priorWinner, bool wasWinner, bool offOrderBody)> ResolveForwardSources(
         LoadOrderResolver.OverlaySession session, LoadOrderResolver.IndexView view,
-        IReadOnlyList<ForwardSpec> specs, string fileName, bool selfIsTarget, string sourceParam, out string? refusal)
+        IReadOnlyList<ForwardSpec> specs, string targetPath, bool selfIsTarget, string sourceParam, out string? refusal,
+        OffOrderForwardSource? offOrder = null)
     {
-        var resolved = new List<(ForwardSpec spec, IMajorRecordGetter body, string priorWinner, bool wasWinner)>(specs.Count);
+        var fileName = Path.GetFileName(targetPath);
+        var resolved = new List<(ForwardSpec spec, IMajorRecordGetter body, string priorWinner, bool wasWinner, bool offOrderBody)>(specs.Count);
         var problems = new List<string>();
         var seen = new HashSet<FormKey>();
         // AbsenceClause costs a profile parse plus (for anything not already unticked) a whole-install folder sweep, and
@@ -1461,28 +1467,85 @@ public static class WritePatchBuilder
         {
             if (!seen.Add(s.Target))
             { problems.Add($"{s.Target}: forwarded more than once in this call — name each target once (one source per record)."); continue; }
-            if (string.Equals(s.FromPlugin, fileName, StringComparison.OrdinalIgnoreCase))
+            // Is the source THE FILE THIS CALL IS ABOUT TO WRITE? Judged by NAME for an in-order source (a filename is
+            // unique in an order, so the name IS the identity) and by FULL-PATH identity for an off-order one (W3 PR 2b:
+            // source= can now be a direct path, and two install copies legitimately share a filename — refusing on the
+            // name alone would reject re-asserting a disabled OLD copy of 'Patch.esp' into the live one). Not merely a
+            // no-op guard: an off-order overlay is held OPEN across the serialize, so copying a file into itself would
+            // also have the write fight our own mapped handle.
+            bool sourceIsSelf = IsOffOrderSource(offOrder, s)
+                ? SameFile(offOrder!.Path, targetPath)
+                : string.Equals(s.FromPlugin, fileName, StringComparison.OrdinalIgnoreCase);
+            if (sourceIsSelf)
             {
                 problems.Add(selfIsTarget
                     ? $"{s.Target}: {sourceParam} '{s.FromPlugin}' is the in-place target itself — forwarding a plugin's own version into itself is a no-op; name the OTHER plugin whose version you want carried in."
                     : $"{s.Target}: {sourceParam} '{s.FromPlugin}' is the output patch itself — forwarding a patch's own version into itself is a no-op; name the EARLIER plugin whose version you want to re-assert.");
                 continue;
             }
-            if (!view.ContainsPlugin(s.FromPlugin))
-            { problems.Add($"{s.Target}: source plugin '{s.FromPlugin}' is not in the load order — name an active plugin that defines or overrides this record.{Absence(s.FromPlugin)}"); continue; }
-            if (view.ExcludedPlugins.TryGetValue(s.FromPlugin, out var why))
-            { problems.Add($"{s.Target}: source plugin '{s.FromPlugin}' was excluded from this session ({why}) — its records aren't resolvable."); continue; }
-            var body = view.GetRecord(session, s.FromPlugin, s.Target);
-            if (body is null)
-            { problems.Add($"{s.Target}: source plugin '{s.FromPlugin}' is in the load order but does NOT define or override this record (it doesn't touch it) — there is no version of it there to forward."); continue; }
+            // The record's ORIGIN plugin must be active whatever the source is: the patch overrides the ORIGIN FormKey,
+            // so the header needs that master, and the serializer would otherwise fail on a master it can't resolve —
+            // loud, but as an engine throw rather than a named, fixable reason. Newly reachable via the off-order arm
+            // ("forward this disabled mod's OWN records"), so it is refused here BY NAME (Q3).
+            var originMaster = s.Target.ModKey.FileName.String;
+            if (!view.ContainsPlugin(originMaster))
+            { problems.Add($"{s.Target}: the record ORIGINATES in '{originMaster}', which is not active — a forward overrides the record's origin FormKey, so the patch would need '{originMaster}' as a master. Enable it first (forwarding copies FROM source, but it cannot invent the origin master).{Absence(originMaster)}"); continue; }
+            IMajorRecordGetter? body;
+            bool offOrderBody = IsOffOrderSource(offOrder, s);
+            if (offOrderBody)
+            {
+                // Pre-fetched by the service off the file's own overlay; a record the file doesn't define was already
+                // refused there, so a miss here would be an engine inconsistency rather than a user error.
+                if (!offOrder!.Bodies.TryGetValue(s.Target, out body) || body is null)
+                { problems.Add($"{s.Target}: source plugin '{s.FromPlugin}' resolved off-order ({offOrder.Path}) but its body was not pre-fetched — surfaced, not skipped (Q3)."); continue; }
+            }
+            else
+            {
+                if (!view.ContainsPlugin(s.FromPlugin))
+                { problems.Add($"{s.Target}: source plugin '{s.FromPlugin}' is not in the load order — name an active plugin that defines or overrides this record.{Absence(s.FromPlugin)}"); continue; }
+                if (view.ExcludedPlugins.TryGetValue(s.FromPlugin, out var why))
+                { problems.Add($"{s.Target}: source plugin '{s.FromPlugin}' was excluded from this session ({why}) — its records aren't resolvable."); continue; }
+                body = view.GetRecord(session, s.FromPlugin, s.Target);
+                if (body is null)
+                { problems.Add($"{s.Target}: source plugin '{s.FromPlugin}' is in the load order but does NOT define or override this record (it doesn't touch it) — there is no version of it there to forward."); continue; }
+            }
             var w = view.ResolveWinner(s.Target);
+            // An OFF-ORDER source is by definition not in the order, so it can never BE the winner — wasWinner is false
+            // by construction there, never a name comparison that could accidentally match an active plugin's spelling.
             resolved.Add((s, body, w?.WinnerPlugin ?? "(none)",
-                w is { } wi && string.Equals(wi.WinnerPlugin, s.FromPlugin, StringComparison.OrdinalIgnoreCase)));
+                !offOrderBody && w is { } wi && string.Equals(wi.WinnerPlugin, s.FromPlugin, StringComparison.OrdinalIgnoreCase),
+                offOrderBody));
         }
         refusal = problems.Count > 0
             ? $"refused — {problems.Count} of {specs.Count} forward(s) rejected; NOTHING written:\n  - " + string.Join("\n  - ", problems)
             : null;
         return resolved;
+    }
+
+    /// <summary>Does this spec's source resolve through <paramref name="offOrder"/>? The service resolves the off-order
+    /// arm for the ONE <c>source=</c> the whole call shares, so this is a spelling match against that — one place, so the
+    /// body lookup and the self-forward guard can never disagree about which arm a spec is on.</summary>
+    static bool IsOffOrderSource(OffOrderForwardSource? offOrder, ForwardSpec s) =>
+        offOrder is not null && string.Equals(offOrder.Plugin, s.FromPlugin, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Do two paths denote the same file? Full-path compare (case-insensitive, as Windows paths are) — never a
+    /// filename compare, because an off-order copy and the live one legitimately share a name.</summary>
+    static bool SameFile(string a, string b)
+    {
+        try { return string.Equals(Path.GetFullPath(a), Path.GetFullPath(b), StringComparison.OrdinalIgnoreCase); }
+        catch { return false; }
+    }
+
+    /// <summary>The source link cache for ONE forward copy: null for the flat common case (costly and unnecessary), the
+    /// OFF-ORDER file's own cache for an off-order body, and the session's per-plugin cache for an in-order one. One
+    /// function rather than the same ternary in both forward lanes — the shape PR #311's late rounds kept re-learning:
+    /// a rule duplicated per lane drifts, a rule that is a function cannot.</summary>
+    static ILinkCache? SourceCacheFor(
+        LoadOrderResolver.OverlaySession session, ForwardSpec spec, IMajorRecordGetter body,
+        bool offOrderBody, OffOrderForwardSource? offOrder)
+    {
+        if (!WriteEngine.RecordNeedsSourceCache(body)) return null;
+        return offOrderBody ? offOrder!.LinkCache() : session.LinkCacheFor(spec.FromPlugin);
     }
 
     /// <summary>
@@ -1504,10 +1567,12 @@ public static class WritePatchBuilder
     /// </summary>
     public static ForwardOutcome ForwardRecordsInPlace(
         LoadOrderResolver resolver, IReadOnlyList<ForwardSpec> specs, string targetPath, string targetName,
-        bool fullReadback = true, bool dryRun = false, string sourceParam = "from_plugin")
+        bool fullReadback = true, bool dryRun = false, string sourceParam = "from_plugin",
+        OffOrderForwardSource? offOrder = null)
     {
         string? epoch = null;
-        var outcome = ForwardRecordsInPlaceCore(resolver, specs, targetPath, targetName, fullReadback, dryRun, sourceParam, ref epoch);
+        var outcome = ForwardRecordsInPlaceCore(resolver, specs, targetPath, targetName, fullReadback, dryRun, sourceParam, offOrder, ref epoch);
+        outcome = StampOffOrderSource(outcome, offOrder);
         return epoch is null ? outcome : outcome with { Epoch = epoch };
     }
 
@@ -1515,7 +1580,7 @@ public static class WritePatchBuilder
     /// <see cref="ApplyCore"/> (SPEC §2.1.1).</summary>
     static ForwardOutcome ForwardRecordsInPlaceCore(
         LoadOrderResolver resolver, IReadOnlyList<ForwardSpec> specs, string targetPath, string targetName,
-        bool fullReadback, bool dryRun, string sourceParam, ref string? epoch)
+        bool fullReadback, bool dryRun, string sourceParam, OffOrderForwardSource? offOrder, ref string? epoch)
     {
         if (specs.Count == 0) return ForwardOutcome.Fail("no records to forward supplied.");
 
@@ -1533,7 +1598,7 @@ public static class WritePatchBuilder
             return ForwardOutcome.Fail(
                 $"cannot forward into '{targetName}' in place: it was EXCLUDED from this session ({excluded}) — houseCARL won't " +
                 "re-serialize a plugin it can't fully parse (that would risk dropping the record it couldn't read, Q3). The file is UNTOUCHED.");
-        var resolved = ResolveForwardSources(session, view, specs, targetName, selfIsTarget: true, sourceParam, out var refusal);
+        var resolved = ResolveForwardSources(session, view, specs, targetPath, selfIsTarget: true, sourceParam, out var refusal, offOrder);
         if (refusal is not null) return ForwardOutcome.Fail(refusal);
 
         // --- Phase 2: open the TARGET mutably (EAGER, the single plugin only — never the order). ---
@@ -1558,7 +1623,7 @@ public static class WritePatchBuilder
             alreadyCarried[r.FormKey] = r;
 
         var forwarded = new List<ForwardedRecord>(resolved.Count);
-        foreach (var (spec, body, priorWinner, wasWinner) in resolved)
+        foreach (var (spec, body, priorWinner, wasWinner, offOrderBody) in resolved)
         {
             try
             {
@@ -1573,8 +1638,7 @@ public static class WritePatchBuilder
                             "surfaced, not a silent skip (Q3); your original is UNTOUCHED.");
                     replaced = true;
                 }
-                ILinkCache? cache = WriteEngine.RecordNeedsSourceCache(body) ? session.LinkCacheFor(spec.FromPlugin) : null;
-                WriteEngine.GenericGetOrAddAsOverride(targetMod, body, cache);
+                WriteEngine.GenericGetOrAddAsOverride(targetMod, body, SourceCacheFor(session, spec, body, offOrderBody, offOrder));
                 forwarded.Add(new ForwardedRecord(
                     spec.Target, RecordNaming.StripOverlay(body.GetType().Name), body.EditorID, spec.FromPlugin, priorWinner, wasWinner,
                     ReplacedExisting: replaced));
@@ -1731,6 +1795,42 @@ public static class WritePatchBuilder
         public required string FromPlugin { get; init; }
     }
 
+    /// <summary>A forward source resolved OFF-ORDER — the <c>source=</c> plugin is a file on disk that the ACTIVE order
+    /// does not contain (a disabled mod, an unticked plugin, a folder MO2 never registered). The whole call shares ONE
+    /// source, so this is locate-once / open-once / fetch-N: the caller (the SERVICE, which owns the MO2 on-disk locate)
+    /// pre-fetches every wanted body through the file's own overlay and hands them here, and the forward engine uses them
+    /// instead of the load-order index. The sibling of the <c>CopyFrom</c> lane's <c>ResolveOffOrderCopySources</c>.
+    /// <para><b>Lifetime.</b> The caller OWNS the overlay these bodies came from and must keep it open until the write's
+    /// serialize has returned (the bodies are deep-copied during the write), then dispose it — the same contract the
+    /// CopyFrom lane's <c>offOrderOverlays</c> carries. Nothing here disposes anything.</para></summary>
+    public sealed class OffOrderForwardSource
+    {
+        /// <summary>The <c>source=</c> spelling the caller passed (a filename, or a direct path).</summary>
+        public required string Plugin { get; init; }
+        /// <summary>The FULL path of the file that spelling actually located — the identity the self-forward guard
+        /// compares against the file being written, and what the report names so "which copy was read" is a fact.</summary>
+        public required string Path { get; init; }
+        /// <summary>The install layer it was found in, as the shared locate labels it (e.g. a disabled mod folder) — the
+        /// human half of the same disclosure.</summary>
+        public required string Where { get; init; }
+        /// <summary>Every wanted record's body, pre-fetched off the overlay. A key absent here never reaches the engine:
+        /// the caller refuses the WHOLE call by name when the file doesn't define a requested record (Q3).</summary>
+        public required IReadOnlyDictionary<FormKey, IMajorRecordGetter> Bodies { get; init; }
+        /// <summary>The overlay the bodies came from, kept for the NESTED-record link cache below. Not owned here.</summary>
+        public required ISkyrimModGetter Overlay { get; init; }
+
+        ILinkCache? _cache;
+        /// <summary>The source link cache a NESTED record (Cell / Placed* / INFO / Navmesh / Landscape) needs to
+        /// reconstruct its parent chain when overridden — the off-order twin of
+        /// <see cref="LoadOrderResolver.OverlaySession.LinkCacheFor"/>, which answers null off-order because it only
+        /// knows the indexed order. Built ON DEMAND (a link cache is costly) and memoized for the call.</summary>
+        public ILinkCache LinkCache() => _cache ??= Overlay.ToImmutableLinkCache();
+    }
+
+    /// <summary>WHICH on-disk copy an OFF-ORDER forward source actually read: the <c>source=</c> spelling, the full path
+    /// it located, and the install layer that path sits in. Reported on the outcome (never inferred from the name).</summary>
+    public sealed record OffOrderSourceRead(string Plugin, string Path, string Where);
+
     /// <summary>One record forwarded by <see cref="ForwardRecords"/> — its FormKey + type + editorid, the source plugin
     /// whose version was copied, and the load-order winner it will out-rank once the patch is enabled (so the caller
     /// sees what the forward CHANGES). <see cref="WasAlreadyWinner"/>=true ⇒ the forwarded version WAS already the
@@ -1743,8 +1843,8 @@ public static class WritePatchBuilder
         bool ReplacedExisting = false);
 
     /// <summary>The outcome of a <see cref="ForwardRecords"/> call. <see cref="Error"/> non-null ⇒ the whole call was
-    /// refused (no file written) with a named, recoverable reason (Q3 — a source plugin not in the order / excluded /
-    /// the output itself / one that doesn't define the target). Otherwise the patch at <see cref="OutputPath"/> carries
+    /// refused (no file written) with a named, recoverable reason (Q3 — a source plugin found nowhere / excluded /
+    /// the file being written itself / one that doesn't define the target). Otherwise the patch at <see cref="OutputPath"/> carries
     /// each forwarded record; <see cref="Masters"/> is its lean header (the forwarded content's ORIGIN master + whatever
     /// it references — NOT the source plugin, which is copied FROM, never mastered ON). <see cref="ReadBack"/> is the
     /// opt-in full read-back of every forwarded record (null unless requested).</summary>
@@ -1757,12 +1857,23 @@ public static class WritePatchBuilder
         /// <summary>SPEC §2.1.1 — the fingerprint of the index build THIS OUTCOME was decided from, on the same
         /// contract as <see cref="PatchOutcome.Epoch"/>. A forward resolves every source body THROUGH the captured
         /// build and reports the winner each copy will out-rank, so the epoch is what tells a caller whether that
-        /// "out-ranks X" reading still holds against the order they last read.</summary>
+        /// "out-ranks X" reading still holds against the order they last read.
+        /// <para>On the OFF-ORDER arm (<see cref="OffOrderSource"/> non-null) only the second half of that holds: the
+        /// out-ranked winners are still resolved from this build, but the BODIES came from a file the build does not
+        /// index, so the stamp says nothing about their content. The fact is reported rather than the stamp being
+        /// re-defined — the same split the read surface spells <c>epoch_covers_all_inputs</c>.</para></summary>
         public string? Epoch { get; init; }
 
         /// <summary>True ⇒ the forwards were written INTO the target's own file (<see cref="ForwardRecordsInPlace"/> —
         /// the in-place write lane), not a houseCARL patch folder. Mirrors <see cref="PatchOutcome"/>.</summary>
         public bool InPlace { get; init; }
+
+        /// <summary>Non-null ⇒ the bodies were copied from a source the ACTIVE ORDER DOES NOT CONTAIN — a disabled mod,
+        /// an unticked plugin, a folder MO2 never registered (W3 PR 2b). WHICH copy on disk was read is not derivable
+        /// from the source's name (several install layers can provide the same filename, and only one of them was
+        /// opened), so it is reported as a fact rather than left for the caller to assume. Null on the ordinary
+        /// active-order path.</summary>
+        public OffOrderSourceRead? OffOrderSource { get; init; }
 
         /// <summary>True ⇒ NOT a write and NOT an error: the server-enforced first-touch in-place CONSENT handshake.
         /// <see cref="Error"/> carries the prompt verbatim (re-call with acknowledge=true). Rendered as a confirmation
@@ -1884,8 +1995,10 @@ public static class WritePatchBuilder
     /// the origin master + whatever the forwarded content references (exactly what xEdit's "copy as override into a new
     /// patch" produces). Forwarding the ORIGIN master's own version reverts the record to vanilla.</para>
     ///
-    /// <para>Q3 — every refusal is named and the WHOLE call is all-or-nothing (no partial patch): a source plugin not in
-    /// the order, EXCLUDED (unparseable), the OUTPUT patch itself (a no-op self-forward), the SAME target twice, or one
+    /// <para>Q3 — every refusal is named and the WHOLE call is all-or-nothing (no partial patch): a source plugin in
+    /// NEITHER the order nor on disk, EXCLUDED (unparseable), the FILE BEING WRITTEN itself (a no-op self-forward, judged
+    /// by file identity for an off-order source), a target whose ORIGIN plugin isn't active (the patch would need it as a
+    /// master), the SAME target twice, or one
     /// that simply doesn't DEFINE the target — the distinct null shapes
     /// <see cref="LoadOrderResolver.IndexView.GetRecord"/> returns, told apart here so the caller gets the real reason.
     /// A forwarded version that WAS already the winner is reported (<see cref="ForwardedRecord.WasAlreadyWinner"/>), not
@@ -1895,18 +2008,28 @@ public static class WritePatchBuilder
     /// </summary>
     public static ForwardOutcome ForwardRecords(
         LoadOrderResolver resolver, IReadOnlyList<ForwardSpec> specs, string outPath, bool extend, bool fullReadback = false,
-        bool dryRun = false, string sourceParam = "from_plugin")
+        bool dryRun = false, string sourceParam = "from_plugin", OffOrderForwardSource? offOrder = null)
     {
         string? epoch = null;
-        var outcome = ForwardRecordsCore(resolver, specs, outPath, extend, fullReadback, dryRun, sourceParam, ref epoch);
+        var outcome = ForwardRecordsCore(resolver, specs, outPath, extend, fullReadback, dryRun, sourceParam, offOrder, ref epoch);
+        outcome = StampOffOrderSource(outcome, offOrder);
         return epoch is null ? outcome : outcome with { Epoch = epoch };
     }
+
+    /// <summary>Stamp WHICH off-order copy a SUCCESSFUL forward read (including a dry run, which resolves every body for
+    /// real). Single-point, on the same wrapper as the epoch stamp, so the two forward lanes cannot report it
+    /// differently. A REFUSAL is left unstamped: it leads with its own named reason, and the refusal may well be that the
+    /// source never resolved at all — labelling that outcome with a copy it read would be the wrong claim (Q3).</summary>
+    static ForwardOutcome StampOffOrderSource(ForwardOutcome outcome, OffOrderForwardSource? offOrder) =>
+        offOrder is null || !outcome.Success
+            ? outcome
+            : outcome with { OffOrderSource = new OffOrderSourceRead(offOrder.Plugin, offOrder.Path, offOrder.Where) };
 
     /// <summary>The body of <see cref="ForwardRecords"/> — split for the same single-point epoch stamp as
     /// <see cref="ApplyCore"/> (SPEC §2.1.1).</summary>
     static ForwardOutcome ForwardRecordsCore(
         LoadOrderResolver resolver, IReadOnlyList<ForwardSpec> specs, string outPath, bool extend, bool fullReadback,
-        bool dryRun, string sourceParam, ref string? epoch)
+        bool dryRun, string sourceParam, OffOrderForwardSource? offOrder, ref string? epoch)
     {
         if (specs.Count == 0) return ForwardOutcome.Fail("no records to forward supplied.");
 
@@ -1925,7 +2048,7 @@ public static class WritePatchBuilder
         //     enumerate the overlay once collecting all wanted FormKeys) — deferred until measured. ---
         var view = resolver.Capture();
         epoch = view.Epoch;                                               // SPEC §2.1.1 — stamped on every outcome from here down
-        var resolved = ResolveForwardSources(session, view, specs, fileName, selfIsTarget: false, sourceParam, out var refusal);
+        var resolved = ResolveForwardSources(session, view, specs, outPath, selfIsTarget: false, sourceParam, out var refusal, offOrder);
         if (refusal is not null) return ForwardOutcome.Fail(refusal);
 
         // --- Phase 2: open (extend) or create the patch mod (identical to Apply Phase 2). ---
@@ -1959,7 +2082,7 @@ public static class WritePatchBuilder
                 alreadyCarried[r.FormKey] = r;
 
         var forwarded = new List<ForwardedRecord>(resolved.Count);
-        foreach (var (spec, body, priorWinner, wasWinner) in resolved)
+        foreach (var (spec, body, priorWinner, wasWinner, offOrderBody) in resolved)
         {
             try
             {
@@ -1976,8 +2099,7 @@ public static class WritePatchBuilder
                             "surfaced, not a silent skip (Q3); nothing was serialized (the extended patch's on-disk file is untouched).");
                     replaced = true;
                 }
-                ILinkCache? cache = WriteEngine.RecordNeedsSourceCache(body) ? session.LinkCacheFor(spec.FromPlugin) : null;
-                WriteEngine.GenericGetOrAddAsOverride(patchMod, body, cache);
+                WriteEngine.GenericGetOrAddAsOverride(patchMod, body, SourceCacheFor(session, spec, body, offOrderBody, offOrder));
                 forwarded.Add(new ForwardedRecord(
                     spec.Target, RecordNaming.StripOverlay(body.GetType().Name), body.EditorID, spec.FromPlugin, priorWinner, wasWinner,
                     ReplacedExisting: replaced));

@@ -13,12 +13,14 @@ namespace HousecarlMcp;
 /// <c>target=</c>+<c>in_place=true</c> pair becomes <c>in_place="X.esp"</c> (§5.2), <c>patch_name</c> is
 /// <c>patch</c>, <c>full_readback</c> is <c>readback</c>; TRANSPORT gains <c>format=json</c> and the §2.1.1 epoch.
 ///
-/// <para><b>The pole's bound, stated not narrowed.</b> §4.2's <c>source</c> pole resolves a plugin wherever it lives
-/// — active, or a file on disk out of the order. Forwarding resolves its bodies THROUGH the load-order index
-/// (<c>view.GetRecord</c>), so the off-order arm is not reachable on this lane: <c>source=</c> here means an ACTIVE
-/// plugin, and a non-active one is refused BY NAME with the reason rather than silently treated as "doesn't define
-/// the record". The lifter is the off-order copy-source seam PR #310 landed for <c>CopyFrom</c>
-/// (<c>ResolveOffOrderCopySources</c>) — carried as a declared bound, not a quiet narrowing of the axis.</para>
+/// <para><b>The pole is whole (W3 PR 2b).</b> §4.2's <c>source</c> pole resolves a plugin wherever it lives — active,
+/// or a file on disk out of the order — and BOTH arms are reachable here. An active source resolves through the
+/// load-order index; one that is only on disk (a disabled mod, an unticked plugin, an unregistered folder, or a direct
+/// path) is located by the shared on-disk contract and read off its own overlay
+/// (<c>LoadOrderService.ResolveOffOrderForwardSource</c>, the forward twin of the <c>CopyFrom</c> lane's
+/// <c>ResolveOffOrderCopySources</c>). PR #311 shipped the off-order arm as a DECLARED BOUND; declaring it made it
+/// honest but not right, since re-asserting a disabled mod's version is exactly the inactive-plugin case CLAUDE.md §1
+/// names — so it was lifted rather than left.</para>
 /// </summary>
 [McpServerToolType]
 public static class ForwardTools
@@ -36,11 +38,13 @@ public static class ForwardTools
          "complete source record is legal by construction.\n\n" +
          "formids= is set-valued — one or more 'XXXXXX:Plugin.esp', ALL copied from the SAME source; call again with " +
          "into= to forward from a different source into the same patch. It also accepts [\"@<absolute path>\"].\n\n" +
-         "source= is an ACTIVE plugin that DEFINES or overrides each record. Forwarding does NOT add source as a " +
-         "master: the patch overrides the record's ORIGIN FormKey with the copied body, so the header carries the " +
-         "origin master + whatever the body references (exactly xEdit's copy-as-override-into-a-new-patch). A plugin " +
-         "on disk but NOT in the load order is refused by name — the bodies here resolve through the load-order " +
-         "index, so an off-order version isn't reachable on this lane.\n\n" +
+         "source= is any plugin that DEFINES or overrides each record — ACTIVE, or a file that is only ON DISK (a " +
+         "DISABLED mod, an unticked plugin, a folder MO2 never registered; pass its full path if several folders " +
+         "provide that filename). Re-asserting a disabled old patch's version is a first-class use of this tool, not " +
+         "an edge case. Forwarding does NOT add source as a master: the patch overrides the record's ORIGIN FormKey " +
+         "with the copied body, so the header carries the origin master + whatever the body references (exactly " +
+         "xEdit's copy-as-override-into-a-new-patch). The record's ORIGIN plugin must still be active — a patch can't " +
+         "master a plugin that isn't loaded — and an off-order read STATES which copy on disk it opened.\n\n" +
          "LANE — where the write lands. Default: a NEW patch named patch= (auto-suffixed if taken). into='<an " +
          "existing patch's filename>' EXTENDS that patch — and if it ALREADY carries a forwarded FormKey, its " +
          "existing override is REPLACED by source's body (xEdit's copy-as-override overwrite, flagged per record). " +
@@ -50,9 +54,11 @@ public static class ForwardTools
          "THE STALE-WINNER BYPASS RECIPE (pinned): forward from the source you want, then housecarl_apply into= the " +
          "same patch — the ops edit the patch's FORWARDED copy and never re-resolve the (stale) load-order winner, " +
          "so you build on the forwarded body directly.\n\n" +
-         "ALL-OR-NOTHING (Q3): the whole call is refused with a named reason and NOTHING is written if source isn't " +
-         "in the load order, was excluded (unparseable), is the output artifact itself, names a target twice, or " +
-         "simply doesn't DEFINE/override a given record (nothing there to forward). dry_run=true resolves every " +
+         "ALL-OR-NOTHING (Q3): the whole call is refused with a named reason and NOTHING is written if source is " +
+         "found in NEITHER the load order NOR on disk (both places are named), matches several mod folders, was " +
+         "excluded (unparseable), is the artifact being written itself, names a target twice, simply doesn't " +
+         "DEFINE/override a given record (nothing there to forward), or names a record whose ORIGIN plugin isn't " +
+         "active (the patch would need it as a master). dry_run=true resolves every " +
          "record from source, copies each into the in-memory would-be artifact, and STOPS before anything touches " +
          "disk — what WOULD be forwarded, or EXACTLY the refusal the real call would give.\n\n" +
          "Returns, per record, what was copied and the current winner it will out-rank once enabled (a forward whose " +
@@ -66,7 +72,7 @@ public static class ForwardTools
         LoadOrderService svc,
         [Description("The record(s) to forward, each 'XXXXXX:Plugin.esp' — ALL copied from the SAME source. Set-valued; also accepts [\"@<absolute path>\"] to read the same list from a file.")]
             string[]? formids = null,
-        [Description("SOURCE: the plugin filename WHOSE version of the record(s) to copy (e.g. 'Authoria - ATweaks.esp', or a master like 'Skyrim.esm' to revert to vanilla). Must be ACTIVE in the load order and must DEFINE or override each formid.")]
+        [Description("SOURCE: the plugin WHOSE version of the record(s) to copy (e.g. 'Authoria - ATweaks.esp', or a master like 'Skyrim.esm' to revert to vanilla). Active OR only on disk — a DISABLED mod's plugin, an unticked one, or a full path to any copy; it must DEFINE or override each formid. An off-order read names the exact file it opened.")]
             string? source = null,
         [Description("LANE: base filename for the NEW patch this call writes (default 'Patch'); auto-suffixed if taken, so a prior patch is never overwritten. Mutually exclusive with into= and in_place= — naming both lanes is refused, never silently ignored.")]
             string? patch = null,

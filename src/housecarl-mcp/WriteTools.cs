@@ -367,9 +367,10 @@ public static class WriteTools
          "needs no field pre-flight (a complete source record is legal by construction). Forwarding does NOT add from_plugin " +
          "as a master: the patch overrides the record's ORIGIN FormKey with the copied body, so the header carries the origin " +
          "master + whatever the body references (exactly xEdit's copy-as-override-into-a-new-patch). ALL-OR-NOTHING (Q3): the " +
-         "whole call is refused with a named reason and NOTHING is written if from_plugin isn't in the load order, was " +
-         "excluded (unparseable), is the output patch itself, names a target twice, or simply doesn't DEFINE/override a given " +
-         "record (nothing there to forward). By default writes a fresh patch named patch_name; into= EXTENDS an existing " +
+         "whole call is refused with a named reason and NOTHING is written if from_plugin is found in NEITHER the load order " +
+         "NOR on disk, matches several mod folders, was " +
+         "excluded (unparseable), is the artifact being written itself, names a target twice, simply doesn't DEFINE/override a given " +
+         "record (nothing there to forward), or names a record whose ORIGIN plugin isn't active. By default writes a fresh patch named patch_name; into= EXTENDS an existing " +
          "houseCARL patch (accumulate across calls/sessions). If the extended patch ALREADY carries a forwarded FormKey, its " +
          "existing override is REPLACED by from_plugin's body (xEdit's copy-as-override overwrite — flagged per record in the " +
          "response). target= + in_place=true is the opt-in THIRD route: forward INTO an existing plugin's OWN file (incl. one " +
@@ -383,7 +384,7 @@ public static class WriteTools
         LoadOrderService svc,
         [Description("The record(s) to forward, each as 'XXXXXX:Plugin.esp' (6 hex digits, the defining master's filename). All are copied from the SAME from_plugin.")]
             string[] formids,
-        [Description("The plugin filename whose version of the record(s) to copy (e.g. 'Authoria - ATweaks.esp', or a master like 'Skyrim.esm' to revert to vanilla). Must be an active plugin that DEFINES or overrides each formid.")]
+        [Description("The plugin whose version of the record(s) to copy (e.g. 'Authoria - ATweaks.esp', or a master like 'Skyrim.esm' to revert to vanilla). Active OR only on disk — a DISABLED mod's plugin, an unticked one, or a full path to any copy; it must DEFINE or override each formid. An off-order read names the exact file it opened.")]
             string from_plugin,
         [Description("Optional. Base filename for the new patch (default 'Patch'); auto-suffixed if taken so a prior patch is never overwritten. Ignored if into= is given.")]
             string patch_name = "Patch",
@@ -809,6 +810,11 @@ public static class WriteTools
         }
         if (!o.DryRun)
             sb.Append("masters: ").Append(o.Masters.Count == 0 ? "(none)" : string.Join(", ", o.Masters)).Append('\n');
+        // WHICH copy an off-order source read — a fact, not derivable from the name (several install layers can provide
+        // one filename, and only one of them was opened). Stated once for the call, because one source= serves it all.
+        if (o.OffOrderSource is { } oo)
+            sb.Append("source: '").Append(oo.Plugin).Append("' is NOT in the active load order — the bodies were read OFF-ORDER from ")
+              .Append(oo.Path).Append(" (").Append(oo.Where).Append("). The epoch below fingerprints the ACTIVE order, which that file is outside of.\n");
         sb.Append(o.DryRun ? "would forward " : "forwarded ").Append(o.Forwarded.Count)
           .Append(o.Forwarded.Count == 1 ? " record:\n" : " records:\n");
         // Budgeted for the same reason as the created-records block: formids= is set-valued, each row is long (type +
