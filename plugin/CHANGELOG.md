@@ -52,9 +52,13 @@ file, so it is reported rather than assumed (`format="json"`: `source_in_order` 
 along with the fact that the `epoch=` stamp fingerprints the *active* order and so does not cover that file's
 content. A name several folders provide is refused naming each of them, with the full path as the fix. Two
 things are still refused, by name: forwarding a record whose **origin plugin** isn't active (the patch would
-need it as a master, which it cannot invent), and naming as `source=` the very file being written. Nothing
-changes for an active `source=`, and `in_place=` is unaffected — the *target* of an in-place write must still be
-an active plugin.
+need it as a master, which it cannot invent — unless that origin *is* the patch being written, since a plugin is
+never its own master), and naming as `source=` the very file being written. A body that references some *other*
+inactive plugin is refused **naming it**, instead of reading as a disk fault. And because a plugin's records are
+keyed by its **filename**, a copy parked under a new name (`MyPatch_old.esp`) is a different plugin — that
+refusal now says so rather than reporting the record as simply absent. Nothing changes for an active `source=`
+— including a full path to one, which is recognised as that plugin rather than read as an outside file — and
+`in_place=` is unaffected: the *target* of an in-place write must still be an active plugin.
 
 All three take the one lane spelling (`patch=` | `into=` | `in_place="X.esp"` + `acknowledge=`, mutually
 exclusive and **refused by name** when two are given) — except `housecarl_remove`, which has no `patch=` for the
