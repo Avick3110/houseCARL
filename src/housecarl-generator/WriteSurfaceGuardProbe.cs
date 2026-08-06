@@ -14,7 +14,7 @@ namespace HousecarlGenerator;
 /// <c>housecarl_write_seq</c> (tool-surface-2.0 W3 PR 2; SPEC §2.2 ACT, §5.1/§5.2, §6.1). Sibling of
 /// <c>apply-guard</c>, same posture: the REAL end-to-end tool path — a synthetic MO2 instance in temp +
 /// <see cref="LoadOrderService"/> + the tool methods themselves — so the wire readers, the LANE grammar, the
-/// alias-visible vocabulary and the engines are exercised exactly as a caller hits them. Five arms:
+/// alias-visible vocabulary and the engines are exercised exactly as a caller hits them. Six arms:
 /// <list type="number">
 /// <item><b>create grammar</b> — one record is a set of one, the nested one-shot (a same-call sibling parent +
 /// an '@editorid' link value), the @file spelling, and the strict element reader's NAMED refusals with the
@@ -29,6 +29,11 @@ namespace HousecarlGenerator;
 /// <item><b>TRANSPORT</b> — format=json is valid JSON carrying the same data, a REFUSAL is a document too, and
 /// every response carries the §2.1.1 epoch — including write_seq, whose ABSENT epoch is stated as a fact with
 /// its reason rather than left as a missing field.</item>
+/// <item><b>forward OFF-ORDER</b> (W3 PR 2b) — source= resolves a plugin the ACTIVE order does not contain (a
+/// DISABLED mod's file, on both lanes), the render + json state WHICH copy on disk was read and that the epoch
+/// does not cover it, the overlay is released (the file stays movable), and the four refusals stay named:
+/// ambiguous filename, a file that doesn't define the record, a record whose ORIGIN plugin isn't active, and a
+/// self-forward caught by FILE IDENTITY when source= is a path to the artifact being written.</item>
 /// </list>
 ///
 /// Run: <c>dotnet run --project src/housecarl-generator write-surface-guard</c>
@@ -65,6 +70,9 @@ public static class WriteSurfaceGuardProbe
             RemovePluralArm(fx);
             ForwardArm(fx);
             TransportArm(fx);
+            // LAST: it forwards into the replacer IN PLACE, which rewrites a fixture file the earlier arms read as a
+            // known winner. Ordering it after them keeps every other arm reading the fixture it was written against.
+            OffOrderForwardArm(fx);
 
             Console.WriteLine();
             Console.WriteLine($"=== write-surface-guard: {_pass} passed, {_fail} failed -> {(_fail == 0 ? "PASS" : "FAIL")} ===");
@@ -91,6 +99,16 @@ public static class WriteSurfaceGuardProbe
         public required string ModsDir { get; init; }
         public required string MasterName { get; init; }
         public required string ReplacerName { get; init; }
+        /// <summary>W3 PR 2b — a plugin in a DISABLED mod folder: NOT in loadorder/plugins.txt, so it is off-order,
+        /// and it overrides the subject at a THIRD damage so "read the disabled copy" is distinguishable from both
+        /// "read the master" (10) and "read the winner" (99).</summary>
+        public required string OffName { get; init; }
+        public required string OffPath { get; init; }
+        public required string OffFolder { get; init; }
+        /// <summary>A record the OFF-ORDER plugin ORIGINATES — forwarding it would need that plugin as a master.</summary>
+        public required string OffOwnFid { get; init; }
+        /// <summary>One filename provided by TWO disabled mod folders — the ambiguity refusal's fixture.</summary>
+        public required string AmbName { get; init; }
 
         public void Dispose() => Svc.Dispose();
 
@@ -125,9 +143,35 @@ public static class WriteSurfaceGuardProbe
             rw.BasicStats = new WeaponBasicStats { Damage = 99 };
             r.BeginWrite.ToPath(replPath).WithLoadOrder(new ISkyrimModGetter[] { m }).Write();
 
+            // --- W3 PR 2b: the OFF-ORDER source. A DISABLED mod folder (modlist '-W2Off'), absent from loadorder.txt
+            //     and plugins.txt, overriding the subject at a THIRD damage + originating a record of its own.
+            var oKey = new ModKey("HcW2Off", ModType.Plugin);
+            var offPath = Path.Combine(mods, "W2Off", oKey.FileName.String);
+            Directory.CreateDirectory(Path.GetDirectoryName(offPath)!);
+            var o = new SkyrimMod(oKey, SkyrimRelease.SkyrimSE);
+            var ow = (IWeapon)WriteEngine.GenericGetOrAddAsOverride(o, subject);
+            ow.Name = "Disabled Sword";
+            ow.BasicStats = new WeaponBasicStats { Damage = 42 };
+            var ownWeapon = o.Weapons.AddNew();
+            ownWeapon.EditorID = "W2OffOwn";
+            ownWeapon.BasicStats = new WeaponBasicStats { Damage = 7 };
+            o.BeginWrite.ToPath(offPath).WithLoadOrder(new ISkyrimModGetter[] { m }).Write();
+
+            // Two DISABLED folders providing ONE filename — the ambiguity refusal's fixture. Kept on its own name so
+            // it cannot make the off-order SUCCESS arms ambiguous.
+            var aKey = new ModKey("HcW2Amb", ModType.Plugin);
+            foreach (var folder in new[] { "W2AmbA", "W2AmbB" })
+            {
+                var ap = Path.Combine(mods, folder, aKey.FileName.String);
+                Directory.CreateDirectory(Path.GetDirectoryName(ap)!);
+                var a = new SkyrimMod(aKey, SkyrimRelease.SkyrimSE);
+                ((IWeapon)WriteEngine.GenericGetOrAddAsOverride(a, subject)).BasicStats = new WeaponBasicStats { Damage = 1 };
+                a.BeginWrite.ToPath(ap).WithLoadOrder(new ISkyrimModGetter[] { m }).Write();
+            }
+
             File.WriteAllText(Path.Combine(profiles, "loadorder.txt"), "# header\r\n" + mKey.FileName + "\r\n" + rKey.FileName + "\r\n");
             File.WriteAllText(Path.Combine(profiles, "plugins.txt"), "*" + mKey.FileName + "\r\n*" + rKey.FileName + "\r\n");
-            File.WriteAllText(Path.Combine(profiles, "modlist.txt"), "# header\r\n+W2Repl\r\n+W2Master\r\n");
+            File.WriteAllText(Path.Combine(profiles, "modlist.txt"), "# header\r\n-W2AmbB\r\n-W2AmbA\r\n-W2Off\r\n+W2Repl\r\n+W2Master\r\n");
 
             var genDir = Path.Combine(dir, "corpus-gen");
             try { _ = CorpusRulebook.LoadCorpus(); }
@@ -145,6 +189,11 @@ public static class WriteSurfaceGuardProbe
                 ModsDir = mods,
                 MasterName = mKey.FileName.String,
                 ReplacerName = rKey.FileName.String,
+                OffName = oKey.FileName.String,
+                OffPath = offPath,
+                OffFolder = "W2Off",
+                OffOwnFid = $"{ownWeapon.FormKey.ID:X6}:{oKey.FileName}",
+                AmbName = aKey.FileName.String,
             };
         }
     }
@@ -452,10 +501,13 @@ public static class WriteSurfaceGuardProbe
         Check("dry_run=true: the DRY RUN render leads with nothing-written, and no mod folder is cut",
             dry.StartsWith("DRY RUN", StringComparison.Ordinal) && Directory.GetDirectories(fx.ModsDir).Length == before, dry);
 
-        // A source that isn't active is refused BY NAME — not silently read as "doesn't define the record".
+        // A source found in NEITHER place is refused BY NAME — not silently read as "doesn't define the record".
+        // (Pre-2b this arm read "a non-active source is refused": non-active is now RESOLVED, so what is left to
+        // refuse is a name nothing on disk provides either — and the refusal must name both places searched.)
         var badSource = ForwardTools.Forward(fx.Svc, formids: new[] { fx.SubjectFid }, source: "NotInTheOrder.esp", patch: "W2FwdBad");
-        Check("a non-active source= is refused by name (the declared bound of this lane's pole)",
-            badSource.StartsWith("error:") && badSource.Contains("NotInTheOrder.esp"), badSource);
+        Check("a source= in NEITHER the load order nor on disk is refused by name, naming both places searched",
+            badSource.StartsWith("error:") && badSource.Contains("NotInTheOrder.esp")
+            && badSource.Contains("not in the load order", StringComparison.OrdinalIgnoreCase), badSource);
 
         var noSource = ForwardTools.Forward(fx.Svc, formids: new[] { fx.SubjectFid }, patch: "W2FwdNo");
         Check("forward without source= is refused naming the parameter and what it means",
@@ -484,6 +536,119 @@ public static class WriteSurfaceGuardProbe
                 && !selfInto.Contains("from_plugin", StringComparison.Ordinal), selfInto);
         }
         else Check("forward self-into arm: fixture (a patch to forward into itself)", false, intoPatch);
+    }
+
+    // ================= ARM 6 — forward from an OFF-ORDER source (W3 PR 2b) =================
+    static void OffOrderForwardArm(Fixture fx)
+    {
+        Console.WriteLine("── ARM 6: forward source= OFF-ORDER — a DISABLED mod's version is reachable, and which copy was read is stated ──");
+
+        // The capability itself: the disabled copy carries Damage 42 — neither the master's 10 nor the winner's 99 —
+        // so landing 42 proves the DISABLED FILE was read, not something already in the order.
+        var off = ForwardTools.Forward(fx.Svc, formids: new[] { fx.SubjectFid }, source: fx.OffName, patch: "W2Off1");
+        var offPath = ArtifactPathFrom(fx, off);
+        Check("a source= on disk but NOT in the load order resolves: the DISABLED mod's version lands",
+            offPath is not null && DamageIn(offPath, fx.SubjectKey) == 42, off);
+
+        // WHICH copy was read is a fact the render states — a filename alone does not identify a file on disk.
+        Check("the render states the off-order read: the source is named NOT active, with the exact file and its layer",
+            off.Contains("read OFF-ORDER from", StringComparison.Ordinal)
+            && off.Contains(fx.OffPath, StringComparison.OrdinalIgnoreCase)
+            && off.Contains(fx.OffFolder, StringComparison.OrdinalIgnoreCase), off);
+        Check("the render says the epoch does NOT cover the off-order file (the stamp fingerprints the ACTIVE order)",
+            off.Contains("outside of", StringComparison.Ordinal) && off.Contains("epoch", StringComparison.OrdinalIgnoreCase), off);
+
+        // NO HANDLE AT REST: the overlay opened for the fetch is disposed after the write, so MO2 can still move or
+        // delete the disabled mod's file. Proven by actually moving it and putting it back — and GATED on the forward
+        // having succeeded, because "movable" is vacuously true when no overlay was ever opened: on the RED run this
+        // arm passed while every other one failed, which is the shape of a check that proves nothing.
+        bool released;
+        var parked = fx.OffPath + ".parked";
+        try { File.Move(fx.OffPath, parked); File.Move(parked, fx.OffPath); released = true; }
+        catch { released = false; try { if (File.Exists(parked)) File.Move(parked, fx.OffPath); } catch { } }
+        Check("the off-order overlay is RELEASED after the write — the source file is still movable (no handle at rest)",
+            offPath is not null && released,
+            offPath is null ? "no off-order read happened at all, so a movable file proves nothing" : "the source file was still locked after the forward returned");
+
+        // The json twin carries the same fact, positively on BOTH arms. Read through the ABSENCE-TOLERANT helpers: an
+        // arm asserting a member the pre-fix code never emits must FAIL, not crash the probe into "guard threw" and
+        // hide every finding after it (this arm did exactly that on the first RED run).
+        var offJson = ForwardTools.Forward(fx.Svc, formids: new[] { fx.SubjectFid }, source: fx.OffName, patch: "W2Off2", format: "json");
+        Check("format=json: source_in_order=false + source_read names the file, the layer, and epoch_covers_source=false",
+            TryJson(offJson, out var ojd)
+            && RootFlag(ojd, "source_in_order") == false
+            && string.Equals(Str(ojd, "source_read", "path"), fx.OffPath, StringComparison.OrdinalIgnoreCase)
+            && Str(ojd, "source_read", "where") is { Length: > 0 }
+            && Flag(ojd, "source_read", "epoch_covers_source") == false, offJson);
+
+        var activeJson = ForwardTools.Forward(fx.Svc, formids: new[] { fx.SubjectFid }, source: fx.MasterName, patch: "W2Off3", format: "json");
+        Check("format=json: an ACTIVE source says source_in_order=true and emits no source_read",
+            TryJson(activeJson, out var ajd)
+            && RootFlag(ajd, "source_in_order") == true
+            && !HasRoot(ajd, "source_read"), activeJson);
+
+        // The IN-PLACE lane takes the same pre-locate (open question 1 of the build plan): the TARGET must stay active,
+        // the SOURCE need not be. The replacer is active and owns its override, so 42 lands in ITS OWN file.
+        var ip = ForwardTools.Forward(fx.Svc, formids: new[] { fx.SubjectFid }, source: fx.OffName,
+            in_place: fx.ReplacerName, acknowledge: true);
+        Check("in_place: an OFF-ORDER source forwards into the ACTIVE target's own file (LANE is uniform)",
+            !ip.StartsWith("error:") && DamageIn(Path.Combine(fx.ModsDir, "W2Repl", fx.ReplacerName), fx.SubjectKey) == 42, ip);
+        Check("in_place: the off-order disclosure rides the in-place render too",
+            ip.Contains("read OFF-ORDER from", StringComparison.Ordinal), ip);
+
+        // A record the OFF-ORDER plugin ORIGINATES cannot be forwarded: the patch would need it as a master. Newly
+        // reachable through this arm, and refused BY NAME rather than dying as a serializer throw (Q3).
+        var origin = ForwardTools.Forward(fx.Svc, formids: new[] { fx.OffOwnFid }, source: fx.OffName, patch: "W2OffOrigin");
+        // Asserted on the ORIGIN wording specifically: this call's source DOES define the record, so a pass on a
+        // generic "error + the plugin name" could just as well be the doesn't-define refusal firing for another reason.
+        Check("a record ORIGINATING in the off-order plugin is refused by name (the patch can't master an inactive plugin)",
+            origin.StartsWith("error:") && origin.Contains(fx.OffName, StringComparison.OrdinalIgnoreCase)
+            && origin.Contains("ORIGINATES", StringComparison.Ordinal)
+            && origin.Contains("as a master", StringComparison.Ordinal), origin);
+
+        // One filename, two disabled folders: refused naming BOTH, never a guess about which version to forward.
+        var amb = ForwardTools.Forward(fx.Svc, formids: new[] { fx.SubjectFid }, source: fx.AmbName, patch: "W2OffAmb");
+        Check("an AMBIGUOUS off-order filename is refused naming every folder that provides it, never a guess",
+            amb.StartsWith("error:") && amb.Contains("W2AmbA", StringComparison.OrdinalIgnoreCase)
+            && amb.Contains("W2AmbB", StringComparison.OrdinalIgnoreCase), amb);
+
+        // …and the full PATH is the disambiguator this tool actually has (it has no mod=), so the refusal's remedy works.
+        var byPath = ForwardTools.Forward(fx.Svc, formids: new[] { fx.SubjectFid },
+            source: Path.Combine(fx.ModsDir, "W2AmbA", fx.AmbName), patch: "W2OffByPath");
+        var byPathFile = ArtifactPathFrom(fx, byPath);
+        Check("the remedy works: a full PATH picks one copy and forwards it (the disambiguator this tool exposes)",
+            byPathFile is not null && DamageIn(byPathFile, fx.SubjectKey) == 1, byPath);
+        Check("the ambiguity refusal offers the PATH, never a mod= this tool does not have",
+            !amb.Contains("mod=", StringComparison.Ordinal) && amb.Contains("path", StringComparison.OrdinalIgnoreCase), amb);
+
+        // An off-order file that simply doesn't define the record: refused naming the file AND the FormKey.
+        // Refused at the PRE-FETCH, before the engine's origin check gets a say — so the assertion pins the
+        // doesn't-define wording AND the record, not just "an error mentioning the source".
+        var notThere = ForwardTools.Forward(fx.Svc, formids: new[] { fx.OffOwnFid },
+            source: Path.Combine(fx.ModsDir, "W2AmbA", fx.AmbName), patch: "W2OffMiss");
+        Check("an off-order file that does NOT define a named record is refused naming the file and the record",
+            notThere.StartsWith("error:") && notThere.Contains(fx.AmbName, StringComparison.OrdinalIgnoreCase)
+            && notThere.Contains("does NOT define or override", StringComparison.Ordinal)
+            && notThere.Contains(fx.OffOwnFid.Split(':')[0], StringComparison.OrdinalIgnoreCase), notThere);
+
+        // dry_run on this arm: the whole pipeline runs (the file IS opened and read) and nothing lands.
+        int before = Directory.GetDirectories(fx.ModsDir).Length;
+        var dry = ForwardTools.Forward(fx.Svc, formids: new[] { fx.SubjectFid }, source: fx.OffName, patch: "W2OffDry", dry_run: true);
+        Check("dry_run over an off-order source: nothing written, and the off-order read is still disclosed",
+            dry.StartsWith("DRY RUN", StringComparison.Ordinal)
+            && dry.Contains("read OFF-ORDER from", StringComparison.Ordinal)
+            && Directory.GetDirectories(fx.ModsDir).Length == before, dry);
+
+        // SELF-forward by PATH: an inactive houseCARL patch addressed by its own path is the FILE BEING WRITTEN, which
+        // name equality alone would not catch — and copying through an overlay held open on it would fight the write.
+        var made = ForwardTools.Forward(fx.Svc, formids: new[] { fx.SubjectFid }, source: fx.MasterName, patch: "W2OffSelf");
+        if (ArtifactPathFrom(fx, made) is { } madePath)
+        {
+            var self = ForwardTools.Forward(fx.Svc, formids: new[] { fx.SubjectFid }, source: madePath, into: Path.GetFileName(madePath));
+            Check("self-forward is caught by FILE IDENTITY when source= is a path to the artifact being written",
+                self.StartsWith("error:") && self.Contains("is the output patch itself", StringComparison.Ordinal), self);
+        }
+        else Check("off-order self-forward arm: fixture (a written patch to address by path)", false, made);
     }
 
     // ================= ARM 5 — TRANSPORT =================
@@ -1059,4 +1224,15 @@ public static class WriteSurfaceGuardProbe
 
     static string? Str(JsonDocument? doc, string obj, string member)
         => Member(doc, obj, member) is { ValueKind: JsonValueKind.String } e ? e.GetString() : null;
+
+    /// <summary>The same tolerance one level up — a TOP-LEVEL flag. Same reason: an arm asserting a member the
+    /// pre-fix code never emits must read false, not throw.</summary>
+    static bool? RootFlag(JsonDocument? doc, string member)
+        => doc is not null && doc.RootElement.TryGetProperty(member, out var e)
+           && e.ValueKind is JsonValueKind.True or JsonValueKind.False ? e.GetBoolean() : null;
+
+    /// <summary>Is a TOP-LEVEL member present at all? (The "an active source emits NO source_read" assertion — a
+    /// positive test for an absence, which no value reader can express.)</summary>
+    static bool HasRoot(JsonDocument? doc, string member)
+        => doc is not null && doc.RootElement.TryGetProperty(member, out _);
 }
