@@ -1902,6 +1902,22 @@ static class JsonWire
             w.WriteNumber("bytes", o.Bytes);
             WriteStringArray(w, "masters", o.Masters.ToList());
 
+            // The text twin's `source:` disclosure line. `source_in_order` is emitted on BOTH arms so a consumer reads
+            // the fact positively rather than inferring it from an absent object; `source_read` names WHICH copy on disk
+            // an off-order read opened (a filename alone does not identify it).
+            w.WriteBoolean("source_in_order", o.OffOrderSource is null);
+            if (o.OffOrderSource is { } oo)
+            {
+                w.WriteStartObject("source_read");
+                w.WriteString("source", oo.Plugin);
+                w.WriteString("path", oo.Path);
+                w.WriteString("where", oo.Where);
+                // Same honesty the read surface's `epoch_covers_all_inputs` carries: the stamp fingerprints the ACTIVE
+                // order, and this file's content sits outside it.
+                w.WriteBoolean("epoch_covers_source", false);
+                w.WriteEndObject();
+            }
+
             w.WriteNumber("total_forwarded", o.Forwarded.Count);
             w.WriteStartArray("forwarded");
             int rendered = 0;

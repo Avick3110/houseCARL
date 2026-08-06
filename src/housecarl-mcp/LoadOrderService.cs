@@ -4594,6 +4594,89 @@ public sealed class LoadOrderService : IDisposable
             : null;
     }
 
+    /// <summary>W3 PR 2b — locate the ONE <c>source=</c> plugin a forward call shares when the ACTIVE ORDER does not
+    /// contain it (a disabled mod, an unticked plugin, an unregistered folder, or a direct path), open it, and pre-fetch
+    /// every requested record's body off its own overlay. The forward twin of <see cref="ResolveOffOrderCopySources"/>,
+    /// and simpler than it: every forward in a call names the same source, so this is locate-ONCE / open-ONCE / fetch-N
+    /// rather than a per-edit loop. Uses the SAME on-disk locate as read_plugin_file / the copy-npc-appearance donor lane
+    /// (<see cref="LocatePluginFileOnDisk"/>), so two tools can never disagree about which file a filename names.
+    ///
+    /// <para>Returns null with <paramref name="error"/> null when the source IS in the active order — the ordinary path,
+    /// which pays no locate and no overlay at all (the engine resolves it through the shared captured build). Returns
+    /// null with <paramref name="error"/> set when the file can't be located / opened / read, when its name is ambiguous
+    /// across mod folders, or when it doesn't define a requested record — refused BY NAME, all-or-nothing, before any
+    /// write (Q3).</para>
+    ///
+    /// <para><paramref name="overlay"/> is handed back OPEN: the bodies are deep-copied during the write, so the caller
+    /// disposes it only AFTER the serialize returns — the same lifetime contract the CopyFrom lane's
+    /// <c>offOrderOverlays</c> carries. <paramref name="epoch"/> is this helper's OWN capture (it decides membership
+    /// against a build, so its refusals are stamped like every other post-capture outcome); the reported outcome's own
+    /// stamp still names the build the WRITE was decided from — <see cref="WritePatchBuilder.PatchOutcome.Epoch"/>'s
+    /// honesty bound, unchanged.</para></summary>
+    WritePatchBuilder.OffOrderForwardSource? ResolveOffOrderForwardSource(
+        LoadOrderResolver resolver, string fromPlugin, IReadOnlyList<WritePatchBuilder.ForwardSpec> specs,
+        out IDisposable? overlay, out string? epoch, out string? error)
+    {
+        overlay = null; error = null;
+        var view = resolver.Capture();
+        epoch = view.Epoch;
+        if (view.ContainsPlugin(fromPlugin)) return null;      // active — the engine resolves it off the shared build
+
+        string modsDir, dataDir, overwriteDir, profileDir;
+        try { lock (_gate) { EnsurePathsDerived(); modsDir = _modsDir; dataDir = _dataDir; overwriteDir = _overwriteDir; profileDir = _profileDir; } }
+        catch (Exception ex) { error = $"source plugin '{fromPlugin}' is not in the load order and the MO2 roots couldn't be derived to find it on disk: {ex.Message}"; return null; }
+
+        var comp = Mo2LoadOrder.ReadComposition(profileDir);
+        // offerModParam: FALSE — housecarl_forward has no mod= parameter, and a refusal must never send someone to a
+        // parameter their tool does not expose. A direct path is the disambiguator this lane DOES have.
+        var loc = LocatePluginFileOnDisk(comp, modsDir, dataDir, overwriteDir, fromPlugin, null, offerModParam: false);
+        if (loc.Error is not null) { error = $"source plugin '{fromPlugin}' is not in the load order and {loc.Error}"; return null; }
+        if (loc.Ambiguous is not null)
+        {
+            error = $"source plugin '{fromPlugin}' is not in the load order and {loc.Ambiguous.Count} mod folders provide a file " +
+                    $"with that name ({string.Join(", ", loc.Ambiguous.Select(h => h.Where))}) — ambiguous, refusing to guess which " +
+                    "version to forward. Pass the full path to the copy you mean as the source.";
+            return null;
+        }
+
+        ISkyrimModGetter ov;
+        try { ov = LoadOrderResolver.OpenOverlay(loc.Path!, string.IsNullOrEmpty(dataDir) ? null : dataDir); }
+        catch (Exception ex) { error = $"source file '{fromPlugin}' ({loc.Path}) could not be opened as a Skyrim plugin ({ex.Message})."; return null; }
+
+        // ONE walk of the overlay collecting every wanted key — the batch fetch the active-order path defers (its own
+        // PERF note): here the overlay is ours alone and the whole call shares it, so there is no reason to re-enumerate
+        // per record.
+        var wanted = specs.Select(s => s.Target).ToHashSet();
+        var bodies = new Dictionary<FormKey, IMajorRecordGetter>();
+        try
+        {
+            foreach (var rec in ov.EnumerateMajorRecords())
+                if (wanted.Contains(rec.FormKey)) bodies[rec.FormKey] = rec;
+        }
+        catch (Exception ex)
+        {
+            (ov as IDisposable)?.Dispose();
+            error = $"source file '{fromPlugin}' ({loc.Path}) could not be read ({ex.Message}).";
+            return null;
+        }
+
+        var missing = specs.Select(s => s.Target).Where(k => !bodies.ContainsKey(k)).Distinct().ToList();
+        if (missing.Count > 0)
+        {
+            (ov as IDisposable)?.Dispose();
+            error = $"refused — source file '{fromPlugin}' ({loc.Where}) does NOT define or override {missing.Count} of the " +
+                    $"{specs.Count} record(s) named; there is no version of them there to forward, and NOTHING was written:\n  - " +
+                    string.Join("\n  - ", missing.Select(k => k.ToString()));
+            return null;
+        }
+
+        overlay = ov as IDisposable;
+        return new WritePatchBuilder.OffOrderForwardSource
+        {
+            Plugin = fromPlugin, Path = loc.Path!, Where = loc.Where, Bodies = bodies, Overlay = ov,
+        };
+    }
+
     /// <summary>The in-place branch of <see cref="ApplyEdits"/> (in-place write lane, Wave 1) — runs under _writeGate.
     /// (1) resolves <paramref name="target"/> to its REAL on-disk path via the load order (NOT the houseCARL-owned
     /// folder model — the foreign-plugin resolver, the sibling of <see cref="ResolveOwnedPatchFolder"/> with the
@@ -4973,7 +5056,9 @@ public sealed class LoadOrderService : IDisposable
 
     /// <summary>Forward a NAMED plugin's version of one-or-more records into a patch as an override (housecarl_forward_record)
     /// — xEdit's "copy as override into", the inverse of <see cref="ApplyEdits"/>'s winner-override. Parses every formid
-    /// (all-or-nothing on a malformed one), resolves the folder-per-patch output (fresh, or <paramref name="into"/> an
+    /// (all-or-nothing on a malformed one), pre-locates <paramref name="fromPlugin"/> when the ACTIVE ORDER does not
+    /// contain it (<see cref="ResolveOffOrderForwardSource"/> — W3 PR 2b, both lanes), resolves the folder-per-patch
+    /// output (fresh, or <paramref name="into"/> an
     /// existing houseCARL-owned patch), then drives <see cref="WritePatchBuilder.ForwardRecords"/> (resolve each source
     /// body from <paramref name="fromPlugin"/> → deep-copy as override → multi-master serialize). The whole source record
     /// is copied verbatim, so the SOURCE plugin (not the load-order winner) decides the content — and forwarding the
@@ -5026,17 +5111,29 @@ public sealed class LoadOrderService : IDisposable
         {
             var resolver = Resolver;                                      // builds/refreshes the index (Overlays for the source fetch + serialize)
 
-            if (inPlace)
-                return ForwardRecordsInPlace(resolver, specs, target!.Trim(), acknowledge, dryRun, sourceParam);
+            // W3 PR 2b: a source= the ACTIVE ORDER doesn't contain is located on disk and pre-fetched here — the
+            // capability CLAUDE.md §1 names (read a DISABLED mod's records), on BOTH lanes, because LANE is uniform:
+            // the in-place TARGET must stay active (that lane's own contract), but the SOURCE has no such need. A no-op
+            // for an active source: null off, null error, no overlay. The overlay must outlive the serialize (the
+            // bodies are deep-copied during the write), so it is disposed in the finally below.
+            var offOrder = ResolveOffOrderForwardSource(resolver, fp, specs, out var offOverlay, out var offEpoch, out var offError);
+            if (offError is not null)
+                return WritePatchBuilder.ForwardOutcome.Fail(offError) with { Epoch = offEpoch };
+            try
+            {
+                if (inPlace)
+                    return ForwardRecordsInPlace(resolver, specs, target!.Trim(), acknowledge, dryRun, sourceParam, offOrder);
 
-            // #225: a dry run resolves the would-be output path WITHOUT creating the mod folder (see ApplyEdits).
-            string outPath; bool extend, created;
-            try { outPath = ResolveOutputPath(patchName, into, out extend, out created, create: !dryRun); }
-            catch (Exception ex) { return WritePatchBuilder.ForwardOutcome.Fail(ex.Message); }
+                // #225: a dry run resolves the would-be output path WITHOUT creating the mod folder (see ApplyEdits).
+                string outPath; bool extend, created;
+                try { outPath = ResolveOutputPath(patchName, into, out extend, out created, create: !dryRun); }
+                catch (Exception ex) { return WritePatchBuilder.ForwardOutcome.Fail(ex.Message); }
 
-            var outcome = WritePatchBuilder.ForwardRecords(resolver, specs, outPath, extend, fullReadback, dryRun, sourceParam);
-            if (!outcome.Success && created) RemoveFolderCreatedThisCall(outPath);   // hunt F4: a refused forward leaves no orphan
-            return outcome;
+                var outcome = WritePatchBuilder.ForwardRecords(resolver, specs, outPath, extend, fullReadback, dryRun, sourceParam, offOrder);
+                if (!outcome.Success && created) RemoveFolderCreatedThisCall(outPath);   // hunt F4: a refused forward leaves no orphan
+                return outcome;
+            }
+            finally { offOverlay?.Dispose(); }
         }
     }
 
@@ -5051,7 +5148,8 @@ public sealed class LoadOrderService : IDisposable
     /// fact no acknowledgement overrides.</summary>
     WritePatchBuilder.ForwardOutcome ForwardRecordsInPlace(
         LoadOrderResolver resolver, IReadOnlyList<WritePatchBuilder.ForwardSpec> specs, string target, bool acknowledge,
-        bool dryRun = false, string sourceParam = "from_plugin")
+        bool dryRun = false, string sourceParam = "from_plugin",
+        WritePatchBuilder.OffOrderForwardSource? offOrder = null)
     {
         // (1) Resolve target -> real on-disk path via the load order (by plugin FILENAME). Refuse loud if it isn't a
         //     real active plugin. Same resolver as the edit + create + remove lanes.
@@ -5094,7 +5192,7 @@ public sealed class LoadOrderService : IDisposable
             return WritePatchBuilder.ForwardOutcome.Fail(why) with { Epoch = view.Epoch };
 
         // (4) The write — touched-record verify forced ON (the model-C substitute for the dropped whole-plugin floor).
-        var outcome = WritePatchBuilder.ForwardRecordsInPlace(resolver, specs, targetPath, targetName, fullReadback: true, dryRun, sourceParam);
+        var outcome = WritePatchBuilder.ForwardRecordsInPlace(resolver, specs, targetPath, targetName, fullReadback: true, dryRun, sourceParam, offOrder);
 
         // (5-dry) #225: a successful dry run stamps NOTHING (no editedInPlace marker, no .seq note).
         if (dryRun)
