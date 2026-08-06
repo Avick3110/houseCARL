@@ -1912,6 +1912,9 @@ static class JsonWire
                 w.WriteString("source", oo.Plugin);
                 w.WriteString("path", oo.Path);
                 w.WriteString("where", oo.Where);
+                // Non-null ⇒ the file is the order's copy of a plugin EXCLUDED as unparseable, reached by PATH. Allowed
+                // (copying one body out is not a re-serialize) but never silent — the text twin says the same.
+                WriteNullable(w, "excluded_from_index", oo.ExcludedReason);
                 // Same honesty the read surface's `epoch_covers_all_inputs` carries: the stamp fingerprints the ACTIVE
                 // order, and this file's content sits outside it.
                 w.WriteBoolean("epoch_covers_source", false);

@@ -261,25 +261,51 @@ public static class Mo2LoadOrder
         var fn = Path.GetFileName(filename?.Trim() ?? "");
         if (fn.Length == 0) return hits;
 
-        void TryDir(string dir, string where, bool enabled)
+        foreach (var (dir, where, enabled) in CandidateFolders(comp, modsDir, dataDir, overwriteDir))
         {
-            if (string.IsNullOrWhiteSpace(dir)) return;
+            if (string.IsNullOrWhiteSpace(dir)) continue;
             try { var p = Path.Combine(dir, fn); if (File.Exists(p)) hits.Add(new PluginFileHit(p, where, enabled)); }
             catch { /* an inaccessible candidate folder is simply not a hit — never a false 'found' (Q3) */ }
         }
-
-        TryDir(overwriteDir, "overwrite", enabled: true);             // MO2's overwrite layer (top of the VFS)
-        foreach (var mod in comp.EnabledMods) TryDir(Path.Combine(modsDir, mod), $"mod '{mod}' (enabled)", enabled: true);
-        foreach (var mod in comp.DisabledMods) TryDir(Path.Combine(modsDir, mod), $"mod '{mod}' (DISABLED)", enabled: false);
-        foreach (var dir in UnlistedModFolders(comp, modsDir))        // on disk but not in modlist.txt (a fresh houseCARL patch pre-refresh)
-            // The label IDENTIFIES the layer and its state; it does NOT carry a remedy. It used to end "— not in
-            // modlist.txt yet; refresh MO2 to register it", which read fine alone but printed the same instruction
-            // twice once the caller's own cause line began stating remedies ("refresh MO2, then tick the plugin and
-            // sort") — a milder form of the duplication that #271 exists to remove, and one only a live run surfaced.
-            // Labels identify, causes explain: the remedy belongs to whoever is explaining, not to the identifier.
-            TryDir(dir, $"mod '{Path.GetFileName(dir)}' (UNLISTED)", enabled: false);
-        TryDir(dataDir, "game Data", enabled: true);                  // vanilla / base — lowest priority
         return hits;
+    }
+
+    /// <summary>THE layer sequence a filename is searched across, in precedence order — overwrite (top of MO2's VFS),
+    /// enabled mods by modlist priority, DISABLED mods, folders on disk that modlist.txt mentions in neither list (a
+    /// fresh houseCARL patch pre-refresh), then game Data (vanilla/base, lowest).
+    /// <para>Written ONCE because two things ask about it: <see cref="LocatePlugin"/> stats ONE filename per folder,
+    /// and <see cref="AllPluginFileNames"/> enumerates every plugin in the same folders. A "not found" answer and the
+    /// "did you mean" that follows it must be drawn from the SAME set of places, or the second contradicts the first
+    /// by suggesting nothing while the name sits in a folder the sweep covered.</para>
+    /// <para>The label IDENTIFIES the layer and its state; it does NOT carry a remedy. It used to end "— not in
+    /// modlist.txt yet; refresh MO2 to register it", which read fine alone but printed the same instruction twice once
+    /// the caller's own cause line began stating remedies ("refresh MO2, then tick the plugin and sort") — a milder
+    /// form of the duplication that #271 exists to remove, and one only a live run surfaced. Labels identify, causes
+    /// explain: the remedy belongs to whoever is explaining, not to the identifier.</para></summary>
+    static IEnumerable<(string dir, string where, bool enabled)> CandidateFolders(
+        Mo2Composition comp, string modsDir, string dataDir, string overwriteDir)
+    {
+        yield return (overwriteDir, "overwrite", true);
+        foreach (var mod in comp.EnabledMods) yield return (Path.Combine(modsDir, mod), $"mod '{mod}' (enabled)", true);
+        foreach (var mod in comp.DisabledMods) yield return (Path.Combine(modsDir, mod), $"mod '{mod}' (DISABLED)", false);
+        foreach (var dir in UnlistedModFolders(comp, modsDir))
+            yield return (dir, $"mod '{Path.GetFileName(dir)}' (UNLISTED)", false);
+        yield return (dataDir, "game Data", true);
+    }
+
+    /// <summary>Every plugin FILENAME the install provides, across the same layers <see cref="LocatePlugin"/> searches
+    /// — the candidate pool for a did-you-mean on a name that was found NOWHERE. Deliberately NOT free: where the
+    /// locate stats one name per folder, this lists each folder, so it is for the REFUSAL path only, where the same
+    /// folder sweep has just been paid and the alternative is the caller re-typing blind. De-duplicated
+    /// case-insensitively; a missing or inaccessible folder contributes nothing rather than throwing (Q3).</summary>
+    public static IReadOnlyCollection<string> AllPluginFileNames(
+        Mo2Composition comp, string modsDir, string dataDir, string overwriteDir)
+    {
+        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (dir, _, _) in CandidateFolders(comp, modsDir, dataDir, overwriteDir))
+            foreach (var (fn, _) in EnumeratePlugins(dir))
+                names.Add(fn);
+        return names;
     }
 
     /// <summary>Mod folders that exist under <paramref name="modsDir"/> on disk but that modlist.txt mentions in

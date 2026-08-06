@@ -198,9 +198,13 @@ public static class WriteSurfaceGuardProbe
                 a.BeginWrite.ToPath(ap).WithLoadOrder(new ISkyrimModGetter[] { m }).Write();
             }
 
+            // The chain/dep folders are listed DISABLED here. They worked before only because UnlistedModFolders picks
+            // up folders modlist.txt never mentions — so the fixture was exercising the UNLISTED layer while its
+            // comments claimed the DISABLED one. (An earlier str-replace meant to add them silently matched nothing;
+            // the arms passed anyway, which is exactly how a fixture drifts from what it says it is.)
             File.WriteAllText(Path.Combine(profiles, "loadorder.txt"), "# header\r\n" + mKey.FileName + "\r\n" + rKey.FileName + "\r\n");
             File.WriteAllText(Path.Combine(profiles, "plugins.txt"), "*" + mKey.FileName + "\r\n*" + rKey.FileName + "\r\n");
-            File.WriteAllText(Path.Combine(profiles, "modlist.txt"), "# header\r\n-W2AmbB\r\n-W2AmbA\r\n-W2Off\r\n+W2Repl\r\n+W2Master\r\n");
+            File.WriteAllText(Path.Combine(profiles, "modlist.txt"), "# header\r\n-W2AmbB\r\n-W2AmbA\r\n-W2OffChain\r\n-W2OffDep\r\n-W2Off\r\n+W2Repl\r\n+W2Master\r\n");
 
             var genDir = Path.Combine(dir, "corpus-gen");
             try { _ = CorpusRulebook.LoadCorpus(); }
@@ -757,6 +761,18 @@ public static class WriteSurfaceGuardProbe
                 !back.StartsWith("error:") && DamageIn(ownPath, FormKey.Factory(ownFid)) == 5, back);
             Check("…and the written header does NOT list the artifact as its own master",
                 !back.StartsWith("error:") && !MastersLineOf(back).Contains(Path.GetFileName(ownPath), StringComparison.OrdinalIgnoreCase), back);
+            // [low] The row must not assert a ranking against a winner that does not exist. This path is where it shows:
+            // the patch isn't in the order, so ResolveWinner is null — and the old "(none)" sentinel rendered as
+            // "out-ranks the current winner (none)". Asserted on the LINE, not the whole render.
+            var row = back.Split('\n').FirstOrDefault(l => l.Contains(ownFid, StringComparison.OrdinalIgnoreCase)) ?? "";
+            Check("a record NO active plugin defines says so, instead of out-ranking a winner called '(none)'",
+                row.Contains("no active plugin currently defines this record", StringComparison.Ordinal)
+                && !row.Contains("out-ranks the current winner", StringComparison.Ordinal), row.Length > 0 ? row : back);
+            var backJson = ForwardTools.Forward(fx.Svc, formids: new[] { ownFid }, source: parked,
+                into: Path.GetFileName(ownPath), format: "json");
+            Check("format=json: prior_winner is null there, not the string '(none)'",
+                TryJson(backJson, out var bjd)
+                && bjd!.RootElement.GetProperty("forwarded")[0].GetProperty("prior_winner").ValueKind == JsonValueKind.Null, backJson);
         }
         else Check("review-fold arm: fixture (a created record in a fresh patch)", false, created);
 
@@ -769,6 +785,14 @@ public static class WriteSurfaceGuardProbe
         // is a disabled plugin whose body links into ANOTHER disabled plugin — the exact shape this PR makes reachable
         // (a disabled mod mastered on something other than Skyrim.esm), and the one its Safety section promised was
         // "refused loud". The record's own ORIGIN is the active master, so the origin check cannot pre-empt this.
+        // [low] The did-you-mean must know the DISABLED half too — this lane just made disabled plugins first-class
+        // sources, and the suggester's old corpus was the ACTIVE order, so a typo of a disabled plugin got nothing
+        // (PR #313 review 3 [low]). The pool is now every plugin the locate SEARCHED, from the same folder sequence.
+        var typoOff = ForwardTools.Forward(fx.Svc, formids: new[] { fx.SubjectFid }, source: "HcW2Of.esp", patch: "W2TypoOff");
+        Check("a typo of a DISABLED plugin's name gets the did-you-mean too, not just the active half",
+            typoOff.StartsWith("error:") && typoOff.Contains("Did you mean", StringComparison.Ordinal)
+            && typoOff.Contains(fx.OffName, StringComparison.OrdinalIgnoreCase), typoOff);
+
         var chain = ForwardTools.Forward(fx.Svc, formids: new[] { fx.SubjectFid }, source: fx.ChainName, patch: "W2Chain");
         Check("a forwarded body referencing an INACTIVE plugin is refused NAMING it, not as a serialize/commit fault",
             chain.StartsWith("error:")
