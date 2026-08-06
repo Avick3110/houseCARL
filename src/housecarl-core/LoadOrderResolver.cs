@@ -261,9 +261,11 @@ public sealed class LoadOrderResolver : IDisposable
         /// Records the name, because the skip is NOT free and the guard proved exactly where:
         /// <list type="bullet">
         /// <item>a patch whose header needs only ONE master still writes, even when that master is the skipped plugin —
-        /// Mutagen derives the entry from the record's own FormKey, not from list membership;</item>
+        /// Mutagen derives the entry from the record's own FormKey, not from list membership. NOTE this is reachable
+        /// only in an order WITHOUT the baselines (a test harness): a real order force-includes Skyrim.esm + Update.esm,
+        /// so a patch-lane header always carries two or more and always takes the second case (PR #315 review 3);</item>
         /// <item>a patch whose header must be SORTED (two or more masters) does NOT: the serializer refuses with
-        /// <c>MissingModException</c> naming the skipped plugin.</item>
+        /// <c>MissingModException</c> naming the skipped plugin. In practice this is the case that fires.</item>
         /// </list>
         /// That second case is a real, reachable failure, and it must be named rather than surfaced as a generic
         /// "serialize or commit" fault (Q3) — which is what <see cref="SkippedUnopenable"/> is for. The first draft of
