@@ -538,6 +538,16 @@ public static class WriteSurfaceGuardProbe
         Check("a source= in NEITHER the load order nor on disk is refused by name, naming both places searched",
             badSource.StartsWith("error:") && badSource.Contains("NotInTheOrder.esp")
             && badSource.Contains("not in the load order", StringComparison.OrdinalIgnoreCase), badSource);
+        Check("…and a name nothing resembles gets NO invented suggestion",
+            !badSource.Contains("Did you mean", StringComparison.Ordinal), badSource);
+
+        // A TYPO keeps its did-you-mean (PR #313 review 2 [low]): lifting the bound moved this refusal out of the
+        // engine, whose AbsenceClause carried the suggester, and the one lane where a source name is hand-typed is
+        // this one.
+        var typo = ForwardTools.Forward(fx.Svc, formids: new[] { fx.SubjectFid }, source: "HcW2Mastre.esm", patch: "W2FwdTypo");
+        Check("a MISTYPED source= still gets the did-you-mean, naming the plugin it resembles",
+            typo.StartsWith("error:") && typo.Contains("Did you mean", StringComparison.Ordinal)
+            && typo.Contains(fx.MasterName, StringComparison.OrdinalIgnoreCase), typo);
 
         var noSource = ForwardTools.Forward(fx.Svc, formids: new[] { fx.SubjectFid }, patch: "W2FwdNo");
         Check("forward without source= is refused naming the parameter and what it means",
