@@ -813,8 +813,14 @@ public static class WriteTools
         // WHICH copy an off-order source read — a fact, not derivable from the name (several install layers can provide
         // one filename, and only one of them was opened). Stated once for the call, because one source= serves it all.
         if (o.OffOrderSource is { } oo)
+        {
             sb.Append("source: '").Append(oo.Plugin).Append("' is NOT in the active load order — the bodies were read OFF-ORDER from ")
               .Append(oo.Path).Append(" (").Append(oo.Where).Append("). The epoch below fingerprints the ACTIVE order, which that file is outside of.\n");
+            if (oo.ExcludedReason is { } exWhy)
+                sb.Append("  NOTE: that file is this session's copy of a plugin EXCLUDED from the index (").Append(exWhy)
+                  .Append(") — addressing it by PATH reads it directly, which is why this resolved at all. Copying one record out is not the ")
+                  .Append("whole-file re-serialize the exclusion refusal guards, but the body is only what Mutagen could parse: verify it (readback=true) before relying on it.\n");
+        }
         sb.Append(o.DryRun ? "would forward " : "forwarded ").Append(o.Forwarded.Count)
           .Append(o.Forwarded.Count == 1 ? " record:\n" : " records:\n");
         // Budgeted for the same reason as the created-records block: formids= is set-valued, each row is long (type +
@@ -841,6 +847,11 @@ public static class WriteTools
                     : "  [REPLACED the patch's own existing override of this record — the old body is gone (xEdit's copy-as-override-into overwrite)]");
             if (f.WasAlreadyWinner)
                 sb.Append("  [NOTE: this source IS already the load-order winner — the override just re-asserts the content that already wins (a no-op in effect)]");
+            else if (f.PriorWinner is null)
+                // No active plugin defines this record — ordinary on the self-origin path (a record originating in a
+                // patch not enabled yet). The old sentinel rendered "out-ranks the current winner (none)", a ranking
+                // against a winner that does not exist (PR #313 review 3 [low]).
+                sb.Append("  (no active plugin currently defines this record — nothing to out-rank; it takes effect once this patch is enabled)");
             else
                 sb.Append("  (out-ranks the current winner ").Append(f.PriorWinner).Append(" once this patch is enabled + sorted above it)");
             sb.Append('\n');

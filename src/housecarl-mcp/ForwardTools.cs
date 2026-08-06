@@ -56,7 +56,9 @@ public static class ForwardTools
          "so you build on the forwarded body directly.\n\n" +
          "ALL-OR-NOTHING (Q3): the whole call is refused with a named reason and NOTHING is written if source is " +
          "found in NEITHER the load order NOR on disk (both places are named), matches several mod folders, was " +
-         "excluded (unparseable), is the artifact being written itself, names a target twice, simply doesn't " +
+         "excluded as unparseable WHEN NAMED (addressing that same file by PATH reads it directly instead — copying " +
+         "one record out is not the whole-file re-serialize the refusal guards; the response says so), is the " +
+         "artifact being written itself, names a target twice, simply doesn't " +
          "DEFINE/override a given record (nothing there to forward), or names a record whose ORIGIN plugin isn't " +
          "active (the patch would need it as a master). dry_run=true resolves every " +
          "record from source, copies each into the in-memory would-be artifact, and STOPS before anything touches " +

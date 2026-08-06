@@ -4631,7 +4631,11 @@ public sealed class LoadOrderService : IDisposable
         var view = resolver.Capture();
         epoch = view.Epoch;
         if (view.ContainsPlugin(fromPlugin)) return null;      // active — the engine resolves it off the shared build
-        if (ActiveNameForPath(view, fromPlugin) is { } activeName)
+        // LooksLikePath gate, matching ResolveDiffPole / ResolvePoleArm — the three-site rule this helper's doc cites
+        // as reused rather than restated, so it should not be the one site that omits it (PR #313 review 3 [nit]).
+        // Harmless without it (a bare filename already failed ContainsPlugin above and would fail it again), but a
+        // convention with an exception is a convention someone has to re-derive.
+        if (LooksLikePath(fromPlugin) && ActiveNameForPath(view, fromPlugin) is { } activeName)
         {
             sourceName = activeName;                           // a path to the ACTIVE copy — in-order after all
             return null;
@@ -4655,7 +4659,16 @@ public sealed class LoadOrderService : IDisposable
             // NameSuggestion, not AbsenceClause: the locate has just proven the file is in no layer at all, so there is
             // nothing for the explainer to explain — the suggester IS the whole remedy here. Empty when nothing is
             // close, so a genuinely unknown name is never answered with an invented guess.
-            error = $"source plugin '{fromPlugin}' is not in the load order and {loc.Error}{view.NameSuggestion(fromPlugin)}";
+            //
+            // …but suggested from WHAT (PR #313 review 3 [low]). view.NameSuggestion's corpus is the ACTIVE order, and
+            // this lane just made DISABLED plugins first-class sources — so a typo of one got no suggestion at all,
+            // on exactly the half the lift exists to serve. The pool is now every plugin the locate SEARCHED, drawn
+            // from the same folder sequence (Mo2LoadOrder.CandidateFolders), so "not found" and "did you mean" can
+            // never disagree about which places count. It is a real cost — a listing per mod folder where the locate
+            // paid a stat per mod folder — spent ONLY on this refusal, where the alternative is re-typing blind.
+            var pool = Mo2LoadOrder.AllPluginFileNames(comp, modsDir, dataDir, overwriteDir);
+            error = $"source plugin '{fromPlugin}' is not in the load order and {loc.Error}" +
+                    PluginNameSuggest.DidYouMean(fromPlugin, pool);
             return null;
         }
         if (loc.Ambiguous is not null)
@@ -4665,6 +4678,20 @@ public sealed class LoadOrderService : IDisposable
                     "version to forward. Pass the full path to the copy you mean as the source.";
             return null;
         }
+
+        // Is the located file the order's own copy of a plugin this session EXCLUDED (Mutagen could not fully parse it
+        // at index time)? By NAME such a source is refused in the engine; by PATH it reaches here, because
+        // ActiveNameForPath deliberately declines excluded plugins — reading one directly is the read surface's escape
+        // hatch. That asymmetry is KEPT (PR #313 review 3 [low]): forwarding copies ONE body out, which is not the
+        // whole-file re-serialize the exclusion refusal exists to prevent, and re-asserting an unparseable-at-index
+        // plugin's version is a real need. What was wrong was that it happened SILENTLY while the tool description
+        // promised the refusal unconditionally — so it is now disclosed here and the description says by-name.
+        // Judged by file identity, never by name: a same-named copy elsewhere is a different file and not excluded.
+        string? excludedWhy = null;
+        var locName = Path.GetFileName(loc.Path!);
+        if (view.ExcludedPlugins.TryGetValue(locName, out var exWhy)
+            && view.PluginPath(locName) is { } servedPath && SamePluginFile(servedPath, loc.Path!))
+            excludedWhy = exWhy;
 
         ISkyrimModGetter ov;
         try { ov = LoadOrderResolver.OpenOverlay(loc.Path!, string.IsNullOrEmpty(dataDir) ? null : dataDir); }
@@ -4719,6 +4746,7 @@ public sealed class LoadOrderService : IDisposable
         return new WritePatchBuilder.OffOrderForwardSource
         {
             Plugin = fromPlugin, Path = loc.Path!, Where = loc.Where, Bodies = bodies, Overlay = ov,
+            ExcludedReason = excludedWhy,
         };
     }
 
