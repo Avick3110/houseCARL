@@ -8,6 +8,15 @@ when it changes.
 
 *Accumulating notes for the next cut — not yet released; `plugin.json` still reads the last shipped version.*
 
+**Fixed: one broken plugin in your load order no longer breaks every write.** If a plugin houseCARL cannot open
+sat in your active order — a truncated download, a half-copied mod folder, an interrupted xEdit save — then
+*every* write failed, including writes that had nothing to do with it, with an opaque message that read like a
+disk fault. Reads were never affected. Now writes that don't reference that plugin's records just work.
+
+A write that genuinely *does* need it (its records can still be reached through a plugin that overrides them) is
+refused **naming it as the cause**, with what to do — instead of the previous engine-level error. One such write
+now succeeds that didn't before: a patch whose header needs only that single master.
+
 **New tools: `housecarl_create`, `housecarl_remove`, `housecarl_forward` — the rest of the 2.0 write surface
 (W3 PR 2).** The same shape `housecarl_apply` introduced — *what changes* × *where it lands* × *how it reads
 back* — now covers authoring, removal and whole-record overrides.

@@ -104,13 +104,20 @@ public sealed class LoadOrderResolver : IDisposable
         public readonly Dictionary<FormKey, int[]> Overriders;                // MULTI keys only — ordered touching overlay indices
         public readonly List<string> LoadFailures;                            // per-plugin index-build failures (open OR parse), surfaced (Q3)
         public readonly HashSet<int> Excluded;                                // overlay indices excluded this build — never re-touched by any path
+        /// <summary>#314 — the SUBSET of <see cref="Excluded"/> whose file could not be OPENED at all, as opposed to
+        /// opening fine and failing on a record body. The distinction is invisible to reads (both are "never touch
+        /// this plugin") and load-bearing for WRITES: the master set retains excluded plugins on purpose, which is
+        /// only possible for the ones that can be opened. Kept as its own set rather than derived from the reason
+        /// STRING — a message is display prose that can be reworded, membership is a fact.</summary>
+        public readonly HashSet<int> Unopenable;
         public readonly Dictionary<string, string> ExcludedPlugins;           // excluded plugin name → reason (Q3)
         public readonly int MaxDepth;
         public readonly string Epoch;                                         // this build's fingerprint (SPEC §2.1.1) — immutable with the snapshot
 
         public IndexSnapshot(Dictionary<FormKey, (int winner, int count)> index, Dictionary<FormKey, int[]> overriders,
-                             List<string> loadFailures, HashSet<int> excluded, Dictionary<string, string> excludedPlugins, int maxDepth, string epoch)
-        { Index = index; Overriders = overriders; LoadFailures = loadFailures; Excluded = excluded; ExcludedPlugins = excludedPlugins; MaxDepth = maxDepth; Epoch = epoch; }
+                             List<string> loadFailures, HashSet<int> excluded, HashSet<int> unopenable,
+                             Dictionary<string, string> excludedPlugins, int maxDepth, string epoch)
+        { Index = index; Overriders = overriders; LoadFailures = loadFailures; Excluded = excluded; Unopenable = unopenable; ExcludedPlugins = excludedPlugins; MaxDepth = maxDepth; Epoch = epoch; }
     }
 
     volatile IndexSnapshot _snap;
@@ -177,16 +184,24 @@ public sealed class LoadOrderResolver : IDisposable
         /// Tier-2 perf idea above.</summary>
         public IReadOnlyList<ISkyrimModGetter> AllMasters()
         {
-            // Excluded plugins (BuildIndex couldn't fully parse) are INTENTIONALLY retained here — NOT filtered by
-            // the snapshot's Excluded set. A clean plugin can override a record whose ORIGIN master is an excluded one, and that master
-            // must still appear in the patch's output header for FormID resolution; dropping it would corrupt the
-            // header. Safe: Overlay() opens lazily (no parse, no enumeration → no throw), and the serializer parses a
-            // master's bodies ONLY when the patch references them — and an excluded plugin's OWN records can't be
-            // referenced (they're unreadable). So this is the one read-path that touches excluded plugins on purpose,
-            // and it cannot re-throw. (If a future change enumerates or link-caches over this full set, it must
-            // re-introduce the Excluded skip — the per-read "single choke point" is BuildIndex, not this method.)
-            var arr = new ISkyrimModGetter[_r._paths.Length];
-            for (int i = 0; i < arr.Length; i++) arr[i] = Overlay(i);
+            // Excluded plugins that OPEN are INTENTIONALLY retained here — NOT filtered by the snapshot's Excluded
+            // set. A clean plugin can override a record whose ORIGIN master is an excluded one, and that master must
+            // still appear in the patch's output header for FormID resolution; dropping it would corrupt the header.
+            // Safe for THAT class: Overlay() opens lazily (no parse, no enumeration → no throw), and the serializer
+            // parses a master's bodies ONLY when the patch references them.
+            //
+            // #314 — but the OTHER exclusion class cannot be retained, because retaining it is impossible: a plugin
+            // excluded BECAUSE OpenOverlay threw makes Overlay(i) throw again here, on EVERY write, including writes
+            // that never touch it. The old comment's "it cannot re-throw" was true of the parse-failure class and
+            // false of this one. Skipping loses nothing the retention argument was protecting — an overlay we cannot
+            // open contributes no header entry either way — and the names are recorded so a write that genuinely
+            // NEEDED one can say so instead of dying as a raw serializer fault.
+            var arr = new List<ISkyrimModGetter>(_r._paths.Length);
+            for (int i = 0; i < _r._paths.Length; i++)
+            {
+                if (SkipUnopenable(i)) continue;
+                arr.Add(Overlay(i));
+            }
             return arr;
         }
 
@@ -213,10 +228,39 @@ public sealed class LoadOrderResolver : IDisposable
         {
             var list = new List<ISkyrimModGetter>(_r._paths.Length);
             for (int i = 0; i < _r._paths.Length; i++)
-                if (!string.Equals(_r._names[i], excludeFileName, StringComparison.OrdinalIgnoreCase))
-                    list.Add(Overlay(i));   // SKIP the target's index — never map the file we're about to overwrite
+            {
+                if (string.Equals(_r._names[i], excludeFileName, StringComparison.OrdinalIgnoreCase)) continue;  // never map the file we're about to overwrite
+                if (SkipUnopenable(i)) continue;                                                                 // #314 — and never try to map one that cannot be opened
+                list.Add(Overlay(i));
+            }
             return list;
         }
+
+        /// <summary>#314 — is this index the could-not-be-OPENED exclusion class, which no master set can contain?
+        /// Records the name, because the skip is NOT free and the guard proved exactly where:
+        /// <list type="bullet">
+        /// <item>a patch whose header needs only ONE master still writes, even when that master is the skipped plugin —
+        /// Mutagen derives the entry from the record's own FormKey, not from list membership;</item>
+        /// <item>a patch whose header must be SORTED (two or more masters) does NOT: the serializer refuses with
+        /// <c>MissingModException</c> naming the skipped plugin.</item>
+        /// </list>
+        /// That second case is a real, reachable failure, and it must be named rather than surfaced as a generic
+        /// "serialize or commit" fault (Q3) — which is what <see cref="SkippedUnopenable"/> is for. The first draft of
+        /// this fix asserted the skip cost the output nothing and deleted this; the multi-master guard arm disproved
+        /// it.</summary>
+        bool SkipUnopenable(int i)
+        {
+            if (!_r._snap.Unopenable.Contains(i)) return false;
+            _skippedUnopenable.Add(_r._names[i]);
+            return true;
+        }
+
+        readonly SortedSet<string> _skippedUnopenable = new(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>The plugins this session's master-set builds skipped as unopenable (#314). Empty in the normal case.
+        /// Non-empty ⇒ a serialize failure naming a missing master is very likely one of THESE, and the write lane says
+        /// so instead of reporting an opaque engine fault.</summary>
+        public IReadOnlyCollection<string> SkippedUnopenable => _skippedUnopenable;
 
         /// <summary>Dispose and forget any overlay this session holds on <paramref name="fileName"/> — the file the caller
         /// is about to serialize to. The SECOND half of the active-patch write fix (with <see cref="AllMastersExcept"/>):
@@ -386,6 +430,7 @@ public sealed class LoadOrderResolver : IDisposable
         var overriders = new Dictionary<FormKey, List<int>>();        // multi keys only
         var failures = new List<string>();
         var excluded = new HashSet<int>();
+        var unopenable = new HashSet<int>();                          // #314 — the could-not-be-OPENED subset
         var excludedPlugins = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         int maxDepth = 0;
 
@@ -396,6 +441,7 @@ public sealed class LoadOrderResolver : IDisposable
             catch (Exception ex)
             {
                 Exclude(i, $"could not be opened — {Concise(ex)}", failures, excluded, excludedPlugins);
+                unopenable.Add(i);   // #314 — this one cannot serve as a master overlay either; the write path must skip it
                 continue;
             }
 
@@ -437,7 +483,7 @@ public sealed class LoadOrderResolver : IDisposable
         return new IndexSnapshot(
             index,
             overriders.ToDictionary(kv => kv.Key, kv => kv.Value.ToArray()),  // trim List overhead → int[]
-            failures, excluded, excludedPlugins, maxDepth, ComputeEpoch(_names, _paths, _mtimes, excludedPlugins));
+            failures, excluded, unopenable, excludedPlugins, maxDepth, ComputeEpoch(_names, _paths, _mtimes, excludedPlugins));
     }
 
     /// <summary>The epoch fingerprint: a compact, deterministic identity for ONE index build, derived from the
