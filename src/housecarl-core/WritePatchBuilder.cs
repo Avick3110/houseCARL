@@ -923,10 +923,15 @@ public static class WritePatchBuilder
         try { WriteEngine.WriteInPlace(targetMod, session.AllMastersExcept(fileName), targetPath); }
         catch (MissingModException ex)
         {
-            return PatchOutcome.Fail(
-                $"writing '{fileName}' in place failed: the edited records reference a plugin that is NOT active in " +
-                $"the load order ({ex.Message}) — a reference into an inactive plugin can't resolve in game. " +
-                "Enable that plugin in MO2 (or reference an active one) and retry. The existing file is untouched.");
+            // #314: this arm fires FIRST, so it is where the unopenable residual lands on this lane — and its
+            // "NOT active in the load order" reading is wrong for it (the plugin IS active, just unopenable), which
+            // would send the user to enable something already enabled. Prefer the named cause when it applies.
+            return PatchOutcome.Fail(UnopenableMasterClause(ex, session) is { Length: > 0 } why
+                ? $"writing '{fileName}' in place failed: the edited records reference a plugin the write cannot " +
+                  $"resolve ({ex.Message}).{why} The existing file is untouched."
+                : $"writing '{fileName}' in place failed: the edited records reference a plugin that is NOT active in " +
+                  $"the load order ({ex.Message}) — a reference into an inactive plugin can't resolve in game. " +
+                  "Enable that plugin in MO2 (or reference an active one) and retry. The existing file is untouched.");
         }
         catch (Exception ex)
             { return PatchOutcome.Fail($"writing '{fileName}' in place failed (serialize or commit; the existing file is untouched): {WriteEngine.Describe(ex)}{UnopenableMasterClause(ex, session)}"); }
@@ -1024,6 +1029,25 @@ public static class WritePatchBuilder
         if (patchLane)
             foreach (var bm in WriteEngine.BaselineMasters)
                 if (priority.ContainsKey(bm.FileName.String)) set.Add(bm.FileName.String);
+
+        // #314 — an UNOPENABLE referenced plugin is ACTIVE, so the membership test above passes it happily, and the
+        // dry run would predict success for a write the real call now refuses. That breaks this method's own contract
+        // ("a dry run must never say 'would apply' about a write that would fail"), which the #225 parity guard holds.
+        //
+        // The threshold is empirical, not assumed: a header carrying ONE master writes even when that master is the
+        // unopenable plugin (Mutagen derives the entry from the record's FormKey), and a header that must be SORTED —
+        // two or more — refuses. Both sides are pinned by excluded-master-guard, so if that behaviour ever moves, the
+        // guard says so rather than this prediction quietly going wrong in one direction or the other.
+        var unopenable = set.Where(resolver.IsUnopenable).OrderBy(n => n, StringComparer.OrdinalIgnoreCase).ToList();
+        if (unopenable.Count > 0 && set.Count > 1)
+            return $"dry run caught what the real write would fail on: the would-be content references " +
+                   $"{string.Join(", ", unopenable.Select(n => $"'{n}'"))}, which {(unopenable.Count == 1 ? "is" : "are")} " +
+                   "ACTIVE in your load order but cannot be opened by houseCARL (see load_order_status for the reason), " +
+                   "so the master header this write needs cannot be sorted against " +
+                   $"{(unopenable.Count == 1 ? "it" : "them")}. Repair or remove " +
+                   $"{(unopenable.Count == 1 ? "that plugin" : "those plugins")} in MO2 and retry — writes that do NOT " +
+                   "reference their records are unaffected. Nothing was written.";
+
         masters = set.OrderBy(n => priority[n]).ToList();
         return null;
     }
@@ -1050,7 +1074,30 @@ public static class WritePatchBuilder
                           "(or fix the target's masters in xEdit) first. The file is UNTOUCHED.";
                 return Array.Empty<ISkyrimModGetter>();
             }
-            var ov = SkyrimMod.CreateFromBinaryOverlay(mpath, SkyrimRelease.SkyrimSE);
+            // #314 — this lane does NOT go through AllMasters/AllMastersExcept: it opens the target's declared
+            // masters itself, with a bare CreateFromBinaryOverlay that sat outside every catch. An unopenable declared
+            // master therefore escaped as an unhandled exception rather than a Q3 refusal — the same failure class
+            // #314 filed, surviving in the one write lane the skip does not reach (PR #315 review). Asked BEFORE the
+            // open, so the refusal names the plugin and the remedy instead of relaying an engine throw.
+            if (view.IsUnopenable(mfn))
+            {
+                missing = $"cannot re-serialize '{targetMod.ModKey.FileName}' in place: its declared master '{mfn}' is ACTIVE " +
+                          "but cannot be opened by houseCARL (see load_order_status for the reason), so a faithful " +
+                          "re-serialize can't resolve the references into it. Repair or remove that plugin in MO2 and " +
+                          "retry. The file is UNTOUCHED.";
+                return Array.Empty<ISkyrimModGetter>();
+            }
+            ISkyrimModGetter ov;
+            try { ov = SkyrimMod.CreateFromBinaryOverlay(mpath, SkyrimRelease.SkyrimSE); }
+            catch (Exception ex)
+            {
+                // Belt to the check above's braces: a master that opens fine at index time can still fail here (the
+                // file changed since the build). Named, never an escaping throw.
+                missing = $"cannot re-serialize '{targetMod.ModKey.FileName}' in place: its declared master '{mfn}' could " +
+                          $"not be opened ({WriteEngine.Describe(ex)}) — a faithful re-serialize can't resolve the " +
+                          "references into it. Repair or remove that plugin in MO2 and retry. The file is UNTOUCHED.";
+                return Array.Empty<ISkyrimModGetter>();
+            }
             overlays.Add((IDisposable)ov);
             resolved.Add(ov);
         }
@@ -1330,7 +1377,7 @@ public static class WritePatchBuilder
             if (missing is not null) return RemovalOutcome.Fail(missing);
             try { WriteEngine.WriteInPlace(targetMod, ownMasters, targetPath); }
             catch (Exception ex)
-                { return RemovalOutcome.Fail($"writing '{fileName}' in place after removal failed (serialize or commit; the existing file is untouched): {WriteEngine.Describe(ex)}{UnopenableMasterClause(ex, session)}"); }
+                { return RemovalOutcome.Fail($"writing '{fileName}' in place after removal failed (serialize or commit; the existing file is untouched): {WriteEngine.Describe(ex)}"); }
         }
         finally { foreach (var d in masterOverlays) { try { d.Dispose(); } catch { /* best-effort; never mask the write result */ } } }
 
@@ -1544,10 +1591,13 @@ public static class WritePatchBuilder
         try { WriteEngine.WriteInPlace(targetMod, session.AllMastersExcept(fileName), targetPath); }
         catch (MissingModException ex)
         {
-            return ForwardOutcome.Fail(
-                $"writing '{fileName}' in place failed: the forwarded records reference a plugin that is NOT active in " +
-                $"the load order ({ex.Message}) — a reference into an inactive plugin can't resolve in game. " +
-                "Enable that plugin in MO2 and retry. The existing file is untouched.");
+            // Same shadowing as the apply twin — see there.
+            return ForwardOutcome.Fail(UnopenableMasterClause(ex, session) is { Length: > 0 } why
+                ? $"writing '{fileName}' in place failed: the forwarded records reference a plugin the write cannot " +
+                  $"resolve ({ex.Message}).{why} The existing file is untouched."
+                : $"writing '{fileName}' in place failed: the forwarded records reference a plugin that is NOT active in " +
+                  $"the load order ({ex.Message}) — a reference into an inactive plugin can't resolve in game. " +
+                  "Enable that plugin in MO2 and retry. The existing file is untouched.");
         }
         catch (Exception ex)
             { return ForwardOutcome.Fail($"writing '{fileName}' in place failed (serialize or commit; the existing file is untouched): {WriteEngine.Describe(ex)}{UnopenableMasterClause(ex, session)}"); }
@@ -1573,25 +1623,46 @@ public static class WritePatchBuilder
     }
 
 
-    /// <summary>#314 — the NAMED cause when a serialize failed because the header needed a master this session skipped
-    /// as unopenable. The plugin IS active, so the pre-existing "not active in the load order" wording is wrong for it,
-    /// and the generic "serialize or commit" wording reads as a disk fault. Empty string when this isn't that case, so
-    /// callers can append unconditionally.
-    /// <para>Matched on the exception TEXT naming one of the skipped plugins, which is why it is a suffix rather than a
-    /// replacement: Mutagen's message is the only thing that knows WHICH master the sort wanted, and a mismatch must
-    /// degrade to the ordinary description rather than to a confident wrong cause.</para></summary>
-    static string UnopenableMasterClause(Exception ex, LoadOrderResolver.OverlaySession session)
+    /// <summary>#314 — the NAMED cause when a serialize failed because the header needed a master this session
+    /// skipped as unopenable. The plugin IS active, so the "not active in the load order" wording the missing-master
+    /// arms use is wrong for it, and the generic "serialize or commit" wording reads as a disk fault. Empty string when
+    /// this isn't that case, so callers can append unconditionally.
+    ///
+    /// <para>Matched on the exception's TYPED <c>ModPaths</c>, never on its message text. Two review findings closed by
+    /// construction rather than patched: a substring match would fire when a skipped <c>Foo.esp</c> is a substring of
+    /// the <c>MyFoo.esp</c> the serializer actually wanted (Skyrim plugin names are heavily prefixed) — the confident
+    /// wrong cause this is supposed to degrade away from; and reading only <c>ex.Message</c> would miss a
+    /// <c>MissingModException</c> that arrives WRAPPED, which this codebase already documents happens (see
+    /// <see cref="RootNullArm"/>'s doubly-nested AggregateException). The whole chain is walked, aggregates
+    /// included.</para></summary>
+    public static string UnopenableMasterClause(Exception ex, LoadOrderResolver.OverlaySession session)
     {
         if (session.SkippedUnopenable.Count == 0) return "";
-        var hit = session.SkippedUnopenable
-            .Where(n => ex.Message.Contains(n, StringComparison.OrdinalIgnoreCase))
-            .ToList();
+        var hit = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
+        CollectMissingMods(ex, session, hit, depth: 0);
         if (hit.Count == 0) return "";
         var names = string.Join(", ", hit.Select(n => $"'{n}'"));
-        return $" CAUSE: {names} {(hit.Count == 1 ? "is" : "are")} ACTIVE in your load order but cannot be opened by " +
+        bool one = hit.Count == 1;
+        return $" CAUSE: {names} {(one ? "is" : "are")} ACTIVE in your load order but cannot be opened by " +
                "houseCARL (see load_order_status for the reason), so the header this write needs cannot be sorted against " +
-               $"{(hit.Count == 1 ? "it" : "them")}. Repair or remove {(hit.Count == 1 ? "that plugin" : "those plugins")} " +
+               $"{(one ? "it" : "them")}. Repair or remove {(one ? "that plugin" : "those plugins")} " +
                "in MO2 and retry — writes that do NOT reference their records are unaffected.";
+    }
+
+    /// <summary>Walk an exception chain (inner + aggregate branches) collecting the SKIPPED plugins a
+    /// <see cref="MissingModException"/> names. Depth-capped because a malformed chain must never hang a refusal.</summary>
+    static void CollectMissingMods(Exception? ex, LoadOrderResolver.OverlaySession session, SortedSet<string> into, int depth)
+    {
+        if (ex is null || depth > 8) return;
+        if (ex is MissingModException mme)
+            foreach (var mp in mme.ModPaths)
+            {
+                var name = mp.ModKey.FileName.String;
+                if (session.SkippedUnopenable.Contains(name)) into.Add(name);
+            }
+        if (ex is AggregateException agg)
+            foreach (var inner in agg.InnerExceptions) CollectMissingMods(inner, session, into, depth + 1);
+        CollectMissingMods(ex.InnerException, session, into, depth + 1);
     }
 
     /// <summary>One record to FORWARD: take plugin <see cref="FromPlugin"/>'s version of <see cref="Target"/> and carry

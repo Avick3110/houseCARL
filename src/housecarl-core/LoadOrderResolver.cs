@@ -127,6 +127,12 @@ public sealed class LoadOrderResolver : IDisposable
     /// <see cref="ExcludedPlugins"/>, formatted "name: reason" for log/harness display.</summary>
     public IReadOnlyList<string> LoadFailures => _snap.LoadFailures;
 
+    /// <summary>#314 — is this plugin ACTIVE but impossible to OPEN? The resolver-level twin of
+    /// <see cref="IndexView.IsUnopenable"/>, for callers holding the resolver rather than a captured view (the dry-run
+    /// master preview). Reads the current snapshot, which is what a dry run should predict against.</summary>
+    public bool IsUnopenable(string pluginName)
+        => _nameToIdx.TryGetValue(pluginName, out int i) && _snap.Unopenable.Contains(i);
+
     /// <summary>Plugins EXCLUDED from this build (name → why): unopenable, or carrying a record Mutagen can't parse.
     /// Their records are not in the index and no path will re-touch them; load_order_status reports them so the user
     /// can fix/remove the upstream plugin (Q3 — the exclusion is visible, not silent).</summary>
@@ -260,7 +266,10 @@ public sealed class LoadOrderResolver : IDisposable
         /// <summary>The plugins this session's master-set builds skipped as unopenable (#314). Empty in the normal case.
         /// Non-empty ⇒ a serialize failure naming a missing master is very likely one of THESE, and the write lane says
         /// so instead of reporting an opaque engine fault.</summary>
-        public IReadOnlyCollection<string> SkippedUnopenable => _skippedUnopenable;
+        /// <remarks>Exposed as a SET, not a collection: consumers ask "is this name in it?", and the backing
+        /// comparer is OrdinalIgnoreCase — a LINQ Contains over a collection would have compared ordinally and missed a
+        /// case difference between the profile's spelling and a ModKey's.</remarks>
+        public IReadOnlySet<string> SkippedUnopenable => _skippedUnopenable;
 
         /// <summary>Dispose and forget any overlay this session holds on <paramref name="fileName"/> — the file the caller
         /// is about to serialize to. The SECOND half of the active-patch write fix (with <see cref="AllMastersExcept"/>):
@@ -574,6 +583,12 @@ public sealed class LoadOrderResolver : IDisposable
         public int MaxDepth => _s.MaxDepth;
         public IReadOnlyList<string> LoadFailures => _s.LoadFailures;
         public IReadOnlyDictionary<string, string> ExcludedPlugins => _s.ExcludedPlugins;
+
+        /// <summary>#314 — is this plugin the could-not-be-OPENED exclusion class? A caller that is ABOUT to open a
+        /// plugin file itself (rather than going through the master-set builders) asks this first, so an unopenable one
+        /// becomes a named refusal instead of an exception escaping from a bare CreateFromBinaryOverlay.</summary>
+        public bool IsUnopenable(string pluginName)
+            => _r._nameToIdx.TryGetValue(pluginName, out int i) && _s.Unopenable.Contains(i);
 
         /// <summary>THIS captured build's epoch fingerprint — the stamp a bulk response computed off this view
         /// must carry (SPEC §2.1.1). Immutable with the snapshot: a concurrent rebuild changes nothing here.</summary>
