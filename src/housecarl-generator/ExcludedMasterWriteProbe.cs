@@ -41,6 +41,20 @@ public static class ExcludedMasterWriteProbe
     static string MastersLineOf(string render)
         => render.Split('\n').FirstOrDefault(l => l.StartsWith("masters:", StringComparison.Ordinal)) ?? "";
 
+    /// <summary>The written artifact's path out of a write render (mod folder + filename), so a following arm can
+    /// address it by name — e.g. as an in_place target.</summary>
+    static string? ArtifactPathFrom(Fixture fx, string render)
+    {
+        if (!render.StartsWith("wrote ", StringComparison.Ordinal)) return null;
+        var file = render[(render.IndexOf(' ') + 1)..];
+        file = file[..file.IndexOf(' ')];
+        const string marker = "mod folder: ";
+        int at = render.IndexOf(marker, StringComparison.Ordinal);
+        if (at < 0) return null;
+        var mod = render[(at + marker.Length)..].Split('\n')[0].Split("  ")[0].Trim();
+        return Path.Combine(fx.ModsDir, mod, file);
+    }
+
     const string MasterName = "HcXMaster.esm";
     const string CleanName = "HcXClean.esp";
     const string BrokenName = "HcXBroken.esp";
@@ -106,19 +120,56 @@ public static class ExcludedMasterWriteProbe
             var line = MastersLineOf(both);
             int iMaster = line.IndexOf(MasterName, StringComparison.OrdinalIgnoreCase);
             int iBroken = line.IndexOf(BrokenName, StringComparison.OrdinalIgnoreCase);
-            if (!both.StartsWith("error:"))
-                Check("a MULTI-master header still lists both masters in load order (the skip does not reorder it)",
-                    iMaster >= 0 && iBroken >= 0 && iMaster < iBroken, line.Length > 0 ? line : both);
-            else
-                // …and where it CANNOT be written, the refusal must name the real cause. This is the residual the skip
-                // leaves: with two or more masters the serializer sorts the header against the known set and refuses on
-                // the one it hasn't got. It was already failing before the fix (with a different exception), so nothing
-                // regressed — but "serialize or commit failed" sends the reader to their disk, and the plugin is not
-                // "not active" either, which is what the pre-existing MissingMod arms would have said.
-                Check("…or, where a sorted header cannot be built, the refusal NAMES the unopenable plugin as the cause",
-                    both.Contains(BrokenName, StringComparison.OrdinalIgnoreCase)
-                    && both.Contains("cannot be opened by houseCARL", StringComparison.Ordinal)
-                    && both.Contains("writes that do NOT reference their records are unaffected", StringComparison.Ordinal), both);
+            // PINNED, not branched. The earlier version asserted ordering on success and the CAUSE on failure with
+            // nothing asserting WHICH outcome was expected — so a behaviour flip in either direction would still have
+            // reported PASS while the clause silently lost all CI coverage (PR #315 review). The two-master header is
+            // the case that REFUSES; the one-master header above is the case that WRITES. Both sides are now facts the
+            // guard holds, which is also what licenses the dry-run predictor to use that threshold.
+            Check("a MULTI-master header REFUSES (the sorted-header residual the skip leaves) — pinned, not assumed",
+                both.StartsWith("error:"),
+                both.StartsWith("error:") ? both
+                    : "UPSTREAM BEHAVIOUR CHANGED: a two-master header now WRITES. Re-derive the residual — the "
+                      + "dry-run predictor's >1 threshold and UnopenableMasterClause both rest on this. Got: " + both);
+            Check("…and that refusal NAMES the unopenable plugin as the cause, with the remedy",
+                both.Contains(BrokenName, StringComparison.OrdinalIgnoreCase)
+                && both.Contains("cannot be opened by houseCARL", StringComparison.Ordinal)
+                && both.Contains("writes that do NOT reference their records are unaffected", StringComparison.Ordinal), both);
+
+            // The DRY RUN must predict that refusal rather than reporting a would-be success (#225 parity).
+            var dry = ForwardTools.Forward(fx.Svc, formids: new[] { fx.SubjectFid, fx.BrokenOwnFid }, source: CleanName,
+                patch: "X314DryBoth", dry_run: true);
+            Check("dry_run predicts the SAME refusal for the same call, naming the same cause (#225 parity)",
+                dry.StartsWith("error:") && dry.Contains(BrokenName, StringComparison.OrdinalIgnoreCase)
+                && dry.Contains("cannot be opened by houseCARL", StringComparison.Ordinal), dry);
+            var dryOk = ForwardTools.Forward(fx.Svc, formids: new[] { fx.SubjectFid }, source: MasterName,
+                patch: "X314DryOk", dry_run: true);
+            Check("…and a dry run of a write that does NOT reference it still predicts success (no over-refusal)",
+                dryOk.StartsWith("DRY RUN", StringComparison.Ordinal), dryOk);
+
+            // ---- The IN-PLACE lanes: their MissingModException arm fires BEFORE the generic catch, so it — not the
+            //      generic one — is where this residual lands, and its "NOT active in the load order" wording would
+            //      send the user to enable a plugin that IS enabled (PR #315 review). No new-patch arm can catch this.
+            //      The target must be an ACTIVE plugin (that lane's own contract), so it is the clean plugin — which
+            //      also declares the broken one as a master, giving the sorted header this residual needs.
+            //      One forwarded record is enough: an in-place write RE-SERIALIZES the whole target, and the clean
+            //      plugin's own header already needs both masters.
+            var ip = ForwardTools.Forward(fx.Svc, formids: new[] { fx.SubjectFid },
+                source: MasterName, in_place: CleanName, acknowledge: true);
+            Check("in_place: the residual is named by CAUSE, not as 'NOT active in the load order'",
+                ip.StartsWith("error:")
+                && ip.Contains("cannot be opened by houseCARL", StringComparison.Ordinal)
+                && !ip.Contains("is NOT active in", StringComparison.Ordinal), ip);
+
+            // ---- The remove-IN-PLACE lane does NOT use the master-set builders at all: it opens the target's own
+            //      declared masters directly, with a bare CreateFromBinaryOverlay that used to sit outside every catch,
+            //      so an unopenable declared master escaped as an unhandled exception rather than a refusal. The clean
+            //      plugin declares the broken one, so this reaches it (PR #315 review).
+            var rm = RemoveTools.Remove(fx.Svc, formids: new[] { fx.SubjectFid }, in_place: CleanName, acknowledge: true);
+            Check("remove in_place: an unopenable DECLARED master is a named refusal, not an escaping exception",
+                rm.StartsWith("error:")
+                && rm.Contains(BrokenName, StringComparison.OrdinalIgnoreCase)
+                && rm.Contains("cannot be opened by houseCARL", StringComparison.Ordinal)
+                && rm.Contains("UNTOUCHED", StringComparison.Ordinal), rm);
 
             Console.WriteLine();
             Console.WriteLine($"=== excluded-master-guard: {_pass} passed, {_fail} failed -> {(_fail == 0 ? "PASS" : "FAIL")} ===");
@@ -137,6 +188,7 @@ public static class ExcludedMasterWriteProbe
         public required LoadOrderService Svc { get; init; }
         public required string SubjectFid { get; init; }      // originates in the MASTER, overridden by the clean plugin
         public required string BrokenOwnFid { get; init; }    // ORIGINATES in the unopenable plugin, overridden by clean
+        public required string ModsDir { get; init; }
         public void Dispose() => Svc.Dispose();
 
         public static Fixture Build(string dir)
@@ -204,6 +256,7 @@ public static class ExcludedMasterWriteProbe
                 Svc = svc,
                 SubjectFid = $"{subject.FormKey.ID:X6}:{mKey.FileName}",
                 BrokenOwnFid = $"{brokenOwn.FormKey.ID:X6}:{bKey.FileName}",
+                ModsDir = mods,
             };
         }
     }

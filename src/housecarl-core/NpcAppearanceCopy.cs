@@ -320,7 +320,8 @@ public static class NpcAppearanceCopy
         ActiveResolve resolvesActively,
         string outPath, bool extend,
         Func<string, IReadOnlyList<ISkyrimModGetter>> mastersFor,
-        string donorReadFrom, bool donorOutOfLoadOrder)
+        string donorReadFrom, bool donorOutOfLoadOrder,
+        Func<Exception, string>? serializeCause = null)
     {
         var patchFileName = Path.GetFileName(outPath);
         try
@@ -500,7 +501,11 @@ public static class NpcAppearanceCopy
 
             // ---- serialize (multi-master; the caller's mastersFor handles the active-patch self-lock) ----
             try { WriteEngine.WritePatch(patchMod, mastersFor(patchFileName), outPath); }
-            catch (Exception ex) { return NpcCopyOutcome.Fail($"serialize failed — {WriteEngine.Describe(ex)}. Nothing usable was written."); }
+            // #314 — this lane serializes through the caller's AllMastersExcept too, so it is subject to the same
+            // unopenable-master skip and the same residual refusal; without the caller's cause it reported an unnamed
+            // engine fault while the identical failure from apply/create/forward named the plugin (PR #315 review).
+            // Injected rather than reached for: this type takes a mastersFor closure, not a resolver session.
+            catch (Exception ex) { return NpcCopyOutcome.Fail($"serialize failed — {WriteEngine.Describe(ex)}{serializeCause?.Invoke(ex) ?? ""}. Nothing usable was written."); }
 
             // ---- post-commit read-back — the patch IS on disk from here; a read-back failure is a WARNING on a
             //      success, never a "nothing was written" (review finding: that mislabel invites a duplicate re-run).

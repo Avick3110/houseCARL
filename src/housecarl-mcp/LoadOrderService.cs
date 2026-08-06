@@ -5861,7 +5861,8 @@ public sealed class LoadOrderService : IDisposable
                     active,
                     outPath, extend,
                     pf => { session.ReleaseOverlay(pf); return session.AllMastersExcept(pf); },   // active-patch self-lock fix
-                    donorReadFrom, outOfLoadOrder);
+                    donorReadFrom, outOfLoadOrder,
+                    ex => WritePatchBuilder.UnopenableMasterClause(ex, session));   // #314 — same named cause as the sibling write lanes
                 if (!outcome.Success)
                 {
                     if (created) RemoveFolderCreatedThisCall(outPath);   // hunt F4: a refused copy leaves no orphan
