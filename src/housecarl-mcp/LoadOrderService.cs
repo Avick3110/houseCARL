@@ -4612,15 +4612,30 @@ public sealed class LoadOrderService : IDisposable
     /// <c>offOrderOverlays</c> carries. <paramref name="epoch"/> is this helper's OWN capture (it decides membership
     /// against a build, so its refusals are stamped like every other post-capture outcome); the reported outcome's own
     /// stamp still names the build the WRITE was decided from — <see cref="WritePatchBuilder.PatchOutcome.Epoch"/>'s
-    /// honesty bound, unchanged.</para></summary>
+    /// honesty bound, unchanged.</para>
+    ///
+    /// <para><paramref name="sourceName"/> is the spelling the ENGINE should resolve against: <paramref name="fromPlugin"/>
+    /// unchanged, EXCEPT when a caller's PATH turns out to name the very file the order loads — then it is that plugin's
+    /// NAME, and this returns null so the ordinary in-order arm handles it. Membership cannot be decided by
+    /// <c>ContainsPlugin</c> alone once a path is an advertised spelling: a full path never matches the name table, so
+    /// the live copy of an ACTIVE plugin would take the off-order arm and be described as "not in the load order", have
+    /// its epoch disclaimed, and — the sharp end — lose the already-the-winner flag, reporting that it out-ranks itself
+    /// (PR #313 review [medium]). <see cref="ActiveNameForPath"/> is the rule that already answers this for the diff
+    /// pole, reused rather than restated: it is a FULL-PATH identity compare, so a same-named backup keeps the off-order
+    /// lane, and a path to an EXCLUDED plugin does too (reading it directly is the escape hatch for exactly that).</para></summary>
     WritePatchBuilder.OffOrderForwardSource? ResolveOffOrderForwardSource(
         LoadOrderResolver resolver, string fromPlugin, IReadOnlyList<WritePatchBuilder.ForwardSpec> specs,
-        out IDisposable? overlay, out string? epoch, out string? error)
+        out IDisposable? overlay, out string? epoch, out string? error, out string sourceName)
     {
-        overlay = null; error = null;
+        overlay = null; error = null; sourceName = fromPlugin;
         var view = resolver.Capture();
         epoch = view.Epoch;
         if (view.ContainsPlugin(fromPlugin)) return null;      // active — the engine resolves it off the shared build
+        if (ActiveNameForPath(view, fromPlugin) is { } activeName)
+        {
+            sourceName = activeName;                           // a path to the ACTIVE copy — in-order after all
+            return null;
+        }
 
         string modsDir, dataDir, overwriteDir, profileDir;
         try { lock (_gate) { EnsurePathsDerived(); modsDir = _modsDir; dataDir = _dataDir; overwriteDir = _overwriteDir; profileDir = _profileDir; } }
@@ -4648,10 +4663,19 @@ public sealed class LoadOrderService : IDisposable
         // per record.
         var wanted = specs.Select(s => s.Target).ToHashSet();
         var bodies = new Dictionary<FormKey, IMajorRecordGetter>();
+        // …and, in the SAME walk, the local IDs this file ORIGINATES under its own ModKey. A plugin's records are keyed
+        // by its FILENAME, so a parked copy renamed 'MyPatch_old.esp' declares a DIFFERENT ModKey and its records match
+        // nothing the caller asked for — which the miss below would otherwise report as "does not define or override
+        // this record", a true sentence with a misleading cause. Parking old copies under a new NAME is the ordinary
+        // habit this feature invites, so the diagnosis is worth carrying (found by the guard, PR #313 fold).
+        var selfIds = new HashSet<uint>();
         try
         {
             foreach (var rec in ov.EnumerateMajorRecords())
+            {
                 if (wanted.Contains(rec.FormKey)) bodies[rec.FormKey] = rec;
+                if (rec.FormKey.ModKey == ov.ModKey) selfIds.Add(rec.FormKey.ID);
+            }
         }
         catch (Exception ex)
         {
@@ -4663,10 +4687,19 @@ public sealed class LoadOrderService : IDisposable
         var missing = specs.Select(s => s.Target).Where(k => !bodies.ContainsKey(k)).Distinct().ToList();
         if (missing.Count > 0)
         {
+            // The RENAMED-COPY diagnosis, stated only when it is a FACT about this file: the ID is present, under the
+            // file's own ModKey. Never a guess — the ordinary miss (a plugin that simply doesn't touch the record) says
+            // nothing about renaming, and a FormKey whose origin is some other master is not this case either.
+            var renamed = missing.Where(k => k.ModKey != ov.ModKey && selfIds.Contains(k.ID)).ToList();
+            var hint = renamed.Count == 0 ? "" :
+                $"\n  NOTE: this file DOES carry {(renamed.Count == 1 ? "that FormID" : "those FormIDs")} — but under its own " +
+                $"name, as {string.Join(", ", renamed.Take(3).Select(k => $"{k.ID:X6}:{ov.ModKey.FileName}"))}. A plugin's records are keyed by its " +
+                "FILENAME, so a copy saved under a different name is a DIFFERENT plugin. Keep the original filename and " +
+                "park the copy in another folder, or name the FormIDs as this file spells them.";
             (ov as IDisposable)?.Dispose();
             error = $"refused — source file '{fromPlugin}' ({loc.Where}) does NOT define or override {missing.Count} of the " +
                     $"{specs.Count} record(s) named; there is no version of them there to forward, and NOTHING was written:\n  - " +
-                    string.Join("\n  - ", missing.Select(k => k.ToString()));
+                    string.Join("\n  - ", missing.Select(k => k.ToString())) + hint;
             return null;
         }
 
@@ -5116,9 +5149,14 @@ public sealed class LoadOrderService : IDisposable
             // the in-place TARGET must stay active (that lane's own contract), but the SOURCE has no such need. A no-op
             // for an active source: null off, null error, no overlay. The overlay must outlive the serialize (the
             // bodies are deep-copied during the write), so it is disposed in the finally below.
-            var offOrder = ResolveOffOrderForwardSource(resolver, fp, specs, out var offOverlay, out var offEpoch, out var offError);
+            var offOrder = ResolveOffOrderForwardSource(resolver, fp, specs, out var offOverlay, out var offEpoch, out var offError, out var sourceName);
             if (offError is not null)
                 return WritePatchBuilder.ForwardOutcome.Fail(offError) with { Epoch = offEpoch };
+            // A path that named the ACTIVE copy resolves as that PLUGIN: re-spell every spec's source so the engine
+            // looks it up in the index (a path is not a key there) — which is also what makes the winner comparison,
+            // the self-forward name check and the report's "copied from" all speak the order's own vocabulary.
+            if (!string.Equals(sourceName, fp, StringComparison.Ordinal))
+                specs = specs.Select(s => new WritePatchBuilder.ForwardSpec { Target = s.Target, FromPlugin = sourceName }).ToList();
             try
             {
                 if (inPlace)

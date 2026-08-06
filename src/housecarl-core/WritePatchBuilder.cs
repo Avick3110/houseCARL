@@ -1487,8 +1487,15 @@ public static class WritePatchBuilder
             // so the header needs that master, and the serializer would otherwise fail on a master it can't resolve —
             // loud, but as an engine throw rather than a named, fixable reason. Newly reachable via the off-order arm
             // ("forward this disabled mod's OWN records"), so it is refused here BY NAME (Q3).
+            // …with ONE exemption: when the ORIGIN is the artifact being written. A plugin is never its own master
+            // (Phase 4 hands the serializer AllMastersExcept(fileName), and a FormLink into the mod's own ModKey
+            // contributes no master reference), so such a record needs no master at all and the write succeeds. This is
+            // the PR's own motivating shape, one step on: re-assert an OLD copy's body of a record the patch you are
+            // mid-authoring ORIGINATES — where the patch is not enabled in MO2 yet, which is the default lane's whole
+            // premise, so the un-exempted check refused it and told the caller to "enable it first" (PR #313 review
+            // [low]). Judged on the same fileName the self-forward guard just used.
             var originMaster = s.Target.ModKey.FileName.String;
-            if (!view.ContainsPlugin(originMaster))
+            if (!string.Equals(originMaster, fileName, StringComparison.OrdinalIgnoreCase) && !view.ContainsPlugin(originMaster))
             { problems.Add($"{s.Target}: the record ORIGINATES in '{originMaster}', which is not active — a forward overrides the record's origin FormKey, so the patch would need '{originMaster}' as a master. Enable it first (forwarding copies FROM source, but it cannot invent the origin master).{Absence(originMaster)}"); continue; }
             IMajorRecordGetter? body;
             bool offOrderBody = IsOffOrderSource(offOrder, s);
@@ -2127,6 +2134,17 @@ public static class WritePatchBuilder
         //     on the target before the serialize + keep the target out of the master set; the two-part self-lock guard). ---
         session.ReleaseOverlay(patchMod.ModKey.FileName.String);
         try { WriteEngine.WritePatch(patchMod, session.AllMastersExcept(patchMod.ModKey.FileName.String), outPath); }
+        catch (MissingModException ex)
+        {
+            // The in-place twin has named this since its own wave; this lane had only the generic catch below, so the
+            // single most likely off-order failure — a disabled mod mastered on something other than Skyrim.esm —
+            // rendered as a disk/commit fault with no remedy (PR #313 review [low]). Loud was never the whole ask; Q3
+            // is loud AND named.
+            return ForwardOutcome.Fail(
+                $"writing the patch failed: the forwarded records reference a plugin that is NOT active in the load " +
+                $"order ({ex.Message}) — a reference into an inactive plugin can't resolve in game, so the patch is " +
+                "refused rather than written with a master nothing loads. Enable that plugin in MO2 and retry. Nothing was written.");
+        }
         catch (Exception ex)
             { return ForwardOutcome.Fail(SerializeFailure("writing the patch failed (serialize or commit; the existing file is untouched): ", ex, session)); }
 

@@ -14,7 +14,7 @@ namespace HousecarlGenerator;
 /// <c>housecarl_write_seq</c> (tool-surface-2.0 W3 PR 2; SPEC §2.2 ACT, §5.1/§5.2, §6.1). Sibling of
 /// <c>apply-guard</c>, same posture: the REAL end-to-end tool path — a synthetic MO2 instance in temp +
 /// <see cref="LoadOrderService"/> + the tool methods themselves — so the wire readers, the LANE grammar, the
-/// alias-visible vocabulary and the engines are exercised exactly as a caller hits them. Six arms:
+/// alias-visible vocabulary and the engines are exercised exactly as a caller hits them. Seven arms:
 /// <list type="number">
 /// <item><b>create grammar</b> — one record is a set of one, the nested one-shot (a same-call sibling parent +
 /// an '@editorid' link value), the @file spelling, and the strict element reader's NAMED refusals with the
@@ -34,6 +34,11 @@ namespace HousecarlGenerator;
 /// does not cover it, the overlay is released (the file stays movable), and the four refusals stay named:
 /// ambiguous filename, a file that doesn't define the record, a record whose ORIGIN plugin isn't active, and a
 /// self-forward caught by FILE IDENTITY when source= is a path to the artifact being written.</item>
+/// <item><b>the PR #313 review folds</b> — a <c>source=</c> PATH that names the file the order ACTUALLY LOADS is
+/// in-order (so the already-the-winner flag survives, and the epoch is not disclaimed) while a path to a
+/// same-NAMED different file stays off-order; a record ORIGINATING in the artifact being written forwards fine
+/// (a plugin is never its own master) while any other inactive origin is still refused; a RENAMED off-order copy
+/// is refused with the real cause; and the patch lane's missing-master refusal NAMES the plugin.</item>
 /// </list>
 ///
 /// Run: <c>dotnet run --project src/housecarl-generator write-surface-guard</c>
@@ -73,6 +78,7 @@ public static class WriteSurfaceGuardProbe
             // LAST: it forwards into the replacer IN PLACE, which rewrites a fixture file the earlier arms read as a
             // known winner. Ordering it after them keeps every other arm reading the fixture it was written against.
             OffOrderForwardArm(fx);
+            ReviewFoldArm(fx, root);
 
             Console.WriteLine();
             Console.WriteLine($"=== write-surface-guard: {_pass} passed, {_fail} failed -> {(_fail == 0 ? "PASS" : "FAIL")} ===");
@@ -109,6 +115,9 @@ public static class WriteSurfaceGuardProbe
         public required string OffOwnFid { get; init; }
         /// <summary>One filename provided by TWO disabled mod folders — the ambiguity refusal's fixture.</summary>
         public required string AmbName { get; init; }
+        /// <summary>A DISABLED plugin whose forwarded body links into ANOTHER disabled plugin — the missing-master
+        /// refusal's fixture.</summary>
+        public required string ChainName { get; init; }
 
         public void Dispose() => Svc.Dispose();
 
@@ -157,6 +166,26 @@ public static class WriteSurfaceGuardProbe
             ownWeapon.BasicStats = new WeaponBasicStats { Damage = 7 };
             o.BeginWrite.ToPath(offPath).WithLoadOrder(new ISkyrimModGetter[] { m }).Write();
 
+            // A DISABLED plugin whose body links into ANOTHER disabled plugin — the missing-master shape (PR #313
+            // review [low]). Its override of the subject carries a keyword that lives in an inactive master, so the
+            // record's own ORIGIN stays the ACTIVE master (the origin check must not pre-empt the serialize refusal).
+            var depKey = new ModKey("HcW2OffDep", ModType.Master);
+            var depPath = Path.Combine(mods, "W2OffDep", depKey.FileName.String);
+            Directory.CreateDirectory(Path.GetDirectoryName(depPath)!);
+            var dep = new SkyrimMod(depKey, SkyrimRelease.SkyrimSE);
+            var depKw = dep.Keywords.AddNew();
+            depKw.EditorID = "W2OffDepKw";
+            dep.BeginWrite.ToPath(depPath).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
+
+            var cKey = new ModKey("HcW2OffChain", ModType.Plugin);
+            var chainPath = Path.Combine(mods, "W2OffChain", cKey.FileName.String);
+            Directory.CreateDirectory(Path.GetDirectoryName(chainPath)!);
+            var c = new SkyrimMod(cKey, SkyrimRelease.SkyrimSE);
+            var cw = (IWeapon)WriteEngine.GenericGetOrAddAsOverride(c, subject);
+            cw.BasicStats = new WeaponBasicStats { Damage = 33 };
+            (cw.Keywords ??= new()).Add(depKw);
+            c.BeginWrite.ToPath(chainPath).WithLoadOrder(new ISkyrimModGetter[] { m, dep }).Write();
+
             // Two DISABLED folders providing ONE filename — the ambiguity refusal's fixture. Kept on its own name so
             // it cannot make the off-order SUCCESS arms ambiguous.
             var aKey = new ModKey("HcW2Amb", ModType.Plugin);
@@ -194,6 +223,7 @@ public static class WriteSurfaceGuardProbe
                 OffFolder = "W2Off",
                 OffOwnFid = $"{ownWeapon.FormKey.ID:X6}:{oKey.FileName}",
                 AmbName = aKey.FileName.String,
+                ChainName = cKey.FileName.String,
             };
         }
     }
@@ -650,6 +680,106 @@ public static class WriteSurfaceGuardProbe
         }
         else Check("off-order self-forward arm: fixture (a written patch to address by path)", false, made);
     }
+
+    // ================= ARM 7 — the PR #313 review folds =================
+    /// <summary>Three findings, three shapes the arm-6 fixture could not reach: a PATH that names an ACTIVE plugin
+    /// (which "off-order" must not claim, and whose already-the-winner flag must survive), a record ORIGINATING in the
+    /// artifact being written (no master needed — a plugin is never its own master), and the patch lane's named
+    /// missing-master refusal.</summary>
+    static void ReviewFoldArm(Fixture fx, string root)
+    {
+        Console.WriteLine("── ARM 7: PR #313 review folds — a path to the ACTIVE copy, a self-originated record, the named missing master ──");
+
+        // [medium] source= as a PATH to the file the order ACTUALLY LOADS is in-order, not off-order. The replacer
+        // WINS the subject, so the already-the-winner flag is the sharp end: an off-order misread suppresses it and
+        // claims the record out-ranks itself.
+        var livePath = Path.Combine(fx.ModsDir, "W2Repl", fx.ReplacerName);
+        var byLivePath = ForwardTools.Forward(fx.Svc, formids: new[] { fx.SubjectFid }, source: livePath, patch: "W2Live");
+        Check("a PATH naming the ACTIVE copy is NOT reported off-order (no false 'not in the load order')",
+            !byLivePath.StartsWith("error:") && !byLivePath.Contains("read OFF-ORDER from", StringComparison.Ordinal), byLivePath);
+        Check("…and it keeps the already-the-winner flag instead of claiming the record out-ranks ITSELF",
+            byLivePath.Contains("already the load-order winner", StringComparison.OrdinalIgnoreCase)
+            && !byLivePath.Contains("out-ranks the current winner", StringComparison.Ordinal), byLivePath);
+        var byLiveJson = ForwardTools.Forward(fx.Svc, formids: new[] { fx.SubjectFid }, source: livePath, patch: "W2Live2", format: "json");
+        Check("format=json: the same path says source_in_order=true and emits no source_read (the epoch DOES cover it)",
+            TryJson(byLiveJson, out var ljd) && RootFlag(ljd, "source_in_order") == true && !HasRoot(ljd, "source_read"), byLiveJson);
+
+        // A path to a DIFFERENT file that merely SHARES the active name must keep the off-order lane — the rule is
+        // file identity, not filename. (The same-name/different-file pair is the ordinary old-version-vs-live case.)
+        var shadow = Path.Combine(root, "shadow");
+        Directory.CreateDirectory(shadow);
+        var shadowCopy = Path.Combine(shadow, fx.ReplacerName);
+        File.Copy(livePath, shadowCopy, overwrite: true);
+        var byShadow = ForwardTools.Forward(fx.Svc, formids: new[] { fx.SubjectFid }, source: shadowCopy, patch: "W2Shadow");
+        Check("a path to a DIFFERENT file sharing the active plugin's NAME still reads OFF-ORDER (identity, not name)",
+            byShadow.Contains("read OFF-ORDER from", StringComparison.Ordinal)
+            && byShadow.Contains(shadowCopy, StringComparison.OrdinalIgnoreCase), byShadow);
+
+        // [low] A record the ARTIFACT BEING WRITTEN originates needs no master — a plugin is never its own master.
+        // Built end-to-end rather than argued: create a record into a fresh patch, park a copy of that patch off-order,
+        // change the live one, then forward the parked body back over it.
+        var created = CreateTools.Create(fx.Svc, patch: "W2Own",
+            records: Json("""[{"record_type":"Weapon","editorid":"W2OwnSubject","ops":[{"field_path":"BasicStats.Damage","value":"5"}]}]"""));
+        var ownPath = ArtifactPathFrom(fx, created);
+        var ownFid = FormIdsFrom(created).FirstOrDefault();
+        if (ownPath is not null && ownFid is not null)
+        {
+            // Parked in ANOTHER FOLDER under the SAME FILENAME — a plugin's records are keyed by its filename, so a
+            // copy saved as 'old-W2Own.esp' declares a different ModKey and defines none of the FormKeys asked for.
+            var parkDir = Path.Combine(shadow, "own-old");
+            Directory.CreateDirectory(parkDir);
+            var parked = Path.Combine(parkDir, Path.GetFileName(ownPath));
+            File.Copy(ownPath, parked, overwrite: true);           // the OLD copy, off-order, addressed by full path
+            BumpDamage(ownPath, 77);                                // the live patch moves on
+
+            // …and that trap is exactly what the renamed-copy diagnosis is for: the same body under a new NAME is
+            // refused, but the refusal now says WHY rather than leaving "doesn't define it" to be read as absence.
+            var misnamed = Path.Combine(parkDir, "old-" + Path.GetFileName(ownPath));
+            File.Copy(parked, misnamed, overwrite: true);
+            var renamedTry = ForwardTools.Forward(fx.Svc, formids: new[] { ownFid }, source: misnamed, into: Path.GetFileName(ownPath));
+            Check("a RENAMED off-order copy is refused with the real cause (records are keyed by filename), not bare absence",
+                renamedTry.StartsWith("error:")
+                && renamedTry.Contains("keyed by its FILENAME", StringComparison.Ordinal)
+                && renamedTry.Contains("DOES carry", StringComparison.Ordinal), renamedTry);
+
+            var back = ForwardTools.Forward(fx.Svc, formids: new[] { ownFid }, source: parked, into: Path.GetFileName(ownPath));
+            Check("a record ORIGINATING in the artifact being written forwards fine (a plugin is never its own master)",
+                !back.StartsWith("error:") && DamageIn(ownPath, FormKey.Factory(ownFid)) == 5, back);
+            Check("…and the written header does NOT list the artifact as its own master",
+                !back.StartsWith("error:") && !MastersLineOf(back).Contains(Path.GetFileName(ownPath), StringComparison.OrdinalIgnoreCase), back);
+        }
+        else Check("review-fold arm: fixture (a created record in a fresh patch)", false, created);
+
+        // …and the refusal it must NOT swallow: a record originating in some OTHER inactive plugin is still named.
+        var stillRefused = ForwardTools.Forward(fx.Svc, formids: new[] { fx.OffOwnFid }, source: fx.OffName, patch: "W2StillRef");
+        Check("the exemption is narrow: an origin that is NOT the artifact being written is still refused by name",
+            stillRefused.StartsWith("error:") && stillRefused.Contains("ORIGINATES", StringComparison.Ordinal), stillRefused);
+
+        // [low] The patch lane's MISSING-MASTER refusal, named rather than rendered as a disk fault. The chain source
+        // is a disabled plugin whose body links into ANOTHER disabled plugin — the exact shape this PR makes reachable
+        // (a disabled mod mastered on something other than Skyrim.esm), and the one its Safety section promised was
+        // "refused loud". The record's own ORIGIN is the active master, so the origin check cannot pre-empt this.
+        var chain = ForwardTools.Forward(fx.Svc, formids: new[] { fx.SubjectFid }, source: fx.ChainName, patch: "W2Chain");
+        Check("a forwarded body referencing an INACTIVE plugin is refused NAMING it, not as a serialize/commit fault",
+            chain.StartsWith("error:")
+            && chain.Contains("NOT active in the load order", StringComparison.Ordinal)
+            && chain.Contains("Enable that plugin in MO2", StringComparison.Ordinal)
+            && !chain.Contains("serialize or commit", StringComparison.Ordinal), chain);
+    }
+
+    /// <summary>Set a weapon's damage in place (fixture surgery: move the LIVE patch on, so forwarding the parked
+    /// copy's body back is a visible revert rather than a no-op).</summary>
+    static void BumpDamage(string espPath, ushort damage)
+    {
+        var mod = SkyrimMod.CreateFromBinary(espPath, SkyrimRelease.SkyrimSE);
+        foreach (var w in mod.Weapons) w.BasicStats = new WeaponBasicStats { Damage = damage };
+        mod.BeginWrite.ToPath(espPath).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
+    }
+
+    /// <summary>The render's "masters:" line alone. A whole-render Contains would false-pass on the artifact's own
+    /// name, which every write render prints several times (PR #311's scar: never assert negatively over a render).</summary>
+    static string MastersLineOf(string render)
+        => render.Split('\n').FirstOrDefault(l => l.StartsWith("masters:", StringComparison.Ordinal)) ?? "";
 
     // ================= ARM 5 — TRANSPORT =================
     static void TransportArm(Fixture fx)
