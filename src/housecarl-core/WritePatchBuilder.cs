@@ -1038,6 +1038,17 @@ public static class WritePatchBuilder
         // unopenable plugin (Mutagen derives the entry from the record's FormKey), and a header that must be SORTED —
         // two or more — refuses. Both sides are pinned by excluded-master-guard, so if that behaviour ever moves, the
         // guard says so rather than this prediction quietly going wrong in one direction or the other.
+        // The BASELINE case first, and WITHOUT the count threshold: the real write refuses it outright (the force-
+        // include is mandatory however small the header), and it is not in `set` at all when nothing references it —
+        // which is exactly the self-contained create the real call would otherwise emit missing a master.
+        foreach (var bm in WriteEngine.BaselineMasters)
+            if (resolver.PluginNames.Contains(bm.FileName.String, StringComparer.OrdinalIgnoreCase)
+                && resolver.IsUnopenable(bm.FileName.String))
+                return $"dry run caught what the real write would fail on: '{bm.FileName}' is a BASELINE master (every " +
+                       "written plugin must list it) and is ACTIVE in your load order, but houseCARL cannot open it — " +
+                       "see load_order_status for the reason. No plugin can be written until it is repaired or " +
+                       "replaced. Nothing was written.";
+
         var unopenable = set.Where(resolver.IsUnopenable).OrderBy(n => n, StringComparer.OrdinalIgnoreCase).ToList();
         if (unopenable.Count > 0 && set.Count > 1)
             return $"dry run caught what the real write would fail on: the would-be content references " +
@@ -1637,6 +1648,10 @@ public static class WritePatchBuilder
     /// included.</para></summary>
     public static string UnopenableMasterClause(Exception ex, LoadOrderResolver.OverlaySession session)
     {
+        // A baseline refusal is thrown, not skipped, so it can arrive with SkippedUnopenable still empty — check it
+        // first or the "serialize or commit failed" lead-in would stand alone in front of it.
+        for (Exception? b = ex; b is not null; b = b.InnerException)
+            if (b is UnopenableBaselineMasterException ub) return " CAUSE: " + ub.Message;
         if (session.SkippedUnopenable.Count == 0) return "";
         var hit = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
         CollectMissingMods(ex, session, hit, depth: 0);
@@ -2145,7 +2160,19 @@ public static class WritePatchBuilder
                     return CompactBuildResult.Fail(
                         $"cannot compact '{modKey.FileName}': its declared master '{mfn}' is not active in the load order, so a " +
                         "faithful re-serialize can't resolve the references into it. Enable that master (or fix the masters in xEdit) first. Nothing was written.");
-                var mov = SkyrimMod.CreateFromBinaryOverlay(mp, SkyrimRelease.SkyrimSE);
+                // Wrapped for the reason MergeBuild's twin states in its own catch: an open throw escaping HERE skips
+                // the caller's rider-folder cleanup, leaving an orphan houseCARL mod folder in the MO2 mods directory
+                // — plus an unnamed engine throw instead of a Fail result. CompactBuild had the same caller shape and
+                // no such catch, which #314's unopenable class makes reachable (PR #315 review 2).
+                ISkyrimModGetter mov;
+                try { mov = SkyrimMod.CreateFromBinaryOverlay(mp, SkyrimRelease.SkyrimSE); }
+                catch (Exception ex)
+                {
+                    return CompactBuildResult.Fail(
+                        $"cannot compact '{modKey.FileName}': its declared master '{mfn}' could not be opened for the " +
+                        $"serialize ({WriteEngine.Describe(ex)}) — if that plugin is active but unreadable, repair or " +
+                        "remove it in MO2 and retry. Nothing was written.");
+                }
                 overlays.Add((IDisposable)mov); resolved.Add(mov);
             }
             try { WriteEngine.WriteInPlace(pPrime, resolved, outPath); }

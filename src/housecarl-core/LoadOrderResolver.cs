@@ -70,6 +70,21 @@ public readonly record struct WinnerInfo(FormKey FormKey, string WinnerPlugin, i
 public readonly record struct RecordStatus(
     FormKey FormKey, string RecordType, bool PluginWins, int OverrideDepth, IReadOnlyList<string> TouchingPlugins);
 
+/// <summary>#314 / PR #315 review 2 — a BASELINE master (Skyrim.esm / Update.esm) is active but cannot be opened.
+/// Every written plugin force-includes the baselines (Aaron-locked 2026-06-02) and that force-include is derived from
+/// the known-master list, so quietly omitting one would emit a plugin missing a mandatory master. Thrown from the
+/// master-set builders — the single point every write lane funnels through — so no lane can forget the check.</summary>
+public sealed class UnopenableBaselineMasterException : Exception
+{
+    public string PluginName { get; }
+    public UnopenableBaselineMasterException(string pluginName)
+        : base($"'{pluginName}' is a BASELINE master (every written plugin must list it) and is ACTIVE in your load " +
+               "order, but houseCARL cannot open it — see load_order_status for the reason. No plugin can be written " +
+               "until it is repaired or replaced: writing one without it would produce a plugin the game treats as " +
+               "malformed. Nothing was written.")
+        => PluginName = pluginName;
+}
+
 public sealed class LoadOrderResolver : IDisposable
 {
     readonly string[] _paths;                          // every active plugin's path, priority order (masters → … → winner)
@@ -257,7 +272,18 @@ public sealed class LoadOrderResolver : IDisposable
         bool SkipUnopenable(int i)
         {
             if (!_r._snap.Unopenable.Contains(i)) return false;
-            _skippedUnopenable.Add(_r._names[i]);
+            var name = _r._names[i];
+            // A BASELINE master (Skyrim.esm / Update.esm) must never be skipped. WriteEngine.WritePatch derives its
+            // CK-mandated force-include FROM the list returned here, filtered to baselines present in it — a filter
+            // whose stated purpose is tolerating a degenerate order or a single-master harness. Skipping an unopenable
+            // baseline makes a REAL order look degenerate to it, and a plugin lands on disk missing a master Aaron
+            // locked as mandatory (2026-06-02) with no warning: a SILENT degradation where this PR found a loud
+            // failure, which is the one trade Q3 never allows (PR #315 review 2). A baseline is never legitimately
+            // absent, so this refuses instead — thrown from the single chokepoint every write lane funnels through,
+            // rather than re-checked per lane.
+            if (Array.Exists(WriteEngine.BaselineMasters, bm => string.Equals(bm.FileName.String, name, StringComparison.OrdinalIgnoreCase)))
+                throw new UnopenableBaselineMasterException(name);
+            _skippedUnopenable.Add(name);
             return true;
         }
 

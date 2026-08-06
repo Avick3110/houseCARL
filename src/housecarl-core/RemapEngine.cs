@@ -903,7 +903,24 @@ public static class RemapEngine
                     return RepointResult.Fail(
                         $"cannot re-serialize '{pluginName}' in place: its declared master '{mfn}' is not active in the load order, " +
                         "so a faithful re-serialize can't resolve the references into it. Enable that master (or fix the masters in xEdit) first. The file is UNTOUCHED.");
-                var ov = SkyrimMod.CreateFromBinaryOverlay(mpath, SkyrimRelease.SkyrimSE);
+                // #314 / PR #315 review 2 — the same bare open WritePatchBuilder.ResolveOwnMasters had (this comment
+                // block's own sibling), and the same consequence: an unopenable declared master escaped as an
+                // unhandled exception. Worse here, because the caller reaches this only AFTER the compacted plugin is
+                // already on disk — the throw discards every per-plugin repoint result and skips the facegen/voice/SEQ
+                // carry that follows, on a half-completed compaction. Asked before opening, then wrapped.
+                if (view.IsUnopenable(mfn))
+                    return RepointResult.Fail(
+                        $"cannot re-serialize '{pluginName}' in place: its declared master '{mfn}' is ACTIVE but cannot be " +
+                        "opened by houseCARL (see load_order_status for the reason), so a faithful re-serialize can't " +
+                        "resolve the references into it. Repair or remove that plugin in MO2 and retry. The file is UNTOUCHED.");
+                ISkyrimModGetter ov;
+                try { ov = SkyrimMod.CreateFromBinaryOverlay(mpath, SkyrimRelease.SkyrimSE); }
+                catch (Exception ex)
+                {
+                    return RepointResult.Fail(
+                        $"cannot re-serialize '{pluginName}' in place: its declared master '{mfn}' could not be opened " +
+                        $"({WriteEngine.Describe(ex)}). Repair or remove that plugin in MO2 and retry. The file is UNTOUCHED.");
+                }
                 overlays.Add((IDisposable)ov);
                 resolved.Add(ov);
             }
