@@ -14,8 +14,9 @@ sat in your active order — a truncated download, a half-copied mod folder, an 
 disk fault. Reads were never affected. Now writes that don't reference that plugin's records just work.
 
 A write that genuinely *does* need it (its records can still be reached through a plugin that overrides them) is
-refused **naming it as the cause**, with what to do — instead of the previous engine-level error. One such write
-now succeeds that didn't before: a patch whose header needs only that single master.
+refused **naming it as the cause**, with what to do — instead of the previous engine-level error. And if the
+unopenable plugin is `Skyrim.esm` or `Update.esm` — the two masters every written plugin must list — nothing is
+written at all until you repair it, rather than a plugin landing on disk without them.
 
 **New tools: `housecarl_create`, `housecarl_remove`, `housecarl_forward` — the rest of the 2.0 write surface
 (W3 PR 2).** The same shape `housecarl_apply` introduced — *what changes* × *where it lands* × *how it reads

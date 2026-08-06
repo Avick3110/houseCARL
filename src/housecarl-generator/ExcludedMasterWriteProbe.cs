@@ -94,8 +94,10 @@ public static class ExcludedMasterWriteProbe
             //      and that master must appear in the output. It does appear — Mutagen derives the header from the
             //      records' own FormKeys, not from membership of the known-master list. Asserted, because the whole
             //      safety of this change rests on it. ----
+            //      Reachable HERE only because this fixture carries no baselines to force-include, leaving a genuinely
+            //      single-entry header — see RealOrderArm for what a user's order actually does (PR #315 review 3).
             var needsIt = ForwardTools.Forward(fx.Svc, formids: new[] { fx.BrokenOwnFid }, source: CleanName, patch: "X314Need");
-            Check("a patch whose record ORIGINATES in the unopenable plugin still WRITES, and still masters on it",
+            Check("a baseline-less order: a patch whose record ORIGINATES in the unopenable plugin still WRITES, mastering on it",
                 !needsIt.StartsWith("error:")
                 && MastersLineOf(needsIt).Contains(BrokenName, StringComparison.OrdinalIgnoreCase), needsIt);
 
@@ -156,6 +158,7 @@ public static class ExcludedMasterWriteProbe
                 && rm.Contains("UNTOUCHED", StringComparison.Ordinal), rm);
 
             BaselineArm(Path.Combine(root, "bl"));
+            RealOrderArm(Path.Combine(root, "ro"));
 
             Console.WriteLine();
             Console.WriteLine($"=== excluded-master-guard: {_pass} passed, {_fail} failed -> {(_fail == 0 ? "PASS" : "FAIL")} ===");
@@ -167,6 +170,84 @@ public static class ExcludedMasterWriteProbe
             return 1;
         }
         finally { try { Directory.Delete(root, recursive: true); } catch { } }
+    }
+
+    /// <summary>The order a REAL user has: baselines present and openable, plus one broken plugin. The main fixture
+    /// carries no baselines, which made it report a single-master success that cannot happen in practice — every
+    /// patch-lane header force-includes Skyrim.esm + Update.esm, so it always has ≥2 entries and always has to be
+    /// SORTED, which is exactly the residual (PR #315 review 3). This arm is the one that describes reality; the
+    /// main fixture's single-master arm now documents itself as the baseline-less harness case.</summary>
+    static void RealOrderArm(string dir)
+    {
+        Console.WriteLine();
+        Console.WriteLine("   -- a REAL order (baselines present): the unrelated write lands, the referencing one refuses --");
+
+        string instance = Path.Combine(dir, "instance");
+        string profiles = Path.Combine(instance, "profiles", "Default");
+        string mods = Path.Combine(instance, "mods");
+        Directory.CreateDirectory(profiles); Directory.CreateDirectory(mods);
+        Directory.CreateDirectory(Path.Combine(dir, "game", "Data"));
+        File.WriteAllText(Path.Combine(instance, "ModOrganizer.ini"),
+            "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(Default)\r\ngamePath=@ByteArray("
+            + Path.Combine(dir, "game").Replace(@"\", @"\\") + ")\r\n");
+
+        string Write(string folder, ModKey k, SkyrimMod m, params ISkyrimModGetter[] lo)
+        {
+            var p = Path.Combine(mods, folder, k.FileName.String);
+            Directory.CreateDirectory(Path.GetDirectoryName(p)!);
+            m.BeginWrite.ToPath(p).WithLoadOrder(lo).Write();
+            return p;
+        }
+
+        var skyKey = new ModKey("Skyrim", ModType.Master);
+        var updKey = new ModKey("Update", ModType.Master);
+        var brkKey = new ModKey("SxBroken", ModType.Plugin);
+        var clnKey = new ModKey("SxClean", ModType.Plugin);
+
+        var sky = new SkyrimMod(skyKey, SkyrimRelease.SkyrimSE);
+        var subject = sky.Weapons.AddNew();
+        subject.EditorID = "SxSubject";
+        subject.BasicStats = new WeaponBasicStats { Damage = 10 };
+        Write("SxSky", skyKey, sky);
+        Write("SxUpd", updKey, new SkyrimMod(updKey, SkyrimRelease.SkyrimSE), sky);
+
+        var brk = new SkyrimMod(brkKey, SkyrimRelease.SkyrimSE);
+        var brkOwn = brk.Weapons.AddNew();
+        brkOwn.EditorID = "SxBrokenOwn";
+        brkOwn.BasicStats = new WeaponBasicStats { Damage = 40 };
+        var brkPath = Write("SxBroken", brkKey, brk, sky);
+
+        var cln = new SkyrimMod(clnKey, SkyrimRelease.SkyrimSE);
+        ((IWeapon)WriteEngine.GenericGetOrAddAsOverride(cln, brkOwn)).BasicStats = new WeaponBasicStats { Damage = 41 };
+        Write("SxClean", clnKey, cln, sky, brk);
+
+        var whole = File.ReadAllBytes(brkPath);
+        File.WriteAllBytes(brkPath, whole[..(whole.Length - 12)]);
+
+        File.WriteAllText(Path.Combine(profiles, "loadorder.txt"),
+            "# header\r\n" + skyKey.FileName + "\r\n" + updKey.FileName + "\r\n" + brkKey.FileName + "\r\n" + clnKey.FileName + "\r\n");
+        File.WriteAllText(Path.Combine(profiles, "plugins.txt"),
+            "*" + skyKey.FileName + "\r\n*" + updKey.FileName + "\r\n*" + brkKey.FileName + "\r\n*" + clnKey.FileName + "\r\n");
+        File.WriteAllText(Path.Combine(profiles, "modlist.txt"), "# header\r\n+SxClean\r\n+SxBroken\r\n+SxUpd\r\n+SxSky\r\n");
+
+        using var svc = LoadOrderService.WithInstance(instance, 0, new UserConfigStore(Path.Combine(dir, "hc.user.json")));
+        svc.Stats();
+
+        // THE HEADLINE FIX, in the shape a user actually has.
+        var unrelated = ForwardTools.Forward(svc, formids: new[] { $"{subject.FormKey.ID:X6}:{skyKey.FileName}" },
+            source: skyKey.FileName.String, patch: "SxOk");
+        Check("REAL order: a write that doesn't reference the broken plugin lands, with the baselines in its header",
+            !unrelated.StartsWith("error:")
+            && MastersLineOf(unrelated).Contains(skyKey.FileName.String, StringComparison.OrdinalIgnoreCase), unrelated);
+
+        // …and the case the changelog claimed "now succeeds". It does not, and cannot: the force-include guarantees
+        // ≥2 masters, so this header must be sorted and hits the residual.
+        var referencing = ForwardTools.Forward(svc, formids: new[] { $"{brkOwn.FormKey.ID:X6}:{brkKey.FileName}" },
+            source: clnKey.FileName.String, patch: "SxNeed");
+        Check("REAL order: a write REFERENCING the broken plugin's record refuses, naming the cause (never a single-master success)",
+            referencing.StartsWith("error:")
+            && referencing.Contains(brkKey.FileName.String, StringComparison.OrdinalIgnoreCase)
+            && referencing.Contains("cannot be opened by houseCARL", StringComparison.Ordinal), referencing);
     }
 
     /// <summary>The BASELINE case, which the main fixture structurally cannot see: it has no Skyrim.esm/Update.esm, and
@@ -222,6 +303,16 @@ public static class ExcludedMasterWriteProbe
             created.StartsWith("error:")
             && created.Contains("BASELINE master", StringComparison.Ordinal)
             && created.Contains(skyKey.FileName.String, StringComparison.OrdinalIgnoreCase), created);
+
+        // …ONCE. A Contains() is satisfied by a doubled render, and that is exactly what this arm used to hide: the
+        // clause appended the exception's own Message behind a Describe() that already printed it (PR #315 review 3).
+        // Counting is the difference between asserting the text exists and asserting the message is right.
+        int occurrences = created.Split("BASELINE master").Length - 1;
+        Check("…and renders that refusal exactly ONCE, without the serialize lead-in it never reached",
+            occurrences == 1
+            && !created.Contains("serialize or commit", StringComparison.Ordinal)
+            && !created.Contains("the existing file is untouched", StringComparison.Ordinal),
+            $"occurrences={occurrences} :: {created}");
 
         // …and the dry run agrees with the real call, which it did NOT before: it added baselines by load-order
         // membership and never asked whether they could be opened (#225 parity).

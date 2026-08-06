@@ -559,7 +559,7 @@ public static class WritePatchBuilder
         session.ReleaseOverlay(patchMod.ModKey.FileName.String);
         try { WriteEngine.WritePatch(patchMod, session.AllMastersExcept(patchMod.ModKey.FileName.String), outPath); }
         catch (Exception ex)
-            { return PatchOutcome.Fail($"writing the patch failed (serialize or commit; the existing file is untouched): {WriteEngine.Describe(ex)}{UnopenableMasterClause(ex, session)}"); }
+            { return PatchOutcome.Fail(SerializeFailure("writing the patch failed (serialize or commit; the existing file is untouched): ", ex, session)); }
 
         // --- Phase 5: re-open the written patch and report its master header — and, on request, each touched
         //     record's FULL read-back off that same re-opened file (the on-disk bytes, not the in-memory mod — the
@@ -934,7 +934,7 @@ public static class WritePatchBuilder
                   "Enable that plugin in MO2 (or reference an active one) and retry. The existing file is untouched.");
         }
         catch (Exception ex)
-            { return PatchOutcome.Fail($"writing '{fileName}' in place failed (serialize or commit; the existing file is untouched): {WriteEngine.Describe(ex)}{UnopenableMasterClause(ex, session)}"); }
+            { return PatchOutcome.Fail(SerializeFailure($"writing '{fileName}' in place failed (serialize or commit; the existing file is untouched): ", ex, session)); }
 
         // --- Phase 5: re-open the now-edited file and report its master header — and the touched-record verify (default
         //     ON for in-place): each edited record read back IN FULL off the on-disk bytes (the model-C substitute for
@@ -1222,7 +1222,7 @@ public static class WritePatchBuilder
         // keeps the target out of the master set. (writelock-probe / writelock-apply-probe; both halves guarded.)
         session.ReleaseOverlay(patchMod.ModKey.FileName.String);
         try { WriteEngine.WritePatch(patchMod, session.AllMastersExcept(patchMod.ModKey.FileName.String), outPath); }
-        catch (Exception ex) { return RemovalOutcome.Fail($"writing the patch after removal failed (serialize or commit; the existing file is untouched): {WriteEngine.Describe(ex)}{UnopenableMasterClause(ex, session)}"); }
+        catch (Exception ex) { return RemovalOutcome.Fail(SerializeFailure("writing the patch after removal failed (serialize or commit; the existing file is untouched): ", ex, session)); }
 
         // Re-open: report the (possibly shrunk) master header + how many records remain (0 ⇒ the patch is now an inert
         // header-only plugin the user can disable/delete). Dispose the overlay so the file isn't left mmap'd for a later call.
@@ -1611,7 +1611,7 @@ public static class WritePatchBuilder
                   "Enable that plugin in MO2 and retry. The existing file is untouched.");
         }
         catch (Exception ex)
-            { return ForwardOutcome.Fail($"writing '{fileName}' in place failed (serialize or commit; the existing file is untouched): {WriteEngine.Describe(ex)}{UnopenableMasterClause(ex, session)}"); }
+            { return ForwardOutcome.Fail(SerializeFailure($"writing '{fileName}' in place failed (serialize or commit; the existing file is untouched): ", ex, session)); }
 
         // --- Phase 5: re-open + report masters/bytes + the touched-record verify (default ON for in-place). ---
         IReadOnlyList<string> masters = Array.Empty<string>();
@@ -1648,10 +1648,12 @@ public static class WritePatchBuilder
     /// included.</para></summary>
     public static string UnopenableMasterClause(Exception ex, LoadOrderResolver.OverlaySession session)
     {
-        // A baseline refusal is thrown, not skipped, so it can arrive with SkippedUnopenable still empty — check it
-        // first or the "serialize or commit failed" lead-in would stand alone in front of it.
+        // NOT the baseline class: WriteEngine.Describe already renders "{Type}: {Message}", and that exception's
+        // Message IS the whole refusal — appending it as a CAUSE printed the same ~60 words twice (PR #315 review 3).
+        // That branch is handled by SerializeFailure, which SUBSTITUTES rather than appends. Returning "" here also
+        // keeps the doubling out of the one lane that renders the clause without going through it (npc-copy).
         for (Exception? b = ex; b is not null; b = b.InnerException)
-            if (b is UnopenableBaselineMasterException ub) return " CAUSE: " + ub.Message;
+            if (b is UnopenableBaselineMasterException) return "";
         if (session.SkippedUnopenable.Count == 0) return "";
         var hit = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
         CollectMissingMods(ex, session, hit, depth: 0);
@@ -1662,6 +1664,19 @@ public static class WritePatchBuilder
                "houseCARL (see load_order_status for the reason), so the header this write needs cannot be sorted against " +
                $"{(one ? "it" : "them")}. Repair or remove {(one ? "that plugin" : "those plugins")} " +
                "in MO2 and retry — writes that do NOT reference their records are unaffected.";
+    }
+
+    /// <summary>Render a serialize-failure message. Normally <paramref name="lead"/> + the exception + the
+    /// unopenable-master CAUSE; but a BASELINE refusal SUBSTITUTES its own message for the lot, because every part of
+    /// the usual shape is wrong for it (PR #315 review 3): it is thrown while the master-set ARGUMENT is being built,
+    /// so "serialize or commit" names a phase that never started; the patch lanes' lead adds "the existing file is
+    /// untouched" when a fresh patch has no existing file; and the message would otherwise print twice, since
+    /// <see cref="WriteEngine.Describe"/> already carries it.</summary>
+    static string SerializeFailure(string lead, Exception ex, LoadOrderResolver.OverlaySession session)
+    {
+        for (Exception? b = ex; b is not null; b = b.InnerException)
+            if (b is UnopenableBaselineMasterException ub) return ub.Message;
+        return lead + WriteEngine.Describe(ex) + UnopenableMasterClause(ex, session);
     }
 
     /// <summary>Walk an exception chain (inner + aggregate branches) collecting the SKIPPED plugins a
@@ -1965,7 +1980,7 @@ public static class WritePatchBuilder
         session.ReleaseOverlay(patchMod.ModKey.FileName.String);
         try { WriteEngine.WritePatch(patchMod, session.AllMastersExcept(patchMod.ModKey.FileName.String), outPath); }
         catch (Exception ex)
-            { return ForwardOutcome.Fail($"writing the patch failed (serialize or commit; the existing file is untouched): {WriteEngine.Describe(ex)}{UnopenableMasterClause(ex, session)}"); }
+            { return ForwardOutcome.Fail(SerializeFailure("writing the patch failed (serialize or commit; the existing file is untouched): ", ex, session)); }
 
         // --- Phase 5: re-open + report the (lean, derived) master header + bytes — and, on request, each forwarded
         //     record's FULL read-back off that same re-opened file (see Apply's Phase 5). Dispose the overlay after. ---
@@ -2720,7 +2735,7 @@ public static class WritePatchBuilder
             else
                 WriteEngine.WritePatch(patchMod, session.AllMastersExcept(patchMod.ModKey.FileName.String), outPath);
         }
-        catch (Exception ex) { return CreateOutcome.Fail($"writing {(inPlace ? $"'{fileName}' in place" : "the patch")} after create failed (serialize or commit; the existing file is untouched): {WriteEngine.Describe(ex)}{UnopenableMasterClause(ex, session)}"); }
+        catch (Exception ex) { return CreateOutcome.Fail(SerializeFailure($"writing {(inPlace ? $"'{fileName}' in place" : "the patch")} after create failed (serialize or commit; the existing file is untouched): ", ex, session)); }
 
         // --- Phase 5: re-open + report the (derived) master header + bytes — and, on request, each created record's
         //     FULL read-back off that same re-opened file (see Apply's Phase 5). Dispose the overlay so the file isn't
