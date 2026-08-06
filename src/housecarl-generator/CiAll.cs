@@ -95,6 +95,9 @@ public static class CiAll
         // plural capability, forward's renamed source= pole, and json/epoch TRANSPORT — including write_seq's
         // ABSENT epoch, stated as a fact with its reason.
         ("write-surface-guard", WriteSurfaceGuardProbe.RunGuard),
+        // #314 — an UNOPENABLE active plugin must not break every write. Its own probe because its fixture cannot be
+        // shared: the broken plugin poisons every write in whatever order it sits in, which IS the bug.
+        ("excluded-master-guard", ExcludedMasterWriteProbe.RunGuard),
         ("writelock-guard", WriteLockProbe.RunGuard),
         // #225 dry_run= on the write tools — the real pipeline HALTED before serialize, nothing written: refusal
         // parity with the real call, prediction parity (path/After/masters), the pre-empted missing-master failure,

@@ -19,6 +19,7 @@ if (args.Length > 0 && args[0] == "ci-all") return CiAll.RunAll(args[1..]);
 if (args.Length > 0 && CiAll.TryDispatch(args[0], args[1..], out var ciRc)) return ciRc;
 
 // Maintenance diagnostic: re-verify the mutable-collection whitelist on a Mutagen bump.
+if (args.Length > 0 && args[0] == "excluded-master-guard") return ExcludedMasterWriteProbe.RunGuard(args[1..]);
 if (args.Length > 0 && args[0] == "vocab") return Probe.RunVocab();
 
 // SkyPatcher Wave-1 CRUX harness: one record's computed post-SkyPatcher state off a LIVE MO2 instance —
