@@ -505,7 +505,7 @@ public static class NpcAppearanceCopy
             // unopenable-master skip and the same residual refusal; without the caller's cause it reported an unnamed
             // engine fault while the identical failure from apply/create/forward named the plugin (PR #315 review).
             // Injected rather than reached for: this type takes a mastersFor closure, not a resolver session.
-            catch (Exception ex) { return NpcCopyOutcome.Fail($"serialize failed — {WriteEngine.Describe(ex)}{serializeCause?.Invoke(ex) ?? ""}. Nothing usable was written."); }
+            catch (Exception ex) { return NpcCopyOutcome.Fail($"serialize failed — {WriteEngine.Describe(ex)}.{serializeCause?.Invoke(ex) ?? ""} Nothing usable was written."); }
 
             // ---- post-commit read-back — the patch IS on disk from here; a read-back failure is a WARNING on a
             //      success, never a "nothing was written" (review finding: that mislabel invites a duplicate re-run).

@@ -41,20 +41,6 @@ public static class ExcludedMasterWriteProbe
     static string MastersLineOf(string render)
         => render.Split('\n').FirstOrDefault(l => l.StartsWith("masters:", StringComparison.Ordinal)) ?? "";
 
-    /// <summary>The written artifact's path out of a write render (mod folder + filename), so a following arm can
-    /// address it by name — e.g. as an in_place target.</summary>
-    static string? ArtifactPathFrom(Fixture fx, string render)
-    {
-        if (!render.StartsWith("wrote ", StringComparison.Ordinal)) return null;
-        var file = render[(render.IndexOf(' ') + 1)..];
-        file = file[..file.IndexOf(' ')];
-        const string marker = "mod folder: ";
-        int at = render.IndexOf(marker, StringComparison.Ordinal);
-        if (at < 0) return null;
-        var mod = render[(at + marker.Length)..].Split('\n')[0].Split("  ")[0].Trim();
-        return Path.Combine(fx.ModsDir, mod, file);
-    }
-
     const string MasterName = "HcXMaster.esm";
     const string CleanName = "HcXClean.esp";
     const string BrokenName = "HcXBroken.esp";
@@ -113,13 +99,11 @@ public static class ExcludedMasterWriteProbe
                 !needsIt.StartsWith("error:")
                 && MastersLineOf(needsIt).Contains(BrokenName, StringComparison.OrdinalIgnoreCase), needsIt);
 
-            // …and the ORDER of a multi-master header survives the skip: a patch touching a record from the master AND
-            // one originating in the broken plugin must list them in LOAD ORDER (master first), or the plugin is
-            // malformed in a way nothing else in this probe would catch.
+            // …and a MULTI-master header is the residual: it cannot be built at all, so there is no ordering to pin
+            // here (an earlier draft's comment claimed there was, over locals nothing read — the assertion had been
+            // replaced by the refusal check below and the prose was left behind, PR #315 review 2). Single-master
+            // ordering is trivially satisfied by the arm above, which asserts the master IS the header.
             var both = ForwardTools.Forward(fx.Svc, formids: new[] { fx.SubjectFid, fx.BrokenOwnFid }, source: CleanName, patch: "X314Both");
-            var line = MastersLineOf(both);
-            int iMaster = line.IndexOf(MasterName, StringComparison.OrdinalIgnoreCase);
-            int iBroken = line.IndexOf(BrokenName, StringComparison.OrdinalIgnoreCase);
             // PINNED, not branched. The earlier version asserted ordering on success and the CAUSE on failure with
             // nothing asserting WHICH outcome was expected — so a behaviour flip in either direction would still have
             // reported PASS while the clause silently lost all CI coverage (PR #315 review). The two-master header is
@@ -171,6 +155,8 @@ public static class ExcludedMasterWriteProbe
                 && rm.Contains("cannot be opened by houseCARL", StringComparison.Ordinal)
                 && rm.Contains("UNTOUCHED", StringComparison.Ordinal), rm);
 
+            BaselineArm(Path.Combine(root, "bl"));
+
             Console.WriteLine();
             Console.WriteLine($"=== excluded-master-guard: {_pass} passed, {_fail} failed -> {(_fail == 0 ? "PASS" : "FAIL")} ===");
             return _fail == 0 ? 0 : 1;
@@ -183,12 +169,75 @@ public static class ExcludedMasterWriteProbe
         finally { try { Directory.Delete(root, recursive: true); } catch { } }
     }
 
+    /// <summary>The BASELINE case, which the main fixture structurally cannot see: it has no Skyrim.esm/Update.esm, and
+    /// the defect is in the CK-mandated baseline force-include (PR #315 review 2). A baseline master that cannot be
+    /// opened must REFUSE the write — skipping it silently emits a plugin missing a master Aaron locked as mandatory,
+    /// which is a loud failure traded for a silent one. Its own order, because a broken Skyrim.esm poisons everything.</summary>
+    static void BaselineArm(string dir)
+    {
+        Console.WriteLine();
+        Console.WriteLine("   -- baseline masters: an unopenable Skyrim.esm must REFUSE, never be quietly dropped --");
+
+        string instance = Path.Combine(dir, "instance");
+        string profiles = Path.Combine(instance, "profiles", "Default");
+        string mods = Path.Combine(instance, "mods");
+        Directory.CreateDirectory(profiles); Directory.CreateDirectory(mods);
+        Directory.CreateDirectory(Path.Combine(dir, "game", "Data"));
+        File.WriteAllText(Path.Combine(instance, "ModOrganizer.ini"),
+            "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(Default)\r\ngamePath=@ByteArray("
+            + Path.Combine(dir, "game").Replace(@"\", @"\\") + ")\r\n");
+
+        // A real baseline NAME, deliberately: the force-include matches on ModKey, so only this name reaches the bug.
+        var skyKey = new ModKey("Skyrim", ModType.Master);
+        var skyPath = Path.Combine(mods, "BlSky", skyKey.FileName.String);
+        Directory.CreateDirectory(Path.GetDirectoryName(skyPath)!);
+        var sky = new SkyrimMod(skyKey, SkyrimRelease.SkyrimSE);
+        var w = sky.Weapons.AddNew();
+        w.EditorID = "BlSubject";
+        w.BasicStats = new WeaponBasicStats { Damage = 10 };
+        sky.BeginWrite.ToPath(skyPath).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
+        var whole = File.ReadAllBytes(skyPath);
+        File.WriteAllBytes(skyPath, whole[..(whole.Length - 12)]);          // …and break it
+
+        // A clean plugin overriding it, so the dry-run arm has a resolvable record to aim at (create has no dry lane).
+        var clnKey = new ModKey("BlClean", ModType.Plugin);
+        var clnPath = Path.Combine(mods, "BlClean", clnKey.FileName.String);
+        Directory.CreateDirectory(Path.GetDirectoryName(clnPath)!);
+        var cln = new SkyrimMod(clnKey, SkyrimRelease.SkyrimSE);
+        ((IWeapon)WriteEngine.GenericGetOrAddAsOverride(cln, w)).BasicStats = new WeaponBasicStats { Damage = 20 };
+        cln.BeginWrite.ToPath(clnPath).WithLoadOrder(new ISkyrimModGetter[] { sky }).Write();
+
+        File.WriteAllText(Path.Combine(profiles, "loadorder.txt"), "# header\r\n" + skyKey.FileName + "\r\n" + clnKey.FileName + "\r\n");
+        File.WriteAllText(Path.Combine(profiles, "plugins.txt"), "*" + skyKey.FileName + "\r\n*" + clnKey.FileName + "\r\n");
+        File.WriteAllText(Path.Combine(profiles, "modlist.txt"), "# header\r\n+BlClean\r\n+BlSky\r\n");
+
+        using var svc = LoadOrderService.WithInstance(instance, 0, new UserConfigStore(Path.Combine(dir, "hc.user.json")));
+        svc.Stats();
+
+        // A SELF-CONTAINED create references nothing, so its derived header is empty and the baseline force-include is
+        // the ONLY thing that would put Skyrim.esm in it — the exact write that used to land silently master-less.
+        var records = System.Text.Json.JsonDocument.Parse("""[{"record_type":"Keyword","editorid":"BlKw"}]""").RootElement.Clone();
+        var created = CreateTools.Create(svc, patch: "BlCreate", records: records);
+        Check("a self-contained create REFUSES when a baseline master is unopenable (never a silently master-less plugin)",
+            created.StartsWith("error:")
+            && created.Contains("BASELINE master", StringComparison.Ordinal)
+            && created.Contains(skyKey.FileName.String, StringComparison.OrdinalIgnoreCase), created);
+
+        // …and the dry run agrees with the real call, which it did NOT before: it added baselines by load-order
+        // membership and never asked whether they could be opened (#225 parity).
+        var subjectFid = $"{w.FormKey.ID:X6}:{skyKey.FileName}";
+        var dry = ApplyTools.Apply(svc, patch: "BlDry", dry_run: true,
+            ops: System.Text.Json.JsonDocument.Parse(
+                $$"""[{"formid":"{{subjectFid}}","field_path":"Name","value":"Bl"}]""").RootElement.Clone());
+        Check("…and dry_run predicts that same refusal, naming the baseline (#225 parity)",
+            dry.StartsWith("error:") && dry.Contains("BASELINE master", StringComparison.Ordinal), dry);
+    }
+
     sealed class Fixture : IDisposable
     {
         public required LoadOrderService Svc { get; init; }
         public required string SubjectFid { get; init; }      // originates in the MASTER, overridden by the clean plugin
         public required string BrokenOwnFid { get; init; }    // ORIGINATES in the unopenable plugin, overridden by clean
-        public required string ModsDir { get; init; }
         public void Dispose() => Svc.Dispose();
 
         public static Fixture Build(string dir)
@@ -256,7 +305,6 @@ public static class ExcludedMasterWriteProbe
                 Svc = svc,
                 SubjectFid = $"{subject.FormKey.ID:X6}:{mKey.FileName}",
                 BrokenOwnFid = $"{brokenOwn.FormKey.ID:X6}:{bKey.FileName}",
-                ModsDir = mods,
             };
         }
     }
