@@ -5862,7 +5862,8 @@ public sealed class LoadOrderService : IDisposable
                     outPath, extend,
                     pf => { session.ReleaseOverlay(pf); return session.AllMastersExcept(pf); },   // active-patch self-lock fix
                     donorReadFrom, outOfLoadOrder,
-                    ex => WritePatchBuilder.UnopenableMasterClause(ex, session));   // #314 — same named cause as the sibling write lanes
+                    // #314 — the SAME renderer the sibling write lanes use, so the baseline refusal substitutes here too.
+                    ex => WritePatchBuilder.SerializeFailure("serialize failed — ", ex, session, " Nothing usable was written."));
                 if (!outcome.Success)
                 {
                     if (created) RemoveFolderCreatedThisCall(outPath);   // hunt F4: a refused copy leaves no orphan

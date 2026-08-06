@@ -78,13 +78,23 @@ public sealed class UnopenableBaselineMasterException : Exception
 {
     public string PluginName { get; }
     public UnopenableBaselineMasterException(string pluginName)
-        : base($"'{pluginName}' is a BASELINE master (every written plugin must list it) and is ACTIVE in your load " +
-               "order, but houseCARL cannot open it — see load_order_status for the reason. No plugin can be written " +
-               "until it is repaired or replaced: writing one without it would produce a plugin the game treats as " +
-               "malformed. Nothing was written.")
+        // Worded to hold on BOTH write lanes (PR #315 review 4): "every written plugin must list it" is the PATCH
+        // lane's reason — WriteInPlace force-includes no baselines — while the fact that covers both is simply that
+        // no write can resolve against a master it cannot open.
+        : base($"'{pluginName}' is a BASELINE master (Skyrim.esm / Update.esm) and is ACTIVE in your load order, but " +
+               "houseCARL cannot open it — see load_order_status for the reason. Nothing can be written while that is " +
+               "true: no write can resolve references against a master it cannot read, and a new patch must list the " +
+               "baselines in its header, so emitting one without them would produce a plugin the game treats as " +
+               "malformed. Repair or replace that plugin in MO2 and retry. Nothing was written.")
         => PluginName = pluginName;
 }
 
+/// <remarks>LAYERING NOTE (#314 / PR #315 review 4): this file's master-set builders reference
+/// <see cref="WriteEngine.BaselineMasters"/> and throw <see cref="UnopenableBaselineMasterException"/> — a WRITE policy,
+/// and the first write dependency here. Deliberate, not drift: the builders are the single point every write lane
+/// funnels through, so enforcing it there is what makes "no lane can forget the check" true, where a per-lane check is
+/// something the next lane forgets. Kept on the chokepoint argument over the purity one; recorded so a later tidy-up
+/// re-litigates it rather than silently reverting it.</remarks>
 public sealed class LoadOrderResolver : IDisposable
 {
     readonly string[] _paths;                          // every active plugin's path, priority order (masters → … → winner)

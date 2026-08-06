@@ -321,7 +321,7 @@ public static class NpcAppearanceCopy
         string outPath, bool extend,
         Func<string, IReadOnlyList<ISkyrimModGetter>> mastersFor,
         string donorReadFrom, bool donorOutOfLoadOrder,
-        Func<Exception, string>? serializeCause = null)
+        Func<Exception, string>? serializeFailure = null)
     {
         var patchFileName = Path.GetFileName(outPath);
         try
@@ -505,7 +505,16 @@ public static class NpcAppearanceCopy
             // unopenable-master skip and the same residual refusal; without the caller's cause it reported an unnamed
             // engine fault while the identical failure from apply/create/forward named the plugin (PR #315 review).
             // Injected rather than reached for: this type takes a mastersFor closure, not a resolver session.
-            catch (Exception ex) { return NpcCopyOutcome.Fail($"serialize failed — {WriteEngine.Describe(ex)}.{serializeCause?.Invoke(ex) ?? ""} Nothing usable was written."); }
+            //
+            // An OVERRIDE, not a suffix (PR #315 review 4): a suffix left the baseline refusal rendered behind
+            // "serialize failed" (it threw while the master-set ARGUMENT was built, so serialize never started) with
+            // the write status stated twice and a doubled period — the exact three complaints review 3 fixed
+            // everywhere else, surviving here because this was the one lane routed around SerializeFailure.
+            catch (Exception ex)
+            {
+                return NpcCopyOutcome.Fail(serializeFailure?.Invoke(ex)
+                    ?? $"serialize failed — {WriteEngine.Describe(ex)}. Nothing usable was written.");
+            }
 
             // ---- post-commit read-back — the patch IS on disk from here; a read-back failure is a WARNING on a
             //      success, never a "nothing was written" (review finding: that mislabel invites a duplicate re-run).

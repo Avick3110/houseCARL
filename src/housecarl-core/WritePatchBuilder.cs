@@ -1030,6 +1030,12 @@ public static class WritePatchBuilder
             foreach (var bm in WriteEngine.BaselineMasters)
                 if (priority.ContainsKey(bm.FileName.String)) set.Add(bm.FileName.String);
 
+        // SNAPSHOT NOTE (PR #315 review 4): resolver.IsUnopenable reads the CURRENT snapshot, while the write lanes
+        // resolve against a pinned IndexView — so a rebuild between this prediction and the write lets the two
+        // disagree, the class hunt-F5's one-view discipline exists to prevent. Inherited shape (this method takes a
+        // resolver, not a view) rather than introduced here, and the failure mode is a stale prediction, never a bad
+        // write; recorded so it is a known bound rather than an oversight.
+        //
         // #314 — an UNOPENABLE referenced plugin is ACTIVE, so the membership test above passes it happily, and the
         // dry run would predict success for a write the real call now refuses. That breaks this method's own contract
         // ("a dry run must never say 'would apply' about a write that would fail"), which the #225 parity guard holds.
@@ -1042,8 +1048,9 @@ public static class WritePatchBuilder
         // include is mandatory however small the header), and it is not in `set` at all when nothing references it —
         // which is exactly the self-contained create the real call would otherwise emit missing a master.
         foreach (var bm in WriteEngine.BaselineMasters)
-            if (resolver.PluginNames.Contains(bm.FileName.String, StringComparer.OrdinalIgnoreCase)
-                && resolver.IsUnopenable(bm.FileName.String))
+            // IsUnopenable already returns false for a name absent from the order, so a membership pre-test would only
+            // add an O(n) scan of every plugin name per baseline, on every dry run (PR #315 review 4).
+            if (resolver.IsUnopenable(bm.FileName.String))
                 return $"dry run caught what the real write would fail on: '{bm.FileName}' is a BASELINE master (every " +
                        "written plugin must list it) and is ACTIVE in your load order, but houseCARL cannot open it — " +
                        "see load_order_status for the reason. No plugin can be written until it is repaired or " +
@@ -1672,11 +1679,16 @@ public static class WritePatchBuilder
     /// so "serialize or commit" names a phase that never started; the patch lanes' lead adds "the existing file is
     /// untouched" when a fresh patch has no existing file; and the message would otherwise print twice, since
     /// <see cref="WriteEngine.Describe"/> already carries it.</summary>
-    static string SerializeFailure(string lead, Exception ex, LoadOrderResolver.OverlaySession session)
+    /// <para><paramref name="trailer"/> is a lane's own tail (npc-copy's "Nothing usable was written."). It is
+    /// DROPPED on the baseline branch, whose message already states the write status — appending it produced the
+    /// doubled status and doubled period that survived in the one lane routed around this helper (PR #315 review 4).
+    /// PUBLIC rather than the suggested internal: the calling lane lives in housecarl-mcp, and core only grants
+    /// InternalsVisibleTo to housecarl-generator, so internal would not have compiled at the call site.</para>
+    public static string SerializeFailure(string lead, Exception ex, LoadOrderResolver.OverlaySession session, string trailer = "")
     {
         for (Exception? b = ex; b is not null; b = b.InnerException)
             if (b is UnopenableBaselineMasterException ub) return ub.Message;
-        return lead + WriteEngine.Describe(ex) + UnopenableMasterClause(ex, session);
+        return lead + WriteEngine.Describe(ex) + UnopenableMasterClause(ex, session) + trailer;
     }
 
     /// <summary>Walk an exception chain (inner + aggregate branches) collecting the SKIPPED plugins a
@@ -1691,7 +1703,14 @@ public static class WritePatchBuilder
                 if (session.SkippedUnopenable.Contains(name)) into.Add(name);
             }
         if (ex is AggregateException agg)
+        {
+            // …and NOT the tail below as well: AggregateException.InnerException IS InnerExceptions[0], so visiting
+            // both walks that branch twice and burns two depth levels on one hop, roughly halving the effective cap
+            // along an aggregate chain (PR #315 review 4). Harmless — the set dedupes — but the cap should mean what
+            // it says.
             foreach (var inner in agg.InnerExceptions) CollectMissingMods(inner, session, into, depth + 1);
+            return;
+        }
         CollectMissingMods(ex.InnerException, session, into, depth + 1);
     }
 
