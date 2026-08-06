@@ -4645,7 +4645,19 @@ public sealed class LoadOrderService : IDisposable
         // offerModParam: FALSE — housecarl_forward has no mod= parameter, and a refusal must never send someone to a
         // parameter their tool does not expose. A direct path is the disambiguator this lane DOES have.
         var loc = LocatePluginFileOnDisk(comp, modsDir, dataDir, overwriteDir, fromPlugin, null, offerModParam: false);
-        if (loc.Error is not null) { error = $"source plugin '{fromPlugin}' is not in the load order and {loc.Error}"; return null; }
+        if (loc.Error is not null)
+        {
+            // The did-you-mean, restored on THIS arm (PR #313 review 2 [low]). Pre-2b a source= the order didn't
+            // contain fell through to the engine's refusal, which appends AbsenceClause — explainer, or the suggester
+            // when nothing can be explained. Lifting the bound moved the on-disk half here and took the TYPO half with
+            // it: a name nothing provides now fails before Phase 1 ever runs, and "check the filename" is exactly the
+            // question the suggester already answers, on the one lane where a source name is typed by hand.
+            // NameSuggestion, not AbsenceClause: the locate has just proven the file is in no layer at all, so there is
+            // nothing for the explainer to explain — the suggester IS the whole remedy here. Empty when nothing is
+            // close, so a genuinely unknown name is never answered with an invented guess.
+            error = $"source plugin '{fromPlugin}' is not in the load order and {loc.Error}{view.NameSuggestion(fromPlugin)}";
+            return null;
+        }
         if (loc.Ambiguous is not null)
         {
             error = $"source plugin '{fromPlugin}' is not in the load order and {loc.Ambiguous.Count} mod folders provide a file " +
