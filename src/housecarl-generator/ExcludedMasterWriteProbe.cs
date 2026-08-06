@@ -286,6 +286,8 @@ public static class ExcludedMasterWriteProbe
         Directory.CreateDirectory(Path.GetDirectoryName(clnPath)!);
         var cln = new SkyrimMod(clnKey, SkyrimRelease.SkyrimSE);
         ((IWeapon)WriteEngine.GenericGetOrAddAsOverride(cln, w)).BasicStats = new WeaponBasicStats { Damage = 20 };
+        var donor = cln.Npcs.AddNew();                 // the npc-copy lane's donor — it only has to reach the serialize
+        donor.EditorID = "BlDonor";
         cln.BeginWrite.ToPath(clnPath).WithLoadOrder(new ISkyrimModGetter[] { sky }).Write();
 
         File.WriteAllText(Path.Combine(profiles, "loadorder.txt"), "# header\r\n" + skyKey.FileName + "\r\n" + clnKey.FileName + "\r\n");
@@ -322,6 +324,23 @@ public static class ExcludedMasterWriteProbe
                 $$"""[{"formid":"{{subjectFid}}","field_path":"Name","value":"Bl"}]""").RootElement.Clone());
         Check("…and dry_run predicts that same refusal, naming the baseline (#225 parity)",
             dry.StartsWith("error:") && dry.Contains("BASELINE master", StringComparison.Ordinal), dry);
+
+        // copy_npc_appearance is the one write lane that renders through an INJECTED renderer rather than calling
+        // SerializeFailure directly, so it is the lane that silently kept the doubled tail and the wrong phase after
+        // review 3 fixed every other one (PR #315 review 4). It had no arm; that is why nothing caught it.
+        var npc = NpcCopyTools.CopyNpcAppearance(svc, source_formid: $"{donor.FormKey.ID:X6}:{clnKey.FileName}",
+            new_editorid: "BlDonorClone", patch_name: "BlNpc");
+        Check("npc-copy renders the baseline refusal through the SAME substituting renderer as its sibling lanes",
+            npc.StartsWith("error:")
+            && npc.Contains("BASELINE master", StringComparison.Ordinal)
+            // Pinned on the three things substitution actually guarantees. (An earlier draft counted the word
+            // "Nothing", which the reworded refusal legitimately uses twice — a false failure, and a reminder that a
+            // count is only as good as the token counted.)
+            && (npc.Split("BASELINE master").Length - 1) == 1                       // the refusal ONCE, not doubled
+            && !npc.Contains("Nothing usable was written", StringComparison.Ordinal) // the lane's trailer dropped
+            && !npc.Contains("..", StringComparison.Ordinal)                         // …so no doubled period
+            && !npc.Contains("serialize failed", StringComparison.Ordinal),          // …behind a phase never reached
+            npc);
     }
 
     sealed class Fixture : IDisposable
