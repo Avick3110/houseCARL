@@ -37,9 +37,24 @@ back* — now covers authoring, removal and whole-record overrides.
   the whole call. Its lane is **`into=`** (a houseCARL patch) or `in_place="X.esp"`: a removal edits an artifact
   that already exists, so it has no `patch=`, and naming *no* lane is refused with both spelled out.
 - **`housecarl_forward`** replaces `forward_record`. `from_plugin=` is now **`source=`** — whose version to
-  copy (an active plugin, or a master to revert a record to vanilla). Unchanged otherwise: the response names
+  copy (a master reverts a record to vanilla). Unchanged otherwise: the response names
   the winner each copy will out-rank, a forward that was already winning is flagged redundant, `into=` replaces
   a FormKey the patch already carries, and `dry_run=` runs the real pipeline and stops before disk.
+
+**`housecarl_forward` can now copy from a plugin that is NOT in your load order.** `source=` takes a **disabled
+mod's plugin**, an unticked one, a folder MO2 never registered, or a full path to any copy on disk — the same
+"read it wherever it lives" contract the read tools already had, and the same one `housecarl_apply`'s `CopyFrom`
+already had. Re-asserting a disabled *old* patch's version of a record, or reading an old version's body to
+convert it, no longer needs the mod switched back on first. Previously this was refused by name.
+
+The response **states which copy on disk it opened** — a filename several mod folders provide identifies no
+file, so it is reported rather than assumed (`format="json"`: `source_in_order` plus a `source_read` object),
+along with the fact that the `epoch=` stamp fingerprints the *active* order and so does not cover that file's
+content. A name several folders provide is refused naming each of them, with the full path as the fix. Two
+things are still refused, by name: forwarding a record whose **origin plugin** isn't active (the patch would
+need it as a master, which it cannot invent), and naming as `source=` the very file being written. Nothing
+changes for an active `source=`, and `in_place=` is unaffected — the *target* of an in-place write must still be
+an active plugin.
 
 All three take the one lane spelling (`patch=` | `into=` | `in_place="X.esp"` + `acknowledge=`, mutually
 exclusive and **refused by name** when two are given) — except `housecarl_remove`, which has no `patch=` for the
