@@ -1577,7 +1577,9 @@ public static class WritePatchBuilder
     /// <c>ActiveNameForPath</c> full-path identity rule (PR #313 [medium]), so a <c>source=</c> PATH naming an ACTIVE
     /// plugin takes the in-order arm. The <c>CopyFrom</c> lane has no such rule at either end, so a
     /// <c>from_source=</c> path to an active plugin still routes off-order and is described as not in the load
-    /// order — the same defect this lane fixed, still open on that one.</para></summary>
+    /// order — the same defect this lane fixed, still open on that one. Recorded here rather than filed: the sweep
+    /// that found it does not own the issue lane (CLAUDE.md §2), and a comment beside the code is a better pointer
+    /// than a stale reference if it is fixed first. Whoever fixes it should file it, then delete this paragraph.</para></summary>
     static bool IsOffOrderSource(OffOrderForwardSource? offOrder, ForwardSpec s, LoadOrderResolver.IndexView view) =>
         offOrder is not null
         && string.Equals(offOrder.Plugin, s.FromPlugin, StringComparison.OrdinalIgnoreCase)
