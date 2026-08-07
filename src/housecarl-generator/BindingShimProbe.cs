@@ -545,8 +545,13 @@ public static class BindingShimProbe
         "housecarl_validate_scripts: pluginnames -> plugins",
         "housecarl_validate_scripts: types -> type",
         "housecarl_write_seq: archivename -> patch",
+        // #312 gave write_seq the compile lane's output_dir=, so the same two rows activate here — the alias table
+        // needed no edit, which is the census's own evidence that the parameter was added as PARITY and not as a
+        // new spelling of its own.
+        "housecarl_write_seq: dest -> output_dir",
         "housecarl_write_seq: fromplugin -> source",
         "housecarl_write_seq: mod -> source",
+        "housecarl_write_seq: outpath -> output_dir",
         "housecarl_write_seq: output -> patch",
         "housecarl_write_seq: patchname -> patch",
         "housecarl_write_seq: plugin -> source",

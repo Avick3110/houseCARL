@@ -1755,8 +1755,11 @@ static class JsonWire
     /// <summary>The machine-readable twin of <see cref="SeqTools.Render"/>. Two Q3 facts the text render states in
     /// prose are typed here: <c>written:false</c> with <c>quest_count:0</c> is the "no SGE quests, so no .seq is
     /// needed" no-op (never a silent empty file), and <c>epoch:null</c> carries its own reason — this call consults
-    /// no load-order build, so an absent stamp is a fact rather than a missing field.</summary>
-    public static string RenderSeqOutcome(SeqOutcome o, int maxChars)
+    /// no load-order build, so an absent stamp is a fact rather than a missing field.
+    /// <para>#312 adds the third: <c>written:false</c> with <c>unchanged:true</c> and a non-null <c>seq_path</c> is
+    /// "the destination already held exactly these bytes". <c>written</c> is therefore the fact "this call wrote the
+    /// file", never merely "a path exists" — the two had been the same thing until a lane could decline to write.</para></summary>
+    public static string RenderSeqOutcome(SeqOutcome o, int maxChars, string? outputNote = null)
     {
         int cap = Cap(maxChars);
         using var ms = new MemoryStream();
@@ -1777,10 +1780,16 @@ static class JsonWire
             w.WriteString("plugin", o.PluginFileName);
             WriteNullable(w, "source_read_from", o.ResolvedFrom);
             WriteNullable(w, "source_path", o.PluginPath);
-            w.WriteBoolean("written", o.SeqPath is not null);
+            w.WriteBoolean("written", o.SeqPath is not null && !o.Unchanged);
+            w.WriteBoolean("unchanged", o.Unchanged);
+            if (o.Unchanged)
+                w.WriteString("unchanged_note", "the destination already held EXACTLY these bytes, so nothing was written — seq_path names the file that was already current. Stated rather than reported as a write (Q3: a skipped write and a done one must not look alike).");
             WriteNullable(w, "seq_path", o.SeqPath);
             WriteNullable(w, "mod_folder", o.ModFolder);
             w.WriteBoolean("wrote_into_plugin_folder", o.WroteIntoPluginFolder);
+            w.WriteBoolean("user_chose_output_dir", o.UserChoseOutput);
+            WriteNullable(w, "deploy_warning", o.DeployWarning);
+            WriteNullable(w, "lane_note", outputNote);
             w.WriteNumber("quest_count", o.Quests.Count);
             if (o.Quests.Count == 0)
                 w.WriteString("note", "no start-game-enabled quests in this plugin — a .seq lists only SGE quests, so none is needed and NOTHING was written.");
@@ -1804,7 +1813,7 @@ static class JsonWire
             // re-issuing a WRITE. This PR moved SeqTools.Render off exactly this wording and left its json twin on
             // it — the same D2 divergence, in the same fold that fixed it one renderer up.
             if (truncated)
-                w.WriteString("truncated_note", $"the render hit max_chars={cap} and dropped trailing quest rows — the .seq itself carries ALL of them; nothing is missing from the FILE. Re-run only if you need this LIST widened: that writes the .seq again (into= the folder named here to keep it in one).");
+                w.WriteString("truncated_note", $"the render hit max_chars={cap} and dropped trailing quest rows — the .seq itself carries ALL of them; nothing is missing from the FILE. Re-run only if you need this LIST widened: with no lane named that writes the .seq again into ANOTHER fresh mod folder (name into=/output_dir= the folder named here to keep it in one — there a byte-identical destination is left untouched).");
             w.WriteString("standing_limit", "this makes the quest(s) START at game start; it does not verify the quest or its dialogue is otherwise well-formed.");
             w.WriteEndObject();
         }

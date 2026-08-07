@@ -6729,6 +6729,30 @@ public sealed class LoadOrderService : IDisposable
     /// won't auto-load it from there, so a clean "done" is never reported for a .pex that won't deploy. Refuses loud (Q3) on
     /// an unusable output_dir (a malformed path, or a path that names an existing FILE).</summary>
     public RiderFolder ResolveExplicitScriptFolder(string outputDir, out string? deployWarning)
+        => ResolveExplicitRiderFolder(outputDir, "Scripts", ScriptOutputContract, out deployWarning);
+
+    /// <summary>#312 — the SAME output_dir= contract for the SEQ rider: the user names a mod-folder ROOT and houseCARL
+    /// appends <c>SEQ\</c>. Parity, not a new escape hatch — <c>compile_script</c> and <c>bsa_extract</c> have carried
+    /// output_dir= on this DECIDED contract (Aaron 2026-06-16) since 6.3, and <c>write_seq</c> was the odd one out: its
+    /// output model assumed the plugin it serves lives in a houseCARL folder, which the opt-in IN-PLACE .esp lane
+    /// inverted — the .esp in the mod's own folder, the .seq in a different mod entirely, left to the user to reunite.
+    /// For a <c>.seq</c> that is the live Q3 footgun <see cref="OwnedPluginFolderStem"/> exists to prevent: one in an
+    /// un-enabled or wrong folder leaves the quest SILENTLY DEAD.
+    /// <para>The <c>into=</c> ownership guard is deliberately untouched — loosening it (letting into= name a folder
+    /// houseCARL didn't create) would put houseCARL's own patch-folder machinery inside a third party's mod. This lane
+    /// is the <c>place_asset</c> posture instead: a NEW SIDECAR FILE written into a folder the USER owns, with no
+    /// houseCARL folder cut and residue cleanup bypassed (<see cref="RiderFolder.CreatedFresh"/> = false).</para></summary>
+    public RiderFolder ResolveExplicitSeqFolder(string outputDir, out string? deployWarning)
+        => ResolveExplicitRiderFolder(outputDir, "SEQ", SeqOutputContract, out deployWarning);
+
+    /// <summary>The shared body of the output_dir= lanes (6.3's contract, one artifact per caller): normalize the root,
+    /// refuse an unusable one LOUD, apply <paramref name="contract"/> (which appends <paramref name="sub"/> with the
+    /// double-segment guard and decides deployability), create the folder, and hand back a USER-OWNED RiderFolder.
+    /// One body rather than one per rider — the compile lane's rules are the rules, so they cannot drift per artifact.</summary>
+    RiderFolder ResolveExplicitRiderFolder(
+        string outputDir, string sub,
+        Func<string, string, string, (string dir, bool appended, string? deployWarning)> contract,
+        out string? deployWarning)
     {
         lock (_gate)
         {
@@ -6738,21 +6762,21 @@ public sealed class LoadOrderService : IDisposable
             try { root = Path.GetFullPath((outputDir ?? "").Trim().Trim('"')); }
             catch (Exception ex) { throw new InvalidOperationException($"output_dir '{outputDir}' is not a usable path ({ex.Message})."); }
             if (File.Exists(root))
-                throw new InvalidOperationException($"output_dir '{root}' is a file, not a folder. Give a mod-folder root — houseCARL appends Scripts\\.");
+                throw new InvalidOperationException($"output_dir '{root}' is a file, not a folder. Give a mod-folder root — houseCARL appends {sub}\\.");
 
-            var (scriptsDir, appended, warn) = ScriptOutputContract(root, _modsDir, _dataDir);
+            var (outDir, appended, warn) = contract(root, _modsDir, _dataDir);
             // Friendly Q3 message if the folder can't be created — e.g. <output_dir>\Scripts already exists AS A FILE, or
             // the path is read-only — instead of letting the IO/access exception reach Guard.Tool's generic "internal
             // failure" (which would wrongly read as a houseCARL bug, not bad input). The File.Exists(root) guard above
             // already catches the common "output_dir itself is a file" shape; this rounds out the rest.
-            try { Directory.CreateDirectory(scriptsDir); }
+            try { Directory.CreateDirectory(outDir); }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-            { throw new InvalidOperationException($"output_dir: couldn't create the output folder '{scriptsDir}' ({ex.Message}). Check the path and that it's writable."); }
+            { throw new InvalidOperationException($"output_dir: couldn't create the output folder '{outDir}' ({ex.Message}). Check the path and that it's writable."); }
             deployWarning = warn;
             // ModFolder = the mod-folder root (inert here — cleanup is bypassed by CreatedFresh=false — but kept honest):
             // when the user pointed AT a Scripts\ dir, the root is its parent; otherwise the path they gave IS the root.
-            var modRoot = appended ? root : (Path.GetDirectoryName(scriptsDir.TrimEnd('\\', '/')) ?? scriptsDir);
-            return new RiderFolder(scriptsDir, modRoot, CreatedFresh: false);   // user-owned: residue cleanup never touches it
+            var modRoot = appended ? root : (Path.GetDirectoryName(outDir.TrimEnd('\\', '/')) ?? outDir);
+            return new RiderFolder(outDir, modRoot, CreatedFresh: false);   // user-owned: residue cleanup never touches it
         }
     }
 
@@ -6766,39 +6790,66 @@ public sealed class LoadOrderService : IDisposable
     internal static (string scriptsDir, bool appendedScripts, string? deployWarning) ScriptOutputContract(
         string outputDir, string modsDir, string dataDir)
     {
-        var root = outputDir.TrimEnd('\\', '/');
-        bool alreadyScripts = Path.GetFileName(root).Equals("Scripts", StringComparison.OrdinalIgnoreCase);
-        var scriptsDir = alreadyScripts ? root : Path.Combine(root, "Scripts");
-        // Deployable = the .pex will ACTUALLY auto-load. MO2 overlays a mod folder's CONTENTS onto the game Data root, so a
-        // deployable mod Scripts\ is EXACTLY <mods>\<modFolder>\Scripts (mod folder a direct child of mods; Scripts directly
-        // under it). A bare <mods>\Scripts (no mod folder) and a nested <mods>\X\Sub\Scripts (lands at Data\Sub\Scripts, not
-        // Data\Scripts) do NOT load — so they correctly WARN (review nit: "under mods" alone was too loose). A direct game
-        // install loads exactly <data>\Scripts.
-        bool deployable = IsModScriptsFolder(scriptsDir, modsDir) || IsDataScriptsFolder(scriptsDir, dataDir);
+        var (scriptsDir, appended, deployable) = SubfolderOutputContract(outputDir, "Scripts", modsDir, dataDir);
         string? warn = deployable ? null :
             $"note: '{scriptsDir}' isn't a folder MO2 (or the game) auto-loads scripts from, so the compiled .pex won't " +
             "deploy on its own — it compiled fine, but you must place it where the game loads scripts yourself: a mod's " +
             "own Scripts\\ folder (<mods>\\<YourMod>\\Scripts) or the game's <Data>\\Scripts.";
-        return (scriptsDir, !alreadyScripts, warn);
+        return (scriptsDir, appended, warn);
     }
 
-    /// <summary>A Scripts\ folder MO2 actually deploys: <c>&lt;modsDir&gt;\&lt;modFolder&gt;\Scripts</c> exactly — the mod
-    /// folder a DIRECT child of the mods root, Scripts directly under it (MO2 maps a mod folder's contents onto the Data
-    /// root, so <c>&lt;mods&gt;\Scripts</c> has no mod and <c>&lt;mods&gt;\X\Sub\Scripts</c> lands at Data\Sub\Scripts). Empty
-    /// mods root (unconfigured) → false. Case-insensitive, normalized.</summary>
-    static bool IsModScriptsFolder(string scriptsDir, string modsDir)
+    /// <summary>#312 — <see cref="ScriptOutputContract"/>'s twin for the <c>.seq</c>: the same pure path contract with
+    /// <c>SEQ\</c> appended, and a warning worded for what a mis-placed .seq actually costs. The stakes differ from the
+    /// .pex's: a script that doesn't deploy leaves the OLD behaviour, while a .seq the engine never reads leaves every
+    /// start-game-enabled quest in that plugin SILENTLY not starting — the exact failure the tool exists to prevent, so
+    /// the note says that rather than the milder "won't deploy on its own".</summary>
+    internal static (string seqDir, bool appendedSeq, string? deployWarning) SeqOutputContract(
+        string outputDir, string modsDir, string dataDir)
+    {
+        var (seqDir, appended, deployable) = SubfolderOutputContract(outputDir, "SEQ", modsDir, dataDir);
+        string? warn = deployable ? null :
+            $"note: '{seqDir}' isn't a folder MO2 (or the game) reads SEQ files from, so the game will NOT see this .seq — " +
+            "the file is correct, but until it sits somewhere loaded the plugin's start-game-enabled quests stay silently " +
+            "dead. Put it in a mod's own SEQ\\ folder (<mods>\\<YourMod>\\SEQ — enabled in MO2) or the game's <Data>\\SEQ.";
+        return (seqDir, appended, warn);
+    }
+
+    /// <summary>The shared pure core of the output_dir= contracts: append <paramref name="sub"/> to a mod-folder root with
+    /// the DOUBLE-SEGMENT GUARD (a root already ending in that segment — any case, trailing separator tolerated — is taken
+    /// as-is, never doubled), and decide DEPLOYABILITY. MO2 overlays a mod folder's CONTENTS onto the game Data root, so a
+    /// deployable folder is EXACTLY <c>&lt;mods&gt;\&lt;modFolder&gt;\&lt;sub&gt;</c> (mod folder a direct child of mods;
+    /// the subfolder directly under it). A bare <c>&lt;mods&gt;\&lt;sub&gt;</c> (no mod folder) and a nested
+    /// <c>&lt;mods&gt;\X\Sub\&lt;sub&gt;</c> (which lands at Data\Sub\…, not Data\&lt;sub&gt;) do NOT load — so they
+    /// correctly warn (review nit: "under mods" alone was too loose). A direct game install loads exactly
+    /// <c>&lt;data&gt;\&lt;sub&gt;</c>. <paramref name="outputDir"/> is expected absolute (the caller GetFullPaths it).
+    /// The per-artifact SENTENCE stays with each caller — the RULE is shared, the consequence is not.</summary>
+    static (string dir, bool appendedSub, bool deployable) SubfolderOutputContract(
+        string outputDir, string sub, string modsDir, string dataDir)
+    {
+        var root = outputDir.TrimEnd('\\', '/');
+        bool already = Path.GetFileName(root).Equals(sub, StringComparison.OrdinalIgnoreCase);
+        var dir = already ? root : Path.Combine(root, sub);
+        return (dir, !already, IsModDeployFolder(dir, modsDir) || IsDataDeployFolder(dir, dataDir));
+    }
+
+    /// <summary>A deploy folder MO2 actually serves: <c>&lt;modsDir&gt;\&lt;modFolder&gt;\&lt;sub&gt;</c> exactly — the mod
+    /// folder a DIRECT child of the mods root, the subfolder directly under it (MO2 maps a mod folder's contents onto the
+    /// Data root, so <c>&lt;mods&gt;\Scripts</c> has no mod and <c>&lt;mods&gt;\X\Sub\Scripts</c> lands at Data\Sub\Scripts).
+    /// The rule is about SHAPE, not the segment's name, so the .pex and .seq lanes share it. Empty mods root
+    /// (unconfigured) → false. Case-insensitive, normalized.</summary>
+    static bool IsModDeployFolder(string outDir, string modsDir)
     {
         if (string.IsNullOrEmpty(modsDir)) return false;
-        var modFolder = Path.GetDirectoryName(scriptsDir.TrimEnd('\\', '/'));   // expect <mods>\<modFolder>
+        var modFolder = Path.GetDirectoryName(outDir.TrimEnd('\\', '/'));       // expect <mods>\<modFolder>
         return modFolder is not null && PathEquals(Path.GetDirectoryName(modFolder), modsDir);
     }
 
-    /// <summary>A direct game install loads exactly <c>&lt;dataDir&gt;\Scripts</c> (not Data\Sub\Scripts). Empty data dir →
+    /// <summary>A direct game install loads exactly <c>&lt;dataDir&gt;\&lt;sub&gt;</c> (not Data\Sub\…). Empty data dir →
     /// false. Case-insensitive, normalized.</summary>
-    static bool IsDataScriptsFolder(string scriptsDir, string dataDir)
+    static bool IsDataDeployFolder(string outDir, string dataDir)
     {
         if (string.IsNullOrEmpty(dataDir)) return false;
-        return PathEquals(Path.GetDirectoryName(scriptsDir.TrimEnd('\\', '/')), dataDir);
+        return PathEquals(Path.GetDirectoryName(outDir.TrimEnd('\\', '/')), dataDir);
     }
 
     /// <summary>Case-insensitive equality of two paths after full-path normalization + trailing-separator trim (no
@@ -6879,8 +6930,16 @@ public sealed class LoadOrderService : IDisposable
     /// riders). Output folder DEFAULTS to the plugin's OWN houseCARL folder when it lives in one (so the .seq deploys with
     /// the .esp); else a fresh folder, or <paramref name="into"/>/<paramref name="patchName"/> when given. A plugin with NO
     /// SGE quests writes NOTHING and cuts no folder (a .seq is only needed for SGE quests — Q3, not a silent empty file).
-    /// Serialized on the write gate (one write at a time), like its sibling writers.</summary>
-    public SeqOutcome WriteSeq(string plugin, string? patchName, string? into)
+    /// Serialized on the write gate (one write at a time), like its sibling writers.
+    /// <para><paramref name="outputDir"/> (#312) is the compile lane's output_dir= contract on this rider: the user names
+    /// a mod-folder ROOT — typically the plugin's OWN mod, after an IN-PLACE .esp edit — and the .seq lands in its
+    /// <c>SEQ\</c> where the mod's own copy already lives. It WINS over <paramref name="patchName"/>/<paramref name="into"/>
+    /// (the caller says so out loud) and cuts no houseCARL folder.</para>
+    /// <para>A destination already holding these EXACT bytes is reported as such and NOT rewritten (#312) — the reported
+    /// workflow regenerates the .seq after every in-place edit, and the answer is byte-identical nearly every time. The
+    /// no-op is stated explicitly, never as a bare success: an unstated skip is indistinguishable from a silent failure
+    /// (Q3).</para></summary>
+    public SeqOutcome WriteSeq(string plugin, string? patchName, string? into, string? outputDir = null)
     {
         if (string.IsNullOrWhiteSpace(plugin))
             return SeqOutcome.Fail("no source given. Pass source= the plugin whose start-game-enabled quests need a .seq — its filename (e.g. 'MyQuestMod.esp') or an absolute path.");
@@ -6929,16 +6988,37 @@ public sealed class LoadOrderService : IDisposable
             if (built.Quests.Count == 0)
                 return new SeqOutcome(true, null, null, null, built.Quests, built.PluginFileName, false) { ResolvedFrom = resolvedFrom, PluginPath = pluginPath };
 
-            // Output folder: default into the plugin's OWN houseCARL folder; else fresh / explicit into=/patch_name.
-            string? autoInto = (string.IsNullOrWhiteSpace(into) && string.IsNullOrWhiteSpace(patchName))
+            // Output folder: output_dir= (the USER's own mod folder, #312) wins; else the plugin's OWN houseCARL folder;
+            // else fresh / explicit into=/patch_name. The output_dir arm cuts no houseCARL folder at all, so the
+            // owned-folder default is not consulted there — the caller named the destination outright.
+            bool chosenOutput = !string.IsNullOrWhiteSpace(outputDir);
+            string? autoInto = (!chosenOutput && string.IsNullOrWhiteSpace(into) && string.IsNullOrWhiteSpace(patchName))
                 ? OwnedPluginFolderStem(pluginPath) : null;
             RiderFolder rf;
-            try { rf = ResolveSeqFolder(patchName, autoInto ?? into); }
+            string? deployWarning = null;
+            try
+            {
+                rf = chosenOutput
+                    ? ResolveExplicitSeqFolder(outputDir!, out deployWarning)
+                    : ResolveSeqFolder(patchName, autoInto ?? into);
+            }
             catch (InvalidOperationException ex) { return SeqOutcome.Fail(ex.Message); }
 
-            // Crash-atomic write of <plugin>.seq under SEQ\ (originals untouched — a houseCARL-owned folder only).
             var seqName = Path.GetFileNameWithoutExtension(pluginPath) + ".seq";
             var dest = Path.Combine(rf.OutputDir, seqName);
+
+            // #312 — the destination already holds EXACTLY these bytes: report it, write nothing. Every in-place edit
+            // regenerates the .seq and the answer rarely changes, so the common case was a file rewrite (and, before
+            // output_dir=, a whole fresh mod folder) that changed nothing. Compared against the bytes already built in
+            // memory, so this costs one read of a file that is typically a few hundred bytes. Reported as its OWN state
+            // rather than folded into success (Q3): "nothing written" and "written" must not look alike.
+            if (SameBytesOnDisk(dest, built.Bytes))
+                return new SeqOutcome(true, null, dest, rf.ModFolder, built.Quests, built.PluginFileName, autoInto is not null)
+                    { ResolvedFrom = resolvedFrom, PluginPath = pluginPath, Unchanged = true,
+                      UserChoseOutput = chosenOutput, DeployWarning = deployWarning };
+
+            // Crash-atomic write of <plugin>.seq under SEQ\ (originals untouched — a houseCARL-owned folder, or the
+            // folder the caller named in output_dir=).
             try { AtomicFile.WriteAllBytes(dest, built.Bytes); }
             catch (Exception ex)
             {
@@ -6953,8 +7033,24 @@ public sealed class LoadOrderService : IDisposable
                 return SeqOutcome.Fail($"wrote '{seqName}' but its on-disk size ({size}) does not match the {built.Bytes.Length} expected byte(s) — verify before relying on it.");
 
             return new SeqOutcome(true, null, dest, rf.ModFolder, built.Quests, built.PluginFileName, autoInto is not null)
-                { ResolvedFrom = resolvedFrom, PluginPath = pluginPath };
+                { ResolvedFrom = resolvedFrom, PluginPath = pluginPath,
+                  UserChoseOutput = chosenOutput, DeployWarning = deployWarning };
         }
+    }
+
+    /// <summary>Does <paramref name="path"/> already hold EXACTLY <paramref name="bytes"/>? Length first (the cheap
+    /// discriminator), then a full compare. Any IO problem answers FALSE — "I could not prove it is identical" must fall
+    /// through to the write, never skip one (Q3: the failure mode of a wrong TRUE here is a stale .seq reported as
+    /// current, which is precisely the silent failure this tool exists to prevent).</summary>
+    static bool SameBytesOnDisk(string path, byte[] bytes)
+    {
+        try
+        {
+            var fi = new FileInfo(path);
+            if (!fi.Exists || fi.Length != bytes.Length) return false;
+            return File.ReadAllBytes(path).AsSpan().SequenceEqual(bytes);
+        }
+        catch { return false; }
     }
 
     // ---- decompiler class hierarchy (lazy, cached for process lifetime) ----------------------------------------
@@ -8262,6 +8358,23 @@ public sealed record SeqOutcome(
     /// <summary>The absolute path the source resolved TO — the second half of the arm statement (the label says
     /// which layer, this says which file).</summary>
     public string? PluginPath { get; init; }
+
+    /// <summary>#312 — the destination already held EXACTLY these bytes, so NOTHING was written (<see cref="SeqPath"/>
+    /// names the file that was already correct). A success, and a DISTINCT one: "written" and "already current" are
+    /// different facts about the disk, and collapsing them would make a skipped write indistinguishable from a done
+    /// one (Q3). False on every path that actually wrote.</summary>
+    public bool Unchanged { get; init; }
+
+    /// <summary>#312 — the caller named <c>output_dir=</c>, so the .seq landed in a folder the USER owns and no
+    /// houseCARL mod folder was cut. Drives the confirmation: "enable this houseCARL mod in MO2" is the wrong next
+    /// step for a file written into the user's own mod.</summary>
+    public bool UserChoseOutput { get; init; }
+
+    /// <summary>#312 — the Q3 note for an <c>output_dir=</c> that neither MO2 nor the game reads SEQ files from. The
+    /// .seq is correct; the engine will never see it, and every start-game-enabled quest in the plugin stays silently
+    /// dead until it moves. Null when the destination deploys (and on every non-output_dir lane, which lands in a
+    /// houseCARL mod folder by construction).</summary>
+    public string? DeployWarning { get; init; }
 
     public static SeqOutcome Fail(string error)
         => new(false, error, null, null, Array.Empty<HousecarlCore.SeqFile.SeqQuest>(), "", false);
