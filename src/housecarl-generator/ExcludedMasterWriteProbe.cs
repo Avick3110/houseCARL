@@ -382,7 +382,11 @@ public static class ExcludedMasterWriteProbe
         var p = Path.Combine(instance, "profiles", "Default");
         File.WriteAllText(Path.Combine(p, "loadorder.txt"), "# header\r\n" + string.Concat(order.Select(o => o.key.FileName + "\r\n")));
         File.WriteAllText(Path.Combine(p, "plugins.txt"), string.Concat(order.Select(o => "*" + o.key.FileName + "\r\n")));
-        File.WriteAllText(Path.Combine(p, "modlist.txt"), "# header\r\n" + string.Concat(order.Reverse().Select(o => "+" + o.folder + "\r\n")));
+        // Enumerable.Reverse SPELLED OUT: on an array, `order.Reverse()` binds to MemoryExtensions.Reverse<T>(Span<T>)
+        // — which reverses IN PLACE and returns void, so the LINQ-looking call does not compile (and where it does
+        // resolve, it would mutate the caller's array). CI caught this in Release; the local Debug build did not.
+        File.WriteAllText(Path.Combine(p, "modlist.txt"),
+            "# header\r\n" + string.Concat(Enumerable.Reverse(order).Select(o => "+" + o.folder + "\r\n")));
     }
 
     /// <summary>Write <paramref name="m"/> into <paramref name="mods"/>\<paramref name="folder"/> against
