@@ -1784,12 +1784,15 @@ static class JsonWire
             w.WriteBoolean("written", o.SeqPath is not null && !o.Unchanged);
             w.WriteBoolean("unchanged", o.Unchanged);
             w.WriteBoolean("replaced", o.Replaced);
+            w.WriteBoolean("replaced_same_bytes", o.ReplacedSameBytes);
             w.WriteBoolean("timestamp_refreshed", o.TimestampRefreshed);
             if (o.Unchanged)
                 w.WriteString("unchanged_note", "the destination already held EXACTLY these bytes, so nothing was written — seq_path names the file that was already current. Stated rather than reported as a write (Q3: a skipped write and a done one must not look alike)."
                     + (o.TimestampRefreshed ? " Its mtime was older than the plugin and has been stamped forward (contents untouched); validate_dialogue's SEQ staleness check compares those two mtimes, so this file no longer reads as stale — for the copy the load order actually serves, which is this one only if this folder wins the SEQ\\ conflict." : ""));
             if (o.Replaced)
-                w.WriteString("replaced_note", o.UserChoseOutput
+                w.WriteString("replaced_note", o.ReplacedSameBytes
+                    ? "the file already at seq_path held EXACTLY these bytes; it was rewritten only because its timestamp could not be refreshed in place, so nothing was lost."
+                    : o.UserChoseOutput
                     ? "a .seq already existed at seq_path and was OVERWRITTEN; houseCARL keeps no backup, and in a folder you named that file may have been the mod's own shipped .seq."
                     : "the previous .seq in that houseCARL folder was overwritten (houseCARL's own earlier output — the ordinary regenerate case).");
             WriteNullable(w, "seq_path", o.SeqPath);
@@ -1800,7 +1803,11 @@ static class JsonWire
             WriteNullable(w, "lane_note", outputNote);
             w.WriteNumber("quest_count", o.Quests.Count);
             if (o.Quests.Count == 0)
-                w.WriteString("note", "no start-game-enabled quests in this plugin — a .seq lists only SGE quests, so none is needed and NOTHING was written.");
+                w.WriteString("note", "no start-game-enabled quests in this plugin — a .seq lists only SGE quests, so none is needed and NOTHING was written."
+                    // The lane was ACKNOWLEDGED but never resolved on this path, and the json shape shows that more
+                    // starkly than the prose does: user_chose_output_dir true, no seq_path, no deploy_warning. Say
+                    // which of the two it is (PR #318 review [low]).
+                    + (o.UserChoseOutput ? " output_dir= was not resolved or checked either — no destination was touched, so an unusable one would not have been reported here." : ""));
 
             w.WriteStartArray("quests");
             int rendered = 0;

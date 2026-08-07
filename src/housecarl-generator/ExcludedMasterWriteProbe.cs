@@ -531,13 +531,13 @@ public static class ExcludedMasterWriteProbe
             Trim(render));
         // The consequence the pre-check exists for: a throw here escapes to Guard.Tool, which reports an INTERNAL
         // failure — discarding the repoint results and skipping the asset carry, on an ALREADY-REWRITTEN target.
-        // "internal failure" is NOT the string Guard.Named emits ("failed unexpectedly") — an inert clause reading as
-        // a second check (review round 1). Pinned on the words the wrapper actually uses, plus the positive: a
-        // per-plugin repoint REPORT exists at all.
+        // The POSITIVE carries the signal — a per-plugin repoint report exists, which a throw out through Guard.Tool
+        // makes impossible. The negative is one DISTINCTIVE Guard string, not the generic "unexpectedly" an unrelated
+        // sentence elsewhere in the compact render could legitimately use (PR #318 review [nit]; the first draft of
+        // this clause searched for words Guard never emits at all).
         Check("…and it is a REPORTED result, not Guard.Tool's internal-failure wrapper (the throw would land after P′ is on disk)",
-            !render.Contains("unexpectedly", StringComparison.OrdinalIgnoreCase)
-            && !render.Contains("internal houseCARL failure", StringComparison.OrdinalIgnoreCase)
-            && render.Contains("repointed in place", StringComparison.OrdinalIgnoreCase),
+            render.Contains("repointed in place", StringComparison.OrdinalIgnoreCase)
+            && !render.Contains("internal houseCARL failure", StringComparison.OrdinalIgnoreCase),
             Trim(render));
         // …and the compaction is still REPORTED. P′ lands before the repoint either way, so "the file changed" alone
         // proves nothing (its own RED check passed on that clause); what the throw destroys is the caller's RESULT —

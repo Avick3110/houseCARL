@@ -430,6 +430,14 @@ internal static class SeqWriteGuardProbe
             var oFresh = svc.WriteSeq(svcPlugin, null, null, userMod);
             Check(oFresh.Success && !oFresh.Replaced && SeqTools.Render(oFresh).StartsWith("wrote ", StringComparison.Ordinal),
                 $"REPLACED-NEG a first write to an empty destination is 'wrote', not 'replaced' — replaced={oFresh.Replaced}");
+            // …and the json twin of the replaced state, which had no arm (PR #318 review [nit]).
+            File.WriteAllBytes(expectedUserSeq, new byte[] { 9, 9, 9, 9, 9, 9 });
+            var jsonRepl = SeqTools.WriteSeq(svc, source: Path.GetFileName(svcPlugin), output_dir: userMod, format: "json");
+            Check(jsonRepl.Contains("\"replaced\": true", StringComparison.Ordinal)
+                  && jsonRepl.Contains("\"replaced_same_bytes\": false", StringComparison.Ordinal)
+                  && jsonRepl.Contains("replaced_note", StringComparison.Ordinal)
+                  && jsonRepl.Contains("no backup", StringComparison.Ordinal),
+                $"REPLACED-JSON the replaced state and its note are on the json transport too — render=[{Trim(jsonRepl)}]");
 
             // LANE-ORDER: output_dir= + patch= + into= together is NOT refused. The pair-exclusivity check used to run
             // first, so naming all three was rejected over two parameters output_dir='s own contract promises to
@@ -452,6 +460,19 @@ internal static class SeqWriteGuardProbe
             Check(toolEmptyNote.Contains("no start-game-enabled quests", StringComparison.Ordinal)
                   && toolEmptyNote.Contains("output_dir= was given", StringComparison.Ordinal),
                 $"NOOP-LANE-NOTE the nothing-to-do render states the ignored lane too — render=[{Trim(toolEmptyNote)}]");
+
+            // WRITE-FAIL-FOLDER: the output_dir lane's write-failure clause, which had no arm (PR #318 review [nit]).
+            // A directory sitting where the .seq must go makes the write throw with the folder already resolved, so
+            // the message has to say the folder is left alone — cleanup is bypassed on a user-owned destination.
+            var blocked = Path.Combine(root, "blocked");
+            Directory.CreateDirectory(Path.Combine(blocked, "SEQ", "HcSeqSvc.seq"));   // a DIRECTORY where the file goes
+            var oBlocked = svc.WriteSeq(svcPlugin, null, null, blocked);
+            Check(!oBlocked.Success && oBlocked.Error is { } be
+                  && be.Contains("could not write", StringComparison.Ordinal)
+                  && be.Contains("is left in place", StringComparison.Ordinal)
+                  && be.Contains("never removes a folder you named", StringComparison.Ordinal)
+                  && Directory.Exists(Path.Combine(blocked, "SEQ")),
+                $"WRITE-FAIL-FOLDER a failed output_dir write names the folder it leaves behind, and leaves it — err=[{oBlocked.Error}]");
 
             // LANE-NOTE-ON-REFUSAL: an ignored lane stays stated when the call FAILS. A refusal is exactly when a
             // caller re-reads their parameters, and "patch= was ignored" is still true (review round 2).

@@ -114,7 +114,12 @@ public static class SeqTools
         if (o.Quests.Count == 0)
             return $"no start-game-enabled quests in {o.PluginFileName}{ReadFrom(o)} — no .seq is needed (a .seq lists only quests with the " +
                    "Start Game Enabled flag). Nothing written. If a quest SHOULD start at game start, set its Start Game Enabled " +
-                   "flag first, then write the .seq." + (outputNote is { Length: > 0 } n0 ? "\n" + n0 : "");
+                   "flag first, then write the .seq."
+                   // …and say that the destination was never looked at (PR #318 review [low]): this return happens
+                   // BEFORE any folder is resolved, so an unusable output_dir= would not have been diagnosed —
+                   // "your folder is fine" and "we never checked your folder" must not read the same.
+                   + (o.UserChoseOutput ? "\nnote: output_dir= was not resolved or checked — nothing needed writing, so no destination was touched." : "")
+                   + (outputNote is { Length: > 0 } n0 ? "\n" + n0 : "");
 
         var sb = new StringBuilder();
         var seqName = Path.GetFileName(o.SeqPath);
@@ -129,9 +134,13 @@ public static class SeqTools
               // no-backup ALARM is scoped to that lane (review round 3): re-generating over houseCARL's own previous
               // output is the ordinary workflow, and dressing it as a loss would train the reader to ignore the word.
               : o.Replaced
-                  ? (o.UserChoseOutput
-                      ? "; a .seq was already at that path and has been OVERWRITTEN (no backup is kept — in a folder you named, that may have been the mod's own)."
-                      : "; the previous .seq in that houseCARL folder was overwritten.")
+                  // Nothing was lost when the replaced bytes were the SAME bytes — the only way here is a byte-identical
+                  // destination whose timestamp refresh failed, and an alarm would be about nothing (review [low]).
+                  ? (o.ReplacedSameBytes
+                      ? "; the file already there held these exact bytes — it was rewritten only because its timestamp could not be refreshed in place, so nothing was lost."
+                      : o.UserChoseOutput
+                          ? "; a .seq was already at that path and has been OVERWRITTEN (no backup is kept — in a folder you named, that may have been the mod's own)."
+                          : "; the previous .seq in that houseCARL folder was overwritten.")
                   : "")
           .Append('\n');
         // Budgeted like the sibling write renders (PR #311 review [low-medium]): max_chars= promises "past it
