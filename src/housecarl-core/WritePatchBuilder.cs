@@ -592,20 +592,25 @@ public static class WritePatchBuilder
             ? $"{e.Target}: CopyFrom source '{srcPlugin}' is in the load order but does NOT define or override this record — there is no version of it there to copy."
             : $"{e.Target}: CopyFrom source '{srcPlugin}' is in the load order but does NOT define or override the SOURCE record {e.CopySource} — there is no version of it there to copy from.";
 
-    /// <summary>Does this edit's CopyFrom source resolve through the service's OFF-ORDER pre-locate? A dictionary hit
-    /// alone is NOT the answer. The pre-locate takes its OWN capture (<c>ResolveOffOrderCopySources</c>), the engine
-    /// captures again, and <c>_snap</c> can be swapped by a concurrent read's freshness rebuild in between — inside
-    /// <c>_writeGate</c> too, which serialises writes but not index rebuilds. So a source that was off-order a moment
-    /// ago may be ACTIVE now, and using the pre-fetched bodies then reads the DISK copy of a live plugin. A profile
-    /// switch changes which mod folder serves a filename, so that copy can be a genuinely DIFFERENT file: a wrong
-    /// BODY, not merely a wrong label.
-    /// <para>Re-checking against <paramref name="view"/> — THIS call's capture — costs one dictionary lookup and
-    /// resolves the drift the right way round: the fresher build wins, the pre-fetched bodies go unused, and the
-    /// in-order arm below resolves the source correctly. #317; the <c>forward</c> twin is
-    /// <see cref="IsOffOrderSource"/> (PR #313), whose arm this mirrors deliberately.</para></summary>
+    /// <summary>Does this edit's CopyFrom source resolve through the service's OFF-ORDER pre-locate? The arm is decided
+    /// from <paramref name="view"/> — THIS call's capture — rather than from the dictionary alone, so the body used is
+    /// always the one the ENGINE's own build agrees is off-order.
+    /// <para>HOW FAR THAT ACTUALLY REACHES, stated precisely because #317 (and PR #313's <c>forward</c> twin, whose
+    /// shape this mirrors) was filed as a RACE fix and that framing is wrong. Membership lives in the resolver's
+    /// <c>_nameToIdx</c>, built once per resolver INSTANCE and never rebuilt; <c>RefreshIfStale</c> swaps only
+    /// <c>_snap</c> (winners, exclusions), and a changed plugin SET drops the whole resolver for a new one. A write
+    /// reads <c>Resolver</c> ONCE and hands that instance to both the pre-locate and the engine. So within one call the
+    /// two captures cannot disagree about MEMBERSHIP, and this re-check cannot currently change the arm.</para>
+    /// <para>It is kept, and kept cheap (one dictionary lookup), as a STRUCTURAL invariant rather than a race repair:
+    /// the arm follows the view the write actually resolves against, not a dictionary another component built against
+    /// another capture. If membership ever can move under a live resolver — an in-place profile refresh being the
+    /// obvious candidate — the right behaviour is already here rather than a silently wrong body. Pinned
+    /// deterministically by <c>CopyFromViewArm</c> in write-surface-guard, which hands the engine a pre-fetched body
+    /// keyed to an ACTIVE source and asserts the in-order arm still wins.</para></summary>
     static bool TryOffOrderCopyBody(
         IReadOnlyDictionary<PatchEdit, IMajorRecordGetter>? copyFromSources, PatchEdit e,
-        LoadOrderResolver.IndexView view, out IMajorRecordGetter? body)
+        LoadOrderResolver.IndexView view,
+        [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out IMajorRecordGetter? body)
     {
         body = null;
         return copyFromSources is not null
@@ -1560,8 +1565,19 @@ public static class WritePatchBuilder
     /// ACTIVE now. Matching on the name alone would then read the disk copy of a live plugin — and a profile switch can
     /// make that a DIFFERENT file, so it is a wrong body, not merely a wrong label. Re-checking costs one dictionary
     /// lookup and resolves the drift the right way round: the fresher build wins, the pre-fetched bodies go unused, and
-    /// the arm reported matches the arm taken (PR #313 review 3 [observation]). The <c>CopyFrom</c> twin closed the
-    /// same window in its own PR (#317) — <see cref="TryOffOrderCopyBody"/>, deliberately the same shape.</para></summary>
+    /// the arm reported matches the arm taken (PR #313 review 3 [observation]). The <c>CopyFrom</c> twin took the same
+    /// shape in its own PR (#317) — <see cref="TryOffOrderCopyBody"/>.</para>
+    /// <para>CORRECTION (2026-08-07, 2.0 tidy-up review round 1): the premise above — "a concurrent rebuild can swap
+    /// membership mid-call" — is FALSE as written, here and on the twin. <c>_nameToIdx</c> is per-resolver-instance and
+    /// never rebuilt (<c>RefreshIfStale</c> swaps only <c>_snap</c>), and a write pins ONE instance for both the
+    /// pre-locate and the engine, so <c>ContainsPlugin</c> cannot answer differently between the two captures. Both
+    /// re-checks are kept as structural invariants — the arm follows the view the write resolves against — rather than
+    /// as the race repairs they were filed as. Full statement on <see cref="TryOffOrderCopyBody"/>.</para>
+    /// <para>NOT parity, and worth knowing before assuming it: this lane additionally carries the
+    /// <c>ActiveNameForPath</c> full-path identity rule (PR #313 [medium]), so a <c>source=</c> PATH naming an ACTIVE
+    /// plugin takes the in-order arm. The <c>CopyFrom</c> lane has no such rule at either end, so a
+    /// <c>from_source=</c> path to an active plugin still routes off-order and is described as not in the load
+    /// order — the same defect this lane fixed, still open on that one.</para></summary>
     static bool IsOffOrderSource(OffOrderForwardSource? offOrder, ForwardSpec s, LoadOrderResolver.IndexView view) =>
         offOrder is not null
         && string.Equals(offOrder.Plugin, s.FromPlugin, StringComparison.OrdinalIgnoreCase)

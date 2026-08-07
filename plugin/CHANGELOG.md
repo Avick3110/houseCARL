@@ -12,15 +12,26 @@ when it changes.
 plugin **in place** left the two halves in different mods: the `.esp` in the mod's own folder, the `.seq` in a
 freshly cut `houseCARL - houseCARL_SEQ_00N`, with `into=` unable to name a folder houseCARL didn't create. Every
 regeneration then meant hand-comparing the temp output against the mod's live `Seq\` copy and deleting the
-folder. `output_dir=` takes the mod-folder root and appends `SEQ\` — the same contract `housecarl_compile_script`
-and `housecarl_bsa_extract` already use, including the don't-double-it guard, no houseCARL folder cut, your
-folder never touched by cleanup, and a warning when the destination isn't somewhere the game actually reads SEQ
-files from. It wins over `patch=`/`into=`, and says so rather than quietly ignoring them.
+folder. `output_dir=` takes the mod-folder root and appends `SEQ\` — the same contract `housecarl_compile_script`'s
+`output_dir=` already uses, including the don't-double-it guard, no houseCARL folder cut, your folder never touched
+by cleanup, and a warning when the destination isn't somewhere the game actually reads SEQ files from (your MO2
+mods folder, the overwrite folder, or the game's Data). It wins over `patch=`/`into=`, and says so rather than
+quietly ignoring them. If a `.seq` was already at that path it is overwritten with no backup, and the response now
+says `replaced` rather than `wrote`.
 
-**…and regenerating an unchanged `.seq` now writes nothing.** If the destination already holds exactly the bytes
-houseCARL would write, the file is left alone and the response says `unchanged` (`written: false` in JSON) instead
-of reporting a write that only churned the file. Re-running after every in-place edit — which is the point of the
-tool — is now free.
+**The MO2 overwrite folder now counts as a place the game loads from.** `output_dir=` on both
+`housecarl_compile_script` and `housecarl_write_seq` warned that a file landing in your overwrite folder wouldn't
+deploy. It does — MO2 maps overwrite onto the game's Data at top priority, and it's where xEdit/CK/Synthesis
+output lands — so that warning was a false alarm. It no longer fires there. (The rule is otherwise unchanged and
+still exact: a mod's own `Scripts\`/`SEQ\`, the overwrite folder, or the game's `Data\` — a *nested* path inside a
+mod still warns, because MO2 would deploy it to `Data\<Sub>\…` where nothing loads it.)
+
+**…and regenerating an unchanged `.seq` now writes nothing.** When a lane names the destination (`output_dir=`,
+`into=`, or the plugin's own houseCARL folder) and it already holds exactly the bytes houseCARL would write, the
+file is left alone and the response says `unchanged` (`written: false` in JSON) instead of churning the file.
+Re-running after every in-place edit — which is the point of the tool — is now free. A skipped write still stamps
+the file's timestamp forward when it was older than the plugin, so `housecarl_validate_dialogue`'s SEQ staleness
+check keeps agreeing with it.
 
 **Fixed: one broken plugin in your load order no longer breaks every write.** If a plugin houseCARL cannot open
 sat in your active order — a truncated download, a half-copied mod folder, an interrupted xEdit save — then

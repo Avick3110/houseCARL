@@ -220,6 +220,10 @@ this skill's job.
    starts. (A plugin with no such quests needs no `.seq`; the tool reports that.) If a later **in-place** edit
    or removal prunes a master, the on-disk FormIDs shift and the existing `.seq` goes stale — houseCARL flags
    this in the write's read-back note so you re-run `housecarl_write_seq` (it flags, never silently rewrites).
+   After an **in-place** edit the `.esp` is in the mod's own folder — pass `output_dir=` that mod folder so the
+   `.seq` lands beside it rather than in a separate houseCARL mod you then have to enable. Re-running against a
+   lane-named destination is free: a byte-identical `.seq` is left alone (reported `unchanged`). See
+   `references/seq-file-format.md`.
 
 7. **Validate, then verify.** Run `housecarl_validate_dialogue` on the topic (a DIAL FormID) or the whole
    quest (a QUST FormID). It checks what it can — quest/branch wiring, `LinkTo` and PNAM resolve, voice

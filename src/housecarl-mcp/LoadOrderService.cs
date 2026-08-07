@@ -4544,8 +4544,10 @@ public sealed class LoadOrderService : IDisposable
     /// (all-or-nothing, before any write); null on success. Uses the SAME on-disk locate as read_plugin_file / the
     /// copy-npc-appearance donor lane, so the tools can never disagree on which file a filename names.
     /// <para>This capture is its OWN — the engine captures again — so a body pre-fetched here is only USED when the
-    /// engine's fresher build still agrees the source is off-order (<c>WritePatchBuilder.TryOffOrderCopyBody</c>,
-    /// #317). Pre-fetching a source that has since become active is wasted work, never a wrong body.</para></summary>
+    /// engine's own build still agrees the source is off-order (<c>WritePatchBuilder.TryOffOrderCopyBody</c>, #317).
+    /// That is a structural invariant, NOT the mid-call race #317 was filed as: a write pins one resolver instance and
+    /// its name table is never rebuilt, so the two captures cannot disagree about membership today. The helper's own
+    /// doc carries the full statement.</para></summary>
     string? ResolveOffOrderCopySources(LoadOrderResolver resolver, IReadOnlyList<WritePatchBuilder.PatchEdit> edits,
         ref Dictionary<WritePatchBuilder.PatchEdit, IMajorRecordGetter>? sources, ref List<IDisposable>? overlays,
         out string? epoch)
@@ -6725,15 +6727,17 @@ public sealed class LoadOrderService : IDisposable
     /// <see cref="ResolvePatchModFolder"/> (no houseCARL mod folder is cut under ModsDir), and the folder is USER-OWNED — the
     /// returned <see cref="RiderFolder"/> carries CreatedFresh=false, so <see cref="RemoveOrNameRiderResidue"/> never deletes
     /// it on a failed compile (it early-returns on !CreatedFresh). <paramref name="deployWarning"/> is a Q3 note (non-null)
-    /// when the final Scripts\ path is under neither the MO2 mods tree nor the game's Data — the .pex compiles but the game
+    /// when the final Scripts\ path is none of a mod's own Scripts\, the MO2 overwrite folder, or the game's Data — the .pex compiles but the game
     /// won't auto-load it from there, so a clean "done" is never reported for a .pex that won't deploy. Refuses loud (Q3) on
     /// an unusable output_dir (a malformed path, or a path that names an existing FILE).</summary>
     public RiderFolder ResolveExplicitScriptFolder(string outputDir, out string? deployWarning)
         => ResolveExplicitRiderFolder(outputDir, "Scripts", ScriptOutputContract, out deployWarning);
 
     /// <summary>#312 — the SAME output_dir= contract for the SEQ rider: the user names a mod-folder ROOT and houseCARL
-    /// appends <c>SEQ\</c>. Parity, not a new escape hatch — <c>compile_script</c> and <c>bsa_extract</c> have carried
-    /// output_dir= on this DECIDED contract (Aaron 2026-06-16) since 6.3, and <c>write_seq</c> was the odd one out: its
+    /// appends <c>SEQ\</c>. Parity, not a new escape hatch — <c>compile_script</c> has carried output_dir= on this
+    /// DECIDED contract (Aaron 2026-06-16) since 6.3 (<c>bsa_extract</c>'s <c>dest=</c> is a plain unpack folder — a
+    /// looser, different thing; this comment and the changelog both said otherwise, review round 1), and
+    /// <c>write_seq</c> was the odd one out: its
     /// output model assumed the plugin it serves lives in a houseCARL folder, which the opt-in IN-PLACE .esp lane
     /// inverted — the .esp in the mod's own folder, the .seq in a different mod entirely, left to the user to reunite.
     /// For a <c>.seq</c> that is the live Q3 footgun <see cref="OwnedPluginFolderStem"/> exists to prevent: one in an
@@ -6751,7 +6755,7 @@ public sealed class LoadOrderService : IDisposable
     /// One body rather than one per rider — the compile lane's rules are the rules, so they cannot drift per artifact.</summary>
     RiderFolder ResolveExplicitRiderFolder(
         string outputDir, string sub,
-        Func<string, string, string, (string dir, bool appended, string? deployWarning)> contract,
+        Func<string, string, string, string, (string dir, bool appended, string? deployWarning)> contract,
         out string? deployWarning)
     {
         lock (_gate)
@@ -6764,7 +6768,7 @@ public sealed class LoadOrderService : IDisposable
             if (File.Exists(root))
                 throw new InvalidOperationException($"output_dir '{root}' is a file, not a folder. Give a mod-folder root — houseCARL appends {sub}\\.");
 
-            var (outDir, appended, warn) = contract(root, _modsDir, _dataDir);
+            var (outDir, appended, warn) = contract(root, _modsDir, _dataDir, _overwriteDir);
             // Friendly Q3 message if the folder can't be created — e.g. <output_dir>\Scripts already exists AS A FILE, or
             // the path is read-only — instead of letting the IO/access exception reach Guard.Tool's generic "internal
             // failure" (which would wrongly read as a houseCARL bug, not bad input). The File.Exists(root) guard above
@@ -6784,13 +6788,18 @@ public sealed class LoadOrderService : IDisposable
     /// CI without an MO2 instance. Appends Scripts\ to a mod-folder root, with the DOUBLE-SCRIPTS GUARD (a root already ending
     /// in a Scripts segment — any case, trailing separator tolerated — is taken as-is, never doubled). <paramref name="outputDir"/>
     /// is expected absolute (the caller GetFullPaths it). Returns the final Scripts dir, whether Scripts\ was appended, and a
-    /// Q3 deployWarning when the result is under neither <paramref name="modsDir"/> (a mod's Scripts\ is VFS-deployed) nor
+    /// Q3 deployWarning when the result is none of <paramref name="modsDir"/> (a mod's Scripts\ is VFS-deployed), the overwrite folder, nor
     /// <paramref name="dataDir"/> (a direct game install) — the one "this won't load" case the contract can't fix by
-    /// construction, so it's surfaced rather than reported as a clean success.</summary>
+    /// construction, so it's surfaced rather than reported as a clean success.
+    /// <para>2026-08-07 (#312's shared refactor, review round 2): <paramref name="overwriteDir"/> counts as deployable
+    /// too. MO2 maps the overwrite folder's contents onto the Data root at top priority, and it is where xEdit / CK /
+    /// Synthesis output lands, so warning about it was a false alarm on both lanes. A BEHAVIOUR CHANGE for
+    /// compile_script, deliberately shared rather than special-cased for SEQ — a deployability rule that differs per
+    /// artifact is the drift this helper exists to prevent — and logged in the changelog as its own line.</para></summary>
     internal static (string scriptsDir, bool appendedScripts, string? deployWarning) ScriptOutputContract(
-        string outputDir, string modsDir, string dataDir)
+        string outputDir, string modsDir, string dataDir, string overwriteDir = "")
     {
-        var (scriptsDir, appended, deployable) = SubfolderOutputContract(outputDir, "Scripts", modsDir, dataDir);
+        var (scriptsDir, appended, deployable) = SubfolderOutputContract(outputDir, "Scripts", modsDir, dataDir, overwriteDir);
         string? warn = deployable ? null :
             $"note: '{scriptsDir}' isn't a folder MO2 (or the game) auto-loads scripts from, so the compiled .pex won't " +
             "deploy on its own — it compiled fine, but you must place it where the game loads scripts yourself: a mod's " +
@@ -6804,9 +6813,9 @@ public sealed class LoadOrderService : IDisposable
     /// start-game-enabled quest in that plugin SILENTLY not starting — the exact failure the tool exists to prevent, so
     /// the note says that rather than the milder "won't deploy on its own".</summary>
     internal static (string seqDir, bool appendedSeq, string? deployWarning) SeqOutputContract(
-        string outputDir, string modsDir, string dataDir)
+        string outputDir, string modsDir, string dataDir, string overwriteDir = "")
     {
-        var (seqDir, appended, deployable) = SubfolderOutputContract(outputDir, "SEQ", modsDir, dataDir);
+        var (seqDir, appended, deployable) = SubfolderOutputContract(outputDir, "SEQ", modsDir, dataDir, overwriteDir);
         string? warn = deployable ? null :
             $"note: '{seqDir}' isn't a folder MO2 (or the game) reads SEQ files from, so the game will NOT see this .seq — " +
             "the file is correct, but until it sits somewhere loaded the plugin's start-game-enabled quests stay silently " +
@@ -6824,12 +6833,27 @@ public sealed class LoadOrderService : IDisposable
     /// <c>&lt;data&gt;\&lt;sub&gt;</c>. <paramref name="outputDir"/> is expected absolute (the caller GetFullPaths it).
     /// The per-artifact SENTENCE stays with each caller — the RULE is shared, the consequence is not.</summary>
     static (string dir, bool appendedSub, bool deployable) SubfolderOutputContract(
-        string outputDir, string sub, string modsDir, string dataDir)
+        string outputDir, string sub, string modsDir, string dataDir, string overwriteDir = "")
     {
-        var root = outputDir.TrimEnd('\\', '/');
+        // A DRIVE ROOT keeps its separator: "C:\".TrimEnd() is "C:", and Path.Combine("C:", sub) yields the
+        // drive-RELATIVE "C:SEQ" — a path Windows resolves against the process's current directory on that drive,
+        // so the folder is created somewhere else entirely and reported under a name that looks absolute (review
+        // round 1). Inherited from the compile lane's contract; fixed here for both.
+        var root = IsRoot(outputDir) ? outputDir : outputDir.TrimEnd('\\', '/');
         bool already = Path.GetFileName(root).Equals(sub, StringComparison.OrdinalIgnoreCase);
         var dir = already ? root : Path.Combine(root, sub);
-        return (dir, !already, IsModDeployFolder(dir, modsDir) || IsDataDeployFolder(dir, dataDir));
+        return (dir, !already,
+            IsModDeployFolder(dir, modsDir) || IsDataDeployFolder(dir, dataDir) || IsDataDeployFolder(dir, overwriteDir));
+    }
+
+    /// <summary>Is this path a filesystem ROOT whose trailing separator is part of its MEANING — i.e. <c>C:\</c>,
+    /// where trimming yields the drive-RELATIVE <c>C:</c>? A UNC share deliberately answers false: <c>GetPathRoot</c>
+    /// returns it WITHOUT a trailing separator, and trimming <c>\\srv\share\</c> is harmless anyway (review round 2 —
+    /// an earlier version of this comment claimed the UNC case, which it does not have).</summary>
+    static bool IsRoot(string path)
+    {
+        try { return string.Equals(Path.GetPathRoot(path), path, StringComparison.OrdinalIgnoreCase); }
+        catch { return false; }
     }
 
     /// <summary>A deploy folder MO2 actually serves: <c>&lt;modsDir&gt;\&lt;modFolder&gt;\&lt;sub&gt;</c> exactly — the mod
@@ -6985,8 +7009,11 @@ public sealed class LoadOrderService : IDisposable
             { return SeqOutcome.Fail($"could not read '{Path.GetFileName(pluginPath)}' as a plugin: {ex.Message}"); }
 
             // No SGE quests → no .seq needed; write nothing, cut no folder (Q3: a clean, explicit "nothing to do").
+            // It still carries UserChoseOutput: the lane the caller named is a fact about the CALL, and reporting
+            // "you chose no output_dir" here made the json twin contradict its own lane note (review round 1).
             if (built.Quests.Count == 0)
-                return new SeqOutcome(true, null, null, null, built.Quests, built.PluginFileName, false) { ResolvedFrom = resolvedFrom, PluginPath = pluginPath };
+                return new SeqOutcome(true, null, null, null, built.Quests, built.PluginFileName, false)
+                    { ResolvedFrom = resolvedFrom, PluginPath = pluginPath, UserChoseOutput = !string.IsNullOrWhiteSpace(outputDir) };
 
             // Output folder: output_dir= (the USER's own mod folder, #312) wins; else the plugin's OWN houseCARL folder;
             // else fresh / explicit into=/patch_name. The output_dir arm cuts no houseCARL folder at all, so the
@@ -7012,10 +7039,24 @@ public sealed class LoadOrderService : IDisposable
             // output_dir=, a whole fresh mod folder) that changed nothing. Compared against the bytes already built in
             // memory, so this costs one read of a file that is typically a few hundred bytes. Reported as its OWN state
             // rather than folded into success (Q3): "nothing written" and "written" must not look alike.
-            if (SameBytesOnDisk(dest, built.Bytes))
+            // …with one thing the skip must NOT take with it: the TIMESTAMP. validate_dialogue's SEQ lint reads
+            // mtime, not content (`SeqNewerThanPlugin`, DialogueValidate) — a .seq older than its plugin is reported
+            // as stale even when it is byte-perfect. Skipping the write after an in-place edit (the exact loop this
+            // feature exists for) would therefore leave a permanent advisory no houseCARL tool could clear, with two
+            // tools contradicting each other about one file. So an identical-but-older file has its timestamp
+            // refreshed — no content churn, and the sibling lint stays true. If the touch fails, fall THROUGH to the
+            // real write rather than reporting a no-op that leaves the lint wrong (Q3).
+            bool identical = SameBytesOnDisk(dest, built.Bytes), touched = false;
+            if (identical && !RefreshSeqTimestamp(dest, pluginPath, out touched)) identical = false;
+            if (identical)
                 return new SeqOutcome(true, null, dest, rf.ModFolder, built.Quests, built.PluginFileName, autoInto is not null)
-                    { ResolvedFrom = resolvedFrom, PluginPath = pluginPath, Unchanged = true,
+                    { ResolvedFrom = resolvedFrom, PluginPath = pluginPath, Unchanged = true, TimestampRefreshed = touched,
                       UserChoseOutput = chosenOutput, DeployWarning = deployWarning };
+
+            // Is there something HERE already? An output_dir= destination is a folder houseCARL does not own, so the
+            // file being replaced may be the mod's OWN shipped .seq — "wrote" and "replaced yours" are different facts
+            // about the disk, and the same Q3 argument that split the no-op out applies to them (review round 1).
+            bool replaced = File.Exists(dest);
 
             // Crash-atomic write of <plugin>.seq under SEQ\ (originals untouched — a houseCARL-owned folder, or the
             // folder the caller named in output_dir=).
@@ -7024,7 +7065,14 @@ public sealed class LoadOrderService : IDisposable
             {
                 var residue = RemoveOrNameRiderResidue(rf);             // nothing landed → a fresh folder is an orphan
                 return SeqOutcome.Fail($"could not write '{seqName}': {ex.Message}"
-                    + (residue is null ? "" : $" The freshly created folder was left at '{residue}'."));
+                    + (residue is null ? "" : $" The freshly created folder was left at '{residue}'.")
+                    // …and on the output_dir lane cleanup is bypassed BY DESIGN (the folder is the user's), so the
+                    // SEQ\ directory this call created is still there. Say so — "nothing was written" is true of the
+                    // FILE and not of the disk (review round 1).
+                    // …worded for what is KNOWN: the folder is there and houseCARL will not remove it. Claiming this
+                    // call CREATED it would be false whenever the mod already ships a SEQ\ — the feature's own
+                    // headline case (review round 2).
+                    + (chosenOutput ? $" (the '{rf.OutputDir}' folder is left in place — it is inside the folder you named, which houseCARL never removes.)" : ""));
             }
 
             // Integrity (Q3: THIS run wrote it; on-disk size matches the bytes we built — no false success).
@@ -7033,9 +7081,37 @@ public sealed class LoadOrderService : IDisposable
                 return SeqOutcome.Fail($"wrote '{seqName}' but its on-disk size ({size}) does not match the {built.Bytes.Length} expected byte(s) — verify before relying on it.");
 
             return new SeqOutcome(true, null, dest, rf.ModFolder, built.Quests, built.PluginFileName, autoInto is not null)
-                { ResolvedFrom = resolvedFrom, PluginPath = pluginPath,
+                { ResolvedFrom = resolvedFrom, PluginPath = pluginPath, Replaced = replaced,
                   UserChoseOutput = chosenOutput, DeployWarning = deployWarning };
         }
+    }
+
+    /// <summary>#312 — keep a SKIPPED write honest against the mtime-based SEQ lint: if <paramref name="seqPath"/> is
+    /// byte-identical but OLDER than <paramref name="pluginPath"/>, stamp it now. <paramref name="touched"/> reports
+    /// whether a stamp was actually needed (so the response can say so rather than implying one silently happened).
+    /// Returns false when the stamp was needed and FAILED — the caller then does the real write instead of reporting a
+    /// no-op that leaves validate_dialogue calling the file stale (Q3: never trade a loud rewrite for a silent
+    /// inconsistency between two tools).</summary>
+    static bool RefreshSeqTimestamp(string seqPath, string pluginPath, out bool touched)
+    {
+        touched = false;
+        try
+        {
+            var seqTime = File.GetLastWriteTimeUtc(seqPath);
+            var pluginTime = File.GetLastWriteTimeUtc(pluginPath);
+            if (seqTime >= pluginTime) return true;                 // already newer — the lint is satisfied, leave it alone
+            // NOW is not necessarily enough: a plugin can be stamped in the FUTURE relative to this machine's clock
+            // (a restored backup, a synced share, a dual-boot local-vs-UTC BIOS clock), and stamping UtcNow there
+            // would mutate the file, report a refresh, and leave the comparison exactly as it was — a claim without a
+            // fact behind it (review round 2). Stamp past the plugin, then VERIFY, and let a stamp that did not
+            // achieve the predicate fall through to the real write.
+            var target = pluginTime > DateTime.UtcNow ? pluginTime.AddSeconds(1) : DateTime.UtcNow;
+            File.SetLastWriteTimeUtc(seqPath, target);
+            if (File.GetLastWriteTimeUtc(seqPath) < File.GetLastWriteTimeUtc(pluginPath)) return false;
+            touched = true;
+            return true;
+        }
+        catch { return false; }
     }
 
     /// <summary>Does <paramref name="path"/> already hold EXACTLY <paramref name="bytes"/>? Length first (the cheap
@@ -8364,6 +8440,17 @@ public sealed record SeqOutcome(
     /// different facts about the disk, and collapsing them would make a skipped write indistinguishable from a done
     /// one (Q3). False on every path that actually wrote.</summary>
     public bool Unchanged { get; init; }
+
+    /// <summary>#312 — the byte-identical destination was OLDER than the plugin, so its timestamp was stamped forward
+    /// without rewriting a byte. validate_dialogue's SEQ lint judges staleness by mtime, so a skipped write would
+    /// otherwise leave that lint permanently calling a byte-perfect file stale — two tools contradicting each other
+    /// about one file. False when no stamp was needed (the file was already newer) or nothing was skipped.</summary>
+    public bool TimestampRefreshed { get; init; }
+
+    /// <summary>#312 — the write REPLACED a file that was already there, rather than creating one. On the
+    /// <c>output_dir=</c> lane that file can be the mod's OWN shipped <c>.seq</c>, and houseCARL keeps no backup, so
+    /// "wrote" and "replaced yours" are different facts about the disk and are reported as such.</summary>
+    public bool Replaced { get; init; }
 
     /// <summary>#312 — the caller named <c>output_dir=</c>, so the .seq landed in a folder the USER owns and no
     /// houseCARL mod folder was cut. Drives the confirmation: "enable this houseCARL mod in MO2" is the wrong next

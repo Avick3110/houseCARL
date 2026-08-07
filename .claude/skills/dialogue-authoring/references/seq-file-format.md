@@ -56,5 +56,17 @@ that single mod deploys `.esp` and `.seq` together), otherwise a fresh one you e
 After an **in-place** edit the `.esp` is in the *mod's own* folder, so pass `output_dir=` that mod folder
 and the `.seq` lands in its `SEQ\`, where the mod's own copy already lives. `output_dir=` wins over
 `patch=` / `into=` (the response says so), and it never touches the `.esp` — a `.seq` is a new sidecar
-file, not an in-place record edit. If the destination already holds exactly the bytes houseCARL would
-write, nothing is written and the response says `unchanged` — so re-running after every edit is free.
+file, not an in-place record edit.
+
+When the destination is one a **lane names** — `output_dir=`, `into=`, or the plugin's own houseCARL
+folder — and it already holds exactly the bytes houseCARL would write, nothing is written and the
+response says `unchanged`, so re-running after every edit costs nothing. (With *no* lane named the
+destination is a freshly cut folder, empty by construction, so that call always writes — and cuts
+another folder each time. Name a lane if you regenerate repeatedly.) A `.seq` that is byte-identical
+but older than the plugin has its timestamp stamped forward, because `housecarl_validate_dialogue`'s
+SEQ staleness check reads mtime — otherwise a skipped write would leave that check calling a correct
+file stale. (That check lints the `.seq` your load order *serves*, so the refresh clears it only when
+the folder you wrote to is the one that wins the `SEQ\` conflict.)
+
+If a `.seq` is already at the path, it is **overwritten with no backup** and the response says
+`replaced` rather than `wrote` — on `output_dir=` that file can be the mod's own shipped copy.

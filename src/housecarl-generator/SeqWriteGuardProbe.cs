@@ -280,6 +280,17 @@ internal static class SeqWriteGuardProbe
                 $"PURE-SEQ-CONTRACT SEQ\\ appended once, double-SEQ guard case-insensitive + trailing-separator tolerant — [{pcBare.seqDir}] [{pcAlready.seqDir}] [{pcLower.seqDir}]");
             // Deployability is the .pex rule one segment over — and the WARNING is worded for what a mis-placed .seq
             // costs (silently dead quests), not the milder "won't deploy on its own" the compile lane can afford.
+            // …including MO2's OVERWRITE folder, which is VFS-mapped onto Data at top priority and is where xEdit /
+            // CK / Synthesis output normally lands. Omitting it made the feature's own headline case — an in-place
+            // edit of a plugin living in overwrite — warn "the game will NOT see this .seq" about a folder the game
+            // does read (review round 1).
+            const string pcOver = @"C:\MO2\overwrite";
+            Check(LoadOrderService.SeqOutputContract(pcOver, pcMods, pcData, pcOver).deployWarning is null
+                  && LoadOrderService.SeqOutputContract(pcOver, pcMods, pcData).deployWarning is not null,
+                "PURE-SEQ-OVERWRITE <overwrite>\\SEQ deploys when the overwrite root is known, and is judged only on that root (not by name)");
+            // …and a drive ROOT keeps its separator: "C:\" trimmed to "C:" yields the drive-RELATIVE "C:SEQ".
+            Check(LoadOrderService.SeqOutputContract(@"C:\", pcMods, pcData).seqDir == @"C:\SEQ",
+                $"PURE-SEQ-ROOT a drive root appends correctly — got [{LoadOrderService.SeqOutputContract(@"C:\", pcMods, pcData).seqDir}] (want C:\\SEQ, never the drive-relative C:SEQ)");
             Check(LoadOrderService.SeqOutputContract(@"C:\MO2\mods\MyMod", pcMods, pcData).deployWarning is null
                   && LoadOrderService.SeqOutputContract(pcData, pcMods, pcData).deployWarning is null
                   && LoadOrderService.SeqOutputContract(@"C:\MO2\mods", pcMods, pcData).deployWarning is not null
@@ -326,17 +337,21 @@ internal static class SeqWriteGuardProbe
             // UNCHANGED: re-running against a destination that already holds these bytes writes NOTHING. Proved by the
             // file's TIMESTAMP, not by the flag alone — the flag is what a broken short-circuit would set while still
             // rewriting the file, so a mtime sentinel is what makes this arm mean "no write happened".
-            var sentinel = new DateTime(2001, 2, 3, 4, 5, 6, DateTimeKind.Utc);
+            // The PLUGIN is stamped OLDER than the sentinel deliberately: an identical .seq that is older than its
+            // plugin is stamped forward (the MTIME-REFRESH arm below), so "no write" is only observable as a preserved
+            // mtime when the file is already the newer of the two.
+            var sentinel = new DateTime(2005, 5, 5, 5, 5, 5, DateTimeKind.Utc);
             // Stamped only if the arm above actually produced the file: a missing destination is a FAILURE of that
             // arm, and stamping it blind turns it into an exception that takes the rest of this section with it
             // (which is exactly what the OUTPUT-DIR RED check produced).
+            File.SetLastWriteTimeUtc(svcPlugin, new DateTime(2001, 1, 1, 0, 0, 0, DateTimeKind.Utc));
             if (File.Exists(expectedUserSeq)) File.SetLastWriteTimeUtc(expectedUserSeq, sentinel);
             else Check(false, "UNCHANGED prerequisite: the OUTPUT-DIR arm left no file to re-run against");
             var oSame = svc.WriteSeq(svcPlugin, null, null, userMod);
-            Check(oSame.Success && oSame.Unchanged
+            Check(oSame.Success && oSame.Unchanged && !oSame.TimestampRefreshed
                   && File.GetLastWriteTimeUtc(expectedUserSeq) == sentinel
                   && string.Equals(oSame.SeqPath, expectedUserSeq, StringComparison.OrdinalIgnoreCase),
-                $"UNCHANGED byte-identical destination → nothing written (mtime untouched), reported as its own state — unchanged={oSame.Unchanged} err=[{oSame.Error}]");
+                $"UNCHANGED byte-identical destination → nothing written (mtime untouched), reported as its own state — unchanged={oSame.Unchanged} touched={oSame.TimestampRefreshed} err=[{oSame.Error}]");
 
             // UNCHANGED-DIFFERS: the negative half. A destination holding DIFFERENT bytes is rewritten — a
             // short-circuit that fired on mere existence would leave the stale file and report success.
@@ -349,6 +364,38 @@ internal static class SeqWriteGuardProbe
                   && File.ReadAllBytes(expectedUserSeq).Length == 4
                   && File.ReadAllBytes(expectedUserSeq)[0] != 0xDE,
                 $"UNCHANGED-DIFFERS a stale destination IS rewritten (the short-circuit compares BYTES, not existence) — unchanged={oDiff.Unchanged}");
+
+            // MTIME-REFRESH: the no-op must not leave the file looking STALE to the sibling lint, which reads MTIME
+            // and not content (validate_dialogue's SeqNewerThanPlugin). Without this, the exact loop the feature
+            // exists for — edit in place, regenerate — would leave a permanent "your .seq is older than the plugin"
+            // advisory on a byte-perfect file, with two houseCARL tools contradicting each other (review round 1).
+            File.SetLastWriteTimeUtc(expectedUserSeq, new DateTime(2001, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+            var pluginStamp = new DateTime(2020, 6, 6, 6, 6, 6, DateTimeKind.Utc);
+            File.SetLastWriteTimeUtc(svcPlugin, pluginStamp);
+            var oStale = svc.WriteSeq(svcPlugin, null, null, userMod);
+            Check(oStale.Success && oStale.Unchanged && oStale.TimestampRefreshed
+                  && File.GetLastWriteTimeUtc(expectedUserSeq) > pluginStamp
+                  && File.ReadAllBytes(expectedUserSeq).Length == 4,
+                $"MTIME-REFRESH a byte-identical but OLDER .seq is stamped forward, not rewritten — unchanged={oStale.Unchanged} touched={oStale.TimestampRefreshed} seq={File.GetLastWriteTimeUtc(expectedUserSeq):O} plugin={pluginStamp:O}");
+            var renderStale = SeqTools.Render(oStale);
+            Check(renderStale.Contains("timestamp was refreshed", StringComparison.Ordinal)
+                  && renderStale.Contains("validate_dialogue", StringComparison.Ordinal)
+                  // …and it does NOT promise that tool's verdict: the lint reads the .seq the VFS SERVES, which is
+                  // this file only when this folder wins the SEQ\ conflict (review round 2).
+                  && renderStale.Contains("provided this is the copy your load order actually serves", StringComparison.Ordinal),
+                $"MTIME-REFRESH-RENDER the stamp is STATED and its scope is bounded — render=[{Trim(renderStale)}]");
+
+            // MTIME-FUTURE: a plugin stamped in the FUTURE (restored backup, skewed clock) cannot be beaten by
+            // stamping UtcNow — the old code would have mutated the file, claimed a refresh, and left the comparison
+            // exactly as it was. The stamp now targets past the plugin and VERIFIES, so the file really is newer.
+            var future = DateTime.UtcNow.AddDays(30);
+            File.SetLastWriteTimeUtc(svcPlugin, future);
+            File.SetLastWriteTimeUtc(expectedUserSeq, new DateTime(2001, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+            var oFuture = svc.WriteSeq(svcPlugin, null, null, userMod);
+            Check(oFuture.Success
+                  && File.GetLastWriteTimeUtc(expectedUserSeq) >= File.GetLastWriteTimeUtc(svcPlugin),
+                $"MTIME-FUTURE a future-stamped plugin still ends up OLDER than its .seq (the refresh is verified, not assumed) — seq={File.GetLastWriteTimeUtc(expectedUserSeq):O} plugin={future:O} unchanged={oFuture.Unchanged} touched={oFuture.TimestampRefreshed}");
+            File.SetLastWriteTimeUtc(svcPlugin, new DateTime(2001, 1, 1, 0, 0, 0, DateTimeKind.Utc));   // leave the fixture sane
 
             // TOOL-LANE: output_dir= WINS over patch=/into=, and says so (Q3 — an ignored parameter is stated, never
             // silently dropped). Asserted through the TOOL, because the note is composed there.
@@ -368,6 +415,56 @@ internal static class SeqWriteGuardProbe
 
             // JSON-UNCHANGED: written=false with unchanged=true and a seq_path — the machine twin of the same fact
             // (the pre-#312 `written` was "a path exists", which would now report a write that never happened).
+            // REPLACED: the write that overwrites an existing .seq says so. On the output_dir lane that file can be
+            // the mod's OWN shipped copy and houseCARL keeps no backup — the same "two different facts about the disk"
+            // argument that split the no-op out (review round 1).
+            File.WriteAllBytes(expectedUserSeq, new byte[] { 1, 2, 3, 4, 5, 6 });
+            var oRepl = svc.WriteSeq(svcPlugin, null, null, userMod);
+            var renderRepl = SeqTools.Render(oRepl);
+            Check(oRepl.Success && !oRepl.Unchanged && oRepl.Replaced
+                  && renderRepl.StartsWith("replaced ", StringComparison.Ordinal)
+                  && renderRepl.Contains("no backup is kept", StringComparison.Ordinal),
+                $"REPLACED overwriting an existing .seq reports 'replaced', not 'wrote' — replaced={oRepl.Replaced} render=[{Trim(renderRepl)}]");
+            // …and the fresh-file case is NOT reported as a replacement (the flag has to discriminate).
+            File.Delete(expectedUserSeq);
+            var oFresh = svc.WriteSeq(svcPlugin, null, null, userMod);
+            Check(oFresh.Success && !oFresh.Replaced && SeqTools.Render(oFresh).StartsWith("wrote ", StringComparison.Ordinal),
+                $"REPLACED-NEG a first write to an empty destination is 'wrote', not 'replaced' — replaced={oFresh.Replaced}");
+
+            // LANE-ORDER: output_dir= + patch= + into= together is NOT refused. The pair-exclusivity check used to run
+            // first, so naming all three was rejected over two parameters output_dir='s own contract promises to
+            // ignore — a tool contradicting itself (review round 1).
+            var toolAllThree = SeqTools.WriteSeq(svc, source: Path.GetFileName(svcPlugin),
+                patch: "HcSeqIgnoredA", into: "HcSeqIgnoredB.esp", output_dir: userMod);
+            Check(!toolAllThree.StartsWith("error:", StringComparison.Ordinal)
+                  && toolAllThree.Contains("output_dir= was given", StringComparison.Ordinal),
+                $"LANE-ORDER output_dir= + patch= + into= is accepted with the ignored-lane note, not refused — render=[{Trim(toolAllThree)}]");
+            // …while the pair WITHOUT output_dir is still the refusal it was.
+            var toolPair = SeqTools.WriteSeq(svc, source: Path.GetFileName(svcPlugin),
+                patch: "HcSeqIgnoredA", into: "HcSeqIgnoredB.esp");
+            Check(toolPair.StartsWith("error:", StringComparison.Ordinal)
+                  && toolPair.Contains("exclusive", StringComparison.Ordinal),
+                $"LANE-ORDER-NEG patch= + into= alone is still refused BY NAME — render=[{Trim(toolPair)}]");
+
+            // NOOP-LANE-NOTE: the no-SGE-quest early return carries the ignored-lane note too. It used to drop it
+            // while the json twin emitted one — the D2 divergence this file's epoch fold exists to close.
+            var toolEmptyNote = SeqTools.WriteSeq(svc, source: emptyPlugin, patch: "HcSeqIgnoredC", output_dir: userMod);
+            Check(toolEmptyNote.Contains("no start-game-enabled quests", StringComparison.Ordinal)
+                  && toolEmptyNote.Contains("output_dir= was given", StringComparison.Ordinal),
+                $"NOOP-LANE-NOTE the nothing-to-do render states the ignored lane too — render=[{Trim(toolEmptyNote)}]");
+
+            // LANE-NOTE-ON-REFUSAL: an ignored lane stays stated when the call FAILS. A refusal is exactly when a
+            // caller re-reads their parameters, and "patch= was ignored" is still true (review round 2).
+            var failNote = SeqTools.WriteSeq(svc, source: "HcSeqNoSuchPlugin.esp", patch: "HcSeqIgnoredD", output_dir: userMod);
+            Check(failNote.StartsWith("error:", StringComparison.Ordinal)
+                  && failNote.Contains("output_dir= was given", StringComparison.Ordinal),
+                $"LANE-NOTE-ON-REFUSAL a failed call still states the ignored lane — render=[{Trim(failNote)}]");
+            var failNoteJson = SeqTools.WriteSeq(svc, source: "HcSeqNoSuchPlugin.esp", patch: "HcSeqIgnoredD",
+                output_dir: userMod, format: "json");
+            Check(failNoteJson.Contains("\"lane_note\"", StringComparison.Ordinal)
+                  && failNoteJson.Contains("output_dir= was given", StringComparison.Ordinal),
+                $"LANE-NOTE-ON-REFUSAL-JSON …on the json transport too (D2) — render=[{Trim(failNoteJson)}]");
+
             var jsonSame = SeqTools.WriteSeq(svc, source: Path.GetFileName(svcPlugin), output_dir: userMod, format: "json");
             Check(jsonSame.Contains("\"written\": false", StringComparison.Ordinal)
                   && jsonSame.Contains("\"unchanged\": true", StringComparison.Ordinal)

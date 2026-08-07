@@ -1772,6 +1772,7 @@ static class JsonWire
             if (!o.Success)
             {
                 WriteNullable(w, "error", o.Error);
+                WriteNullable(w, "lane_note", outputNote);   // an ignored lane stays stated on a refusal too (review round 2)
                 w.WriteEndObject();
                 w.Flush();          // INSIDE the using — see RenderPatchOutcome (an unflushed refusal renders EMPTY).
                 return Finish(ms);
@@ -1782,8 +1783,13 @@ static class JsonWire
             WriteNullable(w, "source_path", o.PluginPath);
             w.WriteBoolean("written", o.SeqPath is not null && !o.Unchanged);
             w.WriteBoolean("unchanged", o.Unchanged);
+            w.WriteBoolean("replaced", o.Replaced);
+            w.WriteBoolean("timestamp_refreshed", o.TimestampRefreshed);
             if (o.Unchanged)
-                w.WriteString("unchanged_note", "the destination already held EXACTLY these bytes, so nothing was written — seq_path names the file that was already current. Stated rather than reported as a write (Q3: a skipped write and a done one must not look alike).");
+                w.WriteString("unchanged_note", "the destination already held EXACTLY these bytes, so nothing was written — seq_path names the file that was already current. Stated rather than reported as a write (Q3: a skipped write and a done one must not look alike)."
+                    + (o.TimestampRefreshed ? " Its mtime was older than the plugin and has been stamped forward (contents untouched); validate_dialogue's SEQ staleness check compares those two mtimes, so this file no longer reads as stale — for the copy the load order actually serves, which is this one only if this folder wins the SEQ\\ conflict." : ""));
+            if (o.Replaced)
+                w.WriteString("replaced_note", "a .seq already existed at seq_path and was OVERWRITTEN; houseCARL keeps no backup. On the output_dir lane that file can be the mod's own shipped .seq.");
             WriteNullable(w, "seq_path", o.SeqPath);
             WriteNullable(w, "mod_folder", o.ModFolder);
             w.WriteBoolean("wrote_into_plugin_folder", o.WroteIntoPluginFolder);
