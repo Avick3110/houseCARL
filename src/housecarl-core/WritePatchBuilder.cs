@@ -434,7 +434,7 @@ public static class WritePatchBuilder
                 var srcPlugin = ResolveCopyPole(e, view, out var poleErr);
                 if (poleErr is not null) { problems.Add(poleErr); continue; }
 
-                if (copyFromSources is not null && copyFromSources.TryGetValue(e, out var offSrc))
+                if (TryOffOrderCopyBody(copyFromSources, e, view, out var offSrc))
                     srcBody = offSrc;
                 else if (string.IsNullOrWhiteSpace(srcPlugin))
                 { problems.Add($"{e.Target}: CopyFrom is missing from_plugin (internal — the mapper should have caught this)."); continue; }
@@ -591,6 +591,28 @@ public static class WritePatchBuilder
         e.FromTarget is null
             ? $"{e.Target}: CopyFrom source '{srcPlugin}' is in the load order but does NOT define or override this record — there is no version of it there to copy."
             : $"{e.Target}: CopyFrom source '{srcPlugin}' is in the load order but does NOT define or override the SOURCE record {e.CopySource} — there is no version of it there to copy from.";
+
+    /// <summary>Does this edit's CopyFrom source resolve through the service's OFF-ORDER pre-locate? A dictionary hit
+    /// alone is NOT the answer. The pre-locate takes its OWN capture (<c>ResolveOffOrderCopySources</c>), the engine
+    /// captures again, and <c>_snap</c> can be swapped by a concurrent read's freshness rebuild in between — inside
+    /// <c>_writeGate</c> too, which serialises writes but not index rebuilds. So a source that was off-order a moment
+    /// ago may be ACTIVE now, and using the pre-fetched bodies then reads the DISK copy of a live plugin. A profile
+    /// switch changes which mod folder serves a filename, so that copy can be a genuinely DIFFERENT file: a wrong
+    /// BODY, not merely a wrong label.
+    /// <para>Re-checking against <paramref name="view"/> — THIS call's capture — costs one dictionary lookup and
+    /// resolves the drift the right way round: the fresher build wins, the pre-fetched bodies go unused, and the
+    /// in-order arm below resolves the source correctly. #317; the <c>forward</c> twin is
+    /// <see cref="IsOffOrderSource"/> (PR #313), whose arm this mirrors deliberately.</para></summary>
+    static bool TryOffOrderCopyBody(
+        IReadOnlyDictionary<PatchEdit, IMajorRecordGetter>? copyFromSources, PatchEdit e,
+        LoadOrderResolver.IndexView view, out IMajorRecordGetter? body)
+    {
+        body = null;
+        return copyFromSources is not null
+            && !string.IsNullOrWhiteSpace(e.FromPlugin)          // the pre-locate only ever keys edits that named one
+            && !view.ContainsPlugin(e.FromPlugin!)
+            && copyFromSources.TryGetValue(e, out body);
+    }
 
     /// <summary>Resolve the PLUGIN a CopyFrom reads its source body from. Named <c>from_source</c> wins; when it is
     /// absent AND a source RECORD is named (the §4.5 zip's <c>from</c>), it defaults to that record's load-order
@@ -759,7 +781,7 @@ public static class WritePatchBuilder
                 var srcPlugin = ResolveCopyPole(e, view, out var poleErr);
                 if (poleErr is not null) { problems.Add(poleErr); continue; }
 
-                if (copyFromSources is not null && copyFromSources.TryGetValue(e, out var offSrc))
+                if (TryOffOrderCopyBody(copyFromSources, e, view, out var offSrc))
                     srcBody = offSrc;
                 else if (string.IsNullOrWhiteSpace(srcPlugin))
                 { problems.Add($"{e.Target}: CopyFrom is missing from_plugin (internal — the mapper should have caught this)."); continue; }
@@ -1538,8 +1560,8 @@ public static class WritePatchBuilder
     /// ACTIVE now. Matching on the name alone would then read the disk copy of a live plugin — and a profile switch can
     /// make that a DIFFERENT file, so it is a wrong body, not merely a wrong label. Re-checking costs one dictionary
     /// lookup and resolves the drift the right way round: the fresher build wins, the pre-fetched bodies go unused, and
-    /// the arm reported matches the arm taken (PR #313 review 3 [observation]). The <c>CopyFrom</c> twin has the same
-    /// window and is NOT fixed here — same-shaped change, different lane, its own PR.</para></summary>
+    /// the arm reported matches the arm taken (PR #313 review 3 [observation]). The <c>CopyFrom</c> twin closed the
+    /// same window in its own PR (#317) — <see cref="TryOffOrderCopyBody"/>, deliberately the same shape.</para></summary>
     static bool IsOffOrderSource(OffOrderForwardSource? offOrder, ForwardSpec s, LoadOrderResolver.IndexView view) =>
         offOrder is not null
         && string.Equals(offOrder.Plugin, s.FromPlugin, StringComparison.OrdinalIgnoreCase)

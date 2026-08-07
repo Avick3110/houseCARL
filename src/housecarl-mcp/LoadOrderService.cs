@@ -4542,7 +4542,10 @@ public sealed class LoadOrderService : IDisposable
     /// left for <see cref="WritePatchBuilder.Apply"/> to resolve via its shared view (so they read the winner's build).
     /// Returns a Q3 refusal string if any off-order source can't be located/opened/read or doesn't define the record
     /// (all-or-nothing, before any write); null on success. Uses the SAME on-disk locate as read_plugin_file / the
-    /// copy-npc-appearance donor lane, so the tools can never disagree on which file a filename names.</summary>
+    /// copy-npc-appearance donor lane, so the tools can never disagree on which file a filename names.
+    /// <para>This capture is its OWN — the engine captures again — so a body pre-fetched here is only USED when the
+    /// engine's fresher build still agrees the source is off-order (<c>WritePatchBuilder.TryOffOrderCopyBody</c>,
+    /// #317). Pre-fetching a source that has since become active is wasted work, never a wrong body.</para></summary>
     string? ResolveOffOrderCopySources(LoadOrderResolver resolver, IReadOnlyList<WritePatchBuilder.PatchEdit> edits,
         ref Dictionary<WritePatchBuilder.PatchEdit, IMajorRecordGetter>? sources, ref List<IDisposable>? overlays,
         out string? epoch)
