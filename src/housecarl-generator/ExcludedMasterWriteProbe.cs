@@ -159,6 +159,9 @@ public static class ExcludedMasterWriteProbe
 
             BaselineArm(Path.Combine(root, "bl"));
             RealOrderArm(Path.Combine(root, "ro"));
+            CompactMasterArm(Path.Combine(root, "cm"));
+            RepointArm(Path.Combine(root, "rp"));
+            InPlaceThresholdArm(Path.Combine(root, "ip"));
 
             Console.WriteLine();
             Console.WriteLine($"=== excluded-master-guard: {_pass} passed, {_fail} failed -> {(_fail == 0 ? "PASS" : "FAIL")} ===");
@@ -347,6 +350,252 @@ public static class ExcludedMasterWriteProbe
             && !npc.Contains("..", StringComparison.Ordinal)                         // …so no doubled period
             && !npc.Contains("serialize failed", StringComparison.Ordinal),          // …behind a phase never reached
             npc);
+    }
+
+    // ---- #316: the three PR #315 fixes that shipped proven only by READING -------------------------------------
+    //
+    // Each takes its OWN order, for the reason this whole file exists: an unopenable plugin poisons every write in
+    // the order it sits in. The two arms above predate them and are left as they are — retrofitting a working guard
+    // onto a shared harness is churn with a real chance of breaking what it was written to hold.
+
+    /// <summary>A synthetic MO2 instance skeleton (ini + profile dir + mods dir + game Data), shared by the #316 arms
+    /// so three near-identical setups don't drift apart in three different ways. Returns the instance root and its
+    /// mods dir; the caller writes the plugins, then calls <see cref="Profile"/>.</summary>
+    static (string instance, string mods) NewInstance(string dir)
+    {
+        string instance = Path.Combine(dir, "instance");
+        string mods = Path.Combine(instance, "mods");
+        Directory.CreateDirectory(Path.Combine(instance, "profiles", "Default"));
+        Directory.CreateDirectory(mods);
+        Directory.CreateDirectory(Path.Combine(dir, "game", "Data"));
+        File.WriteAllText(Path.Combine(instance, "ModOrganizer.ini"),
+            "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(Default)\r\ngamePath=@ByteArray("
+            + Path.Combine(dir, "game").Replace(@"\", @"\\") + ")\r\n");
+        return (instance, mods);
+    }
+
+    /// <summary>Write the three profile files for an order given in LOAD order (folder, plugin key). modlist.txt is
+    /// MO2's reverse-priority list, so it is emitted reversed — getting that backwards silently inverts which copy of
+    /// a filename wins.</summary>
+    static void Profile(string instance, params (string folder, ModKey key)[] order)
+    {
+        var p = Path.Combine(instance, "profiles", "Default");
+        File.WriteAllText(Path.Combine(p, "loadorder.txt"), "# header\r\n" + string.Concat(order.Select(o => o.key.FileName + "\r\n")));
+        File.WriteAllText(Path.Combine(p, "plugins.txt"), string.Concat(order.Select(o => "*" + o.key.FileName + "\r\n")));
+        File.WriteAllText(Path.Combine(p, "modlist.txt"), "# header\r\n" + string.Concat(order.Reverse().Select(o => "+" + o.folder + "\r\n")));
+    }
+
+    /// <summary>Write <paramref name="m"/> into <paramref name="mods"/>\<paramref name="folder"/> against
+    /// <paramref name="lo"/>, returning the path.</summary>
+    static string WriteMod(string mods, string folder, ModKey k, SkyrimMod m, params ISkyrimModGetter[] lo)
+    {
+        var p = Path.Combine(mods, folder, k.FileName.String);
+        Directory.CreateDirectory(Path.GetDirectoryName(p)!);
+        m.BeginWrite.ToPath(p).WithLoadOrder(lo).NoNextFormIDProcessing().Write();
+        return p;
+    }
+
+    /// <summary>Break a written plugin into the could-not-be-OPENED exclusion class: a valid header followed by a
+    /// truncated body. Twelve bytes is what the fixtures above use and what reliably produces the class.</summary>
+    static void Truncate(string path)
+    {
+        var whole = File.ReadAllBytes(path);
+        File.WriteAllBytes(path, whole[..(whole.Length - 12)]);
+    }
+
+    /// <summary>#316 (1) — <c>CompactBuild</c>'s declared-master open. The <c>catch</c> added around
+    /// <c>CreateFromBinaryOverlay</c> to mirror <c>MergeBuild</c>'s twin shipped with no arm. Its whole reason for
+    /// existing is the CALLER's cleanup: <c>RemoveOrNameRiderResidue</c> runs on a <c>Fail</c> RETURN and never on a
+    /// throw, so an escaping exception leaves an orphan houseCARL mod folder in the MO2 mods directory — which is why
+    /// this arm asserts the folder count as hard as it asserts the message.</summary>
+    static void CompactMasterArm(string dir)
+    {
+        Console.WriteLine();
+        Console.WriteLine("   -- compact: an unopenable DECLARED master is a named refusal, and leaves no orphan folder --");
+
+        var (instance, mods) = NewInstance(dir);
+        var brkKey = new ModKey("HcXCmBroken", ModType.Plugin);
+        var subKey = new ModKey("HcXCmSubject", ModType.Plugin);
+
+        var brk = new SkyrimMod(brkKey, SkyrimRelease.SkyrimSE);
+        var brkOwn = brk.Weapons.AddNew(); brkOwn.EditorID = "CmBrokenOwn";
+        brkOwn.BasicStats = new WeaponBasicStats { Damage = 40 };
+        var brkPath = WriteMod(mods, "CmBroken", brkKey, brk);
+
+        // The compact SUBJECT: its own originating record (something to renumber) plus an override of the broken
+        // plugin's record — which is what puts the unopenable plugin in its DECLARED master header.
+        var sub = new SkyrimMod(subKey, SkyrimRelease.SkyrimSE);
+        if (sub.ModHeader.Stats.NextFormID < 0x800) sub.ModHeader.Stats.NextFormID = 0x800;
+        var subOwn = sub.Weapons.AddNew(); subOwn.EditorID = "CmSubjectOwn";
+        subOwn.BasicStats = new WeaponBasicStats { Damage = 15 };
+        ((IWeapon)WriteEngine.GenericGetOrAddAsOverride(sub, brkOwn)).BasicStats = new WeaponBasicStats { Damage = 41 };
+        WriteMod(mods, "CmSubject", subKey, sub, brk);
+
+        Truncate(brkPath);                                   // …last, so the subject could be built against it
+        Profile(instance, ("CmBroken", brkKey), ("CmSubject", subKey));
+
+        using var svc = LoadOrderService.WithInstance(instance, 0, new UserConfigStore(Path.Combine(dir, "hc.user.json")));
+        svc.Stats();
+
+        int before = Directory.GetDirectories(mods).Length;
+        var outcome = svc.CompactPlugin(subKey.FileName.String, esl: true, inPlace: false, repointExternals: false,
+            acknowledge: false, patchName: null);
+        int after = Directory.GetDirectories(mods).Length;
+
+        Check("compact: an unopenable DECLARED master is a named Fail (not an escaping engine throw), naming the plugin and the remedy",
+            !outcome.Success && outcome.Error is { } cerr
+            && cerr.Contains(brkKey.FileName.String, StringComparison.OrdinalIgnoreCase)
+            && cerr.Contains("could not be opened for the serialize", StringComparison.Ordinal)
+            && cerr.Contains("Nothing was written", StringComparison.Ordinal),
+            outcome.Error ?? "(succeeded)");
+        // The REASON the wrap exists, and the half a message assertion cannot see: cleanup only runs on a Fail RETURN.
+        Check("…and the fresh mod folder it cut is REMOVED — the cleanup an escaping throw would have skipped",
+            after == before, $"mod folders {before} -> {after}");
+    }
+
+    /// <summary>#316 (2) — <c>RemapEngine.RepointInPlace</c>'s <c>IsUnopenable</c> pre-check + wrap. The one that
+    /// matters most: its caller reaches it only AFTER the compacted plugin is already on disk, so an escaping throw
+    /// discards every per-plugin repoint result and skips the facegen/voice/SEQ carry that follows — on a
+    /// half-completed compaction. Driven through the TOOL, because the difference this fix makes is precisely
+    /// "a named per-plugin failure" vs "Guard.Tool's generic internal-failure wrapper".</summary>
+    static void RepointArm(string dir)
+    {
+        Console.WriteLine();
+        Console.WriteLine("   -- compact + repoint: an external referencer whose OWN master is unopenable fails NAMED, mid-compaction --");
+
+        var (instance, mods) = NewInstance(dir);
+        var brkKey = new ModKey("HcXRpBroken", ModType.Plugin);
+        var tgtKey = new ModKey("HcXRpTarget", ModType.Plugin);
+        var extKey = new ModKey("HcXRpExternal", ModType.Plugin);
+
+        var brk = new SkyrimMod(brkKey, SkyrimRelease.SkyrimSE);
+        var brkOwn = brk.Weapons.AddNew(); brkOwn.EditorID = "RpBrokenOwn";
+        brkOwn.BasicStats = new WeaponBasicStats { Damage = 40 };
+        var brkPath = WriteMod(mods, "RpBroken", brkKey, brk);
+
+        // The compact TARGET declares NO unopenable master itself — otherwise CompactBuild refuses first and the
+        // repoint stage is never reached (which is the arm above, not this one).
+        var tgt = new SkyrimMod(tgtKey, SkyrimRelease.SkyrimSE);
+        if (tgt.ModHeader.Stats.NextFormID < 0x800) tgt.ModHeader.Stats.NextFormID = 0x800;
+        var tgtOwn = tgt.Weapons.AddNew(); tgtOwn.EditorID = "RpTargetOwn";
+        tgtOwn.BasicStats = new WeaponBasicStats { Damage = 15 };
+        var tgtPath = WriteMod(mods, "RpTarget", tgtKey, tgt);
+
+        // The EXTERNAL referencer: it points at the target's record (so the compaction must repoint it) AND declares
+        // the broken plugin as a master (so the repoint's own re-serialize hits the unopenable open).
+        // …and the reference must be a LINK, not an override: HasExternalReferencers counts FormLinks INTO the
+        // renumbered records (an override is reported separately and never gates the operation), so an override-only
+        // "referencer" produced "external referencers: none" and the repoint stage never ran at all.
+        var ext = new SkyrimMod(extKey, SkyrimRelease.SkyrimSE);
+        if (ext.ModHeader.Stats.NextFormID < 0x800) ext.ModHeader.Stats.NextFormID = 0x800;
+        var lvl = ext.LeveledItems.AddNew(); lvl.EditorID = "RpExtList";
+        lvl.Entries = new Noggog.ExtendedList<LeveledItemEntry>
+        {
+            new LeveledItemEntry { Data = new LeveledItemEntryData { Level = 1, Count = 1, Reference = tgtOwn.ToLink<IItemGetter>() } },
+        };
+        ((IWeapon)WriteEngine.GenericGetOrAddAsOverride(ext, brkOwn)).BasicStats = new WeaponBasicStats { Damage = 41 };
+        WriteMod(mods, "RpExternal", extKey, ext, brk, tgt);
+
+        Truncate(brkPath);
+        Profile(instance, ("RpBroken", brkKey), ("RpTarget", tgtKey), ("RpExternal", extKey));
+
+        using var svc = LoadOrderService.WithInstance(instance, 0, new UserConfigStore(Path.Combine(dir, "hc.user.json")));
+        svc.Stats();
+
+        var targetBefore = File.ReadAllBytes(tgtPath);   // BYTES, not length: a renumber rewrites ids in place and the size is identical
+        var render = WriteTools.CompactPlugin(svc, plugin: tgtKey.FileName.String, esl: true, in_place: true,
+            repoint_externals: true, acknowledge: true);
+
+        Check("repoint: the per-plugin failure is NAMED — the unopenable master, the remedy, and the file left UNTOUCHED",
+            render.Contains(extKey.FileName.String, StringComparison.OrdinalIgnoreCase)
+            && render.Contains(brkKey.FileName.String, StringComparison.OrdinalIgnoreCase)
+            && render.Contains("cannot be opened by houseCARL", StringComparison.Ordinal)
+            && render.Contains("UNTOUCHED", StringComparison.Ordinal),
+            Trim(render));
+        // The consequence the pre-check exists for: a throw here escapes to Guard.Tool, which reports an INTERNAL
+        // failure — discarding the repoint results and skipping the asset carry, on an ALREADY-REWRITTEN target.
+        Check("…and it is a REPORTED result, not Guard.Tool's internal-failure wrapper (the throw would land after P′ is on disk)",
+            !render.Contains("internal failure", StringComparison.OrdinalIgnoreCase)
+            && !render.Contains("unexpected", StringComparison.OrdinalIgnoreCase),
+            Trim(render));
+        // …and the compaction is still REPORTED. P′ lands before the repoint either way, so "the file changed" alone
+        // proves nothing (its own RED check passed on that clause); what the throw destroys is the caller's RESULT —
+        // the compaction report, the other referencers' outcomes, and the asset carry that follows it.
+        Check("…and the compaction itself is still REPORTED — the failing repoint is one plugin's result, not the call's",
+            !File.ReadAllBytes(tgtPath).AsSpan().SequenceEqual(targetBefore)
+            && render.Contains("compacted", StringComparison.OrdinalIgnoreCase),
+            $"target rewritten={!File.ReadAllBytes(tgtPath).AsSpan().SequenceEqual(targetBefore)} :: {Trim(render)}");
+    }
+
+    /// <summary>#316 (3) — the IN-PLACE lane's single-master threshold. <c>DryRunMastersPreview(patchLane:false)</c>
+    /// predicts the same <c>set.Count > 1</c> rule the patch lane uses, and nothing verified it on THIS lane. The
+    /// patch-lane side is pinned both ways above (a one-master header writes; a two-master header refuses); this is
+    /// its twin, pinned the same two ways, and with the dry run agreeing on BOTH — a threshold verified in only one
+    /// direction is how a predictor drifts into over- or under-refusing without a guard noticing.</summary>
+    static void InPlaceThresholdArm(string dir)
+    {
+        Console.WriteLine();
+        Console.WriteLine("   -- in-place: the single-master threshold, pinned BOTH ways, real call and dry run --");
+
+        var (instance, mods) = NewInstance(dir);
+        var mstKey = new ModKey("HcXIpMaster", ModType.Master);
+        var brkKey = new ModKey("HcXIpBroken", ModType.Plugin);
+        var oneKey = new ModKey("HcXIpOne", ModType.Plugin);
+        var twoKey = new ModKey("HcXIpTwo", ModType.Plugin);
+
+        var mst = new SkyrimMod(mstKey, SkyrimRelease.SkyrimSE);
+        var mstOwn = mst.Weapons.AddNew(); mstOwn.EditorID = "IpMasterOwn";
+        mstOwn.BasicStats = new WeaponBasicStats { Damage = 10 };
+        WriteMod(mods, "IpMaster", mstKey, mst);
+
+        var brk = new SkyrimMod(brkKey, SkyrimRelease.SkyrimSE);
+        var brkOwn = brk.Weapons.AddNew(); brkOwn.EditorID = "IpBrokenOwn";
+        brkOwn.BasicStats = new WeaponBasicStats { Damage = 40 };
+        var brkPath = WriteMod(mods, "IpBroken", brkKey, brk);
+
+        // ONE master: overrides only the broken plugin's record, so its header is exactly {broken}.
+        var one = new SkyrimMod(oneKey, SkyrimRelease.SkyrimSE);
+        ((IWeapon)WriteEngine.GenericGetOrAddAsOverride(one, brkOwn)).BasicStats = new WeaponBasicStats { Damage = 41 };
+        WriteMod(mods, "IpOne", oneKey, one, brk);
+
+        // TWO masters: the same override PLUS one of the openable master's, so the header must be SORTED.
+        var two = new SkyrimMod(twoKey, SkyrimRelease.SkyrimSE);
+        ((IWeapon)WriteEngine.GenericGetOrAddAsOverride(two, brkOwn)).BasicStats = new WeaponBasicStats { Damage = 42 };
+        ((IWeapon)WriteEngine.GenericGetOrAddAsOverride(two, mstOwn)).BasicStats = new WeaponBasicStats { Damage = 11 };
+        WriteMod(mods, "IpTwo", twoKey, two, mst, brk);
+
+        Truncate(brkPath);
+        Profile(instance, ("IpMaster", mstKey), ("IpBroken", brkKey), ("IpOne", oneKey), ("IpTwo", twoKey));
+
+        using var svc = LoadOrderService.WithInstance(instance, 0, new UserConfigStore(Path.Combine(dir, "hc.user.json")));
+        svc.Stats();
+
+        string brokenFid = $"{brkOwn.FormKey.ID:X6}:{brkKey.FileName}";
+        string Edit(string fid, string val) => $$"""[{"formid":"{{fid}}","field_path":"BasicStats.Damage","value":"{{val}}"}]""";
+        System.Text.Json.JsonElement Ops(string fid, string val)
+            => System.Text.Json.JsonDocument.Parse(Edit(fid, val)).RootElement.Clone();
+
+        // ONE master — WRITES. (The record it edits ORIGINATES in the unopenable plugin, so the header entry comes
+        // from the record's own FormKey; nothing has to be sorted against a plugin that cannot be opened.)
+        var oneReal = ApplyTools.Apply(svc, ops: Ops(brokenFid, "44"), in_place: oneKey.FileName.String, acknowledge: true);
+        Check("in_place, ONE-master header: the write LANDS even though that one master is unopenable",
+            !oneReal.StartsWith("error:"), oneReal);
+        var oneDry = ApplyTools.Apply(svc, ops: Ops(brokenFid, "45"), in_place: oneKey.FileName.String, acknowledge: true, dry_run: true);
+        Check("…and the dry run AGREES (no over-refusal — the predictor's threshold, on the lane that predicts it)",
+            oneDry.StartsWith("DRY RUN", StringComparison.Ordinal), oneDry);
+
+        // TWO masters — REFUSES, by CAUSE. This is the case a real order always takes.
+        var twoReal = ApplyTools.Apply(svc, ops: Ops(brokenFid, "46"), in_place: twoKey.FileName.String, acknowledge: true);
+        Check("in_place, TWO-master header: the write REFUSES, naming the unopenable plugin as the cause",
+            twoReal.StartsWith("error:")
+            && twoReal.Contains(brkKey.FileName.String, StringComparison.OrdinalIgnoreCase)
+            && twoReal.Contains("cannot be opened by houseCARL", StringComparison.Ordinal)
+            && !twoReal.Contains("is NOT active in", StringComparison.Ordinal), twoReal);
+        var twoDry = ApplyTools.Apply(svc, ops: Ops(brokenFid, "47"), in_place: twoKey.FileName.String, acknowledge: true, dry_run: true);
+        Check("…and the dry run predicts THAT refusal too (#225 parity on the in-place lane, both directions now pinned)",
+            twoDry.StartsWith("error:")
+            && twoDry.Contains(brkKey.FileName.String, StringComparison.OrdinalIgnoreCase)
+            && twoDry.Contains("cannot be opened by houseCARL", StringComparison.Ordinal), twoDry);
     }
 
     sealed class Fixture : IDisposable
