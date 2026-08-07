@@ -2165,10 +2165,18 @@ public static class WritePatchBuilder
             // single most likely off-order failure — a disabled mod mastered on something other than Skyrim.esm —
             // rendered as a disk/commit fault with no remedy (PR #313 review [low]). Loud was never the whole ask; Q3
             // is loud AND named.
-            return ForwardOutcome.Fail(
-                $"writing the patch failed: the forwarded records reference a plugin that is NOT active in the load " +
-                $"order ({ex.Message}) — a reference into an inactive plugin can't resolve in game, so the patch is " +
-                "refused rather than written with a master nothing loads. Enable that plugin in MO2 and retry. Nothing was written.");
+            // MERGE RECONCILIATION (#313 rebased onto #315's main). This arm arrived from #313 with the wording its
+            // in-place twins USED to have — "NOT active in the load order" — which #315 then established is wrong for
+            // a plugin that is active but UNOPENABLE: it sends the user to enable something already enabled. The two
+            // PRs merged without a textual conflict and left this third arm inconsistent with the two beside it;
+            // excluded-master-guard caught it on the rebase (two arms, both demanding the named cause). Same shape as
+            // the twins now: prefer the cause when it applies.
+            return ForwardOutcome.Fail(UnopenableMasterClause(ex, session) is { Length: > 0 } why
+                ? $"writing the patch failed: the forwarded records reference a plugin the write cannot resolve " +
+                  $"({ex.Message}).{why} Nothing was written."
+                : $"writing the patch failed: the forwarded records reference a plugin that is NOT active in the load " +
+                  $"order ({ex.Message}) — a reference into an inactive plugin can't resolve in game, so the patch is " +
+                  "refused rather than written with a master nothing loads. Enable that plugin in MO2 and retry. Nothing was written.");
         }
         catch (Exception ex)
             { return ForwardOutcome.Fail(SerializeFailure("writing the patch failed (serialize or commit; the existing file is untouched): ", ex, session)); }
