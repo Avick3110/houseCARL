@@ -41,7 +41,9 @@ public static class SeqTools
          "same folder (so enabling the one mod deploys both .esp and .seq); otherwise it lands in a fresh folder (pass " +
          "into= an existing houseCARL patch to keep them together, or patch= to name the new folder). After an IN-PLACE " +
          "edit the .esp is in the MOD's own folder, so pass output_dir= that mod folder and the .seq lands beside it in " +
-         "its SEQ\\. If the destination already holds exactly these bytes, nothing is written and the response says so. " +
+         "its SEQ\\. When a LANE names the destination (output_dir=/into=, or the plugin's own houseCARL folder) and it " +
+         "already holds exactly these bytes, nothing is written and the response says so; with no lane named the fresh " +
+         "folder is empty by construction, so that re-run always writes. " +
          "A plugin with no " +
          "start-game-enabled quests needs no .seq — that's reported, nothing is written. The .seq makes the quest START; " +
          "it does not verify the quest or its dialogue is otherwise correct. format='json' returns the same data " +
@@ -56,7 +58,7 @@ public static class SeqTools
             string? patch = null,
         [Description("LANE: filename of an existing houseCARL patch mod to write the .seq into (e.g. the patch that holds the .esp, so one mod deploys both).")]
             string? into = null,
-        [Description("LANE: land the .seq in a folder of YOUR choosing instead of a houseCARL patch folder — pass the mod-folder ROOT (typically the plugin's own mod, after an in-place edit); houseCARL appends SEQ\\ (and won't double it if you already point at a ...\\SEQ folder). When set, patch=/into= are ignored. If the folder is under neither your MO2 mods folder nor the game's Data, the .seq is still written but you're warned the game won't read it.")]
+        [Description("LANE: land the .seq in a folder of YOUR choosing instead of a houseCARL patch folder — pass the mod-folder ROOT (typically the plugin's own mod, after an in-place edit); houseCARL appends SEQ\\ (and won't double it if you already point at a ...\\SEQ folder). When set, patch=/into= are ignored. An existing .seq at that path is OVERWRITTEN with no backup (the response says 'replaced'), and a byte-identical one is left alone with only its timestamp refreshed if it was older than the plugin. The game reads SEQ files from exactly <mods>\\<YourMod>\\SEQ, the MO2 overwrite folder, or <Data>\\SEQ — anywhere else the .seq is still written and you're warned it won't be read (a nested path like <mods>\\<YourMod>\\Sub is 'under mods' but does NOT deploy).")]
             string? output_dir = null,
         [Description("TRANSPORT: 'text' (default) | 'json' (the same data, machine-readable).")]
             string? format = null,
@@ -73,41 +75,59 @@ public static class SeqTools
         // another and silently lose is the accepted-and-ignored class the grammar exists to close:
         // ResolvePatchModFolder returns from the into= branch before patch= is ever read, so the .seq landed in
         // into='s folder and the response said nothing about the folder patch= asked for.
-        if (!string.IsNullOrWhiteSpace(patch) && !string.IsNullOrWhiteSpace(into))
+        // output_dir= WINS over patch=/into= — the compile lane's decided contract (Aaron 2026-06-16), and the same
+        // ignored-lane rule it states out loud rather than silently applying (Q3). Not an error like the pair below:
+        // that pair is two ways of naming a houseCARL folder with no way to choose between them, while this is one
+        // lane superseding another — a note, and the .seq goes where output_dir says.
+        //
+        // Order matters, and this order is the fix (review round 1): the pair check ran FIRST, so naming all three
+        // was REFUSED over two parameters output_dir='s own description promises to ignore — a tool contradicting its
+        // own contract. With output_dir= set there is nothing ambiguous left to refuse. (The compile lane it claims
+        // parity with resolves output_dir first too.)
+        string? outputNote = null;
+        if (!string.IsNullOrWhiteSpace(output_dir))
+        {
+            if (!string.IsNullOrWhiteSpace(patch) || !string.IsNullOrWhiteSpace(into))
+                outputNote = "note: output_dir= was given, so patch=/into= are ignored (the .seq lands in output_dir, not a houseCARL patch folder).";
+        }
+        else if (!string.IsNullOrWhiteSpace(patch) && !string.IsNullOrWhiteSpace(into))
         {
             var laneErr = $"patch='{patch}' names a NEW mod folder for the .seq, but into='{into}' writes it into an existing houseCARL "
                         + "patch — the two lanes are exclusive. Drop patch= to write into that patch, or drop into= to make a new folder.";
             return json ? JsonWire.RenderError(laneErr, null) : "error: " + laneErr;
         }
-        // output_dir= WINS over patch=/into= — the compile lane's decided contract (Aaron 2026-06-16), and the same
-        // ignored-lane rule it states out loud rather than silently applying (Q3). Not an error like the pair above:
-        // that pair is two ways of naming a houseCARL folder with no way to choose between them, while this is one
-        // lane superseding another — a note, and the .seq goes where output_dir says.
-        string? outputNote = null;
-        if (!string.IsNullOrWhiteSpace(output_dir) && (!string.IsNullOrWhiteSpace(patch) || !string.IsNullOrWhiteSpace(into)))
-            outputNote = "note: output_dir= was given, so patch=/into= are ignored (the .seq lands in output_dir, not a houseCARL patch folder).";
 
         var o = svc.WriteSeq(source, patch, into, output_dir);
         if (json) return JsonWire.RenderSeqOutcome(o, max_chars, outputNote);
-        if (!o.Success) return "error: " + o.Error;
+        // The ignored-lane note rides the REFUSAL too (review round 2): a call that named patch= alongside output_dir=
+        // and then failed was told nothing about patch= being ignored — the accepted-and-ignored class the note exists
+        // to close does not stop applying because the write failed.
+        if (!o.Success) return "error: " + o.Error + (outputNote is { Length: > 0 } ne ? "\n" + ne : "");
         return Render(o, max_chars, outputNote);
     });
 
     internal static string Render(SeqOutcome o, int maxChars = 0, string? outputNote = null)
     {
         // No SGE quests → a clean, explicit no-op (Q3: never a silent empty .seq, never a misleading "done").
+        // …carrying the ignored-lane note, which this early return used to drop while the json twin emitted it — the
+        // same D2 divergence this file's epoch-note fold closed one paragraph up (review round 1).
         if (o.Quests.Count == 0)
             return $"no start-game-enabled quests in {o.PluginFileName}{ReadFrom(o)} — no .seq is needed (a .seq lists only quests with the " +
                    "Start Game Enabled flag). Nothing written. If a quest SHOULD start at game start, set its Start Game Enabled " +
-                   "flag first, then write the .seq.";
+                   "flag first, then write the .seq." + (outputNote is { Length: > 0 } n0 ? "\n" + n0 : "");
 
         var sb = new StringBuilder();
         var seqName = Path.GetFileName(o.SeqPath);
         // #312 — "already current" is its own headline, not a "wrote" with a caveat further down: the first line is
         // what a caller reads, and a skipped write reported as a write is the same observable as a silent failure (Q3).
-        sb.Append(o.Unchanged ? "unchanged — " : "wrote ").Append(seqName).Append(": ").Append(o.Quests.Count)
+        sb.Append(o.Unchanged ? "unchanged — " : o.Replaced ? "replaced " : "wrote ").Append(seqName).Append(": ").Append(o.Quests.Count)
           .Append(o.Quests.Count == 1 ? " start-game-enabled quest" : " start-game-enabled quests")
-          .Append(o.Unchanged ? "; the file on disk already holds exactly these bytes, so NOTHING was written." : "").Append('\n');
+          .Append(o.Unchanged
+              ? "; the file on disk already holds exactly these bytes, so NOTHING was written."
+              // REPLACED is its own word for the same reason UNCHANGED is: on the output_dir lane the file that was
+              // there may be the mod's OWN .seq, and houseCARL keeps no backup of it (review round 1).
+              : o.Replaced ? "; a .seq was already at that path and has been OVERWRITTEN (no backup is kept)." : "")
+          .Append('\n');
         // Budgeted like the sibling write renders (PR #311 review [low-medium]): max_chars= promises "past it
         // trailing quest rows are dropped with an explicit notice (never silent)", and a plugin with hundreds of
         // start-game-enabled quests would otherwise render every row and let the HOST cut the response with no
@@ -150,6 +170,16 @@ public static class SeqTools
             : o.WroteIntoPluginFolder
                 ? "the .seq is in the plugin's OWN houseCARL folder — enabling that one mod in MO2 deploys both the .esp and its .seq."
                 : "the .seq is in a houseCARL mod folder — enable it in MO2 (AND make sure the plugin itself is enabled) so the game reads Data\\SEQ\\.");
+        // The stamp a skipped write still made, stated rather than left to be noticed: it is a real change to the
+        // file's metadata, and it is what keeps validate_dialogue's mtime-based SEQ lint agreeing with this call.
+        if (o.TimestampRefreshed)
+            // Careful with the claim (review round 2): what is established is that THIS FILE is now newer than the
+            // plugin. validate_dialogue lints the .seq the VFS serves for that plugin, which is this file only when
+            // this folder wins the SEQ\ conflict and is enabled — so the sentence says what was done and what it is
+            // for, and does not promise a verdict from a tool that resolves its input differently.
+            sb.Append("\nthe file was older than the plugin, so its timestamp was refreshed (contents untouched) — "
+                    + "housecarl_validate_dialogue's SEQ staleness check compares those two mtimes, so this .seq no longer "
+                    + "reads as stale (provided this is the copy your load order actually serves).");
         // Q3: never a clean "done" for a .seq the engine will not read (the quests stay silently dead).
         if (o.DeployWarning is { Length: > 0 } dw) sb.Append('\n').Append(dw);
         if (outputNote is { Length: > 0 }) sb.Append('\n').Append(outputNote);

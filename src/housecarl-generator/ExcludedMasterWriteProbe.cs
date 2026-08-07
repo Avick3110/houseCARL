@@ -395,6 +395,19 @@ public static class ExcludedMasterWriteProbe
         return p;
     }
 
+    /// <summary>Read one weapon's Damage straight off a written plugin — the "did the edit actually land" witness for
+    /// the arms that assert a write HAPPENED rather than that it was refused. Null when the file or the record can't
+    /// be read (which fails the arm, correctly).</summary>
+    static ushort? DamageOnDisk(string espPath, FormKey fk)
+    {
+        try
+        {
+            using var ov = SkyrimMod.CreateFromBinaryOverlay(espPath, SkyrimRelease.SkyrimSE);
+            return ov.Weapons.FirstOrDefault(w => w.FormKey == fk)?.BasicStats?.Damage;
+        }
+        catch { return null; }
+    }
+
     /// <summary>Break a written plugin into the could-not-be-OPENED exclusion class: a valid header followed by a
     /// truncated body. Twelve bytes is what the fixtures above use and what reliably produces the class.</summary>
     static void Truncate(string path)
@@ -514,9 +527,13 @@ public static class ExcludedMasterWriteProbe
             Trim(render));
         // The consequence the pre-check exists for: a throw here escapes to Guard.Tool, which reports an INTERNAL
         // failure — discarding the repoint results and skipping the asset carry, on an ALREADY-REWRITTEN target.
+        // "internal failure" is NOT the string Guard.Named emits ("failed unexpectedly") — an inert clause reading as
+        // a second check (review round 1). Pinned on the words the wrapper actually uses, plus the positive: a
+        // per-plugin repoint REPORT exists at all.
         Check("…and it is a REPORTED result, not Guard.Tool's internal-failure wrapper (the throw would land after P′ is on disk)",
-            !render.Contains("internal failure", StringComparison.OrdinalIgnoreCase)
-            && !render.Contains("unexpected", StringComparison.OrdinalIgnoreCase),
+            !render.Contains("unexpectedly", StringComparison.OrdinalIgnoreCase)
+            && !render.Contains("internal houseCARL failure", StringComparison.OrdinalIgnoreCase)
+            && render.Contains("repointed in place", StringComparison.OrdinalIgnoreCase),
             Trim(render));
         // …and the compaction is still REPORTED. P′ lands before the repoint either way, so "the file changed" alone
         // proves nothing (its own RED check passed on that clause); what the throw destroys is the caller's RESULT —
@@ -531,7 +548,12 @@ public static class ExcludedMasterWriteProbe
     /// predicts the same <c>set.Count > 1</c> rule the patch lane uses, and nothing verified it on THIS lane. The
     /// patch-lane side is pinned both ways above (a one-master header writes; a two-master header refuses); this is
     /// its twin, pinned the same two ways, and with the dry run agreeing on BOTH — a threshold verified in only one
-    /// direction is how a predictor drifts into over- or under-refusing without a guard noticing.</summary>
+    /// direction is how a predictor drifts into over- or under-refusing without a guard noticing.
+    /// <para>SCOPE, carried from <c>RealOrderArm</c>'s lesson rather than re-learned (review round 1): this order has
+    /// no baselines, and the ONE-master case is only reachable without them. A real order's PATCH lane force-includes
+    /// Skyrim.esm + Update.esm, so it always has ≥2 and always takes the refusing side. The in-place lane force-
+    /// includes nothing, so a genuinely one-master in-place header IS reachable in the field (a plugin overriding one
+    /// mod's records) — but the arm pins the THRESHOLD, not a claim about how often each side is hit.</para></summary>
     static void InPlaceThresholdArm(string dir)
     {
         Console.WriteLine();
@@ -578,8 +600,12 @@ public static class ExcludedMasterWriteProbe
         // ONE master — WRITES. (The record it edits ORIGINATES in the unopenable plugin, so the header entry comes
         // from the record's own FormKey; nothing has to be sorted against a plugin that cannot be opened.)
         var oneReal = ApplyTools.Apply(svc, ops: Ops(brokenFid, "44"), in_place: oneKey.FileName.String, acknowledge: true);
-        Check("in_place, ONE-master header: the write LANDS even though that one master is unopenable",
-            !oneReal.StartsWith("error:"), oneReal);
+        // …asserted on the VALUE, not merely on the absence of "error:" (review round 1): a regression that returned a
+        // success render while applying nothing would have kept the weaker form green, on the one arm here whose job
+        // is to prove a write HAPPENS.
+        var oneBack = DamageOnDisk(Path.Combine(mods, "IpOne", oneKey.FileName.String), brkOwn.FormKey);
+        Check("in_place, ONE-master header: the write LANDS even though that one master is unopenable (value read back off the file)",
+            !oneReal.StartsWith("error:") && oneBack == 44, $"damage={oneBack} (want 44) :: {oneReal}");
         var oneDry = ApplyTools.Apply(svc, ops: Ops(brokenFid, "45"), in_place: oneKey.FileName.String, acknowledge: true, dry_run: true);
         Check("…and the dry run AGREES (no over-refusal — the predictor's threshold, on the lane that predicts it)",
             oneDry.StartsWith("DRY RUN", StringComparison.Ordinal), oneDry);

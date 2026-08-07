@@ -111,6 +111,16 @@ internal static class CompileErgonomicsProbe
               "a nested Data path (<data>\\Sub\\Scripts) WARNS — the game loads only <data>\\Scripts");
         Check(LoadOrderService.ScriptOutputContract(@"C:\MO2\modsX\Foo", mods, data).deployWarning is not null,
               "segment-boundary safe: C:\\MO2\\modsX is NOT 'under' C:\\MO2\\mods (still warns)");
+        // 2026-08-07 (#312's shared refactor): the MO2 OVERWRITE folder deploys too — it is mapped onto Data at top
+        // priority and is where xEdit/CK/Synthesis output lands, so warning about it was a false alarm. Pinned BOTH
+        // ways, because the overwrite root is a parameter: unknown root → the old warning still fires.
+        const string over = @"C:\MO2\overwrite";
+        Check(LoadOrderService.ScriptOutputContract(over, mods, data, over).deployWarning is null
+              && LoadOrderService.ScriptOutputContract(over, mods, data).deployWarning is not null,
+              "the MO2 overwrite folder deploys when its root is known, and is judged on that root (not by folder name)");
+        // …and a drive ROOT keeps its separator: "C:\" trimmed to "C:" yields the drive-RELATIVE "C:Scripts".
+        Check(LoadOrderService.ScriptOutputContract(@"C:\", mods, data).scriptsDir == @"C:\Scripts",
+              $"a drive root appends correctly — got [{LoadOrderService.ScriptOutputContract(@"C:\", mods, data).scriptsDir}] (want C:\\Scripts, never C:Scripts)");
 
         // ---------------------------------------------------------- B3: ResolveExplicitScriptFolder — no patch folder cut
         Console.WriteLine();

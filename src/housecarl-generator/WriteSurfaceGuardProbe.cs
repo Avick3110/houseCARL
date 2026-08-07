@@ -75,6 +75,7 @@ public static class WriteSurfaceGuardProbe
             RemovePluralArm(fx);
             ForwardArm(fx);
             TransportArm(fx);
+            CopyFromViewArm(root);
             // LAST: it forwards into the replacer IN PLACE, which rewrites a fixture file the earlier arms read as a
             // known winner. Ordering it after them keeps every other arm reading the fixture it was written against.
             OffOrderForwardArm(fx);
@@ -277,6 +278,61 @@ public static class WriteSurfaceGuardProbe
         catch { /* the caller asserts on the contents, and an unreadable file fails those */ }
         finally { (ov as IDisposable)?.Dispose(); }
         return found;
+    }
+
+    /// <summary>#317 — the CopyFrom lane decides its off-order arm from the ENGINE's view, never from the presence of
+    /// a pre-fetched body. The race the issue described cannot be synthesised (a write pins one resolver instance and
+    /// its name table never moves), but the INVARIANT can be, deterministically: hand the engine a pre-fetched body
+    /// keyed to an edit whose source is ACTIVE — exactly what a drifted pre-locate would produce — and the in-order
+    /// arm must still win. Self-contained order, driven through the core so the dictionary can be hand-built (the
+    /// service only ever fills it for genuinely off-order sources, which is why nothing else can reach this).
+    /// <para>Three distinguishable values, so no outcome is ambiguous: the copy source (master, 10) is neither the
+    /// winner the patch starts from (replacer, 20) nor the decoy body (77). 20 would mean the copy never happened; 77
+    /// would mean the stale dictionary won.</para></summary>
+    static void CopyFromViewArm(string root)
+    {
+        var dir = Path.Combine(root, "cfview");
+        Directory.CreateDirectory(dir);
+
+        var mKey = new ModKey("HcCfMaster", ModType.Master);
+        var rKey = new ModKey("HcCfRepl", ModType.Plugin);
+        var mPath = Path.Combine(dir, mKey.FileName.String);
+        var rPath = Path.Combine(dir, rKey.FileName.String);
+
+        var m = new SkyrimMod(mKey, SkyrimRelease.SkyrimSE);
+        var subject = m.Weapons.AddNew();
+        subject.EditorID = "CfSubject";
+        subject.BasicStats = new WeaponBasicStats { Damage = 10 };
+        m.BeginWrite.ToPath(mPath).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
+
+        var r = new SkyrimMod(rKey, SkyrimRelease.SkyrimSE);
+        ((IWeapon)WriteEngine.GenericGetOrAddAsOverride(r, subject)).BasicStats = new WeaponBasicStats { Damage = 20 };
+        r.BeginWrite.ToPath(rPath).WithLoadOrder(new ISkyrimModGetter[] { m }).Write();
+
+        // The decoy carries the MASTER's ModKey, because that is the source the edit names — a pre-locate that
+        // resolved it off-order would have fetched exactly this shape, at whatever the disk copy said.
+        var decoy = new SkyrimMod(mKey, SkyrimRelease.SkyrimSE);
+        ((IWeapon)WriteEngine.GenericGetOrAddAsOverride(decoy, subject)).BasicStats = new WeaponBasicStats { Damage = 77 };
+        IMajorRecordGetter decoyBody = decoy.Weapons.First();
+
+        using var resolver = LoadOrderResolver.Build(new[] { mPath, rPath });
+        var rulebook = CorpusRulebook.Load();
+        var edit = new WritePatchBuilder.PatchEdit
+        {
+            Target = subject.FormKey,
+            Path = new[] { "BasicStats", "Damage" },
+            Verb = "CopyFrom",
+            FromPlugin = mKey.FileName.String,          // ACTIVE — so the dictionary entry must be ignored
+        };
+        var outPath = Path.Combine(dir, "HcCfPatch.esp");
+        var o = WritePatchBuilder.Apply(resolver, rulebook, new[] { edit }, outPath, extend: false, fullReadback: false,
+            copyFromSources: new Dictionary<WritePatchBuilder.PatchEdit, IMajorRecordGetter> { [edit] = decoyBody });
+        var back = o.Success ? DamageIn(outPath, subject.FormKey) : null;
+
+        Check("CopyFrom: a pre-fetched body keyed to an ACTIVE source is IGNORED — the in-order arm resolves it (#317)",
+            o.Success && back == 10,
+            $"success={o.Success} damage={back} (want 10 = the named source; 20 = no copy happened; 77 = the stale " +
+            $"pre-fetched body won) err={o.Error}");
     }
 
     static ushort? DamageIn(string espPath, FormKey fk)
