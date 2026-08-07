@@ -19,10 +19,11 @@ mods folder, the overwrite folder, or the game's Data). It wins over `patch=`/`i
 quietly ignoring them. If a `.seq` was already at that path it is overwritten with no backup, and the response now
 says `replaced` rather than `wrote`.
 
-**The MO2 overwrite folder now counts as a place the game loads from.** `output_dir=` on both
-`housecarl_compile_script` and `housecarl_write_seq` warned that a file landing in your overwrite folder wouldn't
-deploy. It does — MO2 maps overwrite onto the game's Data at top priority, and it's where xEdit/CK/Synthesis
-output lands — so that warning was a false alarm. It no longer fires there. (The rule is otherwise unchanged and
+**The MO2 overwrite folder now counts as a place the game loads from.** `housecarl_compile_script`'s `output_dir=`
+warned that a `.pex` landing in your overwrite folder wouldn't deploy. It does — MO2 maps overwrite onto the game's
+Data at top priority, and it's where xEdit/CK/Synthesis output lands — so that warning was a false alarm. It no
+longer fires there, and `housecarl_write_seq`'s new `output_dir=` shares the corrected rule rather than inheriting
+the old one. (The rule is otherwise unchanged and
 still exact: a mod's own `Scripts\`/`SEQ\`, the overwrite folder, or the game's `Data\` — a *nested* path inside a
 mod still warns, because MO2 would deploy it to `Data\<Sub>\…` where nothing loads it.)
 

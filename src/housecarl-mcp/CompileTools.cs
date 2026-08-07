@@ -199,7 +199,10 @@ public static class CompileTools
             if (!string.IsNullOrWhiteSpace(patch_name) || !string.IsNullOrWhiteSpace(into))
                 outputNote = "note: output_dir= was given, so patch_name=/into= are ignored (the .pex lands in output_dir, not a houseCARL patch folder).";
             try { rf = svc.ResolveExplicitScriptFolder(output_dir, out deployWarning); }
-            catch (InvalidOperationException ex) { return "error: " + ex.Message; }
+            // …carrying the ignored-lane note onto the REFUSAL, the parity write_seq's own fold argued for and this
+            // lane was missing (review round 3): a refusal is exactly when a caller re-reads their parameters, and
+            // "patch_name= was ignored" is still true of the call they are about to retype.
+            catch (InvalidOperationException ex) { return "error: " + ex.Message + (outputNote is null ? "" : "\n" + outputNote); }
         }
         else
         {

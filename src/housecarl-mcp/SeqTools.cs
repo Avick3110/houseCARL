@@ -125,8 +125,14 @@ public static class SeqTools
           .Append(o.Unchanged
               ? "; the file on disk already holds exactly these bytes, so NOTHING was written."
               // REPLACED is its own word for the same reason UNCHANGED is: on the output_dir lane the file that was
-              // there may be the mod's OWN .seq, and houseCARL keeps no backup of it (review round 1).
-              : o.Replaced ? "; a .seq was already at that path and has been OVERWRITTEN (no backup is kept)." : "")
+              // there may be the mod's OWN .seq, and houseCARL keeps no backup of it (review round 1). The
+              // no-backup ALARM is scoped to that lane (review round 3): re-generating over houseCARL's own previous
+              // output is the ordinary workflow, and dressing it as a loss would train the reader to ignore the word.
+              : o.Replaced
+                  ? (o.UserChoseOutput
+                      ? "; a .seq was already at that path and has been OVERWRITTEN (no backup is kept — in a folder you named, that may have been the mod's own)."
+                      : "; the previous .seq in that houseCARL folder was overwritten.")
+                  : "")
           .Append('\n');
         // Budgeted like the sibling write renders (PR #311 review [low-medium]): max_chars= promises "past it
         // trailing quest rows are dropped with an explicit notice (never silent)", and a plugin with hundreds of
@@ -147,9 +153,10 @@ public static class SeqTools
                 sb.Append("  ... [truncated: ").Append(i).Append(" of ").Append(o.Quests.Count)
                   .Append(" quest(s) listed at max_chars=").Append(cap)
                   .Append("; the .seq itself carries ALL of them — nothing is missing from the FILE. Re-run only if you need this "
-                        + "LIST widened: with no lane named that writes the .seq again into ANOTHER fresh mod folder (name "
-                        + "into=/output_dir= the folder below to keep it in one — there a byte-identical destination is left "
-                        + "untouched)]\n");
+                        + "LIST widened: for a plugin OUTSIDE a houseCARL folder with no lane named, that writes the .seq "
+                        + "again into ANOTHER fresh mod folder (name into=/output_dir= the folder below; a plugin in its own "
+                        + "houseCARL folder already defaults there — and at any named destination a byte-identical .seq is "
+                        + "left untouched)]\n");
                 break;
             }
             var q = o.Quests[i];

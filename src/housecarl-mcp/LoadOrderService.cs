@@ -6803,7 +6803,7 @@ public sealed class LoadOrderService : IDisposable
         string? warn = deployable ? null :
             $"note: '{scriptsDir}' isn't a folder MO2 (or the game) auto-loads scripts from, so the compiled .pex won't " +
             "deploy on its own — it compiled fine, but you must place it where the game loads scripts yourself: a mod's " +
-            "own Scripts\\ folder (<mods>\\<YourMod>\\Scripts) or the game's <Data>\\Scripts.";
+            "own Scripts\\ folder (<mods>\\<YourMod>\\Scripts), the MO2 overwrite folder, or the game's <Data>\\Scripts.";
         return (scriptsDir, appended, warn);
     }
 
@@ -6819,7 +6819,7 @@ public sealed class LoadOrderService : IDisposable
         string? warn = deployable ? null :
             $"note: '{seqDir}' isn't a folder MO2 (or the game) reads SEQ files from, so the game will NOT see this .seq — " +
             "the file is correct, but until it sits somewhere loaded the plugin's start-game-enabled quests stay silently " +
-            "dead. Put it in a mod's own SEQ\\ folder (<mods>\\<YourMod>\\SEQ — enabled in MO2) or the game's <Data>\\SEQ.";
+            "dead. Put it in a mod's own SEQ\\ folder (<mods>\\<YourMod>\\SEQ — enabled in MO2), the MO2 overwrite folder, or the game's <Data>\\SEQ.";
         return (seqDir, appended, warn);
     }
 
@@ -6830,7 +6830,8 @@ public sealed class LoadOrderService : IDisposable
     /// the subfolder directly under it). A bare <c>&lt;mods&gt;\&lt;sub&gt;</c> (no mod folder) and a nested
     /// <c>&lt;mods&gt;\X\Sub\&lt;sub&gt;</c> (which lands at Data\Sub\…, not Data\&lt;sub&gt;) do NOT load — so they
     /// correctly warn (review nit: "under mods" alone was too loose). A direct game install loads exactly
-    /// <c>&lt;data&gt;\&lt;sub&gt;</c>. <paramref name="outputDir"/> is expected absolute (the caller GetFullPaths it).
+    /// <c>&lt;data&gt;\&lt;sub&gt;</c> — and, since #312's shared refactor, <c>&lt;overwriteDir&gt;\&lt;sub&gt;</c>, which MO2
+    /// maps onto Data at top priority. <paramref name="outputDir"/> is expected absolute (the caller GetFullPaths it).
     /// The per-artifact SENTENCE stays with each caller — the RULE is shared, the consequence is not.</summary>
     static (string dir, bool appendedSub, bool deployable) SubfolderOutputContract(
         string outputDir, string sub, string modsDir, string dataDir, string overwriteDir = "")
@@ -6847,9 +6848,10 @@ public sealed class LoadOrderService : IDisposable
     }
 
     /// <summary>Is this path a filesystem ROOT whose trailing separator is part of its MEANING — i.e. <c>C:\</c>,
-    /// where trimming yields the drive-RELATIVE <c>C:</c>? A UNC share deliberately answers false: <c>GetPathRoot</c>
-    /// returns it WITHOUT a trailing separator, and trimming <c>\\srv\share\</c> is harmless anyway (review round 2 —
-    /// an earlier version of this comment claimed the UNC case, which it does not have).</summary>
+    /// where trimming yields the drive-RELATIVE <c>C:</c>? A bare UNC share (<c>\\srv\share</c>) answers true as well,
+    /// since <c>GetPathRoot</c> returns it unchanged — harmlessly, because trimming it changes nothing either way. Two
+    /// earlier drafts of this comment got the UNC case wrong in OPPOSITE directions (review rounds 2 and 3); the case
+    /// this helper exists for is the drive root, and that is what it is worth stating.</summary>
     static bool IsRoot(string path)
     {
         try { return string.Equals(Path.GetPathRoot(path), path, StringComparison.OrdinalIgnoreCase); }
@@ -7072,7 +7074,7 @@ public sealed class LoadOrderService : IDisposable
                     // …worded for what is KNOWN: the folder is there and houseCARL will not remove it. Claiming this
                     // call CREATED it would be false whenever the mod already ships a SEQ\ — the feature's own
                     // headline case (review round 2).
-                    + (chosenOutput ? $" (the '{rf.OutputDir}' folder is left in place — it is inside the folder you named, which houseCARL never removes.)" : ""));
+                    + (chosenOutput ? $" (the '{rf.OutputDir}' folder is left in place — houseCARL never removes a folder you named.)" : ""));
             }
 
             // Integrity (Q3: THIS run wrote it; on-disk size matches the bytes we built — no false success).

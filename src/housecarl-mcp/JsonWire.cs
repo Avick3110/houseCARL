@@ -1789,7 +1789,9 @@ static class JsonWire
                 w.WriteString("unchanged_note", "the destination already held EXACTLY these bytes, so nothing was written — seq_path names the file that was already current. Stated rather than reported as a write (Q3: a skipped write and a done one must not look alike)."
                     + (o.TimestampRefreshed ? " Its mtime was older than the plugin and has been stamped forward (contents untouched); validate_dialogue's SEQ staleness check compares those two mtimes, so this file no longer reads as stale — for the copy the load order actually serves, which is this one only if this folder wins the SEQ\\ conflict." : ""));
             if (o.Replaced)
-                w.WriteString("replaced_note", "a .seq already existed at seq_path and was OVERWRITTEN; houseCARL keeps no backup. On the output_dir lane that file can be the mod's own shipped .seq.");
+                w.WriteString("replaced_note", o.UserChoseOutput
+                    ? "a .seq already existed at seq_path and was OVERWRITTEN; houseCARL keeps no backup, and in a folder you named that file may have been the mod's own shipped .seq."
+                    : "the previous .seq in that houseCARL folder was overwritten (houseCARL's own earlier output — the ordinary regenerate case).");
             WriteNullable(w, "seq_path", o.SeqPath);
             WriteNullable(w, "mod_folder", o.ModFolder);
             w.WriteBoolean("wrote_into_plugin_folder", o.WroteIntoPluginFolder);
@@ -1819,7 +1821,7 @@ static class JsonWire
             // re-issuing a WRITE. This PR moved SeqTools.Render off exactly this wording and left its json twin on
             // it — the same D2 divergence, in the same fold that fixed it one renderer up.
             if (truncated)
-                w.WriteString("truncated_note", $"the render hit max_chars={cap} and dropped trailing quest rows — the .seq itself carries ALL of them; nothing is missing from the FILE. Re-run only if you need this LIST widened: with no lane named that writes the .seq again into ANOTHER fresh mod folder (name into=/output_dir= the folder named here to keep it in one — there a byte-identical destination is left untouched).");
+                w.WriteString("truncated_note", $"the render hit max_chars={cap} and dropped trailing quest rows — the .seq itself carries ALL of them; nothing is missing from the FILE. Re-run only if you need this LIST widened: for a plugin OUTSIDE a houseCARL folder with no lane named, that writes the .seq again into ANOTHER fresh mod folder (name into=/output_dir=, or let a plugin in its own houseCARL folder default there — at any named destination a byte-identical .seq is left untouched).");
             w.WriteString("standing_limit", "this makes the quest(s) START at game start; it does not verify the quest or its dialogue is otherwise well-formed.");
             w.WriteEndObject();
         }
