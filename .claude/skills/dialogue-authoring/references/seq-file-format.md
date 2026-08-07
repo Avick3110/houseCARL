@@ -47,3 +47,14 @@ quest is meant to be running from game start, the quest must be Start-Game-Enabl
 in the `.seq`. Set the flag (a quest-record field write), then run `housecarl_write_seq` against the
 plugin. The `.seq` makes the quest START; it does not verify the quest or its dialogue is otherwise
 correct — that is `housecarl_validate_dialogue`'s job.
+
+## Where it lands
+
+By default the `.seq` goes into a houseCARL mod folder — the plugin's own if it lives in one (so enabling
+that single mod deploys `.esp` and `.seq` together), otherwise a fresh one you enable in MO2.
+
+After an **in-place** edit the `.esp` is in the *mod's own* folder, so pass `output_dir=` that mod folder
+and the `.seq` lands in its `SEQ\`, where the mod's own copy already lives. `output_dir=` wins over
+`patch=` / `into=` (the response says so), and it never touches the `.esp` — a `.seq` is a new sidecar
+file, not an in-place record edit. If the destination already holds exactly the bytes houseCARL would
+write, nothing is written and the response says `unchanged` — so re-running after every edit is free.

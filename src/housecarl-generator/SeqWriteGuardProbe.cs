@@ -37,6 +37,17 @@ namespace HousecarlGenerator;
 ///   SAME-FOLDER    — a plugin inside a houseCARL-owned folder defaults the .seq INTO that folder (WroteIntoPluginFolder).
 ///   EMPTY-NOOP     — a plugin with NO SGE quests writes nothing, cuts no folder (no orphan), reports the clean no-op.
 ///   REFUSE-NOFILE  — WriteSeq on a missing plugin path refuses, named (Q3).
+///
+/// #312 (output_dir= + the byte-identical no-op):
+///   PURE-SEQ-CONTRACT / PURE-SEQ-DEPLOY — the pure path contract: SEQ\ appended once (double-SEQ guard), and the
+///                    deployability rule with a warning worded for a .seq's own consequence (silently dead quests).
+///   OUTPUT-DIR / -DEPLOYS / -OUTSIDE    — the .seq lands in the USER's folder, no houseCARL folder cut and no owner
+///                    marker stamped; a deployable folder carries no warning, an off-tree one does.
+///   USER-OWNED-SURVIVES — residue cleanup never deletes a folder the user named.
+///   UNCHANGED / -DIFFERS — a byte-identical destination is left ALONE (proved by mtime, not by the flag), while a
+///                    stale one is rewritten (the compare is on BYTES, never existence).
+///   TOOL-LANE      — output_dir= wins over patch=/into= and the ignored lane is STATED (Q3).
+///   RENDER-UNCHANGED / JSON-UNCHANGED — the no-op renders as its own state on both transports (written=false).
 /// </summary>
 internal static class SeqWriteGuardProbe
 {
@@ -254,6 +265,105 @@ internal static class SeqWriteGuardProbe
                   && oByName.ResolvedFrom is { Length: > 0 }
                   && string.Equals(oByName.PluginPath, Path.GetFullPath(svcPlugin), StringComparison.OrdinalIgnoreCase),
                 $"FILENAME-LANE source= by filename resolves to the same file and states its arm — from=[{oByName.ResolvedFrom}] path=[{oByName.PluginPath}] err=[{oByName.Error}]");
+
+            // ====================== #312 — output_dir= and the byte-identical no-op ======================
+
+            // PURE-CONTRACT: the SEQ twin of the compile lane's path contract. Pure, so it is provable without an
+            // instance, and it is the piece the resolve arms below cannot distinguish from a lucky Path.Combine.
+            const string pcMods = @"C:\MO2\mods", pcData = @"C:\Game\Skyrim Special Edition\Data";
+            var pcBare = LoadOrderService.SeqOutputContract(@"C:\MyMod", pcMods, pcData);
+            var pcAlready = LoadOrderService.SeqOutputContract(@"C:\MyMod\SEQ", pcMods, pcData);
+            var pcLower = LoadOrderService.SeqOutputContract(@"C:\MyMod\seq\", pcMods, pcData);
+            Check(pcBare.seqDir == @"C:\MyMod\SEQ" && pcBare.appendedSeq
+                  && pcAlready.seqDir == @"C:\MyMod\SEQ" && !pcAlready.appendedSeq
+                  && pcLower.seqDir == @"C:\MyMod\seq" && !pcLower.appendedSeq,
+                $"PURE-SEQ-CONTRACT SEQ\\ appended once, double-SEQ guard case-insensitive + trailing-separator tolerant — [{pcBare.seqDir}] [{pcAlready.seqDir}] [{pcLower.seqDir}]");
+            // Deployability is the .pex rule one segment over — and the WARNING is worded for what a mis-placed .seq
+            // costs (silently dead quests), not the milder "won't deploy on its own" the compile lane can afford.
+            Check(LoadOrderService.SeqOutputContract(@"C:\MO2\mods\MyMod", pcMods, pcData).deployWarning is null
+                  && LoadOrderService.SeqOutputContract(pcData, pcMods, pcData).deployWarning is null
+                  && LoadOrderService.SeqOutputContract(@"C:\MO2\mods", pcMods, pcData).deployWarning is not null
+                  && LoadOrderService.SeqOutputContract(@"C:\MO2\mods\X\Sub", pcMods, pcData).deployWarning is not null
+                  && LoadOrderService.SeqOutputContract(@"C:\Elsewhere\MyMod", pcMods, pcData).deployWarning is { } w312
+                     && w312.Contains("silently", StringComparison.Ordinal),
+                "PURE-SEQ-DEPLOY <mods>\\<mod>\\SEQ and <data>\\SEQ deploy; the mods root, a nested path and an outside path warn — and the warning names the silent-death consequence");
+
+            // OUTPUT-DIR: a third-party mod's OWN folder — the #312 case (in-place .esp edit, .seq belongs beside it).
+            // The folder is USER-owned: no houseCARL mod folder is cut, and no ownership marker is stamped into it.
+            string userMod = Path.Combine(mods, "SomeoneElsesQuestMod");
+            Directory.CreateDirectory(userMod);
+            int cutBefore = Directory.GetDirectories(mods).Length;
+            var oOut = svc.WriteSeq(svcPlugin, null, null, userMod);
+            string expectedUserSeq = Path.Combine(userMod, "SEQ", "HcSeqSvc.seq");
+            Check(oOut.Success && File.Exists(expectedUserSeq)
+                  && string.Equals(oOut.SeqPath, expectedUserSeq, StringComparison.OrdinalIgnoreCase)
+                  && oOut.UserChoseOutput && !oOut.WroteIntoPluginFolder
+                  && Directory.GetDirectories(mods).Length == cutBefore
+                  && !File.Exists(Path.Combine(userMod, "meta.ini")),
+                $"OUTPUT-DIR .seq lands in <output_dir>\\SEQ, no houseCARL folder cut, no ownership marker stamped — path=[{oOut.SeqPath}] chose={oOut.UserChoseOutput} err=[{oOut.Error}]");
+            // …and a mod folder directly under mods\ DEPLOYS, so no warning. (The arm above is the case a user hits;
+            // this is the half that proves the warning is a real discriminator rather than always-on.)
+            Check(oOut.DeployWarning is null, $"OUTPUT-DIR-DEPLOYS <mods>\\<mod>\\SEQ carries no deploy warning — got [{oOut.DeployWarning}]");
+
+            // OUTPUT-DIR-OUTSIDE: the same call to a folder the game never reads is written and WARNED, never a clean
+            // "done" — a .seq the engine can't see leaves every SGE quest silently dead (Q3).
+            string offTree = Path.Combine(root, "elsewhere", "NotAMod");
+            var oOff = svc.WriteSeq(svcPlugin, null, null, offTree);
+            Check(oOff.Success && File.Exists(Path.Combine(offTree, "SEQ", "HcSeqSvc.seq"))
+                  && oOff.DeployWarning is not null,
+                $"OUTPUT-DIR-OUTSIDE written but WARNED (never a clean done for a .seq the game won't read) — warn=[{oOff.DeployWarning}]");
+
+            // USER-OWNED-SURVIVES: residue cleanup must never delete a folder the user named (CreatedFresh=false).
+            var userRf = svc.ResolveExplicitSeqFolder(userMod, out _);
+            Check(!userRf.CreatedFresh && svc.RemoveOrNameRiderResidue(userRf) is null && Directory.Exists(userRf.OutputDir),
+                "USER-OWNED-SURVIVES residue cleanup never deletes an output_dir folder (CreatedFresh=false; the folder survives)");
+
+            // UNCHANGED: re-running against a destination that already holds these bytes writes NOTHING. Proved by the
+            // file's TIMESTAMP, not by the flag alone — the flag is what a broken short-circuit would set while still
+            // rewriting the file, so a mtime sentinel is what makes this arm mean "no write happened".
+            var sentinel = new DateTime(2001, 2, 3, 4, 5, 6, DateTimeKind.Utc);
+            File.SetLastWriteTimeUtc(expectedUserSeq, sentinel);
+            var oSame = svc.WriteSeq(svcPlugin, null, null, userMod);
+            Check(oSame.Success && oSame.Unchanged
+                  && File.GetLastWriteTimeUtc(expectedUserSeq) == sentinel
+                  && string.Equals(oSame.SeqPath, expectedUserSeq, StringComparison.OrdinalIgnoreCase),
+                $"UNCHANGED byte-identical destination → nothing written (mtime untouched), reported as its own state — unchanged={oSame.Unchanged} err=[{oSame.Error}]");
+
+            // UNCHANGED-DIFFERS: the negative half. A destination holding DIFFERENT bytes is rewritten — a
+            // short-circuit that fired on mere existence would leave the stale file and report success.
+            File.WriteAllBytes(expectedUserSeq, new byte[] { 0xDE, 0xAD, 0xBE, 0xEF });
+            File.SetLastWriteTimeUtc(expectedUserSeq, sentinel);
+            var oDiff = svc.WriteSeq(svcPlugin, null, null, userMod);
+            Check(oDiff.Success && !oDiff.Unchanged
+                  && File.GetLastWriteTimeUtc(expectedUserSeq) != sentinel
+                  && File.ReadAllBytes(expectedUserSeq).Length == 4
+                  && File.ReadAllBytes(expectedUserSeq)[0] != 0xDE,
+                $"UNCHANGED-DIFFERS a stale destination IS rewritten (the short-circuit compares BYTES, not existence) — unchanged={oDiff.Unchanged}");
+
+            // TOOL-LANE: output_dir= WINS over patch=/into=, and says so (Q3 — an ignored parameter is stated, never
+            // silently dropped). Asserted through the TOOL, because the note is composed there.
+            var toolBoth = SeqTools.WriteSeq(svc, source: Path.GetFileName(svcPlugin), patch: "HcSeqIgnored", output_dir: userMod);
+            Check(toolBoth.Contains("output_dir= was given", StringComparison.Ordinal)
+                  && toolBoth.Contains("ignored", StringComparison.Ordinal)
+                  && !Directory.EnumerateDirectories(mods, "houseCARL - HcSeqIgnored*").Any(),
+                $"TOOL-LANE output_dir= wins over patch= and the ignored lane is STATED, with no folder cut for it — render=[{Trim(toolBoth)}]");
+
+            // RENDER-UNCHANGED: the no-op's text render leads with it. "wrote" on a call that wrote nothing is the
+            // silent-success shape Q3 refuses, and the first line is what a caller reads.
+            var toolSame = SeqTools.WriteSeq(svc, source: Path.GetFileName(svcPlugin), output_dir: userMod);
+            Check(toolSame.StartsWith("unchanged", StringComparison.Ordinal)
+                  && toolSame.Contains("NOTHING was written", StringComparison.Ordinal)
+                  && !toolSame.Contains("houseCARL mod folder — enable it", StringComparison.Ordinal),
+                $"RENDER-UNCHANGED the no-op renders as 'unchanged … NOTHING was written', and an output_dir destination is NOT called a houseCARL mod folder — render=[{Trim(toolSame)}]");
+
+            // JSON-UNCHANGED: written=false with unchanged=true and a seq_path — the machine twin of the same fact
+            // (the pre-#312 `written` was "a path exists", which would now report a write that never happened).
+            var jsonSame = SeqTools.WriteSeq(svc, source: Path.GetFileName(svcPlugin), output_dir: userMod, format: "json");
+            Check(jsonSame.Contains("\"written\": false", StringComparison.Ordinal)
+                  && jsonSame.Contains("\"unchanged\": true", StringComparison.Ordinal)
+                  && jsonSame.Contains("\"user_chose_output_dir\": true", StringComparison.Ordinal)
+                  && jsonSame.Contains("\"seq_path\"", StringComparison.Ordinal),
+                $"JSON-UNCHANGED json reports written=false + unchanged=true + the path — render=[{Trim(jsonSame)}]");
         }
         catch (Exception ex)
         {
@@ -272,6 +382,10 @@ internal static class SeqWriteGuardProbe
 
     static bool PathUnder(string? path, string folder)
         => path is not null && Path.GetFullPath(path).StartsWith(Path.GetFullPath(folder), StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>One-line, bounded echo of a render for a FAIL line (the arms below assert on multi-line output).</summary>
+    static string Trim(string s)
+        => (s.Length <= 300 ? s : s[..300] + " …").Replace("\r", "").Replace("\n", " | ");
 
     // ---- raw on-disk FormID parse (independent of Mutagen's overlay decode) — to verify the computed encoding ----
 

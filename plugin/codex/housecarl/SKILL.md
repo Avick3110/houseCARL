@@ -48,7 +48,7 @@ Beyond the core workflow, reach for the right group. Depth for the specialist ar
 - `housecarl_forward` — copy a specific plugin's whole record as an override: `source=` names whose version (any plugin — active, or one that is only on disk in a DISABLED mod; a master reverts to vanilla), and the response names the winner it will out-rank plus, for an off-order source, which copy on disk it read.
 - `housecarl_set_field`, `housecarl_bulk_apply`, `housecarl_create_record`, `housecarl_bulk_create`, `housecarl_create_plugin` (header-only trigger plugin), `housecarl_remove_record`, `housecarl_forward_record` (copy-as-override, or revert to another plugin's version), `housecarl_validate_scripts` (unbound script properties).
 
-**Dialogue** — `housecarl_validate_dialogue`, `housecarl_write_seq` (the start-game-enabled quest `.seq`; `source=` takes the plugin's filename or an absolute path). Depth: `dialogue-authoring`.
+**Dialogue** — `housecarl_validate_dialogue`, `housecarl_write_seq` (the start-game-enabled quest `.seq`; `source=` takes the plugin's filename or an absolute path; `output_dir=` lands it in the mod's own `SEQ\` after an in-place edit). Depth: `dialogue-authoring`.
 
 **Assets / NIF / facegen** — `housecarl_asset_status` (which mod/BSA wins a Data-relative path), `housecarl_place_asset` / `housecarl_bulk_place_asset` (make a chosen copy win MO2's VFS), `housecarl_nif_inspect` / `housecarl_nif_set` (read/write mesh data values). Depth: `facegen-diagnostics`.
 

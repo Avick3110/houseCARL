@@ -8,6 +8,20 @@ when it changes.
 
 *Accumulating notes for the next cut — not yet released; `plugin.json` still reads the last shipped version.*
 
+**`housecarl_write_seq` can finally put the `.seq` in the mod's own folder — `output_dir=` (#312).** Editing a
+plugin **in place** left the two halves in different mods: the `.esp` in the mod's own folder, the `.seq` in a
+freshly cut `houseCARL - houseCARL_SEQ_00N`, with `into=` unable to name a folder houseCARL didn't create. Every
+regeneration then meant hand-comparing the temp output against the mod's live `Seq\` copy and deleting the
+folder. `output_dir=` takes the mod-folder root and appends `SEQ\` — the same contract `housecarl_compile_script`
+and `housecarl_bsa_extract` already use, including the don't-double-it guard, no houseCARL folder cut, your
+folder never touched by cleanup, and a warning when the destination isn't somewhere the game actually reads SEQ
+files from. It wins over `patch=`/`into=`, and says so rather than quietly ignoring them.
+
+**…and regenerating an unchanged `.seq` now writes nothing.** If the destination already holds exactly the bytes
+houseCARL would write, the file is left alone and the response says `unchanged` (`written: false` in JSON) instead
+of reporting a write that only churned the file. Re-running after every in-place edit — which is the point of the
+tool — is now free.
+
 **Fixed: one broken plugin in your load order no longer breaks every write.** If a plugin houseCARL cannot open
 sat in your active order — a truncated download, a half-copied mod folder, an interrupted xEdit save — then
 *every* write failed, including writes that had nothing to do with it, with an opaque message that read like a

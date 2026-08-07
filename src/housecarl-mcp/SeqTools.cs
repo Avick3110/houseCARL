@@ -39,7 +39,10 @@ public static class SeqTools
          "than picking one. houseCARL reads that plugin's start-game-enabled quests and writes the .seq into a houseCARL " +
          "mod folder you enable in MO2. If the plugin is itself in a houseCARL patch folder, the .seq defaults into THAT " +
          "same folder (so enabling the one mod deploys both .esp and .seq); otherwise it lands in a fresh folder (pass " +
-         "into= an existing houseCARL patch to keep them together, or patch= to name the new folder). A plugin with no " +
+         "into= an existing houseCARL patch to keep them together, or patch= to name the new folder). After an IN-PLACE " +
+         "edit the .esp is in the MOD's own folder, so pass output_dir= that mod folder and the .seq lands beside it in " +
+         "its SEQ\\. If the destination already holds exactly these bytes, nothing is written and the response says so. " +
+         "A plugin with no " +
          "start-game-enabled quests needs no .seq — that's reported, nothing is written. The .seq makes the quest START; " +
          "it does not verify the quest or its dialogue is otherwise correct. format='json' returns the same data " +
          "machine-readable. No epoch on this call, and that is a fact not an omission: a .seq is derived from the plugin " +
@@ -53,6 +56,8 @@ public static class SeqTools
             string? patch = null,
         [Description("LANE: filename of an existing houseCARL patch mod to write the .seq into (e.g. the patch that holds the .esp, so one mod deploys both).")]
             string? into = null,
+        [Description("LANE: land the .seq in a folder of YOUR choosing instead of a houseCARL patch folder — pass the mod-folder ROOT (typically the plugin's own mod, after an in-place edit); houseCARL appends SEQ\\ (and won't double it if you already point at a ...\\SEQ folder). When set, patch=/into= are ignored. If the folder is under neither your MO2 mods folder nor the game's Data, the .seq is still written but you're warned the game won't read it.")]
+            string? output_dir = null,
         [Description("TRANSPORT: 'text' (default) | 'json' (the same data, machine-readable).")]
             string? format = null,
         [Description("TRANSPORT: character ceiling on the render; past it trailing quest rows are dropped with an explicit notice (never silent). 0 = a safe default kept under the host's per-response limit.")]
@@ -74,14 +79,21 @@ public static class SeqTools
                         + "patch — the two lanes are exclusive. Drop patch= to write into that patch, or drop into= to make a new folder.";
             return json ? JsonWire.RenderError(laneErr, null) : "error: " + laneErr;
         }
+        // output_dir= WINS over patch=/into= — the compile lane's decided contract (Aaron 2026-06-16), and the same
+        // ignored-lane rule it states out loud rather than silently applying (Q3). Not an error like the pair above:
+        // that pair is two ways of naming a houseCARL folder with no way to choose between them, while this is one
+        // lane superseding another — a note, and the .seq goes where output_dir says.
+        string? outputNote = null;
+        if (!string.IsNullOrWhiteSpace(output_dir) && (!string.IsNullOrWhiteSpace(patch) || !string.IsNullOrWhiteSpace(into)))
+            outputNote = "note: output_dir= was given, so patch=/into= are ignored (the .seq lands in output_dir, not a houseCARL patch folder).";
 
-        var o = svc.WriteSeq(source, patch, into);
-        if (json) return JsonWire.RenderSeqOutcome(o, max_chars);
+        var o = svc.WriteSeq(source, patch, into, output_dir);
+        if (json) return JsonWire.RenderSeqOutcome(o, max_chars, outputNote);
         if (!o.Success) return "error: " + o.Error;
-        return Render(o, max_chars);
+        return Render(o, max_chars, outputNote);
     });
 
-    internal static string Render(SeqOutcome o, int maxChars = 0)
+    internal static string Render(SeqOutcome o, int maxChars = 0, string? outputNote = null)
     {
         // No SGE quests → a clean, explicit no-op (Q3: never a silent empty .seq, never a misleading "done").
         if (o.Quests.Count == 0)
@@ -91,8 +103,11 @@ public static class SeqTools
 
         var sb = new StringBuilder();
         var seqName = Path.GetFileName(o.SeqPath);
-        sb.Append("wrote ").Append(seqName).Append(": ").Append(o.Quests.Count)
-          .Append(o.Quests.Count == 1 ? " start-game-enabled quest" : " start-game-enabled quests").Append('\n');
+        // #312 — "already current" is its own headline, not a "wrote" with a caveat further down: the first line is
+        // what a caller reads, and a skipped write reported as a write is the same observable as a silent failure (Q3).
+        sb.Append(o.Unchanged ? "unchanged — " : "wrote ").Append(seqName).Append(": ").Append(o.Quests.Count)
+          .Append(o.Quests.Count == 1 ? " start-game-enabled quest" : " start-game-enabled quests")
+          .Append(o.Unchanged ? "; the file on disk already holds exactly these bytes, so NOTHING was written." : "").Append('\n');
         // Budgeted like the sibling write renders (PR #311 review [low-medium]): max_chars= promises "past it
         // trailing quest rows are dropped with an explicit notice (never silent)", and a plugin with hundreds of
         // start-game-enabled quests would otherwise render every row and let the HOST cut the response with no
@@ -112,7 +127,9 @@ public static class SeqTools
                 sb.Append("  ... [truncated: ").Append(i).Append(" of ").Append(o.Quests.Count)
                   .Append(" quest(s) listed at max_chars=").Append(cap)
                   .Append("; the .seq itself carries ALL of them — nothing is missing from the FILE. Re-run only if you need this "
-                        + "LIST widened: that writes the .seq again (into= the folder named below to keep it in one)]\n");
+                        + "LIST widened: with no lane named that writes the .seq again into ANOTHER fresh mod folder (name "
+                        + "into=/output_dir= the folder below to keep it in one — there a byte-identical destination is left "
+                        + "untouched)]\n");
                 break;
             }
             var q = o.Quests[i];
@@ -125,9 +142,17 @@ public static class SeqTools
             sb.Append("source: ").Append(o.PluginFileName).Append(" — read from ").Append(o.ResolvedFrom)
               .Append(o.PluginPath is { Length: > 0 } p ? $" ({p})" : "").Append('\n');
         sb.Append("path: ").Append(o.SeqPath).Append('\n');
-        sb.Append(o.WroteIntoPluginFolder
-            ? "the .seq is in the plugin's OWN houseCARL folder — enabling that one mod in MO2 deploys both the .esp and its .seq."
-            : "the .seq is in a houseCARL mod folder — enable it in MO2 (AND make sure the plugin itself is enabled) so the game reads Data\\SEQ\\.");
+        // WHERE it is decides the NEXT STEP, so the three destinations get three different sentences. An output_dir=
+        // folder is the USER's own mod — telling them to "enable this houseCARL mod" would name a mod that doesn't
+        // exist (#312).
+        sb.Append(o.UserChoseOutput
+            ? "the .seq is in the folder you named (output_dir) — no houseCARL mod folder was created; make sure that mod is enabled in MO2 so the game reads Data\\SEQ\\."
+            : o.WroteIntoPluginFolder
+                ? "the .seq is in the plugin's OWN houseCARL folder — enabling that one mod in MO2 deploys both the .esp and its .seq."
+                : "the .seq is in a houseCARL mod folder — enable it in MO2 (AND make sure the plugin itself is enabled) so the game reads Data\\SEQ\\.");
+        // Q3: never a clean "done" for a .seq the engine will not read (the quests stay silently dead).
+        if (o.DeployWarning is { Length: > 0 } dw) sb.Append('\n').Append(dw);
+        if (outputNote is { Length: > 0 }) sb.Append('\n').Append(outputNote);
         // The ABSENT epoch, stated on the DEFAULT transport too (PR #311 review 6 [low]). The json twin has carried
         // `epoch_note` since it was written; the text render said nothing — so a caller on the transport most of
         // them use saw a response with no epoch= line, which is the same observable a DROPPED stamp would produce.
