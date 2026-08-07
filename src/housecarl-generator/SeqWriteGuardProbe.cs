@@ -303,7 +303,12 @@ internal static class SeqWriteGuardProbe
                 $"OUTPUT-DIR .seq lands in <output_dir>\\SEQ, no houseCARL folder cut, no ownership marker stamped — path=[{oOut.SeqPath}] chose={oOut.UserChoseOutput} err=[{oOut.Error}]");
             // …and a mod folder directly under mods\ DEPLOYS, so no warning. (The arm above is the case a user hits;
             // this is the half that proves the warning is a real discriminator rather than always-on.)
-            Check(oOut.DeployWarning is null, $"OUTPUT-DIR-DEPLOYS <mods>\\<mod>\\SEQ carries no deploy warning — got [{oOut.DeployWarning}]");
+            // …and it asserts WHERE THE FILE WENT alongside the null warning: on its own, "no warning" is also what
+            // every houseCARL-folder lane produces, so the arm passed unchanged with output_dir= routing disabled
+            // (its own RED check found that, twice — the flag alone was no better, since it reports what the CALLER
+            // asked for, not which lane ran). The path is the only witness that cannot be faked by intent.
+            Check(PathUnder(oOut.SeqPath, userMod) && oOut.DeployWarning is null,
+                $"OUTPUT-DIR-DEPLOYS the .seq is IN the named folder AND <mods>\\<mod>\\SEQ carries no deploy warning — path=[{oOut.SeqPath}] got [{oOut.DeployWarning}]");
 
             // OUTPUT-DIR-OUTSIDE: the same call to a folder the game never reads is written and WARNED, never a clean
             // "done" — a .seq the engine can't see leaves every SGE quest silently dead (Q3).
@@ -322,7 +327,11 @@ internal static class SeqWriteGuardProbe
             // file's TIMESTAMP, not by the flag alone — the flag is what a broken short-circuit would set while still
             // rewriting the file, so a mtime sentinel is what makes this arm mean "no write happened".
             var sentinel = new DateTime(2001, 2, 3, 4, 5, 6, DateTimeKind.Utc);
-            File.SetLastWriteTimeUtc(expectedUserSeq, sentinel);
+            // Stamped only if the arm above actually produced the file: a missing destination is a FAILURE of that
+            // arm, and stamping it blind turns it into an exception that takes the rest of this section with it
+            // (which is exactly what the OUTPUT-DIR RED check produced).
+            if (File.Exists(expectedUserSeq)) File.SetLastWriteTimeUtc(expectedUserSeq, sentinel);
+            else Check(false, "UNCHANGED prerequisite: the OUTPUT-DIR arm left no file to re-run against");
             var oSame = svc.WriteSeq(svcPlugin, null, null, userMod);
             Check(oSame.Success && oSame.Unchanged
                   && File.GetLastWriteTimeUtc(expectedUserSeq) == sentinel
@@ -331,6 +340,7 @@ internal static class SeqWriteGuardProbe
 
             // UNCHANGED-DIFFERS: the negative half. A destination holding DIFFERENT bytes is rewritten — a
             // short-circuit that fired on mere existence would leave the stale file and report success.
+            Directory.CreateDirectory(Path.GetDirectoryName(expectedUserSeq)!);
             File.WriteAllBytes(expectedUserSeq, new byte[] { 0xDE, 0xAD, 0xBE, 0xEF });
             File.SetLastWriteTimeUtc(expectedUserSeq, sentinel);
             var oDiff = svc.WriteSeq(svcPlugin, null, null, userMod);
