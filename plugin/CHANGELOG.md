@@ -23,7 +23,9 @@ says `replaced` rather than `wrote`.
 warned that a `.pex` landing in your overwrite folder wouldn't deploy. It does — MO2 maps overwrite onto the game's
 Data at top priority, and it's where xEdit/CK/Synthesis output lands — so that warning was a false alarm. It no
 longer fires there, and `housecarl_write_seq`'s new `output_dir=` shares the corrected rule rather than inheriting
-the old one. (The rule is otherwise unchanged and
+the old one. Sharing the rule also fixed a second `compile_script` bug on the way past: `output_dir=C:\` (a bare
+drive root) produced the drive-*relative* `C:Scripts`, so the `.pex` landed in whatever the working directory
+happened to be on that drive. (The rule is otherwise unchanged and
 still exact: a mod's own `Scripts\`/`SEQ\`, the overwrite folder, or the game's `Data\` — a *nested* path inside a
 mod still warns, because MO2 would deploy it to `Data\<Sub>\…` where nothing loads it.)
 

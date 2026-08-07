@@ -4564,8 +4564,9 @@ public sealed class LoadOrderService : IDisposable
         var problems = new List<string>();
         foreach (var e in edits)
         {
-            if (!string.Equals(e.Verb, "CopyFrom", StringComparison.Ordinal) || string.IsNullOrWhiteSpace(e.FromPlugin)) continue;
-            if (view.ContainsPlugin(e.FromPlugin)) continue;   // active — Apply resolves it (shared build)
+            // The SHARED predicate, not a restatement of it (PR #318 review [low]): the engine consumes what this
+            // fetches through the same rule, so a clause added to one can never fail to reach the other.
+            if (!WritePatchBuilder.IsOffOrderCopySource(e, view)) continue;   // not a CopyFrom, or active — Apply resolves it off the shared build
             if (comp is null)
             {
                 try { lock (_gate) { EnsurePathsDerived(); modsDir = _modsDir; dataDir = _dataDir; overwriteDir = _overwriteDir; profileDir = _profileDir; } }
@@ -7048,7 +7049,7 @@ public sealed class LoadOrderService : IDisposable
             // tools contradicting each other about one file. So an identical-but-older file has its timestamp
             // refreshed — no content churn, and the sibling lint stays true. If the touch fails, fall THROUGH to the
             // real write rather than reporting a no-op that leaves the lint wrong (Q3).
-            bool identical = SameBytesOnDisk(dest, built.Bytes), touched = false;
+            bool sameBytes = SameBytesOnDisk(dest, built.Bytes), identical = sameBytes, touched = false;
             if (identical && !RefreshSeqTimestamp(dest, pluginPath, out touched)) identical = false;
             if (identical)
                 return new SeqOutcome(true, null, dest, rf.ModFolder, built.Quests, built.PluginFileName, autoInto is not null)
@@ -7059,6 +7060,11 @@ public sealed class LoadOrderService : IDisposable
             // file being replaced may be the mod's OWN shipped .seq — "wrote" and "replaced yours" are different facts
             // about the disk, and the same Q3 argument that split the no-op out applies to them (review round 1).
             bool replaced = File.Exists(dest);
+            // …and WHETHER ANYTHING WAS LOST. The one path that reaches the write with sameBytes true is a timestamp
+            // refresh that failed (a share that accepts SetLastWriteTimeUtc without persisting it), and calling that
+            // "OVERWRITTEN, no backup is kept" is an alarm about a file whose bytes we just re-wrote identically
+            // (PR #318 review [low]). Same event, materially different fact.
+            bool replacedSameBytes = replaced && sameBytes;
 
             // Crash-atomic write of <plugin>.seq under SEQ\ (originals untouched — a houseCARL-owned folder, or the
             // folder the caller named in output_dir=).
@@ -7084,6 +7090,7 @@ public sealed class LoadOrderService : IDisposable
 
             return new SeqOutcome(true, null, dest, rf.ModFolder, built.Quests, built.PluginFileName, autoInto is not null)
                 { ResolvedFrom = resolvedFrom, PluginPath = pluginPath, Replaced = replaced,
+                  ReplacedSameBytes = replacedSameBytes,
                   UserChoseOutput = chosenOutput, DeployWarning = deployWarning };
         }
     }
@@ -8453,6 +8460,12 @@ public sealed record SeqOutcome(
     /// <c>output_dir=</c> lane that file can be the mod's OWN shipped <c>.seq</c>, and houseCARL keeps no backup, so
     /// "wrote" and "replaced yours" are different facts about the disk and are reported as such.</summary>
     public bool Replaced { get; init; }
+
+    /// <summary>#312 — the replaced file held EXACTLY the bytes just written, so nothing was lost. Only reachable when
+    /// the byte-identical short-circuit was taken and its timestamp refresh then FAILED, sending an unchanged file
+    /// down the write path (PR #318 review [low]): without this the response cries "OVERWRITTEN, no backup is kept"
+    /// about a file it re-wrote identically.</summary>
+    public bool ReplacedSameBytes { get; init; }
 
     /// <summary>#312 — the caller named <c>output_dir=</c>, so the .seq landed in a folder the USER owns and no
     /// houseCARL mod folder was cut. Drives the confirmation: "enable this houseCARL mod in MO2" is the wrong next

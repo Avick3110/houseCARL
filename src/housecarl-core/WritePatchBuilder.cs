@@ -614,10 +614,23 @@ public static class WritePatchBuilder
     {
         body = null;
         return copyFromSources is not null
-            && !string.IsNullOrWhiteSpace(e.FromPlugin)          // the pre-locate only ever keys edits that named one
-            && !view.ContainsPlugin(e.FromPlugin!)
+            && IsOffOrderCopySource(e, view)
             && copyFromSources.TryGetValue(e, out body);
     }
+
+    /// <summary>Does this edit's CopyFrom source need the OFF-ORDER on-disk locate — i.e. is it a CopyFrom naming a
+    /// plugin the ACTIVE ORDER does not contain? The ONE rule, called by both sides: the service's pre-locate uses it
+    /// to decide what to fetch, and <see cref="TryOffOrderCopyBody"/> uses it to decide what to consume.
+    /// <para>Shared rather than restated (PR #318 review [low]): the whole point of the engine-side re-check is that
+    /// the two captures agree, and enforcing that agreement with two independent copies of the predicate — in two
+    /// projects, kept in step by a comment asking the reader to check — is the hand-wiring shape CLAUDE.md §3 argues
+    /// against. It matters concretely: the next fix named for this lane is the <c>ActiveNameForPath</c> rule
+    /// <c>forward</c> already has, and a clause added to one copy would silently stop matching the other. One
+    /// predicate, so a clause can only be added to both.</para></summary>
+    public static bool IsOffOrderCopySource(PatchEdit e, LoadOrderResolver.IndexView view)
+        => string.Equals(e.Verb, "CopyFrom", StringComparison.Ordinal)
+           && !string.IsNullOrWhiteSpace(e.FromPlugin)
+           && !view.ContainsPlugin(e.FromPlugin!);
 
     /// <summary>Resolve the PLUGIN a CopyFrom reads its source body from. Named <c>from_source</c> wins; when it is
     /// absent AND a source RECORD is named (the §4.5 zip's <c>from</c>), it defaults to that record's load-order
@@ -1568,11 +1581,10 @@ public static class WritePatchBuilder
     /// the arm reported matches the arm taken (PR #313 review 3 [observation]). The <c>CopyFrom</c> twin took the same
     /// shape in its own PR (#317) — <see cref="TryOffOrderCopyBody"/>.</para>
     /// <para>CORRECTION (2026-08-07, 2.0 tidy-up review round 1): the premise above — "a concurrent rebuild can swap
-    /// membership mid-call" — is FALSE as written, here and on the twin. <c>_nameToIdx</c> is per-resolver-instance and
-    /// never rebuilt (<c>RefreshIfStale</c> swaps only <c>_snap</c>), and a write pins ONE instance for both the
-    /// pre-locate and the engine, so <c>ContainsPlugin</c> cannot answer differently between the two captures. Both
-    /// re-checks are kept as structural invariants — the arm follows the view the write resolves against — rather than
-    /// as the race repairs they were filed as. Full statement on <see cref="TryOffOrderCopyBody"/>.</para>
+    /// membership mid-call" — is FALSE as written, here and on the twin, so both re-checks are structural invariants
+    /// rather than the race repairs they were filed as. The argument is stated ONCE, on
+    /// <see cref="TryOffOrderCopyBody"/> — read it there rather than re-deriving it from a second copy here
+    /// (PR #318 review [nit]: this correction and its twin were saying the same thing twice).</para>
     /// <para>NOT parity, and worth knowing before assuming it: this lane additionally carries the
     /// <c>ActiveNameForPath</c> full-path identity rule (PR #313 [medium]), so a <c>source=</c> PATH naming an ACTIVE
     /// plugin takes the in-order arm. The <c>CopyFrom</c> lane has no such rule at either end, so a
