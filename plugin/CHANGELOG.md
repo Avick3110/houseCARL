@@ -48,13 +48,17 @@ the cell record losing, so nothing about it needed the winner. Which plugin host
 created record (`parent: …`, `parent_host` in JSON) — including the two cases where the definer genuinely can't
 answer (an injected record, or a plugin this session had to exclude), where the winner is still used and says so.
 
-**Know the trade this makes.** The host is a full record override, and it still conflicts at record level. So wherever
-your patch out-ranks the mod that currently wins that cell or topic, the parent record now resolves to the *defining*
-plugin's fields — usually vanilla — instead of that mod's. Before, it resolved to a frozen copy of that mod's fields,
-which was right until the mod updated and then silently wrong forever. Neither is what you want from a patch that only
-added a reference: **sort the patch before the mod that owns the parent**, and the new child is carried either way.
-The `parent:` line now says which mod that is and which way it will resolve, so the choice is in front of you at write
-time rather than discovered in game.
+**You keep the choice — that is the point.** The host is a full record override and still conflicts at record level, so
+wherever your patch out-ranks the mod that currently wins that cell or topic, the parent resolves to the *defining*
+plugin's fields rather than that mod's. That is the **residual** shape: your patch carries your child and a host lean
+enough to lose harmlessly. It is the right default because the alternative — copying the winner — silently inlines
+another mod's content into your plugin and costs a master your reference never needed, and only you know whether this
+patch is meant to win or to feed one that does.
+
+xEdit copies the winner because a person is deciding, record by record, in the moment. houseCARL doesn't decide for
+you: it writes the residual and **tells you** which mod currently wins that parent and which way the record will
+resolve. Sort below that mod to keep the residual shape, sort above it to assert your host, or forward that mod's
+version in deliberately when inlining is what you actually want. The new child is carried either way.
 
 **Fixed: a full path to an *active* plugin is no longer treated as an off-order file (#321).** `housecarl_apply`'s
 `CopyFrom` decided "is this source in the load order?" by looking up the name it was given, and a full path never

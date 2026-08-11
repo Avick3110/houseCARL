@@ -1147,13 +1147,12 @@ public static class WriteTools
         // as a follow-up on the grounds that max_chars' description scoped the ceiling to the read-back; the D2
         // divergence is the stronger argument and it wins.)
         int createCap = maxChars > 0 ? maxChars : Wire.DefaultMaxChars;
-        // #300's TRADE, hoisted out of the budget below (review [medium]) — the same reasoning that hoisted #308's
-        // divergence lines: a statement that the artifact will now out-rank a mod on a record it did not mean to
-        // touch must not be the thing a max_chars cut removes, and the per-record `parent:` lines live INSIDE the
-        // loop. One line per distinct contested parent, before the list, and only when the definer and the winner
-        // actually differ — the benign case (definer IS the winner, or the artifact already carried the parent) says
-        // nothing here. The truncation notice points at a read-back, and the host choice is not IN the record, so a
-        // cut caller could not recover this afterwards.
+        // #300's HOST CHOICE, hoisted out of the budget below: which version of a contested parent this artifact
+        // carries is a control decision the caller may want to act on (sort, or inline the winner deliberately), and
+        // the per-record `parent:` lines live INSIDE the loop where a max_chars cut removes them. It is a statement,
+        // not a warning — the lean residual is the right default; this just makes it visible. One line per distinct
+        // contested parent; the benign cases (definer IS the winner, or the artifact already carried the parent) say
+        // nothing. The host choice is not IN the record, so a cut caller could not recover it afterwards.
         // Selected on the FLAG, never by matching the sentence (review [low]). BOUNDED, too (review [medium]): one
         // line per contested parent is ~400 chars, and a bulk_create fanning children into many contested cells would
         // otherwise blow the whole response budget BEFORE the created list starts — which then truncates at "0 of N",
