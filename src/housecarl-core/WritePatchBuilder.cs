@@ -71,8 +71,8 @@ public static class WritePatchBuilder
     /// <para><see cref="After"/> and <see cref="Landed"/> are read from the IN-MEMORY record, during apply and BEFORE
     /// the serialize. That is not a defect — they are what the edit did — but it is the whole of #308: the in-place
     /// verify rendered them under a banner claiming every line was re-read off the written file, so a composed struct
-    /// that exists in memory and serializes to NOTHING was reported as landed. <see cref="LandedOnDisk"/> and
-    /// <see cref="Divergence"/> below are the file's own answer.</para></summary>
+    /// that exists in memory and serializes to NOTHING was reported as landed. <see cref="LandedOnDisk"/> below is
+    /// the file's own answer, and the render says which of the two a clause came from.</para></summary>
     public sealed record OpResult(FormKey Target, string RecordType, string Label, bool Applied, string? Error, string? After, string? Landed = null)
     {
         /// <summary>#308 — the same descriptor as <see cref="Landed"/>, re-derived from the record as it was RE-READ
@@ -82,13 +82,6 @@ public static class WritePatchBuilder
         /// applied edit's claim rather than the file's content, never silently substitute one for the other.</summary>
         public string? LandedOnDisk { get; init; }
 
-        /// <summary>#308 — set when the edited leaf's in-memory state and the WRITTEN FILE's state disagree: the write
-        /// reported success and the file does not corroborate what the op claims to have put there. The canonical case
-        /// is a modeled struct with no serializable content (a Faction <c>Rank</c> composed with no fields): the list
-        /// holds one element in memory and zero on disk, the plugin does not grow, and every later read shows it
-        /// empty. Q3: the forced in-place verify exists to catch exactly this, so it is stated loudly rather than left
-        /// to a caller to notice. Null = checked and consistent, or not checkable (see <see cref="LandedOnDisk"/>).</summary>
-        public string? Divergence { get; init; }
 
         /// <summary>#308 — a LATER op in the same call wrote into this op's leaf, so the written file cannot answer
         /// for this one: <see cref="After"/>/<see cref="Landed"/> were read the instant it applied, and the file holds
@@ -104,30 +97,6 @@ public static class WritePatchBuilder
         /// synced marker reported as unanswered rather than unchecked.</summary>
         public bool VerifyAttempted { get; init; }
 
-        /// <summary>#308 — what the edited leaf HELD in memory when <see cref="After"/> was read: a value, a present
-        /// container/substruct (with its element count), or nothing. The presence half of the comparison, carried
-        /// structurally because a value, a container summary, a substruct summary and an absent leaf differ only in
-        /// display text — deciding "the file carries nothing there" from that text keys a Q3 verdict on wording, and
-        /// did miss real cases twice (an absent leaf reads "(absent)", never the empty string the first rule looked
-        /// for; a vanished SUBSTRUCT reads "[Rank]" in memory, which no count parser recognises).</summary>
-        public LeafPresence AfterPresence { get; init; }
-    }
-
-    /// <summary>#308 — what a leaf HOLDS, structurally, as the reader reported it: a value, a present
-    /// container/substruct (with its element count where it has one), or nothing at all. The three render as a token
-    /// or a parenthesised note and are not tellable apart from that text, which is why the write verify carries this
-    /// instead of parsing prose — it missed a vanished scalar and then a vanished substruct doing the latter.</summary>
-    /// <param name="HasValue">The leaf holds a scalar/link VALUE.</param>
-    /// <param name="Present">Something is there — a value, or a container/substruct that exists.</param>
-    /// <param name="Count">Elements, for a container leaf (0 = present but EMPTY); null for a value or a substruct.</param>
-    /// <param name="Readable">False when the read FAILED rather than found nothing — "I could not look" is not
-    /// evidence of absence, and treating it as such told a caller a correct write was lost (review [low]).</param>
-    public readonly record struct LeafPresence(bool HasValue, bool Present, int? Count, bool Readable = true)
-    {
-        /// <summary>Is there CONTENT? A value, a non-empty container, or a present substruct. An EMPTY container is
-        /// deliberately not content: an emptied list and a dropped subrecord say the same thing, so a call that
-        /// legitimately cleared a list must not be told its write vanished.</summary>
-        public bool HasContent => HasValue || (Present && (Count is null || Count > 0));
     }
 
     /// <summary>One record read back IN FULL from the WRITTEN patch file (opt-in — the pre-enable verify loop,
@@ -580,8 +549,8 @@ public static class WritePatchBuilder
                     WriteEngine.CopyField(srcBody!, ov, req.Path);
                 else
                     WriteEngine.ApplyVerb(ov, req);
-                var (after, landed, presence) = DescribeApplied(ov, req);
-                ops.Add(new OpResult(e.Target, req.RecordType, label, true, null, after, landed) { AfterPresence = presence });
+                var (after, landed, _) = DescribeApplied(ov, req);
+                ops.Add(new OpResult(e.Target, req.RecordType, label, true, null, after, landed));
             }
             catch (ExpectedApplyRejectionException ex)
             {
@@ -987,8 +956,8 @@ public static class WritePatchBuilder
                         ov, req.Path);
                 else
                     WriteEngine.ApplyVerb(ov, req);
-                var (after, landed, presence) = DescribeApplied(ov, req);
-                ops.Add(new OpResult(e.Target, req.RecordType, label, true, null, after, landed) { AfterPresence = presence });
+                var (after, landed, _) = DescribeApplied(ov, req);
+                ops.Add(new OpResult(e.Target, req.RecordType, label, true, null, after, landed));
             }
             catch (ExpectedApplyRejectionException ex)
             {
@@ -3406,7 +3375,7 @@ public static class WritePatchBuilder
             // then reaches for — re-issue the op — is the duplicate-Add trap this codebase already warns about.
             // The file has ONE final state, so only the LAST op touching a leaf is answerable by it.
             if (LaterOpTouchesSameLeaf(perOp, i)) { verified.Add(op with { SupersededInCall = true, VerifyAttempted = true }); continue; }
-            var (afterDisk, landedDisk, diskPresence) = DescribeApplied(rec, perOp[i].Req);
+            var (_, landedDisk, diskReadable) = DescribeApplied(rec, perOp[i].Req);
             // ONE comparison, on the leaf. An earlier round added a second pass over `Landed` (the touched ELEMENT) to
             // catch a struct that lands but serializes with fewer fields than supplied — and a later review proved it
             // INERT (review [medium]): `Landed` differs from `After` only for a container leaf, and for a container
@@ -3422,8 +3391,10 @@ public static class WritePatchBuilder
                 // text printed as the file's content. Leaving it null routes it to the state that already exists for
                 // this: attempted, no answer. The comparator meanwhile stays silent on it, which is correct and is
                 // why nothing else caught it.
-                LandedOnDisk = diskPresence.Readable ? landedDisk : null,
-                Divergence = LeafDivergence(op.After, op.AfterPresence, afterDisk, diskPresence),
+                // A file side that could NOT BE READ is not the file's answer: DescribeApplied hands back the note
+                // ("(unreadable: …)"), which is non-null, so presenting it would print a read failure as the file's
+                // content. Null routes it to the label that says the clause is the applied edit's own reading.
+                LandedOnDisk = diskReadable ? landedDisk : null,
                 VerifyAttempted = true,
             });
         }
@@ -3494,59 +3465,14 @@ public static class WritePatchBuilder
         }
     }
 
-    /// <summary>#308's comparator: does the WRITTEN FILE fail to carry what the applied edit put there? Null = it
-    /// carries it, or there is nothing to compare (either side unreadable — an absent answer is never evidence).
-    ///
-    /// <para>DELIBERATELY NOT "the two tokens differ" (review [high], reproduced): a difference in TEXT is not a lost
-    /// write. <c>Percent</c> is byte-quantised on serialize, so a routine <c>Set ChanceNone value="0.123"</c> reads
-    /// back <c>0.12</c> off the file — correct, and the format's own resolution. Calling that "NOT landed" tells the
-    /// caller to re-issue an op that will diverge identically every time, which is the same wrong-answer class this
-    /// detector exists to close, pointed the other way. Any lossy or normalising serialize (floats, colors, string
-    /// forms) is the same story.</para>
-    ///
-    /// <para>What IS evidence, and all this claims: the content is GONE. Two shapes carry that — a container whose
-    /// count moved (the #308 case: a composed struct that serialized to nothing, so the list is shorter on disk than
-    /// in memory), and a leaf that held something in memory and holds NOTHING in the file. Everything else is
-    /// reported by the ordinary clause, which prints the file's own reading anyway, so a caller who cares about the
-    /// exact value can see both without being told a correct write failed.</para></summary>
-    internal static string? LeafDivergence(string? inMemory, LeafPresence memory, string? onDisk, LeafPresence disk)
-    {
-        if (inMemory is null || onDisk is null) return null;
-        // An UNREADABLE side is not evidence either — which is what this method's own doc has always said, while the
-        // code counted it as absence (review [low]): a leaf whose read threw, or a field the type does not have,
-        // reads valueless and would have produced "a lost write … check it in xEdit".
-        if (!memory.Readable || !disk.Readable) return null;
-        if (string.Equals(inMemory, onDisk, StringComparison.Ordinal)) return null;
-        if (memory.Count is { } memCount && disk.Count is { } diskCount)
-            return memCount == diskCount
-                ? null                                     // same count, different summary text — not a content claim
-                : $"the applied edit left {memCount} element(s) in memory, but the WRITTEN FILE carries {diskCount}";
-        // The shape that is still evidence, judged on PRESENCE and never on a note's wording: the leaf held CONTENT in
-        // memory and holds none in the file. Content = a value, or a container with at least one element — so a
-        // nullable list whose subrecord never got written (it reads "(absent)", not "[list: 0 item(s)]", which is why
-        // the count arm above cannot see it) is caught, while a list the call legitimately EMPTIED is not, since an
-        // emptied list and a dropped subrecord say the same thing. An absent leaf reads "(absent)", never "", which is
-        // why an empty-string test found nothing and reported such a write "verified" (review [high], twice).
-        if (memory.HasContent && !disk.HasContent)
-            // Qualified, because ONE other thing reads a field as valueless — a localized plugin whose strings this
-            // session cannot resolve — and a caller who re-issues on that reading gets the same read forever.
-            return "the applied edit read back '" + inMemory + "', but the WRITTEN FILE carries no value there "
-                 + $"(it reads {onDisk}) — a lost write, or, on a LOCALIZED plugin whose strings this session cannot "
-                 + "resolve, a field houseCARL cannot read back; check it in xEdit before re-issuing";
-        return null;
-    }
-
-    static (string? After, string? Landed, LeafPresence Presence) DescribeApplied(IMajorRecordGetter ov, WriteRequest req)
+    static (string? After, string? Landed, bool Readable) DescribeApplied(IMajorRecordGetter ov, WriteRequest req)
     {
         try
         {
             var leaf = string.Join('.', req.Path);
             var read = ReadEngine.ReadFields(ov, new[] { leaf }, containerHint: null);   // same: no depth= on the write surface, don't hint it
             var f = read.Fields.FirstOrDefault(x => x.Path == leaf) ?? read.Fields.FirstOrDefault();
-            // `default` is deliberate and load-bearing: it gives Readable=false ("could not look"), NOT the
-            // primary constructor's Readable=true. Writing `new LeafPresence(false, false, null)` here would silently
-            // turn an unreadable memory side into "content vanished" (review [nit]).
-            if (f is null) return (null, null, default);
+            if (f is null) return (null, null, false);
             var after = f.HasValue ? f.Token : f.Note;
             // Scalar: Landed reuses the token just read. List/dict: name the touched element (+ new count); else the
             // summary. An Add carries how many elements it appended (composes= → Structs.Count, else 1) so a batch
@@ -3556,8 +3482,8 @@ public static class WritePatchBuilder
             // The presence PAIR rides along because it is the structural fact the tokens hide: a container summary, a
             // substruct summary and an ABSENT leaf all render as notes, and the divergence detector must not read
             // prose to decide whether anything is there.
-            return (after, landed, new LeafPresence(f.HasValue, f.Present, f.Count, f.Readable));
+            return (after, landed, f.Readable);
         }
-        catch { return (null, null, default); }   // default => Readable:false — see the note above
+        catch { return (null, null, false); }
     }
 }

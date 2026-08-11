@@ -1543,28 +1543,10 @@ static class JsonWire
             foreach (var m in o.Masters) w.WriteStringValue(m);
             w.WriteEndArray();
 
-            // FIRST and OUTSIDE the budget, exactly as the text render hoists its ✗ lines (review [medium]): the ops
-            // array is cut by max_chars, so a diverged op past the cut vanished from the document while `ok:true`,
-            // `truncated:true` and a note reading "the WRITE is complete and unaffected" stayed — an actively wrong
-            // reassurance in the one case #308 exists to catch. These rows are few (one per un-landed op) and are the
-            // json twin of a statement the text render already refuses to let a cut remove.
-            var diverged = o.Ops.Where(op => op.Divergence is not null).ToList();
-            // `verify_ran` beside the count (review [low]): a patch-lane or dry-run document also carries
-            // "diverged_ops": 0, and a consumer branching on that alone reads "nothing diverged" where the truth is
-            // "nothing was checked". The per-op word says so too, but only past the max_chars cut this hoist exists
-            // to survive.
+            // Did the per-op file check RUN at all? A patch-lane or dry-run document has no per-op file readings in
+            // it, and a consumer needs to tell that from "it ran and everything came off the file". Outside the ops
+            // budget, because that is the one fact a max_chars cut must not remove.
             w.WriteBoolean("verify_ran", o.Ops.Any(op => op.VerifyAttempted));
-            w.WriteNumber("diverged_ops", diverged.Count);
-            w.WriteStartArray("divergences");
-            foreach (var op in diverged)
-            {
-                w.WriteStartObject();
-                w.WriteString("formid", op.Target.ToString());
-                w.WriteString("label", op.Label);
-                w.WriteString("divergence", op.Divergence!);
-                w.WriteEndObject();
-            }
-            w.WriteEndArray();
 
             w.WriteNumber("total_ops", o.Ops.Count);
             w.WriteStartArray("ops");
@@ -1581,32 +1563,24 @@ static class JsonWire
                 WriteNullable(w, "error", op.Error);
                 WriteNullable(w, "after", op.After);
                 WriteNullable(w, "landed", op.Landed);
-                // #308 — the D2 twin of the text render's file-vs-memory split. `landed` is the applied edit's own
-                // read (in memory, pre-serialize); `landed_on_disk` is the same descriptor re-derived from the WRITTEN
-                // FILE, null when the file could not answer for this op; `divergence` is non-null exactly when the two
-                // disagree about what the edited leaf now holds — a success response that must not be read as landed.
+                // #308 — the D2 twin of the text render's file-vs-memory split, and it REPORTS rather than judges.
+                // `landed` is the applied edit's own read (in memory, before the serialize); `landed_on_disk` is the
+                // same descriptor re-derived from the WRITTEN FILE, null when the file could not answer for this op.
                 WriteNullable(w, "landed_on_disk", op.LandedOnDisk);
-                WriteNullable(w, "divergence", op.Divergence);
-                // The STATE of the file-check, as a word rather than a bool that cannot say why (review [low], twice):
-                // "verified" the file agreed · "diverged" it did not (see divergence) · "superseded" a later op in
-                // this call wrote the same field, so the file cannot answer for this one · "no_answer" the re-opened
-                // file did not yield this op's leaf · "not_checked" this op was never ASKED — a lane that runs no
-                // file-verify (patch, dry run), or an op appended after the resolved edits (the SNAM topic-marker
-                // sync) on a lane that did verify · "not_comparable" the file answered but the applied edit's own
-                // read did not, so there was nothing to compare it against.
-                // The text render's own suffixes are the D2 twin of these.
-                w.WriteString("landed_verification",
-                    op.Divergence is not null ? "diverged"
-                    : op.SupersededInCall ? "superseded"
-                    // "verified" needs BOTH sides READABLE (review [low]): a leaf whose read failed comes back as the
-                    // note "(unreadable: …)", which is non-null — so testing for a non-null After stamped exactly the
-                    // op nothing could be compared for. The presence pair carries the fact; the file side is gated
-                    // upstream by leaving LandedOnDisk null.
-                    : op.LandedOnDisk is not null && op.After is not null && op.AfterPresence.Readable ? "verified"
-                    : op.LandedOnDisk is not null ? "not_comparable"
-                    // From the OP's own fact, never inferred from the lane: an in-place dry run re-opens nothing, and an
-                    // op appended after the edits (the SNAM sync) was never asked about — both were read as
-                    // "no_answer", which asserts a file was re-opened and could not answer (review).
+                // WHERE the clause came from, as a word rather than a verdict:
+                //   "written_file"  the file answered for this op — `landed_on_disk` is its reading
+                //   "superseded"    a later op in this call wrote the same field, so the file's final state is that
+                //                   op's result and cannot speak for this one
+                //   "no_answer"     the file was re-opened and did not yield this op's leaf (or the read failed)
+                //   "not_checked"   this op was never asked — a lane that runs no per-op file check (patch, dry run),
+                //                   or an op appended after the resolved edits (the SNAM topic-marker sync)
+                // Deliberately NOT a judgement about whether the write "landed": telling a real difference from a
+                // representational one (a byte-quantised Percent, an overlay's type name) is what nine review rounds
+                // showed cannot be done reliably, and every attempt told a caller to re-issue a write that HAD landed.
+                // The two readings are both here; a caller comparing them decides.
+                w.WriteString("landed_source",
+                    op.SupersededInCall ? "superseded"
+                    : op.LandedOnDisk is not null ? "written_file"
                     : op.VerifyAttempted ? "no_answer" : "not_checked");
                 w.WriteEndObject();
                 renderedOps++;
