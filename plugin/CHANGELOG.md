@@ -8,6 +8,37 @@ when it changes.
 
 *Accumulating notes for the next cut — not yet released; `plugin.json` still reads the last shipped version.*
 
+**Fixed: an in-place edit's "what landed" line is now read off the written file (#308).** The verify prints under a
+banner saying every edited record was re-read off the file on disk — but the per-op half of each line ("`Add Ranks:
+now 1 (+1)`") was read from memory *before* the file was written. When a composed structure exists in memory and
+serializes to nothing — a Faction `Rank` composed with no fields is the reported case — the plugin didn't grow, the
+list stayed empty, and the call still reported the addition as landed; it cost the reporter three more debugging
+rounds on a live mod. That clause now comes off the re-opened file. If the file and the applied edit disagree, the
+response says so **loudly** on its own line and tells you to treat the op as not landed, instead of leaving you to
+notice a count. In JSON the two are separate facts: `landed` (what the edit did in memory), `landed_on_disk` (what
+the file carries), `divergence`, and `landed_verified_on_disk`. And the specific call that caused it is now
+**refused before anything is written**, naming the fields that would give the structure content — a compose you gave
+nothing to, whose every settable field is empty, cannot land, so houseCARL no longer pretends it did.
+
+**Fixed: adding a record inside an existing cell (or topic) no longer drags in the mod that wins it (#300).** Placing
+a new reference into a vanilla cell pulled the cell's *load-order winner* into your patch — so a lighting overhaul
+became a master your two new refs never needed, and the patch carried a frozen copy of that mod's lighting. Sorted
+below the lighting mod, your patch then re-asserted those stale values, and would keep re-asserting them after the
+mod updated. houseCARL now hosts the new child in the parent's **defining** plugin's version: no extra master, no
+copied-in content from a mod you weren't patching. A placed reference lives in the cell's child group and survives
+the cell record losing, so nothing about it needed the winner. Which plugin hosted the child is now reported per
+created record (`parent: …`, `parent_host` in JSON) — including the two cases where the definer genuinely can't
+answer (an injected record, or a plugin this session had to exclude), where the winner is still used and says so.
+
+**Fixed: a full path to an *active* plugin is no longer treated as an off-order file (#321).** `housecarl_apply`'s
+`CopyFrom` decided "is this source in the load order?" by looking up the name it was given, and a full path never
+matches a filename — so `from_source=C:\…\SomeMod\Bar.esp` pointing at a plugin your order is actively serving read
+the file directly, skipped the excluded-plugin refusal, and described the source as not in your load order. Usually
+that was only a wrong label; under a profile switch, where the same filename is served by a different mod folder, it
+was a wrong *body*. `housecarl_forward` has had the rule since its own fix — a path that names the exact file your
+order loads is that plugin — and `CopyFrom` now shares it. A path to a same-named *backup* still reads off-order, as
+it should: the test is the file, not the name.
+
 **`housecarl_write_seq` can finally put the `.seq` in the mod's own folder — `output_dir=` (#312).** Editing a
 plugin **in place** left the two halves in different mods: the `.esp` in the mod's own folder, the `.seq` in a
 freshly cut `houseCARL - houseCARL_SEQ_00N`, with `into=` unable to name a folder houseCARL didn't create. Every
