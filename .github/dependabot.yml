@@ -1,0 +1,13 @@
+version: 2
+updates:
+  # NuGet packages referenced by the four .csproj files under src/.
+  - package-ecosystem: "nuget"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+
+  # Actions pinned in .github/workflows/*.yml (actions/checkout, actions/setup-dotnet, actions/cache).
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
