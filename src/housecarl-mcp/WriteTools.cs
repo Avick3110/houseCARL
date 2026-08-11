@@ -549,7 +549,11 @@ public static class WriteTools
         sb.Append(o.Ops.Count).Append(o.Ops.Count == 1 ? " edit:\n" : " edits:\n");
         foreach (var op in o.Ops)
             sb.Append("  ").Append(op.RecordType).Append(' ').Append(op.Target).Append("  ").Append(op.Label)
-              .Append(op.After is not null ? "  -> " + op.After : "  -> applied").Append('\n');
+              .Append(op.After is not null ? "  -> " + op.After : "  -> applied")
+              // This row is the APPLIED edit's own reading. When the file does not carry it, mark it HERE too — this
+              // is the first place a caller looks, and the ✗ line arrives further down (review [nit]).
+              .Append(op.Divergence is not null ? "   [NOT carried by the written file — see below]" : "")
+              .Append('\n');
         // Make the dialogue-coverage scope boundary VISIBLE, not silent (Q3): the .fuz/.lip presence check (unit B) AND
         // the result-script binding check (unit C1) both run on CREATE of dialogue lines, not on EDITS to existing ones.
         // An edit that adds a spoken response or a result script to an existing INFO produces the same silent-line /
@@ -563,15 +567,17 @@ public static class WriteTools
         // lane) renders COMPACT by default and the full field-by-field dump only on full_readback=true (HCBR-2026-06-28-01):
         // the deep dump of N records with large list fields blew past the host token cap and spilled to a file, reading as
         // "only some ops applied". The verify itself is unchanged — this is its OUTPUT, not its detection.
+        // BEFORE the read-back, ONCE, for EVERY lane (reviews [medium] then [low]): a "did not land" statement must
+        // not be the thing a max_chars cut removes, must not ride on the per-record loop (which skips a record whose
+        // read-back errored), and must not be coupled to whether a read-back exists at all — it was reachable only
+        // through the compact block, so a lane that computed a divergence without one would print nothing here while
+        // json still said "diverged".
+        AppendDivergences(sb, o.Ops);
         if (o.ReadBack is { } rb)
         {
             if (fullDump) AppendFullReadback(sb, rb, maxChars);
             else AppendCompactReadback(sb, o.Ops, rb, maxChars);
         }
-        // #308 review [medium] — the divergence lines live in the COMPACT verify, so asking for the FULL dump used to
-        // drop them: the caller who asked for the most verification was the only one never told an op had not landed.
-        // Rendered here for the full-dump lane, after the dump, so both forms carry the same Q3 statement.
-        if (fullDump) AppendDivergences(sb, o.Ops);
         if (o.Note is { } note) sb.Append("note: ").Append(note).Append('\n');
         sb.Append(o.InPlace
             ? InPlaceAgainHint("to make more in-place edits to this plugin", file, laneAsName)
@@ -696,11 +702,9 @@ public static class WriteTools
                 ? "verify — every edited record was re-read off the written file, and AT LEAST ONE op is NOT carried by it (compact; pass full_readback=true for the "
                 : "verified — every edited record re-read off the written file (compact; pass full_readback=true for the ")
           .Append("full field-by-field dump):\n");
-        // FIRST, and outside the budget (review [medium]): a "did not land" statement must not be the thing a
-        // max_chars cut removes, and it must not ride on the per-record loop — that loop `continue`s past a record
-        // whose read-back errored, while the divergence pass is a separate walk that may well have an answer for it.
-        // These lines are few (one per genuinely un-landed op) and are the whole reason the verify is forced on.
-        AppendDivergences(sb, ops);
+        // The divergence lines are NOT emitted here — Render emits them once for every lane, before this block, so
+        // they cannot be cut by the budget below, skipped with a record whose read-back errored, or lost on a lane
+        // that has no read-back at all.
         for (int i = 0; i < rb.Count; i++)
         {
             if (sb.Length >= cap)

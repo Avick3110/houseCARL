@@ -3412,8 +3412,16 @@ public static class WritePatchBuilder
     static bool LaterOpTouchesSameLeaf(IReadOnlyList<(FormKey Target, WriteRequest Req)> perOp, int i)
     {
         for (int j = i + 1; j < perOp.Count; j++)
-            if (perOp[j].Target == perOp[i].Target && PathFamiliesOverlap(perOp[i].Req.Path, perOp[j].Req.Path))
-                return true;
+        {
+            if (perOp[j].Target != perOp[i].Target || !PathFamiliesOverlap(perOp[i].Req.Path, perOp[j].Req.Path)) continue;
+            // A key-addressed pair on ONE path is two different elements (review [low]): SetAtIndex Ranks key=0 and
+            // key=1 — or a dict Set on key A then key B — carry the container as Path and the element in Key, so the
+            // bracketed rule above cannot tell them apart and the earlier op was marked superseded by an op that
+            // never touched it (losing its verification, and saying so untruthfully). Different keys = independent.
+            if (perOp[i].Req.Key is { } a && perOp[j].Req.Key is { } b
+                && !string.Equals(a, b, StringComparison.OrdinalIgnoreCase)) continue;
+            return true;
+        }
         return false;
     }
 
