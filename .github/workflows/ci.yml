@@ -35,7 +35,7 @@ jobs:
       # package versions). Trims the restore inside the build step below; the build itself still
       # compiles the whole solution fresh every run.
       - name: Cache NuGet packages
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.nuget/packages
           key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj') }}
