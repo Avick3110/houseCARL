@@ -67,8 +67,29 @@ public static class WritePatchBuilder
     /// <summary>Per-edit result. On a successful call every op has <see cref="Applied"/>=true (all-or-nothing);
     /// <see cref="After"/> is a best-effort read-back of the edited leaf (xEdit remains the authority).
     /// <see cref="Landed"/> is the compact "what landed" descriptor the in-place verify renders by default
-    /// (HCBR-2026-06-28-01) — the new scalar value, or the touched list element + new count; null when not derivable.</summary>
-    public sealed record OpResult(FormKey Target, string RecordType, string Label, bool Applied, string? Error, string? After, string? Landed = null);
+    /// (HCBR-2026-06-28-01) — the new scalar value, or the touched list element + new count; null when not derivable.
+    /// <para><see cref="After"/> and <see cref="Landed"/> are read from the IN-MEMORY record, during apply and BEFORE
+    /// the serialize. That is not a defect — they are what the edit did — but it is the whole of #308: the in-place
+    /// verify rendered them under a banner claiming every line was re-read off the written file, so a composed struct
+    /// that exists in memory and serializes to NOTHING was reported as landed. <see cref="LandedOnDisk"/> and
+    /// <see cref="Divergence"/> below are the file's own answer.</para></summary>
+    public sealed record OpResult(FormKey Target, string RecordType, string Label, bool Applied, string? Error, string? After, string? Landed = null)
+    {
+        /// <summary>#308 — the same descriptor as <see cref="Landed"/>, re-derived from the record as it was RE-READ
+        /// off the written file (same code path, different universe). This is the one a file-authoritative render may
+        /// print. Null when the file could not answer for this op — the re-opened file did not yield the record, the
+        /// walk failed, or the lane never wrote one (a dry run) — and a renderer must then say the clause is the
+        /// applied edit's claim rather than the file's content, never silently substitute one for the other.</summary>
+        public string? LandedOnDisk { get; init; }
+
+        /// <summary>#308 — set when the edited leaf's in-memory state and the WRITTEN FILE's state disagree: the write
+        /// reported success and the file does not corroborate what the op claims to have put there. The canonical case
+        /// is a modeled struct with no serializable content (a Faction <c>Rank</c> composed with no fields): the list
+        /// holds one element in memory and zero on disk, the plugin does not grow, and every later read shows it
+        /// empty. Q3: the forced in-place verify exists to catch exactly this, so it is stated loudly rather than left
+        /// to a caller to notice. Null = checked and consistent, or not checkable (see <see cref="LandedOnDisk"/>).</summary>
+        public string? Divergence { get; init; }
+    }
 
     /// <summary>One record read back IN FULL from the WRITTEN patch file (opt-in — the pre-enable verify loop,
     /// wishlist #3 re-scoped / HCBR-2026-06-11-02 wave (b)): every modeled field, deep, read off the re-opened
@@ -987,6 +1008,7 @@ public static class WritePatchBuilder
         //     the dropped whole-plugin floor — confirm what you TOUCHED landed; Mutagen is trusted for the rest). ---
         IReadOnlyList<string> masters = Array.Empty<string>();
         IReadOnlyList<FullReadback>? readBack = null;
+        IReadOnlyList<OpResult> reported = ops;
         long bytes = 0;
         ISkyrimModGetter? back = null;
         try
@@ -995,12 +1017,16 @@ public static class WritePatchBuilder
             masters = back.ModHeader.MasterReferences.Select(m => m.Master.FileName.ToString()).ToList();
             bytes = new FileInfo(targetPath).Length;
             if (fullReadback) readBack = ReadBackInFull(back, resolved.Select(r => r.edit.Target));
+            // #308 — the per-op half of the same verify. Unconditional, unlike the read-back above: the "what landed"
+            // clause is rendered on EVERY in-place response (the compact default is the one a caller reads to confirm
+            // an edit), so it is exactly the half that must not be a memory-derived claim wearing a file's authority.
+            reported = VerifyLandedAgainstFile(back, resolved.Select(r => (r.edit.Target, r.req)).ToList(), ops);
         }
         catch (Exception ex)
             { return PatchOutcome.Fail($"'{fileName}' was edited in place but could not be re-opened to verify: {ex.Message}"); }
         finally { (back as IDisposable)?.Dispose(); }
 
-        return new PatchOutcome(true, null, targetPath, false, masters, ops, bytes)
+        return new PatchOutcome(true, null, targetPath, false, masters, reported, bytes)
             { ReadBack = readBack, InPlace = true, Note = MasterGrowNote(fileName, mastersBefore, masters) };
     }
 
@@ -3186,7 +3212,78 @@ public static class WritePatchBuilder
     /// the touched element + new count via <see cref="ReadEngine.TouchedElement"/> (the element you Added/Set, NOT the
     /// whole list), falling back to the container summary. Read-only; NEVER throws into the write result (both null on any
     /// difficulty). The create lane keeps <see cref="TryReadAfter"/> (it needs only <c>After</c>, never <c>Landed</c>).</summary>
-    static (string? After, string? Landed) DescribeApplied(IMajorRecord ov, WriteRequest req)
+    /// <summary>#308 — re-derive every op's "what landed" descriptor from the RE-OPENED WRITTEN FILE and compare it
+    /// with the in-memory one the apply produced. The in-place verify's banner claims every line was re-read off the
+    /// written file; before this, the record-level half was (<see cref="ReadBackInFull"/>) and the per-op half was
+    /// not, so a struct that exists in memory and serializes to nothing rendered as landed under a file-authority
+    /// claim while the file was byte-unchanged.
+    ///
+    /// <para>Same code path both sides (<see cref="DescribeApplied"/>), so a difference is a difference in the DATA,
+    /// not in how two renderers phrase it. A record the file does not yield leaves both fields null — the renderer
+    /// then says the clause is the applied edit's claim, which is the honest reading and the one the old banner
+    /// silently skipped.</para>
+    ///
+    /// <para>Its own enumeration pass, deliberately: <see cref="ReadBackInFull"/> materialises RecordFields and hands
+    /// back values, and threading a second output through it to save one lazy header walk of ONE already-open file —
+    /// on a lane that has just re-serialized that whole file — would buy nothing and cost the read-back's careful
+    /// per-record error accounting.</para></summary>
+    static IReadOnlyList<OpResult> VerifyLandedAgainstFile(
+        ISkyrimModGetter back, IReadOnlyList<(FormKey Target, WriteRequest Req)> perOp, IReadOnlyList<OpResult> ops)
+    {
+        if (ops.Count == 0) return ops;
+        var want = new HashSet<FormKey>(perOp.Select(p => p.Target));
+        var found = new Dictionary<FormKey, IMajorRecordGetter>();
+        try
+        {
+            foreach (var rec in back.EnumerateMajorRecords())
+                if (want.Contains(rec.FormKey) && !found.ContainsKey(rec.FormKey)) found[rec.FormKey] = rec;
+        }
+        catch { /* leave every op unverified — the render says so, and ReadBackInFull names the walk failure itself */ }
+
+        var verified = new List<OpResult>(ops.Count);
+        for (int i = 0; i < ops.Count; i++)
+        {
+            var op = ops[i];
+            if (i >= perOp.Count || !found.TryGetValue(perOp[i].Target, out var rec)) { verified.Add(op); continue; }
+            var (afterDisk, landedDisk) = DescribeApplied(rec, perOp[i].Req);
+            verified.Add(op with { LandedOnDisk = landedDisk, Divergence = LeafDivergence(op.After, afterDisk) });
+        }
+        return verified;
+    }
+
+    /// <summary>#308's comparator: does the edited leaf's in-memory state disagree with the WRITTEN FILE's? Null =
+    /// they agree, or there is nothing to compare (either side unreadable — an absent answer is never evidence of a
+    /// divergence). Both sides come from one read path, so equal content compares equal.
+    /// <para>Counts are compared as COUNTS when both sides are container summaries — the class this exists for moves a
+    /// count, and "[list: 1 item(s)]" vs "[list: 0 item(s)]" is a clearer sentence as "1 in memory, 0 in the file".
+    /// Everything else is compared as text and reported as the two readings, not as an accusation about which is
+    /// right: the file is what the game loads, and that is what the wording says.</para></summary>
+    internal static string? LeafDivergence(string? inMemory, string? onDisk)   // internal: unit-pinned by apply-guard arm 6
+    {
+        if (inMemory is null || onDisk is null) return null;
+        if (string.Equals(inMemory, onDisk, StringComparison.Ordinal)) return null;
+        if (ContainerCount(inMemory) is { } mem && ContainerCount(onDisk) is { } disk)
+            return mem == disk
+                ? null                                     // same count, different summary text — not a content claim
+                : $"the applied edit left {mem} element(s) in memory, but the WRITTEN FILE carries {disk}";
+        return $"the applied edit read back '{inMemory}', but the WRITTEN FILE carries '{onDisk}'";
+    }
+
+    /// <summary>The element count out of a container summary token (<c>[list: N item(s)]</c>, <c>[dict: N …]</c>);
+    /// null when the token is not a counted container — a scalar, a formlink, or a shape this doesn't recognise, all
+    /// of which fall back to a text comparison rather than being read as "0".</summary>
+    static int? ContainerCount(string token)
+    {
+        int colon = token.IndexOf(':');
+        if (!token.StartsWith('[') || colon < 0) return null;
+        int i = colon + 1;
+        while (i < token.Length && token[i] == ' ') i++;
+        int start = i;
+        while (i < token.Length && char.IsAsciiDigit(token[i])) i++;
+        return i > start && int.TryParse(token.AsSpan(start, i - start), out var n) ? n : null;
+    }
+
+    static (string? After, string? Landed) DescribeApplied(IMajorRecordGetter ov, WriteRequest req)
     {
         try
         {

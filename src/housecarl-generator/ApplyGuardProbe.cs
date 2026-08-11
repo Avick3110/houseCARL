@@ -14,7 +14,7 @@ namespace HousecarlGenerator;
 ///
 /// Drives the REAL end-to-end tool path — a synthetic MO2 instance in temp + <see cref="LoadOrderService"/> +
 /// <see cref="ApplyTools.Apply"/> — so the wire reader, the LANE grammar, the alias-visible vocabulary, the corpus
-/// pre-flight and the apply engine are exercised exactly as a caller hits them. Five arms:
+/// pre-flight and the apply engine are exercised exactly as a caller hits them. Six arms:
 /// <list type="number">
 /// <item><b>ops grammar</b> — the 2.0 vocabulary (op=, one op is a set of one), the @file spelling that retired
 /// from_file=, and the strict element reader's NAMED refusals (undeclared member, mixed inline/@file).</item>
@@ -25,6 +25,10 @@ namespace HousecarlGenerator;
 /// <item><b>in-place CopyFrom</b> — the capability the lane never had (it died as an engine-inconsistency wrapper).</item>
 /// <item><b>TRANSPORT</b> — format=json is valid JSON carrying the same data, refusals are documents too, and every
 /// response (both renders) carries the §2.1.1 epoch.</item>
+/// <item><b>the in-place verify's own honesty</b> (#308) — the per-op "what landed" clause is re-derived from the
+/// WRITTEN FILE (json: <c>landed_on_disk</c> + <c>landed_verified_on_disk</c>), a compose with nothing to serialize
+/// is refused before the file is touched instead of reported as landed, and the memory-vs-file comparator's own
+/// semantics are pinned as a unit.</item>
 /// </list>
 ///
 /// Run: <c>dotnet run --project src/housecarl-generator apply-guard</c>
@@ -62,6 +66,7 @@ public static class ApplyGuardProbe
             ZipArm(fx);
             InPlaceCopyArm(fx);
             TransportArm(fx);
+            EmptyComposeArm(fx);
 
             Console.WriteLine();
             Console.WriteLine($"=== apply-guard: {_pass} passed, {_fail} failed -> {(_fail == 0 ? "PASS" : "FAIL")} ===");
@@ -75,6 +80,72 @@ public static class ApplyGuardProbe
         finally { try { Directory.Delete(root, recursive: true); } catch { } }
     }
 
+    /// <summary>ARM 6 (#308) — the in-place verify's per-op clause is the WRITTEN FILE's answer, and a compose with
+    /// nothing to serialize is refused instead of reported as landed.
+    /// <para>The end-to-end divergence RENDER has no synthesizable producer left once the refusal lands (that was the
+    /// only shape this fixture could build where memory and disk disagreed), so the two halves are pinned where each
+    /// actually lives: the refusal end-to-end through the tool, the file-derived clause through the json contract
+    /// (<c>landed_on_disk</c> + <c>landed_verified_on_disk</c>, which do not exist at all pre-fix), and the
+    /// comparator's own semantics as a unit. Stated rather than left as a gap: the detector is the general net for
+    /// every OTHER type that serializes to less than the caller believes, and that net is deliberately not
+    /// exercisable from a fixture built out of one.</para></summary>
+    /// <summary>One <c>Add Ranks</c> compose op, built by concatenation: the JSON's brace runs make a raw interpolated
+    /// literal ambiguous (the compiler says so), and escaping around that is less readable than this.</summary>
+    static string ComposeRankOp(string formid, string? extra) =>
+        "[{\"formid\":\"" + formid + "\",\"field_path\":\"Ranks\",\"op\":\"Add\",\"compose\":{\"type\":\"Rank\""
+        + (extra is null ? "" : "," + extra) + "}}]";
+
+    static void EmptyComposeArm(Fixture fx)
+    {
+        Console.WriteLine("── ARM 6: #308 — the verify's clause comes off the FILE, and an empty compose is refused ──");
+
+        var before = new FileInfo(fx.ReplacerPath).Length;
+        var empty = ApplyTools.Apply(fx.Svc,
+            ops: Json(ComposeRankOp(fx.FactionFid, null)),
+            in_place: fx.ReplacerName, acknowledge: true);
+        Check("a compose with NO fields whose struct serializes to nothing is REFUSED, not reported as landed",
+            empty.StartsWith("error:") && empty.Contains("no serializable content", StringComparison.Ordinal), empty);
+        Check("…and the refusal names the settable fields from the TYPE, so the caller knows what to set",
+            empty.Contains("Settable fields on Rank:", StringComparison.Ordinal)
+            && empty.Contains("Number", StringComparison.Ordinal), empty);
+        Check("…and it is a pre-serialize refusal: the in-place target is byte-untouched",
+            new FileInfo(fx.ReplacerPath).Length == before,
+            $"{before} -> {new FileInfo(fx.ReplacerPath).Length}");
+
+        // The same compose WITH content lands — the refusal is about emptiness, not about composing Ranks.
+        var withField = ApplyTools.Apply(fx.Svc,
+            ops: Json(ComposeRankOp(fx.FactionFid, "\"fields\":{\"Number\":\"0\"}")),
+            in_place: fx.ReplacerName, acknowledge: true, format: "json");
+        JsonElement op0 = default;
+        try
+        {
+            var doc = Json(withField);
+            if (doc.TryGetProperty("ops", out var opsArr) && opsArr.GetArrayLength() == 1) op0 = opsArr[0];
+        }
+        catch { /* op0 stays Undefined — every check below then fails with the render as evidence */ }
+        Check("the same compose WITH a field lands, and its clause is the FILE's (landed_on_disk present)",
+            op0.ValueKind == JsonValueKind.Object
+            && op0.TryGetProperty("landed_on_disk", out var lod) && lod.ValueKind == JsonValueKind.String, withField);
+        Check("…and it is declared VERIFIED against the written file, with no divergence",
+            op0.ValueKind == JsonValueKind.Object
+            && op0.TryGetProperty("landed_verified_on_disk", out var lv) && lv.ValueKind == JsonValueKind.True
+            && op0.TryGetProperty("divergence", out var dv) && dv.ValueKind == JsonValueKind.Null, withField);
+
+        // The comparator's own semantics (unit): a moved COUNT is a divergence and says so in counts; equal content
+        // is not; and an absent side is never evidence — the file failing to answer must not read as "it's wrong".
+        Check("comparator: 1 element in memory vs 0 in the file is a divergence, reported as counts",
+            WritePatchBuilder.LeafDivergence("[list: 1 item(s)]", "[list: 0 item(s)]") is { } d
+            && d.Contains("1 element(s) in memory", StringComparison.Ordinal) && d.Contains("carries 0", StringComparison.Ordinal),
+            WritePatchBuilder.LeafDivergence("[list: 1 item(s)]", "[list: 0 item(s)]"));
+        Check("comparator: identical readings are NOT a divergence, and an unanswered side never is either",
+            WritePatchBuilder.LeafDivergence("[list: 1 item(s)]", "[list: 1 item(s)]") is null
+            && WritePatchBuilder.LeafDivergence("99", null) is null
+            && WritePatchBuilder.LeafDivergence(null, "99") is null);
+        Check("comparator: a changed SCALAR is a divergence too, quoted as the two readings",
+            WritePatchBuilder.LeafDivergence("99", "10") is { } s && s.Contains("'99'", StringComparison.Ordinal)
+            && s.Contains("'10'", StringComparison.Ordinal), WritePatchBuilder.LeafDivergence("99", "10"));
+    }
+
     // ================= the shared synthetic order =================
 
     /// <summary>Master + replacer + an OFF-ORDER donor. The replacer WINS the subject weapon (so a copy from the
@@ -86,6 +157,8 @@ public static class ApplyGuardProbe
         public required string SubjectFid { get; init; }      // the weapon the replacer wins (Damage 99, no keywords)
         public required string DonorWeaponFid { get; init; }  // a DIFFERENT weapon (Damage 42, 2 keywords) — the zip source
         public required string ArmorFid { get; init; }        // a different record TYPE — the cross-type refusal source
+        public required string FactionFid { get; init; }      // #308: empty Ranks list, owned by the replacer
+        public required FormKey FactionKey { get; init; }
         public required string ModsDir { get; init; }
         public required string ReplacerPath { get; init; }   // the in-place target's real on-disk file
         public required FormKey DonorKey { get; init; }
@@ -149,6 +222,12 @@ public static class ApplyGuardProbe
             armor.EditorID = "ApArmor";
             armor.Name = "Some Cuirass";
 
+            // #308's fixture: a FACTION with an empty Ranks list. A Rank composed with NO fields is the canonical
+            // "exists in memory, serializes to nothing" struct — the shape the in-place verify used to report as
+            // landed under a banner claiming the line came off the written file.
+            var faction = m.Factions.AddNew();
+            faction.EditorID = "ApFaction";
+
             m.BeginWrite.ToPath(masterPath).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
 
             // the replacer WINS the subject: Damage 99, and no keywords at all
@@ -166,6 +245,7 @@ public static class ApplyGuardProbe
             rd.BasicStats = new WeaponBasicStats { Damage = 7 };   // keywords carry over from the master (still 2)
             WriteEngine.GenericGetOrAddAsOverride(r, potA);        // the replacer OWNS both potions, so in-place may edit them
             WriteEngine.GenericGetOrAddAsOverride(r, potB);
+            WriteEngine.GenericGetOrAddAsOverride(r, faction);     // …and the faction, for the same reason (#308)
             r.BeginWrite.ToPath(replPath).WithLoadOrder(new ISkyrimModGetter[] { m }).Write();
 
             File.WriteAllText(Path.Combine(profiles, "loadorder.txt"), "# header\r\n" + mKey.FileName + "\r\n" + rKey.FileName + "\r\n");
@@ -186,6 +266,8 @@ public static class ApplyGuardProbe
                 SubjectFid = $"{subject.FormKey.ID:X6}:{mKey.FileName}",
                 DonorWeaponFid = $"{donor.FormKey.ID:X6}:{mKey.FileName}",
                 ArmorFid = $"{armor.FormKey.ID:X6}:{mKey.FileName}",
+                FactionFid = $"{faction.FormKey.ID:X6}:{mKey.FileName}",
+                FactionKey = faction.FormKey,
                 ModsDir = mods,
                 ReplacerPath = replPath,
                 DonorKey = donor.FormKey,
