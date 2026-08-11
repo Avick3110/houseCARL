@@ -1585,7 +1585,9 @@ static class JsonWire
                 // The STATE of the file-check, as a word rather than a bool that cannot say why (review [low], twice):
                 // "verified" the file agreed · "diverged" it did not (see divergence) · "superseded" a later op in
                 // this call wrote the same field, so the file cannot answer for this one · "no_answer" the re-opened
-                // file did not yield this op's leaf · "not_checked" the lane runs no file-verify (patch, dry run).
+                // file did not yield this op's leaf · "not_checked" this op was never ASKED — a lane that runs no
+                // file-verify (patch, dry run), or an op appended after the resolved edits (the SNAM topic-marker
+                // sync) on a lane that did verify.
                 // The text render's own suffixes are the D2 twin of these.
                 w.WriteString("landed_verification",
                     op.Divergence is not null ? "diverged"

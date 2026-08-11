@@ -2111,12 +2111,23 @@ public static class WriteEngine
             try { v = p.GetValue(instance); } catch { return null; }   // unreadable ⇒ can't claim emptiness (Q3)
             if (v is not null) return null;                        // it carries something — let the write proceed
         }
+        // The worked example is the line a caller COPIES, so it names a field they can actually pass as a string —
+        // a scalar, never plumbing (review [low]: the ordinal sort that made the choice deterministic also made it
+        // `FemaleTitle` for a Rank, where `Number` is the obvious field). The full list below is unchanged.
+        static bool IsSimple(Type t)
+        {
+            var u = Nullable.GetUnderlyingType(t) ?? t;
+            return u.IsPrimitive || u.IsEnum || u == typeof(string) || u == typeof(decimal);
+        }
+        var usable = settable.Where(p => !p.Name.StartsWith("Unknown", StringComparison.Ordinal)
+                                      && !p.Name.Equals("Versioning", StringComparison.Ordinal)).ToList();
+        var example = usable.FirstOrDefault(p => IsSimple(p.PropertyType)) ?? usable.FirstOrDefault() ?? settable[0];
         // Worded for ANY compose, not just a list Add (review [low]): BuildStruct also serves a polymorphic-arm Set
         // and SetAtIndex, and a caller who hit this on `Set Archetype compose={…}` was given advice about a list.
         return $"compose type='{spec.Type}' was given no fields, and a {spec.Type} built from nothing has no " +
                "serializable content: it would exist in memory and be written as ZERO bytes, so the field would be " +
                "unchanged on disk while the call reported success (#308). Name at least one field — e.g. " +
-               $"compose={{\"type\":\"{spec.Type}\",\"fields\":{{\"{settable[0].Name}\":\"<value>\"}}}}. Settable " +
+               $"compose={{\"type\":\"{spec.Type}\",\"fields\":{{\"{example.Name}\":\"<value>\"}}}}. Settable " +
                $"fields on {spec.Type}: {string.Join(", ", settable.Select(p => p.Name))}. " +
                "(This also refuses the two-step shape — compose an empty value, then set its fields in a LATER op of " +
                "the same call — which did work: the check runs as the value is built and cannot see the ops after " +
