@@ -48,17 +48,20 @@ the cell record losing, so nothing about it needed the winner. Which plugin host
 created record (`parent: …`, `parent_host` in JSON) — including the two cases where the definer genuinely can't
 answer (an injected record, or a plugin this session had to exclude), where the winner is still used and says so.
 
-**You keep the choice — that is the point.** The host is a full record override and still conflicts at record level, so
-wherever your patch out-ranks the mod that currently wins that cell or topic, the parent resolves to the *defining*
-plugin's fields rather than that mod's. That is the **residual** shape: your patch carries your child and a host lean
-enough to lose harmlessly. It is the right default because the alternative — copying the winner — silently inlines
-another mod's content into your plugin and costs a master your reference never needed, and only you know whether this
-patch is meant to win or to feed one that does.
+**Which shape you get is a decision, and houseCARL no longer makes it for you.** The host is a full record override and
+still conflicts at record level, so wherever your patch out-ranks the mod that currently wins that cell or topic, the
+parent resolves to the *defining* plugin's fields rather than that mod's. That is the **residual** shape: your patch
+carries your child and a host lean enough to lose harmlessly.
 
-xEdit copies the winner because a person is deciding, record by record, in the moment. houseCARL doesn't decide for
-you: it writes the residual and **tells you** which mod currently wins that parent and which way the record will
-resolve. Sort below that mod to keep the residual shape, sort above it to assert your host, or forward that mod's
-version in deliberately when inlining is what you actually want. The new child is carried either way.
+Both shapes are legitimate and which one is right depends entirely on what the patch is for. A patch meant to *win* —
+"patch this mod for my load order" — wants the winner's content carried forward, resolved. A patch meant to **feed**
+one — "make this sit before the Reqtificator / Synthesis output" — must not master those, must not forward their
+records, and must not bake in what they would regenerate. Same call, opposite right answers.
+
+So this is now the base you build from rather than an answer imposed on you: the residual is what you get when nothing
+else is said, because you can add the winner's version deliberately on top, and you cannot cleanly subtract it once it
+is baked in. The response **tells you** which mod currently wins that parent and which way the record will resolve, so
+the choice is in front of you at write time. The new child is carried either way.
 
 **Fixed: a full path to an *active* plugin is no longer treated as an off-order file (#321).** `housecarl_apply`'s
 `CopyFrom` decided "is this source in the load order?" by looking up the name it was given, and a full path never
