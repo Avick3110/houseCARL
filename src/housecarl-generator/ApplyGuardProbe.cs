@@ -129,42 +129,71 @@ public static class ApplyGuardProbe
             && op0.TryGetProperty("landed_verification", out var lv) && lv.GetString() == "verified"
             && op0.TryGetProperty("divergence", out var dv) && dv.ValueKind == JsonValueKind.Null, withField);
 
-        // The comparator's own semantics (unit). The tokens below are the ones ReadEngine really emits — an absent
-        // leaf reads "(absent)", NEVER "", which is the whole reason an earlier draft's vanish check could not fire.
-        // Two of these pin the detector against WIDENING (a text difference must not become a verdict) and say so;
-        // the rest pin the two rules it does claim.
-        string? Div(string? mem, bool memHas, string? disk, bool diskHas) => WritePatchBuilder.LeafDivergence(mem, memHas, disk, diskHas);
+        // The comparator's own semantics (unit), fed the PRESENCE the reader reports rather than tokens a parser has
+        // to interpret. Two of these pin the detector against WIDENING (a text difference must not become a verdict)
+        // and say so; the rest pin the two rules it claims. Shorthands: a scalar value, a list of N, a present
+        // substruct, and nothing at all.
+        static WritePatchBuilder.LeafPresence Val() => new(true, true, null);
+        static WritePatchBuilder.LeafPresence List(int n) => new(false, true, n);
+        static WritePatchBuilder.LeafPresence Sub() => new(false, true, null);
+        static WritePatchBuilder.LeafPresence Gone() => new(false, false, null);
+        string? Div(string? mem, WritePatchBuilder.LeafPresence memP, string? disk, WritePatchBuilder.LeafPresence diskP)
+            => WritePatchBuilder.LeafDivergence(mem, memP, disk, diskP);
+
         Check("comparator: 1 element in memory vs 0 in the file is a divergence, reported as counts",
-            Div("[list: 1 item(s)]", false, "[list: 0 item(s)]", false) is { } d
+            Div("[list: 1 item(s)]", List(1), "[list: 0 item(s)]", List(0)) is { } d
             && d.Contains("1 element(s) in memory", StringComparison.Ordinal) && d.Contains("carries 0", StringComparison.Ordinal),
-            Div("[list: 1 item(s)]", false, "[list: 0 item(s)]", false));
+            Div("[list: 1 item(s)]", List(1), "[list: 0 item(s)]", List(0)));
         Check("comparator: identical readings are NOT a divergence, and an unanswered side never is either",
-            Div("[list: 1 item(s)]", false, "[list: 1 item(s)]", false) is null
-            && Div("99", true, null, false) is null
-            && Div(null, false, "99", true) is null);
+            Div("[list: 1 item(s)]", List(1), "[list: 1 item(s)]", List(1)) is null
+            && Div("99", Val(), null, default) is null
+            && Div(null, default, "99", Val()) is null);
         // A substruct leaf renders its TYPE name, and the mutable record and the binary overlay name it differently
         // ([WeaponBasicStats] vs [WeaponBasicStatsBinaryOverlay]) — a text compare accused every `Set <substruct>` of
-        // not landing. Both sides HAVE content, so the presence rule is silent: this pins that, against widening.
+        // not landing. Both sides are PRESENT, so the rule is silent: this pins that, against widening.
         Check("comparator: a substruct leaf the overlay names differently is NOT a divergence",
-            Div("[WeaponBasicStats]", false, "[WeaponBasicStatsBinaryOverlay]", false) is null,
-            Div("[WeaponBasicStats]", false, "[WeaponBasicStatsBinaryOverlay]", false));
+            Div("[WeaponBasicStats]", Sub(), "[WeaponBasicStatsBinaryOverlay]", Sub()) is null,
+            Div("[WeaponBasicStats]", Sub(), "[WeaponBasicStatsBinaryOverlay]", Sub()));
         // Percent is byte-quantised, so a correct `Set ChanceNone value="0.123"` reads back 0.12 off the file.
         // Calling that "NOT landed" instructs a re-issue that diverges identically forever.
         Check("comparator: a value the FORMAT rounds (0.123 -> 0.12, a byte-quantised Percent) is NOT a divergence",
-            Div("0.123", true, "0.12", true) is null, Div("0.123", true, "0.12", true));
-        // THE VANISH RULE, on the tokens the reader actually produces: a value that became nothing, and a nullable
-        // LIST whose subrecord never got written (it reads "(absent)", not "[list: 0 item(s)]", so the count arm
-        // cannot see it — the case the first draft of this rule missed for every leaf but a non-nullable list).
+            Div("0.123", Val(), "0.12", Val()) is null, Div("0.123", Val(), "0.12", Val()));
+        // THE VANISH RULE, on all three leaf kinds — each one a case an earlier draft missed. The scalar arm looked
+        // for an empty string the reader never emits; the count arm cannot see a nullable list that reads "(absent)";
+        // and neither could see a SUBSTRUCT, whose summary carries no count at all.
         Check("comparator: a scalar that became NOTHING is a divergence, with the localized-strings caveat named",
-            Div("Winner Sword", true, "(absent)", false) is { } gone
+            Div("Winner Sword", Val(), "(absent)", Gone()) is { } gone
             && gone.Contains("carries no value there", StringComparison.Ordinal)
-            && gone.Contains("LOCALIZED", StringComparison.Ordinal), Div("Winner Sword", true, "(absent)", false));
+            && gone.Contains("LOCALIZED", StringComparison.Ordinal), Div("Winner Sword", Val(), "(absent)", Gone()));
         Check("comparator: a nullable LIST that reads (absent) on disk is a divergence too",
-            Div("[list: 1 item(s)]", false, "(absent)", false) is not null,
-            Div("[list: 1 item(s)]", false, "(absent)", false));
+            Div("[list: 1 item(s)]", List(1), "(absent)", Gone()) is not null);
+        Check("comparator: a SUBSTRUCT that vanished on serialize is a divergence — the case with no count to compare",
+            Div("[VirtualMachineAdapter]", Sub(), "(absent)", Gone()) is not null,
+            Div("[VirtualMachineAdapter]", Sub(), "(absent)", Gone()));
         Check("comparator: a list the call legitimately EMPTIED is not — an emptied list and a dropped subrecord agree",
-            Div("[list: 0 item(s)]", false, "(absent)", false) is null,
-            Div("[list: 0 item(s)]", false, "(absent)", false));
+            Div("[list: 0 item(s)]", List(0), "(absent)", Gone()) is null,
+            Div("[list: 0 item(s)]", List(0), "(absent)", Gone()));
+
+        // THE REPORT, not just the detector (review [medium]): a reviewer showed that deleting AppendDivergences, the
+        // full-dump call site, and the json "diverged" word left every check green — the guard covered the finding and
+        // not the sentence a caller reads. Driven at the render boundary with a hand-built outcome, since the fixture
+        // can no longer produce a real divergence (the empty-compose refusal removed its only producer).
+        var diverged = new WritePatchBuilder.PatchOutcome(
+            true, null, fx.ReplacerPath, false, new[] { fx.MasterName },
+            new[] { new WritePatchBuilder.OpResult(fx.SubjectKey, "Weapon", "Add Ranks", true, null, "[list: 1 item(s)]", "now 1 (+1)")
+                        { LandedOnDisk = "[list: 0 item(s)]", Divergence = "the applied edit left 1 element(s) in memory, but the WRITTEN FILE carries 0", VerifyAttempted = true } },
+            123L)
+            { InPlace = true, ReadBack = new[] { new WritePatchBuilder.FullReadback(fx.SubjectKey, null, "re-read failed") } };
+        var compactRender = WriteTools.Render(diverged);
+        var fullRender = WriteTools.Render(diverged, fullDump: true);
+        Check("the COMPACT render states a divergence as NOT landed, even when that record's read-back failed",
+            compactRender.Contains("treat this op as NOT landed", StringComparison.Ordinal), compactRender);
+        Check("…and the FULL-dump render states it too (the lane that used to drop it silently)",
+            fullRender.Contains("treat this op as NOT landed", StringComparison.Ordinal), fullRender);
+        var divergedJson = JsonWire.RenderPatchOutcome(diverged, 0, false, "in_place");
+        Check("…and json says landed_verification=diverged with the divergence text",
+            divergedJson.Contains("\"landed_verification\": \"diverged\"", StringComparison.Ordinal)
+            && divergedJson.Contains("WRITTEN FILE carries 0", StringComparison.Ordinal), divergedJson);
 
         // MULTI-OP, end-to-end: two Adds to ONE list in ONE in-place call. Both land; the file carries both. The
         // earlier op's reading was taken between them, so comparing it against the final file state accused a correct
