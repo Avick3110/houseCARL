@@ -16,7 +16,8 @@ list stayed empty, and the call still reported the addition as landed; it cost t
 rounds on a live mod. That clause now comes off the re-opened file. If the file and the applied edit disagree, the
 response says so **loudly** on its own line and tells you to treat the op as not landed, instead of leaving you to
 notice a count. In JSON the two are separate facts: `landed` (what the edit did in memory), `landed_on_disk` (what
-the file carries), `divergence`, and `landed_verified_on_disk`. And the specific call that caused it is now
+the file carries), `divergence`, and `landed_verification` (`verified` / `diverged` / `superseded` / `no_answer` /
+`not_checked`). And the specific call that caused it is now
 **refused before anything is written**, naming the fields that would give the structure content — a compose you gave
 nothing to, whose every settable field is empty, cannot land, so houseCARL no longer pretends it did.
 
@@ -43,8 +44,8 @@ time rather than discovered in game.
 matches a filename — so `from_source=C:\…\SomeMod\Bar.esp` pointing at a plugin your order is actively serving read
 the file directly and described the source as not in your load order. Usually that was only a wrong label; under a
 profile switch, where the same filename is served by a different mod folder, it was a wrong *body*. `housecarl_forward` has had the rule since its own fix — a path that names the exact file your
-order loads is that plugin — and `CopyFrom` now shares it. A path to a same-named *backup* still reads off-order, as
-it should: the test is the file, not the name.
+order loads is that plugin — and `CopyFrom` now shares it. A path to a same-named *backup* still reads off-order,
+as it should: the test is the file, not the name.
 
 **`housecarl_write_seq` can finally put the `.seq` in the mod's own folder — `output_dir=` (#312).** Editing a
 plugin **in place** left the two halves in different mods: the `.esp` in the mod's own folder, the `.seq` in a

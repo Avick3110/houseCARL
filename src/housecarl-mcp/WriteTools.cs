@@ -735,8 +735,8 @@ public static class WriteTools
         : "";
 
     /// <summary>#308 — the "APPLIED but the file does not carry it" lines for the ops given. Its own method because
-    /// BOTH readback forms must emit it: the compact verify calls it per record, and the full-dump lane calls it once
-    /// at the end. A Q3 statement that appears in only one of two renders of the same call is the D2 divergence class
+    /// BOTH readback forms must emit it: the compact verify calls it once BEFORE its per-record loop (so a cut or a
+    /// failed read-back cannot suppress it), and the full-dump lane calls it once after the dump. A Q3 statement that appears in only one of two renders of the same call is the D2 divergence class
     /// this PR's own reviews keep finding.</summary>
     static void AppendDivergences(StringBuilder sb, IEnumerable<WritePatchBuilder.OpResult> ops)
     {

@@ -96,6 +96,13 @@ public static class WritePatchBuilder
         /// covers the leaf's final state — but the two are not comparable, and comparing them reported a correct
         /// multi-op write (two Adds to one list; a value set then corrected) as NOT landed.</summary>
         public bool SupersededInCall { get; init; }
+
+        /// <summary>#308 — the file-verify actually examined this op. False means it was never asked: a lane that runs
+        /// no verify (patch, dry run), or an op APPENDED after the resolved edits (the SNAM topic-marker sync), which
+        /// has no request to re-read. Without it a renderer has to infer the state from the lane and gets it wrong in
+        /// both directions — an in-place dry run claiming a file was re-opened and could not answer (review), and a
+        /// synced marker reported as unanswered rather than unchecked.</summary>
+        public bool VerifyAttempted { get; init; }
     }
 
     /// <summary>One record read back IN FULL from the WRITTEN patch file (opt-in — the pre-enable verify loop,
@@ -249,9 +256,10 @@ public static class WritePatchBuilder
     public sealed record CreatedRecord(FormKey FormKey, string RecordType, string EditorId, IReadOnlyList<OpResult> Ops,
         bool ReplacedExisting = false)
     {
-        /// <summary>#300 — for a NESTED create under an EXISTING load-order parent: which record was overridden into
-        /// the artifact to host this child, and WHOSE version of it was copied. Null for a flat create, a same-call
-        /// sibling parent, and a parent the destination already carried (nothing was chosen in those cases).
+        /// <summary>#300 — for a NESTED create: which record hosts this child in the artifact, and WHOSE version of
+        /// it was copied in (when one was). Null for a flat create and for a same-call sibling parent — there the
+        /// host is this call's own new record and nothing was chosen. A parent the destination ALREADY carried says
+        /// so rather than reporting null, since "nothing was copied" is itself the fact worth stating.
         /// <para>Reported because the choice is invisible afterwards and it is not the obvious one: the host is the
         /// parent's DEFINING plugin's version, deliberately not the load-order winner's — see the parent-resolution
         /// comment in <see cref="CreateRecords"/>. When the definer cannot answer (an injected parent, an excluded
@@ -2742,6 +2750,15 @@ public static class WritePatchBuilder
         // #300 — per-spec provenance of the parent override this create had to host the child in. Reported (Q3): which
         // plugin's version was copied is a decision the caller did not make and cannot see in the record afterwards.
         var parentHosts = new string?[specs.Count];
+        // The destination's own records, indexed ONCE (review [low]): the "does the artifact already carry this
+        // parent?" probe runs per parented spec, and enumerating the whole patch each time is O(specs x records) on a
+        // bulk_create into a large into= patch. Lazy — a call with no parented spec builds nothing.
+        Dictionary<FormKey, IMajorRecord>? carried = null;
+        IMajorRecord? AlreadyCarried(FormKey fk)
+        {
+            carried ??= patchMod.EnumerateMajorRecords().GroupBy(r => r.FormKey).ToDictionary(g => g.Key, g => g.First());
+            return carried.TryGetValue(fk, out var rec) ? rec : null;
+        }
         var cellKinds = new CellCreate[specs.Count];   // coordinate-keyed §4-(b) routing per spec (None / Exterior / Interior)
         for (int i = 0; i < specs.Count; i++)
         {
@@ -2777,8 +2794,9 @@ public static class WritePatchBuilder
                     {
                         parentType = WriteEngine.ResolveConcreteRecordType(RecordNaming.StripOverlay(ownParent.GetType().Name));
                         parentPlans[i] = (null, null, null, ownParent);
+                        parentHosts[i] = $"{RecordNaming.StripOverlay(ownParent.GetType().Name)} {parentFk} is the target plugin's OWN record — it hosts the child directly (nothing copied in, no master added)";
                     }
-                    else if (patchMod.EnumerateMajorRecords().FirstOrDefault(r => r.FormKey == parentFk) is { } already)
+                    else if (AlreadyCarried(parentFk) is { } already)
                     {
                         // The DESTINATION already carries this parent — a prior into= call created it (the former N9
                         // gap, resolvable because Phase 0 opens the patch BEFORE this loop), forwarded it, or edited
@@ -3281,10 +3299,12 @@ public static class WritePatchBuilder
     /// null — the renderer then says the clause is the applied edit's claim, which is the honest reading and the one
     /// the old banner silently skipped.</para>
     ///
-    /// <para>Its own enumeration pass, deliberately: <see cref="ReadBackInFull"/> materialises RecordFields and hands
-    /// back values, and threading a second output through it to save one lazy header walk of ONE already-open file —
-    /// on a lane that has just re-serialized that whole file — would buy nothing and cost the read-back's careful
-    /// per-record error accounting.</para></summary>
+    /// <para>Its own enumeration pass, and the cost is real rather than nil (review [low]): on the in-place lane the
+    /// read-back is forced, so a write now walks the re-opened file TWICE. Kept separate because
+    /// <see cref="ReadBackInFull"/> materialises RecordFields and hands back values — threading a second output
+    /// through it would entangle this with its careful per-record error accounting — and because the walk is lazy
+    /// header parsing over a file the call has just fully re-serialized, which dominates it. Worth merging if a
+    /// large in-place target ever measures badly; not worth entangling on argument alone.</para></summary>
     static IReadOnlyList<OpResult> VerifyLandedAgainstFile(
         ISkyrimModGetter back, IReadOnlyList<(FormKey Target, WriteRequest Req)> perOp, IReadOnlyList<OpResult> ops)
     {
@@ -3302,14 +3322,15 @@ public static class WritePatchBuilder
         for (int i = 0; i < ops.Count; i++)
         {
             var op = ops[i];
-            if (i >= perOp.Count || !found.TryGetValue(perOp[i].Target, out var rec)) { verified.Add(op); continue; }
+            if (i >= perOp.Count) { verified.Add(op); continue; }                       // appended past the edits — never asked
+            if (!found.TryGetValue(perOp[i].Target, out var rec)) { verified.Add(op with { VerifyAttempted = true }); continue; }
             // SUPERSEDED ops are not comparable, and comparing them was a false alarm (review [high], reproduced):
             // `After`/`Landed` are read the instant op i applies — mid-sequence — while the file holds the state after
             // ALL of them. Two ops on one leaf (two Adds to one list; a value set then corrected) therefore always
             // "disagreed", and the response told the caller to treat a landed op as NOT landed. The remedy an agent
             // then reaches for — re-issue the op — is the duplicate-Add trap this codebase already warns about.
             // The file has ONE final state, so only the LAST op touching a leaf is answerable by it.
-            if (LaterOpTouchesSameLeaf(perOp, i)) { verified.Add(op with { SupersededInCall = true }); continue; }
+            if (LaterOpTouchesSameLeaf(perOp, i)) { verified.Add(op with { SupersededInCall = true, VerifyAttempted = true }); continue; }
             var (afterDisk, landedDisk) = DescribeApplied(rec, perOp[i].Req);
             // BOTH descriptors, not just the leaf summary (review [medium]): `After` is the container
             // (`[list: N item(s)]`), `Landed` is the touched ELEMENT. A struct that lands as an element but serializes
@@ -3320,6 +3341,7 @@ public static class WritePatchBuilder
             {
                 LandedOnDisk = landedDisk,
                 Divergence = LeafDivergence(op.After, afterDisk) ?? LeafDivergence(op.Landed, landedDisk),
+                VerifyAttempted = true,
             });
         }
         return verified;
@@ -3344,25 +3366,41 @@ public static class WritePatchBuilder
     /// suffix stripped? Equal paths count (a prefix of itself).</summary>
     static bool PathFamiliesOverlap(string[] a, string[] b)
     {
+        if (a.Length == 0 || b.Length == 0) return false;   // no leaf to share; a 0-segment path would otherwise
+                                                           // "overlap" everything and silently drop the verify
         int n = Math.Min(a.Length, b.Length);
         for (int k = 0; k < n; k++)
-            if (!string.Equals(BareSegment(a[k]), BareSegment(b[k]), StringComparison.OrdinalIgnoreCase)) return false;
+            if (!SameSegment(a[k], b[k])) return false;
         return true;
 
-        static string BareSegment(string s)
+        // Two segments that BOTH carry an index/key are compared whole, so Ranks[0] and Ranks[1] stay independent
+        // elements and each keeps its own file verification (review [low]); the suffix is stripped only when one side
+        // names the container itself, which is what makes Ranks[0].Number recognisably a write inside Ranks.
+        static bool SameSegment(string x, string y)
         {
-            int bracket = s.IndexOf('[');
-            return bracket < 0 ? s : s[..bracket];
+            int bx = x.IndexOf('['), by = y.IndexOf('[');
+            return bx >= 0 && by >= 0
+                ? string.Equals(x, y, StringComparison.OrdinalIgnoreCase)
+                : string.Equals(Bare(x), Bare(y), StringComparison.OrdinalIgnoreCase);
+            static string Bare(string s) { int b = s.IndexOf('['); return b < 0 ? s : s[..b]; }
         }
     }
 
-    /// <summary>#308's comparator: does the edited leaf's in-memory state disagree with the WRITTEN FILE's? Null =
-    /// they agree, or there is nothing to compare (either side unreadable — an absent answer is never evidence of a
-    /// divergence). Both sides come from one read path, so equal content compares equal.
-    /// <para>Counts are compared as COUNTS when both sides are container summaries — the class this exists for moves a
-    /// count, and "[list: 1 item(s)]" vs "[list: 0 item(s)]" is a clearer sentence as "1 in memory, 0 in the file".
-    /// Everything else is compared as text and reported as the two readings, not as an accusation about which is
-    /// right: the file is what the game loads, and that is what the wording says.</para></summary>
+    /// <summary>#308's comparator: does the WRITTEN FILE fail to carry what the applied edit put there? Null = it
+    /// carries it, or there is nothing to compare (either side unreadable — an absent answer is never evidence).
+    ///
+    /// <para>DELIBERATELY NOT "the two tokens differ" (review [high], reproduced): a difference in TEXT is not a lost
+    /// write. <c>Percent</c> is byte-quantised on serialize, so a routine <c>Set ChanceNone value="0.123"</c> reads
+    /// back <c>0.12</c> off the file — correct, and the format's own resolution. Calling that "NOT landed" tells the
+    /// caller to re-issue an op that will diverge identically every time, which is the same wrong-answer class this
+    /// detector exists to close, pointed the other way. Any lossy or normalising serialize (floats, colors, string
+    /// forms) is the same story.</para>
+    ///
+    /// <para>What IS evidence, and all this claims: the content is GONE. Two shapes carry that — a container whose
+    /// count moved (the #308 case: a composed struct that serialized to nothing, so the list is shorter on disk than
+    /// in memory), and a leaf that held something in memory and holds NOTHING in the file. Everything else is
+    /// reported by the ordinary clause, which prints the file's own reading anyway, so a caller who cares about the
+    /// exact value can see both without being told a correct write failed.</para></summary>
     internal static string? LeafDivergence(string? inMemory, string? onDisk)   // internal: unit-pinned by apply-guard arm 6
     {
         if (inMemory is null || onDisk is null) return null;
@@ -3371,7 +3409,14 @@ public static class WritePatchBuilder
             return mem == disk
                 ? null                                     // same count, different summary text — not a content claim
                 : $"the applied edit left {mem} element(s) in memory, but the WRITTEN FILE carries {disk}";
-        return $"the applied edit read back '{inMemory}', but the WRITTEN FILE carries '{onDisk}'";
+        if (inMemory.Trim().Length > 0 && onDisk.Trim().Length == 0)
+            // The one scalar shape that is still evidence: something became nothing. Qualified, because ONE other
+            // thing reads a field as empty — a localized plugin whose strings this session cannot resolve — and a
+            // caller who re-issues on that reading gets the same empty read forever.
+            return "the applied edit read back '" + inMemory + "', but the WRITTEN FILE carries nothing there "
+                 + "(a lost write — or, on a LOCALIZED plugin whose strings this session cannot resolve, a field "
+                 + "houseCARL cannot read back; check it in xEdit before re-issuing)";
+        return null;
     }
 
     /// <summary>The element count out of a container summary token (<c>[list: N item(s)]</c>, <c>[dict: N …]</c>);

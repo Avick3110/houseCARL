@@ -116,7 +116,13 @@ public static class SchemaClassifier
     /// its plain-value Set, never re-routed to compose-only); and that <see cref="WriteEngine.IsPlainComposableStruct"/>
     /// can instantiate — which EXCLUDES the composition-residuals <c>GenderedItem&lt;T&gt;</c>/<c>Array2d&lt;T&gt;</c> (no
     /// parameterless ctor; BuildStruct would throw). The last two guards keep the accept in lock-step with what
-    /// <c>ApplyScalarVerb</c> req.Struct → <c>BuildStruct</c> can actually build (gate==apply). Gendered leaves never reach
+    /// <c>ApplyScalarVerb</c> req.Struct → <c>BuildStruct</c> can actually build (gate==apply — with ONE declared
+    /// exception since #308: a compose the caller gave NOTHING to, whose built object has no settable value at all, is
+    /// accepted here and refused at apply. It cannot be decided from the schema — emptiness is a property of the
+    /// INSTANCE, and the corpus models types — so the check lives where the object exists. The refusal is still
+    /// pre-serialize and all-or-nothing on every lane, so the guarantee the parity exists to protect (never
+    /// accept-then-throw mid-write) holds; what it costs is that the gate no longer predicts this one refusal).
+    /// Gendered leaves never reach
     /// the compose gate — <c>CorpusRulebook</c> diverts them to their [0]/[1] halves upstream. Corpus-derived, no per-type
     /// wiring (cornerstone): the set of composable substructs IS the set of modeled build-from-parts struct/arm types.</summary>
     public static bool IsComposableSubstructLeaf(FieldSchema f, Corpus corpus)
