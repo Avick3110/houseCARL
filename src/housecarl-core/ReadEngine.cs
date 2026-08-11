@@ -952,7 +952,7 @@ public static class ReadEngine
         bool? useAliases = ReflectBool(parent, "UseAliases");
         bool? usePackData = ReflectBool(parent, "UsePackageData");
         if (useAliases is null || usePackData is null)
-            return LeafRead.None($"(floi: parent {parent.GetType().Name} has no UseAliases/UsePackageData discriminator)");
+            return LeafRead.Unreadable($"(floi: parent {parent.GetType().Name} has no UseAliases/UsePackageData discriminator)");
 
         if (useAliases == false && usePackData == false)
         {
@@ -961,12 +961,12 @@ public static class ReadEngine
             // A present-but-null link stays a note, matching plain FormLink leaves (HCBR-2026-06-09-02).
             if (val is IFormLinkGetter fl) return LeafRead.Value(fl.FormKey.ToString());
             if (WriteEngine.ReadFloiFormKey(val) is { } fk) return LeafRead.Value(fk.ToString());
-            return LeafRead.None($"(floi: form mode, null or unreadable FormKey on {val.GetType().Name})");
+            return LeafRead.Unreadable($"(floi: form mode, null or unreadable FormKey on {val.GetType().Name})");
         }
 
         // index mode — read the numeric index defensively (FormLinkOrIndex carries it alongside the link).
         var idx = ReflectUInt(val, "Index", "RawIndex", "FormKeyOrIndex");
-        if (idx is null) return LeafRead.None("(floi: index mode, index accessor unresolved — refined in oracle)");
+        if (idx is null) return LeafRead.Unreadable("(floi: index mode, index accessor unresolved — refined in oracle)");
         return LeafRead.Value(useAliases == true ? $"alias {idx}" : $"packdata {idx}");
     }
 

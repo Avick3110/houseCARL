@@ -1598,9 +1598,11 @@ static class JsonWire
                 w.WriteString("landed_verification",
                     op.Divergence is not null ? "diverged"
                     : op.SupersededInCall ? "superseded"
-                    // "verified" needs BOTH sides: if the applied edit's own read failed (After null) nothing was
-                    // compared, and reporting the file as agreeing is the overclaim this PR exists to remove.
-                    : op.LandedOnDisk is not null && op.After is not null ? "verified"
+                    // "verified" needs BOTH sides READABLE (review [low]): a leaf whose read failed comes back as the
+                    // note "(unreadable: …)", which is non-null — so testing for a non-null After stamped exactly the
+                    // op nothing could be compared for. The presence pair carries the fact; the file side is gated
+                    // upstream by leaving LandedOnDisk null.
+                    : op.LandedOnDisk is not null && op.After is not null && op.AfterPresence.Readable ? "verified"
                     : op.LandedOnDisk is not null ? "not_comparable"
                     // From the OP's own fact, never inferred from the lane: an in-place dry run re-opens nothing, and an
                     // op appended after the edits (the SNAM sync) was never asked about — both were read as

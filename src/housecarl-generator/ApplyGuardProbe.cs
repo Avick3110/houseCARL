@@ -14,7 +14,7 @@ namespace HousecarlGenerator;
 ///
 /// Drives the REAL end-to-end tool path — a synthetic MO2 instance in temp + <see cref="LoadOrderService"/> +
 /// <see cref="ApplyTools.Apply"/> — so the wire reader, the LANE grammar, the alias-visible vocabulary, the corpus
-/// pre-flight and the apply engine are exercised exactly as a caller hits them. Six arms:
+/// pre-flight and the apply engine are exercised exactly as a caller hits them. EIGHT arms:
 /// <list type="number">
 /// <item><b>ops grammar</b> — the 2.0 vocabulary (op=, one op is a set of one), the @file spelling that retired
 /// from_file=, and the strict element reader's NAMED refusals (undeclared member, mixed inline/@file).</item>
@@ -29,6 +29,11 @@ namespace HousecarlGenerator;
 /// WRITTEN FILE (json: <c>landed_on_disk</c> + <c>landed_verification</c>), a compose with nothing to serialize
 /// is refused before the file is touched instead of reported as landed, and the memory-vs-file comparator's own
 /// semantics are pinned as a unit.</item>
+/// <item><b>keyed multi-op</b> (#308) — two COUNT-CHANGING key-addressed ops in one in-place call both land and
+/// neither is reported as not landed (the arm that would have caught the over-broad key exemption).</item>
+/// <item><b>the verify's wiring</b> (#308) — the keyed exemption's own purpose (two SetAtIndex on different elements
+/// each keep their verification) and the comparator's WIRE into the verify pass, both of which a review found
+/// deletable with every probe still green.</item>
 /// </list>
 ///
 /// Run: <c>dotnet run --project src/housecarl-generator apply-guard</c>
@@ -68,6 +73,7 @@ public static class ApplyGuardProbe
             TransportArm(fx);
             EmptyComposeArm(fx);
             KeyedMultiOpArm(fx);
+            VerifyWiringArm(fx);
 
             Console.WriteLine();
             Console.WriteLine($"=== apply-guard: {_pass} passed, {_fail} failed -> {(_fail == 0 ? "PASS" : "FAIL")} ===");
@@ -270,6 +276,69 @@ public static class ApplyGuardProbe
         Check("…and NEITHER is reported as not landed — the earlier op's count is behind the file's, not wrong",
             !twoRemoves.Contains("NOT landed", StringComparison.Ordinal)
             && !twoRemoves.Contains("NOT carried by the written file", StringComparison.Ordinal), twoRemoves);
+    }
+
+    /// <summary>ARM 8 (#308) — the two seams a review found INERT: nothing pinned the keyed exemption (deleting it
+    /// left every probe green, because arm 7 drives count-CHANGING removes which fall through anyway), and nothing
+    /// pinned the comparator's WIRE into the verify pass (deleting `Divergence = LeafDivergence(…)` left every probe
+    /// green too — the render checks are driven from a hand-built outcome, and the end-to-end assertions are all
+    /// negative). Both are driven here against the real written file.</summary>
+    static void VerifyWiringArm(Fixture fx)
+    {
+        Console.WriteLine("── ARM 8: #308 — the keyed exemption, and the comparator's wire into the verify ──");
+
+        // (a) THE EXEMPTION'S OWN PURPOSE: two SetAtIndex ops on DIFFERENT indices are independent, so each keeps its
+        //     own file verification rather than one being written off as superseded by the other.
+        var ranks = RanksIn(fx.ReplacerPath, fx.FactionFid);
+        if (ranks < 2)
+            ApplyTools.Apply(fx.Svc, in_place: fx.ReplacerName, acknowledge: true,
+                ops: Json("[" + string.Join(",", new[] { "1", "2" }
+                    .Select(n => ComposeRankOp(fx.FactionFid, "\"fields\":{\"Number\":\"" + n + "\"}")[1..^1])) + "]"));
+        // KEY-addressed SetAtIndex, not a bracketed path: the bracketed form takes the segment rule, and it was the
+        // KEY exemption a review found unpinned. `key=` is where the element lives for this verb, so this is the
+        // shape CountNeutralKeyedVerb actually decides. SetAtIndex on a struct list takes a compose spec.
+        string SetRankNumber(string idx, string val) =>
+            "{\"formid\":\"" + fx.FactionFid + "\",\"field_path\":\"Ranks\",\"op\":\"SetAtIndex\",\"key\":\"" + idx
+            + "\",\"compose\":{\"type\":\"Rank\",\"fields\":{\"Number\":\"" + val + "\"}}}";
+        var twoSets = ApplyTools.Apply(fx.Svc, in_place: fx.ReplacerName, acknowledge: true, format: "json",
+            ops: Json("[" + SetRankNumber("0", "41") + "," + SetRankNumber("1", "42") + "]"));
+        var states = new List<string>();
+        try
+        {
+            var doc = Json(twoSets);
+            if (doc.TryGetProperty("ops", out var arr))
+                foreach (var op in arr.EnumerateArray())
+                    states.Add(op.TryGetProperty("landed_verification", out var v) ? v.GetString() ?? "?" : "?");
+        }
+        catch { /* states stays empty — the check below fails with the render as evidence */ }
+        Check("two ops on DIFFERENT elements each keep their own file verification (neither is written off)",
+            states.Count == 2 && states.All(v => v == "verified"),
+            string.Join(",", states) + "\n" + twoSets);
+
+        // (b) THE WIRE: hand the REAL verify pass a claim the written file cannot corroborate — an op asserting a
+        //     5-element list for a leaf the file carries fewer of — and require that it comes back diverged. This is
+        //     what proves LeafDivergence is actually consulted by VerifyLandedAgainstFile; the fixture can no longer
+        //     produce a genuine vanishing write (the empty-compose refusal removed its only producer), so the claim
+        //     is synthesised while the FILE half stays real.
+        ISkyrimModGetter? back = null;
+        try
+        {
+            back = SkyrimMod.CreateFromBinaryOverlay(fx.ReplacerPath, SkyrimRelease.SkyrimSE);
+            var fk = FormKey.Factory(fx.FactionFid);
+            var req = new WriteRequest { RecordType = "Faction", Path = new[] { "Ranks" }, Verb = "Add" };
+            var claim = new WritePatchBuilder.OpResult(fk, "Faction", "Add Ranks", true, null,
+                                                      "[list: 5 item(s)]", "now 5 item(s)")
+                { AfterPresence = new WritePatchBuilder.LeafPresence(false, true, 5) };
+            var verified = WritePatchBuilder.VerifyLandedAgainstFile(
+                back, new[] { (fk, req) }, new[] { claim });
+            Check("the verify pass CONSULTS the comparator: a claim the file cannot corroborate comes back diverged",
+                verified.Count == 1 && verified[0].Divergence is { } d && d.Contains("5 element(s) in memory", StringComparison.Ordinal),
+                verified.Count == 1 ? verified[0].Divergence ?? "(no divergence)" : "(no result)");
+            Check("…and the same pass reports the FILE's own reading for that op, not the claim's",
+                verified.Count == 1 && verified[0].LandedOnDisk is { } lod && !lod.Contains("5", StringComparison.Ordinal),
+                verified.Count == 1 ? verified[0].LandedOnDisk ?? "(null)" : "(no result)");
+        }
+        finally { (back as IDisposable)?.Dispose(); }
     }
 
     /// <summary>How many Ranks the written faction carries on disk — the ground truth behind the multi-op check.</summary>
