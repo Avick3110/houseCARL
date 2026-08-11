@@ -1163,6 +1163,9 @@ public static class WriteTools
             sb.Append("  ").Append(c.RecordType).Append(' ').Append(c.FormKey).Append("  ").Append(c.EditorId);
             if (c.ReplacedExisting) sb.Append("  [REPLACED: this patch already defined this editorid — re-created fresh at the same FormID; prior contents, including any set_field edits since, were discarded]");
             sb.Append('\n');
+            // #300 — a nested create had to override its parent in to host the child, and WHOSE version it copied is a
+            // choice the caller never made and cannot see in the record afterwards. One line, only when there was one.
+            if (c.ParentHost is { } host) sb.Append("      parent: ").Append(host).Append('\n');
             foreach (var op in c.Ops)
                 sb.Append("      ").Append(op.Label).Append(op.After is not null ? "  -> " + op.After : "  -> applied").Append('\n');
         }

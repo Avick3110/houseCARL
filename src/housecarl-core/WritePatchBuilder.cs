@@ -240,7 +240,17 @@ public static class WritePatchBuilder
     /// original create — discarded and rebuilt from this call's spec. MUST be surfaced to the user (Q3 — a replace
     /// is never silent).</summary>
     public sealed record CreatedRecord(FormKey FormKey, string RecordType, string EditorId, IReadOnlyList<OpResult> Ops,
-        bool ReplacedExisting = false);
+        bool ReplacedExisting = false)
+    {
+        /// <summary>#300 — for a NESTED create under an EXISTING load-order parent: which record was overridden into
+        /// the artifact to host this child, and WHOSE version of it was copied. Null for a flat create, a same-call
+        /// sibling parent, and a parent the destination already carried (nothing was chosen in those cases).
+        /// <para>Reported because the choice is invisible afterwards and it is not the obvious one: the host is the
+        /// parent's DEFINING plugin's version, deliberately not the load-order winner's — see the parent-resolution
+        /// comment in <see cref="CreateRecords"/>. When the definer cannot answer (an injected parent, an excluded
+        /// plugin) the winner IS used, and this says so rather than letting the two cases look alike.</para></summary>
+        public string? ParentHost { get; init; }
+    }
 
     /// <summary>The outcome of a <see cref="CreateRecords"/> call. <see cref="Error"/> non-null ⇒ the whole call was
     /// refused (no file written) with a named, recoverable reason (Q3 — missing editorid, an un-createable type, a rejected
@@ -2717,6 +2727,9 @@ public static class WritePatchBuilder
         // LATER sibling still rejects loud.
         var priorEditorIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var parentPlans = new List<(IMajorRecordGetter? body, string? winnerPlugin, string? sibling, IMajorRecord? patchParent)?>(specs.Count);
+        // #300 — per-spec provenance of the parent override this create had to host the child in. Reported (Q3): which
+        // plugin's version was copied is a decision the caller did not make and cannot see in the record afterwards.
+        var parentHosts = new string?[specs.Count];
         var cellKinds = new CellCreate[specs.Count];   // coordinate-keyed §4-(b) routing per spec (None / Exterior / Interior)
         for (int i = 0; i < specs.Count; i++)
         {
@@ -2759,10 +2772,29 @@ public static class WritePatchBuilder
                         // in Phase 3. In place, this is the FOREIGN-parent case — the parent the target doesn't own — and
                         // overriding it in to host the child is exactly what the patch lane does into a new patch (correct,
                         // necessary nesting, NOT injection: the user explicitly named the parent; the override is reported).
-                        var parentBody = view.GetRecord(session, w.WinnerPlugin, parentFk);
+                        //
+                        // #300 — the version copied in is the parent's DEFINING plugin's, not its load-order WINNER's. The
+                        // override exists to HOST the child: a child lives in the parent's child GROUP and survives the
+                        // parent record losing, so nothing about the child needs the winner's fields. Taking them cost a
+                        // master the child never needed AND froze a snapshot of another mod's content — so a patch sorted
+                        // below that mod silently re-asserted its OLD values after it updated (the Q3 half of the report).
+                        // The definer's version is the leanest host that still carries a valid record.
+                        // An INJECTED parent (a FormKey in a master's ModKey but defined by a mod) is why the winner
+                        // remains a fallback rather than a refusal: the definer genuinely does not carry it. Same for a
+                        // definer this session EXCLUDED. Both are reported per record, never silently substituted.
+                        var definer = parentFk.ModKey.FileName.String;
+                        var fromDefiner = view.ContainsPlugin(definer) && !view.ExcludedPlugins.ContainsKey(definer)
+                            ? view.GetRecord(session, definer, parentFk) : null;
+                        var parentBody = fromDefiner ?? view.GetRecord(session, w.WinnerPlugin, parentFk);
                         if (parentBody is null) { problems.Add($"{s.RecordType} '{s.EditorId}': parent {parentFk} winner '{w.WinnerPlugin}' did not yield it on fetch (a load-order inconsistency)."); continue; }
+                        var readFrom = fromDefiner is not null ? definer : w.WinnerPlugin;
                         parentType = WriteEngine.ResolveConcreteRecordType(RecordNaming.StripOverlay(parentBody.GetType().Name));
-                        parentPlans[i] = (parentBody, w.WinnerPlugin, null, null);
+                        parentPlans[i] = (parentBody, readFrom, null, null);
+                        parentHosts[i] = $"{RecordNaming.StripOverlay(parentBody.GetType().Name)} {parentFk} hosted from '{readFrom}'"
+                            + (fromDefiner is not null
+                                ? " (its DEFINING plugin — the lean host; the load-order winner"
+                                  + (string.Equals(readFrom, w.WinnerPlugin, StringComparison.OrdinalIgnoreCase) ? " is this same plugin)" : $" '{w.WinnerPlugin}' is deliberately NOT copied, and is not a master of this write)")
+                                : $" (the load-order WINNER — its defining plugin '{definer}' does not carry it: an injected or excluded parent)");
                     }
                     else if (patchMod.EnumerateMajorRecords().FirstOrDefault(r => r.FormKey == parentFk) is { } patchParent)
                     {
@@ -2994,7 +3026,7 @@ public static class WritePatchBuilder
                 foreach (var fill in DialogueCkParity.ApplyQuestDefaults(questRec))
                     ops.Add(new OpResult(rec.FormKey, s.RecordType, fill.Label, true, null, fill.Reason));
             }
-            created.Add(new CreatedRecord(rec.FormKey, s.RecordType, s.EditorId, ops, replaced));
+            created.Add(new CreatedRecord(rec.FormKey, s.RecordType, s.EditorId, ops, replaced) { ParentHost = parentHosts[i] });
         }
 
         // --- Phase 4: serialize ONCE with the full known-master set. A created record referencing existing content pulls
