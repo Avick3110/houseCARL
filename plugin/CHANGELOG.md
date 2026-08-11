@@ -19,7 +19,11 @@ notice a count. In JSON the two are separate facts: `landed` (what the edit did 
 the file carries), `divergence`, and `landed_verification` (`verified` / `diverged` / `superseded` / `no_answer` /
 `not_checked`). And the specific call that caused it is now
 **refused before anything is written**, naming the fields that would give the structure content — a compose you gave
-nothing to, whose every settable field is empty, cannot land, so houseCARL no longer pretends it did.
+nothing to, whose every settable field is empty, cannot land, so houseCARL no longer pretends it did. **One shape that
+used to work is refused with it:** composing an empty value and then filling its fields in a *later op of the same
+call*. The check runs as the value is built and cannot see the ops after it, and the lane is all-or-nothing, so the
+whole call is refused — the message says so and points at the one-op form (compose it *with* its fields), which cannot
+half-land either way.
 
 **Fixed: adding a record inside an existing cell (or topic) no longer drags in the mod that wins it (#300).** Placing
 a new reference into a vanilla cell pulled the cell's *load-order winner* into your patch — so a lighting overhaul

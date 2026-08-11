@@ -14,8 +14,10 @@ namespace HousecarlGenerator;
 /// <c>housecarl_write_seq</c> (tool-surface-2.0 W3 PR 2; SPEC §2.2 ACT, §5.1/§5.2, §6.1). Sibling of
 /// <c>apply-guard</c>, same posture: the REAL end-to-end tool path — a synthetic MO2 instance in temp +
 /// <see cref="LoadOrderService"/> + the tool methods themselves — so the wire readers, the LANE grammar, the
-/// alias-visible vocabulary and the engines are exercised exactly as a caller hits them. TEN arms (the two
-/// newest run before the off-order pair, which must go last — see RunGuard):
+/// alias-visible vocabulary and the engines are exercised exactly as a caller hits them. TEN arms, LISTED in the
+/// order they are declared below — which is NOT run order: the two off-order/in-place arms are run last by RunGuard
+/// because they rewrite a fixture file the others read as a known winner (review [nit]: the old wording implied the
+/// list itself was the schedule):
 /// <list type="number">
 /// <item><b>create grammar</b> — one record is a set of one, the nested one-shot (a same-call sibling parent +
 /// an '@editorid' link value), the @file spelling, and the strict element reader's NAMED refusals with the
@@ -990,6 +992,12 @@ public static class WriteSurfaceGuardProbe
             made.Contains("parent: ", StringComparison.Ordinal)
             && made.Contains("DEFINING plugin", StringComparison.Ordinal)
             && made.Contains(fx.MasterName, StringComparison.OrdinalIgnoreCase), made);
+        // …and the TRADE, not just the choice (review [low]): "DEFINING plugin" alone matches the benign branch where
+        // definer and winner are the same plugin, so the warning clause could have been reverted with this arm green.
+        Check("…and it names the mod that currently WINS the parent, and which way the record will resolve",
+            made.Contains(fx.ReplacerName, StringComparison.OrdinalIgnoreCase)
+            && made.Contains("currently WINS this record", StringComparison.Ordinal)
+            && made.Contains("out-ranks", StringComparison.Ordinal), made);
     }
 
     /// <summary>Every child line the written plugin's copy of the topic carries — #300's "whose CHILDREN did the host

@@ -4496,7 +4496,7 @@ public sealed class LoadOrderService : IDisposable
                 // disposed only after ApplyEditsInPlace returns.
                 Dictionary<WritePatchBuilder.PatchEdit, IMajorRecordGetter>? ipSources = null;
                 List<IDisposable>? ipOverlays = null;
-                var ipError = ResolveOffOrderCopySources(resolver, edits, ref ipSources, ref ipOverlays, out var ipEpoch);
+                var ipError = PrepareCopyFromSources(resolver, edits, ref ipSources, ref ipOverlays, out var ipEpoch);
                 if (ipError is not null)
                 {
                     if (ipOverlays is not null) foreach (var d in ipOverlays) d.Dispose();
@@ -4519,7 +4519,7 @@ public sealed class LoadOrderService : IDisposable
             // their overlays must stay OPEN through the serialize (CopyField deep-copies through them) — disposed after.
             Dictionary<WritePatchBuilder.PatchEdit, IMajorRecordGetter>? copyFromSources = null;
             List<IDisposable>? offOrderOverlays = null;
-            var cfError = ResolveOffOrderCopySources(resolver, edits, ref copyFromSources, ref offOrderOverlays, out var cfEpoch);
+            var cfError = PrepareCopyFromSources(resolver, edits, ref copyFromSources, ref offOrderOverlays, out var cfEpoch);
             if (cfError is not null)
             {
                 if (offOrderOverlays is not null) foreach (var d in offOrderOverlays) d.Dispose();
@@ -4554,7 +4554,7 @@ public sealed class LoadOrderService : IDisposable
     /// <c>Resolve…</c> helper rewriting its argument is a surprise — the alternative was a second
     /// <c>Capture()</c> at the call site purely to re-spell, and this list is the one both the pre-locate and the
     /// ENGINE consume, which is exactly what makes one rewrite reach both.</para></summary>
-    string? ResolveOffOrderCopySources(LoadOrderResolver resolver, IList<WritePatchBuilder.PatchEdit> edits,
+    string? PrepareCopyFromSources(LoadOrderResolver resolver, IList<WritePatchBuilder.PatchEdit> edits,
         ref Dictionary<WritePatchBuilder.PatchEdit, IMajorRecordGetter>? sources, ref List<IDisposable>? overlays,
         out string? epoch)
     {
@@ -4648,7 +4648,7 @@ public sealed class LoadOrderService : IDisposable
 
     /// <summary>W3 PR 2b — locate the ONE <c>source=</c> plugin a forward call shares when the ACTIVE ORDER does not
     /// contain it (a disabled mod, an unticked plugin, an unregistered folder, or a direct path), open it, and pre-fetch
-    /// every requested record's body off its own overlay. The forward twin of <see cref="ResolveOffOrderCopySources"/>,
+    /// every requested record's body off its own overlay. The forward twin of <see cref="PrepareCopyFromSources"/>,
     /// and simpler than it: every forward in a call names the same source, so this is locate-ONCE / open-ONCE / fetch-N
     /// rather than a per-edit loop. Uses the SAME on-disk locate as read_plugin_file / the copy-npc-appearance donor lane
     /// (<see cref="LocatePluginFileOnDisk"/>), so two tools can never disagree about which file a filename names.

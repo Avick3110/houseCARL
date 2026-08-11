@@ -25,7 +25,15 @@ namespace HousecarlCore;
 /// part of the round-trip <see cref="Token"/>, so it is invisible to write, read-proof, and diff. Populated by the
 /// service (which holds the resolver), never by the core read (which reads one record's bytes and cannot resolve a
 /// target). Null unless resolve_names was requested and the leaf carries a resolvable FormKey.</para></summary>
-public sealed record FieldValue(string Path, bool HasValue, string? Token, string? Note, string? Display = null, ResolvedRef? Link = null);
+/// <param name="Present">Is anything THERE? True for a value and for a present container/substruct (whose own
+/// <paramref name="Count"/> says how much); false only when the leaf holds nothing — absent, no such field,
+/// unreadable. Carried structurally because the two render alike (both are parenthesised notes) and a consumer that
+/// decides presence from the note text is parsing prose: #308's write verify did exactly that and reported a write
+/// that vanished as "verified".</param>
+/// <param name="Count">Element count for a container leaf (0 = present but EMPTY); null for a value or a substruct,
+/// neither of which has one. Surfaced from <c>LeafRead.ContainerCount</c>, which already carried it.</param>
+public sealed record FieldValue(string Path, bool HasValue, string? Token, string? Note, string? Display = null, ResolvedRef? Link = null,
+                                bool Present = true, int? Count = null);
 
 /// <summary>The resolved identity of a form reference — the shared contract behind housecarl_resolve (P3, a full
 /// row) and the resolve_names field annotation (P7). <see cref="Resolved"/> false ⇒ the FormKey is valid but not
@@ -77,11 +85,16 @@ public static class ReadEngine
     /// numerically WITHOUT tripping over the name/number rendering split that <c>[Flags].ToString()</c> produces
     /// (named bits → "Body"; an unnamed modder slot → "8388608"). The <see cref="Token"/> is unchanged — the
     /// round-trip oracle still drives the same display token — so this is invisible to read/write/diff.</para></summary>
-    internal readonly record struct LeafRead(bool HasValue, string Token, string? Note, FlagBits? Flags = null, int? ContainerCount = null)
+    internal readonly record struct LeafRead(bool HasValue, string Token, string? Note, FlagBits? Flags = null, int? ContainerCount = null,
+                                             bool Present = true)
     {
         public static LeafRead Value(string token) => new(true, token, null);
         public static LeafRead FlagsValue(string token, FlagBits bits) => new(true, token, null, bits);
-        public static LeafRead None(string note) => new(false, "", note);
+        /// <summary>NOTHING is there — an absent optional substruct, a field the type does not have, an unreadable
+        /// leaf. The ONE no-value shape that is not <see cref="Container"/>, and the difference matters to any caller
+        /// deciding presence: both render as a parenthesised note, so telling them apart from the note text alone
+        /// means parsing prose (the #308 divergence detector did, and missed a vanished substruct entirely).</summary>
+        public static LeafRead None(string note) => new(false, "", note, null, null, Present: false);
         /// <summary>A no-value CONTAINER/substruct summary carrying its element <paramref name="count"/>: null for a
         /// substruct (present by being non-null — no element count), a number for a list/dict (0 = present-but-EMPTY).
         /// The count is additive metadata for the presence predicate (<c>exists</c>/<c>missing</c>), which must tell
@@ -204,7 +217,7 @@ public static class ReadEngine
                 // FieldsDiff runs never sees the hint (it reads at expansion depth, a different summary path).
                 // The hint text is the caller's (containerHint): depth=2 is only a real knob on some surfaces.
                 if (note is { Length: > 0 } && note[0] == '[' && !string.IsNullOrEmpty(containerHint)) note += containerHint;
-                fields.Add(new FieldValue(p, r.HasValue, r.HasValue ? r.Token : null, note, FlagDisplay(r)));
+                fields.Add(new FieldValue(p, r.HasValue, r.HasValue ? r.Token : null, note, FlagDisplay(r), Present: r.Present, Count: r.ContainerCount));
             }
         }
         else
@@ -370,10 +383,10 @@ public static class ReadEngine
         {
             var seg = path.Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
             var nav = NavigateValue(record, seg);
-            if (!nav.ok) { Emit(sink, ref budget, new FieldValue(path, false, null, nav.note)); return; }
+            if (!nav.ok) { Emit(sink, ref budget, new FieldValue(path, false, null, nav.note, Present: false)); return; }
             Expand(nav.val, nav.type, nav.parent, path, depth, sink, ref budget);
         }
-        catch (Exception ex) { Emit(sink, ref budget, new FieldValue(path, false, null, $"(unreadable: {ex.Message})")); }
+        catch (Exception ex) { Emit(sink, ref budget, new FieldValue(path, false, null, $"(unreadable: {ex.Message})", Present: false)); }
     }
 
     /// <summary>Recursively emit <paramref name="val"/> at <paramref name="path"/>: a value leaf → its token;
@@ -384,7 +397,7 @@ public static class ReadEngine
         if (budget < 0) return;
         var leaf = EmitToken(val, declaredType, parent);
         if (leaf.HasValue) { Emit(sink, ref budget, new FieldValue(path, true, leaf.Token, null, FlagDisplay(leaf))); return; }
-        if (val is null) { Emit(sink, ref budget, new FieldValue(path, false, null, leaf.Note)); return; }
+        if (val is null) { Emit(sink, ref budget, new FieldValue(path, false, null, leaf.Note, Present: false)); return; }
         // a link (incl. a null FormKey, or an FLOI) is a note, not an openable container/substruct.
         if (val is IFormLinkGetter || WriteEngine.IsFormLinkOrIndex(Nullable.GetUnderlyingType(declaredType) ?? declaredType))
         { Emit(sink, ref budget, new FieldValue(path, false, null, leaf.Note)); return; }

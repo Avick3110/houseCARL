@@ -691,7 +691,10 @@ public static class WriteTools
         IReadOnlyList<WritePatchBuilder.FullReadback> rb, int maxChars)
     {
         int cap = maxChars > 0 ? maxChars : Wire.ReadbackMaxChars;
-        sb.Append("verified — every edited record re-read off the written file (compact; pass full_readback=true for the ")
+        // Never lead with "verified" over a ✗ (review [nit]): the divergence lines print immediately below this.
+        sb.Append(ops.Any(o => o.Divergence is not null)
+                ? "verify — every edited record was re-read off the written file, and AT LEAST ONE op is NOT carried by it (compact; pass full_readback=true for the "
+                : "verified — every edited record re-read off the written file (compact; pass full_readback=true for the ")
           .Append("full field-by-field dump):\n");
         // FIRST, and outside the budget (review [medium]): a "did not land" statement must not be the thing a
         // max_chars cut removes, and it must not ride on the per-record loop — that loop `continue`s past a record
@@ -716,7 +719,7 @@ public static class WriteTools
             // #308: the per-op clause is the FILE's answer when the file gave one (LandedOnDisk), and is marked as the
             // applied edit's claim when it did not — the banner above says "re-read off the written file", and this
             // line used to carry a memory-derived descriptor under it without saying so.
-            var mine = ops.Where(op => op.Target == r.Target).ToList();
+            var mine = ops.Where(op => op.Target == r.Target);
             var landed = mine.Where(op => (op.LandedOnDisk ?? op.Landed) is not null)
                              .Select(op => $"{op.Label}: {op.LandedOnDisk ?? op.Landed}" + LandedProvenance(op))
                              .ToList();
@@ -731,8 +734,12 @@ public static class WriteTools
     /// cannot corroborate — comparing it anyway is what reported correct multi-op writes as NOT landed).</summary>
     static string LandedProvenance(WritePatchBuilder.OpResult op) =>
         op.SupersededInCall ? " [as applied — a later op in this call wrote the same field; the file shows that op's result]"
-        : op.LandedOnDisk is null ? " [as applied — the re-opened file did not answer for this op]"
-        : "";
+        : op.LandedOnDisk is not null ? ""
+        // The same three-way split json makes, for the same reason (review [low], both rounds): asserting the file was
+        // re-opened and could not answer, on a call where the verify never ran, is a claim about a read that did not
+        // happen. Reachable — the compare pass has its own catch, which leaves every op unattempted.
+        : op.VerifyAttempted ? " [as applied — the re-opened file did not answer for this op]"
+        : " [as applied — this lane ran no file check]";
 
     /// <summary>#308 — the "APPLIED but the file does not carry it" lines for the ops given. Its own method because
     /// BOTH readback forms must emit it: the compact verify calls it once BEFORE its per-record loop (so a cut or a

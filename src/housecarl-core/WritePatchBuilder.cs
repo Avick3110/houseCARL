@@ -104,12 +104,28 @@ public static class WritePatchBuilder
         /// synced marker reported as unanswered rather than unchecked.</summary>
         public bool VerifyAttempted { get; init; }
 
-        /// <summary>#308 — did the edited leaf hold a VALUE in memory when <see cref="After"/> was read? The presence
-        /// half of the comparison, carried structurally: an absent leaf and a container summary are both no-value
-        /// reads that differ only in a display note, so deciding "the file carries nothing there" from the note text
-        /// would key a Q3 verdict on wording (and, before this, missed the case entirely — an absent leaf reads
-        /// "(absent)", never the empty string the check was looking for).</summary>
-        public bool AfterHadValue { get; init; }
+        /// <summary>#308 — what the edited leaf HELD in memory when <see cref="After"/> was read: a value, a present
+        /// container/substruct (with its element count), or nothing. The presence half of the comparison, carried
+        /// structurally because a value, a container summary, a substruct summary and an absent leaf differ only in
+        /// display text — deciding "the file carries nothing there" from that text keys a Q3 verdict on wording, and
+        /// did miss real cases twice (an absent leaf reads "(absent)", never the empty string the first rule looked
+        /// for; a vanished SUBSTRUCT reads "[Rank]" in memory, which no count parser recognises).</summary>
+        public LeafPresence AfterPresence { get; init; }
+    }
+
+    /// <summary>#308 — what a leaf HOLDS, structurally, as the reader reported it: a value, a present
+    /// container/substruct (with its element count where it has one), or nothing at all. The three render as a token
+    /// or a parenthesised note and are not tellable apart from that text, which is why the write verify carries this
+    /// instead of parsing prose — it missed a vanished scalar and then a vanished substruct doing the latter.</summary>
+    /// <param name="HasValue">The leaf holds a scalar/link VALUE.</param>
+    /// <param name="Present">Something is there — a value, or a container/substruct that exists.</param>
+    /// <param name="Count">Elements, for a container leaf (0 = present but EMPTY); null for a value or a substruct.</param>
+    public readonly record struct LeafPresence(bool HasValue, bool Present, int? Count)
+    {
+        /// <summary>Is there CONTENT? A value, a non-empty container, or a present substruct. An EMPTY container is
+        /// deliberately not content: an emptied list and a dropped subrecord say the same thing, so a call that
+        /// legitimately cleared a list must not be told its write vanished.</summary>
+        public bool HasContent => HasValue || (Present && (Count is null || Count > 0));
     }
 
     /// <summary>One record read back IN FULL from the WRITTEN patch file (opt-in — the pre-enable verify loop,
@@ -555,8 +571,8 @@ public static class WritePatchBuilder
                     WriteEngine.CopyField(srcBody!, ov, req.Path);
                 else
                     WriteEngine.ApplyVerb(ov, req);
-                var (after, landed, hadValue) = DescribeApplied(ov, req);
-                ops.Add(new OpResult(e.Target, req.RecordType, label, true, null, after, landed) { AfterHadValue = hadValue });
+                var (after, landed, presence) = DescribeApplied(ov, req);
+                ops.Add(new OpResult(e.Target, req.RecordType, label, true, null, after, landed) { AfterPresence = presence });
             }
             catch (ExpectedApplyRejectionException ex)
             {
@@ -962,8 +978,8 @@ public static class WritePatchBuilder
                         ov, req.Path);
                 else
                     WriteEngine.ApplyVerb(ov, req);
-                var (after, landed, hadValue) = DescribeApplied(ov, req);
-                ops.Add(new OpResult(e.Target, req.RecordType, label, true, null, after, landed) { AfterHadValue = hadValue });
+                var (after, landed, presence) = DescribeApplied(ov, req);
+                ops.Add(new OpResult(e.Target, req.RecordType, label, true, null, after, landed) { AfterPresence = presence });
             }
             catch (ExpectedApplyRejectionException ex)
             {
@@ -1941,7 +1957,7 @@ public static class WritePatchBuilder
     /// does not contain (a disabled mod, an unticked plugin, a folder MO2 never registered). The whole call shares ONE
     /// source, so this is locate-once / open-once / fetch-N: the caller (the SERVICE, which owns the MO2 on-disk locate)
     /// pre-fetches every wanted body through the file's own overlay and hands them here, and the forward engine uses them
-    /// instead of the load-order index. The sibling of the <c>CopyFrom</c> lane's <c>ResolveOffOrderCopySources</c>.
+    /// instead of the load-order index. The sibling of the <c>CopyFrom</c> lane's <c>PrepareCopyFromSources</c>.
     /// <para><b>Lifetime.</b> The caller OWNS the overlay these bodies came from and must keep it open until the write's
     /// serialize has returned (the bodies are deep-copied during the write), then dispose it — the same contract the
     /// CopyFrom lane's <c>offOrderOverlays</c> carries. Nothing here disposes anything.</para></summary>
@@ -2766,6 +2782,12 @@ public static class WritePatchBuilder
         // — on a bulk_create into a large into= patch, and equally on the IN-PLACE lane, where the destination is the
         // user's own plugin and is the bigger of the two. Both branches read it. Lazy: a call with no parented spec
         // builds nothing.
+        var parentBodies = new Dictionary<(string Plugin, FormKey Key), IMajorRecordGetter?>();
+        IMajorRecordGetter? ParentBodyFrom(string plugin, FormKey fk)
+        {
+            if (parentBodies.TryGetValue((plugin, fk), out var hit)) return hit;
+            return parentBodies[(plugin, fk)] = view.GetRecord(session, plugin, fk);
+        }
         Dictionary<FormKey, IMajorRecord>? carried = null;
         IMajorRecord? AlreadyCarried(FormKey fk)
         {
@@ -2842,8 +2864,13 @@ public static class WritePatchBuilder
                         // GetRecord answers null for a plugin the order doesn't contain AND for one this session
                         // EXCLUDED, so the two cases need no separate test here (review [nit]) — both fall to the
                         // winner below, which is the behaviour an injected or unparseable definer should get.
-                        var fromDefiner = view.GetRecord(session, definer, parentFk);
-                        var parentBody = fromDefiner ?? view.GetRecord(session, w.WinnerPlugin, parentFk);
+                        // Memoised per (plugin, record): GetRecord is a full EnumerateMajorRecords scan, this sits in
+                        // the per-spec loop, and #300 pointed it at the DEFINER — usually Skyrim.esm — where it used
+                        // to hit the (small) winner. A bulk_create fanning N refs into vanilla cells would otherwise
+                        // pay N scans of a ~250k-record file (review [medium]). Specs commonly share a parent, so the
+                        // memo is usually one scan for the whole call.
+                        var fromDefiner = ParentBodyFrom(definer, parentFk);
+                        var parentBody = fromDefiner ?? ParentBodyFrom(w.WinnerPlugin, parentFk);
                         if (parentBody is null) { problems.Add($"{s.RecordType} '{s.EditorId}': parent {parentFk} winner '{w.WinnerPlugin}' did not yield it on fetch (a load-order inconsistency)."); continue; }
                         var readFrom = fromDefiner is not null ? definer : w.WinnerPlugin;
                         parentType = WriteEngine.ResolveConcreteRecordType(RecordNaming.StripOverlay(parentBody.GetType().Name));
@@ -3312,8 +3339,9 @@ public static class WritePatchBuilder
     /// null — the renderer then says the clause is the applied edit's claim, which is the honest reading and the one
     /// the old banner silently skipped.</para>
     ///
-    /// <para>Its own enumeration pass, and the cost is real rather than nil (review [low]): on the in-place lane the
-    /// read-back is forced, so a write now walks the re-opened file TWICE. Kept separate because
+    /// <para>The cost, stated in full rather than partly (reviews [low], twice): on the in-place lane the read-back is
+    /// forced, so a write walks the re-opened file TWICE, pays a second reflective <c>ReadFields</c> PER OP against
+    /// the overlay, and runs an O(ops²) scan for superseded leaves. Unconditional on every in-place write. Kept separate because
     /// <see cref="ReadBackInFull"/> materialises RecordFields and hands back values — threading a second output
     /// through it would entangle this with its careful per-record error accounting — and because the walk is lazy
     /// header parsing over a file the call has just fully re-serialized, which dominates it. Worth merging if a
@@ -3344,7 +3372,7 @@ public static class WritePatchBuilder
             // then reaches for — re-issue the op — is the duplicate-Add trap this codebase already warns about.
             // The file has ONE final state, so only the LAST op touching a leaf is answerable by it.
             if (LaterOpTouchesSameLeaf(perOp, i)) { verified.Add(op with { SupersededInCall = true, VerifyAttempted = true }); continue; }
-            var (afterDisk, landedDisk, diskHasValue) = DescribeApplied(rec, perOp[i].Req);
+            var (afterDisk, landedDisk, diskPresence) = DescribeApplied(rec, perOp[i].Req);
             // BOTH descriptors, not just the leaf summary (review [medium]): `After` is the container
             // (`[list: N item(s)]`), `Landed` is the touched ELEMENT. A struct that lands as an element but serializes
             // to less than the caller supplied leaves the COUNT equal on both sides — so comparing summaries alone
@@ -3353,8 +3381,8 @@ public static class WritePatchBuilder
             verified.Add(op with
             {
                 LandedOnDisk = landedDisk,
-                Divergence = LeafDivergence(op.After, op.AfterHadValue, afterDisk, diskHasValue)
-                             ?? LeafDivergence(op.Landed, op.AfterHadValue, landedDisk, diskHasValue),
+                Divergence = LeafDivergence(op.After, op.AfterPresence, afterDisk, diskPresence)
+                             ?? LeafDivergence(op.Landed, op.AfterPresence, landedDisk, diskPresence),
                 VerifyAttempted = true,
             });
         }
@@ -3415,23 +3443,21 @@ public static class WritePatchBuilder
     /// in memory), and a leaf that held something in memory and holds NOTHING in the file. Everything else is
     /// reported by the ordinary clause, which prints the file's own reading anyway, so a caller who cares about the
     /// exact value can see both without being told a correct write failed.</para></summary>
-    internal static string? LeafDivergence(string? inMemory, bool memoryHasValue, string? onDisk, bool diskHasValue)
+    internal static string? LeafDivergence(string? inMemory, LeafPresence memory, string? onDisk, LeafPresence disk)
     {
         if (inMemory is null || onDisk is null) return null;
         if (string.Equals(inMemory, onDisk, StringComparison.Ordinal)) return null;
-        if (ContainerCount(inMemory) is { } mem && ContainerCount(onDisk) is { } disk)
-            return mem == disk
+        if (memory.Count is { } memCount && disk.Count is { } diskCount)
+            return memCount == diskCount
                 ? null                                     // same count, different summary text — not a content claim
-                : $"the applied edit left {mem} element(s) in memory, but the WRITTEN FILE carries {disk}";
+                : $"the applied edit left {memCount} element(s) in memory, but the WRITTEN FILE carries {diskCount}";
         // The shape that is still evidence, judged on PRESENCE and never on a note's wording: the leaf held CONTENT in
         // memory and holds none in the file. Content = a value, or a container with at least one element — so a
         // nullable list whose subrecord never got written (it reads "(absent)", not "[list: 0 item(s)]", which is why
         // the count arm above cannot see it) is caught, while a list the call legitimately EMPTIED is not, since an
         // emptied list and a dropped subrecord say the same thing. An absent leaf reads "(absent)", never "", which is
         // why an empty-string test found nothing and reported such a write "verified" (review [high], twice).
-        bool memoryHasContent = memoryHasValue || ContainerCount(inMemory) > 0;
-        bool diskHasContent = diskHasValue || ContainerCount(onDisk) > 0;
-        if (memoryHasContent && !diskHasContent)
+        if (memory.HasContent && !disk.HasContent)
             // Qualified, because ONE other thing reads a field as valueless — a localized plugin whose strings this
             // session cannot resolve — and a caller who re-issues on that reading gets the same read forever.
             return "the applied edit read back '" + inMemory + "', but the WRITTEN FILE carries no value there "
@@ -3440,55 +3466,25 @@ public static class WritePatchBuilder
         return null;
     }
 
-    /// <summary>The element count out of a container summary token (<c>[list: N item(s)]</c>, <c>[dict: N …]</c>);
-    /// null when the token is not a counted container — a scalar, a formlink, or a shape this doesn't recognise, all
-    /// of which fall back to a text comparison rather than being read as "0".
-    /// <para>The prefix is checked against the two shapes ReadEngine actually emits, not "starts with '[' and has a
-    /// colon" (review [low]): a STRING field whose value happens to read <c>[Boss: 3 guards]</c> would otherwise be
-    /// compared as a count, so <c>[Boss: 3 guards]</c> vs <c>[Boss: 3 dragons]</c> — a real change — would compare
-    /// equal and the divergence would be missed silently, in a detector whose whole job is not to miss one.</para></summary>
-    static int? ContainerCount(string token)
-    {
-        if (!token.StartsWith("[list:", StringComparison.Ordinal) && !token.StartsWith("[dict:", StringComparison.Ordinal))
-            return null;
-        int colon = token.IndexOf(':');
-        int i = colon + 1;
-        while (i < token.Length && token[i] == ' ') i++;
-        int start = i;
-        while (i < token.Length && char.IsAsciiDigit(token[i])) i++;
-        return i > start && int.TryParse(token.AsSpan(start, i - start), out var n) ? n : null;
-    }
-
-    /// <summary>Read the edited leaf ONCE and derive BOTH best-effort descriptors an edit-lane <see cref="OpResult"/>
-    /// carries (PR #127 review #1 — previously two identical reflective reads of the same leaf per op, doubling the very
-    /// readback cost on the large-list records the report was about). <c>After</c> = the leaf read-back (xEdit remains
-    /// the authority). <c>Landed</c> = the compact "what landed" line the in-place verify renders by default
-    /// (HCBR-2026-06-28-01): a SCALAR leaf reuses the value just read (names exactly what was set); a LIST/DICT leaf names
-    /// the touched element + new count via <see cref="ReadEngine.TouchedElement"/> (the element you Added/Set, NOT the
-    /// whole list), falling back to the container summary. Read-only; NEVER throws into the write result (both null on any
-    /// difficulty). The create lane keeps <see cref="TryReadAfter"/> (it needs only <c>After</c>, never <c>Landed</c>).
-    /// <para>Takes a GETTER, not the mutable record, since #308: the same call reads the in-memory override during apply
-    /// AND the re-opened file's record afterwards, and one code path for both is what makes a difference between them a
-    /// difference in the DATA rather than in two renderings.</para></summary>
-    static (string? After, string? Landed, bool HasValue) DescribeApplied(IMajorRecordGetter ov, WriteRequest req)
+    static (string? After, string? Landed, LeafPresence Presence) DescribeApplied(IMajorRecordGetter ov, WriteRequest req)
     {
         try
         {
             var leaf = string.Join('.', req.Path);
             var read = ReadEngine.ReadFields(ov, new[] { leaf }, containerHint: null);   // same: no depth= on the write surface, don't hint it
             var f = read.Fields.FirstOrDefault(x => x.Path == leaf) ?? read.Fields.FirstOrDefault();
-            if (f is null) return (null, null, false);
+            if (f is null) return (null, null, default);
             var after = f.HasValue ? f.Token : f.Note;
             // Scalar: Landed reuses the token just read. List/dict: name the touched element (+ new count); else the
             // summary. An Add carries how many elements it appended (composes= → Structs.Count, else 1) so a batch
             // compose reports the whole appended run, never "(+1)" for N (#259).
             int added = req.Verb == "Add" ? (req.Structs?.Count ?? 1) : 1;
             var landed = f.HasValue ? f.Token : (ReadEngine.TouchedElement(ov, req.Path, req.Verb, req.Key, added) ?? f.Note);
-            // HasValue rides along because it is the ONE structural fact that separates "the leaf holds a value" from
-            // "it holds nothing" — a container summary and an ABSENT leaf are both no-value reads whose difference
-            // lives only in a display note, and the divergence detector must not read notes to decide presence.
-            return (after, landed, f.HasValue);
+            // The presence PAIR rides along because it is the structural fact the tokens hide: a container summary, a
+            // substruct summary and an ABSENT leaf all render as notes, and the divergence detector must not read
+            // prose to decide whether anything is there.
+            return (after, landed, new LeafPresence(f.HasValue, f.Present, f.Count));
         }
-        catch { return (null, null, false); }
+        catch { return (null, null, default); }
     }
 }

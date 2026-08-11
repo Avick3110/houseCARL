@@ -279,19 +279,22 @@ if (args.Length > 0 && !IsDirectoryArgument(args[0]))
     // State the RULE, not just the intent: a bare relative name that does not already exist is read as a mode, so
     // "pass a directory path" alone would be advice the caller has already followed (review [low]).
     Console.Error.WriteLine("To GENERATE the corpus into a directory, pass a path that is rooted (C:\\…), carries a");
-    Console.Error.WriteLine("separator (./out), or already exists — a bare name that does not exist is read as a mode.");
+    Console.Error.WriteLine("separator (./out) — a BARE name is always read as a mode, even if a folder of that name exists.");
     Console.Error.WriteLine("With no argument at all it generates into ./generated.");
     return 2;
 }
 
-// A mode name is a bare token; an output directory is rooted, has a separator, or exists on disk. Deliberately
-// permissive toward directories: the cost of misreading a real output dir as a mode is a refusal the caller can
-// re-issue, while the cost the other way is the 13.5 MB write this check exists to stop.
+// A mode name is a BARE token; an output directory is rooted or carries a separator.
+//
+// "…or it already exists as a directory" was the obvious third clause, and it reopened the exact hole this check
+// closes (review [low], then reproduced): `plugin`, `src`, `scripts`, `standards`, `release` and `generated` are all
+// real folders at the repo root, so a mistyped mode that collided with one still generated the whole corpus into it —
+// `dotnet run --project src/housecarl-generator plugin` put 7.6 MB into plugin/ while this very fix was being
+// written. An output directory can always be spelled with a separator; a mistyped mode cannot be spelled back.
 static bool IsDirectoryArgument(string a)
 {
     if (a.Length == 0) return false;
-    if (Path.IsPathRooted(a) || a.Contains('\\') || a.Contains('/') || a is "." or "..") return true;
-    try { return Directory.Exists(a); } catch { return false; }
+    return Path.IsPathRooted(a) || a.Contains('\\') || a.Contains('/') || a is "." or "..";
 }
 
 var outputDir = Path.GetFullPath(args.Length > 0 ? args[0] : "generated");
