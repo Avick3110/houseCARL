@@ -2873,17 +2873,25 @@ public static class WritePatchBuilder
                                 ? $" (the load-order WINNER — its defining plugin '{definer}' does not carry it: an injected or excluded parent)"
                                 : !overWinner
                                     ? " (its DEFINING plugin, which is also the load-order winner)"
-                                    // The trade-off, stated where the choice is made (review [high], both rounds): the
-                                    // override is a FULL record copy and still conflicts at record level, so wherever
-                                    // this artifact out-ranks the winner it asserts the DEFINER's fields over that
-                                    // mod's. Nothing about the child needs the winner — the child sits in the parent's
-                                    // child group and survives the parent record losing — but the caller must be told
-                                    // which way the parent record itself will now resolve. "Not copied here" and not
-                                    // "not a master of this write": masters are derived at serialize, and another spec
-                                    // or a created record's own links can still pull that plugin in.
-                                    : $" (its DEFINING plugin — the lean host: '{w.WinnerPlugin}' currently WINS this record and its version is deliberately not copied here, "
-                                      + $"so wherever this artifact out-ranks '{w.WinnerPlugin}' the parent record resolves to '{readFrom}'s fields. "
-                                      + $"Sort this artifact BEFORE '{w.WinnerPlugin}' to keep that mod's version of the parent — the new child is carried either way.)");
+                                    // THE RESIDUAL IS THE DEFAULT, AND IT IS A CONTROL DECISION (Aaron, 2026-08-11).
+                                    // houseCARL does not resolve the conflict for the caller the way a human does in
+                                    // xEdit — xEdit copies the winner because a person is deciding in the moment. Here
+                                    // the two shapes are both legitimate and only the caller knows which they want:
+                                    // a LOGICAL patch that carries the residual (the child, and a host lean enough to
+                                    // lose harmlessly), or an INLINED one that carries another mod's content forward
+                                    // because this artifact feeds a patch that will win. Copying the winner by default
+                                    // silently picks the second, drags that mod's fields into the caller's plugin, and
+                                    // costs a master the child never needed. So the default is the lean host and the
+                                    // choice is REPORTED — a statement, not a warning: the caller sorts, or forwards
+                                    // the winner's version deliberately when inlining is what they meant.
+                                    // "Not copied here" and not "not a master of this write": masters are derived at
+                                    // serialize, and another spec or a created record's own links can still pull that
+                                    // plugin in.
+                                    : $" (its DEFINING plugin — the LEAN host, carrying the residual only: '{w.WinnerPlugin}' currently WINS this record "
+                                      + $"and its version is deliberately NOT inlined here, so wherever this artifact out-ranks '{w.WinnerPlugin}' the parent "
+                                      + $"record resolves to '{readFrom}'s fields. That is the control this lane gives you: sort below '{w.WinnerPlugin}' to "
+                                      + $"keep the residual shape, sort above it to assert this host, or forward '{w.WinnerPlugin}'s version in explicitly if "
+                                      + "you want its content inlined. The new child is carried either way.)");
                     }
                     else
                     {

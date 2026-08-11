@@ -991,12 +991,15 @@ public static class WriteSurfaceGuardProbe
             made.Contains("parent: ", StringComparison.Ordinal)
             && made.Contains("DEFINING plugin", StringComparison.Ordinal)
             && made.Contains(fx.MasterName, StringComparison.OrdinalIgnoreCase), made);
-        // …and the TRADE, not just the choice (review [low]): "DEFINING plugin" alone matches the benign branch where
-        // definer and winner are the same plugin, so the warning clause could have been reverted with this arm green.
-        Check("…and it names the mod that currently WINS the parent, and which way the record will resolve",
+        // …and the CHOICE, not just the label: "DEFINING plugin" alone matches the benign branch where definer and
+        // winner are the same plugin, so the contested clause could have been dropped with this arm green. What it
+        // must say is which mod currently wins, which way the record resolves, and what the caller can do about it —
+        // the lean residual is the default, and inlining the winner is a deliberate act, not an accident.
+        Check("…and it names the winning mod, how the record resolves, and the lever the caller has",
             made.Contains(fx.ReplacerName, StringComparison.OrdinalIgnoreCase)
             && made.Contains("currently WINS this record", StringComparison.Ordinal)
-            && made.Contains("out-ranks", StringComparison.Ordinal), made);
+            && made.Contains("out-ranks", StringComparison.Ordinal)
+            && made.Contains("inlined", StringComparison.Ordinal), made);
     }
 
     /// <summary>Every child line the written plugin's copy of the topic carries — #300's "whose CHILDREN did the host
