@@ -1705,9 +1705,8 @@ static class JsonWire
             // render's "!" lines, and the same rule the divergence rows follow: a statement that this artifact will
             // out-rank a mod on a parent record it only meant to host a child in must survive a max_chars cut. One
             // entry per distinct contested parent; empty when every host was uncontested.
-            var contestedHosts = o.Created.Select(c => c.ParentHost)
-                                  .Where(h => h is not null && h.Contains("currently WINS this record", StringComparison.Ordinal))
-                                  .Distinct(StringComparer.Ordinal).ToList();
+            var contestedHosts = o.Created.Where(c => c.ParentContested && c.ParentHost is not null)
+                                  .Select(c => c.ParentHost!).Distinct(StringComparer.Ordinal).ToList();
             w.WriteStartArray("contested_parent_hosts");
             foreach (var host in contestedHosts) w.WriteStringValue(host);
             w.WriteEndArray();
@@ -1728,6 +1727,7 @@ static class JsonWire
                 w.WriteBoolean("replaced_existing", c.ReplacedExisting);
                 // #300 — the parent override this nested create hosted the child in, and whose version was copied.
                 WriteNullable(w, "parent_host", c.ParentHost);
+                w.WriteBoolean("parent_contested", c.ParentContested);
                 w.WriteStartArray("ops");
                 foreach (var op in c.Ops)
                 {

@@ -421,7 +421,10 @@ public static class ReadEngine
                    || WriteEngine.ClosedInterface(val.GetType(), typeof(IReadOnlyDictionary<,>)) is not null;
 
         // a container or substruct — summarise (with an element identity where we can), then maybe open it.
-        if (!Emit(sink, ref budget, new FieldValue(path, false, null, ElementSummary(val, isDict)))) return;
+        // Present/Count on the DEEP path too (review [nit]): these exist so a consumer never parses a note to decide
+        // presence, and leaving them at their defaults here made a depth-2 read of an EMPTY list claim content.
+        int? deepCount = val is System.Collections.IEnumerable de and not string ? de.Cast<object?>().Count() : null;
+        if (!Emit(sink, ref budget, new FieldValue(path, false, null, ElementSummary(val, isDict), Present: true, Count: deepCount))) return;
 
         // Two POLYMORPHIC-ARM families normally stop here at their identity summary, hiding their VALUE, and both
         // surface it ONE bounded level deeper even at the depth floor so a read reaches parity with the write

@@ -754,8 +754,15 @@ public static class WriteTools
     /// this PR's own reviews keep finding.</summary>
     static void AppendDivergences(StringBuilder sb, IEnumerable<WritePatchBuilder.OpResult> ops)
     {
+        // BOUNDED, though hoisted above the budget (review [medium]): a divergence line is ~350 chars and a bulk
+        // in-place with a systematic divergence emits one per op, which would push the whole response past the host's
+        // ceiling — the failure this render was reshaped to avoid. The cap is generous (a caller with 25 un-landed
+        // ops has a systemic problem, not 25 individual ones) and the remainder is counted, never dropped silently.
+        const int shown = 25;
+        int rendered = 0, total = 0;
+        foreach (var op in ops) if (op.Divergence is not null) total++;
         foreach (var op in ops)
-            if (op.Divergence is { } why)
+            if (op.Divergence is { } why && rendered++ < shown)
                 // NAMES THE RECORD (review [medium]): op.Label is "{Verb} {path}" and nothing else, so a bulk in-place
                 // over 40 NPCs with a divergence on 3 of them printed three byte-identical lines and the caller could
                 // not tell which records to re-check. The json twin has carried formid since it was hoisted; this is
@@ -763,6 +770,9 @@ public static class WriteTools
                 sb.Append("  ✗ ").Append(op.RecordType).Append(' ').Append(op.Target).Append("  ").Append(op.Label)
                   .Append(" — the edit was APPLIED but the written file does not carry it: ")
                   .Append(why).Append(". The file is what the game loads: treat this op as NOT landed.\n");
+        if (total > shown)
+            sb.Append("  ✗ … and ").Append(total - shown).Append(" further op(s) the written file does not carry")
+              .Append(" — every one is in format=\"json\" (`divergences`), which is not cut here.\n");
     }
 
     /// <summary>Confirmation for housecarl_remove_record: what was dropped, the patch's now-lean masters, and how many
@@ -1187,11 +1197,18 @@ public static class WriteTools
         // actually differ — the benign case (definer IS the winner, or the artifact already carried the parent) says
         // nothing here. The truncation notice points at a read-back, and the host choice is not IN the record, so a
         // cut caller could not recover this afterwards.
-        var contested = o.Created.Select(c => c.ParentHost)
-                         .Where(h => h is not null && h.Contains("currently WINS this record", StringComparison.Ordinal))
-                         .Distinct(StringComparer.Ordinal).ToList();
-        foreach (var host in contested)
+        // Selected on the FLAG, never by matching the sentence (review [low]). BOUNDED, too (review [medium]): one
+        // line per contested parent is ~400 chars, and a bulk_create fanning children into many contested cells would
+        // otherwise blow the whole response budget BEFORE the created list starts — which then truncates at "0 of N",
+        // the exact HCBR-2026-06-28-01 shape. Cap the block, and say how many were not shown.
+        const int contestedShown = 10;
+        var contested = o.Created.Where(c => c.ParentContested && c.ParentHost is not null)
+                         .Select(c => c.ParentHost!).Distinct(StringComparer.Ordinal).ToList();
+        foreach (var host in contested.Take(contestedShown))
             sb.Append("  ! ").Append(host).Append('\n');
+        if (contested.Count > contestedShown)
+            sb.Append("  ! … and ").Append(contested.Count - contestedShown)
+              .Append(" further contested parent(s) — each is named on its own record's `parent:` line below.\n");
         int listed = 0;
         for (int ci = 0; ci < o.Created.Count; ci++)
         {

@@ -290,6 +290,13 @@ public static class WritePatchBuilder
         /// comment in <see cref="CreateRecords"/>. When the definer cannot answer (an injected parent, an excluded
         /// plugin) the winner IS used, and this says so rather than letting the two cases look alike.</para></summary>
         public string? ParentHost { get; init; }
+
+        /// <summary>#300 — the parent this child was hosted in is CONTESTED: another plugin currently wins that
+        /// record, and this artifact will out-rank it wherever it sorts later. The renders hoist a warning for
+        /// exactly these, and they select on THIS, not by substring-matching <see cref="ParentHost"/>'s prose —
+        /// display text gets reworded, and a reword would have silently switched both hoists off with the guard
+        /// still green (review [low]; the same posture <c>IndexSnapshot.Unopenable</c> documents).</summary>
+        public bool ParentContested { get; init; }
     }
 
     /// <summary>The outcome of a <see cref="CreateRecords"/> call. <see cref="Error"/> non-null ⇒ the whole call was
@@ -2782,6 +2789,7 @@ public static class WritePatchBuilder
         // #300 — per-spec provenance of the parent override this create had to host the child in. Reported (Q3): which
         // plugin's version was copied is a decision the caller did not make and cannot see in the record afterwards.
         var parentHosts = new string?[specs.Count];
+        var parentContested = new bool[specs.Count];
         // The destination's own records, indexed ONCE (review [low]): the "does the artifact already carry this
         // parent?" probe runs per parented spec, and enumerating the whole destination each time is O(specs x records)
         // — on a bulk_create into a large into= patch, and equally on the IN-PLACE lane, where the destination is the
@@ -2883,6 +2891,7 @@ public static class WritePatchBuilder
                         parentType = WriteEngine.ResolveConcreteRecordType(RecordNaming.StripOverlay(parentBody.GetType().Name));
                         parentPlans[i] = (parentBody, readFrom, null, null);
                         bool overWinner = fromDefiner is not null && !string.Equals(readFrom, w.WinnerPlugin, StringComparison.OrdinalIgnoreCase);
+                        parentContested[i] = overWinner;
                         parentHosts[i] = $"{RecordNaming.StripOverlay(parentBody.GetType().Name)} {parentFk} hosted from '{readFrom}'"
                             + (fromDefiner is null
                                 ? $" (the load-order WINNER — its defining plugin '{definer}' does not carry it: an injected or excluded parent)"
@@ -3122,7 +3131,8 @@ public static class WritePatchBuilder
                 foreach (var fill in DialogueCkParity.ApplyQuestDefaults(questRec))
                     ops.Add(new OpResult(rec.FormKey, s.RecordType, fill.Label, true, null, fill.Reason));
             }
-            created.Add(new CreatedRecord(rec.FormKey, s.RecordType, s.EditorId, ops, replaced) { ParentHost = parentHosts[i] });
+            created.Add(new CreatedRecord(rec.FormKey, s.RecordType, s.EditorId, ops, replaced)
+            { ParentHost = parentHosts[i], ParentContested = parentContested[i] });
         }
 
         // --- Phase 4: serialize ONCE with the full known-master set. A created record referencing existing content pulls
@@ -3399,7 +3409,13 @@ public static class WritePatchBuilder
             // the bound is now stated where it is claimed instead of implied away.
             verified.Add(op with
             {
-                LandedOnDisk = landedDisk,
+                // A file side that could NOT BE READ is not the file's answer (review [medium]): DescribeApplied
+                // hands back the note ("(unreadable: …)"), which is non-null, and the state word derives from
+                // LandedOnDisk being non-null — so an op whose re-read THREW was stamped "verified" with the failure
+                // text printed as the file's content. Leaving it null routes it to the state that already exists for
+                // this: attempted, no answer. The comparator meanwhile stays silent on it, which is correct and is
+                // why nothing else caught it.
+                LandedOnDisk = diskPresence.Readable ? landedDisk : null,
                 Divergence = LeafDivergence(op.After, op.AfterPresence, afterDisk, diskPresence),
                 VerifyAttempted = true,
             });

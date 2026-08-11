@@ -2082,8 +2082,11 @@ public static class WriteEngine
     /// it and it is not content. What is NOT an exemption, though an earlier draft of this paragraph said so: the
     /// TYPE itself. A polymorphic arm survives because Mutagen's arm types carry a non-nullable member, not because
     /// naming the arm counts as content — so an arm whose whole settable surface is nullable references WOULD be
-    /// refused here, with advice to name a field, when the type was the content (review [low]). No such arm is
-    /// modelled today; if one appears, that is the fix, not a wider exemption. The general case — a struct that serializes to less than the caller believes — is
+    /// refused here, with advice to name a field, when the type was the content (review [low]). I have NOT found such
+    /// an arm, and I have not proven there is none — that is an assertion about the whole modelled universe with no
+    /// probe behind it, in a codebase whose cornerstone is that coverage claims are derived (review [low], round 9).
+    /// The by-construction form is cheap and worth adding: an arm asserting every <see cref="IsPlainComposableStruct"/>
+    /// type carries at least one non-nullable settable property. Until then this paragraph is a bound, not a fact. The general case — a struct that serializes to less than the caller believes — is
     /// caught from the other end: <c>WritePatchBuilder.VerifyLandedAgainstFile</c> reports content that is GONE (a
     /// count that moved, a leaf that now holds nothing), which is where an unserializable struct usually lands — but
     /// NOT an element that lands with fewer fields than supplied, because that cannot be told from the format
