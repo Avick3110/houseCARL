@@ -2882,16 +2882,28 @@ public static class WritePatchBuilder
                                     // because this artifact feeds a patch that will win. Copying the winner by default
                                     // silently picks the second, drags that mod's fields into the caller's plugin, and
                                     // costs a master the child never needed. So the default is the lean host and the
-                                    // choice is REPORTED — a statement, not a warning: the caller sorts, or forwards
-                                    // the winner's version deliberately when inlining is what they meant.
+                                    // choice is REPORTED — a statement, not a warning: the caller sorts, or builds the
+                                    // inlined shape deliberately when inlining is what they meant.
                                     // "Not copied here" and not "not a master of this write": masters are derived at
                                     // serialize, and another spec or a created record's own links can still pull that
                                     // plugin in.
+                                    // THE INLINING LEVER NAMES AN ORDER, AND THE ORDER IS LOAD-BEARING (PR #323
+                                    // review [medium]). The first wording — "forward the winner's version in
+                                    // explicitly" — was measured FALSE: forwarding into the patch that already holds
+                                    // the child DELETES the child, because forward's extend/in-place path drops the
+                                    // whole record before re-copying it and the child group goes with the drop. That
+                                    // is a `forward` defect on both those lanes, filed as #324 and not fixed here.
+                                    // The order asserted safe in WriteSurfaceGuardProbe.NestedParentHostArm — forward
+                                    // first, then create into that patch — is what this now prints. Both halves are
+                                    // said: the safe order, and the destructive one named as destructive, because a
+                                    // caller who only reads "forward the winner in" will reach for the wrong one.
                                     : $" (its DEFINING plugin — the LEAN host, carrying the residual only: '{w.WinnerPlugin}' currently WINS this record "
                                       + $"and its version is deliberately NOT inlined here, so wherever this artifact out-ranks '{w.WinnerPlugin}' the parent "
                                       + $"record resolves to '{readFrom}'s fields. That is the control this lane gives you: sort below '{w.WinnerPlugin}' to "
-                                      + $"keep the residual shape, sort above it to assert this host, or forward '{w.WinnerPlugin}'s version in explicitly if "
-                                      + "you want its content inlined. The new child is carried either way.)");
+                                      + $"keep the residual shape, sort above it to assert this host, or inline '{w.WinnerPlugin}'s content deliberately: "
+                                      + $"forward its version into a patch FIRST, then create into THAT patch — the child hosts in the forwarded body. Not "
+                                      + "the other order: forwarding into a patch that ALREADY holds the child deletes the child (a known housecarl_forward "
+                                      + "bug, #324). Whichever way you sort, the new child is carried.)");
                     }
                     else
                     {

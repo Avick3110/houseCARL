@@ -59,9 +59,18 @@ one — "make this sit before the Reqtificator / Synthesis output" — must not 
 records, and must not bake in what they would regenerate. Same call, opposite right answers.
 
 So this is now the base you build from rather than an answer imposed on you: the residual is what you get when nothing
-else is said, because you can add the winner's version deliberately on top, and you cannot cleanly subtract it once it
-is baked in. The response **tells you** which mod currently wins that parent and which way the record will resolve, so
-the choice is in front of you at write time. The new child is carried either way.
+else is said, because you can build the inlined shape deliberately, and you cannot cleanly subtract the winner's content
+once it is baked in. The response **tells you** which mod currently wins that parent and which way the record will
+resolve, so the choice is in front of you at write time. Whichever way you sort, the new child is carried.
+
+**Building the inlined shape: the order matters, and only one order is safe today.** Forward the winner's version into
+a patch **first**, then create into that patch — your new record is hosted in the forwarded body, and you get both.
+Doing it the other way round — creating first, then forwarding the winner into the same patch — **deletes the record you
+just created**, and reports success. That is a pre-existing `housecarl_forward` bug rather than anything specific to
+this feature: forwarding onto a record the destination already carries drops that whole record before re-copying it,
+and the child group — placed references under a cell, dialogue lines under a topic — goes with the drop. It affects
+`into=` and `in_place=` alike, so it can take content out of your own plugin on the in-place lane. It is tracked as
+**#324** and is not fixed in this release; until it is, use the safe order. The write response names the safe order too.
 
 **Fixed: a full path to an *active* plugin is no longer treated as an off-order file (#321).** `housecarl_apply`'s
 `CopyFrom` decided "is this source in the load order?" by looking up the name it was given, and a full path never
