@@ -8,6 +8,16 @@ when it changes.
 
 *Accumulating notes for the next cut — not yet released; `plugin.json` still reads the last shipped version.*
 
+**Fixed: forwarding a record no longer deletes the records nested under it (#324).** When `forward` targeted a record
+the destination *already carried*, it replaced it by dropping the whole record and copying the source body in — and
+the drop took the record's child group with it. Any dialogue line under a forwarded topic, or placed reference under
+a forwarded cell, was destroyed, and the call reported success. The `in_place=` lane was the worse half: it deleted
+those records out of your own plugin, on the lane that keeps no backup. The children are now lifted off before the
+replace and re-attached after it, so a forward changes the record's *fields* and leaves what is nested under it
+alone. Nothing about the forward semantic changes: the source's own children still stay in the source's plugin,
+which is what lets a patched topic not fight another mod's added lines. If houseCARL ever cannot account for every
+child across the replace, it refuses and writes nothing rather than emit a plugin it knows is short a record.
+
 **Fixed: an in-place edit's "what landed" line is now read off the written file (#308).** The verify prints under a
 banner saying every edited record was re-read off the file on disk — but the per-op half of each line ("`Add Ranks:
 now 1 (+1)`") was read from memory *before* the file was written. When a composed structure exists in memory and

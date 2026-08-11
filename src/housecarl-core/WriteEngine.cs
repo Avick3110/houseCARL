@@ -637,6 +637,143 @@ public static class WriteEngine
         return true;
     }
 
+    // ======================================================================
+    //  CHILD-GROUP PRESERVATION ACROSS A DROP-THEN-COPY  (#324)
+    // ======================================================================
+
+    /// <summary>
+    /// The child records a record OWNS, lifted off it so a drop-then-copy can put them back (#324).
+    /// <para/>
+    /// <b>Why this exists.</b> Both <c>forward</c> lanes replace a FormKey the destination already carries by
+    /// <c>Remove</c>-ing the whole record and then copying the source body in (the F1 semantic — a collision must not
+    /// silently SKIP the copy, HCBR-2026-07-08-01). The drop takes the record's child GROUP with it, and
+    /// <see cref="GenericGetOrAddAsOverride"/> carries none back in, so every child under the replaced record was
+    /// silently destroyed while the call reported success: INFOs under a DIAL, placed refs under a CELL. Measured on
+    /// PR #323 and filed as #324; the <c>in_place=</c> half deleted them out of the caller's OWN plugin.
+    /// <para/>
+    /// <b>There is nothing to reconcile.</b> The copy brings no children in, so this is re-attach-what-was-there, not
+    /// a merge — and the forward semantic is unchanged by it (a forwarded parent asserts the source's FIELDS; the
+    /// source's own children stay in the source's plugin, which is what lets a DIAL override not fight other mods'
+    /// added lines). <see cref="RestoreChildGroup"/> nonetheless REFUSES rather than overwrites if the copy ever does
+    /// arrive carrying children — that assumption is Mutagen's, not ours, and a bump that changed it would otherwise
+    /// turn this preservation into a silent discard (Q3).
+    /// </summary>
+    public readonly record struct ChildGroupCarry(
+        IReadOnlyList<(PropertyInfo Prop, object? Value)> Held, int Count, IReadOnlyList<string> Names)
+    {
+        /// <summary>Nothing was held — the record owns no children (the overwhelmingly common case: every flat record
+        /// type but Cell / DialogTopic / Worldspace), so the restore is a no-op and the lanes skip it.</summary>
+        public bool IsEmpty => Count == 0;
+    }
+
+    /// <summary>Lift <paramref name="record"/>'s owned child records off it, BEFORE the drop (#324). The values are the
+    /// live collections — the record is on its way out of the mod and nothing else references it, so re-attaching them
+    /// by reference is lossless and needs no deep copy.</summary>
+    public static ChildGroupCarry CaptureChildGroup(IMajorRecord record)
+    {
+        var held = new List<(PropertyInfo, object?)>();
+        foreach (var p in ChildBearingProperties(record.GetType()))
+            held.Add((p, p.GetValue(record)));
+        var kids = ChildrenOf(record);
+        return new ChildGroupCarry(held, kids.Count, kids.Take(10).ToList());
+    }
+
+    /// <summary>Re-attach a <see cref="CaptureChildGroup"/> carry onto the freshly copied record, AFTER the copy (#324).
+    /// Returns null on success, or a refusal naming the cause — the caller fails the whole call with nothing
+    /// serialized, never a partial write.</summary>
+    public static string? RestoreChildGroup(IMajorRecord fresh, ChildGroupCarry carry)
+    {
+        if (carry.IsEmpty) return null;
+
+        // The copy is expected to arrive EMPTY (see the type doc). If it ever does not, the two child sets would have
+        // to be reconciled and there is no defensible way to guess which wins — so surface it instead of silently
+        // dropping one side. A Mutagen bump that starts carrying children in trips this in CI, loudly, by design.
+        var arrived = ChildrenOf(fresh);
+        if (arrived.Count > 0)
+            return $"cannot preserve the {carry.Count} child record(s) under {fresh.FormKey}: the forwarded copy " +
+                   $"arrived carrying {arrived.Count} child record(s) of its own ({string.Join(", ", arrived.Take(5))}" +
+                   $"{(arrived.Count > 5 ? ", …" : "")}), so re-attaching would discard one of the two sets. houseCARL " +
+                   "refuses rather than guess which (Q3) — this is an engine-level change in Mutagen's override-copy " +
+                   "semantics, not something the call did wrong; please report it.";
+
+        // A throw here is caught rather than left to the caller's catch: that one reports "the override-copy threw",
+        // which would name the wrong operation for a fault in the re-attach. Same loudness, accurate sentence.
+        try
+        {
+            foreach (var (prop, value) in carry.Held)
+                prop.SetValue(fresh, value);
+        }
+        catch (Exception ex)
+        {
+            return $"cannot preserve the {carry.Count} child record(s) under {fresh.FormKey}: re-attaching them to " +
+                   $"the forwarded copy threw ({ex.GetType().Name}: {ex.Message}) — surfaced, not swallowed (Q3).";
+        }
+
+        // By-construction verification, off Mutagen's OWN containment enumeration rather than the reflected property
+        // set that did the re-attach: if a containment path exists that ChildBearingProperties cannot see, the counts
+        // disagree and the call refuses. A record type Mutagen grows a new child group on fails loud here instead of
+        // quietly losing it — the same posture the coverage cornerstone takes on record types.
+        var after = ChildrenOf(fresh);
+        if (after.Count != carry.Count)
+            return $"cannot forward {fresh.FormKey}: it carries {carry.Count} child record(s) " +
+                   $"({string.Join(", ", carry.Names)}{(carry.Count > carry.Names.Count ? ", …" : "")}) and only " +
+                   $"{after.Count} survived the replace — houseCARL will not write a plugin it knows is missing " +
+                   "records (Q3). Nothing was serialized; the file is UNTOUCHED. Please report this with the record type.";
+        return null;
+    }
+
+    /// <summary>Every major record contained UNDER <paramref name="record"/>, by Mutagen's own containment walk — the
+    /// independent yardstick <see cref="RestoreChildGroup"/> checks the reflected re-attach against.</summary>
+    static List<string> ChildrenOf(IMajorRecordGetter record) =>
+        record is IMajorRecordGetterEnumerable e
+            ? e.EnumerateMajorRecords().Select(r => r.EditorID ?? r.FormKey.ToString()).ToList()
+            : new List<string>();
+
+    /// <summary>The settable properties of <paramref name="t"/> that can REACH an owned major record, MEMOIZED per type
+    /// (the <see cref="_flatGroupTypes"/> precedent — pure reflection metadata, constant for the process lifetime, and
+    /// this runs per replaced record).
+    /// <para/>
+    /// Reachability is RECURSIVE and that is load-bearing, not defensive: <c>Worldspace.SubCells</c> reaches its cells
+    /// through two non-record container types (<c>WorldspaceBlock</c> → <c>WorldspaceSubBlock</c> → <c>Cell</c>), so a
+    /// one-level "is this property a major record" test sees <c>Cell</c>/<c>DialogTopic</c> and misses every exterior
+    /// cell in the game. <c>IFormLink</c>s are excluded — a link REFERENCES a record, it does not own one, and walking
+    /// them would sweep in most of the schema. Against Mutagen 0.53.1 this answers: Cell (Landscape, NavigationMeshes,
+    /// Persistent, Temporary), DialogTopic (Responses), Worldspace (TopCell, SubCells) — and nothing else, which the
+    /// guard pins so a Mutagen bump that adds a container shows up as a failing arm rather than as lost records.</summary>
+    internal static IReadOnlyList<PropertyInfo> ChildBearingProperties(Type t) => _childProps.GetOrAdd(t, static ty =>
+        ty.GetProperties(BindingFlags.Public | BindingFlags.Instance)
+          .Where(p => p.CanRead && p.CanWrite && p.GetIndexParameters().Length == 0
+                      && ReachesOwnedRecord(p.PropertyType, new HashSet<Type>(), 0))
+          .ToList());
+    static readonly System.Collections.Concurrent.ConcurrentDictionary<Type, IReadOnlyList<PropertyInfo>> _childProps = new();
+
+    /// <summary>Can a value of <paramref name="t"/> hold an owned major record? See <see cref="ChildBearingProperties"/>
+    /// for why this recurses and why links are cut. The depth bound and the visited set close the cycles Mutagen's
+    /// object graph has (a Cell reaches a Cell through a Worldspace).</summary>
+    static bool ReachesOwnedRecord(Type t, HashSet<Type> seen, int depth)
+    {
+        if (depth > 6 || !seen.Add(t)) return false;
+        if (typeof(IFormLinkGetter).IsAssignableFrom(t)) return false;       // a reference, not a child
+        if (typeof(IMajorRecordGetter).IsAssignableFrom(t)) return true;
+        if (ElementTypeOf(t) is { } elem) return ReachesOwnedRecord(elem, seen, depth + 1);
+        if (!t.IsClass || t.Namespace?.StartsWith("Mutagen", StringComparison.Ordinal) != true) return false;
+        foreach (var p in t.GetProperties(BindingFlags.Public | BindingFlags.Instance))
+            if (ReachesOwnedRecord(p.PropertyType, seen, depth + 1)) return true;
+        return false;
+    }
+
+    /// <summary>The element type <paramref name="t"/> enumerates, or null if it is not a collection. <c>string</c> is
+    /// excluded explicitly — it enumerates chars and would otherwise recurse pointlessly on every text field.</summary>
+    static Type? ElementTypeOf(Type t)
+    {
+        if (t.IsArray) return t.GetElementType();
+        if (t == typeof(string) || !typeof(System.Collections.IEnumerable).IsAssignableFrom(t)) return null;
+        foreach (var i in new[] { t }.Concat(t.GetInterfaces()))
+            if (i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IEnumerable<>))
+                return i.GetGenericArguments()[0];
+        return null;
+    }
+
     /// <summary>The Type to hand Mutagen's typed <c>Remove(FormKey, Type, throwIfUnknown)</c> for
     /// <paramref name="record"/>: the record's FLAT GROUP's <c>T</c> when one matches, else the runtime type (nested-group
     /// records — the shape the remove-record-probe proved reaches Cell/Placed*/INFO/Navmesh/Landscape). The flat-group
