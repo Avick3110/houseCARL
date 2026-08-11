@@ -67,6 +67,7 @@ public static class ApplyGuardProbe
             InPlaceCopyArm(fx);
             TransportArm(fx);
             EmptyComposeArm(fx);
+            KeyedMultiOpArm(fx);
 
             Console.WriteLine();
             Console.WriteLine($"=== apply-guard: {_pass} passed, {_fail} failed -> {(_fail == 0 ? "PASS" : "FAIL")} ===");
@@ -239,6 +240,36 @@ public static class ApplyGuardProbe
             twoAdds.Contains("a later op in this call wrote the same field", StringComparison.Ordinal), twoAdds);
         Check("…and the list really carries BOTH ranks on disk (the write the arm is defending was correct)",
             RanksIn(fx.ReplacerPath, fx.FactionFid) >= 2, $"ranks={RanksIn(fx.ReplacerPath, fx.FactionFid)}\n{twoAdds}");
+    }
+
+    /// <summary>#308 — two COUNT-CHANGING key-addressed ops in ONE in-place call. The multi-op checks in arm 6 use
+    /// two Adds, whose Key is null, so they take the superseded path and never exercised the key exemption; a review
+    /// then reproduced a false "NOT landed" here, on a call where BOTH removes landed and where the remedy that
+    /// advises would delete a third element. Driven end-to-end, and the disk count is asserted too, so the arm proves
+    /// the write was right rather than merely that the render stayed quiet.</summary>
+    static void KeyedMultiOpArm(Fixture fx)
+    {
+        Console.WriteLine("── ARM 7: #308 — two key-addressed REMOVES in one call are not slandered ──");
+
+        // Seed three ranks in one call, so the arm owns its own state regardless of what ran before it.
+        var seed = ApplyTools.Apply(fx.Svc, in_place: fx.ReplacerName, acknowledge: true,
+            ops: Json("[" + string.Join(",", new[] { "7", "8", "9" }
+                .Select(n => ComposeRankOp(fx.FactionFid, "\"fields\":{\"Number\":\"" + n + "\"}")[1..^1])) + "]"));
+        int before = RanksIn(fx.ReplacerPath, fx.FactionFid);
+        Check("seeded three ranks for the keyed-op arm",
+            seed.StartsWith("edited ", StringComparison.Ordinal) && before >= 3, $"ranks={before}\n{seed}");
+
+        // Two removes BY INDEX, high index first so the second index stays valid.
+        string RemoveRank(string key) =>
+            "{\"formid\":\"" + fx.FactionFid + "\",\"field_path\":\"Ranks\",\"op\":\"Remove\",\"key\":\"" + key + "\"}";
+        var twoRemoves = ApplyTools.Apply(fx.Svc, in_place: fx.ReplacerName, acknowledge: true,
+            ops: Json("[" + RemoveRank("2") + "," + RemoveRank("0") + "]"));
+        int after = RanksIn(fx.ReplacerPath, fx.FactionFid);
+        Check("two key-addressed Removes in one call: BOTH land (the count drops by two)",
+            after == before - 2, $"{before} -> {after}\n{twoRemoves}");
+        Check("…and NEITHER is reported as not landed — the earlier op's count is behind the file's, not wrong",
+            !twoRemoves.Contains("NOT landed", StringComparison.Ordinal)
+            && !twoRemoves.Contains("NOT carried by the written file", StringComparison.Ordinal), twoRemoves);
     }
 
     /// <summary>How many Ranks the written faction carries on disk — the ground truth behind the multi-op check.</summary>
