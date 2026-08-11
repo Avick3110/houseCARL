@@ -626,7 +626,13 @@ public static class WritePatchBuilder
     /// projects, kept in step by a comment asking the reader to check — is the hand-wiring shape CLAUDE.md §3 argues
     /// against. It matters concretely: the next fix named for this lane is the <c>ActiveNameForPath</c> rule
     /// <c>forward</c> already has, and a clause added to one copy would silently stop matching the other. One
-    /// predicate, so a clause can only be added to both.</para></summary>
+    /// predicate, so a clause can only be added to both.</para>
+    /// <para>That fix landed as #321, and it deliberately did NOT become a clause here. A PATH is re-spelled to the
+    /// plugin NAME by the service before this predicate runs (<c>RespellActiveCopySourcePaths</c>), so what both ends
+    /// test is the order's own vocabulary. Testing membership here is therefore still a plain name lookup — and the
+    /// re-spelling reaches the engine, the winner comparison and the report at the same time, which a predicate-only
+    /// clause could not have done (it would have routed the body correctly while every rendered sentence still called
+    /// an active plugin off-order).</para></summary>
     public static bool IsOffOrderCopySource(PatchEdit e, LoadOrderResolver.IndexView view)
         => string.Equals(e.Verb, "CopyFrom", StringComparison.Ordinal)
            && !string.IsNullOrWhiteSpace(e.FromPlugin)
@@ -1585,13 +1591,11 @@ public static class WritePatchBuilder
     /// rather than the race repairs they were filed as. The argument is stated ONCE, on
     /// <see cref="TryOffOrderCopyBody"/> — read it there rather than re-deriving it from a second copy here
     /// (PR #318 review [nit]: this correction and its twin were saying the same thing twice).</para>
-    /// <para>NOT parity, and worth knowing before assuming it: this lane additionally carries the
-    /// <c>ActiveNameForPath</c> full-path identity rule (PR #313 [medium]), so a <c>source=</c> PATH naming an ACTIVE
-    /// plugin takes the in-order arm. The <c>CopyFrom</c> lane has no such rule at either end, so a
-    /// <c>from_source=</c> path to an active plugin still routes off-order and is described as not in the load
-    /// order — the same defect this lane fixed, still open on that one. Recorded here rather than filed: the sweep
-    /// that found it does not own the issue lane (CLAUDE.md §2), and a comment beside the code is a better pointer
-    /// than a stale reference if it is fixed first. Whoever fixes it should file it, then delete this paragraph.</para></summary>
+    /// <para>PARITY, since #321: both lanes carry the <c>ActiveNameForPath</c> full-path identity rule, so a
+    /// <c>source=</c> / <c>from_source=</c> PATH naming an ACTIVE plugin takes the in-order arm on either. The
+    /// <c>CopyFrom</c> twin applies it one step EARLIER — it re-spells the edit to the plugin NAME before
+    /// <see cref="IsOffOrderCopySource"/> is ever consulted — because that predicate is shared with the service's
+    /// pre-locate and a per-end rule could land on one side only.</para></summary>
     static bool IsOffOrderSource(OffOrderForwardSource? offOrder, ForwardSpec s, LoadOrderResolver.IndexView view) =>
         offOrder is not null
         && string.Equals(offOrder.Plugin, s.FromPlugin, StringComparison.OrdinalIgnoreCase)
