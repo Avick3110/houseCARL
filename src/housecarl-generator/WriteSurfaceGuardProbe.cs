@@ -83,6 +83,7 @@ public static class WriteSurfaceGuardProbe
             // LAST: it forwards into the replacer IN PLACE, which rewrites a fixture file the earlier arms read as a
             // known winner. Ordering it after them keeps every other arm reading the fixture it was written against.
             CopySourcePathArm(fx, root);
+            NestedParentHostArm(fx);
             OffOrderForwardArm(fx);
             ReviewFoldArm(fx, root);
 
@@ -121,6 +122,9 @@ public static class WriteSurfaceGuardProbe
         public required string OffOwnFid { get; init; }
         /// <summary>A record ONLY the master carries (the replacer never touches it) — #321's discriminator.</summary>
         public required string MasterOnlyFid { get; init; }
+        /// <summary>#300: a nestable parent DEFINED by the master and WON by the replacer, at different content.</summary>
+        public required string TopicFid { get; init; }
+        public required FormKey TopicKey { get; init; }
         /// <summary>One filename provided by TWO disabled mod folders — the ambiguity refusal's fixture.</summary>
         public required string AmbName { get; init; }
         /// <summary>A DISABLED plugin whose forwarded body links into ANOTHER disabled plugin — the missing-master
@@ -158,12 +162,21 @@ public static class WriteSurfaceGuardProbe
             var masterOnly = m.Weapons.AddNew();
             masterOnly.EditorID = "W2MasterOnly";
             masterOnly.BasicStats = new WeaponBasicStats { Damage = 3 };
+
+            // #300's fixture: a NESTABLE parent the master DEFINES and the replacer WINS, at distinguishable content.
+            // A dialogue topic rather than a cell purely because a cell needs its block/subblock tree built by hand —
+            // the parent-resolution code under test is one branch for every nested create, and the topic exercises it
+            // with the same three-way distinction (definer's value, winner's value, which plugin becomes a master).
+            var topic = m.DialogTopics.AddNew();
+            topic.EditorID = "W2Topic";
+            topic.Name = "Master Topic";
             m.BeginWrite.ToPath(masterPath).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
 
             var r = new SkyrimMod(rKey, SkyrimRelease.SkyrimSE);
             var rw = (IWeapon)WriteEngine.GenericGetOrAddAsOverride(r, subject);
             rw.Name = "Winner Sword";
             rw.BasicStats = new WeaponBasicStats { Damage = 99 };
+            ((IDialogTopic)WriteEngine.GenericGetOrAddAsOverride(r, topic)).Name = "Winner Topic";   // #300
             r.BeginWrite.ToPath(replPath).WithLoadOrder(new ISkyrimModGetter[] { m }).Write();
 
             // --- W3 PR 2b: the OFF-ORDER source. A DISABLED mod folder (modlist '-W2Off'), absent from loadorder.txt
@@ -241,6 +254,8 @@ public static class WriteSurfaceGuardProbe
                 OffFolder = "W2Off",
                 OffOwnFid = $"{ownWeapon.FormKey.ID:X6}:{oKey.FileName}",
                 MasterOnlyFid = $"{masterOnly.FormKey.ID:X6}:{mKey.FileName}",
+                TopicFid = $"{topic.FormKey.ID:X6}:{mKey.FileName}",
+                TopicKey = topic.FormKey,
                 AmbName = aKey.FileName.String,
                 ChainName = cKey.FileName.String,
             };
@@ -919,6 +934,46 @@ public static class WriteSurfaceGuardProbe
         Check("a path to a DIFFERENT file sharing the active plugin's NAME still copies OFF-ORDER (77, its own body)",
             shadowPath is not null && DamageIn(shadowPath, fx.SubjectKey) == 77,
             $"{byShadow}  [damage={(shadowPath is null ? "no artifact" : DamageIn(shadowPath, fx.SubjectKey)?.ToString() ?? "unreadable")}]");
+    }
+
+    /// <summary>#300 — a NESTED create hosts its child in the parent's DEFINING plugin's version, not the load-order
+    /// WINNER's. Three observables, because the defect had three costs: the winner does not become a MASTER of the
+    /// patch (the child never needed it), the hosted record does not carry a frozen copy of the winner's FIELDS (the
+    /// silent-revert-on-update half), and the choice is REPORTED (it is invisible in the record afterwards).</summary>
+    static void NestedParentHostArm(Fixture fx)
+    {
+        Console.WriteLine("── ARM 9: #300 — a nested create hosts its child in the parent's DEFINING plugin's version ──");
+
+        var made = CreateTools.Create(fx.Svc, patch: "W2Host",
+            records: Json($$"""[{"record_type":"DialogResponses","editorid":"W2HostedLine","parent":"{{fx.TopicFid}}"}]"""));
+        var path = ArtifactPathFrom(fx, made);
+        Check("a nested create under an existing load-order parent succeeds", path is not null, made);
+
+        Check("…and the parent's load-order WINNER is NOT a master of the patch (the child never needed it)",
+            path is not null && !MastersLineOf(made).Contains(fx.ReplacerName, StringComparison.OrdinalIgnoreCase)
+            && MastersLineOf(made).Contains(fx.MasterName, StringComparison.OrdinalIgnoreCase), made);
+
+        Check("…and the hosted parent carries the DEFINER's fields, not a frozen copy of the winner's",
+            path is not null && TopicNameIn(path!, fx.TopicKey) == "Master Topic",
+            $"{made}  [topic name={(path is null ? "no artifact" : TopicNameIn(path, fx.TopicKey) ?? "unreadable")}]");
+
+        Check("…and the render REPORTS which plugin's version hosted the child (the choice is invisible afterwards)",
+            made.Contains("parent: ", StringComparison.Ordinal)
+            && made.Contains("DEFINING plugin", StringComparison.Ordinal)
+            && made.Contains(fx.MasterName, StringComparison.OrdinalIgnoreCase), made);
+    }
+
+    /// <summary>The topic's Name as the written plugin carries it — #300's "whose fields did the host copy" probe.</summary>
+    static string? TopicNameIn(string espPath, FormKey fk)
+    {
+        ISkyrimModGetter? ov = null;
+        try
+        {
+            ov = SkyrimMod.CreateFromBinaryOverlay(espPath, SkyrimRelease.SkyrimSE);
+            return ov.DialogTopics.FirstOrDefault(d => d.FormKey == fk)?.Name?.String;
+        }
+        catch { return null; }
+        finally { (ov as IDisposable)?.Dispose(); }
     }
 
     /// <summary>One CopyFrom op as the wire array <c>housecarl_apply</c> reads, with the Windows path escaped for

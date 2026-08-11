@@ -1674,6 +1674,8 @@ static class JsonWire
                 // A replace is never silent (the CreatedRecord contract): the same fact the text render puts in
                 // brackets, as a flag a consumer can branch on.
                 w.WriteBoolean("replaced_existing", c.ReplacedExisting);
+                // #300 — the parent override this nested create hosted the child in, and whose version was copied.
+                WriteNullable(w, "parent_host", c.ParentHost);
                 w.WriteStartArray("ops");
                 foreach (var op in c.Ops)
                 {
