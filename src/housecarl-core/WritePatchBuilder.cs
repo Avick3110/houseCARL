@@ -1774,8 +1774,13 @@ public static class WritePatchBuilder
             try
             {
                 bool replaced = false;
+                var carriedChildren = default(WriteEngine.ChildGroupCarry);
                 if (alreadyCarried.TryGetValue(spec.Target, out var existing))
                 {
+                    // #324, and this is the worse half: the target is the caller's OWN plugin on the lane whose banner
+                    // reads "no houseCARL backup or undo", so a child group the drop takes is gone for good. Lift it
+                    // off before the Remove and re-attach after the copy.
+                    carriedChildren = WriteEngine.CaptureChildGroup(existing);
                     ((IMajorRecordEnumerable)targetMod).Remove(spec.Target, WriteEngine.RemovalTypeFor(existing), throwIfUnknown: true);
                     if (targetMod.EnumerateMajorRecords().Any(x => x.FormKey == spec.Target))
                         return ForwardOutcome.Fail(
@@ -1784,7 +1789,9 @@ public static class WritePatchBuilder
                             "surfaced, not a silent skip (Q3); your original is UNTOUCHED.");
                     replaced = true;
                 }
-                WriteEngine.GenericGetOrAddAsOverride(targetMod, body, SourceCacheFor(session, spec, body, offOrderBody, offOrder));
+                var fresh = WriteEngine.GenericGetOrAddAsOverride(targetMod, body, SourceCacheFor(session, spec, body, offOrderBody, offOrder));
+                if (WriteEngine.RestoreChildGroup(fresh, carriedChildren) is { } childRefusal)
+                    return ForwardOutcome.Fail($"{childRefusal} (nothing was serialized; your original is UNTOUCHED.)");
                 forwarded.Add(new ForwardedRecord(
                     spec.Target, RecordNaming.StripOverlay(body.GetType().Name), body.EditorID, spec.FromPlugin, priorWinner, wasWinner,
                     ReplacedExisting: replaced));
@@ -2246,8 +2253,13 @@ public static class WritePatchBuilder
             try
             {
                 bool replaced = false;
+                var carriedChildren = default(WriteEngine.ChildGroupCarry);
                 if (alreadyCarried.TryGetValue(spec.Target, out var existing))
                 {
+                    // #324: the drop below takes the record's CHILD GROUP with it and the copy carries none back in,
+                    // so lift the children off FIRST and re-attach them after — a topic's INFOs, a cell's placed refs.
+                    // Before the Remove, because afterwards the record is no longer reachable from the mod.
+                    carriedChildren = WriteEngine.CaptureChildGroup(existing);
                     ((IMajorRecordEnumerable)patchMod).Remove(spec.Target, WriteEngine.RemovalTypeFor(existing), throwIfUnknown: true);
                     // The typed Remove can no-op WITHOUT throwing (F3's sibling defect) — verify the slot is genuinely
                     // empty before the copy, else GetOrAdd would silently return the old record again (Q3).
@@ -2258,7 +2270,9 @@ public static class WritePatchBuilder
                             "surfaced, not a silent skip (Q3); nothing was serialized (the extended patch's on-disk file is untouched).");
                     replaced = true;
                 }
-                WriteEngine.GenericGetOrAddAsOverride(patchMod, body, SourceCacheFor(session, spec, body, offOrderBody, offOrder));
+                var fresh = WriteEngine.GenericGetOrAddAsOverride(patchMod, body, SourceCacheFor(session, spec, body, offOrderBody, offOrder));
+                if (WriteEngine.RestoreChildGroup(fresh, carriedChildren) is { } childRefusal)
+                    return ForwardOutcome.Fail($"{childRefusal} (nothing was serialized; the extended patch's on-disk file is untouched.)");
                 forwarded.Add(new ForwardedRecord(
                     spec.Target, RecordNaming.StripOverlay(body.GetType().Name), body.EditorID, spec.FromPlugin, priorWinner, wasWinner,
                     ReplacedExisting: replaced));

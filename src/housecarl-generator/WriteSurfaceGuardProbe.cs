@@ -14,7 +14,7 @@ namespace HousecarlGenerator;
 /// <c>housecarl_write_seq</c> (tool-surface-2.0 W3 PR 2; SPEC §2.2 ACT, §5.1/§5.2, §6.1). Sibling of
 /// <c>apply-guard</c>, same posture: the REAL end-to-end tool path — a synthetic MO2 instance in temp +
 /// <see cref="LoadOrderService"/> + the tool methods themselves — so the wire readers, the LANE grammar, the
-/// alias-visible vocabulary and the engines are exercised exactly as a caller hits them. TEN arms, listed BY SUBJECT
+/// alias-visible vocabulary and the engines are exercised exactly as a caller hits them. ELEVEN arms, listed BY SUBJECT
 /// — neither declaration nor run order, both of which live in RunGuard, where the off-order/in-place pair is
 /// deliberately last because it rewrites a fixture file the others read as a known winner:
 /// <list type="number">
@@ -41,6 +41,10 @@ namespace HousecarlGenerator;
 /// <item><b>nested parent hosting</b> (#300) — a nested create under an EXISTING load-order parent hosts the child
 /// in the parent's DEFINING plugin's version: the winner does not become a master, the hosted record does not carry
 /// a frozen copy of the winner's fields, and which plugin hosted it is reported.</item>
+/// <item><b>child-group preservation</b> (#324) — a <c>forward</c> onto a record the destination ALREADY carries
+/// replaces it by DROP-then-copy, and the drop used to take the record's child group with it (INFOs under a DIAL,
+/// placed refs under a CELL) while reporting success. Both lanes, plus the reflected child-property set pinned so a
+/// Mutagen bump that adds a container fails here rather than at a caller's write.</item>
 /// <item><b>CopyFrom source paths</b> (#321) — the same ACTIVE-copy-by-path rule on the <c>CopyFrom</c> lane: a
 /// <c>from_source=</c> path to the file the order serves is refused/resolved as IN-ORDER and named by its plugin
 /// name, the copy still lands from that plugin's own version, and a path to a same-NAMED different file keeps the
@@ -89,6 +93,10 @@ public static class WriteSurfaceGuardProbe
             CopyFromViewArm(root);
             CopySourcePathArm(fx, root);
             NestedParentHostArm(fx);
+            // #324's arm also writes into the replacer IN PLACE (its second half is that lane), so it sits with the
+            // in-place arms below rather than among the read-the-fixture ones. It changes the replacer's TOPIC only —
+            // no later arm reads that record — while the two below change its WEAPON, which earlier arms do read.
+            ForwardChildGroupArm(fx);
             // OffOrderForwardArm and ReviewFoldArm go LAST: they forward into the replacer IN PLACE, which rewrites a
             // fixture file every earlier arm reads as a known winner. Ordering them after keeps every other arm
             // reading the fixture it was written against.
@@ -1045,6 +1053,97 @@ public static class WriteSurfaceGuardProbe
             inlinedName == "Winner Topic" && inlinedChildren.Contains("W2InlinedLine"),
             $"{thenChild}  [topic name={inlinedName ?? "unreadable"} · children=[{string.Join(", ", inlinedChildren)}]]");
     }
+
+    /// <summary>#324 — a <c>forward</c> onto a record the destination ALREADY carries must not destroy that record's
+    /// child group. Both lanes, because the defect was on both and the <c>in_place=</c> half deletes records out of the
+    /// caller's own plugin, on the lane whose banner reads "no houseCARL backup or undo".
+    /// <para/>
+    /// The replace is a DROP-then-copy (the F1 semantic — a collision must never silently skip the copy,
+    /// HCBR-2026-07-08-01), the drop takes the child group with it, and the copy carries none back in, so before the
+    /// fix the children were gone and the call reported success. The probe body below is the one measured on PR #323
+    /// and quoted in #324, re-pointed from "left RED to prove the defect" to "asserts the defect is fixed".
+    /// <para/>
+    /// Every arm here asserts BOTH halves — the children survive AND the source's fields actually landed — because
+    /// either alone passes on a shape the tool must not ship: a forward that no-ops preserves children perfectly.</summary>
+    static void ForwardChildGroupArm(Fixture fx)
+    {
+        Console.WriteLine("── #324: forward onto a carried record PRESERVES its child group (both lanes) ──");
+
+        // --- THE MEASURED CASE, VERBATIM (into=). Create a child into a patch that hosts the topic, then forward the
+        //     winner's version into that same patch. Before the fix this left the patch holding one record — the topic
+        //     — with the child destroyed and "extended …" reported.
+        var made = CreateTools.Create(fx.Svc, patch: "W324",
+            records: Json($$"""[{"record_type":"DialogResponses","editorid":"W324Line","parent":"{{fx.TopicFid}}"}]"""));
+        var path = ArtifactPathFrom(fx, made);
+        Check("#324 fixture: a child creates into a patch, hosted on the parent's definer", path is not null, made);
+        if (path is null) return;
+
+        var inlined = ForwardTools.Forward(fx.Svc, formids: new[] { fx.TopicFid }, source: fx.ReplacerName,
+            into: Path.GetFileName(path));
+        Check("forward into= a patch that already carries the record is accepted",
+            inlined.StartsWith("extended ", StringComparison.Ordinal), inlined);
+
+        var after = ChildLinesIn(path, fx.TopicKey);
+        Check("…and the child SURVIVES the replace (#324: the drop no longer takes the child group)",
+            after.Contains("W324Line"),
+            $"{inlined}  [children=[{string.Join(", ", after)}] · whole file=[{string.Join(", ", EditorIdsIn(path))}]]");
+        Check("…and the forward still DID its job: the source's fields are inlined in the host",
+            TopicNameIn(path, fx.TopicKey) == "Winner Topic",
+            $"{inlined}  [topic name={TopicNameIn(path, fx.TopicKey) ?? "unreadable"}]");
+
+        // …and the group holds the destination's child and ONLY that. The re-attach is lossless only because the copy
+        // arrives carrying nothing — Mutagen's behaviour, not ours, which is why RestoreChildGroup refuses rather than
+        // discards if it ever changes. Both clauses together, since the absence alone would pass vacuously on the
+        // pre-fix code, where the whole group is empty.
+        Check("…and the group holds exactly the destination's child — the SOURCE's own line did not come with it",
+            after.Count == 1 && !after.Contains("W2WinnerLine"), string.Join(", ", after));
+
+        // --- THE WORSE HALF (in_place=): the destination is the caller's OWN plugin. The replacer owns the topic and
+        //     a line under it; forwarding the MASTER's version in place must land the master's fields and leave the
+        //     replacer's own line standing. Consent for this plugin was recorded by the LANE arm; acknowledge=true is
+        //     passed anyway so this arm does not silently depend on another arm's side effect.
+        var replPath = Path.Combine(fx.ModsDir, "W2Repl", fx.ReplacerName);
+        var before = ChildLinesIn(replPath, fx.TopicKey);
+        Check("#324 in-place fixture: the target plugin carries the record AND a child of its own",
+            before.Contains("W2WinnerLine"), string.Join(", ", before));
+
+        var inPlace = ForwardTools.Forward(fx.Svc, formids: new[] { fx.TopicFid }, source: fx.MasterName,
+            in_place: fx.ReplacerName, acknowledge: true);
+        Check("forward in_place= onto a record the file already carries is accepted",
+            !inPlace.StartsWith("error:"), inPlace);
+
+        var afterInPlace = ChildLinesIn(replPath, fx.TopicKey);
+        Check("…and the caller's OWN child survives it — the no-backup lane does not lose records",
+            afterInPlace.Contains("W2WinnerLine"),
+            $"{inPlace}  [children=[{string.Join(", ", afterInPlace)}]]");
+        Check("…and the forward still DID its job: the master's fields replaced the winner's",
+            TopicNameIn(replPath, fx.TopicKey) == "Master Topic",
+            $"{inPlace}  [topic name={TopicNameIn(replPath, fx.TopicKey) ?? "unreadable"}]");
+
+        // --- THE REFLECTED CHILD SET, PINNED. RestoreChildGroup re-attaches by walking properties that can REACH an
+        //     owned record; its by-construction count check catches a path the walk cannot see, but only at call time,
+        //     as a refusal in the caller's face. Pinning the set here turns a Mutagen bump that adds a container into
+        //     a failing CI arm instead. Worldspace is the reason the walk RECURSES: SubCells reaches its cells through
+        //     two non-record types, so a one-level test would silently skip every exterior cell in the game.
+        Check("the child-bearing property set is exactly what Mutagen models: Cell(4) · DialogTopic(1) · Worldspace(2)",
+            Names(typeof(Cell)) == "Landscape,NavigationMeshes,Persistent,Temporary"
+            && Names(typeof(DialogTopic)) == "Responses"
+            && Names(typeof(Worldspace)) == "SubCells,TopCell",
+            $"Cell=[{Names(typeof(Cell))}] DialogTopic=[{Names(typeof(DialogTopic))}] Worldspace=[{Names(typeof(Worldspace))}]");
+
+        // …and the negative, which is what keeps the walk from being a performance and correctness hazard: a FormLink
+        // is a reference, not a child, so the ordinary record types own nothing and the whole mechanism is inert for
+        // them. Quest is the sharp case — it links topics and owns aliases, and reaching either would make every
+        // quest forward pay for a child walk that has nothing to preserve.
+        Check("…and nothing else owns children: a linked record is not a child (Weapon · Npc · Quest all empty)",
+            Names(typeof(Weapon)) == "" && Names(typeof(Npc)) == "" && Names(typeof(Quest)) == "",
+            $"Weapon=[{Names(typeof(Weapon))}] Npc=[{Names(typeof(Npc))}] Quest=[{Names(typeof(Quest))}]");
+    }
+
+    /// <summary>The child-bearing property names WriteEngine's reflected walk finds for a type (internal via
+    /// InternalsVisibleTo), sorted so the assertion does not depend on reflection's property order.</summary>
+    static string Names(Type t) =>
+        string.Join(",", WriteEngine.ChildBearingProperties(t).Select(p => p.Name).OrderBy(n => n, StringComparer.Ordinal));
 
     /// <summary>Every child line the written plugin's copy of the topic carries — #300's "whose CHILDREN did the host
     /// copy" probe (a full-record override may bring the parent's child list with it, which widens the trade).</summary>
