@@ -256,6 +256,35 @@ if (args.Length > 0 && args[0] == "skse-config-audit-real") return SkseConfigAud
 if (args.Length > 0 && args[0] == "native-pairing-guard") return NativePairingProbe.RunGuard(args[1..]);
 if (args.Length > 0 && args[0] == "native-pairing-real") return NativePairingProbe.RunReal(args[1..]);
 
+// UNKNOWN MODE — refused, not silently taken as an output directory (2.0 tidy-up scar, W3 PR 3 housekeeping).
+// Every dispatch above matched nothing, and the corpus fallthrough below reads args[0] as the OUTPUT DIRECTORY. So a
+// mistyped probe name generated the whole corpus into a folder of that name and exited 0: two of them put 13.5 MB of
+// generated files in the working tree, which `git add -A` then nearly committed. A mode and a directory ARE
+// distinguishable — a directory is rooted, carries a separator, or already exists — so anything else is refused BY
+// NAME, with the real modes listed and the near misses suggested (Q3: never a silent wrong action).
+if (args.Length > 0 && !IsDirectoryArgument(args[0]))
+{
+    Console.Error.WriteLine($"unknown mode '{args[0]}' — nothing was generated and nothing was written.");
+    Console.Error.WriteLine(HousecarlCore.PluginNameSuggest.DidYouMean(args[0], CiAll.ProbeNames).TrimStart(' ', '—'));
+    Console.Error.WriteLine();
+    Console.Error.WriteLine("CI guards (the one registry — `ci-all` runs them all):");
+    foreach (var name in CiAll.ProbeNames) Console.Error.WriteLine("  " + name);
+    Console.Error.WriteLine();
+    Console.Error.WriteLine("Other modes are the manual/exploratory harnesses declared in src/housecarl-generator/Program.cs.");
+    Console.Error.WriteLine("To GENERATE the corpus, pass a directory path (or no argument at all, for ./generated).");
+    return 2;
+}
+
+// A mode name is a bare token; an output directory is rooted, has a separator, or exists on disk. Deliberately
+// permissive toward directories: the cost of misreading a real output dir as a mode is a refusal the caller can
+// re-issue, while the cost the other way is the 13.5 MB write this check exists to stop.
+static bool IsDirectoryArgument(string a)
+{
+    if (a.Length == 0) return false;
+    if (Path.IsPathRooted(a) || a.Contains('\\') || a.Contains('/') || a is "." or "..") return true;
+    try { return Directory.Exists(a); } catch { return false; }
+}
+
 var outputDir = Path.GetFullPath(args.Length > 0 ? args[0] : "generated");
 // The slim reference tree ships INSIDE the skill (tracked); corpus.json + summary stay in generated/.
 // Default assumes the generator is run from the repo root (as `dotnet run --project src/housecarl-generator`).

@@ -356,6 +356,10 @@ public static class CiAll
     /// drift out of sync with the CI set (a guard runnable locally but missing from CI — the Q3 coverage-gap
     /// class). Returns false if the name isn't a registry probe; the caller then tries its own dispatches (the
     /// cold freshness-capture-guard carve-out + the manual/exploratory probes).</summary>
+    /// <summary>Every CI probe's name, for the unknown-mode refusal's list and did-you-mean (Program.cs). Read off the
+    /// SAME registry the dispatch uses, so a probe can never be runnable and yet missing from the help.</summary>
+    public static IReadOnlyList<string> ProbeNames => Probes.Select(p => p.Name).ToArray();
+
     public static bool TryDispatch(string name, string[] args, out int rc)
     {
         foreach (var (n, run) in Probes)
