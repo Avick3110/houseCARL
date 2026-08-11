@@ -1681,10 +1681,18 @@ static class JsonWire
             // render's "!" lines, and the same rule the divergence rows follow: a statement that this artifact will
             // out-rank a mod on a parent record it only meant to host a child in must survive a max_chars cut. One
             // entry per distinct contested parent; empty when every host was uncontested.
+            // BOUNDED on the SAME constant as the text twin (PR #323 review [medium]): hoisting an UNBOUNDED
+            // set-valued block above the budget just moves the overflow — at ~600-700 chars per host, a bulk_create
+            // fanning children into many distinct contested cells spent the whole budget here and left `created`
+            // rendering "0 of N, truncated". The text side was capped for exactly this and the json side was missed,
+            // which made the two lanes disagree about the same call (D2). `total_contested_parent_hosts` carries the
+            // full distinct count regardless — the same total/list pair `created` uses below — so the cut is stated,
+            // never silent (Q3); each host past the cap is still named on its own record's `parent_host`.
             var contestedHosts = o.Created.Where(c => c.ParentContested && c.ParentHost is not null)
                                   .Select(c => c.ParentHost!).Distinct(StringComparer.Ordinal).ToList();
+            w.WriteNumber("total_contested_parent_hosts", contestedHosts.Count);
             w.WriteStartArray("contested_parent_hosts");
-            foreach (var host in contestedHosts) w.WriteStringValue(host);
+            foreach (var host in contestedHosts.Take(Wire.ContestedHostsShown)) w.WriteStringValue(host);
             w.WriteEndArray();
 
             w.WriteNumber("total_created", o.Created.Count);

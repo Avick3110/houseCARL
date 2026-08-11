@@ -632,6 +632,15 @@ static class Wire
     /// hit the same spill bug, and all want the same bound. A caller raises it per-call via max_chars.</summary>
     public const int ReadbackMaxChars = 24_000;
 
+    /// <summary>How many distinct contested parent HOSTS a create render names before it says "and N further"
+    /// (#300). Lives here, shared by the text render and its json twin, because the two ARE the same bound and a
+    /// second literal is how they drift: the text side was capped on review [medium] and the json side was not,
+    /// so a bulk_create fanning children into many contested cells wrote ~700 bytes per host AHEAD of the budgeted
+    /// `created` array and truncated it at "0 of N" — the HCBR-2026-06-28-01 shape the text cap exists to prevent
+    /// (PR #323 review [medium]). Both lanes still publish the FULL distinct count beside the capped list, so a
+    /// cut caller knows how many it is not seeing.</summary>
+    public const int ContestedHostsShown = 10;
+
     static int Cap(int maxChars) => maxChars > 0 ? maxChars : DefaultMaxChars;
 
     /// <summary>Parse the shared format= param (Wave 2 / P6): null/"text" ⇒ false (the default text render), "json" ⇒

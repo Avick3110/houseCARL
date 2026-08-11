@@ -1156,14 +1156,15 @@ public static class WriteTools
         // Selected on the FLAG, never by matching the sentence (review [low]). BOUNDED, too (review [medium]): one
         // line per contested parent is ~400 chars, and a bulk_create fanning children into many contested cells would
         // otherwise blow the whole response budget BEFORE the created list starts — which then truncates at "0 of N",
-        // the exact HCBR-2026-06-28-01 shape. Cap the block, and say how many were not shown.
-        const int contestedShown = 10;
+        // the exact HCBR-2026-06-28-01 shape. Cap the block, and say how many were not shown. The bound lives on
+        // Wire (PR #323 review [medium]) because the json twin needs the SAME one and a local literal here is how the
+        // two drifted apart in the first place — the json side shipped this block unbounded.
         var contested = o.Created.Where(c => c.ParentContested && c.ParentHost is not null)
                          .Select(c => c.ParentHost!).Distinct(StringComparer.Ordinal).ToList();
-        foreach (var host in contested.Take(contestedShown))
+        foreach (var host in contested.Take(Wire.ContestedHostsShown))
             sb.Append("  ! ").Append(host).Append('\n');
-        if (contested.Count > contestedShown)
-            sb.Append("  ! … and ").Append(contested.Count - contestedShown)
+        if (contested.Count > Wire.ContestedHostsShown)
+            sb.Append("  ! … and ").Append(contested.Count - Wire.ContestedHostsShown)
               .Append(" further contested parent(s) — each is named on its own record's `parent:` line below.\n");
         int listed = 0;
         for (int ci = 0; ci < o.Created.Count; ci++)
