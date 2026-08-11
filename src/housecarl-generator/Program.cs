@@ -7,6 +7,8 @@ using HousecarlGenerator;
 // type at full depth. Pure reflection over types — no plugin file required.
 //
 // Usage:  dotnet run --project src/housecarl-generator [outputDir]   (default: ./generated)
+//         An unrecognised FIRST argument is refused, not read as [outputDir] — so an output directory must be
+//         rooted, carry a separator, or already exist. Anything else is a mode name, and an unknown one exits 2.
 
 // CI optimization Phase 2B: run EVERY CI probe in ONE process (the big Mutagen assembly loads + JITs once;
 // the schema corpus reflects once via CorpusGenerator's memoize). Replaces the per-probe ci.yml steps with one

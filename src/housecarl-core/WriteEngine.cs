@@ -2086,7 +2086,9 @@ public static class WriteEngine
     /// per struct — the same by-construction rule the rest of the write surface follows.</para></summary>
     static string? EmptyComposeRefusal(StructSpec spec, Type type, object instance)
     {
-        if (spec.CtorArgs is not null || spec.Fields is { Count: > 0 } || spec.Sets is { Count: > 0 }) return null;
+        // `Count: > 0` on ctor_args too (review [nit]): an EMPTY array is "the 0-arg ctor", not a supplied
+        // discriminator, so reading it as one let the empty compose through the check it should meet.
+        if (spec.CtorArgs is { Length: > 0 } || spec.Fields is { Count: > 0 } || spec.Sets is { Count: > 0 }) return null;
         var settable = type.GetProperties().Where(p => p is { CanRead: true, CanWrite: true }).ToList();
         if (settable.Count == 0) return null;                      // nothing to advise; not this check's case
         foreach (var p in settable)
@@ -2099,7 +2101,10 @@ public static class WriteEngine
                "serializable content: it would be added in memory and written as ZERO bytes, leaving the list " +
                "unchanged on disk while the call reported success (#308). Name at least one field — e.g. " +
                $"compose={{\"type\":\"{spec.Type}\",\"fields\":{{\"{settable[0].Name}\":\"<value>\"}}}}. Settable " +
-               $"fields on {spec.Type}: {string.Join(", ", settable.Select(p => p.Name))}.";
+               $"fields on {spec.Type}: {string.Join(", ", settable.Select(p => p.Name))}. " +
+               "(This also refuses the two-step shape — add an empty element, then set its fields in a LATER op of " +
+               "the same call — which did work: the check runs as the element is built and cannot see the ops after " +
+               "it. Compose the element WITH its fields instead; one op, and it cannot half-land.)";
     }
 
     /// <summary>Resolve a struct catalog name to its concrete settable type. Most modeled structs live in

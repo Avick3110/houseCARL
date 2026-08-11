@@ -1564,11 +1564,16 @@ static class JsonWire
                 // disagree about what the edited leaf now holds — a success response that must not be read as landed.
                 WriteNullable(w, "landed_on_disk", op.LandedOnDisk);
                 WriteNullable(w, "divergence", op.Divergence);
-                // THREE-state, not two (review [low]): the file-verify runs on the in-place lane, so a patch-lane or
-                // dry-run op has not been checked at all — emitting `false` there would read as "checked and failed"
-                // and mark every ordinary patch write unverified. null = not attempted.
-                if (op.LandedOnDisk is null && op.Divergence is null) w.WriteNull("landed_verified_on_disk");
-                else w.WriteBoolean("landed_verified_on_disk", op.LandedOnDisk is not null && op.Divergence is null);
+                // The STATE of the file-check, as a word rather than a bool that cannot say why (review [low], twice):
+                // "verified" the file agreed · "diverged" it did not (see divergence) · "superseded" a later op in
+                // this call wrote the same field, so the file cannot answer for this one · "no_answer" the re-opened
+                // file did not yield this op's leaf · "not_checked" the lane runs no file-verify (patch, dry run).
+                // The text render's own suffixes are the D2 twin of these.
+                w.WriteString("landed_verification",
+                    op.Divergence is not null ? "diverged"
+                    : op.SupersededInCall ? "superseded"
+                    : op.LandedOnDisk is not null ? "verified"
+                    : lane == "in_place" ? "no_answer" : "not_checked");
                 w.WriteEndObject();
                 renderedOps++;
             }
