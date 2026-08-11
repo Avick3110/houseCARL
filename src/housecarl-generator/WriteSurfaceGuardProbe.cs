@@ -176,7 +176,16 @@ public static class WriteSurfaceGuardProbe
             var rw = (IWeapon)WriteEngine.GenericGetOrAddAsOverride(r, subject);
             rw.Name = "Winner Sword";
             rw.BasicStats = new WeaponBasicStats { Damage = 99 };
-            ((IDialogTopic)WriteEngine.GenericGetOrAddAsOverride(r, topic)).Name = "Winner Topic";   // #300
+            // #300 — the winner's version both CHANGES a field and LINKS to a record the replacer owns. The link is
+            // what makes the master-growth check real: a copied body drags its referents' plugins into the header, so
+            // hosting from the winner would make the replacer a master of a patch that only added a child. Without it
+            // the masters assertion passes either way (a DIAL's own FormKey belongs to the master) — which is exactly
+            // how the reported CELL case cost a master: the winner's lighting fields linked into its own plugin.
+            var winnerQuest = r.Quests.AddNew();
+            winnerQuest.EditorID = "W2WinnerQuest";
+            var topicOverride = (IDialogTopic)WriteEngine.GenericGetOrAddAsOverride(r, topic);
+            topicOverride.Name = "Winner Topic";
+            topicOverride.Quest.SetTo(winnerQuest.FormKey);
             r.BeginWrite.ToPath(replPath).WithLoadOrder(new ISkyrimModGetter[] { m }).Write();
 
             // --- W3 PR 2b: the OFF-ORDER source. A DISABLED mod folder (modlist '-W2Off'), absent from loadorder.txt
