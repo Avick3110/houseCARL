@@ -1089,7 +1089,14 @@ public static class WritePatchBuilder
             // A pass that THREW is not "this lane ran no file check" (review [low]) — the verify ran and produced no
             // answer, which is the state that says so. Under-reporting a failed verification as an absent one is the
             // quieter half of the same wrong-answer class.
-            catch { reported = ops.Select(o => o with { VerifyAttempted = true }).ToList(); }
+            // Only the ops the pass would have ASKED about (review [nit]): the SNAM-sync ops appended past the
+            // resolved edits were never candidates, and marking them attempted made them claim the file was re-opened
+            // and could not answer for them — the state their own doc calls a claim about a read that did not happen.
+            catch
+            {
+                int asked = resolved.Count;
+                reported = ops.Select((o, k) => k < asked ? o with { VerifyAttempted = true } : o).ToList();
+            }
         }
         catch (Exception ex)
             { return PatchOutcome.Fail($"'{fileName}' was edited in place but could not be re-opened to verify: {ex.Message}"); }
@@ -3370,7 +3377,7 @@ public static class WritePatchBuilder
     /// through it would entangle this with its careful per-record error accounting — and because the walk is lazy
     /// header parsing over a file the call has just fully re-serialized, which dominates it. Worth merging if a
     /// large in-place target ever measures badly; not worth entangling on argument alone.</para></summary>
-    static IReadOnlyList<OpResult> VerifyLandedAgainstFile(
+    internal static IReadOnlyList<OpResult> VerifyLandedAgainstFile(   // internal: wire-pinned by apply-guard arm 8
         ISkyrimModGetter back, IReadOnlyList<(FormKey Target, WriteRequest Req)> perOp, IReadOnlyList<OpResult> ops)
     {
         if (ops.Count == 0) return ops;
