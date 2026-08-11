@@ -2089,10 +2089,14 @@ public static class WriteEngine
         // `Count: > 0` on ctor_args too (review [nit]): an EMPTY array is "the 0-arg ctor", not a supplied
         // discriminator, so reading it as one let the empty compose through the check it should meet.
         if (spec.CtorArgs is { Length: > 0 } || spec.Fields is { Count: > 0 } || spec.Sets is { Count: > 0 }) return null;
-        // Instance properties ONLY (review [nit]): the default flags include public STATICS, and one of those with a
-        // value would suppress the refusal entirely while being listed as something a compose could set.
+        // Instance, non-indexed properties ONLY, in a STABLE order (reviews): the default flags include public
+        // STATICS — one with a value would suppress the refusal entirely while being listed as something a compose
+        // could set — an INDEXER throws TargetParameterCountException in GetValue below, whose catch would bail the
+        // whole check out, and GetProperties' order is unspecified by the CLR, so the worked example could name a
+        // different field between runtimes.
         var settable = type.GetProperties(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance)
-                           .Where(p => p is { CanRead: true, CanWrite: true }).ToList();
+                           .Where(p => p is { CanRead: true, CanWrite: true } && p.GetIndexParameters().Length == 0)
+                           .OrderBy(p => p.Name, StringComparer.Ordinal).ToList();
         if (settable.Count == 0) return null;                      // nothing to advise; not this check's case
         foreach (var p in settable)
         {
@@ -2100,14 +2104,16 @@ public static class WriteEngine
             try { v = p.GetValue(instance); } catch { return null; }   // unreadable ⇒ can't claim emptiness (Q3)
             if (v is not null) return null;                        // it carries something — let the write proceed
         }
+        // Worded for ANY compose, not just a list Add (review [low]): BuildStruct also serves a polymorphic-arm Set
+        // and SetAtIndex, and a caller who hit this on `Set Archetype compose={…}` was given advice about a list.
         return $"compose type='{spec.Type}' was given no fields, and a {spec.Type} built from nothing has no " +
-               "serializable content: it would be added in memory and written as ZERO bytes, leaving the list " +
+               "serializable content: it would exist in memory and be written as ZERO bytes, so the field would be " +
                "unchanged on disk while the call reported success (#308). Name at least one field — e.g. " +
                $"compose={{\"type\":\"{spec.Type}\",\"fields\":{{\"{settable[0].Name}\":\"<value>\"}}}}. Settable " +
                $"fields on {spec.Type}: {string.Join(", ", settable.Select(p => p.Name))}. " +
-               "(This also refuses the two-step shape — add an empty element, then set its fields in a LATER op of " +
-               "the same call — which did work: the check runs as the element is built and cannot see the ops after " +
-               "it. Compose the element WITH its fields instead; one op, and it cannot half-land.)";
+               "(This also refuses the two-step shape — compose an empty value, then set its fields in a LATER op of " +
+               "the same call — which did work: the check runs as the value is built and cannot see the ops after " +
+               "it. Compose it WITH its fields instead; one op, and it cannot half-land.)";
     }
 
     /// <summary>Resolve a struct catalog name to its concrete settable type. Most modeled structs live in

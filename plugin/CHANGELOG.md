@@ -44,8 +44,8 @@ time rather than discovered in game.
 matches a filename — so `from_source=C:\…\SomeMod\Bar.esp` pointing at a plugin your order is actively serving read
 the file directly and described the source as not in your load order. Usually that was only a wrong label; under a
 profile switch, where the same filename is served by a different mod folder, it was a wrong *body*. `housecarl_forward` has had the rule since its own fix — a path that names the exact file your
-order loads is that plugin — and `CopyFrom` now shares it. A path to a same-named *backup* still reads off-order,
-as it should: the test is the file, not the name.
+order loads is that plugin — and `CopyFrom` now shares it. A path to a same-named *backup* still reads
+off-order, as it should: the test is the file, not the name.
 
 **`housecarl_write_seq` can finally put the `.seq` in the mod's own folder — `output_dir=` (#312).** Editing a
 plugin **in place** left the two halves in different mods: the `.esp` in the mod's own folder, the `.seq` in a
