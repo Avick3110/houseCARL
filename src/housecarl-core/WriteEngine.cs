@@ -661,8 +661,9 @@ public static class WriteEngine
     public readonly record struct ChildGroupCarry(
         IReadOnlyList<(PropertyInfo Prop, object? Value)> Held, int Count, IReadOnlyList<string> Names)
     {
-        /// <summary>Nothing was held — the record owns no children (the overwhelmingly common case: every flat record
-        /// type but Cell / DialogTopic / Worldspace), so the restore is a no-op and the lanes skip it.</summary>
+        /// <summary>Nothing was held — the record owns no children (the overwhelmingly common case: every record type
+        /// but Cell / DialogTopic / Worldspace), so there is nothing to re-attach. NOT a licence to skip the arrival
+        /// tripwire in <see cref="RestoreChildGroup"/>: see the comment there.</summary>
         public bool IsEmpty => Count == 0;
     }
 
@@ -674,27 +675,56 @@ public static class WriteEngine
         var held = new List<(PropertyInfo, object?)>();
         foreach (var p in ChildBearingProperties(record.GetType()))
             held.Add((p, p.GetValue(record)));
-        var kids = ChildrenOf(record);
-        return new ChildGroupCarry(held, kids.Count, kids.Take(10).ToList());
+        return new ChildGroupCarry(held, ChildCountOf(record), ChildNamesOf(record, 10));
+    }
+
+    /// <summary>The capture, with a throw turned into a refusal naming the RIGHT operation (round-1 review [low]). The
+    /// lanes run this inside the try whose catch reports "the override-copy threw" — true of the copy, false of a
+    /// fault reading the destination's own existing record, which is what would send a caller debugging the wrong
+    /// file. Returns null on success, or the refusal.</summary>
+    public static string? TryCaptureChildGroup(IMajorRecord record, string untouchedClause, out ChildGroupCarry carry)
+    {
+        carry = default;
+        try { carry = CaptureChildGroup(record); return null; }
+        catch (Exception ex)
+        {
+            return $"cannot forward {record.FormKey}: reading the child records under the version the destination " +
+                   $"already carries threw ({ex.GetType().Name}: {ex.Message}) — surfaced, not swallowed (Q3). " +
+                   untouchedClause;
+        }
     }
 
     /// <summary>Re-attach a <see cref="CaptureChildGroup"/> carry onto the freshly copied record, AFTER the copy (#324).
     /// Returns null on success, or a refusal naming the cause — the caller fails the whole call with nothing
-    /// serialized, never a partial write.</summary>
-    public static string? RestoreChildGroup(IMajorRecord fresh, ChildGroupCarry carry)
+    /// serialized, never a partial write. <paramref name="untouchedClause"/> is the lane's own statement of what was
+    /// left alone, SUBSTITUTED into each message rather than appended by the caller (the <c>SerializeFailure</c>
+    /// precedent) so the reassurance lands before "please report it" instead of after it.</summary>
+    public static string? RestoreChildGroup(IMajorRecord fresh, ChildGroupCarry carry, string untouchedClause)
     {
-        if (carry.IsEmpty) return null;
+        // Gate on what the record TYPE can own, not on what the destination happened to hold. An empty carry is NOT a
+        // reason to skip the arrival tripwire below (round-1 review [low]): that case is the one where an arriving
+        // child set would be an INJECTION of the source's own children — a patch topic with no INFOs of its own
+        // silently acquiring the source mod's five — rather than a discard of the destination's. The memoized
+        // reflection lookup is what keeps this free for the 130 record types that can own nothing at all.
+        if (ChildBearingProperties(fresh.GetType()).Count == 0) return null;
 
-        // The copy is expected to arrive EMPTY (see the type doc). If it ever does not, the two child sets would have
-        // to be reconciled and there is no defensible way to guess which wins — so surface it instead of silently
-        // dropping one side. A Mutagen bump that starts carrying children in trips this in CI, loudly, by design.
-        var arrived = ChildrenOf(fresh);
-        if (arrived.Count > 0)
-            return $"cannot preserve the {carry.Count} child record(s) under {fresh.FormKey}: the forwarded copy " +
-                   $"arrived carrying {arrived.Count} child record(s) of its own ({string.Join(", ", arrived.Take(5))}" +
-                   $"{(arrived.Count > 5 ? ", …" : "")}), so re-attaching would discard one of the two sets. houseCARL " +
-                   "refuses rather than guess which (Q3) — this is an engine-level change in Mutagen's override-copy " +
-                   "semantics, not something the call did wrong; please report it.";
+        // The copy is expected to arrive EMPTY (see the type doc). If it ever does not, surface it instead of
+        // silently resolving it either way. A Mutagen bump that starts carrying children in trips this loudly.
+        var arrived = ChildCountOf(fresh);
+        if (arrived > 0)
+        {
+            var sample = string.Join(", ", ChildNamesOf(fresh, 5)) + (arrived > 5 ? ", …" : "");
+            return $"cannot forward {fresh.FormKey}: the forwarded copy arrived carrying {arrived} child record(s) of "
+                 + $"its own ({sample}), " + (carry.IsEmpty
+                     ? "which a forward does not mean — it asserts the source's FIELDS and leaves the source's own "
+                       + "children in the source's plugin, so houseCARL refuses rather than silently import them (Q3). "
+                     : $"while the destination held {carry.Count} of its own; re-attaching would discard one of the two "
+                       + "sets and there is no defensible way to guess which, so houseCARL refuses (Q3). ")
+                 + untouchedClause + " This is an engine-level change in Mutagen's override-copy semantics, not "
+                 + "something the call did wrong; please report it.";
+        }
+
+        if (carry.IsEmpty) return null;
 
         // A throw here is caught rather than left to the caller's catch: that one reports "the override-copy threw",
         // which would name the wrong operation for a fault in the re-attach. Same loudness, accurate sentence.
@@ -706,27 +736,34 @@ public static class WriteEngine
         catch (Exception ex)
         {
             return $"cannot preserve the {carry.Count} child record(s) under {fresh.FormKey}: re-attaching them to " +
-                   $"the forwarded copy threw ({ex.GetType().Name}: {ex.Message}) — surfaced, not swallowed (Q3).";
+                   $"the forwarded copy threw ({ex.GetType().Name}: {ex.Message}) — surfaced, not swallowed (Q3). " +
+                   untouchedClause;
         }
 
         // By-construction verification, off Mutagen's OWN containment enumeration rather than the reflected property
         // set that did the re-attach: if a containment path exists that ChildBearingProperties cannot see, the counts
         // disagree and the call refuses. A record type Mutagen grows a new child group on fails loud here instead of
         // quietly losing it — the same posture the coverage cornerstone takes on record types.
-        var after = ChildrenOf(fresh);
-        if (after.Count != carry.Count)
+        var after = ChildCountOf(fresh);
+        if (after != carry.Count)
             return $"cannot forward {fresh.FormKey}: it carries {carry.Count} child record(s) " +
-                   $"({string.Join(", ", carry.Names)}{(carry.Count > carry.Names.Count ? ", …" : "")}) and only " +
-                   $"{after.Count} survived the replace — houseCARL will not write a plugin it knows is missing " +
-                   "records (Q3). Nothing was serialized; the file is UNTOUCHED. Please report this with the record type.";
+                   $"({string.Join(", ", carry.Names)}{(carry.Count > carry.Names.Count ? ", …" : "")}) and {after} " +
+                   "are on the record after the replace — houseCARL will not write a plugin whose child records it " +
+                   $"cannot account for (Q3). {untouchedClause} Please report this with the record type.";
         return null;
     }
 
-    /// <summary>Every major record contained UNDER <paramref name="record"/>, by Mutagen's own containment walk — the
-    /// independent yardstick <see cref="RestoreChildGroup"/> checks the reflected re-attach against.</summary>
-    static List<string> ChildrenOf(IMajorRecordGetter record) =>
+    /// <summary>How many major records are contained UNDER <paramref name="record"/>, by Mutagen's own containment
+    /// walk — the independent yardstick <see cref="RestoreChildGroup"/> checks the reflected re-attach against. Count
+    /// only: the names cost a string per descendant, which on a worldspace is six figures, so they are materialized
+    /// by <see cref="ChildNamesOf"/> on the refusal paths and on capture (ten, for the message) alone.</summary>
+    static int ChildCountOf(IMajorRecordGetter record) =>
+        record is IMajorRecordGetterEnumerable e ? e.EnumerateMajorRecords().Count() : 0;
+
+    /// <summary>Up to <paramref name="max"/> child records of <paramref name="record"/>, named for a message.</summary>
+    static List<string> ChildNamesOf(IMajorRecordGetter record, int max) =>
         record is IMajorRecordGetterEnumerable e
-            ? e.EnumerateMajorRecords().Select(r => r.EditorID ?? r.FormKey.ToString()).ToList()
+            ? e.EnumerateMajorRecords().Take(max).Select(r => r.EditorID ?? r.FormKey.ToString()).ToList()
             : new List<string>();
 
     /// <summary>The settable properties of <paramref name="t"/> that can REACH an owned major record, MEMOIZED per type
@@ -738,8 +775,10 @@ public static class WriteEngine
     /// one-level "is this property a major record" test sees <c>Cell</c>/<c>DialogTopic</c> and misses every exterior
     /// cell in the game. <c>IFormLink</c>s are excluded — a link REFERENCES a record, it does not own one, and walking
     /// them would sweep in most of the schema. Against Mutagen 0.53.1 this answers: Cell (Landscape, NavigationMeshes,
-    /// Persistent, Temporary), DialogTopic (Responses), Worldspace (TopCell, SubCells) — and nothing else, which the
-    /// guard pins so a Mutagen bump that adds a container shows up as a failing arm rather than as lost records.</summary>
+    /// Persistent, Temporary), DialogTopic (Responses), Worldspace (TopCell, SubCells) — and nothing else. The guard
+    /// pins that over EVERY concrete record type Mutagen models, not a sample of them (round-1 review [low]: a pin on
+    /// six names leaves the other 127 free to grow a container silently), so a Mutagen bump that adds one shows up as
+    /// a failing arm rather than as a refusal in a caller's face.</summary>
     internal static IReadOnlyList<PropertyInfo> ChildBearingProperties(Type t) => _childProps.GetOrAdd(t, static ty =>
         ty.GetProperties(BindingFlags.Public | BindingFlags.Instance)
           .Where(p => p.CanRead && p.CanWrite && p.GetIndexParameters().Length == 0
@@ -749,7 +788,11 @@ public static class WriteEngine
 
     /// <summary>Can a value of <paramref name="t"/> hold an owned major record? See <see cref="ChildBearingProperties"/>
     /// for why this recurses and why links are cut. The depth bound and the visited set close the cycles Mutagen's
-    /// object graph has (a Cell reaches a Cell through a Worldspace).</summary>
+    /// object graph has (a Cell reaches a Cell through a Worldspace). The bound is a CONSTANT with one level of slack,
+    /// not a by-construction limit: the deepest real path is Worldspace.SubCells at 5 (ExtendedList → WorldspaceBlock
+    /// → Items → WorldspaceSubBlock → Items → Cell). A Mutagen bump that nests deeper than 6 degrades fail-closed —
+    /// the property drops out of the set, the count check in <see cref="RestoreChildGroup"/> refuses, and the guard's
+    /// all-types pin goes red first — so the constant is a tripwire, not a correctness assumption.</summary>
     static bool ReachesOwnedRecord(Type t, HashSet<Type> seen, int depth)
     {
         if (depth > 6 || !seen.Add(t)) return false;

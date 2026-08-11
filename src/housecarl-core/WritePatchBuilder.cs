@@ -1721,6 +1721,12 @@ public static class WritePatchBuilder
         return epoch is null ? outcome : outcome with { Epoch = epoch };
     }
 
+    /// <summary>What each forward lane left alone, SUBSTITUTED into a child-group refusal rather than appended after
+    /// it (round-1 review [low]; the <c>SerializeFailure</c> precedent below). Appending doubled the reassurance and
+    /// landed it after "please report it" — the engine builds the whole sentence with the lane's clause in place.</summary>
+    const string InPlaceUntouched = "Nothing was serialized; your original is UNTOUCHED.";
+    const string ExtendUntouched = "Nothing was serialized; the extended patch's on-disk file is UNTOUCHED.";
+
     /// <summary>The body of <see cref="ForwardRecordsInPlace"/> — split for the same single-point epoch stamp as
     /// <see cref="ApplyCore"/> (SPEC §2.1.1).</summary>
     static ForwardOutcome ForwardRecordsInPlaceCore(
@@ -1780,7 +1786,8 @@ public static class WritePatchBuilder
                     // #324, and this is the worse half: the target is the caller's OWN plugin on the lane whose banner
                     // reads "no houseCARL backup or undo", so a child group the drop takes is gone for good. Lift it
                     // off before the Remove and re-attach after the copy.
-                    carriedChildren = WriteEngine.CaptureChildGroup(existing);
+                    if (WriteEngine.TryCaptureChildGroup(existing, InPlaceUntouched, out carriedChildren) is { } captureRefusal)
+                        return ForwardOutcome.Fail(captureRefusal);
                     ((IMajorRecordEnumerable)targetMod).Remove(spec.Target, WriteEngine.RemovalTypeFor(existing), throwIfUnknown: true);
                     if (targetMod.EnumerateMajorRecords().Any(x => x.FormKey == spec.Target))
                         return ForwardOutcome.Fail(
@@ -1790,8 +1797,8 @@ public static class WritePatchBuilder
                     replaced = true;
                 }
                 var fresh = WriteEngine.GenericGetOrAddAsOverride(targetMod, body, SourceCacheFor(session, spec, body, offOrderBody, offOrder));
-                if (WriteEngine.RestoreChildGroup(fresh, carriedChildren) is { } childRefusal)
-                    return ForwardOutcome.Fail($"{childRefusal} (nothing was serialized; your original is UNTOUCHED.)");
+                if (WriteEngine.RestoreChildGroup(fresh, carriedChildren, InPlaceUntouched) is { } childRefusal)
+                    return ForwardOutcome.Fail(childRefusal);
                 forwarded.Add(new ForwardedRecord(
                     spec.Target, RecordNaming.StripOverlay(body.GetType().Name), body.EditorID, spec.FromPlugin, priorWinner, wasWinner,
                     ReplacedExisting: replaced));
@@ -2259,7 +2266,8 @@ public static class WritePatchBuilder
                     // #324: the drop below takes the record's CHILD GROUP with it and the copy carries none back in,
                     // so lift the children off FIRST and re-attach them after — a topic's INFOs, a cell's placed refs.
                     // Before the Remove, because afterwards the record is no longer reachable from the mod.
-                    carriedChildren = WriteEngine.CaptureChildGroup(existing);
+                    if (WriteEngine.TryCaptureChildGroup(existing, ExtendUntouched, out carriedChildren) is { } captureRefusal)
+                        return ForwardOutcome.Fail(captureRefusal);
                     ((IMajorRecordEnumerable)patchMod).Remove(spec.Target, WriteEngine.RemovalTypeFor(existing), throwIfUnknown: true);
                     // The typed Remove can no-op WITHOUT throwing (F3's sibling defect) — verify the slot is genuinely
                     // empty before the copy, else GetOrAdd would silently return the old record again (Q3).
@@ -2271,8 +2279,8 @@ public static class WritePatchBuilder
                     replaced = true;
                 }
                 var fresh = WriteEngine.GenericGetOrAddAsOverride(patchMod, body, SourceCacheFor(session, spec, body, offOrderBody, offOrder));
-                if (WriteEngine.RestoreChildGroup(fresh, carriedChildren) is { } childRefusal)
-                    return ForwardOutcome.Fail($"{childRefusal} (nothing was serialized; the extended patch's on-disk file is untouched.)");
+                if (WriteEngine.RestoreChildGroup(fresh, carriedChildren, ExtendUntouched) is { } childRefusal)
+                    return ForwardOutcome.Fail(childRefusal);
                 forwarded.Add(new ForwardedRecord(
                     spec.Target, RecordNaming.StripOverlay(body.GetType().Name), body.EditorID, spec.FromPlugin, priorWinner, wasWinner,
                     ReplacedExisting: replaced));
@@ -2901,23 +2909,25 @@ public static class WritePatchBuilder
                                     // "Not copied here" and not "not a master of this write": masters are derived at
                                     // serialize, and another spec or a created record's own links can still pull that
                                     // plugin in.
-                                    // THE INLINING LEVER NAMES AN ORDER, AND THE ORDER IS LOAD-BEARING (PR #323
-                                    // review [medium]). The first wording — "forward the winner's version in
-                                    // explicitly" — was measured FALSE: forwarding into the patch that already holds
-                                    // the child DELETES the child, because forward's extend/in-place path drops the
-                                    // whole record before re-copying it and the child group goes with the drop. That
-                                    // is a `forward` defect on both those lanes, filed as #324 and not fixed here.
-                                    // The order asserted safe in WriteSurfaceGuardProbe.NestedParentHostArm — forward
-                                    // first, then create into that patch — is what this now prints. Both halves are
-                                    // said: the safe order, and the destructive one named as destructive, because a
-                                    // caller who only reads "forward the winner in" will reach for the wrong one.
+                                    // THE INLINING LEVER NAMES AN ORDER (PR #323 review [medium]). History, because
+                                    // the wording has been wrong in both directions: "forward the winner's version in
+                                    // explicitly" was measured FALSE while #324 was open — forwarding into a patch
+                                    // that already held the child DELETED the child, since forward's extend/in-place
+                                    // path drops the whole record before re-copying it and the child group went with
+                                    // the drop — so the message was changed to name one safe order and mark the other
+                                    // destructive. #324 is FIXED on this branch (the children are lifted off and
+                                    // re-attached across the replace), which makes that warning false in turn: both
+                                    // orders now land the same shape, measured in ForwardChildGroupArm, which runs
+                                    // exactly the sequence this sentence used to call destructive. The message states
+                                    // what happens and names no issue number — a sentence pinned to an OPEN bug is a
+                                    // sentence that goes stale the day it is fixed, and the guard arm holds it there.
                                     : $" (its DEFINING plugin — the LEAN host, carrying the residual only: '{w.WinnerPlugin}' currently WINS this record "
                                       + $"and its version is deliberately NOT inlined here, so wherever this artifact out-ranks '{w.WinnerPlugin}' the parent "
                                       + $"record resolves to '{readFrom}'s fields. That is the control this lane gives you: sort below '{w.WinnerPlugin}' to "
                                       + $"keep the residual shape, sort above it to assert this host, or inline '{w.WinnerPlugin}'s content deliberately: "
-                                      + $"forward its version into a patch FIRST, then create into THAT patch — the child hosts in the forwarded body. Not "
-                                      + "the other order: forwarding into a patch that ALREADY holds the child deletes the child (a known housecarl_forward "
-                                      + "bug, #324). Whichever way you sort, the new child is carried.)");
+                                      + $"forward '{w.WinnerPlugin}'s version of the parent into a patch and create into THAT patch — the child hosts in the "
+                                      + "forwarded body. Either order works: forwarding onto a parent a patch already holds keeps the children under it. "
+                                      + "Whichever way you sort, the new child is carried.)");
                     }
                     else
                     {

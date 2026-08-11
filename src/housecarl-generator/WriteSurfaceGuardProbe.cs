@@ -141,6 +141,8 @@ public static class WriteSurfaceGuardProbe
         /// <summary>#300: a nestable parent DEFINED by the master and WON by the replacer, at different content.</summary>
         public required string TopicFid { get; init; }
         public required FormKey TopicKey { get; init; }
+        public required string CellFid { get; init; }
+        public required FormKey CellKey { get; init; }
         /// <summary>One filename provided by TWO disabled mod folders — the ambiguity refusal's fixture.</summary>
         public required string AmbName { get; init; }
         /// <summary>A DISABLED plugin whose forwarded body links into ANOTHER disabled plugin — the missing-master
@@ -189,7 +191,22 @@ public static class WriteSurfaceGuardProbe
             // …carrying a CHILD of its own, so the arm can answer what the host override does to the parent's child
             // list — not just its fields. The winner adds a second child below.
             topic.Responses.Add(new DialogResponses(m.GetNextFormKey(), SkyrimRelease.SkyrimSE) { EditorID = "W2MasterLine" });
+
+            // #324's CELL case, built by hand — which is exactly why the comment above chose a topic for #300. A cell
+            // is NOT in a flat group, so a forward onto one resolves through a ModContext and rebuilds the
+            // block/subblock chain: structurally different code from the topic's path, and the case the changelog
+            // names first (a placed reference under a forwarded cell). Same three-way shape as the topic: the master
+            // defines it with a ref of its own, the replacer wins it with a different name and a second ref.
+            var cell = new Cell(m.GetNextFormKey(), SkyrimRelease.SkyrimSE) { EditorID = "W2Cell", Name = "Master Cell" };
+            cell.Persistent.Add(new PlacedObject(m.GetNextFormKey(), SkyrimRelease.SkyrimSE) { EditorID = "W2MasterRef" });
+            var cSub = new CellSubBlock { BlockNumber = 0, GroupType = GroupTypeEnum.InteriorCellSubBlock };
+            cSub.Cells.Add(cell);
+            var cBlock = new CellBlock { BlockNumber = 0, GroupType = GroupTypeEnum.InteriorCellBlock };
+            cBlock.SubBlocks.Add(cSub);
+            m.Cells.Records.Add(cBlock);
+
             m.BeginWrite.ToPath(masterPath).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
+            var mCache = m.ToImmutableLinkCache();   // the nested cell override below reconstructs its parent chain from it
 
             var r = new SkyrimMod(rKey, SkyrimRelease.SkyrimSE);
             var rw = (IWeapon)WriteEngine.GenericGetOrAddAsOverride(r, subject);
@@ -206,6 +223,9 @@ public static class WriteSurfaceGuardProbe
             topicOverride.Name = "Winner Topic";
             topicOverride.Quest.SetTo(winnerQuest.FormKey);
             topicOverride.Responses.Add(new DialogResponses(r.GetNextFormKey(), SkyrimRelease.SkyrimSE) { EditorID = "W2WinnerLine" });
+            var cellOverride = (ICell)WriteEngine.GenericGetOrAddAsOverride(r, cell, mCache);
+            cellOverride.Name = "Winner Cell";
+            cellOverride.Persistent.Add(new PlacedObject(r.GetNextFormKey(), SkyrimRelease.SkyrimSE) { EditorID = "W2WinnerRef" });
             r.BeginWrite.ToPath(replPath).WithLoadOrder(new ISkyrimModGetter[] { m }).Write();
 
             // --- W3 PR 2b: the OFF-ORDER source. A DISABLED mod folder (modlist '-W2Off'), absent from loadorder.txt
@@ -285,6 +305,8 @@ public static class WriteSurfaceGuardProbe
                 MasterOnlyFid = $"{masterOnly.FormKey.ID:X6}:{mKey.FileName}",
                 TopicFid = $"{topic.FormKey.ID:X6}:{mKey.FileName}",
                 TopicKey = topic.FormKey,
+                CellFid = $"{cell.FormKey.ID:X6}:{mKey.FileName}",
+                CellKey = cell.FormKey,
                 AmbName = aKey.FileName.String,
                 ChainName = cKey.FileName.String,
             };
@@ -1008,32 +1030,29 @@ public static class WriteSurfaceGuardProbe
             && made.Contains("currently WINS this record", StringComparison.Ordinal)
             && made.Contains("out-ranks", StringComparison.Ordinal)
             && made.Contains("inlined", StringComparison.Ordinal), made);
-        // …and the ORDER, which is the load-bearing half of that lever (#324). The first wording said only "forward
-        // the winner's version in explicitly", which is the measured-DESTRUCTIVE operation; a future edit that
-        // trims back to it would ship data-loss advice again and every other assertion here would stay green. The
-        // safe order is proven below, but the SENTENCE is what a caller acts on, so the sentence gets its own pin.
-        Check("…and the inlining lever names the SAFE order and marks the other one destructive",
-            made.Contains("forward its version into a patch FIRST", StringComparison.Ordinal)
-            && made.Contains("deletes the child", StringComparison.Ordinal)
-            && made.Contains("#324", StringComparison.Ordinal), made);
+        // …and the ORDER, which is the load-bearing half of that lever. This pin has now been wrong in both
+        // directions and that is the lesson it carries: the first wording ("forward the winner's version in
+        // explicitly") was measured DESTRUCTIVE while #324 was open, so the sentence was changed to name one safe
+        // order and warn off the other — and this arm pinned the warning, including the issue number. #324 is fixed
+        // on this branch, which made the pinned sentence FALSE and this arm the thing holding it in place: correcting
+        // the message failed CI. So the pin is on what the caller must be told (which parent gets inlined, and that
+        // the children survive either way), never on a defect being open. The behaviour is proven in
+        // ForwardChildGroupArm; this is the SENTENCE arm, because a sentence is what the caller acts on.
+        Check("…and the inlining lever names the order-independent remedy, with no stale open-bug warning",
+            made.Contains("forward", StringComparison.Ordinal)
+            && made.Contains("Either order works", StringComparison.Ordinal)
+            && !made.Contains("deletes the child", StringComparison.Ordinal)
+            && !made.Contains("#324", StringComparison.Ordinal), made);
 
         // THE REMEDY THE MESSAGE PRINTS, MEASURED RATHER THAN REASONED — because it is user-facing text telling a
-        // caller to run a write, and the FIRST wording of it was measured FALSE (PR #323 review [medium]).
+        // caller to run a write, and its first wording was measured FALSE (PR #323 review [medium]).
         //
-        // What was measured false: create the child, THEN forward the winner into the SAME patch. That DESTROYS the
-        // child. `forward`'s extend path drops the whole record before re-copying it (drop-then-copy, so a collision
-        // can't silently skip the copy — HCBR-2026-07-08-01 F1) and the child group goes with the drop, while
-        // `GenericGetOrAddAsOverride` carries none back in (the arm above). The probe left the patch holding one
-        // record, the topic, with the forward reporting success. That is a `forward` defect on BOTH its into= and
-        // in_place= lanes — the in_place half deletes children out of the caller's own plugin, on the lane with no
-        // backup — and it is neither #300's nor this branch's: those lines are untouched here. Filed as #324, which
-        // carries that probe body verbatim as its RED. Deliberately NOT asserted here: #323 must not carry another
-        // lane's red, and re-pointing this arm at the destruction would assert data loss is correct.
-        //
-        // What IS asserted is the ordering the contested message now prints: forward the winner FIRST, then create
-        // the child into that patch. The create then resolves its parent from the record the patch ALREADY carries,
-        // so there is no drop for the child to survive. Both halves asserted together — the winner's FIELDS inlined
-        // and the child present — because either alone would pass on a shape the message must not recommend.
+        // This arm measures the forward-first order: forward the winner into a patch, then create the child into that
+        // patch, so the create resolves its parent from the record the patch already carries. Both halves asserted
+        // together — the winner's FIELDS inlined and the child present — because either alone would pass on a shape
+        // the message must not recommend. The OTHER order (create first, then forward onto the parent the patch now
+        // holds) was the measured-destructive one that became #324; it is fixed on this branch and measured in
+        // ForwardChildGroupArm, which is why the message no longer warns anyone off it.
         var pre = ForwardTools.Forward(fx.Svc, formids: new[] { fx.TopicFid }, source: fx.ReplacerName, patch: "W2Inline");
         var prePath = ArtifactPathFrom(fx, pre);
         Check("the SAFE ordering, step 1: the winner's version of the parent forwards into a patch of its own",
@@ -1096,7 +1115,8 @@ public static class WriteSurfaceGuardProbe
         // discards if it ever changes. Both clauses together, since the absence alone would pass vacuously on the
         // pre-fix code, where the whole group is empty.
         Check("…and the group holds exactly the destination's child — the SOURCE's own line did not come with it",
-            after.Count == 1 && !after.Contains("W2WinnerLine"), string.Join(", ", after));
+            after.Count == 1 && !after.Contains("W2WinnerLine") && !after.Contains("(unreadable)"),
+            string.Join(", ", after));
 
         // --- THE WORSE HALF (in_place=): the destination is the caller's OWN plugin. The replacer owns the topic and
         //     a line under it; forwarding the MASTER's version in place must land the master's fields and leave the
@@ -1116,9 +1136,53 @@ public static class WriteSurfaceGuardProbe
         Check("…and the caller's OWN child survives it — the no-backup lane does not lose records",
             afterInPlace.Contains("W2WinnerLine"),
             $"{inPlace}  [children=[{string.Join(", ", afterInPlace)}]]");
+        // …and the same not-the-source's-children clause the into= half asserts (round-1 review [low]): presence
+        // alone would stay green if the copy started dragging the MASTER's line in, leaving the replacer holding two
+        // INFOs under one topic — a duplicated line, not a lost one, and just as wrong.
+        Check("…and ONLY the caller's own child: the master's line did not ride in on the copy",
+            afterInPlace.Count == 1 && !afterInPlace.Contains("W2MasterLine"), string.Join(", ", afterInPlace));
         Check("…and the forward still DID its job: the master's fields replaced the winner's",
             TopicNameIn(replPath, fx.TopicKey) == "Master Topic",
             $"{inPlace}  [topic name={TopicNameIn(replPath, fx.TopicKey) ?? "unreadable"}]");
+
+        // --- THE CELL, which is a DIFFERENT copy path and the case the changelog names first. A topic lives in a flat
+        //     group; a cell does not, so the override resolves through a ModContext that rebuilds the block/subblock
+        //     chain. Every assertion above would stay green with the nested path broken (round-1 review [medium]),
+        //     and "placed references under a forwarded cell" is the loss a user is most likely to hit in the wild.
+        var madeRef = CreateTools.Create(fx.Svc, patch: "W324Cell",
+            records: Json($$"""[{"record_type":"PlacedObject","editorid":"W324Ref","parent":"{{fx.CellFid}}","collection":"Persistent"}]"""));
+        var cellPath = ArtifactPathFrom(fx, madeRef);
+        Check("#324 cell fixture: a placed ref creates into a patch, hosted on the cell's definer", cellPath is not null, madeRef);
+        if (cellPath is null) return;
+
+        var cellFwd = ForwardTools.Forward(fx.Svc, formids: new[] { fx.CellFid }, source: fx.ReplacerName,
+            into: Path.GetFileName(cellPath));
+        Check("forward into= a patch that already carries the CELL is accepted",
+            cellFwd.StartsWith("extended ", StringComparison.Ordinal), cellFwd);
+
+        var refsAfter = CellRefsIn(cellPath, fx.CellKey);
+        Check("…and the placed ref SURVIVES the replace on the nested-group path too",
+            refsAfter.Contains("W324Ref"),
+            $"{cellFwd}  [refs=[{string.Join(", ", refsAfter)}] · whole file=[{string.Join(", ", EditorIdsIn(cellPath))}]]");
+        Check("…and the forward still DID its job: the source's cell fields are inlined in the host",
+            CellNameIn(cellPath, fx.CellKey) == "Winner Cell",
+            $"{cellFwd}  [cell name={CellNameIn(cellPath, fx.CellKey) ?? "unreadable"}]");
+        Check("…and the group holds exactly the destination's ref — the SOURCE's own refs did not come with it",
+            refsAfter.Count == 1 && !refsAfter.Contains("W2WinnerRef") && !refsAfter.Contains("(unreadable)"),
+            string.Join(", ", refsAfter));
+
+        // …and the cell on the in-place lane, where the placed refs being deleted are the caller's own.
+        var cellInPlace = ForwardTools.Forward(fx.Svc, formids: new[] { fx.CellFid }, source: fx.MasterName,
+            in_place: fx.ReplacerName, acknowledge: true);
+        Check("forward in_place= onto a CELL the file already carries is accepted",
+            !cellInPlace.StartsWith("error:", StringComparison.Ordinal), cellInPlace);
+        var replRefs = CellRefsIn(replPath, fx.CellKey);
+        Check("…and the caller's OWN placed ref survives it, and only it",
+            replRefs.Count == 1 && replRefs.Contains("W2WinnerRef"),
+            $"{cellInPlace}  [refs=[{string.Join(", ", replRefs)}]]");
+        Check("…and the master's cell fields replaced the winner's",
+            CellNameIn(replPath, fx.CellKey) == "Master Cell",
+            $"{cellInPlace}  [cell name={CellNameIn(replPath, fx.CellKey) ?? "unreadable"}]");
 
         // --- THE REFLECTED CHILD SET, PINNED. RestoreChildGroup re-attaches by walking properties that can REACH an
         //     owned record; its by-construction count check catches a path the walk cannot see, but only at call time,
@@ -1131,13 +1195,108 @@ public static class WriteSurfaceGuardProbe
             && Names(typeof(Worldspace)) == "SubCells,TopCell",
             $"Cell=[{Names(typeof(Cell))}] DialogTopic=[{Names(typeof(DialogTopic))}] Worldspace=[{Names(typeof(Worldspace))}]");
 
-        // …and the negative, which is what keeps the walk from being a performance and correctness hazard: a FormLink
-        // is a reference, not a child, so the ordinary record types own nothing and the whole mechanism is inert for
-        // them. Quest is the sharp case — it links topics and owns aliases, and reaching either would make every
-        // quest forward pay for a child walk that has nothing to preserve.
-        Check("…and nothing else owns children: a linked record is not a child (Weapon · Npc · Quest all empty)",
-            Names(typeof(Weapon)) == "" && Names(typeof(Npc)) == "" && Names(typeof(Quest)) == "",
-            $"Weapon=[{Names(typeof(Weapon))}] Npc=[{Names(typeof(Npc))}] Quest=[{Names(typeof(Quest))}]");
+        // …and the negative over EVERY concrete record type Mutagen models, not a sample of three (round-1 review
+        // [low]: naming Weapon/Npc/Quest left the other 127 free to grow a container silently, and the first caller
+        // to forward one would eat the count-check refusal with CI green). This is the coverage cornerstone's own
+        // posture applied to the walk — the set is closed by construction, so the pin is too. Quest is still the
+        // sharp case the negative exists for: it LINKS topics and owns aliases, and reaching either would make every
+        // quest forward pay for a walk with nothing to preserve. Cost of the whole sweep: tens of milliseconds once.
+        var owners = ConcreteRecordTypes()
+            .Where(t => WriteEngine.ChildBearingProperties(t).Count > 0)
+            .Select(t => t.Name).OrderBy(n => n, StringComparer.Ordinal).ToList();
+        Check("…and NOTHING else does, across every concrete record type Mutagen models (a link is not a child)",
+            string.Join(",", owners) == "Cell,DialogTopic,Worldspace",
+            $"{ConcreteRecordTypes().Count} concrete record types · owners=[{string.Join(", ", owners)}]");
+
+        // --- THE REFUSALS, RENDERED. All three arms of RestoreChildGroup are user-facing sentences that no arm had
+        //     ever produced (round-1 review [low]) — and this file's own standing lesson is that a message shipped
+        //     through green guards is an unmeasured claim. Driven directly, because the states they report are ones
+        //     Mutagen cannot currently produce: a copy arriving with children, and a count that does not balance.
+        var carrier = new DialogTopic(FormKey.Factory("123456:HcW2Master.esm"), SkyrimRelease.SkyrimSE);
+        carrier.Responses.Add(new DialogResponses(FormKey.Factory("123457:HcW2Master.esm"), SkyrimRelease.SkyrimSE)
+            { EditorID = "W324Arrived" });
+        var injection = WriteEngine.RestoreChildGroup(carrier, default, "Nothing was serialized; UNTOUCHED.");
+        Check("refusal 1: a copy arriving with children of its own is refused as an IMPORT when nothing was held",
+            injection is not null && injection.Contains("arrived carrying 1 child record(s)", StringComparison.Ordinal)
+            && injection.Contains("W324Arrived", StringComparison.Ordinal)
+            && injection.Contains("refuses rather than silently import", StringComparison.Ordinal)
+            && injection.Contains("Nothing was serialized", StringComparison.Ordinal), injection ?? "(accepted)");
+
+        var held = WriteEngine.CaptureChildGroup(carrier);
+        var clash = WriteEngine.RestoreChildGroup(carrier, held, "Nothing was serialized; UNTOUCHED.");
+        Check("refusal 2: …and as a two-sets clash when the destination held some too, naming both counts",
+            clash is not null && clash.Contains("while the destination held 1", StringComparison.Ordinal)
+            && clash.Contains("discard one of the two sets", StringComparison.Ordinal), clash ?? "(accepted)");
+
+        // The count check, off a carry whose count does not match what is on the record — the shape a containment
+        // path the reflected walk cannot see would produce. The lane clause must land BEFORE "please report".
+        var empty = new DialogTopic(FormKey.Factory("123458:HcW2Master.esm"), SkyrimRelease.SkyrimSE);
+        var miscount = WriteEngine.RestoreChildGroup(empty,
+            held with { Count = 3, Names = new[] { "W324Ghost" } }, "Nothing was serialized; UNTOUCHED.");
+        Check("refusal 3: a child count that does not survive the replace refuses, naming what it cannot account for",
+            miscount is not null && miscount.Contains("it carries 3 child record(s)", StringComparison.Ordinal)
+            && miscount.Contains("W324Ghost", StringComparison.Ordinal)
+            && miscount.Contains("cannot account for", StringComparison.Ordinal)
+            && miscount.IndexOf("Nothing was serialized", StringComparison.Ordinal)
+               < miscount.IndexOf("Please report", StringComparison.Ordinal), miscount ?? "(accepted)");
+
+        // …and the doubling those three used to ship: the lane appended its own untouched-clause to a message that
+        // already carried one. Substituted now, so it appears once (round-1 review [low]).
+        Check("…and each refusal states what was left alone exactly ONCE",
+            CountOf(injection!, "Nothing was serialized") == 1 && CountOf(clash!, "Nothing was serialized") == 1
+            && CountOf(miscount!, "Nothing was serialized") == 1,
+            $"[{CountOf(injection!, "Nothing was serialized")}·{CountOf(clash!, "Nothing was serialized")}·{CountOf(miscount!, "Nothing was serialized")}]");
+    }
+
+    /// <summary>The placed references the written plugin's copy of the cell carries — <see cref="ChildLinesIn"/>'s
+    /// twin for the nested-group path, walking the block/subblock chain a cell lives in.</summary>
+    static List<string> CellRefsIn(string espPath, FormKey fk)
+    {
+        var found = new List<string>();
+        ISkyrimModGetter? ov = null;
+        try
+        {
+            ov = SkyrimMod.CreateFromBinaryOverlay(espPath, SkyrimRelease.SkyrimSE);
+            var cell = CellsIn(ov).FirstOrDefault(c => c.FormKey == fk);
+            foreach (var p in (cell?.Persistent ?? Enumerable.Empty<IPlacedGetter>())
+                         .Concat(cell?.Temporary ?? Enumerable.Empty<IPlacedGetter>()))
+                found.Add(p.EditorID ?? p.FormKey.ToString());
+        }
+        catch { found.Add("(unreadable)"); }
+        finally { (ov as IDisposable)?.Dispose(); }
+        return found;
+    }
+
+    static string? CellNameIn(string espPath, FormKey fk)
+    {
+        ISkyrimModGetter? ov = null;
+        try
+        {
+            ov = SkyrimMod.CreateFromBinaryOverlay(espPath, SkyrimRelease.SkyrimSE);
+            return CellsIn(ov).FirstOrDefault(c => c.FormKey == fk)?.Name?.String;
+        }
+        catch { return null; }
+        finally { (ov as IDisposable)?.Dispose(); }
+    }
+
+    static IEnumerable<ICellGetter> CellsIn(ISkyrimModGetter ov) =>
+        (ov.Cells.Records ?? Enumerable.Empty<ICellBlockGetter>())
+            .SelectMany(b => b.SubBlocks ?? Enumerable.Empty<ICellSubBlockGetter>())
+            .SelectMany(s => s.Cells ?? Enumerable.Empty<ICellGetter>());
+
+    /// <summary>Every concrete major-record type Mutagen models for Skyrim — the NestedProbe enumeration, reused so
+    /// the child-property pin is a by-construction sweep rather than a list of names someone remembered.</summary>
+    static List<Type> ConcreteRecordTypes() => typeof(Weapon).Assembly.GetTypes()
+        .Where(t => t.IsClass && !t.IsAbstract && !t.Name.EndsWith("BinaryOverlay", StringComparison.Ordinal)
+                    && typeof(IMajorRecord).IsAssignableFrom(t))
+        .ToList();
+
+    static int CountOf(string haystack, string needle)
+    {
+        int n = 0;
+        for (int i = haystack.IndexOf(needle, StringComparison.Ordinal); i >= 0;
+             i = haystack.IndexOf(needle, i + needle.Length, StringComparison.Ordinal)) n++;
+        return n;
     }
 
     /// <summary>The child-bearing property names WriteEngine's reflected walk finds for a type (internal via
