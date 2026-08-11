@@ -35,6 +35,8 @@ namespace HousecarlGenerator;
 /// does not cover it, the overlay is released (the file stays movable), and the four refusals stay named:
 /// ambiguous filename, a file that doesn't define the record, a record whose ORIGIN plugin isn't active, and a
 /// self-forward caught by FILE IDENTITY when source= is a path to the artifact being written.</item>
+/// <item><b>the CopyFrom view arm</b> (#317) — a pre-fetched off-order body keyed to a source the ENGINE's own build
+/// says is ACTIVE is ignored, so the arm reported is the arm taken.</item>
 /// <item><b>nested parent hosting</b> (#300) — a nested create under an EXISTING load-order parent hosts the child
 /// in the parent's DEFINING plugin's version: the winner does not become a master, the hosted record does not carry
 /// a frozen copy of the winner's fields, and which plugin hosted it is reported.</item>
@@ -84,10 +86,11 @@ public static class WriteSurfaceGuardProbe
             ForwardArm(fx);
             TransportArm(fx);
             CopyFromViewArm(root);
-            // LAST: it forwards into the replacer IN PLACE, which rewrites a fixture file the earlier arms read as a
-            // known winner. Ordering it after them keeps every other arm reading the fixture it was written against.
             CopySourcePathArm(fx, root);
             NestedParentHostArm(fx);
+            // OffOrderForwardArm and ReviewFoldArm go LAST: they forward into the replacer IN PLACE, which rewrites a
+            // fixture file every earlier arm reads as a known winner. Ordering them after keeps every other arm
+            // reading the fixture it was written against.
             OffOrderForwardArm(fx);
             ReviewFoldArm(fx, root);
 

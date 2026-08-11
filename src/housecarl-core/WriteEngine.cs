@@ -2089,7 +2089,10 @@ public static class WriteEngine
         // `Count: > 0` on ctor_args too (review [nit]): an EMPTY array is "the 0-arg ctor", not a supplied
         // discriminator, so reading it as one let the empty compose through the check it should meet.
         if (spec.CtorArgs is { Length: > 0 } || spec.Fields is { Count: > 0 } || spec.Sets is { Count: > 0 }) return null;
-        var settable = type.GetProperties().Where(p => p is { CanRead: true, CanWrite: true }).ToList();
+        // Instance properties ONLY (review [nit]): the default flags include public STATICS, and one of those with a
+        // value would suppress the refusal entirely while being listed as something a compose could set.
+        var settable = type.GetProperties(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance)
+                           .Where(p => p is { CanRead: true, CanWrite: true }).ToList();
         if (settable.Count == 0) return null;                      // nothing to advise; not this check's case
         foreach (var p in settable)
         {

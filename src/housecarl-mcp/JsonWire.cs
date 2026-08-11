@@ -1573,7 +1573,10 @@ static class JsonWire
                     op.Divergence is not null ? "diverged"
                     : op.SupersededInCall ? "superseded"
                     : op.LandedOnDisk is not null ? "verified"
-                    : lane == "in_place" ? "no_answer" : "not_checked");
+                    // From the OP's own fact, never inferred from the lane: an in-place dry run re-opens nothing, and an
+                    // op appended after the edits (the SNAM sync) was never asked about — both were read as
+                    // "no_answer", which asserts a file was re-opened and could not answer (review).
+                    : op.VerifyAttempted ? "no_answer" : "not_checked");
                 w.WriteEndObject();
                 renderedOps++;
             }

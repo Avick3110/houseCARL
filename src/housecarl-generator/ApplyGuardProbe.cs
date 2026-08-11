@@ -26,7 +26,7 @@ namespace HousecarlGenerator;
 /// <item><b>TRANSPORT</b> — format=json is valid JSON carrying the same data, refusals are documents too, and every
 /// response (both renders) carries the §2.1.1 epoch.</item>
 /// <item><b>the in-place verify's own honesty</b> (#308) — the per-op "what landed" clause is re-derived from the
-/// WRITTEN FILE (json: <c>landed_on_disk</c> + <c>landed_verified_on_disk</c>), a compose with nothing to serialize
+/// WRITTEN FILE (json: <c>landed_on_disk</c> + <c>landed_verification</c>), a compose with nothing to serialize
 /// is refused before the file is touched instead of reported as landed, and the memory-vs-file comparator's own
 /// semantics are pinned as a unit.</item>
 /// </list>
@@ -139,11 +139,22 @@ public static class ApplyGuardProbe
             WritePatchBuilder.LeafDivergence("[list: 1 item(s)]", "[list: 1 item(s)]") is null
             && WritePatchBuilder.LeafDivergence("99", null) is null
             && WritePatchBuilder.LeafDivergence(null, "99") is null);
-        Check("comparator: a changed SCALAR is a divergence too, quoted as the two readings",
-            WritePatchBuilder.LeafDivergence("99", "10") is { } s && s.Contains("'99'", StringComparison.Ordinal)
-            && s.Contains("'10'", StringComparison.Ordinal), WritePatchBuilder.LeafDivergence("99", "10"));
-        Check("comparator: a SCALAR that merely looks like a container token is compared as text, not as a count",
-            WritePatchBuilder.LeafDivergence("[Boss: 3 guards]", "[Boss: 3 dragons]") is not null);
+        // A substruct leaf renders its TYPE name, and the mutable record and the binary overlay name it differently
+        // ([WeaponBasicStats] vs [WeaponBasicStatsBinaryOverlay]) — so a text compare accused every `Set <substruct>`
+        // of not landing. Same class as the Percent one below, found by a different reviewer in the same round.
+        Check("comparator: a substruct leaf the overlay names differently is NOT a divergence",
+            WritePatchBuilder.LeafDivergence("[WeaponBasicStats]", "[WeaponBasicStatsBinaryOverlay]") is null,
+            WritePatchBuilder.LeafDivergence("[WeaponBasicStats]", "[WeaponBasicStatsBinaryOverlay]"));
+        // The false-alarm bound, and the reason the scalar text compare was dropped: Percent is byte-quantised, so a
+        // correct `Set ChanceNone value="0.123"` reads back 0.12 off the file. Calling that "NOT landed" instructs a
+        // re-issue that diverges identically forever — the wrong-answer class this detector exists to close, mirrored.
+        Check("comparator: a value the FORMAT rounds (0.123 -> 0.12, a byte-quantised Percent) is NOT a divergence",
+            WritePatchBuilder.LeafDivergence("0.123", "0.12") is null,
+            WritePatchBuilder.LeafDivergence("0.123", "0.12"));
+        Check("comparator: content that VANISHED still is one, and the wording names the localized-strings caveat",
+            WritePatchBuilder.LeafDivergence("Winner Sword", "") is { } gone
+            && gone.Contains("carries nothing there", StringComparison.Ordinal)
+            && gone.Contains("LOCALIZED", StringComparison.Ordinal), WritePatchBuilder.LeafDivergence("Winner Sword", ""));
 
         // MULTI-OP, end-to-end: two Adds to ONE list in ONE in-place call. Both land; the file carries both. The
         // earlier op's reading was taken between them, so comparing it against the final file state accused a correct
