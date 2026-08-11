@@ -262,14 +262,16 @@ if (args.Length > 0 && args[0] == "native-pairing-real") return NativePairingPro
 // Every dispatch above matched nothing, and the corpus fallthrough below reads args[0] as the OUTPUT DIRECTORY. So a
 // mistyped probe name generated the whole corpus into a folder of that name and exited 0: two of them put 13.5 MB of
 // generated files in the working tree, which `git add -A` then nearly committed. A mode and a directory ARE
-// distinguishable — a directory is rooted, carries a separator, or already exists — so anything else is refused BY
-// NAME, with the real modes listed and the near misses suggested (Q3: never a silent wrong action).
+// distinguishable — a directory is ROOTED or carries a SEPARATOR (or is "." / "..") — so anything else is refused BY
+// NAME, with the real modes listed and the near misses suggested (Q3: never a silent wrong action). Deliberately NOT
+// "…or it already exists": see IsDirectoryArgument, where that clause was removed after it let a mistyped mode write
+// into ./plugin (review [low] — this comment asserted it 25 lines above the one explaining why it is gone).
 if (args.Length > 0 && !IsDirectoryArgument(args[0]))
 {
     Console.Error.WriteLine($"unknown mode '{args[0]}' — nothing was generated and nothing was written.");
     // TrimStart, then skip an EMPTY suggestion entirely: DidYouMean returns "" when nothing is close, and a blank
     // line above the mode list reads like a truncated message.
-    if (HousecarlCore.PluginNameSuggest.DidYouMean(args[0], CiAll.ProbeNames).TrimStart(' ', '—') is { Length: > 0 } near)
+    if (HousecarlCore.PluginNameSuggest.DidYouMean(args[0], CiAll.ProbeNames).TrimStart(' ') is { Length: > 0 } near)
         Console.Error.WriteLine(near);
     Console.Error.WriteLine();
     Console.Error.WriteLine("CI guards in the registry (`ci-all` runs these; freshness-capture-guard is a CI step of its own):");

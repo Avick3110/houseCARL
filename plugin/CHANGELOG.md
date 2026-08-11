@@ -18,7 +18,7 @@ the call; an earlier op on the same field is marked as the applied edit's own re
 state after all of them and cannot answer for a middle one. If the file and the applied edit disagree, the
 response says so **loudly** on its own line and tells you to treat the op as not landed, instead of leaving you to
 notice a count. In JSON the two are separate facts: `landed` (what the edit did in memory), `landed_on_disk` (what
-the file carries), `divergence`, and `landed_verification` (`verified` / `diverged` / `superseded` / `no_answer` /
+the file carries), `divergence`, and `landed_verification` (`verified` / `diverged` / `superseded` / `no_answer` / `not_comparable` /
 `not_checked`). And the specific call that caused it is now
 **refused before anything is written**, naming the fields that would give the structure content — a compose you gave
 nothing to, whose every settable field is empty, cannot land, so houseCARL no longer pretends it did. **One shape that

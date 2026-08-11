@@ -3369,7 +3369,10 @@ public static class WritePatchBuilder
         try
         {
             foreach (var rec in back.EnumerateMajorRecords())
+            {
                 if (want.Contains(rec.FormKey) && !found.ContainsKey(rec.FormKey)) found[rec.FormKey] = rec;
+                if (found.Count == want.Count) break;    // every target in hand — the rest of the file is not ours
+            }
         }
         catch { /* leave every op unverified — the render says so, and ReadBackInFull names the walk failure itself */ }
 
@@ -3517,6 +3520,9 @@ public static class WritePatchBuilder
             var leaf = string.Join('.', req.Path);
             var read = ReadEngine.ReadFields(ov, new[] { leaf }, containerHint: null);   // same: no depth= on the write surface, don't hint it
             var f = read.Fields.FirstOrDefault(x => x.Path == leaf) ?? read.Fields.FirstOrDefault();
+            // `default` is deliberate and load-bearing: it gives Readable=false ("could not look"), NOT the
+            // primary constructor's Readable=true. Writing `new LeafPresence(false, false, null)` here would silently
+            // turn an unreadable memory side into "content vanished" (review [nit]).
             if (f is null) return (null, null, default);
             var after = f.HasValue ? f.Token : f.Note;
             // Scalar: Landed reuses the token just read. List/dict: name the touched element (+ new count); else the
@@ -3529,6 +3535,6 @@ public static class WritePatchBuilder
             // prose to decide whether anything is there.
             return (after, landed, new LeafPresence(f.HasValue, f.Present, f.Count, f.Readable));
         }
-        catch { return (null, null, default); }
+        catch { return (null, null, default); }   // default => Readable:false — see the note above
     }
 }

@@ -747,8 +747,10 @@ public static class WriteTools
         : " [as applied — this lane ran no file check]";
 
     /// <summary>#308 — the "APPLIED but the file does not carry it" lines for the ops given. Its own method because
-    /// BOTH readback forms must emit it: the compact verify calls it once BEFORE its per-record loop (so a cut or a
-    /// failed read-back cannot suppress it), and the full-dump lane calls it once after the dump. A Q3 statement that appears in only one of two renders of the same call is the D2 divergence class
+    /// EXACTLY ONE call site — <see cref="Render"/>, ahead of both renderers and of the read-back block entirely — so
+    /// neither the compact budget, a record whose read-back errored, nor the absence of a read-back can suppress it.
+    /// (This doc previously described two call sites, one of them inside the full-dump renderer, where a reader
+    /// auditing "does the full dump emit this?" would have found nothing — review [low].) A Q3 statement that appears in only one of two renders of the same call is the D2 divergence class
     /// this PR's own reviews keep finding.</summary>
     static void AppendDivergences(StringBuilder sb, IEnumerable<WritePatchBuilder.OpResult> ops)
     {
@@ -1178,6 +1180,18 @@ public static class WriteTools
         // as a follow-up on the grounds that max_chars' description scoped the ceiling to the read-back; the D2
         // divergence is the stronger argument and it wins.)
         int createCap = maxChars > 0 ? maxChars : Wire.DefaultMaxChars;
+        // #300's TRADE, hoisted out of the budget below (review [medium]) — the same reasoning that hoisted #308's
+        // divergence lines: a statement that the artifact will now out-rank a mod on a record it did not mean to
+        // touch must not be the thing a max_chars cut removes, and the per-record `parent:` lines live INSIDE the
+        // loop. One line per distinct contested parent, before the list, and only when the definer and the winner
+        // actually differ — the benign case (definer IS the winner, or the artifact already carried the parent) says
+        // nothing here. The truncation notice points at a read-back, and the host choice is not IN the record, so a
+        // cut caller could not recover this afterwards.
+        var contested = o.Created.Select(c => c.ParentHost)
+                         .Where(h => h is not null && h.Contains("currently WINS this record", StringComparison.Ordinal))
+                         .Distinct(StringComparer.Ordinal).ToList();
+        foreach (var host in contested)
+            sb.Append("  ! ").Append(host).Append('\n');
         int listed = 0;
         for (int ci = 0; ci < o.Created.Count; ci++)
         {
