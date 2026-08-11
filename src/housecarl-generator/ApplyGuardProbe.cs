@@ -99,7 +99,10 @@ public static class ApplyGuardProbe
     {
         Console.WriteLine("── ARM 6: #308 — the verify's clause comes off the FILE, and an empty compose is refused ──");
 
-        var before = new FileInfo(fx.ReplacerPath).Length;
+        // The SIZE alone proves nothing here, and that is the whole point of the bug: pre-fix the call re-serialized
+        // the target and the file came out byte-identical, because the op contributed nothing. The discriminating
+        // observable is whether the file was WRITTEN AT ALL — so the timestamp is what this arm watches.
+        var before = (new FileInfo(fx.ReplacerPath).Length, File.GetLastWriteTimeUtc(fx.ReplacerPath));
         var empty = ApplyTools.Apply(fx.Svc,
             ops: Json(ComposeRankOp(fx.FactionFid, null)),
             in_place: fx.ReplacerName, acknowledge: true);
@@ -108,9 +111,9 @@ public static class ApplyGuardProbe
         Check("…and the refusal names the settable fields from the TYPE, so the caller knows what to set",
             empty.Contains("Settable fields on Rank:", StringComparison.Ordinal)
             && empty.Contains("Number", StringComparison.Ordinal), empty);
-        Check("…and it is a pre-serialize refusal: the in-place target is byte-untouched",
-            new FileInfo(fx.ReplacerPath).Length == before,
-            $"{before} -> {new FileInfo(fx.ReplacerPath).Length}");
+        var after = (new FileInfo(fx.ReplacerPath).Length, File.GetLastWriteTimeUtc(fx.ReplacerPath));
+        Check("…and it is a PRE-SERIALIZE refusal: the in-place target was never rewritten (size AND mtime)",
+            after == before, $"{before} -> {after}");
 
         // The same compose WITH content lands — the refusal is about emptiness, not about composing Ranks.
         var withField = ApplyTools.Apply(fx.Svc,
