@@ -103,6 +103,12 @@ public sealed class LoadOrderResolver : IDisposable
     DateTime[] _mtimes;                                // last-write at the last index build, per path (freshness baseline)
     readonly string? _dataDir;                         // real game-Data folder (Skyrim.esm's dir) — localized-strings fallback source (OpenOverlay)
 
+    /// <summary>The real game-Data folder this order resolved, for callers OUTSIDE the session that must open a plugin
+    /// through <see cref="OpenOverlay"/> and get the same strings resolution the index reads with — the in-place write's
+    /// post-serialize verify being the one that needs it, since it now COMPARES what it reads (#308) rather than only
+    /// printing it, and a strings-less read of a localized field would otherwise look like a lost write.</summary>
+    internal string? DataDir => _dataDir;
+
     /// <summary>Optional: given a plugin filename this index does NOT contain, a clause saying WHY it isn't in the
     /// active order — or null if the injector can't say. Every "not in the load order" refusal below is a dead end for
     /// the reader as it stands: the commonest cause by far is a plugin that IS installed and IS in an enabled mod but

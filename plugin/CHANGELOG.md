@@ -30,12 +30,19 @@ the cell record losing, so nothing about it needed the winner. Which plugin host
 created record (`parent: …`, `parent_host` in JSON) — including the two cases where the definer genuinely can't
 answer (an injected record, or a plugin this session had to exclude), where the winner is still used and says so.
 
+**Know the trade this makes.** The host is a full record override, and it still conflicts at record level. So wherever
+your patch out-ranks the mod that currently wins that cell or topic, the parent record now resolves to the *defining*
+plugin's fields — usually vanilla — instead of that mod's. Before, it resolved to a frozen copy of that mod's fields,
+which was right until the mod updated and then silently wrong forever. Neither is what you want from a patch that only
+added a reference: **sort the patch before the mod that owns the parent**, and the new child is carried either way.
+The `parent:` line now says which mod that is and which way it will resolve, so the choice is in front of you at write
+time rather than discovered in game.
+
 **Fixed: a full path to an *active* plugin is no longer treated as an off-order file (#321).** `housecarl_apply`'s
 `CopyFrom` decided "is this source in the load order?" by looking up the name it was given, and a full path never
 matches a filename — so `from_source=C:\…\SomeMod\Bar.esp` pointing at a plugin your order is actively serving read
-the file directly, skipped the excluded-plugin refusal, and described the source as not in your load order. Usually
-that was only a wrong label; under a profile switch, where the same filename is served by a different mod folder, it
-was a wrong *body*. `housecarl_forward` has had the rule since its own fix — a path that names the exact file your
+the file directly and described the source as not in your load order. Usually that was only a wrong label; under a
+profile switch, where the same filename is served by a different mod folder, it was a wrong *body*. `housecarl_forward` has had the rule since its own fix — a path that names the exact file your
 order loads is that plugin — and `CopyFrom` now shares it. A path to a same-named *backup* still reads off-order, as
 it should: the test is the file, not the name.
 

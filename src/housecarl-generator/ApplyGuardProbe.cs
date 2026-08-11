@@ -89,12 +89,6 @@ public static class ApplyGuardProbe
     /// comparator's own semantics as a unit. Stated rather than left as a gap: the detector is the general net for
     /// every OTHER type that serializes to less than the caller believes, and that net is deliberately not
     /// exercisable from a fixture built out of one.</para></summary>
-    /// <summary>One <c>Add Ranks</c> compose op, built by concatenation: the JSON's brace runs make a raw interpolated
-    /// literal ambiguous (the compiler says so), and escaping around that is less readable than this.</summary>
-    static string ComposeRankOp(string formid, string? extra) =>
-        "[{\"formid\":\"" + formid + "\",\"field_path\":\"Ranks\",\"op\":\"Add\",\"compose\":{\"type\":\"Rank\""
-        + (extra is null ? "" : "," + extra) + "}}]";
-
     static void EmptyComposeArm(Fixture fx)
     {
         Console.WriteLine("── ARM 6: #308 — the verify's clause comes off the FILE, and an empty compose is refused ──");
@@ -149,6 +143,12 @@ public static class ApplyGuardProbe
             && s.Contains("'10'", StringComparison.Ordinal), WritePatchBuilder.LeafDivergence("99", "10"));
     }
 
+    /// <summary>One <c>Add Ranks</c> compose op, built by concatenation: the JSON's brace runs make a raw interpolated
+    /// literal ambiguous (the compiler says so), and escaping around that is less readable than this.</summary>
+    static string ComposeRankOp(string formid, string? extra) =>
+        "[{\"formid\":\"" + formid + "\",\"field_path\":\"Ranks\",\"op\":\"Add\",\"compose\":{\"type\":\"Rank\""
+        + (extra is null ? "" : "," + extra) + "}}]";
+
     // ================= the shared synthetic order =================
 
     /// <summary>Master + replacer + an OFF-ORDER donor. The replacer WINS the subject weapon (so a copy from the
@@ -161,7 +161,6 @@ public static class ApplyGuardProbe
         public required string DonorWeaponFid { get; init; }  // a DIFFERENT weapon (Damage 42, 2 keywords) — the zip source
         public required string ArmorFid { get; init; }        // a different record TYPE — the cross-type refusal source
         public required string FactionFid { get; init; }      // #308: empty Ranks list, owned by the replacer
-        public required FormKey FactionKey { get; init; }
         public required string ModsDir { get; init; }
         public required string ReplacerPath { get; init; }   // the in-place target's real on-disk file
         public required FormKey DonorKey { get; init; }
@@ -270,7 +269,6 @@ public static class ApplyGuardProbe
                 DonorWeaponFid = $"{donor.FormKey.ID:X6}:{mKey.FileName}",
                 ArmorFid = $"{armor.FormKey.ID:X6}:{mKey.FileName}",
                 FactionFid = $"{faction.FormKey.ID:X6}:{mKey.FileName}",
-                FactionKey = faction.FormKey,
                 ModsDir = mods,
                 ReplacerPath = replPath,
                 DonorKey = donor.FormKey,

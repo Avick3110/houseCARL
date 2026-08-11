@@ -1564,7 +1564,11 @@ static class JsonWire
                 // disagree about what the edited leaf now holds — a success response that must not be read as landed.
                 WriteNullable(w, "landed_on_disk", op.LandedOnDisk);
                 WriteNullable(w, "divergence", op.Divergence);
-                w.WriteBoolean("landed_verified_on_disk", op.LandedOnDisk is not null && op.Divergence is null);
+                // THREE-state, not two (review [low]): the file-verify runs on the in-place lane, so a patch-lane or
+                // dry-run op has not been checked at all — emitting `false` there would read as "checked and failed"
+                // and mark every ordinary patch write unverified. null = not attempted.
+                if (op.LandedOnDisk is null && op.Divergence is null) w.WriteNull("landed_verified_on_disk");
+                else w.WriteBoolean("landed_verified_on_disk", op.LandedOnDisk is not null && op.Divergence is null);
                 w.WriteEndObject();
                 renderedOps++;
             }

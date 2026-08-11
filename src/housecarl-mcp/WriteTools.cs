@@ -568,6 +568,10 @@ public static class WriteTools
             if (fullDump) AppendFullReadback(sb, rb, maxChars);
             else AppendCompactReadback(sb, o.Ops, rb, maxChars);
         }
+        // #308 review [medium] — the divergence lines live in the COMPACT verify, so asking for the FULL dump used to
+        // drop them: the caller who asked for the most verification was the only one never told an op had not landed.
+        // Rendered here for the full-dump lane, after the dump, so both forms carry the same Q3 statement.
+        if (fullDump) AppendDivergences(sb, o.Ops);
         if (o.Note is { } note) sb.Append("note: ").Append(note).Append('\n');
         sb.Append(o.InPlace
             ? InPlaceAgainHint("to make more in-place edits to this plugin", file, laneAsName)
@@ -718,11 +722,20 @@ public static class WriteTools
             // corroborate what an op claims to have put there (canonically a composed struct with nothing to
             // serialize). This is the inconsistency the forced verify exists to catch, so it is stated, not implied by
             // a count the caller would have to notice.
-            foreach (var op in mine)
-                if (op.Divergence is { } why)
-                    sb.Append("  ✗ ").Append(op.Label).Append(" — the edit was APPLIED but the written file does not carry it: ")
-                      .Append(why).Append(". The file is what the game loads: treat this op as NOT landed.\n");
+            AppendDivergences(sb, mine);
         }
+    }
+
+    /// <summary>#308 — the "APPLIED but the file does not carry it" lines for the ops given. Its own method because
+    /// BOTH readback forms must emit it: the compact verify calls it per record, and the full-dump lane calls it once
+    /// at the end. A Q3 statement that appears in only one of two renders of the same call is the D2 divergence class
+    /// this PR's own reviews keep finding.</summary>
+    static void AppendDivergences(StringBuilder sb, IEnumerable<WritePatchBuilder.OpResult> ops)
+    {
+        foreach (var op in ops)
+            if (op.Divergence is { } why)
+                sb.Append("  ✗ ").Append(op.Label).Append(" — the edit was APPLIED but the written file does not carry it: ")
+                  .Append(why).Append(". The file is what the game loads: treat this op as NOT landed.\n");
     }
 
     /// <summary>Confirmation for housecarl_remove_record: what was dropped, the patch's now-lean masters, and how many

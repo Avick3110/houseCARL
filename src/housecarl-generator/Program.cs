@@ -265,13 +265,20 @@ if (args.Length > 0 && args[0] == "native-pairing-real") return NativePairingPro
 if (args.Length > 0 && !IsDirectoryArgument(args[0]))
 {
     Console.Error.WriteLine($"unknown mode '{args[0]}' — nothing was generated and nothing was written.");
-    Console.Error.WriteLine(HousecarlCore.PluginNameSuggest.DidYouMean(args[0], CiAll.ProbeNames).TrimStart(' ', '—'));
+    // TrimStart, then skip an EMPTY suggestion entirely: DidYouMean returns "" when nothing is close, and a blank
+    // line above the mode list reads like a truncated message.
+    if (HousecarlCore.PluginNameSuggest.DidYouMean(args[0], CiAll.ProbeNames).TrimStart(' ', '—') is { Length: > 0 } near)
+        Console.Error.WriteLine(near);
     Console.Error.WriteLine();
     Console.Error.WriteLine("CI guards (the one registry — `ci-all` runs them all):");
     foreach (var name in CiAll.ProbeNames) Console.Error.WriteLine("  " + name);
     Console.Error.WriteLine();
     Console.Error.WriteLine("Other modes are the manual/exploratory harnesses declared in src/housecarl-generator/Program.cs.");
-    Console.Error.WriteLine("To GENERATE the corpus, pass a directory path (or no argument at all, for ./generated).");
+    // State the RULE, not just the intent: a bare relative name that does not already exist is read as a mode, so
+    // "pass a directory path" alone would be advice the caller has already followed (review [low]).
+    Console.Error.WriteLine("To GENERATE the corpus into a directory, pass a path that is rooted (C:\\…), carries a");
+    Console.Error.WriteLine("separator (./out), or already exists — a bare name that does not exist is read as a mode.");
+    Console.Error.WriteLine("With no argument at all it generates into ./generated.");
     return 2;
 }
 

@@ -360,6 +360,8 @@ public static class CiAll
     /// SAME registry the dispatch uses, so a probe can never be runnable and yet missing from the help.</summary>
     public static IReadOnlyList<string> ProbeNames => Probes.Select(p => p.Name).ToArray();
 
+    /// <summary>Run the ONE probe named, if the registry carries it — the single-probe dispatch Program.cs routes
+    /// through, so a guard cannot be runnable locally yet missing from the CI run.</summary>
     public static bool TryDispatch(string name, string[] args, out int rc)
     {
         foreach (var (n, run) in Probes)
