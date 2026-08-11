@@ -1543,6 +1543,24 @@ static class JsonWire
             foreach (var m in o.Masters) w.WriteStringValue(m);
             w.WriteEndArray();
 
+            // FIRST and OUTSIDE the budget, exactly as the text render hoists its ✗ lines (review [medium]): the ops
+            // array is cut by max_chars, so a diverged op past the cut vanished from the document while `ok:true`,
+            // `truncated:true` and a note reading "the WRITE is complete and unaffected" stayed — an actively wrong
+            // reassurance in the one case #308 exists to catch. These rows are few (one per un-landed op) and are the
+            // json twin of a statement the text render already refuses to let a cut remove.
+            var diverged = o.Ops.Where(op => op.Divergence is not null).ToList();
+            w.WriteNumber("diverged_ops", diverged.Count);
+            w.WriteStartArray("divergences");
+            foreach (var op in diverged)
+            {
+                w.WriteStartObject();
+                w.WriteString("formid", op.Target.ToString());
+                w.WriteString("label", op.Label);
+                w.WriteString("divergence", op.Divergence!);
+                w.WriteEndObject();
+            }
+            w.WriteEndArray();
+
             w.WriteNumber("total_ops", o.Ops.Count);
             w.WriteStartArray("ops");
             int renderedOps = 0;

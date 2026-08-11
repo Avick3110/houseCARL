@@ -87,9 +87,10 @@ public static class ApplyGuardProbe
     /// Adds to one list, where op 1's mid-sequence reading was compared against the file's final state and a correct
     /// write was reported as NOT landed. A guard that argues its way out of covering the one thing a caller sees is
     /// how that shipped, so the multi-op case is now driven end-to-end here.</para>
-    /// <para>What stays unit-pinned is the comparator itself: with the refusal in place, a struct that lands as an
-    /// element and still serializes short is not buildable from this fixture — that is the general net for OTHER
-    /// types, and it is deliberately not synthesizable from one.</para></summary>
+    /// <para>What stays unit-pinned is the comparator itself. And what it does NOT claim, since a review proved the
+    /// second probe inert: an element that lands but serializes with fewer fields than supplied is not reported —
+    /// telling that from the format representing a value its own way is what produced the earlier false alarms. The
+    /// unit checks below pin both the two rules it keeps and the two shapes it must stay silent about.</para></summary>
     static void EmptyComposeArm(Fixture fx)
     {
         Console.WriteLine("── ARM 6: #308 — the verify's clause comes off the FILE, and an empty compose is refused ──");
@@ -191,6 +192,14 @@ public static class ApplyGuardProbe
         Check("…and the FULL-dump render states it too (the lane that used to drop it silently)",
             fullRender.Contains("treat this op as NOT landed", StringComparison.Ordinal), fullRender);
         var divergedJson = JsonWire.RenderPatchOutcome(diverged, 0, false, "in_place");
+        // …and it survives a max_chars cut that drops the ops array, which is where the text render hoists its own
+        // lines to and the json twin did not (review [medium]): a document that cuts the only "did not land" row while
+        // saying "the WRITE is complete and unaffected" is worse than no verify at all.
+        var divergedTiny = JsonWire.RenderPatchOutcome(diverged, 400, false, "in_place");
+        Check("…and the json divergence rows survive a max_chars cut that truncates the ops array",
+            divergedTiny.Contains("\"divergences\"", StringComparison.Ordinal)
+            && divergedTiny.Contains("WRITTEN FILE carries 0", StringComparison.Ordinal)
+            && divergedTiny.Contains("\"diverged_ops\": 1", StringComparison.Ordinal), divergedTiny);
         Check("…and json says landed_verification=diverged with the divergence text",
             divergedJson.Contains("\"landed_verification\": \"diverged\"", StringComparison.Ordinal)
             && divergedJson.Contains("WRITTEN FILE carries 0", StringComparison.Ordinal), divergedJson);

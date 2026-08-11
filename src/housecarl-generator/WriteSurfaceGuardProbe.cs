@@ -14,10 +14,9 @@ namespace HousecarlGenerator;
 /// <c>housecarl_write_seq</c> (tool-surface-2.0 W3 PR 2; SPEC §2.2 ACT, §5.1/§5.2, §6.1). Sibling of
 /// <c>apply-guard</c>, same posture: the REAL end-to-end tool path — a synthetic MO2 instance in temp +
 /// <see cref="LoadOrderService"/> + the tool methods themselves — so the wire readers, the LANE grammar, the
-/// alias-visible vocabulary and the engines are exercised exactly as a caller hits them. TEN arms, LISTED in the
-/// order they are declared below — which is NOT run order: the two off-order/in-place arms are run last by RunGuard
-/// because they rewrite a fixture file the others read as a known winner (review [nit]: the old wording implied the
-/// list itself was the schedule):
+/// alias-visible vocabulary and the engines are exercised exactly as a caller hits them. TEN arms, listed BY SUBJECT
+/// — neither declaration nor run order, both of which live in RunGuard, where the off-order/in-place pair is
+/// deliberately last because it rewrites a fixture file the others read as a known winner:
 /// <list type="number">
 /// <item><b>create grammar</b> — one record is a set of one, the nested one-shot (a same-call sibling parent +
 /// an '@editorid' link value), the @file spelling, and the strict element reader's NAMED refusals with the

@@ -1077,7 +1077,10 @@ public static class WritePatchBuilder
             // not "could not be re-opened to verify" and must not be reported as one (review [nit]). Ops then stay
             // unverified, which the render states per op rather than turning a completed write into a failure.
             try { reported = VerifyLandedAgainstFile(back, resolved.Select(r => (r.edit.Target, r.req)).ToList(), ops); }
-            catch { reported = ops; }
+            // A pass that THREW is not "this lane ran no file check" (review [low]) — the verify ran and produced no
+            // answer, which is the state that says so. Under-reporting a failed verification as an absent one is the
+            // quieter half of the same wrong-answer class.
+            catch { reported = ops.Select(o => o with { VerifyAttempted = true }).ToList(); }
         }
         catch (Exception ex)
             { return PatchOutcome.Fail($"'{fileName}' was edited in place but could not be re-opened to verify: {ex.Message}"); }
@@ -2867,8 +2870,10 @@ public static class WritePatchBuilder
                         // Memoised per (plugin, record): GetRecord is a full EnumerateMajorRecords scan, this sits in
                         // the per-spec loop, and #300 pointed it at the DEFINER — usually Skyrim.esm — where it used
                         // to hit the (small) winner. A bulk_create fanning N refs into vanilla cells would otherwise
-                        // pay N scans of a ~250k-record file (review [medium]). Specs commonly share a parent, so the
-                        // memo is usually one scan for the whole call.
+                        // pay N scans of a ~250k-record file (review [medium]). The memo is keyed (plugin, record), so
+                        // it collapses the SHARED-parent fan-out to one scan; N specs naming N DISTINCT parents still
+                        // pay N, and against the definer those are now the bigger file, not the smaller one (review
+                        // [low]: said plainly rather than left implied — the honest fix is an index, not a memo).
                         var fromDefiner = ParentBodyFrom(definer, parentFk);
                         var parentBody = fromDefiner ?? ParentBodyFrom(w.WinnerPlugin, parentFk);
                         if (parentBody is null) { problems.Add($"{s.RecordType} '{s.EditorId}': parent {parentFk} winner '{w.WinnerPlugin}' did not yield it on fetch (a load-order inconsistency)."); continue; }
@@ -3331,6 +3336,13 @@ public static class WritePatchBuilder
     /// not, so a struct that exists in memory and serializes to nothing rendered as landed under a file-authority
     /// claim while the file was byte-unchanged.
     ///
+    /// <para>WHAT IT CATCHES, and what it does not, stated because three places used to claim more: content that is
+    /// GONE — a container whose count moved, or a leaf that held something and now holds nothing. NOT a value the
+    /// format represents differently (a byte-quantised Percent, an overlay's type name), and NOT an element that
+    /// landed but serialized with fewer fields than the caller supplied. That last one is bounded from the other end
+    /// instead: <c>WriteEngine.EmptyComposeRefusal</c> refuses the case where nothing was supplied at all, and the
+    /// per-op clause prints the FILE's own reading, so a caller comparing it against what they asked for can see the
+    /// difference — they are simply not told it is a failure, because this cannot tell that from a representation.</para>
     /// <para>One READER both sides (<see cref="DescribeApplied"/>), so a difference is a difference in the DATA, not
     /// in how two renderers phrase it. Not one OPEN, though, and the asymmetry is deliberate (review [low]): the
     /// memory side is the record this call authored, while the file side is re-opened through
@@ -3373,16 +3385,17 @@ public static class WritePatchBuilder
             // The file has ONE final state, so only the LAST op touching a leaf is answerable by it.
             if (LaterOpTouchesSameLeaf(perOp, i)) { verified.Add(op with { SupersededInCall = true, VerifyAttempted = true }); continue; }
             var (afterDisk, landedDisk, diskPresence) = DescribeApplied(rec, perOp[i].Req);
-            // BOTH descriptors, not just the leaf summary (review [medium]): `After` is the container
-            // (`[list: N item(s)]`), `Landed` is the touched ELEMENT. A struct that lands as an element but serializes
-            // to less than the caller supplied leaves the COUNT equal on both sides — so comparing summaries alone
-            // would answer "verified" while the two element renderings visibly disagreed in the same response, which
-            // is the general case this detector is documented to catch.
+            // ONE comparison, on the leaf. An earlier round added a second pass over `Landed` (the touched ELEMENT) to
+            // catch a struct that lands but serializes with fewer fields than supplied — and a later review proved it
+            // INERT (review [medium]): `Landed` differs from `After` only for a container leaf, and for a container
+            // both presences carry counts, so the count arm decides and returns null whenever the counts agree. The
+            // element strings were never judged. It is removed rather than repaired because repairing it means
+            // comparing element TEXT, which is exactly what produced the Percent and overlay-type false alarms — and
+            // the bound is now stated where it is claimed instead of implied away.
             verified.Add(op with
             {
                 LandedOnDisk = landedDisk,
-                Divergence = LeafDivergence(op.After, op.AfterPresence, afterDisk, diskPresence)
-                             ?? LeafDivergence(op.Landed, op.AfterPresence, landedDisk, diskPresence),
+                Divergence = LeafDivergence(op.After, op.AfterPresence, afterDisk, diskPresence),
                 VerifyAttempted = true,
             });
         }

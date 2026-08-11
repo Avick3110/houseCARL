@@ -719,8 +719,7 @@ public static class WriteTools
             // #308: the per-op clause is the FILE's answer when the file gave one (LandedOnDisk), and is marked as the
             // applied edit's claim when it did not — the banner above says "re-read off the written file", and this
             // line used to carry a memory-derived descriptor under it without saying so.
-            var mine = ops.Where(op => op.Target == r.Target);
-            var landed = mine.Where(op => (op.LandedOnDisk ?? op.Landed) is not null)
+            var landed = ops.Where(op => op.Target == r.Target && (op.LandedOnDisk ?? op.Landed) is not null)
                              .Select(op => $"{op.Label}: {op.LandedOnDisk ?? op.Landed}" + LandedProvenance(op))
                              .ToList();
             if (landed.Count > 0) sb.Append("; ").Append(string.Join("; ", landed));
