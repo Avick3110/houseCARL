@@ -1701,6 +1701,17 @@ static class JsonWire
             w.WriteNumber("bytes", o.Bytes);
             WriteStringArray(w, "masters", o.Masters.ToList());
 
+            // #300's trade, hoisted ABOVE the budgeted `created` array (review [medium]) — the json twin of the text
+            // render's "!" lines, and the same rule the divergence rows follow: a statement that this artifact will
+            // out-rank a mod on a parent record it only meant to host a child in must survive a max_chars cut. One
+            // entry per distinct contested parent; empty when every host was uncontested.
+            var contestedHosts = o.Created.Select(c => c.ParentHost)
+                                  .Where(h => h is not null && h.Contains("currently WINS this record", StringComparison.Ordinal))
+                                  .Distinct(StringComparer.Ordinal).ToList();
+            w.WriteStartArray("contested_parent_hosts");
+            foreach (var host in contestedHosts) w.WriteStringValue(host);
+            w.WriteEndArray();
+
             w.WriteNumber("total_created", o.Created.Count);
             w.WriteStartArray("created");
             int rendered = 0;
