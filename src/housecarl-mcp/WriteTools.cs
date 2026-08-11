@@ -704,10 +704,24 @@ public static class WriteTools
             var rec = r.Record!;
             sb.Append("  ✓ ").Append(rec.Type).Append(' ').Append(rec.FormKey)
               .Append(" — re-read clean (").Append(rec.Fields.Count).Append(" field(s))");
-            var landed = ops.Where(op => op.Target == r.Target && op.Landed is not null)
-                            .Select(op => $"{op.Label}: {op.Landed}").ToList();
+            // #308: the per-op clause is the FILE's answer when the file gave one (LandedOnDisk), and is marked as the
+            // applied edit's claim when it did not — the banner above says "re-read off the written file", and this
+            // line used to carry a memory-derived descriptor under it without saying so.
+            var mine = ops.Where(op => op.Target == r.Target).ToList();
+            var landed = mine.Where(op => (op.LandedOnDisk ?? op.Landed) is not null)
+                             .Select(op => $"{op.Label}: {op.LandedOnDisk ?? op.Landed}"
+                                         + (op.LandedOnDisk is null ? " [as applied — the re-opened file did not answer for this op]" : ""))
+                             .ToList();
             if (landed.Count > 0) sb.Append("; ").Append(string.Join("; ", landed));
             sb.Append('\n');
+            // #308 — LOUD, on its own line, and never folded into the ✓: the write succeeded and the file does NOT
+            // corroborate what an op claims to have put there (canonically a composed struct with nothing to
+            // serialize). This is the inconsistency the forced verify exists to catch, so it is stated, not implied by
+            // a count the caller would have to notice.
+            foreach (var op in mine)
+                if (op.Divergence is { } why)
+                    sb.Append("  ✗ ").Append(op.Label).Append(" — the edit was APPLIED but the written file does not carry it: ")
+                      .Append(why).Append(". The file is what the game loads: treat this op as NOT landed.\n");
         }
     }
 

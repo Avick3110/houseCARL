@@ -1558,6 +1558,13 @@ static class JsonWire
                 WriteNullable(w, "error", op.Error);
                 WriteNullable(w, "after", op.After);
                 WriteNullable(w, "landed", op.Landed);
+                // #308 — the D2 twin of the text render's file-vs-memory split. `landed` is the applied edit's own
+                // read (in memory, pre-serialize); `landed_on_disk` is the same descriptor re-derived from the WRITTEN
+                // FILE, null when the file could not answer for this op; `divergence` is non-null exactly when the two
+                // disagree about what the edited leaf now holds — a success response that must not be read as landed.
+                WriteNullable(w, "landed_on_disk", op.LandedOnDisk);
+                WriteNullable(w, "divergence", op.Divergence);
+                w.WriteBoolean("landed_verified_on_disk", op.LandedOnDisk is not null && op.Divergence is null);
                 w.WriteEndObject();
                 renderedOps++;
             }

@@ -2064,7 +2064,42 @@ public static class WriteEngine
         }
         foreach (var req in spec.Sets ?? new())
             ApplyVerb(instance, req);     // general nested writes — reuse the verb engine; recurses on struct-element Adds
+        if (EmptyComposeRefusal(spec, type, instance) is { } why) throw new ExpectedApplyRejectionException(why);
         return instance;
+    }
+
+    /// <summary>#308 — refuse a compose the caller gave NOTHING to, whose built object carries nothing to serialize.
+    /// The reported case: <c>Add Ranks compose={"type":"Rank"}</c>. Mutagen builds the Rank, the list holds it, and
+    /// the writer emits ZERO bytes for it — so the plugin does not grow, every later read shows the list still empty,
+    /// and (before this) the write reported it as landed. Q3: a write that cannot land must be refused, not reported.
+    ///
+    /// <para>Deliberately NARROW, because "would this serialize?" is Mutagen's question and not one this engine can
+    /// answer in general. It fires only when the caller supplied literally nothing — no <c>fields</c>, no nested
+    /// <c>sets</c>, no <c>ctor_args</c> — AND every SETTABLE property of the built object is null. A type with a
+    /// non-nullable member (an enum, a number, a struct) never trips it, because that member has a value and
+    /// serializes; a ctor-arg or discriminator compose never trips it, because the caller supplied the discriminator;
+    /// and read-only reflection surface (Loqui's <c>StaticRegistration</c>) is excluded, because a compose cannot set
+    /// it and it is not content. The general case — a struct that serializes to less than the caller believes — is
+    /// caught after the fact, and loudly, by <c>WritePatchBuilder.VerifyLandedAgainstFile</c>.</para>
+    ///
+    /// <para>Names what to set from the TYPE itself (settable properties, reflection-derived), never a hand-kept list
+    /// per struct — the same by-construction rule the rest of the write surface follows.</para></summary>
+    static string? EmptyComposeRefusal(StructSpec spec, Type type, object instance)
+    {
+        if (spec.CtorArgs is not null || spec.Fields is { Count: > 0 } || spec.Sets is { Count: > 0 }) return null;
+        var settable = type.GetProperties().Where(p => p is { CanRead: true, CanWrite: true }).ToList();
+        if (settable.Count == 0) return null;                      // nothing to advise; not this check's case
+        foreach (var p in settable)
+        {
+            object? v;
+            try { v = p.GetValue(instance); } catch { return null; }   // unreadable ⇒ can't claim emptiness (Q3)
+            if (v is not null) return null;                        // it carries something — let the write proceed
+        }
+        return $"compose type='{spec.Type}' was given no fields, and a {spec.Type} built from nothing has no " +
+               "serializable content: it would be added in memory and written as ZERO bytes, leaving the list " +
+               "unchanged on disk while the call reported success (#308). Name at least one field — e.g. " +
+               $"compose={{\"type\":\"{spec.Type}\",\"fields\":{{\"{settable[0].Name}\":\"<value>\"}}}}. Settable " +
+               $"fields on {spec.Type}: {string.Join(", ", settable.Select(p => p.Name))}.";
     }
 
     /// <summary>Resolve a struct catalog name to its concrete settable type. Most modeled structs live in
