@@ -4548,7 +4548,8 @@ public sealed class LoadOrderService : IDisposable
     /// That is a structural invariant, NOT the mid-call race #317 was filed as: a write pins one resolver instance and
     /// its name table is never rebuilt, so the two captures cannot disagree about membership today. The helper's own
     /// doc carries the full statement.</para>
-    /// <para>MUTATES <paramref name="edits"/> before doing anything else (#321): a CopyFrom source addressed by a PATH
+    /// <para>MUTATES <paramref name="edits"/> — after the no-CopyFrom early return and this helper's own capture,
+    /// and before anything READS an edit (#321): a CopyFrom source addressed by a PATH
     /// that names the very file the order LOADS is re-spelled to that plugin's NAME
     /// (<see cref="RespellActiveCopySourcePaths"/>). Stated here rather than left to the reader because a
     /// <c>Resolve…</c> helper rewriting its argument is a surprise — the alternative was a second

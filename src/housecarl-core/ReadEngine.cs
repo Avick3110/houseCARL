@@ -400,7 +400,7 @@ public static class ReadEngine
         if (val is null) { Emit(sink, ref budget, new FieldValue(path, false, null, leaf.Note, Present: false)); return; }
         // a link (incl. a null FormKey, or an FLOI) is a note, not an openable container/substruct.
         if (val is IFormLinkGetter || WriteEngine.IsFormLinkOrIndex(Nullable.GetUnderlyingType(declaredType) ?? declaredType))
-        { Emit(sink, ref budget, new FieldValue(path, false, null, leaf.Note)); return; }
+        { Emit(sink, ref budget, new FieldValue(path, false, null, leaf.Note, Present: leaf.Present)); return; }
 
         // Classify dict-vs-list the SAME way the navigation does (StepIntoElement) — by the GENERIC dictionary
         // interfaces via ClosedInterface, not a separate non-generic System.Collections.IDictionary cast — so the
@@ -1096,7 +1096,12 @@ public static class ReadEngine
             count = n;
             return $"[{(isDict ? "dict" : "list")}: {n} {(isDict ? "pair(s)" : "item(s)")}]";
         }
-        return $"[{RecordNaming.StripGetterInterface(val.GetType().Name)}]";
+        // StripOverlay as well as StripGetterInterface, matching ElementSummary (review [medium]): a binary overlay
+        // loads WeaponBasicStatsBinaryOverlay for the same type a mutable record calls WeaponBasicStats, and this
+        // summary is what the in-place verify prints for a substruct leaf read off the WRITTEN FILE. Without it the
+        // response says "-> [WeaponBasicStats]" in its edit list and "[WeaponBasicStatsBinaryOverlay]" two lines
+        // below, which reads as two halves disagreeing, and leaks an implementation name into a user-facing line.
+        return $"[{RecordNaming.StripGetterInterface(RecordNaming.StripOverlay(val.GetType().Name))}]";
     }
 
     /// <summary>The modeled field names for the whole-record dump. Prefer the CORPUS — the authoritative

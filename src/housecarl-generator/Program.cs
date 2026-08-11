@@ -8,7 +8,7 @@ using HousecarlGenerator;
 //
 // Usage:  dotnet run --project src/housecarl-generator [outputDir]   (default: ./generated)
 //         An unrecognised FIRST argument is refused, not read as [outputDir] — so an output directory must be
-//         rooted, carry a separator, or already exist. Anything else is a mode name, and an unknown one exits 2.
+//         rooted, carry a separator, or be "." / "..". Anything else is a mode name, and an unknown one exits 2.
 
 // CI optimization Phase 2B: run EVERY CI probe in ONE process (the big Mutagen assembly loads + JITs once;
 // the schema corpus reflects once via CorpusGenerator's memoize). Replaces the per-probe ci.yml steps with one
@@ -275,11 +275,13 @@ if (args.Length > 0 && !IsDirectoryArgument(args[0]))
     Console.Error.WriteLine("CI guards in the registry (`ci-all` runs these; freshness-capture-guard is a CI step of its own):");
     foreach (var name in CiAll.ProbeNames) Console.Error.WriteLine("  " + name);
     Console.Error.WriteLine();
-    Console.Error.WriteLine("Other modes are the manual/exploratory harnesses declared in src/housecarl-generator/Program.cs.");
-    // State the RULE, not just the intent: a bare relative name that does not already exist is read as a mode, so
-    // "pass a directory path" alone would be advice the caller has already followed (review [low]).
-    Console.Error.WriteLine("To GENERATE the corpus into a directory, pass a path that is rooted (C:\\…), carries a");
-    Console.Error.WriteLine("separator (./out) — a BARE name is always read as a mode, even if a folder of that name exists.");
+    Console.Error.WriteLine("Other modes are the manual/exploratory harnesses declared in src/housecarl-generator/Program.cs");
+    Console.Error.WriteLine("(they are not in the suggestion pool above — only the CI registry is).");
+    // State the RULE, not just the intent: "pass a directory path" alone is advice a caller who typed one has
+    // already followed, and the accepted spellings are not guessable (reviews [low], twice).
+    Console.Error.WriteLine("To GENERATE the corpus into a directory, pass a path that is ROOTED (C:\\…), carries a");
+    Console.Error.WriteLine("SEPARATOR (./out), or is \".\" / \"..\" — a BARE name is always read as a mode, even if a");
+    Console.Error.WriteLine("folder of that name exists (that clause is what let a mistyped mode write into ./plugin).");
     Console.Error.WriteLine("With no argument at all it generates into ./generated.");
     return 2;
 }
