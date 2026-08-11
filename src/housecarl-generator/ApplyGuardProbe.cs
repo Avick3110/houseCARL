@@ -129,32 +129,42 @@ public static class ApplyGuardProbe
             && op0.TryGetProperty("landed_verification", out var lv) && lv.GetString() == "verified"
             && op0.TryGetProperty("divergence", out var dv) && dv.ValueKind == JsonValueKind.Null, withField);
 
-        // The comparator's own semantics (unit): a moved COUNT is a divergence and says so in counts; equal content
-        // is not; and an absent side is never evidence — the file failing to answer must not read as "it's wrong".
+        // The comparator's own semantics (unit). The tokens below are the ones ReadEngine really emits — an absent
+        // leaf reads "(absent)", NEVER "", which is the whole reason an earlier draft's vanish check could not fire.
+        // Two of these pin the detector against WIDENING (a text difference must not become a verdict) and say so;
+        // the rest pin the two rules it does claim.
+        string? Div(string? mem, bool memHas, string? disk, bool diskHas) => WritePatchBuilder.LeafDivergence(mem, memHas, disk, diskHas);
         Check("comparator: 1 element in memory vs 0 in the file is a divergence, reported as counts",
-            WritePatchBuilder.LeafDivergence("[list: 1 item(s)]", "[list: 0 item(s)]") is { } d
+            Div("[list: 1 item(s)]", false, "[list: 0 item(s)]", false) is { } d
             && d.Contains("1 element(s) in memory", StringComparison.Ordinal) && d.Contains("carries 0", StringComparison.Ordinal),
-            WritePatchBuilder.LeafDivergence("[list: 1 item(s)]", "[list: 0 item(s)]"));
+            Div("[list: 1 item(s)]", false, "[list: 0 item(s)]", false));
         Check("comparator: identical readings are NOT a divergence, and an unanswered side never is either",
-            WritePatchBuilder.LeafDivergence("[list: 1 item(s)]", "[list: 1 item(s)]") is null
-            && WritePatchBuilder.LeafDivergence("99", null) is null
-            && WritePatchBuilder.LeafDivergence(null, "99") is null);
+            Div("[list: 1 item(s)]", false, "[list: 1 item(s)]", false) is null
+            && Div("99", true, null, false) is null
+            && Div(null, false, "99", true) is null);
         // A substruct leaf renders its TYPE name, and the mutable record and the binary overlay name it differently
-        // ([WeaponBasicStats] vs [WeaponBasicStatsBinaryOverlay]) — so a text compare accused every `Set <substruct>`
-        // of not landing. Same class as the Percent one below, found by a different reviewer in the same round.
+        // ([WeaponBasicStats] vs [WeaponBasicStatsBinaryOverlay]) — a text compare accused every `Set <substruct>` of
+        // not landing. Both sides HAVE content, so the presence rule is silent: this pins that, against widening.
         Check("comparator: a substruct leaf the overlay names differently is NOT a divergence",
-            WritePatchBuilder.LeafDivergence("[WeaponBasicStats]", "[WeaponBasicStatsBinaryOverlay]") is null,
-            WritePatchBuilder.LeafDivergence("[WeaponBasicStats]", "[WeaponBasicStatsBinaryOverlay]"));
-        // The false-alarm bound, and the reason the scalar text compare was dropped: Percent is byte-quantised, so a
-        // correct `Set ChanceNone value="0.123"` reads back 0.12 off the file. Calling that "NOT landed" instructs a
-        // re-issue that diverges identically forever — the wrong-answer class this detector exists to close, mirrored.
+            Div("[WeaponBasicStats]", false, "[WeaponBasicStatsBinaryOverlay]", false) is null,
+            Div("[WeaponBasicStats]", false, "[WeaponBasicStatsBinaryOverlay]", false));
+        // Percent is byte-quantised, so a correct `Set ChanceNone value="0.123"` reads back 0.12 off the file.
+        // Calling that "NOT landed" instructs a re-issue that diverges identically forever.
         Check("comparator: a value the FORMAT rounds (0.123 -> 0.12, a byte-quantised Percent) is NOT a divergence",
-            WritePatchBuilder.LeafDivergence("0.123", "0.12") is null,
-            WritePatchBuilder.LeafDivergence("0.123", "0.12"));
-        Check("comparator: content that VANISHED still is one, and the wording names the localized-strings caveat",
-            WritePatchBuilder.LeafDivergence("Winner Sword", "") is { } gone
-            && gone.Contains("carries nothing there", StringComparison.Ordinal)
-            && gone.Contains("LOCALIZED", StringComparison.Ordinal), WritePatchBuilder.LeafDivergence("Winner Sword", ""));
+            Div("0.123", true, "0.12", true) is null, Div("0.123", true, "0.12", true));
+        // THE VANISH RULE, on the tokens the reader actually produces: a value that became nothing, and a nullable
+        // LIST whose subrecord never got written (it reads "(absent)", not "[list: 0 item(s)]", so the count arm
+        // cannot see it — the case the first draft of this rule missed for every leaf but a non-nullable list).
+        Check("comparator: a scalar that became NOTHING is a divergence, with the localized-strings caveat named",
+            Div("Winner Sword", true, "(absent)", false) is { } gone
+            && gone.Contains("carries no value there", StringComparison.Ordinal)
+            && gone.Contains("LOCALIZED", StringComparison.Ordinal), Div("Winner Sword", true, "(absent)", false));
+        Check("comparator: a nullable LIST that reads (absent) on disk is a divergence too",
+            Div("[list: 1 item(s)]", false, "(absent)", false) is not null,
+            Div("[list: 1 item(s)]", false, "(absent)", false));
+        Check("comparator: a list the call legitimately EMPTIED is not — an emptied list and a dropped subrecord agree",
+            Div("[list: 0 item(s)]", false, "(absent)", false) is null,
+            Div("[list: 0 item(s)]", false, "(absent)", false));
 
         // MULTI-OP, end-to-end: two Adds to ONE list in ONE in-place call. Both land; the file carries both. The
         // earlier op's reading was taken between them, so comparing it against the final file state accused a correct

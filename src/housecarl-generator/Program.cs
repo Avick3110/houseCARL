@@ -272,7 +272,7 @@ if (args.Length > 0 && !IsDirectoryArgument(args[0]))
     if (HousecarlCore.PluginNameSuggest.DidYouMean(args[0], CiAll.ProbeNames).TrimStart(' ', '—') is { Length: > 0 } near)
         Console.Error.WriteLine(near);
     Console.Error.WriteLine();
-    Console.Error.WriteLine("CI guards (the one registry — `ci-all` runs them all):");
+    Console.Error.WriteLine("CI guards in the registry (`ci-all` runs these; freshness-capture-guard is a CI step of its own):");
     foreach (var name in CiAll.ProbeNames) Console.Error.WriteLine("  " + name);
     Console.Error.WriteLine();
     Console.Error.WriteLine("Other modes are the manual/exploratory harnesses declared in src/housecarl-generator/Program.cs.");

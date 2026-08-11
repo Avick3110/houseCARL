@@ -177,6 +177,9 @@ public static class WriteSurfaceGuardProbe
             var topic = m.DialogTopics.AddNew();
             topic.EditorID = "W2Topic";
             topic.Name = "Master Topic";
+            // …carrying a CHILD of its own, so the arm can answer what the host override does to the parent's child
+            // list — not just its fields. The winner adds a second child below.
+            topic.Responses.Add(new DialogResponses(m.GetNextFormKey(), SkyrimRelease.SkyrimSE) { EditorID = "W2MasterLine" });
             m.BeginWrite.ToPath(masterPath).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
 
             var r = new SkyrimMod(rKey, SkyrimRelease.SkyrimSE);
@@ -193,6 +196,7 @@ public static class WriteSurfaceGuardProbe
             var topicOverride = (IDialogTopic)WriteEngine.GenericGetOrAddAsOverride(r, topic);
             topicOverride.Name = "Winner Topic";
             topicOverride.Quest.SetTo(winnerQuest.FormKey);
+            topicOverride.Responses.Add(new DialogResponses(r.GetNextFormKey(), SkyrimRelease.SkyrimSE) { EditorID = "W2WinnerLine" });
             r.BeginWrite.ToPath(replPath).WithLoadOrder(new ISkyrimModGetter[] { m }).Write();
 
             // --- W3 PR 2b: the OFF-ORDER source. A DISABLED mod folder (modlist '-W2Off'), absent from loadorder.txt
@@ -973,10 +977,36 @@ public static class WriteSurfaceGuardProbe
             path is not null && TopicNameIn(path!, fx.TopicKey) == "Master Topic",
             $"{made}  [topic name={(path is null ? "no artifact" : TopicNameIn(path, fx.TopicKey) ?? "unreadable")}]");
 
+        // WHAT THE HOST OVERRIDE DOES TO THE PARENT'S CHILD LIST — measured, not assumed, because a full-record copy
+        // that dragged the parent's children along would make "hosts from the definer" a far wider revert than fields
+        // alone (it would assert the DEFINER's child list wherever the artifact out-ranks the winner). It does not:
+        // the artifact's child group carries ONLY the new record, which is also why adding a line to a topic — or a
+        // ref to a cell — does not fight other mods' additions. This bounds the #300 trade to the parent's own FIELDS.
+        var children = ChildLinesIn(path!, fx.TopicKey);
+        Check("…and the host carries ONLY the new child — not the definer's existing lines, and not the winner's",
+            children.Count == 1 && children[0] == "W2HostedLine", string.Join(", ", children));
+
         Check("…and the render REPORTS which plugin's version hosted the child (the choice is invisible afterwards)",
             made.Contains("parent: ", StringComparison.Ordinal)
             && made.Contains("DEFINING plugin", StringComparison.Ordinal)
             && made.Contains(fx.MasterName, StringComparison.OrdinalIgnoreCase), made);
+    }
+
+    /// <summary>Every child line the written plugin's copy of the topic carries — #300's "whose CHILDREN did the host
+    /// copy" probe (a full-record override may bring the parent's child list with it, which widens the trade).</summary>
+    static List<string> ChildLinesIn(string espPath, FormKey fk)
+    {
+        var found = new List<string>();
+        ISkyrimModGetter? ov = null;
+        try
+        {
+            ov = SkyrimMod.CreateFromBinaryOverlay(espPath, SkyrimRelease.SkyrimSE);
+            foreach (var r in ov.DialogTopics.FirstOrDefault(d => d.FormKey == fk)?.Responses ?? Enumerable.Empty<IDialogResponsesGetter>())
+                found.Add(r.EditorID ?? r.FormKey.ToString());
+        }
+        catch { found.Add("(unreadable)"); }
+        finally { (ov as IDisposable)?.Dispose(); }
+        return found;
     }
 
     /// <summary>The topic's Name as the written plugin carries it — #300's "whose fields did the host copy" probe.</summary>
