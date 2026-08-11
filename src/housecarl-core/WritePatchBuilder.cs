@@ -120,7 +120,9 @@ public static class WritePatchBuilder
     /// <param name="HasValue">The leaf holds a scalar/link VALUE.</param>
     /// <param name="Present">Something is there — a value, or a container/substruct that exists.</param>
     /// <param name="Count">Elements, for a container leaf (0 = present but EMPTY); null for a value or a substruct.</param>
-    public readonly record struct LeafPresence(bool HasValue, bool Present, int? Count)
+    /// <param name="Readable">False when the read FAILED rather than found nothing — "I could not look" is not
+    /// evidence of absence, and treating it as such told a caller a correct write was lost (review [low]).</param>
+    public readonly record struct LeafPresence(bool HasValue, bool Present, int? Count, bool Readable = true)
     {
         /// <summary>Is there CONTENT? A value, a non-empty container, or a present substruct. An EMPTY container is
         /// deliberately not content: an emptied list and a dropped subrecord say the same thing, so a call that
@@ -2776,7 +2778,7 @@ public static class WritePatchBuilder
         // createdByEditorId before applying its edits, so the substitution timing already holds). A forward-ref to a
         // LATER sibling still rejects loud.
         var priorEditorIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var parentPlans = new List<(IMajorRecordGetter? body, string? winnerPlugin, string? sibling, IMajorRecord? patchParent)?>(specs.Count);
+        var parentPlans = new List<(IMajorRecordGetter? body, string? sourcePlugin, string? sibling, IMajorRecord? patchParent)?>(specs.Count);
         // #300 — per-spec provenance of the parent override this create had to host the child in. Reported (Q3): which
         // plugin's version was copied is a decision the caller did not make and cannot see in the record afterwards.
         var parentHosts = new string?[specs.Count];
@@ -2974,8 +2976,8 @@ public static class WritePatchBuilder
                 Mutagen.Bethesda.Plugins.Cache.ILinkCache? cache = null;
                 if (WriteEngine.RecordNeedsSourceCache(plan.body))
                 {
-                    if (!linkCacheByPlugin.TryGetValue(plan.winnerPlugin!, out cache))
-                        linkCacheByPlugin[plan.winnerPlugin!] = (cache = session.LinkCacheFor(plan.winnerPlugin!))!;
+                    if (!linkCacheByPlugin.TryGetValue(plan.sourcePlugin!, out cache))
+                        linkCacheByPlugin[plan.sourcePlugin!] = (cache = session.LinkCacheFor(plan.sourcePlugin!))!;
                 }
                 return (WriteEngine.GenericGetOrAddAsOverride(patchMod, plan.body, cache), null);
             }
@@ -3467,6 +3469,10 @@ public static class WritePatchBuilder
     internal static string? LeafDivergence(string? inMemory, LeafPresence memory, string? onDisk, LeafPresence disk)
     {
         if (inMemory is null || onDisk is null) return null;
+        // An UNREADABLE side is not evidence either — which is what this method's own doc has always said, while the
+        // code counted it as absence (review [low]): a leaf whose read threw, or a field the type does not have,
+        // reads valueless and would have produced "a lost write … check it in xEdit".
+        if (!memory.Readable || !disk.Readable) return null;
         if (string.Equals(inMemory, onDisk, StringComparison.Ordinal)) return null;
         if (memory.Count is { } memCount && disk.Count is { } diskCount)
             return memCount == diskCount
@@ -3504,7 +3510,7 @@ public static class WritePatchBuilder
             // The presence PAIR rides along because it is the structural fact the tokens hide: a container summary, a
             // substruct summary and an ABSENT leaf all render as notes, and the divergence detector must not read
             // prose to decide whether anything is there.
-            return (after, landed, new LeafPresence(f.HasValue, f.Present, f.Count));
+            return (after, landed, new LeafPresence(f.HasValue, f.Present, f.Count, f.Readable));
         }
         catch { return (null, null, default); }
     }

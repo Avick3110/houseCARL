@@ -204,6 +204,26 @@ public static class ApplyGuardProbe
             divergedJson.Contains("\"landed_verification\": \"diverged\"", StringComparison.Ordinal)
             && divergedJson.Contains("WRITTEN FILE carries 0", StringComparison.Ordinal), divergedJson);
 
+        // THE READ-SURFACE HALF, pinned because reverting it left all 117 probes green (review [low]): a substruct
+        // leaf read off a BINARY OVERLAY must render the modelled type name, not Mutagen's implementation class. This
+        // is what the verify prints for a `Set <substruct>`, and it is read straight off the written file — so
+        // without the strip the same response says "[WeaponBasicStats]" in its edit list and
+        // "[WeaponBasicStatsBinaryOverlay]" two lines below. Driven through the real reader on a real overlay.
+        ISkyrimModGetter? ovr = null;
+        try
+        {
+            ovr = SkyrimMod.CreateFromBinaryOverlay(fx.ReplacerPath, SkyrimRelease.SkyrimSE);
+            var subj = ovr.Weapons.FirstOrDefault(w => w.FormKey == fx.SubjectKey);
+            var token = subj is null ? null
+                : ReadEngine.ReadFields(subj, new[] { "BasicStats" }).Fields.FirstOrDefault()?.Note;
+            // Asserted on the TYPE NAME, not the whole note: the reader appends its own "pass depth=2" hint, and
+            // pinning that too would make this arm fail on an unrelated wording change.
+            Check("a SUBSTRUCT leaf read off the written file renders the modelled type, not the overlay class",
+                token is not null && token.StartsWith("[WeaponBasicStats]", StringComparison.Ordinal)
+                && !token.Contains("BinaryOverlay", StringComparison.Ordinal), token ?? "(no read)");
+        }
+        finally { (ovr as IDisposable)?.Dispose(); }
+
         // MULTI-OP, end-to-end: two Adds to ONE list in ONE in-place call. Both land; the file carries both. The
         // earlier op's reading was taken between them, so comparing it against the final file state accused a correct
         // write of not landing — the defect a review reproduced in this fixture after the arm's own doc claimed it

@@ -738,9 +738,11 @@ public static class WriteTools
     static string LandedProvenance(WritePatchBuilder.OpResult op) =>
         op.SupersededInCall ? " [as applied — a later op in this call wrote the same field; the file shows that op's result]"
         : op.LandedOnDisk is not null ? ""
-        // The same three-way split json makes, for the same reason (review [low], both rounds): asserting the file was
-        // re-opened and could not answer, on a call where the verify never ran, is a claim about a read that did not
-        // happen. Reachable — the compare pass has its own catch, which leaves every op unattempted.
+        // The same split json makes, for the same reason: asserting the file was re-opened and could not answer, on a
+        // call where the verify never ran, is a claim about a read that did not happen. The first arm is the reachable
+        // one — the compare pass's own catch marks its ops ATTEMPTED-and-unanswered. The second is defensive: every
+        // in-place op the verify reached is attempted, and the ops it does not reach (the appended SNAM syncs) carry
+        // no Landed and are filtered out of this clause upstream, so no product path reaches it today (review [nit]).
         : op.VerifyAttempted ? " [as applied — the re-opened file did not answer for this op]"
         : " [as applied — this lane ran no file check]";
 
@@ -752,7 +754,12 @@ public static class WriteTools
     {
         foreach (var op in ops)
             if (op.Divergence is { } why)
-                sb.Append("  ✗ ").Append(op.Label).Append(" — the edit was APPLIED but the written file does not carry it: ")
+                // NAMES THE RECORD (review [medium]): op.Label is "{Verb} {path}" and nothing else, so a bulk in-place
+                // over 40 NPCs with a divergence on 3 of them printed three byte-identical lines and the caller could
+                // not tell which records to re-check. The json twin has carried formid since it was hoisted; this is
+                // that D2 gap closed on the side a human actually reads.
+                sb.Append("  ✗ ").Append(op.RecordType).Append(' ').Append(op.Target).Append("  ").Append(op.Label)
+                  .Append(" — the edit was APPLIED but the written file does not carry it: ")
                   .Append(why).Append(". The file is what the game loads: treat this op as NOT landed.\n");
     }
 

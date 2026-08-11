@@ -13,7 +13,9 @@ banner saying every edited record was re-read off the file on disk — but the p
 now 1 (+1)`") was read from memory *before* the file was written. When a composed structure exists in memory and
 serializes to nothing — a Faction `Rank` composed with no fields is the reported case — the plugin didn't grow, the
 list stayed empty, and the call still reported the addition as landed; it cost the reporter three more debugging
-rounds on a live mod. That clause now comes off the re-opened file. If the file and the applied edit disagree, the
+rounds on a live mod. That clause now comes off the re-opened file — for the op that last touched a given field in
+the call; an earlier op on the same field is marked as the applied edit's own reading, because the file holds the
+state after all of them and cannot answer for a middle one. If the file and the applied edit disagree, the
 response says so **loudly** on its own line and tells you to treat the op as not landed, instead of leaving you to
 notice a count. In JSON the two are separate facts: `landed` (what the edit did in memory), `landed_on_disk` (what
 the file carries), `divergence`, and `landed_verification` (`verified` / `diverged` / `superseded` / `no_answer` /
@@ -24,6 +26,12 @@ used to work is refused with it:** composing an empty value and then filling its
 call*. The check runs as the value is built and cannot see the ops after it, and the lane is all-or-nothing, so the
 whole call is refused — the message says so and points at the one-op form (compose it *with* its fields), which cannot
 half-land either way.
+
+**Reads show the modelled type name for a sub-structure, never Mutagen's internal one.** A field like a weapon's
+`BasicStats` read off a plugin on disk rendered as `[WeaponBasicStatsBinaryOverlay]` — the class houseCARL happens to
+load — while the same field read from a record being edited said `[WeaponBasicStats]`. Same field, two names, and one
+of them is an implementation detail. It now always reads `[WeaponBasicStats]`, in every read tool and in the in-place
+write verify (where the two used to appear in a single response, two lines apart, looking like a disagreement).
 
 **Fixed: adding a record inside an existing cell (or topic) no longer drags in the mod that wins it (#300).** Placing
 a new reference into a vanilla cell pulled the cell's *load-order winner* into your patch — so a lighting overhaul

@@ -32,8 +32,10 @@ namespace HousecarlCore;
 /// that vanished as "verified".</param>
 /// <param name="Count">Element count for a container leaf (0 = present but EMPTY); null for a value or a substruct,
 /// neither of which has one. Surfaced from <c>LeafRead.ContainerCount</c>, which already carried it.</param>
+/// <param name="Readable">False when the read FAILED (a throw, or no such field) rather than finding nothing — an
+/// unreadable leaf looks absent and is not evidence of absence.</param>
 public sealed record FieldValue(string Path, bool HasValue, string? Token, string? Note, string? Display = null, ResolvedRef? Link = null,
-                                bool Present = true, int? Count = null);
+                                bool Present = true, int? Count = null, bool Readable = true);
 
 /// <summary>The resolved identity of a form reference — the shared contract behind housecarl_resolve (P3, a full
 /// row) and the resolve_names field annotation (P7). <see cref="Resolved"/> false ⇒ the FormKey is valid but not
@@ -86,7 +88,7 @@ public static class ReadEngine
     /// (named bits → "Body"; an unnamed modder slot → "8388608"). The <see cref="Token"/> is unchanged — the
     /// round-trip oracle still drives the same display token — so this is invisible to read/write/diff.</para></summary>
     internal readonly record struct LeafRead(bool HasValue, string Token, string? Note, FlagBits? Flags = null, int? ContainerCount = null,
-                                             bool Present = true)
+                                             bool Present = true, bool Readable = true)
     {
         public static LeafRead Value(string token) => new(true, token, null);
         public static LeafRead FlagsValue(string token, FlagBits bits) => new(true, token, null, bits);
@@ -95,6 +97,11 @@ public static class ReadEngine
         /// deciding presence: both render as a parenthesised note, so telling them apart from the note text alone
         /// means parsing prose (the #308 divergence detector did, and missed a vanished substruct entirely).</summary>
         public static LeafRead None(string note) => new(false, "", note, null, null, Present: false);
+
+        /// <summary>The read FAILED — a throw at navigation, or a field the type does not have. Absent-looking, but
+        /// not evidence of ABSENCE: a caller deciding whether content vanished must not read "I could not look" as
+        /// "there is nothing there" (#308's verify did, and told the caller a correct write was lost).</summary>
+        public static LeafRead Unreadable(string note) => new(false, "", note, null, null, Present: false, Readable: false);
         /// <summary>A no-value CONTAINER/substruct summary carrying its element <paramref name="count"/>: null for a
         /// substruct (present by being non-null — no element count), a number for a list/dict (0 = present-but-EMPTY).
         /// The count is additive metadata for the presence predicate (<c>exists</c>/<c>missing</c>), which must tell
@@ -217,7 +224,8 @@ public static class ReadEngine
                 // FieldsDiff runs never sees the hint (it reads at expansion depth, a different summary path).
                 // The hint text is the caller's (containerHint): depth=2 is only a real knob on some surfaces.
                 if (note is { Length: > 0 } && note[0] == '[' && !string.IsNullOrEmpty(containerHint)) note += containerHint;
-                fields.Add(new FieldValue(p, r.HasValue, r.HasValue ? r.Token : null, note, FlagDisplay(r), Present: r.Present, Count: r.ContainerCount));
+                fields.Add(new FieldValue(p, r.HasValue, r.HasValue ? r.Token : null, note, FlagDisplay(r),
+                                          Present: r.Present, Count: r.ContainerCount, Readable: r.Readable));
             }
         }
         else
@@ -246,7 +254,7 @@ public static class ReadEngine
             {
                 var (segName, segKey) = WriteEngine.ParseSegment(path[i]);
                 var p = WriteEngine.ResolveProperty(current!.GetType(), segName);
-                if (p is null) return LeafRead.None(NoFieldNote(current, segName, i > 0 ? WriteEngine.ParseSegment(path[i - 1]).name : null));
+                if (p is null) return LeafRead.Unreadable(NoFieldNote(current, segName, i > 0 ? WriteEngine.ParseSegment(path[i - 1]).name : null));
                 current = segKey is null
                     ? p.GetValue(current)                                  // descend a substruct (read-only)
                     : WriteEngine.StepIntoElement(current, p, segName, segKey); // collnav (handles IReadOnly*)
@@ -255,7 +263,7 @@ public static class ReadEngine
 
             var (leafName, leafKey) = WriteEngine.ParseSegment(path[^1]);
             var leaf = WriteEngine.ResolveProperty(current!.GetType(), leafName);
-            if (leaf is null) return LeafRead.None(NoFieldNote(current, leafName, path.Length >= 2 ? WriteEngine.ParseSegment(path[^2]).name : null));
+            if (leaf is null) return LeafRead.Unreadable(NoFieldNote(current, leafName, path.Length >= 2 ? WriteEngine.ParseSegment(path[^2]).name : null));
             if (leafKey is not null)
             {
                 // The leaf brackets a collection element (Keywords[0]) — step in and emit the element.
@@ -264,7 +272,7 @@ public static class ReadEngine
             }
             return EmitToken(leaf.GetValue(current), leaf.PropertyType, current);
         }
-        catch (Exception ex) { return LeafRead.None($"(unreadable: {ex.Message})"); }
+        catch (Exception ex) { return LeafRead.Unreadable($"(unreadable: {ex.Message})"); }
     }
 
     /// <summary>The FormKeys on a record's <c>Keywords</c> list — the ONE keyword walk (previously
