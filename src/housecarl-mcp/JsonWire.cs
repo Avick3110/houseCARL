@@ -1549,6 +1549,11 @@ static class JsonWire
             // reassurance in the one case #308 exists to catch. These rows are few (one per un-landed op) and are the
             // json twin of a statement the text render already refuses to let a cut remove.
             var diverged = o.Ops.Where(op => op.Divergence is not null).ToList();
+            // `verify_ran` beside the count (review [low]): a patch-lane or dry-run document also carries
+            // "diverged_ops": 0, and a consumer branching on that alone reads "nothing diverged" where the truth is
+            // "nothing was checked". The per-op word says so too, but only past the max_chars cut this hoist exists
+            // to survive.
+            w.WriteBoolean("verify_ran", o.Ops.Any(op => op.VerifyAttempted));
             w.WriteNumber("diverged_ops", diverged.Count);
             w.WriteStartArray("divergences");
             foreach (var op in diverged)
@@ -1587,12 +1592,16 @@ static class JsonWire
                 // this call wrote the same field, so the file cannot answer for this one · "no_answer" the re-opened
                 // file did not yield this op's leaf · "not_checked" this op was never ASKED — a lane that runs no
                 // file-verify (patch, dry run), or an op appended after the resolved edits (the SNAM topic-marker
-                // sync) on a lane that did verify.
+                // sync) on a lane that did verify · "not_comparable" the file answered but the applied edit's own
+                // read did not, so there was nothing to compare it against.
                 // The text render's own suffixes are the D2 twin of these.
                 w.WriteString("landed_verification",
                     op.Divergence is not null ? "diverged"
                     : op.SupersededInCall ? "superseded"
-                    : op.LandedOnDisk is not null ? "verified"
+                    // "verified" needs BOTH sides: if the applied edit's own read failed (After null) nothing was
+                    // compared, and reporting the file as agreeing is the overclaim this PR exists to remove.
+                    : op.LandedOnDisk is not null && op.After is not null ? "verified"
+                    : op.LandedOnDisk is not null ? "not_comparable"
                     // From the OP's own fact, never inferred from the lane: an in-place dry run re-opens nothing, and an
                     // op appended after the edits (the SNAM sync) was never asked about — both were read as
                     // "no_answer", which asserts a file was re-opened and could not answer (review).
