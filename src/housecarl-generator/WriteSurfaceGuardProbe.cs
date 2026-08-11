@@ -1000,45 +1000,50 @@ public static class WriteSurfaceGuardProbe
             && made.Contains("currently WINS this record", StringComparison.Ordinal)
             && made.Contains("out-ranks", StringComparison.Ordinal)
             && made.Contains("inlined", StringComparison.Ordinal), made);
+        // …and the ORDER, which is the load-bearing half of that lever (#324). The first wording said only "forward
+        // the winner's version in explicitly", which is the measured-DESTRUCTIVE operation; a future edit that
+        // trims back to it would ship data-loss advice again and every other assertion here would stay green. The
+        // safe order is proven below, but the SENTENCE is what a caller acts on, so the sentence gets its own pin.
+        Check("…and the inlining lever names the SAFE order and marks the other one destructive",
+            made.Contains("forward its version into a patch FIRST", StringComparison.Ordinal)
+            && made.Contains("deletes the child", StringComparison.Ordinal)
+            && made.Contains("#324", StringComparison.Ordinal), made);
 
-        // THE PRINTED REMEDY, RUN RATHER THAN ARGUED (PR #323 review [medium]). The message above tells the caller to
-        // "forward '<winner>'s version in explicitly if you want its content inlined" — advice this branch shipped
-        // without ever executing it. It is not obviously safe: ForwardRecords on an EXTEND does drop-then-copy — the
-        // whole record is Remove()d, then the source body copied in (HCBR-2026-07-08-01 F1, where GetOrAdd's
-        // get-semantics silently SKIPPED the copy instead) — and the arm above establishes that
-        // GenericGetOrAddAsOverride does not carry children in. So if the drop takes the host's child GROUP with it,
-        // the copy cannot put it back and the printed advice DESTROYS the record the create just placed. One
-        // decidable question, one probe: create a child into a contested parent, forward the winner into the same
-        // patch, read the child group back. Both poles asserted, so a regression either way fails an arm.
-        var patchFile = Path.GetFileName(path!);
-        var inlined = ForwardTools.Forward(fx.Svc, formids: new[] { fx.TopicFid }, source: fx.ReplacerName, into: patchFile);
-        Check("…and the remedy the message prints — forward the winner into the same patch — is accepted",
-            inlined.StartsWith("extended ", StringComparison.Ordinal), inlined);
-
-        Check("…and it does what it says: the winner's FIELDS are now inlined in the host",
-            TopicNameIn(path!, fx.TopicKey) == "Winner Topic",
-            $"{inlined}  [topic name={TopicNameIn(path!, fx.TopicKey) ?? "unreadable"}]");
-
-        // THE ANSWER, AND IT IS THE BAD ONE — THIS ARM IS DEPLOYED RED ON PURPOSE. Measured 2026-08-11: after the
-        // forward the patch's child group is EMPTY and the whole file holds one record, the topic. `W2HostedLine` is
-        // not orphaned or re-parented — it is GONE, and the forward reported success ("extended …"). So the remedy
-        // the contested message prints destroys the record the create just placed.
+        // THE REMEDY THE MESSAGE PRINTS, MEASURED RATHER THAN REASONED — because it is user-facing text telling a
+        // caller to run a write, and the FIRST wording of it was measured FALSE (PR #323 review [medium]).
         //
-        // The destruction is NOT this branch's: the drop-then-copy landed 2026-07-09 (e8363de, HCBR-2026-07-08-01 F1)
-        // and the branch does not touch it. `forward into=` has always dropped the whole record before re-copying,
-        // and `GenericGetOrAddAsOverride` carries no children in (the arm above), so ANY forward into a patch that
-        // holds children under the forwarded record silently loses them — placed refs under a cell, INFOs under a
-        // topic. What #300 added is a signpost pointing callers straight at it.
+        // What was measured false: create the child, THEN forward the winner into the SAME patch. That DESTROYS the
+        // child. `forward`'s extend path drops the whole record before re-copying it (drop-then-copy, so a collision
+        // can't silently skip the copy — HCBR-2026-07-08-01 F1) and the child group goes with the drop, while
+        // `GenericGetOrAddAsOverride` carries none back in (the arm above). The probe left the patch holding one
+        // record, the topic, with the forward reporting success. That is a `forward` defect on BOTH its into= and
+        // in_place= lanes — the in_place half deletes children out of the caller's own plugin, on the lane with no
+        // backup — and it is neither #300's nor this branch's: those lines are untouched here. Filed as #324, which
+        // carries that probe body verbatim as its RED. Deliberately NOT asserted here: #323 must not carry another
+        // lane's red, and re-pointing this arm at the destruction would assert data loss is correct.
         //
-        // Left FAILING rather than re-pointed at the behaviour it found (which would pin data loss as correct) or
-        // quietly reworded (which would be folding an unverified answer into a message instead of fixing the
-        // engine). Which of those this becomes — a preserved child group in the extend path, a refusal when the
-        // dropped record has children, or a different remedy in the message — is an architecture call (§5 #5),
-        // escalated rather than taken here.
-        var afterInline = ChildLinesIn(path!, fx.TopicKey);
-        Check("…and the new child SURVIVES that forward — the drop-then-copy does not take the child group",
-            afterInline.Contains("W2HostedLine"),
-            $"child group after the forward: [{string.Join(", ", afterInline)}] · whole file: [{string.Join(", ", EditorIdsIn(path!))}]");
+        // What IS asserted is the ordering the contested message now prints: forward the winner FIRST, then create
+        // the child into that patch. The create then resolves its parent from the record the patch ALREADY carries,
+        // so there is no drop for the child to survive. Both halves asserted together — the winner's FIELDS inlined
+        // and the child present — because either alone would pass on a shape the message must not recommend.
+        var pre = ForwardTools.Forward(fx.Svc, formids: new[] { fx.TopicFid }, source: fx.ReplacerName, patch: "W2Inline");
+        var prePath = ArtifactPathFrom(fx, pre);
+        Check("the SAFE ordering, step 1: the winner's version of the parent forwards into a patch of its own",
+            prePath is not null, pre);
+
+        var thenChild = CreateTools.Create(fx.Svc, into: Path.GetFileName(prePath!),
+            records: Json($$"""[{"record_type":"DialogResponses","editorid":"W2InlinedLine","parent":"{{fx.TopicFid}}"}]"""));
+        Check("…step 2: the child creates into THAT patch, hosting in the parent it already carries",
+            thenChild.StartsWith("extended ", StringComparison.Ordinal), thenChild);
+
+        // Both, on the file. (The winner's OWN child line is not here and is not expected to be: the forward copies
+        // the record, not its group, and the winner's INFOs still play from the winner's own plugin — a child group
+        // survives its parent record losing, which is the whole premise of the lean host above.)
+        var inlinedName = TopicNameIn(prePath!, fx.TopicKey);
+        var inlinedChildren = ChildLinesIn(prePath!, fx.TopicKey);
+        Check("…and BOTH land: the winner's FIELDS are inlined AND the new child is in the group",
+            inlinedName == "Winner Topic" && inlinedChildren.Contains("W2InlinedLine"),
+            $"{thenChild}  [topic name={inlinedName ?? "unreadable"} · children=[{string.Join(", ", inlinedChildren)}]]");
     }
 
     /// <summary>Every child line the written plugin's copy of the topic carries — #300's "whose CHILDREN did the host
