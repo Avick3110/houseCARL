@@ -4613,9 +4613,14 @@ public sealed class LoadOrderService : IDisposable
     /// <para>Why it is needed at all: off-order-ness is decided by <c>WritePatchBuilder.IsOffOrderCopySource</c>, a
     /// lookup in the plugin-NAME table. A full path is never a key there, so <c>from_source=C:\…\SomeMod\Bar.esp</c>
     /// answered "off-order" for a plugin the order is actively serving — the body was read off the file directly,
-    /// bypassing the build the rest of the call resolves against, an EXCLUDED-but-active plugin was read rather than
-    /// refused, and the response described the source as not in the load order. Usually a wrong LABEL; under a
-    /// profile switch, where a filename is served by a different mod folder, a wrong BODY.</para>
+    /// bypassing the build the rest of the call resolves against, and the response described the source as not in the
+    /// load order. Usually a wrong LABEL; under a profile switch, where a filename is served by a different mod
+    /// folder, a wrong BODY.</para>
+    ///
+    /// <para>NOT fixed here, deliberately, though #321 listed it as a symptom: a path to an EXCLUDED-but-active plugin
+    /// still reads the file directly rather than taking the exclusion refusal. That is <c>ActiveNameForPath</c>'s own
+    /// rule (it declines excluded plugins), and it is the read surface's deliberate escape hatch — records ahead of
+    /// the unparseable one still come back. <c>forward</c> made the same call in PR #313; parity is the point.</para>
     ///
     /// <para><see cref="ActiveNameForPath"/> is the rule <c>forward</c> already answers this with (PR #313 [medium]),
     /// reused rather than restated: a FULL-PATH identity compare, so a same-named backup keeps the off-order lane,

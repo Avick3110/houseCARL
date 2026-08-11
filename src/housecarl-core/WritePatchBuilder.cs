@@ -1023,7 +1023,12 @@ public static class WritePatchBuilder
         ISkyrimModGetter? back = null;
         try
         {
-            back = SkyrimMod.CreateFromBinaryOverlay(targetPath, SkyrimRelease.SkyrimSE);
+            // The strings-aware factory, not a bare open (#308 review): a LOCALIZED plugin whose own folder carries no
+            // strings source reads every TranslatedString EMPTY (the HCBR-2026-06-24 class OpenOverlay exists for). That
+            // used to make only the read-back DUMP look empty; the verify below now COMPARES what it reads, so a bare
+            // open would report a correct in-place `Set Name` on such a plugin as "the file does not carry it" — the
+            // same wrong-answer class this fix exists to close, in the mirror direction.
+            back = LoadOrderResolver.OpenOverlay(targetPath, resolver.DataDir);
             masters = back.ModHeader.MasterReferences.Select(m => m.Master.FileName.ToString()).ToList();
             bytes = new FileInfo(targetPath).Length;
             if (fullReadback) readBack = ReadBackInFull(back, resolved.Select(r => r.edit.Target));
@@ -2783,18 +2788,32 @@ public static class WritePatchBuilder
                         // remains a fallback rather than a refusal: the definer genuinely does not carry it. Same for a
                         // definer this session EXCLUDED. Both are reported per record, never silently substituted.
                         var definer = parentFk.ModKey.FileName.String;
-                        var fromDefiner = view.ContainsPlugin(definer) && !view.ExcludedPlugins.ContainsKey(definer)
-                            ? view.GetRecord(session, definer, parentFk) : null;
+                        // GetRecord answers null for a plugin the order doesn't contain AND for one this session
+                        // EXCLUDED, so the two cases need no separate test here (review [nit]) — both fall to the
+                        // winner below, which is the behaviour an injected or unparseable definer should get.
+                        var fromDefiner = view.GetRecord(session, definer, parentFk);
                         var parentBody = fromDefiner ?? view.GetRecord(session, w.WinnerPlugin, parentFk);
                         if (parentBody is null) { problems.Add($"{s.RecordType} '{s.EditorId}': parent {parentFk} winner '{w.WinnerPlugin}' did not yield it on fetch (a load-order inconsistency)."); continue; }
                         var readFrom = fromDefiner is not null ? definer : w.WinnerPlugin;
                         parentType = WriteEngine.ResolveConcreteRecordType(RecordNaming.StripOverlay(parentBody.GetType().Name));
                         parentPlans[i] = (parentBody, readFrom, null, null);
+                        bool overWinner = fromDefiner is not null && !string.Equals(readFrom, w.WinnerPlugin, StringComparison.OrdinalIgnoreCase);
                         parentHosts[i] = $"{RecordNaming.StripOverlay(parentBody.GetType().Name)} {parentFk} hosted from '{readFrom}'"
-                            + (fromDefiner is not null
-                                ? " (its DEFINING plugin — the lean host; the load-order winner"
-                                  + (string.Equals(readFrom, w.WinnerPlugin, StringComparison.OrdinalIgnoreCase) ? " is this same plugin)" : $" '{w.WinnerPlugin}' is deliberately NOT copied, and is not a master of this write)")
-                                : $" (the load-order WINNER — its defining plugin '{definer}' does not carry it: an injected or excluded parent)");
+                            + (fromDefiner is null
+                                ? $" (the load-order WINNER — its defining plugin '{definer}' does not carry it: an injected or excluded parent)"
+                                : !overWinner
+                                    ? " (its DEFINING plugin, which is also the load-order winner)"
+                                    // The trade-off, stated where the choice is made (review [high], both rounds): the
+                                    // override is a FULL record copy and still conflicts at record level, so wherever
+                                    // this artifact out-ranks the winner it asserts the DEFINER's fields over that
+                                    // mod's. Nothing about the child needs the winner — the child sits in the parent's
+                                    // child group and survives the parent record losing — but the caller must be told
+                                    // which way the parent record itself will now resolve. "Not copied here" and not
+                                    // "not a master of this write": masters are derived at serialize, and another spec
+                                    // or a created record's own links can still pull that plugin in.
+                                    : $" (its DEFINING plugin — the lean host: '{w.WinnerPlugin}' currently WINS this record and its version is deliberately not copied here, "
+                                      + $"so wherever this artifact out-ranks '{w.WinnerPlugin}' the parent record resolves to '{readFrom}'s fields. "
+                                      + $"Sort this artifact BEFORE '{w.WinnerPlugin}' to keep that mod's version of the parent — the new child is carried either way.)");
                     }
                     else if (patchMod.EnumerateMajorRecords().FirstOrDefault(r => r.FormKey == parentFk) is { } patchParent)
                     {
@@ -3236,14 +3255,6 @@ public static class WritePatchBuilder
         catch { return null; }
     }
 
-    /// <summary>Read the edited leaf ONCE and derive BOTH best-effort descriptors an edit-lane <see cref="OpResult"/>
-    /// carries (PR #127 review #1 — previously two identical reflective reads of the same leaf per op, doubling the very
-    /// readback cost on the large-list records the report was about). <c>After</c> = the leaf read-back (xEdit remains
-    /// the authority). <c>Landed</c> = the compact "what landed" line the in-place verify renders by default
-    /// (HCBR-2026-06-28-01): a SCALAR leaf reuses the value just read (names exactly what was set); a LIST/DICT leaf names
-    /// the touched element + new count via <see cref="ReadEngine.TouchedElement"/> (the element you Added/Set, NOT the
-    /// whole list), falling back to the container summary. Read-only; NEVER throws into the write result (both null on any
-    /// difficulty). The create lane keeps <see cref="TryReadAfter"/> (it needs only <c>After</c>, never <c>Landed</c>).</summary>
     /// <summary>#308 — re-derive every op's "what landed" descriptor from the RE-OPENED WRITTEN FILE and compare it
     /// with the in-memory one the apply produced. The in-place verify's banner claims every line was re-read off the
     /// written file; before this, the record-level half was (<see cref="ReadBackInFull"/>) and the per-op half was
@@ -3278,7 +3289,16 @@ public static class WritePatchBuilder
             var op = ops[i];
             if (i >= perOp.Count || !found.TryGetValue(perOp[i].Target, out var rec)) { verified.Add(op); continue; }
             var (afterDisk, landedDisk) = DescribeApplied(rec, perOp[i].Req);
-            verified.Add(op with { LandedOnDisk = landedDisk, Divergence = LeafDivergence(op.After, afterDisk) });
+            // BOTH descriptors, not just the leaf summary (#308 review [medium]): `After` is the container
+            // (`[list: N item(s)]`), `Landed` is the touched ELEMENT. A struct that lands as an element but serializes
+            // to less than the caller supplied leaves the COUNT equal on both sides — so comparing summaries alone
+            // would answer "verified" while the two element renderings visibly disagreed in the same response, which
+            // is the general case this detector is documented to catch.
+            verified.Add(op with
+            {
+                LandedOnDisk = landedDisk,
+                Divergence = LeafDivergence(op.After, afterDisk) ?? LeafDivergence(op.Landed, landedDisk),
+            });
         }
         return verified;
     }
@@ -3315,6 +3335,17 @@ public static class WritePatchBuilder
         return i > start && int.TryParse(token.AsSpan(start, i - start), out var n) ? n : null;
     }
 
+    /// <summary>Read the edited leaf ONCE and derive BOTH best-effort descriptors an edit-lane <see cref="OpResult"/>
+    /// carries (PR #127 review #1 — previously two identical reflective reads of the same leaf per op, doubling the very
+    /// readback cost on the large-list records the report was about). <c>After</c> = the leaf read-back (xEdit remains
+    /// the authority). <c>Landed</c> = the compact "what landed" line the in-place verify renders by default
+    /// (HCBR-2026-06-28-01): a SCALAR leaf reuses the value just read (names exactly what was set); a LIST/DICT leaf names
+    /// the touched element + new count via <see cref="ReadEngine.TouchedElement"/> (the element you Added/Set, NOT the
+    /// whole list), falling back to the container summary. Read-only; NEVER throws into the write result (both null on any
+    /// difficulty). The create lane keeps <see cref="TryReadAfter"/> (it needs only <c>After</c>, never <c>Landed</c>).
+    /// <para>Takes a GETTER, not the mutable record, since #308: the same call reads the in-memory override during apply
+    /// AND the re-opened file's record afterwards, and one code path for both is what makes a difference between them a
+    /// difference in the DATA rather than in two renderings.</para></summary>
     static (string? After, string? Landed) DescribeApplied(IMajorRecordGetter ov, WriteRequest req)
     {
         try
