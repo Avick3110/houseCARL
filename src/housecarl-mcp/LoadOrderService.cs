@@ -4547,8 +4547,14 @@ public sealed class LoadOrderService : IDisposable
     /// engine's own build still agrees the source is off-order (<c>WritePatchBuilder.TryOffOrderCopyBody</c>, #317).
     /// That is a structural invariant, NOT the mid-call race #317 was filed as: a write pins one resolver instance and
     /// its name table is never rebuilt, so the two captures cannot disagree about membership today. The helper's own
-    /// doc carries the full statement.</para></summary>
-    string? ResolveOffOrderCopySources(LoadOrderResolver resolver, IReadOnlyList<WritePatchBuilder.PatchEdit> edits,
+    /// doc carries the full statement.</para>
+    /// <para>MUTATES <paramref name="edits"/> before doing anything else (#321): a CopyFrom source addressed by a PATH
+    /// that names the very file the order LOADS is re-spelled to that plugin's NAME
+    /// (<see cref="RespellActiveCopySourcePaths"/>). Stated here rather than left to the reader because a
+    /// <c>Resolve…</c> helper rewriting its argument is a surprise — the alternative was a second
+    /// <c>Capture()</c> at the call site purely to re-spell, and this list is the one both the pre-locate and the
+    /// ENGINE consume, which is exactly what makes one rewrite reach both.</para></summary>
+    string? ResolveOffOrderCopySources(LoadOrderResolver resolver, IList<WritePatchBuilder.PatchEdit> edits,
         ref Dictionary<WritePatchBuilder.PatchEdit, IMajorRecordGetter>? sources, ref List<IDisposable>? overlays,
         out string? epoch)
     {
@@ -4559,6 +4565,7 @@ public sealed class LoadOrderService : IDisposable
         if (!edits.Any(e => string.Equals(e.Verb, "CopyFrom", StringComparison.Ordinal))) return null;   // no CopyFrom → no source work
         var view = resolver.Capture();
         epoch = view.Epoch;
+        RespellActiveCopySourcePaths(view, edits);   // #321 — before the predicate, and before any key is taken
         string modsDir = "", dataDir = "", overwriteDir = "", profileDir = "";
         Mo2Composition? comp = null;
         var problems = new List<string>();
@@ -4598,6 +4605,40 @@ public sealed class LoadOrderService : IDisposable
         return problems.Count > 0
             ? $"refused — {problems.Count} CopyFrom source problem(s); NO patch written:\n  - " + string.Join("\n  - ", problems)
             : null;
+    }
+
+    /// <summary>#321 — re-spell every <c>CopyFrom</c> source that is a PATH to the ACTIVE copy of a plugin into that
+    /// plugin's NAME, in place, so the rest of the write speaks the load order's own vocabulary.
+    ///
+    /// <para>Why it is needed at all: off-order-ness is decided by <c>WritePatchBuilder.IsOffOrderCopySource</c>, a
+    /// lookup in the plugin-NAME table. A full path is never a key there, so <c>from_source=C:\…\SomeMod\Bar.esp</c>
+    /// answered "off-order" for a plugin the order is actively serving — the body was read off the file directly,
+    /// bypassing the build the rest of the call resolves against, an EXCLUDED-but-active plugin was read rather than
+    /// refused, and the response described the source as not in the load order. Usually a wrong LABEL; under a
+    /// profile switch, where a filename is served by a different mod folder, a wrong BODY.</para>
+    ///
+    /// <para><see cref="ActiveNameForPath"/> is the rule <c>forward</c> already answers this with (PR #313 [medium]),
+    /// reused rather than restated: a FULL-PATH identity compare, so a same-named backup keeps the off-order lane,
+    /// and a path to an EXCLUDED plugin does too — reading that one directly is the deliberate escape hatch.</para>
+    ///
+    /// <para>Applied BEFORE the pre-locate loop for two reasons. A <c>PatchEdit</c> is the KEY of the pre-fetched
+    /// source dictionary, so re-spelling one afterwards would leave a key the engine can never look up; and the same
+    /// list is handed to the engine, so one rewrite reaches the arm decision, the winner comparison and every
+    /// rendered sentence at once — where a clause inside the shared predicate would have routed the body correctly
+    /// while the report still called an active plugin off-order.</para></summary>
+    static void RespellActiveCopySourcePaths(LoadOrderResolver.IndexView view, IList<WritePatchBuilder.PatchEdit> edits)
+    {
+        for (int i = 0; i < edits.Count; i++)
+        {
+            var e = edits[i];
+            if (!string.Equals(e.Verb, "CopyFrom", StringComparison.Ordinal)) continue;
+            // LooksLikePath gate, matching ResolveDiffPole / ResolveOffOrderForwardSource — the convention those
+            // sites cite; harmless without it (a bare filename that is active never reaches the off-order arm
+            // anyway), but a convention with an exception is one someone has to re-derive.
+            if (string.IsNullOrWhiteSpace(e.FromPlugin) || !LooksLikePath(e.FromPlugin!)) continue;
+            if (ActiveNameForPath(view, e.FromPlugin!) is { } activeName)
+                edits[i] = e with { FromPlugin = activeName };
+        }
     }
 
     /// <summary>W3 PR 2b — locate the ONE <c>source=</c> plugin a forward call shares when the ACTIVE ORDER does not

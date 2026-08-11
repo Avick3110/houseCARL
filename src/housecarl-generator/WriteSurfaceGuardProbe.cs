@@ -14,7 +14,7 @@ namespace HousecarlGenerator;
 /// <c>housecarl_write_seq</c> (tool-surface-2.0 W3 PR 2; SPEC §2.2 ACT, §5.1/§5.2, §6.1). Sibling of
 /// <c>apply-guard</c>, same posture: the REAL end-to-end tool path — a synthetic MO2 instance in temp +
 /// <see cref="LoadOrderService"/> + the tool methods themselves — so the wire readers, the LANE grammar, the
-/// alias-visible vocabulary and the engines are exercised exactly as a caller hits them. Seven arms:
+/// alias-visible vocabulary and the engines are exercised exactly as a caller hits them. Eight arms:
 /// <list type="number">
 /// <item><b>create grammar</b> — one record is a set of one, the nested one-shot (a same-call sibling parent +
 /// an '@editorid' link value), the @file spelling, and the strict element reader's NAMED refusals with the
@@ -34,6 +34,10 @@ namespace HousecarlGenerator;
 /// does not cover it, the overlay is released (the file stays movable), and the four refusals stay named:
 /// ambiguous filename, a file that doesn't define the record, a record whose ORIGIN plugin isn't active, and a
 /// self-forward caught by FILE IDENTITY when source= is a path to the artifact being written.</item>
+/// <item><b>CopyFrom source paths</b> (#321) — the same ACTIVE-copy-by-path rule on the <c>CopyFrom</c> lane: a
+/// <c>from_source=</c> path to the file the order serves is refused/resolved as IN-ORDER and named by its plugin
+/// name, the copy still lands from that plugin's own version, and a path to a same-NAMED different file keeps the
+/// off-order lane.</item>
 /// <item><b>the PR #313 review folds</b> — a <c>source=</c> PATH that names the file the order ACTUALLY LOADS is
 /// in-order (so the already-the-winner flag survives, and the epoch is not disclaimed) while a path to a
 /// same-NAMED different file stays off-order; a record ORIGINATING in the artifact being written forwards fine
@@ -78,6 +82,7 @@ public static class WriteSurfaceGuardProbe
             CopyFromViewArm(root);
             // LAST: it forwards into the replacer IN PLACE, which rewrites a fixture file the earlier arms read as a
             // known winner. Ordering it after them keeps every other arm reading the fixture it was written against.
+            CopySourcePathArm(fx, root);
             OffOrderForwardArm(fx);
             ReviewFoldArm(fx, root);
 
@@ -114,6 +119,8 @@ public static class WriteSurfaceGuardProbe
         public required string OffFolder { get; init; }
         /// <summary>A record the OFF-ORDER plugin ORIGINATES — forwarding it would need that plugin as a master.</summary>
         public required string OffOwnFid { get; init; }
+        /// <summary>A record ONLY the master carries (the replacer never touches it) — #321's discriminator.</summary>
+        public required string MasterOnlyFid { get; init; }
         /// <summary>One filename provided by TWO disabled mod folders — the ambiguity refusal's fixture.</summary>
         public required string AmbName { get; init; }
         /// <summary>A DISABLED plugin whose forwarded body links into ANOTHER disabled plugin — the missing-master
@@ -145,6 +152,12 @@ public static class WriteSurfaceGuardProbe
             subject.EditorID = "W2Subject";
             subject.Name = "Master Sword";
             subject.BasicStats = new WeaponBasicStats { Damage = 10 };
+            // #321's discriminator: a record the master defines and the replacer does NOT touch, so a CopyFrom naming
+            // the REPLACER has a source that is genuinely in the order and genuinely without a version to copy — the
+            // one shape whose refusal wording differs between the in-order and off-order arms.
+            var masterOnly = m.Weapons.AddNew();
+            masterOnly.EditorID = "W2MasterOnly";
+            masterOnly.BasicStats = new WeaponBasicStats { Damage = 3 };
             m.BeginWrite.ToPath(masterPath).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
 
             var r = new SkyrimMod(rKey, SkyrimRelease.SkyrimSE);
@@ -227,6 +240,7 @@ public static class WriteSurfaceGuardProbe
                 OffPath = offPath,
                 OffFolder = "W2Off",
                 OffOwnFid = $"{ownWeapon.FormKey.ID:X6}:{oKey.FileName}",
+                MasterOnlyFid = $"{masterOnly.FormKey.ID:X6}:{mKey.FileName}",
                 AmbName = aKey.FileName.String,
                 ChainName = cKey.FileName.String,
             };
@@ -856,6 +870,61 @@ public static class WriteSurfaceGuardProbe
             && chain.Contains("Enable that plugin in MO2", StringComparison.Ordinal)
             && !chain.Contains("serialize or commit", StringComparison.Ordinal), chain);
     }
+
+    /// <summary>#321 — a <c>CopyFrom</c> <c>from_source=</c> PATH naming the ACTIVE copy of a plugin must take the
+    /// IN-ORDER arm, the rule <c>forward</c> has carried since PR #313. Driven through <c>housecarl_apply</c>, because
+    /// the fix lives in the SERVICE's pre-locate (the engine only ever sees the re-spelled edit).
+    ///
+    /// <para>Why the headline check is a REFUSAL rather than a copied value: the path names the very file the order
+    /// serves, so both arms read the same bytes and any value assertion passes pre-fix as well. The arms are
+    /// distinguishable exactly where they disagree about what the source IS — a plugin that is in the order but does
+    /// not carry the record answers "in the load order but does NOT define or override" in-order, and "source file
+    /// '&lt;path&gt;' does not define or override" off-order. The value checks below then bound the fix on both sides:
+    /// the copy still lands, and a path to a same-NAMED DIFFERENT file still reads off-order.</para></summary>
+    static void CopySourcePathArm(Fixture fx, string root)
+    {
+        Console.WriteLine("── ARM 8: #321 — a CopyFrom from_source= PATH to the ACTIVE copy takes the IN-ORDER arm ──");
+
+        var masterLive = Path.Combine(fx.ModsDir, "W2Master", fx.MasterName);
+        var replLive = Path.Combine(fx.ModsDir, "W2Repl", fx.ReplacerName);
+
+        // (a) THE DISCRIMINATOR — an ACTIVE plugin, addressed by path, that does not carry the record.
+        var missing = ApplyTools.Apply(fx.Svc, patch: "W2Cf321Miss",
+            ops: Json(CopyOps(fx.MasterOnlyFid, "BasicStats.Damage", replLive)));
+        Check("#321: a from_source= PATH to an ACTIVE plugin is refused as IN-ORDER (not as an off-order file read)",
+            missing.Contains("is in the load order but does NOT define or override", StringComparison.Ordinal), missing);
+        Check("…and the refusal speaks the order's vocabulary — the plugin NAME, not the path it was addressed by",
+            missing.Contains(fx.ReplacerName, StringComparison.OrdinalIgnoreCase)
+            && !missing.Contains(replLive, StringComparison.OrdinalIgnoreCase), missing);
+
+        // (b) The copy still happens, off the named plugin's own version: the master says 10 where the winner says 99.
+        var copied = ApplyTools.Apply(fx.Svc, patch: "W2Cf321Live",
+            ops: Json(CopyOps(fx.SubjectFid, "BasicStats.Damage", masterLive)));
+        var copiedPath = ArtifactPathFrom(fx, copied);
+        Check("…and the copy itself still lands from the named plugin's own version (10, not the winner's 99)",
+            copiedPath is not null && DamageIn(copiedPath, fx.SubjectKey) == 10,
+            $"{copied}  [damage={(copiedPath is null ? "no artifact" : DamageIn(copiedPath, fx.SubjectKey)?.ToString() ?? "unreadable")}]");
+
+        // (c) THE BOUND — identity, not filename. A DIFFERENT file that merely shares the active name keeps the
+        //     off-order lane, so its own body (77) is what gets copied. Same rule ActiveNameForPath states for
+        //     forward; asserted here so the re-spelling can never widen into a name match.
+        var shadowDir = Path.Combine(root, "cf321-shadow");
+        Directory.CreateDirectory(shadowDir);
+        var shadowMaster = Path.Combine(shadowDir, fx.MasterName);
+        File.Copy(masterLive, shadowMaster, overwrite: true);
+        BumpDamage(shadowMaster, 77);
+        var byShadow = ApplyTools.Apply(fx.Svc, patch: "W2Cf321Shadow",
+            ops: Json(CopyOps(fx.SubjectFid, "BasicStats.Damage", shadowMaster)));
+        var shadowPath = ArtifactPathFrom(fx, byShadow);
+        Check("a path to a DIFFERENT file sharing the active plugin's NAME still copies OFF-ORDER (77, its own body)",
+            shadowPath is not null && DamageIn(shadowPath, fx.SubjectKey) == 77,
+            $"{byShadow}  [damage={(shadowPath is null ? "no artifact" : DamageIn(shadowPath, fx.SubjectKey)?.ToString() ?? "unreadable")}]");
+    }
+
+    /// <summary>One CopyFrom op as the wire array <c>housecarl_apply</c> reads, with the Windows path escaped for
+    /// JSON (a raw backslash run is not a legal string body, and the failure would look like a locate miss).</summary>
+    static string CopyOps(string formid, string fieldPath, string fromSource) =>
+        $$"""[{"formid":"{{formid}}","field_path":"{{fieldPath}}","op":"CopyFrom","from_source":"{{fromSource.Replace("\\", "\\\\")}}"}]""";
 
     /// <summary>Set a weapon's damage in place (fixture surgery: move the LIVE patch on, so forwarding the parked
     /// copy's body back is a visible revert rather than a no-op).</summary>
