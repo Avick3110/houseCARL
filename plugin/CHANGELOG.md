@@ -15,11 +15,16 @@ serializes to nothing — a Faction `Rank` composed with no fields is the report
 list stayed empty, and the call still reported the addition as landed; it cost the reporter three more debugging
 rounds on a live mod. That clause now comes off the re-opened file — for the op that last touched a given field in
 the call; an earlier op on the same field is marked as the applied edit's own reading, because the file holds the
-state after all of them and cannot answer for a middle one. If the file and the applied edit disagree, the
-response says so **loudly** on its own line and tells you to treat the op as not landed, instead of leaving you to
-notice a count. In JSON the two are separate facts: `landed` (what the edit did in memory), `landed_on_disk` (what
-the file carries), `divergence`, and `landed_verification` (`verified` / `diverged` / `superseded` / `no_answer` / `not_comparable` /
-`not_checked`). And the specific call that caused it is now
+state after all of them and cannot answer for a middle one.
+
+**houseCARL shows you both readings; it does not rule on them.** You get what the edit did in memory and what the file
+says, and where the file could not answer, the response tells you which reading you are looking at. It deliberately
+stops short of declaring "this op did not land" — deciding that means telling a real difference from a harmless one
+(a percentage that rounds when saved, an internal type name, an empty field versus a missing one), and every version
+of that judgement we built ended up accusing writes that had in fact landed. In JSON: `landed` (memory),
+`landed_on_disk` (the file), and `landed_source` — `written_file`, `superseded` (a later op in the same call wrote
+that field), `no_answer` (the file was re-read and didn't yield it), or `not_checked` (this lane runs no per-op file
+check), plus `verify_ran` on the response. And the specific call that caused the bug is now
 **refused before anything is written**, naming the fields that would give the structure content — a compose you gave
 nothing to, whose every settable field is empty, cannot land, so houseCARL no longer pretends it did. **One shape that
 used to work is refused with it:** composing an empty value and then filling its fields in a *later op of the same

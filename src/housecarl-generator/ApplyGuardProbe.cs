@@ -26,7 +26,7 @@ namespace HousecarlGenerator;
 /// <item><b>TRANSPORT</b> — format=json is valid JSON carrying the same data, refusals are documents too, and every
 /// response (both renders) carries the §2.1.1 epoch.</item>
 /// <item><b>the in-place verify's own honesty</b> (#308) — the per-op "what landed" clause is re-derived from the
-/// WRITTEN FILE (json: <c>landed_on_disk</c> + <c>landed_verification</c>), a compose with nothing to serialize
+/// WRITTEN FILE (json: <c>landed_on_disk</c> + <c>landed_source</c>), a compose with nothing to serialize
 /// is refused before the file is touched instead of reported as landed, and the memory-vs-file comparator's own
 /// semantics are pinned as a unit.</item>
 /// <item><b>keyed multi-op</b> (#308) — two COUNT-CHANGING key-addressed ops in one in-place call both land and
@@ -132,84 +132,14 @@ public static class ApplyGuardProbe
         Check("the same compose WITH a field lands, and its clause is the FILE's (landed_on_disk present)",
             op0.ValueKind == JsonValueKind.Object
             && op0.TryGetProperty("landed_on_disk", out var lod) && lod.ValueKind == JsonValueKind.String, withField);
-        Check("…and it is declared VERIFIED against the written file, with no divergence",
+        Check("…and it is SOURCED as the file's reading rather than the applied edit's",
             op0.ValueKind == JsonValueKind.Object
-            && op0.TryGetProperty("landed_verification", out var lv) && lv.GetString() == "verified"
-            && op0.TryGetProperty("divergence", out var dv) && dv.ValueKind == JsonValueKind.Null, withField);
+            && op0.TryGetProperty("landed_source", out var lv) && lv.GetString() == "written_file", withField);
 
-        // The comparator's own semantics (unit), fed the PRESENCE the reader reports rather than tokens a parser has
-        // to interpret. Two of these pin the detector against WIDENING (a text difference must not become a verdict)
-        // and say so; the rest pin the two rules it claims. Shorthands: a scalar value, a list of N, a present
-        // substruct, and nothing at all.
-        static WritePatchBuilder.LeafPresence Val() => new(true, true, null);
-        static WritePatchBuilder.LeafPresence List(int n) => new(false, true, n);
-        static WritePatchBuilder.LeafPresence Sub() => new(false, true, null);
-        static WritePatchBuilder.LeafPresence Gone() => new(false, false, null);
-        string? Div(string? mem, WritePatchBuilder.LeafPresence memP, string? disk, WritePatchBuilder.LeafPresence diskP)
-            => WritePatchBuilder.LeafDivergence(mem, memP, disk, diskP);
-
-        Check("comparator: 1 element in memory vs 0 in the file is a divergence, reported as counts",
-            Div("[list: 1 item(s)]", List(1), "[list: 0 item(s)]", List(0)) is { } d
-            && d.Contains("1 element(s) in memory", StringComparison.Ordinal) && d.Contains("carries 0", StringComparison.Ordinal),
-            Div("[list: 1 item(s)]", List(1), "[list: 0 item(s)]", List(0)));
-        Check("comparator: identical readings are NOT a divergence, and an unanswered side never is either",
-            Div("[list: 1 item(s)]", List(1), "[list: 1 item(s)]", List(1)) is null
-            && Div("99", Val(), null, default) is null
-            && Div(null, default, "99", Val()) is null);
-        // A substruct leaf renders its TYPE name, and the mutable record and the binary overlay name it differently
-        // ([WeaponBasicStats] vs [WeaponBasicStatsBinaryOverlay]) — a text compare accused every `Set <substruct>` of
-        // not landing. Both sides are PRESENT, so the rule is silent: this pins that, against widening.
-        Check("comparator: a substruct leaf the overlay names differently is NOT a divergence",
-            Div("[WeaponBasicStats]", Sub(), "[WeaponBasicStatsBinaryOverlay]", Sub()) is null,
-            Div("[WeaponBasicStats]", Sub(), "[WeaponBasicStatsBinaryOverlay]", Sub()));
-        // Percent is byte-quantised, so a correct `Set ChanceNone value="0.123"` reads back 0.12 off the file.
-        // Calling that "NOT landed" instructs a re-issue that diverges identically forever.
-        Check("comparator: a value the FORMAT rounds (0.123 -> 0.12, a byte-quantised Percent) is NOT a divergence",
-            Div("0.123", Val(), "0.12", Val()) is null, Div("0.123", Val(), "0.12", Val()));
-        // THE VANISH RULE, on all three leaf kinds — each one a case an earlier draft missed. The scalar arm looked
-        // for an empty string the reader never emits; the count arm cannot see a nullable list that reads "(absent)";
-        // and neither could see a SUBSTRUCT, whose summary carries no count at all.
-        Check("comparator: a scalar that became NOTHING is a divergence, with the localized-strings caveat named",
-            Div("Winner Sword", Val(), "(absent)", Gone()) is { } gone
-            && gone.Contains("carries no value there", StringComparison.Ordinal)
-            && gone.Contains("LOCALIZED", StringComparison.Ordinal), Div("Winner Sword", Val(), "(absent)", Gone()));
-        Check("comparator: a nullable LIST that reads (absent) on disk is a divergence too",
-            Div("[list: 1 item(s)]", List(1), "(absent)", Gone()) is not null);
-        Check("comparator: a SUBSTRUCT that vanished on serialize is a divergence — the case with no count to compare",
-            Div("[VirtualMachineAdapter]", Sub(), "(absent)", Gone()) is not null,
-            Div("[VirtualMachineAdapter]", Sub(), "(absent)", Gone()));
-        Check("comparator: a list the call legitimately EMPTIED is not — an emptied list and a dropped subrecord agree",
-            Div("[list: 0 item(s)]", List(0), "(absent)", Gone()) is null,
-            Div("[list: 0 item(s)]", List(0), "(absent)", Gone()));
-
-        // THE REPORT, not just the detector (review [medium]): a reviewer showed that deleting AppendDivergences, the
-        // full-dump call site, and the json "diverged" word left every check green — the guard covered the finding and
-        // not the sentence a caller reads. Driven at the render boundary with a hand-built outcome, since the fixture
-        // can no longer produce a real divergence (the empty-compose refusal removed its only producer).
-        var diverged = new WritePatchBuilder.PatchOutcome(
-            true, null, fx.ReplacerPath, false, new[] { fx.MasterName },
-            new[] { new WritePatchBuilder.OpResult(fx.SubjectKey, "Weapon", "Add Ranks", true, null, "[list: 1 item(s)]", "now 1 (+1)")
-                        { LandedOnDisk = "[list: 0 item(s)]", Divergence = "the applied edit left 1 element(s) in memory, but the WRITTEN FILE carries 0", VerifyAttempted = true } },
-            123L)
-            { InPlace = true, ReadBack = new[] { new WritePatchBuilder.FullReadback(fx.SubjectKey, null, "re-read failed") } };
-        var compactRender = WriteTools.Render(diverged);
-        var fullRender = WriteTools.Render(diverged, fullDump: true);
-        Check("the COMPACT render states a divergence as NOT landed, even when that record's read-back failed",
-            compactRender.Contains("treat this op as NOT landed", StringComparison.Ordinal), compactRender);
-        Check("…and the FULL-dump render states it too (the lane that used to drop it silently)",
-            fullRender.Contains("treat this op as NOT landed", StringComparison.Ordinal), fullRender);
-        var divergedJson = JsonWire.RenderPatchOutcome(diverged, 0, false, "in_place");
-        // …and it survives a max_chars cut that drops the ops array, which is where the text render hoists its own
-        // lines to and the json twin did not (review [medium]): a document that cuts the only "did not land" row while
-        // saying "the WRITE is complete and unaffected" is worse than no verify at all.
-        var divergedTiny = JsonWire.RenderPatchOutcome(diverged, 400, false, "in_place");
-        Check("…and the json divergence rows survive a max_chars cut that truncates the ops array",
-            divergedTiny.Contains("\"divergences\"", StringComparison.Ordinal)
-            && divergedTiny.Contains("WRITTEN FILE carries 0", StringComparison.Ordinal)
-            && divergedTiny.Contains("\"diverged_ops\": 1", StringComparison.Ordinal), divergedTiny);
-        Check("…and json says landed_verification=diverged with the divergence text",
-            divergedJson.Contains("\"landed_verification\": \"diverged\"", StringComparison.Ordinal)
-            && divergedJson.Contains("WRITTEN FILE carries 0", StringComparison.Ordinal), divergedJson);
+        // The per-op clause REPORTS its source instead of judging (Aaron, 2026-08-11): the comparator that decided
+        // "this op did not land" is gone, with the eight unit checks that pinned its rules and the three render
+        // checks that pinned its sentence. What remains pinned is what survives it — the clause comes off the
+        // written FILE, and where it could not, the response says which reading it is showing instead.
 
         // THE READ-SURFACE HALF, pinned because reverting it left all 117 probes green (review [low]): a substruct
         // leaf read off a BINARY OVERLAY must render the modelled type name, not Mutagen's implementation class. This
@@ -280,9 +210,9 @@ public static class ApplyGuardProbe
 
     /// <summary>ARM 8 (#308) — the two seams a review found INERT: nothing pinned the keyed exemption (deleting it
     /// left every probe green, because arm 7 drives count-CHANGING removes which fall through anyway), and nothing
-    /// pinned the comparator's WIRE into the verify pass (deleting `Divergence = LeafDivergence(…)` left every probe
-    /// green too — the render checks are driven from a hand-built outcome, and the end-to-end assertions are all
-    /// negative). Both are driven here against the real written file.</summary>
+    /// pinned the verify's WIRE to the written file. Both are driven here against the real file. (The second half was
+    /// written when the pass also produced a divergence VERDICT; that verdict is gone, so it now pins the fact the
+    /// verdict rested on — that the clause is the file's reading and not the applied edit's passed through.)</summary>
     static void VerifyWiringArm(Fixture fx)
     {
         Console.WriteLine("── ARM 8: #308 — the keyed exemption, and the comparator's wire into the verify ──");
@@ -308,18 +238,17 @@ public static class ApplyGuardProbe
             var doc = Json(twoSets);
             if (doc.TryGetProperty("ops", out var arr))
                 foreach (var op in arr.EnumerateArray())
-                    states.Add(op.TryGetProperty("landed_verification", out var v) ? v.GetString() ?? "?" : "?");
+                    states.Add(op.TryGetProperty("landed_source", out var v) ? v.GetString() ?? "?" : "?");
         }
         catch { /* states stays empty — the check below fails with the render as evidence */ }
-        Check("two ops on DIFFERENT elements each keep their own file verification (neither is written off)",
-            states.Count == 2 && states.All(v => v == "verified"),
+        Check("two ops on DIFFERENT elements each keep their own file reading (neither is written off)",
+            states.Count == 2 && states.All(v => v == "written_file"),
             string.Join(",", states) + "\n" + twoSets);
 
-        // (b) THE WIRE: hand the REAL verify pass a claim the written file cannot corroborate — an op asserting a
-        //     5-element list for a leaf the file carries fewer of — and require that it comes back diverged. This is
-        //     what proves LeafDivergence is actually consulted by VerifyLandedAgainstFile; the fixture can no longer
-        //     produce a genuine vanishing write (the empty-compose refusal removed its only producer), so the claim
-        //     is synthesised while the FILE half stays real.
+        // (b) THE WIRE: drive the REAL verify pass against the REAL written file and require that the op comes back
+        //     carrying the FILE's reading — not the claim it was handed. This is what proves DescribeApplied is
+        //     actually consulted off the re-opened file rather than the clause being passed through from memory,
+        //     which is the whole of #308 now that the verdict is gone.
         ISkyrimModGetter? back = null;
         try
         {
@@ -327,16 +256,14 @@ public static class ApplyGuardProbe
             var fk = FormKey.Factory(fx.FactionFid);
             var req = new WriteRequest { RecordType = "Faction", Path = new[] { "Ranks" }, Verb = "Add" };
             var claim = new WritePatchBuilder.OpResult(fk, "Faction", "Add Ranks", true, null,
-                                                      "[list: 5 item(s)]", "now 5 item(s)")
-                { AfterPresence = new WritePatchBuilder.LeafPresence(false, true, 5) };
-            var verified = WritePatchBuilder.VerifyLandedAgainstFile(
-                back, new[] { (fk, req) }, new[] { claim });
-            Check("the verify pass CONSULTS the comparator: a claim the file cannot corroborate comes back diverged",
-                verified.Count == 1 && verified[0].Divergence is { } d && d.Contains("5 element(s) in memory", StringComparison.Ordinal),
-                verified.Count == 1 ? verified[0].Divergence ?? "(no divergence)" : "(no result)");
-            Check("…and the same pass reports the FILE's own reading for that op, not the claim's",
-                verified.Count == 1 && verified[0].LandedOnDisk is { } lod && !lod.Contains("5", StringComparison.Ordinal),
+                                                      "[list: 5 item(s)]", "now 5 item(s)");
+            var verified = WritePatchBuilder.VerifyLandedAgainstFile(back, new[] { (fk, req) }, new[] { claim });
+            Check("the verify pass reads the FILE: the op comes back with the file's own count, not the claim's",
+                verified.Count == 1 && verified[0].LandedOnDisk is { } lod2 && !lod2.Contains("5", StringComparison.Ordinal),
                 verified.Count == 1 ? verified[0].LandedOnDisk ?? "(null)" : "(no result)");
+            Check("...and the claim's own in-memory reading is preserved beside it, unchanged",
+                verified.Count == 1 && verified[0].Landed == "now 5 item(s)",
+                verified.Count == 1 ? verified[0].Landed ?? "(null)" : "(no result)");
         }
         finally { (back as IDisposable)?.Dispose(); }
     }

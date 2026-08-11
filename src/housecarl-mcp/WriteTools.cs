@@ -549,11 +549,7 @@ public static class WriteTools
         sb.Append(o.Ops.Count).Append(o.Ops.Count == 1 ? " edit:\n" : " edits:\n");
         foreach (var op in o.Ops)
             sb.Append("  ").Append(op.RecordType).Append(' ').Append(op.Target).Append("  ").Append(op.Label)
-              .Append(op.After is not null ? "  -> " + op.After : "  -> applied")
-              // This row is the APPLIED edit's own reading. When the file does not carry it, mark it HERE too — this
-              // is the first place a caller looks, and the ✗ line arrives further down (review [nit]).
-              .Append(op.Divergence is not null ? "   [NOT carried by the written file — see below]" : "")
-              .Append('\n');
+              .Append(op.After is not null ? "  -> " + op.After : "  -> applied").Append('\n');
         // Make the dialogue-coverage scope boundary VISIBLE, not silent (Q3): the .fuz/.lip presence check (unit B) AND
         // the result-script binding check (unit C1) both run on CREATE of dialogue lines, not on EDITS to existing ones.
         // An edit that adds a spoken response or a result script to an existing INFO produces the same silent-line /
@@ -567,12 +563,6 @@ public static class WriteTools
         // lane) renders COMPACT by default and the full field-by-field dump only on full_readback=true (HCBR-2026-06-28-01):
         // the deep dump of N records with large list fields blew past the host token cap and spilled to a file, reading as
         // "only some ops applied". The verify itself is unchanged — this is its OUTPUT, not its detection.
-        // BEFORE the read-back, ONCE, for EVERY lane (reviews [medium] then [low]): a "did not land" statement must
-        // not be the thing a max_chars cut removes, must not ride on the per-record loop (which skips a record whose
-        // read-back errored), and must not be coupled to whether a read-back exists at all — it was reachable only
-        // through the compact block, so a lane that computed a divergence without one would print nothing here while
-        // json still said "diverged".
-        AppendDivergences(sb, o.Ops);
         if (o.ReadBack is { } rb)
         {
             if (fullDump) AppendFullReadback(sb, rb, maxChars);
@@ -697,14 +687,10 @@ public static class WriteTools
         IReadOnlyList<WritePatchBuilder.FullReadback> rb, int maxChars)
     {
         int cap = maxChars > 0 ? maxChars : Wire.ReadbackMaxChars;
-        // Never lead with "verified" over a ✗ (review [nit]): the divergence lines print immediately below this.
-        sb.Append(ops.Any(o => o.Divergence is not null)
-                ? "verify — every edited record was re-read off the written file, and AT LEAST ONE op is NOT carried by it (compact; pass full_readback=true for the "
-                : "verified — every edited record re-read off the written file (compact; pass full_readback=true for the ")
+        // The banner covers what it can now stand behind: every edited record WAS re-read off the written file, and
+        // each per-op clause below says whether it is the file's answer or the applied edit's own reading.
+        sb.Append("verified — every edited record re-read off the written file (compact; pass full_readback=true for the ")
           .Append("full field-by-field dump):\n");
-        // The divergence lines are NOT emitted here — Render emits them once for every lane, before this block, so
-        // they cannot be cut by the budget below, skipped with a record whose read-back errored, or lost on a lane
-        // that has no read-back at all.
         for (int i = 0; i < rb.Count; i++)
         {
             if (sb.Length >= cap)
@@ -745,35 +731,6 @@ public static class WriteTools
         // no Landed and are filtered out of this clause upstream, so no product path reaches it today (review [nit]).
         : op.VerifyAttempted ? " [as applied — the re-opened file did not answer for this op]"
         : " [as applied — this lane ran no file check]";
-
-    /// <summary>#308 — the "APPLIED but the file does not carry it" lines for the ops given. Its own method because
-    /// EXACTLY ONE call site — <see cref="Render"/>, ahead of both renderers and of the read-back block entirely — so
-    /// neither the compact budget, a record whose read-back errored, nor the absence of a read-back can suppress it.
-    /// (This doc previously described two call sites, one of them inside the full-dump renderer, where a reader
-    /// auditing "does the full dump emit this?" would have found nothing — review [low].) A Q3 statement that appears in only one of two renders of the same call is the D2 divergence class
-    /// this PR's own reviews keep finding.</summary>
-    static void AppendDivergences(StringBuilder sb, IEnumerable<WritePatchBuilder.OpResult> ops)
-    {
-        // BOUNDED, though hoisted above the budget (review [medium]): a divergence line is ~350 chars and a bulk
-        // in-place with a systematic divergence emits one per op, which would push the whole response past the host's
-        // ceiling — the failure this render was reshaped to avoid. The cap is generous (a caller with 25 un-landed
-        // ops has a systemic problem, not 25 individual ones) and the remainder is counted, never dropped silently.
-        const int shown = 25;
-        int rendered = 0, total = 0;
-        foreach (var op in ops) if (op.Divergence is not null) total++;
-        foreach (var op in ops)
-            if (op.Divergence is { } why && rendered++ < shown)
-                // NAMES THE RECORD (review [medium]): op.Label is "{Verb} {path}" and nothing else, so a bulk in-place
-                // over 40 NPCs with a divergence on 3 of them printed three byte-identical lines and the caller could
-                // not tell which records to re-check. The json twin has carried formid since it was hoisted; this is
-                // that D2 gap closed on the side a human actually reads.
-                sb.Append("  ✗ ").Append(op.RecordType).Append(' ').Append(op.Target).Append("  ").Append(op.Label)
-                  .Append(" — the edit was APPLIED but the written file does not carry it: ")
-                  .Append(why).Append(". The file is what the game loads: treat this op as NOT landed.\n");
-        if (total > shown)
-            sb.Append("  ✗ … and ").Append(total - shown).Append(" further op(s) the written file does not carry")
-              .Append(" — every one is in format=\"json\" (`divergences`), which is not cut here.\n");
-    }
 
     /// <summary>Confirmation for housecarl_remove_record: what was dropped, the patch's now-lean masters, and how many
     /// records remain (0 ⇒ inert). On refusal, the named reason (Q3) so the caller can fix and retry.</summary>
