@@ -89,6 +89,13 @@ public static class WritePatchBuilder
         /// empty. Q3: the forced in-place verify exists to catch exactly this, so it is stated loudly rather than left
         /// to a caller to notice. Null = checked and consistent, or not checkable (see <see cref="LandedOnDisk"/>).</summary>
         public string? Divergence { get; init; }
+
+        /// <summary>#308 — a LATER op in the same call wrote into this op's leaf, so the written file cannot answer
+        /// for this one: <see cref="After"/>/<see cref="Landed"/> were read the instant it applied, and the file holds
+        /// the state after every op. Not a problem with the op — it applied, and the later op's own verified clause
+        /// covers the leaf's final state — but the two are not comparable, and comparing them reported a correct
+        /// multi-op write (two Adds to one list; a value set then corrected) as NOT landed.</summary>
+        public bool SupersededInCall { get; init; }
     }
 
     /// <summary>One record read back IN FULL from the WRITTEN patch file (opt-in — the pre-enable verify loop,
@@ -2771,6 +2778,19 @@ public static class WritePatchBuilder
                         parentType = WriteEngine.ResolveConcreteRecordType(RecordNaming.StripOverlay(ownParent.GetType().Name));
                         parentPlans[i] = (null, null, null, ownParent);
                     }
+                    else if (patchMod.EnumerateMajorRecords().FirstOrDefault(r => r.FormKey == parentFk) is { } already)
+                    {
+                        // The DESTINATION already carries this parent — a prior into= call created it (the former N9
+                        // gap, resolvable because Phase 0 opens the patch BEFORE this loop), forwarded it, or edited
+                        // it. Use that record: it is already patch-local and settable, and overriding a body in on top
+                        // of it would be discarded anyway (GenericGetOrAddAsOverride has get-semantics).
+                        // Ordered BEFORE the load-order branch since #300 (review [low]): that branch used to win
+                        // whenever the parent was also in the order, so the definer's body was fetched, silently
+                        // dropped, and then REPORTED as the host — the one place the provenance line could lie.
+                        parentType = WriteEngine.ResolveConcreteRecordType(RecordNaming.StripOverlay(already.GetType().Name));
+                        parentPlans[i] = (null, null, null, already);
+                        parentHosts[i] = $"{RecordNaming.StripOverlay(already.GetType().Name)} {parentFk} was already carried by this artifact — its existing record hosts the child (nothing copied in)";
+                    }
                     else if (view.ResolveWinner(parentFk) is { } w)
                     {
                         // An EXISTING load-order parent (a topic/cell from a master or mod): override it INTO the destination
@@ -2814,14 +2834,6 @@ public static class WritePatchBuilder
                                     : $" (its DEFINING plugin — the lean host: '{w.WinnerPlugin}' currently WINS this record and its version is deliberately not copied here, "
                                       + $"so wherever this artifact out-ranks '{w.WinnerPlugin}' the parent record resolves to '{readFrom}'s fields. "
                                       + $"Sort this artifact BEFORE '{w.WinnerPlugin}' to keep that mod's version of the parent — the new child is carried either way.)");
-                    }
-                    else if (patchMod.EnumerateMajorRecords().FirstOrDefault(r => r.FormKey == parentFk) is { } patchParent)
-                    {
-                        // A parent created in a PRIOR into= call — it lives in the patch being extended, not the load order
-                        // (the former N9 gap, now resolvable because Phase 0 opens the patch BEFORE this loop). It's already
-                        // a settable patch-local record, so Phase 3 uses it directly (no override needed).
-                        parentType = WriteEngine.ResolveConcreteRecordType(RecordNaming.StripOverlay(patchParent.GetType().Name));
-                        parentPlans[i] = (null, null, null, patchParent);
                     }
                     else
                     {
@@ -3261,10 +3273,13 @@ public static class WritePatchBuilder
     /// not, so a struct that exists in memory and serializes to nothing rendered as landed under a file-authority
     /// claim while the file was byte-unchanged.
     ///
-    /// <para>Same code path both sides (<see cref="DescribeApplied"/>), so a difference is a difference in the DATA,
-    /// not in how two renderers phrase it. A record the file does not yield leaves both fields null — the renderer
-    /// then says the clause is the applied edit's claim, which is the honest reading and the one the old banner
-    /// silently skipped.</para>
+    /// <para>One READER both sides (<see cref="DescribeApplied"/>), so a difference is a difference in the DATA, not
+    /// in how two renderers phrase it. Not one OPEN, though, and the asymmetry is deliberate (review [low]): the
+    /// memory side is the record this call authored, while the file side is re-opened through
+    /// <c>LoadOrderResolver.OpenOverlay</c> so a localized plugin's strings resolve — without which a value this call
+    /// just wrote would read back empty and be reported as lost. A record the file does not yield leaves both fields
+    /// null — the renderer then says the clause is the applied edit's claim, which is the honest reading and the one
+    /// the old banner silently skipped.</para>
     ///
     /// <para>Its own enumeration pass, deliberately: <see cref="ReadBackInFull"/> materialises RecordFields and hands
     /// back values, and threading a second output through it to save one lazy header walk of ONE already-open file —
@@ -3288,8 +3303,15 @@ public static class WritePatchBuilder
         {
             var op = ops[i];
             if (i >= perOp.Count || !found.TryGetValue(perOp[i].Target, out var rec)) { verified.Add(op); continue; }
+            // SUPERSEDED ops are not comparable, and comparing them was a false alarm (review [high], reproduced):
+            // `After`/`Landed` are read the instant op i applies — mid-sequence — while the file holds the state after
+            // ALL of them. Two ops on one leaf (two Adds to one list; a value set then corrected) therefore always
+            // "disagreed", and the response told the caller to treat a landed op as NOT landed. The remedy an agent
+            // then reaches for — re-issue the op — is the duplicate-Add trap this codebase already warns about.
+            // The file has ONE final state, so only the LAST op touching a leaf is answerable by it.
+            if (LaterOpTouchesSameLeaf(perOp, i)) { verified.Add(op with { SupersededInCall = true }); continue; }
             var (afterDisk, landedDisk) = DescribeApplied(rec, perOp[i].Req);
-            // BOTH descriptors, not just the leaf summary (#308 review [medium]): `After` is the container
+            // BOTH descriptors, not just the leaf summary (review [medium]): `After` is the container
             // (`[list: N item(s)]`), `Landed` is the touched ELEMENT. A struct that lands as an element but serializes
             // to less than the caller supplied leaves the COUNT equal on both sides — so comparing summaries alone
             // would answer "verified" while the two element renderings visibly disagreed in the same response, which
@@ -3301,6 +3323,37 @@ public static class WritePatchBuilder
             });
         }
         return verified;
+    }
+
+    /// <summary>Does a LATER op in the same call write into the same leaf family as op <paramref name="i"/> — the same
+    /// record, and a path that is equal to, contains, or is contained by this op's? Then op i's in-memory reading was
+    /// taken before that op ran and the written file cannot speak to it.
+    /// <para>Containment, not equality: <c>Set BasicStats</c> followed by <c>Set BasicStats.Damage</c> leaves the
+    /// first op's whole-struct reading stale too. Index/key suffixes are stripped before comparing, so
+    /// <c>Ranks[0].Number</c> is recognised as writing inside <c>Ranks</c>; sibling paths under one parent
+    /// (<c>BasicStats.Damage</c> vs <c>BasicStats.Reach</c>) stay independent and both remain checkable.</para></summary>
+    static bool LaterOpTouchesSameLeaf(IReadOnlyList<(FormKey Target, WriteRequest Req)> perOp, int i)
+    {
+        for (int j = i + 1; j < perOp.Count; j++)
+            if (perOp[j].Target == perOp[i].Target && PathFamiliesOverlap(perOp[i].Req.Path, perOp[j].Req.Path))
+                return true;
+        return false;
+    }
+
+    /// <summary>Is one dotted path a prefix of the other, comparing segments with any <c>[index]</c>/<c>[key]</c>
+    /// suffix stripped? Equal paths count (a prefix of itself).</summary>
+    static bool PathFamiliesOverlap(string[] a, string[] b)
+    {
+        int n = Math.Min(a.Length, b.Length);
+        for (int k = 0; k < n; k++)
+            if (!string.Equals(BareSegment(a[k]), BareSegment(b[k]), StringComparison.OrdinalIgnoreCase)) return false;
+        return true;
+
+        static string BareSegment(string s)
+        {
+            int bracket = s.IndexOf('[');
+            return bracket < 0 ? s : s[..bracket];
+        }
     }
 
     /// <summary>#308's comparator: does the edited leaf's in-memory state disagree with the WRITTEN FILE's? Null =
@@ -3323,11 +3376,16 @@ public static class WritePatchBuilder
 
     /// <summary>The element count out of a container summary token (<c>[list: N item(s)]</c>, <c>[dict: N …]</c>);
     /// null when the token is not a counted container — a scalar, a formlink, or a shape this doesn't recognise, all
-    /// of which fall back to a text comparison rather than being read as "0".</summary>
+    /// of which fall back to a text comparison rather than being read as "0".
+    /// <para>The prefix is checked against the two shapes ReadEngine actually emits, not "starts with '[' and has a
+    /// colon" (review [low]): a STRING field whose value happens to read <c>[Boss: 3 guards]</c> would otherwise be
+    /// compared as a count, so <c>[Boss: 3 guards]</c> vs <c>[Boss: 3 dragons]</c> — a real change — would compare
+    /// equal and the divergence would be missed silently, in a detector whose whole job is not to miss one.</para></summary>
     static int? ContainerCount(string token)
     {
+        if (!token.StartsWith("[list:", StringComparison.Ordinal) && !token.StartsWith("[dict:", StringComparison.Ordinal))
+            return null;
         int colon = token.IndexOf(':');
-        if (!token.StartsWith('[') || colon < 0) return null;
         int i = colon + 1;
         while (i < token.Length && token[i] == ' ') i++;
         int start = i;

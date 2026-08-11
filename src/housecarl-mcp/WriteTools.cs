@@ -693,6 +693,11 @@ public static class WriteTools
         int cap = maxChars > 0 ? maxChars : Wire.ReadbackMaxChars;
         sb.Append("verified — every edited record re-read off the written file (compact; pass full_readback=true for the ")
           .Append("full field-by-field dump):\n");
+        // FIRST, and outside the budget (review [medium]): a "did not land" statement must not be the thing a
+        // max_chars cut removes, and it must not ride on the per-record loop — that loop `continue`s past a record
+        // whose read-back errored, while the divergence pass is a separate walk that may well have an answer for it.
+        // These lines are few (one per genuinely un-landed op) and are the whole reason the verify is forced on.
+        AppendDivergences(sb, ops);
         for (int i = 0; i < rb.Count; i++)
         {
             if (sb.Length >= cap)
@@ -713,18 +718,21 @@ public static class WriteTools
             // line used to carry a memory-derived descriptor under it without saying so.
             var mine = ops.Where(op => op.Target == r.Target).ToList();
             var landed = mine.Where(op => (op.LandedOnDisk ?? op.Landed) is not null)
-                             .Select(op => $"{op.Label}: {op.LandedOnDisk ?? op.Landed}"
-                                         + (op.LandedOnDisk is null ? " [as applied — the re-opened file did not answer for this op]" : ""))
+                             .Select(op => $"{op.Label}: {op.LandedOnDisk ?? op.Landed}" + LandedProvenance(op))
                              .ToList();
             if (landed.Count > 0) sb.Append("; ").Append(string.Join("; ", landed));
             sb.Append('\n');
-            // #308 — LOUD, on its own line, and never folded into the ✓: the write succeeded and the file does NOT
-            // corroborate what an op claims to have put there (canonically a composed struct with nothing to
-            // serialize). This is the inconsistency the forced verify exists to catch, so it is stated, not implied by
-            // a count the caller would have to notice.
-            AppendDivergences(sb, mine);
         }
     }
+
+    /// <summary>#308 — where a per-op "what landed" clause CAME FROM, when it is not the plain file answer. Silence
+    /// means the file was re-read for this op and agreed; the two marked cases are a file that could not answer for
+    /// the op, and an op a later op in the same call superseded (whose reading is a mid-sequence one the final file
+    /// cannot corroborate — comparing it anyway is what reported correct multi-op writes as NOT landed).</summary>
+    static string LandedProvenance(WritePatchBuilder.OpResult op) =>
+        op.SupersededInCall ? " [as applied — a later op in this call wrote the same field; the file shows that op's result]"
+        : op.LandedOnDisk is null ? " [as applied — the re-opened file did not answer for this op]"
+        : "";
 
     /// <summary>#308 — the "APPLIED but the file does not carry it" lines for the ops given. Its own method because
     /// BOTH readback forms must emit it: the compact verify calls it per record, and the full-dump lane calls it once

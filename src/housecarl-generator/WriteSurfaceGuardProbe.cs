@@ -14,7 +14,8 @@ namespace HousecarlGenerator;
 /// <c>housecarl_write_seq</c> (tool-surface-2.0 W3 PR 2; SPEC §2.2 ACT, §5.1/§5.2, §6.1). Sibling of
 /// <c>apply-guard</c>, same posture: the REAL end-to-end tool path — a synthetic MO2 instance in temp +
 /// <see cref="LoadOrderService"/> + the tool methods themselves — so the wire readers, the LANE grammar, the
-/// alias-visible vocabulary and the engines are exercised exactly as a caller hits them. Eight arms:
+/// alias-visible vocabulary and the engines are exercised exactly as a caller hits them. TEN arms (the two
+/// newest run before the off-order pair, which must go last — see RunGuard):
 /// <list type="number">
 /// <item><b>create grammar</b> — one record is a set of one, the nested one-shot (a same-call sibling parent +
 /// an '@editorid' link value), the @file spelling, and the strict element reader's NAMED refusals with the
@@ -34,6 +35,9 @@ namespace HousecarlGenerator;
 /// does not cover it, the overlay is released (the file stays movable), and the four refusals stay named:
 /// ambiguous filename, a file that doesn't define the record, a record whose ORIGIN plugin isn't active, and a
 /// self-forward caught by FILE IDENTITY when source= is a path to the artifact being written.</item>
+/// <item><b>nested parent hosting</b> (#300) — a nested create under an EXISTING load-order parent hosts the child
+/// in the parent's DEFINING plugin's version: the winner does not become a master, the hosted record does not carry
+/// a frozen copy of the winner's fields, and which plugin hosted it is reported.</item>
 /// <item><b>CopyFrom source paths</b> (#321) — the same ACTIVE-copy-by-path rule on the <c>CopyFrom</c> lane: a
 /// <c>from_source=</c> path to the file the order serves is refused/resolved as IN-ORDER and named by its plugin
 /// name, the copy still lands from that plugin's own version, and a path to a same-NAMED different file keeps the
@@ -907,7 +911,7 @@ public static class WriteSurfaceGuardProbe
     /// the copy still lands, and a path to a same-NAMED DIFFERENT file still reads off-order.</para></summary>
     static void CopySourcePathArm(Fixture fx, string root)
     {
-        Console.WriteLine("── ARM 8: #321 — a CopyFrom from_source= PATH to the ACTIVE copy takes the IN-ORDER arm ──");
+        Console.WriteLine("── #321: a CopyFrom from_source= PATH to the ACTIVE copy takes the IN-ORDER arm ──");
 
         var masterLive = Path.Combine(fx.ModsDir, "W2Master", fx.MasterName);
         var replLive = Path.Combine(fx.ModsDir, "W2Repl", fx.ReplacerName);
@@ -951,7 +955,7 @@ public static class WriteSurfaceGuardProbe
     /// silent-revert-on-update half), and the choice is REPORTED (it is invisible in the record afterwards).</summary>
     static void NestedParentHostArm(Fixture fx)
     {
-        Console.WriteLine("── ARM 9: #300 — a nested create hosts its child in the parent's DEFINING plugin's version ──");
+        Console.WriteLine("── #300: a nested create hosts its child in the parent's DEFINING plugin's version ──");
 
         var made = CreateTools.Create(fx.Svc, patch: "W2Host",
             records: Json($$"""[{"record_type":"DialogResponses","editorid":"W2HostedLine","parent":"{{fx.TopicFid}}"}]"""));

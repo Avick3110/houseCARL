@@ -80,15 +80,16 @@ public static class ApplyGuardProbe
         finally { try { Directory.Delete(root, recursive: true); } catch { } }
     }
 
-    /// <summary>ARM 6 (#308) — the in-place verify's per-op clause is the WRITTEN FILE's answer, and a compose with
-    /// nothing to serialize is refused instead of reported as landed.
-    /// <para>The end-to-end divergence RENDER has no synthesizable producer left once the refusal lands (that was the
-    /// only shape this fixture could build where memory and disk disagreed), so the two halves are pinned where each
-    /// actually lives: the refusal end-to-end through the tool, the file-derived clause through the json contract
-    /// (<c>landed_on_disk</c> + <c>landed_verified_on_disk</c>, which do not exist at all pre-fix), and the
-    /// comparator's own semantics as a unit. Stated rather than left as a gap: the detector is the general net for
-    /// every OTHER type that serializes to less than the caller believes, and that net is deliberately not
-    /// exercisable from a fixture built out of one.</para></summary>
+    /// <summary>ARM 6 (#308) — the in-place verify's per-op clause is the WRITTEN FILE's answer, a compose with
+    /// nothing to serialize is refused instead of reported as landed, and a MULTI-OP call is not slandered.
+    /// <para>The last of those is here because an earlier draft of this doc claimed the divergence render had "no
+    /// synthesizable producer left" — false, and a review found it by synthesizing one in this very fixture: two
+    /// Adds to one list, where op 1's mid-sequence reading was compared against the file's final state and a correct
+    /// write was reported as NOT landed. A guard that argues its way out of covering the one thing a caller sees is
+    /// how that shipped, so the multi-op case is now driven end-to-end here.</para>
+    /// <para>What stays unit-pinned is the comparator itself: with the refusal in place, a struct that lands as an
+    /// element and still serializes short is not buildable from this fixture — that is the general net for OTHER
+    /// types, and it is deliberately not synthesizable from one.</para></summary>
     static void EmptyComposeArm(Fixture fx)
     {
         Console.WriteLine("── ARM 6: #308 — the verify's clause comes off the FILE, and an empty compose is refused ──");
@@ -125,7 +126,7 @@ public static class ApplyGuardProbe
             && op0.TryGetProperty("landed_on_disk", out var lod) && lod.ValueKind == JsonValueKind.String, withField);
         Check("…and it is declared VERIFIED against the written file, with no divergence",
             op0.ValueKind == JsonValueKind.Object
-            && op0.TryGetProperty("landed_verified_on_disk", out var lv) && lv.ValueKind == JsonValueKind.True
+            && op0.TryGetProperty("landed_verification", out var lv) && lv.GetString() == "verified"
             && op0.TryGetProperty("divergence", out var dv) && dv.ValueKind == JsonValueKind.Null, withField);
 
         // The comparator's own semantics (unit): a moved COUNT is a divergence and says so in counts; equal content
@@ -141,6 +142,38 @@ public static class ApplyGuardProbe
         Check("comparator: a changed SCALAR is a divergence too, quoted as the two readings",
             WritePatchBuilder.LeafDivergence("99", "10") is { } s && s.Contains("'99'", StringComparison.Ordinal)
             && s.Contains("'10'", StringComparison.Ordinal), WritePatchBuilder.LeafDivergence("99", "10"));
+        Check("comparator: a SCALAR that merely looks like a container token is compared as text, not as a count",
+            WritePatchBuilder.LeafDivergence("[Boss: 3 guards]", "[Boss: 3 dragons]") is not null);
+
+        // MULTI-OP, end-to-end: two Adds to ONE list in ONE in-place call. Both land; the file carries both. The
+        // earlier op's reading was taken between them, so comparing it against the final file state accused a correct
+        // write of not landing — the defect a review reproduced in this fixture after the arm's own doc claimed it
+        // could not be built. Asserted on the RENDER, which is what a caller reads.
+        var twoAdds = ApplyTools.Apply(fx.Svc,
+            ops: Json("[" + ComposeRankOp(fx.FactionFid, "\"fields\":{\"Number\":\"1\"}")[1..^1] + ","
+                          + ComposeRankOp(fx.FactionFid, "\"fields\":{\"Number\":\"2\"}")[1..^1] + "]"),
+            in_place: fx.ReplacerName, acknowledge: true);
+        Check("two Adds to ONE list in one call: both land and NOTHING is reported as not landed",
+            twoAdds.StartsWith("edited ", StringComparison.Ordinal)
+            && !twoAdds.Contains("NOT landed", StringComparison.Ordinal), twoAdds);
+        Check("…and the superseded op says so — its clause is the applied edit's, not the later op's file reading",
+            twoAdds.Contains("a later op in this call wrote the same field", StringComparison.Ordinal), twoAdds);
+        Check("…and the list really carries BOTH ranks on disk (the write the arm is defending was correct)",
+            RanksIn(fx.ReplacerPath, fx.FactionFid) >= 2, $"ranks={RanksIn(fx.ReplacerPath, fx.FactionFid)}\n{twoAdds}");
+    }
+
+    /// <summary>How many Ranks the written faction carries on disk — the ground truth behind the multi-op check.</summary>
+    static int RanksIn(string espPath, string factionFid)
+    {
+        ISkyrimModGetter? ov = null;
+        try
+        {
+            var fk = FormKey.Factory(factionFid);
+            ov = SkyrimMod.CreateFromBinaryOverlay(espPath, SkyrimRelease.SkyrimSE);
+            return ov.Factions.FirstOrDefault(f => f.FormKey == fk)?.Ranks.Count ?? -1;
+        }
+        catch { return -1; }
+        finally { (ov as IDisposable)?.Dispose(); }
     }
 
     /// <summary>One <c>Add Ranks</c> compose op, built by concatenation: the JSON's brace runs make a raw interpolated
