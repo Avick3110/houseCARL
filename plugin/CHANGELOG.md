@@ -8,6 +8,17 @@ when it changes.
 
 *Accumulating notes for the next cut — not yet released; `plugin.json` still reads the last shipped version.*
 
+**Added: `housecarl_place_asset` can now place a copy from one path under a different name, and say whose copy to
+take.** `source=` accepts a Data-relative path — the same kind of path `housecarl_asset_status` reports on — and
+resolves it through the virtual file system, so the source no longer has to be a full path typed out from your
+drive. Because the source and the destination are separate inputs, a source that differs from the destination is a
+**rename**: one file's bytes land under another file's name, which is what carrying a baked FaceGen head onto a
+different NPC's FormID path actually is. The new `source_provider=` says *whose* copy to read — a mod folder or BSA
+filename as `asset_status` spells it, or `winner` for whichever copy currently wins. Naming a mod means that mod:
+if it doesn't supply the path, the call is refused rather than quietly served from somewhere else. Naming nothing
+keeps the old behaviour — the sole provider, refused when several contend — except that the refusal now lists the
+providers by NAME instead of by on-disk path, which is what you pass back to `source_provider=`.
+
 **Fixed: the text and JSON responses to a write can no longer say different things.** Every write tool renders its
 result twice — once as text, once as `format="json"` — and the two renders were maintained separately, so a warning
 or a piece of advice could be corrected on one and left stale on the other. Nine sentences had already drifted that

@@ -31,6 +31,13 @@ namespace HousecarlGenerator;
 ///   G  non-destructive / provenance / Q3 — an all-failed FRESH batch leaves NO orphan folder; a partial batch KEEPS the
 ///      folder (the good file present); a drive-rooted / '..' destination is a per-asset named error; the tool layer
 ///      refuses malformed specs (no kind, both/neither of formid+asset_path, bad formid/kind, both-expansion + loose source).
+///   I  the VFS source lane — source= a DATA-RELATIVE path resolved through the asset layer, with source_provider=
+///      choosing the pole. A NAMED provider is read even when another copy wins (I1, the arm no other source policy
+///      passes); 'winner' reads the current winner (I2); a named provider that doesn't supply the path is refused with
+///      nothing substituted (I3); source ≠ destination is a RENAME (I4 — the mechanism an appearance copy is built
+///      from); an absent source and a pole against an on-disk source are named refusals (I5, I6).
+///   J  the reserved token vs a mod literally named 'winner' — refused both ways rather than guessed, with a
+///      places-fine control proving the refusal is the collision and not a broken fixture.
 ///
 /// Self-contained: synthetic folders/instances in temp + the committed fixtures/asset-resolver/FixtureA.bsa, NO BSArch.
 /// Run: dotnet run --project src/housecarl-generator place-asset-guard
@@ -246,7 +253,12 @@ internal static class PlaceAssetProbe
                     var store = new UserConfigStore(Path.Combine(root, "user-f2.json"));
                     using var svc = LoadOrderService.WithInstance(inst, 0, store);
                     var r = svc.PlaceAssets(new[] { new PlaceRequest(FacegenRel, null) }, null, null).Results[0];
-                    Check(!r.Placed && r.Error!.Contains("ambiguous"), $"TWO providers + no source= is REFUSED (no guess) — {r.Error}");
+                    Check(!r.Placed && r.Error!.Contains(WriteSentences.PlaceSourceWillNotGuess, StringComparison.Ordinal),
+                          $"TWO providers + no source= is REFUSED (no guess) — {r.Error}");
+                    Check(r.Error!.Contains("ModA", StringComparison.Ordinal) && r.Error.Contains("ModB", StringComparison.Ordinal),
+                          "the refusal NAMES both providers — what source_provider= takes back");
+                    Check(!r.Error!.Contains(mods, StringComparison.OrdinalIgnoreCase),
+                          "the refusal leaks NO on-disk path — a provider name cannot go stale between the resolve and the read  [RED arm]");
                 }
                 // absent → refuse
                 {
@@ -367,6 +379,125 @@ internal static class PlaceAssetProbe
                               "the service place preserves the dest creation time — routes through AtomicFile (File.Replace), not File.Move  [RED arm]");
                 }
                 else Check(false, "provenance/routing skipped — first place produced no folder");
+            }
+
+            // ================= I: the VFS source lane — a Data-relative source + the three SOURCE poles =================
+            Console.WriteLine();
+            Console.WriteLine("--- I: source= a Data-relative path; source_provider= names WHOSE copy (named / winner / sole) ---");
+            {
+                var inst = Path.Combine(root, "svc-i");
+                var (mods, _, prof) = MakeInstance(inst);
+                var aBytes = new byte[] { 0xA1, 0xA1, 0xA1 };
+                var bBytes = new byte[] { 0xB2, 0xB2 };
+                foreach (var (m, b) in new[] { ("ModA", aBytes), ("ModB", bBytes) })
+                {
+                    var d = Path.Combine(mods, m);
+                    Directory.CreateDirectory(d);
+                    WriteLoose(d, FacegenRel, b);
+                }
+                File.WriteAllText(Path.Combine(mods, "ModA", "Dummy.esp"), "x");
+                WriteProfile(prof, new[] { "Dummy.esp" }, new[] { "*Dummy.esp" }, new[] { "+ModA", "+ModB" });
+                WriteSkyrimIni(prof, "");
+                var store = new UserConfigStore(Path.Combine(root, "user-i.json"));
+                using var svc = LoadOrderService.WithInstance(inst, 0, store);
+
+                // Which of the two currently WINS is read from the resolver, never assumed: the arm's claim is that a
+                // named provider is honoured whether or not it is the winner, and hard-coding the winner would make
+                // the arm pass for the wrong reason the day MO2 priority is read differently.
+                var winnerName = svc.AssetStatus(new[] { FacegenRel }).Results[0].Hit?.Winner?.Source;
+                Check(winnerName is "ModA" or "ModB", $"the fixture is genuinely contended and one copy wins — winner={winnerName ?? "(none)"}");
+                var loserName = winnerName == "ModA" ? "ModB" : "ModA";
+                var winnerBytes = winnerName == "ModA" ? aBytes : bBytes;
+                var loserBytes = winnerName == "ModA" ? bBytes : aBytes;
+
+                // I1 — the DISCRIMINATING arm: a named provider that is NOT the winner is read anyway. Every other
+                // source policy (winner-read, sole-provider) fails this one, which is why the fixture is contended.
+                {
+                    var o = svc.PlaceAssets(new[] { new PlaceRequest(FacegenRel, FacegenRel, loserName) }, null, null);
+                    var r = o.Results[0];
+                    var placed = o.ModFolder is null ? null : Path.Combine(o.ModFolder, FacegenRel);
+                    Check(r.Placed && placed is not null && File.ReadAllBytes(placed).SequenceEqual(loserBytes),
+                          $"source_provider='{loserName}' places THAT provider's bytes though '{winnerName}' wins the VFS  [RED arm] — {(r.Placed ? "ok" : r.Error)}");
+                    Check(placed is not null && !File.ReadAllBytes(placed).SequenceEqual(winnerBytes),
+                          "…and specifically NOT the winner's bytes (the two copies differ, so the assertion can fail)");
+                }
+
+                // I2 — the winner pole stays reachable: "what the game shows right now".
+                {
+                    var o = svc.PlaceAssets(new[] { new PlaceRequest(FacegenRel, FacegenRel, AssetSourceChoice.WinnerToken) }, null, null);
+                    var r = o.Results[0];
+                    var placed = o.ModFolder is null ? null : Path.Combine(o.ModFolder, FacegenRel);
+                    Check(r.Placed && placed is not null && File.ReadAllBytes(placed).SequenceEqual(winnerBytes),
+                          $"source_provider=winner places the CURRENT winner's bytes ('{winnerName}') — {(r.Placed ? "ok" : r.Error)}");
+                }
+
+                // I3 — a named provider that doesn't supply the path is refused, NOT quietly served by another.
+                {
+                    var r = svc.PlaceAssets(new[] { new PlaceRequest(FacegenRel, FacegenRel, "NoSuchMod") }, null, null).Results[0];
+                    Check(!r.Placed && r.Error!.Contains(WriteSentences.PlaceSourceNoSubstitute, StringComparison.Ordinal),
+                          $"a named provider that does not supply the path is REFUSED with nothing substituted  [RED arm] — {r.Error}");
+                    Check(r.Error!.Contains("ModA", StringComparison.Ordinal) && r.Error.Contains("ModB", StringComparison.Ordinal),
+                          "…and the providers that DO supply it are named (the typo's remedy)");
+                }
+
+                // I4 — THE RENAME. Source path ≠ destination path: one NPC's baked facegen lands under another's
+                // FormID-derived name. This is the mechanism an appearance copy is built from.
+                {
+                    var destRel = FaceGenPath.For(FormKey.Factory("000FFF:Dummy.esp"), FaceGenSlot.Mesh);
+                    Check(destRel != FacegenRel, "the rename fixture's destination really is a different path from its source");
+                    var o = svc.PlaceAssets(new[] { new PlaceRequest(destRel, FacegenRel, loserName) }, null, null);
+                    var r = o.Results[0];
+                    var placed = o.ModFolder is null ? null : Path.Combine(o.ModFolder, destRel);
+                    Check(r.Placed && placed is not null && File.Exists(placed) && File.ReadAllBytes(placed).SequenceEqual(loserBytes),
+                          $"the source file's bytes land under the DESTINATION's name — a rename  [RED arm] — {(r.Placed ? "ok" : r.Error)}");
+                    Check(r.SourceDesc is not null && r.SourceDesc.Contains(FacegenRel, StringComparison.OrdinalIgnoreCase),
+                          $"the render states which FILE the bytes came from — a rename that reported only the provider would hide it — {r.SourceDesc}");
+                    Check(o.ModFolder is null || !File.Exists(Path.Combine(o.ModFolder, FacegenRel)),
+                          "the SOURCE path is not also written — a rename places one file, not two");
+                }
+
+                // I5 — a Data-relative source nothing provides is its own refusal, about the SOURCE (not the
+                // destination): the destination of a rename is new by definition, so the two cannot share a message.
+                {
+                    var r = svc.PlaceAssets(new[] { new PlaceRequest(FacegenRel, @"meshes\nope\absent.nif", null) }, null, null).Results[0];
+                    Check(!r.Placed && r.Error!.Contains("provides the source", StringComparison.Ordinal)
+                          && r.Error.Contains(@"meshes\nope\absent.nif", StringComparison.OrdinalIgnoreCase),
+                          $"an absent Data-relative SOURCE is refused naming that path — {r.Error}");
+                }
+
+                // I6 — a pole against an on-disk source cannot apply, and is SAID rather than dropped (Q3).
+                {
+                    var onDisk = Path.Combine(root, "i7-source.nif");
+                    File.WriteAllBytes(onDisk, new byte[] { 7, 7 });
+                    var r = svc.PlaceAssets(new[] { new PlaceRequest(FacegenRel, onDisk, "ModA") }, null, null).Results[0];
+                    Check(!r.Placed && r.Error!.Contains(WriteSentences.PlaceSourceProviderNeedsRelPath, StringComparison.Ordinal),
+                          $"source_provider= with an ON-DISK source is refused, never silently ignored  [RED arm] — {r.Error}");
+                }
+            }
+
+            // ================= J: the reserved token vs a mod that carries its name =================
+            Console.WriteLine();
+            Console.WriteLine("--- J: a provider literally named 'winner' collides with the reserved token → refuse, don't guess ---");
+            {
+                var inst = Path.Combine(root, "svc-j");
+                var (mods, _, prof) = MakeInstance(inst);
+                var w = Path.Combine(mods, AssetSourceChoice.WinnerToken);
+                Directory.CreateDirectory(w);
+                WriteLoose(w, FacegenRel, new byte[] { 9 });
+                File.WriteAllText(Path.Combine(w, "Dummy.esp"), "x");
+                WriteProfile(prof, new[] { "Dummy.esp" }, new[] { "*Dummy.esp" }, new[] { "+" + AssetSourceChoice.WinnerToken });
+                WriteSkyrimIni(prof, "");
+                var store = new UserConfigStore(Path.Combine(root, "user-j.json"));
+                using var svc = LoadOrderService.WithInstance(inst, 0, store);
+
+                var r = svc.PlaceAssets(new[] { new PlaceRequest(FacegenRel, FacegenRel, AssetSourceChoice.WinnerToken) }, null, null).Results[0];
+                Check(!r.Placed && r.Error!.Contains(WriteSentences.PlaceSourceWinnerCollision, StringComparison.Ordinal),
+                      $"source_provider=winner with a mod named 'winner' present is REFUSED both ways  [RED arm] — {r.Error}");
+                // …and the collision is the ONLY thing that refuses here: the same instance places fine when the
+                // caller names no pole at all (one provider ⇒ sole). Without this, an arm asserting a refusal would
+                // pass on an instance that simply cannot place.
+                var ok = svc.PlaceAssets(new[] { new PlaceRequest(FacegenRel, null, null) }, null, null).Results[0];
+                Check(ok.Placed, $"the same fixture places with NO pole named (so the refusal above is the collision, not a broken instance) — {(ok.Placed ? "ok" : ok.Error)}");
             }
         }
         finally { try { Directory.Delete(root, recursive: true); } catch { /* temp scratch */ } }

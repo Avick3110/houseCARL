@@ -235,6 +235,47 @@ internal static class WriteSentences
     internal const string CellRowsCutLoss =
         "each dropped row is Creation-Kit work this response was supposed to name";
 
+    // ---- place_asset: naming which copy to read (S2's SOURCE poles) ----------------------------------
+    /// <summary>The refusal's load-bearing half: houseCARL picked NOTHING. Which copy of a contended file is the
+    /// right one is a judgement about the modlist, and the tool has never made it (the placer's own charter) — the
+    /// sentence exists so a caller reads "choose" rather than "retry".</summary>
+    [MustState("will not guess which copy is correct")]
+    internal const string PlaceSourceWillNotGuess = "houseCARL will not guess which copy is correct";
+
+    /// <summary>Contended source, no pole named. Lists the providers by NAME — the spelling <c>asset_status</c>
+    /// renders and the spelling <c>source_provider=</c> takes back, so the refusal hands the caller its own next
+    /// call. Deliberately NOT the on-disk paths: a path round-tripped through the caller can go stale between the
+    /// resolve and the read, and the whole point of naming a provider is that it cannot.</summary>
+    internal static string PlaceSourceAmbiguous(string rel, IReadOnlyList<string> providerNames) =>
+        $"{providerNames.Count} providers supply '{rel}' — {PlaceSourceWillNotGuess}. "
+      + $"Name one with source_provider=: {string.Join("; ", providerNames)} "
+      + "(or source_provider=winner for whichever copy currently wins the VFS).";
+
+    /// <summary>Why a named-provider miss is a refusal and not a fallback. The hazard is silent substitution: a
+    /// mistyped mod name that quietly read some OTHER mod's copy would place bytes the caller never chose, and the
+    /// file would look placed. Naming a provider means that provider or nothing.</summary>
+    [MustState("nothing was substituted", "still supply it")]
+    internal const string PlaceSourceNoSubstitute =
+        "nothing was substituted for it — the providers below still supply it, and one of them is what you meant if the name is a typo";
+
+    /// <summary>The named provider does not supply this path (others may).</summary>
+    internal static string PlaceSourceNamedAbsent(string provider, string rel, IReadOnlyList<string> providerNames) =>
+        $"'{provider}' does not supply '{rel}', so {PlaceSourceNoSubstitute}: {string.Join("; ", providerNames)}.";
+
+    /// <summary>The one case where the reserved token and a real mod folder collide. Reading either would be a
+    /// guess, so both are refused and the caller is sent to the form that cannot be ambiguous.</summary>
+    [MustState("is itself named", "which of the two you meant")]
+    internal const string PlaceSourceWinnerCollision =
+        "a provider in your load order is itself named 'winner', so source_provider=winner cannot say which of the two you meant. "
+      + "Pass that copy directly with source= (a full loose path, or '<archive.bsa>|<entry>').";
+
+    /// <summary>A pole named against a source that is already one exact file. Q3 — an input that cannot apply is
+    /// said, never dropped: silently ignoring it would let a caller believe a provider was honoured.</summary>
+    [MustState("only applies to a Data-relative source", "already names one exact copy")]
+    internal const string PlaceSourceProviderNeedsRelPath =
+        "source_provider= only applies to a Data-relative source resolved through the VFS. The source you passed is an "
+      + "on-disk path, which already names one exact copy — drop source_provider=, or pass source= the Data-relative path.";
+
     /// <summary>Sentences the SAME outcome must carry on BOTH transports. Reflected over by the write-surface
     /// guard's twin arm — see this class's summary. Members are whole invariant strings on purpose: a sentence
     /// interpolating a cap or a filename cannot be compared verbatim across lanes, so parameterised twins stay on

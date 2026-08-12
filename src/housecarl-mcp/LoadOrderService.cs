@@ -1553,18 +1553,49 @@ public sealed class LoadOrderService : IDisposable
         var res = view.ResolveForPlacement(rel);                         // rel already validated — won't throw
         var winner = res.Sources.Count > 0 ? DescribeSource(res.Sources[0]) : null;
 
-        // ---- source bytes: explicit source= wins; else auto-resolve the sole provider ----
+        // ---- source bytes: an ON-DISK source= is read as named; anything else resolves through the VFS ----
+        // Three source shapes reach here: an on-disk file the caller named exactly (a rooted path, a '.bsa', a
+        // '<bsa>|<entry>'), a DATA-RELATIVE path resolved through the VFS under a pole, and no source at all — which
+        // is the same VFS lane pointed at the destination path. The last two share one code path because they are
+        // one question ("which provider supplies this Data-relative path") asked about different paths.
         byte[] bytes; string sourceDesc;
         var explicitSrc = req.Source?.Trim();
-        if (!string.IsNullOrEmpty(explicitSrc))
+        var providerSel = req.SourceProvider?.Trim();
+        if (!string.IsNullOrEmpty(explicitSrc) && !IsVfsSource(explicitSrc!))
         {
+            // An on-disk source already IS one exact copy, so a pole cannot apply to it — said, never dropped (Q3).
+            if (!string.IsNullOrEmpty(providerSel))
+                return PlaceResult.Fail(rel, WriteSentences.PlaceSourceProviderNeedsRelPath, winner);
             var (b, desc, err) = ReadExplicitSource(explicitSrc!, rel);
             if (err is not null) return PlaceResult.Fail(rel, err, winner);
             bytes = b!; sourceDesc = desc!;
         }
         else
         {
-            if (res.Sources.Count == 0)
+            // The SOURCE path: the Data-relative one the caller named, else the destination (the original lane).
+            bool sourceNamed = !string.IsNullOrEmpty(explicitSrc);
+            string srcRel = rel;
+            if (sourceNamed)
+            {
+                try { srcRel = AssetResolver.ValidateRelPath(explicitSrc!); }
+                catch (ArgumentException ex) { return PlaceResult.Fail(rel, $"source '{explicitSrc}': {ex.Message}", winner); }
+            }
+            var srcRes = sourceNamed ? view.ResolveForPlacement(srcRel) : res;
+            var pick = AssetSourceSelection.Select(srcRes, AssetSourceChoice.Parse(providerSel));
+
+            if (pick.Verdict == AssetSourceVerdict.WinnerTokenCollision)
+                return PlaceResult.Fail(rel, WriteSentences.PlaceSourceWinnerCollision, winner);
+            if (pick.Verdict == AssetSourceVerdict.NamedAbsent)
+                return PlaceResult.Fail(rel, WriteSentences.PlaceSourceNamedAbsent(providerSel!, srcRel, pick.ProviderNames), winner);
+            if (pick.Verdict == AssetSourceVerdict.Ambiguous)
+                return PlaceResult.Fail(rel, WriteSentences.PlaceSourceAmbiguous(srcRel, pick.ProviderNames), winner);
+            if (pick.Verdict == AssetSourceVerdict.NoProvider && sourceNamed)
+                return PlaceResult.Fail(rel,
+                    $"nothing in the active load order provides the source '{srcRel}'."
+                    + (AssetPathHint.AssetRootHint(view, srcRel) is { } srcHint ? " " + srcHint : "")
+                    + (srcRes.ReadIncomplete ? " NOTE: a BSA failed to read this build, so it may merely be unscanned (see the warnings)." : ""),
+                    winner);
+            if (pick.Verdict == AssetSourceVerdict.NoProvider)
             {
                 // #283 — the auto-resolve dead end is the same input mistake #273 fixed in the three sibling lanes: a
                 // path taken off a record is stored relative to its ROOT folder, so passing it verbatim is the normal
@@ -1574,28 +1605,27 @@ public sealed class LoadOrderService : IDisposable
                 // there, so an absent destination is not a mistake to correct.
                 var hint = AssetPathHint.AssetRootHint(view, rel);
                 // ORDER IS LOAD-BEARING — the hint sits directly after the sentence about the PATH, before the
-                // "Pass source=" fallback (review of this PR). It names a destination, not a source; trailing the
-                // one imperative in the message — an imperative that names source= AND lists "a loose file path"
-                // as a legal form — invited the caller to retry as source=`meshes\...`, which routes through
-                // ReadExplicitSource -> Path.GetFullPath against the process CWD -> "source file not found" for the
-                // very copy this hint just verified as provided. Adjacency to the ABSENT clause is also the shape
-                // the three sibling lanes already have (NifInspect / NifSet append MeshHint to a purely descriptive
-                // sentence; asset_status renders it on its own line), so all four read the same way.
+                // "Pass source=" fallback (review of this PR). It names a destination, not a source, and it must not
+                // trail an imperative about sources or it reads as one. The old wording ALSO had to steer callers
+                // away from retrying with a Data-relative source=, which then routed to Path.GetFullPath against the
+                // process CWD; that is no longer true — a Data-relative source= is now the VFS lane, and it is the
+                // first form the imperative offers. Adjacency to the ABSENT clause is the shape the three sibling
+                // lanes already have (NifInspect / NifSet append MeshHint to a purely descriptive sentence;
+                // asset_status renders it on its own line), so all four read the same way.
                 return PlaceResult.Fail(rel,
                     $"nothing in the active load order provides '{rel}', so there is no copy to auto-place."
                     + (hint is null ? "" : " " + hint)
-                    + " Pass source= the correct copy (a loose file path, or '<archive.bsa>|<entry>', or a '.bsa' path)."
+                    + " Pass source= the copy to place — a Data-relative path (resolved through the VFS, with"
+                    + " source_provider= to name which mod's copy), a full loose path, '<archive.bsa>|<entry>', or a '.bsa' path."
                     + (res.ReadIncomplete ? " NOTE: a BSA failed to read this build, so a source may merely be unscanned (see the warnings)." : ""),
                     winner);
             }
-            if (res.Ambiguous)
-                return PlaceResult.Fail(rel,
-                    $"{res.Sources.Count} sources provide '{rel}' — ambiguous, so place_asset will not guess which copy is correct (the skill decides). "
-                    + $"Pass source= one of: {string.Join("; ", res.Sources.Select(SourceHint))}.",
-                    winner);
-            var (b, desc, err) = ReadResolvedSource(res.Sources[0]);
+            var (b, desc, err) = ReadResolvedSource(pick.Source!);
             if (err is not null) return PlaceResult.Fail(rel, err, winner);
-            bytes = b!; sourceDesc = desc!;
+            bytes = b!;
+            // A source read from a DIFFERENT path than the destination is a rename, and the render has to say so —
+            // "placed from ModX" alone would hide that the bytes are another file's.
+            sourceDesc = sourceNamed ? $"{srcRel} — {desc}" : desc!;
         }
 
         // ---- crash-atomic place under the owned folder (originals untouched; same-volume staging done in core) ----
@@ -1618,10 +1648,12 @@ public sealed class LoadOrderService : IDisposable
         return new PlaceResult(rel, true, bytes.Length, sourceDesc, winner, null);
     }
 
-    /// <summary>Read an EXPLICIT source= the caller named. Forms: "&lt;archive.bsa&gt;|&lt;entry&gt;" (a specific BSA
-    /// entry, split on the FIRST '|'); a path ending ".bsa" (the entry is the destination rel-path — the FaceGen case,
-    /// where the entry inside the BSA IS the Data-relative path); any other path (a loose file on disk). Returns the bytes
-    /// + a human description, or a NAMED error (Q3) for a missing file / missing entry / unreadable archive.</summary>
+    /// <summary>Read an ON-DISK source= the caller named exactly. Forms: "&lt;archive.bsa&gt;|&lt;entry&gt;" (a specific
+    /// BSA entry, split on the FIRST '|'); a path ending ".bsa" (the entry is the destination rel-path — the FaceGen
+    /// case, where the entry inside the BSA IS the Data-relative path); a ROOTED path (a loose file on disk). A
+    /// Data-relative source never reaches here — <see cref="IsVfsSource"/> routes it to the VFS lane, which is the one
+    /// that can say which provider's copy. Returns the bytes + a human description, or a NAMED error (Q3) for a
+    /// missing file / missing entry / unreadable archive.</summary>
     static (byte[]? bytes, string? desc, string? error) ReadExplicitSource(string source, string destRel)
     {
         source = source.Trim();
@@ -1678,12 +1710,18 @@ public sealed class LoadOrderService : IDisposable
     /// <summary>A human label for the current winner (the sort target). "ModX (loose)" / "Y.bsa (BSA)".</summary>
     static string DescribeSource(PlacementSource s) => $"{s.ProviderName} ({(s.Kind == AssetKind.Bsa ? "BSA" : "loose")})";
 
-    /// <summary>A copy-pasteable source= hint for an ambiguous-provider refusal: a BSA provider needs its archive PATH (the
-    /// display name is just the filename), so name it as a BSA the caller must give the full path of; a loose provider's
-    /// on-disk path is exact.</summary>
-    static string SourceHint(PlacementSource s) => s.Kind == AssetKind.Bsa
-        ? $"the BSA '{s.ProviderName}' (give its full path, or '<path>|{s.EntryPath}')"
-        : $"'{s.LooseFilePath}'";
+    /// <summary>Does this source= name a copy through the VFS (a Data-relative path) rather than one exact file on
+    /// disk? The three on-disk forms are checked FIRST and in the same order <see cref="ReadExplicitSource"/> routes
+    /// them, quotes trimmed the same way — the two must agree on every input, or a source would be classified as one
+    /// shape here and read as the other there.</summary>
+    static bool IsVfsSource(string source)
+    {
+        var s = source.Trim();
+        if (s.IndexOf('|') >= 0) return false;                           // '<archive.bsa>|<entry>'
+        s = s.Trim('"');
+        if (s.EndsWith(".bsa", StringComparison.OrdinalIgnoreCase)) return false;
+        return !Path.IsPathRooted(s);                                    // rooted ⇒ a loose file on disk; else Data-relative
+    }
 
     /// <summary>Whole-order stats (forces the lazy build). For the server's stand-up / health check.</summary>
     public (int plugins, int records, int conflicts, int maxDepth, IReadOnlyList<string> loadFailures, string epoch) Stats()
@@ -8445,9 +8483,12 @@ public sealed record NifSetResult(
 
 /// <summary>One asset to PLACE (housecarl_place_asset / bulk). <see cref="AssetPath"/> is the resolved Data-relative
 /// DESTINATION (the tool computes it from a FormID+slot for FaceGen, or takes a raw path). <see cref="Source"/> is the
-/// correct copy to place — a loose file path, "&lt;archive.bsa&gt;|&lt;entry&gt;", or a ".bsa" path (entry := AssetPath);
-/// null/blank ⇒ auto-resolve (use the sole VFS provider; &gt;1 ambiguous and 0 absent are per-asset refusals, Q3).</summary>
-public sealed record PlaceRequest(string AssetPath, string? Source);
+/// copy to place — a Data-relative path resolved through the VFS, a full loose file path,
+/// "&lt;archive.bsa&gt;|&lt;entry&gt;", or a ".bsa" path (entry := AssetPath); null/blank ⇒ the VFS lane pointed at the
+/// destination path. <see cref="SourceProvider"/> picks the pole for a VFS source (a provider name, or "winner");
+/// null/blank ⇒ the sole provider, with contention refused per-asset (Q3). Source ≠ AssetPath is a RENAME — the
+/// mechanism behind carrying one NPC's baked facegen onto another's FormID path.</summary>
+public sealed record PlaceRequest(string AssetPath, string? Source, string? SourceProvider = null);
 
 /// <summary>One placed asset's outcome. <see cref="Placed"/> false ⇒ <see cref="Error"/> names why (recoverable, per-asset
 /// Q3). <see cref="CurrentWinner"/> is the source that currently wins the VFS for this path (the sort target — the placed
