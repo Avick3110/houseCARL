@@ -191,9 +191,16 @@ public static class NpcAppearanceAssets
     {
         string? readError = null;
         var res = view.ResolveForPlacement(relPath);
-        if (res.Sources.Count > 0)
+        // The pick goes through the shared S2 source policy (AssetSourceSelection) — the same code path place_asset
+        // uses — under the WINNER pole. That pole is this lane's ORIGINAL behavior, kept verbatim, and it is a known
+        // DIVERGENCE from the successor flow: on the facegen rename (alwaysCarry) the caller has named a donor mod,
+        // so the successor reads that NAMED provider while this reads whatever currently wins. Where a replacer
+        // out-sorts the donor the two carry different bytes, and the winner's are the ones that can disagree with the
+        // donor's head-part and tint records. Deliberately NOT changed here: this tool is being subsumed, and the
+        // difference is the thing its replacement is measured against.
+        var pick = AssetSourceSelection.Select(res, AssetSourceChoice.Winner);
+        if (pick.Source is { } winner)
         {
-            var winner = res.Sources[0];
             if (!alwaysCarry)
             {
                 bool donorProvides =

@@ -99,7 +99,7 @@ public static class WriteSurfaceGuardProbe
             // records from W2TwinFwd.esp. Those patches are never ticked into plugins.txt, so they stay out of the
             // active order and cannot move a later arm's winner; an arm added after this one should still know the
             // folders exist.
-            TwinParityArm(fx);
+            TwinParityArm(fx, root);
             // #324's arm also writes into the replacer IN PLACE (its second half is that lane), so it sits with the
             // in-place arms below rather than among the read-the-fixture ones. It rewrites the replacer TWICE and
             // changes two of its records: the TOPIC (W2Topic → "Master Topic") and the CELL (W2Cell → "Master Cell",
@@ -2047,7 +2047,7 @@ public static class WriteSurfaceGuardProbe
     /// on each transport actually reading it. Two further parity assertions ride per outcome: the BUDGET (a cap
     /// that truncates one transport truncates the other) and the COUNTS (the total each lane states is the same
     /// number).</para></summary>
-    static void TwinParityArm(Fixture fx)
+    static void TwinParityArm(Fixture fx, string root)
     {
         Console.WriteLine("── ARM 12: D2 TWIN PARITY — one outcome, both transports, one source per sentence ──");
 
@@ -2199,6 +2199,13 @@ public static class WriteSurfaceGuardProbe
             cap => JsonWire.RenderSeqOutcome(seqStates[2], cap),
             "quest_count", $"{quests.Count} start-game-enabled quests");
 
+        // ---- place_asset's source refusals ------------------------------------------------------------
+        // place_asset renders on ONE transport, so these sentences' claim is "reaches a render", not "reaches
+        // both" — and they are observed off outcomes the REAL service produced. A probe that built the
+        // PlaceResult itself would be handing this arm the very sentence it claims to have found, which is the
+        // circular shape the whole reach check exists to catch.
+        foreach (var render in PlaceSourceRefusalRenders(root)) Observe(render, "{}");
+
         // ---- the coverage assertion — what stops this arm being theatre ------------------------------
         var missingText = twins.Select(t => t.Name).Where(n => !seenText.Contains(n)).ToList();
         var missingJson = twins.Select(t => t.Name).Where(n => !seenJson.Contains(n)).ToList();
@@ -2212,6 +2219,47 @@ public static class WriteSurfaceGuardProbe
         var missingOuter = outer.Select(t => t.Name).Where(n => !seenOuter.Contains(n)).ToList();
         Check("every [MustState] sentence on WriteSentences itself reaches a render (the wiring half a content pin cannot provide)",
             missingOuter.Count == 0, missingOuter.Count == 0 ? null : "unobserved: " + string.Join(", ", missingOuter));
+    }
+
+    /// <summary>Drive the REAL place service to each of its source-selection refusals and return the rendered
+    /// outcomes. Its own throwaway MO2 instance rather than the shared fixture: the refusals need an asset path THREE
+    /// mods contend for — one of them named "winner" — and growing the shared fixture to carry that would move a tree
+    /// eleven other arms assert against (#333's lesson) for the sake of four sentences.</summary>
+    static List<string> PlaceSourceRefusalRenders(string root)
+    {
+        const string rel = @"meshes\hcw2\twin.nif";
+        var inst = Path.Combine(root, "place-sentences");
+        var mods = Path.Combine(inst, "mods");
+        var prof = Path.Combine(inst, "profiles", "Default");
+        foreach (var d in new[] { mods, prof, Path.Combine(inst, "game", "Data") }) Directory.CreateDirectory(d);
+        File.WriteAllText(Path.Combine(inst, "ModOrganizer.ini"),
+            "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(Default)\r\ngamePath=@ByteArray("
+            + Path.Combine(inst, "game").Replace(@"\", @"\\") + ")\r\n");
+
+        // Three providers, one of them carrying the reserved token's name — enough for every refusal below.
+        var providers = new[] { "W2AssetA", "W2AssetB", AssetSourceChoice.WinnerToken };
+        foreach (var m in providers)
+        {
+            var dir = Path.Combine(mods, m, "meshes", "hcw2");
+            Directory.CreateDirectory(dir);
+            File.WriteAllBytes(Path.Combine(dir, "twin.nif"), new byte[] { 1, 2, 3 });
+        }
+        File.WriteAllText(Path.Combine(mods, providers[0], "Dummy.esp"), "x");
+        File.WriteAllText(Path.Combine(prof, "loadorder.txt"), "# header\r\nDummy.esp\r\n");
+        File.WriteAllText(Path.Combine(prof, "plugins.txt"), "*Dummy.esp\r\n");
+        File.WriteAllText(Path.Combine(prof, "modlist.txt"),
+            "# header\r\n" + string.Join("\r\n", providers.Select(p => "+" + p)) + "\r\n");
+        File.WriteAllText(Path.Combine(prof, "Skyrim.ini"), "[Archive]\r\nsResourceArchiveList=\r\n");
+
+        using var svc = LoadOrderService.WithInstance(inst, 0, new UserConfigStore(Path.Combine(root, "place-sentences.user.json")));
+        string Render(PlaceRequest req) => PlaceWire.Render(svc.PlaceAssets(new[] { req }, null, null));
+        return new List<string>
+        {
+            Render(new PlaceRequest(rel, null, null)),                                          // contended, no pole
+            Render(new PlaceRequest(rel, rel, "W2NoSuchMod")),                                  // named, absent
+            Render(new PlaceRequest(rel, rel, AssetSourceChoice.WinnerToken)),                  // token vs the mod
+            Render(new PlaceRequest(rel, Path.Combine(root, "w2-ondisk.nif"), providers[0])),   // pole vs on-disk source
+        };
     }
 
     /// <summary>The budget half of the twin harness: one outcome, one cap, both transports. Asserts (a) a cap tight

@@ -28,10 +28,14 @@ public static class PlaceAssetTools
          "housecarl_asset_status (which reports which copy currently wins). Give the DESTINATION as asset_path (a " +
          "Data-relative path); OR, for an NPC's generated FaceGen file, as formid (the NPC's FormID 'XXXXXX:Plugin.esp') " +
          "+ kind ('mesh' = the head .nif, 'tint' = the face .dds), which houseCARL computes the path for. Give the SOURCE " +
-         "(the copy to place) as source= a loose file path, or '<archive.bsa path>|<entry inside>', or just a '.bsa' path " +
-         "(the entry is taken to be the destination — a quick way to pull ONE file out of a BSA as a loose override). If " +
-         "source is OMITTED, houseCARL auto-resolves: it uses the SOLE provider in your load order, and REFUSES (telling " +
-         "you the candidates) if more than one provides it — it will not guess which is correct. The write is crash-atomic; " +
+         "(the copy to place) as source= a DATA-RELATIVE path resolved through the VFS — with source_provider= naming " +
+         "whose copy (a mod folder / BSA filename as housecarl_asset_status renders it, or 'winner') — or as a full loose " +
+         "file path, or '<archive.bsa path>|<entry inside>', or just a '.bsa' path (the entry is taken to be the " +
+         "destination — a quick way to pull ONE file out of a BSA as a loose override). A source path DIFFERENT from the " +
+         "destination is a RENAME: the bytes of one file land under another file's name, which is how a baked FaceGen " +
+         "head is carried onto a different NPC's FormID path. If source is OMITTED, houseCARL resolves the DESTINATION " +
+         "path instead: the sole provider, or the one source_provider= names, REFUSING (and listing the providers) when " +
+         "several contend and none was named — it will not guess which is correct. The write is crash-atomic; " +
          "originals are never touched. IMPORTANT (and reported back): the placed copy does NOT win on write — you must " +
          "ENABLE the new mod in MO2 and SORT it above the current winner. This tool places ONE file; to place several (or " +
          "an NPC's mesh AND tint together) use housecarl_bulk_place_asset.")]
@@ -43,15 +47,17 @@ public static class PlaceAssetTools
             string? kind = null,
         [Description("Optional. The Data-relative destination path to place to (any file — e.g. 'textures/armor/iron/cuirass_1.dds', 'meshes/...', a script, a sound), instead of formid+kind. Provide this OR formid. A drive-rooted or '..'-escaping path is rejected.")]
             string? asset_path = null,
-        [Description("Optional. The correct copy to place: a loose file path; or '<archive.bsa path>|<entry inside>'; or just a '.bsa' path (the entry is taken to be the destination path). If omitted, houseCARL uses the SOLE provider in your load order and refuses if more than one provides it (you choose).")]
+        [Description("Optional. The copy to place: a DATA-RELATIVE path (resolved through the VFS — use source_provider= to say whose copy, and note that a source path DIFFERENT from the destination is a rename); or a full loose file path; or '<archive.bsa path>|<entry inside>'; or just a '.bsa' path (the entry is taken to be the destination path). If omitted, the destination path is resolved through the VFS instead.")]
             string? source = null,
+        [Description("Optional (with a Data-relative source=, or with no source=). Whose copy to read: a mod folder / overwrite / 'Data' / a BSA filename, spelled as housecarl_asset_status renders it — or 'winner' for whichever copy currently wins the VFS. Omitted = the sole provider, refused if more than one contends. A named provider that doesn't supply the path is refused, never silently replaced by another.")]
+            string? source_provider = null,
         [Description("Optional. Base name for the NEW houseCARL mod folder the file lands in (default 'houseCARL_Assets'); auto-suffixed if taken.")]
             string? patch_name = null,
         [Description("Optional. Filename of an existing houseCARL patch mod to place into instead of a fresh folder (accumulate across calls). Found by the plugin's filename even if you've renamed its MO2 mod folder; for two patches sharing a filename, pass the mod-folder name here instead (folder & plugin names need not match).")]
             string? into = null) => Guard.Tool("housecarl_place_asset", () =>
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
-        var reqs = MapSpec(formid, kind, asset_path, source, allowExpand: false, where: "", out var err);
+        var reqs = MapSpec(formid, kind, asset_path, source, source_provider, allowExpand: false, where: "", out var err);
         if (err is not null) return "error: " + err;
         return PlaceWire.Render(svc.PlaceAssets(reqs!, patch_name, into));
     });
@@ -62,8 +68,10 @@ public static class PlaceAssetTools
          "several overrides at once; or, for an NPC, its FaceGen mesh AND tint together). assets is an array of " +
          "{ formid?, kind?, asset_path?, source? }: give EITHER asset_path (any Data-relative path) OR formid (an NPC " +
          "FormID — omit kind to place BOTH the FaceGen mesh and the tint; or set kind='mesh'/'tint' for just one). source " +
-         "is the copy to place (a loose file path, '<archive.bsa>|<entry>', or a '.bsa' path); omit it to auto-resolve the " +
-         "sole VFS provider (an ambiguous or absent source becomes a per-asset error — the rest still place). When you give " +
+         "is the copy to place (a Data-relative path resolved through the VFS — source_provider names whose copy — a full " +
+         "loose file path, '<archive.bsa>|<entry>', or a '.bsa' path); omit it to resolve the destination path instead " +
+         "(an ambiguous or absent source becomes a per-asset error — the rest still place). A per-asset source that " +
+         "differs from its destination is a RENAME. When you give " +
          "a FormID with no kind (placing both files), an explicit source must be a '.bsa' path (each slot's entry is " +
          "derived) — for a single loose/entry source set kind=. All files land in ONE reviewable mod folder. A malformed " +
          "spec (bad FormID, bad kind, neither/both of formid+asset_path) refuses the WHOLE call with per-spec reasons and " +
@@ -89,7 +97,7 @@ public static class PlaceAssetTools
         for (int i = 0; i < assets.Length; i++)
         {
             var a = assets[i];
-            var reqs = MapSpec(a.Formid, a.Kind, a.AssetPath, a.Source, allowExpand: true, where: $"assets[{i}]: ", out var err);
+            var reqs = MapSpec(a.Formid, a.Kind, a.AssetPath, a.Source, a.SourceProvider, allowExpand: true, where: $"assets[{i}]: ", out var err);
             if (err is not null) problems.Add(err); else all.AddRange(reqs!);
         }
         if (problems.Count > 0)
@@ -103,7 +111,7 @@ public static class PlaceAssetTools
     /// tool). Exactly one of formid/asset_path is required. A both-expansion forbids a single loose/entry source (it can't
     /// serve two different files) — only a bare '.bsa' source (entry derived per slot) or auto-resolve. Q3: every bad
     /// input is a NAMED error (returned via <paramref name="error"/>), never a silent skip.</summary>
-    static List<PlaceRequest>? MapSpec(string? formid, string? kind, string? assetPath, string? source, bool allowExpand, string where, out string? error)
+    static List<PlaceRequest>? MapSpec(string? formid, string? kind, string? assetPath, string? source, string? sourceProvider, bool allowExpand, string where, out string? error)
     {
         error = null;
         bool hasFormid = !string.IsNullOrWhiteSpace(formid);
@@ -111,9 +119,10 @@ public static class PlaceAssetTools
         if (hasFormid == hasPath) { error = $"{where}provide exactly one of formid or asset_path."; return null; }
 
         var src = NullIfBlank(source);
+        var prov = NullIfBlank(sourceProvider);
 
         if (hasPath)
-            return new List<PlaceRequest> { new(assetPath!.Trim(), src) };
+            return new List<PlaceRequest> { new(assetPath!.Trim(), src, prov) };
 
         FormKey fk;
         try { fk = FormKey.Factory(formid!.Trim()); }
@@ -123,7 +132,7 @@ public static class PlaceAssetTools
         if (slotErr is not null) { error = $"{where}{slotErr}"; return null; }
 
         if (slot is { } s)                                            // explicit mesh|tint → one file
-            return new List<PlaceRequest> { new(FaceGenPath.For(fk, s), src) };
+            return new List<PlaceRequest> { new(FaceGenPath.For(fk, s), src, prov) };
 
         // kind omitted → both mesh + tint (bulk only)
         if (!allowExpand)
@@ -138,11 +147,11 @@ public static class PlaceAssetTools
         bool srcOkForBoth = srcProbe is null || (srcProbe.EndsWith(".bsa", StringComparison.OrdinalIgnoreCase) && srcProbe.IndexOf('|') < 0);
         if (!srcOkForBoth)
         {
-            error = $"{where}with formid and no kind (placing BOTH mesh and tint), an explicit source= must be a bare '.bsa' path — each slot's entry is then derived. For a single loose file or BSA entry, set kind= mesh or tint.";
+            error = $"{where}with formid and no kind (placing BOTH mesh and tint), an explicit source= must be a bare '.bsa' path — each slot's entry is then derived. Any single path names ONE file and cannot serve both slots, so for a loose file, a BSA entry, or a Data-relative path set kind= mesh or tint (source_provider= is fine here — it names whose copy, not which file).";
             return null;
         }
         var reqs = new List<PlaceRequest>(2);
-        foreach (var (_, rel) in FaceGenPath.Both(fk)) reqs.Add(new PlaceRequest(rel, src));
+        foreach (var (_, rel) in FaceGenPath.Both(fk)) reqs.Add(new PlaceRequest(rel, src, prov));
         return reqs;
     }
 
@@ -234,6 +243,9 @@ public sealed record PlaceAssetSpec
     [JsonPropertyName("asset_path"), Description("A Data-relative destination path (e.g. 'meshes/actors/...'), instead of formid. Provide this OR formid.")]
     public string? AssetPath { get; init; }
 
-    [JsonPropertyName("source"), Description("The correct copy to place: a loose file path, '<archive.bsa>|<entry>', or a '.bsa' path. Omit to auto-resolve the sole VFS provider. With formid and no kind, an explicit source must be a bare '.bsa' path.")]
+    [JsonPropertyName("source"), Description("The copy to place: a Data-relative path (resolved through the VFS; different from the destination = a rename), a full loose file path, '<archive.bsa>|<entry>', or a '.bsa' path. Omit to resolve the destination path through the VFS. With formid and no kind, an explicit source must be a bare '.bsa' path.")]
     public string? Source { get; init; }
+
+    [JsonPropertyName("source_provider"), Description("Whose copy to read for a VFS-resolved source: a mod folder / overwrite / 'Data' / a BSA filename as asset_status renders it, or 'winner' for the current VFS winner. Omit for the sole provider (contention is refused). Not valid with an on-disk source.")]
+    public string? SourceProvider { get; init; }
 }
