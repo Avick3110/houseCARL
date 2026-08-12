@@ -2222,9 +2222,11 @@ public static class WriteSurfaceGuardProbe
     }
 
     /// <summary>Drive the REAL place service to each of its source-selection refusals and return the rendered
-    /// outcomes. Its own throwaway MO2 instance rather than the shared fixture: the refusals need an asset path THREE
-    /// mods contend for — one of them named "winner" — and growing the shared fixture to carry that would move a tree
-    /// eleven other arms assert against (#333's lesson) for the sake of four sentences.</summary>
+    /// outcomes. The fixture is TWO mods contending for one asset path, plus one on-disk source and one both-slots
+    /// spec — enough to reach every sentence below. (It briefly carried a third mod named "winner", for a collision
+    /// refusal that no longer exists: the pole token is sigiled, so no provider name can collide with it.) Its own
+    /// throwaway MO2 instance rather than the shared fixture, because growing that tree would move something eleven
+    /// other arms assert against — #333's lesson — for the sake of a few sentences.</summary>
     static List<string> PlaceSourceRefusalRenders(string root)
     {
         const string rel = @"meshes\hcw2\twin.nif";

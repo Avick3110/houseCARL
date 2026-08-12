@@ -328,7 +328,7 @@ internal static class PlaceAssetProbe
                       "bulk tool: a both-expansion (formid, no kind) with a non-.bsa source is refused");
                 // a QUOTED .bsa source (the natural form for a spaced filename) must NOT be wrongly refused at the spec
                 // level — quotes are trimmed for the test, as ReadExplicitSource does (review fix). It then attempts to
-                // place mesh+tint (per-asset outcomes), never the "must be a bare '.bsa' path" spec refusal.
+                // place mesh+tint (per-asset outcomes), never the "must be a FULL '.bsa' path" spec refusal.
                 // A RELATIVE '.bsa' is a Data-relative asset path now, not an archive to open — so it names ONE file
                 // and cannot serve two slots. Accepting it here would hand the mesh and the tint the same bytes.
                 Check(PlaceAssetTools.BulkPlaceAsset(svc, new[] { new PlaceAssetSpec { Formid = "01A51A:Dawnguard.esm", Source = @"meshes\some\thing.bsa" } })
@@ -579,6 +579,19 @@ internal static class PlaceAssetProbe
                           $"source_provider= with NO source= reads the destination path from the named provider — {(r.Placed ? "placed" : r.Error)}");
                     Check(r.SourceDesc is not null && !r.SourceDesc.StartsWith(FacegenRel, StringComparison.OrdinalIgnoreCase),
                           "…and it is NOT reported as a rename — source and destination are the same path");
+
+                    // The same claim when the caller SPELLS the source, which is the natural way to say "place this
+                    // path, from that mod". Keyed on the paths differing, not on a source being named — and compared
+                    // on the VFS's own key, so a case or separator variant of the destination is still the same file.
+                    // A raw string compare reports a rename between one file and itself.  [RED arm]
+                    foreach (var spelling in new[] { FacegenRel, FacegenRel.ToUpperInvariant(), FacegenRel.Replace('\\', '/') })
+                    {
+                        var same = svc.PlaceAssets(new[] { new PlaceRequest(FacegenRel, spelling, loserName) }, null, null).Results[0];
+                        Check(same.Placed && same.SourceDesc is not null
+                              && !same.SourceDesc.StartsWith(spelling, StringComparison.OrdinalIgnoreCase)
+                              && !same.SourceDesc.StartsWith(FacegenRel, StringComparison.OrdinalIgnoreCase),
+                              $"source= '{spelling}' equals the destination, so no rename prefix — {(same.Placed ? same.SourceDesc : same.Error)}");
+                    }
                 }
 
                 // I9 — the pole token is matched case-insensitively, like the provider names beside it.

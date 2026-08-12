@@ -1554,8 +1554,9 @@ public sealed class LoadOrderService : IDisposable
         var winner = res.Sources.Count > 0 ? DescribeSource(res.Sources[0]) : null;
 
         // ---- source bytes: an ON-DISK source= is read as named; anything else resolves through the VFS ----
-        // Three source shapes reach here: an on-disk file the caller named exactly (a rooted path, a '.bsa', a
-        // '<bsa>|<entry>'), a DATA-RELATIVE path resolved through the VFS under a pole, and no source at all — which
+        // Three source shapes reach here: an on-disk file the caller named exactly (a FULLY-QUALIFIED path, which a
+        // '.bsa' must also be to count as an archive, or a '<bsa>|<entry>' pair), a DATA-RELATIVE path resolved
+        // through the VFS under a pole, and no source at all — which
         // is the same VFS lane pointed at the destination path. The last two share one code path because they are
         // one question ("which provider supplies this Data-relative path") asked about different paths.
         byte[] bytes; string sourceDesc;
@@ -1626,8 +1627,10 @@ public sealed class LoadOrderService : IDisposable
             if (err is not null) return PlaceResult.Fail(rel, err, winner);
             bytes = b!;
             // A source read from a DIFFERENT path than the destination is a rename, and the render has to say so —
-            // "placed from ModX" alone would hide that the bytes are another file's.
-            sourceDesc = sourceNamed ? $"{srcRel} — {desc}" : desc!;
+            // "placed from ModX" alone would hide that the bytes are another file's. Keyed on whether the two PATHS
+            // differ, not on whether a source was NAMED: "place meshes\x.nif from ModB" is the natural spelling of a
+            // plain provider-scoped placement, and calling it a rename says a file moved when none did.
+            sourceDesc = sourceNamed && !SameAssetPath(srcRel, rel) ? $"{srcRel} — {desc}" : desc!;
         }
 
         // ---- crash-atomic place under the owned folder (originals untouched; same-volume staging done in core) ----
@@ -1712,6 +1715,13 @@ public sealed class LoadOrderService : IDisposable
 
     /// <summary>A human label for the current winner (the sort target). "ModX (loose)" / "Y.bsa (BSA)".</summary>
     static string DescribeSource(PlacementSource s) => $"{s.ProviderName} ({(s.Kind == AssetKind.Bsa ? "BSA" : "loose")})";
+
+    /// <summary>Do two Data-relative paths name the SAME asset, by the key the VFS itself resolves on? Both inputs
+    /// have already been through <see cref="AssetResolver.ValidateRelPath"/>, which folds separators and any leading
+    /// separator; the remaining axis is CASE, and the asset layer's own lookups are ordinal-case-insensitive. So a
+    /// raw string compare would call <c>Meshes/X.NIF</c> and <c>meshes\x.nif</c> two different files and report a
+    /// rename between one file and itself.</summary>
+    static bool SameAssetPath(string a, string b) => string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>The ONE normalization of a caller's source= — trim, then strip surrounding quotes — applied before
     /// the routing decision and before every consumer, so no two of them can disagree about what the string is.
@@ -8504,11 +8514,13 @@ public sealed record NifSetResult(
 
 /// <summary>One asset to PLACE (housecarl_place_asset / bulk). <see cref="AssetPath"/> is the resolved Data-relative
 /// DESTINATION (the tool computes it from a FormID+slot for FaceGen, or takes a raw path). <see cref="Source"/> is the
-/// copy to place — a Data-relative path resolved through the VFS, a full loose file path,
-/// "&lt;archive.bsa&gt;|&lt;entry&gt;", or a ".bsa" path (entry := AssetPath); null/blank ⇒ the VFS lane pointed at the
-/// destination path. <see cref="SourceProvider"/> picks the pole for a VFS source (a provider name, or "winner");
-/// null/blank ⇒ the sole provider, with contention refused per-asset (Q3). Source ≠ AssetPath is a RENAME — the
-/// mechanism behind carrying one NPC's baked facegen onto another's FormID path.</summary>
+/// copy to place — a Data-relative path resolved through the VFS, a fully-qualified loose file path,
+/// "&lt;archive.bsa&gt;|&lt;entry&gt;", or a fully-qualified ".bsa" path (entry := AssetPath); null/blank ⇒ the VFS lane
+/// pointed at the destination path. <see cref="SourceProvider"/> picks the pole for a VFS source: a provider NAME on
+/// its own, or the sigiled winner token (<see cref="AssetSourceChoice.WinnerToken"/> — a bare name always means a
+/// provider of that name, so the two spaces cannot collide); null/blank ⇒ the sole provider, with contention refused
+/// per-asset (Q3). A Source naming a DIFFERENT path from AssetPath is a RENAME — the mechanism behind carrying one
+/// NPC's baked facegen onto another's FormID path; the same path is not, and renders without the rename prefix.</summary>
 public sealed record PlaceRequest(string AssetPath, string? Source, string? SourceProvider = null);
 
 /// <summary>One placed asset's outcome. <see cref="Placed"/> false ⇒ <see cref="Error"/> names why (recoverable, per-asset
