@@ -1644,7 +1644,7 @@ static class JsonWire
             // re-serializes the caller's own file on in_place.
             if (truncated)
                 w.WriteString("truncated_note",
-                    $"{WriteSentences.JsonRowsCut(cap)} — {WriteSentences.RowsCutOperationIntact(o.DryRun, "applied")}. "
+                    $"{WriteSentences.JsonRowsCut(cap)}; {WriteSentences.RowsCutOperationIntact(o.DryRun, "applied")} — "
                     + WriteTools.ApplyAgainRemedy(o, Path.GetFileName(o.OutputPath)) + ".");
             w.WriteEndObject();
         }
@@ -1754,8 +1754,8 @@ static class JsonWire
             // json client raising max_chars and re-issuing walked into exactly what the fix existed to prevent.
             if (truncated)
                 w.WriteString("truncated_note",
-                    $"{WriteSentences.JsonRowsCut(cap)} — "
-                    + WriteSentences.CreateRowsCutRemedy(WriteTools.ReadBackCall(o, Path.GetFileName(o.OutputPath))));
+                    $"{WriteSentences.JsonRowsCut(cap)}; "
+                    + WriteSentences.CreateRowsCutRemedy(WriteTools.ReadBackCall(o, Path.GetFileName(o.OutputPath))) + ".");
             w.WriteEndObject();
         }
         return Finish(ms);
@@ -1900,7 +1900,7 @@ static class JsonWire
             // is REFUSED, so "raise max_chars" named the one call guaranteed to fail.
             if (truncated)
                 w.WriteString("truncated_note",
-                    $"{WriteSentences.JsonRowsCut(cap)} — {WriteSentences.RowsCutOperationIntact(false, "removed")}. "
+                    $"{WriteSentences.JsonRowsCut(cap)}; {WriteSentences.RowsCutOperationIntact(false, "removed")} — "
                     + WriteTools.RemovedRowsRemedy + ".");
             w.WriteEndObject();
         }
@@ -1990,7 +1990,7 @@ static class JsonWire
             // idempotent on in_place=/into= and free on a dry run, but on the DEFAULT lane it cuts a second patch.
             if (truncated)
                 w.WriteString("truncated_note",
-                    $"{WriteSentences.JsonRowsCut(cap)} — {WriteSentences.RowsCutOperationIntact(o.DryRun, "forwarded")}. "
+                    $"{WriteSentences.JsonRowsCut(cap)}; {WriteSentences.RowsCutOperationIntact(o.DryRun, "forwarded")} — "
                     + WriteTools.ForwardAgainRemedy(o, Path.GetFileName(o.OutputPath)) + ".");
             w.WriteEndObject();
         }

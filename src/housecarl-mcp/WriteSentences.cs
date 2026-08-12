@@ -1,5 +1,25 @@
 namespace HousecarlMcp;
 
+/// <summary>The load-bearing phrases a shared sentence MUST still contain — declared beside the sentence, checked
+/// by the write-surface guard's twin arm over every <see cref="WriteSentences.Twins"/> member.
+///
+/// <para><b>Why this exists.</b> A construction pin of the form <c>render.Contains(TheConstant)</c> proves the
+/// render reads the shared source and NOTHING about what that source says: render and assertion read the same
+/// symbol, so the assertion cannot fail on the constant being emptied. Migrating the old
+/// <c>Contains("&lt;fragment&gt;")</c> arms to construction pins therefore traded a content check for a wiring
+/// check — and a commit that gutted three of these sentences to placeholders passed the full guard suite green.
+/// This restores the content half where it belongs: next to the sentence, so it moves with it, rather than as a
+/// second copy of the sentence in a probe.</para>
+///
+/// <para>Phrases are the CLAIM, not the wording — the part whose loss changes what the caller is told. Rewording
+/// around them is free; deleting them is not.</para></summary>
+[AttributeUsage(AttributeTargets.Field)]
+internal sealed class MustStateAttribute : Attribute
+{
+    internal string[] Phrases { get; }
+    internal MustStateAttribute(params string[] phrases) => Phrases = phrases;
+}
+
 /// <summary>
 /// ONE SOURCE PER SENTENCE for the write surface's user-facing prose — the response layer built by construction
 /// rather than hand-wired twice (tool-surface-2.0, <c>RESPONSE_LAYER_BY_CONSTRUCTION_2026-08-11.md</c>).
@@ -181,36 +201,44 @@ internal static class WriteSentences
         // ---- create's post-write hazard reports ------------------------------------------------------
         /// <summary>Voice coverage — the stake, in the words both lanes use. A created voiced response with no
         /// .fuz on disk is byte-valid and SILENT in game.</summary>
-        internal const string VoiceStake = "voice coverage was not fully rendered";
+        [MustState("plays SILENT in game")]
+        internal const string VoiceStake = "a created voiced response with NO .fuz plays SILENT in game";
 
         /// <summary>Result-script coverage — the stake. A bound script that is unwired or uncompiled is byte-valid
         /// and does nothing. (The two copies had drifted to "that's" and "that is"; one reading now.)</summary>
+        [MustState("runs NOTHING in game")]
         internal const string ScriptStake = "a bound script that is unwired or uncompiled runs NOTHING in game";
 
         /// <summary>Cell shell — the stake. houseCARL creates a valid, correctly-placed CELL record and does not
         /// author world content, so "created" must never read as "looks right in game".</summary>
+        [MustState("houseCARL does not author world content")]
         internal const string CellStake =
             "a created cell is a valid, correctly-placed record but EMPTY — houseCARL does not author world content";
 
         /// <summary>The grid-occupancy seam, declared rather than silently unchecked. Both lanes carried this and
         /// the json copy had lost "(engine behavior undefined)" — the clause that tells a caller the failure is not
         /// a houseCARL limitation they can work around by trying again.</summary>
-        internal const string GridOccupancy = "the cell was created.";
+        [MustState("grid-occupancy", "engine behavior undefined", "OVERRIDE it instead of creating a new one")]
+        internal const string GridOccupancy =
+            "houseCARL does NOT check grid-occupancy — a NEW exterior cell at a grid your load order already fills "
+          + "collides (engine behavior undefined). To change an existing cell, OVERRIDE it instead of creating a new one.";
+
+        /// <summary>Why a truncated CREATE must not be re-issued to widen its own render. The sibling verbs' rows
+        /// are safe to re-ask for — a repeated remove is refused, a repeated forward re-copies identical bodies —
+        /// but a repeated create ALLOCATES AGAIN, and the trap does not care which transport asked. Both lanes
+        /// carry this; the text copy used to state it in four words and the json copy in forty.</summary>
+        [MustState("allocates the records AGAIN", "into=")]
+        internal const string CreateReissueTrap =
+            "do NOT re-issue this call to see the rest: a repeated create allocates the records AGAIN (on the "
+          + "default lane patch= auto-suffixes into a second full patch; under into= each record is re-created at "
+          + "its old FormID with its prior contents discarded)";
 
         /// <summary>What a CUT post-write report block means, and the one action a caller must not take to widen it.
         /// <para>These blocks ride the CREATE render only, so the specific reading is the true one: re-issuing
         /// allocates the records AGAIN. The json copy had generalized to "Do NOT re-issue the write to widen this",
         /// which is weaker advice about the same call — resolved to the specific reading, which is also the one
         /// that survives a caller reading it literally.</para></summary>
-        /// <summary>Why a truncated CREATE must not be re-issued to widen its own render. The sibling verbs' rows
-        /// are safe to re-ask for — a repeated remove is refused, a repeated forward re-copies identical bodies —
-        /// but a repeated create ALLOCATES AGAIN, and the trap does not care which transport asked. Both lanes
-        /// carry this; the text copy used to state it in four words and the json copy in forty.</summary>
-        internal const string CreateReissueTrap =
-            "do NOT re-issue this call to see the rest: a repeated create allocates the records AGAIN (on the "
-          + "default lane patch= auto-suffixes into a second full patch; under into= each record is re-created at "
-          + "its old FormID with its prior contents discarded).";
-
+        [MustState("Do NOT re-issue the create", "compare rendered vs total")]
         internal const string ReportBlockCut =
             "the records WERE created and this block is only a render of them — compare rendered vs total rather than "
           + "reading the list as the whole answer. Do NOT re-issue the create to widen it: that allocates the records again";
@@ -218,23 +246,27 @@ internal static class WriteSentences
         // ---- write_seq -------------------------------------------------------------------------------
         /// <summary>#312 — the destination already held exactly these bytes. Q3: a skipped write and a done one
         /// must not look alike, so this is its own statement rather than a caveat under a "wrote".</summary>
+        [MustState("NOTHING was written")]
         internal const string SeqUnchanged =
             "the destination already held EXACTLY these bytes, so NOTHING was written";
 
         /// <summary>The byte-identical replace: the file was rewritten only because its timestamp could not be
         /// refreshed in place, so nothing was lost. Scoped deliberately — dressing this as a loss would train the
         /// reader to ignore the word REPLACED when it does mean one.</summary>
+        [MustState("nothing was lost")]
         internal const string SeqReplacedSameBytes =
             "the file already at that path held EXACTLY these bytes; it was rewritten only because its timestamp "
           + "could not be refreshed in place, so nothing was lost.";
 
         /// <summary>The replace that CAN have cost something: on a folder the caller named, the .seq that was there
         /// may have been the mod's own, and houseCARL keeps no backup.</summary>
+        [MustState("keeps no backup")]
         internal const string SeqReplacedUserFolder =
             "a .seq was already at that path and has been OVERWRITTEN; houseCARL keeps no backup, and in a folder "
           + "you named that file may have been the mod's own shipped .seq.";
 
         /// <summary>The ordinary regenerate: houseCARL's own earlier output in its own folder, overwritten.</summary>
+        [MustState("overwritten")]
         internal const string SeqReplacedOwnFolder =
             "the previous .seq in that houseCARL folder was overwritten (houseCARL's own earlier output — the "
           + "ordinary regenerate case).";
@@ -243,18 +275,22 @@ internal static class WriteSentences
         /// newer than the plugin. validate_dialogue lints the .seq the VFS serves, which is this one only if this
         /// folder wins the SEQ\ conflict — so the sentence says what was done and what it is for, and does not
         /// promise a verdict from a tool that resolves its input differently.</summary>
+        [MustState("stamped forward", "contents untouched", "housecarl_validate_dialogue", "no longer reads")]
         internal const string SeqTimestampRefreshed =
-            "housecarl_validate_dialogue's SEQ staleness check compares mtimes "
-          + "— for the copy the load order actually serves.";
+            "its mtime was older than the plugin and has been stamped forward (contents untouched); "
+          + "housecarl_validate_dialogue's SEQ staleness check compares those two mtimes, so this file no longer reads "
+          + "as stale — for the copy the load order actually serves, which is this one only if this folder wins the SEQ\\ conflict.";
 
         /// <summary>No start-game-enabled quests: a .seq lists only SGE quests, so none is needed and nothing was
         /// written. Never a silent empty file, never a misleading "done".</summary>
+        [MustState("NOTHING was written", "Start Game Enabled")]
         internal const string SeqNoQuests =
             "a .seq lists only quests with the Start Game Enabled flag, so none is needed and NOTHING was written";
 
         /// <summary>The absent §2.1.1 stamp, stated as a fact with its reason. A .seq is derived from the plugin
         /// FILE alone, so nothing here consulted a load-order build — an absent epoch line and a DROPPED one are
         /// otherwise the same observable.</summary>
+        [MustState("load-order-independent", "not a dropped field")]
         internal const string SeqNoEpoch =
             "a .seq is derived from the plugin FILE alone (its FormID encoding is load-order-independent), so this "
           + "call consulted no load-order build — the absent stamp is a fact, not a dropped field.";
@@ -262,6 +298,7 @@ internal static class WriteSentences
         /// <summary>write_seq's standing limit (Q3): the quests will START, which is not a claim that the quest or
         /// its dialogue is otherwise well-formed. The json copy had dropped the pointer at the tool that does check
         /// that — the half of the sentence that tells the caller what to do next.</summary>
+        [MustState("housecarl_validate_dialogue", "does not verify")]
         internal const string SeqStandingLimit =
             "this makes the quest(s) START at game start; it does not verify the quest or its dialogue is otherwise "
           + "well-formed (use housecarl_validate_dialogue for the dialogue graph).";
@@ -273,6 +310,7 @@ internal static class WriteSentences
         /// <para>The text copy said "name into=/output_dir= the folder below", a reference to a line only the text
         /// render prints. A shared sentence cannot carry that deixis, so the lane-neutral reading — already the
         /// json copy's — is the one kept.</para></summary>
+        [MustState("nothing is missing from the FILE", "writes the .seq again")]
         internal const string SeqListCutRemedy =
             "the .seq itself carries ALL of them — nothing is missing from the FILE. Re-run only if you need this LIST "
           + "widened: for a plugin OUTSIDE a houseCARL folder with no lane named, that writes the .seq again into "
