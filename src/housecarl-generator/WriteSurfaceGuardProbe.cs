@@ -2062,8 +2062,12 @@ public static class WriteSurfaceGuardProbe
         var gutted = TwinContentViolations();
         Check("every Twins sentence still states the claims it declares (a construction pin cannot see this — it reads the same constant the render does)",
             gutted.Count == 0, gutted.Count == 0 ? null : string.Join("; ", gutted));
+        var outer = OuterSentences();
         var seenText = new HashSet<string>(StringComparer.Ordinal);
         var seenJson = new HashSet<string>(StringComparer.Ordinal);
+        // The outer-class sentences are ONE-transport by design, so their claim is "reaches a render", not
+        // "reaches both". One set, either lane (residual C).
+        var seenOuter = new HashSet<string>(StringComparer.Ordinal);
 
         void Observe(string text, string json)
         {
@@ -2073,6 +2077,9 @@ public static class WriteSurfaceGuardProbe
                 if (text.Contains(sentence, StringComparison.Ordinal)) seenText.Add(name);
                 if (jsonText.Contains(sentence, StringComparison.Ordinal)) seenJson.Add(name);
             }
+            foreach (var (name, sentence) in outer)
+                if (text.Contains(sentence, StringComparison.Ordinal) || jsonText.Contains(sentence, StringComparison.Ordinal))
+                    seenOuter.Add(name);
         }
 
         // ---- the four write verbs, through the REAL tool path -----------------------------------------
@@ -2147,6 +2154,23 @@ public static class WriteSurfaceGuardProbe
         Observe(WriteTools.RenderCreate(reports), JsonWire.RenderCreateOutcome(reports, 0, false, "patch"));
         Observe(WriteTools.RenderCreate(reports, maxChars: 900), JsonWire.RenderCreateOutcome(reports, 900, false, "patch"));
 
+        // ---- the IN-PLACE and DRY-RUN lanes, for the outer-class sentences ---------------------------
+        // Built outcomes rather than real in-place writes: those rewrite a fixture file the later arms read as a
+        // known winner, and this arm deliberately runs before them. The claim under test is the RENDERERS' — that
+        // the hazard and the dry-run header still reach a caller — not the engine's, which the lane arms cover.
+        var inPlaceCreate = new WritePatchBuilder.CreateOutcome(
+            true, null, @"C:\mods\W2TwinIP\W2TwinIP.esp", false,
+            new[] { new WritePatchBuilder.CreatedRecord(default, "Keyword", "W2TwinIPKw", Array.Empty<WritePatchBuilder.OpResult>()) },
+            Array.Empty<string>(), 512)
+            { Epoch = "deadbeefdeadbeef", InPlace = true };
+        Observe(WriteTools.RenderCreate(inPlaceCreate), JsonWire.RenderCreateOutcome(inPlaceCreate, 0, false, "in_place"));
+
+        var inPlaceDryApply = new WritePatchBuilder.PatchOutcome(
+            true, null, @"C:\mods\W2TwinIP\W2TwinIP.esp", false,
+            Array.Empty<string>(), Array.Empty<WritePatchBuilder.OpResult>(), 512)
+            { Epoch = "deadbeefdeadbeef", InPlace = true, DryRun = true };
+        Observe(WriteTools.Render(inPlaceDryApply), JsonWire.RenderPatchOutcome(inPlaceDryApply, 0, false, "in_place"));
+
         // ---- write_seq -------------------------------------------------------------------------------
         // Every state that has its own sentence, so none of them is covered by an argument about the others: the
         // no-op, the byte-identical skip (with its timestamp stamp-forward), the three replace readings, and a cut
@@ -2182,6 +2206,12 @@ public static class WriteSurfaceGuardProbe
             missingText.Count == 0, missingText.Count == 0 ? null : "unobserved: " + string.Join(", ", missingText));
         Check("every WriteSentences.Twins member is rendered by the JSON lane (same, one transport over)",
             missingJson.Count == 0, missingJson.Count == 0 ? null : "unobserved: " + string.Join(", ", missingJson));
+        // …and the outer-class sentences REACH a render at all. A content pin says what a sentence must say; it
+        // cannot say that anything still emits it, and a render that inlines its own weaker copy leaves the const
+        // intact and passing (PR #337 re-review, residual C).
+        var missingOuter = outer.Select(t => t.Name).Where(n => !seenOuter.Contains(n)).ToList();
+        Check("every [MustState] sentence on WriteSentences itself reaches a render (the wiring half a content pin cannot provide)",
+            missingOuter.Count == 0, missingOuter.Count == 0 ? null : "unobserved: " + string.Join(", ", missingOuter));
     }
 
     /// <summary>The budget half of the twin harness: one outcome, one cap, both transports. Asserts (a) a cap tight
@@ -2259,6 +2289,22 @@ public static class WriteSurfaceGuardProbe
             .OrderBy(t => t.Name, StringComparer.Ordinal)
             .ToList();
 
+    /// <summary>The outer-class shared sentences — the ones that are prose on ONE transport by design, so per-LANE
+    /// parity is not a claim that can be made about them. Enumerated exactly as <see cref="TwinSentences"/>
+    /// enumerates its set, so the arm can assert each one still REACHES a render.
+    /// <para>Why enumerate rather than hand-write a Check per sentence (PR #337 re-review, residual C): the content
+    /// pin and the wiring pin are different claims, and only <c>InPlaceRewritten</c> had both. A hand-written line
+    /// would have closed that one sentence; this closes the class, so a sentence added to the outer class later
+    /// cannot get a content pin and silently miss the wiring one.</para></summary>
+    static IReadOnlyList<(string Name, string Sentence)> OuterSentences()
+        => typeof(WriteSentences)
+            .GetFields(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.DeclaredOnly)
+            .Where(f => f.IsLiteral && f.FieldType == typeof(string)
+                        && f.GetCustomAttribute<MustStateAttribute>() is not null)
+            .Select(f => (f.Name, (string)f.GetRawConstantValue()!))
+            .OrderBy(t => t.Name, StringComparer.Ordinal)
+            .ToList();
+
     /// <summary>Members of <c>Twins</c> that <see cref="TwinSentences"/> cannot enumerate — a non-const field, a
     /// property, or a nested type. Any of them would be a twin the coverage assertion never checks while still
     /// reporting "every member covered", so they are named and failed rather than filtered away.</summary>
@@ -2290,17 +2336,32 @@ public static class WriteSurfaceGuardProbe
         // BOTH classes (PR #337 review, finding 1). The in-place hazard lives on the outer class — json states it
         // as `lane` plus typed flags, so per-lane coverage is not a claim that can be made about it — but this
         // change made it a single token feeding five in-place renders, so it needs the content half most of all.
-        // Twins additionally REQUIRES the attribute; an outer-class sentence carries it when it has claims to keep.
-        foreach (var (owner, requireAttr) in new[] { (typeof(WriteSentences.Twins), true), (typeof(WriteSentences), false) })
+        //
+        // EVERY const on both classes must DECIDE: [MustState] phrases, or [NoClaims] with a stated reason. The
+        // outer walk used to skip an undecorated const, which left CellRowsCutLoss and DryRunHeader unchecked
+        // purely because nobody remembered them — absence-as-silence, where the safe state is the one you reach
+        // by doing nothing, and every sentence added later inherits it (PR #337 re-review, residual A).
+        foreach (var owner in new[] { typeof(WriteSentences.Twins), typeof(WriteSentences) })
         foreach (var f in owner.GetFields(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.DeclaredOnly)
                      .Where(f => f.IsLiteral && f.FieldType == typeof(string))
                      .OrderBy(f => f.Name, StringComparer.Ordinal))
         {
             var sentence = (string)f.GetRawConstantValue()!;
             var attr = f.GetCustomAttribute<MustStateAttribute>();
+            var optOut = f.GetCustomAttribute<NoClaimsAttribute>();
+            if (attr is not null && optOut is not null)
+            {
+                bad.Add($"{f.Name}: declares BOTH [MustState] and [NoClaims] — pick one");
+                continue;
+            }
+            if (optOut is not null)
+            {
+                if (optOut.Reason.Trim().Length == 0) bad.Add($"{f.Name}: [NoClaims] with no stated reason");
+                continue;
+            }
             if (attr is null || attr.Phrases.Length == 0)
             {
-                if (requireAttr) bad.Add($"{f.Name}: declares no [MustState] phrases");
+                bad.Add($"{f.Name}: declares neither [MustState] phrases nor [NoClaims] with a reason");
                 continue;
             }
             // An EMPTY sentence or an EMPTY phrase clears every other assertion here and in the coverage arm —
