@@ -94,7 +94,11 @@ public static class WriteSurfaceGuardProbe
             CopyFromViewArm(root);
             CopySourcePathArm(fx, root);
             NestedParentHostArm(fx);
-            // Before the in-place arms: it forwards out of the fixture and reads the replacer as a known winner.
+            // Before the in-place arms: it reads the replacer as a known winner. It also WRITES — two new patch
+            // mod folders (W2Twin*, W2TwinApply) carrying overrides of SubjectFid and MasterOnlyFid, then removes
+            // records from W2TwinFwd.esp. Those patches are never ticked into plugins.txt, so they stay out of the
+            // active order and cannot move a later arm's winner; an arm added after this one should still know the
+            // folders exist.
             TwinParityArm(fx);
             // #324's arm also writes into the replacer IN PLACE (its second half is that lane), so it sits with the
             // in-place arms below rather than among the read-the-fixture ones. It rewrites the replacer TWICE and
@@ -2042,6 +2046,14 @@ public static class WriteSurfaceGuardProbe
         var twins = TwinSentences();
         Check("the twin inventory is non-empty (a reflection miss would make every check below vacuous)",
             twins.Count > 0, $"{twins.Count} members");
+        var unreadable = TwinShapesUnreadable();
+        Check("every Twins member is a shape this arm can enumerate (an unreadable one is an unchecked twin reported as covered)",
+            unreadable.Count == 0, unreadable.Count == 0 ? null : string.Join("; ", unreadable));
+        // The CONTENT half. Everything else in this arm asserts wiring — that a render reads the shared source —
+        // and wiring checks pass whatever the source says. This is the one that fails when a sentence is emptied.
+        var gutted = TwinContentViolations();
+        Check("every Twins sentence still states the claims it declares (a construction pin cannot see this — it reads the same constant the render does)",
+            gutted.Count == 0, gutted.Count == 0 ? null : string.Join("; ", gutted));
         var seenText = new HashSet<string>(StringComparer.Ordinal);
         var seenJson = new HashSet<string>(StringComparer.Ordinal);
 
@@ -2180,8 +2192,9 @@ public static class WriteSurfaceGuardProbe
         const int tight = 60;
         var tText = text(tight);
         var tJson = json(tight);
-        bool textCut = tText.Contains("[truncated:", StringComparison.Ordinal)
-                    || tText.Contains("... [", StringComparison.Ordinal);
+        // The ROW-list marker specifically. "... [" also opens the post-write report blocks' own cut notices, so
+        // the looser match would let a cut voice or cell block stand in for a row list that never truncated.
+        bool textCut = tText.Contains("... [truncated:", StringComparison.Ordinal);
         bool jsonCut = TryJson(tJson, out var tdoc) && RootFlag(tdoc, "truncated") == true;
         Check($"{label}: a cap that truncates one transport truncates the other (text={textCut} json={jsonCut})",
             total > 0 && textCut == jsonCut && textCut, $"TEXT: {Trim(tText)} || JSON: {Trim(tJson)}");
@@ -2226,14 +2239,54 @@ public static class WriteSurfaceGuardProbe
 
     /// <summary>The twin inventory, read off <see cref="WriteSentences.Twins"/> by reflection rather than listed
     /// here. A hand-listed inventory is the thing this whole change exists to stop: it would be a second copy of
-    /// the set, free to fall behind the first.</summary>
+    /// the set, free to fall behind the first.
+    /// <para>Returns the <c>const string</c> members. Anything else in that class is a shape this arm cannot read,
+    /// and <see cref="TwinShapesUnreadable"/> turns it into a FAILURE rather than a silent skip — a filter that
+    /// quietly dropped a <c>static readonly</c> twin would report full coverage of a set it had not seen.</para></summary>
     static IReadOnlyList<(string Name, string Sentence)> TwinSentences()
         => typeof(WriteSentences.Twins)
             .GetFields(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
-            .Where(f => f.IsLiteral && !f.IsInitOnly && f.FieldType == typeof(string))
+            .Where(f => f.IsLiteral && f.FieldType == typeof(string))
             .Select(f => (f.Name, (string)f.GetRawConstantValue()!))
             .OrderBy(t => t.Name, StringComparer.Ordinal)
             .ToList();
+
+    /// <summary>Members of <c>Twins</c> that <see cref="TwinSentences"/> cannot enumerate — a non-const field, a
+    /// property, or a nested type. Any of them would be a twin the coverage assertion never checks while still
+    /// reporting "every member covered", so they are named and failed rather than filtered away.</summary>
+    static IReadOnlyList<string> TwinShapesUnreadable()
+    {
+        const BindingFlags All = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.Instance;
+        var bad = new List<string>();
+        foreach (var f in typeof(WriteSentences.Twins).GetFields(All))
+            if (!(f.IsLiteral && f.FieldType == typeof(string))) bad.Add($"field {f.Name} ({f.FieldType.Name}, not a const string)");
+        foreach (var pr in typeof(WriteSentences.Twins).GetProperties(All)) bad.Add($"property {pr.Name}");
+        foreach (var n in typeof(WriteSentences.Twins).GetNestedTypes(BindingFlags.Public | BindingFlags.NonPublic)) bad.Add($"nested type {n.Name}");
+        return bad;
+    }
+
+    /// <summary>Twins whose declared load-bearing phrases are missing from the sentence itself — or which declare
+    /// none at all. THIS is the check a construction pin cannot make: <c>render.Contains(TheConstant)</c> reads the
+    /// same symbol the render does, so it passes whatever the constant says, including nothing. A commit that
+    /// replaced three of these sentences with placeholders passed the whole suite green; this is what would have
+    /// caught it, and requiring the attribute means a new twin cannot be added without declaring what it must say.</summary>
+    static IReadOnlyList<string> TwinContentViolations()
+    {
+        var bad = new List<string>();
+        foreach (var f in typeof(WriteSentences.Twins)
+                     .GetFields(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                     .Where(f => f.IsLiteral && f.FieldType == typeof(string))
+                     .OrderBy(f => f.Name, StringComparer.Ordinal))
+        {
+            var sentence = (string)f.GetRawConstantValue()!;
+            var attr = f.GetCustomAttribute<MustStateAttribute>();
+            if (attr is null || attr.Phrases.Length == 0) { bad.Add($"{f.Name}: declares no [MustState] phrases"); continue; }
+            foreach (var phrase in attr.Phrases)
+                if (!sentence.Contains(phrase, StringComparison.Ordinal))
+                    bad.Add($"{f.Name}: no longer states \"{phrase}\"");
+        }
+        return bad;
+    }
 
     static bool TryJson(string s, out JsonDocument? doc)
     {

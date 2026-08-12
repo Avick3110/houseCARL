@@ -223,7 +223,10 @@ internal static class DryRunProbe
                 var text = WriteTools.RenderForward(o);
                 Check(text.Contains(WriteSentences.DryRunHeader, StringComparison.Ordinal)
                       && text.Contains("would be copied from")
-                      && !text.Contains("\n" + WriteSentences.Masters(Array.Empty<string>())),
+                      // Any masters LINE, not the empty-set spelling. This outcome forwards from a REAL master, so
+                      // pinning "masters: (none)" would be a string the render can never emit — an assertion that
+                      // passes whatever happens, which is what it briefly became.
+                      && !text.Contains("\n" + WriteSentences.Masters(Array.Empty<string>()).Split('(')[0]),
                     "forward render uses the would-be phrasing (+ the expected-masters preview, not a real header)");
                 var dryMiss = svc.ForwardRecords(new[] { fid2 }, "HcDryUser.esp", "DryH2", null, dryRun: true);
                 var realMiss = svc.ForwardRecords(new[] { fid2 }, "HcDryUser.esp", "DryH2", null);
