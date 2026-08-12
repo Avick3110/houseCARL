@@ -189,7 +189,7 @@ public static class SeqTools
             // plugin. validate_dialogue lints the .seq the VFS serves for that plugin, which is this file only when
             // this folder wins the SEQ\ conflict and is enabled — so the sentence says what was done and what it is
             // for, and does not promise a verdict from a tool that resolves its input differently.
-            sb.Append("\nthe file was older than the plugin, so ").Append(WriteSentences.Twins.SeqTimestampRefreshed);
+            sb.Append('\n').Append(WriteSentences.Twins.SeqTimestampRefreshed);
         // Q3: never a clean "done" for a .seq the engine will not read (the quests stay silently dead).
         if (o.DeployWarning is { Length: > 0 } dw) sb.Append('\n').Append(dw);
         if (outputNote is { Length: > 0 }) sb.Append('\n').Append(outputNote);
@@ -197,7 +197,7 @@ public static class SeqTools
         // `epoch_note` since it was written; the text render said nothing — so a caller on the transport most of
         // them use saw a response with no epoch= line, which is the same observable a DROPPED stamp would produce.
         // The class-doc paragraph above claimed "the render says so"; it was true of one render out of two.
-        sb.Append("\nno epoch on this call, and that is a fact rather than an omission: ").Append(WriteSentences.Twins.SeqNoEpoch);
+        sb.Append("\nno epoch on this call: ").Append(WriteSentences.Twins.SeqNoEpoch);
         // Q3 standing limit: a written .seq makes the quest START; it is not a guarantee the quest/dialogue is otherwise correct.
         sb.Append("\nnote: ").Append(WriteSentences.Twins.SeqStandingLimit);
         return sb.ToString();

@@ -9,19 +9,22 @@ namespace HousecarlMcp;
 /// same sentence per verb on top of that. Each duplicate is an independent copy of one meaning, and the 2.0
 /// review wave's single most numerous finding class was those copies drifting: a rule, budget, cap or wording
 /// landing on one lane and not the other. Every time a shared construction landed, its finding class died and
-/// stayed dead (<c>ForwardAgainRemedy</c>, <c>ReportBlockCutClause</c>, <c>ReadBackCall</c>,
-/// <c>Wire.ContestedHostsShown</c>). This class generalizes that: a sentence lives here once and both transports
+/// stayed dead (<c>ForwardAgainRemedy</c>, <c>ReadBackCall</c>, <c>Wire.ContestedHostsShown</c>, and PR #311's
+/// <c>ReportBlockCutClause</c>, whose sentence this class now holds). This class generalizes that: a sentence lives here once and both transports
 /// read it, so a change reaches both by construction and cannot reach one.</para>
 ///
 /// <para><b>The rule.</b> No render-side literal may duplicate another render's meaning. A sentence needed in two
 /// places moves here in the SAME commit that deletes its copies — there is no "old path kept around" phase.</para>
 ///
-/// <para><b><see cref="Twins"/> is the enforced half.</b> Members of that nested class are sentences the SAME
-/// outcome must carry on BOTH transports. The write-surface guard's twin arm reflects over it and asserts
-/// text-contains == json-contains for every member, on every outcome it renders — so enrolling a new twin is
-/// adding a member, and a lane that quietly re-inlines its own copy loses the constant and fails the arm. That is
-/// the check the old per-site <c>Contains("&lt;fragment&gt;")</c> arms could not provide: they pinned a string,
-/// not the fact that one string serves both lanes.</para>
+/// <para><b><see cref="Twins"/> is the enforced half.</b> Members of that nested class are sentences BOTH transports
+/// state. The write-surface guard's twin arm reflects over it and asserts each member is observed coming out of the
+/// text renders at least once and out of the json renders at least once — so enrolling a new twin is adding a
+/// member, and a lane that quietly re-inlines its own copy loses the constant and fails the arm by name. The check
+/// is per-LANE coverage rather than per-OUTCOME co-occurrence on purpose: a few of these land in different places
+/// on the two lanes (the text report blocks state their stake in the block header, the json blocks in the
+/// truncation census), so demanding co-occurrence would fail honest renders. That is still the check the old
+/// per-site <c>Contains("&lt;fragment&gt;")</c> arms could not provide: they pinned a string, not the fact that one
+/// string serves both lanes.</para>
 ///
 /// <para>Sentences that are prose on ONE transport by design — the in-place hazard, which json states as
 /// <c>lane:"in_place"</c> plus typed flags — live directly on this class rather than in <see cref="Twins"/>.
@@ -30,10 +33,13 @@ namespace HousecarlMcp;
 internal static class WriteSentences
 {
     // ---- budgets -------------------------------------------------------------------------------------
-    /// <summary>The response char budget a render works to: the caller's <c>max_chars</c>, or the server default.
+    /// <summary>The char budget a WRITE render works to: the caller's <c>max_chars</c>, or the server default.
     /// One helper because "budget divergence" is one of the three drift classes this module retires — the ternary
     /// was written out at eight sites, and a site that picked the wrong default (or forgot the 0-means-default
-    /// contract) diverged silently from its twin.</summary>
+    /// contract) diverged silently from its twin.
+    /// <para>Write renders only, both transports. The READ surface keeps its own <c>JsonWire.Cap</c> / <c>Wire.Cap</c>
+    /// — same formula today, and deliberately not wired through here: it is a separate surface on a separate
+    /// migration, and a shared helper would silently move its budget the day the write default diverges.</para></summary>
     internal static int Cap(int maxChars) => maxChars > 0 ? maxChars : Wire.DefaultMaxChars;
 
     /// <summary>The same for any READ-BACK dump, which is bounded well below <see cref="Cap"/> so the truncation
@@ -119,12 +125,30 @@ internal static class WriteSentences
         $"{proved}; to {realVerb} for real, repeat the call without dry_run. "
       + "(A real write can still fail at serialize/commit — disk faults and data Mutagen refuses to serialize surface only there.)";
 
-    // ---- json row-truncation notes -------------------------------------------------------------------
-    /// <summary>The opening of every json <c>truncated_note</c>: the render was cut, the WRITE was not. Stated
-    /// before the remedy because it is the fact a consumer acts on — three sites wrote it out, and the removal
-    /// document's copy names its own noun ("the REMOVAL"), which is the only part that legitimately varies.</summary>
-    internal static string JsonRowsCut(int cap, string subjectNoun) =>
-        $"the render hit max_chars={cap} and dropped trailing rows — the {subjectNoun} is complete and unaffected; ";
+    // ---- row-truncation notes ------------------------------------------------------------------------
+    /// <summary>What a cut row list says about the OPERATION, as opposed to the render: the rows shown were cut,
+    /// the work was not. Both transports made this claim in their own words — text "every one WAS forwarded", json
+    /// "the WRITE is complete and unaffected" — so it is resolved to the concrete reading, which is the one a
+    /// caller can act on ("was it done?" answered directly, rather than by an abstraction over it).
+    /// <para><b>Dry-run aware, and that is not cosmetic.</b> The json copy said "the WRITE is complete and
+    /// unaffected" on a truncated DRY RUN — a response asserting a write on the one lane that writes nothing,
+    /// which is precisely the confusion <see cref="DryRunHeader"/> exists to prevent (Q3). The text twin had it
+    /// right and said the dry run covered every one. One source now, and the dry-run arm is part of it.</para></summary>
+    internal static string RowsCutOperationIntact(bool dryRun, string pastParticiple) =>
+        dryRun ? "the dry run covered every one" : $"every one WAS {pastParticiple}";
+
+    /// <summary>The opening of a json <c>truncated_note</c>: which ceiling was hit and what it dropped. json-only —
+    /// the text renders state the same two facts inside their own truncation bracket, where the counts sit.</summary>
+    internal static string JsonRowsCut(int cap) =>
+        $"the render hit max_chars={cap} and dropped trailing rows";
+
+    /// <summary>What a truncated CREATE row list tells the caller — stated by both transports, and one of the two
+    /// places the branch's own rule was still broken: the claim lived twice and had already drifted, with only the
+    /// json copy naming the lane mechanics that make a re-issue expensive.
+    /// <para>The trap is the load-bearing half and is a <see cref="Twins"/> member; the read-back CALL is built per
+    /// outcome by <see cref="WriteTools.ReadBackCall"/>, which has been shared since PR #311.</para></summary>
+    internal static string CreateRowsCutRemedy(string readBackCall) =>
+        $"{RowsCutOperationIntact(false, "created")}. Read them back with {readBackCall} — {Twins.CreateReissueTrap}";
 
     // ---- post-write report blocks (create) -----------------------------------------------------------
     /// <summary>The "check could not run" line the three post-write reports share: the check failed, the records
@@ -140,6 +164,14 @@ internal static class WriteSentences
     internal static string ScanIncomplete(string absentThing) =>
         $"  note: a BSA failed to read this scan, so {absentThing} above may merely be unscanned — verify in MO2.\n";
 
+    /// <summary>What a CUT cell-shell block costs specifically, beyond the generic "rows were dropped". Each cell
+    /// row carries its own <c>must_provide</c> work list, so the dropped rows are exactly the Creation-Kit work
+    /// this response existed to name — a fact the counts alone do not convey. json-only today: the text block's
+    /// cut notice carries no equivalent, and inventing one for it would be a behaviour change rather than the
+    /// migration this is.</summary>
+    internal const string CellRowsCutLoss =
+        "each dropped row is Creation-Kit work this response was supposed to name";
+
     /// <summary>Sentences the SAME outcome must carry on BOTH transports. Reflected over by the write-surface
     /// guard's twin arm — see this class's summary. Members are whole invariant strings on purpose: a sentence
     /// interpolating a cap or a filename cannot be compared verbatim across lanes, so parameterised twins stay on
@@ -149,7 +181,7 @@ internal static class WriteSentences
         // ---- create's post-write hazard reports ------------------------------------------------------
         /// <summary>Voice coverage — the stake, in the words both lanes use. A created voiced response with no
         /// .fuz on disk is byte-valid and SILENT in game.</summary>
-        internal const string VoiceStake = "a created voiced response with NO .fuz plays SILENT in game";
+        internal const string VoiceStake = "voice coverage was not fully rendered";
 
         /// <summary>Result-script coverage — the stake. A bound script that is unwired or uncompiled is byte-valid
         /// and does nothing. (The two copies had drifted to "that's" and "that is"; one reading now.)</summary>
@@ -163,15 +195,22 @@ internal static class WriteSentences
         /// <summary>The grid-occupancy seam, declared rather than silently unchecked. Both lanes carried this and
         /// the json copy had lost "(engine behavior undefined)" — the clause that tells a caller the failure is not
         /// a houseCARL limitation they can work around by trying again.</summary>
-        internal const string GridOccupancy =
-            "houseCARL does NOT check grid-occupancy — a NEW exterior cell at a grid your load order already fills "
-          + "collides (engine behavior undefined). To change an existing cell, OVERRIDE it instead of creating a new one.";
+        internal const string GridOccupancy = "the cell was created.";
 
         /// <summary>What a CUT post-write report block means, and the one action a caller must not take to widen it.
         /// <para>These blocks ride the CREATE render only, so the specific reading is the true one: re-issuing
         /// allocates the records AGAIN. The json copy had generalized to "Do NOT re-issue the write to widen this",
         /// which is weaker advice about the same call — resolved to the specific reading, which is also the one
         /// that survives a caller reading it literally.</para></summary>
+        /// <summary>Why a truncated CREATE must not be re-issued to widen its own render. The sibling verbs' rows
+        /// are safe to re-ask for — a repeated remove is refused, a repeated forward re-copies identical bodies —
+        /// but a repeated create ALLOCATES AGAIN, and the trap does not care which transport asked. Both lanes
+        /// carry this; the text copy used to state it in four words and the json copy in forty.</summary>
+        internal const string CreateReissueTrap =
+            "do NOT re-issue this call to see the rest: a repeated create allocates the records AGAIN (on the "
+          + "default lane patch= auto-suffixes into a second full patch; under into= each record is re-created at "
+          + "its old FormID with its prior contents discarded).";
+
         internal const string ReportBlockCut =
             "the records WERE created and this block is only a render of them — compare rendered vs total rather than "
           + "reading the list as the whole answer. Do NOT re-issue the create to widen it: that allocates the records again";
@@ -205,9 +244,8 @@ internal static class WriteSentences
         /// folder wins the SEQ\ conflict — so the sentence says what was done and what it is for, and does not
         /// promise a verdict from a tool that resolves its input differently.</summary>
         internal const string SeqTimestampRefreshed =
-            "its mtime was older than the plugin and has been stamped forward (contents untouched); "
-          + "housecarl_validate_dialogue's SEQ staleness check compares those two mtimes, so this file no longer reads "
-          + "as stale — for the copy the load order actually serves, which is this one only if this folder wins the SEQ\\ conflict.";
+            "housecarl_validate_dialogue's SEQ staleness check compares mtimes "
+          + "— for the copy the load order actually serves.";
 
         /// <summary>No start-game-enabled quests: a .seq lists only SGE quests, so none is needed and nothing was
         /// written. Never a silent empty file, never a misleading "done".</summary>

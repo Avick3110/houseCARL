@@ -172,7 +172,7 @@ static class JsonWire
         w.WriteEndObject();
     }
 
-    static int Cap(int maxChars) => WriteSentences.Cap(maxChars);   // one budget rule, both transports
+    static int Cap(int maxChars) => maxChars > 0 ? maxChars : Wire.DefaultMaxChars;
 
     /// <summary>A bare whole-call refusal document: <c>{error, epoch?}</c> — for tool-layer refusals that have no
     /// outcome object to render (e.g. the §2.1.1 artifact epoch-mismatch handed back beside the batch), matching
@@ -1560,7 +1560,7 @@ static class JsonWire
     /// value agrees with the outcome's flags on every success.</para></summary>
     public static string RenderPatchOutcome(WritePatchBuilder.PatchOutcome o, int maxChars, bool readback, string lane)
     {
-        int cap = Cap(maxChars);
+        int cap = WriteSentences.Cap(maxChars);   // the WRITE budget rule, shared with the text twin
         using var ms = new MemoryStream();
         using (var w = new Utf8JsonWriter(ms, Opts))
         {
@@ -1643,7 +1643,8 @@ static class JsonWire
             // re-issue to widen it is safe on into=/dry-run but cuts a second patch on the default lane and
             // re-serializes the caller's own file on in_place.
             if (truncated)
-                w.WriteString("truncated_note", WriteSentences.JsonRowsCut(cap, "WRITE")
+                w.WriteString("truncated_note",
+                    $"{WriteSentences.JsonRowsCut(cap)} — {WriteSentences.RowsCutOperationIntact(o.DryRun, "applied")}. "
                     + WriteTools.ApplyAgainRemedy(o, Path.GetFileName(o.OutputPath)) + ".");
             w.WriteEndObject();
         }
@@ -1660,7 +1661,7 @@ static class JsonWire
     /// exactly the silently-degraded mode this project refuses.</para></summary>
     public static string RenderCreateOutcome(WritePatchBuilder.CreateOutcome o, int maxChars, bool readback, string lane)
     {
-        int cap = Cap(maxChars);
+        int cap = WriteSentences.Cap(maxChars);   // the WRITE budget rule, shared with the text twin
         using var ms = new MemoryStream();
         using (var w = new Utf8JsonWriter(ms, Opts))
         {
@@ -1752,10 +1753,9 @@ static class JsonWire
             // asked: the text twin was moved off this wording one fold earlier and the json document kept it, so a
             // json client raising max_chars and re-issuing walked into exactly what the fix existed to prevent.
             if (truncated)
-                w.WriteString("truncated_note", WriteSentences.JsonRowsCut(cap, "WRITE") + "every record WAS created. " +
-                    $"Read them back with {WriteTools.ReadBackCall(o, Path.GetFileName(o.OutputPath))} — do NOT re-issue this call to see the rest: a repeated create " +
-                    "allocates the records AGAIN (on the default lane patch= auto-suffixes into a second full patch; under into= each record is " +
-                    "re-created at its old FormID with its prior contents discarded).");
+                w.WriteString("truncated_note",
+                    $"{WriteSentences.JsonRowsCut(cap)} — "
+                    + WriteSentences.CreateRowsCutRemedy(WriteTools.ReadBackCall(o, Path.GetFileName(o.OutputPath))));
             w.WriteEndObject();
         }
         return Finish(ms);
@@ -1771,7 +1771,7 @@ static class JsonWire
     /// file", never merely "a path exists" — the two had been the same thing until a lane could decline to write.</para></summary>
     public static string RenderSeqOutcome(SeqOutcome o, int maxChars, string? outputNote = null)
     {
-        int cap = Cap(maxChars);
+        int cap = WriteSentences.Cap(maxChars);   // the WRITE budget rule, shared with the text twin
         using var ms = new MemoryStream();
         using (var w = new Utf8JsonWriter(ms, Opts))
         {
@@ -1799,7 +1799,7 @@ static class JsonWire
             if (o.Unchanged)
                 w.WriteString("unchanged_note", WriteSentences.Twins.SeqUnchanged
                     + " — seq_path names the file that was already current. Stated rather than reported as a write (Q3: a skipped write and a done one must not look alike)."
-                    + (o.TimestampRefreshed ? " " + WriteSentences.Twins.SeqTimestampRefreshed : ""));
+                    + (o.TimestampRefreshed ? " Also: " + WriteSentences.Twins.SeqTimestampRefreshed : ""));
             if (o.Replaced)
                 w.WriteString("replaced_note", o.ReplacedSameBytes
                     ? WriteSentences.Twins.SeqReplacedSameBytes
@@ -1854,7 +1854,7 @@ static class JsonWire
     /// the text render spells out in a sentence.</summary>
     public static string RenderRemovalOutcome(WritePatchBuilder.RemovalOutcome o, int maxChars, string lane)
     {
-        int cap = Cap(maxChars);
+        int cap = WriteSentences.Cap(maxChars);   // the WRITE budget rule, shared with the text twin
         using var ms = new MemoryStream();
         using (var w = new Utf8JsonWriter(ms, Opts))
         {
@@ -1899,7 +1899,8 @@ static class JsonWire
             // Same remedy as the text twin, from the same constant (PR #311 review 6 [medium]): a repeated remove
             // is REFUSED, so "raise max_chars" named the one call guaranteed to fail.
             if (truncated)
-                w.WriteString("truncated_note", WriteSentences.JsonRowsCut(cap, "REMOVAL")
+                w.WriteString("truncated_note",
+                    $"{WriteSentences.JsonRowsCut(cap)} — {WriteSentences.RowsCutOperationIntact(false, "removed")}. "
                     + WriteTools.RemovedRowsRemedy + ".");
             w.WriteEndObject();
         }
@@ -1915,7 +1916,7 @@ static class JsonWire
     /// rather than silent).</summary>
     public static string RenderForwardOutcome(WritePatchBuilder.ForwardOutcome o, int maxChars, bool readback, string lane)
     {
-        int cap = Cap(maxChars);
+        int cap = WriteSentences.Cap(maxChars);   // the WRITE budget rule, shared with the text twin
         using var ms = new MemoryStream();
         using (var w = new Utf8JsonWriter(ms, Opts))
         {
@@ -1988,7 +1989,8 @@ static class JsonWire
             // Lane-aware, same rule and same helper as the text twin (PR #311 review 5 [low]): a re-issue is
             // idempotent on in_place=/into= and free on a dry run, but on the DEFAULT lane it cuts a second patch.
             if (truncated)
-                w.WriteString("truncated_note", WriteSentences.JsonRowsCut(cap, "WRITE")
+                w.WriteString("truncated_note",
+                    $"{WriteSentences.JsonRowsCut(cap)} — {WriteSentences.RowsCutOperationIntact(o.DryRun, "forwarded")}. "
                     + WriteTools.ForwardAgainRemedy(o, Path.GetFileName(o.OutputPath)) + ".");
             w.WriteEndObject();
         }
@@ -2055,7 +2057,8 @@ static class JsonWire
     /// <para>Counts ride even when nothing was cut — <c>rendered == total</c> is the positive statement that the
     /// list IS complete, so a consumer never has to infer completeness from the absence of a marker.</para></summary>
     static void WriteBlockCensus(Utf8JsonWriter w, bool cut, (string name, int rendered, int total) a,
-                                 (string name, int rendered, int total)? b, string blockLabel, int cap, string stakes)
+                                 (string name, int rendered, int total)? b, string blockLabel, int cap, string stakes,
+                                 string? cutLoss = null)
     {
         w.WriteNumber($"total_{a.name}", a.total);
         w.WriteNumber($"rendered_{a.name}", a.rendered);
@@ -2071,8 +2074,10 @@ static class JsonWire
         // render of it, and the counts above are what a consumer branches on.
         if (cut)
             w.WriteString("truncated_note",
-                $"the {blockLabel} block hit max_chars={cap} and its rows were CUT — {stakes}, so an empty or short array here is a RENDER cut, not a clean bill of health. "
-                + WriteSentences.Twins.ReportBlockCut + ".");
+                $"the {blockLabel} block hit max_chars={cap} and its rows were CUT. Why it matters: {stakes}"
+                + (cutLoss is null ? "" : $", and {cutLoss}")
+                + ". An empty or short array here is a RENDER cut, not a clean bill of health — "
+                + WriteSentences.Twins.ReportBlockCut + " (the counts are the total_* / rendered_* members above).");
     }
 
     /// <summary>The result-script binding report as data (a bound script that is unwired or uncompiled runs NOTHING
@@ -2127,7 +2132,7 @@ static class JsonWire
         }
         w.WriteEndArray();
         WriteBlockCensus(w, blockCut, ("cells", renderedCells, report.Cells.Count), null, "cell shell", cap,
-            WriteSentences.Twins.CellStake);
+            WriteSentences.Twins.CellStake, WriteSentences.CellRowsCutLoss);
         // The grid-occupancy seam the text render declares — a json consumer must not read "cells: []" as "checked".
         if (report.Cells.Any(c => !c.Interior))
             w.WriteString("grid_occupancy_note", WriteSentences.Twins.GridOccupancy);

@@ -221,7 +221,9 @@ internal static class DryRunProbe
                     $"dry forward reports the would-be copy (source={o.Forwarded.FirstOrDefault()?.FromPlugin}, priorWinner={o.Forwarded.FirstOrDefault()?.PriorWinner})  [{o.Error ?? "ok"}]");
                 Check(before.SequenceEqual(ModFolders()), "no mod folder appeared");
                 var text = WriteTools.RenderForward(o);
-                Check(text.Contains("DRY RUN") && text.Contains("would be copied from") && !text.Contains("\nmasters:"),
+                Check(text.Contains(WriteSentences.DryRunHeader, StringComparison.Ordinal)
+                      && text.Contains("would be copied from")
+                      && !text.Contains("\n" + WriteSentences.Masters(Array.Empty<string>())),
                     "forward render uses the would-be phrasing (+ the expected-masters preview, not a real header)");
                 var dryMiss = svc.ForwardRecords(new[] { fid2 }, "HcDryUser.esp", "DryH2", null, dryRun: true);
                 var realMiss = svc.ForwardRecords(new[] { fid2 }, "HcDryUser.esp", "DryH2", null);

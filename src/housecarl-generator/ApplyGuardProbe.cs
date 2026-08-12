@@ -616,7 +616,7 @@ public static class ApplyGuardProbe
         // dry_run on the default lane writes nothing and says so first
         var dry = ApplyTools.Apply(fx.Svc, ops: Json(OneOp("41")), patch: "ApDry", dry_run: true);
         Check("dry_run reports what WOULD change and writes nothing",
-            dry.StartsWith("DRY RUN") && dry.Contains("NOTHING was written"), dry);
+            dry.StartsWith(WriteSentences.DryRunHeader, StringComparison.Ordinal), dry);
     }
 
     // ================= ARM 3 — the §4.5 zip =================
