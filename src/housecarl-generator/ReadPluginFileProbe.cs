@@ -224,6 +224,23 @@ internal static class ReadPluginFileProbe
             var disamb = svc.ReadPluginFile("Dup.esp", null, "Weapon", "DupModB", null, 1, null, 500);
             Check(disamb.Mode == "enumerate" && disamb.Rows.Count == 1 && disamb.Rows[0].EditorId == "DupDisabledW",
                   $"mod=DupModB reads THAT copy — editorid={(disamb.Rows.Count > 0 ? disamb.Rows[0].EditorId : "?")}");
+
+            // 7c — the ground under SPEC §5.5's exemption: S1 poles stay BARE (`source=winner`, not `*winner`)
+            //      because a plugin name is extension-mandatory and so can never equal a bare pole word. That is a
+            //      property of this name space, and it holds only while an extensionless spelling fails to name a
+            //      plugin. If the surface ever fuzzy-matches "Donor" to "Donor.esp", the exemption lapses and the
+            //      S1 poles need the sigil — so the amendment's ground is pinned here rather than asserted in a doc.
+            Console.WriteLine("\n--- 7c: an extensionless plugin spelling refuses by name (SPEC §5.5's exemption ground) ---");
+            var bare = svc.ReadPluginFile("Donor", null, "Weapon", null, null, 1, null, 500);
+            Check(bare.Mode == "error", $"'Donor' (no extension) does NOT resolve to Donor.esp — mode={bare.Mode}");
+            Check(bare.Rows.Count == 0, $"…and returns no rows — a near-miss never reads a real plugin's records ({bare.Rows.Count} rows)");
+            Check(bare.Error is not null && bare.Error.Contains("Donor", StringComparison.OrdinalIgnoreCase),
+                  $"…and the refusal names what it could not find — {bare.Error ?? "(no error!)"}");
+            // The control: the SAME name WITH its extension does resolve, so the refusal above is the missing
+            // extension and not a broken fixture.
+            var withExt = svc.ReadPluginFile("Donor.esp", null, "Weapon", null, null, 1, null, 500);
+            Check(withExt.Mode == "enumerate" && withExt.Rows.Count > 0,
+                  $"…while 'Donor.esp' reads normally — the refusal is the extension, not the fixture (mode={withExt.Mode}, rows={withExt.Rows.Count})");
         }
         finally { try { Directory.Delete(root, recursive: true); } catch { /* temp scratch */ } }
 

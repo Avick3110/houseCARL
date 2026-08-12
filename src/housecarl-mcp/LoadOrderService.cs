@@ -1587,12 +1587,10 @@ public sealed class LoadOrderService : IDisposable
             var srcRes = sourceNamed ? view.ResolveForPlacement(srcRel) : res;
             var pick = AssetSourceSelection.Select(srcRes, AssetSourceChoice.Parse(providerSel));
 
-            if (pick.Verdict == AssetSourceVerdict.WinnerTokenCollision)
-                return PlaceResult.Fail(rel, WriteSentences.PlaceSourceWinnerCollision, winner);
             if (pick.Verdict == AssetSourceVerdict.NamedAbsent)
                 return PlaceResult.Fail(rel, WriteSentences.PlaceSourceNamedAbsent(providerSel!, srcRel, pick.ProviderNames), winner);
             if (pick.Verdict == AssetSourceVerdict.Ambiguous)
-                return PlaceResult.Fail(rel, WriteSentences.PlaceSourceAmbiguous(srcRel, pick.ProviderNames, !pick.TokenNameTaken), winner);
+                return PlaceResult.Fail(rel, WriteSentences.PlaceSourceAmbiguous(srcRel, pick.ProviderNames), winner);
             if (pick.Verdict == AssetSourceVerdict.NoProvider && sourceNamed)
                 return PlaceResult.Fail(rel,
                     $"nothing in the active load order provides the source '{srcRel}'."
@@ -1733,12 +1731,17 @@ public sealed class LoadOrderService : IDisposable
     /// '/', but <c>AssetResolver.Normalize</c> trims exactly those, so <c>\meshes\…</c> is a legal Data-relative
     /// path as a DESTINATION. Reading it as on-disk made one spelling mean two different things in a single call —
     /// and sent it to Path.GetFullPath against the process CWD, the round-trip this lane exists to end. A path is
-    /// on-disk when it names a volume (<c>C:\…</c>) or a UNC share, and not before.</para></summary>
+    /// on-disk when it names a volume (<c>C:\…</c>) or a UNC share, and not before.</para>
+    /// <para>ORDER: the qualified test runs BEFORE the extension test, because an extension is a property of a
+    /// filename and says nothing about where the file is. A mod can legitimately ship <c>meshes\thing.bsa</c> as a
+    /// Data-relative asset, and testing '.bsa' first sent exactly that to the process CWD — the same round-trip one
+    /// clause up, reintroduced by the clause order beneath it. A '.bsa' only means "an archive to open" once we know
+    /// the caller named a file on disk.</para></summary>
     static bool IsVfsSource(string source)
     {
-        if (source.IndexOf('|') >= 0) return false;                      // '<archive.bsa>|<entry>'
-        if (source.EndsWith(".bsa", StringComparison.OrdinalIgnoreCase)) return false;
-        return !Path.IsPathFullyQualified(source);
+        if (source.IndexOf('|') >= 0) return false;                      // '<archive.bsa>|<entry>' — an entry, not a path
+        if (!Path.IsPathFullyQualified(source)) return true;             // Data-relative ⇒ the VFS answers, whatever it ends in
+        return false;                                                    // a volume or UNC path ⇒ one exact file (or archive) on disk
     }
 
     /// <summary>Whole-order stats (forces the lazy build). For the server's stand-up / health check.</summary>

@@ -49,7 +49,7 @@ public static class PlaceAssetTools
             string? asset_path = null,
         [Description("Optional. The copy to place: a DATA-RELATIVE path (resolved through the VFS — use source_provider= to say whose copy, and note that a source path DIFFERENT from the destination is a rename); or a full loose file path; or '<archive.bsa path>|<entry inside>'; or just a '.bsa' path (the entry is taken to be the destination path). If omitted, the destination path is resolved through the VFS instead.")]
             string? source = null,
-        [Description("Optional (with a Data-relative source=, or with no source=). Whose copy to read: the provider's NAME ALONE — a mod folder name, 'overwrite', 'Data', or a BSA filename like 'X - Textures.bsa' — or 'winner' for whichever copy currently wins the VFS. housecarl_asset_status shows the same names with a kind annotation after them ('SomeMod (loose)'); pass only the name, not the annotation. Omitted = the sole provider, refused if more than one contends. A named provider that doesn't supply the path is refused, never silently replaced by another.")]
+        [Description("Optional (with a Data-relative source=, or with no source=). Whose copy to read. Two forms: '*winner' (the sigil is part of the token) for whichever copy currently wins the VFS; or the provider's NAME ALONE — a mod folder name, 'overwrite', 'Data', or a BSA filename like 'X - Textures.bsa' — matched exactly. A bare name ALWAYS means a provider of that name, so a mod called 'winner' is reachable and nothing is reserved out of the name space. housecarl_asset_status shows the same names with a kind annotation after them ('SomeMod (loose)'); pass only the name. Omitted = the sole provider, refused if more than one contends. A named provider that doesn't supply the path is refused, never silently replaced by another.")]
             string? source_provider = null,
         [Description("Optional. Base name for the NEW houseCARL mod folder the file lands in (default 'houseCARL_Assets'); auto-suffixed if taken.")]
             string? patch_name = null,
@@ -140,14 +140,19 @@ public static class PlaceAssetTools
             error = $"{where}kind is required with formid (mesh or tint — housecarl_place_asset places ONE file). To place both at once, use housecarl_bulk_place_asset.";
             return null;
         }
-        // Trim quotes for the both-expansion test the same way ReadExplicitSource trims before it routes — else a quoted
+        // Trim quotes for the both-expansion test the same way the service normalizes before it routes — else a quoted
         // spaced BSA name (the natural form, "C:\...\X - Textures.bsa") ends in '"' not '.bsa' and would be wrongly
-        // refused here on the marquee mesh+tint path. (The actual read also trims-before-routing, so the two agree.)
+        // refused here on the marquee mesh+tint path. (The service unquotes before routing too, so the two agree.)
+        // FULLY-QUALIFIED, matching that routing: a RELATIVE '.bsa' is a Data-relative asset path resolved through the
+        // VFS, and one such path cannot serve two slots — accepting it here would hand both slots the same file.
         var srcProbe = src?.Trim('"');
-        bool srcOkForBoth = srcProbe is null || (srcProbe.EndsWith(".bsa", StringComparison.OrdinalIgnoreCase) && srcProbe.IndexOf('|') < 0);
+        bool srcOkForBoth = srcProbe is null
+            || (srcProbe.EndsWith(".bsa", StringComparison.OrdinalIgnoreCase)
+                && srcProbe.IndexOf('|') < 0
+                && Path.IsPathFullyQualified(srcProbe));
         if (!srcOkForBoth)
         {
-            error = $"{where}with formid and no kind (placing BOTH mesh and tint), an explicit source= must be a bare '.bsa' path — each slot's entry is then derived. Any single path names ONE file and cannot serve both slots, so for a loose file, a BSA entry, or a Data-relative path set kind= mesh or tint (source_provider= is fine here — it names whose copy, not which file).";
+            error = $"{where}with formid and no kind (placing BOTH mesh and tint), an explicit source= must be a FULL '.bsa' path — each slot's entry is then derived. Any single file path names ONE file and cannot serve both slots, so for a loose file, a BSA entry, or a Data-relative path set kind= mesh or tint. {WriteSentences.PlaceBothSlotsPoleConstraint}.";
             return null;
         }
         var reqs = new List<PlaceRequest>(2);
@@ -247,6 +252,6 @@ public sealed record PlaceAssetSpec
     [JsonPropertyName("source"), Description("The copy to place: a Data-relative path (resolved through the VFS; different from the destination = a rename), a full loose file path, '<archive.bsa>|<entry>', or a '.bsa' path. Omit to resolve the destination path through the VFS. With formid and no kind, an explicit source must be a bare '.bsa' path.")]
     public string? Source { get; init; }
 
-    [JsonPropertyName("source_provider"), Description("Whose copy to read for a VFS-resolved source: the provider's NAME ALONE (a mod folder, 'overwrite', 'Data', or a BSA filename) — not asset_status's ' (loose)' / ' (BSA)' annotation — or 'winner' for the current VFS winner. Omit for the sole provider (contention is refused). Not valid with an on-disk source.")]
+    [JsonPropertyName("source_provider"), Description("Whose copy to read for a VFS-resolved source: '*winner' for the current VFS winner, or the provider's NAME ALONE (a mod folder, 'overwrite', 'Data', or a BSA filename) — not asset_status's ' (loose)' / ' (BSA)' annotation. A bare name always means a provider of that name. Omit for the sole provider (contention is refused). Not valid with an on-disk source.")]
     public string? SourceProvider { get; init; }
 }
