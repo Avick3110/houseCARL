@@ -1803,7 +1803,7 @@ public static class WriteSurfaceGuardProbe
             """));
         Check("create text render: max_chars= drops trailing created rows with an explicit notice",
             createCapped.Contains("[truncated:", StringComparison.Ordinal)
-            && createCapped.Contains("every one WAS created", StringComparison.Ordinal)
+            && createCapped.Contains(WriteSentences.RowsCutOperationIntact(false, "created"), StringComparison.Ordinal)
             && !createCapped.Contains("W2CreCapC", StringComparison.Ordinal), createCapped);
 
         // The remedy must be a READ, never "re-run this call" (PR #311 review 3 round-2 [medium]): repeating a
@@ -1817,7 +1817,10 @@ public static class WriteSurfaceGuardProbe
         Check("create's truncation notice points at a READ, never at raising max_chars (a repeat would re-create)",
             createCapped.Contains("housecarl_records source=", StringComparison.Ordinal)
             && createCapped.Contains("types=[\"Keyword\"]", StringComparison.Ordinal)
-            && createCapped.Contains("would create them AGAIN", StringComparison.Ordinal)
+            // A CONSTRUCTION pin: the trap sentence is one source both transports read, so this asserts the
+            // sentence still names the re-allocation AND that this render is reading it.
+            && WriteSentences.Twins.CreateReissueTrap.Contains("allocates the records AGAIN", StringComparison.Ordinal)
+            && createCapped.Contains(WriteSentences.Twins.CreateReissueTrap, StringComparison.Ordinal)
             && !createCapped.Contains("raise max_chars", StringComparison.Ordinal), createCapped);
 
         // The remedy EXERCISED — parsed OUT of the notice this render just produced and RUN, rather than compared
@@ -1929,14 +1932,18 @@ public static class WriteSurfaceGuardProbe
         Check("write_seq text render: max_chars= drops trailing quest rows with an explicit notice",
             seqCapped.Contains("[truncated:", StringComparison.Ordinal)
             && seqCapped.Contains("max_chars=80", StringComparison.Ordinal)
-            && seqCapped.Contains("the .seq itself carries ALL of them", StringComparison.Ordinal)
+            && seqCapped.Contains(WriteSentences.Twins.SeqListCutRemedy, StringComparison.Ordinal)
             && !seqCapped.Contains("HcSeqQuestCharlie", StringComparison.Ordinal), seqCapped);
         // …and the notice must not prescribe a re-run: widening the ceiling re-runs a WRITE, which with no lane
         // named for a plugin outside a houseCARL folder cuts a SECOND auto-suffixed folder holding a duplicate
         // .seq. Nothing is missing from the file, so the notice says that and prices the re-run instead.
+        // A CONSTRUCTION pin: the remedy is one source both transports read, so the claims are asserted ON the
+        // sentence — nothing is missing from the FILE, and a re-run is priced rather than prescribed — and the
+        // render is asserted to be reading it.
         Check("write_seq's truncation notice prices the re-run instead of prescribing 'raise max_chars'",
-            seqCapped.Contains("nothing is missing from the FILE", StringComparison.Ordinal)
-            && seqCapped.Contains("writes the .seq again", StringComparison.Ordinal)
+            WriteSentences.Twins.SeqListCutRemedy.Contains("nothing is missing from the FILE", StringComparison.Ordinal)
+            && WriteSentences.Twins.SeqListCutRemedy.Contains("writes the .seq again", StringComparison.Ordinal)
+            && seqCapped.Contains(WriteSentences.Twins.SeqListCutRemedy, StringComparison.Ordinal)
             && !seqCapped.Contains("raise max_chars", StringComparison.Ordinal), seqCapped);
 
         var seqUncapped = SeqTools.Render(seqOutcome);
@@ -1960,8 +1967,8 @@ public static class WriteSurfaceGuardProbe
             TryJson(seqJsonCapped, out var sjdoc)
             && sjdoc!.RootElement.GetProperty("truncated").GetBoolean()
             && sjdoc.RootElement.GetProperty("truncated_note").GetString() is { } sjnote
-            && sjnote.Contains("nothing is missing from the FILE", StringComparison.Ordinal)
-            && sjnote.Contains("writes the .seq again", StringComparison.Ordinal)
+            // The SAME construction the text arm pins, which is now what "says the SAME thing" means literally.
+            && sjnote.Contains(WriteSentences.Twins.SeqListCutRemedy, StringComparison.Ordinal)
             && !sjnote.Contains("raise max_chars", StringComparison.Ordinal), seqJsonCapped);
 
         // LANE exclusivity on write_seq (PR #311 review 4 [low]): both spellings are labelled LANE: by this PR, and
@@ -2061,6 +2068,8 @@ public static class WriteSurfaceGuardProbe
             cap => JsonWire.RenderCreateOutcome(createOutcome, cap, false, "patch"),
             "total_created", $"created {createOutcome.Created.Count} records");
         Observe(WriteTools.RenderCreate(createOutcome), JsonWire.RenderCreateOutcome(createOutcome, 0, false, "patch"));
+        // …and the CUT render, whose remedy sentence only exists on a truncated one.
+        Observe(WriteTools.RenderCreate(createOutcome, 60), JsonWire.RenderCreateOutcome(createOutcome, 60, false, "patch"));
 
         var fwdOutcome = fx.Svc.ForwardRecords(new[] { fx.SubjectFid, fx.MasterOnlyFid }, fx.MasterName, "W2TwinFwd", null);
         BudgetParity("forward", fwdOutcome.Forwarded.Count,
@@ -2068,6 +2077,26 @@ public static class WriteSurfaceGuardProbe
             cap => JsonWire.RenderForwardOutcome(fwdOutcome, cap, false, "patch"),
             "total_forwarded", $"forwarded {fwdOutcome.Forwarded.Count} records");
         Observe(WriteTools.RenderForward(fwdOutcome), JsonWire.RenderForwardOutcome(fwdOutcome, 0, false, "patch"));
+
+        // APPLY and REMOVE complete the verb set. apply is the one that mattered: its text ops loop was the last
+        // unbounded row list on the write surface while its json twin budgeted the same array, so before this arm
+        // existed a large bulk_apply truncated on one transport and took a silent host cut on the other.
+        var applyOutcome = fx.Svc.ApplyEdits(
+            new[] { fx.SubjectFid, fx.MasterOnlyFid }
+                .Select(f => new BulkOp { Formid = f, FieldPath = "EditorID", Value = "W2TwinEd" }).ToList(),
+            "W2TwinApply", null);
+        BudgetParity("apply", applyOutcome.Ops.Count,
+            cap => WriteTools.Render(applyOutcome, cap),
+            cap => JsonWire.RenderPatchOutcome(applyOutcome, cap, false, "patch"),
+            "total_ops", $"{applyOutcome.Ops.Count} edits");
+        Observe(WriteTools.Render(applyOutcome, 60), JsonWire.RenderPatchOutcome(applyOutcome, 60, false, "patch"));
+
+        var rmOutcome = fx.Svc.RemoveRecords(new[] { fx.SubjectFid, fx.MasterOnlyFid }, "W2TwinFwd.esp");
+        BudgetParity("remove", rmOutcome.Removed.Count,
+            cap => WriteTools.RenderRemoval(rmOutcome, cap),
+            cap => JsonWire.RenderRemovalOutcome(rmOutcome, cap, "into"),
+            "total_removed", $"removed {rmOutcome.Removed.Count} records");
+        Observe(WriteTools.RenderRemoval(rmOutcome, 60), JsonWire.RenderRemovalOutcome(rmOutcome, 60, "into"));
 
         // ---- the three post-write report blocks -------------------------------------------------------
         // Rendered off a built outcome for the same reason the report-budget arm above builds one: a report big

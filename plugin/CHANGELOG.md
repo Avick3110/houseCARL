@@ -15,9 +15,16 @@ way. The most consequential: the JSON note about creating an exterior cell had l
 collision is *engine* behaviour, so it read like something you could retry your way out of; a cut report block told
 you "do not re-issue the write" on one transport and the more specific, actually-correct "do not re-issue the create —
 that allocates the records again" on the other; and `write_seq`'s JSON standing-limit note had dropped the pointer to
-`housecarl_validate_dialogue`, which is the half telling you what to do next. Every such sentence now has one source
-that both transports read, so a correction reaches both or neither. Wording is otherwise unchanged, except where the
-two copies already disagreed — those are resolved to the fuller and truer reading.
+`housecarl_validate_dialogue`, which is the half telling you what to do next. Every sentence named in the PR's inventory now has one
+source that both transports read, so a correction reaches both or neither; the inventory also names what is left and
+why. Wording is otherwise unchanged, except where the two copies already disagreed — those are resolved to the fuller
+and truer reading.
+
+**Fixed: a large `apply` no longer overflows its text response without saying so.** Its JSON twin has always dropped
+trailing rows at `max_chars` and set `truncated`, but the text render listed every edit and let the host cut the
+oversized response out of band — the silent cut `max_chars` exists to prevent, on the one write verb whose row list
+was still unbounded. It now stops with the same explicit notice its four sibling renders carry. A truncated dry run
+also no longer describes itself as a completed write.
 
 **Fixed: forwarding a record no longer deletes the records nested under it (#324).** When `forward` targeted a record
 the destination *already carried*, it replaced it by dropping the whole record and copying the source body in — and

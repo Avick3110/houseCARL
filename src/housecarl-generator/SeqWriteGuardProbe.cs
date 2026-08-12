@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Mutagen.Bethesda;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Skyrim;
@@ -412,7 +413,7 @@ internal static class SeqWriteGuardProbe
             // silent-success shape Q3 refuses, and the first line is what a caller reads.
             var toolSame = SeqTools.WriteSeq(svc, source: Path.GetFileName(svcPlugin), output_dir: userMod);
             Check(toolSame.StartsWith("unchanged", StringComparison.Ordinal)
-                  && toolSame.Contains("NOTHING was written", StringComparison.Ordinal)
+                  && toolSame.Contains(WriteSentences.Twins.SeqUnchanged, StringComparison.Ordinal)
                   && !toolSame.Contains("houseCARL mod folder — enable it", StringComparison.Ordinal),
                 $"RENDER-UNCHANGED the no-op renders as 'unchanged … NOTHING was written', and an output_dir destination is NOT called a houseCARL mod folder — render=[{Trim(toolSame)}]");
 
@@ -441,8 +442,11 @@ internal static class SeqWriteGuardProbe
             var jsonRepl = SeqTools.WriteSeq(svc, source: Path.GetFileName(svcPlugin), output_dir: userMod, format: "json");
             Check(jsonRepl.Contains("\"replaced\": true", StringComparison.Ordinal)
                   && jsonRepl.Contains("\"replaced_same_bytes\": false", StringComparison.Ordinal)
-                  && jsonRepl.Contains("replaced_note", StringComparison.Ordinal)
-                  && jsonRepl.Contains("no backup", StringComparison.Ordinal),
+                  // The json half of the pair whose text half pins the same construction above. Read through the
+                  // PARSED value, not the raw document: the writer escapes non-ASCII and apostrophes, so a raw
+                  // Contains would fail on the encoder's spelling rather than the render's.
+                  && JsonDocument.Parse(jsonRepl).RootElement.TryGetProperty("replaced_note", out var jrn)
+                  && jrn.GetString() == WriteSentences.Twins.SeqReplacedUserFolder,
                 $"REPLACED-JSON the replaced state and its note are on the json transport too — render=[{Trim(jsonRepl)}]");
 
             // LANE-ORDER: output_dir= + patch= + into= together is NOT refused. The pair-exclusivity check used to run

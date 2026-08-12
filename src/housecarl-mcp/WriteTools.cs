@@ -544,9 +544,26 @@ public static class WriteTools
             sb.Append(WriteSentences.NewOrExtendedArtifact(o.Extended, file, o.Bytes, modFolder));
         sb.Append(WriteSentences.Masters(o.Masters));
         sb.Append(o.Ops.Count).Append(o.Ops.Count == 1 ? " edit:\n" : " edits:\n");
-        foreach (var op in o.Ops)
+        // BUDGETED, like every sibling render (the D2 twin arm's finding). This loop was the last unbounded row
+        // list on the write surface: `bulk_apply` is set-valued, so a few hundred ops is the case the tool exists
+        // for, and the json twin has always budgeted the same array and closed truncated:true. Text rendered every
+        // row and let the HOST cut the oversized response out-of-band — the silent cut max_chars= promises never
+        // happens, and the same divergence the created / forwarded / removed / cell-shell rows each closed in turn.
+        int opCap = WriteSentences.Cap(maxChars);
+        for (int i = 0; i < o.Ops.Count; i++)
+        {
+            if (sb.Length >= opCap)
+            {
+                sb.Append("  ... [truncated: ").Append(i).Append(" of ").Append(o.Ops.Count)
+                  .Append(" edit(s) listed at max_chars=").Append(opCap).Append("; ")
+                  .Append(WriteSentences.RowsCutOperationIntact(false, "applied"))
+                  .Append(" — ").Append(ApplyAgainRemedy(o, file)).Append("]\n");
+                break;
+            }
+            var op = o.Ops[i];
             sb.Append("  ").Append(op.RecordType).Append(' ').Append(op.Target).Append("  ").Append(op.Label)
               .Append(op.After is not null ? "  -> " + op.After : "  -> applied").Append('\n');
+        }
         // Make the dialogue-coverage scope boundary VISIBLE, not silent (Q3): the .fuz/.lip presence check (unit B) AND
         // the result-script binding check (unit C1) both run on CREATE of dialogue lines, not on EDITS to existing ones.
         // An edit that adds a spoken response or a result script to an existing INFO produces the same silent-line /
@@ -607,9 +624,23 @@ public static class WriteTools
         sb.Append(WriteSentences.DryRunWouldWrite(o.InPlace, o.Extended, file, "edit"));
         sb.Append(WriteSentences.DryRunMasters(o.Masters));
         sb.Append(o.Ops.Count).Append(o.Ops.Count == 1 ? " edit would apply:\n" : " edits would apply:\n");
-        foreach (var op in o.Ops)
+        // Budgeted for the same reason as the real render's loop, with the dry run's own arm on the cut notice:
+        // a dry run wrote nothing, so it must not say the edits were applied.
+        int dryCap = WriteSentences.Cap(maxChars);
+        for (int i = 0; i < o.Ops.Count; i++)
+        {
+            if (sb.Length >= dryCap)
+            {
+                sb.Append("  ... [truncated: ").Append(i).Append(" of ").Append(o.Ops.Count)
+                  .Append(" edit(s) listed at max_chars=").Append(dryCap).Append("; ")
+                  .Append(WriteSentences.RowsCutOperationIntact(true, "applied"))
+                  .Append(" — ").Append(ApplyAgainRemedy(o, file)).Append("]\n");
+                break;
+            }
+            var op = o.Ops[i];
             sb.Append("  ").Append(op.RecordType).Append(' ').Append(op.Target).Append("  ").Append(op.Label)
               .Append(op.After is not null ? "  -> would become " + op.After : "  -> would apply").Append('\n');
+        }
         if (fullDump && o.ReadBack is { } rb) AppendFullReadback(sb, rb, maxChars, dryRun: true);
         if (o.Note is { } note) sb.Append("note: ").Append(note).Append('\n');
         sb.Append(WriteSentences.DryRunClose("every op passed resolve + pre-flight", "apply"))
@@ -756,8 +787,9 @@ public static class WriteTools
                 // removed", because the records are already gone. Nothing is actually lost, though, and saying so
                 // is the honest remedy: removal is all-or-nothing, so the rows ARE the formids= the caller passed.
                 sb.Append("  ... [truncated: ").Append(i).Append(" of ").Append(o.Removed.Count)
-                  .Append(" removed record(s) listed at max_chars=").Append(cap)
-                  .Append("; every one WAS removed — ").Append(RemovedRowsRemedy).Append("]\n");
+                  .Append(" removed record(s) listed at max_chars=").Append(cap).Append("; ")
+                  .Append(WriteSentences.RowsCutOperationIntact(false, "removed"))
+                  .Append(" — ").Append(RemovedRowsRemedy).Append("]\n");
                 break;
             }
             var r = o.Removed[i];
@@ -828,8 +860,8 @@ public static class WriteTools
             {
                 sb.Append("  ... [truncated: ").Append(fi).Append(" of ").Append(o.Forwarded.Count)
                   .Append(" record(s) listed at max_chars=").Append(fwdCap)
-                  .Append(o.DryRun ? "; the dry run covered every one — " : "; every one WAS forwarded — ")
-                  .Append(ForwardAgainRemedy(o, file)).Append(']')
+                  .Append("; ").Append(WriteSentences.RowsCutOperationIntact(o.DryRun, "forwarded"))
+                  .Append(" — ").Append(ForwardAgainRemedy(o, file)).Append(']')
                   .Append('\n');
                 break;
             }
@@ -1106,7 +1138,10 @@ public static class WriteTools
         var modFolder = Path.GetFileName(Path.GetDirectoryName(o.OutputPath) ?? "");
         var sb = new StringBuilder();
         if (o.InPlace)
-            sb.Append(file).Append(" rewritten IN PLACE (").Append(o.Bytes)
+            // "created into X" rather than the old "X rewritten": every sibling in-place headline is verb-then-file
+            // (edited / forwarded into / removed from / compacted), and create's was the one that led with the file
+            // and used "rewritten" as its verb — which now stutters against the shared hazard clause behind it.
+            sb.Append("created into ").Append(file).Append(" IN PLACE (").Append(o.Bytes)
               .Append(" bytes — ").Append(WriteSentences.InPlaceRewritten).Append(")\n")
               .Append(WriteSentences.InPlaceModFolder(modFolder));
         else
@@ -1157,9 +1192,8 @@ public static class WriteTools
                 // duplicate-write trap ReadBackInFull's own doc names, and an agent following the notice literally
                 // walks into it.
                 sb.Append("  ... [truncated: ").Append(ci).Append(" of ").Append(o.Created.Count)
-                  .Append(" created record(s) listed at max_chars=").Append(createCap)
-                  .Append("; every one WAS created — read them back with ").Append(ReadBackCall(o, file))
-                  .Append(" (re-calling this tool would create them AGAIN)]").Append('\n');
+                  .Append(" created record(s) listed at max_chars=").Append(createCap).Append("; ")
+                  .Append(WriteSentences.CreateRowsCutRemedy(ReadBackCall(o, file))).Append("]\n");
                 break;
             }
             var c = o.Created[ci];
