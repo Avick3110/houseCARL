@@ -1943,7 +1943,8 @@ static class JsonWire
     // ---- housecarl_forward (W3 PR 2) ----------------------------------------------------------------
     /// <summary>The machine-readable twin of <see cref="WriteTools.RenderForward"/> — the SAME data (decision D2),
     /// on <see cref="RenderPatchOutcome"/>'s contract. The two per-record facts the text render puts in brackets are
-    /// flags here: <c>replaced_existing</c> (an override this artifact already carried is GONE) and
+    /// flags here: <c>replaced_existing</c> (an override this artifact already carried had its FIELDS replaced, with
+    /// <c>preserved_children</c> naming how many nested records rode across the replace — #324) and
     /// <c>was_already_winner</c> (the forward re-asserts content that already wins — a no-op in effect, reported
     /// rather than silent).</summary>
     public static string RenderForwardOutcome(WritePatchBuilder.ForwardOutcome o, int maxChars, bool readback, string lane)
@@ -2003,6 +2004,9 @@ static class JsonWire
                 WriteNullable(w, "editorid", f.EditorId);
                 w.WriteString("source", f.FromPlugin);
                 w.WriteBoolean("replaced_existing", f.ReplacedExisting);
+                // #324 — how many records nested under the replaced one were carried across. The text render states
+                // it in words; a consumer branching on replaced_existing alone would still read the replace as total.
+                w.WriteNumber("preserved_children", f.PreservedChildren);
                 w.WriteBoolean("was_already_winner", f.WasAlreadyWinner);
                 WriteNullable(w, "prior_winner", f.PriorWinner);
                 w.WriteEndObject();
