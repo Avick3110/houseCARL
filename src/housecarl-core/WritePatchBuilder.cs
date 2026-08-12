@@ -2009,9 +2009,9 @@ public static class WritePatchBuilder
     /// this PR's self-origin path makes ordinary (a record originating in a patch that is not enabled yet). It used to
     /// be the sentinel "(none)", which the renders dropped straight into "out-ranks the current winner (none)" — a
     /// ranking asserted against a winner that does not exist (PR #313 review 3 [low]).</para>
-    /// <summary><paramref name="PreservedChildren"/> — how many records nested under <paramref name="Target"/> the
-    /// replace carried across (#324). Only ever non-zero with <paramref name="ReplacedExisting"/>, and it is what
-    /// stops the render saying "the old body is gone" over a cell whose forty placed refs are still there.</summary>
+    /// <param name="PreservedChildren">How many records nested under <paramref name="Target"/> the replace carried
+    /// across (#324). Only ever non-zero with <paramref name="ReplacedExisting"/>, and it is what stops the render
+    /// saying "the old body is gone" over a cell whose forty placed refs are still there.</param>
     public sealed record ForwardedRecord(
         FormKey Target, string RecordType, string? EditorId, string FromPlugin, string? PriorWinner, bool WasAlreadyWinner,
         bool ReplacedExisting = false, int PreservedChildren = 0);

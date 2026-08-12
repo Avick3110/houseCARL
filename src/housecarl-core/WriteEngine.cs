@@ -802,13 +802,21 @@ public static class WriteEngine
     static bool ReachesOwnedRecord(Type t, HashSet<Type> seen, int depth)
     {
         if (depth > 6 || !seen.Add(t)) return false;
-        if (typeof(IFormLinkGetter).IsAssignableFrom(t)) return false;       // a reference, not a child
-        if (typeof(IMajorRecordGetter).IsAssignableFrom(t)) return true;
-        if (ElementTypeOf(t) is { } elem) return ReachesOwnedRecord(elem, seen, depth + 1);
-        if (!t.IsClass || t.Namespace?.StartsWith("Mutagen", StringComparison.Ordinal) != true) return false;
-        foreach (var p in t.GetProperties(BindingFlags.Public | BindingFlags.Instance))
-            if (ReachesOwnedRecord(p.PropertyType, seen, depth + 1)) return true;
-        return false;
+        // `seen` is a PATH set, not a memo: the entry comes back out on the way up. Left in, a type first reached at
+        // the depth bound would be recorded as unreachable and then skipped when a shallower branch reaches it, which
+        // memoizes a depth-truncated answer as a depth-independent one. Cycles are still closed — a type on the
+        // CURRENT path is what the set holds (a Cell reaches a Cell through a Worldspace).
+        try
+        {
+            if (typeof(IFormLinkGetter).IsAssignableFrom(t)) return false;   // a reference, not a child
+            if (typeof(IMajorRecordGetter).IsAssignableFrom(t)) return true;
+            if (ElementTypeOf(t) is { } elem) return ReachesOwnedRecord(elem, seen, depth + 1);
+            if (!t.IsClass || t.Namespace?.StartsWith("Mutagen", StringComparison.Ordinal) != true) return false;
+            foreach (var p in t.GetProperties(BindingFlags.Public | BindingFlags.Instance))
+                if (ReachesOwnedRecord(p.PropertyType, seen, depth + 1)) return true;
+            return false;
+        }
+        finally { seen.Remove(t); }
     }
 
     /// <summary>The element type <paramref name="t"/> enumerates, or null if it is not a collection. <c>string</c> is
