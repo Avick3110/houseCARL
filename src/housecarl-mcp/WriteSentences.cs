@@ -36,6 +36,22 @@ internal sealed class MustStateAttribute : Attribute
     internal MustStateAttribute(params string[] phrases) => Phrases = phrases;
 }
 
+/// <summary>The declared way to say a shared sentence carries NO claim worth pinning — a label, a separator, a
+/// fragment whose meaning lives entirely in the sentences that compose it.
+///
+/// <para><b>Why an explicit opt-out rather than just leaving the attribute off.</b> The outer-class walk used to
+/// SKIP an undecorated const, so a sentence with real claims was unchecked simply because nobody remembered it —
+/// and, in the reviewer's words, "the next sentence added there inherits this silence" (PR #337 re-review,
+/// residual A). Absence-as-silence is the hole generator: it makes the safe state the one you reach by doing
+/// nothing. With this attribute the walk demands a decision — phrases, or a stated reason there are none — and an
+/// undecorated const FAILS by name. The reason is prose for the next author, never parsed.</para></summary>
+[AttributeUsage(AttributeTargets.Field)]
+internal sealed class NoClaimsAttribute : Attribute
+{
+    internal string Reason { get; }
+    internal NoClaimsAttribute(string reason) => Reason = reason;
+}
+
 /// <summary>
 /// ONE SOURCE PER SENTENCE for the write surface's user-facing prose — the response layer built by construction
 /// rather than hand-wired twice (tool-surface-2.0, <c>RESPONSE_LAYER_BY_CONSTRUCTION_2026-08-11.md</c>).
@@ -137,7 +153,10 @@ internal static class WriteSentences
 
     // ---- dry run -------------------------------------------------------------------------------------
     /// <summary>#225 — the first line of any dry run. It says NOTHING happened before it says what would: a dry run
-    /// that reads like a write is the silent-wrong-answer class (Q3), and this is the line a caller skims.</summary>
+    /// that reads like a write is the silent-wrong-answer class (Q3), and this is the line a caller skims.
+    /// <para>The phrases are the two CLAIMS, not the "DRY RUN" label: the label survives any rewrite that says the
+    /// opposite ("this is not a DRY RUN"), while "NOTHING was written" and "originals untouched" do not.</para></summary>
+    [MustState("NOTHING was written", "originals untouched")]
     internal const string DryRunHeader =
         "DRY RUN — validated only; NOTHING was written (no patch file, no mod folder, originals untouched).\n";
 
@@ -212,6 +231,7 @@ internal static class WriteSentences
     /// this response existed to name — a fact the counts alone do not convey. json-only today: the text block's
     /// cut notice carries no equivalent, and inventing one for it would be a behaviour change rather than the
     /// migration this is.</summary>
+    [MustState("Creation-Kit work this response was supposed to name")]
     internal const string CellRowsCutLoss =
         "each dropped row is Creation-Kit work this response was supposed to name";
 
@@ -321,7 +341,10 @@ internal static class WriteSentences
         /// <summary>write_seq's standing limit (Q3): the quests will START, which is not a claim that the quest or
         /// its dialogue is otherwise well-formed. The json copy had dropped the pointer at the tool that does check
         /// that — the half of the sentence that tells the caller what to do next.</summary>
-        [MustState("housecarl_validate_dialogue", "does not verify")]
+        // The phrase is the ACTION, not the token (PR #337 re-review, residual B). "housecarl_validate_dialogue"
+        // alone survives a rewrite to "…confirms the dialogue graph is sound (housecarl_validate_dialogue not
+        // required)", which inverts the standing limit into a claim write_seq cannot make.
+        [MustState("does not verify", "use housecarl_validate_dialogue for the dialogue graph")]
         internal const string SeqStandingLimit =
             "this makes the quest(s) START at game start; it does not verify the quest or its dialogue is otherwise "
           + "well-formed (use housecarl_validate_dialogue for the dialogue graph).";
