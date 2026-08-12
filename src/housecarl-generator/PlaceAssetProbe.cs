@@ -422,6 +422,49 @@ internal static class PlaceAssetProbe
                           "…and specifically NOT the winner's bytes (the two copies differ, so the assertion can fail)");
                 }
 
+                // I1b — the SAME claim through the WIRE. Everything else in arm I builds PlaceRequest by hand, which
+                // pins the service policy and says nothing about whether the tool layer threads source_provider=
+                // into it at all: with the mapping deleted, every hand-built arm here still passes while the
+                // parameter silently does nothing on a real call. Both entrypoints, because they map specs
+                // separately.  [RED arm]
+                {
+                    // The folder name is read OUT of the render rather than assembled from the naming convention —
+                    // an arm that hard-codes the convention fails for a reason that has nothing to do with the claim.
+                    var text = PlaceAssetTools.PlaceAsset(svc, asset_path: FacegenRel, source: FacegenRel,
+                                                          source_provider: loserName, patch_name: "WireScalar");
+                    var placedFile = PlacedFileFrom(text, mods, FacegenRel);
+                    Check(placedFile is not null && File.ReadAllBytes(placedFile).SequenceEqual(loserBytes),
+                          $"housecarl_place_asset carries source_provider= through to the read (the loser's bytes, not the winner's) — {Trim1(text)}");
+
+                    var bulkText = PlaceAssetTools.BulkPlaceAsset(svc, new[]
+                    {
+                        new PlaceAssetSpec { AssetPath = FacegenRel, Source = FacegenRel, SourceProvider = loserName },
+                    }, patch_name: "WireBulk");
+                    var bulkFile = PlacedFileFrom(bulkText, mods, FacegenRel);
+                    Check(bulkFile is not null && File.ReadAllBytes(bulkFile).SequenceEqual(loserBytes),
+                          $"housecarl_bulk_place_asset carries per-asset source_provider through too — {Trim1(bulkText)}");
+                }
+
+                // I1c — THE ROUND TRIP. The refusal tells the caller to pass one of the names it lists; this takes
+                // those names OUT of the rendered refusal and feeds each one back, asserting it places. The first
+                // spelling of that list ran the name and its kind together ("ModA (loose)"), which no pole matches —
+                // so the message's own remedy refused, and an arm asserting Contains("ModA") passed anyway. A
+                // substring check cannot see this class; only the round trip can.  [RED arm]
+                {
+                    var refusal = svc.PlaceAssets(new[] { new PlaceRequest(FacegenRel, FacegenRel, null) }, null, null).Results[0].Error!;
+                    var tokens = System.Text.RegularExpressions.Regex.Matches(refusal, @"'([^']+)'")
+                        .Select(m => m.Groups[1].Value)
+                        .Where(t => !t.Contains('\\'))          // drop the asset path the sentence also quotes
+                        .Distinct().ToList();
+                    Check(tokens.Count == 2, $"the refusal offers exactly the two provider names as quoted tokens — [{string.Join(", ", tokens)}]");
+                    foreach (var token in tokens)
+                    {
+                        var o = svc.PlaceAssets(new[] { new PlaceRequest(FacegenRel, FacegenRel, token) }, null, null);
+                        var rr = o.Results[0];
+                        Check(rr.Placed, $"a token copied verbatim out of the refusal is accepted by source_provider= ('{token}') — {(rr.Placed ? "placed" : rr.Error)}");
+                    }
+                }
+
                 // I2 — the winner pole stays reachable: "what the game shows right now".
                 {
                     var o = svc.PlaceAssets(new[] { new PlaceRequest(FacegenRel, FacegenRel, AssetSourceChoice.WinnerToken) }, null, null);
@@ -450,8 +493,12 @@ internal static class PlaceAssetProbe
                     var placed = o.ModFolder is null ? null : Path.Combine(o.ModFolder, destRel);
                     Check(r.Placed && placed is not null && File.Exists(placed) && File.ReadAllBytes(placed).SequenceEqual(loserBytes),
                           $"the source file's bytes land under the DESTINATION's name — a rename  [RED arm] — {(r.Placed ? "ok" : r.Error)}");
-                    Check(r.SourceDesc is not null && r.SourceDesc.Contains(FacegenRel, StringComparison.OrdinalIgnoreCase),
-                          $"the render states which FILE the bytes came from — a rename that reported only the provider would hide it — {r.SourceDesc}");
+                    // STARTS with, not Contains: the loose description already ends in the provider's ABSOLUTE path,
+                    // which has the Data-relative path as a substring — so Contains was satisfied by construction and
+                    // stayed green with the rename prefix deleted. The prefix is the claim; its position is what
+                    // distinguishes it from the path that was always there.  [RED arm]
+                    Check(r.SourceDesc is not null && r.SourceDesc.StartsWith(FacegenRel, StringComparison.OrdinalIgnoreCase),
+                          $"the render LEADS with the source file — a rename that reported only the provider would hide it — {r.SourceDesc}");
                     Check(o.ModFolder is null || !File.Exists(Path.Combine(o.ModFolder, FacegenRel)),
                           "the SOURCE path is not also written — a rename places one file, not two");
                 }
@@ -467,12 +514,90 @@ internal static class PlaceAssetProbe
 
                 // I6 — a pole against an on-disk source cannot apply, and is SAID rather than dropped (Q3).
                 {
-                    var onDisk = Path.Combine(root, "i7-source.nif");
+                    var onDisk = Path.Combine(root, "i6-source.nif");
                     File.WriteAllBytes(onDisk, new byte[] { 7, 7 });
                     var r = svc.PlaceAssets(new[] { new PlaceRequest(FacegenRel, onDisk, "ModA") }, null, null).Results[0];
                     Check(!r.Placed && r.Error!.Contains(WriteSentences.PlaceSourceProviderNeedsRelPath, StringComparison.Ordinal),
                           $"source_provider= with an ON-DISK source is refused, never silently ignored  [RED arm] — {r.Error}");
                 }
+
+                // I7 — the spellings that are NOT one exact file on disk. A leading separator is Path.IsPathRooted
+                // on Windows but AssetResolver trims it, so '\meshes\…' is a legal Data-relative path as a
+                // DESTINATION; classifying it as on-disk made one string mean two things in a single call and sent
+                // it to the process CWD. Quoted is the other: it must resolve as the path inside the quotes.  [RED arm]
+                {
+                    foreach (var spelling in new[] { @"\" + FacegenRel, "/" + FacegenRel.Replace('\\', '/'), "\"" + FacegenRel + "\"" })
+                    {
+                        var o = svc.PlaceAssets(new[] { new PlaceRequest(FacegenRel, spelling, loserName) }, null, null);
+                        var rr = o.Results[0];
+                        var placed = o.ModFolder is null ? null : Path.Combine(o.ModFolder, FacegenRel);
+                        Check(rr.Placed && placed is not null && File.ReadAllBytes(placed).SequenceEqual(loserBytes),
+                              $"source= '{spelling}' resolves through the VFS under the named pole — {(rr.Placed ? "placed" : rr.Error)}");
+                    }
+                }
+
+                // I8 — the pole with NO source= at all: the tool description offers this shape (read the destination
+                // path from a named provider), and nothing exercised it.
+                {
+                    var o = svc.PlaceAssets(new[] { new PlaceRequest(FacegenRel, null, loserName) }, null, null);
+                    var r = o.Results[0];
+                    var placed = o.ModFolder is null ? null : Path.Combine(o.ModFolder, FacegenRel);
+                    Check(r.Placed && placed is not null && File.ReadAllBytes(placed).SequenceEqual(loserBytes),
+                          $"source_provider= with NO source= reads the destination path from the named provider — {(r.Placed ? "placed" : r.Error)}");
+                    Check(r.SourceDesc is not null && !r.SourceDesc.StartsWith(FacegenRel, StringComparison.OrdinalIgnoreCase),
+                          "…and it is NOT reported as a rename — source and destination are the same path");
+                }
+
+                // I9 — the pole token is matched case-insensitively, like the provider names beside it.
+                {
+                    var o = svc.PlaceAssets(new[] { new PlaceRequest(FacegenRel, FacegenRel, "WINNER") }, null, null);
+                    var r = o.Results[0];
+                    var placed = o.ModFolder is null ? null : Path.Combine(o.ModFolder, FacegenRel);
+                    Check(r.Placed && placed is not null && File.ReadAllBytes(placed).SequenceEqual(winnerBytes),
+                          $"the winner token is case-insensitive ('WINNER') — {(r.Placed ? "placed" : r.Error)}");
+                    var up = svc.PlaceAssets(new[] { new PlaceRequest(FacegenRel, FacegenRel, loserName.ToUpperInvariant()) }, null, null).Results[0];
+                    Check(up.Placed, $"…and so is a provider name ('{loserName.ToUpperInvariant()}') — {(up.Placed ? "placed" : up.Error)}");
+                }
+            }
+
+            // ================= K: a BSA provider named as the source pole =================
+            // Every other instance in this probe writes an EMPTY sResourceArchiveList, so no fixture has ever had a
+            // BSA in the VFS — the named-pole lane was proven for loose providers only, while the tool advertises a
+            // BSA filename as a legal source_provider=. This one registers the committed fixture archive as a base
+            // archive so the BSA branch of Describe and of the resolved read are both reached.
+            Console.WriteLine();
+            Console.WriteLine("--- K: source_provider= a BSA filename — the archive branch of the pole ---");
+            {
+                var inst = Path.Combine(root, "svc-k");
+                var (mods, data, prof) = MakeInstance(inst);
+                File.Copy(fixA, Path.Combine(data, "FixtureA.bsa"));          // a base archive, listed in Skyrim.ini
+                var loose = Path.Combine(mods, "LooseFace");
+                Directory.CreateDirectory(loose);
+                var looseBytes = new byte[] { 0x4C, 0x4C };
+                WriteLoose(loose, FacegenRel, looseBytes);
+                File.WriteAllText(Path.Combine(loose, "Dummy.esp"), "x");
+                WriteProfile(prof, new[] { "Dummy.esp" }, new[] { "*Dummy.esp" }, new[] { "+LooseFace" });
+                WriteSkyrimIni(prof, "FixtureA.bsa");
+                var store = new UserConfigStore(Path.Combine(root, "user-k.json"));
+                using var svc = LoadOrderService.WithInstance(inst, 0, store);
+
+                var hit = svc.AssetStatus(new[] { FacegenRel }).Results[0].Hit;
+                Check(hit is not null && hit.Providers.Any(p => p.Kind == AssetKind.Bsa),
+                      $"the fixture really does have a BSA provider in the VFS — providers: {string.Join(", ", hit?.Providers.Select(p => p.Source + " (" + p.Kind + ")") ?? Array.Empty<string>())}");
+                Check(hit?.Winner?.Kind == AssetKind.Loose, "…and the LOOSE copy wins, so naming the BSA is naming the loser  [RED arm]");
+
+                var bsaBytes = AssetResolver.TryReadArchiveEntry(fixA, FacegenRel)!;
+                var o = svc.PlaceAssets(new[] { new PlaceRequest(FacegenRel, FacegenRel, "FixtureA.bsa") }, null, null);
+                var r = o.Results[0];
+                var placed = o.ModFolder is null ? null : Path.Combine(o.ModFolder, FacegenRel);
+                Check(r.Placed && placed is not null && File.ReadAllBytes(placed).SequenceEqual(bsaBytes),
+                      $"source_provider= a BSA filename extracts THAT archive's entry, not the winning loose copy  [RED arm] — {(r.Placed ? "placed" : r.Error)}");
+
+                // …and the refusal's quoted token round-trips for a BSA provider too (its name carries a '.bsa'
+                // extension, which is the shape most likely to be mangled by a list format).
+                var refusal = svc.PlaceAssets(new[] { new PlaceRequest(FacegenRel, FacegenRel, "NopeMod") }, null, null).Results[0].Error!;
+                Check(refusal.Contains("'FixtureA.bsa' (BSA)", StringComparison.Ordinal),
+                      $"the BSA provider is listed as a quoted name with its kind outside the quotes — {refusal}");
             }
 
             // ================= J: the reserved token vs a mod that carries its name =================
@@ -540,6 +665,28 @@ internal static class PlaceAssetProbe
         File.WriteAllText(Path.Combine(inst, "ModOrganizer.ini"),
             "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(" + profile + ")\r\ngamePath=@ByteArray("
             + gameDir.Replace(@"\", @"\\") + ")\r\n");
+
+    /// <summary>First line of a tool render — enough to identify an outcome in a check label without pasting a block.</summary>
+    static string Trim1(string s) => s.Split('\n')[0].Trim();
+
+    /// <summary>The on-disk path of a file placed by a TOOL-level call, taken from the render's own "mod folder:"
+    /// line. Reading it back rather than rebuilding it from the patch-name convention keeps a wire arm failing only
+    /// for its own claim — the folder is auto-suffixed and prefixed, and an arm that assumed the spelling would go
+    /// red on a rename of the convention while the parameter it tests still worked. Null = no folder was reported.</summary>
+    static string? PlacedFileFrom(string render, string modsDir, string rel)
+    {
+        foreach (var line in render.Split('\n'))
+        {
+            var t = line.Trim();
+            if (!t.StartsWith("mod folder:", StringComparison.Ordinal)) continue;
+            var name = t["mod folder:".Length..].Trim();
+            var cut = name.IndexOf("  —", StringComparison.Ordinal);       // the in-place / enable-and-sort suffixes
+            if (cut >= 0) name = name[..cut].Trim();
+            var p = Path.Combine(modsDir, name, rel);
+            return File.Exists(p) ? p : null;
+        }
+        return null;
+    }
 
     static void WriteLoose(string baseDir, string rel, byte[] bytes)
     {

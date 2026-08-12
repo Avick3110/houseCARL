@@ -17,7 +17,8 @@ different NPC's FormID path actually is. The new `source_provider=` says *whose*
 filename as `asset_status` spells it, or `winner` for whichever copy currently wins. Naming a mod means that mod:
 if it doesn't supply the path, the call is refused rather than quietly served from somewhere else. Naming nothing
 keeps the old behaviour — the sole provider, refused when several contend — except that the refusal now lists the
-providers by NAME instead of by on-disk path, which is what you pass back to `source_provider=`.
+providers by NAME rather than by on-disk path, each name quoted, and the quoted part is exactly what you pass back
+to `source_provider=`.
 
 **Fixed: the text and JSON responses to a write can no longer say different things.** Every write tool renders its
 result twice — once as text, once as `format="json"` — and the two renders were maintained separately, so a warning
