@@ -94,6 +94,8 @@ public static class WriteSurfaceGuardProbe
             CopyFromViewArm(root);
             CopySourcePathArm(fx, root);
             NestedParentHostArm(fx);
+            // Before the in-place arms: it forwards out of the fixture and reads the replacer as a known winner.
+            TwinParityArm(fx);
             // #324's arm also writes into the replacer IN PLACE (its second half is that lane), so it sits with the
             // in-place arms below rather than among the read-the-fixture ones. It rewrites the replacer TWICE and
             // changes two of its records: the TOPIC (W2Topic → "Master Topic") and the CELL (W2Cell → "Master Cell",
@@ -1676,19 +1678,22 @@ public static class WriteSurfaceGuardProbe
             && Num(rcdoc, "voice_coverage", "rendered_lines") is { } vr && vr < 40
             && Flag(rcdoc, "voice_coverage", "truncated") == true
             && Str(rcdoc, "voice_coverage", "truncated_note") is { } vnote
-            && vnote.Contains("plays SILENT", StringComparison.Ordinal)
+            && vnote.Contains(WriteSentences.Twins.VoiceStake, StringComparison.Ordinal)
             // and it must NOT prescribe re-issuing: this block rides a WRITE render.
             && !vnote.Contains("raise max_chars", StringComparison.OrdinalIgnoreCase), reportCapped);
 
         // The TEXT twins of those blocks must not contradict the json census (PR #311 review 7 [medium]): they rode
         // the create render still saying "raise max_chars to see the rest", i.e. re-issue a create — while the json
-        // block added one round earlier says "Do NOT re-issue the write to widen this". One call, two transports,
-        // opposite advice. Rendered directly, since the shared fixture's creates make no dialogue lines.
+        // block added one round earlier said "Do NOT re-issue the write to widen this". One call, two transports,
+        // opposite advice. Both now read WriteSentences.Twins.ReportBlockCut, so this pins the CONSTRUCTION: the
+        // sentence itself still refuses to prescribe the re-issue, and this render is reading that sentence.
+        // Rendered directly, since the shared fixture's creates make no dialogue lines.
         var voiceCappedText = WriteTools.RenderCreate(synthetic, maxChars: 900);
         Check("create text: the voice-coverage cut notice refuses to prescribe re-issuing the create",
             voiceCappedText.Contains("voice coverage truncated", StringComparison.Ordinal)
             && Bracket(voiceCappedText, "voice coverage truncated") is { } vct
-            && vct.Contains("Do NOT re-issue the create", StringComparison.Ordinal)
+            && WriteSentences.Twins.ReportBlockCut.Contains("Do NOT re-issue the create", StringComparison.Ordinal)
+            && vct.Contains(WriteSentences.Twins.ReportBlockCut, StringComparison.Ordinal)
             && !vct.Contains("raise max_chars to see the rest", StringComparison.Ordinal), voiceCappedText);
 
         // The cell-shell block was the LAST unbudgeted one on the write renders (PR #311 review 7 [low-medium],
@@ -1706,7 +1711,7 @@ public static class WriteSurfaceGuardProbe
             && cellCapped.Contains(" of 30 cell(s)", StringComparison.Ordinal)
             && !cellCapped.Contains("W2CellShell29", StringComparison.Ordinal), cellCapped);
         Check("create text: a CUT cell-shell block still renders the grid-occupancy seam below it",
-            cellCapped.Contains("does NOT check grid-occupancy", StringComparison.Ordinal), cellCapped);
+            cellCapped.Contains(WriteSentences.Twins.GridOccupancy, StringComparison.Ordinal), cellCapped);
 
         var cellFull = WriteTools.RenderCreate(cellOutcome);
         Check("create text: without a cap every cell renders (the budget is not a permanent cut)",
@@ -2001,6 +2006,205 @@ public static class WriteSurfaceGuardProbe
             seqText.Contains("no start-game-enabled quests", StringComparison.Ordinal)
             && seqText.Contains("read from", StringComparison.Ordinal), seqText);
     }
+
+    // ---- the D2 twin harness (response layer by construction) ---------------------------------------
+
+    /// <summary>ARM 12 — the D2 TWIN HARNESS. Every other arm in this file renders ONE transport and asserts what
+    /// it says. This one renders BOTH from the SAME outcome object and asserts they cannot have drifted apart —
+    /// which is the finding class the 2.0 review wave produced more of than any other (a rule, budget, cap or
+    /// wording landing on one lane and not its twin), converted from a per-finding obligation into a standing check.
+    ///
+    /// <para><b>What it pins, and what it deliberately does not.</b> The check is COVERAGE per lane, not
+    /// co-occurrence per outcome: every sentence in <see cref="WriteSentences.Twins"/> must be observed coming out
+    /// of the TEXT renders at least once and out of the JSON renders at least once, across the outcomes below. That
+    /// is the detector for the failure that matters — a lane quietly growing its own copy of a shared sentence,
+    /// which makes the constant stop appearing on that lane. It is NOT "both transports carry every sentence on
+    /// every outcome", because a few of these legitimately land in different places on the two lanes (the text
+    /// report blocks state their stake in the block HEADER; the json blocks state it in the truncation census), and
+    /// asserting a co-occurrence that was never the design would fail honest renders.</para>
+    ///
+    /// <para>By construction: adding a member to <c>Twins</c> enrols it — if no outcome here exercises it on both
+    /// lanes, the coverage assertion NAMES it and fails, so a new shared sentence cannot be added without a render
+    /// on each transport actually reading it. Two further parity assertions ride per outcome: the BUDGET (a cap
+    /// that truncates one transport truncates the other) and the COUNTS (the total each lane states is the same
+    /// number).</para></summary>
+    static void TwinParityArm(Fixture fx)
+    {
+        Console.WriteLine("── ARM 12: D2 TWIN PARITY — one outcome, both transports, one source per sentence ──");
+
+        var twins = TwinSentences();
+        Check("the twin inventory is non-empty (a reflection miss would make every check below vacuous)",
+            twins.Count > 0, $"{twins.Count} members");
+        var seenText = new HashSet<string>(StringComparer.Ordinal);
+        var seenJson = new HashSet<string>(StringComparer.Ordinal);
+
+        void Observe(string text, string json)
+        {
+            var jsonText = JsonStrings(json);
+            foreach (var (name, sentence) in twins)
+            {
+                if (text.Contains(sentence, StringComparison.Ordinal)) seenText.Add(name);
+                if (jsonText.Contains(sentence, StringComparison.Ordinal)) seenJson.Add(name);
+            }
+        }
+
+        // ---- the four write verbs, through the REAL tool path -----------------------------------------
+        // Budget + count parity is asserted on outcomes the engine produced, not on hand-built ones: a cap that
+        // truncates the text list and not the json array (or vice versa) is the divergence, and only a real
+        // multi-row outcome can show it. Three records is enough — the cap is set below the row block, not below
+        // the row count.
+        var createSpec = new[] { "W2TwinA", "W2TwinB", "W2TwinC" }
+            .Select(e => new CreateOp { RecordType = "Keyword", Editorid = e }).ToList();
+        var createOutcome = fx.Svc.CreateRecordsBatch(createSpec, "W2Twin", null);
+        BudgetParity("create", createOutcome.Created.Count,
+            cap => WriteTools.RenderCreate(createOutcome, cap),
+            cap => JsonWire.RenderCreateOutcome(createOutcome, cap, false, "patch"),
+            "total_created", $"created {createOutcome.Created.Count} records");
+        Observe(WriteTools.RenderCreate(createOutcome), JsonWire.RenderCreateOutcome(createOutcome, 0, false, "patch"));
+
+        var fwdOutcome = fx.Svc.ForwardRecords(new[] { fx.SubjectFid, fx.MasterOnlyFid }, fx.MasterName, "W2TwinFwd", null);
+        BudgetParity("forward", fwdOutcome.Forwarded.Count,
+            cap => WriteTools.RenderForward(fwdOutcome, cap),
+            cap => JsonWire.RenderForwardOutcome(fwdOutcome, cap, false, "patch"),
+            "total_forwarded", $"forwarded {fwdOutcome.Forwarded.Count} records");
+        Observe(WriteTools.RenderForward(fwdOutcome), JsonWire.RenderForwardOutcome(fwdOutcome, 0, false, "patch"));
+
+        // ---- the three post-write report blocks -------------------------------------------------------
+        // Rendered off a built outcome for the same reason the report-budget arm above builds one: a report big
+        // enough to cut means dozens of voiced lines, and the claim under test is the RENDERERS' agreement, not the
+        // engines'. Voice + result-script + an EXTERIOR cell together reach every create-side twin, and the capped
+        // pass is what puts the json lane's stake clauses (which ride its truncation census) on the wire.
+        var lines = Enumerable.Range(0, 40).Select(i => new VoiceLine(
+            default, "W2TwinTopic", i,
+            $@"sound\voice\W2.esp\MaleNord\W2TwinTopic_{i:D4}.fuz", false, null, false,
+            $@"sound\voice\W2.esp\MaleNord\W2TwinTopic_{i:D4}.lip", false, false)).ToList();
+        var findings = Enumerable.Range(0, 40).Select(i => new ScriptBindingFinding(
+            default, "W2TwinTopic", ScriptBindingStatus.ScriptNotCompiled,
+            new[] { "W2TwinFrag" }, new[] { $@"scripts\W2TwinFrag{i:D2}.pex" }, false,
+            "the bound script has no compiled .pex on disk")).ToList();
+        var shells = Enumerable.Range(0, 30).Select(i => new CellShell(
+            default, $"W2TwinCell{i:D2}", i % 2 == 0,
+            new[] { "lighting template", "terrain / landscape", "water height", "navmesh" })).ToList();
+        var reports = new WritePatchBuilder.CreateOutcome(
+            true, null, @"C:\mods\W2Twin\W2Twin.esp", false,
+            new[] { new WritePatchBuilder.CreatedRecord(default, "DialogResponses", "W2TwinL1", Array.Empty<WritePatchBuilder.OpResult>()) },
+            Array.Empty<string>(), 512)
+            {
+                Epoch = "deadbeefdeadbeef",
+                Voice = new VoiceReport(lines, Array.Empty<VoiceUndetermined>()),
+                ScriptBinding = new ScriptBindingReport(findings),
+                CellShell = new CellShellReport(shells),
+            };
+        Observe(WriteTools.RenderCreate(reports), JsonWire.RenderCreateOutcome(reports, 0, false, "patch"));
+        Observe(WriteTools.RenderCreate(reports, maxChars: 900), JsonWire.RenderCreateOutcome(reports, 900, false, "patch"));
+
+        // ---- write_seq -------------------------------------------------------------------------------
+        // Every state that has its own sentence, so none of them is covered by an argument about the others: the
+        // no-op, the byte-identical skip (with its timestamp stamp-forward), the three replace readings, and a cut
+        // quest list. write_seq is where the two transports had drifted furthest — one lane's notes were paraphrases
+        // of the other's — so it gets the widest sweep here.
+        var quests = Enumerable.Range(0, 60)
+            .Select(i => new HousecarlCore.SeqFile.SeqQuest(default, $"W2TwinQ{i:D2}", (uint)(0x800 + i))).ToList();
+        SeqOutcome Seq(IReadOnlyList<HousecarlCore.SeqFile.SeqQuest> qs) => new(
+            true, null, @"C:\mods\W2TwinSeq\SEQ\W2Twin.seq", "W2TwinSeq", qs, "W2Twin.esp", false)
+            { ResolvedFrom = "direct path", PluginPath = @"C:\mods\W2TwinSeq\W2Twin.esp" };
+
+        var seqStates = new[]
+        {
+            Seq(Array.Empty<HousecarlCore.SeqFile.SeqQuest>()),                                      // the no-op
+            Seq(quests) with { Unchanged = true, TimestampRefreshed = true },                        // skip + stamp
+            Seq(quests) with { Replaced = true, ReplacedSameBytes = true },                          // same-bytes replace
+            Seq(quests) with { Replaced = true, UserChoseOutput = true },                            // the caller's folder
+            Seq(quests) with { Replaced = true },                                                    // houseCARL's own
+        };
+        foreach (var st in seqStates)
+            Observe(SeqTools.Render(st), JsonWire.RenderSeqOutcome(st, 0));
+        // …and the cut quest list, whose remedy is one sentence on both lanes.
+        Observe(SeqTools.Render(seqStates[2], maxChars: 400), JsonWire.RenderSeqOutcome(seqStates[2], 400));
+        BudgetParity("write_seq", quests.Count,
+            cap => SeqTools.Render(seqStates[2], cap),
+            cap => JsonWire.RenderSeqOutcome(seqStates[2], cap),
+            "quest_count", $"{quests.Count} start-game-enabled quests");
+
+        // ---- the coverage assertion — what stops this arm being theatre ------------------------------
+        var missingText = twins.Select(t => t.Name).Where(n => !seenText.Contains(n)).ToList();
+        var missingJson = twins.Select(t => t.Name).Where(n => !seenJson.Contains(n)).ToList();
+        Check("every WriteSentences.Twins member is rendered by the TEXT lane (an unobserved one is a lane that stopped reading the shared source, or a twin nothing exercises)",
+            missingText.Count == 0, missingText.Count == 0 ? null : "unobserved: " + string.Join(", ", missingText));
+        Check("every WriteSentences.Twins member is rendered by the JSON lane (same, one transport over)",
+            missingJson.Count == 0, missingJson.Count == 0 ? null : "unobserved: " + string.Join(", ", missingJson));
+    }
+
+    /// <summary>The budget half of the twin harness: one outcome, one cap, both transports. Asserts (a) a cap tight
+    /// enough to cut ONE lane's rows cuts the other's too — the divergence that shipped repeatedly, where a text
+    /// list rendered unbounded and took a SILENT host-side cut while its json twin stopped at the cap and closed
+    /// <c>truncated:true</c> — and (b) uncapped, neither reports a cut. The COUNT parity rides along: the total
+    /// each lane states about the same outcome is the same number, cut or not.</summary>
+    static void BudgetParity(string label, int total, Func<int, string> text, Func<int, string> json,
+                             string jsonTotalMember, string textTotalPhrase)
+    {
+        // 60 chars is below EVERY one of these renders' header block, so both lanes stop at row 0. Deliberately not
+        // a cap that merely lands mid-list: the two lanes measure different things (a StringBuilder's chars vs a
+        // serialized document's bytes, one of them indented), so any cap inside the rows cuts them at different
+        // rows — which is a formatting difference, not the divergence under test. What must agree is WHETHER a cut
+        // happened and whether it was stated.
+        const int tight = 60;
+        var tText = text(tight);
+        var tJson = json(tight);
+        bool textCut = tText.Contains("[truncated:", StringComparison.Ordinal)
+                    || tText.Contains("... [", StringComparison.Ordinal);
+        bool jsonCut = TryJson(tJson, out var tdoc) && RootFlag(tdoc, "truncated") == true;
+        Check($"{label}: a cap that truncates one transport truncates the other (text={textCut} json={jsonCut})",
+            total > 0 && textCut == jsonCut && textCut, $"TEXT: {Trim(tText)} || JSON: {Trim(tJson)}");
+
+        var fText = text(0);
+        var fJson = json(0);
+        Check($"{label}: uncapped, NEITHER transport reports a cut",
+            !fText.Contains("[truncated:", StringComparison.Ordinal)
+            && TryJson(fJson, out var fdoc) && RootFlag(fdoc, "truncated") != true,
+            $"TEXT: {Trim(fText)} || JSON: {Trim(fJson)}");
+
+        // The TRUE total survives the cut on both lanes — the whole point of the total/rendered pair is that a
+        // truncated caller still knows how many it is not seeing.
+        Check($"{label}: both transports state the SAME total ({total}), and state it even when cut",
+            TryJson(tJson, out var cdoc) && cdoc!.RootElement.TryGetProperty(jsonTotalMember, out var jt)
+            && jt.GetInt32() == total
+            && tText.Contains(textTotalPhrase, StringComparison.Ordinal),
+            $"TEXT: {Trim(tText)} || JSON: {Trim(tJson)}");
+    }
+
+    /// <summary>Every string VALUE in a json document, unescaped and concatenated. The json writer escapes
+    /// non-ASCII (an em-dash ships as <c>\u2014</c>), so a raw <c>Contains</c> against the document text would
+    /// report a shared sentence as absent from the json lane and fail the arm for the encoder's reasons rather
+    /// than the render's.</summary>
+    static string JsonStrings(string raw)
+    {
+        var sb = new System.Text.StringBuilder();
+        using var doc = JsonDocument.Parse(raw);
+        Walk(doc.RootElement, sb);
+        return sb.ToString();
+
+        static void Walk(JsonElement e, System.Text.StringBuilder sb)
+        {
+            switch (e.ValueKind)
+            {
+                case JsonValueKind.Object: foreach (var p in e.EnumerateObject()) Walk(p.Value, sb); break;
+                case JsonValueKind.Array: foreach (var v in e.EnumerateArray()) Walk(v, sb); break;
+                case JsonValueKind.String: sb.Append(e.GetString()).Append('\n'); break;
+            }
+        }
+    }
+
+    /// <summary>The twin inventory, read off <see cref="WriteSentences.Twins"/> by reflection rather than listed
+    /// here. A hand-listed inventory is the thing this whole change exists to stop: it would be a second copy of
+    /// the set, free to fall behind the first.</summary>
+    static IReadOnlyList<(string Name, string Sentence)> TwinSentences()
+        => typeof(WriteSentences.Twins)
+            .GetFields(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+            .Where(f => f.IsLiteral && !f.IsInitOnly && f.FieldType == typeof(string))
+            .Select(f => (f.Name, (string)f.GetRawConstantValue()!))
+            .OrderBy(t => t.Name, StringComparer.Ordinal)
+            .ToList();
 
     static bool TryJson(string s, out JsonDocument? doc)
     {

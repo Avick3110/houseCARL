@@ -172,7 +172,7 @@ static class JsonWire
         w.WriteEndObject();
     }
 
-    static int Cap(int maxChars) => maxChars > 0 ? maxChars : Wire.DefaultMaxChars;
+    static int Cap(int maxChars) => WriteSentences.Cap(maxChars);   // one budget rule, both transports
 
     /// <summary>A bare whole-call refusal document: <c>{error, epoch?}</c> — for tool-layer refusals that have no
     /// outcome object to render (e.g. the §2.1.1 artifact epoch-mismatch handed back beside the batch), matching
@@ -198,6 +198,53 @@ static class JsonWire
     {
         w.Flush();
         return ms.Length >= cap;
+    }
+
+    /// <summary>The post-write READ-BACK block, one construction for all three write documents (apply / create /
+    /// forward). It was written out three times, verbatim down to the comment — and the two facts it tells apart
+    /// are exactly the kind that drift when copied: <c>readback_source</c> (the WRITTEN FILE's content, or a dry
+    /// run's in-memory would-be content — never load-order truth, which is what the text render spells out in a
+    /// sentence), and the <c>readback_full</c>/<c>readback_requested</c> split.
+    /// <para><c>readback_full</c> describes THIS DOCUMENT: the json renders emit every field of every row, so a
+    /// present read-back is always the full one. It used to carry the caller's ASK, which the in-place lanes
+    /// override (the service forces fullReadback), so <c>false</c> sat next to a complete field dump and a consumer
+    /// branching on "are these fields complete?" got the opposite of the truth (PR #311 review 7 [nit]).
+    /// <c>readback_requested</c> keeps the ask, which is what answers "why did I get one I did not ask for?"</para>
+    /// <para>Rows and their field lists both stop at the budget and set <paramref name="truncated"/> — the document
+    /// stays valid JSON and says it was cut, never a string severed mid-token.</para></summary>
+    static void WriteReadbackBlock(Utf8JsonWriter w, MemoryStream ms, int cap,
+        IReadOnlyList<WritePatchBuilder.FullReadback> rb, bool dryRun, bool requested, ref bool truncated)
+    {
+        w.WriteString("readback_source", dryRun ? "in_memory_would_be_content" : "written_file");
+        w.WriteBoolean("readback_full", true);
+        w.WriteBoolean("readback_requested", requested);
+        w.WriteStartArray("readback");
+        foreach (var r in rb)
+        {
+            if (Over(w, ms, cap)) { truncated = true; break; }
+            w.WriteStartObject();
+            w.WriteString("formid", r.Target.ToString());
+            if (r.Error is not null) w.WriteString("error", r.Error);
+            else
+            {
+                var rec = r.Record!;
+                w.WriteString("type", rec.Type);
+                WriteNullable(w, "editorid", rec.EditorId);
+                w.WriteNumber("field_count", rec.Fields.Count);
+                w.WriteStartArray("fields");
+                foreach (var f in rec.Fields)
+                {
+                    if (Over(w, ms, cap)) { truncated = true; break; }
+                    w.WriteStartObject();
+                    w.WriteString("path", f.Path);
+                    if (f.HasValue) w.WriteString("value", f.Token); else w.WriteString("note", f.Note);
+                    w.WriteEndObject();
+                }
+                w.WriteEndArray();
+            }
+            w.WriteEndObject();
+        }
+        w.WriteEndArray();
     }
 
     static void WriteStringArray(Utf8JsonWriter w, string name, IReadOnlyList<string> items)
@@ -1588,48 +1635,7 @@ static class JsonWire
             w.WriteEndArray();
             w.WriteNumber("rendered_ops", renderedOps);
 
-            if (o.ReadBack is { } rb)
-            {
-                // The read-back is the WRITTEN FILE's content, not load-order truth — stated as data (`source`) so a
-                // json consumer cannot lose the distinction the text render spells out in a sentence.
-                w.WriteString("readback_source", o.DryRun ? "in_memory_would_be_content" : "written_file");
-                // Two DIFFERENT facts, told apart (PR #311 review 7 [nit]). `readback_full` describes THIS
-                // DOCUMENT: the json renders emit every field of every read-back row, so a present read-back
-                // is always the full one. It used to carry the caller's ASK, which the in-place lanes override
-                // (the service forces fullReadback), so `false` sat next to a complete field dump and a
-                // consumer branching on "are these fields complete?" got the opposite of the truth.
-                // `readback_requested` keeps the ask, which is what answers "why did I get one I did not ask
-                // for?" — the in-place lane forced it.
-                w.WriteBoolean("readback_full", true);
-                w.WriteBoolean("readback_requested", readback);
-                w.WriteStartArray("readback");
-                foreach (var r in rb)
-                {
-                    if (Over(w, ms, cap)) { truncated = true; break; }
-                    w.WriteStartObject();
-                    w.WriteString("formid", r.Target.ToString());
-                    if (r.Error is not null) w.WriteString("error", r.Error);
-                    else
-                    {
-                        var rec = r.Record!;
-                        w.WriteString("type", rec.Type);
-                        WriteNullable(w, "editorid", rec.EditorId);
-                        w.WriteNumber("field_count", rec.Fields.Count);
-                        w.WriteStartArray("fields");
-                        foreach (var f in rec.Fields)
-                        {
-                            if (Over(w, ms, cap)) { truncated = true; break; }
-                            w.WriteStartObject();
-                            w.WriteString("path", f.Path);
-                            if (f.HasValue) w.WriteString("value", f.Token); else w.WriteString("note", f.Note);
-                            w.WriteEndObject();
-                        }
-                        w.WriteEndArray();
-                    }
-                    w.WriteEndObject();
-                }
-                w.WriteEndArray();
-            }
+            if (o.ReadBack is { } rb) WriteReadbackBlock(w, ms, cap, rb, o.DryRun, readback, ref truncated);
 
             WriteNullable(w, "note", o.Note);
             w.WriteBoolean("truncated", truncated);
@@ -1637,8 +1643,7 @@ static class JsonWire
             // re-issue to widen it is safe on into=/dry-run but cuts a second patch on the default lane and
             // re-serializes the caller's own file on in_place.
             if (truncated)
-                w.WriteString("truncated_note",
-                    $"the render hit max_chars={cap} and dropped trailing rows — the WRITE is complete and unaffected; "
+                w.WriteString("truncated_note", WriteSentences.JsonRowsCut(cap, "WRITE")
                     + WriteTools.ApplyAgainRemedy(o, Path.GetFileName(o.OutputPath)) + ".");
             w.WriteEndObject();
         }
@@ -1737,46 +1742,7 @@ static class JsonWire
             WriteScriptBindingReport(w, o.ScriptBinding, ms, cap, ref truncated);
             WriteCellShellReport(w, o.CellShell, ms, cap, ref truncated);
 
-            if (o.ReadBack is { } rb)
-            {
-                w.WriteString("readback_source", "written_file");
-                // Two DIFFERENT facts, told apart (PR #311 review 7 [nit]). `readback_full` describes THIS
-                // DOCUMENT: the json renders emit every field of every read-back row, so a present read-back
-                // is always the full one. It used to carry the caller's ASK, which the in-place lanes override
-                // (the service forces fullReadback), so `false` sat next to a complete field dump and a
-                // consumer branching on "are these fields complete?" got the opposite of the truth.
-                // `readback_requested` keeps the ask, which is what answers "why did I get one I did not ask
-                // for?" — the in-place lane forced it.
-                w.WriteBoolean("readback_full", true);
-                w.WriteBoolean("readback_requested", readback);
-                w.WriteStartArray("readback");
-                foreach (var r in rb)
-                {
-                    if (Over(w, ms, cap)) { truncated = true; break; }
-                    w.WriteStartObject();
-                    w.WriteString("formid", r.Target.ToString());
-                    if (r.Error is not null) w.WriteString("error", r.Error);
-                    else
-                    {
-                        var rec = r.Record!;
-                        w.WriteString("type", rec.Type);
-                        WriteNullable(w, "editorid", rec.EditorId);
-                        w.WriteNumber("field_count", rec.Fields.Count);
-                        w.WriteStartArray("fields");
-                        foreach (var f in rec.Fields)
-                        {
-                            if (Over(w, ms, cap)) { truncated = true; break; }
-                            w.WriteStartObject();
-                            w.WriteString("path", f.Path);
-                            if (f.HasValue) w.WriteString("value", f.Token); else w.WriteString("note", f.Note);
-                            w.WriteEndObject();
-                        }
-                        w.WriteEndArray();
-                    }
-                    w.WriteEndObject();
-                }
-                w.WriteEndArray();
-            }
+            if (o.ReadBack is { } rb) WriteReadbackBlock(w, ms, cap, rb, false, readback, ref truncated);
 
             WriteNullable(w, "note", o.Note);
             w.WriteBoolean("truncated", truncated);
@@ -1786,8 +1752,7 @@ static class JsonWire
             // asked: the text twin was moved off this wording one fold earlier and the json document kept it, so a
             // json client raising max_chars and re-issuing walked into exactly what the fix existed to prevent.
             if (truncated)
-                w.WriteString("truncated_note",
-                    $"the render hit max_chars={cap} and dropped trailing rows — the WRITE is complete and unaffected; every record WAS created. " +
+                w.WriteString("truncated_note", WriteSentences.JsonRowsCut(cap, "WRITE") + "every record WAS created. " +
                     $"Read them back with {WriteTools.ReadBackCall(o, Path.GetFileName(o.OutputPath))} — do NOT re-issue this call to see the rest: a repeated create " +
                     "allocates the records AGAIN (on the default lane patch= auto-suffixes into a second full patch; under into= each record is " +
                     "re-created at its old FormID with its prior contents discarded).");
@@ -1813,7 +1778,7 @@ static class JsonWire
             w.WriteStartObject();
             w.WriteBoolean("ok", o.Success);
             w.WriteNull("epoch");
-            w.WriteString("epoch_note", "a .seq is derived from the plugin FILE alone (its FormID encoding is load-order-independent), so this call consulted no load-order build — the absent stamp is a fact, not a dropped field.");
+            w.WriteString("epoch_note", WriteSentences.Twins.SeqNoEpoch);
             if (!o.Success)
             {
                 WriteNullable(w, "error", o.Error);
@@ -1832,14 +1797,15 @@ static class JsonWire
             w.WriteBoolean("replaced_same_bytes", o.ReplacedSameBytes);
             w.WriteBoolean("timestamp_refreshed", o.TimestampRefreshed);
             if (o.Unchanged)
-                w.WriteString("unchanged_note", "the destination already held EXACTLY these bytes, so nothing was written — seq_path names the file that was already current. Stated rather than reported as a write (Q3: a skipped write and a done one must not look alike)."
-                    + (o.TimestampRefreshed ? " Its mtime was older than the plugin and has been stamped forward (contents untouched); validate_dialogue's SEQ staleness check compares those two mtimes, so this file no longer reads as stale — for the copy the load order actually serves, which is this one only if this folder wins the SEQ\\ conflict." : ""));
+                w.WriteString("unchanged_note", WriteSentences.Twins.SeqUnchanged
+                    + " — seq_path names the file that was already current. Stated rather than reported as a write (Q3: a skipped write and a done one must not look alike)."
+                    + (o.TimestampRefreshed ? " " + WriteSentences.Twins.SeqTimestampRefreshed : ""));
             if (o.Replaced)
                 w.WriteString("replaced_note", o.ReplacedSameBytes
-                    ? "the file already at seq_path held EXACTLY these bytes; it was rewritten only because its timestamp could not be refreshed in place, so nothing was lost."
+                    ? WriteSentences.Twins.SeqReplacedSameBytes
                     : o.UserChoseOutput
-                    ? "a .seq already existed at seq_path and was OVERWRITTEN; houseCARL keeps no backup, and in a folder you named that file may have been the mod's own shipped .seq."
-                    : "the previous .seq in that houseCARL folder was overwritten (houseCARL's own earlier output — the ordinary regenerate case).");
+                    ? WriteSentences.Twins.SeqReplacedUserFolder
+                    : WriteSentences.Twins.SeqReplacedOwnFolder);
             WriteNullable(w, "seq_path", o.SeqPath);
             WriteNullable(w, "mod_folder", o.ModFolder);
             w.WriteBoolean("wrote_into_plugin_folder", o.WroteIntoPluginFolder);
@@ -1848,7 +1814,7 @@ static class JsonWire
             WriteNullable(w, "lane_note", outputNote);
             w.WriteNumber("quest_count", o.Quests.Count);
             if (o.Quests.Count == 0)
-                w.WriteString("note", "no start-game-enabled quests in this plugin — a .seq lists only SGE quests, so none is needed and NOTHING was written."
+                w.WriteString("note", "no start-game-enabled quests in this plugin — " + WriteSentences.Twins.SeqNoQuests + "."
                     // The lane was ACKNOWLEDGED but never resolved on this path, and the json shape shows that more
                     // starkly than the prose does: user_chose_output_dir true, no seq_path, no deploy_warning. Say
                     // which of the two it is (PR #318 review [low]).
@@ -1873,8 +1839,9 @@ static class JsonWire
             // re-issuing a WRITE. This PR moved SeqTools.Render off exactly this wording and left its json twin on
             // it — the same D2 divergence, in the same fold that fixed it one renderer up.
             if (truncated)
-                w.WriteString("truncated_note", $"the render hit max_chars={cap} and dropped trailing quest rows — the .seq itself carries ALL of them; nothing is missing from the FILE. Re-run only if you need this LIST widened: for a plugin OUTSIDE a houseCARL folder with no lane named, that writes the .seq again into ANOTHER fresh mod folder (name into=/output_dir=, or let a plugin in its own houseCARL folder default there — at any named destination a byte-identical .seq is left untouched).");
-            w.WriteString("standing_limit", "this makes the quest(s) START at game start; it does not verify the quest or its dialogue is otherwise well-formed.");
+                w.WriteString("truncated_note",
+                    $"the render hit max_chars={cap} and dropped trailing quest rows — " + WriteSentences.Twins.SeqListCutRemedy + ".");
+            w.WriteString("standing_limit", WriteSentences.Twins.SeqStandingLimit);
             w.WriteEndObject();
         }
         return Finish(ms);
@@ -1932,8 +1899,7 @@ static class JsonWire
             // Same remedy as the text twin, from the same constant (PR #311 review 6 [medium]): a repeated remove
             // is REFUSED, so "raise max_chars" named the one call guaranteed to fail.
             if (truncated)
-                w.WriteString("truncated_note",
-                    $"the render hit max_chars={cap} and dropped trailing rows — the REMOVAL is complete and unaffected; "
+                w.WriteString("truncated_note", WriteSentences.JsonRowsCut(cap, "REMOVAL")
                     + WriteTools.RemovedRowsRemedy + ".");
             w.WriteEndObject();
         }
@@ -2015,54 +1981,14 @@ static class JsonWire
             w.WriteEndArray();
             w.WriteNumber("rendered_forwarded", rendered);
 
-            if (o.ReadBack is { } rb)
-            {
-                w.WriteString("readback_source", o.DryRun ? "in_memory_would_be_content" : "written_file");
-                // Two DIFFERENT facts, told apart (PR #311 review 7 [nit]). `readback_full` describes THIS
-                // DOCUMENT: the json renders emit every field of every read-back row, so a present read-back
-                // is always the full one. It used to carry the caller's ASK, which the in-place lanes override
-                // (the service forces fullReadback), so `false` sat next to a complete field dump and a
-                // consumer branching on "are these fields complete?" got the opposite of the truth.
-                // `readback_requested` keeps the ask, which is what answers "why did I get one I did not ask
-                // for?" — the in-place lane forced it.
-                w.WriteBoolean("readback_full", true);
-                w.WriteBoolean("readback_requested", readback);
-                w.WriteStartArray("readback");
-                foreach (var r in rb)
-                {
-                    if (Over(w, ms, cap)) { truncated = true; break; }
-                    w.WriteStartObject();
-                    w.WriteString("formid", r.Target.ToString());
-                    if (r.Error is not null) w.WriteString("error", r.Error);
-                    else
-                    {
-                        var rec = r.Record!;
-                        w.WriteString("type", rec.Type);
-                        WriteNullable(w, "editorid", rec.EditorId);
-                        w.WriteNumber("field_count", rec.Fields.Count);
-                        w.WriteStartArray("fields");
-                        foreach (var fl in rec.Fields)
-                        {
-                            if (Over(w, ms, cap)) { truncated = true; break; }
-                            w.WriteStartObject();
-                            w.WriteString("path", fl.Path);
-                            if (fl.HasValue) w.WriteString("value", fl.Token); else w.WriteString("note", fl.Note);
-                            w.WriteEndObject();
-                        }
-                        w.WriteEndArray();
-                    }
-                    w.WriteEndObject();
-                }
-                w.WriteEndArray();
-            }
+            if (o.ReadBack is { } rb) WriteReadbackBlock(w, ms, cap, rb, o.DryRun, readback, ref truncated);
 
             WriteNullable(w, "note", o.Note);
             w.WriteBoolean("truncated", truncated);
             // Lane-aware, same rule and same helper as the text twin (PR #311 review 5 [low]): a re-issue is
             // idempotent on in_place=/into= and free on a dry run, but on the DEFAULT lane it cuts a second patch.
             if (truncated)
-                w.WriteString("truncated_note",
-                    $"the render hit max_chars={cap} and dropped trailing rows — the WRITE is complete and unaffected; "
+                w.WriteString("truncated_note", WriteSentences.JsonRowsCut(cap, "WRITE")
                     + WriteTools.ForwardAgainRemedy(o, Path.GetFileName(o.OutputPath)) + ".");
             w.WriteEndObject();
         }
@@ -2113,8 +2039,7 @@ static class JsonWire
         w.WriteEndArray();
         WriteBlockCensus(w, blockCut, ("lines", renderedLines, report.Lines.Count),
                                       ("undetermined", renderedUndet, report.Undetermined.Count),
-            "voice coverage", cap,
-            "a created voiced response with NO .fuz plays SILENT in game — an empty or short list here is a RENDER cut, not a clean bill of health");
+            "voice coverage", cap, WriteSentences.Twins.VoiceStake);
         w.WriteEndObject();
     }
 
@@ -2146,7 +2071,8 @@ static class JsonWire
         // render of it, and the counts above are what a consumer branches on.
         if (cut)
             w.WriteString("truncated_note",
-                $"the {blockLabel} block hit max_chars={cap} and its rows were CUT — {stakes}. The WRITE is complete and unaffected; this block is only a render of it, so compare rendered_* against total_* rather than reading the array as the whole answer. Do NOT re-issue the write to widen this.");
+                $"the {blockLabel} block hit max_chars={cap} and its rows were CUT — {stakes}, so an empty or short array here is a RENDER cut, not a clean bill of health. "
+                + WriteSentences.Twins.ReportBlockCut + ".");
     }
 
     /// <summary>The result-script binding report as data (a bound script that is unwired or uncompiled runs NOTHING
@@ -2174,8 +2100,7 @@ static class JsonWire
         }
         w.WriteEndArray();
         WriteBlockCensus(w, blockCut, ("findings", renderedFindings, report.Findings.Count), null,
-            "result-script coverage", cap,
-            "a bound script that is unwired or uncompiled runs NOTHING in game — an empty or short list here is a RENDER cut, not a clean bill of health");
+            "result-script coverage", cap, WriteSentences.Twins.ScriptStake);
         w.WriteEndObject();
     }
 
@@ -2202,11 +2127,10 @@ static class JsonWire
         }
         w.WriteEndArray();
         WriteBlockCensus(w, blockCut, ("cells", renderedCells, report.Cells.Count), null, "cell shell", cap,
-            "a created cell is a valid record but EMPTY, and each dropped row is Creation-Kit work this response was supposed to name");
+            WriteSentences.Twins.CellStake);
         // The grid-occupancy seam the text render declares — a json consumer must not read "cells: []" as "checked".
         if (report.Cells.Any(c => !c.Interior))
-            w.WriteString("grid_occupancy_note",
-                "houseCARL does NOT check grid-occupancy — a NEW exterior cell at a grid your load order already fills collides. To change an existing cell, OVERRIDE it instead of creating a new one.");
+            w.WriteString("grid_occupancy_note", WriteSentences.Twins.GridOccupancy);
         w.WriteEndObject();
     }
 }

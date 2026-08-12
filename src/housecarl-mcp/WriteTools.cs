@@ -538,16 +538,11 @@ public static class WriteTools
         var sb = new StringBuilder();
         if (o.InPlace)
             sb.Append("edited ").Append(file).Append(" IN PLACE (").Append(o.Bytes)
-              .Append(" bytes — your ORIGINAL file was rewritten; no houseCARL backup or undo)\n")
-              .Append("mod folder: ").Append(modFolder).Append("  — already active in your load order; re-sort only if a winner changed\n");
+              .Append(" bytes — ").Append(WriteSentences.InPlaceRewritten).Append(")\n")
+              .Append(WriteSentences.InPlaceModFolder(modFolder));
         else
-        {
-            sb.Append(o.Extended ? "extended " : "wrote ").Append(file)
-              .Append(o.Extended ? " (existing patch grown; " : " (new patch; ").Append(o.Bytes).Append(" bytes)\n");
-            sb.Append("mod folder: ").Append(modFolder)
-              .Append(o.Extended ? "\n" : "  — enable + sort it in MO2 to use the patch\n");
-        }
-        sb.Append("masters: ").Append(o.Masters.Count == 0 ? "(none)" : string.Join(", ", o.Masters)).Append('\n');
+            sb.Append(WriteSentences.NewOrExtendedArtifact(o.Extended, file, o.Bytes, modFolder));
+        sb.Append(WriteSentences.Masters(o.Masters));
         sb.Append(o.Ops.Count).Append(o.Ops.Count == 1 ? " edit:\n" : " edits:\n");
         foreach (var op in o.Ops)
             sb.Append("  ").Append(op.RecordType).Append(' ').Append(op.Target).Append("  ").Append(op.Label)
@@ -578,19 +573,13 @@ public static class WriteTools
         return sb.ToString();
     }
 
-    /// <summary>SPEC §2.1.1 — the index build this write resolved winners against, appended to EVERY write render
-    /// (success, refusal, dry run, consent prompt) exactly as the read surfaces stamp theirs. It is what lets a
-    /// caller tell whether the winner it edited is the winner a read reported a moment earlier: the read-back proves
-    /// what landed in the FILE, never what wins in the ORDER. Empty when the outcome consulted no build.</summary>
-    static string Epoch(WritePatchBuilder.PatchOutcome o) => o.Epoch is null ? "" : $"\nepoch={o.Epoch}";
-
-    /// <summary>The same §2.1.1 stamp for the other three write outcomes (W3 PR 2 — create / remove / forward
-    /// carry the fingerprint on exactly the contract <see cref="WritePatchBuilder.PatchOutcome.Epoch"/> defines).
-    /// Separate overloads rather than one interface: the outcome records are deliberately independent shapes, and
-    /// a shared marker interface would be more machinery than one property read per lane.</summary>
-    static string Epoch(WritePatchBuilder.CreateOutcome o) => o.Epoch is null ? "" : $"\nepoch={o.Epoch}";
-    static string Epoch(WritePatchBuilder.RemovalOutcome o) => o.Epoch is null ? "" : $"\nepoch={o.Epoch}";
-    static string Epoch(WritePatchBuilder.ForwardOutcome o) => o.Epoch is null ? "" : $"\nepoch={o.Epoch}";
+    /// <summary>The §2.1.1 stamp, one thin adapter per outcome record over the one construction in
+    /// <see cref="WriteSentences.Epoch"/>. The four outcomes are deliberately independent shapes — the adapters
+    /// read the property; the SENTENCE lives once.</summary>
+    static string Epoch(WritePatchBuilder.PatchOutcome o) => WriteSentences.Epoch(o.Epoch);
+    static string Epoch(WritePatchBuilder.CreateOutcome o) => WriteSentences.Epoch(o.Epoch);
+    static string Epoch(WritePatchBuilder.RemovalOutcome o) => WriteSentences.Epoch(o.Epoch);
+    static string Epoch(WritePatchBuilder.ForwardOutcome o) => WriteSentences.Epoch(o.Epoch);
 
     /// <summary>The "how to keep going on this plugin" line for a completed IN-PLACE write. The spelling differs
     /// by surface and MUST match what the CALLING tool declares (PR #311 round-2 review [medium]): the 1.x tools
@@ -614,24 +603,16 @@ public static class WriteTools
     {
         var file = Path.GetFileName(o.OutputPath);
         var sb = new StringBuilder();
-        sb.Append("DRY RUN — validated only; NOTHING was written (no patch file, no mod folder, originals untouched).\n");
-        if (o.InPlace)
-            sb.Append("the real call would edit ").Append(file).Append(" IN PLACE — your ORIGINAL file rewritten; no houseCARL backup or undo.\n");
-        else if (o.Extended)
-            sb.Append("the real call would EXTEND the existing patch ").Append(file).Append(".\n");
-        else
-            sb.Append("the real call would write a NEW patch ").Append(file)
-              .Append(" (name preview — the real write re-picks a free name, so the auto-suffix can shift if another patch lands first).\n");
-        sb.Append("expected masters: ").Append(o.Masters.Count == 0 ? "(none)" : string.Join(", ", o.Masters))
-          .Append("  [derived from the would-be content; the real write derives its own lean header]\n");
+        sb.Append(WriteSentences.DryRunHeader);
+        sb.Append(WriteSentences.DryRunWouldWrite(o.InPlace, o.Extended, file, "edit"));
+        sb.Append(WriteSentences.DryRunMasters(o.Masters));
         sb.Append(o.Ops.Count).Append(o.Ops.Count == 1 ? " edit would apply:\n" : " edits would apply:\n");
         foreach (var op in o.Ops)
             sb.Append("  ").Append(op.RecordType).Append(' ').Append(op.Target).Append("  ").Append(op.Label)
               .Append(op.After is not null ? "  -> would become " + op.After : "  -> would apply").Append('\n');
         if (fullDump && o.ReadBack is { } rb) AppendFullReadback(sb, rb, maxChars, dryRun: true);
         if (o.Note is { } note) sb.Append("note: ").Append(note).Append('\n');
-        sb.Append("every op passed resolve + pre-flight; to apply for real, repeat the call without dry_run. ")
-          .Append("(A real write can still fail at serialize/commit — disk faults and data Mutagen refuses to serialize surface only there.)")
+        sb.Append(WriteSentences.DryRunClose("every op passed resolve + pre-flight", "apply"))
           .Append(Epoch(o));
         return sb.ToString();
     }
@@ -645,7 +626,7 @@ public static class WriteTools
     static void AppendFullReadback(StringBuilder sb, IReadOnlyList<WritePatchBuilder.FullReadback> rb, int maxChars,
         bool dryRun = false)
     {
-        int cap = maxChars > 0 ? maxChars : Wire.ReadbackMaxChars;
+        int cap = WriteSentences.ReadbackCap(maxChars);
         // #225: a dry run's records are read from the IN-MEMORY would-be content — say so, never imply a file exists.
         sb.Append(dryRun
             ? "full preview — the ENTIRE record(s) as they WOULD be written, read from the in-memory would-be content (nothing is on disk):\n"
@@ -688,7 +669,7 @@ public static class WriteTools
     static void AppendCompactReadback(StringBuilder sb, IReadOnlyList<WritePatchBuilder.OpResult> ops,
         IReadOnlyList<WritePatchBuilder.FullReadback> rb, int maxChars)
     {
-        int cap = maxChars > 0 ? maxChars : Wire.ReadbackMaxChars;
+        int cap = WriteSentences.ReadbackCap(maxChars);
         // The banner covers what it can now stand behind: every edited record WAS re-read off the written file, and
         // each per-op clause below says whether it is the file's answer or the applied edit's own reading.
         sb.Append("verified — every edited record re-read off the written file (compact; pass full_readback=true for the ")
@@ -748,12 +729,14 @@ public static class WriteTools
         if (o.InPlace)
             sb.Append(" IN PLACE (").Append(o.Bytes).Append(" bytes; ")
               .Append(o.RemainingRecords).Append(o.RemainingRecords == 1 ? " record remains" : " records remain")
-              .Append(" — your ORIGINAL file was rewritten; no houseCARL backup or undo)\n")
-              .Append("mod folder: ").Append(modFolder).Append("  — already active in your load order; re-sort only if a winner changed\n");
+              .Append(" — ").Append(WriteSentences.InPlaceRewritten).Append(")\n")
+              .Append(WriteSentences.InPlaceModFolder(modFolder));
         else
         {
             sb.Append(" (").Append(o.Bytes).Append(" bytes; ")
               .Append(o.RemainingRecords).Append(o.RemainingRecords == 1 ? " record remains)\n" : " records remain)\n");
+            // Not NewOrExtendedArtifact: a removal creates no artifact and grows no patch, so it has neither of that
+            // sentence's two claims to make — only which folder the now-leaner file sits in.
             sb.Append("mod folder: ").Append(modFolder).Append('\n');
         }
         // Budgeted like every other write render (PR #311 review [medium]): removal is SET-VALUED now, so the
@@ -762,7 +745,7 @@ public static class WriteTools
         // rows all rendered and the HOST cut the oversized response out-of-band: exactly the silent cut the
         // parameter's own description says never happens. The masters line and the closing guidance below are
         // outside the budget deliberately — they are the accounting a truncated report still needs.
-        int cap = maxChars > 0 ? maxChars : Wire.DefaultMaxChars;
+        int cap = WriteSentences.Cap(maxChars);
         for (int i = 0; i < o.Removed.Count; i++)
         {
             if (sb.Length >= cap)
@@ -781,7 +764,7 @@ public static class WriteTools
             sb.Append("  - ").Append(r.RecordType).Append(' ').Append(r.Target).Append("  ")
               .Append(r.EditorId ?? "<no editorid>").Append('\n');
         }
-        sb.Append("masters: ").Append(o.Masters.Count == 0 ? "(none)" : string.Join(", ", o.Masters)).Append('\n');
+        sb.Append(WriteSentences.Masters(o.Masters));
         if (o.Note is { } note) sb.Append("note: ").Append(note).Append('\n');
         if (o.InPlace)
             sb.Append(o.RemainingRecords == 0
@@ -808,31 +791,20 @@ public static class WriteTools
         var sb = new StringBuilder();
         if (o.DryRun)
         {
-            // #225 — mirrors RenderDryRun: say NOTHING was written first, then what the real call would do.
-            sb.Append("DRY RUN — validated only; NOTHING was written (no patch file, no mod folder, originals untouched).\n");
-            if (o.InPlace)
-                sb.Append("the real call would forward into ").Append(file).Append(" IN PLACE — your ORIGINAL file rewritten; no houseCARL backup or undo.\n");
-            else if (o.Extended)
-                sb.Append("the real call would EXTEND the existing patch ").Append(file).Append(".\n");
-            else
-                sb.Append("the real call would write a NEW patch ").Append(file)
-                  .Append(" (name preview — the real write re-picks a free name, so the auto-suffix can shift if another patch lands first).\n");
-            sb.Append("expected masters: ").Append(o.Masters.Count == 0 ? "(none)" : string.Join(", ", o.Masters))
-              .Append("  [derived from the would-be content; the real write derives its own lean header]\n");
+            // #225 — the SAME dry-run sentences the apply lane renders, from the same source: say NOTHING was
+            // written first, then what the real call would do.
+            sb.Append(WriteSentences.DryRunHeader);
+            sb.Append(WriteSentences.DryRunWouldWrite(o.InPlace, o.Extended, file, "forward into"));
+            sb.Append(WriteSentences.DryRunMasters(o.Masters));
         }
         else if (o.InPlace)
             sb.Append("forwarded into ").Append(file).Append(" IN PLACE (").Append(o.Bytes)
-              .Append(" bytes — your ORIGINAL file was rewritten; no houseCARL backup or undo)\n")
-              .Append("mod folder: ").Append(modFolder).Append("  — already active in your load order; re-sort only if a winner changed\n");
+              .Append(" bytes — ").Append(WriteSentences.InPlaceRewritten).Append(")\n")
+              .Append(WriteSentences.InPlaceModFolder(modFolder));
         else
-        {
-            sb.Append(o.Extended ? "extended " : "wrote ").Append(file)
-              .Append(o.Extended ? " (existing patch grown; " : " (new patch; ").Append(o.Bytes).Append(" bytes)\n");
-            sb.Append("mod folder: ").Append(modFolder)
-              .Append(o.Extended ? "\n" : "  — enable + sort it in MO2 to use the patch\n");
-        }
+            sb.Append(WriteSentences.NewOrExtendedArtifact(o.Extended, file, o.Bytes, modFolder));
         if (!o.DryRun)
-            sb.Append("masters: ").Append(o.Masters.Count == 0 ? "(none)" : string.Join(", ", o.Masters)).Append('\n');
+            sb.Append(WriteSentences.Masters(o.Masters));
         // WHICH copy an off-order source read — a fact, not derivable from the name (several install layers can provide
         // one filename, and only one of them was opened). Stated once for the call, because one source= serves it all.
         if (o.OffOrderSource is { } oo)
@@ -849,7 +821,7 @@ public static class WriteTools
         // Budgeted for the same reason as the created-records block: formids= is set-valued, each row is long (type +
         // FormKey + editorid + the source clause + a REPLACED / redundant / out-ranks bracket), and the json twin
         // already truncates the identical array (PR #311 review 3 [medium]).
-        int fwdCap = maxChars > 0 ? maxChars : Wire.DefaultMaxChars;
+        int fwdCap = WriteSentences.Cap(maxChars);
         for (int fi = 0; fi < o.Forwarded.Count; fi++)
         {
             if (sb.Length >= fwdCap)
@@ -892,8 +864,7 @@ public static class WriteTools
         if (o.ReadBack is { } rb) AppendFullReadback(sb, rb, maxChars, dryRun: o.DryRun);
         if (o.Note is { } note) sb.Append("note: ").Append(note).Append('\n');
         sb.Append(o.DryRun
-            ? "every record resolved from its source; to forward for real, repeat the call without dry_run. " +
-              "(A real write can still fail at serialize/commit — disk faults surface only there.)"
+            ? WriteSentences.DryRunClose("every record resolved from its source", "forward")
             : o.InPlace
                 ? InPlaceAgainHint("to forward more into this plugin", file, laneAsName)
                 : $"to forward more into THIS patch (incl. from a different source plugin), pass into=\"{file}\".");
@@ -913,7 +884,7 @@ public static class WriteTools
         sb.Append("wrote ").Append(file).Append(o.Esl ? " (header-only, ESL-flagged; " : " (header-only; ")
           .Append(o.Bytes).Append(" bytes, ").Append(o.RecordCount).Append(o.RecordCount == 1 ? " record)\n" : " records)\n");
         sb.Append("mod folder: ").Append(modFolder).Append("  — enable + sort it in MO2 to use it\n");
-        sb.Append("masters: ").Append(o.Masters.Count == 0 ? "(none)" : string.Join(", ", o.Masters)).Append('\n');
+        sb.Append(WriteSentences.Masters(o.Masters));
         sb.Append("this is a trigger/placeholder plugin: it carries no records, so it changes nothing in game by itself — ")
           .Append("its only job is to make the basename '").Append(Path.GetFileNameWithoutExtension(file))
           .Append("' present in the load order (so a basename-bound SKSE config resolves, a FormID range is reserved, etc.).");
@@ -934,8 +905,8 @@ public static class WriteTools
         var sb = new StringBuilder();
         if (o.InPlace)
             sb.Append("compacted ").Append(file).Append(" IN PLACE (").Append(o.Bytes)
-              .Append(" bytes — your ORIGINAL file was rewritten; no houseCARL backup or undo)\n")
-              .Append("mod folder: ").Append(modFolder).Append("  — already active; re-sort only if a winner changed\n");
+              .Append(" bytes — ").Append(WriteSentences.InPlaceRewritten).Append(")\n")
+              .Append(WriteSentences.InPlaceModFolder(modFolder));
         else
             sb.Append("wrote compacted ").Append(file).Append(" (new plugin; ").Append(o.Bytes).Append(" bytes)\n")
               .Append("mod folder: ").Append(modFolder).Append("  — enable it and DISABLE the original '").Append(file)
@@ -947,7 +918,7 @@ public static class WriteTools
         sb.Append(o.Esl ? "into the light range 0x800–0xFFF" : "contiguously from 0x800");
         if (overrides > 0) sb.Append("; ").Append(overrides).Append(overrides == 1 ? " override kept at its master FormID" : " overrides kept at their master FormIDs");
         sb.Append(".\n");
-        sb.Append("masters: ").Append(o.Masters.Count == 0 ? "(none)" : string.Join(", ", o.Masters)).Append('\n');
+        sb.Append(WriteSentences.Masters(o.Masters));
 
         if (o.ExternalPlugins.Count == 0)
             sb.Append("external referencers: none — clean compaction (nothing outside this plugin pointed at a renumbered record).\n");
@@ -1074,7 +1045,7 @@ public static class WriteTools
         foreach (var d in o.DonorRemaps)
             sb.Append("  ").Append(d.Donor).Append(": ").Append(d.Kept).Append(" object id(s) kept, ")
               .Append(d.Renumbered).Append(" renumbered (id collisions / below-floor)\n");
-        sb.Append("masters: ").Append(o.Masters.Count == 0 ? "(none)" : string.Join(", ", o.Masters)).Append('\n');
+        sb.Append(WriteSentences.Masters(o.Masters));
 
         if (o.Conflicts.Count == 0)
             sb.Append("cross-donor conflicts: none — no record was carried by more than one donor.\n");
@@ -1136,16 +1107,11 @@ public static class WriteTools
         var sb = new StringBuilder();
         if (o.InPlace)
             sb.Append(file).Append(" rewritten IN PLACE (").Append(o.Bytes)
-              .Append(" bytes — your ORIGINAL file; no houseCARL backup or undo)\n")
-              .Append("mod folder: ").Append(modFolder).Append("  — already active in your load order; re-sort only if a winner changed\n");
+              .Append(" bytes — ").Append(WriteSentences.InPlaceRewritten).Append(")\n")
+              .Append(WriteSentences.InPlaceModFolder(modFolder));
         else
-        {
-            sb.Append(o.Extended ? "extended " : "wrote ").Append(file)
-              .Append(o.Extended ? " (existing patch grown; " : " (new patch; ").Append(o.Bytes).Append(" bytes)\n");
-            sb.Append("mod folder: ").Append(modFolder)
-              .Append(o.Extended ? "\n" : "  — enable + sort it in MO2 to use the patch\n");
-        }
-        sb.Append("masters: ").Append(o.Masters.Count == 0 ? "(none)" : string.Join(", ", o.Masters)).Append('\n');
+            sb.Append(WriteSentences.NewOrExtendedArtifact(o.Extended, file, o.Bytes, modFolder));
+        sb.Append(WriteSentences.Masters(o.Masters));
         var replacedCount = o.Created.Count(c => c.ReplacedExisting);
         sb.Append("created ").Append(o.Created.Count).Append(o.Created.Count == 1 ? " record" : " records");
         if (replacedCount > 0)
@@ -1158,7 +1124,7 @@ public static class WriteTools
         // disagree about the same call, with the text lane taking a silent host-side cut. (The round-1 fold filed this
         // as a follow-up on the grounds that max_chars' description scoped the ceiling to the read-back; the D2
         // divergence is the stronger argument and it wins.)
-        int createCap = maxChars > 0 ? maxChars : Wire.DefaultMaxChars;
+        int createCap = WriteSentences.Cap(maxChars);
         // #300's HOST CHOICE, hoisted out of the budget below: which version of a contested parent this artifact
         // carries is a control decision the caller may want to act on (sort, or inline the winner deliberately), and
         // the per-record `parent:` lines live INSIDE the loop where a max_chars cut removes them. It is a statement,
@@ -1310,9 +1276,10 @@ public static class WriteTools
         // Budget-bounded like the full read-back (same maxChars contract): a bulk_create authoring hundreds of voiced
         // lines must NOT silently blow the response size or starve a requested read-back — past the cap the voice
         // section stops with an explicit notice (Q3), never a silent cut.
-        int cap = maxChars > 0 ? maxChars : Wire.DefaultMaxChars;
+        int cap = WriteSentences.Cap(maxChars);
         int total = report.Lines.Count + report.Undetermined.Count, rendered = 0;
-        sb.Append("voice coverage — created dialogue lines (a response with no .fuz plays SILENT in game; the audio is yours to provide):\n");
+        sb.Append("voice coverage — created dialogue lines (").Append(WriteSentences.Twins.VoiceStake)
+          .Append("; the audio is yours to provide):\n");
 
         bool anyReadIncomplete = false;
         foreach (var l in report.Lines)
@@ -1344,10 +1311,9 @@ public static class WriteTools
             sb.Append("  [?] ").Append(who).Append("  — ").Append(u.Reason).Append('\n');
             rendered++;
         }
-        if (anyReadIncomplete)
-            sb.Append("  note: a BSA failed to read this scan, so an \"absent\" above may merely be unscanned — verify in MO2.\n");
+        if (anyReadIncomplete) sb.Append(WriteSentences.ScanIncomplete("an \"absent\""));
         if (report.CheckError is not null)
-            sb.Append("  voice check could not run: ").Append(report.CheckError).Append(" — the records WERE created; verify voice files manually.\n");
+            sb.Append(WriteSentences.CheckCouldNotRun("voice", report.CheckError, "the records", "verify voice files manually."));
     }
 
     /// <summary>The explicit voice-coverage truncation notice (Q3 — the same convention as the read-back's): how many
@@ -1355,18 +1321,12 @@ public static class WriteTools
     /// <para>Shares its closing clause with the result-script notice and with the json <c>WriteBlockCensus</c>
     /// (PR #311 review 7 [medium]): these blocks ride the CREATE render, so "raise max_chars to see the rest" meant
     /// re-issuing a create — a second auto-suffixed patch on the default lane, or re-creation at the same FormID
-    /// with prior contents discarded under <c>into=</c>. The json twin added this round already said "Do NOT
-    /// re-issue the write to widen this", so the two transports were giving opposite advice about one call.</para></summary>
+    /// with prior contents discarded under <c>into=</c>. That clause is now
+    /// <see cref="WriteSentences.Twins.ReportBlockCut"/>, read by both transports, so the two can no longer give
+    /// opposite advice about one call.</para></summary>
     static void AppendVoiceTrunc(StringBuilder sb, int rendered, int total, int cap)
         => sb.Append("  ... [voice coverage truncated: rendered ").Append(rendered).Append(" of ").Append(total)
-             .Append(" line(s) at max_chars=").Append(cap).Append(ReportBlockCutClause).Append("]\n");
-
-    /// <summary>The closing clause every post-write REPORT truncation notice shares, text and json alike. Names the
-    /// stakes (a cut list is not a clean bill of health) and refuses to prescribe the one action that would widen it
-    /// at the cost of a duplicate write.</summary>
-    internal const string ReportBlockCutClause =
-        "; the records WERE created and this block is only a render of them — compare rendered vs total above rather than "
-      + "reading the list as the whole answer. Do NOT re-issue the create to widen it: that allocates the records again";
+             .Append(" line(s) at max_chars=").Append(cap).Append("; ").Append(WriteSentences.Twins.ReportBlockCut).Append("]\n");
 
     /// <summary>Render the coordinate-keyed §4-(b) structural-shell report (a cell create). The enforced Q3 teeth against
     /// a created-but-EMPTY cell: a created cell is a valid, correctly-placed RECORD, but houseCARL does NOT author world
@@ -1381,10 +1341,10 @@ public static class WriteTools
         // create authoring a batch of cells rendered every row in TEXT and took the SILENT host-side cut — the
         // divergence the created-rows / forwarded-rows / removed-rows folds each closed in turn. The inner
         // MustProvide loop is bounded too: one cell with a long work list could blow the budget by itself.
-        int cap = maxChars > 0 ? maxChars : Wire.DefaultMaxChars;
+        int cap = WriteSentences.Cap(maxChars);
         int total = report.Cells.Count, rendered = 0;
         bool cut = false;
-        sb.Append("cell shell — created cells are valid, correctly-placed records but EMPTY; houseCARL does not author world content (provide these in the Creation Kit):\n");
+        sb.Append("cell shell — ").Append(WriteSentences.Twins.CellStake).Append(" (provide these in the Creation Kit):\n");
         foreach (var c in report.Cells)
         {
             if (sb.Length >= cap) { cut = true; break; }
@@ -1402,13 +1362,13 @@ public static class WriteTools
         // seam in particular must not be the thing a cut swallows.
         if (cut)
             sb.Append("  ... [cell shell truncated: rendered ").Append(rendered).Append(" of ").Append(total)
-              .Append(" cell(s) at max_chars=").Append(cap).Append(ReportBlockCutClause).Append("]\n");
+              .Append(" cell(s) at max_chars=").Append(cap).Append("; ").Append(WriteSentences.Twins.ReportBlockCut).Append("]\n");
         // Q3 — declare the un-checked grid-occupancy seam (full load-order occupancy detection is a follow-up; never a
         // silent omission). Only an EXTERIOR cell collides on a grid; an interior cell has no grid identity.
         if (report.Cells.Any(c => !c.Interior))
-            sb.Append("  note: houseCARL does NOT check grid-occupancy — a NEW exterior cell at a grid your load order already fills collides (engine behavior undefined). To change an existing cell, OVERRIDE it instead of creating a new one.\n");
+            sb.Append("  note: ").Append(WriteSentences.Twins.GridOccupancy).Append('\n');
         if (report.CheckError is not null)
-            sb.Append("  cell-shell check could not run: ").Append(report.CheckError).Append(" — the cell(s) WERE created; review world content manually.\n");
+            sb.Append(WriteSentences.CheckCouldNotRun("cell-shell", report.CheckError, "the cell(s)", "review world content manually."));
     }
 
     /// <summary>Render the Layer B unit C result-script coverage report (a dialogue-line create). The enforced Q3 teeth
@@ -1420,9 +1380,9 @@ public static class WriteTools
     static void AppendScriptBindingReport(StringBuilder sb, ScriptBindingReport? report, int maxChars)
     {
         if (report is null || report.IsEmpty) return;
-        int cap = maxChars > 0 ? maxChars : Wire.DefaultMaxChars;
+        int cap = WriteSentences.Cap(maxChars);
         int total = report.Findings.Count, rendered = 0;
-        sb.Append("result-script coverage — created dialogue lines (a bound script that's unwired or uncompiled runs NOTHING in game):\n");
+        sb.Append("result-script coverage — created dialogue lines (").Append(WriteSentences.Twins.ScriptStake).Append("):\n");
 
         bool anyReadIncomplete = false;
         foreach (var f in report.Findings)
@@ -1430,7 +1390,7 @@ public static class WriteTools
             if (sb.Length >= cap)
             {
                 sb.Append("  ... [result-script coverage truncated: rendered ").Append(rendered).Append(" of ").Append(total)
-                  .Append(" line(s) at max_chars=").Append(cap).Append(ReportBlockCutClause).Append("]\n");
+                  .Append(" line(s) at max_chars=").Append(cap).Append("; ").Append(WriteSentences.Twins.ReportBlockCut).Append("]\n");
                 return;
             }
             var who = string.IsNullOrEmpty(f.TopicEditorId) ? f.Info.ToString() : $"{f.TopicEditorId} ({f.Info})";
@@ -1454,10 +1414,9 @@ public static class WriteTools
             if (f.ReadIncomplete) anyReadIncomplete = true;
             rendered++;
         }
-        if (anyReadIncomplete)
-            sb.Append("  note: a BSA failed to read this scan, so a \"missing .pex\" above may merely be unscanned — verify in MO2.\n");
+        if (anyReadIncomplete) sb.Append(WriteSentences.ScanIncomplete("a \"missing .pex\""));
         if (report.CheckError is not null)
-            sb.Append("  result-script check could not run: ").Append(report.CheckError).Append(" — the records WERE created; verify the script binding manually.\n");
+            sb.Append(WriteSentences.CheckCouldNotRun("result-script", report.CheckError, "the records", "verify the script binding manually."));
     }
 }
 

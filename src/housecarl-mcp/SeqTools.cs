@@ -112,9 +112,8 @@ public static class SeqTools
         // …carrying the ignored-lane note, which this early return used to drop while the json twin emitted it — the
         // same D2 divergence this file's epoch-note fold closed one paragraph up (review round 1).
         if (o.Quests.Count == 0)
-            return $"no start-game-enabled quests in {o.PluginFileName}{ReadFrom(o)} — no .seq is needed (a .seq lists only quests with the " +
-                   "Start Game Enabled flag). Nothing written. If a quest SHOULD start at game start, set its Start Game Enabled " +
-                   "flag first, then write the .seq."
+            return $"no start-game-enabled quests in {o.PluginFileName}{ReadFrom(o)} — {WriteSentences.Twins.SeqNoQuests}. " +
+                   "If a quest SHOULD start at game start, set its Start Game Enabled flag first, then write the .seq."
                    // …and say that the destination was never looked at (PR #318 review [low]): this return happens
                    // BEFORE any folder is resolved, so an unusable output_dir= would not have been diagnosed —
                    // "your folder is fine" and "we never checked your folder" must not read the same.
@@ -128,7 +127,7 @@ public static class SeqTools
         sb.Append(o.Unchanged ? "unchanged — " : o.Replaced ? "replaced " : "wrote ").Append(seqName).Append(": ").Append(o.Quests.Count)
           .Append(o.Quests.Count == 1 ? " start-game-enabled quest" : " start-game-enabled quests")
           .Append(o.Unchanged
-              ? "; the file on disk already holds exactly these bytes, so NOTHING was written."
+              ? "; " + WriteSentences.Twins.SeqUnchanged + "."
               // REPLACED is its own word for the same reason UNCHANGED is: on the output_dir lane the file that was
               // there may be the mod's OWN .seq, and houseCARL keeps no backup of it (review round 1). The
               // no-backup ALARM is scoped to that lane (review round 3): re-generating over houseCARL's own previous
@@ -137,10 +136,10 @@ public static class SeqTools
                   // Nothing was lost when the replaced bytes were the SAME bytes — the only way here is a byte-identical
                   // destination whose timestamp refresh failed, and an alarm would be about nothing (review [low]).
                   ? (o.ReplacedSameBytes
-                      ? "; the file already there held these exact bytes — it was rewritten only because its timestamp could not be refreshed in place, so nothing was lost."
+                      ? "; " + WriteSentences.Twins.SeqReplacedSameBytes
                       : o.UserChoseOutput
-                          ? "; a .seq was already at that path and has been OVERWRITTEN (no backup is kept — in a folder you named, that may have been the mod's own)."
-                          : "; the previous .seq in that houseCARL folder was overwritten.")
+                          ? "; " + WriteSentences.Twins.SeqReplacedUserFolder
+                          : "; " + WriteSentences.Twins.SeqReplacedOwnFolder)
                   : "")
           .Append('\n');
         // Budgeted like the sibling write renders (PR #311 review [low-medium]): max_chars= promises "past it
@@ -148,7 +147,7 @@ public static class SeqTools
         // start-game-enabled quests would otherwise render every row and let the HOST cut the response with no
         // in-band signal. The path/next-step lines below stay outside the budget — a truncated list still needs
         // to say where the file landed.
-        int cap = maxChars > 0 ? maxChars : Wire.DefaultMaxChars;
+        int cap = WriteSentences.Cap(maxChars);
         for (int i = 0; i < o.Quests.Count; i++)
         {
             if (sb.Length >= cap)
@@ -158,14 +157,11 @@ public static class SeqTools
                 // AGAIN, and with no lane named for a plugin outside a houseCARL folder that is a second
                 // auto-suffixed mod folder holding a duplicate. Nothing is missing from the FILE, so the honest
                 // notice says so and prices the re-run instead of prescribing it. (Not a review-4 finding — a
-                // sibling spotted while folding one; declared on the PR rather than folded silently.)
+                // sibling spotted while folding one; declared on the PR rather than folded silently.) The remedy
+                // itself is WriteSentences.Twins.SeqListCutRemedy — the json twin's quest-row cut says the same.
                 sb.Append("  ... [truncated: ").Append(i).Append(" of ").Append(o.Quests.Count)
-                  .Append(" quest(s) listed at max_chars=").Append(cap)
-                  .Append("; the .seq itself carries ALL of them — nothing is missing from the FILE. Re-run only if you need this "
-                        + "LIST widened: for a plugin OUTSIDE a houseCARL folder with no lane named, that writes the .seq "
-                        + "again into ANOTHER fresh mod folder (name into=/output_dir= the folder below; a plugin in its own "
-                        + "houseCARL folder already defaults there — and at any named destination a byte-identical .seq is "
-                        + "left untouched)]\n");
+                  .Append(" quest(s) listed at max_chars=").Append(cap).Append("; ")
+                  .Append(WriteSentences.Twins.SeqListCutRemedy).Append("]\n");
                 break;
             }
             var q = o.Quests[i];
@@ -193,9 +189,7 @@ public static class SeqTools
             // plugin. validate_dialogue lints the .seq the VFS serves for that plugin, which is this file only when
             // this folder wins the SEQ\ conflict and is enabled — so the sentence says what was done and what it is
             // for, and does not promise a verdict from a tool that resolves its input differently.
-            sb.Append("\nthe file was older than the plugin, so its timestamp was refreshed (contents untouched) — "
-                    + "housecarl_validate_dialogue's SEQ staleness check compares those two mtimes, so this .seq no longer "
-                    + "reads as stale (provided this is the copy your load order actually serves).");
+            sb.Append("\nthe file was older than the plugin, so ").Append(WriteSentences.Twins.SeqTimestampRefreshed);
         // Q3: never a clean "done" for a .seq the engine will not read (the quests stay silently dead).
         if (o.DeployWarning is { Length: > 0 } dw) sb.Append('\n').Append(dw);
         if (outputNote is { Length: > 0 }) sb.Append('\n').Append(outputNote);
@@ -203,11 +197,9 @@ public static class SeqTools
         // `epoch_note` since it was written; the text render said nothing — so a caller on the transport most of
         // them use saw a response with no epoch= line, which is the same observable a DROPPED stamp would produce.
         // The class-doc paragraph above claimed "the render says so"; it was true of one render out of two.
-        sb.Append("\nno epoch on this call, and that is a fact rather than an omission: a .seq is derived from the plugin " +
-                  "FILE alone (its FormID encoding is load-order-independent), so nothing here consulted a load-order build.");
+        sb.Append("\nno epoch on this call, and that is a fact rather than an omission: ").Append(WriteSentences.Twins.SeqNoEpoch);
         // Q3 standing limit: a written .seq makes the quest START; it is not a guarantee the quest/dialogue is otherwise correct.
-        sb.Append("\nnote: this makes the quest(s) START at game start; it does not verify the quest or its dialogue is otherwise " +
-                  "well-formed (use housecarl_validate_dialogue for the dialogue graph).");
+        sb.Append("\nnote: ").Append(WriteSentences.Twins.SeqStandingLimit);
         return sb.ToString();
     }
 

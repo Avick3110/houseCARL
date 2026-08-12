@@ -377,12 +377,15 @@ internal static class SeqWriteGuardProbe
                   && File.GetLastWriteTimeUtc(expectedUserSeq) > pluginStamp
                   && File.ReadAllBytes(expectedUserSeq).Length == 4,
                 $"MTIME-REFRESH a byte-identical but OLDER .seq is stamped forward, not rewritten — unchanged={oStale.Unchanged} touched={oStale.TimestampRefreshed} seq={File.GetLastWriteTimeUtc(expectedUserSeq):O} plugin={pluginStamp:O}");
+            // A CONSTRUCTION pin, not a fragment one: the stamp sentence has one source, so this asserts (a) the
+            // source itself still carries the two claims that matter — it names validate_dialogue's check, and it
+            // BOUNDS the promise to the copy the load order serves (review round 2: the lint reads the .seq the VFS
+            // SERVES, which is this file only when this folder wins the SEQ\ conflict) — and (b) the render is
+            // reading that source. A fragment check could only ever have pinned one render's spelling of it.
             var renderStale = SeqTools.Render(oStale);
-            Check(renderStale.Contains("timestamp was refreshed", StringComparison.Ordinal)
-                  && renderStale.Contains("validate_dialogue", StringComparison.Ordinal)
-                  // …and it does NOT promise that tool's verdict: the lint reads the .seq the VFS SERVES, which is
-                  // this file only when this folder wins the SEQ\ conflict (review round 2).
-                  && renderStale.Contains("provided this is the copy your load order actually serves", StringComparison.Ordinal),
+            Check(WriteSentences.Twins.SeqTimestampRefreshed.Contains("validate_dialogue", StringComparison.Ordinal)
+                  && WriteSentences.Twins.SeqTimestampRefreshed.Contains("the copy the load order actually serves", StringComparison.Ordinal)
+                  && renderStale.Contains(WriteSentences.Twins.SeqTimestampRefreshed, StringComparison.Ordinal),
                 $"MTIME-REFRESH-RENDER the stamp is STATED and its scope is bounded — render=[{Trim(renderStale)}]");
 
             // MTIME-FUTURE: a plugin stamped in the FUTURE (restored backup, skewed clock) cannot be beaten by
@@ -423,7 +426,10 @@ internal static class SeqWriteGuardProbe
             var renderRepl = SeqTools.Render(oRepl);
             Check(oRepl.Success && !oRepl.Unchanged && oRepl.Replaced
                   && renderRepl.StartsWith("replaced ", StringComparison.Ordinal)
-                  && renderRepl.Contains("no backup is kept", StringComparison.Ordinal),
+                  // The no-backup alarm is a property of the SENTENCE (one source, both transports), so pin it there
+                  // and pin that this render reads it — rather than pinning one lane's spelling of the alarm.
+                  && WriteSentences.Twins.SeqReplacedUserFolder.Contains("keeps no backup", StringComparison.Ordinal)
+                  && renderRepl.Contains(WriteSentences.Twins.SeqReplacedUserFolder, StringComparison.Ordinal),
                 $"REPLACED overwriting an existing .seq reports 'replaced', not 'wrote' — replaced={oRepl.Replaced} render=[{Trim(renderRepl)}]");
             // …and the fresh-file case is NOT reported as a replacement (the flag has to discriminate).
             File.Delete(expectedUserSeq);
