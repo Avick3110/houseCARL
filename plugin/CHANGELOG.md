@@ -8,6 +8,17 @@ when it changes.
 
 *Accumulating notes for the next cut — not yet released; `plugin.json` still reads the last shipped version.*
 
+**Fixed: the text and JSON responses to a write can no longer say different things.** Every write tool renders its
+result twice — once as text, once as `format="json"` — and the two renders were maintained separately, so a warning
+or a piece of advice could be corrected on one and left stale on the other. Nine sentences had already drifted that
+way. The most consequential: the JSON note about creating an exterior cell had lost the clause saying a grid
+collision is *engine* behaviour, so it read like something you could retry your way out of; a cut report block told
+you "do not re-issue the write" on one transport and the more specific, actually-correct "do not re-issue the create —
+that allocates the records again" on the other; and `write_seq`'s JSON standing-limit note had dropped the pointer to
+`housecarl_validate_dialogue`, which is the half telling you what to do next. Every such sentence now has one source
+that both transports read, so a correction reaches both or neither. Wording is otherwise unchanged, except where the
+two copies already disagreed — those are resolved to the fuller and truer reading.
+
 **Fixed: forwarding a record no longer deletes the records nested under it (#324).** When `forward` targeted a record
 the destination *already carried*, it replaced it by dropping the whole record and copying the source body in — and
 the drop took the record's child group with it. Any dialogue line under a forwarded topic, or placed reference under
