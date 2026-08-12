@@ -372,8 +372,9 @@ public static class WriteTools
          "excluded (unparseable), is the artifact being written itself, names a target twice, simply doesn't DEFINE/override a given " +
          "record (nothing there to forward), or names a record whose ORIGIN plugin isn't active. By default writes a fresh patch named patch_name; into= EXTENDS an existing " +
          "houseCARL patch (accumulate across calls/sessions). If the extended patch ALREADY carries a forwarded FormKey, its " +
-         "existing override is REPLACED by from_plugin's body (xEdit's copy-as-override overwrite — flagged per record in the " +
-         "response). target= + in_place=true is the opt-in THIRD route: forward INTO an existing plugin's OWN file (incl. one " +
+         "existing override's FIELDS are REPLACED by from_plugin's body (xEdit's copy-as-override overwrite — flagged per record in the " +
+         "response); records NESTED under it (a topic's lines, a cell's placed refs) are KEPT and counted in that flag. " +
+         "target= + in_place=true is the opt-in THIRD route: forward INTO an existing plugin's OWN file (incl. one " +
          "houseCARL didn't author) — same replace-on-collision semantics, same one-time acknowledge= consent as the sibling " +
          "write tools, master header grown from the copied bodies. THE STALE-WINNER BYPASS RECIPE (pinned): forward from " +
          "the source you want, then bulk_apply into= the same patch — the ops edit the patch's FORWARDED copy, never " +
@@ -862,10 +863,20 @@ public static class WriteTools
             var f = o.Forwarded[fi];
             sb.Append("  ").Append(f.RecordType).Append(' ').Append(f.Target).Append("  ").Append(f.EditorId ?? "<no editorid>")
               .Append(o.DryRun ? "  — would be copied from " : "  — copied from ").Append(f.FromPlugin);
+            // #324 — the sentence a caller acts on has to match what the replace now does. It used to say "the old
+            // body is gone" flat, which was true when the drop took the child group with it. It no longer does: the
+            // FIELDS are replaced and everything nested under the record is carried across. Left unchanged, the line
+            // reads as a clean revert over a cell whose forty placed refs are still in the file — the caller either
+            // ships what they think they removed, or re-creates a dialogue line they never lost. The count is stated
+            // rather than implied, because "nested records were kept" cannot tell nothing-was-there from twelve-kept.
             if (f.ReplacedExisting)
-                sb.Append(o.DryRun
-                    ? "  [would REPLACE the patch's own existing override of this record — the old body would be gone (xEdit's copy-as-override-into overwrite)]"
-                    : "  [REPLACED the patch's own existing override of this record — the old body is gone (xEdit's copy-as-override-into overwrite)]");
+                sb.Append(f.PreservedChildren > 0
+                    ? (o.DryRun
+                        ? $"  [would REPLACE the patch's own existing override of this record — the old FIELDS would be gone (xEdit's copy-as-override-into overwrite), but the {f.PreservedChildren} record(s) nested under it would be KEPT]"
+                        : $"  [REPLACED the patch's own existing override of this record — the old FIELDS are gone (xEdit's copy-as-override-into overwrite); the {f.PreservedChildren} record(s) nested under it were KEPT]")
+                    : (o.DryRun
+                        ? "  [would REPLACE the patch's own existing override of this record — the old body would be gone (xEdit's copy-as-override-into overwrite); it carries no nested records]"
+                        : "  [REPLACED the patch's own existing override of this record — the old body is gone (xEdit's copy-as-override-into overwrite); it carried no nested records]"));
             if (f.WasAlreadyWinner)
                 sb.Append("  [NOTE: this source IS already the load-order winner — the override just re-asserts the content that already wins (a no-op in effect)]");
             else if (f.PriorWinner is null)

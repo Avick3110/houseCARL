@@ -1,3 +1,4 @@
+using System.Reflection;
 using System.Text.Json;
 using Mutagen.Bethesda;
 using Mutagen.Bethesda.Plugins;
@@ -94,8 +95,11 @@ public static class WriteSurfaceGuardProbe
             CopySourcePathArm(fx, root);
             NestedParentHostArm(fx);
             // #324's arm also writes into the replacer IN PLACE (its second half is that lane), so it sits with the
-            // in-place arms below rather than among the read-the-fixture ones. It changes the replacer's TOPIC only —
-            // no later arm reads that record — while the two below change its WEAPON, which earlier arms do read.
+            // in-place arms below rather than among the read-the-fixture ones. It rewrites the replacer TWICE and
+            // changes two of its records: the TOPIC (W2Topic → "Master Topic") and the CELL (W2Cell → "Master Cell",
+            // keeping W2WinnerRef). No later arm reads either — but both are three-way fixtures a future arm would
+            // reach for, so an arm added after this one must read them as the MASTER's version, not the winner's.
+            // The two below change its WEAPON, which earlier arms do read.
             ForwardChildGroupArm(fx);
             // OffOrderForwardArm and ReviewFoldArm go LAST: they forward into the replacer IN PLACE, which rewrites a
             // fixture file every earlier arm reads as a known winner. Ordering them after keeps every other arm
@@ -143,6 +147,7 @@ public static class WriteSurfaceGuardProbe
         public required FormKey TopicKey { get; init; }
         public required string CellFid { get; init; }
         public required FormKey CellKey { get; init; }
+        public required string WinnerLineFid { get; init; }
         /// <summary>One filename provided by TWO disabled mod folders — the ambiguity refusal's fixture.</summary>
         public required string AmbName { get; init; }
         /// <summary>A DISABLED plugin whose forwarded body links into ANOTHER disabled plugin — the missing-master
@@ -222,7 +227,8 @@ public static class WriteSurfaceGuardProbe
             var topicOverride = (IDialogTopic)WriteEngine.GenericGetOrAddAsOverride(r, topic);
             topicOverride.Name = "Winner Topic";
             topicOverride.Quest.SetTo(winnerQuest.FormKey);
-            topicOverride.Responses.Add(new DialogResponses(r.GetNextFormKey(), SkyrimRelease.SkyrimSE) { EditorID = "W2WinnerLine" });
+            var winnerLine = new DialogResponses(r.GetNextFormKey(), SkyrimRelease.SkyrimSE) { EditorID = "W2WinnerLine" };
+            topicOverride.Responses.Add(winnerLine);
             var cellOverride = (ICell)WriteEngine.GenericGetOrAddAsOverride(r, cell, mCache);
             cellOverride.Name = "Winner Cell";
             cellOverride.Persistent.Add(new PlacedObject(r.GetNextFormKey(), SkyrimRelease.SkyrimSE) { EditorID = "W2WinnerRef" });
@@ -307,6 +313,7 @@ public static class WriteSurfaceGuardProbe
                 TopicKey = topic.FormKey,
                 CellFid = $"{cell.FormKey.ID:X6}:{mKey.FileName}",
                 CellKey = cell.FormKey,
+                WinnerLineFid = $"{winnerLine.FormKey.ID:X6}:{rKey.FileName}",
                 AmbName = aKey.FileName.String,
                 ChainName = cKey.FileName.String,
             };
@@ -1106,6 +1113,16 @@ public static class WriteSurfaceGuardProbe
         Check("…and the child SURVIVES the replace (#324: the drop no longer takes the child group)",
             after.Contains("W324Line"),
             $"{inlined}  [children=[{string.Join(", ", after)}] · whole file=[{string.Join(", ", EditorIdsIn(path))}]]");
+
+        // THE SENTENCE THE CALLER ACTS ON, which is a separate surface from the engine (the standing lesson of #323 →
+        // #324: a destructive remedy shipped through fully green guards). This render said "the old body is gone"
+        // flat. It is now false in the one case that matters: the caller reverts a cell in place, keeps their forty
+        // placed refs, and is told the old body went — so they ship what they think they deleted, or re-create a
+        // dialogue line they never lost. Measured here BEFORE it was reworded, per §11.
+        Check("…and the RESPONSE says so: the replace reports the fields gone and the nested records KEPT, with a count",
+            inlined.Contains("the old FIELDS are gone", StringComparison.Ordinal)
+            && inlined.Contains("1 record(s) nested under it were KEPT", StringComparison.Ordinal)
+            && !inlined.Contains("the old body is gone", StringComparison.Ordinal), inlined);
         Check("…and the forward still DID its job: the source's fields are inlined in the host",
             TopicNameIn(path, fx.TopicKey) == "Winner Topic",
             $"{inlined}  [topic name={TopicNameIn(path, fx.TopicKey) ?? "unreadable"}]");
@@ -1184,6 +1201,50 @@ public static class WriteSurfaceGuardProbe
             CellNameIn(replPath, fx.CellKey) == "Master Cell",
             $"{cellInPlace}  [cell name={CellNameIn(replPath, fx.CellKey) ?? "unreadable"}]");
 
+        // --- A CHILD AND ITS PARENT IN ONE CALL, on the fresh-patch lane where NOTHING is replaced. Spec 1 (the INFO)
+        //     materializes the topic in the patch to host itself; spec 2 (the topic) then copies onto a record the
+        //     CALL just created, carrying children the call just put there. A guard that infers "was this replaced?"
+        //     from the record's shape sees that as a copy arriving with children and refuses the whole write, telling
+        //     the caller to report a Mutagen bug — measured in round 2, introduced by round 1's own fold. The gate is
+        //     the capture FACT now, and this arm is what holds it there: nothing was dropped, so nothing is checked.
+        var pair = ForwardTools.Forward(fx.Svc, formids: new[] { fx.WinnerLineFid, fx.TopicFid },
+            source: fx.ReplacerName, patch: "W324Pair");
+        var pairPath = ArtifactPathFrom(fx, pair);
+        Check("a child and its parent forward in ONE call to a fresh patch — the call is not refused",
+            pairPath is not null && !pair.StartsWith("error:", StringComparison.Ordinal), pair);
+        Check("…and the child lands under its parent in the patch",
+            pairPath is not null && ChildLinesIn(pairPath, fx.TopicKey).Contains("W2WinnerLine"),
+            pairPath is null ? pair : $"children=[{string.Join(", ", ChildLinesIn(pairPath, fx.TopicKey))}]");
+        // NOT asserted, and measured rather than assumed: the parent's own FIELDS do not land here. The patch holds
+        // "Master Topic" — the definer's version that hosting the child materialized — while the call reports the
+        // topic forwarded from the replacer, whose version reads "Winner Topic". That is F1's silent-skip surviving
+        // on the lane that never populates alreadyCarried, so no replace happens and GetOrAdd's get-semantics keep
+        // the record already there. Pre-existing, in a path this branch does not touch (#333). Asserting it here
+        // would either fail a green guard or quietly widen this branch into another lane's fix.
+
+        // --- A REPLACE OF A RECORD THAT OWNS NOTHING still reports honestly. The weapon has no child group, so the
+        //     render must say the body is gone AND that there was nothing nested — "kept" and "nothing to keep" are
+        //     different facts and a caller reverting a record needs to know which one they got.
+        ForwardTools.Forward(fx.Svc, formids: new[] { fx.SubjectFid }, source: fx.MasterName, into: Path.GetFileName(path));
+        var flat = ForwardTools.Forward(fx.Svc, formids: new[] { fx.SubjectFid }, source: fx.ReplacerName,
+            into: Path.GetFileName(path));
+        Check("…and a replace of a record with NO children says so, rather than counting a preservation that was not one",
+            flat.Contains("the old body is gone", StringComparison.Ordinal)
+            && flat.Contains("carried no nested records", StringComparison.Ordinal)
+            && !flat.Contains("were KEPT", StringComparison.Ordinal), flat);
+
+        // --- THE GATE ITSELF, BOTH DIRECTIONS. RestoreChildGroup must act if and only if a capture happened. Driven
+        //     directly, because the point is the gate's INPUT, not a lane's behaviour: the same record, the same
+        //     arriving children, one carry that came from CaptureChildGroup and one that did not.
+        var gateSubject = new DialogTopic(FormKey.Factory("123460:HcW2Master.esm"), SkyrimRelease.SkyrimSE);
+        gateSubject.Responses.Add(new DialogResponses(FormKey.Factory("123461:HcW2Master.esm"), SkyrimRelease.SkyrimSE)
+            { EditorID = "W324Gate" });
+        Check("the gate is the capture FACT: an uncaptured carry does not engage the guard at all",
+            WriteEngine.RestoreChildGroup(gateSubject, default, "…") is null, "(refused)");
+        Check("…and a captured one does, on the identical record and children",
+            WriteEngine.RestoreChildGroup(gateSubject, WriteEngine.CaptureChildGroup(gateSubject) with { Held = Array.Empty<(PropertyInfo, object?)>(), Count = 9 }, "…")
+                is not null, "(accepted)");
+
         // --- THE REFLECTED CHILD SET, PINNED. RestoreChildGroup re-attaches by walking properties that can REACH an
         //     owned record; its by-construction count check catches a path the walk cannot see, but only at call time,
         //     as a refusal in the caller's face. Pinning the set here turns a Mutagen bump that adds a container into
@@ -1215,7 +1276,12 @@ public static class WriteSurfaceGuardProbe
         var carrier = new DialogTopic(FormKey.Factory("123456:HcW2Master.esm"), SkyrimRelease.SkyrimSE);
         carrier.Responses.Add(new DialogResponses(FormKey.Factory("123457:HcW2Master.esm"), SkyrimRelease.SkyrimSE)
             { EditorID = "W324Arrived" });
-        var injection = WriteEngine.RestoreChildGroup(carrier, default, "Nothing was serialized; UNTOUCHED.");
+        // The carry is CAPTURED but empty — a destination that held nothing of its own, which is the case where an
+        // arriving set is an import rather than a clash. `default` would prove nothing here: it is uncaptured, and
+        // the gate correctly declines to engage at all.
+        var emptyCaptured = WriteEngine.CaptureChildGroup(
+            new DialogTopic(FormKey.Factory("123459:HcW2Master.esm"), SkyrimRelease.SkyrimSE));
+        var injection = WriteEngine.RestoreChildGroup(carrier, emptyCaptured, "Nothing was serialized; UNTOUCHED.");
         Check("refusal 1: a copy arriving with children of its own is refused as an IMPORT when nothing was held",
             injection is not null && injection.Contains("arrived carrying 1 child record(s)", StringComparison.Ordinal)
             && injection.Contains("W324Arrived", StringComparison.Ordinal)
