@@ -373,7 +373,8 @@ public static class WriteTools
          "record (nothing there to forward), or names a record whose ORIGIN plugin isn't active. By default writes a fresh patch named patch_name; into= EXTENDS an existing " +
          "houseCARL patch (accumulate across calls/sessions). If the extended patch ALREADY carries a forwarded FormKey, its " +
          "existing override's FIELDS are REPLACED by from_plugin's body (xEdit's copy-as-override overwrite — flagged per record in the " +
-         "response); records NESTED under it (a topic's lines, a cell's placed refs) are KEPT and counted in that flag. " +
+         "response); records NESTED under it (a topic's lines, a cell's placed refs) are KEPT, counted per record in " +
+         "preserved_children. " +
          "target= + in_place=true is the opt-in THIRD route: forward INTO an existing plugin's OWN file (incl. one " +
          "houseCARL didn't author) — same replace-on-collision semantics, same one-time acknowledge= consent as the sibling " +
          "write tools, master header grown from the copied bodies. THE STALE-WINNER BYPASS RECIPE (pinned): forward from " +

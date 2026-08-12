@@ -1104,6 +1104,19 @@ public static class WriteSurfaceGuardProbe
         Check("#324 fixture: a child creates into a patch, hosted on the parent's definer", path is not null, made);
         if (path is null) return;
 
+        // THE DRY-RUN SENTENCE FIRST, because it is the one a caller reads while DECIDING whether to proceed, and it
+        // is a different string from the one they read afterwards. Same rule as the live sentences: a message claim
+        // gets its own arm. dry_run runs the whole pipeline and stops before disk, so this leaves the patch alone.
+        var dryReplace = ForwardTools.Forward(fx.Svc, formids: new[] { fx.TopicFid }, source: fx.ReplacerName,
+            into: Path.GetFileName(path), dry_run: true);
+        Check("dry_run over a replace: the PREVIEW says the fields would go and the nested records would be KEPT",
+            dryReplace.Contains("the old FIELDS would be gone", StringComparison.Ordinal)
+            && dryReplace.Contains("1 record(s) nested under it would be KEPT", StringComparison.Ordinal)
+            && !dryReplace.Contains("the old body would be gone", StringComparison.Ordinal), dryReplace);
+        Check("…and it really was a preview: the child is still the only thing under the topic on disk",
+            ChildLinesIn(path, fx.TopicKey) is { Count: 1 } d && d.Contains("W324Line"),
+            string.Join(", ", ChildLinesIn(path, fx.TopicKey)));
+
         var inlined = ForwardTools.Forward(fx.Svc, formids: new[] { fx.TopicFid }, source: fx.ReplacerName,
             into: Path.GetFileName(path));
         Check("forward into= a patch that already carries the record is accepted",
@@ -1134,6 +1147,29 @@ public static class WriteSurfaceGuardProbe
         Check("…and the group holds exactly the destination's child — the SOURCE's own line did not come with it",
             after.Count == 1 && !after.Contains("W2WinnerLine") && !after.Contains("(unreadable)"),
             string.Join(", ", after));
+
+        // --- A CHILD AND ITS PARENT IN ONE CALL, on the fresh-patch lane where NOTHING is replaced. Spec 1 (the INFO)
+        //     materializes the topic in the patch to host itself; spec 2 (the topic) then copies onto a record the
+        //     CALL just created, carrying children the call just put there. A guard that infers "was this replaced?"
+        //     from the record's shape sees that as a copy arriving with children and refuses the whole write, telling
+        //     the caller to report a Mutagen bug — measured in round 2, introduced by round 1's own fold. The gate is
+        //     the capture FACT now, and this arm is what holds it there: nothing was dropped, so nothing is checked.
+        var pair = ForwardTools.Forward(fx.Svc, formids: new[] { fx.WinnerLineFid, fx.TopicFid },
+            source: fx.ReplacerName, patch: "W324Pair");
+        var pairPath = ArtifactPathFrom(fx, pair);
+        Check("a child and its parent forward in ONE call to a fresh patch — the call is not refused",
+            pairPath is not null && !pair.StartsWith("error:", StringComparison.Ordinal), pair);
+        Check("…and the child lands under its parent in the patch",
+            pairPath is not null && ChildLinesIn(pairPath, fx.TopicKey).Contains("W2WinnerLine"),
+            pairPath is null ? pair : $"children=[{string.Join(", ", ChildLinesIn(pairPath, fx.TopicKey))}]");
+        // …and the parent's own fields land too. This block sits ABOVE the in-place half deliberately: that half
+        // rewrites the replacer's topic to "Master Topic", and with it running first BOTH sides of this comparison
+        // read "Master Topic", so the assertion cannot tell a landed copy from a skipped one. Measured in that state
+        // it looked like a silent skip and was briefly filed as #333; the fixture was the bug, not the lane. Ordered
+        // this way the replacer still reads "Winner Topic" and the discriminator is real.
+        Check("…and the parent's own fields land too — the second spec is not skipped over a record the call created",
+            pairPath is not null && TopicNameIn(pairPath, fx.TopicKey) == "Winner Topic",
+            pairPath is null ? pair : $"name={TopicNameIn(pairPath, fx.TopicKey) ?? "unreadable"}");
 
         // --- THE WORSE HALF (in_place=): the destination is the caller's OWN plugin. The replacer owns the topic and
         //     a line under it; forwarding the MASTER's version in place must land the master's fields and leave the
@@ -1201,31 +1237,16 @@ public static class WriteSurfaceGuardProbe
             CellNameIn(replPath, fx.CellKey) == "Master Cell",
             $"{cellInPlace}  [cell name={CellNameIn(replPath, fx.CellKey) ?? "unreadable"}]");
 
-        // --- A CHILD AND ITS PARENT IN ONE CALL, on the fresh-patch lane where NOTHING is replaced. Spec 1 (the INFO)
-        //     materializes the topic in the patch to host itself; spec 2 (the topic) then copies onto a record the
-        //     CALL just created, carrying children the call just put there. A guard that infers "was this replaced?"
-        //     from the record's shape sees that as a copy arriving with children and refuses the whole write, telling
-        //     the caller to report a Mutagen bug — measured in round 2, introduced by round 1's own fold. The gate is
-        //     the capture FACT now, and this arm is what holds it there: nothing was dropped, so nothing is checked.
-        var pair = ForwardTools.Forward(fx.Svc, formids: new[] { fx.WinnerLineFid, fx.TopicFid },
-            source: fx.ReplacerName, patch: "W324Pair");
-        var pairPath = ArtifactPathFrom(fx, pair);
-        Check("a child and its parent forward in ONE call to a fresh patch — the call is not refused",
-            pairPath is not null && !pair.StartsWith("error:", StringComparison.Ordinal), pair);
-        Check("…and the child lands under its parent in the patch",
-            pairPath is not null && ChildLinesIn(pairPath, fx.TopicKey).Contains("W2WinnerLine"),
-            pairPath is null ? pair : $"children=[{string.Join(", ", ChildLinesIn(pairPath, fx.TopicKey))}]");
-        // NOT asserted, and measured rather than assumed: the parent's own FIELDS do not land here. The patch holds
-        // "Master Topic" — the definer's version that hosting the child materialized — while the call reports the
-        // topic forwarded from the replacer, whose version reads "Winner Topic". That is F1's silent-skip surviving
-        // on the lane that never populates alreadyCarried, so no replace happens and GetOrAdd's get-semantics keep
-        // the record already there. Pre-existing, in a path this branch does not touch (#333). Asserting it here
-        // would either fail a green guard or quietly widen this branch into another lane's fix.
-
         // --- A REPLACE OF A RECORD THAT OWNS NOTHING still reports honestly. The weapon has no child group, so the
         //     render must say the body is gone AND that there was nothing nested — "kept" and "nothing to keep" are
         //     different facts and a caller reverting a record needs to know which one they got.
         ForwardTools.Forward(fx.Svc, formids: new[] { fx.SubjectFid }, source: fx.MasterName, into: Path.GetFileName(path));
+        var dryFlat = ForwardTools.Forward(fx.Svc, formids: new[] { fx.SubjectFid }, source: fx.ReplacerName,
+            into: Path.GetFileName(path), dry_run: true);
+        Check("…and its dry-run twin says the same: the body would go, and there is nothing nested to keep",
+            dryFlat.Contains("the old body would be gone", StringComparison.Ordinal)
+            && dryFlat.Contains("carries no nested records", StringComparison.Ordinal)
+            && !dryFlat.Contains("would be KEPT", StringComparison.Ordinal), dryFlat);
         var flat = ForwardTools.Forward(fx.Svc, formids: new[] { fx.SubjectFid }, source: fx.ReplacerName,
             into: Path.GetFileName(path));
         Check("…and a replace of a record with NO children says so, rather than counting a preservation that was not one",
@@ -1244,6 +1265,30 @@ public static class WriteSurfaceGuardProbe
         Check("…and a captured one does, on the identical record and children",
             WriteEngine.RestoreChildGroup(gateSubject, WriteEngine.CaptureChildGroup(gateSubject) with { Held = Array.Empty<(PropertyInfo, object?)>(), Count = 9 }, "…")
                 is not null, "(accepted)");
+
+        // --- WORLDSPACE, the reason the walk recurses at all: SubCells reaches its cells through TWO non-record
+        //     container types, so it is the only pinned type whose re-attach crosses more than one level. Exercised
+        //     directly rather than through a lane — a worldspace forward needs an exterior block/subblock fixture,
+        //     and what is unproven without this is the RE-ATTACH, not the lane. Stated plainly so the gap is not
+        //     mistaken for coverage: no end-to-end forward of a WRLD is measured here (its failure mode is bounded —
+        //     a count mismatch refuses, it does not lose records).
+        var wrld = new Worldspace(FormKey.Factory("123470:HcW2Master.esm"), SkyrimRelease.SkyrimSE);
+        wrld.TopCell = new Cell(FormKey.Factory("123471:HcW2Master.esm"), SkyrimRelease.SkyrimSE) { EditorID = "W324Top" };
+        var wSub = new WorldspaceSubBlock { BlockNumberX = 0, BlockNumberY = 0, GroupType = GroupTypeEnum.ExteriorCellSubBlock };
+        wSub.Items.Add(new Cell(FormKey.Factory("123472:HcW2Master.esm"), SkyrimRelease.SkyrimSE) { EditorID = "W324Ext" });
+        var wBlock = new WorldspaceBlock { BlockNumberX = 0, BlockNumberY = 0, GroupType = GroupTypeEnum.ExteriorCellBlock };
+        wBlock.Items.Add(wSub);
+        wrld.SubCells.Add(wBlock);
+
+        var wCarry = WriteEngine.CaptureChildGroup(wrld);
+        var wFresh = new Worldspace(wrld.FormKey, SkyrimRelease.SkyrimSE);
+        var wRefusal = WriteEngine.RestoreChildGroup(wFresh, wCarry, "…");
+        Check("Worldspace: the capture sees BOTH the top cell and the exterior cell two containers down",
+            wCarry.Count == 2, $"count={wCarry.Count} names=[{string.Join(", ", wCarry.Names)}]");
+        Check("…and the re-attach restores both onto a fresh copy, with the count balancing",
+            wRefusal is null && wFresh.TopCell?.EditorID == "W324Top"
+            && wFresh.SubCells.SelectMany(b => b.Items).SelectMany(sb => sb.Items).Any(c => c.EditorID == "W324Ext"),
+            wRefusal ?? $"top={wFresh.TopCell?.EditorID ?? "(none)"} subcells={wFresh.SubCells.Count}");
 
         // --- THE REFLECTED CHILD SET, PINNED. RestoreChildGroup re-attaches by walking properties that can REACH an
         //     owned record; its by-construction count check catches a path the walk cannot see, but only at call time,
