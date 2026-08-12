@@ -40,6 +40,8 @@ A session picking up work reads:
 
 **Sub-project sessions.** Some work runs as a self-contained sub-project under `dev/projects/<name>/` (its own tracking, walled off from the main gap/bug/release lane — see `dev/projects/README.md`). If a session is for one, the user will name it ("the follower skill", "the `<name>` project"); then read `dev/projects/<name>/STATUS.md` **instead of** the latest `dev/session-handoffs/` handoff (item 2), and stay in that lane. Absent that, boot normally — the default is unchanged.
 
+**Advisor sessions.** `dev/advisor/` is a project-wide judgment lane (created 2026-08-12): fresh Fable-class sessions that render recommendations on escalations, review the reviews, and translate for Aaron — advisory only, Aaron decides, and the session never builds or holds a worktree. If a session is named as one ("advisor session", "the judgment seat"), boot per `dev/advisor/README.md` instead of items 2–3. Build sessions interact with the lane only through Aaron — an escalation goes to him, and he may bring back its ruling.
+
 The cornerstones (§3) and revalidation protocol (§4) are restated in this file, so you operate correctly from CLAUDE.md alone — the corpus is the authority you re-read when the protocol sends you there, not a tax every session pays.
 
 ---
