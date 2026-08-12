@@ -1559,7 +1559,11 @@ public sealed class LoadOrderService : IDisposable
         // is the same VFS lane pointed at the destination path. The last two share one code path because they are
         // one question ("which provider supplies this Data-relative path") asked about different paths.
         byte[] bytes; string sourceDesc;
-        var explicitSrc = req.Source?.Trim();
+        // ONE normalization point for source=, ahead of BOTH the classification and every consumer. IsVfsSource used
+        // to trim quotes to decide and the VFS lane then resolved the un-trimmed string, so a quoted Data-relative
+        // source classified one way and was read another — refused as "nothing provides '"meshes\…"'" for a path two
+        // mods supplied. Whatever trimming the routing decision depends on has to have happened before this line.
+        var explicitSrc = NormalizeSourceArg(req.Source);
         var providerSel = req.SourceProvider?.Trim();
         if (!string.IsNullOrEmpty(explicitSrc) && !IsVfsSource(explicitSrc!))
         {
@@ -1588,7 +1592,7 @@ public sealed class LoadOrderService : IDisposable
             if (pick.Verdict == AssetSourceVerdict.NamedAbsent)
                 return PlaceResult.Fail(rel, WriteSentences.PlaceSourceNamedAbsent(providerSel!, srcRel, pick.ProviderNames), winner);
             if (pick.Verdict == AssetSourceVerdict.Ambiguous)
-                return PlaceResult.Fail(rel, WriteSentences.PlaceSourceAmbiguous(srcRel, pick.ProviderNames), winner);
+                return PlaceResult.Fail(rel, WriteSentences.PlaceSourceAmbiguous(srcRel, pick.ProviderNames, !pick.TokenNameTaken), winner);
             if (pick.Verdict == AssetSourceVerdict.NoProvider && sourceNamed)
                 return PlaceResult.Fail(rel,
                     $"nothing in the active load order provides the source '{srcRel}'."
@@ -1650,20 +1654,21 @@ public sealed class LoadOrderService : IDisposable
 
     /// <summary>Read an ON-DISK source= the caller named exactly. Forms: "&lt;archive.bsa&gt;|&lt;entry&gt;" (a specific
     /// BSA entry, split on the FIRST '|'); a path ending ".bsa" (the entry is the destination rel-path — the FaceGen
-    /// case, where the entry inside the BSA IS the Data-relative path); a ROOTED path (a loose file on disk). A
-    /// Data-relative source never reaches here — <see cref="IsVfsSource"/> routes it to the VFS lane, which is the one
+    /// case, where the entry inside the BSA IS the Data-relative path); a FULLY-QUALIFIED path (a loose file on disk).
+    /// A Data-relative source never reaches here — <see cref="IsVfsSource"/> routes it to the VFS lane, which is the one
     /// that can say which provider's copy. Returns the bytes + a human description, or a NAMED error (Q3) for a
     /// missing file / missing entry / unreadable archive.</summary>
     static (byte[]? bytes, string? desc, string? error) ReadExplicitSource(string source, string destRel)
     {
-        source = source.Trim();
+        // The whole-string trim + unquote happened in NormalizeSourceArg, ahead of the routing decision. The per-PART
+        // trims below are a different job and stay: each side of a '<archive>|<entry>' pair can carry its own quotes
+        // ("C:\X - Textures.bsa"|"meshes\y.nif"), which no whole-string normalization can reach. Re-trimming the whole
+        // string here would be harmless but would put a second spelling of "what the source is" in the file, and one
+        // spelling is the point (a quoted ".bsa" that kept its quotes would route as a loose file and place the WHOLE
+        // archive as the asset — a silent-wrong placement that passes the size check).
         int bar = source.IndexOf('|');
         if (bar >= 0)
             return ReadBsaEntry(source[..bar].Trim().Trim('"'), source[(bar + 1)..].Trim().Trim('"'));
-        // Strip surrounding quotes BEFORE the .bsa-vs-loose routing decision (NOT inside each branch): a quoted ".bsa"
-        // path ends in '"' not ".bsa", so routing on the raw string would read the WHOLE archive as a loose file and
-        // place it as the asset — a silent-wrong placement that passes the size check (Q3). The ONE trim point.
-        source = source.Trim('"');
         if (source.EndsWith(".bsa", StringComparison.OrdinalIgnoreCase))
             return ReadBsaEntry(source, destRel);                        // .bsa with no explicit entry → entry := the destination path
         string path;
@@ -1710,17 +1715,30 @@ public sealed class LoadOrderService : IDisposable
     /// <summary>A human label for the current winner (the sort target). "ModX (loose)" / "Y.bsa (BSA)".</summary>
     static string DescribeSource(PlacementSource s) => $"{s.ProviderName} ({(s.Kind == AssetKind.Bsa ? "BSA" : "loose")})";
 
+    /// <summary>The ONE normalization of a caller's source= — trim, then strip surrounding quotes — applied before
+    /// the routing decision and before every consumer, so no two of them can disagree about what the string is.
+    /// Blank becomes null (the "no source" lane) rather than an empty path nobody can resolve.</summary>
+    static string? NormalizeSourceArg(string? source)
+    {
+        var s = source?.Trim();
+        if (string.IsNullOrEmpty(s)) return null;
+        s = s.Trim('"').Trim();
+        return string.IsNullOrEmpty(s) ? null : s;
+    }
+
     /// <summary>Does this source= name a copy through the VFS (a Data-relative path) rather than one exact file on
-    /// disk? The three on-disk forms are checked FIRST and in the same order <see cref="ReadExplicitSource"/> routes
-    /// them, quotes trimmed the same way — the two must agree on every input, or a source would be classified as one
-    /// shape here and read as the other there.</summary>
+    /// disk? Expects an already-<see cref="NormalizeSourceArg"/>d string. The on-disk forms are tested in the same
+    /// order <see cref="ReadExplicitSource"/> routes them.
+    /// <para>FULLY-QUALIFIED, not merely rooted: on Windows <c>Path.IsPathRooted</c> is true for a leading '\' or
+    /// '/', but <c>AssetResolver.Normalize</c> trims exactly those, so <c>\meshes\…</c> is a legal Data-relative
+    /// path as a DESTINATION. Reading it as on-disk made one spelling mean two different things in a single call —
+    /// and sent it to Path.GetFullPath against the process CWD, the round-trip this lane exists to end. A path is
+    /// on-disk when it names a volume (<c>C:\…</c>) or a UNC share, and not before.</para></summary>
     static bool IsVfsSource(string source)
     {
-        var s = source.Trim();
-        if (s.IndexOf('|') >= 0) return false;                           // '<archive.bsa>|<entry>'
-        s = s.Trim('"');
-        if (s.EndsWith(".bsa", StringComparison.OrdinalIgnoreCase)) return false;
-        return !Path.IsPathRooted(s);                                    // rooted ⇒ a loose file on disk; else Data-relative
+        if (source.IndexOf('|') >= 0) return false;                      // '<archive.bsa>|<entry>'
+        if (source.EndsWith(".bsa", StringComparison.OrdinalIgnoreCase)) return false;
+        return !Path.IsPathFullyQualified(source);
     }
 
     /// <summary>Whole-order stats (forces the lazy build). For the server's stand-up / health check.</summary>

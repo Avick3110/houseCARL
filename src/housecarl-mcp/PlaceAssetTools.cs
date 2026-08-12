@@ -49,7 +49,7 @@ public static class PlaceAssetTools
             string? asset_path = null,
         [Description("Optional. The copy to place: a DATA-RELATIVE path (resolved through the VFS — use source_provider= to say whose copy, and note that a source path DIFFERENT from the destination is a rename); or a full loose file path; or '<archive.bsa path>|<entry inside>'; or just a '.bsa' path (the entry is taken to be the destination path). If omitted, the destination path is resolved through the VFS instead.")]
             string? source = null,
-        [Description("Optional (with a Data-relative source=, or with no source=). Whose copy to read: a mod folder / overwrite / 'Data' / a BSA filename, spelled as housecarl_asset_status renders it — or 'winner' for whichever copy currently wins the VFS. Omitted = the sole provider, refused if more than one contends. A named provider that doesn't supply the path is refused, never silently replaced by another.")]
+        [Description("Optional (with a Data-relative source=, or with no source=). Whose copy to read: the provider's NAME ALONE — a mod folder name, 'overwrite', 'Data', or a BSA filename like 'X - Textures.bsa' — or 'winner' for whichever copy currently wins the VFS. housecarl_asset_status shows the same names with a kind annotation after them ('SomeMod (loose)'); pass only the name, not the annotation. Omitted = the sole provider, refused if more than one contends. A named provider that doesn't supply the path is refused, never silently replaced by another.")]
             string? source_provider = null,
         [Description("Optional. Base name for the NEW houseCARL mod folder the file lands in (default 'houseCARL_Assets'); auto-suffixed if taken.")]
             string? patch_name = null,
@@ -66,7 +66,7 @@ public static class PlaceAssetTools
      Description(
          "Place MANY asset files in ONE houseCARL-owned MO2 mod folder — the batch form of housecarl_place_asset (place " +
          "several overrides at once; or, for an NPC, its FaceGen mesh AND tint together). assets is an array of " +
-         "{ formid?, kind?, asset_path?, source? }: give EITHER asset_path (any Data-relative path) OR formid (an NPC " +
+         "{ formid?, kind?, asset_path?, source?, source_provider? }: give EITHER asset_path (any Data-relative path) OR formid (an NPC " +
          "FormID — omit kind to place BOTH the FaceGen mesh and the tint; or set kind='mesh'/'tint' for just one). source " +
          "is the copy to place (a Data-relative path resolved through the VFS — source_provider names whose copy — a full " +
          "loose file path, '<archive.bsa>|<entry>', or a '.bsa' path); omit it to resolve the destination path instead " +
@@ -231,7 +231,8 @@ static class PlaceWire
 }
 
 /// <summary>One asset to place off the wire (housecarl_bulk_place_asset). Mirrors the scalar args of
-/// housecarl_place_asset: a FormID (+ optional slot) or a raw destination path, and the optional source.</summary>
+/// housecarl_place_asset: a FormID (+ optional slot) or a raw destination path, the optional source, and the
+/// optional source-provider pole that says whose copy of a VFS-resolved source to read.</summary>
 public sealed record PlaceAssetSpec
 {
     [JsonPropertyName("formid"), Description("The NPC's FormID 'XXXXXX:Plugin.esp' — houseCARL computes the FaceGen path. Omit kind to place BOTH the mesh and the tint. Provide this OR asset_path.")]
@@ -246,6 +247,6 @@ public sealed record PlaceAssetSpec
     [JsonPropertyName("source"), Description("The copy to place: a Data-relative path (resolved through the VFS; different from the destination = a rename), a full loose file path, '<archive.bsa>|<entry>', or a '.bsa' path. Omit to resolve the destination path through the VFS. With formid and no kind, an explicit source must be a bare '.bsa' path.")]
     public string? Source { get; init; }
 
-    [JsonPropertyName("source_provider"), Description("Whose copy to read for a VFS-resolved source: a mod folder / overwrite / 'Data' / a BSA filename as asset_status renders it, or 'winner' for the current VFS winner. Omit for the sole provider (contention is refused). Not valid with an on-disk source.")]
+    [JsonPropertyName("source_provider"), Description("Whose copy to read for a VFS-resolved source: the provider's NAME ALONE (a mod folder, 'overwrite', 'Data', or a BSA filename) — not asset_status's ' (loose)' / ' (BSA)' annotation — or 'winner' for the current VFS winner. Omit for the sole provider (contention is refused). Not valid with an on-disk source.")]
     public string? SourceProvider { get; init; }
 }

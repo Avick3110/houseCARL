@@ -518,6 +518,58 @@ public static class NpcCopyProbe
                 Check(!Directory.Exists(Path.Combine(mods, "houseCARL - houseCARL_NpcCopy")),
                     "refusal: no orphan patch folder is left behind (hunt F4)");
             }
+
+            // ================= 4. the asset carry reads the VFS WINNER on a CONTENDED path =================
+            // CarryAll picks its source through the shared S2 source policy under the WINNER pole. Nothing pinned
+            // that pole: swapping it for the sole-provider pole left this guard green, because every other fixture
+            // here has exactly one provider per path — and under sole-provider a contended path yields no source at
+            // all, so the carry silently falls through to the donor-disk lane and reports the facegen MISSING. That
+            // is a silent degradation on precisely the load orders where a replacer contends, which is also the
+            // shape the successor flow deliberately diverges from (it reads the NAMED donor, not the winner).
+            {
+                var carryRoot = Path.Combine(root, "carry-pole");
+                var cMods = Path.Combine(carryRoot, "mods");
+                var cData = Path.Combine(carryRoot, "data");
+                var cOver = Path.Combine(carryRoot, "overwrite");
+                foreach (var d in new[] { cMods, cData, cOver }) Directory.CreateDirectory(d);
+
+                var carryDonorKey = new ModKey("CarryDonor", ModType.Plugin);
+                var donorNpc = new FormKey(carryDonorKey, 0xD40);
+                var newNpc = new FormKey(new ModKey("CarryPatch", ModType.Plugin), 0x800);
+                var meshRel = FaceGenPath.For(donorNpc, FaceGenSlot.Mesh);
+
+                // TWO providers of the donor's facegen mesh: the donor's own mod, and a replacer above it.
+                var carryDonorDir = Path.Combine(cMods, "CarryDonorMod");
+                var replacer = Path.Combine(cMods, "CarryReplacer");
+                var donorBytes = System.Text.Encoding.ASCII.GetBytes("donor-face\0");
+                var winBytes = System.Text.Encoding.ASCII.GetBytes("replacer-face\0");
+                foreach (var (dir, bytes) in new[] { (carryDonorDir, donorBytes), (replacer, winBytes) })
+                {
+                    var p = Path.Combine(dir, meshRel);
+                    Directory.CreateDirectory(Path.GetDirectoryName(p)!);
+                    File.WriteAllBytes(p, bytes);
+                }
+
+                // Mod NAMES, highest priority FIRST (AssetResolver.Build's contract) — so the replacer wins.
+                var enabled = new[] { "CarryReplacer", "CarryDonorMod" };
+                using var res = AssetResolver.Build(cOver, cMods, cData, enabled, Array.Empty<ActiveArchive>());
+                var view = res.Capture();
+                var resolved = view.Resolve(meshRel);
+                Check(resolved.Providers.Count == 2 && resolved.Winner?.Source == "CarryReplacer",
+                    $"carry fixture is genuinely contended and the replacer wins — {resolved.Providers.Count} providers, winner={resolved.Winner?.Source}");
+
+                var outDir = Path.Combine(carryRoot, "out");
+                Directory.CreateDirectory(outDir);
+                var outcome = NpcAppearanceAssets.CarryAll(
+                    donorNpc, newNpc, Array.Empty<string>(), view,
+                    Array.Empty<NpcAppearanceAssets.DonorDisk>(), new[] { "CarryDonorMod" }, outDir);
+
+                var carriedPath = Path.Combine(outDir, FaceGenPath.For(newNpc, FaceGenSlot.Mesh));
+                Check(outcome.FaceGenMeshCarried && File.Exists(carriedPath),
+                    $"the facegen mesh is carried to the NEW FormID path even though the donor is not the winner — carried={outcome.FaceGenMeshCarried}, missing={outcome.Missing.Count}");
+                Check(File.Exists(carriedPath) && File.ReadAllBytes(carriedPath).SequenceEqual(winBytes),
+                    "…and the bytes are the WINNER's, not the donor mod's — the pole this lane deliberately keeps  [RED arm]");
+            }
         }
         finally
         {

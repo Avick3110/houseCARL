@@ -242,14 +242,17 @@ internal static class WriteSentences
     [MustState("will not guess which copy is correct")]
     internal const string PlaceSourceWillNotGuess = "houseCARL will not guess which copy is correct";
 
-    /// <summary>Contended source, no pole named. Lists the providers by NAME — the spelling <c>asset_status</c>
-    /// renders and the spelling <c>source_provider=</c> takes back, so the refusal hands the caller its own next
-    /// call. Deliberately NOT the on-disk paths: a path round-tripped through the caller can go stale between the
-    /// resolve and the read, and the whole point of naming a provider is that it cannot.</summary>
-    internal static string PlaceSourceAmbiguous(string rel, IReadOnlyList<string> providerNames) =>
+    /// <summary>Contended source, no pole named. Lists the providers by NAME, each QUOTED — the quoted half is
+    /// literally what <c>source_provider=</c> takes back, so the refusal hands the caller its own next call.
+    /// Deliberately NOT the on-disk paths: a path round-tripped through the caller can go stale between the resolve
+    /// and the read, and the whole point of naming a provider is that it cannot.
+    /// <para><paramref name="winnerTokenFree"/> false ⇒ a provider is itself called "winner", so the token remedy is
+    /// withheld rather than offered — advising an input the very next call refuses is the defect this parameter
+    /// exists to stop, and it was shipping.</para></summary>
+    internal static string PlaceSourceAmbiguous(string rel, IReadOnlyList<string> providerNames, bool winnerTokenFree) =>
         $"{providerNames.Count} providers supply '{rel}' — {PlaceSourceWillNotGuess}. "
-      + $"Name one with source_provider=: {string.Join("; ", providerNames)} "
-      + "(or source_provider=winner for whichever copy currently wins the VFS).";
+      + $"Pass source_provider= one of these names, quotes excluded: {string.Join("; ", providerNames)}"
+      + (winnerTokenFree ? ", or source_provider=winner for whichever copy currently wins the VFS." : ".");
 
     /// <summary>Why a named-provider miss is a refusal and not a fallback. The hazard is silent substitution: a
     /// mistyped mod name that quietly read some OTHER mod's copy would place bytes the caller never chose, and the
@@ -258,16 +261,25 @@ internal static class WriteSentences
     internal const string PlaceSourceNoSubstitute =
         "nothing was substituted for it — the providers below still supply it, and one of them is what you meant if the name is a typo";
 
-    /// <summary>The named provider does not supply this path (others may).</summary>
+    /// <summary>The named provider does not supply this path (others may). The list is the same quoted-name spelling
+    /// the ambiguity refusal uses, and for the same reason — this is the caller's next call, not a display.</summary>
     internal static string PlaceSourceNamedAbsent(string provider, string rel, IReadOnlyList<string> providerNames) =>
-        $"'{provider}' does not supply '{rel}', so {PlaceSourceNoSubstitute}: {string.Join("; ", providerNames)}.";
+        $"'{provider}' does not supply '{rel}', so {PlaceSourceNoSubstitute} — pass one of these names instead, "
+      + $"quotes excluded: {string.Join("; ", providerNames)}.";
 
     /// <summary>The one case where the reserved token and a real mod folder collide. Reading either would be a
-    /// guess, so both are refused and the caller is sent to the form that cannot be ambiguous.</summary>
-    [MustState("is itself named", "which of the two you meant")]
+    /// guess, so both are refused and the caller is sent to a form that cannot be ambiguous — the IN-TOOL route
+    /// first (asset_status names the winner; that name is a selector), with the on-disk form kept as the fallback
+    /// for a caller who has the file in front of them.
+    /// <para>The pinned phrase is the one that cannot survive the sentence being negated: a sentence saying the
+    /// token IS unambiguous still contains "is itself named", which is a topic, not a claim.</para></summary>
+    [MustState("cannot say which of the two you meant")]
     internal const string PlaceSourceWinnerCollision =
         "a provider in your load order is itself named 'winner', so source_provider=winner cannot say which of the two you meant. "
-      + "Pass that copy directly with source= (a full loose path, or '<archive.bsa>|<entry>').";
+      + "To take whichever copy currently wins, read the winning provider's name from housecarl_asset_status and pass THAT "
+      + "as source_provider= — which resolves it whenever the winner is some other mod. To take the mod called 'winner' "
+      + "itself, name its file directly with source= (a full loose path, or '<archive.bsa>|<entry>'): the token shadows "
+      + "that mod's name, so no selector can address it.";
 
     /// <summary>A pole named against a source that is already one exact file. Q3 — an input that cannot apply is
     /// said, never dropped: silently ignoring it would let a caller believe a provider was honoured.</summary>

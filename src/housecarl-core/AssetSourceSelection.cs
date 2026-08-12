@@ -74,18 +74,26 @@ public enum AssetSourceVerdict
 
 /// <summary>The outcome of a pick. <see cref="Source"/> is non-null iff <see cref="Verdict"/> is
 /// <see cref="AssetSourceVerdict.Selected"/>. <see cref="ProviderNames"/> is every contending provider as
-/// <c>asset_status</c> renders it ("ModX (loose)" / "Y.bsa (BSA)") — NAMES, never on-disk paths — so a caller's
-/// refusal can list the real choices without teaching path round-tripping.</summary>
+/// <see cref="AssetSourceSelection.Describe"/> spells it — NAMES, never on-disk paths — so a caller's refusal can
+/// list the real choices without teaching path round-tripping. <see cref="TokenNameTaken"/> reports whether one of
+/// those providers is itself called <see cref="AssetSourceChoice.WinnerToken"/>, which is the one condition under
+/// which a refusal must NOT offer that token as a remedy.</summary>
 public sealed record AssetSourcePick(
     AssetSourceVerdict Verdict,
     PlacementSource? Source,
-    IReadOnlyList<string> ProviderNames);
+    IReadOnlyList<string> ProviderNames,
+    bool TokenNameTaken);
 
 public static class AssetSourceSelection
 {
-    /// <summary>How one provider is NAMED to a caller — the same spelling <c>asset_status</c> renders, because a
-    /// refusal that lists providers is telling the caller what to pass back as the selector.</summary>
-    public static string Describe(PlacementSource s) => $"{s.ProviderName} ({(s.Kind == AssetKind.Bsa ? "BSA" : "loose")})";
+    /// <summary>How one provider is NAMED to a caller. The name is QUOTED and the kind sits outside the quotes,
+    /// because this string is not decoration — a refusal that lists providers is handing the caller the value to
+    /// pass back as the selector, and <see cref="Select"/> matches the bare <see cref="PlacementSource.ProviderName"/>.
+    /// The first spelling of this ran the two together as <c>ModA (loose)</c>, so copying the message verbatim
+    /// produced a name no pole could match and a second refusal calling the caller's copy a typo. The quotes are
+    /// the boundary that makes the token unambiguous; a round-trip arm in place-asset-guard feeds these strings
+    /// back through the real tool and is what keeps the claim true.</summary>
+    public static string Describe(PlacementSource s) => $"'{s.ProviderName}' ({(s.Kind == AssetKind.Bsa ? "BSA" : "loose")})";
 
     /// <summary>Pick the provider to read from, under <paramref name="choice"/>'s pole. Pure: no I/O, no bytes, no
     /// message. Every refusal verdict carries the provider names so the caller can render its own.</summary>
@@ -94,8 +102,16 @@ public static class AssetSourceSelection
         var names = new List<string>(res.Sources.Count);
         foreach (var s in res.Sources) names.Add(Describe(s));
 
+        // Computed for EVERY verdict, not just the winner pole's: the ambiguity refusal offers "or source_provider=
+        // winner" as a remedy, and on a load order carrying a mod of that name the remedy is one the next call
+        // refuses. The fact belongs to the resolution, so it is reported once here rather than re-derived per caller.
+        bool tokenTaken = false;
+        foreach (var s in res.Sources)
+            if (string.Equals(s.ProviderName, AssetSourceChoice.WinnerToken, StringComparison.OrdinalIgnoreCase))
+                { tokenTaken = true; break; }
+
         if (res.Sources.Count == 0)
-            return new AssetSourcePick(AssetSourceVerdict.NoProvider, null, names);
+            return new AssetSourcePick(AssetSourceVerdict.NoProvider, null, names, tokenTaken);
 
         switch (choice.Pole)
         {
@@ -103,25 +119,23 @@ public static class AssetSourceSelection
                 // The token collision: only reachable when the pole came off the wire as the literal "winner" AND a
                 // provider really carries that name. Refusing is the Q3 call — either reading would be a silent guess
                 // at which of the two the caller meant.
-                if (choice.Spelling is not null)
-                    foreach (var s in res.Sources)
-                        if (string.Equals(s.ProviderName, choice.Spelling, StringComparison.OrdinalIgnoreCase))
-                            return new AssetSourcePick(AssetSourceVerdict.WinnerTokenCollision, null, names);
-                return new AssetSourcePick(AssetSourceVerdict.Selected, res.Sources[0], names);
+                if (choice.Spelling is not null && tokenTaken)
+                    return new AssetSourcePick(AssetSourceVerdict.WinnerTokenCollision, null, names, tokenTaken);
+                return new AssetSourcePick(AssetSourceVerdict.Selected, res.Sources[0], names, tokenTaken);
 
             case AssetSourcePole.Named:
                 foreach (var s in res.Sources)
                     if (string.Equals(s.ProviderName, choice.Spelling ?? "", StringComparison.OrdinalIgnoreCase))
-                        return new AssetSourcePick(AssetSourceVerdict.Selected, s, names);
-                return new AssetSourcePick(AssetSourceVerdict.NamedAbsent, null, names);
+                        return new AssetSourcePick(AssetSourceVerdict.Selected, s, names, tokenTaken);
+                return new AssetSourcePick(AssetSourceVerdict.NamedAbsent, null, names, tokenTaken);
 
             default:
                 // Sole-provider: contention is the caller's call, not ours. Counted off Sources rather than read off
                 // PlacementResolution.Ambiguous so the pick depends on one fact (how many providers there are) —
                 // the flag means the same thing today, and this way it cannot drift into meaning something else.
                 return res.Sources.Count == 1
-                    ? new AssetSourcePick(AssetSourceVerdict.Selected, res.Sources[0], names)
-                    : new AssetSourcePick(AssetSourceVerdict.Ambiguous, null, names);
+                    ? new AssetSourcePick(AssetSourceVerdict.Selected, res.Sources[0], names, tokenTaken)
+                    : new AssetSourcePick(AssetSourceVerdict.Ambiguous, null, names, tokenTaken);
         }
     }
 }
