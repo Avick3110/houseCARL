@@ -12,7 +12,23 @@ namespace HousecarlMcp;
 /// second copy of the sentence in a probe.</para>
 ///
 /// <para>Phrases are the CLAIM, not the wording — the part whose loss changes what the caller is told. Rewording
-/// around them is free; deleting them is not.</para></summary>
+/// around them is free; deleting them is not.</para>
+///
+/// <para><b>The norm for picking one</b> (Aaron, PR #337 review): <i>a phrase carries the hazard or the action; a
+/// phrase that survives its sentence's negation is not a claim.</i> Two ways to get it wrong, both found in the
+/// first set written here. A bare token — <c>"grid-occupancy"</c>, <c>"into="</c> — is satisfied by any sentence
+/// that merely mentions the topic, so the sentence can be rewritten to say the opposite and still pass. And a lone
+/// common word — <c>"overwritten"</c> — cannot tell "was overwritten" from "was NOT overwritten". Pick the span
+/// that DISAPPEARS when the sentence stops being true: the imperative (<c>"do NOT re-issue this call"</c>), the
+/// consequence (<c>"prior contents discarded"</c>), or the negated form spelled out (<c>"does NOT check
+/// grid-occupancy"</c>).</para>
+///
+/// <para><b>This norm is for the AUTHOR, and deliberately not a rule the checker enforces.</b> Deciding whether a
+/// phrase is a claim is judgment, and judgment inside a comparator is #308's shape — the thing this project already
+/// killed once, where a verdict layer kept telling callers to re-issue writes that had landed. The checker does a
+/// substring test and nothing else; it is a backstop against a sentence being emptied, never an assessment of
+/// whether the sentence is any good. If a future round proposes teaching it to grade phrase quality, that is the
+/// same mistake wearing new clothes: the answer is a better phrase, not a smarter check.</para></summary>
 [AttributeUsage(AttributeTargets.Field)]
 internal sealed class MustStateAttribute : Attribute
 {
@@ -47,8 +63,12 @@ internal sealed class MustStateAttribute : Attribute
 /// string serves both lanes.</para>
 ///
 /// <para>Sentences that are prose on ONE transport by design — the in-place hazard, which json states as
-/// <c>lane:"in_place"</c> plus typed flags — live directly on this class rather than in <see cref="Twins"/>.
-/// They are still single-sourced (the text renders repeat them per verb), they are just not parity-checkable.</para>
+/// <c>lane:"in_place"</c> plus typed flags — live directly on this class rather than in <see cref="Twins"/>,
+/// because per-LANE coverage is not a claim that can be made about them. They still carry
+/// <see cref="MustStateAttribute"/>, and the guard's content check walks THIS class as well as <c>Twins</c>: the
+/// in-place hazard is the loudest sentence on the surface and this change made it a single token, so leaving it
+/// outside the net meant one edit could silently strip it from all five in-place renders at once (PR #337 review,
+/// finding 1). Coverage of those is asserted directly by the lane arm instead.</para>
 /// </summary>
 internal static class WriteSentences
 {
@@ -81,15 +101,18 @@ internal static class WriteSentences
     /// nothing kept back. Repeated by every text write render (apply / create / remove / forward / compact), which
     /// is exactly why it is here: the create render's copy had already lost "was rewritten", so the loudest
     /// response on the surface said something weaker than its four siblings for no reason anyone chose.</summary>
+    [MustState("your ORIGINAL file was rewritten", "no houseCARL backup or undo")]
     internal const string InPlaceRewritten = "your ORIGINAL file was rewritten; " + NoBackupOrUndo;
 
     /// <summary>The same hazard in the tense a DRY RUN needs — it has not happened yet. Two spellings because the
     /// tense really does differ; ONE source for the clause that carries the weight, so the half a caller acts on
     /// cannot go missing from one of them.</summary>
+    [MustState("your ORIGINAL file rewritten", "no houseCARL backup or undo")]
     internal const string InPlaceWouldRewrite = "your ORIGINAL file rewritten; " + NoBackupOrUndo;
 
     /// <summary>What makes the in-place lane the lane it is: houseCARL keeps nothing to undo it with. Every
     /// sentence that mentions the rewrite is built on this rather than repeating it.</summary>
+    [MustState("no houseCARL backup or undo")]
     internal const string NoBackupOrUndo = "no houseCARL backup or undo";
 
     /// <summary>The mod-folder line for an IN-PLACE write: the target is a mod the user already runs, so there is
@@ -218,7 +241,7 @@ internal static class WriteSentences
         /// <summary>The grid-occupancy seam, declared rather than silently unchecked. Both lanes carried this and
         /// the json copy had lost "(engine behavior undefined)" — the clause that tells a caller the failure is not
         /// a houseCARL limitation they can work around by trying again.</summary>
-        [MustState("grid-occupancy", "engine behavior undefined", "OVERRIDE it instead of creating a new one")]
+        [MustState("does NOT check grid-occupancy", "engine behavior undefined", "OVERRIDE it instead of creating a new one")]
         internal const string GridOccupancy =
             "houseCARL does NOT check grid-occupancy — a NEW exterior cell at a grid your load order already fills "
           + "collides (engine behavior undefined). To change an existing cell, OVERRIDE it instead of creating a new one.";
@@ -227,7 +250,7 @@ internal static class WriteSentences
         /// are safe to re-ask for — a repeated remove is refused, a repeated forward re-copies identical bodies —
         /// but a repeated create ALLOCATES AGAIN, and the trap does not care which transport asked. Both lanes
         /// carry this; the text copy used to state it in four words and the json copy in forty.</summary>
-        [MustState("allocates the records AGAIN", "into=")]
+        [MustState("do NOT re-issue this call", "second full patch", "prior contents discarded")]
         internal const string CreateReissueTrap =
             "do NOT re-issue this call to see the rest: a repeated create allocates the records AGAIN (on the "
           + "default lane patch= auto-suffixes into a second full patch; under into= each record is re-created at "
@@ -266,7 +289,7 @@ internal static class WriteSentences
           + "you named that file may have been the mod's own shipped .seq.";
 
         /// <summary>The ordinary regenerate: houseCARL's own earlier output in its own folder, overwritten.</summary>
-        [MustState("overwritten")]
+        [MustState("was overwritten", "houseCARL's own earlier output")]
         internal const string SeqReplacedOwnFolder =
             "the previous .seq in that houseCARL folder was overwritten (houseCARL's own earlier output — the "
           + "ordinary regenerate case).";
@@ -275,7 +298,7 @@ internal static class WriteSentences
         /// newer than the plugin. validate_dialogue lints the .seq the VFS serves, which is this one only if this
         /// folder wins the SEQ\ conflict — so the sentence says what was done and what it is for, and does not
         /// promise a verdict from a tool that resolves its input differently.</summary>
-        [MustState("stamped forward", "contents untouched", "housecarl_validate_dialogue", "no longer reads")]
+        [MustState("has been stamped forward", "contents untouched", "housecarl_validate_dialogue's SEQ staleness check", "no longer reads")]
         internal const string SeqTimestampRefreshed =
             "its mtime was older than the plugin and has been stamped forward (contents untouched); "
           + "housecarl_validate_dialogue's SEQ staleness check compares those two mtimes, so this file no longer reads "
@@ -283,14 +306,14 @@ internal static class WriteSentences
 
         /// <summary>No start-game-enabled quests: a .seq lists only SGE quests, so none is needed and nothing was
         /// written. Never a silent empty file, never a misleading "done".</summary>
-        [MustState("NOTHING was written", "Start Game Enabled")]
+        [MustState("NOTHING was written", "lists only quests with the Start Game Enabled flag")]
         internal const string SeqNoQuests =
             "a .seq lists only quests with the Start Game Enabled flag, so none is needed and NOTHING was written";
 
         /// <summary>The absent §2.1.1 stamp, stated as a fact with its reason. A .seq is derived from the plugin
         /// FILE alone, so nothing here consulted a load-order build — an absent epoch line and a DROPPED one are
         /// otherwise the same observable.</summary>
-        [MustState("load-order-independent", "not a dropped field")]
+        [MustState("consulted no load-order build", "not a dropped field")]
         internal const string SeqNoEpoch =
             "a .seq is derived from the plugin FILE alone (its FormID encoding is load-order-independent), so this "
           + "call consulted no load-order build — the absent stamp is a fact, not a dropped field.";

@@ -595,6 +595,14 @@ public static class WriteSurfaceGuardProbe
             wrote.Contains("IN PLACE", StringComparison.Ordinal)
             && EditorIdsIn(Path.Combine(fx.ModsDir, "W2Repl", fx.ReplacerName)).Contains("W2InPlaceKw"), wrote);
 
+        // The HAZARD itself reaches the caller (PR #337 review, finding 1). Before this, nothing in the generator
+        // asserted the sentence at all: emptying one const would have stripped "houseCARL keeps nothing to undo
+        // this" from all five in-place renders with the whole suite green — the incident's shape on the loudest
+        // sentence the write surface has, and this change is what made it a single token. [MustState] pins what the
+        // sentence must SAY; this pins that the render still says it.
+        Check("create in place: the render states the rewrite hazard — the caller's own file, and no way back",
+            wrote.Contains(WriteSentences.InPlaceRewritten, StringComparison.Ordinal), wrote);
+
         // The closing "keep going" line must teach THIS tool's spelling (PR #311 round-2 review [medium]): the 2.0
         // tools declare a single string in_place= and no target=, so the 1.x pair would send a caller to an
         // undeclared parameter plus a boolean-into-a-string. Asserted as a positive AND a negative — the positive
@@ -2256,12 +2264,18 @@ public static class WriteSurfaceGuardProbe
     /// reporting "every member covered", so they are named and failed rather than filtered away.</summary>
     static IReadOnlyList<string> TwinShapesUnreadable()
     {
-        const BindingFlags All = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.Instance;
+        const BindingFlags All = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.Instance
+                               | BindingFlags.DeclaredOnly;
         var bad = new List<string>();
         foreach (var f in typeof(WriteSentences.Twins).GetFields(All))
             if (!(f.IsLiteral && f.FieldType == typeof(string))) bad.Add($"field {f.Name} ({f.FieldType.Name}, not a const string)");
         foreach (var pr in typeof(WriteSentences.Twins).GetProperties(All)) bad.Add($"property {pr.Name}");
         foreach (var n in typeof(WriteSentences.Twins).GetNestedTypes(BindingFlags.Public | BindingFlags.NonPublic)) bad.Add($"nested type {n.Name}");
+        // METHODS and EVENTS too (PR #337 review, finding 2). A method-shaped twin — one interpolation away from
+        // several existing ones — was invisible to BOTH the inventory and this alarm, so the coverage assertions
+        // reported "every member rendered" for a set that never included it. DeclaredOnly keeps object's members out.
+        foreach (var m in typeof(WriteSentences.Twins).GetMethods(All)) bad.Add($"method {m.Name}");
+        foreach (var e in typeof(WriteSentences.Twins).GetEvents(All)) bad.Add($"event {e.Name}");
         return bad;
     }
 
@@ -2273,17 +2287,33 @@ public static class WriteSurfaceGuardProbe
     static IReadOnlyList<string> TwinContentViolations()
     {
         var bad = new List<string>();
-        foreach (var f in typeof(WriteSentences.Twins)
-                     .GetFields(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+        // BOTH classes (PR #337 review, finding 1). The in-place hazard lives on the outer class — json states it
+        // as `lane` plus typed flags, so per-lane coverage is not a claim that can be made about it — but this
+        // change made it a single token feeding five in-place renders, so it needs the content half most of all.
+        // Twins additionally REQUIRES the attribute; an outer-class sentence carries it when it has claims to keep.
+        foreach (var (owner, requireAttr) in new[] { (typeof(WriteSentences.Twins), true), (typeof(WriteSentences), false) })
+        foreach (var f in owner.GetFields(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.DeclaredOnly)
                      .Where(f => f.IsLiteral && f.FieldType == typeof(string))
                      .OrderBy(f => f.Name, StringComparer.Ordinal))
         {
             var sentence = (string)f.GetRawConstantValue()!;
             var attr = f.GetCustomAttribute<MustStateAttribute>();
-            if (attr is null || attr.Phrases.Length == 0) { bad.Add($"{f.Name}: declares no [MustState] phrases"); continue; }
+            if (attr is null || attr.Phrases.Length == 0)
+            {
+                if (requireAttr) bad.Add($"{f.Name}: declares no [MustState] phrases");
+                continue;
+            }
+            // An EMPTY sentence or an EMPTY phrase clears every other assertion here and in the coverage arm —
+            // "".Contains("") is true, and so is any render's Contains("") (PR #337 review, finding 5). Mechanical,
+            // so it is fixed in the checker; judging whether a NON-empty phrase is a good one is not, and stays with
+            // the author (see MustStateAttribute's norm).
+            if (sentence.Length == 0) { bad.Add($"{f.Name}: the sentence itself is empty"); continue; }
             foreach (var phrase in attr.Phrases)
+            {
+                if (phrase.Length == 0) { bad.Add($"{f.Name}: declares an EMPTY phrase, which every sentence satisfies"); continue; }
                 if (!sentence.Contains(phrase, StringComparison.Ordinal))
                     bad.Add($"{f.Name}: no longer states \"{phrase}\"");
+            }
         }
         return bad;
     }
