@@ -32,12 +32,16 @@ namespace HousecarlGenerator;
 ///      folder (the good file present); a drive-rooted / '..' destination is a per-asset named error; the tool layer
 ///      refuses malformed specs (no kind, both/neither of formid+asset_path, bad formid/kind, both-expansion + loose source).
 ///   I  the VFS source lane — source= a DATA-RELATIVE path resolved through the asset layer, with source_provider=
-///      choosing the pole. A NAMED provider is read even when another copy wins (I1, the arm no other source policy
-///      passes); 'winner' reads the current winner (I2); a named provider that doesn't supply the path is refused with
-///      nothing substituted (I3); source ≠ destination is a RENAME (I4 — the mechanism an appearance copy is built
-///      from); an absent source and a pole against an on-disk source are named refusals (I5, I6).
-///   J  the reserved token vs a mod literally named 'winner' — refused both ways rather than guessed, with a
-///      places-fine control proving the refusal is the collision and not a broken fixture.
+///      choosing the pole. Fixtures are named HOSTILELY ("JK's Skyrim", "winner") because friendly names cannot
+///      exercise what the provider list promises. A NAMED provider is read even when another copy wins (I1, the arm
+///      no other source policy passes); '*winner' reads the current winner (I2); a named provider that doesn't supply
+///      the path is refused with nothing substituted (I3); source ≠ destination is a RENAME (I4 — the mechanism an
+///      appearance copy is built from); an absent source and a pole against an on-disk source are named refusals
+///      (I5, I6); odd path spellings resolve through the VFS (I7); the pole with no source= (I8); case-insensitivity
+///      (I9); and the static pole-spelling correction on a miss (I10). I1c round-trips the refusal's own tokens back
+///      through the tool — the arm a substring check cannot replace.
+///   K  a BSA provider named as the pole, and a Data-relative source that merely ENDS in '.bsa'.
+///   L  the wire field names — PlaceAssetSpec deserialized from the JSON an MCP client actually sends.
 ///
 /// Self-contained: synthetic folders/instances in temp + the committed fixtures/asset-resolver/FixtureA.bsa, NO BSArch.
 /// Run: dotnet run --project src/housecarl-generator place-asset-guard
@@ -325,6 +329,14 @@ internal static class PlaceAssetProbe
                 // a QUOTED .bsa source (the natural form for a spaced filename) must NOT be wrongly refused at the spec
                 // level — quotes are trimmed for the test, as ReadExplicitSource does (review fix). It then attempts to
                 // place mesh+tint (per-asset outcomes), never the "must be a bare '.bsa' path" spec refusal.
+                // A RELATIVE '.bsa' is a Data-relative asset path now, not an archive to open — so it names ONE file
+                // and cannot serve two slots. Accepting it here would hand the mesh and the tint the same bytes.
+                Check(PlaceAssetTools.BulkPlaceAsset(svc, new[] { new PlaceAssetSpec { Formid = "01A51A:Dawnguard.esm", Source = @"meshes\some\thing.bsa" } })
+                        .Contains("must be a FULL '.bsa' path", StringComparison.Ordinal),
+                      "bulk tool: a both-expansion with a RELATIVE '.bsa' source is refused (one VFS path cannot serve two slots)  [RED arm]");
+                Check(PlaceAssetTools.BulkPlaceAsset(svc, new[] { new PlaceAssetSpec { Formid = "01A51A:Dawnguard.esm", Source = @"C:\nope\x.nif", SourceProvider = "GMod" } })
+                        .Contains(WriteSentences.PlaceBothSlotsPoleConstraint, StringComparison.Ordinal),
+                      "bulk tool: the both-expansion refusal states when source_provider= actually applies there  [RED arm]");
                 Check(!PlaceAssetTools.BulkPlaceAsset(svc, new[] { new PlaceAssetSpec { Formid = "01A51A:Dawnguard.esm", Source = "\"" + fixA + "\"" } })
                         .Contains("must be a bare"),
                       "bulk tool: a QUOTED .bsa source in a both-expansion is ACCEPTED (not refused for the trailing quote)");
@@ -387,16 +399,23 @@ internal static class PlaceAssetProbe
             {
                 var inst = Path.Combine(root, "svc-i");
                 var (mods, _, prof) = MakeInstance(inst);
+                // HOSTILE names on purpose. The first fixture used ModA/ModB, which cannot exercise the one thing the
+                // provider list promises — that a name lifted out of a refusal is a name the selector accepts. An
+                // apostrophe is the common real case ("JK's Skyrim" is one of the most-installed Skyrim mods) and it
+                // dissolved the single-quote delimiter mid-name; the mod called "winner" is the one that used to
+                // collide with the pole token. Both are now ordinary names, and the arms below prove it.
+                const string ModA = "JK's Skyrim";
+                const string ModB = "winner";
                 var aBytes = new byte[] { 0xA1, 0xA1, 0xA1 };
                 var bBytes = new byte[] { 0xB2, 0xB2 };
-                foreach (var (m, b) in new[] { ("ModA", aBytes), ("ModB", bBytes) })
+                foreach (var (m, b) in new[] { (ModA, aBytes), (ModB, bBytes) })
                 {
                     var d = Path.Combine(mods, m);
                     Directory.CreateDirectory(d);
                     WriteLoose(d, FacegenRel, b);
                 }
-                File.WriteAllText(Path.Combine(mods, "ModA", "Dummy.esp"), "x");
-                WriteProfile(prof, new[] { "Dummy.esp" }, new[] { "*Dummy.esp" }, new[] { "+ModA", "+ModB" });
+                File.WriteAllText(Path.Combine(mods, ModA, "Dummy.esp"), "x");
+                WriteProfile(prof, new[] { "Dummy.esp" }, new[] { "*Dummy.esp" }, new[] { "+" + ModA, "+" + ModB });
                 WriteSkyrimIni(prof, "");
                 var store = new UserConfigStore(Path.Combine(root, "user-i.json"));
                 using var svc = LoadOrderService.WithInstance(inst, 0, store);
@@ -405,10 +424,22 @@ internal static class PlaceAssetProbe
                 // named provider is honoured whether or not it is the winner, and hard-coding the winner would make
                 // the arm pass for the wrong reason the day MO2 priority is read differently.
                 var winnerName = svc.AssetStatus(new[] { FacegenRel }).Results[0].Hit?.Winner?.Source;
-                Check(winnerName is "ModA" or "ModB", $"the fixture is genuinely contended and one copy wins — winner={winnerName ?? "(none)"}");
-                var loserName = winnerName == "ModA" ? "ModB" : "ModA";
-                var winnerBytes = winnerName == "ModA" ? aBytes : bBytes;
-                var loserBytes = winnerName == "ModA" ? bBytes : aBytes;
+                Check(winnerName == ModA || winnerName == ModB, $"the fixture is genuinely contended and one copy wins — winner={winnerName ?? "(none)"}");
+                var loserName = winnerName == ModA ? ModB : ModA;
+                var winnerBytes = winnerName == ModA ? aBytes : bBytes;
+                var loserBytes = winnerName == ModA ? bBytes : aBytes;
+
+                // The fixture's whole point: a mod called "winner" is an ORDINARY provider now. Under the bare-token
+                // spelling this name was unreachable — the selector shadowed it — and the ambiguity refusal listed it
+                // as a token its own remedy rejected. Naming it must place its bytes, and must not mean the pole.
+                {
+                    var o = svc.PlaceAssets(new[] { new PlaceRequest(FacegenRel, FacegenRel, "winner") }, null, null);
+                    var r = o.Results[0];
+                    var placed = o.ModFolder is null ? null : Path.Combine(o.ModFolder, FacegenRel);
+                    var winnerModBytes = ModB == "winner" ? bBytes : aBytes;
+                    Check(r.Placed && placed is not null && File.ReadAllBytes(placed).SequenceEqual(winnerModBytes),
+                          $"a provider literally named 'winner' is reachable by its own name — the sigil un-reserved it  [RED arm] — {(r.Placed ? "ok" : r.Error)}");
+                }
 
                 // I1 — the DISCRIMINATING arm: a named provider that is NOT the winner is read anyway. Every other
                 // source policy (winner-read, sole-provider) fails this one, which is why the fixture is contended.
@@ -452,11 +483,13 @@ internal static class PlaceAssetProbe
                 // substring check cannot see this class; only the round trip can.  [RED arm]
                 {
                     var refusal = svc.PlaceAssets(new[] { new PlaceRequest(FacegenRel, FacegenRel, null) }, null, null).Results[0].Error!;
-                    var tokens = System.Text.RegularExpressions.Regex.Matches(refusal, @"'([^']+)'")
+                    // DOUBLE quotes: the delimiter has to be a character a provider name cannot contain, and one of
+                    // these fixtures is named "JK's Skyrim" — a single-quote extractor returns [JK] and a fragment.
+                    var tokens = System.Text.RegularExpressions.Regex.Matches(refusal, "\"([^\"]+)\"")
                         .Select(m => m.Groups[1].Value)
-                        .Where(t => !t.Contains('\\'))          // drop the asset path the sentence also quotes
                         .Distinct().ToList();
-                    Check(tokens.Count == 2, $"the refusal offers exactly the two provider names as quoted tokens — [{string.Join(", ", tokens)}]");
+                    Check(tokens.Count == 2 && tokens.Contains(ModA) && tokens.Contains(ModB),
+                          $"the refusal offers exactly the two provider names as delimited tokens, apostrophe and all — [{string.Join(" | ", tokens)}]");
                     foreach (var token in tokens)
                     {
                         var o = svc.PlaceAssets(new[] { new PlaceRequest(FacegenRel, FacegenRel, token) }, null, null);
@@ -471,7 +504,7 @@ internal static class PlaceAssetProbe
                     var r = o.Results[0];
                     var placed = o.ModFolder is null ? null : Path.Combine(o.ModFolder, FacegenRel);
                     Check(r.Placed && placed is not null && File.ReadAllBytes(placed).SequenceEqual(winnerBytes),
-                          $"source_provider=winner places the CURRENT winner's bytes ('{winnerName}') — {(r.Placed ? "ok" : r.Error)}");
+                          $"source_provider={AssetSourceChoice.WinnerToken} places the CURRENT winner's bytes ('{winnerName}') — {(r.Placed ? "ok" : r.Error)}");
                 }
 
                 // I3 — a named provider that doesn't supply the path is refused, NOT quietly served by another.
@@ -479,7 +512,7 @@ internal static class PlaceAssetProbe
                     var r = svc.PlaceAssets(new[] { new PlaceRequest(FacegenRel, FacegenRel, "NoSuchMod") }, null, null).Results[0];
                     Check(!r.Placed && r.Error!.Contains(WriteSentences.PlaceSourceNoSubstitute, StringComparison.Ordinal),
                           $"a named provider that does not supply the path is REFUSED with nothing substituted  [RED arm] — {r.Error}");
-                    Check(r.Error!.Contains("ModA", StringComparison.Ordinal) && r.Error.Contains("ModB", StringComparison.Ordinal),
+                    Check(r.Error!.Contains(ModA, StringComparison.Ordinal) && r.Error.Contains(ModB, StringComparison.Ordinal),
                           "…and the providers that DO supply it are named (the typo's remedy)");
                 }
 
@@ -516,7 +549,7 @@ internal static class PlaceAssetProbe
                 {
                     var onDisk = Path.Combine(root, "i6-source.nif");
                     File.WriteAllBytes(onDisk, new byte[] { 7, 7 });
-                    var r = svc.PlaceAssets(new[] { new PlaceRequest(FacegenRel, onDisk, "ModA") }, null, null).Results[0];
+                    var r = svc.PlaceAssets(new[] { new PlaceRequest(FacegenRel, onDisk, ModA) }, null, null).Results[0];
                     Check(!r.Placed && r.Error!.Contains(WriteSentences.PlaceSourceProviderNeedsRelPath, StringComparison.Ordinal),
                           $"source_provider= with an ON-DISK source is refused, never silently ignored  [RED arm] — {r.Error}");
                 }
@@ -550,13 +583,22 @@ internal static class PlaceAssetProbe
 
                 // I9 — the pole token is matched case-insensitively, like the provider names beside it.
                 {
-                    var o = svc.PlaceAssets(new[] { new PlaceRequest(FacegenRel, FacegenRel, "WINNER") }, null, null);
+                    var o = svc.PlaceAssets(new[] { new PlaceRequest(FacegenRel, FacegenRel, "*WINNER") }, null, null);
                     var r = o.Results[0];
                     var placed = o.ModFolder is null ? null : Path.Combine(o.ModFolder, FacegenRel);
                     Check(r.Placed && placed is not null && File.ReadAllBytes(placed).SequenceEqual(winnerBytes),
-                          $"the winner token is case-insensitive ('WINNER') — {(r.Placed ? "placed" : r.Error)}");
+                          $"the winner token is case-insensitive ('*WINNER') — {(r.Placed ? "placed" : r.Error)}");
                     var up = svc.PlaceAssets(new[] { new PlaceRequest(FacegenRel, FacegenRel, loserName.ToUpperInvariant()) }, null, null).Results[0];
                     Check(up.Placed, $"…and so is a provider name ('{loserName.ToUpperInvariant()}') — {(up.Placed ? "placed" : up.Error)}");
+                }
+
+                // I10 — the naming correction that rides on a named-provider miss. STATIC: it says how the pole is
+                // spelled whatever the load order contains, which is the property the conditional winner-remedy did
+                // not have. Same shape as the in_place=true correction.
+                {
+                    var r = svc.PlaceAssets(new[] { new PlaceRequest(FacegenRel, FacegenRel, "NoSuchModAtAll") }, null, null).Results[0];
+                    Check(!r.Placed && r.Error!.Contains(WriteSentences.PlaceSourcePoleSpelling, StringComparison.Ordinal),
+                          $"a named-provider miss states how the winner pole is spelled  [RED arm] — {r.Error}");
                 }
             }
 
@@ -596,33 +638,37 @@ internal static class PlaceAssetProbe
                 // …and the refusal's quoted token round-trips for a BSA provider too (its name carries a '.bsa'
                 // extension, which is the shape most likely to be mangled by a list format).
                 var refusal = svc.PlaceAssets(new[] { new PlaceRequest(FacegenRel, FacegenRel, "NopeMod") }, null, null).Results[0].Error!;
-                Check(refusal.Contains("'FixtureA.bsa' (BSA)", StringComparison.Ordinal),
-                      $"the BSA provider is listed as a quoted name with its kind outside the quotes — {refusal}");
+                Check(refusal.Contains("\"FixtureA.bsa\" (BSA)", StringComparison.Ordinal),
+                      $"the BSA provider is listed as a delimited name with its kind outside the delimiters — {refusal}");
+
+                // A Data-relative source that ENDS in '.bsa' is an asset path, not an archive to open. Testing the
+                // extension before the qualified-path test sent exactly this to the process working directory.
+                var relBsa = @"meshes\hcprobe\thing.bsa";
+                WriteLoose(loose, relBsa, new byte[] { 0x7A, 0x7A });
+                File.SetLastWriteTimeUtc(Path.Combine(prof, "modlist.txt"), DateTime.UtcNow.AddHours(1));
+                var bo = svc.PlaceAssets(new[] { new PlaceRequest(@"meshes\hcprobe\copy.nif", relBsa, "LooseFace") }, null, null);
+                var br = bo.Results[0];
+                var bplaced = bo.ModFolder is null ? null : Path.Combine(bo.ModFolder, @"meshes\hcprobe\copy.nif");
+                Check(br.Placed && bplaced is not null && File.ReadAllBytes(bplaced).SequenceEqual(new byte[] { 0x7A, 0x7A }),
+                      $"a Data-relative source ending '.bsa' resolves through the VFS, not against the process CWD  [RED arm] — {(br.Placed ? "placed" : br.Error)}");
             }
 
-            // ================= J: the reserved token vs a mod that carries its name =================
+            // ================= L: the wire field names =================
+            // Every other arm builds PlaceAssetSpec with the C# initializer, so the [JsonPropertyName] a real MCP
+            // caller actually sends is unexercised — a misspelled wire name would drop the parameter for every real
+            // call with the suite green. This deserializes the JSON an MCP client sends and asserts the field lands.
             Console.WriteLine();
-            Console.WriteLine("--- J: a provider literally named 'winner' collides with the reserved token → refuse, don't guess ---");
+            Console.WriteLine("--- L: source_provider survives the JSON wire, under the name a client sends ---");
             {
-                var inst = Path.Combine(root, "svc-j");
-                var (mods, _, prof) = MakeInstance(inst);
-                var w = Path.Combine(mods, AssetSourceChoice.WinnerToken);
-                Directory.CreateDirectory(w);
-                WriteLoose(w, FacegenRel, new byte[] { 9 });
-                File.WriteAllText(Path.Combine(w, "Dummy.esp"), "x");
-                WriteProfile(prof, new[] { "Dummy.esp" }, new[] { "*Dummy.esp" }, new[] { "+" + AssetSourceChoice.WinnerToken });
-                WriteSkyrimIni(prof, "");
-                var store = new UserConfigStore(Path.Combine(root, "user-j.json"));
-                using var svc = LoadOrderService.WithInstance(inst, 0, store);
-
-                var r = svc.PlaceAssets(new[] { new PlaceRequest(FacegenRel, FacegenRel, AssetSourceChoice.WinnerToken) }, null, null).Results[0];
-                Check(!r.Placed && r.Error!.Contains(WriteSentences.PlaceSourceWinnerCollision, StringComparison.Ordinal),
-                      $"source_provider=winner with a mod named 'winner' present is REFUSED both ways  [RED arm] — {r.Error}");
-                // …and the collision is the ONLY thing that refuses here: the same instance places fine when the
-                // caller names no pole at all (one provider ⇒ sole). Without this, an arm asserting a refusal would
-                // pass on an instance that simply cannot place.
-                var ok = svc.PlaceAssets(new[] { new PlaceRequest(FacegenRel, null, null) }, null, null).Results[0];
-                Check(ok.Placed, $"the same fixture places with NO pole named (so the refusal above is the collision, not a broken instance) — {(ok.Placed ? "ok" : ok.Error)}");
+                const string json = """
+                [ { "asset_path": "meshes\\x.nif", "source": "meshes\\y.nif", "source_provider": "SomeMod" } ]
+                """;
+                var specs = System.Text.Json.JsonSerializer.Deserialize<PlaceAssetSpec[]>(json);
+                Check(specs is { Length: 1 }, "the wire array deserializes");
+                Check(specs?[0].SourceProvider == "SomeMod",
+                      $"source_provider arrives under its wire name  [RED arm] — {specs?[0].SourceProvider ?? "(dropped)"}");
+                Check(specs?[0].Source == @"meshes\y.nif" && specs?[0].AssetPath == @"meshes\x.nif",
+                      "…and so do the sibling fields this spec pairs it with");
             }
         }
         finally { try { Directory.Delete(root, recursive: true); } catch { /* temp scratch */ } }

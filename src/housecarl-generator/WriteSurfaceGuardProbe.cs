@@ -2236,8 +2236,8 @@ public static class WriteSurfaceGuardProbe
             "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(Default)\r\ngamePath=@ByteArray("
             + Path.Combine(inst, "game").Replace(@"\", @"\\") + ")\r\n");
 
-        // Three providers, one of them carrying the reserved token's name — enough for every refusal below.
-        var providers = new[] { "W2AssetA", "W2AssetB", AssetSourceChoice.WinnerToken };
+        // Two contending providers — enough for every refusal below now that no name can collide with the pole.
+        var providers = new[] { "W2AssetA", "W2AssetB" };
         foreach (var m in providers)
         {
             var dir = Path.Combine(mods, m, "meshes", "hcw2");
@@ -2253,13 +2253,21 @@ public static class WriteSurfaceGuardProbe
 
         using var svc = LoadOrderService.WithInstance(inst, 0, new UserConfigStore(Path.Combine(root, "place-sentences.user.json")));
         string Render(PlaceRequest req) => PlaceWire.Render(svc.PlaceAssets(new[] { req }, null, null));
+        // The both-slots constraint is refused at the TOOL layer, before any outcome exists, so it is observed
+        // through the tool rather than through PlaceWire — the sentence still has to reach a caller either way.
+        var bothSlots = PlaceAssetTools.BulkPlaceAsset(svc, new[]
+        {
+            new PlaceAssetSpec { Formid = "000800:Dummy.esp", Source = Path.Combine(root, "w2-ondisk.nif") },
+        });
         return new List<string>
         {
+            bothSlots,
+        }.Concat(new List<string>
+        {
             Render(new PlaceRequest(rel, null, null)),                                          // contended, no pole
-            Render(new PlaceRequest(rel, rel, "W2NoSuchMod")),                                  // named, absent
-            Render(new PlaceRequest(rel, rel, AssetSourceChoice.WinnerToken)),                  // token vs the mod
+            Render(new PlaceRequest(rel, rel, "W2NoSuchMod")),                                  // named, absent (+ the pole-spelling tail)
             Render(new PlaceRequest(rel, Path.Combine(root, "w2-ondisk.nif"), providers[0])),   // pole vs on-disk source
-        };
+        }).ToList();
     }
 
     /// <summary>The budget half of the twin harness: one outcome, one cap, both transports. Asserts (a) a cap tight

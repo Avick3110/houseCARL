@@ -28,12 +28,17 @@ public enum AssetSourcePole
     Named,
 }
 
-/// <summary>A caller's source-pole choice. <see cref="Spelling"/> is the caller's own token when the choice came
-/// from wire input (used only to detect the winner-token collision below); null for an in-process choice.</summary>
+/// <summary>A caller's source-pole choice. <see cref="Spelling"/> carries the provider name for the
+/// <see cref="AssetSourcePole.Named"/> pole; null for an in-process choice and for the winner pole.</summary>
 public sealed record AssetSourceChoice(AssetSourcePole Pole, string? Spelling)
 {
-    /// <summary>The reserved wire token selecting the VFS-winner pole.</summary>
-    public const string WinnerToken = "winner";
+    /// <summary>The reserved wire token selecting the VFS-winner pole. SIGILED — '*' is illegal in a Windows file or
+    /// folder name, so the pole space and the provider-name space are disjoint BY CONSTRUCTION and a bare "winner"
+    /// always means a provider called winner. The first spelling was the bare word, which a real mod folder can also
+    /// carry; that overlap was resolved at matching time and unknown to every site that LISTS names, and it generated
+    /// a collision verdict, a suppression flag, a conditional sentence, a bespoke refusal and two unguarded holes
+    /// before it was respelled (Aaron-go 2026-08-12). Same idiom as '@file' in ops=. See SPEC §5's amendment.</summary>
+    public const string WinnerToken = "*winner";
 
     /// <summary>The sole-provider pole (no selector given).</summary>
     public static readonly AssetSourceChoice SoleProvider = new(AssetSourcePole.SoleProvider, null);
@@ -44,15 +49,15 @@ public sealed record AssetSourceChoice(AssetSourcePole Pole, string? Spelling)
     /// <summary>A named provider, chosen in-process.</summary>
     public static AssetSourceChoice Named(string providerName) => new(AssetSourcePole.Named, providerName);
 
-    /// <summary>Parse a caller's selector: blank ⇒ sole-provider, the reserved <see cref="WinnerToken"/> ⇒ winner,
-    /// anything else ⇒ that provider name. The spelling is KEPT so <see cref="AssetSourceSelection.Select"/> can
-    /// refuse rather than guess when a real provider is itself named "winner".</summary>
+    /// <summary>Parse a caller's selector. Exactly two arms: the reserved <see cref="WinnerToken"/> ⇒ the winner
+    /// pole; anything else ⇒ that provider name, matched exactly. Blank ⇒ sole-provider (no selector given). No
+    /// ambiguity is possible, so nothing here can refuse — the sigil is what makes the parse total.</summary>
     public static AssetSourceChoice Parse(string? selector)
     {
         var s = selector?.Trim();
         if (string.IsNullOrEmpty(s)) return SoleProvider;
         return s.Equals(WinnerToken, StringComparison.OrdinalIgnoreCase)
-            ? new AssetSourceChoice(AssetSourcePole.Winner, s)
+            ? Winner
             : new AssetSourceChoice(AssetSourcePole.Named, s);
     }
 }
@@ -68,32 +73,31 @@ public enum AssetSourceVerdict
     Ambiguous,
     /// <summary>Named pole, and that provider does not supply this path (others may).</summary>
     NamedAbsent,
-    /// <summary>The caller typed the reserved winner token AND a real provider is named "winner" — refuse, don't guess.</summary>
-    WinnerTokenCollision,
 }
 
 /// <summary>The outcome of a pick. <see cref="Source"/> is non-null iff <see cref="Verdict"/> is
 /// <see cref="AssetSourceVerdict.Selected"/>. <see cref="ProviderNames"/> is every contending provider as
 /// <see cref="AssetSourceSelection.Describe"/> spells it — NAMES, never on-disk paths — so a caller's refusal can
-/// list the real choices without teaching path round-tripping. <see cref="TokenNameTaken"/> reports whether one of
-/// those providers is itself called <see cref="AssetSourceChoice.WinnerToken"/>, which is the one condition under
-/// which a refusal must NOT offer that token as a remedy.</summary>
+/// list the real choices without teaching path round-tripping.</summary>
 public sealed record AssetSourcePick(
     AssetSourceVerdict Verdict,
     PlacementSource? Source,
-    IReadOnlyList<string> ProviderNames,
-    bool TokenNameTaken);
+    IReadOnlyList<string> ProviderNames);
 
 public static class AssetSourceSelection
 {
-    /// <summary>How one provider is NAMED to a caller. The name is QUOTED and the kind sits outside the quotes,
-    /// because this string is not decoration — a refusal that lists providers is handing the caller the value to
-    /// pass back as the selector, and <see cref="Select"/> matches the bare <see cref="PlacementSource.ProviderName"/>.
-    /// The first spelling of this ran the two together as <c>ModA (loose)</c>, so copying the message verbatim
-    /// produced a name no pole could match and a second refusal calling the caller's copy a typo. The quotes are
-    /// the boundary that makes the token unambiguous; a round-trip arm in place-asset-guard feeds these strings
-    /// back through the real tool and is what keeps the claim true.</summary>
-    public static string Describe(PlacementSource s) => $"'{s.ProviderName}' ({(s.Kind == AssetKind.Bsa ? "BSA" : "loose")})";
+    /// <summary>The ONE formatter for a provider name in any list a caller reads a selector out of. Every listing
+    /// site goes through here for the same reason the sentences have one source: two spellings of "how a name is
+    /// shown" is two chances for the shown form to stop being the accepted form.
+    /// <para>DOUBLE quotes, with the kind outside them. The boundary has to be a character a provider name cannot
+    /// contain, or it is not a boundary: single quotes failed that test — <c>JK's Skyrim</c> is a real and widely
+    /// installed mod, and it dissolved the delimiter mid-name. Windows forbids '"' in a file or folder name, so
+    /// double quotes cannot occur inside one. Same construction as the '*' sigil on the pole token.</para>
+    /// <para>The first spelling ran name and kind together as <c>ModA (loose)</c>, so copying a message verbatim
+    /// produced a name no pole matched and a second refusal calling the caller's copy a typo. A round-trip arm in
+    /// place-asset-guard feeds these strings back through the real tool — over hostile names, not friendly ones —
+    /// and is what keeps the claim true.</para></summary>
+    public static string Describe(PlacementSource s) => $"\"{s.ProviderName}\" ({(s.Kind == AssetKind.Bsa ? "BSA" : "loose")})";
 
     /// <summary>Pick the provider to read from, under <paramref name="choice"/>'s pole. Pure: no I/O, no bytes, no
     /// message. Every refusal verdict carries the provider names so the caller can render its own.</summary>
@@ -102,40 +106,30 @@ public static class AssetSourceSelection
         var names = new List<string>(res.Sources.Count);
         foreach (var s in res.Sources) names.Add(Describe(s));
 
-        // Computed for EVERY verdict, not just the winner pole's: the ambiguity refusal offers "or source_provider=
-        // winner" as a remedy, and on a load order carrying a mod of that name the remedy is one the next call
-        // refuses. The fact belongs to the resolution, so it is reported once here rather than re-derived per caller.
-        bool tokenTaken = false;
-        foreach (var s in res.Sources)
-            if (string.Equals(s.ProviderName, AssetSourceChoice.WinnerToken, StringComparison.OrdinalIgnoreCase))
-                { tokenTaken = true; break; }
-
         if (res.Sources.Count == 0)
-            return new AssetSourcePick(AssetSourceVerdict.NoProvider, null, names, tokenTaken);
+            return new AssetSourcePick(AssetSourceVerdict.NoProvider, null, names);
 
         switch (choice.Pole)
         {
             case AssetSourcePole.Winner:
-                // The token collision: only reachable when the pole came off the wire as the literal "winner" AND a
-                // provider really carries that name. Refusing is the Q3 call — either reading would be a silent guess
-                // at which of the two the caller meant.
-                if (choice.Spelling is not null && tokenTaken)
-                    return new AssetSourcePick(AssetSourceVerdict.WinnerTokenCollision, null, names, tokenTaken);
-                return new AssetSourcePick(AssetSourceVerdict.Selected, res.Sources[0], names, tokenTaken);
+                // No collision test, and none possible: the pole token carries a '*', which no provider name can.
+                // A whole verdict, a suppression flag and a bespoke refusal used to live here to manage the overlap
+                // a bare "winner" created; the sigil deletes the overlap instead of guarding it.
+                return new AssetSourcePick(AssetSourceVerdict.Selected, res.Sources[0], names);
 
             case AssetSourcePole.Named:
                 foreach (var s in res.Sources)
                     if (string.Equals(s.ProviderName, choice.Spelling ?? "", StringComparison.OrdinalIgnoreCase))
-                        return new AssetSourcePick(AssetSourceVerdict.Selected, s, names, tokenTaken);
-                return new AssetSourcePick(AssetSourceVerdict.NamedAbsent, null, names, tokenTaken);
+                        return new AssetSourcePick(AssetSourceVerdict.Selected, s, names);
+                return new AssetSourcePick(AssetSourceVerdict.NamedAbsent, null, names);
 
             default:
                 // Sole-provider: contention is the caller's call, not ours. Counted off Sources rather than read off
                 // PlacementResolution.Ambiguous so the pick depends on one fact (how many providers there are) —
                 // the flag means the same thing today, and this way it cannot drift into meaning something else.
                 return res.Sources.Count == 1
-                    ? new AssetSourcePick(AssetSourceVerdict.Selected, res.Sources[0], names, tokenTaken)
-                    : new AssetSourcePick(AssetSourceVerdict.Ambiguous, null, names, tokenTaken);
+                    ? new AssetSourcePick(AssetSourceVerdict.Selected, res.Sources[0], names)
+                    : new AssetSourcePick(AssetSourceVerdict.Ambiguous, null, names);
         }
     }
 }

@@ -13,12 +13,13 @@ take.** `source=` accepts a Data-relative path — the same kind of path `housec
 resolves it through the virtual file system, so the source no longer has to be a full path typed out from your
 drive. Because the source and the destination are separate inputs, a source that differs from the destination is a
 **rename**: one file's bytes land under another file's name, which is what carrying a baked FaceGen head onto a
-different NPC's FormID path actually is. The new `source_provider=` says *whose* copy to read — a mod folder or BSA
-filename as `asset_status` spells it, or `winner` for whichever copy currently wins. Naming a mod means that mod:
-if it doesn't supply the path, the call is refused rather than quietly served from somewhere else. Naming nothing
-keeps the old behaviour — the sole provider, refused when several contend — except that the refusal now lists the
-providers by NAME rather than by on-disk path, each name quoted, and the quoted part is exactly what you pass back
-to `source_provider=`.
+different NPC's FormID path actually is. The new `source_provider=` says *whose* copy to read: `*winner` for
+whichever copy currently wins, or a mod folder / BSA filename on its own. The `*` is part of the token, and it is
+there so the two never collide — `*` is illegal in a Windows folder name, so a bare name always means a provider of
+that name and a mod actually called `winner` stays reachable. Naming a mod means that mod: if it doesn't supply the
+path, the call is refused rather than quietly served from somewhere else. Naming nothing keeps the old behaviour —
+the sole provider, refused when several contend — except that the refusal now lists the providers by NAME rather
+than by on-disk path, each in double quotes, and what's inside the quotes is exactly what you pass back.
 
 **Fixed: the text and JSON responses to a write can no longer say different things.** Every write tool renders its
 result twice — once as text, once as `format="json"` — and the two renders were maintained separately, so a warning
