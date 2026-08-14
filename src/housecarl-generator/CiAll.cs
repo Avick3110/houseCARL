@@ -312,6 +312,13 @@ public static class CiAll
         // — the lip-sync layer — carried by the whole-record copy), facegen pair renamed to the new FormKey path, donor-
         // only assets carried (record harvest + geom byte-scrape), clone-mode strips NAMED, donor NEVER a master.
         ("copy-npc-appearance-guard", NpcCopyProbe.RunGuard),
+        // ORDERED SOURCE UNIVERSE (SPEC §3.1 amendment 2026-08-14) — a walk's source universe is a LIST of §4.2
+        // poles tried in order, first hit wins. Pins: length-1 is today's grammar in BOTH spellings (["winner"] =
+        // the active order's winner, ["X.esp"] = that file's own version, disabled included); order IS the
+        // semantics (reversing the arms reverses the answer); the hit names WHICH arm produced it; a miss names
+        // EVERY arm consulted; a faulting arm STOPS the chain instead of substituting a later arm's version; and
+        // the §5.5 no-sigil exemption, pinned against a plugin actually named 'winner.esp'.
+        ("source-chain-guard", SourceChainProbe.RunGuard),
         // SKYPATCHER DISTRIBUTOR Wave 0a — the catalog-free structural tokenizer (SkyPatcherParse): pins the
         // grammar mechanics a SkyPatcher INI reader stands on — ':'-segment / '='-key-value / ','-list /
         // '~'-compound splitting, the ~…~ rename name-literal, the Plugin.esp|FormID address (leading-zero
