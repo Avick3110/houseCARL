@@ -4872,6 +4872,180 @@ public sealed class LoadOrderService : IDisposable
         };
     }
 
+    /// <summary>SPEC §3.1 AMENDMENT 2026-08-14 — build a walk's ORDERED source universe from the caller's pole list.
+    /// Each element is one §4.2 pole; the chain resolves a key by trying them in order, first hit wins
+    /// (<see cref="SourceChain"/> carries the fallback-never-merge boundary and the fault-vs-miss rule).
+    ///
+    /// <para><b>There is no separate single-pole path, deliberately.</b> A length-1 list is this same loop running
+    /// once — which is what makes the amendment's "a length-1 list is precisely today's grammar" a structural fact
+    /// rather than a claim two code paths have to keep agreeing on. If the two ever could diverge, the divergence
+    /// would be invisible exactly where it matters: an off-order element behaving one way alone and another way in a
+    /// chain.</para>
+    ///
+    /// <para><b>The two element kinds are §4.2's own poles</b>, not a new distinction: <c>winner</c> is the active
+    /// order as one universe (today's active-donor lane spells <c>["winner"]</c>), and a plugin NAME is
+    /// <c>named(plugin)</c> — that plugin's version wherever it lives, active or an off-order file, resolved through
+    /// the SAME <see cref="LocatePluginFileOnDisk"/> contract every other lane uses so two tools can never disagree
+    /// about which file a filename names. <c>previous_provider</c> is subject-relative (§4.3) and a walk has no
+    /// per-key subject, so it refuses loud rather than inventing the winner-relative reading §4.3 already rejected.</para>
+    ///
+    /// <para>Overlays opened for off-order elements are appended to <paramref name="overlays"/> OPEN: the walk holds
+    /// bodies off them for its whole run, so the caller disposes them only after the write completes — the lifetime
+    /// contract the CopyFrom and forward lanes already carry. A refusal disposes what it opened before returning, so a
+    /// failed build leaks nothing.</para></summary>
+    internal SourceChain? BuildSourceChain(
+        LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session,
+        IReadOnlyList<string> poles, string paramName, List<IDisposable> overlays, out string? error)
+    {
+        error = null;
+        if (poles is null || poles.Count == 0)
+        {
+            error = $"{paramName} is empty — name at least one source: 'winner' for the active load order's winning " +
+                    "version of each record, or a plugin filename for that plugin's version.";
+            return null;
+        }
+
+        var arms = new List<SourceArm>(poles.Count);
+        var openedHere = new List<IDisposable>();
+        Mo2Composition? comp = null;
+        string modsDir = "", dataDir = "", overwriteDir = "", profileDir = "";
+
+        string Fail(string message)
+        {
+            foreach (var d in openedHere) { try { d.Dispose(); } catch { /* disposing a failed build */ } }
+            return message;
+        }
+
+        for (int i = 0; i < poles.Count; i++)
+        {
+            var spelling = (poles[i] ?? "").Trim();
+            var at = poles.Count == 1 ? paramName : $"{paramName}[{i}]";
+            if (spelling.Length == 0)
+            {
+                error = Fail($"{at} is blank — every element must name a source ('winner', or a plugin filename).");
+                return null;
+            }
+
+            // ---- pole: winner ----------------------------------------------------------------------------
+            if (string.Equals(spelling, SourcePoles.Winner, StringComparison.OrdinalIgnoreCase))
+            {
+                arms.Add(new SourceArm(SourcePoles.Winner, SourceArmKind.ActiveOrder, "the active load order (each record's winning version)",
+                    fk =>
+                    {
+                        var w = view.ResolveWinner(fk);
+                        return w is null ? null : view.GetRecord(session, w.Value.WinnerPlugin, fk);
+                    }));
+                continue;
+            }
+
+            // ---- pole: previous_provider — refused, with the path to making it legal ---------------------
+            if (string.Equals(spelling, SourcePoles.PreviousProvider, StringComparison.OrdinalIgnoreCase))
+            {
+                error = Fail(
+                    $"{at}: '{SourcePoles.PreviousProvider}' cannot name a source for a walk. It is SUBJECT-relative — the provider " +
+                    "immediately below a named subject plugin — and a walk reaches records through links, with no subject plugin " +
+                    "for each one to be relative to. Name the plugin you mean, or 'winner' for the active order's winning version. " +
+                    "If you have a case where it does have a defined meaning here, file it as a gap report — that is what would " +
+                    "define it.");
+                return null;
+            }
+
+            // ---- pole: named(plugin) — active, or an off-order file --------------------------------------
+            // ACTIVE arm first: the plugin is in the order under this very view, so its bodies come off the shared
+            // captured build rather than a second overlay of the same file.
+            if (view.ContainsPlugin(spelling))
+            {
+                var active = spelling;
+                arms.Add(new SourceArm(spelling, SourceArmKind.ActiveOrder, $"'{active}' (active in the load order)",
+                    fk => view.GetRecord(session, active, fk)));
+                continue;
+            }
+            // A PATH that names the order's own copy of an active plugin is that plugin, not an off-order file — the
+            // ActiveNameForPath rule the diff pole, CopyFrom and forward all answer this with, reused rather than
+            // restated (a full path never matches the name table, so without this the live copy of an active plugin
+            // takes the off-order arm and is described as not in the load order).
+            if (LooksLikePath(spelling) && ActiveNameForPath(view, spelling) is { } activeName)
+            {
+                arms.Add(new SourceArm(activeName, SourceArmKind.ActiveOrder, $"'{activeName}' (active in the load order; named by path)",
+                    fk => view.GetRecord(session, activeName, fk)));
+                continue;
+            }
+
+            if (comp is null)
+            {
+                try { lock (_gate) { EnsurePathsDerived(); modsDir = _modsDir; dataDir = _dataDir; overwriteDir = _overwriteDir; profileDir = _profileDir; } }
+                catch (Exception ex)
+                {
+                    error = Fail($"{at}: '{spelling}' is not in the load order and the MO2 roots couldn't be derived to find it on disk: {ex.Message}");
+                    return null;
+                }
+                comp = Mo2LoadOrder.ReadComposition(profileDir);
+            }
+
+            // offerModParam: FALSE — this refusal is rendered for a LIST element, and the disambiguator that works
+            // here is a full path in that element, not a tool-level mod= that would apply to every element at once.
+            var loc = LocatePluginFileOnDisk(comp, modsDir, dataDir, overwriteDir, spelling, null, offerModParam: false);
+            if (loc.Error is not null)
+            {
+                // Suggested from every plugin the locate SEARCHED (not just the active order), so a typo of a DISABLED
+                // plugin — the half this lane exists to serve — gets a suggestion instead of silence. Empty when
+                // nothing is close, so an unknown name is never answered with an invented guess.
+                var pool = Mo2LoadOrder.AllPluginFileNames(comp, modsDir, dataDir, overwriteDir);
+                error = Fail($"{at}: source '{spelling}' is not in the load order and {loc.Error}" +
+                             PluginNameSuggest.DidYouMean(spelling, pool));
+                return null;
+            }
+            if (loc.Ambiguous is not null)
+            {
+                error = Fail($"{at}: source '{spelling}' is not in the load order and {loc.Ambiguous.Count} mod folders provide a file " +
+                             $"with that name ({string.Join(", ", loc.Ambiguous.Select(h => h.Where))}) — ambiguous, refusing to guess " +
+                             "which version to read. Put the full path to the copy you mean in this element.");
+                return null;
+            }
+
+            ISkyrimModGetter ov;
+            try { ov = LoadOrderResolver.OpenOverlay(loc.Path!, string.IsNullOrEmpty(dataDir) ? null : dataDir); }
+            catch (Exception ex)
+            {
+                error = Fail($"{at}: source file '{spelling}' ({loc.Path}) could not be opened as a Skyrim plugin ({ex.Message}).");
+                return null;
+            }
+            openedHere.Add((IDisposable)ov);
+
+            // Lazy per-type link cache — no eager whole-file parse. A per-record parse fault THROWS out of the fetch
+            // on purpose: SourceChain turns it into a fault that STOPS the chain, because substituting a later arm's
+            // version of a record this arm actually carries is the silent-wrong-answer class (Q3).
+            var cache = ov.ToImmutableLinkCache();
+            var where = $"file '{Path.GetFileName(loc.Path!)}' ({loc.Where}{(loc.WhyNotActive is { } why ? $"; NOT active — {why}" : "")})";
+            arms.Add(new SourceArm(spelling, SourceArmKind.File, where,
+                fk => cache.TryResolve(fk, out var body) ? body : null));
+        }
+
+        overlays.AddRange(openedHere);
+        return new SourceChain(arms);
+    }
+
+    /// <summary>Guard seam for <see cref="BuildSourceChain"/> — drives the REAL builder over the REAL MO2 resolution,
+    /// under the same view + session + overlay lifetime the production call gives it, and hands the result to
+    /// <paramref name="body"/> while the sources are still open (a chain whose overlays are disposed resolves
+    /// nothing, so a seam that returned the chain would only be able to test its refusals).
+    /// <para>Exists because the alternative — a probe that rebuilds the arms itself — proves nothing about the code
+    /// the tool runs, which is the "an arm that drives the service does not test the wire" lesson from PR #339
+    /// applied one layer down.</para></summary>
+    internal T WithSourceChainForGuard<T>(IReadOnlyList<string> poles, string paramName, Func<SourceChain?, string?, T> body)
+    {
+        var resolver = Resolver;
+        var view = resolver.Capture();
+        using var session = resolver.OpenSession();
+        var overlays = new List<IDisposable>();
+        try
+        {
+            var chain = BuildSourceChain(view, session, poles, paramName, overlays, out var error);
+            return body(chain, error);
+        }
+        finally { foreach (var d in overlays) { try { d.Dispose(); } catch { /* guard teardown */ } } }
+    }
+
     /// <summary>The in-place branch of <see cref="ApplyEdits"/> (in-place write lane, Wave 1) — runs under _writeGate.
     /// (1) resolves <paramref name="target"/> to its REAL on-disk path via the load order (NOT the houseCARL-owned
     /// folder model — the foreign-plugin resolver, the sibling of <see cref="ResolveOwnedPatchFolder"/> with the
