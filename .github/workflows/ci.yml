@@ -24,7 +24,7 @@ jobs:
     runs-on: windows-latest   # houseCARL is a Windows-only (Skyrim SE) product — match that
     steps:
       - name: Check out the code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Set up .NET 9
         uses: actions/setup-dotnet@v6
