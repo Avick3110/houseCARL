@@ -319,6 +319,13 @@ public static class CiAll
         // EVERY arm consulted; a faulting arm STOPS the chain instead of substituting a later arm's version; and
         // the §5.5 no-sigil exemption, pinned against a plugin actually named 'winner.esp'.
         ("source-chain-guard", SourceChainProbe.RunGuard),
+        // CLOSURE WALK (SPEC §3) — the generic link walk the 2.0 copy verb is built on, tested apart from MO2 on in-memory
+        // records. Pins: EnumerateFormLinks expansion (no per-type list); seed PATHS as caller data, with a typo
+        // REFUSING rather than seeding nothing; expand-vs-keep with boundaries named; exclusions as data at two
+        // severities; a cap breach refusing with the last pull AND its full chain and nothing usable (the ACT
+        // posture); and cycles RECORDED but told apart from a diamond — the one behavior with no ancestor in
+        // copy_npc_appearance, so its fixture carries both shapes at once.
+        ("closure-walk-guard", ClosureWalkProbe.RunGuard),
         // SKYPATCHER DISTRIBUTOR Wave 0a — the catalog-free structural tokenizer (SkyPatcherParse): pins the
         // grammar mechanics a SkyPatcher INI reader stands on — ':'-segment / '='-key-value / ','-list /
         // '~'-compound splitting, the ~…~ rename name-literal, the Plugin.esp|FormID address (leading-zero
