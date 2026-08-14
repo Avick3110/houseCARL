@@ -326,6 +326,13 @@ public static class CiAll
         // posture); and cycles RECORDED but told apart from a diamond — the one behavior with no ancestor in
         // copy_npc_appearance, so its fixture carries both shapes at once.
         ("closure-walk-guard", ClosureWalkProbe.RunGuard),
+        // CLOSURE COPY — the walk's ACT consumer: internalize under fresh keys, strip what still points at the
+        // source universe, prove the artifact does not master it. Every arm sits where the ancestor had a real bug
+        // or trap: remap confined by the scratch-mod step (a patch's deliberate reference survives untouched);
+        // nullability judged on IFormLinkNullable, not SetToNull presence (that shipped Class=00000000); a required
+        // bound link refusing loud; and the leak check scoped to bound keys, so a pre-existing dangling link is
+        // NOT a false positive.
+        ("closure-copy-guard", ClosureCopyProbe.RunGuard),
         // SKYPATCHER DISTRIBUTOR Wave 0a — the catalog-free structural tokenizer (SkyPatcherParse): pins the
         // grammar mechanics a SkyPatcher INI reader stands on — ':'-segment / '='-key-value / ','-list /
         // '~'-compound splitting, the ~…~ rename name-literal, the Plugin.esp|FormID address (leading-zero
