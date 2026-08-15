@@ -24,6 +24,11 @@ namespace HousecarlGenerator;
 ///   LEAK SCOPING  — a surviving bound link IS a leak (true positive); a target's PRE-EXISTING dangling link is
 ///                   NOT (false positive). Two fixtures, two arms — the scoping is the load-bearing half.
 ///   PROVENANCE    — the walk's per-node arm attribution survives into the copy report.
+///
+/// GUARD-NOTE (branch rule): an arm downstream of a refusal reads it null-SAFELY (`?.`), never with the
+/// null-forgiving `!`. An arm that THROWS under sabotage hides every arm behind it, so the sabotage's real
+/// blast radius becomes unmeasurable — a RED check on this branch reported 1 failure where the true number
+/// was 6. An arm that can throw under sabotage is an arm that lies about severity.
 /// Run: dotnet run --project src/housecarl-generator -- closure-copy-guard
 /// </summary>
 public static class ClosureCopyProbe
@@ -154,6 +159,48 @@ public static class ClosureCopyProbe
             "LEAK (false positive): a PRE-EXISTING dangling link is NOT a leak — the check is scoped to bound keys");
         Check(ClosureCopy.FindBoundLeak(clone, IsBound) is null,
             "…and a properly stripped record is clean");
+
+        // ---- 4. ATTACH — seed fields onto a target, with the internalized keys substituted -------------------
+        // End-to-end at the core level: the SAME extended patch that already holds the user's deliberate
+        // donor-pointing record, a real internalize, then a real attach. The unit arm above proved the scratch-mod
+        // mechanism; this proves the wiring around it does not undo the property. (The service-level version of
+        // this arm lands with the tool wiring — there is no `copy` service method to drive yet, and an arm that
+        // drives the core while claiming to test the wire is exactly what PR #339 taught us not to write.)
+        var attachTarget = new Npc(new FormKey(patchKey, 0x950), SkyrimRelease.SkyrimSE) { EditorID = "AttachTarget" };
+        attachTarget.HeadParts.Add(new FormKey(keepKey, 0x9FF));   // a pre-existing head part, to be replaced
+        patch.Npcs.Add(attachTarget);
+
+        var srcNpc = new Npc(npcFk, SkyrimRelease.SkyrimSE) { EditorID = "SrcNpc" };
+        srcNpc.HeadParts.Add(hpFk);                                 // the walked seed, at its DONOR key
+        srcNpc.WornArmor.SetTo(new FormKey(keepKey, 0x902));        // a single-link seed outside the bound universe
+
+        var attach = ClosureCopy.AttachSeedFields(
+            attachTarget, srcNpc, new[] { "HeadParts", "WornArmor" }, copy.Map, IsBound);
+        Check(attach.Success, $"attach succeeds ({attach.Refusal?.Detail})");
+        Check(attachTarget.HeadParts.Count == 1 && attachTarget.HeadParts[0].FormKey == copy.Map[hpFk],
+            "ATTACH: a list seed is set to the INTERNALIZED key, not the donor's");
+        Check(attachTarget.WornArmor.FormKey == new FormKey(keepKey, 0x902),
+            "…a single-link seed outside the copied set keeps its own key (nothing to substitute)");
+        Check(ClosureCopy.FindBoundLeak(attachTarget, IsBound) is null,
+            "…and the attached target carries NO link into the source universe");
+
+        var priorAfterAttach = patch.HeadParts.First(h => h.FormKey == priorFk);
+        Check(priorAfterAttach.TextureSet.FormKey == txstFk,
+            "ATTACH SCOPING (end-to-end): after internalize AND attach, the patch's pre-existing deliberate reference is STILL untouched");
+
+        // Attribution must survive the whole lane — this is the last layer before the readback, so if it flattens
+        // here the "which source produced this body" promise dies silently rather than loudly.
+        Check(copy.Copied.All(c => c.ArmSpelling == "Source.esp") && copy.Copied.Count == 2,
+            "ATTRIBUTION: after attach, the copy result still answers 'which arm produced this body' per node");
+
+        // E1 — a target INSIDE the source universe refuses: you cannot standalone-ize a record onto itself.
+        var selfTarget = new Npc(new FormKey(srcKey, 0x950), SkyrimRelease.SkyrimSE) { EditorID = "SelfTarget" };
+        var selfAttach = ClosureCopy.AttachSeedFields(
+            selfTarget, srcNpc, new[] { "HeadParts" }, copy.Map, IsBound);
+        Check(!selfAttach.Success && selfAttach.Refusal?.Kind == CopyRefusalKind.DonorLeak,
+            "a target INSIDE the source universe REFUSES — no standalone-izing a record onto itself");
+        Check(selfAttach.Refusal?.Key == selfTarget.FormKey, "…naming the offending target");
+        Check(selfTarget.HeadParts.Count == 0, "…and the refusal changed nothing on it");
 
         Console.WriteLine();
         Console.WriteLine(fail == 0 ? "ALL PASS" : $"{fail} FAILURE(S)");
