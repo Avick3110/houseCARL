@@ -39,11 +39,12 @@ housecarl_copy(
   patch         = "MyFollower")
 ```
 
-**The seed set is these four fields** because they are the appearance fields that carry record links. Everything else that makes up a face is inline data and rides Step 2. Naming a fifth field that carries no links is refused by name, so the list is safe to extend when you have a reason.
+**The seed set is these four fields** because they are the appearance fields that are a record link or a list of record links. Everything else that makes up a face is inline data and rides Step 2. The list is safe to extend when you have a reason: a path that is not a field, carries no record links, or is a list whose *entries* carry links inside them (`Factions`, `Perks`, `Items`) is refused by name rather than quietly seeding nothing — and that last shape is a field-bundle copy, so it belongs in Step 2's zip where you choose between merging into the target's entries and replacing them.
 
 **`Race:refuse`** is there because a race is not an appearance subtree. Walking into one pulls the skeleton, the sibling races, the whole racial frame — so a race is either kept as an ordinary link or the copy stops and tells you. The exclusion only fires when the race is *inside the source universe*: defined in the donor plugin itself, or not resolving in your active load order.
 
-- Race defined in the donor plugin → the donor's look genuinely depends on its own race, and this copy cannot free it from that. Either keep the donor as a master (re-run with `Race:stop`, which prunes the walk and keeps the link — the readback will then say the patch is *not* standalone, which is the truth) or pick a target that already uses a race you can keep.
+- **Race defined in the donor plugin, `target=` lane** → the donor's look depends on its own race and this copy cannot free it from that. Re-run with `Race:stop`, which prunes the walk and keeps the link; the readback then says plainly that those links still point into the source and the patch masters it. That is the truth, and it is a choice you can make.
+- **Race defined in the donor plugin, `new_editorid=` lane** → `Race:stop` does **not** help here, and the tool will tell you so: an NPC's `Race` is a link the record model *requires*, so the clone's strip refuses on it whatever the exclusion says. Copy onto a record that already has its own race with `target=`, or use a donor whose race you can keep installed.
 - Race not resolving at all → the race mod is disabled or missing. Enable it; nothing here can invent it.
 
 **Destination.** `target=` copies the appearance onto an existing NPC; `new_editorid=` mints a standalone clone. A clone loses every link that still pointed into the donor — factions, outfits, packages, script properties — and each removal is reported by name. That list is not noise: re-author those against your own or vanilla records, or the follower has no faction and no AI package. A link the record model *requires* cannot be stripped, so the clone lane refuses rather than writing an invented null; that is the case for `target=`.
@@ -93,10 +94,20 @@ Two fields are conditional, so they sit outside the bundle:
 The record copy's readback lists the asset paths its copied records reference — it is the only thing that knows what it copied. Add the textures embedded in the donor's FaceGen mesh, which the records do not name, by reading the mesh:
 
 ```
-housecarl_nif_inspect(<donor's FaceGen mesh path>, sections = "paths")
+housecarl_nif_inspect(<donor's FaceGen mesh path>, sections = "paths", mod = "<the donor's mod>")
 ```
 
+**`mod=` is not optional here.** Without it `nif_inspect` resolves the path through the VFS and reads the *winner's* mesh — and on a contested FaceGen path the winner is precisely the mesh whose bytes are not the donor's. Harvesting textures from the replacer's mesh and then placing the donor's is how you end up with a head that references textures it does not use. Name the donor for the read, exactly as you name it for the placement below.
+
 Merge the two lists, case-insensitively, and that is the set of files worth considering.
+
+The readback's asset block looks like this, and it is a list to act on rather than a result:
+
+```
+asset paths the copied records reference (this call does NOT place them — check each with
+housecarl_asset_status, then place what you keep with housecarl_bulk_place_asset):
+  - texturesctors\character\...\hair.dds
+```
 
 **Decide before you place.** Run `housecarl_asset_status` on each path and read the provider chain. Carry a path only if its bytes would **vanish with the donor** — if another enabled mod still supplies it, the file already resolves and copying it just adds a redundant override. Say which paths you skipped and why; a silent skip and a deliberate one look identical afterwards.
 

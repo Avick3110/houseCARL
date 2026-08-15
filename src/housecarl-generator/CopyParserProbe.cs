@@ -86,6 +86,8 @@ public static class CopyParserProbe
             var srcNpc = new Npc(srcNpcFk, SkyrimRelease.SkyrimSE) { EditorID = "SrcNpc" };
             srcNpc.Race.SetTo(raceFk);
             srcNpc.HeadParts.Add(hpFk);
+            // Factions is left EMPTY on purpose. It is the shape-ruling arm's subject, and an empty list is the
+            // case a content-based shape test gets wrong — so the fixture is built where the wrong answer passes.
             srcMod.Npcs.Add(srcNpc);
             WriteModDirect(mods, "SrcMod", srcMod, baseMod);
 
@@ -148,6 +150,20 @@ public static class CopyParserProbe
             Check(Has(blankExcl, "CLONED") && Has(blankExcl, "SrcTex"),
                 "blank exclusion entries are dropped — a list of only blanks excludes nothing");
 
+            var dupExcl = CopyTools.Copy(svc, from, null, seed, new[] { "TextureSet:stop", "texture" + "set:refuse" }, null, "PDup", "PDup");
+            Check(Has(dupExcl, "error:") && Has(dupExcl, "more than once") && !Has(dupExcl, "failed unexpectedly"),
+                "a DUPLICATE exclude_types type refuses by name — it used to throw and be reported as 'not bad input'");
+
+            // ---- 1b. the seed-shape boundary (shape ruling (a)) ------------------------------------------------
+            // Factions is link-BEARING but its entries are structs, not links. It used to seed zero silently and,
+            // in the attach lane, empty the target's list while reporting a successful attach.
+            var badShape = CopyTools.Copy(svc, from, null, new[] { "HeadParts", "Factions" }, null, null, "PShape", "PShape");
+            Check(Has(badShape, "error:") && Has(badShape, "Factions") && Has(badShape, "link-BEARING"),
+                "a list of link-BEARING entries refuses BY NAME, naming the field and the shape");
+            Check(Has(badShape, "housecarl_apply") && Has(badShape, "Merge") && Has(badShape, "ReplaceAll"),
+                "…and names the ROUTE — apply's zip, where replace-vs-merge is the caller's choice");
+            Check(Has(badShape, "Nothing was written"), "…and writes nothing");
+
             // ---- 2. Exactly one destination ------------------------------------------------------------------
             var neither = CopyTools.Copy(svc, from, null, seed, null, null, null, "PNeither");
             Check(Has(neither, "error:") && Has(neither, "EXACTLY ONE destination") && Has(neither, "target=") && Has(neither, "new_editorid="),
@@ -179,8 +195,14 @@ public static class CopyParserProbe
                 "seed_paths ABSENT refuses rather than walking from nothing");
             var emptySeeds = CopyTools.Copy(svc, from, null, Array.Empty<string>(), null, null, "PEmpty", "PEmpty");
             Check(Has(emptySeeds, "error:") && Has(emptySeeds, "seed_paths is required"), "…an EMPTY list, the same");
+            // A blank ELEMENT is now refused by its index rather than filtered out. The distinction matters because
+            // dropping it silently changed the caller's list and shifted the positions later refusals report.
             var blankSeeds = CopyTools.Copy(svc, from, null, new[] { "", "  " }, null, null, "PBlankS", "PBlankS");
-            Check(Has(blankSeeds, "error:") && Has(blankSeeds, "seed_paths is required"), "…a BLANK-ONLY list, the same");
+            Check(Has(blankSeeds, "error:") && Has(blankSeeds, "seed_paths[0] is blank"),
+                "…a BLANK ELEMENT is refused BY INDEX, not silently dropped");
+            var blankSeed2 = CopyTools.Copy(svc, from, null, new[] { "HeadParts", " " }, null, null, "PBlankS2", "PBlankS2");
+            Check(Has(blankSeed2, "error:") && Has(blankSeed2, "seed_paths[1] is blank"),
+                "…and the index names the element the CALLER passed, not a post-filter position");
 
             var padded = CopyTools.Copy(svc, from, null, new[] { "  HeadParts  " }, null, null, "PPadded", "PPadded");
             Check(Has(padded, "CLONED") && Has(padded, "SrcHair"),
@@ -199,8 +221,11 @@ public static class CopyParserProbe
             // because the alternative reading — the service's per-element blank refusal — is reachable only if this
             // filter goes, and which of the two a caller gets should not be an accident of layering.
             var blankSrc = CopyTools.Copy(svc, from, new[] { "  ", "Src.esp" }, seed, null, null, "PBlankSrc", "PBlankSrc");
-            Check(Has(blankSrc, "source: Src.esp") && !blankSrc.Contains("is blank", StringComparison.OrdinalIgnoreCase),
-                "a blank from_source= element is dropped, not refused — the universe is what remains");
+            Check(Has(blankSrc, "error:") && Has(blankSrc, "from_source[0] is blank"),
+                "a blank from_source= element is REFUSED BY INDEX — dropping it shifted every later position");
+            var blankSrc2 = CopyTools.Copy(svc, from, new[] { "Src.esp", "" }, seed, null, null, "PBlankSrc2", "PBlankSrc2");
+            Check(Has(blankSrc2, "error:") && Has(blankSrc2, "from_source[1] is blank"),
+                "…at the caller's own index, which is the whole point of refusing rather than filtering");
         }
         catch (Exception ex)
         {

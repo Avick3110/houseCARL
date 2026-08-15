@@ -72,8 +72,12 @@ public sealed record WalkNode(
     IReadOnlyList<FormKey> Chain, string PulledBy, int Depth);
 
 /// <summary>A link the walk deliberately did NOT enter: it resolves outside the scope predicate, or an exclusion
-/// pruned it. Recorded so "kept" is a stated outcome rather than an absence.</summary>
-public sealed record WalkBoundary(FormKey Key, string PulledBy, string Why);
+/// pruned it. Recorded so "kept" is a stated outcome rather than an absence.
+/// <para><paramref name="Excluded"/> tells the two APART, and it is not cosmetic. A scope boundary resolves OUTSIDE
+/// the source universe and masters normally; an exclusion boundary is INSIDE it and still points at it. Collapsing
+/// them let one response say a link was "kept and mastered normally" while the strip list showed the same link
+/// removed (review round 1). A render that cannot distinguish them cannot be honest about either.</para></summary>
+public sealed record WalkBoundary(FormKey Key, string PulledBy, string Why, bool Excluded = false);
 
 /// <summary>A genuine cycle: <paramref name="Path"/> is the pull chain from the seed to the node that closed it,
 /// and <paramref name="Back"/> is the key it pointed back at — which is somewhere on that path.</summary>
@@ -98,6 +102,10 @@ public enum WalkRefusalKind
     SourceFault,
     /// <summary>A <see cref="ExclusionSeverity.Refuse"/> exclusion matched.</summary>
     Excluded,
+    /// <summary>A seed path names a real, link-BEARING field whose shape seed_paths does not support — a list whose
+    /// ELEMENTS carry links inside them rather than being links. Separate from <see cref="UnknownSeedPath"/> because
+    /// the remedy is different: the path is right and the LANE is wrong (shape ruling (a), 2026-08-15).</summary>
+    UnsupportedSeedShape,
 }
 
 /// <summary>A refusal as DATA. Every field a render might need is here; which ones matter depends on the kind.</summary>
@@ -177,9 +185,30 @@ public static class ClosureWalk
             }
             if (val is IEnumerable list and not string)
             {
-                foreach (var el in list)
-                    if (el is IFormLinkGetter l && l.FormKeyNullable is { } lk && !lk.IsNull)
+                // A list is supported only when its ELEMENTS are links. A list of link-BEARING elements
+                // (RankPlacement, PerkPlacement, ContainerEntry…) is link-bearing but is not a link list, and
+                // walking it silently contributed zero seeds while the caller believed it had named a field —
+                // the same silent-zero class an unknown path already refuses for. Refused by shape, with the lane
+                // that does support it named (shape ruling (a), Aaron-go 2026-08-15).
+                // The judgement is on the DECLARED element type, not on the elements present. An empty
+                // ExtendedList<RankPlacement> and an empty ExtendedList<IFormLinkGetter<IHeadPartGetter>> are
+                // indistinguishable by inspection, so a content-based test would call the first one supported
+                // whenever the donor happened to carry no factions — and then empty the target's list at attach
+                // time. Shape questions get shape answers.
+                if (ListElementType(val.GetType()) is not { } el)
+                    return WalkResult.Fail(new WalkRefusal(
+                        WalkRefusalKind.UnsupportedSeedShape, seed.FormKey, "", Array.Empty<FormKey>(),
+                        $"'{path}' on {seedType} is a collection whose element type cannot be read"));
+                if (!typeof(IFormLinkGetter).IsAssignableFrom(el))
+                    return WalkResult.Fail(new WalkRefusal(
+                        WalkRefusalKind.UnsupportedSeedShape, seed.FormKey, "", Array.Empty<FormKey>(),
+                        $"'{path}' on {seedType} is a list of link-BEARING entries ({RecordNaming.StripOverlay(el.Name)}), " +
+                        "not a list of record links"));
+                foreach (var e in list)
+                    if (e is IFormLinkGetter l && l.FormKeyNullable is { } lk && !lk.IsNull)
                         seeds.Add(new WalkSeed(lk, path, $"{seedType}.{path}"));
+                // An EMPTY link list is supported and is not an error: the source carries none, and the ACT
+                // consumer's job is then to clear the target's rather than to leave a mixture behind.
                 continue;
             }
             // A named path that is not link-bearing at all is a caller error of the same class as a typo: it
@@ -190,6 +219,14 @@ public static class ClosureWalk
         }
         return null;
     }
+
+    /// <summary>The declared element type of a collection, or null when it declares none this walk can read. Used
+    /// to judge a seed path's SHAPE without depending on what the source happens to carry — see ResolveSeeds for
+    /// why an empty list makes the content-based test unsound.</summary>
+    public static Type? ListElementType(Type listType) => listType.GetInterfaces()
+        .Where(i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IEnumerable<>))
+        .Select(i => i.GetGenericArguments()[0])
+        .FirstOrDefault();
 
     /// <summary>Walk forward from the seeds, resolving every link against the ordered source universe and applying
     /// the scope predicate and exclusions. Returns the reached set (to be internalized by the ACT consumer), the
@@ -217,6 +254,11 @@ public static class ClosureWalk
         var excl = exclusions.ToDictionary(e => e.TypeName, e => e, StringComparer.OrdinalIgnoreCase);
 
         var queue = new Queue<(FormKey Key, string PulledBy, int Depth)>();
+        // A seed has no parent BY DEFINITION — it is where a chain starts. Recording one for a key that is both a
+        // seed and reachable from another seed made ChainTo() disagree with the node's own PulledBy in a cap
+        // refusal (review round 1): the node reported "pulled in by Npc.HeadParts" under a chain claiming it came
+        // via another head part. Held explicitly so the parent map can refuse to overwrite a start.
+        var seedKeys = new HashSet<FormKey>(seeds.Select(s => s.Key));
         foreach (var s in seeds) queue.Enqueue((s.Key, s.Label, 0));
 
         List<FormKey> ChainTo(FormKey k)
@@ -284,7 +326,7 @@ public static class ClosureWalk
                 if (rule.Severity == ExclusionSeverity.Refuse)
                     return WalkResult.Fail(new WalkRefusal(
                         WalkRefusalKind.Excluded, key, pulledBy, ChainTo(key), rule.Reason, Exclusion: rule));
-                kept.Add(new WalkBoundary(key, pulledBy, $"excluded ({typeName}): {rule.Reason}"));
+                kept.Add(new WalkBoundary(key, pulledBy, $"excluded ({typeName}): {rule.Reason}", Excluded: true));
                 continue;
             }
 
@@ -308,7 +350,7 @@ public static class ClosureWalk
                         cycles.Add(new WalkCycle(ChainTo(key), target, label));
                     continue;
                 }
-                if (!parent.ContainsKey(target)) parent[target] = key;
+                if (!parent.ContainsKey(target) && !seedKeys.Contains(target)) parent[target] = key;
                 queue.Enqueue((target, label, depth + 1));
             }
         }

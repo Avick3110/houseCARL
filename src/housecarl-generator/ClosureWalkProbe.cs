@@ -180,10 +180,21 @@ public static class ClosureWalkProbe
         var stopExcl = new[] { new WalkExclusion("HeadPart", ExclusionSeverity.Stop, "pruned for the test") };
         var rStop = ClosureWalk.Run(seeds, OneArm(), scope, stopExcl);
         Check(rStop.Success, "a STOP exclusion does not fail the walk");
+        // POSITIVE assertions only. Every arm here used to be satisfiable by an EMPTY reached set — `All(…)` is
+        // vacuous on nothing, and the continue-vs-break arm was a disjunction whose first half ("the texture set
+        // was not reached") is unconditionally true once the head part is excluded. Measured in review round 1:
+        // `continue` → `break` abandoned the whole remaining queue, internalized NOTHING, and all four arms passed.
+        // An arm whose first half is always true is the winnerTokenFree class again, so each one now names a record
+        // that MUST be there.
+        Check(rStop.Reached.Count > 0, $"…the walk still reaches records ({rStop.Reached.Count}) — an empty closure satisfies every All() below");
         Check(rStop.Reached.All(n => n.TypeName != "HeadPart"), "…the excluded type is not expanded…");
         Check(rStop.Kept.Any(b => b.Key == hpAFk && b.Why.Contains("excluded")), "…and it is recorded as a named boundary");
-        Check(!rStop.Reached.Any(n => n.Key == txstFk) || rStop.Reached.Any(n => n.Key == armoFk),
-            "…and pruning stops the subtree BELOW it, while other seeds keep walking");
+        Check(rStop.Kept.Any(b => b.Key == hpAFk && b.Excluded),
+            "…flagged as an EXCLUSION boundary, not a scope one (they make opposite claims about mastering)");
+        Check(rStop.Reached.Any(n => n.Key == armoFk) && rStop.Reached.Any(n => n.Key == armaFk),
+            "…and the OTHER seeds keep walking — the prune stops one subtree, not the queue (continue, not break)");
+        Check(!rStop.Reached.Any(n => n.Key == txstFk),
+            "…while the subtree BELOW the pruned record is genuinely not reached through it");
 
         var refuseExcl = new[] { new WalkExclusion("Armor", ExclusionSeverity.Refuse, "an Armor is not internalizable here") };
         var rRefuse = ClosureWalk.Run(seeds, OneArm(), scope, refuseExcl);

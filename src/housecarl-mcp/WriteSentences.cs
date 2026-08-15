@@ -187,25 +187,120 @@ internal static class WriteSentences
     [NoClaims("a list header; every claim it introduces is per-record and rendered beside the record")]
     internal const string CopyInternalizedHeader = "internalized under new FormIDs (EditorIDs preserved):";
 
+    // ---- the ordered source universe: parameterised sentences, split so the content net can reach them ----
+    // These three were written in METHOD form, and [MustState] is AttributeTargets.Field — so their text sat
+    // OUTSIDE the const-decides net and all three could be replaced with "gutted" while the whole suite stayed
+    // green (measured, PR 3b review round 1). A method is not the problem; text that lives only inside one is.
+    // Each sentence is now an invariant CONST the render emits verbatim, with the caller's data interpolated
+    // around it — so the content pin has something to pin and the coverage arm has something to observe.
+
+    /// <summary>Single-source label. The claim is the source name it introduces, not the word.</summary>
+    [NoClaims("a label; the claim is the source name it introduces")]
+    internal const string CopySourceSingleLabel = "source: ";
+
+    /// <summary>Multi-source header — R2's readback half. "First hit wins" is the ordering contract in the one
+    /// place a caller reads it, so it is pinned rather than phrased freshly per render.</summary>
+    [MustState("in order", "first hit wins")]
+    internal const string CopySourceListLabel = "sources (in order, first hit wins): ";
+
+    /// <summary>The miss refusal's opening claim.</summary>
+    [MustState("no source produced")]
+    internal const string CopySourceMissLead = "no source produced ";
+
+    /// <summary>…and the part that makes it actionable: EVERY source consulted, not just the last one tried.
+    /// Naming only the last reads as though one source was checked and sends the caller to fix the wrong file.</summary>
+    [MustState("Consulted, in order:")]
+    internal const string CopySourceMissConsulted = ". Consulted, in order: ";
+
+    /// <summary>The miss remedy. Names, not paths (the standing refusal-remedy rule): a path invites a paste-back
+    /// into the next call, and a source is named by plugin.</summary>
+    [MustState("from_source=", "'winner'")]
+    internal const string CopySourceMissRemedy =
+        ". Name the plugin that defines it in from_source=, or 'winner' for the active load order's winning version.";
+
+    /// <summary>The fault refusal's claim — a source HAS the record and could not read it.</summary>
+    [MustState("could not be read")]
+    internal const string CopySourceFaultLead = " but it could not be read — ";
+
+    /// <summary>…and why its remedy differs from a miss's. Adding another source cannot help, so saying so is the
+    /// whole reason a fault is a separate sentence rather than a miss with a different cause.</summary>
+    [MustState("not a missing record", "from_source=")]
+    internal const string CopySourceFaultRemedy =
+        ". This is not a missing record: adding another source will not help. Repair or replace that plugin, or " +
+        "name a different one in from_source=.";
+
     /// <summary>One line per source consulted, in order. Rendered on success AND on a miss — a caller cannot judge
     /// "not found" without knowing where it was looked for.</summary>
     internal static string CopySourcesConsulted(IReadOnlyList<string> sources) =>
         sources.Count == 1
-            ? $"source: {sources[0]}\n"
-            : $"sources (in order, first hit wins): {string.Join(" -> ", sources)}\n";
+            ? $"{CopySourceSingleLabel}{sources[0]}\n"
+            : $"{CopySourceListLabel}{string.Join(" -> ", sources)}\n";
 
-    /// <summary>The miss refusal. Names EVERY source consulted — naming only the last reads as though one source
-    /// was checked and sends the caller to fix the wrong file. Names, not paths (the standing refusal-remedy rule):
-    /// a path invites a paste-back into the next call, and a source is named by plugin.</summary>
+    /// <summary>The miss refusal, composed from the three consts above.</summary>
     internal static string CopySourceMiss(string what, IReadOnlyList<string> sources) =>
-        $"no source produced {what}. Consulted, in order: {string.Join(", ", sources)}. " +
-        "Name the plugin that defines it in from_source=, or 'winner' for the active load order's winning version.";
+        CopySourceMissLead + what + CopySourceMissConsulted + string.Join(", ", sources) + CopySourceMissRemedy;
 
-    /// <summary>The fault refusal — a source HAS the record but could not read it. A different remedy from a miss,
-    /// which is why it is a different sentence: adding another source will not help.</summary>
+    /// <summary>The fault refusal, composed from its two.</summary>
     internal static string CopySourceFault(string what, string source, string cause) =>
-        $"'{source}' carries {what} but it could not be read — {cause}. This is not a missing record: adding another " +
-        "source will not help. Repair or replace that plugin, or name a different one in from_source=.";
+        $"'{source}' carries {what}" + CopySourceFaultLead + cause + CopySourceFaultRemedy;
+
+    // ---- the seed-shape boundary (shape ruling (a), Aaron-go 2026-08-15) ------------------------------
+    /// <summary>What <c>seed_paths</c> supports, and the ROUTE for what it does not. A walk seeds from record
+    /// LINKS; a field whose entries are link-bearing structures is a field-bundle copy, which <c>housecarl_apply</c>
+    /// already does — and there the caller picks replace-vs-merge with the grammar that lane already has, rather
+    /// than this one inventing a second answer. Same shape as the clone lane's required-link refusal, which names
+    /// the target lane instead of guessing.</summary>
+    [MustState("seed_paths takes a record link or a list of record links", "housecarl_apply")]
+    internal const string CopySeedShapeRoute =
+        " — seed_paths takes a record link or a list of record links, and nothing else. Copying a field whose " +
+        "entries carry links INSIDE them is a field-bundle copy: use housecarl_apply's bundle=/assignments= zip, " +
+        "where op=Merge and op=ReplaceAll are your choice between merging into the target's entries and replacing " +
+        "them. Nothing was written.";
+
+    /// <summary>A seed the source does not carry. The target's copy is ASSIGNED FROM the source anyway — cleared —
+    /// because a copy that leaves the target's own value in place produces a face assembled from two records, which
+    /// is the desync the operation exists to prevent. Said out loud, because a silent clear and a silent skip look
+    /// identical afterwards.</summary>
+    [MustState("CLEARED", "not a mixture")]
+    internal const string CopySeedClearedNote =
+        "  (the source carries none, so the target's was CLEARED — the result is the source's, not a mixture)";
+
+    // ---- kept links, told apart (review round 1) -----------------------------------------------------
+    /// <summary>Links kept because they resolve OUTSIDE the source universe. These genuinely master normally.</summary>
+    [MustState("outside the source", "mastered normally")]
+    internal const string CopyKeptOutside = "link(s) resolve outside the source — mastered normally.";
+
+    /// <summary>Links kept because an exclusion PRUNED them. These are inside the source universe and still point
+    /// at it, which is the opposite of the sentence above — collapsing the two let one response claim a link was
+    /// mastered normally while the strip list showed it removed.</summary>
+    [MustState("still point INTO the source", "not standalone")]
+    internal const string CopyKeptExcluded =
+        "link(s) were pruned by exclude_types and still point INTO the source — this artifact is not standalone " +
+        "for them, and masters the plugin they live in.";
+
+    /// <summary>The attach lane's leak refusal when the leaked key is one an exclusion pruned. The generic leak
+    /// sentence blames the target for a reference THIS call wrote a moment earlier, and sends the caller to edit a
+    /// record that never had it.</summary>
+    [MustState("exclude_types", "this call wrote it")]
+    internal const string CopyLeakFromExclusion =
+        " was pruned by exclude_types and then attached to the target unmapped — this call wrote it, so the target " +
+        "is not where to look. Either drop that exclusion so the record is internalized, or copy a field set that " +
+        "does not reach it.";
+
+    // ---- the from record's own provenance (R2) -------------------------------------------------------
+    /// <summary>Which source produced the record the caller ASKED for. Every internalized record names its arm;
+    /// this one did not, and it is the single body an ordered source list exists to disambiguate.</summary>
+    [MustState("read from")]
+    internal const string CopyFromArmLead = "the source record was read from ";
+
+    // ---- the copied records' asset paths (inventory I1) ----------------------------------------------
+    /// <summary>The asset paths the copied records reference. `copy` is the only thing that knows WHAT it copied,
+    /// so it enumerates; it does not fetch, place, or judge them — that decision is the caller's, over
+    /// housecarl_asset_status and housecarl_bulk_place_asset.</summary>
+    [MustState("does NOT place them", "housecarl_bulk_place_asset")]
+    internal const string CopyAssetPathsHeader =
+        "asset paths the copied records reference (this call does NOT place them — check each with " +
+        "housecarl_asset_status, then place what you keep with housecarl_bulk_place_asset):";
 
     // ---- dry run -------------------------------------------------------------------------------------
     /// <summary>#225 — the first line of any dry run. It says NOTHING happened before it says what would: a dry run
