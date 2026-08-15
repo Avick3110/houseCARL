@@ -8,6 +8,8 @@ when it changes.
 
 - **`housecarl_copy`** — copy a record together with the records it depends on (its link closure) into a patch under new FormIDs, so the result no longer masters the plugin you copied from. The walk starts from the link-bearing fields you name (`seed_paths=`) and is bounded by the record types you exclude (`exclude_types=`), so the tool stays generic and the domain knowledge is yours to supply. `from_source=` is an ordered list of sources tried first-hit-wins — `winner` for the load order's winning version, or a plugin filename, active or sitting in a disabled mod — and the result names which source produced each copied record. Destination is either an existing record (`target=`) or a fresh clone (`new_editorid=`), whose remaining links into the source are stripped and reported by name.
 
+- **New skill: `npc-appearance-copy`** — the domain half of `housecarl_copy` for NPC faces, carried as data and flow rather than as tool code: which four link-bearing fields seed the walk, why a Race is excluded rather than walked into, which inline fields (tints, morphs, `TextureLighting`, weight) ride `housecarl_apply`'s copy zip instead, and how the FaceGen mesh + tint are placed under the new FormID from the **named donor** rather than the VFS winner. Also states the two things the split costs: three calls means three refusal surfaces, and a donor sitting in a disabled MO2 mod is a records-only job until its files can be named.
+
 *Accumulating notes for the next cut — not yet released; `plugin.json` still reads the last shipped version.*
 
 **Added: `housecarl_place_asset` can now place a copy from one path under a different name, and say whose copy to

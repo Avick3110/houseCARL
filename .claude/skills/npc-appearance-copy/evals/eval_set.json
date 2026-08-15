@@ -1,0 +1,165 @@
+{
+ "skill": "npc-appearance-copy",
+ "run_2026-08-15": {
+  "method": "Standard section-6.5 fan-out, matching the 2026-07-28 #294 revalidation shape: one fresh-context sonnet agent per query, each shown the full lettered menu of all 14 shipped descriptions (the skill under test unflagged, letter H) plus NONE, asked which ONE to load and to reason from the description texts alone. No tools. Adjudicated from each agent's reasoning per section-6.5 step 4; every reasoning string agreed with its own PICK token, so no overrides were applied.",
+  "gate": {
+   "recall_threshold": 0.8,
+   "specificity_threshold": 0.5
+  },
+  "recall": "9/10 = 0.90",
+  "specificity": "10/10 = 1.00",
+  "passed": true,
+  "misses": [
+   {
+    "id": 3,
+    "query": "cloned an npc yesterday and now she's got a pitch black face in game. i copied the record with xedit but that's it",
+    "should_trigger": true,
+    "pick": "K",
+    "diagnosis": "Recall miss, and a defensible route rather than a recognition failure: the judge read the copy as already done ('via xEdit, not housecarl_copy') and therefore the request as a diagnosis, which is facegen-diagnostics' stated job. The description's 'or a copied NPC rendering dark' clause did not win the one row it names. Kept anyway: it costs five words, it did not cost any specificity row (all four dark-face negatives stayed with K), and it carries the case this skill genuinely owns — a copy still in flight. Worth re-checking if a later run shows this clause winning nothing at all."
+   }
+  ],
+  "notes": "Specificity is the stronger half and the near-misses were the informative ones. Four negatives sit squarely in facegen-diagnostics' territory (fresh-install grey faces, ESL-compaction rename, merge, a facegeom VFS-winner question) and all four routed to K, so the new description is not pulling dark-face diagnosis away from the skill that owns it. Two negatives (a whole-record forward; a NIF texture-path repoint) correctly went to NONE — both are tool-level operations with no skill, and neither was attracted by this skill's NPC/face vocabulary. The distributor three-way (SPID / KID) and the bulk-catalogue boundary were unaffected."
+ },
+ "evals": [
+  {
+   "id": 1,
+   "should_trigger": true,
+   "query": "i want to make Serana's face into a standalone follower of my own - new NPC, my own esp, and i don't want it to need Dawnguard's records for the head",
+   "pick": "H",
+   "hit": true
+  },
+  {
+   "id": 2,
+   "should_trigger": true,
+   "query": "Bijin gives Ysolda a face i like. can you put that face onto the Ysolda that my modlist actually uses, without me having to install all of Bijin",
+   "pick": "H",
+   "hit": true
+  },
+  {
+   "id": 3,
+   "should_trigger": true,
+   "query": "cloned an npc yesterday and now she's got a pitch black face in game. i copied the record with xedit but that's it",
+   "pick": "K",
+   "hit": false
+  },
+  {
+   "id": 4,
+   "should_trigger": true,
+   "query": "borrow the head from 000A2C94:Skyrim.esm for my custom follower please, including the tints",
+   "pick": "H",
+   "hit": true
+  },
+  {
+   "id": 5,
+   "should_trigger": true,
+   "query": "what fields do i actually need to move to transfer an npc's appearance? i keep getting a blank/default face when i copy them over",
+   "pick": "H",
+   "hit": true
+  },
+  {
+   "id": 6,
+   "should_trigger": true,
+   "query": "make a standalone version of the follower from 'Sofia the Funny Fully Voiced Follower' that doesn't master her esp - just the look, i'll do the AI myself",
+   "pick": "H",
+   "hit": true
+  },
+  {
+   "id": 7,
+   "should_trigger": true,
+   "query": "i want to duplicate this NPC record into my patch and take her facegen nif and dds with her so the head still renders",
+   "pick": "H",
+   "hit": true
+  },
+  {
+   "id": 8,
+   "should_trigger": true,
+   "query": "copy the appearance from the overhaul's version of Lydia onto the vanilla Lydia record in my own patch esp",
+   "pick": "H",
+   "hit": true
+  },
+  {
+   "id": 9,
+   "should_trigger": true,
+   "query": "my cloned npc came out with no factions and no outfit after i made her standalone. did i do the copy wrong",
+   "pick": "H",
+   "hit": true
+  },
+  {
+   "id": 10,
+   "should_trigger": true,
+   "query": "transferring a face between two npcs of different races - is there anything extra i need to change or does it just work",
+   "pick": "H",
+   "hit": true
+  },
+  {
+   "id": 11,
+   "should_trigger": false,
+   "query": "about half the npcs in my load order have grey faces since i installed a new overhaul. nothing was copied, this is a fresh install - where do i even start",
+   "pick": "K",
+   "hit": true
+  },
+  {
+   "id": 12,
+   "should_trigger": false,
+   "query": "give every female Nord bandit the Fortify Health spell without an esp",
+   "pick": "E",
+   "hit": true
+  },
+  {
+   "id": 13,
+   "should_trigger": false,
+   "query": "build me a spreadsheet of every NPC_ record in the load order with their race, level and which plugin wins them",
+   "pick": "C",
+   "hit": true
+  },
+  {
+   "id": 14,
+   "should_trigger": false,
+   "query": "what's the mutagen field name for the NPC head texture? i need the exact spelling for a script",
+   "pick": "F",
+   "hit": true
+  },
+  {
+   "id": 15,
+   "should_trigger": false,
+   "query": "i want the overhaul's whole Lydia record - stats, AI, everything - forwarded into my patch as the winning override, not just her face",
+   "pick": "NONE",
+   "hit": true
+  },
+  {
+   "id": 16,
+   "should_trigger": false,
+   "query": "after i compacted my follower mod to esl all the faces went dark. i think the facegen filenames don't match the new formids",
+   "pick": "K",
+   "hit": true
+  },
+  {
+   "id": 17,
+   "should_trigger": false,
+   "query": "merge these three follower plugins into one esp and keep their facegen working",
+   "pick": "K",
+   "hit": true
+  },
+  {
+   "id": 18,
+   "should_trigger": false,
+   "query": "which mod is actually winning meshes\\actors\\character\\facegendata\\facegeom\\Skyrim.esm\\00013BBF.nif in my setup",
+   "pick": "K",
+   "hit": true
+  },
+  {
+   "id": 19,
+   "should_trigger": false,
+   "query": "add the VendorItemClothing keyword to every wig in my hair mod at runtime, no plugin",
+   "pick": "J",
+   "hit": true
+  },
+  {
+   "id": 20,
+   "should_trigger": false,
+   "query": "the head nif for my follower points at a texture path that doesn't exist anymore, can you repoint it",
+   "pick": "NONE",
+   "hit": true
+  }
+ ]
+}
