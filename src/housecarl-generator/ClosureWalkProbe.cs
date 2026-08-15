@@ -30,7 +30,9 @@ namespace HousecarlGenerator;
 /// GUARD-NOTE (branch rule): an arm downstream of a refusal reads it null-SAFELY (`?.`), never with the
 /// null-forgiving `!`. An arm that THROWS under sabotage hides every arm behind it, so the sabotage's real
 /// blast radius becomes unmeasurable — a RED check on this branch reported 1 failure where the true number
-/// was 6. An arm that can throw under sabotage is an arm that lies about severity.
+/// was 6. An arm that can throw under sabotage is an arm that lies about severity. The grep is part of the rule,
+/// not a one-time cleanup: the sweep that introduced this note also introduced a FRESH `!` one line below a
+/// deref it was fixing, caught only by re-running the grep before commit.
 /// Run: dotnet run --project src/housecarl-generator -- closure-walk-guard
 /// </summary>
 public static class ClosureWalkProbe
