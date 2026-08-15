@@ -2206,6 +2206,15 @@ public static class WriteSurfaceGuardProbe
         // circular shape the whole reach check exists to catch.
         foreach (var render in PlaceSourceRefusalRenders(root)) Observe(render, "{}");
 
+        // ---- copy's outcome sentences (PR 3b) ---------------------------------------------------------
+        // Copy renders on ONE transport today, so the claim here is "reaches a render", same as place_asset's.
+        // Its SUCCESS path is driven by the real service in copy-service-guard; what that fixture cannot reach is
+        // the two DEFENSIVE branches — a post-write read-back that fails, and a patch that somehow mastered its
+        // own source — because both are states the operation exists to prevent. Those are observed by handing the
+        // REAL render a constructed outcome: the render is the code under test, and the sentence still comes from
+        // the shared source rather than from this probe.
+        foreach (var render in CopyOutcomeRenders()) Observe(render, "{}");
+
         // ---- the coverage assertion — what stops this arm being theatre ------------------------------
         var missingText = twins.Select(t => t.Name).Where(n => !seenText.Contains(n)).ToList();
         var missingJson = twins.Select(t => t.Name).Where(n => !seenJson.Contains(n)).ToList();
@@ -2483,4 +2492,36 @@ public static class WriteSurfaceGuardProbe
     /// positive test for an absence, which no value reader can express.)</summary>
     static bool HasRoot(JsonDocument? doc, string member)
         => doc is not null && doc.RootElement.TryGetProperty(member, out _);
+
+    /// <summary>Render copy outcomes covering the sentences the service-level fixture cannot reach. Two of copy's
+    /// four pinned sentences describe states the operation prevents — a failed read-back and a self-mastered patch
+    /// — so there is no honest fixture that produces them end to end; the outcome is constructed and handed to the
+    /// REAL render. The other two ride ordinary success outcomes.</summary>
+    static List<string> CopyOutcomeRenders()
+    {
+        var src = new ModKey("CopySrc", ModType.Plugin);
+        var patch = new ModKey("CopyPatch", ModType.Plugin);
+        var outPath = Path.Combine(Path.GetTempPath(), "CopyPatchFolder", "CopyPatch.esp");
+        var copied = new List<CopiedRecord>
+        {
+            new(new FormKey(src, 0x800), new FormKey(patch, 0x800), "HeadPart", "SrcHair", 0, "CopySrc.esp", "Npc.HeadParts"),
+        };
+        var stripped = new List<StripEntry> { new("Factions[0]", new FormKey(src, 0x802).ToString()) };
+        var sources = new[] { "CopySrc.esp" };
+
+        ClosureCopyOutcome Make(bool mastered, string? warning, IReadOnlyList<StripEntry> strips) => new(
+            true, null, null, null, strips.Count > 0 ? "clone" : "attach",
+            new FormKey(src, 0x803), new FormKey(patch, 0x900), outPath, false,
+            copied, Array.Empty<WalkBoundary>(), Array.Empty<WalkCycle>(),
+            Array.Empty<StripEntry>(), strips, sources,
+            new[] { "Skyrim.esm" }, mastered, 1234, warning);
+
+        return new List<string>
+        {
+            CopyTools.Render(Make(false, null, Array.Empty<StripEntry>())),   // the standalone claim
+            CopyTools.Render(Make(true, null, Array.Empty<StripEntry>())),    // the self-mastered alarm
+            CopyTools.Render(Make(false, "read-back blew up", Array.Empty<StripEntry>())),  // NOT VERIFIED
+            CopyTools.Render(Make(false, null, stripped)),                    // the strip consequence
+        };
+    }
 }
