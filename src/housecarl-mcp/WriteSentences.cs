@@ -287,6 +287,21 @@ internal static class WriteSentences
         "is not where to look. Either drop that exclusion so the record is internalized, or copy a field set that " +
         "does not reach it.";
 
+    /// <summary>`Type:stop` against a record that lives OFF the active load order. The remedy half is both routes,
+    /// because which one is right is the caller's call: `refuse` if they want the copy to stop at that record, or
+    /// enabling the mod if they want the link kept and mastered.</summary>
+    [MustState("master a plugin the game does not load", "'Type:refuse'", "enable the mod")]
+    internal const string CopyStopOffOrderRoute =
+        " is not in your active load order, and 'Type:stop' KEEPS the link — so this patch would have to master a " +
+        "plugin the game does not load, which cannot be written at all. Either use 'Type:refuse' for that type, so " +
+        "the copy stops there and tells you, or enable the mod so the link can be mastered normally. Nothing was written.";
+
+    /// <summary>A target in a nested group. Named as caller input rather than surfaced as an engine fault.</summary>
+    [MustState("NESTED group", "target=")]
+    internal const string CopyTargetShapeRoute =
+        " lives in a NESTED group (a placed reference, a cell, a dialog response), which target= cannot override. " +
+        "Name a top-level record — for an NPC's appearance that is the NPC_ itself, not a reference placed in a cell.";
+
     // ---- the from record's own provenance (R2) -------------------------------------------------------
     /// <summary>Which source produced the record the caller ASKED for. Every internalized record names its arm;
     /// this one did not, and it is the single body an ordered source list exists to disambiguate.</summary>

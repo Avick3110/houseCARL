@@ -2562,6 +2562,15 @@ public static class WriteSurfaceGuardProbe
                 copy: new CopyRefusal(CopyRefusalKind.DonorLeak, "a link into the source universe survived on the target",
                     ClosureCopy.ExclusionLeakMarker, new FormKey(src, 0x823)),
                 sources: sources)),
+            // The two refusals added when 'stop' met an off-order source and target= met a nested-group record.
+            // Both are reachable end to end (copy-service-guard drives them), and both are rendered here so the
+            // sentence-reach net owns them like every other outer-class sentence.
+            CopyTools.Render(ClosureCopyOutcome.Fail(
+                copy: new CopyRefusal(CopyRefusalKind.StopOffOrder, "CopySrc.esp", Key: new FormKey(src, 0x824)),
+                sources: sources)),
+            CopyTools.Render(ClosureCopyOutcome.Fail(
+                copy: new CopyRefusal(CopyRefusalKind.UnsupportedTargetShape, "PlacedNpc", Key: new FormKey(src, 0x825)),
+                sources: sources)),
         };
     }
 }

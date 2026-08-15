@@ -65,6 +65,13 @@ public enum CopyRefusalKind
     /// elements, or a target property the lane cannot write. Refused by name rather than silently no-oped or
     /// silently emptied (shape ruling (a), Aaron-go 2026-08-15).</summary>
     UnsupportedSeedShape,
+    /// <summary>A <c>Type:stop</c> exclusion pruned a record that lives OFF the active load order. The artifact
+    /// would have to master a plugin the game does not load, which cannot be serialized at all — so it refuses up
+    /// front with both remedies rather than throwing out of the writer (Aaron-go 2026-08-15).</summary>
+    StopOffOrder,
+    /// <summary>The target record lives in a NESTED group (a placed reference, a cell, a dialog response). Ordinary
+    /// caller input, so it is a typed refusal naming the shape — not a throw rendered as an internal fault.</summary>
+    UnsupportedTargetShape,
 }
 
 /// <summary>A refusal as data — the render owns the words (#337).</summary>
@@ -322,20 +329,23 @@ public static class ClosureCopy
 
             FormKey Mapped(FormKey k) => map.TryGetValue(k, out var n) ? n : k;
 
-            // THE SHAPE RULING (a), Aaron-go 2026-08-15. Two shapes are supported — a record link, and a list of
-            // record links — and EVERY other shape refuses by name. What this replaces is why it is spelled out
-            // rather than left as an if/else: the lane handled those two and fell off the end SILENTLY for anything
-            // else, so a list of link-BEARING elements had the target's copy emptied and the result reported as a
-            // successful attach (review round 1, measured). Silence was the defect; the supported set is not.
-            if (sv is IFormLinkGetter sLink)
+            // THE SHAPE IS THE CLASSIFIER'S, not this lane's. Round 2 measured what happens when each site
+            // decides for itself: a null Keywords was refused here as "neither a record link nor a list of record
+            // links" — false of a field seed_paths fully supports — while the clone lane skipped the same field
+            // in silence. One verdict, consumed, no private opinions (Aaron-go 2026-08-15).
+            var shape = ClosureWalk.ClassifySeed(sp);
+            if (shape.Kind == SeedShapeKind.Unsupported)
+                return StripResult.Fail(new CopyRefusal(CopyRefusalKind.UnsupportedSeedShape, shape.Reason!, path));
+
+            if (shape.Kind == SeedShapeKind.Link)
             {
                 if (tv is null)
                     return StripResult.Fail(new CopyRefusal(CopyRefusalKind.UnsupportedSeedShape,
                         $"'{path}' is a record link on the source but the target's is not writable", path));
-                var key = sLink.FormKeyNullable;
-                // An UNSET source link CLEARS the target's, matching the whole-field assignment the ancestor did.
-                // Leaving the target's own value would build a face out of two records — the desync this operation
-                // exists to prevent — and doing it silently would hide which of the two happened.
+                var key = (sv as IFormLinkGetter)?.FormKeyNullable;
+                // An UNSET source link CLEARS the target's — the ancestor assigned the field unconditionally, and
+                // leaving the target's own value would build a face out of two records. Null is a STATE of this
+                // shape, not a reason to refuse it.
                 if (key is null || key.Value.IsNull)
                 {
                     if (!TryClearLink(tv))
@@ -352,50 +362,38 @@ public static class ClosureCopy
                 continue;
             }
 
+            // LinkList. Read the source BEFORE touching the target, so a failure leaves the target untouched.
+            var mapped = new List<FormKey>();
             if (sv is IEnumerable sList and not string)
-            {
-                if (tv is not IList tList)
-                    return StripResult.Fail(new CopyRefusal(CopyRefusalKind.UnsupportedSeedShape,
-                        $"'{path}' is a list on the source but the target's is not a writable list " +
-                        $"({(tv is null ? "it is unset" : tv.GetType().Name)})", path));
-
-                // Judge the SHAPE off the declared element type, for the same reason ResolveSeeds does: an empty
-                // list of link-bearing structs looks exactly like an empty list of links, and guessing wrong here
-                // is what emptied a target's factions and called it a successful attach.
-                if (ClosureWalk.ListElementType(sv.GetType()) is not { } elemType)
-                    return StripResult.Fail(new CopyRefusal(CopyRefusalKind.UnsupportedSeedShape,
-                        $"'{path}' is a collection whose element type cannot be read", path));
-                if (!typeof(IFormLinkGetter).IsAssignableFrom(elemType))
-                    return StripResult.Fail(new CopyRefusal(CopyRefusalKind.UnsupportedSeedShape,
-                        $"'{path}' is a list of link-BEARING entries ({RecordNaming.StripOverlay(elemType.Name)}), " +
-                        "not a list of record links", path));
-
-                // Read the source BEFORE touching the target: a shape refusal has to leave the target untouched,
-                // and the old order cleared first and discovered the shape afterwards.
-                var mapped = new List<FormKey>();
                 foreach (var el in sList)
                     if (el is IFormLinkGetter l && l.FormKeyNullable is { } lk && !lk.IsNull) mapped.Add(Mapped(lk));
 
-                var made = mapped.Select(k => MakeLink(tList.GetType(), k)).ToList();
-                if (made.Any(m => m is null))
-                    return StripResult.Fail(new CopyRefusal(CopyRefusalKind.Transplant,
-                        $"'{path}' element could not be constructed on the target", path));
-
-                tList.Clear();
-                foreach (var m in made) tList.Add(m);
-                // An EMPTY source list clears the target's, on the same reasoning as the unset link above — and the
-                // readback says CLEARED rather than "0 link(s)", which reads as a no-op.
-                set.Add(mapped.Count == 0
-                    ? new StripEntry(path, "cleared", Cleared: true)
-                    : new StripEntry(path, $"{mapped.Count} link(s)"));
-                continue;
+            // The target's list may itself be null — Mutagen models these non-nullable and the overlay hands back
+            // null when the subrecord is absent. That is a list carrying nothing, so it is assigned INTO rather
+            // than refused; only a property that cannot be given one at all is a refusal.
+            if (tv is not IList tList)
+            {
+                if (mapped.Count == 0) { set.Add(new StripEntry(path, "cleared", Cleared: true)); continue; }
+                if (!tp.CanWrite || MakeList(tp.PropertyType) is not { } fresh)
+                    return StripResult.Fail(new CopyRefusal(CopyRefusalKind.UnsupportedSeedShape,
+                        $"'{path}' is a list of record links but the target's cannot be written " +
+                        $"({(tv is null ? "it is unset and the property is read-only" : tv.GetType().Name)})", path));
+                tp.SetValue(target, fresh);
+                tList = fresh;
             }
 
-            // Neither shape. Falling through here is what made a real-but-wrong-shaped field path a silent no-op;
-            // it is now the refusal that names the shape and the lane that does support it.
-            return StripResult.Fail(new CopyRefusal(CopyRefusalKind.UnsupportedSeedShape,
-                $"'{path}' on the source is {(sv is null ? "unset" : sv.GetType().Name)}, which is neither a record " +
-                "link nor a list of record links", path));
+            var made = mapped.Select(k => MakeLink(tList.GetType(), k)).ToList();
+            if (made.Any(m => m is null))
+                return StripResult.Fail(new CopyRefusal(CopyRefusalKind.Transplant,
+                    $"'{path}' element could not be constructed on the target", path));
+
+            tList.Clear();
+            foreach (var m in made) tList.Add(m);
+            // An EMPTY or absent source list clears the target's, on the same reasoning as the unset link above,
+            // and the readback says CLEARED rather than "0 link(s)", which reads as a no-op.
+            set.Add(mapped.Count == 0
+                ? new StripEntry(path, "cleared", Cleared: true)
+                : new StripEntry(path, $"{mapped.Count} link(s)"));
         }
         return new StripResult(true, null, set);
     }
@@ -423,6 +421,15 @@ public static class ClosureCopy
             if (ps[0].ParameterType == typeof(FormKey?)) { m.Invoke(linkObj, new object?[] { (FormKey?)key }); return true; }
         }
         return false;
+    }
+
+    /// <summary>Construct an empty list for a target property whose own is null. Returns null when the declared
+    /// type cannot be instantiated (an interface, typically), which the caller reports by name rather than
+    /// swallowing — a target we cannot give a list to is a refusal, not a silent skip.</summary>
+    static IList? MakeList(Type propertyType)
+    {
+        try { return System.Activator.CreateInstance(propertyType) as IList; }
+        catch { return null; }
     }
 
     /// <summary>Build a concrete <c>FormLink&lt;T&gt;</c> for a list whose element type is <c>IFormLinkGetter&lt;T&gt;</c>
@@ -461,6 +468,7 @@ public static class ClosureCopy
         FormKey? targetKey, IMajorRecordGetter? targetActiveBody,
         string? newEditorid,
         Func<FormKey, bool> isBound, IReadOnlySet<ModKey> boundPlugins,
+        Func<ModKey, bool> isOnOrder,
         Func<string, IReadOnlyList<ISkyrimModGetter>> mastersFor,
         IReadOnlyList<string> consulted,
         Func<Exception, string>? serializeFailure = null)
@@ -474,6 +482,16 @@ public static class ClosureCopy
             catch (Exception ex) { return ClosureCopyOutcome.Fail(engine: ex.Message, sources: consulted); }
         }
         else patch = new SkyrimMod(patchModKey, SkyrimRelease.SkyrimSE);
+
+        // A pruned link must still be MASTERABLE. Masters come from the active order, so a `stop` on a record in
+        // an off-order plugin cannot be written at all — it threw a raw MissingModException out of the serializer,
+        // with no next step for the caller and against the very lane this verb exists for (a disabled donor).
+        // Checked before anything is built, so the refusal writes nothing (C11).
+        if (walk.Kept.FirstOrDefault(k => k.Excluded && !isOnOrder(k.Key.ModKey)) is { } offOrder)
+            return ClosureCopyOutcome.Fail(
+                copy: new CopyRefusal(CopyRefusalKind.StopOffOrder,
+                    offOrder.Key.ModKey.FileName.String, Key: offOrder.Key),
+                sources: consulted);
 
         var copy = Internalize(patch, walk.Reached);
         if (!copy.Success) return ClosureCopyOutcome.Fail(copy: copy.Refusal, sources: consulted);
@@ -496,7 +514,20 @@ public static class ClosureCopy
                 target = (IMajorRecord)inPatch;
             }
             else if (targetActiveBody is not null)
-                target = WriteEngine.GenericGetOrAddAsOverride(patch, targetActiveBody);
+            {
+                try { target = WriteEngine.GenericGetOrAddAsOverride(patch, targetActiveBody); }
+                catch (Exception ex)
+                {
+                    // A placed reference, a cell, a dialog response — records that live in NESTED groups. That is
+                    // ordinary caller input, so it is a named refusal; letting it throw rendered it as "an
+                    // internal houseCARL failure … not bad input", which is the false claim this branch already
+                    // fixed once for duplicate exclude_types.
+                    return ClosureCopyOutcome.Fail(
+                        copy: new CopyRefusal(CopyRefusalKind.UnsupportedTargetShape,
+                            RecordNaming.StripOverlay(targetActiveBody.GetType().Name), Key: tk),
+                        sources: consulted);
+                }
+            }
             else
                 return ClosureCopyOutcome.Fail(
                     copy: new CopyRefusal(CopyRefusalKind.Transplant, "no target body was supplied", Key: tk),

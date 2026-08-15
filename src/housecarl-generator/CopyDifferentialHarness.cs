@@ -28,8 +28,14 @@ namespace HousecarlGenerator;
 /// <para><b>Fixture 3 is the one that can fail informatively</b>, so its contested-ness is CONSTRUCTED and ASSERTED
 /// here rather than inferred from a tool: two providers for one facegen path (a loose replacer out-sorting a real
 /// BSA), asserted to hold different bytes, with the loose copy asserted to win. Only once that is measured does a
-/// clean diff on that path mean what the stop rule says it means — that the named-donor read is not wired. A clean
-/// diff there STOPS THE RUN. It is not folded, and it is not reported as a pass.</para>
+/// clean diff there STOPS THE RUN. It is not folded, and it is not reported as a pass.</para>
+///
+/// <para><b>What that stop means, stated honestly.</b> This harness passes <c>source_provider</c> to
+/// <c>bulk_place_asset</c> ITSELF, standing in for the skill, and <c>place_asset</c> is not a tool this branch
+/// changes. So the arm is a FLOW-level claim — "the composed replacement reads the named donor where the ancestor
+/// read the winner" — not proof that a named-donor read was wired here. A clean diff is a reason to go and find
+/// out which of the three moved (the fixture, the flow, or place_asset's source selection); it does not by itself
+/// identify one. The empirical half of this fixture's evidence is Aaron's pass on the live install.</para>
 ///
 /// <para><b>Fixture 2 is records-only by ruling.</b> The disabled-donor asset lane is not built in this branch, so
 /// the ancestor's donor-disk carry has no counterpart to diff against. That is a stated gap in coverage rather than
@@ -160,8 +166,8 @@ public static class CopyDifferentialHarness
         // replacement, and "the suite is green" was true of the silent version too.
         var shape = CopyTools.Copy(svc, donorKey.ToString(), null, new[] { "HeadParts", "Factions" },
                                    new[] { "Race:refuse" }, targetKey.ToString(), null, "F1Shape", null);
-        Check(shape.StartsWith("error") && shape.Contains("link-BEARING", StringComparison.Ordinal),
-            "a link-BEARING list seed REFUSES by shape rather than emptying the target's list");
+        Check(shape.StartsWith("error") && shape.Contains("RankPlacement", StringComparison.Ordinal),
+            "an unsupported list seed REFUSES by shape, naming what its entries ARE, rather than emptying the target's list");
         Check(shape.Contains("housecarl_apply", StringComparison.Ordinal),
             "…naming the lane that does support it");
         Check(!Directory.EnumerateDirectories(mods, "*F1Shape*").Any(),
@@ -322,7 +328,8 @@ public static class CopyDifferentialHarness
         if (ob.SequenceEqual(nb))
         {
             Stop("the carried bytes on the CONTESTED facegen path are IDENTICAL. The fixture was measured to be " +
-                 "genuinely contested above, so the remaining reading is that the named-donor read is not wired.");
+                 "genuinely contested above, so one of the flow, the fixture, or place_asset's source selection " +
+                 "has moved — which of the three is what to go and find out.");
             return;
         }
         Check(true, "THE RECORDED DIVERGENCE: the two tools carry DIFFERENT bytes on the contested facegen path");
