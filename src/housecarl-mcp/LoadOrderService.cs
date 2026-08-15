@@ -5068,8 +5068,17 @@ public sealed class LoadOrderService : IDisposable
                 var baseMasters = Mutagen.Bethesda.Plugins.Implicits.Get(Mutagen.Bethesda.GameRelease.SkyrimSE).BaseMasters;
                 var bound = new HashSet<ModKey>();
                 if (!baseMasters.Contains(sourceKey.ModKey)) bound.Add(sourceKey.ModKey);
-                foreach (var arm in chain.Arms.Where(a => a.Kind == SourceArmKind.File))
+                // EVERY arm the caller NAMED, whatever kind it resolved to (Aaron-go 2026-08-15). Binding only the
+                // File arms made the artifact depend on an MO2 checkbox: name an ENABLED override and its records
+                // were kept as mastered links, while the same call against the same plugin disabled internalized
+                // them — and `sourceAmong` was computed over that same unbound set, so the response asserted
+                // "standalone: the source is NOT a master" three lines below listing it AS a master.
+                // Naming a plugin in from_source= IS the caller saying "this is a source I am copying away from",
+                // and that reading is what makes the standalone claim true. `winner` stays exempt: it is the whole
+                // load order, not a plugin, and binding it would internalize vanilla.
+                foreach (var arm in chain.Arms)
                 {
+                    if (string.Equals(arm.Spelling, SourcePoles.Winner, StringComparison.OrdinalIgnoreCase)) continue;
                     ModKey mk;
                     try { mk = ModKey.FromFileName(Path.GetFileName(arm.Spelling)); } catch { continue; }
                     if (!baseMasters.Contains(mk)) bound.Add(mk);
@@ -5105,15 +5114,24 @@ public sealed class LoadOrderService : IDisposable
                     }
                 }
 
+                // Cleanup is finally-shaped rather than success-flag-guarded: a THROW out of BuildAndWrite
+                // bypassed the `!outcome.Success` check entirely and left the fresh mod folder on disk, so the
+                // next call started suffixing _001 — the accretion RemoveFolderCreatedThisCall exists to prevent.
+                var wrote = false;
+                try
+                {
                 var outcome = ClosureCopy.BuildAndWrite(
                     outPath, extend, sourceKey, srcHit, walk, seedPaths,
                     targetKey, targetActiveBody, newEditorid, IsBound, bound,
+                    mk => view.ContainsPlugin(mk.FileName.String),
                     pf => { session.ReleaseOverlay(pf); return session.AllMastersExcept(pf); },
                     consulted,
                     ex => WritePatchBuilder.SerializeFailure("", ex, session, ""));
 
-                if (!outcome.Success && created) RemoveFolderCreatedThisCall(outPath);
+                wrote = outcome.Success;
                 return outcome;
+                }
+                finally { if (!wrote && created) RemoveFolderCreatedThisCall(outPath); }
             }
             finally { foreach (var d in overlays) { try { d.Dispose(); } catch { } } }
         }

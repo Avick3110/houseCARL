@@ -33,15 +33,17 @@ public static class CopyTools
          "refuses the whole copy naming every source consulted, rather than writing a patch with a hole in it.\n\n" +
          "WHERE THE WALK STARTS is yours: seed_paths= names the fields to walk from (e.g. " +
          "['HeadParts','HairColor','HeadTexture','WornArmor'] for an NPC's appearance). Each must be a RECORD " +
-         "LINK or a LIST OF RECORD LINKS; a path that is not a field on the record, carries no record links, or " +
-         "is a list whose ENTRIES carry links inside them (Factions, Perks, Items) is REFUSED BY NAME rather " +
-         "than quietly seeding nothing — for that last shape use housecarl_apply's bundle=/assignments= zip, " +
-         "where op=Merge and op=ReplaceAll are your choice of merging into the target's entries or replacing " +
-         "them. A seed the source leaves UNSET clears the target's, and says so: the result is the source's, " +
-         "not a mixture of both. " +
+         "LINK or a LIST OF RECORD LINKS, judged on the field's DECLARED type — so a field the source happens to " +
+         "carry none of is still that shape. A path that is not a field, or whose entries are structures rather " +
+         "than links (Factions, Perks, Items), is REFUSED BY NAME rather than quietly seeding nothing: for those " +
+         "use housecarl_apply's bundle=/assignments= zip, where op=Merge and op=ReplaceAll are your choice of " +
+         "merging into the target's entries or replacing them. A seed the source leaves UNSET or EMPTY clears the " +
+         "target's, and says so — the result is the source's look, not a mixture of both. " +
          "exclude_types= names record types the walk must not enter, each as 'Type:stop' (prune it, keep the link) " +
          "or 'Type:refuse' (fail the whole copy) — a RACE is the standing 'refuse' case, since a race pulls " +
-         "skeletons and sibling races rather than an appearance subtree.\n\n" +
+         "skeletons and sibling races rather than an appearance subtree. 'stop' KEEPS the link, so it needs a " +
+         "plugin the patch can master: pruning a record that is NOT in your active load order is refused up " +
+         "front, because an artifact cannot master a plugin the game does not load.\n\n" +
          "FROM WHERE — from_source= is an ORDERED LIST of sources, tried in order, FIRST HIT WINS. Each element is " +
          "either 'winner' (the active load order's winning version of each record) or a plugin FILENAME, which " +
          "resolves whether that plugin is active OR sitting on disk in a DISABLED mod. Naming several is how you " +
@@ -64,7 +66,7 @@ public static class CopyTools
             string from,
         [Description("The source universe: an ORDERED list tried first-hit-wins. Each element is 'winner' (the active load order's winning version) or a plugin filename (active, or on disk in a disabled mod). Default: ['winner'].")]
             string[]? from_source = null,
-        [Description("The link-bearing field paths to start the walk from, e.g. ['HeadParts','WornArmor']. A path that is not a field, or carries no record links, is refused by name.")]
+        [Description("The field paths to start the walk from, e.g. ['HeadParts','WornArmor']. Each must be a record link or a list of record links, judged on the field's declared type; anything else is refused by name. A path the source leaves unset or empty CLEARS the target's, and says so.")]
             string[]? seed_paths = null,
         [Description("Optional. Record types the walk must not enter: 'Type:stop' prunes it (the link is kept), 'Type:refuse' fails the whole copy. E.g. ['Race:refuse'].")]
             string[]? exclude_types = null,
@@ -154,7 +156,10 @@ public static class CopyTools
             if (o.WalkRefusal is { } w) sb.Append(RenderWalkRefusal(w, o.SourcesConsulted));
             else if (o.CopyRefusal is { } c) sb.Append(RenderCopyRefusal(c));
             else sb.Append(o.EngineError ?? "the copy could not be completed.");
-            sb.Append("\nNothing was written.");
+            // The route sentences are whole refusals and end with this themselves, so appending unconditionally
+            // printed it twice. Q3 wants it said once and plainly.
+            if (!sb.ToString().TrimEnd().EndsWith("Nothing was written.", StringComparison.Ordinal))
+                sb.Append("\nNothing was written.");
             return sb.ToString();
         }
 
@@ -249,6 +254,10 @@ public static class CopyTools
         CopyRefusalKind.UnclearableSubstruct =>
             $"the field '{c.Field}' carries a reference into the source and cannot be cleared. Use target= instead.",
         CopyRefusalKind.UnsupportedSeedShape => c.Detail + WriteSentences.CopySeedShapeRoute,
+        CopyRefusalKind.StopOffOrder =>
+            $"the walk pruned a record in '{c.Detail}'. That plugin" + WriteSentences.CopyStopOffOrderRoute,
+        CopyRefusalKind.UnsupportedTargetShape =>
+            $"the target {c.Key} ({c.Detail})" + WriteSentences.CopyTargetShapeRoute,
         CopyRefusalKind.DonorLeak when c.Field == ClosureCopy.ExclusionLeakMarker =>
             $"the record {c.Key}" + WriteSentences.CopyLeakFromExclusion,
         CopyRefusalKind.DonorLeak =>

@@ -54,13 +54,23 @@ public static class CopyServiceProbe
             var raceFk = new FormKey(baseKey, 0x800);
             var baseMod = new SkyrimMod(baseKey, SkyrimRelease.SkyrimSE);
             baseMod.Races.Add(new Race(raceFk, SkyrimRelease.SkyrimSE) { EditorID = "HcRace" });
+            baseMod.Keywords.Add(new Keyword(new FormKey(baseKey, 0x801), SkyrimRelease.SkyrimSE) { EditorID = "HcKeyword" });
+            baseMod.Armors.Add(new Armor(new FormKey(baseKey, 0x802), SkyrimRelease.SkyrimSE) { EditorID = "HcArmor" });
             WriteModDirect(mods, "BaseMod", baseMod);
 
             var folKey = new ModKey("Follower", ModType.Plugin);
             var targetFk = new FormKey(folKey, 0x800);
             var folMod = new SkyrimMod(folKey, SkyrimRelease.SkyrimSE);
+            var kwFk = new FormKey(baseKey, 0x801);
             var tgt = new Npc(targetFk, SkyrimRelease.SkyrimSE) { EditorID = "TargetNpc" };
             tgt.Race.SetTo(raceFk);
+            // The target carries a WornArmor and a Keyword the donor does NOT. Both are the R3 "unset ASSIGNS"
+            // case, and the fixture is built so the pre-ruling behaviour (leave the target's own value) fails:
+            // a copy that leaves them behind produces a face assembled from two records.
+            var armorFk = new FormKey(baseKey, 0x802);
+            tgt.WornArmor.SetTo(armorFk);
+            tgt.Keywords = new Noggog.ExtendedList<Mutagen.Bethesda.Plugins.IFormLinkGetter<Mutagen.Bethesda.Skyrim.IKeywordGetter>>
+                { new Mutagen.Bethesda.Plugins.FormLink<Mutagen.Bethesda.Skyrim.IKeywordGetter>(kwFk) };
             folMod.Npcs.Add(tgt);
             WriteModDirect(mods, "FollowerMod", folMod, baseMod);
 
@@ -92,6 +102,15 @@ public static class CopyServiceProbe
             var shadowKey = new ModKey("Shadow", ModType.Plugin);
             var shadowMod = new SkyrimMod(shadowKey, SkyrimRelease.SkyrimSE);
             shadowMod.HeadParts.GetOrAddAsOverride(extraHp);
+            // Shadow also DEFINES a head part and an NPC of its own, so there is an ON-ORDER record that a named
+            // source binds — the case the post-attach leak check needs now that an off-order prune refuses first.
+            var shadowHpFk = new FormKey(shadowKey, 0x800);
+            shadowMod.HeadParts.Add(new HeadPart(shadowHpFk, SkyrimRelease.SkyrimSE) { EditorID = "ShadowBrow" });
+            var shadowNpcFk = new FormKey(shadowKey, 0x801);
+            var shadowNpc = new Npc(shadowNpcFk, SkyrimRelease.SkyrimSE) { EditorID = "ShadowNpc" };
+            shadowNpc.Race.SetTo(raceFk);
+            shadowNpc.HeadParts.Add(shadowHpFk);
+            shadowMod.Npcs.Add(shadowNpc);
             WriteModDirect(mods, "ShadowMod", shadowMod, baseMod, extraMod);
 
             var srcKey = new ModKey("Src", ModType.Plugin);
@@ -103,6 +122,9 @@ public static class CopyServiceProbe
             srcMod.TextureSets.Add(new TextureSet(txstFk, SkyrimRelease.SkyrimSE) { EditorID = "SrcTex" });
             var srcHp = new HeadPart(hpFk, SkyrimRelease.SkyrimSE) { EditorID = "SrcHair" };
             srcHp.TextureSet.SetTo(txstFk);
+            // An asset link, so inventory I1's readback has something to enumerate inside ci-all rather than only
+            // in the on-demand differential — whose ancestor half dies at 2.0, taking I1's only test with it.
+            srcHp.Model = new Model { File = @"actors\character\hair\srchair.nif" };
             srcMod.HeadParts.Add(srcHp);
             srcMod.Factions.Add(new Faction(factionFk, SkyrimRelease.SkyrimSE) { EditorID = "SrcFaction" });
             // Src.esp carries an OVERRIDE of a Ghost.esp record — Ghost is never active and never a named source.
@@ -217,16 +239,87 @@ public static class CopyServiceProbe
             Check(byPath.StartsWith("ActiveOrder"), $"a full PATH naming an ACTIVE plugin resolves as the active arm ({byPath})");
             Check(!byPath.Contains("NOT active"), "…and is not described as off-order");
 
-            // ---- 7. A pruned-then-attached link is CAUGHT, and the refusal names the real cause -------------
-            // 'stop' keeps the link, so the attach lane writes it onto the target unmapped. The post-attach leak
-            // check is the only thing standing between that and a patch that masters the plugin it claims to free.
+            // ---- 7a. 'stop' against an OFF-ORDER record refuses UP FRONT ------------------------------------
+            // The pruned link is kept, so the patch would have to master a plugin the game does not load — which
+            // the serializer cannot do at all. It used to throw a raw MissingModException from inside the write,
+            // in the verb's headline lane (a disabled donor), with no next step for the caller.
             var stopExcl = new[] { new WalkExclusion("HeadPart", ExclusionSeverity.Stop, "pruned for the test") };
-            var leak = svc.CopyClosure(wideNpcFk, new[] { "Src.esp", "Extra.esp" }, new[] { "HeadParts" },
+            var stopOff = svc.CopyClosure(wideNpcFk, new[] { "Src.esp", "Extra.esp" }, new[] { "HeadParts" },
+                stopExcl, targetFk, null, "StopOffPatch", null);
+            Check(!stopOff.Success && stopOff.CopyRefusal?.Kind == CopyRefusalKind.StopOffOrder,
+                $"'stop' on an OFF-ORDER record refuses up front ({(stopOff.Success ? "IT DID NOT" : stopOff.CopyRefusal?.Kind.ToString())})");
+            Check(stopOff.CopyRefusal?.Detail is "Src.esp" or "Extra.esp",
+                $"…naming the plugin the game does not load ({stopOff.CopyRefusal?.Detail})");
+            Check(!Directory.EnumerateDirectories(mods, "*StopOffPatch*").Any(), "…and writes nothing (C11)");
+
+            // ---- 7b. …while an ON-ORDER pruned link still reaches the post-attach leak check ----------------
+            // Shadow.esp is ACTIVE and NAMED, so ruling 2 binds it; its own head part is pruned, kept, attached
+            // unmapped, and the leak check is the only thing between that and a patch mastering its own source.
+            var leak = svc.CopyClosure(shadowNpcFk, new[] { "Shadow.esp" }, new[] { "HeadParts" },
                 stopExcl, targetFk, null, "LeakPatch", null);
             Check(!leak.Success && leak.CopyRefusal?.Kind == CopyRefusalKind.DonorLeak,
-                $"a pruned link attached to the target is CAUGHT by the post-attach leak check ({(leak.Success ? "IT WAS NOT" : leak.CopyRefusal?.Kind.ToString())})");
+                $"an ON-ORDER pruned link is CAUGHT by the post-attach leak check ({(leak.Success ? "IT WAS NOT" : leak.CopyRefusal?.Kind.ToString())})");
             Check(leak.CopyRefusal?.Field == ClosureCopy.ExclusionLeakMarker,
                 "…and the refusal carries WHY, so the render blames the exclusion rather than the caller's target");
+
+            // ---- 7c. RULING 2 — an ACTIVE named source is BOUND ---------------------------------------------
+            // Same call without the exclusion: Shadow.esp is enabled, so it used to take the ActiveOrder arm, stay
+            // unbound, and be MASTERED — while the response asserted "standalone: the source is NOT a master".
+            var activeNamed = svc.CopyClosure(shadowNpcFk, new[] { "Shadow.esp" }, new[] { "HeadParts" },
+                noExcl, null, "ActiveNamedClone", "ActiveNamedPatch", null);
+            Check(activeNamed.Success, $"an ENABLED plugin named in from_source= copies ({activeNamed.EngineError ?? activeNamed.WalkRefusal?.Detail ?? activeNamed.CopyRefusal?.Detail})");
+            Check(activeNamed.Copied.Any(c => c.EditorId == "ShadowBrow"),
+                "…its records are INTERNALIZED, not kept as mastered links — naming a plugin binds it whatever its kind");
+            Check(!activeNamed.Masters.Any(m => m.Equals("Shadow.esp", StringComparison.OrdinalIgnoreCase)),
+                "…so it is NOT among the masters…");
+            Check(!activeNamed.SourceAmongMasters,
+                "…and the standalone claim is computed over the same corrected set");
+
+            // ---- 7d. THE SHAPE CLASSIFIER — the four misbehaviours round 2 measured, as arms ----------------
+            // Each of these was a site deciding the shape for itself off the runtime VALUE. Mutagen declares these
+            // list properties NON-nullable and the binary overlay hands back null when the subrecord is absent, so
+            // the value and the model disagree and only the model can answer "what shape is this field".
+
+            // (a) clone lane: a struct-element list refuses BY NAME even when the donor carries none of it. This
+            //     is the one that was silently skipped — the walk never reached a shape test at all.
+            var clonePerks = svc.CopyClosure(srcNpcFk, new[] { "Src.esp" }, new[] { "HeadParts", "Perks" },
+                noExcl, null, "PerkClone", "PerkPatch", null);
+            Check(!clonePerks.Success && clonePerks.WalkRefusal?.Kind == WalkRefusalKind.UnsupportedSeedShape,
+                $"(a) a struct-element seed the donor carries NONE of still refuses by shape ({(clonePerks.Success ? "IT WAS SKIPPED" : clonePerks.WalkRefusal?.Kind.ToString())})");
+            Check(clonePerks.WalkRefusal?.Detail?.Contains("Perks") == true,
+                "…naming the field rather than passing over it");
+
+            // (b) attach, null SOURCE link: the target's is CLEARED and the readback says which happened.
+            var clearLink = svc.CopyClosure(srcNpcFk, new[] { "Src.esp" }, new[] { "HeadParts", "WornArmor" },
+                noExcl, targetFk, null, "ClearLinkPatch", null);
+            Check(clearLink.Success, $"(b) an UNSET source link copies ({clearLink.EngineError ?? clearLink.WalkRefusal?.Detail ?? clearLink.CopyRefusal?.Detail})");
+            Check(clearLink.Attached.Any(a => a.Field == "WornArmor" && a.Cleared),
+                "…and CLEARS the target's rather than leaving a mixture, reported as cleared");
+            if (clearLink.OutPath is { } cp && File.Exists(cp))
+            {
+                using var d3 = OpenDisposable(cp, out var back3);
+                var t3 = back3.Npcs.FirstOrDefault(n => n.FormKey == targetFk);
+                Check(t3 is not null && t3.WornArmor.IsNull, "…in the WRITTEN FILE, not just in the outcome object");
+            }
+            else Check(false, "…and the patch was written");
+
+            // (c) + (d) attach, null SOURCE list on a field seed_paths fully supports. Round 2 measured this
+            //     refused as "neither a record link nor a list of record links" and routed to housecarl_apply.
+            var clearList = svc.CopyClosure(srcNpcFk, new[] { "Src.esp" }, new[] { "HeadParts", "Keywords" },
+                noExcl, targetFk, null, "ClearListPatch", null);
+            Check(clearList.Success, $"(c) an UNSET source LIST copies ({clearList.EngineError ?? clearList.WalkRefusal?.Detail ?? clearList.CopyRefusal?.Detail})");
+            Check(clearList.Attached.Any(a => a.Field == "Keywords" && a.Cleared),
+                "…clearing the target's list, which is a state of the shape and not a different shape");
+            Check(CopyTools.Render(clearList).Contains("housecarl_apply", StringComparison.Ordinal) == false,
+                "(d) …and a SUPPORTED field is never routed to housecarl_apply's zip");
+
+            // ---- 7e. INVENTORY I1 in ci-all, independent of the differential --------------------------------
+            var withAssets = svc.CopyClosure(srcNpcFk, new[] { "Src.esp" }, new[] { "HeadParts" },
+                noExcl, null, "AssetClone", "AssetPatch", null);
+            Check(withAssets.Success && withAssets.AssetPaths.Count > 0,
+                $"I1: the copy REPORTS the asset paths its copied records reference ({withAssets.AssetPaths.Count})");
+            Check(withAssets.AssetPaths.Any(a => a.Contains("srchair.nif", StringComparison.OrdinalIgnoreCase)),
+                "…harvested from the in-patch duplicates, naming the actual path");
 
             // ---- 8. A refusal after the folder exists leaves NO folder --------------------------------------
             var before = Directory.GetDirectories(mods).Length;

@@ -158,8 +158,8 @@ public static class CopyParserProbe
             // Factions is link-BEARING but its entries are structs, not links. It used to seed zero silently and,
             // in the attach lane, empty the target's list while reporting a successful attach.
             var badShape = CopyTools.Copy(svc, from, null, new[] { "HeadParts", "Factions" }, null, null, "PShape", "PShape");
-            Check(Has(badShape, "error:") && Has(badShape, "Factions") && Has(badShape, "link-BEARING"),
-                "a list of link-BEARING entries refuses BY NAME, naming the field and the shape");
+            Check(Has(badShape, "error:") && Has(badShape, "Factions") && Has(badShape, "RankPlacement"),
+                "an unsupported list seed refuses BY NAME, naming the field and what its ENTRIES actually are");
             Check(Has(badShape, "housecarl_apply") && Has(badShape, "Merge") && Has(badShape, "ReplaceAll"),
                 "…and names the ROUTE — apply's zip, where replace-vs-merge is the caller's choice");
             Check(Has(badShape, "Nothing was written"), "…and writes nothing");
