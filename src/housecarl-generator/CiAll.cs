@@ -333,6 +333,10 @@ public static class CiAll
         // bound link refusing loud; and the leak check scoped to bound keys, so a pre-existing dangling link is
         // NOT a false positive.
         ("closure-copy-guard", ClosureCopyProbe.RunGuard),
+        // COPY SERVICE — the closure copy driven through the REAL service over a synthetic MO2 with a DISABLED
+        // source: the attach lane onto an active target, the clone lane with its strip, arm attribution surviving
+        // into the outcome, and E4 (an IN-PATCH target resolves off the OPENED patch mod, never the load order).
+        ("copy-service-guard", CopyServiceProbe.RunGuard),
         // SKYPATCHER DISTRIBUTOR Wave 0a — the catalog-free structural tokenizer (SkyPatcherParse): pins the
         // grammar mechanics a SkyPatcher INI reader stands on — ':'-segment / '='-key-value / ','-list /
         // '~'-compound splitting, the ~…~ rename name-literal, the Plugin.esp|FormID address (leading-zero

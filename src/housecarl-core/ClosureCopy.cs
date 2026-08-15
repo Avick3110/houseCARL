@@ -369,6 +369,129 @@ public static class ClosureCopy
         catch { return null; }
     }
 
+    /// <summary>
+    /// Build the copy into a patch at <paramref name="outPath"/> and serialize it: internalize the walk's reached
+    /// set, run the mode lane (attach to a target / mint a clone and strip it), write multi-master, read the
+    /// header back. Core owns this half because core owns records and serialization — the service owns lanes,
+    /// folders and MO2, and hands in the master set through <paramref name="mastersFor"/>.
+    /// <para>An IN-PATCH target (its FormID names the patch) is resolved HERE, off the opened patch mod:
+    /// <paramref name="targetActiveBody"/> is null in that case by construction, because the patch is not in the
+    /// load order and resolving it there would find nothing — or, on an extended patch, a body missing the very
+    /// edits this call is adding.</para>
+    /// <para>Every refusal returns with nothing usable written (the ACT posture); a post-commit read-back failure
+    /// is a WARNING on a success, never a refusal — the patch IS on disk by then, and mislabelling it invites a
+    /// duplicate re-run.</para></summary>
+    public static ClosureCopyOutcome BuildAndWrite(
+        string outPath, bool extend,
+        FormKey sourceKey, SourceHit srcHit,
+        WalkResult walk, IReadOnlyList<string> seedPaths,
+        FormKey? targetKey, IMajorRecordGetter? targetActiveBody,
+        string? newEditorid,
+        Func<FormKey, bool> isBound, IReadOnlySet<ModKey> boundPlugins,
+        Func<string, IReadOnlyList<ISkyrimModGetter>> mastersFor,
+        IReadOnlyList<string> consulted,
+        Func<Exception, string>? serializeFailure = null)
+    {
+        var patchFileName = Path.GetFileName(outPath);
+        var patchModKey = ModKey.FromFileName(patchFileName);
+        SkyrimMod patch;
+        if (extend)
+        {
+            try { patch = SkyrimMod.CreateFromBinary(outPath, SkyrimRelease.SkyrimSE); }
+            catch (Exception ex) { return ClosureCopyOutcome.Fail(engine: ex.Message, sources: consulted); }
+        }
+        else patch = new SkyrimMod(patchModKey, SkyrimRelease.SkyrimSE);
+
+        var copy = Internalize(patch, walk.Reached);
+        if (!copy.Success) return ClosureCopyOutcome.Fail(copy: copy.Refusal, sources: consulted);
+
+        string mode; FormKey newKey;
+        IReadOnlyList<StripEntry> attached = Array.Empty<StripEntry>(), stripped = Array.Empty<StripEntry>();
+
+        if (targetKey is { } tk)
+        {
+            mode = "attach";
+            newKey = tk;
+            IMajorRecord target;
+            if (tk.ModKey == patchModKey)
+            {
+                var inPatch = patch.EnumerateMajorRecords().FirstOrDefault(r => r.FormKey == tk);
+                if (inPatch is null)
+                    return ClosureCopyOutcome.Fail(
+                        copy: new CopyRefusal(CopyRefusalKind.Transplant, "this patch defines no such record", Key: tk),
+                        sources: consulted);
+                target = (IMajorRecord)inPatch;
+            }
+            else if (targetActiveBody is not null)
+                target = WriteEngine.GenericGetOrAddAsOverride(patch, targetActiveBody);
+            else
+                return ClosureCopyOutcome.Fail(
+                    copy: new CopyRefusal(CopyRefusalKind.Transplant, "no target body was supplied", Key: tk),
+                    sources: consulted);
+
+            var att = AttachSeedFields(target, srcHit.Body, seedPaths, copy.Map, isBound);
+            if (!att.Success) return ClosureCopyOutcome.Fail(copy: att.Refusal, sources: consulted);
+            attached = att.Stripped;
+
+            if (FindBoundLeak(target, isBound) is { } leak)
+                return ClosureCopyOutcome.Fail(
+                    copy: new CopyRefusal(CopyRefusalKind.DonorLeak, "a link into the source universe survived on the target", Key: leak),
+                    sources: consulted);
+        }
+        else
+        {
+            mode = "clone";
+            // The source record joins the copy as one more node, so the clone rides the SAME internalize
+            // machinery rather than a second code path.
+            var selfNode = new WalkNode(sourceKey, srcHit.Body,
+                RecordNaming.StripOverlay(srcHit.Body.GetType().Name), srcHit.Body.EditorID,
+                srcHit.ArmIndex, srcHit.Arm.Spelling, new[] { sourceKey }, "from", 0);
+            var selfCopy = Internalize(patch, new[] { selfNode });
+            if (!selfCopy.Success) return ClosureCopyOutcome.Fail(copy: selfCopy.Refusal, sources: consulted);
+            newKey = selfCopy.Map[sourceKey];
+
+            var cloneRec = patch.EnumerateMajorRecords().FirstOrDefault(r => r.FormKey == newKey);
+            if (cloneRec is null)
+                return ClosureCopyOutcome.Fail(
+                    copy: new CopyRefusal(CopyRefusalKind.Transplant, "the clone vanished after the renumber", Key: newKey),
+                    sources: consulted);
+            var clone = (IMajorRecord)cloneRec;
+            if (!string.IsNullOrWhiteSpace(newEditorid)) clone.EditorID = newEditorid.Trim();
+
+            clone.RemapLinks(copy.Map);
+            var strip = StripBoundLinks(clone, isBound);
+            if (!strip.Success) return ClosureCopyOutcome.Fail(copy: strip.Refusal, sources: consulted);
+            stripped = strip.Stripped;
+        }
+
+        try { WriteEngine.WritePatch(patch, mastersFor(patchFileName), outPath); }
+        catch (Exception ex)
+        {
+            return ClosureCopyOutcome.Fail(
+                engine: serializeFailure?.Invoke(ex) ?? WriteEngine.Describe(ex), sources: consulted);
+        }
+
+        var masters = new List<string>();
+        long bytes = 0; bool sourceAmong = false; string? warning = null;
+        try
+        {
+            var back = SkyrimMod.CreateFromBinaryOverlay(outPath, SkyrimRelease.SkyrimSE);
+            try
+            {
+                masters = back.ModHeader.MasterReferences.Select(m => m.Master.FileName.ToString()).ToList();
+                bytes = new FileInfo(outPath).Length;
+            }
+            finally { (back as IDisposable)?.Dispose(); }
+            sourceAmong = masters.Any(m => { try { return boundPlugins.Contains(ModKey.FromFileName(m)); } catch { return false; } });
+        }
+        catch (Exception ex) { warning = ex.Message; }
+
+        return new ClosureCopyOutcome(
+            true, null, null, null, mode, sourceKey, newKey, outPath, extend,
+            copy.Copied, walk.Kept, walk.Cycles, attached, stripped, consulted,
+            masters, sourceAmong, bytes, warning);
+    }
+
     /// <summary>The belt-and-braces check after an attach: nothing pointing into the BOUND universe may survive on
     /// <paramref name="record"/>. Returns the offending key, or null when clean.
     /// <para><b>Scoped to bound keys ONLY, and that scoping is the load-bearing half.</b> A broader test — "any link
@@ -381,4 +504,35 @@ public static class ClosureCopy
             if (!l.FormKey.IsNull && isBound(l.FormKey)) return l.FormKey;
         return null;
     }
+}
+
+/// <summary>The whole closure-copy operation's outcome — data only, no prose (#337: the render owns the words).
+/// Exactly one of the three refusal slots is set on a failure; all are null on success.
+/// <para><see cref="SourcesConsulted"/> is the ordered universe as the caller spelled it, carried so the readback
+/// can name which sources were in play even when nothing was found in any of them.</para></summary>
+public sealed record ClosureCopyOutcome(
+    bool Success,
+    WalkRefusal? WalkRefusal, CopyRefusal? CopyRefusal, string? EngineError,
+    string Mode,                                   // "attach" | "clone"
+    FormKey SourceKey, FormKey NewKey,
+    string? OutPath, bool Extended,
+    IReadOnlyList<CopiedRecord> Copied,
+    IReadOnlyList<WalkBoundary> Kept,
+    IReadOnlyList<WalkCycle> Cycles,
+    IReadOnlyList<StripEntry> Attached,
+    IReadOnlyList<StripEntry> Stripped,
+    IReadOnlyList<string> SourcesConsulted,
+    IReadOnlyList<string> Masters, bool SourceAmongMasters,
+    long Bytes, string? ReadBackWarning)
+{
+    static readonly IReadOnlyList<CopiedRecord> NoRecords = Array.Empty<CopiedRecord>();
+    static readonly IReadOnlyList<StripEntry> NoEntries = Array.Empty<StripEntry>();
+    static readonly IReadOnlyList<string> NoStrings = Array.Empty<string>();
+
+    public static ClosureCopyOutcome Fail(
+        WalkRefusal? walk = null, CopyRefusal? copy = null, string? engine = null,
+        IReadOnlyList<string>? sources = null)
+        => new(false, walk, copy, engine, "", default, default, null, false,
+               NoRecords, Array.Empty<WalkBoundary>(), Array.Empty<WalkCycle>(),
+               NoEntries, NoEntries, sources ?? NoStrings, NoStrings, false, 0, null);
 }
