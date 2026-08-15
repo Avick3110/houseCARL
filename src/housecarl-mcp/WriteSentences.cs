@@ -151,6 +151,62 @@ internal static class WriteSentences
     internal static string Masters(IReadOnlyList<string> masters) =>
         $"masters: {(masters.Count == 0 ? "(none)" : string.Join(", ", masters))}\n";
 
+    // ---- closure copy (PR 3b) ------------------------------------------------------------------------
+    /// <summary>The standalone claim: the plugin(s) the copy was taken away from are NOT masters of the artifact.
+    /// The whole point of the operation, so it is stated rather than implied by their absence from the list.</summary>
+    [MustState("is NOT a master")]
+    internal const string CopyStandalone = "standalone: the source is NOT a master of this patch.";
+
+    /// <summary>The opposite, and an alarm rather than a note: a copy that masters its own source has failed at the
+    /// one thing it exists to do, however cleanly it wrote.</summary>
+    [MustState("IS among the masters", "NOT standalone")]
+    internal const string CopySourceMastered =
+        "!! the source IS among the masters — this copy is NOT standalone. Nothing was silently fixed; inspect the patch before relying on it.";
+
+    /// <summary>Read-back failed: the patch is on disk, so the masters/standalone facts are UNKNOWN rather than
+    /// false. Asserting them from default-empty values would report a source-mastered patch as standalone on
+    /// exactly the path where verification broke.</summary>
+    [MustState("NOT VERIFIED", "do NOT re-run")]
+    internal const string CopyReadBackUnverified =
+        "masters: <NOT VERIFIED — the post-write read-back failed>\n" +
+        "the patch WAS written, so do NOT re-run blindly (that mints a duplicate); read it back with housecarl_read_plugin_file.";
+
+    /// <summary>What a strip actually costs the caller. The clone keeps the look and loses the source's own
+    /// factions/outfits/packages — said plainly, because "standalone" must never quietly mean "different".</summary>
+    [MustState("re-author")]
+    internal const string CopyStripConsequence =
+        "  the clone keeps what was copied and NOT the source's own references above — re-author those against your own or vanilla records as needed.";
+
+    /// <summary>A cycle in the copied graph. Recorded rather than silently deduped, because a record that reaches
+    /// itself is a fact about the data the caller may need to act on.</summary>
+    [NoClaims("a labelled list header; the claim is in the per-cycle lines it introduces")]
+    internal const string CopyCyclesHeader = "cycles found while walking (recorded, not an error):";
+
+    /// <summary>The per-record provenance header. This is where the ordered source universe becomes visible: each
+    /// copied record names WHICH source produced it, which is the readback half of first-hit-wins.</summary>
+    [NoClaims("a list header; every claim it introduces is per-record and rendered beside the record")]
+    internal const string CopyInternalizedHeader = "internalized under new FormIDs (EditorIDs preserved):";
+
+    /// <summary>One line per source consulted, in order. Rendered on success AND on a miss — a caller cannot judge
+    /// "not found" without knowing where it was looked for.</summary>
+    internal static string CopySourcesConsulted(IReadOnlyList<string> sources) =>
+        sources.Count == 1
+            ? $"source: {sources[0]}\n"
+            : $"sources (in order, first hit wins): {string.Join(" -> ", sources)}\n";
+
+    /// <summary>The miss refusal. Names EVERY source consulted — naming only the last reads as though one source
+    /// was checked and sends the caller to fix the wrong file. Names, not paths (the standing refusal-remedy rule):
+    /// a path invites a paste-back into the next call, and a source is named by plugin.</summary>
+    internal static string CopySourceMiss(string what, IReadOnlyList<string> sources) =>
+        $"no source produced {what}. Consulted, in order: {string.Join(", ", sources)}. " +
+        "Name the plugin that defines it in from_source=, or 'winner' for the active load order's winning version.";
+
+    /// <summary>The fault refusal — a source HAS the record but could not read it. A different remedy from a miss,
+    /// which is why it is a different sentence: adding another source will not help.</summary>
+    internal static string CopySourceFault(string what, string source, string cause) =>
+        $"'{source}' carries {what} but it could not be read — {cause}. This is not a missing record: adding another " +
+        "source will not help. Repair or replace that plugin, or name a different one in from_source=.";
+
     // ---- dry run -------------------------------------------------------------------------------------
     /// <summary>#225 — the first line of any dry run. It says NOTHING happened before it says what would: a dry run
     /// that reads like a write is the silent-wrong-answer class (Q3), and this is the line a caller skims.
