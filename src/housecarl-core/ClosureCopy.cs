@@ -266,6 +266,109 @@ public static class ClosureCopy
     static bool IsNullableLink(object link) => link.GetType().GetInterfaces().Any(i =>
         i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IFormLinkNullable<>));
 
+    /// <summary>
+    /// ATTACH — set the walked SEED fields on <paramref name="target"/> from <paramref name="source"/>, substituting
+    /// the internalized keys. This is the link-bearing half of "copy the appearance onto an existing NPC": the
+    /// inline fields (tints, morphs, weights) are a field-bundle copy the `apply` zip already does, and which paths
+    /// form a bundle is skill data either way. Here only the seed paths are touched, so everything outside them is
+    /// untouched BY CONSTRUCTION rather than by care.
+    /// <para><b>The remap is confined to the target record</b> — links are written already-mapped rather than
+    /// written raw and fixed up by a mod-wide pass. A patch record the caller never named is therefore unreachable
+    /// from this operation, which is the same property the scratch-mod step gives <see cref="Internalize"/>.</para>
+    /// <para>A target inside the bound universe REFUSES: standalone-izing a record onto itself is incoherent — the
+    /// artifact would master the very plugin it is being freed from, and the "target" and the thing being removed
+    /// are the same record.</para>
+    /// </summary>
+    public static StripResult AttachSeedFields(
+        IMajorRecord target, IMajorRecordGetter source, IReadOnlyList<string> seedPaths,
+        IReadOnlyDictionary<FormKey, FormKey> map, Func<FormKey, bool> isBound)
+    {
+        if (isBound(target.FormKey))
+            return StripResult.Fail(new CopyRefusal(CopyRefusalKind.DonorLeak,
+                "the target record lives in the source universe being copied away from — it cannot be " +
+                "standalone-ized onto itself", Key: target.FormKey));
+
+        var set = new List<StripEntry>();
+        var srcType = source.GetType();
+        foreach (var path in seedPaths)
+        {
+            var sp = srcType.GetProperty(path, BindingFlags.Public | BindingFlags.Instance);
+            var tp = target.GetType().GetProperty(path, BindingFlags.Public | BindingFlags.Instance);
+            if (sp is null || tp is null)
+                return StripResult.Fail(new CopyRefusal(CopyRefusalKind.Transplant,
+                    $"'{path}' is not a field on both the source and the target", path));
+
+            object? sv, tv;
+            try { sv = sp.GetValue(source); tv = tp.GetValue(target); }
+            catch (Exception ex)
+            {
+                return StripResult.Fail(new CopyRefusal(CopyRefusalKind.Transplant,
+                    $"'{path}' could not be read: {ex.Message}", path));
+            }
+
+            FormKey Mapped(FormKey k) => map.TryGetValue(k, out var n) ? n : k;
+
+            if (sv is IFormLinkGetter sLink && tv is not null)
+            {
+                var key = sLink.FormKeyNullable;
+                if (key is null || key.Value.IsNull) continue;
+                if (!TrySetLink(tv, Mapped(key.Value)))
+                    return StripResult.Fail(new CopyRefusal(CopyRefusalKind.Transplant,
+                        $"'{path}' could not be set on the target", path));
+                set.Add(new StripEntry(path, Mapped(key.Value).ToString()));
+                continue;
+            }
+
+            if (sv is IEnumerable sList and not string && tv is IList tList)
+            {
+                tList.Clear();
+                int n = 0;
+                foreach (var el in sList)
+                {
+                    if (el is not IFormLinkGetter l || l.FormKeyNullable is not { } lk || lk.IsNull) continue;
+                    var made = MakeLink(tList.GetType(), Mapped(lk));
+                    if (made is null)
+                        return StripResult.Fail(new CopyRefusal(CopyRefusalKind.Transplant,
+                            $"'{path}' element could not be constructed on the target", path));
+                    tList.Add(made);
+                    n++;
+                }
+                set.Add(new StripEntry(path, $"{n} link(s)"));
+            }
+        }
+        return new StripResult(true, null, set);
+    }
+
+    /// <summary>Set a single link property's key, whichever of the required/nullable SetTo overloads it carries.</summary>
+    static bool TrySetLink(object linkObj, FormKey key)
+    {
+        foreach (var m in linkObj.GetType().GetMethods().Where(x => x.Name == "SetTo"))
+        {
+            var ps = m.GetParameters();
+            if (ps.Length != 1) continue;
+            if (ps[0].ParameterType == typeof(FormKey)) { m.Invoke(linkObj, new object?[] { key }); return true; }
+            if (ps[0].ParameterType == typeof(FormKey?)) { m.Invoke(linkObj, new object?[] { (FormKey?)key }); return true; }
+        }
+        return false;
+    }
+
+    /// <summary>Build a concrete <c>FormLink&lt;T&gt;</c> for a list whose element type is <c>IFormLinkGetter&lt;T&gt;</c>
+    /// (or already <c>FormLink&lt;T&gt;</c>) — the reflection counterpart of writing <c>new FormLink&lt;IHeadPartGetter&gt;(key)</c>
+    /// without knowing T. Returns null when the list is not link-typed, which the caller reports by name.</summary>
+    static object? MakeLink(Type listType, FormKey key)
+    {
+        var element = listType.GetInterfaces()
+            .Where(i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IList<>))
+            .Select(i => i.GetGenericArguments()[0])
+            .FirstOrDefault();
+        if (element is null) return null;
+        var inner = element.IsGenericType ? element.GetGenericArguments().FirstOrDefault() : null;
+        if (inner is null) return null;
+        // System.Activator, spelled out: Mutagen.Bethesda.Skyrim has an ACTI record type called Activator.
+        try { return System.Activator.CreateInstance(typeof(FormLink<>).MakeGenericType(inner), key); }
+        catch { return null; }
+    }
+
     /// <summary>The belt-and-braces check after an attach: nothing pointing into the BOUND universe may survive on
     /// <paramref name="record"/>. Returns the offending key, or null when clean.
     /// <para><b>Scoped to bound keys ONLY, and that scoping is the load-bearing half.</b> A broader test — "any link
