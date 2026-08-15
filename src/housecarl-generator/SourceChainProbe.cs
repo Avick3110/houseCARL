@@ -27,6 +27,11 @@ namespace HousecarlGenerator;
 ///                  does NOT collide with the bare pole, and an EXTENSIONLESS spelling refuses by name and never
 ///                  fuzzy-matches — with a with-extension control beside it, so the arm cannot pass because
 ///                  everything errored.
+///
+/// GUARD-NOTE (branch rule): an arm downstream of a refusal reads it null-SAFELY (`?.`), never with the
+/// null-forgiving `!`. An arm that THROWS under sabotage hides every arm behind it, so the sabotage's real
+/// blast radius becomes unmeasurable — a RED check on this branch reported 1 failure where the true number
+/// was 6. An arm that can throw under sabotage is an arm that lies about severity.
 /// Run: dotnet run --project src/housecarl-generator -- source-chain-guard
 /// </summary>
 public static class SourceChainProbe
@@ -139,17 +144,17 @@ public static class SourceChainProbe
             {
                 Check(err is null && chain is not null, $"['Over.esp','Donor.esp'] builds ({err})");
                 Check(chain is { IsSinglePole: false }, "a 2-element chain is not the single-pole shape");
-                var hit = chain!.Fetch(sharedFk);
-                Check(NameOf(hit) == "O", "FIRST HIT WINS: a record BOTH arms carry resolves to arm 0's version ('O')");
-                Check(hit.Hit?.ArmIndex == 0 && hit.Hit?.Arm.Spelling == "Over.esp",
+                var hit = chain?.Fetch(sharedFk);
+                Check(hit is not null && NameOf(hit) == "O", "FIRST HIT WINS: a record BOTH arms carry resolves to arm 0's version ('O')");
+                Check(hit?.Hit?.ArmIndex == 0 && hit?.Hit?.Arm.Spelling == "Over.esp",
                     "the hit NAMES which arm produced it (index 0, 'Over.esp') — the readback's provenance");
-                var fell = chain.Fetch(donorOnlyFk);
-                Check(NameOf(fell) == "D" && fell.Hit?.ArmIndex == 1,
+                var fell = chain?.Fetch(donorOnlyFk);
+                Check(fell is not null && NameOf(fell) == "D" && fell.Hit?.ArmIndex == 1,
                     "FALLBACK: a record only arm 1 carries resolves to arm 1, and says so");
-                var missed = chain.Fetch(new FormKey(baseKey, 0x8FF));
-                Check(missed.IsMiss, "a record NO arm carries is a miss, not a fault");
-                var miss = chain.Miss(new FormKey(baseKey, 0x8FF), "Npc.HeadParts");
-                Check(miss.Consulted.Count == 2
+                var missed = chain?.Fetch(new FormKey(baseKey, 0x8FF));
+                Check(missed?.IsMiss == true, "a record NO arm carries is a miss, not a fault");
+                var miss = chain?.Miss(new FormKey(baseKey, 0x8FF), "Npc.HeadParts");
+                Check(miss?.Consulted.Count == 2
                       && miss.Consulted[0].Spelling == "Over.esp" && miss.Consulted[1].Spelling == "Donor.esp",
                     "the MISS names EVERY arm consulted, in order — not just the last one tried");
                 return 0;
@@ -159,17 +164,17 @@ public static class SourceChainProbe
             // arm, an implementation that always consulted the off-order file would pass every test above.
             svc.WithSourceChainForGuard(new[] { "Donor.esp", "Over.esp" }, "from_source", (chain, err) =>
             {
-                Check(err is null && NameOf(chain!.Fetch(sharedFk)) == "D",
+                Check(err is null && chain is not null && NameOf(chain.Fetch(sharedFk)) == "D",
                     "ORDER IS THE SEMANTICS: reversing the arms reverses which version wins ('D')");
                 return 0;
             });
 
             // ---- 3. TRIPWIRE — an off-order element resolves identically alone and at either position -----
             string? alone = null, first = null, second = null;
-            svc.WithSourceChainForGuard(new[] { "Donor.esp" }, "from_source", (c, e) => alone = NameOf(c!.Fetch(sharedFk)));
-            svc.WithSourceChainForGuard(new[] { "Donor.esp", "Over.esp" }, "from_source", (c, e) => first = NameOf(c!.Fetch(sharedFk)));
+            svc.WithSourceChainForGuard(new[] { "Donor.esp" }, "from_source", (c, e) => alone = c is null ? null : NameOf(c.Fetch(sharedFk)));
+            svc.WithSourceChainForGuard(new[] { "Donor.esp", "Over.esp" }, "from_source", (c, e) => first = c is null ? null : NameOf(c.Fetch(sharedFk)));
             svc.WithSourceChainForGuard(new[] { "Over.esp", "Donor.esp" }, "from_source", (c, e) =>
-                second = (c!.Arms[1].Fetch(sharedFk) as INpcGetter)?.Name?.String);
+                second = (c?.Arms[1].Fetch(sharedFk) as INpcGetter)?.Name?.String);
             Check(alone == "D" && first == "D" && second == "D",
                 $"TRIPWIRE: the off-order file resolves the SAME body alone / first / second (got {alone}/{first}/{second}) — §14");
 

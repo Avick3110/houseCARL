@@ -26,6 +26,11 @@ namespace HousecarlGenerator;
 ///   PROVENANCE    — per NODE, not per walk: each reached record names WHICH source arm produced its body, so a
 ///                   walk over an ordered universe can say this record came from the override and that one fell
 ///                   through to the defining plugin.
+///
+/// GUARD-NOTE (branch rule): an arm downstream of a refusal reads it null-SAFELY (`?.`), never with the
+/// null-forgiving `!`. An arm that THROWS under sabotage hides every arm behind it, so the sabotage's real
+/// blast radius becomes unmeasurable — a RED check on this branch reported 1 failure where the true number
+/// was 6. An arm that can throw under sabotage is an arm that lies about severity.
 /// Run: dotnet run --project src/housecarl-generator -- closure-walk-guard
 /// </summary>
 public static class ClosureWalkProbe
@@ -119,9 +124,9 @@ public static class ClosureWalkProbe
         Check(seeds.Any(s => s.Label == "Npc.HeadParts"), "each seed carries its own provenance label ('Npc.HeadParts')");
 
         var typo = ClosureWalk.ResolveSeeds(npc, new[] { "HeadParts", "HeadPart" }, out _);
-        Check(typo is { Success: false } && typo.Refusal!.Kind == WalkRefusalKind.UnknownSeedPath,
+        Check(typo is { Success: false } && typo.Refusal?.Kind == WalkRefusalKind.UnknownSeedPath,
             "a TYPO'd seed path REFUSES — it does not quietly seed nothing");
-        Check(typo?.Refusal!.Detail.Contains("HeadPart") == true, "…and the refusal names the path that was wrong");
+        Check(typo?.Refusal?.Detail?.Contains("HeadPart") == true, "…and the refusal names the path that was wrong");
         var notLinks = ClosureWalk.ResolveSeeds(npc, new[] { "Height" }, out _);
         Check(notLinks is { Success: false }, "a seed path that carries no record links REFUSES too (same class as a typo)");
 
@@ -180,8 +185,8 @@ public static class ClosureWalkProbe
 
         var refuseExcl = new[] { new WalkExclusion("Armor", ExclusionSeverity.Refuse, "an Armor is not internalizable here") };
         var rRefuse = ClosureWalk.Run(seeds, OneArm(), scope, refuseExcl);
-        Check(!rRefuse.Success && rRefuse.Refusal!.Kind == WalkRefusalKind.Excluded, "a REFUSE exclusion fails the whole walk");
-        Check(rRefuse.Refusal!.Exclusion?.Reason == "an Armor is not internalizable here",
+        Check(!rRefuse.Success && rRefuse.Refusal?.Kind == WalkRefusalKind.Excluded, "a REFUSE exclusion fails the whole walk");
+        Check(rRefuse.Refusal?.Exclusion?.Reason == "an Armor is not internalizable here",
             "…carrying the CALLER's own reason, not a sentence invented by the walk");
         Check(rRefuse.Reached.Count == 0 && rRefuse.Kept.Count == 0,
             "…and yields NOTHING usable (the ACT posture — a partial closure is a broken artifact)");
@@ -191,37 +196,37 @@ public static class ClosureWalkProbe
 
         // ---- 5. CAP BREACH — the ACT posture, asserted by CHAIN CONTENT ------------------------------------
         var rCap = ClosureWalk.Run(seeds, OneArm(), scope, noExcl, nodeCap: 2);
-        Check(!rCap.Success && rCap.Refusal!.Kind == WalkRefusalKind.NodeCap, "a node-cap breach REFUSES");
-        Check(rCap.Refusal!.Cap == 2, "…naming the cap that was breached");
-        Check(rCap.Refusal!.Key != default && rCap.Refusal!.PulledBy.Length > 0,
+        Check(!rCap.Success && rCap.Refusal?.Kind == WalkRefusalKind.NodeCap, "a node-cap breach REFUSES");
+        Check(rCap.Refusal?.Cap == 2, "…naming the cap that was breached");
+        Check(rCap.Refusal?.Key != default && rCap.Refusal?.PulledBy.Length > 0,
             "…naming the LAST PULL (the record it was reaching for, and what pulled it)");
-        Check(rCap.Refusal!.Chain.Count >= 2 && rCap.Refusal!.Chain[^1] == rCap.Refusal!.Key,
-            $"…and its FULL CHAIN, ending at that record ({rCap.Refusal!.Chain.Count} long) — not just that a cap fired");
+        Check(rCap.Refusal?.Chain.Count >= 2 && rCap.Refusal?.Chain[^1] == rCap.Refusal?.Key,
+            $"…and its FULL CHAIN, ending at that record ({rCap.Refusal?.Chain.Count} long) — not just that a cap fired");
         Check(rCap.Reached.Count == 0 && rCap.Kept.Count == 0 && rCap.Cycles.Count == 0,
             "…and NOTHING usable comes back (a write must not truncate silently)");
 
         // depthCap 1 breaches at hpC (depth 2) — the fixture has to BE deep enough for this arm to mean anything.
         var rDepth = ClosureWalk.Run(seeds, OneArm(), scope, noExcl, depthCap: 1);
-        Check(!rDepth.Success && rDepth.Refusal!.Kind == WalkRefusalKind.DepthCap && rDepth.Refusal!.Cap == 1,
+        Check(!rDepth.Success && rDepth.Refusal?.Kind == WalkRefusalKind.DepthCap && rDepth.Refusal?.Cap == 1,
             "a depth-cap breach refuses as its own named kind");
-        Check(rDepth.Refusal!.Chain.Count >= 2, "…with its chain too");
+        Check(rDepth.Refusal?.Chain.Count >= 2, "…with its chain too");
 
         // ---- 6. SOURCE FAILURES surface as walk refusals, distinctly ---------------------------------------
         var emptyArm = SourceChain.Single(new SourceArm("Empty.esp", SourceArmKind.File, "file 'Empty.esp'", _ => null));
         var rMiss = ClosureWalk.Run(seeds, emptyArm, scope, noExcl);
-        Check(!rMiss.Success && rMiss.Refusal!.Kind == WalkRefusalKind.SourceMiss, "a record no source has REFUSES as a miss");
-        Check(rMiss.Refusal!.Miss?.Consulted.Count == 1, "…carrying every source consulted, for the render to name");
+        Check(!rMiss.Success && rMiss.Refusal?.Kind == WalkRefusalKind.SourceMiss, "a record no source has REFUSES as a miss");
+        Check(rMiss.Refusal?.Miss?.Consulted.Count == 1, "…carrying every source consulted, for the render to name");
 
         var faultArm = SourceChain.Single(new SourceArm("Bad.esp", SourceArmKind.File, "file 'Bad.esp'",
             _ => throw new InvalidOperationException("a record Mutagen cannot parse")));
         var rFault = ClosureWalk.Run(seeds, faultArm, scope, noExcl);
-        Check(!rFault.Success && rFault.Refusal!.Kind == WalkRefusalKind.SourceFault,
+        Check(!rFault.Success && rFault.Refusal?.Kind == WalkRefusalKind.SourceFault,
             "an UNREADABLE record refuses as a FAULT, a different kind from a miss (different remedies)");
-        Check(rFault.Refusal!.Fault?.Arm.Spelling == "Bad.esp", "…naming which source could not read it");
+        Check(rFault.Refusal?.Fault?.Arm.Spelling == "Bad.esp", "…naming which source could not read it");
 
         // ---- 7. NO SEEDS -----------------------------------------------------------------------------------
         var rNone = ClosureWalk.Run(Array.Empty<WalkSeed>(), OneArm(), scope, noExcl);
-        Check(!rNone.Success && rNone.Refusal!.Kind == WalkRefusalKind.NoSeeds,
+        Check(!rNone.Success && rNone.Refusal?.Kind == WalkRefusalKind.NoSeeds,
             "a walk with NO seed links refuses — it must never 'succeed' having copied nothing");
 
         Console.WriteLine();
