@@ -109,7 +109,7 @@ The readback's asset block looks like this, and it is a list to act on rather th
 ```
 asset paths the copied records reference (this call does NOT place them — check each with
 housecarl_asset_status, then place what you keep with housecarl_bulk_place_asset):
-  - texturesctors\character\...\hair.dds
+  - textures\actors\character\...\hair.dds
 ```
 
 **Decide before you place.** Run `housecarl_asset_status` on each path and read the provider chain. Carry a path only if its bytes would **vanish with the donor** — if another enabled mod still supplies it, the file already resolves and copying it just adds a redundant override. Say which paths you skipped and why; a silent skip and a deliberate one look identical afterwards.
