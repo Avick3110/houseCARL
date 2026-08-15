@@ -5025,6 +5025,100 @@ public sealed class LoadOrderService : IDisposable
         return new SourceChain(arms);
     }
 
+    /// <summary>The 2.0 closure-copy operation (the `copy` verb's service half): resolve the ordered source
+    /// universe, walk the source record's seed links, then hand the result to core to build and serialize.
+    ///
+    /// <para><b>The layer split is the one the write path already uses</b> — core does records and serialize, the
+    /// service does lanes, folders and MO2. So this method resolves poles, the walk, the output path and the ACTIVE
+    /// target body, and <see cref="ClosureCopy.BuildAndWrite"/> owns everything from the patch mod onward.</para>
+    ///
+    /// <para>Prose-free by design: inputs arrive already validated and refusals come back as TYPED data, because the
+    /// tool layer owns every user-facing sentence (#337).</para></summary>
+    internal ClosureCopyOutcome CopyClosure(
+        FormKey sourceKey, IReadOnlyList<string> sourcePoles,
+        IReadOnlyList<string> seedPaths, IReadOnlyList<WalkExclusion> exclusions,
+        FormKey? targetKey, string? newEditorid,
+        string? patchName, string? into)
+    {
+        lock (_writeGate)
+        {
+            var resolver = Resolver;
+            var view = resolver.Capture();
+            using var session = resolver.OpenSession();
+            var overlays = new List<IDisposable>();
+            try
+            {
+                var chain = BuildSourceChain(view, session, sourcePoles, "from_source", overlays, out var chainError);
+                if (chain is null) return ClosureCopyOutcome.Fail(engine: chainError);
+                var consulted = chain.Arms.Select(a => a.Spelling).ToList();
+
+                var srcFetch = chain.Fetch(sourceKey, "from");
+                if (srcFetch.Fault is { } f)
+                    return ClosureCopyOutcome.Fail(
+                        walk: new WalkRefusal(WalkRefusalKind.SourceFault, sourceKey, "from",
+                            new[] { sourceKey }, f.Cause, Fault: f), sources: consulted);
+                if (srcFetch.Hit is not { } srcHit)
+                    return ClosureCopyOutcome.Fail(
+                        walk: new WalkRefusal(WalkRefusalKind.SourceMiss, sourceKey, "from",
+                            new[] { sourceKey }, "", Miss: chain.Miss(sourceKey, "from")), sources: consulted);
+
+                // The BOUND universe: the source record's own plugin plus every FILE arm named (the plugins being
+                // copied away from), never an implicit base master — copying a vanilla-defined record must not
+                // classify vanilla as "the source" and wholesale-internalize it.
+                var baseMasters = Mutagen.Bethesda.Plugins.Implicits.Get(Mutagen.Bethesda.GameRelease.SkyrimSE).BaseMasters;
+                var bound = new HashSet<ModKey>();
+                if (!baseMasters.Contains(sourceKey.ModKey)) bound.Add(sourceKey.ModKey);
+                foreach (var arm in chain.Arms.Where(a => a.Kind == SourceArmKind.File))
+                {
+                    ModKey mk;
+                    try { mk = ModKey.FromFileName(Path.GetFileName(arm.Spelling)); } catch { continue; }
+                    if (!baseMasters.Contains(mk)) bound.Add(mk);
+                }
+                bool IsBound(FormKey fk) => bound.Contains(fk.ModKey);
+
+                if (ClosureWalk.ResolveSeeds(srcHit.Body, seedPaths, out var seeds) is { } seedRefusal)
+                    return ClosureCopyOutcome.Fail(walk: seedRefusal.Refusal, sources: consulted);
+
+                var scope = WalkScope.StandaloneFrom(bound, fk => view.ResolveWinner(fk) is not null);
+                var walk = ClosureWalk.Run(seeds, chain, scope, exclusions);
+                if (!walk.Success) return ClosureCopyOutcome.Fail(walk: walk.Refusal, sources: consulted);
+
+                string outPath; bool extend, created;
+                try { outPath = ResolveOutputPath(patchName ?? (into is null ? newEditorid?.Trim() : null), into, out extend, out created); }
+                catch (Exception ex) { return ClosureCopyOutcome.Fail(engine: ex.Message, sources: consulted); }
+                var patchModKey = ModKey.FromFileName(Path.GetFileName(outPath));
+
+                // The ACTIVE target body is the service's to fetch (it needs the view); an IN-PATCH target is NOT,
+                // and is deliberately left null here so core resolves it off the OPENED patch mod. Fetching it
+                // here would mean resolving a record through a load order the patch is not part of.
+                IMajorRecordGetter? targetActiveBody = null;
+                if (targetKey is { } tk && tk.ModKey != patchModKey)
+                {
+                    var tw = view.ResolveWinner(tk);
+                    targetActiveBody = tw is null ? null : view.GetRecord(session, tw.Value.WinnerPlugin, tk);
+                    if (targetActiveBody is null)
+                    {
+                        if (created) RemoveFolderCreatedThisCall(outPath);
+                        return ClosureCopyOutcome.Fail(
+                            copy: new CopyRefusal(CopyRefusalKind.Transplant, "the target is not in the active load order", Key: tk),
+                            sources: consulted);
+                    }
+                }
+
+                var outcome = ClosureCopy.BuildAndWrite(
+                    outPath, extend, sourceKey, srcHit, walk, seedPaths,
+                    targetKey, targetActiveBody, newEditorid, IsBound, bound,
+                    pf => { session.ReleaseOverlay(pf); return session.AllMastersExcept(pf); },
+                    consulted,
+                    ex => WritePatchBuilder.SerializeFailure("", ex, session, ""));
+
+                if (!outcome.Success && created) RemoveFolderCreatedThisCall(outPath);
+                return outcome;
+            }
+            finally { foreach (var d in overlays) { try { d.Dispose(); } catch { } } }
+        }
+    }
+
     /// <summary>Guard seam for <see cref="BuildSourceChain"/> — drives the REAL builder over the REAL MO2 resolution,
     /// under the same view + session + overlay lifetime the production call gives it, and hands the result to
     /// <paramref name="body"/> while the sources are still open (a chain whose overlays are disposed resolves
