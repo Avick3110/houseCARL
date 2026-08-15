@@ -2537,7 +2537,7 @@ public static class WriteSurfaceGuardProbe
             CopyTools.Render(Make(false, null, Array.Empty<StripEntry>(),
                 attach: new List<StripEntry> { new("HeadParts", "2 link(s)"), new("WornArmor", "cleared", Cleared: true) },
                 kept: keptBoth,
-                assets: new[] { @"meshesctors\characteracegendataacegeom\CopySrc.esp 00800.nif" },
+                assets: new[] { @"meshes\actors\character\facegendata\facegeom\CopySrc.esp\00000800.nif" },
                 srcs: new[] { "Override.esp", "CopySrc.esp" })),
             // …and the two REFUSAL sentences that were method-form and outside the content net entirely.
             CopyTools.Render(ClosureCopyOutcome.Fail(
