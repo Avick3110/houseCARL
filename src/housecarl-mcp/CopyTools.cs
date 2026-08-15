@@ -28,10 +28,17 @@ public static class CopyTools
          "WHAT GETS COPIED is decided by a rule, not a list: a linked record is INTERNALIZED (duplicated under a " +
          "new FormID) when it is defined in the plugin(s) you are copying away from, or when it does not resolve " +
          "in your active load order; every other link is KEPT and mastered normally. So vanilla and active " +
-         "shared-resource records stay links, and only what would VANISH with the source is copied.\n\n" +
-         "WHERE THE WALK STARTS is yours: seed_paths= names the link-bearing fields to walk from (e.g. " +
-         "['HeadParts','HairColor','HeadTexture','WornArmor'] for an NPC's appearance). A path that is not a field " +
-         "on the record, or carries no record links, is REFUSED BY NAME rather than quietly seeding nothing. " +
+         "shared-resource records stay links, and only what would VANISH with the source is copied. A record " +
+         "marked for internalizing that NO source in from_source= can produce — a dangling link, typically — " +
+         "refuses the whole copy naming every source consulted, rather than writing a patch with a hole in it.\n\n" +
+         "WHERE THE WALK STARTS is yours: seed_paths= names the fields to walk from (e.g. " +
+         "['HeadParts','HairColor','HeadTexture','WornArmor'] for an NPC's appearance). Each must be a RECORD " +
+         "LINK or a LIST OF RECORD LINKS; a path that is not a field on the record, carries no record links, or " +
+         "is a list whose ENTRIES carry links inside them (Factions, Perks, Items) is REFUSED BY NAME rather " +
+         "than quietly seeding nothing — for that last shape use housecarl_apply's bundle=/assignments= zip, " +
+         "where op=Merge and op=ReplaceAll are your choice of merging into the target's entries or replacing " +
+         "them. A seed the source leaves UNSET clears the target's, and says so: the result is the source's, " +
+         "not a mixture of both. " +
          "exclude_types= names record types the walk must not enter, each as 'Type:stop' (prune it, keep the link) " +
          "or 'Type:refuse' (fail the whole copy) — a RACE is the standing 'refuse' case, since a race pulls " +
          "skeletons and sibling races rather than an appearance subtree.\n\n" +
@@ -89,7 +96,16 @@ public static class CopyTools
             catch (Exception ex) { return $"error: bad target '{target}': {ex.Message}. Expected 'XXXXXX:Plugin.esp'."; }
         }
 
-        var seeds = (seed_paths ?? Array.Empty<string>()).Where(s => !string.IsNullOrWhiteSpace(s)).Select(s => s.Trim()).ToList();
+        // Blank elements are REFUSED BY INDEX, not dropped. Dropping them silently changed the caller's list and
+        // made the service's own per-element refusal unreachable — and worse, it shifted the indices the service
+        // reports, so a refusal about from_source[1] named the blank the caller cannot see rather than the bad
+        // name at index 2 (review round 1).
+        var rawSeeds = seed_paths ?? Array.Empty<string>();
+        for (int i = 0; i < rawSeeds.Length; i++)
+            if (string.IsNullOrWhiteSpace(rawSeeds[i]))
+                return $"error: seed_paths[{i}] is blank — every element must name a field on the record being " +
+                       "copied. Remove the empty entry rather than leaving it for houseCARL to guess at.";
+        var seeds = rawSeeds.Select(s => s.Trim()).ToList();
         if (seeds.Count == 0)
             return "error: seed_paths is required — name the link-bearing field(s) the walk starts from " +
                    "(e.g. seed_paths=['HeadParts','WornArmor']). Without them there is nothing to copy.";
@@ -104,12 +120,25 @@ public static class CopyTools
             if (type.Length == 0) return $"error: exclude_types entry '{raw}' names no record type. Use 'Type:stop' or 'Type:refuse'.";
             if (sev is not ("stop" or "refuse"))
                 return $"error: exclude_types entry '{raw}' has severity '{sev}' — use 'stop' (prune, keep the link) or 'refuse' (fail the copy).";
+            // A duplicate type name used to reach the walk's ToDictionary and throw, which Guard.Tool rendered as
+            // "an internal houseCARL failure … not bad input" — a false claim about the caller's own input, and the
+            // opaque dead end the guard exists to prevent. Refused here, in the layer that owns prose.
+            if (exclusions.Any(x => string.Equals(x.TypeName, type, StringComparison.OrdinalIgnoreCase)))
+                return $"error: exclude_types names '{type}' more than once. One severity per record type — " +
+                       "'stop' (prune, keep the link) or 'refuse' (fail the copy) — so pick the one you mean.";
             exclusions.Add(new WalkExclusion(type,
                 sev == "stop" ? ExclusionSeverity.Stop : ExclusionSeverity.Refuse,
                 $"excluded by the caller as '{sev}'"));
         }
 
-        var poles = (from_source ?? Array.Empty<string>()).Where(s => !string.IsNullOrWhiteSpace(s)).Select(s => s.Trim()).ToList();
+        var rawPoles = from_source ?? Array.Empty<string>();
+        for (int i = 0; i < rawPoles.Length; i++)
+            if (string.IsNullOrWhiteSpace(rawPoles[i]))
+                return $"error: from_source[{i}] is blank — every element must name a source ('winner', or a plugin " +
+                       "filename). Remove the empty entry; leaving it would shift the positions this call reports.";
+        var poles = rawPoles.Select(s => s.Trim()).ToList();
+        // Only an ABSENT or EMPTY list takes the documented default. A list with a blank IN it is a caller error,
+        // refused above, rather than a list that quietly becomes something shorter.
         if (poles.Count == 0) poles.Add(SourcePoles.Winner);
 
         return Render(svc.CopyClosure(fromKey, poles, seeds, exclusions, targetKey, new_editorid, patch, into));
@@ -133,6 +162,11 @@ public static class CopyTools
             ? $"CLONED {o.SourceKey} -> {o.NewKey}\n"
             : $"COPIED {o.SourceKey}'s walked fields onto {o.NewKey}\n");
         sb.Append(WriteSentences.CopySourcesConsulted(o.SourcesConsulted));
+        // R2's readback half for the ONE body it was missing. Rendered in both modes: in attach mode the source
+        // record is not among the internalized rows at all, and in clone mode its row is not surfaced either, so
+        // without this the caller learns which arm produced every head part and not which produced the face.
+        if (o.FromArmSpelling.Length > 0)
+            sb.Append(WriteSentences.CopyFromArmLead).Append(o.FromArmSpelling).Append(".\n");
         sb.Append(WriteSentences.NewOrExtendedArtifact(o.Extended, Path.GetFileName(o.OutPath!), o.Bytes,
             Path.GetFileName(Path.GetDirectoryName(o.OutPath!)!)));
 
@@ -149,15 +183,32 @@ public static class CopyTools
             foreach (var c in o.Copied)
                 sb.Append($"  - {c.TypeName} '{c.EditorId ?? "<no editorid>"}'  {c.OldKey} -> {c.NewKey}   (from {c.ArmSpelling}, via {c.PulledBy})\n");
         }
-        if (o.Kept.Count > 0)
-            sb.Append($"kept {o.Kept.Count} link(s) that resolve outside the source — mastered normally.\n");
+        // Two different facts, and they used to share one sentence that was false for half of them: an exclusion
+        // boundary is INSIDE the source and still points at it, so calling it "mastered normally" contradicted the
+        // strip list in the same response (review round 1).
+        var keptOutside = o.Kept.Count(k => !k.Excluded);
+        var keptExcluded = o.Kept.Count - keptOutside;
+        if (keptOutside > 0)
+            sb.Append($"kept {keptOutside} ").Append(WriteSentences.CopyKeptOutside).Append('\n');
+        if (keptExcluded > 0)
+            sb.Append($"{keptExcluded} ").Append(WriteSentences.CopyKeptExcluded).Append('\n');
         if (o.Cycles.Count > 0)
         {
             sb.Append(WriteSentences.CopyCyclesHeader).Append('\n');
             foreach (var cy in o.Cycles) sb.Append($"  - {cy.Back} is reached again from {cy.PulledBy}\n");
         }
         if (o.Attached.Count > 0)
-            sb.Append($"attached: {string.Join(", ", o.Attached.Select(a => a.Field))}\n");
+        {
+            sb.Append($"attached: {string.Join(", ", o.Attached.Select(a => $"{a.Field} ({a.Removed})"))}\n");
+            // A CLEARED field and a copied one both used to render as a bare name, so "attached: HeadParts" was
+            // the same output whether the target got the source's head parts or lost its own.
+            if (o.Attached.Any(a => a.Cleared)) sb.Append(WriteSentences.CopySeedClearedNote).Append('\n');
+        }
+        if (o.AssetPaths.Count > 0)
+        {
+            sb.Append('\n').Append(WriteSentences.CopyAssetPathsHeader).Append('\n');
+            foreach (var a in o.AssetPaths) sb.Append("  - ").Append(a).Append('\n');
+        }
         if (o.Stripped.Count > 0)
         {
             sb.Append($"\nSTRIPPED {o.Stripped.Count} reference(s) that still pointed into the source:\n");
@@ -176,6 +227,7 @@ public static class CopyTools
             $"{w.Detail}. seed_paths must name link-bearing fields on the record being copied.",
         WalkRefusalKind.NoSeeds =>
             "the seed fields carry no record links, so this copy would produce nothing. Check seed_paths= against the record.",
+        WalkRefusalKind.UnsupportedSeedShape => w.Detail + WriteSentences.CopySeedShapeRoute,
         WalkRefusalKind.Excluded =>
             $"the walk reached {w.Key} ({w.Exclusion?.TypeName}), which exclude_types= marks 'refuse'. " +
             $"Pulled in via {w.PulledBy}.",
@@ -196,6 +248,9 @@ public static class CopyTools
             "record that already has its own, using target=, instead of minting a clone.",
         CopyRefusalKind.UnclearableSubstruct =>
             $"the field '{c.Field}' carries a reference into the source and cannot be cleared. Use target= instead.",
+        CopyRefusalKind.UnsupportedSeedShape => c.Detail + WriteSentences.CopySeedShapeRoute,
+        CopyRefusalKind.DonorLeak when c.Field == ClosureCopy.ExclusionLeakMarker =>
+            $"the record {c.Key}" + WriteSentences.CopyLeakFromExclusion,
         CopyRefusalKind.DonorLeak =>
             $"after the copy the destination still references {c.Key} in the source — refusing to write a patch that " +
             "would master it. If the destination deliberately references the source elsewhere, remove that first.",

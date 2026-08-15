@@ -103,7 +103,24 @@ public static class CopyDifferentialHarness
         var newClone = CopyTools.Copy(svc, donorKey.ToString(), null, Seeds, new[] { "Race:refuse" }, null, "TheClone", "F1NewClone", null);
         Check(!oldClone.StartsWith("error"), $"clone: the ANCESTOR succeeds ({First(oldClone)})");
         Check(!newClone.StartsWith("error"), $"clone: the SUCCESSOR succeeds ({First(newClone)})");
+        // INVENTORY I1 — the readback the appearance skill's Step 3 reads its candidate paths out of.
+        Check(newClone.Contains("asset paths the copied records reference", StringComparison.Ordinal),
+            "the successor REPORTS the asset paths its copied records reference (I1)");
+        Check(newClone.Contains("donorhair.nif", StringComparison.OrdinalIgnoreCase),
+            "…naming the actual path, harvested from the in-patch duplicates");
+        Check(newClone.Contains("does NOT place them", StringComparison.Ordinal),
+            "…and says plainly that it did not place them — the decision leaves the tool");
+        Check(newClone.Contains("the source record was read from", StringComparison.Ordinal),
+            "…and the record the caller ASKED for names the arm that produced it (R2)");
         DiffPatches("clone lane", FindPatch(mods, "F1OldClone"), FindPatch(mods, "F1NewClone"));
+
+        // The skill's Step 1 output, printed in full ONCE. Binding rule from the round-1 incident: a skill step
+        // that describes a tool's output gets RUN before it ships. Three claims in the first draft of the skill
+        // were text nobody had executed, and two of them were false — including a readback section the tool did
+        // not emit at all. Printing it here is cheap and it makes the next author's claim checkable.
+        Console.WriteLine("  ---- the successor's Step-1 readback, verbatim ----");
+        foreach (var line in newClone.Split('\n')) Console.WriteLine("  | " + line.TrimEnd());
+        Console.WriteLine("  ---------------------------------------------------");
 
         // ---- attach lane ----------------------------------------------------------------------------
         // Donor and target deliberately differ in RACE and SEX, so the two conditional bundle members the
@@ -135,6 +152,20 @@ public static class CopyDifferentialHarness
         var newBundle = ApplyTools.Apply(svc, Json("[" + string.Join(",", ops) + "]"), present.ToArray(), Json(assignments), null, patchFile);
         Check(!newBundle.StartsWith("error"), $"attach: the SUCCESSOR's bundle step succeeds ({First(newBundle)})");
         DiffPatches("attach lane", FindPatch(mods, "F1OldAttach"), FindPatch(mods, "F1NewAttach"));
+
+        // ---- the seed-shape boundary REFUSES rather than going quiet (shape ruling (a)) ------------------
+        // The ancestor has a fixed seed set, so there is no old-vs-new pair to diff here; what the run asserts is
+        // that the successor's answer to an unsupported shape is a REFUSAL that names the route, not a silent
+        // no-op and not a wiped list. Asserted in the differential because it is an acceptance claim about the
+        // replacement, and "the suite is green" was true of the silent version too.
+        var shape = CopyTools.Copy(svc, donorKey.ToString(), null, new[] { "HeadParts", "Factions" },
+                                   new[] { "Race:refuse" }, targetKey.ToString(), null, "F1Shape", null);
+        Check(shape.StartsWith("error") && shape.Contains("link-BEARING", StringComparison.Ordinal),
+            "a link-BEARING list seed REFUSES by shape rather than emptying the target's list");
+        Check(shape.Contains("housecarl_apply", StringComparison.Ordinal),
+            "…naming the lane that does support it");
+        Check(!Directory.EnumerateDirectories(mods, "*F1Shape*").Any(),
+            "…and writes nothing, leaving no folder behind");
         Console.WriteLine();
     }
 
@@ -402,6 +433,12 @@ public static class CopyDifferentialHarness
         var baseMod = new SkyrimMod(baseKey, SkyrimRelease.SkyrimSE);
         baseMod.Races.Add(new Race(raceA, SkyrimRelease.SkyrimSE) { EditorID = "RaceA" });
         baseMod.Races.Add(new Race(raceB, SkyrimRelease.SkyrimSE) { EditorID = "RaceB" });
+        // A shared, ACTIVE armor. It exists so the attach TARGET can carry a WornArmor the donor does NOT — the
+        // case where the ancestor's unconditional assignment CLEARS the target's field. The successor used to
+        // leave the target's value in place and report nothing, which is a face built from two records; nothing in
+        // the earlier fixtures could see it because the donor and the target were unset together.
+        var armorFk = new FormKey(baseKey, 0x802);
+        baseMod.Armors.Add(new Armor(armorFk, SkyrimRelease.SkyrimSE) { EditorID = "SharedArmor" });
         WriteMod(mods, "BaseMod", baseMod);
 
         var donorMk = new ModKey("Donor", ModType.Plugin);
@@ -415,6 +452,10 @@ public static class CopyDifferentialHarness
         donor.TextureSets.Add(new TextureSet(texFk, SkyrimRelease.SkyrimSE) { EditorID = "DonorHairTex" });
         var hp = new HeadPart(hairFk, SkyrimRelease.SkyrimSE) { EditorID = "DonorHair" };
         hp.TextureSet.SetTo(texFk);
+        // A real asset link, so inventory I1's readback has something to enumerate. Without one the block renders
+        // empty and the skill's Step 3 would be describing output nobody had produced — which is the exact class
+        // of claim this branch got caught making.
+        hp.Model = new Model { File = @"actors\character\character assets\hair\donorhair.nif" };
         donor.HeadParts.Add(hp);
         donor.Colors.Add(new ColorRecord(clfmFk, SkyrimRelease.SkyrimSE) { EditorID = "DonorHairColor" });
         donor.TextureSets.Add(new TextureSet(headTexFk, SkyrimRelease.SkyrimSE) { EditorID = "DonorHeadTex" });
@@ -449,6 +490,7 @@ public static class CopyDifferentialHarness
         // The target HAS the one bundle member the donor lacks. The ancestor deep-copies an unset donor field, which
         // CLEARS the target's — so this is the arm that catches a successor which merely skips what the donor lacks.
         tgt.FaceParts = new NpcFaceParts { Nose = 4, Eyes = 5, Mouth = 6 };
+        tgt.WornArmor.SetTo(armorFk);        // the donor leaves WornArmor unset: the ancestor clears this
         tgt.Race.SetTo(raceB);
         fol.Npcs.Add(tgt);
         WriteMod(mods, "FollowerMod", fol, baseMod);

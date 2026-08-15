@@ -2509,12 +2509,21 @@ public static class WriteSurfaceGuardProbe
         var stripped = new List<StripEntry> { new("Factions[0]", new FormKey(src, 0x802).ToString()) };
         var sources = new[] { "CopySrc.esp" };
 
-        ClosureCopyOutcome Make(bool mastered, string? warning, IReadOnlyList<StripEntry> strips) => new(
+        ClosureCopyOutcome Make(bool mastered, string? warning, IReadOnlyList<StripEntry> strips,
+                               IReadOnlyList<StripEntry>? attach = null, IReadOnlyList<WalkBoundary>? kept = null,
+                               IReadOnlyList<string>? assets = null, IReadOnlyList<string>? srcs = null) => new(
             true, null, null, null, strips.Count > 0 ? "clone" : "attach",
             new FormKey(src, 0x803), new FormKey(patch, 0x900), outPath, false,
-            copied, Array.Empty<WalkBoundary>(), Array.Empty<WalkCycle>(),
-            Array.Empty<StripEntry>(), strips, sources,
+            copied, kept ?? Array.Empty<WalkBoundary>(), Array.Empty<WalkCycle>(),
+            attach ?? Array.Empty<StripEntry>(), strips, srcs ?? sources,
+            "CopySrc.esp", assets ?? Array.Empty<string>(),
             new[] { "Skyrim.esm" }, mastered, 1234, warning);
+
+        var keptBoth = new List<WalkBoundary>
+        {
+            new(new FormKey(new ModKey("Vanilla", ModType.Master), 0x811), "Npc.HeadParts", "outside", Excluded: false),
+            new(new FormKey(src, 0x812), "Npc.WornArmor", "excluded (Race)", Excluded: true),
+        };
 
         return new List<string>
         {
@@ -2522,6 +2531,37 @@ public static class WriteSurfaceGuardProbe
             CopyTools.Render(Make(true, null, Array.Empty<StripEntry>())),    // the self-mastered alarm
             CopyTools.Render(Make(false, "read-back blew up", Array.Empty<StripEntry>())),  // NOT VERIFIED
             CopyTools.Render(Make(false, null, stripped)),                    // the strip consequence
+            // The sentences the end-to-end fixtures cannot reach on a SUCCESS: a cleared seed, both kinds of kept
+            // link in one response (they are contradictory claims, so they have to be seen together), the harvested
+            // asset paths, and the multi-source header.
+            CopyTools.Render(Make(false, null, Array.Empty<StripEntry>(),
+                attach: new List<StripEntry> { new("HeadParts", "2 link(s)"), new("WornArmor", "cleared", Cleared: true) },
+                kept: keptBoth,
+                assets: new[] { @"meshesctors\characteracegendataacegeom\CopySrc.esp 00800.nif" },
+                srcs: new[] { "Override.esp", "CopySrc.esp" })),
+            // …and the two REFUSAL sentences that were method-form and outside the content net entirely.
+            CopyTools.Render(ClosureCopyOutcome.Fail(
+                walk: new WalkRefusal(WalkRefusalKind.SourceMiss, new FormKey(src, 0x820), "Npc.HeadParts",
+                    Array.Empty<FormKey>(), "", Miss: null),
+                sources: new[] { "Override.esp", "CopySrc.esp" })),
+            CopyTools.Render(ClosureCopyOutcome.Fail(
+                walk: new WalkRefusal(WalkRefusalKind.SourceFault, new FormKey(src, 0x821), "Npc.HeadParts",
+                    Array.Empty<FormKey>(), "the record could not be parsed",
+                    Fault: new SourceFault(new FormKey(src, 0x821), "Npc.HeadParts", 0,
+                        new SourceArm("CopySrc.esp", SourceArmKind.File, "on disk", _ => null), "the record could not be parsed")),
+                sources: new[] { "Override.esp", "CopySrc.esp" })),
+            // The two shape-ruling refusals. Both are reachable end to end (copy-parser-guard drives them through
+            // the wire), but they are rendered here too so the sentence-reach net owns them the same way it owns
+            // every other outer-class sentence — the net is about wiring, and a sentence only one probe can reach
+            // is a sentence the net cannot see.
+            CopyTools.Render(ClosureCopyOutcome.Fail(
+                walk: new WalkRefusal(WalkRefusalKind.UnsupportedSeedShape, new FormKey(src, 0x822), "",
+                    Array.Empty<FormKey>(), "'Factions' on Npc is a list of link-BEARING entries, not a list of record links"),
+                sources: sources)),
+            CopyTools.Render(ClosureCopyOutcome.Fail(
+                copy: new CopyRefusal(CopyRefusalKind.DonorLeak, "a link into the source universe survived on the target",
+                    ClosureCopy.ExclusionLeakMarker, new FormKey(src, 0x823)),
+                sources: sources)),
         };
     }
 }

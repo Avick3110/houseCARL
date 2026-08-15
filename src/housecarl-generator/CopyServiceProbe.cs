@@ -64,6 +64,36 @@ public static class CopyServiceProbe
             folMod.Npcs.Add(tgt);
             WriteModDirect(mods, "FollowerMod", folMod, baseMod);
 
+            // A record whose DEFINING plugin is neither active nor named as a source. Src.esp merely OVERRIDES it,
+            // so it is outside the bound set and its only route into the closure is the scope predicate's second
+            // disjunct ("…or it does not resolve in the active order"). Without that disjunct the link is kept and
+            // the artifact declares a master that does not exist anywhere.
+            var ghostKey = new ModKey("Ghost", ModType.Plugin);
+            var ghostTexFk = new FormKey(ghostKey, 0x800);
+            var ghostMod = new SkyrimMod(ghostKey, SkyrimRelease.SkyrimSE);
+            ghostMod.TextureSets.Add(new TextureSet(ghostTexFk, SkyrimRelease.SkyrimSE) { EditorID = "GhostTex" });
+            WriteModDirect(mods, "GhostMod", ghostMod, baseMod);   // on disk, DISABLED, and never a named source arm
+
+            // A SECOND disabled source with a DISTINCT ModKey. Every earlier fixture had one file arm whose ModKey
+            // already equalled `from`'s, which made the bound-universe loop over File arms a no-op everywhere —
+            // deleting it left the whole suite AND the differential green (review round 1).
+            var extraKey = new ModKey("Extra", ModType.Plugin);
+            var extraHpFk = new FormKey(extraKey, 0x800);
+            var extraMod = new SkyrimMod(extraKey, SkyrimRelease.SkyrimSE);
+            var extraHp = new HeadPart(extraHpFk, SkyrimRelease.SkyrimSE) { EditorID = "ExtraBrow" };
+            extraMod.HeadParts.Add(extraHp);
+            WriteModDirect(mods, "ExtraMod", extraMod, baseMod);
+
+            // …and an ACTIVE plugin that OVERRIDES one of that second source's records. This is what makes the
+            // bound-universe loop over File arms falsifiable at all: without the override the record does not
+            // resolve actively, so the scope predicate's SECOND disjunct expands it anyway and deleting the loop
+            // changes nothing — measured, the first version of this fixture left that deletion green. With the
+            // override present the record DOES resolve actively, so only being BOUND puts it in the closure.
+            var shadowKey = new ModKey("Shadow", ModType.Plugin);
+            var shadowMod = new SkyrimMod(shadowKey, SkyrimRelease.SkyrimSE);
+            shadowMod.HeadParts.GetOrAddAsOverride(extraHp);
+            WriteModDirect(mods, "ShadowMod", shadowMod, baseMod, extraMod);
+
             var srcKey = new ModKey("Src", ModType.Plugin);
             var txstFk = new FormKey(srcKey, 0x800);
             var hpFk = new FormKey(srcKey, 0x801);
@@ -75,17 +105,29 @@ public static class CopyServiceProbe
             srcHp.TextureSet.SetTo(txstFk);
             srcMod.HeadParts.Add(srcHp);
             srcMod.Factions.Add(new Faction(factionFk, SkyrimRelease.SkyrimSE) { EditorID = "SrcFaction" });
+            // Src.esp carries an OVERRIDE of a Ghost.esp record — Ghost is never active and never a named source.
+            var ghostOverride = new TextureSet(ghostTexFk, SkyrimRelease.SkyrimSE) { EditorID = "GhostTex" };
+            srcMod.TextureSets.Add(ghostOverride);
             var srcNpc = new Npc(srcNpcFk, SkyrimRelease.SkyrimSE) { EditorID = "SrcNpc" };
             srcNpc.Race.SetTo(raceFk);
             srcNpc.HeadParts.Add(hpFk);
             srcNpc.Factions.Add(new RankPlacement { Faction = new FormLink<IFactionGetter>(factionFk), Rank = 0 });
             srcMod.Npcs.Add(srcNpc);
-            WriteModDirect(mods, "SrcMod", srcMod, baseMod);
+            // A SECOND donor, carrying only the links arms 4-8 need. Kept off the first donor so the lanes those
+            // arms were written for keep testing what they were written for.
+            var wideNpcFk = new FormKey(srcKey, 0x804);
+            var wideNpc = new Npc(wideNpcFk, SkyrimRelease.SkyrimSE) { EditorID = "WideNpc" };
+            wideNpc.Race.SetTo(raceFk);
+            wideNpc.HeadParts.Add(hpFk);
+            wideNpc.HeadParts.Add(extraHpFk);         // only the SECOND arm has this one
+            wideNpc.HeadTexture.SetTo(ghostTexFk);    // only reachable via the not-active-anywhere disjunct
+            srcMod.Npcs.Add(wideNpc);
+            WriteModDirect(mods, "SrcMod", srcMod, baseMod, extraMod, ghostMod);
 
             // SrcMod is switched OFF: the whole run goes through the off-order file arm.
-            File.WriteAllText(Path.Combine(prof, "modlist.txt"), "+FollowerMod\r\n+BaseMod\r\n-SrcMod\r\n");
-            File.WriteAllText(Path.Combine(prof, "loadorder.txt"), "HcBase.esm\r\nFollower.esp\r\n");
-            File.WriteAllText(Path.Combine(prof, "plugins.txt"), "*HcBase.esm\r\n*Follower.esp\r\n");
+            File.WriteAllText(Path.Combine(prof, "modlist.txt"), "+ShadowMod\r\n+FollowerMod\r\n+BaseMod\r\n-SrcMod\r\n-ExtraMod\r\n-GhostMod\r\n");
+            File.WriteAllText(Path.Combine(prof, "loadorder.txt"), "HcBase.esm\r\nFollower.esp\r\nShadow.esp\r\n");
+            File.WriteAllText(Path.Combine(prof, "plugins.txt"), "*HcBase.esm\r\n*Follower.esp\r\n*Shadow.esp\r\n");
             File.WriteAllText(Path.Combine(prof, "Skyrim.ini"), "[General]\r\n");
 
             using var svc = LoadOrderService.WithInstance(inst, 0, new UserConfigStore(Path.Combine(root, "user.json")));
@@ -148,6 +190,52 @@ public static class CopyServiceProbe
                 $"E4: an IN-PATCH target resolves off the OPENED patch mod ({inPatch.EngineError ?? inPatch.CopyRefusal?.Detail ?? inPatch.WalkRefusal?.Detail})");
             Check(inPatch.Mode == "attach" && inPatch.NewKey == clone.NewKey, "…naming that record as the target");
             Check(inPatch.Extended, "…and it EXTENDED the existing patch rather than minting a new one");
+
+            // ---- 4. A TWO-ARM chain with DISTINCT ModKeys ----------------------------------------------------
+            // Both source plugins are bound, so BOTH plugins' records internalize and NEITHER ends up a master.
+            // With one file arm this arm is unfalsifiable — the arm's ModKey already equals `from`'s.
+            var twoArm = svc.CopyClosure(wideNpcFk, new[] { "Src.esp", "Extra.esp" }, new[] { "HeadParts", "HeadTexture" },
+                noExcl, null, "TwoArmClone", "TwoArmPatch", null);
+            Check(twoArm.Success, $"a TWO-ARM chain with distinct ModKeys copies ({twoArm.EngineError ?? twoArm.WalkRefusal?.Detail ?? twoArm.CopyRefusal?.Detail})");
+            Check(twoArm.Copied.Any(c => c.EditorId == "ExtraBrow" && c.ArmSpelling == "Extra.esp"),
+                "…the SECOND arm's record is internalized and attributed to it — an ACTIVE plugin also provides " +
+                "that key, so only being BOUND puts it in the closure");
+            Check(!twoArm.Masters.Any(m => m.Equals("Extra.esp", StringComparison.OrdinalIgnoreCase)),
+                "…and the SECOND arm's plugin is NOT a master — the bound universe covers every file arm, not just from's");
+            Check(!twoArm.SourceAmongMasters, "…so the standalone claim is computed over BOTH source plugins");
+
+            // ---- 5. The scope predicate's SECOND disjunct — a record active nowhere -------------------------
+            Check(twoArm.Copied.Any(c => c.EditorId == "GhostTex"),
+                "a record whose defining plugin is active NOWHERE is internalized (the missing-master disjunct)");
+            Check(!twoArm.Masters.Any(m => m.Equals("Ghost.esp", StringComparison.OrdinalIgnoreCase)),
+                "…so the artifact does not declare a master that exists nowhere");
+
+            // ---- 6. A path that NAMES an active plugin is that plugin ---------------------------------------
+            var activePath = Path.Combine(mods, "FollowerMod", "Follower.esp");
+            var byPath = svc.WithSourceChainForGuard(new[] { activePath }, "from_source",
+                (chain, err) => chain is null ? "ERR:" + err : chain.Arms[0].Kind + "|" + chain.Arms[0].Where);
+            Check(byPath.StartsWith("ActiveOrder"), $"a full PATH naming an ACTIVE plugin resolves as the active arm ({byPath})");
+            Check(!byPath.Contains("NOT active"), "…and is not described as off-order");
+
+            // ---- 7. A pruned-then-attached link is CAUGHT, and the refusal names the real cause -------------
+            // 'stop' keeps the link, so the attach lane writes it onto the target unmapped. The post-attach leak
+            // check is the only thing standing between that and a patch that masters the plugin it claims to free.
+            var stopExcl = new[] { new WalkExclusion("HeadPart", ExclusionSeverity.Stop, "pruned for the test") };
+            var leak = svc.CopyClosure(wideNpcFk, new[] { "Src.esp", "Extra.esp" }, new[] { "HeadParts" },
+                stopExcl, targetFk, null, "LeakPatch", null);
+            Check(!leak.Success && leak.CopyRefusal?.Kind == CopyRefusalKind.DonorLeak,
+                $"a pruned link attached to the target is CAUGHT by the post-attach leak check ({(leak.Success ? "IT WAS NOT" : leak.CopyRefusal?.Kind.ToString())})");
+            Check(leak.CopyRefusal?.Field == ClosureCopy.ExclusionLeakMarker,
+                "…and the refusal carries WHY, so the render blames the exclusion rather than the caller's target");
+
+            // ---- 8. A refusal after the folder exists leaves NO folder --------------------------------------
+            var before = Directory.GetDirectories(mods).Length;
+            var refused = svc.CopyClosure(wideNpcFk, new[] { "Src.esp", "Extra.esp" }, new[] { "HeadParts" },
+                stopExcl, targetFk, null, "OrphanCheck", null);
+            Check(!refused.Success, "a refusal that happens AFTER the output folder is resolved…");
+            Check(Directory.GetDirectories(mods).Length == before
+                  && !Directory.EnumerateDirectories(mods, "*OrphanCheck*").Any(),
+                "…removes the folder it created this call — no orphan left behind");
         }
         catch (Exception ex)
         {
