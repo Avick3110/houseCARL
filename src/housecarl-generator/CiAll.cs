@@ -337,6 +337,13 @@ public static class CiAll
         // source: the attach lane onto an active target, the clone lane with its strip, arm attribution surviving
         // into the outcome, and E4 (an IN-PATCH target resolves off the OPENED patch mod, never the load order).
         ("copy-service-guard", CopyServiceProbe.RunGuard),
+        // COPY PARSER — housecarl_copy's argument layer driven through the TOOL METHOD, so the WIRE spelling of
+        // every documented parameter is under test and not just the typed values the service guard hands over.
+        // Pins: 'Type:stop' vs 'Type:refuse' told apart BY RESULT (prune-and-keep vs fail the copy), the severity
+        // token's case-insensitivity and its unknown/typeless refusals; exactly-one-destination, with a
+        // whitespace-only target= counting as ABSENT; the from=/target= FormID refusals and the ORDER they fire in;
+        // seed_paths required across absent/empty/blank-only, and trimmed; and the documented from_source= default.
+        ("copy-parser-guard", CopyParserProbe.RunGuard),
         // SKYPATCHER DISTRIBUTOR Wave 0a — the catalog-free structural tokenizer (SkyPatcherParse): pins the
         // grammar mechanics a SkyPatcher INI reader stands on — ':'-segment / '='-key-value / ','-list /
         // '~'-compound splitting, the ~…~ rename name-literal, the Plugin.esp|FormID address (leading-zero
