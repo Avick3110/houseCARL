@@ -20,6 +20,11 @@ if (args.Length > 0 && args[0] == "ci-all") return CiAll.RunAll(args[1..]);
 // carve-out) and the manual/exploratory probes below keep their own explicit dispatch.
 if (args.Length > 0 && CiAll.TryDispatch(args[0], args[1..], out var ciRc)) return ciRc;
 
+// PR 3b acceptance: the old copy_npc_appearance verb vs its 2.0 successor, over constructed MO2 instances.
+// Deliberately NOT in ci-all — the ancestor dies at 2.0, so this is acceptance evidence re-run on demand
+// (and after every fold that touches the copy path), not a standing guard.
+if (args.Length > 0 && args[0] == "copy-differential") return CopyDifferentialHarness.Run(args[1..]);
+
 // Maintenance diagnostic: re-verify the mutable-collection whitelist on a Mutagen bump.
 if (args.Length > 0 && args[0] == "vocab") return Probe.RunVocab();
 

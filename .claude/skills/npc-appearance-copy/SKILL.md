@@ -60,15 +60,18 @@ First hit wins, so records the overhaul carries come from the overhaul and every
 
 ## Step 2 — the inline appearance bundle
 
-Copy these onto the record Step 1 produced, into the same patch:
+The bundle is `FaceMorph`, `FaceParts`, `TintLayers`, `TextureLighting`, `Weight`, `Height` — but **read the donor first and split that list in two**, because a donor rarely carries all of it:
 
 ```
 housecarl_apply(
-  bundle      = ["FaceMorph", "FaceParts", "TintLayers", "TextureLighting", "Weight", "Height"],
+  bundle      = [ ...the members the donor HAS... ],
   assignments = [{ target: "<the new/target FormID>", from: "<donor FormID>",
                    from_source: "<the plugin the appearance came from>" }],
+  ops         = [ { formid: "<target>", field_path: "<a member the donor LACKS>", op: "Remove" }, ... ],
   into        = "<Step 1's patch filename>")
 ```
+
+**Why the split, rather than just naming all six.** `CopyFrom` refuses an unset source — "nothing to copy; use Remove to clear the target" — and `housecarl_apply` is all-or-nothing, so one absent member refuses the whole call. The tempting fix is to drop the absent members from the bundle, and that is the wrong one: it leaves the *target's* own morphs and face parts in place underneath the donor's head parts, which is a face assembled from two different people. Clearing them is what makes the target's face the donor's face and nothing else. So: copy what the donor has, remove what it lacks.
 
 A bundle only names what it copies, so identity and everything outside the list are untouched by construction.
 
@@ -124,6 +127,7 @@ The destination is computed from the new FormID and the source is the donor's ow
 | Seeding `Race`, or dropping the `Race:refuse` exclusion | The walk pulls the skeleton and sibling races instead of a face. |
 | `Set`ting `Configuration.Flags` to match the donor | Silently carries Essential / Unique / Respawn / Protected across. |
 | Omitting `TextureLighting` | Every field reads correct and the skin renders dark. |
+| Dropping a bundle member the donor lacks instead of clearing it | The target keeps its own morphs under the donor's head parts — a face built from two people. |
 | Stopping at the patch | The records exist, the FaceGen does not — a dark face you authored on purpose. |
 | Letting the FaceGen source default to the VFS winner | You place a replacer's face over the records of the donor you actually copied. |
 | Reporting "copied" when the strip list is long | A standalone clone with no factions, outfits, packages or scripts is not a working follower. |
