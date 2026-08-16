@@ -14,15 +14,18 @@ when it changes.
   `Worldspace.TopCell` hold a record outright — the cell owns its landscape, the worldspace owns its top cell — but
   the schema the `mutagen-reference` skill serves classified both as links to one. Following that, you would have
   set a FormID on a field that holds a whole record: accepted at the pre-flight check, then thrown at write time.
-  Both now read as what they are, pointing at the child's own record entry, so a `Set` of a FormID is refused up
-  front and the field is edited the way every other nested object is — descend to a sub-field, or `Remove` to clear
-  it. A parent carrying no child at all is refused in its own words rather than borrowing an unrelated message
-  about composition types: houseCARL will not conjure a record as a side effect of a sub-field write.
+  Both now read as what they are, pointing at the child's own record entry, and every way of writing *at* the field
+  is refused in one voice that names it a record: a FormID, a composed value, and clearing it. To edit the child,
+  address **that record by its own FormID** — which works, and is what the refusals now tell you. Two things worth
+  knowing, because they are what the old classification hid: a patch's override of a parent does **not** bring the
+  parent's child records with it, so a path *through* the parent finds nothing there even when the original carries
+  one; and clearing the field would have deleted the whole child record and everything under it (a worldspace's top
+  cell takes its persistent references with it), which is why it is refused rather than quietly allowed.
 
   The classifier confused the two because a record identifies itself (FormID plus type) exactly the way a link
-  identifies its target. A build check now compares the reference's classification against the independent walk
-  that preserves child records across a record replace, over every record type the library models — so the two can
-  no longer disagree about which fields own a record.
+  identifies its target. A build check now compares the classification the generator produces against the
+  independent walk that preserves child records across a record replace, over every record type the library models
+  — so the two can no longer disagree about which fields own a record.
 
 - **Fixed: several list inputs didn't name every member of the object they take.** `housecarl_bulk_apply`'s `operations=` didn't mention `composes` or `from_plugin`; `housecarl_bulk_create`'s `records=` didn't mention `grid`; the `operations=` on both create tools didn't mention `composes`; the `sets=` list inside a `compose=` named two of its five members; and `housecarl_bulk_place_asset`'s `assets=` didn't mention `source_provider` (the member's own description was published all along, so it was discoverable — just not where you'd look for the element shape). Every one of these worked already; the gap was in what you were told. Separately, `source_provider` now spells out that it applies with **no** `source=` as well: there it says whose copy of the *destination* path to place, and is what resolves the contention an omitted source is otherwise refused for.
 
