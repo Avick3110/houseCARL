@@ -70,6 +70,11 @@ public static class WriteSurfaceGuardProbe
     }
     static string Trim(string s) => s.Length <= 400 ? s.Replace("\n", " | ") : s[..400].Replace("\n", " | ") + " …";
 
+    /// <summary>The pre-flight gate, over the same corpus the fixture resolved (RunGuard sets CorpusPath before any
+    /// arm runs) — for arms whose subject is what the GATE says, with no lane or file involved.</summary>
+    static CorpusRulebook Rules => _rules ??= CorpusRulebook.Load();
+    static CorpusRulebook? _rules;
+
     /// <summary>The message <paramref name="act"/> threw, or null if it completed — so an arm can assert on a
     /// refusal's WORDS and on the accepted path with the same shape.</summary>
     static string? Throws(Action act)
@@ -1356,7 +1361,7 @@ public static class WriteSurfaceGuardProbe
             { Landscape = new Landscape(FormKey.Factory("123482:HcW2Master.esm"), SkyrimRelease.SkyrimSE) };
         var presentMsg = Throws(() => WriteEngine.ApplyVerb(landed,
             new WriteRequest { RecordType = "Cell", Path = new[] { "Landscape", "EditorID" }, Verb = "Set", Value = "W335" }));
-        Check("…and the remedy it names works: a sub-field write lands on a cell that already carries one",
+        Check("…and a PRESENT owned child is navigable: a sub-field write lands on a cell that carries one",
             presentMsg is null && landed.Landscape?.EditorID == "W335",
             presentMsg ?? $"EditorID={landed.Landscape?.EditorID ?? "(none)"}");
 
@@ -1368,6 +1373,71 @@ public static class WriteSurfaceGuardProbe
         Check("…while an absent COMPOSITION substruct still gets the composition deferral, unchanged",
             compMsg is not null && compMsg.Contains("COMPOSITION type", StringComparison.Ordinal)
             && !compMsg.Contains("owned child RECORD", StringComparison.Ordinal), compMsg ?? "(accepted)");
+
+        // --- WHICH STATE A CALLER ACTUALLY MEETS. The PRESENT case above is a hand-built record; the LANE is what
+        //     decides which of the two a caller hits, and it is not the same answer. Mutagen's override copy does NOT
+        //     bring a parent's child records with it, so a patch override of a cell arrives carrying no Landscape even
+        //     when the original has one — which makes the absent refusal the ONLY outcome on the default lane, and
+        //     makes "descend to the child the parent already carries" a remedy the lane cannot reach. Pinned here so
+        //     the refusal's own wording (it names the record-by-FormID path instead) stays keyed to a measured fact
+        //     rather than to an assumption about what an override carries.
+        var srcCellForLand = new Cell(FormKey.Factory("123484:HcW2Master.esm"), SkyrimRelease.SkyrimSE) { EditorID = "W335Src" };
+        srcCellForLand.Landscape = new Landscape(FormKey.Factory("123485:HcW2Master.esm"), SkyrimRelease.SkyrimSE) { EditorID = "W335Land" };
+        srcCellForLand.Persistent.Add(new PlacedObject(FormKey.Factory("123486:HcW2Master.esm"), SkyrimRelease.SkyrimSE));
+        var srcMod = new SkyrimMod(new ModKey("HcW335Src", ModType.Master), SkyrimRelease.SkyrimSE);
+        var srcSub = new CellSubBlock { BlockNumber = 0, GroupType = GroupTypeEnum.InteriorCellSubBlock };
+        srcSub.Cells.Add(srcCellForLand);
+        var srcBlk = new CellBlock { BlockNumber = 0, GroupType = GroupTypeEnum.InteriorCellBlock };
+        srcBlk.SubBlocks.Add(srcSub);
+        srcMod.Cells.Records.Add(srcBlk);
+        var srcCache = srcMod.ToImmutableLinkCache();
+        var patchMod = new SkyrimMod(new ModKey("HcW335Patch", ModType.Plugin), SkyrimRelease.SkyrimSE);
+        var laneOverride = (ICell)WriteEngine.GenericGetOrAddAsOverride(patchMod, srcCellForLand, srcCache);
+        Check("a patch override of a parent arrives WITHOUT the parent's child records — so the absent arm is what the default lane meets",
+            laneOverride.Landscape is null && laneOverride.Persistent.Count == 0,
+            $"Landscape={laneOverride.Landscape?.EditorID ?? "(none)"} persistent={laneOverride.Persistent.Count}");
+
+        // …and the path the refusal names instead: the child record, overridden on its OWN axis, is settable and
+        // lands in the patch. This is the remedy sentence's probe (§5 #11) — measured, not asserted.
+        var landOverride = (ILandscape)WriteEngine.GenericGetOrAddAsOverride(patchMod, srcCellForLand.Landscape!, srcCache);
+        var byFormKey = Throws(() => WriteEngine.ApplyVerb(landOverride,
+            new WriteRequest { RecordType = "Landscape", Path = new[] { "EditorID" }, Verb = "Set", Value = "W335Direct" }));
+        Check("…and the remedy it DOES name works: the child record, addressed on its own axis, takes the write",
+            byFormKey is null && landOverride.EditorID == "W335Direct", byFormKey ?? $"EditorID={landOverride.EditorID}");
+
+        // --- REMOVE, THE VERB THE RECLASSIFICATION QUIETLY OPENED. Nullability came with the substruct branch (the
+        //     formlink branch never read the getter's NRT annotation), and Remove's legality is "is the leaf
+        //     nullable?" — so clearing the field became legal, and clearing it drops the whole child record and
+        //     everything under it in one keyless call, on a lane whose banner says there is no backup. Every LIST of
+        //     owned children already refuses a keyless whole-collection Remove; the singular child answers the same.
+        Check("Remove on an owned child record is refused, naming what it would have deleted",
+            Rules.Validate(new WriteRequest { RecordType = "Cell", Path = new[] { "Landscape" }, Verb = "Remove" })
+                is { } remMsg && remMsg.Contains("owned child RECORD", StringComparison.Ordinal)
+                && remMsg.Contains("every record under it", StringComparison.Ordinal),
+            Rules.Validate(new WriteRequest { RecordType = "Cell", Path = new[] { "Landscape" }, Verb = "Remove" }) ?? "(accepted)");
+        Check("…while Remove on an ordinary nullable substruct still clears it (the carve-out is the record, not the cardinality)",
+            Rules.Validate(new WriteRequest { RecordType = "Book", Path = new[] { "Model" }, Verb = "Remove" }) is null,
+            Rules.Validate(new WriteRequest { RecordType = "Book", Path = new[] { "Model" }, Verb = "Remove" }) ?? "(accepted)");
+
+        // …and the Set family on the same leaf: one sentence that names the record, rather than the compose/plain-value
+        // pair that sent a caller between two contradictory refusals (compose said "use value=", value said "navigate
+        // in"). Both shapes, since a caller reaches this leaf either way.
+        var composeMsg = Rules.Validate(new WriteRequest { RecordType = "Cell", Path = new[] { "Landscape" }, Verb = "Set",
+            Struct = new StructSpec { Type = "Landscape", Fields = new Dictionary<string, string> { ["EditorID"] = "X" } } });
+        var valueMsg = Rules.Validate(new WriteRequest { RecordType = "Cell", Path = new[] { "Landscape" }, Verb = "Set", Value = "000800:Skyrim.esm" });
+        Check("a Set on an owned child record refuses the SAME way for compose= and value=, naming neither as the way in",
+            composeMsg is not null && valueMsg is not null
+            && composeMsg.Contains("owned child RECORD", StringComparison.Ordinal)
+            && valueMsg.Contains("owned child RECORD", StringComparison.Ordinal)
+            && !composeMsg.Contains("set from a plain value", StringComparison.Ordinal)
+            && !valueMsg.Contains("substruct — a direct Set", StringComparison.Ordinal),
+            $"compose=[{composeMsg ?? "(accepted)"}] value=[{valueMsg ?? "(accepted)"}]");
+        // …and the branch it was carved out of: an ordinary substruct still composes. The record clause sits in the
+        // Set path every composable substruct crosses, so this is the arm that keeps it from widening.
+        var ordinaryCompose = Rules.Validate(new WriteRequest { RecordType = "Book", Path = new[] { "Model" }, Verb = "Set",
+            Struct = new StructSpec { Type = "Model", Fields = new Dictionary<string, string> { ["File"] = @"probe\b.nif" } } });
+        Check("…while an ordinary substruct still takes a compose= Set",
+            ordinaryCompose is null, ordinaryCompose ?? "(accepted)");
 
         // --- THE REFUSALS, RENDERED. All three arms of RestoreChildGroup are user-facing sentences that no arm had
         //     ever produced (round-1 review [low]) — and this file's own standing lesson is that a message shipped

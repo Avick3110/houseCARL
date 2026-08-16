@@ -72,7 +72,14 @@ public static class WriteCensus
             {
                 switch (f.Cardinality)
                 {
-                    case "substruct" when f.TypeRef is { } tr:
+                    // …and the same rule on the SUBSTRUCT axis (#335). A substruct TypeRef could not be a record until
+                    // the classifier stopped calling Cell.Landscape / Worldspace.TopCell FormLinks; without this guard
+                    // the walk crosses Worldspace -> TopCell -> Cell and counts the whole nested-group world as
+                    // reachable today (+87 leaves, and Cell's 44 fields leaving the deferred bucket while axis 1 still
+                    // prints them as deferred — a scoreboard contradicting itself, which is the Q3 failure this census
+                    // exists to prevent). Descending INTO a present child record is not the same capability as
+                    // resolving the ~60k CELLs that need the nested-group wave.
+                    case "substruct" when f.TypeRef is { } tr && !IsRecord(tr):
                         subAdj[t.Name].Add(tr); navAdj[t.Name].Add(tr); break;
                     // A collection element that is itself a RECORD is NOT unlocked by collection navigation —
                     // a record must be resolved (flat- or nested-group), never reached by walking into a parent's
@@ -123,6 +130,8 @@ public static class WriteCensus
         // Unifies the two completeness instruments: a leaf that is REACHABLE today but whose value type the
         // engine cannot yet coerce (the coerce-audit deferred surface) must not be counted as writable-today.
         var reachableButCoercionDeferred = new List<string>();
+        // …and the leaves whose field holds an owned child record — reachable, but nothing writes AT them (#335).
+        var ownedChildLeaves = new List<string>();
         int totalWritable = 0;
         // Of the TODAY list/dict fields, those with a STRUCT element are only structurally writable today
         // (Remove/Clear); ADDING a composed element is wave-1 (element composition), exactly as coerce-audit +
@@ -147,6 +156,18 @@ public static class WriteCensus
                     && ScalarAq(f) is { } aq && WriteEngine.ResolveType(aq) is { } rt && !WriteEngine.CanCoerce(rt))
                 {
                     reachableButCoercionDeferred.Add($"{t.Name}.{f.Name} ({Pretty(rt)})");
+                    continue;
+                }
+                // The same subtraction for an OWNED CHILD RECORD leaf (#335). Every write AT the field is refused —
+                // it is not built from parts, not set from a value, and not cleared (that would delete the record) —
+                // so counting it writable-today would inflate the headline by a field nothing can write. It was
+                // already excluded while it was classified a formlink, by the coercion clause just above (a Cell
+                // does not coerce); the reclassification moved it out of "scalarish" and the exclusion has to move
+                // with it, or the correction silently buys a leaf. What IS writable is the child record itself, on
+                // its own axis, and that record's own leaves are counted under its own type.
+                if (b == TODAY && SchemaClassifier.IsOwnedChildRecord(f, corpus))
+                {
+                    ownedChildLeaves.Add($"{t.Name}.{f.Name} ({f.TypeRef})");
                     continue;
                 }
                 leafCount[b]++;
@@ -176,8 +197,10 @@ public static class WriteCensus
         Line(ORPHAN, "DEFERRED  -> header / script metadata       (mod header, compiled-script internals)");
         if (coercionDeferred > 0)
             Console.WriteLine($"  {coercionDeferred,6} fields  (   - types)   DEFERRED  -> reachable but value-type coercion-deferred (see coerce-audit)");
+        if (ownedChildLeaves.Count > 0)
+            Console.WriteLine($"  {ownedChildLeaves.Count,6} fields  (   - types)   NOT A LEAF -> holds an owned child record; the record is written on its own axis ({string.Join(", ", ownedChildLeaves)})");
         Console.WriteLine("  ------");
-        var grandTotal = leafCount.Values.Sum() + coercionDeferred;
+        var grandTotal = leafCount.Values.Sum() + coercionDeferred + ownedChildLeaves.Count;
         Console.WriteLine($"  {grandTotal,6} fields total   (must equal {totalWritable}: {(grandTotal == totalWritable ? "OK" : "!! MISMATCH")})");
         var pctToday = totalWritable == 0 ? 0 : 100.0 * leafCount[TODAY] / totalWritable;
         Console.WriteLine();

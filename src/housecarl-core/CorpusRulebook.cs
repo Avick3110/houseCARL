@@ -248,6 +248,20 @@ public sealed class CorpusRulebook
         // (3a) verb legal for this cardinality?
         if (VerbLegality(leaf, req) is { } verbErr) return verbErr;
 
+        // (3a-owned) …and the one verb whose cardinality answer is wrong for an OWNED CHILD RECORD (#335). Remove on a
+        // nullable substruct clears a sub-object; on a leaf that holds a record it deletes the record itself and
+        // everything under it (a Worldspace's TopCell takes its persistent references with it), in one keyless call,
+        // with no way back through this tool — the same branch refuses to materialize an absent child. Every LIST of
+        // owned children already refuses a keyless whole-collection Remove and says to remove one by index; the
+        // singular child is the same family and answers the same way. Asked of SchemaClassifier so the notion has one
+        // home rather than a cardinality test per rule.
+        if (string.Equals(req.Verb, "Remove", StringComparison.Ordinal)
+            && SchemaClassifier.IsOwnedChildRecord(leaf, _corpus))
+            return $"'{leaf.Name}' on '{leafOwner.Name}' holds an owned child RECORD ({leaf.TypeRef}), not a sub-object: " +
+                   "clearing it would delete that record and every record under it, and houseCARL will not drop a " +
+                   "record as a side effect of clearing a field. Deleting an owned child record outright is not " +
+                   "supported today on any lane — so this is a boundary, not a detour around a shortcut.";
+
         // (3b) record identity (FormKey/ModKey) is a flat, honest reject regardless of Mutagen's setter (plan §3 P-DISC).
         if (leaf.IsIdentity)
             return $"'{leaf.Name}' on '{leafOwner.Name}' is record identity (FormKey/ModKey), not an editable content field.";
@@ -544,8 +558,16 @@ public sealed class CorpusRulebook
         {
             // A compose spec reaching HERE means the leaf isn't a compose target (not a composable substruct/dict/poly —
             // those branch above): a coercible substruct (a TranslatedString — set as one value, not built from parts), a
-            // formlink, or a plain scalar. Name the plain-value path instead of the misleading "requires a value" (which
-            // reads as "value= is absent"). compose is for a build-from-parts struct/dict/polymorphic field only.
+            // formlink, a plain scalar, or — since #335 — an OWNED CHILD RECORD, which is none of those. For the first
+            // three, name the plain-value path instead of the misleading "requires a value" (which reads as "value= is
+            // absent"). For a record that advice is a dead end: the plain-value Set below refuses it too, so a caller
+            // following the sentence lands back here. Say what is true of a record instead. compose is for a
+            // build-from-parts struct/dict/polymorphic field only.
+            if (SchemaClassifier.IsOwnedChildRecord(leaf, _corpus))
+                return $"'{leaf.Name}' holds an owned child RECORD ({leaf.TypeRef}) — it is neither built from parts " +
+                       "(compose=) nor set from a value (value=): a record is not a sub-object of its parent. Edit the " +
+                       "child record itself, addressed by its own FormID, or descend to a sub-field of the one this " +
+                       "parent already carries.";
             if (req.Value is null)
                 return req.Struct is not null
                     ? $"'{leaf.Name}' is set from a plain value (value=…), not a compose spec."
@@ -816,9 +838,11 @@ public sealed class CorpusRulebook
     /// keyed on the leaf's own <see cref="FieldSchema.TypeRef"/>. The spec must be present and its type must match the leaf's
     /// struct type; its contents then validate against that type's schema via the shared <see cref="StructSpecContents"/>
     /// (flat Fields + nested Sets + ctor-args) — the SAME recognizer the struct-element Add and polymorphic-arm Set use, so
-    /// the three composition entry points can't disagree. A substruct leaf's TypeRef is always a CONCRETE struct/arm (a
-    /// polymorphic FIELD is cardinality "polymorphic", handled above), so a straight name-match is correct — no poly-base
-    /// arm resolution. Reached only for a <see cref="SchemaClassifier.IsComposableSubstructLeaf"/> leaf (TypeRef non-null,
+    /// the three composition entry points can't disagree. A substruct leaf reaching HERE has a TypeRef that is a CONCRETE
+    /// struct/arm (a polymorphic FIELD is cardinality "polymorphic", handled above; an owned child RECORD — a substruct
+    /// TypeRef of Kind "record" since #335 — is excluded by the same <see cref="SchemaClassifier.IsComposableSubstructLeaf"/>
+    /// guard, and refused upstream in its own words), so a straight name-match is correct — no poly-base arm resolution.
+    /// Reached only for a <see cref="SchemaClassifier.IsComposableSubstructLeaf"/> leaf (TypeRef non-null,
     /// corpus-present, apply-instantiable) — the null-spec branch replaces the misleading scalar "requires a value".</summary>
     string? StructLeafLegality(FieldSchema leaf, StructSpec? spec, IReadOnlyCollection<string>? siblingEditorIds = null)
     {

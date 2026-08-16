@@ -109,6 +109,19 @@ public static class SchemaClassifier
     public static bool IsStructElement(FieldSchema f, Corpus corpus) =>
         ClassifyElement(f, corpus) == ElementKind.Struct;
 
+    /// <summary>True iff a SUBSTRUCT leaf holds an OWNED CHILD RECORD — the parent carries the record itself, rather
+    /// than a link to one (<c>Cell.Landscape</c>, <c>Worldspace.TopCell</c>). The singular twin of
+    /// <see cref="ElementKind.Record"/>, and the ONE home for the question: until #335 corrected their classification
+    /// no field in the corpus was a substruct whose TypeRef is a record, so every rule keyed on "substruct" was written
+    /// when this could not occur and reads such a leaf as an ordinary navigable sub-object. It is not one. A record has
+    /// its own FormKey and its own children, so it cannot be built from parts, cannot be materialized into an absent
+    /// slot, and must not be dropped as a side effect of clearing a field. Rules that would otherwise inherit the
+    /// sub-object answer ask HERE, so a later consumer meets one named predicate rather than re-deriving the test —
+    /// corpus-derived (Kind), never a list of field names (cornerstone §3).</summary>
+    public static bool IsOwnedChildRecord(FieldSchema f, Corpus corpus) =>
+        f.Cardinality == "substruct" && f.TypeRef is { } tr
+        && corpus.Types.GetValueOrDefault(tr)?.Kind == "record";
+
     /// <summary>True iff a scalar SUBSTRUCT leaf can be Set by composing its whole value FROM PARTS (a StructSpec) — the
     /// LEAF twin of <see cref="IsStructElement"/>, keyed on the leaf's own <see cref="FieldSchema.TypeRef"/> instead of an
     /// element ref. Requires ALL of: a substruct leaf; whose modeled type is a build-from-parts struct OR concrete arm
@@ -116,8 +129,11 @@ public static class SchemaClassifier
     /// its plain-value Set, never re-routed to compose-only); and that <see cref="WriteEngine.IsPlainComposableStruct"/>
     /// can instantiate — which EXCLUDES the composition-residuals <c>GenderedItem&lt;T&gt;</c>/<c>Array2d&lt;T&gt;</c> (no
     /// parameterless ctor; BuildStruct would throw). The last two guards keep the accept in lock-step with what
-    /// <c>ApplyScalarVerb</c> req.Struct → <c>BuildStruct</c> can actually build (gate==apply — with ONE declared
-    /// exception since #308: a compose the caller gave NOTHING to, whose built object has no settable value at all, is
+    /// <c>ApplyScalarVerb</c> req.Struct → <c>BuildStruct</c> can actually build (gate==apply — with TWO declared
+    /// exceptions. The second, since #335, is an OWNED CHILD RECORD leaf: the gate accepts a descent into it from the
+    /// schema alone, and the apply refuses when the copy being written carries no child — live state the corpus cannot
+    /// know, surfaced as an <c>ExpectedApplyRejectionException</c> with nothing written, the same all-or-nothing shape
+    /// as the first. The first, since #308: a compose the caller gave NOTHING to, whose built object has no settable value at all, is
     /// accepted here and refused at apply. It cannot be decided from the schema — emptiness is a property of the
     /// INSTANCE, and the corpus models types — so the check lives where the object exists. The refusal is still
     /// pre-serialize and all-or-nothing on every lane, so the guarantee the parity exists to protect (never

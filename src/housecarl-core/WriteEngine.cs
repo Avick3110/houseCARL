@@ -2744,9 +2744,11 @@ public static class WriteEngine
         // deliver it. Say what is actually true instead: houseCARL does not invent records as sub-objects.
         if (typeof(IMajorRecordGetter).IsAssignableFrom(prop.PropertyType))
             throw new ExpectedApplyRejectionException(
-                $"'{segment}' holds an owned child RECORD ({Pretty(prop.PropertyType)}) and this one carries none, so " +
-                "there is nothing to write into. houseCARL will not synthesize a record as a sub-object — a record " +
-                "exists only with its own FormKey — and a sub-field write needs a parent that already carries the child.");
+                $"'{segment}' holds an owned child RECORD ({Pretty(prop.PropertyType)}) and the copy being written " +
+                "carries none, so there is nothing to write into. houseCARL will not synthesize a record as a " +
+                "sub-object — a record exists only with its own FormKey. Note that a patch's override of a parent does " +
+                "NOT bring the parent's child records with it, so this is what you get even when the original carries " +
+                $"one: address that child record directly, by its own FormID, instead of through '{segment}'.");
         object made;
         try { made = Instantiate(prop.PropertyType, null); }
         catch (CompositionRequiredException) { throw new CompositionRequiredException(segment, prop.PropertyType); }  // re-stamp with the path segment
@@ -3675,7 +3677,7 @@ public static class WriteEngine
         foreach (var f in ts.Fields)
         {
             if (f.Cardinality != "substruct" || f.TypeRef is not { } tr) continue;
-            if (IsRecord(tr)) { recordSubstructs++; continue; }        // owned child record — a reference, never navigated into
+            if (IsRecord(tr)) { recordSubstructs++; continue; }        // owned child record — never MATERIALIZED (a present one is navigable)
             var saq = f.MutableTypeAssemblyQualified ?? f.GetterTypeAssemblyQualified;
             if (ResolveType(saq) is { } st && CanCoerce(st)) { wholeCoercible++; continue; } // TranslatedString-style — set wholesale
             (int sites, int nullableSites, string sample, string? aq) e =
