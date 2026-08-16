@@ -10,6 +10,20 @@ when it changes.
 
 - **New skill: `npc-appearance-copy`** — the domain half of `housecarl_copy` for NPC faces, carried as data and flow rather than as tool code: which four link-bearing fields seed the walk, why a Race is excluded rather than walked into, which inline fields (tints, morphs, `TextureLighting`, weight) ride `housecarl_apply`'s copy zip instead, and how the FaceGen mesh + tint are placed under the new FormID from the **named donor** rather than the VFS winner. Also states the two things the split costs: three calls means three refusal surfaces, and a donor sitting in a disabled MO2 mod is a records-only job until its files can be named.
 
+- **Fixed: the record reference called two owned child records FormLinks.** `Cell.Landscape` and
+  `Worldspace.TopCell` hold a record outright — the cell owns its landscape, the worldspace owns its top cell — but
+  the schema the `mutagen-reference` skill serves classified both as links to one. Following that, you would have
+  set a FormID on a field that holds a whole record: accepted at the pre-flight check, then thrown at write time.
+  Both now read as what they are, pointing at the child's own record entry, so a `Set` of a FormID is refused up
+  front and the field is edited the way every other nested object is — descend to a sub-field, or `Remove` to clear
+  it. A parent carrying no child at all is refused in its own words rather than borrowing an unrelated message
+  about composition types: houseCARL will not conjure a record as a side effect of a sub-field write.
+
+  The classifier confused the two because a record identifies itself (FormID plus type) exactly the way a link
+  identifies its target. A build check now compares the reference's classification against the independent walk
+  that preserves child records across a record replace, over every record type the library models — so the two can
+  no longer disagree about which fields own a record.
+
 - **Fixed: several list inputs didn't name every member of the object they take.** `housecarl_bulk_apply`'s `operations=` didn't mention `composes` or `from_plugin`; `housecarl_bulk_create`'s `records=` didn't mention `grid`; the `operations=` on both create tools didn't mention `composes`; the `sets=` list inside a `compose=` named two of its five members; and `housecarl_bulk_place_asset`'s `assets=` didn't mention `source_provider` (the member's own description was published all along, so it was discoverable — just not where you'd look for the element shape). Every one of these worked already; the gap was in what you were told. Separately, `source_provider` now spells out that it applies with **no** `source=` as well: there it says whose copy of the *destination* path to place, and is what resolves the contention an omitted source is otherwise refused for.
 
   Behind it, each documented element shape is now checked against the names the wire really binds: every name a shape lists must exist, and every member must be listed by some shape that carries its type. A member cannot be added, or a wire name misspelled, without a red build. Restatements of a shape elsewhere — in a tool's own prose, or in a refusal — are not read by that check, and neither is the case of a member documented on one carrier of a type but not another.
