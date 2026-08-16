@@ -1,5 +1,6 @@
 using System.Reflection;
 using HousecarlCore;
+using Mutagen.Bethesda.Plugins;  // IFormLinkGetter — the bare (non-generic) link type INV6 drives the classifier with
 using Mutagen.Bethesda.Skyrim;   // IArmorGetter — public assembly anchor (resolve internal projection types by name)
 
 namespace HousecarlGenerator;
@@ -45,6 +46,19 @@ namespace HousecarlGenerator;
 ///   INV5 — NO DEGENERATE TYPE. No struct / record / header has zero fields (a poly-base or arm legitimately
 ///          can — its data lives in arms / it is a pure marker). Catches a content type that lost all its
 ///          fields to a reflection miss. (RED: a synthetic zero-field struct.)
+///   INV6 — AN OWNED CHILD RECORD IS NOT A LINK. Every property that OWNS a record — the set
+///          <c>WriteEngine.ChildBearingProperties</c> finds, over the same all-concrete-types sweep
+///          write-surface-guard pins (#334) — is cataloged with an OWNERSHIP cardinality (substruct / list /
+///          dict) whose ref chain reaches a record entry, never <c>formlink</c>. The defect this locks (#335):
+///          <c>IMajorRecordGetter</c> carries <c>IFormLinkIdentifier</c> (a record identifies itself the same
+///          way a link identifies its target), so the classifier's bare-link rule claimed
+///          <c>Cell.Landscape</c> and <c>Worldspace.TopCell</c> as FormLinks — and a caller trusting that
+///          would Set a FormID on a property holding an owned record, wrong in KIND, accepted at the gate and
+///          thrown at apply. Two artifacts, one fact: the reflected walk that PRESERVES children across a
+///          forward and the reference a caller READS before writing must agree about which fields own one.
+///          (RED: a synthetic corpus classifying Cell.Landscape as a formlink; RED2: one whose ownership
+///          cardinality reaches no record. Both classifier branches are also driven directly — a major-record
+///          getter and a bare FormLink type — so neither can quietly stop firing.)
 ///
 /// Run: dotnet run --project src/housecarl-generator -- corpus-hygiene-guard
 /// </summary>
@@ -168,6 +182,47 @@ public static class CorpusHygieneProbe
                 var hit = CheckDegenerateType(synth);
                 Check("INV5-RED   a field-less struct is caught + named",
                     hit.Any(s => s.Contains("Hollow") && s.Contains("zero fields")), hit);
+            }
+
+            // ---------- INV6 — an owned child record is not a link ----------
+            {
+                var real = CheckOwnedChildAsLink(corpus);
+                Check("INV6-GREEN every child-OWNING property is cataloged as ownership, not a link (real corpus)",
+                    real.Count == 0, real);
+
+                // RED: #335's own shape — Cell.Landscape back as a FormLink. The checker reads the OWNING side
+                // from live reflection, so the synthetic corpus only has to carry the wrong classification.
+                var asLink = NewCorpus(CellWith(new FieldSchema
+                        { Name = "Landscape", Type = "FormLink", Cardinality = "formlink", Writable = true }),
+                    RecordStub("NavigationMesh"), RecordStub("Placed"));
+                var hitLink = CheckOwnedChildAsLink(asLink);
+                Check("INV6-RED   an owned child record cataloged as a formlink is caught + named",
+                    hitLink.Any(s => s.Contains("Cell.Landscape") && s.Contains("formlink")), hitLink);
+
+                // RED2: the subtler regression — the cardinality is an ownership kind, but the ref points at a
+                // struct, so nothing in the reference tells a reader a record lives there.
+                var toStruct = NewCorpus(CellWith(new FieldSchema
+                        { Name = "Landscape", Type = "Landscape", Cardinality = "substruct", TypeRef = "Decal", Writable = true }),
+                    new TypeSchema { Name = "Decal", Kind = "struct", GetterInterface = "Mutagen.Bethesda.Skyrim.IDecalGetter",
+                        Fields = { new FieldSchema { Name = "MinWidth", Type = "float", Cardinality = "scalar", Writable = true } } },
+                    RecordStub("NavigationMesh"), RecordStub("Placed"));
+                var hitStruct = CheckOwnedChildAsLink(toStruct);
+                Check("INV6-RED2  an ownership cardinality whose ref reaches no record is caught + named",
+                    hitStruct.Any(s => s.Contains("Cell.Landscape") && s.Contains("reaches no record")), hitStruct);
+
+                // …and the CLASSIFIER's two branches, driven directly on real Mutagen types, so the corpus arms
+                // above cannot be satisfied by a rule that stopped distinguishing them. A major-record getter is
+                // an owned child (its catalog entry is the record's own); a bare FormLink type — non-generic, so
+                // the generic-link branch above it does not fire — is still a link.
+                var owned = CorpusGenerator.ClassifyField(typeof(ILandscapeGetter), new List<CorpusGenerator.RefItem>(), "Cell", "Landscape");
+                Check("INV6-CLASSIFIER a major-record getter classifies as an owned child record (substruct → its record entry)",
+                    owned.Cardinality == "substruct" && owned.TypeRef == "Landscape",
+                    new List<string> { $"ILandscapeGetter → c='{owned.Cardinality}' t='{owned.Type}' ref='{owned.TypeRef ?? "(none)"}'" });
+
+                var bare = CorpusGenerator.ClassifyField(typeof(IFormLinkGetter), new List<CorpusGenerator.RefItem>(), "guard", "BareLink");
+                Check("INV6-CLASSIFIER …and a bare FormLink type still classifies as a formlink",
+                    bare.Cardinality == "formlink" && bare.Type == "FormLink",
+                    new List<string> { $"IFormLinkGetter → c='{bare.Cardinality}' t='{bare.Type}'" });
             }
         }
         catch (Exception ex)
@@ -353,6 +408,96 @@ public static class CorpusHygieneProbe
     }
 
     // ============================================================ synthetic-corpus builders (RED arms)
+
+    /// <summary>INV6: every property that owns a record is cataloged as ownership, never as a link. The OWNING
+    /// side is <see cref="WriteEngine.ChildBearingProperties"/> over <see cref="WriteSurfaceGuardProbe.ConcreteRecordTypes"/>
+    /// — write-surface-guard's own sweep, borrowed rather than re-listed, so the two guards cannot drift into
+    /// disagreeing about which fields own children. The CATALOGED side is the corpus. A field owning a record must
+    /// carry an ownership cardinality (substruct / list / dict) AND a ref chain that actually reaches a record
+    /// entry: the cardinality alone would pass a substruct pointed at the wrong catalog entry, which reads to a
+    /// caller as "no record here".</summary>
+    static List<string> CheckOwnedChildAsLink(Corpus c)
+    {
+        var v = new List<string>();
+        foreach (var t in WriteSurfaceGuardProbe.ConcreteRecordTypes())
+        {
+            var owning = WriteEngine.ChildBearingProperties(t);
+            if (owning.Count == 0) continue;
+            if (!c.Types.TryGetValue(t.Name, out var schema)) continue;   // absent record type is INV3/INV5's concern
+            foreach (var p in owning)
+            {
+                var f = schema.Fields.FirstOrDefault(x => x.Name == p.Name);
+                if (f is null)
+                {
+                    v.Add($"{t.Name}.{p.Name} owns child records but is absent from the corpus entirely");
+                    continue;
+                }
+                if (f.Cardinality is not ("substruct" or "list" or "dict"))
+                    v.Add($"{t.Name}.{p.Name} owns child records but is cataloged '{f.Cardinality}' (t='{f.Type}') " +
+                          "— a link references a record, it does not own one");
+                else if (!OwnershipReachesRecord(c, f))
+                    v.Add($"{t.Name}.{p.Name} owns child records but its cataloged shape " +
+                          $"('{f.Cardinality}' → '{f.ElementTypeRef ?? f.TypeRef ?? "(no ref)"}') reaches no record entry");
+            }
+        }
+        return v;
+    }
+
+    /// <summary>Does a field's ownership ref chain reach a record entry? The corpus-side twin of
+    /// <c>WriteEngine.ReachesOwnedRecord</c>'s live walk, and it has to follow the same two indirections the
+    /// catalog uses: CONTAINERS (Worldspace.SubCells reaches its Cells through two non-record container types) and
+    /// POLYMORPHIC ARMS (Cell.Persistent's element ref is the abstract base 'Placed' — a polymorphic-base entry,
+    /// not a record; the records are its arms, PlacedNpc / PlacedObject / …). A walk that followed refs alone
+    /// would call both of those linkless.</summary>
+    static bool OwnershipReachesRecord(Corpus c, FieldSchema f, HashSet<string>? seen = null)
+    {
+        seen ??= new HashSet<string>(StringComparer.Ordinal);
+        foreach (var arm in f.ElementArms ?? f.Arms ?? new List<string>())
+            if (EntryReachesRecord(c, arm, seen)) return true;
+        return (f.ElementTypeRef ?? f.TypeRef) is { } tr && EntryReachesRecord(c, tr, seen);
+    }
+
+    /// <summary>…and the same question about a catalog ENTRY: it is a record, one of its arms reaches one, or one
+    /// of its own ownership fields does.</summary>
+    static bool EntryReachesRecord(Corpus c, string name, HashSet<string> seen)
+    {
+        if (!seen.Add(name) || !c.Types.TryGetValue(name, out var t)) return false;
+        if (t.Kind == "record") return true;
+        foreach (var arm in t.Arms ?? new List<string>())
+            if (EntryReachesRecord(c, arm, seen)) return true;
+        foreach (var f in t.Fields)
+            if (f.Cardinality is "substruct" or "list" or "dict" && OwnershipReachesRecord(c, f, seen)) return true;
+        return false;
+    }
+
+    /// <summary>A synthetic Cell carrying <paramref name="landscape"/> in place of the real classification, with its
+    /// three sibling child-bearing properties cataloged correctly — so an INV6 RED arm fires on the one field under
+    /// test rather than on a Cell that owns nothing anywhere.</summary>
+    static TypeSchema CellWith(FieldSchema landscape) => new()
+    {
+        Name = "Cell", Kind = "record",
+        GetterInterface = typeof(ICellGetter).FullName!,
+        GetterInterfaceAssemblyQualified = typeof(ICellGetter).AssemblyQualifiedName!,
+        MutableInterface = typeof(ICell).FullName!,
+        Fields =
+        {
+            landscape,
+            new FieldSchema { Name = "NavigationMeshes", Type = "List<INavigationMeshGetter>", Cardinality = "list",
+                ElementType = "INavigationMeshGetter", ElementTypeRef = "NavigationMesh", Writable = true },
+            new FieldSchema { Name = "Persistent", Type = "List<IPlacedGetter>", Cardinality = "list",
+                ElementType = "IPlacedGetter", ElementTypeRef = "Placed", Writable = true },
+            new FieldSchema { Name = "Temporary", Type = "List<IPlacedGetter>", Cardinality = "list",
+                ElementType = "IPlacedGetter", ElementTypeRef = "Placed", Writable = true },
+        },
+    };
+
+    /// <summary>A minimal record entry, so an INV6 RED arm's synthetic corpus can resolve the SIBLING child
+    /// properties of the field under test and violate on that field alone.</summary>
+    static TypeSchema RecordStub(string name) => new()
+    {
+        Name = name, Kind = "record", GetterInterface = $"Mutagen.Bethesda.Skyrim.I{name}Getter",
+        Fields = { new FieldSchema { Name = "EditorID", Type = "string", Cardinality = "scalar", Writable = true } },
+    };
 
     static Corpus NewCorpus(params TypeSchema[] types)
     {

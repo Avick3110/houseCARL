@@ -18,7 +18,10 @@ namespace HousecarlGenerator;
 /// </summary>
 public static class CorpusGenerator
 {
-    record RefItem(Type Getter, string Kind, string? AbstractBase);
+    /// <summary>Internal (not private) so corpus-hygiene-guard's INV6 can drive <see cref="ClassifyField"/>
+    /// directly on a real Mutagen type — the classifier's own branches, checked without going through a whole
+    /// emit. Same assembly; nothing outside the generator sees it.</summary>
+    internal record RefItem(Type Getter, string Kind, string? AbstractBase);
 
     static readonly List<string> Warnings = new();
 
@@ -240,7 +243,7 @@ public static class CorpusGenerator
         return (schema, referenced);
     }
 
-    static FieldSchema ClassifyField(Type t, List<RefItem> referenced, string ownerName, string fieldName)
+    internal static FieldSchema ClassifyField(Type t, List<RefItem> referenced, string ownerName, string fieldName)
     {
         var f = new FieldSchema();
         var underlying = Nullable.GetUnderlyingType(t);
@@ -356,7 +359,20 @@ public static class CorpusGenerator
 
         // FormLink machinery reaching here as the bare IFormLinkIdentifier (the generic
         // IFormLink<T> is handled above) -> mirror as a form reference, not a struct.
-        if (ImplementsByName(getterIfc, "IFormLinkIdentifier"))
+        //
+        // A MAJOR RECORD is cut from that rule first (#335). IMajorRecordGetter itself carries
+        // IFormLinkIdentifier — a record identifies itself (FormKey + Type) exactly the way a link identifies
+        // its target — so the bare-link test cannot tell "points at a record" from "IS a record". Every field
+        // whose type is a major record is an OWNED CHILD (Cell.Landscape, Worldspace.TopCell): the parent holds
+        // the record itself, and calling it a link told a caller to Set a FormID on it, which the gate accepted
+        // and the engine then threw on. Falling through leaves it to the substruct branch below, which is where
+        // the catalog already models owned children — its TypeRef is the child's own record entry, the shape the
+        // write surface reads as "owned child record, navigate in, never Set wholesale" (WriteEngine's
+        // record-substruct arm) and the shape a LIST of owned children (Cell.Persistent, DialogTopic.Responses)
+        // has always had. Same predicate WriteEngine.ChildBearingProperties uses, so the reference and the walk
+        // that preserves children across a forward agree by construction; corpus-hygiene-guard INV6 pins it.
+        if (!typeof(IMajorRecordGetter).IsAssignableFrom(getterIfc)
+            && ImplementsByName(getterIfc, "IFormLinkIdentifier"))
         {
             f.Cardinality = "formlink"; f.Type = "FormLink"; return f;
         }
