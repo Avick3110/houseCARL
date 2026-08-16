@@ -276,6 +276,26 @@ internal static class WriteSentences
         "where op=Merge and op=ReplaceAll are your choice between merging into the target's entries and replacing " +
         "them. Nothing was written.";
 
+    /// <summary>An off-order link on a record that was ALREADY in the patch. The serialization failure is real and
+    /// this call did not cause it, so the remedy is about the patch and the mod — never about `exclude_types`,
+    /// which the caller may not even have passed (Aaron's review).</summary>
+    [MustState("was already in this patch", "this call did not create it", "enable the mod", "a NEW patch")]
+    internal const string CopyPatchOffOrderRoute =
+        " is not in your active load order, so this patch cannot be written at all until that link resolves. The " +
+        "reference was already in this patch before this call — this call did not create it, and no exclude_types " +
+        "setting affects it. Either enable the mod that provides that plugin, or write to a NEW patch instead of " +
+        "extending this one with into=. Nothing was written.";
+
+    /// <summary>An off-order link on a record THIS call copied, sitting on a field the seed set never named — so
+    /// the walk never reached it to internalize it, and the whole-record duplicate carried it across. The remedy is
+    /// the seed set, which is why this cannot share either sentence above.</summary>
+    [MustState("this copy carried it across", "seed_paths=", "enable the mod")]
+    internal const string CopyCopiedOffOrderRoute =
+        " is not in your active load order, so this patch cannot be written at all. The link sits on a field " +
+        "seed_paths= never named, so the walk never reached that record to copy it and this copy carried it across " +
+        "as a link instead. Either name that field in seed_paths= so the record is internalized too, or enable the " +
+        "mod that provides the plugin so the link can be mastered normally. Nothing was written.";
+
     /// <summary>The seed's shape is SUPPORTED and the TARGET cannot take it. A separate route from the shape one
     /// above, because these three refusals used to borrow it: the caller was told <c>seed_paths</c> does not accept
     /// their field and routed to <c>housecarl_apply</c>'s zip, when the path was legal and the target's property was

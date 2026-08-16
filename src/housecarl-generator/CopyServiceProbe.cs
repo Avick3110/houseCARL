@@ -94,6 +94,22 @@ public static class CopyServiceProbe
             extraMod.HeadParts.Add(extraHp);
             WriteModDirect(mods, "ExtraMod", extraMod, baseMod);
 
+            // A donor defined in a real BASE-GAME master (F24). The plugin is named Dawnguard.esm because that is
+            // what makes the test real: Mutagen's implicit base-master set is what the copy path consults, so a
+            // stand-in name would exercise a different branch than the one shipping. ACTIVE, so its head part
+            // resolves in the order and is kept as a mastered link — which is exactly the shape that printed
+            // "standalone: the source is NOT a master" under a masters list naming it.
+            var dgKey = new ModKey("Dawnguard", ModType.Master);
+            var dgHpFk = new FormKey(dgKey, 0x800);
+            var dgNpcFk = new FormKey(dgKey, 0x801);
+            var dgMod = new SkyrimMod(dgKey, SkyrimRelease.SkyrimSE);
+            dgMod.HeadParts.Add(new HeadPart(dgHpFk, SkyrimRelease.SkyrimSE) { EditorID = "DgBrow" });
+            var dgNpc = new Npc(dgNpcFk, SkyrimRelease.SkyrimSE) { EditorID = "DgNpc" };
+            dgNpc.Race.SetTo(raceFk);
+            dgNpc.HeadParts.Add(dgHpFk);
+            dgMod.Npcs.Add(dgNpc);
+            WriteModDirect(mods, "DgMod", dgMod, baseMod);
+
             // …and an ACTIVE plugin that OVERRIDES one of that second source's records. This is what makes the
             // bound-universe loop over File arms falsifiable at all: without the override the record does not
             // resolve actively, so the scope predicate's SECOND disjunct expands it anyway and deleting the loop
@@ -111,23 +127,13 @@ public static class CopyServiceProbe
             shadowNpc.Race.SetTo(raceFk);
             shadowNpc.HeadParts.Add(shadowHpFk);
             shadowMod.Npcs.Add(shadowNpc);
-            WriteModDirect(mods, "ShadowMod", shadowMod, baseMod, extraMod);
-
-            // A donor defined in a real BASE-GAME master (F24). The plugin is named Dawnguard.esm because that is
-            // what makes the test real: Mutagen's implicit base-master set is what the copy path consults, so a
-            // stand-in name would exercise a different branch than the one shipping. ACTIVE, so its head part
-            // resolves in the order and is kept as a mastered link — which is exactly the shape that printed
-            // "standalone: the source is NOT a master" under a masters list naming it.
-            var dgKey = new ModKey("Dawnguard", ModType.Master);
-            var dgHpFk = new FormKey(dgKey, 0x800);
-            var dgNpcFk = new FormKey(dgKey, 0x801);
-            var dgMod = new SkyrimMod(dgKey, SkyrimRelease.SkyrimSE);
-            dgMod.HeadParts.Add(new HeadPart(dgHpFk, SkyrimRelease.SkyrimSE) { EditorID = "DgBrow" });
-            var dgNpc = new Npc(dgNpcFk, SkyrimRelease.SkyrimSE) { EditorID = "DgNpc" };
-            dgNpc.Race.SetTo(raceFk);
-            dgNpc.HeadParts.Add(dgHpFk);
-            dgMod.Npcs.Add(dgNpc);
-            WriteModDirect(mods, "DgMod", dgMod, baseMod);
+            // Shadow ALSO overrides the base-game NPC, pointing its appearance at Shadow's own head part. This is
+            // Aaron's mixed case: a base-game FormID whose look is read through a mod override, so `from`'s
+            // defining plugin is base-game while the bound set is NOT empty.
+            var dgOverride = shadowMod.Npcs.GetOrAddAsOverride(dgNpc);
+            dgOverride.HeadParts.Clear();
+            dgOverride.HeadParts.Add(shadowHpFk);
+            WriteModDirect(mods, "ShadowMod", shadowMod, baseMod, extraMod, dgMod);
 
             var srcKey = new ModKey("Src", ModType.Plugin);
             var txstFk = new FormKey(srcKey, 0x800);
@@ -327,12 +333,58 @@ public static class CopyServiceProbe
             var baseGame = svc.CopyClosure(dgNpcFk, new[] { "Dawnguard.esm" }, new[] { "HeadParts" },
                 noExcl, null, "BaseGameClone", "BaseGamePatch", null);
             Check(baseGame.Success, $"a donor defined in a BASE-GAME master copies ({baseGame.EngineError ?? baseGame.WalkRefusal?.Detail ?? baseGame.CopyRefusal?.Detail})");
-            Check(baseGame.SourceIsBaseGame, "…and the service carries the fact rather than throwing it away with the branch");
+            Check(baseGame.NothingBound, "…and NOTHING is bound — F24's condition, which is what the note is about");
             var baseGameText = CopyTools.Render(baseGame);
             Check(baseGameText.Contains("appearance transplant", StringComparison.Ordinal),
                 "…so the render says what the copy IS — an appearance transplant, not a standalone-ization");
             Check(!baseGameText.Contains("the source is NOT a master", StringComparison.Ordinal),
                 "…and NOT the standalone claim, which would be asserted from a deliberately emptied set");
+
+            // ---- 7h. …and the MIXED case: base-game FormID, look read through a mod override ------------------
+            // The condition is "is anything BOUND", not "where is `from` defined", and an ordered from_source=
+            // pulls those apart. Here `from` is a Dawnguard.esm FormID — so the old keying said base-game — while
+            // Shadow.esp is named and therefore bound, its head part internalized and its links stripped off the
+            // clone. Claiming a transplant here printed "links to it are kept and mastered normally" directly
+            // above the strip list that had just removed them, and never made the standalone claim the copy earned.
+            var mixed = svc.CopyClosure(dgNpcFk, new[] { "Shadow.esp", "Dawnguard.esm" }, new[] { "HeadParts" },
+                noExcl, null, "MixedClone", "MixedPatch", null);
+            Check(mixed.Success, $"a BASE-GAME FormID read through a named mod override copies ({mixed.EngineError ?? mixed.WalkRefusal?.Detail ?? mixed.CopyRefusal?.Detail})");
+            Check(!mixed.NothingBound, "…and the bound set is NOT empty — the override's plugin is named, so it is bound");
+            Check(mixed.Copied.Any(c => c.EditorId == "ShadowBrow"),
+                "…so the override's own head part is INTERNALIZED, which is a standalone-ization of that plugin");
+            var mixedText = CopyTools.Render(mixed);
+            Check(!mixedText.Contains("appearance transplant", StringComparison.Ordinal),
+                "…so the response does NOT call it a transplant — 'nothing is being removed' is false here");
+            Check(mixedText.Contains("the source is NOT a master", StringComparison.Ordinal)
+                  || mixedText.Contains("IS among the masters", StringComparison.Ordinal),
+                "…it takes the standalone/alarm path instead, which is the claim this copy actually earned");
+
+            // ---- 7i. The off-order refusal is told apart BY CAUSE, not collapsed onto 'stop' -----------------
+            // wideNpc's HeadTexture points into Ghost.esp, which is off-order and NOT bound, and HeadTexture is not
+            // in the seed set — so the walk never reached it, the strip never removed it (only BOUND links go), and
+            // the whole-record duplicate carried it across. Real: the patch cannot be serialized. But it is not a
+            // 'stop', and rendering it as one told a caller who passed NO exclusions to change exclude_types.
+            var carried = svc.CopyClosure(wideNpcFk, new[] { "Src.esp", "Extra.esp" }, new[] { "HeadParts" },
+                noExcl, null, "CarriedOffOrderClone", "CarriedOffOrderPatch", null);
+            Check(!carried.Success && carried.CopyRefusal?.Kind == CopyRefusalKind.CopiedOffOrderLink,
+                $"an off-order link CARRIED across by the copy refuses as its own kind, not as 'stop' ({(carried.Success ? "IT DID NOT REFUSE" : carried.CopyRefusal?.Kind.ToString())})");
+            Check(carried.CopyRefusal?.Detail == "Ghost.esp",
+                $"…naming the plugin the game does not load ({carried.CopyRefusal?.Detail})");
+            // The carrier is named as it exists IN THE PATCH — the clone under its new EditorID, not the donor's —
+            // because that is the record the caller would open to look at it.
+            Check(carried.CopyRefusal?.Field?.Contains("CarriedOffOrderClone", StringComparison.Ordinal) == true,
+                $"…and the RECORD carrying it, named as it exists in the patch ({carried.CopyRefusal?.Field})");
+            var carriedText = CopyTools.Render(carried);
+            Check(carriedText.Contains("seed_paths=", StringComparison.Ordinal)
+                  && !carriedText.Contains("'Type:refuse'", StringComparison.Ordinal),
+                "…and the remedy is the SEED SET, never an exclude_types argument the caller never passed");
+            Check(!Directory.EnumerateDirectories(mods, "*CarriedOffOrderPatch*").Any(), "…and writes nothing (C11)");
+
+            // …while a genuine 'stop' on an off-order record still renders as StopOffOrder (arm 7a, attach lane).
+            // The third cause — a record a PREVIOUS call left in a patch reached through into= — is not reachable
+            // end to end here: into= only accepts a patch houseCARL wrote, and a call that left an off-order link
+            // in one would itself have been refused by this very check. Its sentence is pinned at the render level
+            // in write-surface-guard, and this comment is the record that its WIRE is not driven.
 
             // ---- 7d. THE SHAPE CLASSIFIER — the four misbehaviours round 2 measured, as arms ----------------
             // Each of these was a site deciding the shape for itself off the runtime VALUE. Mutagen declares these

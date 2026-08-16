@@ -146,9 +146,20 @@ public static class CopyParserProbe
             Check(Has(noType, "error:") && Has(noType, "names no record type"),
                 "an entry naming no record type refuses by name");
 
+            // A blank exclusion REFUSES, matching the rule seed_paths and from_source already enforce. This arm
+            // used to assert the opposite — that blanks are dropped — which is what pinned the bug in place: a
+            // templating slip yielding one empty entry ran the copy with FEWER exclusions than the caller passed,
+            // and nothing in the response said so. A blank has no index to shift, so it refuses by CONTENT.
             var blankExcl = CopyTools.Copy(svc, from, null, seed, new[] { "", "   " }, null, "PBlankX", "PBlankX");
-            Check(Has(blankExcl, "CLONED") && Has(blankExcl, "SrcTex"),
-                "blank exclusion entries are dropped — a list of only blanks excludes nothing");
+            Check(Has(blankExcl, "error:") && Has(blankExcl, "blank entry"),
+                "a list of only blank exclusion entries REFUSES rather than excluding nothing");
+            Check(!Has(blankExcl, "CLONED"), "…and writes nothing");
+
+            // The case that actually bites: a REAL exclusion beside a blank. Dropping the blank silently applied
+            // one fewer exclusion than the caller wrote, which is the 'Race:refuse' that never fired.
+            var blankBeside = CopyTools.Copy(svc, from, null, seed, new[] { "TextureSet:refuse", "  " }, null, "PBlankY", "PBlankY");
+            Check(Has(blankBeside, "error:") && Has(blankBeside, "blank entry"),
+                "…and a blank BESIDE a real exclusion refuses too, rather than quietly applying one fewer");
 
             var dupExcl = CopyTools.Copy(svc, from, null, seed, new[] { "TextureSet:stop", "texture" + "set:refuse" }, null, "PDup", "PDup");
             Check(Has(dupExcl, "error:") && Has(dupExcl, "more than once") && !Has(dupExcl, "failed unexpectedly"),

@@ -149,7 +149,8 @@ The destination is computed from the new FormID and the source is the donor's ow
 ## Verification
 
 1. The copy's readback says **standalone: the source is NOT a master**. If it instead alarms that the source *is* among the masters, the operation did not do the one thing it exists to do — read the kept-link list and find out what still points at the donor.
-   **A donor defined in a base-game master (`Skyrim.esm`, `Dawnguard.esm`, …) reads differently, and should:** the readback calls it an **appearance transplant, not a standalone-ization**. Nothing is being removed from an always-loaded master, so links to it are kept and mastered normally — that is the correct outcome, not a failed standalone. Reach for "standalone" only when the donor lives in a mod you are copying away from.
+   **A donor read from base-game masters ONLY reads differently, and should:** the readback calls it an **appearance transplant, not a standalone-ization**. Nothing is being removed from an always-loaded master, so links to it are kept and mastered normally — that is the correct outcome, not a failed standalone.
+   **This turns on what you NAMED, not on where the donor's FormID lives.** The overhaul flow below — `from` a vanilla FormID, `from_source=['TheOverhaul.esp','Skyrim.esm']` — is copying away from `TheOverhaul.esp`, so it earns the ordinary **standalone** claim and you should expect that one. If you see the transplant note there, something bound has gone missing from the report.
 2. The strip list has been dealt with, not just read.
 3. Both FaceGen placements landed.
 4. Enable and sort the new mod in MO2. Nothing houseCARL writes wins anything until it does — the read-backs describe the file, not the load order.

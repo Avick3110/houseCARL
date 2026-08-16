@@ -315,6 +315,12 @@ public static class CopyDifferentialHarness
         // divergence was invisible to this harness — which is how a base-master donor kept getting a false
         // standalone claim through three review rounds while every fixture reported NO DIFF. This donor lives in
         // Dawnguard.esm, so it is exactly that case, and the two renders are compared directly.
+        //
+        // Still the transplant case under the CORRECTED condition (F24 is about the bound set being EMPTY, not
+        // about where `from` is defined): this call passes no from_source=, so the universe is ['winner'], and
+        // 'winner' is exempt from binding — the whole load order is not a plugin to copy away from. Name a MOD
+        // here and the bound set stops being empty and the standalone claim becomes the right one; that case is
+        // arm 7h in copy-service-guard, not this one.
         Check(oldOut.Contains("appearance transplant", StringComparison.Ordinal),
             "the ANCESTOR calls a base-master donor an appearance transplant rather than a standalone-ization");
         Check(newOut.Contains("appearance transplant", StringComparison.Ordinal),

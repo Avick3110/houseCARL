@@ -28,9 +28,13 @@ namespace HousecarlCore;
 //  CYCLES ARE RECORDED, NOT MERELY SKIPPED (SPEC §3.1). A visited-set walk that simply
 //  drops a repeat link cannot tell a diamond (two paths to one record — ordinary and
 //  uninteresting) from a genuine cycle (a record that reaches itself). The first is
-//  noise; the second is a fact about the data worth reporting. They are distinguished
-//  here by ANCESTRY: a link whose target is already on the current node's pull chain is
-//  a cycle; any other repeat is a re-convergence and is silently deduped.
+//  noise; the second is a fact about the data worth reporting. They are told apart by a
+//  POST-WALK pass over the recorded edge set: a depth-first colouring where an edge into
+//  an on-stack node is a back edge, and therefore a cycle. It runs after the walk rather
+//  than during it because the traversal builds a TREE, and "is an ancestor in that tree"
+//  is a weaker question than "reaches itself in the graph" — a mutual reference between
+//  two SIBLINGS is a real cycle that no ancestry test can see (Aaron's review). Any other
+//  repeat is a re-convergence and is silently deduped.
 // ======================================================================
 
 /// <summary>How hard an exclusion bites when the walk reaches a matching record.</summary>
@@ -79,8 +83,9 @@ public sealed record WalkNode(
 /// removed (review round 1). A render that cannot distinguish them cannot be honest about either.</para></summary>
 public sealed record WalkBoundary(FormKey Key, string PulledBy, string Why, bool Excluded = false);
 
-/// <summary>A genuine cycle: <paramref name="Path"/> is the pull chain from the seed to the node that closed it,
-/// and <paramref name="Back"/> is the key it pointed back at — which is somewhere on that path.</summary>
+/// <summary>A genuine cycle: <paramref name="Path"/> is the loop itself — the records from the one pointed back at
+/// through to the one holding the closing link — and <paramref name="Back"/> is that first key, so the path both
+/// starts at it and returns to it. <paramref name="PulledBy"/> labels the record whose link closed the loop.</summary>
 public sealed record WalkCycle(IReadOnlyList<FormKey> Path, FormKey Back, string PulledBy);
 
 /// <summary>Why a walk refused. Typed, so the render owns the words.</summary>
@@ -292,8 +297,15 @@ public static class ClosureWalk
 
         var reached = new List<WalkNode>();
         var kept = new List<WalkBoundary>();
-        var cycles = new List<WalkCycle>();
         var seen = new HashSet<FormKey>();
+        // The walked graph as EDGES, recorded per expanded node, plus a label per node for the readback. Cycles are
+        // found from this after the walk rather than during it: the BFS `parent` map is a TREE, and "reaches itself
+        // in the graph" is not the same question as "is an ancestor in the tree". A mutual reference between two
+        // SIBLINGS (seed -> X, seed -> Y, X -> Y, Y -> X) is a real cycle whose nodes are never each other's tree
+        // ancestors, so the ancestry test classified it as a diamond and §3.1's "every cycle is RECORDED" did not
+        // hold. The node cap bounds this set, so a full pass over it is cheap.
+        var edges = new Dictionary<FormKey, List<FormKey>>();
+        var labels = new Dictionary<FormKey, string>();
         // parent[k] = the key that pulled k in. The pull CHAIN is rebuilt from this, so every refusal can show the
         // whole path rather than one hop — which is what makes a cap refusal actionable.
         var parent = new Dictionary<FormKey, FormKey>();
@@ -315,19 +327,6 @@ public static class ClosureWalk
             }
             chain.Reverse();
             return chain;
-        }
-
-        bool IsAncestor(FormKey candidate, FormKey of)
-        {
-            var cur = of;
-            var guard = new HashSet<FormKey>();
-            while (guard.Add(cur))
-            {
-                if (cur == candidate) return true;
-                if (!parent.TryGetValue(cur, out var p)) return false;
-                cur = p;
-            }
-            return false;
         }
 
         while (queue.Count > 0)
@@ -377,20 +376,18 @@ public static class ClosureWalk
                 ChainTo(key), pulledBy, depth));
 
             var label = $"{typeName} {key} ({hit.Body.EditorID ?? "<no editorid>"})";
+            labels[key] = label;
+            var outgoing = new List<FormKey>();
+            edges[key] = outgoing;
             if (hit.Body is not IFormLinkContainerGetter flc) continue;
             foreach (var link in flc.EnumerateFormLinks())
             {
                 var target = link.FormKey;
                 if (target.IsNull) continue;
-                // A repeat link is either a CYCLE (the target is on this node's own pull chain) or an ordinary
-                // re-convergence (a diamond). Only the first is a fact worth reporting; conflating them would
-                // bury real cycles under every shared texture set.
-                if (seen.Contains(target))
-                {
-                    if (IsAncestor(target, key))
-                        cycles.Add(new WalkCycle(ChainTo(key), target, label));
-                    continue;
-                }
+                // Every edge is recorded, cycle or not — telling a cycle from an ordinary re-convergence (a
+                // diamond) is the post-walk pass's job now, and it needs the whole graph to do it.
+                outgoing.Add(target);
+                if (seen.Contains(target)) continue;
                 // No seed guard here, deliberately. Round 1 added one for a chain/PulledBy disagreement; round 2
                 // instrumented it and measured ZERO hits, because `seen` fills at DEQUEUE and every seed is
                 // dequeued before any child expands — so a link back to a seed always takes the `seen` branch
@@ -400,6 +397,66 @@ public static class ClosureWalk
             }
         }
 
-        return new WalkResult(true, null, reached, kept, cycles);
+        return new WalkResult(true, null, reached, kept, FindCycles(edges, labels));
+    }
+
+    /// <summary>Every cycle in the walked graph, found from the recorded edges once the walk is done.
+    /// <para>A depth-first pass colouring nodes unvisited / on-stack / finished: an edge into an ON-STACK node is a
+    /// back edge, which is exactly "this record reaches itself", and the stack from that node down to the one
+    /// holding the edge IS the cycle. Unlike the BFS-ancestry test it replaces, this asks the graph rather than the
+    /// traversal tree, so a mutual reference between siblings reports.</para>
+    /// <para>Only nodes with recorded edges can be ON the cycle — a boundary the walk kept was never expanded, has
+    /// no outgoing edges, and so cannot close one. Edges to those are skipped rather than treated as dead ends.</para></summary>
+    static List<WalkCycle> FindCycles(
+        Dictionary<FormKey, List<FormKey>> edges, Dictionary<FormKey, string> labels)
+    {
+        const int Unvisited = 0, OnStack = 1, Finished = 2;
+        var cycles = new List<WalkCycle>();
+        var state = new Dictionary<FormKey, int>();
+        var path = new List<FormKey>();
+        var reported = new HashSet<(FormKey From, FormKey To)>();
+
+        foreach (var root in edges.Keys)
+        {
+            if (state.TryGetValue(root, out var rootState) && rootState != Unvisited) continue;
+
+            // Explicit stack rather than recursion: the node cap bounds the graph, but a 128-deep chain is still
+            // no reason to put the walk's shape on the CLR's stack.
+            var work = new Stack<(FormKey Key, int Index)>();
+            state[root] = OnStack; path.Add(root); work.Push((root, 0));
+
+            while (work.Count > 0)
+            {
+                var (key, index) = work.Pop();
+                var outgoing = edges.TryGetValue(key, out var o) ? o : null;
+                if (outgoing is null || index >= outgoing.Count)
+                {
+                    state[key] = Finished;
+                    path.RemoveAt(path.Count - 1);      // finished nodes are always the deepest still on the path
+                    continue;
+                }
+                work.Push((key, index + 1));
+
+                var next = outgoing[index];
+                if (!edges.ContainsKey(next)) continue;  // a kept boundary — expanded nothing, so it closes nothing
+                var nextState = state.TryGetValue(next, out var s) ? s : Unvisited;
+                if (nextState == OnStack)
+                {
+                    // A back edge. Reported once per (from, to) pair, because a record linking the same target
+                    // twice is one cycle stated twice, not two facts.
+                    if (reported.Add((key, next)))
+                    {
+                        var at = path.IndexOf(next);
+                        cycles.Add(new WalkCycle(
+                            path.Skip(at).ToList(), next,
+                            labels.TryGetValue(key, out var lb) ? lb : key.ToString()));
+                    }
+                    continue;
+                }
+                if (nextState == Finished) continue;     // an ordinary diamond: already explored, not on this path
+                state[next] = OnStack; path.Add(next); work.Push((next, 0));
+            }
+        }
+        return cycles;
     }
 }

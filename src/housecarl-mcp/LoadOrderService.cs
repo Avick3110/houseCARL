@@ -5075,13 +5075,7 @@ public sealed class LoadOrderService : IDisposable
                 // classify vanilla as "the source" and wholesale-internalize it.
                 var baseMasters = Mutagen.Bethesda.Plugins.Implicits.Get(Mutagen.Bethesda.GameRelease.SkyrimSE).BaseMasters;
                 var bound = new HashSet<ModKey>();
-                // Kept as a FACT rather than discarded with the branch: the record's own plugin being a base master
-                // is what makes "standalone" the wrong frame for this copy, and the render needs to say so. It used
-                // to be tested here and thrown away, so the response asserted the standalone claim from a `bound`
-                // set base masters are deliberately excluded from — an assertion off a deliberately emptied set
-                // (inventory F24, review round 3).
-                var sourceIsBaseGame = baseMasters.Contains(sourceKey.ModKey);
-                if (!sourceIsBaseGame) bound.Add(sourceKey.ModKey);
+                if (!baseMasters.Contains(sourceKey.ModKey)) bound.Add(sourceKey.ModKey);
                 // EVERY arm the caller NAMED, whatever kind it resolved to (Aaron-go 2026-08-15). Binding only the
                 // File arms made the artifact depend on an MO2 checkbox: name an ENABLED override and its records
                 // were kept as mastered links, while the same call against the same plugin disabled internalized
@@ -5098,6 +5092,16 @@ public sealed class LoadOrderService : IDisposable
                     if (!baseMasters.Contains(mk)) bound.Add(mk);
                 }
                 bool IsBound(FormKey fk) => bound.Contains(fk.ModKey);
+
+                // INVENTORY F24, and its condition VERBATIM: the transplant note belongs to the case where the
+                // donor-bound set is EMPTY — nothing is being copied away from at all. Keying it on `from`'s own
+                // defining plugin instead answered a different question, and with an ordered from_source= the two
+                // come apart: `from='0013BBF:Skyrim.esm'` with `from_source=['TheOverhaul.esp','Skyrim.esm']` is a
+                // base-game FormID whose bound set holds TheOverhaul.esp, so the copy internalizes and strips that
+                // plugin's records while the note claimed nothing was being removed — printed directly above the
+                // strip list that removed them. Empty is the only state in which the note is true, and it can only
+                // be empty when the source IS base-game (a non-base source adds its own ModKey above).
+                var nothingBound = bound.Count == 0;
 
                 if (ClosureWalk.ResolveSeeds(srcHit.Body, seedPaths, out var seeds) is { } seedRefusal)
                     return ClosureCopyOutcome.Fail(walk: seedRefusal.Refusal, sources: consulted);
@@ -5136,7 +5140,7 @@ public sealed class LoadOrderService : IDisposable
                 {
                 var outcome = ClosureCopy.BuildAndWrite(
                     outPath, extend, sourceKey, srcHit, walk, seedPaths,
-                    targetKey, targetActiveBody, newEditorid, IsBound, bound, sourceIsBaseGame,
+                    targetKey, targetActiveBody, newEditorid, IsBound, bound, nothingBound,
                     mk => view.ContainsPlugin(mk.FileName.String),
                     pf => { session.ReleaseOverlay(pf); return session.AllMastersExcept(pf); },
                     consulted,

@@ -191,6 +191,33 @@ public static class ClosureWalkProbe
         Check(r.Reached.Count(n => n.Key == txstFk) == 1,
             "the diamond's shared record is reached ONCE (dedupe still works — a cycle report is not a re-walk)");
 
+        // ---- 3b. A MUTUAL REFERENCE BETWEEN SIBLINGS is a cycle too ---------------------------------------
+        // Aaron's trace: seed -> X and seed -> Y, X -> Y, Y -> X. Neither is the other's ANCESTOR in the BFS
+        // tree — both are children of the seed — so the ancestry test classified this as a diamond and §3.1's
+        // "every cycle is RECORDED" did not hold. The post-walk pass asks the graph instead, so it reports.
+        var sibA = new FormKey(modKey, 0x8A0);
+        var sibX = new FormKey(modKey, 0x8A1);
+        var sibY = new FormKey(modKey, 0x8A2);
+        var sibMod = new SkyrimMod(modKey, SkyrimRelease.SkyrimSE);
+        var sibHpX = new HeadPart(sibX, SkyrimRelease.SkyrimSE) { EditorID = "SibX" };
+        var sibHpY = new HeadPart(sibY, SkyrimRelease.SkyrimSE) { EditorID = "SibY" };
+        sibHpX.ExtraParts.Add(sibY);      // X -> Y
+        sibHpY.ExtraParts.Add(sibX);      // Y -> X, and neither is the other's tree ancestor
+        var sibHpA = new HeadPart(sibA, SkyrimRelease.SkyrimSE) { EditorID = "SibSeed" };
+        sibHpA.ExtraParts.Add(sibX);
+        sibHpA.ExtraParts.Add(sibY);
+        sibMod.HeadParts.Add(sibHpA); sibMod.HeadParts.Add(sibHpX); sibMod.HeadParts.Add(sibHpY);
+        var sibCache = sibMod.ToImmutableLinkCache();
+        var sibArm = new SourceChain(new[] { new SourceArm("Sib.esp", SourceArmKind.File, "the sibling fixture",
+            fk => sibCache.TryResolve(fk, out var b) ? b : null) });
+        var rSib = ClosureWalk.Run(
+            new[] { new WalkSeed(sibA, "HeadParts", "Npc.HeadParts") }, sibArm,
+            WalkScope.StandaloneFrom(new HashSet<ModKey> { modKey }, _ => true), noExcl);
+        Check(rSib.Success, "the sibling fixture walks");
+        Check(rSib.Cycles.Any(c => (c.Back == sibX || c.Back == sibY)
+                                   && c.Path.Contains(sibX) && c.Path.Contains(sibY)),
+            $"a MUTUAL reference between two siblings is REPORTED as a cycle, not passed over as a diamond ({rSib.Cycles.Count} cycle(s))");
+
         // ---- 4. EXCLUSIONS AS DATA -------------------------------------------------------------------------
         var stopExcl = new[] { new WalkExclusion("HeadPart", ExclusionSeverity.Stop, "pruned for the test") };
         var rStop = ClosureWalk.Run(seeds, OneArm(), scope, stopExcl);
