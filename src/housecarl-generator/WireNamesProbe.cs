@@ -32,9 +32,10 @@ namespace HousecarlGenerator;
 ///   INV1 — every settable member of a wire type carries [JsonPropertyName] or [JsonIgnore]. (A member
 ///          with neither binds under its C# name and is advertised under a camelCase one — unpinned.)
 ///   INV2 — every wire member ARRIVES, under its wire name, through EVERY reader the surface uses:
-///          ListParams.Strict (apply/create's @file lists), the SDK's web defaults (the directly bound
-///          spec arrays — bulk_apply, bulk_create, bulk_place_asset) and WriteTools.ManifestJson
-///          (bulk_apply's from_file= lane). For a scalar or a collection, arrival is checked against the
+///          ListParams.Strict (apply/create's @file lists), McpJsonUtilities.DefaultOptions (the SDK's
+///          own singleton, behind the directly bound spec arrays — bulk_apply, bulk_create,
+///          bulk_place_asset) and WriteTools.ManifestJson (bulk_apply's from_file= lane; see Readers for
+///          how far the SDK lane is verified). For a scalar or a collection, arrival is checked against the
 ///          VALUE SENT rather than against null, so a member with a C# default ({BulkOp.Verb = "Set"})
 ///          cannot pass by keeping its default; for a member that is itself a wire object, presence is
 ///          the check, since an unbound one is null and there is nothing else it could be.
@@ -44,6 +45,13 @@ namespace HousecarlGenerator;
 ///          here as a declared name that no longer exists).
 ///   INV5 — every wire name appears in some shape declaration (a typo shows up here as a wire name
 ///          nobody documents; so does a member added without touching the docs).
+///   INV6 — a shape list is read WHOLE, or not read as a shape list at all — never partly and silently,
+///          at EVERY level of the read path: characters (braces that do not balance, so the group is
+///          never found), groups (items that stop reading as member names), and items (an ellipsis is a
+///          partial marker; anything else is not). A silent discard at any one level takes a carrier out
+///          of INV4's reach while INV5 stays green off the type's other carriers — #341's own failure
+///          mode, moved into the docs. Each of the three was found in turn, by three separate reviews,
+///          which is why the completeness is stated as a claim here instead of assumed.
 ///
 /// <para><b>What this does NOT cover, and why.</b> INV5 is satisfied by the UNION of a type's carriers, not
 /// by each one: a carrier may legitimately declare a strict subset, because a member can be illegal in that
@@ -55,6 +63,12 @@ namespace HousecarlGenerator;
 /// method-level [Description] prose and in refusal strings are likewise unread — they restate a fact whose
 /// home is the parameter (DOC_HYGIENE §6), and matching a loose prose group to the right type is guesswork
 /// this guard will not do silently. Both gaps are content to keep honest by hand, not coverage to claim.</para>
+///
+/// <para><b>Standing class boundary</b> (advisor, Aaron-seen, 2026-08-16). The silent-discard class has now
+/// been closed three times, one level of the read path each time. If a FOURTH instance surfaces, the fix is
+/// NOT a fourth patch: the prose-parsing design itself escalates under §4, and the second spelling moves out
+/// of <c>[Description]</c> prose into structured data — an attribute or a registry — where it cannot be
+/// mis-lexed at all. Do not fold a fourth; escalate.</para>
 ///
 /// Discovery is by construction throughout: the wire types are the assembly's [JsonPropertyName]-bearing
 /// types, and the carriers are the parameters/properties typed with them — adding a spec object to the
@@ -295,6 +309,29 @@ public static class WireNamesProbe
         var allProse = PartialGroups("files it into the block tree {block=floor(grid/32), subblock=floor(grid / 8)} for the cell", "synthetic carrier");
         Check("INV6-GUARD prose in braces is NOT reported as a broken shape list", allProse.Count == 0, allProse, redArm: true);
 
+        // Both arms of the BRACE level, one below the item level above. An unbalanced list yields no group
+        // at all, so it is not merely unread — it is invisible, and every check downstream of it silently
+        // has nothing to look at.
+        var unclosed = PartialGroups("Each: {formid, field_path, value?", "synthetic carrier");
+        Check("INV6-RED   an unclosed shape list is reported, not left invisible",
+            unclosed.Any(m => m.Contains("never closed", StringComparison.Ordinal)), unclosed, redArm: true);
+
+        var strayClose = PartialGroups("Each: formid, field_path, value?}", "synthetic carrier");
+        Check("INV6-RED   a stray '}' with nothing opened is reported",
+            strayClose.Any(m => m.Contains("nothing opened", StringComparison.Ordinal)), strayClose, redArm: true);
+
+        var balanced = PartialGroups("Each: {formid, field_path, compose?:{type, fields?}} — or \"@<path>\".", "synthetic carrier");
+        Check("INV6-GUARD balanced braces, nesting included, are NOT reported", balanced.Count == 0, balanced, redArm: true);
+
+        // The acceptance case, in the shape of the sabotage that motivated this arm: a carrier's closing
+        // brace dropped AND a member name misspelled inside it. Before the brace level was checked, the
+        // misspelling was unreachable — no group, so nothing for INV4 to read, while INV5 stayed green off
+        // the type's other carriers. The fixture is INVENTED rather than copied off a real description:
+        // copying one back in is the frozen-copy trap this probe already paid for once.
+        var doubleSabotage = PartialGroups("Optional. The fields: {field_path, valu?, value?, compose?", "synthetic carrier");
+        Check("INV6-ACCEPT a dropped '}' hiding a misspelled member is caught",
+            doubleSabotage.Any(m => m.Contains("never closed", StringComparison.Ordinal)), doubleSabotage, redArm: true);
+
         // The unsynthesizable-shape path claims to fail loud rather than skip. Nothing on the surface
         // exercises it today (every member is a string, a string list, a string map or a wire object), so
         // it is pinned here instead of resting on the claim.
@@ -528,13 +565,22 @@ public static class WireNamesProbe
         return names.Any(n => n is not null) ? null : new List<string>();
     }
 
-    /// <summary>Brace groups in <paramref name="description"/> that read as PART of a member list — the
-    /// silent-drop case, surfaced. Each is reported with the item that stopped the read, because that item
-    /// is what the author has to fix (or close with an ellipsis, which is a supported spelling).</summary>
+    /// <summary>Everything in <paramref name="description"/> that this parser can read only PART of — the
+    /// silent-drop cases, surfaced, at both levels they occur: braces that do not balance (the group is
+    /// never found) and a group whose items stop reading as member names (the group is found but dropped).
+    /// Each is reported with what stopped the read, because that is what the author has to fix.
+    /// <para>Known cost, accepted: a carrier whose prose carries a LONE brace for some other reason now
+    /// fails this arm and has to be reworded. No carrier does today, the report names the carrier and the
+    /// character, and the alternative — teaching the brace scan to tell prose braces from list braces —
+    /// is guesswork of exactly the kind this guard refuses to do silently. If a real description ever
+    /// trips it, that is the moment to refine, not before.</para></summary>
     static List<string> PartialGroups(string description, string carrier)
     {
         var bad = new List<string>();
-        foreach (var group in OutermostGroups(description))
+        var (groups, imbalances) = ScanBraces(description);
+        foreach (var im in imbalances)
+            bad.Add($"{carrier}: the braces do not balance — {im}. Close it, or drop the stray brace");
+        foreach (var group in groups)
         {
             if (ReadGroup(group) is not null) continue;
             var stopper = SplitTopLevel(group).Where(i => !IsPartialMarker(i)).FirstOrDefault(i => MemberName(i) is null);
@@ -556,16 +602,32 @@ public static class WireNamesProbe
         return s is "…" or "" || string.Equals(s, "etc", StringComparison.OrdinalIgnoreCase);
     }
 
-    static List<string> OutermostGroups(string s)
+    static List<string> OutermostGroups(string s) => ScanBraces(s).Groups;
+
+    /// <summary>Scan a description's brace structure: the outermost groups, plus every way the braces fail
+    /// to balance. The imbalances matter as much as the groups — an unclosed <c>{</c> yields NO group at
+    /// all, so the shape list is not merely unread, it is INVISIBLE: <see cref="PartialGroups"/> would
+    /// never see it, INV4 would never read that carrier's text, and INV5 would stay green off the type's
+    /// other carriers. That is the silent discard one level below the item loop, and it is why this
+    /// returns the failures rather than skipping quietly.</summary>
+    static (List<string> Groups, List<string> Imbalances) ScanBraces(string s)
     {
         var groups = new List<string>();
+        var imbalances = new List<string>();
         int depth = 0, start = -1;
         for (int i = 0; i < s.Length; i++)
         {
             if (s[i] == '{') { if (depth++ == 0) start = i + 1; }
-            else if (s[i] == '}' && depth > 0 && --depth == 0 && start >= 0) groups.Add(s[start..i]);
+            else if (s[i] == '}')
+            {
+                if (depth == 0) { imbalances.Add($"a '}}' at character {i + 1} closes a group nothing opened"); continue; }
+                if (--depth == 0 && start >= 0) groups.Add(s[start..i]);
+            }
         }
-        return groups;
+        if (depth > 0)
+            imbalances.Add($"the '{{' at character {start} is never closed ({depth} level(s) still open at the end) — " +
+                           "everything it was meant to declare is invisible to this guard");
+        return (groups, imbalances);
     }
 
     /// <summary>Split a brace group on its TOP-LEVEL commas — nested braces/brackets/parens and quoted
@@ -610,16 +672,27 @@ public static class WireNamesProbe
 
     // ================= value synthesis for the round trip =================
 
-    /// <summary>The readers the surface actually binds spec objects with. A wire name has to work in ALL of
-    /// them: <c>ListParams.Strict</c> reads apply/create's @file lists, the SDK's web defaults bind the
-    /// directly typed arrays (bulk_apply's operations=, bulk_create's records=, bulk_place_asset's assets=),
-    /// and <c>WriteTools.ManifestJson</c> reads bulk_apply's from_file= manifest. A name that survives only
-    /// some of them is broken for the others' tools. Three OBJECTS, not three configurations — the last two
-    /// are set up alike today, and each being driven here is what would catch the day one of them drifts.</summary>
+    /// <summary>The readers the surface binds spec objects with. A wire name has to work in ALL of them:
+    /// <c>ListParams.Strict</c> reads apply/create's @file lists, <c>McpJsonUtilities.DefaultOptions</c>
+    /// covers the directly typed arrays the SDK binds (bulk_apply's operations=, bulk_create's records=,
+    /// bulk_place_asset's assets=), and <c>WriteTools.ManifestJson</c> reads bulk_apply's from_file=
+    /// manifest. A name that survives only some of them is broken for the others' tools. All three are the
+    /// REAL objects, none reconstructed — which is the point, since a reconstruction drifts from the thing
+    /// it copies without anything noticing.
+    ///
+    /// <para><b>How far the SDK lane is verified.</b> The object is the SDK's own public singleton, and the
+    /// SDK documents <c>McpServerToolCreateOptions.SerializerOptions</c> — the options "used when
+    /// marshalling data to/from JSON" — as defaulting to it; <c>Program.cs</c> registers tools with a bare
+    /// <c>WithToolsFromAssembly()</c> and never sets that property, so nothing here overrides the default.
+    /// What is NOT pinned is that the binder consults THIS instance: for reads it behaves identically to
+    /// bare Web defaults (the extras it adds are a write-side ignore condition, AOT source-gen contracts,
+    /// and number-reading-from-string, which Web already enables), so no observable behaviour can tell them
+    /// apart. Driving the real singleton is as close as the guard can get; the residue is a line on
+    /// RUN_ORDER step 5's #329 row — re-verify this lane when the MCP SDK is bumped.</para></summary>
     static readonly (string Lane, JsonSerializerOptions Options)[] Readers =
     {
         ("ListParams.Strict — the @file list reader", ListParams.Strict),
-        ("web defaults — the SDK-bound spec arrays", new JsonSerializerOptions(JsonSerializerDefaults.Web)),
+        ("McpJsonUtilities.DefaultOptions — the SDK-bound spec arrays", ModelContextProtocol.McpJsonUtilities.DefaultOptions),
         ("WriteTools.ManifestJson — bulk_apply's from_file= lane", WriteTools.ManifestJson),
     };
 
