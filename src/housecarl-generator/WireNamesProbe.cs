@@ -43,6 +43,17 @@ namespace HousecarlGenerator;
 ///   INV5 — every wire name appears in some shape declaration (a typo shows up here as a wire name
 ///          nobody documents; so does a member added without touching the docs).
 ///
+/// <para><b>What this does NOT cover, and why.</b> INV5 is satisfied by the UNION of a type's carriers, not
+/// by each one: a carrier may legitimately declare a strict subset, because a member can be illegal in that
+/// position — <c>create_record</c>'s <c>operations=</c> takes a BulkOp but refuses <c>formid</c> and
+/// <c>from_plugin</c> there, since a record being created has no other version to copy from. "Legal at this
+/// carrier" is a semantic fact no attribute carries, so requiring completeness per carrier would force
+/// authors to document members their tool rejects. The consequence is real and worth knowing: a member
+/// legal-but-undeclared at ONE carrier stays green while another carrier declares it. Shape lists in
+/// method-level [Description] prose and in refusal strings are likewise unread — they restate a fact whose
+/// home is the parameter (DOC_HYGIENE §6), and matching a loose prose group to the right type is guesswork
+/// this guard will not do silently. Both gaps are content to keep honest by hand, not coverage to claim.</para>
+///
 /// Discovery is by construction throughout: the wire types are the assembly's [JsonPropertyName]-bearing
 /// types, and the carriers are the parameters/properties typed with them — adding a spec object to the
 /// surface enrols it with no edit here. RED arms drive each checker with a synthetic violation, and the
@@ -63,7 +74,11 @@ public static class WireNamesProbe
     /// <summary>Wire types deliberately NOT reachable from a tool parameter — an output DTO that carries
     /// [JsonPropertyName] for rendering, say. EMPTY by design: every wire type on the surface today is an
     /// input spec. Add one here ONLY with a one-line reason, so "not an input" stays a recorded choice
-    /// rather than a silent gap in INV3.</summary>
+    /// rather than a silent gap in INV3.
+    /// <para>It exempts INV3 ALONE. INV1 and INV2 still run over such a type, deliberately: an unpinned
+    /// member and a wire name that does not bind are defects wherever they are. If that type carries a
+    /// member shape <see cref="Synthesize"/> cannot drive, INV2 fails loud naming the member rather than
+    /// passing over it — teach Synthesize the shape; do not reach for a skip.</para></summary>
     static readonly HashSet<string> NonInputWireTypes = new(StringComparer.Ordinal)
     {
         // (none)
@@ -164,6 +179,11 @@ public static class WireNamesProbe
         // The central arm, and the executable form of #341: on the REAL surface, for every wire type and
         // every member, sending that member under a misspelled name must be caught. This is what a pure
         // build-from-the-attribute round-trip cannot do — it would echo the typo and pass.
+        //
+        // The two lanes catch it by DIFFERENT mechanisms, and the report is accepted from either: the
+        // strict reader refuses the document and names the spelling it could not map, while the web
+        // reader binds happily and the arrival comparison finds the member holding its default. Both are
+        // the reader's own evidence — see the catch block in Arrivals for why that matters.
         foreach (var (lane, opts) in Readers)
         {
             var blind = new List<string>();
@@ -173,9 +193,9 @@ public static class WireNamesProbe
                 {
                     cases++;
                     var reported = Arrivals(t, opts, mangle: name);
-                    if (!reported.Any(v => v.Contains(name, StringComparison.Ordinal)))
+                    if (!reported.Any(v => v.Contains(name, StringComparison.Ordinal) || v.Contains(Mangle(name), StringComparison.Ordinal)))
                         blind.Add($"{t.Name}.{name}: sent under a misspelled name and NOT reported missing ({lane}) — " +
-                                  $"the arrival check cannot see this field drop. Reported: {(reported.Count == 0 ? "(nothing)" : string.Join(" | ", reported))}");
+                                  $"this lane cannot see the field drop. Reported: {(reported.Count == 0 ? "(nothing)" : string.Join(" | ", reported))}");
                 }
             Check($"INV2-RED   every wire member, misspelled, is reported missing ({lane}; {cases} fields)",
                 blind.Count == 0, blind, redArm: true);
@@ -213,6 +233,19 @@ public static class WireNamesProbe
         var prose = DeclaredNames("files it into the block tree {block=floor(grid/32), subblock=floor(grid / 8)} for the cell");
         Check("PARSE-RED  a prose brace group is not read as a shape declaration", prose.Count == 0,
             prose.Select(n => $"phantom declared name from prose: {n}").ToList(), redArm: true);
+
+        // Both arms of the partial-marker branch. An abbreviated list still yields its named members…
+        var abbreviated = DeclaredNames("Each: {formid, field_path, verb, …}");
+        Check("PARSE-ELL  an ellipsis-closed list still yields its named members",
+            abbreviated.SetEquals(new[] { "formid", "field_path", "verb" }),
+            new() { $"parsed [{string.Join(", ", abbreviated.OrderBy(s => s, StringComparer.Ordinal))}] — expected formid, field_path, verb" },
+            redArm: true);
+
+        // …while an item that is NOT a partial marker still discards the group, so the ellipsis skip did
+        // not open a door for prose. (A capitalized word is the case: member names are snake_case.)
+        var notAMarker = DeclaredNames("Each: {formid, field_path, Whatever It Says}");
+        Check("PARSE-ELL-RED a non-marker item still discards the whole group", notAMarker.Count == 0,
+            notAMarker.Select(n => $"phantom declared name: {n}").ToList(), redArm: true);
     }
 
     // ================= the checkers (pure — the RED arms drive these directly) =================
@@ -249,7 +282,7 @@ public static class WireNamesProbe
                                "not covered. Teach Synthesize the shape, or the arm is reporting coverage it does not have");
                 continue;
             }
-            body.Add($"{JsonSerializer.Serialize(name == mangle ? name + "zz" : name)}:{value}");
+            body.Add($"{JsonSerializer.Serialize(name == mangle ? Mangle(name) : name)}:{value}");
         }
         if (violations.Count > 0) return violations;
 
@@ -258,10 +291,11 @@ public static class WireNamesProbe
         catch (Exception ex)
         {
             // The strict reader REFUSES an undeclared member rather than dropping it, so a misspelling
-            // lands here. Name the member that was sent under a bad spelling so the report is actionable
-            // (and so INV2-RED can tell a real catch from a blanket failure).
-            return new() { $"{t.Name}: the document was refused — {ex.GetType().Name}: {Flatten(ex.Message)}" +
-                           (mangle is null ? "" : $" [the member sent misspelled was '{mangle}']") };
+            // lands here — and STJ's own message names the spelling it could not map. That text is the
+            // evidence, and it is the reader's, not this probe's: an earlier version stamped the mangled
+            // name into this string itself, which made INV2-RED self-satisfying on this lane (it matched
+            // the probe's own words, so gutting the arrival comparison left the arm green).
+            return new() { $"{t.Name}: the document was refused — {ex.GetType().Name}: {Flatten(ex.Message)}" };
         }
         if (parsed is null) return new() { $"{t.Name}: deserialized to null" };
 
@@ -423,12 +457,24 @@ public static class WireNamesProbe
             var parsed = new List<string>();
             foreach (var item in items)
             {
+                if (IsPartialMarker(item)) continue;
                 if (MemberName(item) is not { } n) { parsed.Clear(); break; }
                 parsed.Add(n);
             }
             names.UnionWith(parsed);
         }
         return names;
+    }
+
+    /// <summary>An item that says "and more" rather than naming a member: <c>…</c>, <c>...</c>, <c>etc</c>.
+    /// Skipped, so the rest of the group is still read. Without this the whole declaration was discarded —
+    /// which for a type with several carriers left INV5 green off the others and INV4 never looking at that
+    /// carrier's text at all, so a misspelling in it went unseen. That is #341's own failure mode moved
+    /// into the docs, and closing an abbreviated list with an ellipsis is the natural way to write one.</summary>
+    static bool IsPartialMarker(string item)
+    {
+        var s = item.Trim().TrimEnd('.').Trim();
+        return s is "…" or "..." or "" || string.Equals(s, "etc", StringComparison.OrdinalIgnoreCase);
     }
 
     static List<string> OutermostGroups(string s)
@@ -536,6 +582,10 @@ public static class WireNamesProbe
         _ => null,
     };
 
+    /// <summary>The misspelling INV2-RED sends a member under. Case-insensitive binding is on, so the
+    /// mangle has to change letters rather than casing.</summary>
+    static string Mangle(string wireName) => wireName + "zz";
+
     static string Pretty(Type t) => t.IsArray ? Pretty(t.GetElementType()!) + "[]" : t.Name;
 
     static string Flatten(string s) => s.Replace("\r", " ").Replace("\n", " ");
@@ -548,6 +598,8 @@ public static class WireNamesProbe
             if (detail.Count == 0)
                 Console.WriteLine(redArm ? "        - (the checker reported NO violation — it is toothless)" : "        - (no detail)");
             foreach (var d in detail.Take(20)) Console.WriteLine($"        - {d}");
+            // Never a silent cut (Q3): a 58-violation failure showing 20 rows reads like a 20-violation one.
+            if (detail.Count > 20) Console.WriteLine($"        - … and {detail.Count - 20} more");
         }
         if (ok) _pass++; else _fail++;
     }

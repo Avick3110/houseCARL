@@ -74,7 +74,7 @@ public static class WriteTools
      Description(
          "Apply MANY edits in ONE patch plugin (originals untouched) — the batch form of housecarl_set_field, and the way " +
          "to COMPOSE modeled structs. Each operation is {formid, field_path, verb, value?, key?, values?, entries?, " +
-         "compose?, composes?}: scalar/collection verbs work as in set_field; entries (a key→value map) drives a dict Merge or " +
+         "compose?, composes?, from_plugin?}: scalar/collection verbs work as in set_field; entries (a key→value map) drives a dict Merge or " +
          "ReplaceAll; compose builds a modeled struct for an Add (a leveled-list entry, an effect — and a POLYMORPHIC " +
          "list element composes by its concrete arm type, e.g. a VMAD script property: verb=Add, " +
          "field_path='VirtualMachineAdapter.Scripts[0].Properties', compose={type:'ScriptObjectProperty', " +
@@ -276,7 +276,7 @@ public static class WriteTools
             string record_type,
         [Description("REQUIRED. The EditorID for the new record — how it's referenced (in SkyPatcher/SPID/xEdit). Choose a clear, prefixed name.")]
             string editorid,
-        [Description("Optional. The new record's fields, same shape as bulk_apply ops but with NO formid: {field_path, verb?, value?, key?, values?, entries?, compose?}. Omit to create a bare record (just type + editorid).")]
+        [Description("Optional. The new record's fields, same shape as bulk_apply ops but with NO formid (and no from_plugin — there is no other version to copy from yet): {field_path, verb?, value?, key?, values?, entries?, compose?, composes?}. Omit to create a bare record (just type + editorid).")]
             BulkOp[]? operations = null,
         [Description("Optional. For a NESTED record (a dialogue line, a placed ref): the PARENT it nests under, as the parent record's FormID 'XXXXXX:Plugin.esp' (e.g. add a line to an existing topic, a ref to an existing cell). Omit for a flat top-level record. (For a parent + its children in one call — where parent can also be a same-call sibling's editorid — use housecarl_bulk_create.)")]
             string? parent = null,
@@ -307,7 +307,7 @@ public static class WriteTools
      Description(
          "Create MANY brand-new records in ONE patch plugin (originals untouched) — the batch form of housecarl_create_record, " +
          "and the way to author a NESTED unit in a single call: a dialogue topic AND its lines, a cell AND its placed refs. " +
-         "records is an array of {record_type, editorid, operations?, parent?, collection?} — each spec is exactly a " +
+         "records is an array of {record_type, editorid, operations?, parent?, collection?, grid?} — each spec is exactly a " +
          "create_record call. A spec's parent= can be the FormID of an EXISTING record OR the editorid of a record declared " +
          "EARLIER in this same records array (a same-call sibling) — which is how the one-shot 'topic + its lines' is expressed: " +
          "records=[{record_type:'DialogTopic', editorid:'MyTopic'}, {record_type:'DialogResponses', editorid:'MyTopic_L1', " +
@@ -1503,7 +1503,7 @@ public sealed record CreateOp
     [JsonPropertyName("editorid"), Description("REQUIRED. The EditorID the new record is referenced by. A nested child's parent= can name this editorid (a same-call sibling parent).")]
     public string? Editorid { get; init; }
 
-    [JsonPropertyName("operations"), Description("Optional. The new record's fields, same shape as bulk_apply ops but with NO formid: {field_path, verb?, value?, key?, values?, entries?, compose?}.")]
+    [JsonPropertyName("operations"), Description("Optional. The new record's fields, same shape as bulk_apply ops but with NO formid (and no from_plugin — there is no other version to copy from yet): {field_path, verb?, value?, key?, values?, entries?, compose?, composes?}.")]
     public BulkOp[]? Operations { get; init; }
 
     [JsonPropertyName("parent"), Description("Optional. For a NESTED record: the parent it nests under — an EXISTING parent's FormID 'XXXXXX:Plugin.esp', OR the editorid of a record declared EARLIER in this same records array (a same-call sibling). Omit for a flat top-level record.")]
