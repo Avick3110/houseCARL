@@ -6546,7 +6546,7 @@ public sealed class LoadOrderService : IDisposable
         CreateOpNaming? naming = null)
     {
         if (records is null || records.Count == 0)
-            return WritePatchBuilder.CreateOutcome.Fail("no records to create supplied — pass one or more {record_type, editorid, operations?, parent?, collection?} specs.");
+            return WritePatchBuilder.CreateOutcome.Fail("no records to create supplied — pass one or more {record_type, editorid, operations?, parent?, collection?, grid?} specs.");
 
         var problems = new List<string>();
         var specs = new List<WritePatchBuilder.CreateSpec>(records.Count);

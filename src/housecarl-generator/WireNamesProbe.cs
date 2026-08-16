@@ -31,11 +31,13 @@ namespace HousecarlGenerator;
 ///
 ///   INV1 — every settable member of a wire type carries [JsonPropertyName] or [JsonIgnore]. (A member
 ///          with neither binds under its C# name and is advertised under a camelCase one — unpinned.)
-///   INV2 — every wire member ARRIVES, under its wire name, through BOTH readers the surface uses:
-///          ListParams.Strict (apply/create's @file lists) and the SDK's web defaults (the directly
-///          bound spec arrays — bulk_apply, bulk_create, bulk_place_asset). Arrival is checked against
-///          the value sent, not against null, so a member with a C# default ({BulkOp.Verb = "Set"})
-///          cannot pass by keeping its default.
+///   INV2 — every wire member ARRIVES, under its wire name, through EVERY reader the surface uses:
+///          ListParams.Strict (apply/create's @file lists), the SDK's web defaults (the directly bound
+///          spec arrays — bulk_apply, bulk_create, bulk_place_asset) and WriteTools.ManifestJson
+///          (bulk_apply's from_file= lane). For a scalar or a collection, arrival is checked against the
+///          VALUE SENT rather than against null, so a member with a C# default ({BulkOp.Verb = "Set"})
+///          cannot pass by keeping its default; for a member that is itself a wire object, presence is
+///          the check, since an unbound one is null and there is nothing else it could be.
 ///   INV3 — every wire type is REACHABLE from a tool parameter and has a caller-facing shape
 ///          declaration. An unreachable one is named, never skipped.
 ///   INV4 — every name a shape declaration lists is a real wire name (a typo in the ATTRIBUTE shows up
@@ -134,6 +136,16 @@ public static class WireNamesProbe
             Check("INV4-GREEN every declared member name is a real wire name", unknown.Count == 0, unknown);
             Check("INV5-GREEN every wire name is declared to callers somewhere", undocumented.Count == 0, undocumented);
 
+            // INV6 — a declaration this parser can only read PART of is a violation, not a silent skip.
+            // Without it, one unreadable item takes a whole carrier out of INV4's reach while INV5 stays
+            // green off the type's other carriers: a misspelling in that text would never be seen.
+            var partial = wireTypes.Where(reachable.Contains)
+                .SelectMany(t => CarriersOf(t, carriers))
+                .Distinct()
+                .SelectMany(c => PartialGroups(c.Description, c.Label))
+                .OrderBy(m => m, StringComparer.Ordinal).ToList();
+            Check("INV6-GREEN every shape list is read WHOLE, or not read as one at all", partial.Count == 0, partial);
+
             RunRedArms(wireTypes);
         }
         catch (Exception ex)
@@ -165,6 +177,13 @@ public static class WireNamesProbe
         [JsonIgnore] public string? Skipped { get; init; }
     }
 
+    /// <summary>A wire type whose member shape <see cref="Synthesize"/> cannot drive — the case a future
+    /// spec object with a numeric or boolean member would be. INV2-GUARD asserts it is REPORTED.</summary>
+    sealed record RedUnsynthesizable
+    {
+        [JsonPropertyName("count")] public int Count { get; init; }
+    }
+
     static void RunRedArms(IReadOnlyList<Type> wireTypes)
     {
         Console.WriteLine();
@@ -189,6 +208,16 @@ public static class WireNamesProbe
             var blind = new List<string>();
             int cases = 0;
             foreach (var t in wireTypes)
+            {
+                // A type carrying a member Synthesize cannot drive has no document to mangle, and every
+                // one of its members would report the same unsynthesizable line — burying the one
+                // actionable sentence under a wall of copies. Say it once, for the type, and move on:
+                // INV2-GREEN has already failed with the detail.
+                if (Arrivals(t, opts, mangle: null).Any(v => v.Contains("UNCHECKED", StringComparison.Ordinal)))
+                {
+                    blind.Add($"{t.Name}: not misspelling-tested — a member's shape cannot be synthesized (see INV2-GREEN for which)");
+                    continue;
+                }
                 foreach (var name in WireNames(t).Keys)
                 {
                     cases++;
@@ -197,35 +226,42 @@ public static class WireNamesProbe
                         blind.Add($"{t.Name}.{name}: sent under a misspelled name and NOT reported missing ({lane}) — " +
                                   $"this lane cannot see the field drop. Reported: {(reported.Count == 0 ? "(nothing)" : string.Join(" | ", reported))}");
                 }
+            }
             Check($"INV2-RED   every wire member, misspelled, is reported missing ({lane}; {cases} fields)",
                 blind.Count == 0, blind, redArm: true);
         }
 
-        // INV4/INV5's teeth, on the real PlaceAssetSpec — the field family the issue was filed from.
-        var placeWire = WireNames(typeof(PlaceAssetSpec)).Keys.ToHashSet(StringComparer.Ordinal);
+        // INV4/INV5's teeth, on a SYNTHETIC wire set. These arms once ran against PlaceAssetSpec's real
+        // member names, which made them a frozen copy of the surface: correctly renaming a member would
+        // have failed them, and the failure would have pointed at the checker rather than at the rename.
+        // Reading real names is INV4-GREEN and INV5-GREEN's job, across all nine types; these arms only
+        // have to prove the two checkers are not blind, which needs no real data at all.
+        var wire = new HashSet<string>(StringComparer.Ordinal) { "alpha", "beta_two", "gamma" };
 
-        // The typo is derived to be absent rather than hardcoded: a literal would silently stop being a
-        // violation the day the surface grew a member spelled that way, and this arm would then report
-        // "toothless" for the wrong reason — masking whichever real defect had just landed.
-        var typo = "sorce";
-        while (placeWire.Contains(typo)) typo += "z";
-        var red4 = UnknownDeclarations(placeWire, DeclaredNames($"each {{ asset_path, {typo} }}"), "synthetic carrier", nameof(PlaceAssetSpec));
-        Check($"INV4-RED   a declared name that is not a wire name is reported ('{typo}')",
-            red4.Any(m => m.Contains(typo, StringComparison.Ordinal)), red4, redArm: true);
+        var red4 = UnknownDeclarations(wire, DeclaredNames("each { alpha, alpah }"), "synthetic carrier", "SyntheticSpec");
+        Check("INV4-RED   a declared name that is not a wire name is reported",
+            red4.Any(m => m.Contains("alpah", StringComparison.Ordinal)), red4, redArm: true);
 
-        var red5 = UndocumentedMembers(placeWire, DeclaredNames("each { asset_path }"), nameof(PlaceAssetSpec), "synthetic carrier");
+        var red5 = UndocumentedMembers(wire, DeclaredNames("each { alpha }"), "SyntheticSpec", "synthetic carrier");
         Check("INV5-RED   a wire name no declaration lists is reported",
-            red5.Any(m => m.Contains("source_provider", StringComparison.Ordinal)), red5, redArm: true);
+            red5.Any(m => m.Contains("beta_two", StringComparison.Ordinal)) && red5.Any(m => m.Contains("gamma", StringComparison.Ordinal)),
+            red5, redArm: true);
 
-        var green45 = UnknownDeclarations(placeWire, DeclaredNames("each { formid?, kind?, asset_path?, source?, source_provider? }"), "synthetic carrier", nameof(PlaceAssetSpec));
-        Check("INV45-GUARD a faithful declaration is NOT reported", green45.Count == 0, green45, redArm: true);
+        var green45 = UnknownDeclarations(wire, DeclaredNames("each { alpha, beta_two?, gamma? }"), "synthetic carrier", "SyntheticSpec");
+        Check("INV4-GUARD  a faithful declaration is NOT reported", green45.Count == 0, green45, redArm: true);
 
-        // The shape parser must read a real declaration, not merely fail to complain about a fake one.
-        var parsed = DeclaredNames("The edits: [{formid, field_path, op?, value?, values?, key?, entries?, compose?, composes?, from?, from_source?}, …] — or \"@<path>\".");
-        var applyWire = WireNames(typeof(ApplyOp)).Keys.ToHashSet(StringComparer.Ordinal);
-        Check($"PARSE-GUARD the shape parser reads a real brace list ({parsed.Count} names)",
-            parsed.SetEquals(applyWire),
-            new() { $"parsed [{string.Join(", ", parsed.OrderBy(s => s, StringComparer.Ordinal))}] vs wire [{string.Join(", ", applyWire.OrderBy(s => s, StringComparer.Ordinal))}]" },
+        // The shape parser must read a declaration in the form the surface writes them — the [{…}, …]
+        // wrapper, optional-markers, underscored names, trailing prose. The fixture is INVENTED rather
+        // than copied from a real description: an earlier version held a frozen copy of housecarl_apply's
+        // ops= list and compared it to ApplyOp's live members, so correctly adding a member to that type
+        // failed this arm — a second home for a fact whose home is the [Description] (DOC_HYGIENE §6),
+        // inside the guard that exists to stop exactly that. Reading the real declarations is INV3/4/5's
+        // job, on every carrier, against live reflection; this arm is the parser's own unit test.
+        var expected = new[] { "alpha", "beta_two", "gamma", "delta_four" };
+        var parsed = DeclaredNames("The things: [{alpha, beta_two, gamma?, delta_four?}, …] — or \"@<path>\".");
+        Check($"PARSE-GUARD the shape parser reads a declaration in the surface's form ({parsed.Count} names)",
+            parsed.SetEquals(expected),
+            new() { $"parsed [{string.Join(", ", parsed.OrderBy(s => s, StringComparer.Ordinal))}] — expected [{string.Join(", ", expected)}]" },
             redArm: true);
 
         // …and must not mistake prose for a declaration: a brace group whose items are not member names
@@ -241,11 +277,31 @@ public static class WireNamesProbe
             new() { $"parsed [{string.Join(", ", abbreviated.OrderBy(s => s, StringComparer.Ordinal))}] — expected formid, field_path, verb" },
             redArm: true);
 
-        // …while an item that is NOT a partial marker still discards the group, so the ellipsis skip did
-        // not open a door for prose. (A capitalized word is the case: member names are snake_case.)
+        // …while an item that is NOT a partial marker still keeps its group out of the declared set, so
+        // the ellipsis skip did not open a door for prose. (A capitalised word is the case: member names
+        // are snake_case.) That group is now REPORTED rather than dropped — INV6-RED below.
         var notAMarker = DeclaredNames("Each: {formid, field_path, Whatever It Says}");
-        Check("PARSE-ELL-RED a non-marker item still discards the whole group", notAMarker.Count == 0,
+        Check("PARSE-ELL-RED a non-marker item still keeps the group out of the declared set", notAMarker.Count == 0,
             notAMarker.Select(n => $"phantom declared name: {n}").ToList(), redArm: true);
+
+        // All three arms of the group classification, since it decides what INV4 ever gets to look at.
+        var partial = PartialGroups("Each: {formid, field_path, Whatever It Says}", "synthetic carrier");
+        Check("INV6-RED   a partly-readable shape list is reported, not dropped",
+            partial.Count == 1 && partial[0].Contains("Whatever It Says", StringComparison.Ordinal), partial, redArm: true);
+
+        var whole = PartialGroups("Each: {formid, field_path, op?, …}", "synthetic carrier");
+        Check("INV6-GUARD a fully-readable shape list is NOT reported", whole.Count == 0, whole, redArm: true);
+
+        var allProse = PartialGroups("files it into the block tree {block=floor(grid/32), subblock=floor(grid / 8)} for the cell", "synthetic carrier");
+        Check("INV6-GUARD prose in braces is NOT reported as a broken shape list", allProse.Count == 0, allProse, redArm: true);
+
+        // The unsynthesizable-shape path claims to fail loud rather than skip. Nothing on the surface
+        // exercises it today (every member is a string, a string list, a string map or a wire object), so
+        // it is pinned here instead of resting on the claim.
+        var unchecked_ = Arrivals(typeof(RedUnsynthesizable), Readers[0].Options, mangle: null);
+        Check("INV2-GUARD a member shape that cannot be synthesized is REPORTED, never skipped",
+            unchecked_.Any(v => v.Contains("UNCHECKED", StringComparison.Ordinal) && v.Contains("count", StringComparison.Ordinal)),
+            unchecked_, redArm: true);
     }
 
     // ================= the checkers (pure — the RED arms drive these directly) =================
@@ -444,29 +500,52 @@ public static class WireNamesProbe
 
     /// <summary>The member names a caller-facing description declares, read off its brace lists —
     /// <c>{formid, field_path, op?, …}</c>, <c>{ formid?: 'XXXXXX:Plugin.esp', … }</c>. Only OUTERMOST
-    /// groups are read (so a nested illustration like <c>fields:{Name:'x'}</c> contributes <c>fields</c>,
-    /// not <c>Name</c>), and a group is read as a declaration ONLY if every one of its items yields a
-    /// snake_case member name — prose in braces contributes nothing rather than a phantom name.</summary>
+    /// groups are read, so a nested illustration like <c>fields:{Name:'x'}</c> contributes <c>fields</c>,
+    /// not <c>Name</c>.
+    /// <para>A group is classified by how much of it reads as member names. ALL of it — a declaration.
+    /// NONE of it — prose in braces, contributing nothing rather than a phantom name. SOME of it — a
+    /// declaration this parser cannot read whole, which is <see cref="PartialGroups"/>' business: it is
+    /// REPORTED, never quietly dropped. Dropping it was a silent hole exactly the shape of #341 — with
+    /// several carriers on a type, INV5 stayed green off the others while INV4 never read this carrier's
+    /// text at all, so a misspelling in it went unseen. One unreadable item (a capitalised word, an
+    /// apostrophe opening a quote that never closes, a parenthetical) was enough.</para></summary>
     static HashSet<string> DeclaredNames(string description)
     {
         var names = new HashSet<string>(StringComparer.Ordinal);
         foreach (var group in OutermostGroups(description))
-        {
-            var items = SplitTopLevel(group);
-            if (items.Count == 0) continue;
-            var parsed = new List<string>();
-            foreach (var item in items)
-            {
-                if (IsPartialMarker(item)) continue;
-                if (MemberName(item) is not { } n) { parsed.Clear(); break; }
-                parsed.Add(n);
-            }
-            names.UnionWith(parsed);
-        }
+            if (ReadGroup(group) is { } parsed) names.UnionWith(parsed);
         return names;
     }
 
-    /// <summary>An item that says "and more" rather than naming a member: <c>…</c>, <c>...</c>, <c>etc</c>.
+    /// <summary>Read one brace group: the member names if EVERY item yields one, an empty list if none
+    /// does (prose), null if only some do (unreadable — <see cref="PartialGroups"/> reports those).</summary>
+    static List<string>? ReadGroup(string group)
+    {
+        var items = SplitTopLevel(group).Where(i => !IsPartialMarker(i)).ToList();
+        if (items.Count == 0) return new List<string>();
+        var names = items.Select(MemberName).ToList();
+        if (names.All(n => n is not null)) return names.Select(n => n!).ToList();
+        return names.Any(n => n is not null) ? null : new List<string>();
+    }
+
+    /// <summary>Brace groups in <paramref name="description"/> that read as PART of a member list — the
+    /// silent-drop case, surfaced. Each is reported with the item that stopped the read, because that item
+    /// is what the author has to fix (or close with an ellipsis, which is a supported spelling).</summary>
+    static List<string> PartialGroups(string description, string carrier)
+    {
+        var bad = new List<string>();
+        foreach (var group in OutermostGroups(description))
+        {
+            if (ReadGroup(group) is not null) continue;
+            var stopper = SplitTopLevel(group).Where(i => !IsPartialMarker(i)).FirstOrDefault(i => MemberName(i) is null);
+            bad.Add($"{carrier}: the shape list {{{group.Trim()}}} reads as a member list but this item is not a member name: " +
+                    $"'{stopper?.Trim()}'. It is NOT being read — write it as a member name, or close an abbreviated list with '…'");
+        }
+        return bad;
+    }
+
+    /// <summary>An item that says "and more" rather than naming a member: <c>…</c>, <c>...</c> (which
+    /// reaches the empty case once the dots are trimmed — that arm is load-bearing, not dead), <c>etc</c>.
     /// Skipped, so the rest of the group is still read. Without this the whole declaration was discarded —
     /// which for a type with several carriers left INV5 green off the others and INV4 never looking at that
     /// carrier's text at all, so a misspelling in it went unseen. That is #341's own failure mode moved
@@ -474,7 +553,7 @@ public static class WireNamesProbe
     static bool IsPartialMarker(string item)
     {
         var s = item.Trim().TrimEnd('.').Trim();
-        return s is "…" or "..." or "" || string.Equals(s, "etc", StringComparison.OrdinalIgnoreCase);
+        return s is "…" or "" || string.Equals(s, "etc", StringComparison.OrdinalIgnoreCase);
     }
 
     static List<string> OutermostGroups(string s)
@@ -531,14 +610,17 @@ public static class WireNamesProbe
 
     // ================= value synthesis for the round trip =================
 
-    /// <summary>The readers the surface actually binds spec objects with. A wire name has to work in both:
-    /// <c>ListParams.Strict</c> reads apply/create's @file lists, and the SDK's web defaults bind the
-    /// directly typed arrays (bulk_apply's operations=, bulk_create's records=, bulk_place_asset's
-    /// assets=). A name that survives only one of them is broken for the other's tools.</summary>
+    /// <summary>The readers the surface actually binds spec objects with. A wire name has to work in ALL of
+    /// them: <c>ListParams.Strict</c> reads apply/create's @file lists, the SDK's web defaults bind the
+    /// directly typed arrays (bulk_apply's operations=, bulk_create's records=, bulk_place_asset's assets=),
+    /// and <c>WriteTools.ManifestJson</c> reads bulk_apply's from_file= manifest. A name that survives only
+    /// some of them is broken for the others' tools. Three OBJECTS, not three configurations — the last two
+    /// are set up alike today, and each being driven here is what would catch the day one of them drifts.</summary>
     static readonly (string Lane, JsonSerializerOptions Options)[] Readers =
     {
         ("ListParams.Strict — the @file list reader", ListParams.Strict),
         ("web defaults — the SDK-bound spec arrays", new JsonSerializerOptions(JsonSerializerDefaults.Web)),
+        ("WriteTools.ManifestJson — bulk_apply's from_file= lane", WriteTools.ManifestJson),
     };
 
     /// <summary>A JSON value for a member's type, or null when the shape is not one this arm can drive.
