@@ -88,7 +88,7 @@ public static class PlaceAssetTools
          "(reported back).")]
     public static string BulkPlaceAsset(
         LoadOrderService svc,
-        [Description("The assets to place, all into one mod folder. Each: { formid?: 'XXXXXX:Plugin.esp', kind?: 'mesh'|'tint' (omit with formid to place BOTH), asset_path?: 'meshes/...', source?: '<loose path>' | '<archive.bsa>|<entry>' | '<archive.bsa>' }.")]
+        [Description("The assets to place, all into one mod folder. Each: { formid?: 'XXXXXX:Plugin.esp', kind?: 'mesh'|'tint' (omit with formid to place BOTH), asset_path?: 'meshes/...', source?: '<loose path>' | '<archive.bsa>|<entry>' | '<archive.bsa>' | '<Data-relative path>', source_provider?: 'SomeMod' | 'X - Textures.bsa' | '" + AssetSourceChoice.WinnerToken + "' (whose copy a Data-relative source= reads, per asset) }.")]
             PlaceAssetSpec[] assets,
         [Description("Optional. Base name for the NEW houseCARL mod folder (default 'houseCARL_Assets'); auto-suffixed if taken.")]
             string? patch_name = null,

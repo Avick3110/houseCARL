@@ -161,6 +161,12 @@ public static class CiAll
         // reference every current MCP tool (reflected off [McpServerTool]) and every .claude/skills/* folder, or
         // allow-list the omission — turns the silent 45→9 drift into a RED arm naming exactly what's unrouted.
         ("codex-umbrella-coverage-guard", CodexUmbrellaCoverageProbe.RunGuard),
+        // Spec-object wire names (#341): every [JsonPropertyName] on the surface, held against the caller-facing
+        // shape declaration that names the same member — so a misspelled attribute goes RED instead of dropping
+        // that parameter for every real MCP caller with the suite green (every probe builds specs with the C#
+        // initializer, which never consults the attribute). Reflection-discovered, so a new spec object enrols
+        // itself. Self-contained (no corpus, no MO2 instance).
+        ("wire-names-guard", WireNamesProbe.RunGuard),
         ("nullarm-guard", NullArmGuardProbe.RunGuard),
         ("formlink-null-guard", FormLinkNullProbe.RunGuard),
         ("formlink-remove-guard", FormLinkRemoveProbe.RunGuard),

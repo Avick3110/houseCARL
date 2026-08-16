@@ -37,8 +37,11 @@ internal static class ToolSchemas
 
     /// <summary>The parameters that carry the @file convention AND are typed <see cref="JsonElement"/> because of
     /// it. A plain <c>string[]</c> list (<c>formids=</c>, <c>bundle=</c>) needs no entry: its generated schema is
-    /// already honest, since <c>["@&lt;path&gt;"]</c> IS a one-element string array.</summary>
-    static readonly FileListParam[] FileListParams =
+    /// already honest, since <c>["@&lt;path&gt;"]</c> IS a one-element string array.
+    /// <para>Internal rather than private because it is the ONLY place the link from these parameters to their
+    /// element type is declared — being <see cref="JsonElement"/>, they carry no such link in their signature.
+    /// <c>wire-names-guard</c> reads it to find each spec object's carrying parameter (#341).</para></summary>
+    internal static readonly FileListParam[] FileListParams =
     {
         new("housecarl_apply", "ops", typeof(ApplyOp[])),
         new("housecarl_apply", "assignments", typeof(Assignment[])),

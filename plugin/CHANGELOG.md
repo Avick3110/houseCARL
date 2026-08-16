@@ -10,6 +10,8 @@ when it changes.
 
 - **New skill: `npc-appearance-copy`** — the domain half of `housecarl_copy` for NPC faces, carried as data and flow rather than as tool code: which four link-bearing fields seed the walk, why a Race is excluded rather than walked into, which inline fields (tints, morphs, `TextureLighting`, weight) ride `housecarl_apply`'s copy zip instead, and how the FaceGen mesh + tint are placed under the new FormID from the **named donor** rather than the VFS winner. Also states the two things the split costs: three calls means three refusal surfaces, and a donor sitting in a disabled MO2 mod is a records-only job until its files can be named.
 
+- **Fixed: four list inputs didn't name every member of the object they take.** `housecarl_bulk_place_asset`'s `assets=` never mentioned `source_provider`; `housecarl_bulk_apply`'s `operations=` never mentioned `composes` or `from_plugin`; `housecarl_bulk_create`'s `records=` never mentioned `grid`; and the `sets=` list inside a `compose=` named two of its five members. Every one of those worked — nothing told you it was there. The documented shapes are now checked against the names the wire actually binds, in both directions, so a member can no longer be added, renamed, or misspelled without the documentation moving with it.
+
 *Accumulating notes for the next cut — not yet released; `plugin.json` still reads the last shipped version.*
 
 **Added: `housecarl_place_asset` can now place a copy from one path under a different name, and say whose copy to
